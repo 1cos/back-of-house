@@ -55,26 +55,40 @@ async function checkFirstLogin(){
       <div class="text-center mb-5">
         <div class="text-4xl mb-2">👋</div>
         <h3 class="font-bold text-xl">Benvenuto ${user.name}!</h3>
-        <p class="text-sm text-slate-500 mt-1">Prima di iniziare, completa il tuo profilo</p>
+        <p class="text-sm text-slate-500 mt-1">Choose your language and set your password</p>
       </div>
       <div class="space-y-3">
         <div>
-          <label class="text-xs font-semibold text-slate-500 mb-1 block">Nuova password</label>
-          <input id="fl_pwd" type="password" placeholder="Scegli una password" class="w-full px-3 py-2.5 border rounded-xl text-sm">
+          <label class="text-xs font-semibold text-slate-500 mb-1 block">Language / Lingua / Idioma</label>
+          <div class="grid grid-cols-3 gap-2">
+            <button type="button" data-fl-lang="it" class="fl-lang-btn py-2 rounded-xl bg-slate-900 text-white text-sm">🇮🇹 IT</button>
+            <button type="button" data-fl-lang="es" class="fl-lang-btn py-2 rounded-xl bg-slate-100 text-sm">🇪🇸 ES</button>
+            <button type="button" data-fl-lang="en" class="fl-lang-btn py-2 rounded-xl bg-slate-100 text-sm">🇬🇧 EN</button>
+          </div>
         </div>
         <div>
-          <label class="text-xs font-semibold text-slate-500 mb-1 block">Conferma password</label>
-          <input id="fl_pwd2" type="password" placeholder="Ripeti la password" class="w-full px-3 py-2.5 border rounded-xl text-sm">
+          <label class="text-xs font-semibold text-slate-500 mb-1 block">New password</label>
+          <input id="fl_pwd" type="password" placeholder="Choose a password" class="w-full px-3 py-2.5 border rounded-xl text-sm">
         </div>
         <div>
-          <label class="text-xs font-semibold text-slate-500 mb-1 block">Data di nascita <span class="text-slate-400 font-normal">(opzionale)</span></label>
+          <label class="text-xs font-semibold text-slate-500 mb-1 block">Confirm password</label>
+          <input id="fl_pwd2" type="password" placeholder="Repeat password" class="w-full px-3 py-2.5 border rounded-xl text-sm">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-slate-500 mb-1 block">Date of birth <span class="text-slate-400 font-normal">(optional)</span></label>
           <input id="fl_birth" type="date" class="w-full px-3 py-2.5 border rounded-xl text-sm">
         </div>
         <p id="fl_err" class="text-red-600 text-xs hidden"></p>
       </div>
-      <button onclick="saveFirstLogin(this)" class="w-full mt-4 py-3 bg-slate-900 text-white rounded-xl font-semibold">Inizia</button>
+      <button onclick="saveFirstLogin(this)" class="w-full mt-4 py-3 bg-slate-900 text-white rounded-xl font-semibold">Let's go →</button>
     </div>`;
   document.body.appendChild(modal);
+  // gestione selezione lingua nel modale
+  document.querySelectorAll('.fl-lang-btn').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('.fl-lang-btn').forEach(x=>{x.classList.remove('bg-slate-900','text-white');x.classList.add('bg-slate-100')});
+    b.classList.add('bg-slate-900','text-white');
+    b.classList.remove('bg-slate-100');
+  });
 }
 
 async function saveFirstLogin(btn){
@@ -82,24 +96,35 @@ async function saveFirstLogin(btn){
   const pwd2=document.getElementById('fl_pwd2').value;
   const birth=document.getElementById('fl_birth').value;
   const err=document.getElementById('fl_err');
+  // lingua selezionata
+  const selectedLangBtn=document.querySelector('.fl-lang-btn.bg-slate-900');
+  const selectedLang=selectedLangBtn?selectedLangBtn.dataset.flLang:(user.lang||'it');
   err.classList.add('hidden');
-  if(!pwd||pwd.length<4){err.textContent='Password minimo 4 caratteri';err.classList.remove('hidden');return}
-  if(pwd!==pwd2){err.textContent='Le password non coincidono';err.classList.remove('hidden');return}
-  btn.disabled=true; btn.textContent='Salvataggio...';
+  if(!pwd||pwd.length<4){err.textContent='Password min 4 characters';err.classList.remove('hidden');return}
+  if(pwd!==pwd2){err.textContent='Passwords do not match';err.classList.remove('hidden');return}
+  btn.disabled=true; btn.textContent='Saving...';
   const hashNew=await hashPassword(pwd);
-  const updates={password_hash:hashNew,first_login:false};
+  const updates={password_hash:hashNew,first_login:false,lang:selectedLang};
   if(birth) updates.birth_date=birth;
   const{error}=await supa.from('users').update(updates).eq('id',user.id);
-  if(error){err.textContent='Errore: '+error.message;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Inizia';return}
+  if(error){
+    err.textContent='Error: '+error.message;
+    err.classList.remove('hidden');
+    btn.disabled=false;btn.textContent="Let's go →";
+    return;
+  }
   user.password_hash=hashNew;
   user.first_login=false;
+  user.lang=selectedLang;
   if(birth) user.birth_date=birth;
   btn.closest('.fixed').remove();
+  // applica lingua scelta
+  applyLang();
   // messaggio benvenuto in chat
   await supa.from('messages').insert({
-    text:`👋 ${user.name} è entrato nella brigata!`,
+    text:`👋 ${user.name} joined the crew!`,
     user_name:'Sistema',
-    lang:'it'
+    lang:'en'
   });
 }
 

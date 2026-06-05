@@ -22,6 +22,12 @@ document.getElementById('loginBtn').onclick=async()=>{
 
 function doLogin(profile){
   user=profile;
+  // se l'utente ha selezionato una lingua diversa al login, usa quella
+  if(loginLang && loginLang !== user.lang){
+    user.lang = loginLang;
+    // salva su Supabase in background
+    supa.from('users').update({lang:loginLang}).eq('id',user.id).then(()=>{});
+  }
   // applica stazione default se presente
   if(user.default_station){
     station=user.default_station.replace(' Station','');
