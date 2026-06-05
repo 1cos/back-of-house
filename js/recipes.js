@@ -38,16 +38,28 @@ function showNoteSheet(name, note){
 
 async function openRecipeByData(idx){
   let rec={...SHOP_RECIPES[idx]};
-  async function groqTr(text){
+  async function groqTr(text, context='ingredient'){
     if(!text)return '';
-    const r=await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},body:JSON.stringify({text,targetLang:user.lang})});
-    const j=await r.json();return j.translated||text;
+    // aggiungi contesto culinario per evitare traduzioni errate (es. "sale"→"salt" non "jump")
+    const contextHint = context==='ingredient' 
+      ? `This is a culinary/restaurant ingredient or cooking term. Translate accurately in culinary context. Keep quantities and units as-is. Text: `
+      : `This is a restaurant recipe instruction or equipment description. Translate accurately. Text: `;
+    const r=await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+      body:JSON.stringify({text: contextHint + text, targetLang:user.lang})
+    });
+    const j=await r.json();
+    // rimuovi il context hint dalla risposta se presente
+    let translated = j.translated||text;
+    if(translated.startsWith(contextHint)) translated = translated.slice(contextHint.length);
+    return translated;
   }
   if(user?.lang&&user.lang!=='it'&&rec.id){
     let{data:tr}=await supa.from('recipe_translations').select('*').eq('recipe_id',rec.id).eq('lang',user.lang).maybeSingle();
     if(!tr){
       try{
-        const newTr={recipe_id:rec.id,lang:user.lang,title:rec.title,procedure:await groqTr(rec.procedure||''),equipment:await groqTr(rec.equipment||''),ingredients:await Promise.all((rec.ingredients||[]).map(async i=>({...i,name:await groqTr(i.name),comment:i.comment?await groqTr(i.comment):''}))),};
+        const newTr={recipe_id:rec.id,lang:user.lang,title:rec.title,procedure:await groqTr(rec.procedure||'','procedure'),equipment:await groqTr(rec.equipment||'','equipment'),ingredients:await Promise.all((rec.ingredients||[]).map(async i=>({...i,name:await groqTr(i.name,'ingredient'),comment:i.comment?await groqTr(i.comment,'ingredient'):''}))),};
         await supa.from('recipe_translations').upsert(newTr);tr=newTr;
       }catch(e){}
     }
