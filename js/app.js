@@ -41,7 +41,7 @@ function doLogin(profile){
   init(); applyLang(); updateAlertBtn(); loadNews(); setupPush();
   loadBriefing(); startPresence(); startUrgencyCheck();
   // check primo accesso e compleanni
-  setTimeout(()=>{checkFirstLogin(); checkBirthdays();}, 1000);
+  setTimeout(()=>{checkFirstLogin(); checkBirthdays(); initSousChef();}, 1000);
 }
 
 document.getElementById('out').onclick=()=>{user=null;location.reload()};
