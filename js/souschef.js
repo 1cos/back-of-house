@@ -82,7 +82,10 @@ async function startRecording(){
   try{
     const stream = await navigator.mediaDevices.getUserMedia({audio:true});
     audioChunks = [];
-    mediaRecorder = new MediaRecorder(stream, {mimeType: 'audio/webm'});
+    // iOS Safari supporta audio/mp4, altri browser audio/webm
+    const mimeType = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 
+                     MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+    mediaRecorder = new MediaRecorder(stream, mimeType ? {mimeType} : {});
     mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
     mediaRecorder.start();
     isRecording = true;
@@ -111,7 +114,9 @@ async function stopRecording(){
   showScToast('⏳ Elaborazione...');
 
   mediaRecorder.onstop = async() => {
-    const blob = new Blob(audioChunks, {type:'audio/webm'});
+    const mimeUsed = mediaRecorder.mimeType || 'audio/mp4';
+    const blob = new Blob(audioChunks, {type: mimeUsed});
+    const ext = mimeUsed.includes('mp4') ? 'audio.mp4' : mimeUsed.includes('ogg') ? 'audio.ogg' : 'audio.webm';
     await processAudio(blob);
   };
 }
@@ -121,7 +126,7 @@ async function processAudio(blob){
   try{
     // Trascrivi con Groq Whisper via Edge Function
     const formData = new FormData();
-    formData.append('file', blob, 'audio.webm');
+    formData.append('file', blob, ext);
     formData.append('model', 'whisper-large-v3');
     formData.append('language', 'it');
 
