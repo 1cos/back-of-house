@@ -114,18 +114,19 @@ async function stopRecording(){
   showScToast('⏳ Elaborazione...');
 
   mediaRecorder.onstop = async() => {
-    const mimeUsed = mediaRecorder.mimeType || 'audio/mp4';
-    const blob = new Blob(audioChunks, {type: mimeUsed});
-    await processAudio(blob);
+    const mt = mediaRecorder.mimeType || 'audio/mp4';
+    const blob = new Blob(audioChunks, {type: mt});
+    await processAudio(blob, mt);
   };
 }
 
 // ── TRASCRIZIONE CON GROQ WHISPER ──
-async function processAudio(blob){
+async function processAudio(blob, mimeType){
   try{
     // Trascrivi con Groq Whisper via Edge Function
     const formData = new FormData();
-    const filename = mimeUsed.includes('mp4') ? 'audio.mp4' : mimeUsed.includes('ogg') ? 'audio.ogg' : 'audio.webm';
+    const mt2 = mimeType || blob.type || 'audio/mp4';
+    const filename = mt2.includes('mp4') ? 'audio.mp4' : mt2.includes('ogg') ? 'audio.ogg' : 'audio.webm';
     formData.append('file', blob, filename);
     formData.append('model', 'whisper-large-v3');
     formData.append('language', 'it');
