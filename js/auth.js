@@ -32,7 +32,7 @@ async function saveNewPassword(btn){
   if(hashCurrent!==user.password_hash){err.textContent='Password attuale errata';err.classList.remove('hidden');return}
   btn.disabled=true; btn.textContent='Salvataggio...';
   const hashNew=await hashPassword(newPwd);
-  const{error}=await supa.from('users').update({password_hash:hashNew,first_login:false}).eq('id',user.id);
+  const{error}=await supa.from('users').update({password_hash:hashNew,first_login:false}).eq('id',parseInt(user.id));
   if(error){err.textContent='Errore: '+error.message;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return}
   user.password_hash=hashNew;
   user.first_login=false;
@@ -106,7 +106,7 @@ async function saveFirstLogin(btn){
   const hashNew=await hashPassword(pwd);
   const updates={password_hash:hashNew,first_login:false,lang:selectedLang};
   if(birth) updates.birth_date=birth;
-  const{error}=await supa.from('users').update(updates).eq('id',user.id);
+  const{error}=await supa.from('users').update(updates).eq('id',parseInt(user.id));
   if(error){
     err.textContent='Error: '+error.message;
     err.classList.remove('hidden');

@@ -15,7 +15,8 @@ function addMsg(m,init){
   const me=m.user_name===user?.name;
   const d=document.createElement('div');
   d.className='flex '+(me?'justify-end':'');
-  const needs=m.lang&&user&&m.lang!==user.lang;
+  // traduce se la lingua del messaggio è diversa da quella dell'utente
+  const needs=m.lang&&user&&user.lang&&m.lang!==user.lang&&m.user_name!==user?.name;
   const isPinned = m.pinned && isAdmin();
   d.innerHTML=`<div class="max-w-[75%]">
     ${m.pinned?'<div class="text-[10px] text-amber-600 font-semibold mb-0.5">📌 Pinnato</div>':''}
@@ -30,8 +31,9 @@ function addMsg(m,init){
   </div>`;
   msgs.appendChild(d);msgs.scrollTop=99999;
   if(needs){
-    fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},body:JSON.stringify({text:m.text,targetLang:user.lang})})
-    .then(r=>r.json()).then(j=>{const el=d.querySelector('[data-tr]');if(el)el.textContent=j.translated||''});
+    const targetLang=user.lang||'it';
+    fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},body:JSON.stringify({text:m.text,targetLang})})
+    .then(r=>r.json()).then(j=>{const el=d.querySelector('[data-tr]');if(el&&j.translated&&j.translated!==m.text)el.textContent='🌐 '+j.translated;else if(el)el.remove()});
   }
   if(!init&&!me){const badge=document.getElementById('badge');badge.textContent=(parseInt(badge.textContent||'0')+1);badge.classList.remove('hidden')}
 }
@@ -42,7 +44,7 @@ function addReaction(msgId){
   const picker=document.createElement('div');
   picker.className='fixed inset-0 z-50 bg-black/30 flex items-end justify-center';
   picker.innerHTML=`<div class="bg-white rounded-t-3xl p-4 w-full max-w-md" style="animation:slideUp .2s ease">
-    <p class="text-xs text-slate-500 mb-3 text-center">Scegli reazione</p>
+    <p class="text-xs text-slate-500 mb-3 text-center">${user?.lang==='en'?'Choose reaction':user?.lang==='es'?'Elige reacción':'Scegli reazione'}</p>
     <div class="flex justify-around">${REACTIONS.map(e=>`<button onclick="saveReaction('${msgId}','${e}');this.closest('.fixed').remove()" class="text-3xl active:scale-90 transition">${e}</button>`).join('')}</div>
   </div>`;
   picker.onclick=e=>{if(e.target===picker)picker.remove()};
