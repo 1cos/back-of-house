@@ -14,16 +14,26 @@ document.getElementById('loginBtn').onclick=async()=>{
   const hashHex=await hashPassword(passVal);
   const{data:profile,error}=await supa.from('users').select('*').eq('name',nameVal).eq('password_hash',hashHex).single();
   if(error||!profile){e.textContent='Nome o password errati';e.classList.remove('hidden');return}
+  // controlla utente attivo
+  const active=await checkUserActive(profile);
+  if(!active) return;
   doLogin(profile);
 };
 
 function doLogin(profile){
   user=profile;
+  // applica stazione default se presente
+  if(user.default_station){
+    station=user.default_station.replace(' Station','');
+    station2=user.default_station.replace(' Station','');
+  }
   document.getElementById('login').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('who').textContent=user.name;
   init(); applyLang(); updateAlertBtn(); loadNews(); setupPush();
   loadBriefing(); startPresence(); startUrgencyCheck();
+  // check primo accesso e compleanni
+  setTimeout(()=>{checkFirstLogin(); checkBirthdays();}, 1000);
 }
 
 document.getElementById('out').onclick=()=>{user=null;location.reload()};

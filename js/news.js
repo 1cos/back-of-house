@@ -32,6 +32,9 @@ function updateAlertBtn(){
     if(pb) pb.classList.remove('hidden');
     const ab = document.getElementById('btnAlertsLog');
     if(ab) ab.classList.remove('hidden');
+    // bottone gestione utenti
+    const ub = document.getElementById('userMgrBtn');
+    if(ub) ub.classList.remove('hidden');
   }
 }
 document.getElementById('alertBtn').onclick=async()=>{
