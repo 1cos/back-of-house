@@ -35,22 +35,47 @@
 
 <body style="background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);min-height:100vh;">
 
-<!-- LOGIN -->
-<div id="login" class="min-h-screen flex items-center justify-center p-4 bg-slate-900">
-  <div class="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl">
-    <h1 class="text-2xl font-bold text-center">Back of House</h1>
-    <p class="text-center text-sm text-slate-500 mb-6">Prep • Check • Chat</p>
-    <input id="name" placeholder="Nome" class="w-full mb-3 px-3 py-2.5 rounded-xl bg-slate-100">
-    <input id="pass" type="password" placeholder="Password" class="w-full mb-3 px-3 py-2.5 rounded-xl bg-slate-100">
-    <div class="grid grid-cols-3 gap-2 mb-4">
-      <button type="button" data-lang="it" class="lang-btn py-2 rounded-xl bg-slate-900 text-white text-sm">🇮🇹 IT</button>
-      <button type="button" data-lang="es" class="lang-btn py-2 rounded-xl bg-slate-100 text-sm">🇪🇸 ES</button>
-      <button type="button" data-lang="en" class="lang-btn py-2 rounded-xl bg-slate-100 text-sm">🇬🇧 EN</button>
+<!-- LOGIN — PIN KEYPAD -->
+<div id="login" class="min-h-screen flex items-center justify-center p-4" style="background:linear-gradient(160deg,#1e3a5f 0%,#1e40af 100%);">
+  <div style="width:100%;max-width:340px;">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:22px;font-weight:500;color:white;margin-bottom:4px;">Back of House</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.5);">Zenos on the Square</div>
     </div>
-    <button id="loginBtn" class="w-full bg-slate-900 text-white py-3 rounded-xl font-semibold">Entra</button>
-    <p id="err" class="text-red-600 text-xs text-center mt-3 hidden"></p>
+
+    <!-- PIN dots -->
+    <div id="pinDots" style="display:flex;justify-content:center;gap:14px;margin-bottom:32px;">
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+    </div>
+
+    <!-- Keypad -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:280px;margin:0 auto;">
+      <button class="pin-key" onclick="pinPress('1')">1</button>
+      <button class="pin-key" onclick="pinPress('2')">2</button>
+      <button class="pin-key" onclick="pinPress('3')">3</button>
+      <button class="pin-key" onclick="pinPress('4')">4</button>
+      <button class="pin-key" onclick="pinPress('5')">5</button>
+      <button class="pin-key" onclick="pinPress('6')">6</button>
+      <button class="pin-key" onclick="pinPress('7')">7</button>
+      <button class="pin-key" onclick="pinPress('8')">8</button>
+      <button class="pin-key" onclick="pinPress('9')">9</button>
+      <div></div>
+      <button class="pin-key" onclick="pinPress('0')">0</button>
+      <button class="pin-key pin-del" onclick="pinDel()">⌫</button>
+    </div>
+
+    <p id="err" class="text-red-400 text-xs text-center mt-5 hidden"></p>
   </div>
 </div>
+
+<style>
+.pin-key{height:70px;border-radius:50%;background:rgba(255,255,255,0.12);border:0.5px solid rgba(255,255,255,0.2);color:white;font-size:24px;font-weight:400;cursor:pointer;transition:background .15s;-webkit-tap-highlight-color:transparent;}
+.pin-key:active{background:rgba(255,255,255,0.28);}
+.pin-del{font-size:20px;}
+</style>
 
 <div id="app" class="hidden min-h-screen flex flex-col" style="background:transparent;">
   <!-- Top bar -->
@@ -96,56 +121,59 @@
 
   <main class="flex-1 max-w-md w-full mx-auto pb-24" style="background:transparent;">
 
-    <!-- HOME (nuova) -->
-    <section id="vh" class="px-3 pt-3 space-y-4">
-      <!-- Briefing AI -->
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="flex items-center justify-between px-4 pt-3 pb-2 border-b border-slate-100">
-          <div class="flex items-center gap-2">
-            <span class="text-base">🤖</span>
-            <span class="font-semibold text-sm">Briefing AI</span>
-          </div>
-          <button id="briefingRefreshBtn" onclick="refreshBriefing()" class="text-[11px] text-emerald-600 font-medium">Aggiorna</button>
+    <!-- HOME REFACTORED -->
+    <section id="vh" class="px-3 pt-3 pb-4 space-y-3">
+
+      <!-- SECTION 1: Service Updates -->
+      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
+          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Service Updates</span>
+          <button onclick="openServiceUpdates()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">View all</button>
         </div>
-        <div id="briefingContent" class="px-4 py-3 space-y-2">
-          <div class="animate-pulse h-4 bg-slate-100 rounded w-3/4"></div>
-          <div class="animate-pulse h-4 bg-slate-100 rounded w-full"></div>
+        <div id="serviceUpdatesList" style="padding:8px 14px;"></div>
+      </div>
+
+      <!-- SECTION 2: Upcoming Demand -->
+      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
+        <div style="padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
+          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Upcoming Demand</span>
+        </div>
+        <div id="upcomingDemand" style="padding:8px 14px;">
+          <div style="font-size:12px;color:#93c5fd;padding:4px 0;">No upcoming events</div>
+        </div>
+      </div>
+
+      <!-- SECTION 3: Assigned Station -->
+      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
+          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Your Station</span>
+          <button onclick="document.querySelector('[data-t=m]').click()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Go to prep →</button>
+        </div>
+        <div id="homeStationItems" style="padding:8px 14px;"></div>
+      </div>
+
+      <!-- Checklist chiusura stazioni — solo admin -->
+      <div id="homeChecklistSection" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
+          <span id="homeChecklistLabel" style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Checklist chiusura</span>
+          <button id="homeOpenBtn" onclick="document.querySelector('[data-t=s]').click()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Apri →</button>
+        </div>
+        <div id="homeStations" style="padding:8px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+
+      <!-- Briefing AI — solo admin -->
+      <div id="homeBriefingSection" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
+          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Briefing AI</span>
+          <button id="briefingRefreshBtn" onclick="refreshBriefing()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Aggiorna</button>
+        </div>
+        <div id="briefingContent" style="padding:10px 14px;">
+          <div class="animate-pulse h-4 bg-slate-100 rounded w-3/4 mb-2"></div>
+          <div class="animate-pulse h-4 bg-slate-100 rounded w-full mb-2"></div>
           <div class="animate-pulse h-4 bg-slate-100 rounded w-2/3"></div>
         </div>
       </div>
 
-      <!-- Checklist chiusura per stazione -->
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="flex items-center justify-between px-4 pt-3 pb-2 border-b border-slate-100">
-          <span id="homeChecklistLabel" class="font-semibold text-sm">Checklist chiusura</span>
-          <button id="homeOpenBtn" onclick="document.querySelector('[data-t=s]').click()" class="text-[11px] text-slate-500">Apri →</button>
-        </div>
-        <div id="homeStations" class="px-4 py-3 flex flex-wrap gap-2"></div>
-      </div>
-
-      <!-- Accesso rapido -->
-      <div class="grid grid-cols-2 gap-2.5">
-        <button onclick="document.querySelector('[data-t=m]').click()" class="bg-slate-900 text-white p-4 rounded-2xl text-left active:scale-95 transition">
-          <div class="text-2xl mb-1">🧑‍🍳</div>
-          <div class="font-semibold text-sm" id="homePrep">Prep</div>
-          <div class="text-xs text-slate-400 mt-0.5" id="homePrepSub">Preparazioni mattina</div>
-        </button>
-        <button onclick="document.querySelector('[data-t=s]').click()" class="bg-white border border-slate-200 p-4 rounded-2xl text-left active:scale-95 transition shadow-sm">
-          <div class="text-2xl mb-1">✅</div>
-          <div class="font-semibold text-sm" id="homeClose">Chiusura</div>
-          <div class="text-xs text-slate-500 mt-0.5" id="homeCloseSub">Checklist sera</div>
-        </button>
-        <button onclick="document.querySelector('[data-t=c]').click()" class="bg-white border border-slate-200 p-4 rounded-2xl text-left active:scale-95 transition shadow-sm">
-          <div class="text-2xl mb-1">📖</div>
-          <div class="font-semibold text-sm" id="homeRec">Ricette</div>
-          <div class="text-xs text-slate-500 mt-0.5" id="homeRecSub">Tutte le preparazioni</div>
-        </button>
-        <button onclick="showChat()" class="bg-white border border-slate-200 p-4 rounded-2xl text-left active:scale-95 transition shadow-sm">
-          <div class="text-2xl mb-1">💬</div>
-          <div class="font-semibold text-sm" id="homeChat">Chat</div>
-          <div class="text-xs text-slate-500 mt-0.5" id="homeChatSub">Brigata</div>
-        </button>
-      </div>
     </section>
 
     <!-- PREP -->

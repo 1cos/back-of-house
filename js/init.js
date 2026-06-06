@@ -25,6 +25,9 @@ async function init(){
   await loadItemAlerts();
   await ensureChiusuraStation();
   renderM(); renderS(); renderHomeStations();
+  renderHomeStationItems();
+  loadServiceUpdates();
+  loadUpcomingDemand();
   const rb=document.getElementById('recipeAdminBtns');
   if(rb) rb.style.display=isAdmin()?'flex':'none';
 }

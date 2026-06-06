@@ -5,22 +5,55 @@ document.querySelectorAll('.lang-btn').forEach(b=>b.onclick=()=>{
   loginLang=b.dataset.lang;
 });
 
-document.getElementById('loginBtn').onclick=async()=>{
-  const nameVal=document.getElementById('name').value.trim();
-  const passVal=document.getElementById('pass').value.trim();
-  const e=document.getElementById('err');
-  e.classList.add('hidden');
-  if(!nameVal||!passVal){e.textContent='Nome e password obbligatori';e.classList.remove('hidden');return}
-  const hashHex=await hashPassword(passVal);
-  const{data:profile,error}=await supa.from('users').select('*').eq('name',nameVal).eq('password_hash',hashHex).single();
-  if(error||!profile){e.textContent='Nome o password errati';e.classList.remove('hidden');return}
-  // controlla utente attivo
-  const active=await checkUserActive(profile);
-  if(!active) return;
-  doLogin(profile);
-};
+// ── PIN LOGIN ──
+let pinBuffer = '';
 
-function doLogin(profile){
+function pinPress(digit){
+  if(pinBuffer.length >= 4) return;
+  pinBuffer += digit;
+  updatePinDots();
+  if(pinBuffer.length === 4) setTimeout(()=>attemptPinLogin(), 150);
+}
+
+function pinDel(){
+  pinBuffer = pinBuffer.slice(0,-1);
+  updatePinDots();
+}
+
+function updatePinDots(){
+  const dots = document.querySelectorAll('.pin-dot');
+  dots.forEach((d,i)=>{
+    d.style.background = i < pinBuffer.length ? 'white' : 'transparent';
+    d.style.borderColor = i < pinBuffer.length ? 'white' : 'rgba(255,255,255,0.4)';
+  });
+}
+
+async function attemptPinLogin(){
+  const err = document.getElementById('err');
+  err.classList.add('hidden');
+  const{data:profile, error} = await supa.from('users')
+    .select('*')
+    .eq('pin', pinBuffer)
+    .eq('active', true)
+    .single();
+  if(error || !profile){
+    err.textContent = 'PIN non valido';
+    err.classList.remove('hidden');
+    // shake e reset
+    const dots = document.getElementById('pinDots');
+    dots.style.animation = 'shake .3s ease';
+    setTimeout(()=>{ dots.style.animation=''; pinBuffer=''; updatePinDots(); err.classList.add('hidden'); }, 600);
+    return;
+  }
+  doLogin(profile);
+}
+
+// Shake animation
+const shakeStyle = document.createElement('style');
+shakeStyle.textContent = '@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}';
+document.head.appendChild(shakeStyle);
+
+function doLoginfunction doLogin(profile){
   user=profile;
   // se l'utente ha selezionato una lingua diversa al login
   if(loginLang && loginLang !== user.lang){
@@ -40,6 +73,11 @@ function doLogin(profile){
   document.getElementById('who').textContent=user.name;
   init(); applyLang(); updateAlertBtn(); loadNews(); setupPush();
   loadBriefing(); startPresence(); startUrgencyCheck();
+  // mostra/nascondi sezioni in base al ruolo
+  const briefingSection=document.getElementById('homeBriefingSection');
+  const checklistSection=document.getElementById('homeChecklistSection');
+  if(briefingSection) briefingSection.style.display=isAdmin()?'block':'none';
+  if(checklistSection) checklistSection.style.display=isAdmin()?'block':'none';
   // check primo accesso e compleanni
   setTimeout(()=>{checkFirstLogin(); checkBirthdays(); initSousChef();}, 1000);
 }

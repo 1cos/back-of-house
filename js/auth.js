@@ -188,6 +188,7 @@ function openAddUser(){
           ${STATIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
         </select>
         <input id="nu_birth" type="date" class="w-full px-3 py-2.5 border rounded-xl text-sm">
+        <input id="nu_pin" type="text" maxlength="4" placeholder="PIN 4 cifre" class="w-full px-3 py-2.5 border rounded-xl text-sm" pattern="[0-9]{4}">
         <p id="nu_err" class="text-red-600 text-xs hidden"></p>
       </div>
       <div class="flex gap-2 mt-4">
@@ -211,7 +212,9 @@ async function saveNewUser(btn){
   if(pwd.length<4){err.textContent='Password minimo 4 caratteri';err.classList.remove('hidden');return}
   btn.disabled=true; btn.textContent='Creazione...';
   const hash=await hashPassword(pwd);
+  const pin=document.getElementById('nu_pin').value;
   const newUser={name,password_hash:hash,lang,role,active:true,first_login:true};
+  if(pin&&pin.length===4) newUser.pin=pin;
   if(station) newUser.default_station=station;
   if(birth) newUser.birth_date=birth;
   const{error}=await supa.from('users').insert(newUser);
@@ -248,6 +251,7 @@ async function openEditUser(userId){
           ${STATIONS.map(s=>`<option value="${s}" ${u.default_station===s?'selected':''}>${s}</option>`).join('')}
         </select>
         <input id="eu_birth" type="date" class="w-full px-3 py-2.5 border rounded-xl text-sm" value="${u.birth_date||''}">
+        <input id="eu_pin" type="text" maxlength="4" placeholder="Nuovo PIN 4 cifre (lascia vuoto per non cambiare)" class="w-full px-3 py-2.5 border rounded-xl text-sm" pattern="[0-9]{4}">
         <p id="eu_err" class="text-red-600 text-xs hidden"></p>
       </div>
       <div class="flex gap-2 mt-4">
@@ -268,7 +272,9 @@ async function saveEditUser(userId, btn){
   const err=document.getElementById('eu_err');
   if(!name){err.textContent='Nome obbligatorio';err.classList.remove('hidden');return}
   btn.disabled=true; btn.textContent='Salvataggio...';
+  const pin=document.getElementById('eu_pin')?.value;
   const updates={name,lang,role};
+  if(pin&&pin.length===4) updates.pin=pin;
   if(photo_url) updates.photo_url=photo_url;
   if(default_station) updates.default_station=default_station;
   if(birth_date) updates.birth_date=birth_date;
