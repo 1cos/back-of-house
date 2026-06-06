@@ -76,6 +76,10 @@
 .pin-key:active{background:rgba(255,255,255,0.28);}
 .pin-del{font-size:20px;}
 </style>
+<script>
+function pinPress(d){if(typeof window._pinPress==='function')window._pinPress(d);}
+function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
+</script>
 
 <div id="app" class="hidden min-h-screen flex flex-col" style="background:transparent;">
   <!-- Top bar -->

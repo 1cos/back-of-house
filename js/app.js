@@ -48,6 +48,10 @@ async function attemptPinLogin(){
   doLogin(profile);
 }
 
+// Register pin functions on window for HTML onclick
+window._pinPress = pinPress;
+window._pinDel = pinDel;
+
 // Shake animation
 const shakeStyle = document.createElement('style');
 shakeStyle.textContent = '@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}';
