@@ -9,19 +9,35 @@ async function loadNews(){
     const t=new Date(n.created_at).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
     return{txt:n.message,suf:` • ${n.created_by||'Crew'} ${t}`};
   });
-  let out;
-  if(!user||user.lang==='it'){
-    out=base.map(b=>b.txt+b.suf).join(' ✦ ');
-  }else{
-    const trs=await Promise.all(base.map(b=>
-      fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},body:JSON.stringify({text:b.txt,targetLang:user.lang})})
-      .then(r=>r.json()).then(j=>j.translated||b.txt).catch(()=>b.txt)
-    ));
-    out=trs.map((t,i)=>t+base[i].suf).join(' ✦ ');
-  }
+  // traduce sempre nella lingua dell'utente, indipendentemente dalla lingua originale
+  const targetLang=user?.lang||'it';
+  const trs=await Promise.all(base.map(b=>
+    fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+      body:JSON.stringify({text:b.txt,targetLang})
+    }).then(r=>r.json()).then(j=>j.translated||b.txt).catch(()=>b.txt)
+  ));
+  const out=trs.map((t,i)=>t+base[i].suf).join(' ✦ ');
   document.getElementById('newsScroll').textContent=out;
 }
-supa.channel('news-rt').on('postgres_changes',{event:'*',schema:'public',table:'alerts'},loadNews).subscribe();
+// Realtime news con reconnect automatico
+let newsChannel = null;
+function startNewsRealtime(){
+  if(newsChannel) supa.removeChannel(newsChannel);
+  newsChannel = supa.channel('news-rt-'+Date.now())
+    .on('postgres_changes',{event:'*',schema:'public',table:'alerts'},()=>{
+      setTimeout(loadNews, 300);
+    })
+    .subscribe((status)=>{
+      if(status==='CLOSED'||status==='CHANNEL_ERROR'){
+        setTimeout(startNewsRealtime, 5000);
+      }
+    });
+}
+startNewsRealtime();
+// poll ogni 60s come fallback
+setInterval(loadNews, 60000);
 if('Notification'in window&&Notification.permission==='default') Notification.requestPermission();
 
 function updateAlertBtn(){
