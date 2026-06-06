@@ -77,6 +77,8 @@ function doLogin(profile){
   document.getElementById('who').textContent=user.name;
   init(); applyLang(); updateAlertBtn(); loadNews(); setupPush();
   loadBriefing(); startPresence(); startUrgencyCheck();
+  // avvia realtime chat subito al login
+  setTimeout(()=>startChatRealtime(), 500);
   // mostra/nascondi sezioni in base al ruolo
   const briefingSection=document.getElementById('homeBriefingSection');
   const checklistSection=document.getElementById('homeChecklistSection');

@@ -28,17 +28,14 @@ function applyLang(){
     else if(t==='c') span.textContent=tr('recipes');
     else if(t==='r') span.textContent=tr('report');
   });
-  document.getElementById('out').textContent=tr('logout');
-  document.getElementById('loginBtn').textContent=tr('login');
-  document.getElementById('name').placeholder=tr('name');
-  document.getElementById('pass').placeholder=tr('pass');
-  document.getElementById('txt').placeholder=tr('write');
-  document.querySelector('#f button').textContent=tr('send');
-  document.getElementById('btnToday').textContent=tr('today');
-  document.getElementById('btnWeek').textContent=tr('week');
-  document.getElementById('btnPDF').textContent=tr('pdf');
-  document.getElementById('reportTitle').textContent=tr('report');
-  document.getElementById('reportOut').textContent=tr('selectReport');
+  const _out=document.getElementById('out'); if(_out)_out.textContent=tr('logout');
+  const _txt=document.getElementById('txt'); if(_txt)_txt.placeholder=tr('write');
+  const _fBtn=document.querySelector('#f button'); if(_fBtn)_fBtn.textContent=tr('send');
+  const _btnToday=document.getElementById('btnToday'); if(_btnToday)_btnToday.textContent=tr('today');
+  const _btnWeek=document.getElementById('btnWeek'); if(_btnWeek)_btnWeek.textContent=tr('week');
+  const _btnPDF=document.getElementById('btnPDF'); if(_btnPDF)_btnPDF.textContent=tr('pdf');
+  const _repTitle=document.getElementById('reportTitle'); if(_repTitle)_repTitle.textContent=tr('report');
+  const _repOut=document.getElementById('reportOut'); if(_repOut)_repOut.textContent=tr('selectReport');
   const ctb=document.getElementById('closeTurnBtn');
   if(ctb) ctb.textContent=tr('closeTurn');
   // Labels — con null check per elementi rimossi
