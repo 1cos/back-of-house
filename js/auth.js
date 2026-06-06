@@ -335,3 +335,127 @@ async function checkBirthdays(){
     if(bar) bar.classList.remove('hidden');
   }
 }
+
+// ── SEZIONE PROFILO ──
+function openProfile(){
+  const modal=document.createElement('div');
+  modal.className='fixed inset-0 z-50 flex items-end';
+  modal.style.background='rgba(0,0,0,0.3)';
+  
+  const notifPrefs=JSON.parse(localStorage.getItem('boh_notif_prefs')||'{"chat":true,"news":true,"closing":true}');
+  const quietStart=localStorage.getItem('boh_quiet_start')||'22:00';
+  const quietEnd=localStorage.getItem('boh_quiet_end')||'07:00';
+  
+  modal.innerHTML=`<div style="background:rgba(255,255,255,0.95);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:85vh;overflow-y:auto;animation:slideUp .25s ease">
+    <div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 16px;"></div>
+    
+    <!-- Avatar e nome -->
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;padding-bottom:16px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
+      <div id="profileAvatar" onclick="changeAvatar()" style="width:60px;height:60px;border-radius:50%;background:#3B82F6;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:500;color:white;cursor:pointer;overflow:hidden;flex-shrink:0;">
+        ${user?.photo_url?`<img src="${user.photo_url}" style="width:100%;height:100%;object-fit:cover;">`:(user?.name||'?').slice(0,2).toUpperCase()}
+      </div>
+      <div style="flex:1;">
+        <div style="font-size:17px;font-weight:500;color:#1e3a5f;">${user?.name||''}</div>
+        <div style="font-size:12px;color:#93c5fd;margin-top:2px;">${user?.role||'staff'} • ${user?.default_station||'no station'}</div>
+        <button onclick="changeAvatar()" style="font-size:11px;color:#3B82F6;background:none;border:none;padding:0;margin-top:4px;cursor:pointer;">Change photo →</button>
+      </div>
+    </div>
+
+    <!-- Notifiche -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:11px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;">Notifications</div>
+      
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        ${[
+          {key:'chat',label:'💬 Chat messages'},
+          {key:'news',label:'📢 News & alerts'},
+          {key:'closing',label:'🔒 Shift closing'}
+        ].map(item=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:rgba(59,130,246,0.05);border-radius:12px;border:0.5px solid rgba(59,130,246,0.1);">
+          <span style="font-size:13px;color:#1e3a5f;">${item.label}</span>
+          <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;">
+            <input type="checkbox" id="notif_${item.key}" ${notifPrefs[item.key]?'checked':''} onchange="saveNotifPref('${item.key}',this.checked)" style="opacity:0;width:0;height:0;">
+            <span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:${notifPrefs[item.key]?'#3B82F6':'#cbd5e1'};border-radius:24px;transition:.3s;">
+              <span style="position:absolute;content:'';height:18px;width:18px;left:${notifPrefs[item.key]?'22px':'3px'};bottom:3px;background:white;border-radius:50%;transition:.3s;"></span>
+            </span>
+          </label>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Fascia silenziosa -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:11px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;">Quiet Hours</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(59,130,246,0.05);border-radius:12px;border:0.5px solid rgba(59,130,246,0.1);">
+        <span style="font-size:13px;color:#1e3a5f;">From</span>
+        <input type="time" id="quietStart" value="${quietStart}" style="font-size:13px;color:#1e3a5f;background:none;border:none;flex:1;">
+        <span style="font-size:13px;color:#1e3a5f;">to</span>
+        <input type="time" id="quietEnd" value="${quietEnd}" style="font-size:13px;color:#1e3a5f;background:none;border:none;flex:1;">
+      </div>
+    </div>
+
+    <!-- Cambio password -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:11px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;">Security</div>
+      <button onclick="modal.remove();openChangePassword()" style="width:100%;padding:10px 12px;background:rgba(59,130,246,0.05);border:0.5px solid rgba(59,130,246,0.1);border-radius:12px;font-size:13px;color:#1e3a5f;text-align:left;cursor:pointer;">🔑 Change password</button>
+    </div>
+
+    <!-- Salva e chiudi -->
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
+      <button onclick="this.closest('.fixed').remove()" style="height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:none;cursor:pointer;">Cancel</button>
+      <button onclick="saveProfile(this)" style="height:44px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Save</button>
+    </div>
+  </div>`;
+  
+  modal.onclick=e=>{if(e.target===modal)modal.remove()};
+  document.body.appendChild(modal);
+}
+
+function saveNotifPref(key, value){
+  const prefs=JSON.parse(localStorage.getItem('boh_notif_prefs')||'{"chat":true,"news":true,"closing":true}');
+  prefs[key]=value;
+  localStorage.setItem('boh_notif_prefs',JSON.stringify(prefs));
+}
+
+async function saveProfile(btn){
+  const quietStart=document.getElementById('quietStart')?.value;
+  const quietEnd=document.getElementById('quietEnd')?.value;
+  if(quietStart) localStorage.setItem('boh_quiet_start',quietStart);
+  if(quietEnd) localStorage.setItem('boh_quiet_end',quietEnd);
+  btn.closest('.fixed').remove();
+}
+
+function changeAvatar(){
+  const url=prompt('Enter photo URL (https://...):');
+  if(!url) return;
+  supa.from('users').update({photo_url:url}).eq('id',parseInt(user.id)).then(({error})=>{
+    if(!error){
+      user.photo_url=url;
+      const av=document.getElementById('profileAvatar');
+      if(av) av.innerHTML=`<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
+      // aggiorna avatar nel top bar
+      updateTopBarAvatar();
+    }
+  });
+}
+
+function updateTopBarAvatar(){
+  const whoEl=document.getElementById('who');
+  if(whoEl) whoEl.style.cursor='pointer';
+}
+
+// notifiche check fascia oraria
+function isQuietHours(){
+  const start=localStorage.getItem('boh_quiet_start')||'22:00';
+  const end=localStorage.getItem('boh_quiet_end')||'07:00';
+  const now=getNowDallas();
+  const h=now.getHours();
+  const m=now.getMinutes();
+  const cur=h*60+m;
+  const [sh,sm]=start.split(':').map(Number);
+  const [eh,em]=end.split(':').map(Number);
+  const s=sh*60+sm;
+  const e=eh*60+em;
+  if(s>e) return cur>=s||cur<e; // overnight
+  return cur>=s&&cur<e;
+}
