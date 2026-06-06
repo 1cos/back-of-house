@@ -184,15 +184,12 @@ window.save=async(id,btn)=>{
   const u=p.querySelector('.u').value;
   const q=parseFloat(p.querySelector('.q').value);
   
-  // modale commento rapido (30)
-  const comment = await askQuickComment();
-  
   btn.disabled=true; btn.textContent=tr('ok');
   // animazione card
   const card=p.closest('.bg-white');
   if(card) card.classList.add('fly-out');
   
-  await supa.from('prep_log').insert({item:tasks[id].name,station:tasks[id].category||'Generale',qty:q,unit:u,container:c,user_name:user.name,comment:comment||null});
+  await supa.from('prep_log').insert({item:tasks[id].name,station:tasks[id].category||'Generale',qty:q,unit:u,container:c,user_name:user.name});
   await supa.from('prep_tasks').update({need_tomorrow:false}).eq('id',id);
   tasks[id].need_tomorrow=false;
   await loadItemAlerts();
