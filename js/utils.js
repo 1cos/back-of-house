@@ -41,21 +41,14 @@ function applyLang(){
   document.getElementById('reportOut').textContent=tr('selectReport');
   const ctb=document.getElementById('closeTurnBtn');
   if(ctb) ctb.textContent=tr('closeTurn');
-  // Home card labels
-  const hPrep=document.getElementById('homePrep'); if(hPrep) hPrep.textContent=tr('prep');
-  const hPrepS=document.getElementById('homePrepSub'); if(hPrepS) hPrepS.textContent=tr('homePrepSub');
-  const hClose=document.getElementById('homeClose'); if(hClose) hClose.textContent=tr('evening');
-  const hCloseS=document.getElementById('homeCloseSub'); if(hCloseS) hCloseS.textContent=tr('homeCloseSub');
-  const hRec=document.getElementById('homeRec'); if(hRec) hRec.textContent=tr('recipes');
-  const hRecS=document.getElementById('homeRecSub'); if(hRecS) hRecS.textContent=tr('homeRecSub');
-  const hChat=document.getElementById('homeChat'); if(hChat) hChat.textContent='Chat';
-  const hChatS=document.getElementById('homeChatSub'); if(hChatS) hChatS.textContent=tr('homeChatSub');
-  // Checklist header e open button
+  // Labels — con null check per elementi rimossi
+  ['homePrep','homePrepSub','homeClose','homeCloseSub','homeRec','homeRecSub','homeChat','homeChatSub'].forEach(id=>{
+    const el=document.getElementById(id); // elementi rimossi dalla nuova home
+    // non fa nulla se non esiste
+  });
   const hChkL=document.getElementById('homeChecklistLabel'); if(hChkL) hChkL.textContent=tr('homeChecklist');
   const hOpenB=document.getElementById('homeOpenBtn'); if(hOpenB) hOpenB.textContent=tr('homeOpen');
-  // Briefing refresh button
   const brBtn=document.getElementById('briefingRefreshBtn'); if(brBtn) brBtn.textContent=tr('briefingRefresh');
-  // Add prep button
   const apBtn=document.getElementById('addPrepBtn'); if(apBtn){ apBtn.classList.toggle('hidden',!isAdmin()); }
 }
 

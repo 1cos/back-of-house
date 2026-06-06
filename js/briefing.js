@@ -125,7 +125,9 @@ function renderHomeStationItems(){
     return;
   }
 
-  const sorted=stationItems.sort((a,b)=>(b.need_tomorrow?1:0)-(a.need_tomorrow?1:0)).slice(0,5);
+  const sorted=stationItems.sort((a,b)=>(b.need_tomorrow?1:0)-(a.need_tomorrow?1:0)).slice(0,3);
+  el.style.maxHeight='120px';
+  el.style.overflowY='auto';
   el.innerHTML=sorted.map(i=>{
     const color=i.need_tomorrow?'#b91c1c':i.in_progress?'#1d4ed8':'#1e3a5f';
     const dot=i.need_tomorrow?'#ef4444':i.in_progress?'#3B82F6':'transparent';
