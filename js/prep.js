@@ -13,7 +13,8 @@ function showConfetti(){
 function startUrgencyCheck(){
   setInterval(()=>{
     const now=new Date();
-    if(now.getHours()===14&&now.getMinutes()===30){
+    const dn=getNowDallas();
+    if(dn.getHours()===14&&dn.getMinutes()===30){
       const urgent=items.filter(i=>i.need_tomorrow);
       if(urgent.length>0&&isAdmin()){
         fetch(`${SUPABASE_URL}/functions/v1/send-push`,{

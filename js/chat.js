@@ -110,15 +110,15 @@ async function loadReport(type){
   document.getElementById('btnWeek').classList.toggle('bg-slate-900',type==='week');document.getElementById('btnWeek').classList.toggle('text-white',type==='week');
   try{
     if(type==='today'){
-      const now=new Date();const startUTC=new Date(now.getFullYear(),now.getMonth(),now.getDate()).toISOString();
+      const startUTC=getTodayDallas(); // mezzanotte Dallas CDT
       const{data:logs}=await supa.from('prep_log').select('item,qty,unit,container,user_name,created_at').gte('created_at',startUTC).order('created_at',{ascending:false});
       lastReport=logs||[];
       const by={};logs.forEach(l=>by[l.user_name]=(by[l.user_name]||0)+1);
       const byHtml=Object.keys(by).length?`<div class="mb-3 p-2 bg-slate-50 rounded-lg text-xs"><div class="font-semibold mb-1">${tr('prepBy')}</div>${Object.entries(by).map(([u,c])=>`${u}: ${c}`).join(' • ')}</div>`:'';
       if(!logs.length){out.innerHTML=byHtml+`<p class="text-slate-500">${tr('noData')}</p>`;return}
-      out.innerHTML=byHtml+`<table class="w-full text-xs"><thead><tr class="border-b font-semibold"><td class="py-1">${tr('item')}</td><td>Qty</td><td>${tr('unit')}</td><td>Cont.</td><td>Chi</td><td>Ora</td></tr></thead><tbody>`+logs.map(r=>{const t=new Date(r.created_at).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});return`<tr class="border-b"><td class="py-1">${r.item}</td><td>${r.qty}</td><td>${r.unit||''}</td><td>${r.container||''}</td><td>${r.user_name}</td><td>${t}</td></tr>`}).join('')+`</tbody></table>`;
+      out.innerHTML=byHtml+`<table class="w-full text-xs"><thead><tr class="border-b font-semibold"><td class="py-1">${tr('item')}</td><td>Qty</td><td>${tr('unit')}</td><td>Cont.</td><td>Chi</td><td>Ora</td></tr></thead><tbody>`+logs.map(r=>{const t=formatTimeDallas(r.created_at);return`<tr class="border-b"><td class="py-1">${r.item}</td><td>${r.qty}</td><td>${r.unit||''}</td><td>${r.container||''}</td><td>${r.user_name}</td><td>${t}</td></tr>`}).join('')+`</tbody></table>`;
     }else{
-      const mon=new Date();const d=mon.getDay();const diff=d===0?-6:1-d;mon.setDate(mon.getDate()+diff);const monStr=mon.toISOString().slice(0,10);
+      const monStr=getWeekStartDallas(); // lunedì Dallas CDT
       const{data}=await supa.from('v_prep_weekly').select('*').eq('settimana_lun',monStr);
       const map={};(data||[]).forEach(r=>{if(!map[r.item])map[r.item]=Array(7).fill('');map[r.item][r.giorno_num-1]=`${r.totale} ${r.unit||''}`});
       lastReport=Object.entries(map).map(([item,vals])=>({item,vals}));

@@ -308,9 +308,9 @@ async function checkUserActive(profile){
 
 // ── COMPLEANNI ──
 async function checkBirthdays(){
-  const today=new Date();
-  const mm=String(today.getMonth()+1).padStart(2,'0');
-  const dd=String(today.getDate()).padStart(2,'0');
+  const todayDallas=getNowDallas();
+  const mm=String(todayDallas.getMonth()+1).padStart(2,'0');
+  const dd=String(todayDallas.getDate()).padStart(2,'0');
   const{data}=await supa.from('users')
     .select('name,birth_date')
     .not('birth_date','is',null)

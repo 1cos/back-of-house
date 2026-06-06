@@ -60,3 +60,62 @@ function applyLang(){
 }
 
 const isAdmin=()=>user&&(user.is_admin===true||user.role==='admin');
+
+// ── TIMEZONE DALLAS (America/Chicago) ──
+// Weatherford TX usa CDT (UTC-5) estate, CST (UTC-6) inverno
+const DALLAS_TZ = 'America/Chicago';
+
+function getNowDallas(){
+  return new Date(new Date().toLocaleString('en-US', {timeZone: DALLAS_TZ}));
+}
+
+function getTodayDallas(){
+  // ritorna mezzanotte di oggi in Dallas come ISO string UTC
+  const now = new Date();
+  const dallasMidnight = new Date(now.toLocaleDateString('en-US', {timeZone: DALLAS_TZ}));
+  // calcola offset
+  const dallasMidnightStr = dallasMidnight.toLocaleString('en-US', {timeZone: DALLAS_TZ});
+  const utcMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // usa Intl per trovare mezzanotte Dallas in UTC
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: DALLAS_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  });
+  const parts = formatter.formatToParts(now);
+  const year = parts.find(p=>p.type==='year').value;
+  const month = parts.find(p=>p.type==='month').value;
+  const day = parts.find(p=>p.type==='day').value;
+  // mezzanotte Dallas = `${year}-${month}-${day}T00:00:00` nel timezone Dallas
+  const midnightDallas = new Date(`${year}-${month}-${day}T00:00:00`);
+  // converti in UTC aggiungendo l'offset Dallas
+  const offsetMs = midnightDallas.getTime() - new Date(midnightDallas.toLocaleString('en-US', {timeZone: 'UTC'})).getTime();
+  const tzOffset = new Date(midnightDallas.toLocaleString('en-US', {timeZone: DALLAS_TZ})).getTime() - new Date(midnightDallas.toLocaleString('en-US', {timeZone: 'UTC'})).getTime();
+  return new Date(midnightDallas.getTime() - tzOffset).toISOString();
+}
+
+function getWeekStartDallas(){
+  // lunedì di questa settimana in timezone Dallas
+  const now = getNowDallas();
+  const d = now.getDay();
+  const diff = d===0?-6:1-d;
+  now.setDate(now.getDate()+diff);
+  now.setHours(0,0,0,0);
+  return now.toISOString().slice(0,10);
+}
+
+function formatTimeDallas(isoString){
+  return new Date(isoString).toLocaleTimeString('it-IT', {
+    timeZone: DALLAS_TZ,
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function formatDateTimeDallas(isoString){
+  return new Date(isoString).toLocaleString('it-IT', {
+    timeZone: DALLAS_TZ,
+    day: '2-digit', month: '2-digit',
+    hour: '2-digit', minute: '2-digit'
+  });
+}
+

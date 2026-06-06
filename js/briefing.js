@@ -3,7 +3,7 @@ async function loadBriefing(){
   const el=document.getElementById('briefingContent');
   el.innerHTML=`<div class="animate-pulse h-4 bg-slate-100 rounded w-3/4"></div><div class="animate-pulse h-4 bg-slate-100 rounded w-full mt-2"></div><div class="animate-pulse h-4 bg-slate-100 rounded w-2/3 mt-2"></div>`;
   try{
-    const today=new Date().toISOString().slice(0,10);
+    const today=getNowDallas().toLocaleDateString('en-CA'); // YYYY-MM-DD Dallas time
     let{data:briefing}=await supa.from('briefing').select('*').eq('date',today).maybeSingle();
     if(!briefing){
       // genera al momento
