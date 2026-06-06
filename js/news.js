@@ -35,6 +35,9 @@ function updateAlertBtn(){
     // bottone gestione utenti
     const ub = document.getElementById('userMgrBtn');
     if(ub) ub.classList.remove('hidden');
+    // chiave password solo per admin
+    const pwdB = document.getElementById('pwdBtn');
+    if(pwdB) pwdB.classList.remove('hidden');
   }
 }
 document.getElementById('alertBtn').onclick=async()=>{

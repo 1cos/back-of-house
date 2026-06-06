@@ -53,15 +53,15 @@
 <div id="app" class="hidden min-h-screen flex flex-col bg-[#f5f7fb]">
   <!-- Top bar -->
   <div class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b">
-    <div class="max-w-md mx-auto px-3 h-11 flex items-center justify-between">
+    <div class="max-w-md mx-auto px-3 h-14 flex items-center justify-between">
       <div class="font-bold text-[15px] flex items-center gap-1.5"><span>🍳</span><span>Back of House</span></div>
-      <div class="flex items-center gap-2 text-xs">
+      <div class="flex items-center gap-2 text-sm">
         <span id="who" class="font-medium"></span>
         <div id="online" class="flex -space-x-1"></div>
-        <button id="alertBtn" class="hidden px-2 py-1 bg-red-600 text-white rounded-lg">🚨</button>
-        <button id="userMgrBtn" onclick="openUserManager()" class="hidden px-2 py-1 bg-slate-100 rounded-lg">👥</button>
-        <button onclick="openChangePassword()" class="px-2 py-1 bg-slate-100 rounded-lg">🔑</button>
-        <button id="out" class="px-2 py-1 bg-slate-100 rounded-lg">Esci</button>
+        <button id="alertBtn" class="hidden px-3 py-2 bg-red-600 text-white rounded-xl text-base">🚨</button>
+        <button id="userMgrBtn" onclick="openUserManager()" class="hidden px-3 py-2 bg-slate-100 rounded-xl text-base">👥</button>
+        <button id="pwdBtn" onclick="openChangePassword()" class="hidden px-3 py-2 bg-slate-100 rounded-xl text-base">🔑</button>
+        <button id="out" class="px-3 py-2 bg-slate-100 rounded-xl font-medium">Esci</button>
       </div>
     </div>
   </div>
@@ -69,9 +69,9 @@
   <!-- News ticker -->
   <div id="newsBar" class="hidden bg-amber-100 border-b border-amber-200">
     <div class="max-w-md mx-auto px-3 py-1.5 flex items-center gap-2">
-      <span class="text-[10px] font-bold text-amber-800 uppercase">NEWS</span>
-      <div class="flex-1 overflow-hidden"><div id="newsScroll" class="whitespace-nowrap text-[13px] text-slate-700 animate-marquee"></div></div>
-      <button id="newsManage" class="hidden text-[10px] px-2 py-0.5 bg-amber-600 text-white rounded">Gest</button>
+      <span class="text-xs font-bold text-amber-800 uppercase">NEWS</span>
+      <div class="flex-1 overflow-hidden"><div id="newsScroll" class="whitespace-nowrap text-sm text-slate-700 animate-marquee"></div></div>
+      <button id="newsManage" class="hidden text-xs px-2 py-1 bg-amber-600 text-white rounded-lg">Gest</button>
     </div>
   </div>
 
