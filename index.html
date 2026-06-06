@@ -17,6 +17,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   body{font-family:Inter,system-ui,sans-serif}
+  .glass{background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;}
+  .glass-card{background:rgba(255,255,255,0.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1.5px solid rgba(59,130,246,0.15);border-radius:16px;}
   .tab-active{color:#059669} .tab-active svg{stroke:#059669}
   .scrollbar-hide::-webkit-scrollbar{display:none}
   @keyframes marquee{0%{transform:translateX(100%)}100%{transform:translateX(-100%)}}
@@ -31,7 +33,7 @@
 </style>
 </head>
 
-<body class="bg-[#f5f7fb]">
+<body style="background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);min-height:100vh;">
 
 <!-- LOGIN -->
 <div id="login" class="min-h-screen flex items-center justify-center p-4 bg-slate-900">
@@ -50,9 +52,9 @@
   </div>
 </div>
 
-<div id="app" class="hidden min-h-screen flex flex-col bg-[#f5f7fb]">
+<div id="app" class="hidden min-h-screen flex flex-col" style="background:transparent;">
   <!-- Top bar -->
-  <div class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b">
+  <div class="sticky top-0 z-30 border-b" style="background:rgba(255,255,255,0.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-color:rgba(59,130,246,0.15);">
     <div class="max-w-md mx-auto px-3 h-14 flex items-center justify-between">
       <div class="font-bold text-[15px] flex items-center gap-1.5"><span>🍳</span><span>Back of House</span></div>
       <div class="flex items-center gap-2 text-sm">
@@ -92,7 +94,7 @@
     </button>
   </div>
 
-  <main class="flex-1 max-w-md w-full mx-auto pb-24">
+  <main class="flex-1 max-w-md w-full mx-auto pb-24" style="background:transparent;">
 
     <!-- HOME (nuova) -->
     <section id="vh" class="px-3 pt-3 space-y-4">
@@ -164,7 +166,7 @@
         <button id="toggleView" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-semibold shadow-sm">Feed</button>
         <button id="addPrepBtn" onclick="adminAdd()" class="hidden px-2.5 py-1.5 bg-emerald-600 text-white rounded-xl text-[11px] font-semibold shadow-sm">+ Prep</button>
       </div>
-      <div id="grid" class="grid grid-cols-2 gap-2.5"></div>
+      <div id="grid" class="grid grid-cols-1 gap-2"></div>
       <div id="feed" class="hidden -mx-3 h-[calc(100vh-170px)] overflow-y-auto snap-y snap-mandatory bg-[#f5f7fb]"></div>
     </section>
 
@@ -222,7 +224,7 @@
   </main>
 
   <!-- Bottom Nav -->
-  <nav class="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200">
+  <nav class="fixed bottom-0 left-0 right-0 z-40 border-t" style="background:rgba(255,255,255,0.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-color:rgba(59,130,246,0.15);">
     <div class="max-w-md mx-auto h-[72px] flex items-end justify-around pb-3 px-2">
       <button data-t="h" class="tab flex flex-col items-center gap-1 w-16 tab-active">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon" style="stroke:#059669"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>

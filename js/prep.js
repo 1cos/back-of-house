@@ -124,26 +124,32 @@ async function checkBeforeMissing(id, itemName){
 // ── PREP ──
 function renderM(){
   const base=items.filter(i=>station==='All'||i.category?.includes(station));
-  const list=base.sort((a,b)=>(b.need_tomorrow?1:0)-(a.need_tomorrow?1:0));
+  // ordinamento: rossi (need_tomorrow) > blu (in_progress) > normali
+  const list=base.sort((a,b)=>{
+    const aScore=(a.need_tomorrow?2:0)+(a.in_progress?1:0);
+    const bScore=(b.need_tomorrow?2:0)+(b.in_progress?1:0);
+    if(bScore!==aScore) return bScore-aScore;
+    return a.name.localeCompare(b.name);
+  });
   const pc=base.filter(i=>i.need_tomorrow).length;
   const total=base.length;
-  // aggiorna barra progresso urgenti
+
+  // barra progresso urgenti
   const prog=document.getElementById('urgentProgress');
   const bar=document.getElementById('urgentBar');
   const cnt=document.getElementById('urgentCount');
   const done=document.getElementById('urgentDone');
   const timeEl=document.getElementById('urgentTime');
   if(prog){
-    if(pc>0||total>0){
+    if(total>0){
       prog.classList.remove('hidden');
       const completed=total-pc;
-      const pct=total>0?Math.round((completed/total)*100):100;
+      const pct=Math.round((completed/total)*100);
       if(bar) bar.style.width=pct+'%';
       if(cnt) cnt.textContent=pc;
-      // timer 14:30
-      const now=new Date();
-      const deadline=new Date(); deadline.setHours(14,30,0,0);
-      const diffMs=deadline-now;
+      const dn=getNowDallas();
+      const deadline=getNowDallas(); deadline.setHours(14,30,0,0);
+      const diffMs=deadline-dn;
       if(timeEl){
         if(diffMs>0){
           const h=Math.floor(diffMs/3600000);
@@ -155,49 +161,213 @@ function renderM(){
           timeEl.className='text-xs text-red-600 font-bold';
         }
       }
-      if(done) done.classList.toggle('hidden', pc>0);
+      if(done) done.classList.toggle('hidden',pc>0);
       if(pc===0&&total>0) showConfetti();
     } else {
       prog.classList.add('hidden');
     }
   }
-  grid.innerHTML=(pc?`<div class="col-span-2 text-[11px] font-bold text-red-600 mb-1 px-1">🔴 ${pc} ${tr('toDo')}</div>`:'')+
-    list.map(i=>`<div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm ${i.need_tomorrow?'ring-2 ring-red-500 bg-red-50/70':''}">
-      <div class="flex justify-between items-start mb-2">
-        <span class="font-semibold text-[14px] leading-tight ${i.need_tomorrow?'text-red-700':''} cursor-pointer" onclick="showTranslation('${i.name}',this)">${i.name} <span class="text-[10px] text-slate-400">🌐</span></span>
-        ${(i.recipe_id||i.note)?`<span class="text-[10px] ${i.recipe_id?'text-emerald-600':'text-amber-600'}">${i.recipe_id?'📖':'📝'}</span>`:''}
 
-        ${isAdmin()?`<span class="flex gap-1.5 text-slate-400"><button onclick="adminRename('${i.id}')" class="text-[13px]">✏</button><button onclick="adminDel('${i.id}')" class="text-[13px]">🗑</button></span>`:''}
-      </div>
-      <div class="grid grid-cols-3 gap-1.5">
-        <select class="c border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] bg-slate-50">${CONTAINERS.map(o=>`<option>${o}</option>`).join('')}</select>
-        <select class="u border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] bg-slate-50">${UNITS.map(o=>`<option>${o}</option>`).join('')}</select>
-        <select class="q border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] bg-slate-50">${QTYS.map(o=>`<option>${o}</option>`).join('')}</select>
-      </div>
-      <button onclick="save('${i.id}',this)" class="w-full mt-2.5 bg-slate-900 text-white py-2 rounded-xl text-[12px] font-semibold active:scale-[0.98] transition">${tr('save')}</button>
-    </div>`).join('');
+  // station note
+  const stationKey = station==='All'?null:station;
+  const stNote = stationKey && stationNotes[stationKey] ? stationNotes[stationKey] : null;
+
+  grid.innerHTML=(stNote?`<div class="col-span-2 mb-2 px-3 py-2 rounded-xl text-[11px] text-amber-800" style="background:rgba(251,191,36,0.15);border:0.5px solid rgba(251,191,36,0.3);">${stNote}</div>`:'')+
+    list.map(i=>{
+      const isUrgent=i.need_tomorrow;
+      const isWip=i.in_progress&&!i.need_tomorrow;
+      let borderColor=isUrgent?'#ef4444':isWip?'#3B82F6':'rgba(59,130,246,0.15)';
+      let nameColor=isUrgent?'#b91c1c':isWip?'#1d4ed8':'#1e3a5f';
+      let hint=isUrgent?'<div style="font-size:10px;color:#ef4444;margin-top:2px;">'+tr('toDo').split('—')[0].trim()+'</div>':
+                isWip?'<div style="font-size:10px;color:#3B82F6;margin-top:2px;">in progress</div>':'';
+      return `<div class="col-span-2 rounded-2xl p-3 mb-1 cursor-pointer active:scale-[0.98] transition" 
+        style="background:rgba(255,255,255,0.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1.5px solid ${borderColor};">
+        <div class="flex items-center justify-between">
+          <div style="flex:1;min-width:0;" onclick="openRecipeForItem('${i.id}')">
+            <div style="font-size:15px;font-weight:500;color:${nameColor};cursor:pointer;" onclick="showTranslation('${i.name}',this)">${i.name}</div>
+            ${hint}
+            ${(i.recipe_id||i.note)?`<span style="font-size:10px;color:${i.recipe_id?'#059669':'#d97706'}">${i.recipe_id?'📖 ricetta':'📝 nota'}</span>`:''}
+          </div>
+          <div style="display:flex;gap:5px;flex-shrink:0;margin-left:8px;">
+            ${isUrgent||!isWip?`<button onpointerdown="startWipPress('${i.id}',this)" onpointerup="endWipPress()" onpointerleave="endWipPress()" 
+              style="height:30px;padding:0 10px;border-radius:9px;font-size:11px;font-weight:500;background:rgba(59,130,246,0.1);color:#1d4ed8;border:0.5px solid rgba(59,130,246,0.3);white-space:nowrap;">
+              Da finire</button>`:''}
+            <button onpointerdown="startDonePress('${i.id}',this)" onpointerup="endDonePress('${i.id}')" onpointerleave="endDonePress('${i.id}')"
+              style="height:30px;padding:0 10px;border-radius:9px;font-size:11px;font-weight:500;background:#1e3a5f;color:white;white-space:nowrap;">
+              Fatta</button>
+            ${isAdmin()?`<span style="display:flex;gap:4px;"><button onclick="adminRename('${i.id}')" style="font-size:13px;color:#94a3b8;">✏</button><button onclick="adminDel('${i.id}')" style="font-size:13px;color:#94a3b8;">🗑</button></span>`:''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
 }
 
-window.save=async(id,btn)=>{
-  const p=btn.parentElement;
-  const c=p.querySelector('.c').value;
-  const u=p.querySelector('.u').value;
-  const q=parseFloat(p.querySelector('.q').value);
-  
-  btn.disabled=true; btn.textContent=tr('ok');
-  // animazione card
-  const card=p.closest('.bg-white');
-  if(card) card.classList.add('fly-out');
-  
-  await supa.from('prep_log').insert({item:tasks[id].name,station:tasks[id].category||'Generale',qty:q,unit:u,container:c,user_name:user.name});
-  await supa.from('prep_tasks').update({need_tomorrow:false}).eq('id',id);
+// ── NUOVI HANDLER FATTA / DA FINIRE ──
+
+// Tap veloce Fatta → salva con default
+// Tap lungo Fatta → apre bottom sheet dettagli
+function startDonePress(id, btn){
+  doneTarget=id;
+  donePressTimer=setTimeout(()=>{
+    donePressTimer=null;
+    openDoneSheet(id);
+  }, 600);
+}
+function endDonePress(id){
+  if(donePressTimer){
+    clearTimeout(donePressTimer);
+    donePressTimer=null;
+    // tap veloce — salva con default
+    quickSave(id);
+  }
+}
+
+// Tap veloce Da finire → segna WIP
+// Tap lungo Da finire → apre note
+function startWipPress(id, btn){
+  wipPressTimer=setTimeout(()=>{
+    wipPressTimer=null;
+    openWipNoteSheet(id);
+  }, 600);
+}
+function endWipPress(){
+  if(wipPressTimer){
+    clearTimeout(wipPressTimer);
+    wipPressTimer=null;
+    // tap veloce — segna in progress
+    const id=doneTarget; // usa last target
+  }
+}
+
+window.setWip=async(id)=>{
+  tasks[id].in_progress=true;
+  await supa.from('prep_tasks').update({in_progress:true}).eq('id',id);
+  renderM();
+};
+
+// Override startWipPress to capture id
+window.startWipPress=function(id,btn){
+  doneTarget=id;
+  wipPressTimer=setTimeout(()=>{
+    wipPressTimer=null;
+    openWipNoteSheet(id);
+  },600);
+};
+window.endWipPress=function(){
+  if(wipPressTimer){
+    clearTimeout(wipPressTimer);
+    wipPressTimer=null;
+    setWip(doneTarget);
+  }
+};
+
+async function quickSave(id){
+  const it=tasks[id];
+  // usa average_qty o 1 come default
+  const qty=it.average_qty||1;
+  const unit='kg';
+  const container='1/4 pan';
+  const card=document.querySelector(`[onpointerup*="endDonePress('${id}')"]`);
+  if(card){ const parent=card.closest('[style*="border"]'); if(parent) parent.style.opacity='0.5'; }
+  await supa.from('prep_log').insert({item:it.name,station:it.category||'Generale',qty,unit,container,user_name:user.name});
+  await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false}).eq('id',id);
   tasks[id].need_tomorrow=false;
+  tasks[id].in_progress=false;
   await loadItemAlerts();
-  setTimeout(()=>{
-    renderM(); renderS(); renderHomeStations();
-    if(!document.getElementById('vr').classList.contains('hidden')) loadReport('today');
-  },500);
-  setTimeout(()=>{btn.textContent=tr('save');btn.disabled=false},700);
+  showConfetti();
+  setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},400);
+}
+
+function openDoneSheet(id){
+  const it=tasks[id];
+  const sheet=document.createElement('div');
+  sheet.className='fixed inset-0 z-50 flex items-end';
+  sheet.style.background='rgba(0,0,0,0.3)';
+  sheet.innerHTML=`<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:24px 24px 0 0;border-top:0.5px solid rgba(59,130,246,0.2);padding:16px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
+    <div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>
+    <div style="font-size:14px;font-weight:500;color:#1e3a5f;margin-bottom:12px;">${it.name}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">
+      <div>
+        <div style="font-size:9px;color:#93c5fd;font-weight:500;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;">Qty</div>
+        <select class="ds-qty" style="width:100%;font-size:11px;color:#1e3a5f;background:rgba(59,130,246,0.06);border:0.5px solid rgba(59,130,246,0.2);border-radius:8px;padding:4px 5px;">
+          ${QTYS.map(o=>`<option ${o===(it.average_qty||1).toString()?'selected':''}>${o}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <div style="font-size:9px;color:#93c5fd;font-weight:500;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;">Unità</div>
+        <select class="ds-unit" style="width:100%;font-size:11px;color:#1e3a5f;background:rgba(59,130,246,0.06);border:0.5px solid rgba(59,130,246,0.2);border-radius:8px;padding:4px 5px;">
+          ${UNITS.map(o=>`<option>${o}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <div style="font-size:9px;color:#93c5fd;font-weight:500;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;">Contenitore</div>
+        <select class="ds-cont" style="width:100%;font-size:11px;color:#1e3a5f;background:rgba(59,130,246,0.06);border:0.5px solid rgba(59,130,246,0.2);border-radius:8px;padding:4px 5px;">
+          ${CONTAINERS.map(o=>`<option>${o}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <textarea class="ds-note" placeholder="Nota rapida..." style="width:100%;font-size:12px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:10px;padding:7px 10px;margin-bottom:10px;resize:none;height:38px;"></textarea>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
+      <button onclick="this.closest('.fixed').remove()" style="height:40px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:0.5px solid rgba(59,130,246,0.2);">Annulla</button>
+      <button onclick="detailSave('${id}',this)" style="height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;">Conferma</button>
+    </div>
+  </div>`;
+  sheet.onclick=e=>{if(e.target===sheet)sheet.remove()};
+  document.body.appendChild(sheet);
+}
+
+function openWipNoteSheet(id){
+  const it=tasks[id];
+  const sheet=document.createElement('div');
+  sheet.className='fixed inset-0 z-50 flex items-end';
+  sheet.style.background='rgba(0,0,0,0.3)';
+  sheet.innerHTML=`<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;border-top:0.5px solid rgba(59,130,246,0.2);padding:16px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
+    <div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>
+    <div style="font-size:14px;font-weight:500;color:#1e3a5f;margin-bottom:10px;">${it.name} — Da finire</div>
+    <textarea id="wipNote" placeholder="es. manca solo il basilico..." style="width:100%;font-size:13px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:12px;padding:10px 12px;resize:none;height:70px;margin-bottom:10px;"></textarea>
+    <button onclick="saveWip('${id}',document.getElementById('wipNote').value);this.closest('.fixed').remove()" 
+      style="width:100%;height:40px;border-radius:14px;background:#3B82F6;color:white;font-size:13px;font-weight:500;">Segna Da finire</button>
+  </div>`;
+  sheet.onclick=e=>{if(e.target===sheet)sheet.remove()};
+  document.body.appendChild(sheet);
+}
+
+async function saveWip(id, note){
+  tasks[id].in_progress=true;
+  await supa.from('prep_tasks').update({in_progress:true}).eq('id',id);
+  if(note) await supa.from('prep_tasks').update({note}).eq('id',id);
+  renderM();
+}
+
+async function detailSave(id, btn){
+  const sheet=btn.closest('.fixed');
+  const qty=parseFloat(sheet.querySelector('.ds-qty').value);
+  const unit=sheet.querySelector('.ds-unit').value;
+  const cont=sheet.querySelector('.ds-cont').value;
+  const note=sheet.querySelector('.ds-note').value;
+  btn.textContent='...'; btn.disabled=true;
+  const it=tasks[id];
+  await supa.from('prep_log').insert({item:it.name,station:it.category||'Generale',qty,unit,container:cont,user_name:user.name});
+  await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false}).eq('id',id);
+  tasks[id].need_tomorrow=false;
+  tasks[id].in_progress=false;
+  await loadItemAlerts();
+  sheet.remove();
+  showConfetti();
+  setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
+}
+
+async function loadStationNotes(){
+  try{
+    const{data}=await supa.from('station_notes').select('*');
+    stationNotes={};
+    (data||[]).forEach(r=>stationNotes[r.station]=r.note);
+  }catch(e){}
+}
+
+// legacy save — kept for compatibility
+window.save=async(id,btn)=>{
+  quickSave(id);
 };
 
 // ── COMMENTO RAPIDO (punto 30) ──
