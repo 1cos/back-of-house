@@ -1,8 +1,3 @@
-let stationNotes={};
-let wipPressTimer=null;
-let donePressTimer=null;
-let doneTarget=null;
-
 // ── CONFETTI ──
 function showConfetti(){
   const colors=['#059669','#10b981','#34d399','#6ee7b7'];

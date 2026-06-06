@@ -119,3 +119,8 @@ function formatDateTimeDallas(isoString){
   });
 }
 
+
+let stationNotes={};
+let wipPressTimer=null;
+let donePressTimer=null;
+let doneTarget=null;
