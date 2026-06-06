@@ -126,7 +126,7 @@ async function loadReport(type){
       mon.setUTCDate(mon.getUTCDate()+diff);
       const monStr=mon.toISOString().slice(0,10);
       const{data}=await supa.from('v_prep_weekly').select('*').eq('settimana_lun',monStr);
-      const map={};(data||[]).forEach(r=>{if(!map[r.item])map[r.item]=Array(7).fill('');map[r.item][r.giorno_num-1]=`${r.totale} ${r.unit||''}`});
+      const map={};(data||[]).forEach(r=>{if(!map[r.item])map[r.item]=Array(7).fill('');map[r.item][r.giorno_num-1]=`${r.totale}`});
       lastReport=Object.entries(map).map(([item,vals])=>({item,vals}));
       const days=user?.lang==='en'?['Mon','Tue','Wed','Thu','Fri','Sat','Sun']:user?.lang==='es'?['Lun','Mar','Mié','Jue','Vie','Sáb','Dom']:['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
       out.innerHTML=`<table class="w-full text-xs"><thead><tr class="border-b font-semibold"><td>${tr('item')}</td>${days.map(d=>`<td>${d}</td>`).join('')}</tr></thead><tbody>`+lastReport.map(r=>`<tr class="border-b"><td class="py-1">${r.item}</td>${r.vals.map(v=>`<td>${v||''}</td>`).join('')}</tr>`).join('')+`</tbody></table>`;
