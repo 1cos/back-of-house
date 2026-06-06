@@ -57,7 +57,7 @@ const shakeStyle = document.createElement('style');
 shakeStyle.textContent = '@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}';
 document.head.appendChild(shakeStyle);
 
-function doLoginfunction doLogin(profile){
+function doLogin(profile){
   user=profile;
   // se l'utente ha selezionato una lingua diversa al login
   if(loginLang && loginLang !== user.lang){
