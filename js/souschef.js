@@ -120,21 +120,24 @@ async function stopRecording(){
   };
 }
 
-// ── TRASCRIZIONE CON GROQ WHISPER ──
+// ── TRASCRIZIONE CON GROQ WHISPER (base64 — compatibile Safari iOS) ──
 async function processAudio(blob, mimeType){
   try{
-    // Trascrivi con Groq Whisper via Edge Function
-    const formData = new FormData();
     const mt2 = mimeType || blob.type || 'audio/mp4';
-    const filename = mt2.includes('mp4') ? 'audio.mp4' : mt2.includes('ogg') ? 'audio.ogg' : 'audio.webm';
-    formData.append('file', blob, filename);
-    formData.append('model', 'whisper-large-v3');
-    formData.append('language', 'it');
+    // converti in base64
+    const arrayBuffer = await blob.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    let binary = '';
+    for(let i=0;i<uint8Array.byteLength;i++) binary+=String.fromCharCode(uint8Array[i]);
+    const base64Audio = btoa(binary);
 
     const transcribeRes = await fetch(`${SUPABASE_URL}/functions/v1/transcribe-audio`, {
       method: 'POST',
-      headers: {'Authorization': `Bearer ${SUPABASE_ANON_KEY}`},
-      body: formData
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+      },
+      body: JSON.stringify({ audio: base64Audio, mimeType: mt2, language: 'it' })
     });
     const transcribeData = await transcribeRes.json();
     const transcript = transcribeData.text || '';
