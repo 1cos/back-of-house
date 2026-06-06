@@ -180,22 +180,6 @@ async function classifyWithGroq(transcript){
       ? `\n\nDATA CUCINA (ultime 2 settimane):\n${JSON.stringify(recentPreps.slice(0,20))}`
       : '';
 
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${Deno?.env?.get('GROQ_API_KEY') || ''}`
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        max_tokens: 500,
-        messages: [
-          {role: 'system', content: SOUSCHEF_PROMPT + kitchenContext},
-          {role: 'user', content: transcript}
-        ]
-      })
-    });
-
     // Groq non è accessibile dal browser — usiamo Edge Function
     const groqRes = await fetch(`${SUPABASE_URL}/functions/v1/souschef-classify`, {
       method: 'POST',
