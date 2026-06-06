@@ -119,7 +119,12 @@ async function loadReport(type){
       if(!logs.length){out.innerHTML=byHtml+`<p class="text-slate-500">${tr('noData')}</p>`;return}
       out.innerHTML=byHtml+`<table class="w-full text-xs"><thead><tr class="border-b font-semibold"><td class="py-1">${tr('item')}</td><td>Qty</td><td>${tr('unit')}</td><td>Cont.</td><td>Chi</td><td>Ora</td></tr></thead><tbody>`+logs.map(r=>{const t=formatTimeDallas(r.created_at);return`<tr class="border-b"><td class="py-1">${r.item}</td><td>${r.qty}</td><td>${r.unit||''}</td><td>${r.container||''}</td><td>${r.user_name}</td><td>${t}</td></tr>`}).join('')+`</tbody></table>`;
     }else{
-      const mon=new Date();const d=mon.getDay();const diff=d===0?-6:1-d;mon.setDate(mon.getDate()+diff);const monStr=mon.toISOString().slice(0,10);
+      // lunedì di questa settimana in UTC — deve matchare v_prep_weekly
+      const mon=new Date();
+      const dow=mon.getUTCDay();
+      const diff=dow===0?-6:1-dow;
+      mon.setUTCDate(mon.getUTCDate()+diff);
+      const monStr=mon.toISOString().slice(0,10);
       const{data}=await supa.from('v_prep_weekly').select('*').eq('settimana_lun',monStr);
       const map={};(data||[]).forEach(r=>{if(!map[r.item])map[r.item]=Array(7).fill('');map[r.item][r.giorno_num-1]=`${r.totale} ${r.unit||''}`});
       lastReport=Object.entries(map).map(([item,vals])=>({item,vals}));
