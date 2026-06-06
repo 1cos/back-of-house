@@ -87,7 +87,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
     <div class="max-w-md mx-auto px-3 h-14 flex items-center justify-between">
       <div class="font-bold text-[15px] flex items-center gap-1.5"><span>🍳</span><span>Back of House</span></div>
       <div class="flex items-center gap-2 text-sm">
-        <span id="who" class="font-medium"></span>
+        <span id="who" class="font-medium cursor-pointer" onclick="openProfile()" style="color:#3B82F6;"></span>
         <div id="online" class="flex -space-x-1"></div>
         <button id="alertBtn" class="hidden px-3 py-2 bg-red-600 text-white rounded-xl text-base">🚨</button>
         <button id="userMgrBtn" onclick="openUserManager()" class="hidden px-3 py-2 bg-slate-100 rounded-xl text-base">👥</button>
