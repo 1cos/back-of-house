@@ -4,9 +4,11 @@ let presenceChannel = null;
 
 async function updatePresence(){
   if(!user) return;
-  const station = station2 !== 'All' ? station2 : (station !== 'All' ? station : null);
+  const st2 = (typeof station2 !== 'undefined' ? station2 : 'All');
+  const st = (typeof station !== 'undefined' ? station : 'All');
+  const stationVal = st2 !== 'All' ? st2 : (st !== 'All' ? st : null);
   await supa.from('user_presence').upsert(
-    {user_name: user.name, last_seen: new Date().toISOString(), role: user.role||'staff', station: station||null},
+    {user_name: user.name, last_seen: new Date().toISOString(), role: user.role||'staff', station: stationVal||null},
     {onConflict: 'user_name'}
   );
 }
