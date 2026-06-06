@@ -91,7 +91,18 @@ document.getElementById('f').onsubmit=async e=>{
   const v=document.getElementById('txt').value.trim();
   if(!v)return;
   document.getElementById('txt').value='';
-  await supa.from('messages').insert({text:v,user_name:user.name,lang:user.lang||'it'});
+  // rileva lingua automaticamente con Groq
+  let detectedLang=user.lang||'it';
+  try{
+    const r=await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+      body:JSON.stringify({text:v,targetLang:'__detect__'})
+    });
+    const j=await r.json();
+    if(j.detected) detectedLang=j.detected;
+  }catch(e){}
+  await supa.from('messages').insert({text:v,user_name:user.name,lang:detectedLang});
 };
 
 // AUTO-LOGIN via auth_id rimosso — login solo nome+password
