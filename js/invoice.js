@@ -433,6 +433,20 @@ window.answerOneQuestion = async(vendor, rawDesc, answer, btn)=>{
       resolution:      resolution,
       answered_by:     user?.name||'Max'
     }, {onConflict:'vendor,raw_description'});
+
+    // ── AGGIORNA invoice_lines con la risposta ──────────────
+    // Cerca la riga già salvata e aggiorna purchase_unit + clarification
+    await supa.from('invoice_lines')
+      .update({
+        purchase_unit:          answer,
+        clarification_answered: true,
+        clarification_answer:   answer,
+        clarification_at:       new Date().toISOString(),
+        needs_clarification:    false
+      })
+      .eq('raw_description', rawDesc)
+      .eq('vendor', vendor)
+      .is('clarification_answered', false);
   }
 
   await new Promise(r=>setTimeout(r,150));
@@ -451,15 +465,19 @@ async function saveToInvoiceLines(data){
     raw_description:        item.description||'',
     vendor_sku:             item.vendor_sku||null,
     qty:                    parseFloat(item.quantity||item.qty)||null,
+    // purchase_unit: usa la risposta OQR se disponibile, poi unit dell'AI
     purchase_unit:          item.purchase_unit||item.unit||null,
     pack_description:       item.pack_size||null,
     unit_price:             parseFloat(item.unit_price)||null,
     line_total:             parseFloat(item.amount||item.line_total)||null,
     needs_clarification:    !!(item.needs_clarification && !item._clarified),
     clarification_answered: !!(item._clarified),
+    clarification_answer:   item._clarified ? (item.purchase_unit||null) : null,
+    clarification_question: item.clarification_question||null,
     match_status:           'unmatched'
   }));
 
   const {error} = await supa.from('invoice_lines').insert(lines);
   if(error) console.warn('invoice_lines:', error.message);
+  else console.log('invoice_lines saved:', lines.length, 'rows, units:', lines.map(l=>l.raw_description+'='+l.purchase_unit));
 }
