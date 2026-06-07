@@ -1,29 +1,60 @@
 // ── NEWS — solo admin ──
+const DEFAULT_LANG = 'en';
+function normalizeLang(lang){
+  if(!lang) return DEFAULT_LANG;
+  return String(lang).trim().toLowerCase().slice(0,2)||DEFAULT_LANG;
+}
+
 async function loadNews(){
+  if(!isAdmin()) return; // staff non vede news
   const{data}=await supa.from('alerts').select('*').eq('is_active',true).order('created_at',{ascending:false});
   currentNews=data||[];
   const bar=document.getElementById('newsBar');
   if(!currentNews.length){bar.classList.add('hidden');return}
   bar.classList.remove('hidden');
-  const base=currentNews.map(n=>{
-    const t=new Date(n.created_at).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
-    return{txt:n.message,suf:` • ${n.created_by||'Crew'} ${t}`};
-  });
-  const targetLang=user?.lang||'it';
-  const trs=await Promise.all(base.map(b=>
-    fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
-      body:JSON.stringify({text:b.txt,targetLang})
-    }).then(r=>r.json()).then(j=>j.translated||b.txt).catch(()=>b.txt)
-  ));
-  const out=trs.map((t,i)=>t+base[i].suf).join(' ✦ ');
+  const viewerLang = normalizeLang(user?.lang);
+
+  // Per ogni alert: detect lingua originale, poi traduci se necessario
+  const translated = await Promise.all(currentNews.map(async n => {
+    const t = new Date(n.created_at).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
+    const suf = ` • ${n.created_by||'Crew'} ${t}`;
+    const sourceText = n.message || '';
+    if(!sourceText.trim()) return sourceText + suf;
+
+    try {
+      // Detect lingua originale
+      const detectRes = await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+        body:JSON.stringify({text:sourceText, targetLang:'__detect__'})
+      });
+      const detectData = await detectRes.json();
+      const sourceLang = normalizeLang(detectData.detected);
+
+      // Traduci solo se lingua diversa
+      if(sourceLang !== viewerLang) {
+        const transRes = await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+          body:JSON.stringify({text:sourceText, targetLang:viewerLang})
+        });
+        const transData = await transRes.json();
+        return (transData.translated || sourceText) + suf;
+      }
+      return sourceText + suf;
+    } catch(e) {
+      return sourceText + suf; // fallback originale
+    }
+  }));
+
+  const out = translated.join(' ✦ ');
   document.getElementById('newsScroll').textContent=out;
 }
 
 // Realtime news — solo admin
 let newsChannel = null;
 function startNewsRealtime(){
+  if(!isAdmin()) return;
   if(newsChannel) supa.removeChannel(newsChannel);
   newsChannel = supa.channel('news-rt-'+Date.now())
     .on('postgres_changes',{event:'*',schema:'public',table:'alerts'},()=>{
@@ -39,6 +70,7 @@ function startNewsRealtime(){
 // Poll ogni 60s solo dopo login admin
 // Non parte automaticamente — viene chiamato da doLogin() se admin
 function initNews(){
+  if(!isAdmin()) return;
   startNewsRealtime();
   setInterval(loadNews, 60000);
   if('Notification'in window&&Notification.permission==='default') Notification.requestPermission();
