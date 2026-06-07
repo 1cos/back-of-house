@@ -31,6 +31,36 @@
   .fly-out{animation:flyOut 0.5s ease-out forwards}
   @keyframes confettiFall{0%{transform:translateY(-20px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
 </style>
+</style>
+  <style>
+    /* ── TYPOGRAPHY & COLOR OVERRIDES ── */
+    /* Top bar */
+    #app .text-sm { font-size: 14px !important; }
+    /* Back of House title */
+    .app-title { font-size: 17px !important; font-weight: 600 !important; }
+    /* Username nel top bar */
+    #who { font-size: 14px !important; font-weight: 500 !important; }
+    /* News bar */
+    #newsBar { font-size: 13px !important; }
+    #newsScroll { font-size: 13px !important; }
+    /* Widget titles (SERVICE UPDATES, YOUR STATION, etc) */
+    .text-\[11px\] { font-size: 12px !important; }
+    .text-\[10px\] { font-size: 11px !important; }
+    /* Tono celeste più scuro — sostituzione variabili colore */
+    :root {
+      --color-blue-light: #bfdbfe;   /* era #93c5fd */
+      --color-blue-mid:   #3b82f6;   /* invariato */
+      --color-blue-dark:  #1d4ed8;   /* più scuro */
+      --color-navy:       #1e3a5f;   /* invariato */
+    }
+    /* Subtitles e labels celesti più scuri */
+    [style*="color:#93c5fd"] { color: #60a5fa !important; }
+    [style*="color: #93c5fd"] { color: #60a5fa !important; }
+    /* Tab labels */
+    .tab-label { font-size: 11px !important; }
+    /* Section headers (UPCOMING DEMAND, SERVICE UPDATES...) */
+    .tracking-wider { letter-spacing: 0.08em; }
+  </style>
 </head>
 
 <body style="background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);min-height:100vh;">

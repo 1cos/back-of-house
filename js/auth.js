@@ -74,10 +74,7 @@ async function checkFirstLogin(){
           <label class="text-xs font-semibold text-slate-500 mb-1 block">Confirm password</label>
           <input id="fl_pwd2" type="password" placeholder="Repeat password" class="w-full px-3 py-2.5 border rounded-xl text-sm">
         </div>
-        <div>
-          <label class="text-xs font-semibold text-slate-500 mb-1 block">Date of birth <span class="text-slate-400 font-normal">(optional)</span></label>
-          <input id="fl_birth" type="date" class="w-full px-3 py-2.5 border rounded-xl text-sm">
-        </div>
+        <!-- Data di nascita rimossa — informazione privata -->
         <p id="fl_err" class="text-red-600 text-xs hidden"></p>
       </div>
       <button onclick="saveFirstLogin(this)" class="w-full mt-4 py-3 bg-slate-900 text-white rounded-xl font-semibold">Let's go →</button>
@@ -94,7 +91,7 @@ async function checkFirstLogin(){
 async function saveFirstLogin(btn){
   const pwd=document.getElementById('fl_pwd').value;
   const pwd2=document.getElementById('fl_pwd2').value;
-  const birth=document.getElementById('fl_birth').value;
+  const birth = null; // data di nascita rimossa
   const err=document.getElementById('fl_err');
   // lingua selezionata
   const selectedLangBtn=document.querySelector('.fl-lang-btn.bg-slate-900');
@@ -151,7 +148,6 @@ async function openUserManager(){
           <div class="flex-1 min-w-0">
             <div class="font-semibold text-sm">${u.name} ${u.active===false?'<span class="text-[10px] text-slate-400">(disattivato)</span>':''}</div>
             <div class="text-xs text-slate-500">${u.role||'staff'} • ${u.lang||'it'} ${u.default_station?'• '+u.default_station:''}</div>
-            ${u.birth_date?`<div class="text-[10px] text-slate-400">🎂 ${new Date(u.birth_date).toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit'})}</div>`:''}
           </div>
           <div class="flex gap-1 flex-shrink-0">
             <button onclick="openEditUser(${u.id})" class="p-1.5 bg-slate-100 rounded-lg text-xs">✏️</button>
@@ -187,7 +183,7 @@ function openAddUser(){
           <option value="">— Stazione default —</option>
           ${STATIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
         </select>
-        <input id="nu_birth" type="date" class="w-full px-3 py-2.5 border rounded-xl text-sm">
+        <!-- data di nascita rimossa -->
         <input id="nu_pin" type="text" maxlength="4" placeholder="PIN 4 cifre" class="w-full px-3 py-2.5 border rounded-xl text-sm" pattern="[0-9]{4}">
         <p id="nu_err" class="text-red-600 text-xs hidden"></p>
       </div>
@@ -205,7 +201,7 @@ async function saveNewUser(btn){
   const lang=document.getElementById('nu_lang').value;
   const role=document.getElementById('nu_role').value;
   const station=document.getElementById('nu_station').value;
-  const birth=document.getElementById('nu_birth').value;
+  const birth = null;
   const err=document.getElementById('nu_err');
   err.classList.add('hidden');
   if(!name||!pwd){err.textContent='Nome e password obbligatori';err.classList.remove('hidden');return}
@@ -250,7 +246,7 @@ async function openEditUser(userId){
           <option value="">— Stazione default —</option>
           ${STATIONS.map(s=>`<option value="${s}" ${u.default_station===s?'selected':''}>${s}</option>`).join('')}
         </select>
-        <input id="eu_birth" type="date" class="w-full px-3 py-2.5 border rounded-xl text-sm" value="${u.birth_date||''}">
+        <!-- data di nascita rimossa -->
         <input id="eu_pin" type="text" maxlength="4" placeholder="Nuovo PIN 4 cifre (lascia vuoto per non cambiare)" class="w-full px-3 py-2.5 border rounded-xl text-sm" pattern="[0-9]{4}">
         <p id="eu_err" class="text-red-600 text-xs hidden"></p>
       </div>
@@ -268,7 +264,7 @@ async function saveEditUser(userId, btn){
   const lang=document.getElementById('eu_lang').value;
   const role=document.getElementById('eu_role').value;
   const default_station=document.getElementById('eu_station').value;
-  const birth_date=document.getElementById('eu_birth').value;
+  const birth_date = null;
   const err=document.getElementById('eu_err');
   if(!name){err.textContent='Nome obbligatorio';err.classList.remove('hidden');return}
   btn.disabled=true; btn.textContent='Salvataggio...';
@@ -286,17 +282,57 @@ async function saveEditUser(userId, btn){
 }
 
 async function resetUserPassword(userId, userName){
-  const newPwd=prompt(`Reset password per ${userName}.\nInserisci nuova password temporanea:`);
-  if(!newPwd||newPwd.length<4){alert('Password minimo 4 caratteri');return}
-  const hash=await hashPassword(newPwd);
-  const{error}=await supa.from('users').update({password_hash:hash,first_login:true}).eq('id',userId);
-  if(error){alert('Errore: '+error.message);return}
-  alert(`✅ Password di ${userName} resettata a: ${newPwd}\nAl prossimo accesso dovrà cambiarla.`);
+  const modal = document.createElement('div');
+  modal.className = 'fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4';
+  modal.innerHTML = `
+    <div style="background:white;border-radius:20px;padding:20px;width:88%;max-width:360px;">
+      <div style="font-size:15px;font-weight:600;color:#1e293b;margin-bottom:12px;">🔑 Reset password — ${userName}</div>
+      <input id="resetPwdInput" type="text" placeholder="Nuova password temporanea"
+        style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:12px;font-size:14px;box-sizing:border-box;margin-bottom:12px;">
+      <p id="resetPwdErr" style="color:#dc2626;font-size:12px;display:none;margin-bottom:8px;"></p>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
+        <button onclick="this.closest('.fixed').remove()"
+          style="height:42px;border-radius:12px;background:#f1f5f9;color:#64748b;font-size:13px;border:none;cursor:pointer;">
+          Annulla
+        </button>
+        <button onclick="confirmResetPassword(${userId},'${userName}',this)"
+          style="height:42px;border-radius:12px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">
+          Reset
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  setTimeout(()=>document.getElementById('resetPwdInput')?.focus(),100);
 }
 
+window.confirmResetPassword = async(userId, userName, btn) => {
+  const pwd = document.getElementById('resetPwdInput')?.value?.trim();
+  const err = document.getElementById('resetPwdErr');
+  if(!pwd || pwd.length < 4){
+    err.textContent = 'Minimo 4 caratteri';
+    err.style.display = 'block';
+    return;
+  }
+  btn.textContent = '...'; btn.disabled = true;
+  const hash = await hashPassword(pwd);
+  const {error} = await supa.from('users').update({password_hash:hash, first_login:true}).eq('id', userId);
+  btn.closest('.fixed').remove();
+  if(error){
+    const t = document.createElement('div');
+    t.className = 'fixed top-16 left-1/2 -translate-x-1/2 z-[70] bg-red-600 text-white text-sm px-4 py-2 rounded-xl';
+    t.textContent = 'Errore: ' + error.message;
+    document.body.appendChild(t);
+    setTimeout(()=>t.remove(), 3000);
+  } else {
+    const t = document.createElement('div');
+    t.className = 'fixed top-16 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white text-sm px-4 py-2 rounded-xl';
+    t.textContent = `✅ Password di ${userName} resettata`;
+    document.body.appendChild(t);
+    setTimeout(()=>t.remove(), 3000);
+  }
+};
+
 async function toggleUserActive(userId, currentlyActive){
-  const action=currentlyActive?'disattivare':'riattivare';
-  if(!confirm(`Vuoi ${action} questo utente?`)) return;
   await supa.from('users').update({active:!currentlyActive}).eq('id',userId);
   document.querySelector('.fixed')?.remove();
   openUserManager();
@@ -426,17 +462,51 @@ async function saveProfile(btn){
 }
 
 function changeAvatar(){
-  const url=prompt('Enter photo URL (https://...):');
-  if(!url) return;
-  supa.from('users').update({photo_url:url}).eq('id',parseInt(user.id)).then(({error})=>{
-    if(!error){
-      user.photo_url=url;
-      const av=document.getElementById('profileAvatar');
-      if(av) av.innerHTML=`<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
-      // aggiorna avatar nel top bar
-      updateTopBarAvatar();
+  // Upload dal rullino/fotocamera — niente URL manuale
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async(e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    
+    const av = document.getElementById('profileAvatar');
+    if(av) av.innerHTML = '<span style="font-size:20px;">⏳</span>';
+    
+    // Carica su Supabase Storage
+    const ext = file.name.split('.').pop();
+    const path = `avatars/${user.id}_${Date.now()}.${ext}`;
+    
+    const { data, error } = await supa.storage
+      .from('avatars')
+      .upload(path, file, { upsert: true, contentType: file.type });
+    
+    if(error){
+      console.warn('Upload error:', error.message);
+      // Fallback: usa FileReader per base64 locale
+      const reader = new FileReader();
+      reader.onload = async(ev) => {
+        const url = ev.target.result;
+        await supa.from('users').update({photo_url: url}).eq('id', parseInt(user.id));
+        user.photo_url = url;
+        if(av) av.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
+        updateTopBarAvatar();
+      };
+      reader.readAsDataURL(file);
+      return;
     }
-  });
+    
+    // Ottieni URL pubblico
+    const { data: urlData } = supa.storage.from('avatars').getPublicUrl(path);
+    const url = urlData?.publicUrl;
+    if(!url) return;
+    
+    await supa.from('users').update({photo_url: url}).eq('id', parseInt(user.id));
+    user.photo_url = url;
+    if(av) av.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
+    updateTopBarAvatar();
+  };
+  input.click();
 }
 
 function updateTopBarAvatar(){
