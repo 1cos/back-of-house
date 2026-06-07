@@ -80,10 +80,9 @@ function doLogin(profile){
   // avvia realtime chat subito al login
   setTimeout(()=>startChatRealtime(), 500);
   // mostra/nascondi sezioni in base al ruolo
+  // Briefing AI visibile a tutti
   const checklistSection=document.getElementById('homeChecklistSection');
   if(checklistSection) checklistSection.style.display=isAdmin()?'block':'none';
-  const invoiceSection=document.getElementById('invoiceSection');
-  if(invoiceSection) invoiceSection.style.display=isAdmin()?'block':'none';
   // check primo accesso e compleanni
   setTimeout(()=>{checkFirstLogin(); checkBirthdays(); initSousChef();}, 1000);
 }

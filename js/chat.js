@@ -15,8 +15,8 @@ function addMsg(m,init){
   const me=m.user_name===user?.name;
   const d=document.createElement('div');
   d.className='flex '+(me?'justify-end':'');
-  // traduce solo se lingua messaggio diversa da lingua utente E non è lo stesso utente
-  const needs=m.lang&&user&&user.lang&&m.lang!==user.lang&&m.user_name!==user?.name&&m.lang!=='__';
+  // traduce se la lingua del messaggio è diversa da quella dell'utente
+  const needs=m.lang&&user&&user.lang&&m.lang!==user.lang&&m.user_name!==user?.name;
   const isPinned = m.pinned && isAdmin();
   d.innerHTML=`<div class="max-w-[75%]">
     ${m.pinned?'<div class="text-[10px] text-amber-600 font-semibold mb-0.5">📌 Pinnato</div>':''}
