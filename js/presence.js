@@ -75,18 +75,18 @@ function stopPresence(){
 async function loadPresenceLog(){
   const out = document.getElementById('presenceLogOut');
   if(!out) return;
-  out.innerHTML = '<p class="text-slate-400 text-xs">Caricamento...</p>';
+  out.innerHTML = `<p class="text-slate-400 text-xs">${tr('loading')}</p>`;
   const since = new Date(Date.now() - 7*24*60*60*1000).toISOString();
   const{data} = await supa.from('user_presence').select('*').order('last_seen',{ascending:false});
-  if(!data||!data.length){out.innerHTML='<p class="text-slate-400 text-xs">Nessun dato</p>';return}
+  if(!data||!data.length){out.innerHTML=`<p class="text-slate-400 text-xs">${tr('noData2')}</p>`;return}
   const now = Date.now();
-  out.innerHTML = `<table class="w-full text-xs"><thead><tr class="border-b font-semibold"><td class="py-1">Utente</td><td>Stazione</td><td>Ruolo</td><td>Ultimo accesso</td><td>Stato</td></tr></thead><tbody>`+
+  out.innerHTML = `<table class="w-full text-xs"><thead><tr class="border-b font-semibold"><td class="py-1">Name</td><td>${tr("station")}</td><td>${tr("role")}</td><td>${tr("lastAccess")}</td><td>${tr("status")}</td></tr></thead><tbody>`+
     data.map(u=>{
       const diff = now - new Date(u.last_seen).getTime();
       const isOnline = diff < 2*60*1000;
       const mins = Math.floor(diff/60000);
       const hours = Math.floor(mins/60);
-      const timeAgo = isOnline ? 'Online' : hours>0 ? `${hours}h fa` : `${mins}m fa`;
+      const timeAgo = isOnline ? tr('online') : hours>0 ? `${hours}h fa` : `${mins}m fa`;
       return `<tr class="border-b">
         <td class="py-1 font-medium">${u.user_name}</td>
         <td>${u.station||'—'}</td>

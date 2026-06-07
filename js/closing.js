@@ -128,9 +128,9 @@ async function doCloseTurn(){
   const missing=items.filter(i=>closingAnswers[i.id]===false);
   const missingList=missing.map(i=>i.name).join(', ')||'niente';
   await supa.from('messages').insert({
-    text:`🔒 Turno chiuso da ${user.name}. Manca: ${missingList}.`,
+    text:`🔒 ${tr("shiftClosed")} ${user.name}. ${tr("missing2")}: ${missingList}.`,
     user_name:'Sistema',
-    lang:user.lang||'en'
+    lang:user.lang||'it'
   });
   // invia push alla brigata della mattina
   try{
@@ -139,7 +139,7 @@ async function doCloseTurn(){
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
       body:JSON.stringify({
         title:'🔒 Turno chiuso',
-        body: missingList==='niente' ? `${user.name} ha chiuso. Tutto ok!` : `${user.name} ha chiuso. Da fare: ${missingList}`,
+        body: missingList==='niente' ? `${user.name} closed. ${tr('allGood')}` : `${user.name} closed. ${tr('daFare')}: ${missingList}`,
         exclude_user: user.name
       })
     });

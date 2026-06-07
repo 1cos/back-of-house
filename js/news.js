@@ -6,6 +6,7 @@ function normalizeLang(lang){
 }
 
 async function loadNews(){
+  if(!isAdmin()) return; // staff non vede news
   const{data}=await supa.from('alerts').select('*').eq('is_active',true).order('created_at',{ascending:false});
   currentNews=data||[];
   const bar=document.getElementById('newsBar');
@@ -53,6 +54,7 @@ async function loadNews(){
 // Realtime news — solo admin
 let newsChannel = null;
 function startNewsRealtime(){
+  if(!isAdmin()) return;
   if(newsChannel) supa.removeChannel(newsChannel);
   newsChannel = supa.channel('news-rt-'+Date.now())
     .on('postgres_changes',{event:'*',schema:'public',table:'alerts'},()=>{
@@ -68,6 +70,7 @@ function startNewsRealtime(){
 // Poll ogni 60s solo dopo login admin
 // Non parte automaticamente — viene chiamato da doLogin() se admin
 function initNews(){
+  if(!isAdmin()) return;
   startNewsRealtime();
   setInterval(loadNews, 60000);
   if('Notification'in window&&Notification.permission==='default') Notification.requestPermission();
@@ -105,7 +108,7 @@ function showNewsModal(){
   modal.innerHTML=`
     <div style="background:white;border-radius:20px;padding:20px;width:88%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
       <div style="font-size:15px;font-weight:600;color:#1e293b;margin-bottom:12px;">📢 Nuova comunicazione</div>
-      <textarea id="newsInputText" rows="3" placeholder="Scrivi il messaggio per il team..."
+      <textarea id="newsInputText" rows="3" placeholder="${tr('writePlaceholder')}"
         style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:12px;font-size:14px;resize:none;box-sizing:border-box;outline:none;font-family:inherit;"></textarea>
       <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:12px;">
         <button onclick="this.closest('.fixed').remove()" 
@@ -141,7 +144,7 @@ function showNewsManageModal(){
   if(!currentNews?.length){
     const t=document.createElement('div');
     t.className='fixed top-16 left-1/2 -translate-x-1/2 z-[70] bg-slate-800 text-white text-sm px-4 py-2 rounded-xl';
-    t.textContent='Nessuna comunicazione attiva';
+    t.textContent=tr('noActivenews');
     document.body.appendChild(t);
     setTimeout(()=>t.remove(),2000);
     return;
@@ -167,7 +170,7 @@ function showNewsManageModal(){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
         <button onclick="this.closest('.fixed').remove()"
           style="height:42px;border-radius:12px;background:#f1f5f9;color:#64748b;font-size:13px;border:none;cursor:pointer;">
-          Chiudi
+          ${tr('close')}
         </button>
         <button onclick="closeAllNews(this)"
           style="height:42px;border-radius:12px;background:#dc2626;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">

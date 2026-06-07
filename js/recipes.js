@@ -30,7 +30,7 @@ function showNoteSheet(name, note){
     <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4"></div>
     <h3 class="text-xl font-bold mb-3">📝 ${name}</h3>
     <div class="bg-slate-50 rounded-2xl p-4 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">${note}</div>
-    <button onclick="this.closest('.fixed').remove()" class="w-full mt-4 py-3 bg-slate-900 text-white rounded-xl">Chiudi</button>
+    <button onclick="this.closest('.fixed').remove()" class="w-full mt-4 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
   </div>`;
   sheet.onclick=e=>{if(e.target===sheet)sheet.remove()};
   document.body.appendChild(sheet);
@@ -78,11 +78,11 @@ function showRecipeSheet(rec){
     <p class="text-xs text-slate-500 mb-3">${rec.category||''} • ${rec.yield_text||rec.yield||''}${(rec.prep_time_minutes||rec.prep_time)?' • '+(rec.prep_time_minutes||rec.prep_time)+' min':''}</p>
     ${rec.image_url?`<img src="${rec.image_url}" class="w-full h-40 object-cover rounded-xl mb-3">`:''}
     ${rec.photo_url?`<img src="${rec.photo_url}" class="w-full h-40 object-cover rounded-xl mb-3">`:''}
-    ${ings?`<p class="text-sm font-semibold mb-1">Ingredienti</p><ul class="text-sm space-y-1 mb-3">${ings}</ul>`:''}
+    ${ings?`<p class="text-sm font-semibold mb-1">${tr("ingredients")}</p><ul class="text-sm space-y-1 mb-3">${ings}</ul>`:''}
     ${rec.equipment?`<p class="text-sm font-semibold mb-1">Attrezzatura</p><p class="text-xs text-slate-600 mb-3 whitespace-pre-wrap">${rec.equipment}</p>`:''}
     ${rec.procedure?`<p class="text-sm font-semibold mb-1">Procedimento</p><p class="text-sm text-slate-700 whitespace-pre-wrap mb-4">${rec.procedure}</p>`:''}
     ${rec.note?`<p class="text-xs text-amber-700 bg-amber-50 p-2 rounded-lg mb-3">${rec.note}</p>`:''}
-    <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 py-3 bg-slate-900 text-white rounded-xl">Chiudi</button>
+    <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
   </div>`;
   sheet.onclick=e=>{if(e.target===sheet)sheet.remove()};
   document.body.appendChild(sheet);
@@ -140,7 +140,7 @@ function openRecipeEditor(rec=null){
       <div><div class="font-semibold mb-1">Attrezzatura</div><textarea id="rEquip" class="w-full px-3 py-2 border rounded-xl h-16">${rec?.equipment||''}</textarea></div>
       <div><div class="font-semibold mb-1">Procedimento</div><textarea id="rProc" class="w-full px-3 py-2 border rounded-xl h-32">${rec?.procedure||''}</textarea></div>
     </div>
-    <div class="p-3 border-t flex gap-2"><button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl">Annulla</button><button id="saveR" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold">Salva</button></div>
+    <div class="p-3 border-t flex gap-2"><button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl">${tr("cancel")}</button><button id="saveR" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold">${tr("save")}</button></div>
   </div>`;
   document.body.appendChild(modal);
   const ingList=modal.querySelector('#ingList');
