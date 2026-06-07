@@ -118,8 +118,8 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
     <button onclick="alert('Inventario — in arrivo')" class="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center active:scale-95 transition">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
     </button>
-    <button onclick="document.querySelector('[data-t=r]').click()" class="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center active:scale-95 transition">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+    <button id="sideIngrBtn" onclick="document.querySelector('[data-t=i]').click()" class="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center active:scale-95 transition" style="display:none;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
     </button>
   </div>
 
@@ -316,9 +316,9 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         <span class="text-[10px] tab-label">Ricette</span>
       </button>
-      <button data-t="i" class="tab flex flex-col items-center gap-1 w-16 text-slate-500">
+      <button id="tabIngredients" data-t="i" class="tab flex flex-col items-center gap-1 w-16 text-slate-500" style="display:none;">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-        <span class="text-[10px] tab-label">Ingredients</span>
+        <span class="text-[10px] tab-label" data-i18n="ingredients">Ingredienti</span>
       </button>
     </div>
   </nav>

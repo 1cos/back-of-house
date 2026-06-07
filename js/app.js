@@ -75,7 +75,8 @@ function doLogin(profile){
   document.getElementById('login').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('who').textContent=user.name;
-  init(); applyLang(); updateAlertBtn(); loadNews(); setupPush();
+  init(); applyLang(); updateAlertBtn(); setupPush();
+  if(isAdmin()) loadNews(); // News solo per admin
   loadBriefing(); startPresence(); startUrgencyCheck();
   // avvia realtime chat subito al login
   setTimeout(()=>startChatRealtime(), 500);
@@ -84,11 +85,39 @@ function doLogin(profile){
   if(checklistSection) checklistSection.style.display=isAdmin()?'block':'none';
   const invoiceSection=document.getElementById('invoiceSection');
   if(invoiceSection) invoiceSection.style.display=isAdmin()?'block':'none';
+
+  // ── RUOLI: admin-only ──
+  const admin = isAdmin();
+
+  // Tab Ingredients — solo admin
+  const tabIngr = document.getElementById('tabIngredients');
+  if(tabIngr) tabIngr.style.display = admin ? 'flex' : 'none';
+
+  // Bottone laterale Ingredients — solo admin
+  const sideIngr = document.getElementById('sideIngrBtn');
+  if(sideIngr) sideIngr.style.display = admin ? 'flex' : 'none';
+
+  // News bar — solo admin
+  // Staff vede solo chat — loadNews non viene chiamata per staff
+  if(!admin){
+    const newsBar = document.getElementById('newsBar');
+    if(newsBar) newsBar.style.display = 'none';
+  }
+
   // check primo accesso e compleanni
   setTimeout(()=>{checkFirstLogin(); checkBirthdays(); initSousChef();}, 1000);
 }
 
 document.getElementById('out').onclick=()=>{user=null;location.reload()};
+
+// ── TRADUZIONI TAB INGREDIENTS ──
+// Viene chiamata da applyLang() già esistente
+function applyIngredientsLang(){
+  const lang = user?.lang || 'it';
+  const labels = { it:'Ingredienti', en:'Ingredients', es:'Ingredientes' };
+  const el = document.querySelector('[data-i18n="ingredients"]');
+  if(el) el.textContent = labels[lang] || 'Ingredients';
+}
 
 // ── TAB NAVIGATION ──
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
