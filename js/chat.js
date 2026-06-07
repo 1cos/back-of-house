@@ -1,16 +1,37 @@
-// ── CHAT ──
+// ── CHAT — Glass Effect Apple ──
+const REACTIONS = ['👍','✅','👀','🔥','❤️','😂','🙏'];
+
 function showChat(){
-  document.querySelectorAll('.tab').forEach(x=>{x.classList.remove('tab-active');x.classList.add('text-slate-500');const svg=x.querySelector('svg');if(svg)svg.style.stroke='';const sp=x.querySelector('.tab-label');if(sp)sp.style.color=''});
-  ['vh','vm','vs','vr','vp'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  // Resetta navigazione tab
+  document.querySelectorAll('.tab').forEach(x=>{
+    x.classList.remove('tab-active');x.classList.add('text-slate-500');
+    const svg=x.querySelector('svg');if(svg)svg.style.stroke='';
+    const sp=x.querySelector('.tab-label');if(sp)sp.style.color='';
+  });
+  ['vh','vm','vs','vr','vp','vi'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.classList.add('hidden');
+  });
   document.getElementById('vc').classList.remove('hidden');
-  loadChat();startChatRealtime();loadPinnedMessages();
+  loadChat();
+  startChatRealtime();
+  loadPinnedMessages();
+  // Azzera badge quando apri la chat
   const badge=document.getElementById('badge');
   if(badge){badge.style.display='none';badge.textContent='0';}
 }
+
 async function loadChat(){
+  const el=document.getElementById('msgs');
+  if(el) el.innerHTML='';
   const{data}=await supa.from('messages').select('*').order('created_at',{ascending:true}).limit(100);
-  msgs.innerHTML='';(data||[]).forEach(m=>addMsg(m,true));
+  (data||[]).forEach(m=>addMsg(m,true));
 }
+
+function isChatOpen(){
+  const vc=document.getElementById('vc');
+  return vc && !vc.classList.contains('hidden');
+}
+
 function addMsg(m,init){
   const me=m.user_name===user?.name;
   const isSystem=m.user_name==='Sistema';
@@ -18,36 +39,70 @@ function addMsg(m,init){
   if(!msgs) return;
 
   const needs=m.lang&&user&&user.lang&&m.lang!==user.lang&&m.user_name!==user?.name&&m.lang!=='__';
-
   const d=document.createElement('div');
 
   if(isSystem){
-    d.style.cssText='display:flex;justify-content:center;margin:4px 0;';
-    d.innerHTML=`<div style="font-size:11px;color:#94a3b8;background:#f1f5f9;padding:4px 12px;border-radius:20px;max-width:85%;text-align:center;">${m.text}</div>`;
+    // Sistema — pill centrata
+    d.style.cssText='display:flex;justify-content:center;margin:6px 0;';
+    d.innerHTML=`<div style="
+      font-size:11px;color:#64748b;
+      background:rgba(241,245,249,0.8);
+      backdrop-filter:blur(8px);
+      padding:4px 14px;border-radius:20px;
+      max-width:85%;text-align:center;
+      border:0.5px solid rgba(148,163,184,0.2);
+    ">${m.text}</div>`;
+
   } else if(me){
-    d.style.cssText='display:flex;justify-content:flex-end;margin:2px 0;';
+    // Mio messaggio — destra, glass celeste
+    d.style.cssText='display:flex;justify-content:flex-end;margin:3px 0;padding:0 4px;';
     d.innerHTML=`
-      <div style="max-width:75%;">
-        <div style="background:#0369a1;color:white;padding:10px 14px;border-radius:18px 18px 4px 18px;font-size:14px;line-height:1.4;">${m.text}</div>
-        <div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:3px;">${formatTimeDallas(m.created_at)}</div>
+      <div style="max-width:78%;">
+        <div style="
+          background:linear-gradient(135deg,rgba(3,105,161,0.92),rgba(2,132,199,0.88));
+          backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+          color:white;padding:11px 15px;
+          border-radius:20px 20px 5px 20px;
+          font-size:14px;line-height:1.45;
+          box-shadow:0 4px 20px rgba(3,105,161,0.25),inset 0 1px 0 rgba(255,255,255,0.15);
+          border:0.5px solid rgba(255,255,255,0.15);
+        ">${m.text}</div>
+        <div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:4px;padding-right:4px;">
+          ${formatTimeDallas(m.created_at)}
+        </div>
         <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end;flex-wrap:wrap;">
-          ${(m.reactions||[]).map(r=>`<span style="font-size:12px;background:white;border:1px solid #e2e8f0;border-radius:20px;padding:2px 8px;">${r.emoji} ${r.count}</span>`).join('')}
-          <button onclick="addReaction('${m.id}')" style="font-size:11px;color:#94a3b8;background:#f1f5f9;border:none;border-radius:20px;padding:2px 8px;cursor:pointer;">+😊</button>
+          ${(m.reactions||[]).map(r=>`<span style="font-size:12px;background:rgba(255,255,255,0.8);backdrop-filter:blur(8px);border:0.5px solid rgba(0,0,0,0.08);border-radius:20px;padding:2px 8px;">${r.emoji} ${r.count}</span>`).join('')}
+          <button onclick="addReaction('${m.id}')" style="font-size:11px;color:#94a3b8;background:rgba(241,245,249,0.8);border:0.5px solid rgba(148,163,184,0.2);border-radius:20px;padding:2px 8px;cursor:pointer;">+😊</button>
         </div>
       </div>`;
+
   } else {
-    d.style.cssText='display:flex;align-items:flex-end;gap:8px;margin:2px 0;';
+    // Messaggio altrui — sinistra, glass bianco
+    d.style.cssText='display:flex;align-items:flex-end;gap:8px;margin:3px 0;padding:0 4px;';
     d.innerHTML=`
-      <div style="width:30px;height:30px;border-radius:50%;background:#3B82F6;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:white;flex-shrink:0;">${(m.user_name||'?').slice(0,2).toUpperCase()}</div>
+      <div style="
+        width:32px;height:32px;border-radius:50%;
+        background:linear-gradient(135deg,#3B82F6,#0369a1);
+        display:flex;align-items:center;justify-content:center;
+        font-size:12px;font-weight:700;color:white;flex-shrink:0;
+        box-shadow:0 2px 8px rgba(59,130,246,0.3);
+      ">${(m.user_name||'?').slice(0,2).toUpperCase()}</div>
       <div style="max-width:72%;">
-        <div style="font-size:11px;color:#60a5fa;font-weight:500;margin-bottom:3px;">${m.user_name}</div>
-        <div style="background:white;border:1px solid #e2e8f0;padding:10px 14px;border-radius:18px 18px 18px 4px;font-size:14px;line-height:1.4;color:#1e293b;">${m.text}</div>
-        ${needs?'<div style="font-size:11px;color:#94a3b8;font-style:italic;margin-top:3px;" data-tr>⏳ traduzione...</div>':''}
-        <div style="font-size:10px;color:#94a3b8;margin-top:3px;">${formatTimeDallas(m.created_at)}</div>
+        <div style="font-size:11px;color:#60a5fa;font-weight:600;margin-bottom:4px;letter-spacing:.01em;">${m.user_name}</div>
+        <div style="
+          background:rgba(255,255,255,0.75);
+          backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+          border:0.5px solid rgba(255,255,255,0.9);
+          padding:11px 15px;border-radius:20px 20px 20px 5px;
+          font-size:14px;line-height:1.45;color:#1e293b;
+          box-shadow:0 4px 20px rgba(0,0,0,0.06),inset 0 1px 0 rgba(255,255,255,0.8);
+        ">${m.text}</div>
+        ${needs?`<div style="font-size:11px;color:#94a3b8;font-style:italic;margin-top:4px;padding-left:4px;" data-tr>⏳ traduzione...</div>`:''}
+        <div style="font-size:10px;color:#94a3b8;margin-top:4px;padding-left:4px;">${formatTimeDallas(m.created_at)}</div>
         <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">
-          ${(m.reactions||[]).map(r=>`<span style="font-size:12px;background:white;border:1px solid #e2e8f0;border-radius:20px;padding:2px 8px;">${r.emoji} ${r.count}</span>`).join('')}
-          <button onclick="addReaction('${m.id}')" style="font-size:11px;color:#94a3b8;background:#f1f5f9;border:none;border-radius:20px;padding:2px 8px;cursor:pointer;">+😊</button>
-          ${isAdmin()&&!m.pinned?`<button onclick="pinMessage('${m.id}')" style="font-size:11px;color:#d97706;background:#fffbeb;border:none;border-radius:20px;padding:2px 8px;cursor:pointer;">📌</button>`:''}
+          ${(m.reactions||[]).map(r=>`<span style="font-size:12px;background:rgba(255,255,255,0.8);backdrop-filter:blur(8px);border:0.5px solid rgba(0,0,0,0.08);border-radius:20px;padding:2px 8px;">${r.emoji} ${r.count}</span>`).join('')}
+          <button onclick="addReaction('${m.id}')" style="font-size:11px;color:#94a3b8;background:rgba(241,245,249,0.8);border:0.5px solid rgba(148,163,184,0.2);border-radius:20px;padding:2px 8px;cursor:pointer;">+😊</button>
+          ${isAdmin()&&!m.pinned?`<button onclick="pinMessage('${m.id}')" style="font-size:11px;color:#d97706;background:rgba(254,243,199,0.8);border:0.5px solid rgba(217,119,6,0.2);border-radius:20px;padding:2px 8px;cursor:pointer;">📌</button>`:''}
         </div>
       </div>`;
   }
@@ -55,13 +110,22 @@ function addMsg(m,init){
   msgs.appendChild(d);
   msgs.scrollTop=99999;
 
+  // Traduzione
   if(needs){
     const targetLang=user.lang||'it';
-    fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},body:JSON.stringify({text:m.text,targetLang})})
-    .then(r=>r.json()).then(j=>{const el=d.querySelector('[data-tr]');if(el&&j.translated&&j.translated!==m.text)el.textContent='🌐 '+j.translated;else if(el)el.remove()});
+    fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+      body:JSON.stringify({text:m.text,targetLang})
+    }).then(r=>r.json()).then(j=>{
+      const el=d.querySelector('[data-tr]');
+      if(el&&j.translated&&j.translated!==m.text) el.textContent='🌐 '+j.translated;
+      else if(el) el.remove();
+    });
   }
 
-  if(!init&&!me&&!isSystem){
+  // Badge — solo se chat è chiusa e messaggio non mio
+  if(!init && !me && !isSystem && !isChatOpen()){
     const badge=document.getElementById('badge');
     if(badge){
       const count=(parseInt(badge.textContent||'0')+1);
@@ -70,58 +134,87 @@ function addMsg(m,init){
     }
   }
 }
-function addReaction(msgId){
+
+// ── REACTION PICKER ──────────────────────────────────────────
+window.addReaction = function(msgId){
   const picker=document.createElement('div');
-  picker.className='fixed inset-0 z-50 bg-black/30 flex items-end justify-center';
-  picker.innerHTML=`<div class="bg-white rounded-t-3xl p-4 w-full max-w-md" style="animation:slideUp .2s ease">
-    <p class="text-xs text-slate-500 mb-3 text-center">${user?.lang==='en'?'Choose reaction':user?.lang==='es'?'Elige reacción':'Scegli reazione'}</p>
-    <div class="flex justify-around">${REACTIONS.map(e=>`<button onclick="saveReaction('${msgId}','${e}');this.closest('.fixed').remove()" class="text-3xl active:scale-90 transition">${e}</button>`).join('')}</div>
-  </div>`;
+  picker.style.cssText='position:fixed;inset:0;z-index:70;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.2);backdrop-filter:blur(4px);';
+  picker.innerHTML=`
+    <div style="
+      background:rgba(255,255,255,0.92);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);
+      border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;
+      box-shadow:0 -8px 40px rgba(0,0,0,0.12);
+      border-top:0.5px solid rgba(255,255,255,0.8);
+      animation:slideUp .2s ease;
+    ">
+      <div style="width:36px;height:4px;background:rgba(0,0,0,0.1);border-radius:2px;margin:0 auto 16px;"></div>
+      <div style="display:flex;justify-content:space-around;padding:0 8px;">
+        ${REACTIONS.map(e=>`
+          <button onclick="saveReaction('${msgId}','${e}');this.closest('[style*=fixed]').remove()"
+            style="font-size:32px;background:none;border:none;cursor:pointer;padding:8px;border-radius:16px;transition:transform .15s;"
+            onmousedown="this.style.transform='scale(0.85)'" onmouseup="this.style.transform='scale(1)'">
+            ${e}
+          </button>`).join('')}
+      </div>
+    </div>`;
   picker.onclick=e=>{if(e.target===picker)picker.remove()};
   document.body.appendChild(picker);
-}
+};
 
-async function saveReaction(msgId, emoji){
-  // salva in tabella message_reactions se esiste, altrimenti aggiorna campo reactions
+window.saveReaction = async function(msgId, emoji){
   try{
-    await supa.from('message_reactions').upsert({message_id:msgId, user_name:user.name, emoji},{onConflict:'message_id,user_name'});
+    await supa.from('message_reactions').upsert(
+      {message_id:msgId, user_name:user.name, emoji},
+      {onConflict:'message_id,user_name'}
+    );
   }catch(e){
-    // tabella non esiste ancora — mostra solo localmente
-    console.log('reactions non disponibili');
+    console.log('reactions non disponibili:', e.message);
   }
-}
+};
 
-// ── PINNED MESSAGES (36) ──
-async function pinMessage(msgId){
+// ── PINNED MESSAGES ──────────────────────────────────────────
+window.pinMessage = async function(msgId){
   try{
     await supa.from('messages').update({pinned:true}).eq('id',msgId);
     loadChat();
   }catch(e){}
-}
+};
 
 async function loadPinnedMessages(){
   try{
     const{data}=await supa.from('messages').select('*').eq('pinned',true).order('created_at',{ascending:false}).limit(3);
     if(!data||!data.length) return;
+    // Rimuovi banner precedente
+    document.getElementById('pinnedBanner')?.remove();
     const banner=document.createElement('div');
-    banner.className='bg-amber-50 border-b border-amber-200 px-3 py-2';
-    banner.innerHTML=`<div class="flex items-center gap-2 text-xs text-amber-800"><span>📌</span><span class="font-semibold">Pinnati:</span><span>${data.map(m=>m.text.slice(0,40)+'...').join(' • ')}</span></div>`;
+    banner.id='pinnedBanner';
+    banner.style.cssText='background:rgba(254,243,199,0.8);backdrop-filter:blur(10px);border-bottom:0.5px solid rgba(217,119,6,0.15);padding:8px 16px;';
+    banner.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#92400e;">
+      <span>📌</span>
+      <span style="font-weight:600;">Pinnati:</span>
+      <span style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">${data.map(m=>m.text.slice(0,30)).join(' • ')}</span>
+    </div>`;
     const msgsEl=document.getElementById('msgs');
     if(msgsEl&&msgsEl.parentElement) msgsEl.parentElement.insertBefore(banner,msgsEl);
   }catch(e){}
 }
 
+// ── REALTIME ─────────────────────────────────────────────────
 let chatChannel=null;
 function startChatRealtime(){
-  if(chatChannel)return;
-  chatChannel=supa.channel('public:messages').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},p=>addMsg(p.new,false)).subscribe();
+  if(chatChannel) return;
+  chatChannel=supa.channel('public:messages')
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},p=>addMsg(p.new,false))
+    .subscribe();
 }
+
+// ── INVIA MESSAGGIO ──────────────────────────────────────────
 document.getElementById('f').onsubmit=async e=>{
   e.preventDefault();
-  const v=document.getElementById('txt').value.trim();
-  if(!v)return;
-  document.getElementById('txt').value='';
-  // rileva lingua automaticamente con Groq
+  const input=document.getElementById('txt');
+  const v=input.value.trim();
+  if(!v) return;
+  input.value='';
   let detectedLang=user.lang||'it';
   try{
     const r=await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
@@ -135,9 +228,7 @@ document.getElementById('f').onsubmit=async e=>{
   await supa.from('messages').insert({text:v,user_name:user.name,lang:detectedLang});
 };
 
-// AUTO-LOGIN via auth_id rimosso — login solo nome+password
-
-// ── REPORT ──
+// ── REPORT ───────────────────────────────────────────────────
 async function loadReport(type){
   document.getElementById('reportOut').classList.remove('hidden');
   document.getElementById('presenceLogOut').classList.add('hidden');
@@ -147,8 +238,10 @@ async function loadReport(type){
   document.getElementById('btnAlertsLog')?.classList.remove('bg-slate-900','text-white');
   document.getElementById('btnAlertsLog')?.classList.add('bg-slate-200');
   const out=document.getElementById('reportOut');out.innerHTML='...';
-  document.getElementById('btnToday').classList.toggle('bg-slate-900',type==='today');document.getElementById('btnToday').classList.toggle('text-white',type==='today');
-  document.getElementById('btnWeek').classList.toggle('bg-slate-900',type==='week');document.getElementById('btnWeek').classList.toggle('text-white',type==='week');
+  document.getElementById('btnToday').classList.toggle('bg-slate-900',type==='today');
+  document.getElementById('btnToday').classList.toggle('text-white',type==='today');
+  document.getElementById('btnWeek').classList.toggle('bg-slate-900',type==='week');
+  document.getElementById('btnWeek').classList.toggle('text-white',type==='week');
   try{
     if(type==='today'){
       const now=new Date();
@@ -160,13 +253,7 @@ async function loadReport(type){
       if(!logs.length){out.innerHTML=byHtml+`<p class="text-slate-500">${tr('noData')}</p>`;return}
       out.innerHTML=byHtml+`<table class="w-full text-xs"><thead><tr class="border-b font-semibold"><td class="py-1">${tr('item')}</td><td>Qty</td><td>${tr('unit')}</td><td>Cont.</td><td>Chi</td><td>Ora</td></tr></thead><tbody>`+logs.map(r=>{const t=formatTimeDallas(r.created_at);return`<tr class="border-b"><td class="py-1">${r.item}</td><td>${r.qty}</td><td>${r.unit||''}</td><td>${r.container||''}</td><td>${r.user_name}</td><td>${t}</td></tr>`}).join('')+`</tbody></table>`;
     }else{
-      // lunedì di questa settimana — compatibile Safari
       const today=new Date();
-      const yyyy=today.getUTCFullYear();
-      const mm=String(today.getUTCMonth()+1).padStart(2,'0');
-      const dd=String(today.getUTCDate()).padStart(2,'0');
-      const todayStr=`${yyyy}-${mm}-${dd}`;
-      // calcola lunedì
       const dow=today.getUTCDay();
       const daysBack=dow===0?6:dow-1;
       const monDate=new Date(today);
@@ -183,10 +270,12 @@ async function loadReport(type){
     }
   }catch(e){out.innerHTML=`<p class="text-red-600">${e.message}</p>`}
 }
+
 function exportPDF(){
-  if(!lastReport.length)return;
-  const{jsPDF}=window.jspdf;const doc=new jsPDF();
-  doc.text(tr('report'),14,15);doc.autoTable({html:'#reportOut table',startY:20});doc.save('report.pdf');
+  if(!lastReport.length) return;
+  const{jsPDF}=window.jspdf;
+  const doc=new jsPDF();
+  doc.text(tr('report'),14,15);
+  doc.autoTable({html:'#reportOut table',startY:20});
+  doc.save('report.pdf');
 }
-
-
