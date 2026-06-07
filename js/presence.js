@@ -8,7 +8,13 @@ async function updatePresence(){
   const st = (typeof station !== 'undefined' ? station : 'All');
   const stationVal = st2 !== 'All' ? st2 : (st !== 'All' ? st : null);
   await supa.from('user_presence').upsert(
-    {user_name: user.name, last_seen: new Date().toISOString(), role: user.role||'staff', station: stationVal||null},
+    {
+      user_name: user.name,
+      last_seen:  new Date().toISOString(),
+      role:       user.role||'staff',
+      station:    stationVal||null,
+      photo_url:  user.photo_url||null
+    },
     {onConflict: 'user_name'}
   );
 }
@@ -22,12 +28,17 @@ async function loadPresence(){
   el.innerHTML = online.map(u => {
     const initials = u.user_name.slice(0,2).toUpperCase();
     const isMe = u.user_name === user?.name;
-    const colors = ['bg-emerald-500','bg-blue-500','bg-purple-500','bg-amber-500','bg-rose-500','bg-teal-500'];
-    const colorIdx = u.user_name.charCodeAt(0) % colors.length;
-    return `<div onclick="showPresenceTooltip('${u.user_name}','${u.station||''}',this)" 
-      class="w-7 h-7 ${colors[colorIdx]} rounded-full flex items-center justify-center text-white text-[10px] font-bold border-2 border-white cursor-pointer relative ${isMe?'ring-2 ring-emerald-300':''}"
+    const bgColors = ['#10b981','#3b82f6','#8b5cf6','#f59e0b','#ef4444','#14b8a6'];
+    const colorIdx = u.user_name.charCodeAt(0) % bgColors.length;
+    const bg = bgColors[colorIdx];
+    const ring = isMe ? 'box-shadow:0 0 0 2px #6ee7b7;' : '';
+    const inner = u.photo_url
+      ? `<img src="${u.photo_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`
+      : initials;
+    return `<div onclick="showPresenceTooltip('${u.user_name}','${u.station||''}',this)"
+      style="width:36px;height:36px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;color:white;font-size:13px;font-weight:700;border:2.5px solid white;cursor:pointer;overflow:hidden;flex-shrink:0;${ring}"
       title="${u.user_name}${u.station?' • '+u.station:''}">
-      ${initials}
+      ${inner}
     </div>`;
   }).join('');
 }

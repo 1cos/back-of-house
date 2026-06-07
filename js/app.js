@@ -78,7 +78,11 @@ function doLogin(profile){
   // ruolo sotto il nome
   const roleEl = document.getElementById('topbarRole');
   if(roleEl) roleEl.textContent = user.role==='admin' ? 'Admin' : (user.default_station||'Staff');
-  setTimeout(()=>updateTopBarAvatar(), 100); // aggiorna avatar top bar
+  // Ricarica photo_url dal DB per assicurarsi che sia aggiornata
+  supa.from('users').select('photo_url').eq('id', user.id).single().then(({data})=>{
+    if(data?.photo_url) user.photo_url = data.photo_url;
+    updateTopBarAvatar();
+  });
   init(); applyLang(); updateAlertBtn(); setupPush();
   if(isAdmin()){ loadNews(); initNews(); } // News solo per admin
   loadBriefing(); startPresence(); startUrgencyCheck();
