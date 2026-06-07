@@ -31,18 +31,6 @@ CATEGORIE:
 - Reminder — con data/ora se menzionata
 - Urgenza: Alta, Media, Bassa
 
-DOMANDE SU PREZZI E FORNITORI:
-Se Max chiede prezzi, fornitori, spesa, food cost — hai i dati in ingredientData e monthlySpend.
-Esempi di domande che sai rispondere:
-- "quanto mi costa 100g di burrata?" → calcola da unit_price e purchase_unit
-- "quale fornitore conviene per la burrata?" → confronta prezzi tra fornitori, indica il migliore
-- "quanta burrata ho comprato a maggio?" → somma total_qty e total_spend dal monthlySpend
-- "quanto ho speso da Hardie's questo mese?" → filtra monthlySpend per vendor
-- "il prezzo della mozzarella è cambiato?" → confronta prezzi diversi periodi
-Per calcoli peso: 1 lb = 453.59g, 1 oz = 28.35g, 1 kg = 1000g
-Per calcoli volume: 1 gal = 3785ml, 1 qt = 946ml, 1 fl oz = 29.57ml
-Rispondi sempre con numeri precisi e indica sempre il fornitore.
-
 OUTPUT FORMAT (sempre JSON, niente altro):
 {
   "type": "task" | "domanda",
@@ -188,38 +176,8 @@ async function classifyWithGroq(transcript){
       .order('created_at',{ascending:false})
       .limit(50);
 
-    // ── DATI INGREDIENTI per domande prezzi/fornitori ──
-    // "quanto costa la burrata?" "quale fornitore conviene?"
-    const {data:ingredientPrices} = await supa
-      .from('ingredient_best_price')
-      .select('ingredient_name,vendor,unit_price,purchase_unit,pack_description,price_rank')
-      .order('ingredient_name');
-
-    const {data:monthlySpend} = await supa
-      .from('ingredient_monthly_spend')
-      .select('ingredient_name,vendor,month,total_qty,total_spend,order_count')
-      .gte('month', new Date(Date.now()-90*24*60*60*1000).toISOString())
-      .order('month',{ascending:false});
-
-    // Struttura intelligente: raggruppa prezzi per ingrediente
-    const pricesByIngredient = {};
-    (ingredientPrices||[]).forEach(p=>{
-      if(!pricesByIngredient[p.ingredient_name]) pricesByIngredient[p.ingredient_name]=[];
-      pricesByIngredient[p.ingredient_name].push({
-        vendor: p.vendor,
-        price: p.unit_price,
-        unit: p.purchase_unit,
-        pack: p.pack_description,
-        best: p.price_rank===1
-      });
-    });
-
     const kitchenContext = recentPreps?.length 
       ? `\n\nDATA CUCINA (ultime 2 settimane):\n${JSON.stringify(recentPreps.slice(0,20))}`
-      : '';
-
-    const ingredientContext = Object.keys(pricesByIngredient).length
-      ? `\n\nPREZZI INGREDIENTI (tutti i fornitori):\n${JSON.stringify(pricesByIngredient)}\n\nSPESA ULTIMI 3 MESI:\n${JSON.stringify((monthlySpend||[]).slice(0,50))}`
       : '';
 
     // Groq non è accessibile dal browser — usiamo Edge Function
@@ -231,10 +189,7 @@ async function classifyWithGroq(transcript){
       },
       body: JSON.stringify({
         transcript,
-        kitchenData: recentPreps?.slice(0,20) || [],
-        ingredientData: pricesByIngredient,
-        monthlySpend: (monthlySpend||[]).slice(0,50),
-        extraContext: ingredientContext
+        kitchenData: recentPreps?.slice(0,20) || []
       })
     });
 
