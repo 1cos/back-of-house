@@ -1,6 +1,12 @@
 // ── CHAT — Glass Effect Apple ──
 const REACTIONS = ['👍','✅','👀','🔥','❤️','😂','🙏'];
 
+const DEFAULT_LANG = 'en';
+function normalizeLang(lang){
+  if(!lang) return DEFAULT_LANG;
+  return String(lang).trim().toLowerCase().slice(0,2) || DEFAULT_LANG;
+}
+
 function showChat(){
   // Resetta navigazione tab
   document.querySelectorAll('.tab').forEach(x=>{
@@ -38,10 +44,10 @@ function addMsg(m,init){
   const msgs=document.getElementById('msgs');
   if(!msgs) return;
 
-  // Traduci se: lingua messaggio esplicitamente diversa dalla lingua utente
-  const msgLang = m.lang;
-  const userLang = user?.lang||'en';
-  const needs = m.user_name!==user?.name && msgLang && msgLang!=='__' && msgLang!==userLang;
+  // Traduci se: lingua messaggio diversa dalla lingua del viewer
+  const msgLang = normalizeLang(m.lang);
+  const viewerLang = normalizeLang(user?.lang);
+  const needs = m.user_name !== user?.name && msgLang !== viewerLang;
   const d=document.createElement('div');
 
   if(isSystem){
@@ -100,7 +106,7 @@ function addMsg(m,init){
           font-size:14px;line-height:1.45;color:#1e293b;
           box-shadow:0 4px 20px rgba(0,0,0,0.06),inset 0 1px 0 rgba(255,255,255,0.8);
         ">${m.text}</div>
-        ${needs?`<div style="font-size:14px;line-height:1.45;color:#1e293b;margin-top:6px;padding:8px 12px;background:rgba(255,255,255,0.5);border-radius:10px;" data-tr>⏳...</div><div style="font-size:10px;color:#94a3b8;font-style:italic;margin-top:3px;padding-left:4px;" data-orig>${m.text}</div>`:''}
+        ${needs?`<div style="font-size:11px;color:#94a3b8;font-style:italic;margin-top:4px;padding-left:4px;" data-tr>⏳ traduzione...</div>`:''}
         <div style="font-size:10px;color:#94a3b8;margin-top:4px;padding-left:4px;">${formatTimeDallas(m.created_at)}</div>
         <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">
           ${(m.reactions||[]).map(r=>`<span style="font-size:12px;background:rgba(255,255,255,0.8);backdrop-filter:blur(8px);border:0.5px solid rgba(0,0,0,0.08);border-radius:20px;padding:2px 8px;">${r.emoji} ${r.count}</span>`).join('')}
@@ -122,15 +128,8 @@ function addMsg(m,init){
       body:JSON.stringify({text:m.text,targetLang})
     }).then(r=>r.json()).then(j=>{
       const el=d.querySelector('[data-tr]');
-      const origEl=d.querySelector('[data-orig]');
-      if(el&&j.translated&&j.translated!==m.text){
-        el.textContent=j.translated;
-        // mostra originale sotto in piccolo
-        if(origEl) origEl.textContent='🌐 '+m.text;
-      } else {
-        if(el) el.remove();
-        if(origEl) origEl.remove();
-      }
+      if(el&&j.translated&&j.translated!==m.text) el.textContent='🌐 '+j.translated;
+      else if(el) el.remove();
     });
   }
 
@@ -225,8 +224,8 @@ document.getElementById('f').onsubmit=async e=>{
   const v=input.value.trim();
   if(!v) return;
   input.value='';
-  // Detecta lingua del testo scritto — così Max può scrivere IT o EN
-  let detectedLang = user.lang||'it';
+  // Detect lingua PRIMA di inserire — await garantisce che lang sia corretto
+  let detectedLang = normalizeLang(user.lang);
   try{
     const r = await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
       method:'POST',
@@ -234,8 +233,8 @@ document.getElementById('f').onsubmit=async e=>{
       body:JSON.stringify({text:v, targetLang:'__detect__'})
     });
     const j = await r.json();
-    if(j.detected) detectedLang = j.detected;
-  }catch(e){ console.warn('detect failed:', e.message); }
+    if(j.detected) detectedLang = normalizeLang(j.detected);
+  }catch(e){ console.warn('detect failed, using profile lang:', e.message); }
   await supa.from('messages').insert({text:v, user_name:user.name, lang:detectedLang});
 };
 

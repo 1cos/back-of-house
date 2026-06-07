@@ -84,7 +84,7 @@ function doLogin(profile){
     updateTopBarAvatar();
   });
   init(); applyLang(); updateAlertBtn(); setupPush();
-  if(isAdmin()){ loadNews(); initNews(); } // News solo per admin
+  loadNews(); initNews(); // News per tutti — tradotte nella propria lingua
   loadBriefing(); startPresence(); startUrgencyCheck();
   // avvia realtime chat subito al login
   setTimeout(()=>startChatRealtime(), 500);
@@ -112,9 +112,8 @@ function doLogin(profile){
   const tabChiusura = document.getElementById('tabChiusura');
   if(tabChiusura) tabChiusura.style.display = admin ? 'none' : 'flex';
 
-  // News bar — solo admin
-  const newsBar = document.getElementById('newsBar');
-  if(newsBar) newsBar.style.display = admin ? '' : 'none';
+  // News bar — visibile a tutti (tradotta nella propria lingua)
+  // La barra viene nascosta da loadNews() se non ci sono news attive
 
   // check primo accesso e compleanni
   setTimeout(()=>{checkFirstLogin(); checkBirthdays(); initSousChef();}, 1000);

@@ -1,6 +1,5 @@
 // ── NEWS — solo admin ──
 async function loadNews(){
-  if(!isAdmin()) return; // staff non vede news
   const{data}=await supa.from('alerts').select('*').eq('is_active',true).order('created_at',{ascending:false});
   currentNews=data||[];
   const bar=document.getElementById('newsBar');
@@ -25,7 +24,6 @@ async function loadNews(){
 // Realtime news — solo admin
 let newsChannel = null;
 function startNewsRealtime(){
-  if(!isAdmin()) return;
   if(newsChannel) supa.removeChannel(newsChannel);
   newsChannel = supa.channel('news-rt-'+Date.now())
     .on('postgres_changes',{event:'*',schema:'public',table:'alerts'},()=>{
@@ -41,7 +39,6 @@ function startNewsRealtime(){
 // Poll ogni 60s solo dopo login admin
 // Non parte automaticamente — viene chiamato da doLogin() se admin
 function initNews(){
-  if(!isAdmin()) return;
   startNewsRealtime();
   setInterval(loadNews, 60000);
   if('Notification'in window&&Notification.permission==='default') Notification.requestPermission();
