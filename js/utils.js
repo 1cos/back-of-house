@@ -70,6 +70,7 @@ function applyLang(){
   const hChkL=document.getElementById('homeChecklistLabel'); if(hChkL) hChkL.textContent=tr('homeChecklist');
   const hOpenB=document.getElementById('homeOpenBtn'); if(hOpenB) hOpenB.textContent=tr('homeOpen');
   const brBtn=document.getElementById('briefingRefreshBtn'); if(brBtn) brBtn.textContent=tr('briefingRefresh');
+  const recH=document.getElementById('recipesHeading'); if(recH) recH.textContent=tr('recipes');
   const apBtn=document.getElementById('addPrepBtn'); if(apBtn){ apBtn.classList.toggle('hidden',!isAdmin()); }
 }
 

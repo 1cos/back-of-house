@@ -215,7 +215,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       <div id="homeChecklistSection" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
           <span id="homeChecklistLabel" style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Checklist chiusura</span>
-          <button id="homeOpenBtn" onclick="document.querySelector('[data-t=s]').click()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Apri →</button>
+          <button id="homeOpenBtn" onclick="document.querySelector('[data-t=s]').click()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Open →</button>
         </div>
         <div id="homeStations" style="padding:8px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
       </div>
@@ -224,7 +224,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       <div id="homeBriefingSection" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
           <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Briefing AI</span>
-          <button id="briefingRefreshBtn" onclick="refreshBriefing()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Aggiorna</button>
+          <button id="briefingRefreshBtn" onclick="refreshBriefing()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Refresh</button>
         </div>
         <div id="briefingContent" style="padding:10px 14px;">
           <div class="animate-pulse h-4 bg-slate-100 rounded w-3/4 mb-2"></div>
@@ -292,7 +292,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
     <!-- RICETTE -->
     <section id="vp" class="hidden px-3 pt-3">
       <div class="flex items-center justify-between mb-2">
-        <h2 class="text-lg font-semibold">Ricette</h2>
+        <h2 class="text-lg font-semibold" id="recipesHeading">Ricette</h2>
         <div id="recipeAdminBtns" class="flex gap-2">
           <button onclick="openRecipeManager()" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs">Collega</button>
           <button onclick="openRecipeEditor()" class="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs">+ Nuova</button>
@@ -369,13 +369,13 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       <!-- CHIUSURA — staff only, nascosto per admin -->
       <button id="tabChiusura" data-t="s" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><path d="m9 14 2 2 4-4"/></svg>
-        <span class="text-[10px] tab-label">Chiusura</span>
+        <span class="text-[10px] tab-label">Closing</span>
       </button>
 
       <!-- RICETTE — tutti -->
       <button data-t="c" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-        <span class="text-[10px] tab-label">Ricette</span>
+        <span class="text-[10px] tab-label">Recipes</span>
       </button>
 
       <!-- INGREDIENTI — solo admin -->

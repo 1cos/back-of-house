@@ -135,8 +135,8 @@ function renderHomeStationItems(){
     return `<div onclick="document.querySelector('[data-t=m]').click()" style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;border-bottom:0.5px solid rgba(59,130,246,0.08);">
       <div style="width:7px;height:7px;border-radius:50%;background:${dot};border:${dotBorder};flex-shrink:0;"></div>
       <span style="font-size:14px;color:${color};font-weight:${i.need_tomorrow?'500':'400'};">${i.name}</span>
-      ${i.need_tomorrow?'<span style="margin-left:auto;font-size:10px;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 7px;border-radius:20px;">${tr("daFare")}</span>':''}
-      ${i.in_progress&&!i.need_tomorrow?'<span style="margin-left:auto;font-size:10px;color:#3B82F6;">${tr("inProgress")}</span>':''}
+      ${i.need_tomorrow?'<span style="margin-left:auto;font-size:10px;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 7px;border-radius:20px;">'+tr('daFare')+'</span>':''}
+      ${i.in_progress&&!i.need_tomorrow?'<span style="margin-left:auto;font-size:10px;color:#3B82F6;">'+tr('inProgress')+'</span>':''}
     </div>`;
   }).join('');
 }

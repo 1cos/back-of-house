@@ -51,6 +51,7 @@ let scTasks = [];
 // ── INIT SOUS CHEF ──
 async function initSousChef(){
   if(!isAdmin()) return;
+  if(document.getElementById('scBtn')) return; // guard: do not double-create
   // aggiungi bottone impronta in basso a sinistra
   const btn = document.createElement('button');
   btn.id = 'scBtn';
