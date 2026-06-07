@@ -83,7 +83,7 @@ function doLogin(profile){
     if(data?.photo_url) user.photo_url = data.photo_url;
     updateTopBarAvatar();
   });
-  init(); applyLang(); updateAlertBtn(); setupPush();
+  logLangDebug(); init(); applyLang(); updateAlertBtn(); setupPush();
   loadNews(); initNews(); // News per tutti — tradotte nella propria lingua
   loadBriefing(); startPresence(); startUrgencyCheck();
   // avvia realtime chat subito al login
@@ -146,7 +146,7 @@ function hideAdminMenu(){
 // ── TRADUZIONI TAB INGREDIENTS ──
 // Viene chiamata da applyLang() già esistente
 function applyIngredientsLang(){
-  const lang = user?.lang || 'it';
+  const lang = user?.lang || 'en';
   const labels = { it:'Ingredienti', en:'Ingredients', es:'Ingredientes' };
   const el = document.querySelector('[data-i18n="ingredients"]');
   if(el) el.textContent = labels[lang] || 'Ingredients';

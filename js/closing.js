@@ -130,7 +130,7 @@ async function doCloseTurn(){
   await supa.from('messages').insert({
     text:`🔒 Turno chiuso da ${user.name}. Manca: ${missingList}.`,
     user_name:'Sistema',
-    lang:user.lang||'it'
+    lang:user.lang||'en'
   });
   // invia push alla brigata della mattina
   try{

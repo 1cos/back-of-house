@@ -121,7 +121,7 @@ function addMsg(m,init){
 
   // Traduzione
   if(needs){
-    const targetLang=user.lang||'it';
+    const targetLang=normalizeLang(user?.lang);
     fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},

@@ -2,7 +2,7 @@ const SUPABASE_URL = 'https://ydqmumpytgrlceuinoqt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MzcyOTUsImV4cCI6MjA5NDUxMzI5NX0.MSIKL4nCOxK8YFFTkt9AbFGViiwl-KEhHy6cL25gnKc';
 const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-let currentNews=[], user=null, items=[], tasks={}, station='All', station2='All', loginLang='it', lastReport=[], recipeCat='All';
+let currentNews=[], user=null, items=[], tasks={}, station='All', station2='All', loginLang='en', lastReport=[], recipeCat='All';
 let closingAnswers={};
 let itemAlerts={}; // cache avvisi intelligenti
 
@@ -15,7 +15,7 @@ const T={
   en:{home:'Home',prep:'Prep',evening:'Closing',recipes:'Recipes',logout:'Logout',login:'Enter',name:'Name',pass:'Password',write:'Write...',send:'Send',save:'Save',ok:'OK',report:'Report',today:'Today',week:'Week',pdf:'PDF',noData:'No data today',item:'Item',unit:'Unit',prepBy:'Preparations by person',toDo:'TO PREPARE — flagged at close',closeCount:'to do',selectReport:'Select Today or Week',closeTurn:'Close Shift',thereIs:'In stock ✓',missing:'Missing ✗',forgottenAlert:'You forgot these items:',closeTurnDone:'Shift closed.',goCheck:'Go Check →',briefingLoading:'Loading briefing...',briefingEmpty:'No data available.',briefingError:'Error loading briefing.',homeChecklist:'Closing checklist',homeOpen:'Open →',homePrepSub:'Morning prep',homeCloseSub:'Evening checklist',homeRecSub:'All recipes',homeChatSub:'Crew',translating:'...',briefingRefresh:'Refresh',quickComment:'Quick note',skipComment:'Skip'},
   es:{home:'Home',prep:'Prep',evening:'Cierre',recipes:'Recetas',logout:'Salir',login:'Entrar',name:'Nombre',pass:'Contraseña',write:'Escribe...',send:'Enviar',save:'Guardar',ok:'OK',report:'Informe',today:'Hoy',week:'Semana',pdf:'PDF',noData:'Sin datos hoy',item:'Artículo',unit:'Unidad',prepBy:'Preparaciones por persona',toDo:'POR PREPARAR — marcado al cierre',closeCount:'por hacer',selectReport:'Selecciona Hoy o Semana',closeTurn:'Cerrar Turno',thereIs:'Hay ✓',missing:'Falta ✗',forgottenAlert:'Olvidaste estos items:',closeTurnDone:'Turno cerrado.',goCheck:'Go Check →',briefingLoading:'Cargando briefing...',briefingEmpty:'Sin datos disponibles.',briefingError:'Error al cargar.',homeChecklist:'Lista de cierre',homeOpen:'Abrir →',homePrepSub:'Preparaciones mañana',homeCloseSub:'Lista de cierre',homeRecSub:'Todas las recetas',homeChatSub:'Brigada',translating:'...',briefingRefresh:'Actualizar',quickComment:'Nota rápida',skipComment:'Omitir'}
 };
-function tr(k){return (T[user?.lang||loginLang]||T.it)[k]||k}
+function tr(k){const lang=user?.lang||loginLang||'en';return (T[lang]||T.en)[k]||k}
 
 function applyLang(){
   document.querySelectorAll('.tab[data-t]').forEach(btn=>{
@@ -50,6 +50,18 @@ function applyLang(){
 }
 
 const isAdmin=()=>user&&(user.is_admin===true||user.role==='admin');
+
+// ── GLOBAL LANG DEBUG ──
+function logLangDebug(){
+  const viewerLang = user?.lang || loginLang || 'en';
+  console.log('LANG DEBUG', {
+    currentUserName: user?.name,
+    currentUserLangRaw: user?.lang,
+    loginLang,
+    viewerLang,
+    DEFAULT_LANG: 'en'
+  });
+}
 
 // ── TIMEZONE DALLAS (America/Chicago) ──
 // Weatherford TX usa CDT (UTC-5) estate, CST (UTC-6) inverno

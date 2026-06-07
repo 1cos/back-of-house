@@ -21,7 +21,8 @@ async function loadBriefing(){
     const icons=['🔴','🟡','🔵'];
     let points = briefing.points;
     // traduci se necessario
-    if(user?.lang && user.lang !== 'it'){
+    const userLang = user?.lang || 'en';
+    if(userLang && userLang !== 'it'){
       try{
         points = await Promise.all(points.map(p=>
           fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
