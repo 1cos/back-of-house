@@ -4,8 +4,8 @@ function showChat(){
   ['vh','vm','vs','vr','vp'].forEach(id=>document.getElementById(id).classList.add('hidden'));
   document.getElementById('vc').classList.remove('hidden');
   loadChat();startChatRealtime();loadPinnedMessages();
-  document.getElementById('badge').classList.add('hidden');
-  document.getElementById('badge').textContent='0';
+  const badge=document.getElementById('badge');
+  if(badge){badge.style.display='none';badge.textContent='0';}
 }
 async function loadChat(){
   const{data}=await supa.from('messages').select('*').order('created_at',{ascending:true}).limit(100);
@@ -13,33 +13,63 @@ async function loadChat(){
 }
 function addMsg(m,init){
   const me=m.user_name===user?.name;
-  const d=document.createElement('div');
-  d.className='flex '+(me?'justify-end':'');
-  // traduce solo se lingua messaggio diversa da lingua utente E non è lo stesso utente
+  const isSystem=m.user_name==='Sistema';
+  const msgs=document.getElementById('msgs');
+  if(!msgs) return;
+
   const needs=m.lang&&user&&user.lang&&m.lang!==user.lang&&m.user_name!==user?.name&&m.lang!=='__';
-  const isPinned = m.pinned && isAdmin();
-  d.innerHTML=`<div class="max-w-[75%]">
-    ${m.pinned?'<div class="text-[10px] text-amber-600 font-semibold mb-0.5">📌 Pinnato</div>':''}
-    <div class="text-xs text-slate-500">${m.user_name}</div>
-    <div class="${me?'bg-slate-900 text-white':'bg-white border'} px-3 py-2 rounded-2xl text-sm">${m.text}</div>
-    ${needs?'<div class="text-xs text-slate-500 italic mt-1" data-tr>...</div>':''}
-    <div class="flex gap-1 mt-1 flex-wrap">
-      ${(m.reactions||[]).map(r=>`<span class="text-sm bg-white border rounded-full px-1.5 py-0.5 text-xs">${r.emoji} ${r.count}</span>`).join('')}
-      <button onclick="addReaction('${m.id}')" class="text-[10px] text-slate-400 px-1.5 py-0.5 bg-slate-100 rounded-full hover:bg-slate-200">+😊</button>
-      ${isAdmin()&&!m.pinned?`<button onclick="pinMessage('${m.id}')" class="text-[10px] text-amber-600 px-1.5 py-0.5 bg-amber-50 rounded-full">📌</button>`:''}
-    </div>
-  </div>`;
-  msgs.appendChild(d);msgs.scrollTop=99999;
+
+  const d=document.createElement('div');
+
+  if(isSystem){
+    d.style.cssText='display:flex;justify-content:center;margin:4px 0;';
+    d.innerHTML=`<div style="font-size:11px;color:#94a3b8;background:#f1f5f9;padding:4px 12px;border-radius:20px;max-width:85%;text-align:center;">${m.text}</div>`;
+  } else if(me){
+    d.style.cssText='display:flex;justify-content:flex-end;margin:2px 0;';
+    d.innerHTML=`
+      <div style="max-width:75%;">
+        <div style="background:#1e3a5f;color:white;padding:10px 14px;border-radius:18px 18px 4px 18px;font-size:14px;line-height:1.4;">${m.text}</div>
+        <div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:3px;">${formatTimeDallas(m.created_at)}</div>
+        <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end;flex-wrap:wrap;">
+          ${(m.reactions||[]).map(r=>`<span style="font-size:12px;background:white;border:1px solid #e2e8f0;border-radius:20px;padding:2px 8px;">${r.emoji} ${r.count}</span>`).join('')}
+          <button onclick="addReaction('${m.id}')" style="font-size:11px;color:#94a3b8;background:#f1f5f9;border:none;border-radius:20px;padding:2px 8px;cursor:pointer;">+😊</button>
+        </div>
+      </div>`;
+  } else {
+    d.style.cssText='display:flex;align-items:flex-end;gap:8px;margin:2px 0;';
+    d.innerHTML=`
+      <div style="width:30px;height:30px;border-radius:50%;background:#3B82F6;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:white;flex-shrink:0;">${(m.user_name||'?').slice(0,2).toUpperCase()}</div>
+      <div style="max-width:72%;">
+        <div style="font-size:11px;color:#60a5fa;font-weight:500;margin-bottom:3px;">${m.user_name}</div>
+        <div style="background:white;border:1px solid #e2e8f0;padding:10px 14px;border-radius:18px 18px 18px 4px;font-size:14px;line-height:1.4;color:#1e293b;">${m.text}</div>
+        ${needs?'<div style="font-size:11px;color:#94a3b8;font-style:italic;margin-top:3px;" data-tr>⏳ traduzione...</div>':''}
+        <div style="font-size:10px;color:#94a3b8;margin-top:3px;">${formatTimeDallas(m.created_at)}</div>
+        <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">
+          ${(m.reactions||[]).map(r=>`<span style="font-size:12px;background:white;border:1px solid #e2e8f0;border-radius:20px;padding:2px 8px;">${r.emoji} ${r.count}</span>`).join('')}
+          <button onclick="addReaction('${m.id}')" style="font-size:11px;color:#94a3b8;background:#f1f5f9;border:none;border-radius:20px;padding:2px 8px;cursor:pointer;">+😊</button>
+          ${isAdmin()&&!m.pinned?`<button onclick="pinMessage('${m.id}')" style="font-size:11px;color:#d97706;background:#fffbeb;border:none;border-radius:20px;padding:2px 8px;cursor:pointer;">📌</button>`:''}
+        </div>
+      </div>`;
+  }
+
+  msgs.appendChild(d);
+  msgs.scrollTop=99999;
+
   if(needs){
     const targetLang=user.lang||'it';
     fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},body:JSON.stringify({text:m.text,targetLang})})
     .then(r=>r.json()).then(j=>{const el=d.querySelector('[data-tr]');if(el&&j.translated&&j.translated!==m.text)el.textContent='🌐 '+j.translated;else if(el)el.remove()});
   }
-  if(!init&&!me){const badge=document.getElementById('badge');badge.textContent=(parseInt(badge.textContent||'0')+1);badge.classList.remove('hidden')}
-}
 
-// ── REAZIONI MESSAGGI (35) ──
-const REACTIONS = ['👍','✅','👀','🔥','❤️'];
+  if(!init&&!me&&!isSystem){
+    const badge=document.getElementById('badge');
+    if(badge){
+      const count=(parseInt(badge.textContent||'0')+1);
+      badge.textContent=count;
+      badge.style.display='flex';
+    }
+  }
+}
 function addReaction(msgId){
   const picker=document.createElement('div');
   picker.className='fixed inset-0 z-50 bg-black/30 flex items-end justify-center';
