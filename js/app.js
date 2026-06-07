@@ -86,19 +86,25 @@ function doLogin(profile){
   const invoiceSection=document.getElementById('invoiceSection');
   if(invoiceSection) invoiceSection.style.display=isAdmin()?'block':'none';
 
-  // ── RUOLI: admin-only ──
+  // ── RUOLI: admin vs staff ──
   const admin = isAdmin();
 
   // Tab Ingredients — solo admin
   const tabIngr = document.getElementById('tabIngredients');
   if(tabIngr) tabIngr.style.display = admin ? 'flex' : 'none';
 
-  // Bottone laterale Ingredients — solo admin
-  const sideIngr = document.getElementById('sideIngrBtn');
-  if(sideIngr) sideIngr.style.display = admin ? 'flex' : 'none';
+  // Tab Menu ••• — solo admin
+  const tabMenu = document.getElementById('tabMenu');
+  if(tabMenu) tabMenu.style.display = admin ? 'flex' : 'none';
+
+  // Staff: Prep e Chiusura in bottom bar
+  // Admin: Prep e Chiusura nel menu tendina — li nascondiamo dalla bottom
+  const tabPrep = document.getElementById('tabPrep');
+  if(tabPrep) tabPrep.style.display = admin ? 'none' : 'flex';
+  const tabChiusura = document.getElementById('tabChiusura');
+  if(tabChiusura) tabChiusura.style.display = admin ? 'none' : 'flex';
 
   // News bar — solo admin
-  // Staff vede solo chat — loadNews non viene chiamata per staff
   if(!admin){
     const newsBar = document.getElementById('newsBar');
     if(newsBar) newsBar.style.display = 'none';
@@ -109,6 +115,28 @@ function doLogin(profile){
 }
 
 document.getElementById('out').onclick=()=>{user=null;location.reload()};
+
+// ── ADMIN MENU ───────────────────────────────────────────────
+function showAdminMenu(){
+  const sheet = document.getElementById('adminMenuSheet');
+  if(!sheet) return;
+  sheet.classList.remove('hidden');
+  const content = document.getElementById('adminMenuContent');
+  if(content){
+    content.style.transform = 'translateX(-50%) translateY(20px)';
+    content.style.opacity = '0';
+    content.style.transition = 'all .25s ease';
+    requestAnimationFrame(()=>{
+      content.style.transform = 'translateX(-50%) translateY(0)';
+      content.style.opacity = '1';
+    });
+  }
+}
+
+function hideAdminMenu(){
+  const sheet = document.getElementById('adminMenuSheet');
+  if(sheet) sheet.classList.add('hidden');
+}
 
 // ── TRADUZIONI TAB INGREDIENTS ──
 // Viene chiamata da applyLang() già esistente

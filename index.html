@@ -286,30 +286,98 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
   </main>
 
   <!-- Bottom Nav -->
-  <nav class="fixed bottom-0 left-0 right-0 z-40 border-t" style="background:rgba(255,255,255,0.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-color:rgba(59,130,246,0.15);">
-    <div class="max-w-md mx-auto h-[72px] flex items-end justify-around pb-3 px-2">
-      <button data-t="h" class="tab flex flex-col items-center gap-1 w-16 tab-active">
+  <nav class="fixed bottom-0 left-0 right-0 z-40 border-t" style="background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-color:rgba(59,130,246,0.12);">
+    <div class="max-w-md mx-auto h-[72px] flex items-end justify-around pb-3 px-1">
+
+      <!-- HOME — tutti -->
+      <button data-t="h" class="tab flex flex-col items-center gap-1 w-14 tab-active">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon" style="stroke:#059669"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         <span class="text-[10px] font-medium tab-label" style="color:#059669">Home</span>
       </button>
-      <button data-t="m" class="tab flex flex-col items-center gap-1 w-16 text-slate-500">
+
+      <!-- PREP — solo staff (nascosto per admin) -->
+      <button id="tabPrep" data-t="m" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/></svg>
         <span class="text-[10px] tab-label">Prep</span>
       </button>
-      <button data-t="s" class="tab flex flex-col items-center gap-1 w-16 text-slate-500">
+
+      <!-- CHIUSURA — solo staff (nascosto per admin) -->
+      <button id="tabChiusura" data-t="s" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><path d="m9 14 2 2 4-4"/></svg>
         <span class="text-[10px] tab-label">Chiusura</span>
       </button>
-      <button data-t="c" class="tab flex flex-col items-center gap-1 w-16 text-slate-500 relative">
+
+      <!-- RICETTE — tutti -->
+      <button data-t="c" class="tab flex flex-col items-center gap-1 w-14 text-slate-500 relative">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         <span class="text-[10px] tab-label">Ricette</span>
       </button>
-      <button id="tabIngredients" data-t="i" class="tab flex flex-col items-center gap-1 w-16 text-slate-500" style="display:none;">
+
+      <!-- INGREDIENTI — solo admin -->
+      <button id="tabIngredients" data-t="i" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
         <span class="text-[10px] tab-label" data-i18n="ingredients">Ingredienti</span>
       </button>
+
+      <!-- CHAT — tutti, badge iOS celeste -->
+      <button id="tabChat" onclick="showChat()" class="flex flex-col items-center gap-1 w-14 text-slate-500 relative">
+        <div class="relative">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span id="badge" class="hidden absolute -top-1 -right-2 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold" style="background:#0a84ff;min-width:18px;"></span>
+        </div>
+        <span class="text-[10px] tab-label">Chat</span>
+      </button>
+
+      <!-- MENU ••• — solo admin -->
+      <button id="tabMenu" onclick="showAdminMenu()" class="flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+        <span class="text-[10px] tab-label">Menu</span>
+      </button>
+
     </div>
   </nav>
+
+  <!-- ADMIN MENU TENDINA -->
+  <div id="adminMenuSheet" class="fixed inset-0 z-[60] hidden" onclick="hideAdminMenu()">
+    <div id="adminMenuContent" style="position:absolute;bottom:80px;left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:448px;background:rgba(255,255,255,0.97);backdrop-filter:blur(20px);border-radius:20px;padding:12px;box-shadow:0 -4px 40px rgba(0,0,0,0.12);">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button onclick="hideAdminMenu();document.querySelector('[data-t=m]').click()" class="admin-menu-btn">
+          <span style="font-size:22px;">📋</span><span>Prep</span>
+        </button>
+        <button onclick="hideAdminMenu();document.querySelector('[data-t=s]').click()" class="admin-menu-btn">
+          <span style="font-size:22px;">✅</span><span>Chiusura</span>
+        </button>
+        <button onclick="hideAdminMenu();openInvoiceImport()" class="admin-menu-btn">
+          <span style="font-size:22px;">📄</span><span>Import Invoice</span>
+        </button>
+        <button onclick="hideAdminMenu();openPurchaseHistory()" class="admin-menu-btn">
+          <span style="font-size:22px;">📦</span><span>Acquisti</span>
+        </button>
+        <button onclick="hideAdminMenu();document.querySelector('[data-t=r]').click()" class="admin-menu-btn">
+          <span style="font-size:22px;">📊</span><span>Report</span>
+        </button>
+        <button onclick="hideAdminMenu();showPresenceTab()" class="admin-menu-btn">
+          <span style="font-size:22px;">👥</span><span>Presenze</span>
+        </button>
+        <button onclick="hideAdminMenu();document.getElementById('userMgrBtn').click()" class="admin-menu-btn">
+          <span style="font-size:22px;">👤</span><span>Utenti</span>
+        </button>
+        <button onclick="hideAdminMenu();document.getElementById('pwdBtn').click()" class="admin-menu-btn">
+          <span style="font-size:22px;">🔑</span><span>Password</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .admin-menu-btn {
+      display:flex;flex-direction:column;align-items:center;gap:6px;
+      padding:14px 8px;border-radius:14px;background:#f8fafc;
+      border:none;cursor:pointer;font-size:12px;color:#1e293b;font-weight:500;
+      transition:background .15s;
+    }
+    .admin-menu-btn:active { background:#e2e8f0; }
+  </style>
 </div>
 
 
