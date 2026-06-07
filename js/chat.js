@@ -38,7 +38,10 @@ function addMsg(m,init){
   const msgs=document.getElementById('msgs');
   if(!msgs) return;
 
-  const needs=m.lang&&user&&user.lang&&m.lang!==user.lang&&m.user_name!==user?.name&&m.lang!=='__';
+  // Traduci se: lingua messaggio diversa da utente OPPURE lang è null ma utente non è italiano
+  const msgLang = m.lang||'it';
+  const userLang = user?.lang||'it';
+  const needs = m.user_name!==user?.name && msgLang!==userLang && msgLang!=='__';
   const d=document.createElement('div');
 
   if(isSystem){
@@ -215,17 +218,18 @@ document.getElementById('f').onsubmit=async e=>{
   const v=input.value.trim();
   if(!v) return;
   input.value='';
-  let detectedLang=user.lang||'it';
+  // Detecta lingua del testo scritto — così Max può scrivere IT o EN
+  let detectedLang = user.lang||'it';
   try{
-    const r=await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
-      body:JSON.stringify({text:v,targetLang:'__detect__'})
+      body:JSON.stringify({text:v, targetLang:'__detect__'})
     });
-    const j=await r.json();
-    if(j.detected) detectedLang=j.detected;
-  }catch(e){}
-  await supa.from('messages').insert({text:v,user_name:user.name,lang:detectedLang});
+    const j = await r.json();
+    if(j.detected) detectedLang = j.detected;
+  }catch(e){ console.warn('detect failed:', e.message); }
+  await supa.from('messages').insert({text:v, user_name:user.name, lang:detectedLang});
 };
 
 // ── REPORT ───────────────────────────────────────────────────
