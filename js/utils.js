@@ -4,11 +4,10 @@ const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const DEFAULT_LANG = 'en';
 function normalizeLang(lang){
-  if(!lang) return DEFAULT_LANG;
-  return String(lang).trim().toLowerCase().slice(0,2) || DEFAULT_LANG;
+  return String(lang || DEFAULT_LANG).trim().toLowerCase().slice(0,2) || DEFAULT_LANG;
 }
 
-let currentNews=[], user=null, items=[], tasks={}, station='All', station2='All', loginLang='it', lastReport=[], recipeCat='All';
+let currentNews=[], user=null, items=[], tasks={}, station='All', station2='All', loginLang='en', lastReport=[], recipeCat='All';
 let closingAnswers={};
 let itemAlerts={}; // cache avvisi intelligenti
 
@@ -39,7 +38,10 @@ const T={
     online:'En línea',shiftClosed:'Turno cerrado por',missing2:'Falta',allGood:'Todo bien',
     noActivenews:'Sin anuncios activos',closeAll:'Cerrar todo'}
 };
-function tr(k){return (T[user?.lang||loginLang]||T.it)[k]||k}
+function tr(k){
+  const lang=normalizeLang(user?.lang||loginLang||DEFAULT_LANG);
+  return (T[lang]||T[DEFAULT_LANG]||{})[k]||k;
+}
 
 function applyLang(){
   document.querySelectorAll('.tab[data-t]').forEach(btn=>{
