@@ -463,13 +463,16 @@ async function saveToInvoiceLines(data){
     invoice_number:         data.invoice_number||null,
     vendor:                 data.vendor||'Unknown',
     raw_description:        item.description||'',
-    vendor_sku:             item.vendor_sku||null,
+    vendor_sku:             item.item_code||item.vendor_sku||null,
     qty:                    parseFloat(item.quantity||item.qty)||null,
-    // purchase_unit: usa la risposta OQR se disponibile, poi unit dell'AI
     purchase_unit:          item.purchase_unit||item.unit||null,
     pack_description:       item.pack_size||null,
+    pack_qty:               parseFloat(item.pack_qty)||null,
+    pack_unit:              item.pack_unit||null,
     unit_price:             parseFloat(item.unit_price)||null,
     line_total:             parseFloat(item.amount||item.line_total)||null,
+    count_unit:             item.count_unit||null,
+    avg_unit_weight_g:      parseFloat(item.avg_unit_weight_g)||null,
     needs_clarification:    !!(item.needs_clarification && !item._clarified),
     clarification_answered: !!(item._clarified),
     clarification_answer:   item._clarified ? (item.purchase_unit||null) : null,
@@ -479,5 +482,5 @@ async function saveToInvoiceLines(data){
 
   const {error} = await supa.from('invoice_lines').insert(lines);
   if(error) console.warn('invoice_lines:', error.message);
-  else console.log('invoice_lines saved:', lines.length, 'rows, units:', lines.map(l=>l.raw_description+'='+l.purchase_unit));
+  else console.log('invoice_lines saved:', lines.length, 'rows, units:', lines.map(l=>l.raw_description+'='+l.purchase_unit+'|'+l.count_unit));
 }
