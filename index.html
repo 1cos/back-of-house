@@ -58,6 +58,16 @@
     [style*="color: #93c5fd"] { color: #60a5fa !important; }
     /* Tab labels */
     .tab-label { font-size: 11px !important; }
+    /* Avatar utenti online nel top bar — più grandi */
+    #online .online-dot,
+    #online img,
+    #online div {
+      width: 36px !important;
+      height: 36px !important;
+      min-width: 36px !important;
+      font-size: 13px !important;
+      border: 2px solid white !important;
+    }
     /* Section headers (UPCOMING DEMAND, SERVICE UPDATES...) */
     .tracking-wider { letter-spacing: 0.08em; }
   </style>
@@ -113,17 +123,29 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 
 <div id="app" class="hidden min-h-screen flex flex-col" style="background:transparent;">
   <!-- Top bar -->
-  <div class="sticky top-0 z-30 border-b" style="background:rgba(255,255,255,0.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-color:rgba(59,130,246,0.15);">
-    <div class="max-w-md mx-auto px-3 h-14 flex items-center justify-between">
-      <div class="font-bold text-[15px] flex items-center gap-1.5"><span>🍳</span><span>Back of House</span></div>
-      <div class="flex items-center gap-2 text-sm">
-        <span id="who" class="font-medium cursor-pointer" onclick="openProfile()" style="color:#3B82F6;"></span>
-        <div id="online" class="flex -space-x-1"></div>
-        <button id="alertBtn" class="hidden px-3 py-2 bg-red-600 text-white rounded-xl text-base">🚨</button>
-        <button id="userMgrBtn" onclick="openUserManager()" class="hidden px-3 py-2 bg-slate-100 rounded-xl text-base">👥</button>
-        <button id="pwdBtn" onclick="openChangePassword()" class="hidden px-3 py-2 bg-slate-100 rounded-xl text-base">🔑</button>
-        <button id="out" class="px-3 py-2 bg-slate-100 rounded-xl font-medium">Esci</button>
+  <div class="sticky top-0 z-30 border-b" style="background:rgba(255,255,255,0.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-color:rgba(59,130,246,0.12);">
+    <div class="max-w-md mx-auto px-3 h-16 flex items-center gap-2">
+
+      <!-- SINISTRA: avatar + nome utente -->
+      <div onclick="openProfile()" style="display:flex;align-items:center;gap:9px;cursor:pointer;flex-shrink:0;">
+        <div id="topbarAvatar" style="width:38px;height:38px;border-radius:50%;background:#3B82F6;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:white;overflow:hidden;flex-shrink:0;border:2px solid rgba(59,130,246,0.2);"></div>
+        <div style="line-height:1.2;">
+          <div id="who" style="font-size:15px;font-weight:600;color:#1e3a5f;"></div>
+          <div style="font-size:11px;color:#60a5fa;" id="topbarRole"></div>
+        </div>
       </div>
+
+      <!-- CENTRO: utenti online — flex:1 per prendere tutto lo spazio -->
+      <div id="online" class="flex items-center" style="flex:1;justify-content:center;gap:4px;"></div>
+
+      <!-- DESTRA: bottoni admin + esci -->
+      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+        <button id="alertBtn" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#fee2e2;border:none;font-size:16px;cursor:pointer;">🚨</button>
+        <button id="userMgrBtn" onclick="openUserManager()" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;">👥</button>
+        <button id="pwdBtn" onclick="openChangePassword()" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;">🔑</button>
+        <button id="out" onclick="user=null;location.reload()" style="height:32px;padding:0 12px;background:#f1f5f9;border:none;border-radius:10px;font-size:13px;font-weight:500;color:#64748b;cursor:pointer;">Esci</button>
+      </div>
+
     </div>
   </div>
 

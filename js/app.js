@@ -75,6 +75,10 @@ function doLogin(profile){
   document.getElementById('login').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('who').textContent=user.name;
+  // ruolo sotto il nome
+  const roleEl = document.getElementById('topbarRole');
+  if(roleEl) roleEl.textContent = user.role==='admin' ? 'Admin' : (user.default_station||'Staff');
+  setTimeout(()=>updateTopBarAvatar(), 100); // aggiorna avatar top bar
   init(); applyLang(); updateAlertBtn(); setupPush();
   if(isAdmin()){ loadNews(); initNews(); } // News solo per admin
   loadBriefing(); startPresence(); startUrgencyCheck();

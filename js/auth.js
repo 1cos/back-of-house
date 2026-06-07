@@ -373,6 +373,10 @@ async function checkBirthdays(){
 }
 
 // ── SEZIONE PROFILO ──
+function initTopBarAvatar(){
+  updateTopBarAvatar();
+}
+
 function openProfile(){
   const modal=document.createElement('div');
   modal.className='fixed inset-0 z-50 flex items-end';
@@ -510,8 +514,14 @@ function changeAvatar(){
 }
 
 function updateTopBarAvatar(){
-  const whoEl=document.getElementById('who');
-  if(whoEl) whoEl.style.cursor='pointer';
+  const av = document.getElementById('topbarAvatar');
+  if(!av) return;
+  if(user?.photo_url){
+    av.innerHTML = `<img src="${user.photo_url}" style="width:100%;height:100%;object-fit:cover;">`;
+  } else {
+    av.innerHTML = (user?.name||'?').slice(0,2).toUpperCase();
+    av.style.background = '#3B82F6';
+  }
 }
 
 // notifiche check fascia oraria
