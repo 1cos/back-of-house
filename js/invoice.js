@@ -67,9 +67,10 @@ async function processInvoiceFile(input){
       return;
     }
     
-    // Chiudi il modal corrente e mostra preview
+    // Chiudi il modal corrente
     input.closest('.fixed').remove();
-    showInvoicePreview(data);
+    // One Question Rule: controlla ambiguità prima di mostrare preview
+    await runOneQuestionRule(data, showInvoicePreview);
     
   }catch(e){
     status.textContent='❌ Error: '+e.message;
@@ -158,6 +159,8 @@ async function saveInvoice(data, btn){
     document.body.appendChild(toast);
     setTimeout(()=>toast.remove(),3000);
     
+    // salva anche nelle nuove invoice_lines per storico/prezzi
+    saveToInvoiceLines(data);
     // suggerisci match ingredienti dopo 2 secondi
     setTimeout(()=>suggestIngredientMatches(data), 2000);
     
@@ -332,4 +335,131 @@ async function saveAllMatches(vendor){
   
   showScToast(`✓ ${toSave.length} ingredient links saved`);
   window._pendingMatches=null;
+}
+
+
+// ── ONE QUESTION RULE ─────────────────────────────────────────
+// Controlla ambiguità DOPO che la fattura è stata letta dall'AI
+// Chiama questa funzione invece di showInvoicePreview direttamente
+async function runOneQuestionRule(data, onComplete){
+  const items = data.items||[];
+  if(!items.length){ onComplete(data); return; }
+
+  // Carica risposte già date in passato per questo vendor
+  const rawDescs = items.map(i=>i.description||'').filter(Boolean);
+  const {data:known} = await supa
+    .from('invoice_line_clarifications')
+    .select('*')
+    .eq('vendor', data.vendor||'')
+    .in('raw_description', rawDescs);
+
+  const knownMap = {};
+  (known||[]).forEach(c=>{ knownMap[c.raw_description] = c.resolution; });
+
+  // Applica risposte già note agli item
+  items.forEach(item=>{
+    if(knownMap[item.description]){
+      Object.assign(item, knownMap[item.description]);
+      item._clarified = true;
+    }
+  });
+
+  // Trova prima riga ancora ambigua (needs_clarification = true e non già risolta)
+  const ambiguous = items.find(i => i.needs_clarification && !i._clarified);
+
+  if(!ambiguous){ onComplete(data); return; }
+
+  // Mostra modal con UNA domanda
+  showOneQuestionModal(ambiguous, data, onComplete);
+}
+
+function showOneQuestionModal(item, invoiceData, onComplete){
+  const modal = document.createElement('div');
+  modal.className = 'fixed inset-0 z-[70] flex items-center justify-center';
+  modal.style.background = 'rgba(0,0,0,0.5)';
+
+  const question = item.clarification_question || `"${item.description}" — price is per:`;
+  const options = item.clarification_options || [
+    {label:'Each / unit', value:'each'},
+    {label:'Case (CS)', value:'cs'},
+    {label:'Pound (lb)', value:'lb'},
+    {label:'Not sure', value:'skip'}
+  ];
+
+  modal.innerHTML = `
+    <div style="background:white;border-radius:20px;padding:20px;width:88%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,0.25);">
+      <div style="font-size:10px;font-weight:700;color:#3B82F6;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">⚠️ ONE QUESTION</div>
+      <div style="font-size:14px;font-weight:500;color:#1e3a5f;margin-bottom:8px;line-height:1.4;">${question}</div>
+      <div style="font-family:monospace;font-size:12px;color:#6b7280;background:#f8fafc;padding:6px 10px;border-radius:8px;margin-bottom:16px;">${item.description}</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${options.map(o=>`
+          <button 
+            style="padding:11px 14px;border-radius:12px;border:1.5px solid #e2e8f0;background:white;font-size:13px;color:#1e3a5f;cursor:pointer;text-align:left;"
+            onclick="answerOneQuestion('${(invoiceData.vendor||'').replace(/'/g,"\\'")}','${(item.description||'').replace(/'/g,"\\'")}','${o.value}',this)">
+            ${o.label}
+          </button>`).join('')}
+      </div>
+    </div>`;
+
+  modal._invoiceData = invoiceData;
+  modal._item = item;
+  modal._onComplete = onComplete;
+  modal.id = 'oqModal';
+  document.body.appendChild(modal);
+}
+
+window.answerOneQuestion = async(vendor, rawDesc, answer, btn)=>{
+  btn.style.background = '#1e3a5f';
+  btn.style.color = 'white';
+
+  const modal = document.getElementById('oqModal');
+  const item = modal._item;
+  const invoiceData = modal._invoiceData;
+  const onComplete = modal._onComplete;
+
+  // Risoluzione in base alla risposta
+  const resolution = answer === 'skip' ? {skipped:true} : {purchase_unit: answer, price_is_per: answer};
+  Object.assign(item, resolution);
+  item._clarified = true;
+  item.needs_clarification = false;
+
+  // Salva in DB — così non chiede mai più la stessa cosa
+  if(answer !== 'skip'){
+    await supa.from('invoice_line_clarifications').upsert({
+      vendor:          vendor,
+      raw_description: rawDesc,
+      question:        item.clarification_question||'',
+      answer:          answer,
+      resolution:      resolution,
+      answered_by:     user?.name||'Max'
+    }, {onConflict:'vendor,raw_description'});
+  }
+
+  await new Promise(r=>setTimeout(r,150));
+  modal.remove();
+
+  // Continua — controlla se ci sono altre ambiguità
+  runOneQuestionRule(invoiceData, onComplete);
+};
+
+// ── SALVA IN invoice_lines (nuova tabella) ───────────────────
+async function saveToInvoiceLines(data){
+  const lines = (data.items||[]).map(item=>({
+    invoice_date:           data.invoice_date||new Date().toISOString().slice(0,10),
+    invoice_number:         data.invoice_number||null,
+    vendor:                 data.vendor||'Unknown',
+    raw_description:        item.description||'',
+    vendor_sku:             item.vendor_sku||null,
+    qty:                    parseFloat(item.quantity||item.qty)||null,
+    purchase_unit:          item.purchase_unit||item.unit||null,
+    pack_description:       item.pack_size||null,
+    unit_price:             parseFloat(item.unit_price)||null,
+    line_total:             parseFloat(item.amount||item.line_total)||null,
+    needs_clarification:    !!(item.needs_clarification && !item._clarified),
+    clarification_answered: !!(item._clarified),
+    match_status:           'unmatched'
+  }));
+
+  const {error} = await supa.from('invoice_lines').insert(lines);
+  if(error) console.warn('invoice_lines:', error.message);
 }
