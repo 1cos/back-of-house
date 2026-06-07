@@ -83,7 +83,7 @@ function doLogin(profile){
     if(data?.photo_url) user.photo_url = data.photo_url;
     updateTopBarAvatar();
   });
-  logLangDebug(); init(); applyLang(); updateAlertBtn(); setupPush();
+  init(); applyLang(); updateAlertBtn(); setupPush();
   loadNews(); initNews(); // News per tutti — tradotte nella propria lingua
   loadBriefing(); startPresence(); startUrgencyCheck();
   // avvia realtime chat subito al login

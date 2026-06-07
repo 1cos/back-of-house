@@ -9,7 +9,7 @@ async function loadBriefing(){
       // genera al momento
       const res=await fetch(`${SUPABASE_URL}/functions/v1/generate-briefing`,{
         method:'POST',
-        headers:{'Authorization':`Bearer ${SUPABASE_ANON_KEY}`}
+        headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`}
       });
       const json=await res.json();
       if(json.points) briefing={points:json.points};

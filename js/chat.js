@@ -1,11 +1,6 @@
 // ── CHAT — Glass Effect Apple ──
 const REACTIONS = ['👍','✅','👀','🔥','❤️','😂','🙏'];
 
-const DEFAULT_LANG = 'en';
-function normalizeLang(lang){
-  if(!lang) return DEFAULT_LANG;
-  return String(lang).trim().toLowerCase().slice(0,2) || DEFAULT_LANG;
-}
 
 function showChat(){
   // Resetta navigazione tab

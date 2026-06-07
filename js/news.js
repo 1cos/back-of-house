@@ -1,9 +1,4 @@
 // ── NEWS — solo admin ──
-const DEFAULT_LANG = 'en';
-function normalizeLang(lang){
-  if(!lang) return DEFAULT_LANG;
-  return String(lang).trim().toLowerCase().slice(0,2)||DEFAULT_LANG;
-}
 
 async function loadNews(){
   if(!isAdmin()) return; // staff non vede news
