@@ -64,7 +64,7 @@ function doLogin(profile){
     user.lang = loginLang;
     // salva su Supabase solo per staff, non per admin
     if(user.role !== 'admin' && !user.is_admin){
-      supa.from('users').update({lang:loginLang}).eq('id',parseInt(user.id)).then(()=>{});
+      supa.from('users').update({lang:loginLang}).eq('id',user.id).then(()=>{});
     }
   }
   // applica stazione default se presente
@@ -113,10 +113,8 @@ function doLogin(profile){
   if(tabChiusura) tabChiusura.style.display = admin ? 'none' : 'flex';
 
   // News bar — solo admin
-  if(!admin){
-    const newsBar = document.getElementById('newsBar');
-    if(newsBar) newsBar.style.display = 'none';
-  }
+  const newsBar = document.getElementById('newsBar');
+  if(newsBar) newsBar.style.display = admin ? '' : 'none';
 
   // check primo accesso e compleanni
   setTimeout(()=>{checkFirstLogin(); checkBirthdays(); initSousChef();}, 1000);
