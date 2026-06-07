@@ -1,5 +1,6 @@
-// ── NEWS ──
+// ── NEWS — solo admin ──
 async function loadNews(){
+  if(!isAdmin()) return; // staff non vede news
   const{data}=await supa.from('alerts').select('*').eq('is_active',true).order('created_at',{ascending:false});
   currentNews=data||[];
   const bar=document.getElementById('newsBar');
@@ -9,7 +10,6 @@ async function loadNews(){
     const t=new Date(n.created_at).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
     return{txt:n.message,suf:` • ${n.created_by||'Crew'} ${t}`};
   });
-  // traduce sempre nella lingua dell'utente, indipendentemente dalla lingua originale
   const targetLang=user?.lang||'it';
   const trs=await Promise.all(base.map(b=>
     fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
@@ -21,9 +21,11 @@ async function loadNews(){
   const out=trs.map((t,i)=>t+base[i].suf).join(' ✦ ');
   document.getElementById('newsScroll').textContent=out;
 }
-// Realtime news con reconnect automatico
+
+// Realtime news — solo admin
 let newsChannel = null;
 function startNewsRealtime(){
+  if(!isAdmin()) return;
   if(newsChannel) supa.removeChannel(newsChannel);
   newsChannel = supa.channel('news-rt-'+Date.now())
     .on('postgres_changes',{event:'*',schema:'public',table:'alerts'},()=>{
@@ -35,38 +37,132 @@ function startNewsRealtime(){
       }
     });
 }
-startNewsRealtime();
-// poll ogni 60s come fallback
-setInterval(loadNews, 60000);
-if('Notification'in window&&Notification.permission==='default') Notification.requestPermission();
+
+// Poll ogni 60s solo dopo login admin
+// Non parte automaticamente — viene chiamato da doLogin() se admin
+function initNews(){
+  if(!isAdmin()) return;
+  startNewsRealtime();
+  setInterval(loadNews, 60000);
+  if('Notification'in window&&Notification.permission==='default') Notification.requestPermission();
+}
 
 function updateAlertBtn(){
-  if(isAdmin()){
-    document.getElementById('alertBtn').classList.remove('hidden');
-    document.getElementById('newsManage').classList.remove('hidden');
-    const pb = document.getElementById('btnPresence');
-    if(pb) pb.classList.remove('hidden');
-    const ab = document.getElementById('btnAlertsLog');
-    if(ab) ab.classList.remove('hidden');
-    // bottone gestione utenti
-    const ub = document.getElementById('userMgrBtn');
-    if(ub) ub.classList.remove('hidden');
-    // chiave password solo per admin
-    const pwdB = document.getElementById('pwdBtn');
-    if(pwdB) pwdB.classList.remove('hidden');
-  }
+  if(!isAdmin()) return;
+  document.getElementById('alertBtn').classList.remove('hidden');
+  document.getElementById('newsManage').classList.remove('hidden');
+  const pb=document.getElementById('btnPresence');
+  if(pb) pb.classList.remove('hidden');
+  const ab=document.getElementById('btnAlertsLog');
+  if(ab) ab.classList.remove('hidden');
+  const ub=document.getElementById('userMgrBtn');
+  if(ub) ub.classList.remove('hidden');
+  const pwdB=document.getElementById('pwdBtn');
+  if(pwdB) pwdB.classList.remove('hidden');
 }
-document.getElementById('alertBtn').onclick=async()=>{
-  const m=prompt('Nuova comunicazione:');
-  if(m){await supa.from('alerts').insert({message:m,created_by:user?.name||'Admin',is_active:true});loadNews()}
+
+// ── NUOVA COMUNICAZIONE — modal invece di prompt ──────────────
+document.getElementById('alertBtn').onclick=()=>{
+  if(!isAdmin()) return;
+  showNewsModal();
 };
-document.getElementById('newsManage').onclick=async()=>{
-  if(!currentNews.length)return;
-  const list=currentNews.map((n,i)=>`${i+1}. ${n.message}`).join('\n');
-  const num=prompt('Chiudi quale? (0=tutte)\n'+list);
-  const idx=parseInt(num);
-  if(idx===0) await supa.from('alerts').update({is_active:false}).eq('is_active',true);
-  else if(currentNews[idx-1]) await supa.from('alerts').update({is_active:false}).eq('id',currentNews[idx-1].id);
+
+document.getElementById('newsManage').onclick=()=>{
+  if(!isAdmin()) return;
+  showNewsManageModal();
+};
+
+function showNewsModal(){
+  const modal=document.createElement('div');
+  modal.className='fixed inset-0 z-[70] flex items-center justify-center';
+  modal.style.background='rgba(0,0,0,0.4)';
+  modal.innerHTML=`
+    <div style="background:white;border-radius:20px;padding:20px;width:88%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+      <div style="font-size:15px;font-weight:600;color:#1e293b;margin-bottom:12px;">📢 Nuova comunicazione</div>
+      <textarea id="newsInputText" rows="3" placeholder="Scrivi il messaggio per il team..."
+        style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:12px;font-size:14px;resize:none;box-sizing:border-box;outline:none;font-family:inherit;"></textarea>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:12px;">
+        <button onclick="this.closest('.fixed').remove()" 
+          style="height:42px;border-radius:12px;background:#f1f5f9;color:#64748b;font-size:13px;border:none;cursor:pointer;">
+          Annulla
+        </button>
+        <button onclick="sendNews(this)"
+          style="height:42px;border-radius:12px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">
+          Invia al team
+        </button>
+      </div>
+    </div>`;
+  modal.onclick=e=>{if(e.target===modal)modal.remove()};
+  document.body.appendChild(modal);
+  setTimeout(()=>document.getElementById('newsInputText')?.focus(), 100);
+}
+
+window.sendNews=async(btn)=>{
+  const text=document.getElementById('newsInputText')?.value?.trim();
+  if(!text) return;
+  btn.textContent='Invio...';
+  btn.disabled=true;
+  await supa.from('alerts').insert({
+    message:   text,
+    created_by: user?.name||'Max',
+    is_active:  true
+  });
+  btn.closest('.fixed').remove();
+  loadNews();
+};
+
+function showNewsManageModal(){
+  if(!currentNews?.length){
+    const t=document.createElement('div');
+    t.className='fixed top-16 left-1/2 -translate-x-1/2 z-[70] bg-slate-800 text-white text-sm px-4 py-2 rounded-xl';
+    t.textContent='Nessuna comunicazione attiva';
+    document.body.appendChild(t);
+    setTimeout(()=>t.remove(),2000);
+    return;
+  }
+
+  const modal=document.createElement('div');
+  modal.className='fixed inset-0 z-[70] flex items-end';
+  modal.style.background='rgba(0,0,0,0.3)';
+  modal.innerHTML=`
+    <div style="background:white;border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:70vh;overflow-y:auto;">
+      <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 14px;"></div>
+      <div style="font-size:15px;font-weight:600;color:#1e293b;margin-bottom:12px;">📋 Comunicazioni attive</div>
+      ${currentNews.map((n,i)=>`
+        <div style="display:flex;justify-content:space-between;align-items:start;padding:10px 0;border-bottom:1px solid #f1f5f9;">
+          <div style="flex:1;font-size:13px;color:#1e293b;margin-right:10px;">${n.message}
+            <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${n.created_by||'Admin'}</div>
+          </div>
+          <button onclick="closeNews('${n.id}',this)" 
+            style="flex-shrink:0;padding:5px 10px;border-radius:8px;background:#fee2e2;color:#dc2626;font-size:12px;border:none;cursor:pointer;">
+            Chiudi
+          </button>
+        </div>`).join('')}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+        <button onclick="this.closest('.fixed').remove()"
+          style="height:42px;border-radius:12px;background:#f1f5f9;color:#64748b;font-size:13px;border:none;cursor:pointer;">
+          Chiudi
+        </button>
+        <button onclick="closeAllNews(this)"
+          style="height:42px;border-radius:12px;background:#dc2626;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">
+          Chiudi tutte
+        </button>
+      </div>
+    </div>`;
+  modal.onclick=e=>{if(e.target===modal)modal.remove()};
+  document.body.appendChild(modal);
+}
+
+window.closeNews=async(id, btn)=>{
+  btn.textContent='...';
+  await supa.from('alerts').update({is_active:false}).eq('id',id);
+  btn.closest('.fixed').remove();
   setTimeout(loadNews,300);
 };
 
+window.closeAllNews=async(btn)=>{
+  btn.textContent='...';
+  await supa.from('alerts').update({is_active:false}).eq('is_active',true);
+  btn.closest('.fixed').remove();
+  setTimeout(loadNews,300);
+};

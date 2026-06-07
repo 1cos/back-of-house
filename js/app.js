@@ -76,7 +76,7 @@ function doLogin(profile){
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('who').textContent=user.name;
   init(); applyLang(); updateAlertBtn(); setupPush();
-  if(isAdmin()) loadNews(); // News solo per admin
+  if(isAdmin()){ loadNews(); initNews(); } // News solo per admin
   loadBriefing(); startPresence(); startUrgencyCheck();
   // avvia realtime chat subito al login
   setTimeout(()=>startChatRealtime(), 500);
