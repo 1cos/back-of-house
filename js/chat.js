@@ -28,7 +28,7 @@ function addMsg(m,init){
     d.style.cssText='display:flex;justify-content:flex-end;margin:2px 0;';
     d.innerHTML=`
       <div style="max-width:75%;">
-        <div style="background:#1e3a5f;color:white;padding:10px 14px;border-radius:18px 18px 4px 18px;font-size:14px;line-height:1.4;">${m.text}</div>
+        <div style="background:#0369a1;color:white;padding:10px 14px;border-radius:18px 18px 4px 18px;font-size:14px;line-height:1.4;">${m.text}</div>
         <div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:3px;">${formatTimeDallas(m.created_at)}</div>
         <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end;flex-wrap:wrap;">
           ${(m.reactions||[]).map(r=>`<span style="font-size:12px;background:white;border:1px solid #e2e8f0;border-radius:20px;padding:2px 8px;">${r.emoji} ${r.count}</span>`).join('')}
