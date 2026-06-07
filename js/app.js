@@ -103,9 +103,11 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   document.getElementById('vc').classList.add('hidden');
   document.getElementById('vr').classList.toggle('hidden',t!=='r');
   document.getElementById('vp').classList.toggle('hidden',t!=='c');
+  document.getElementById('vi').classList.toggle('hidden',t!=='i');
   if(t==='c') renderRecipes();
   if(t==='s') renderS();
   if(t==='h') renderHomeStations();
   if(t==='r') loadReport('today');
+  if(t==='i') loadIngredientsTab();
 });
 

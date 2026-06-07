@@ -202,3 +202,87 @@ async function calculateIngredientCost(ingredientName, qty, unit){
     best: results[0]||null
   };
 }
+
+
+// ── TAB INGREDIENTS — FUNZIONI UI ────────────────────────────
+
+let allIngredients = [];
+let activeCategory = 'all';
+
+async function loadIngredientsTab(){
+  const list = document.getElementById('ingrTabList');
+  if(!list) return;
+  list.innerHTML = '<div class="text-sm text-slate-400 text-center py-8">Loading...</div>';
+
+  // Carica ingredienti + best price in parallelo
+  const [{data:ingrs}, {data:prices}] = await Promise.all([
+    supa.from('ingredients').select('id,name,category,base_unit,notes').eq('active',true).order('name'),
+    supa.from('ingredient_best_price').select('ingredient_id,vendor,unit_price,purchase_unit,price_rank').eq('price_rank',1)
+  ]);
+
+  allIngredients = ingrs || [];
+  const priceMap = {};
+  (prices||[]).forEach(p=>{ priceMap[p.ingredient_id] = p; });
+
+  renderIngredientsTab(allIngredients, priceMap);
+  // salva priceMap globale per il filtro
+  window._ingrPriceMap = priceMap;
+}
+
+function renderIngredientsTab(ingrs, priceMap){
+  const list = document.getElementById('ingrTabList');
+  if(!list) return;
+
+  const filtered = ingrs.filter(i => {
+    const matchCat = activeCategory === 'all' || i.category === activeCategory;
+    const q = (document.getElementById('ingrSearchMain')?.value||'').toLowerCase();
+    const matchQ = !q || i.name.toLowerCase().includes(q);
+    return matchCat && matchQ;
+  });
+
+  if(!filtered.length){
+    list.innerHTML = '<div class="text-sm text-slate-400 text-center py-8">No ingredients found</div>';
+    return;
+  }
+
+  const catEmoji = {
+    'Dairy':'🧀','Produce':'🥦','Protein':'🥩','Seafood':'🐟',
+    'Dry Goods':'🌾','Oil & Vinegar':'🫒','Spices & Condiments':'🌶️',
+    'Beverage':'🥤','Fees':'💸','Other':'📦'
+  };
+
+  list.innerHTML = filtered.map(i => {
+    const bp = (priceMap||window._ingrPriceMap||{})[i.id];
+    const emoji = catEmoji[i.category] || '📦';
+    return `
+    <div onclick="openIngredientCard('${i.id}')"
+      style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:white;border-radius:14px;border:1px solid #f1f5f9;cursor:pointer;active:scale-98;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:36px;height:36px;border-radius:10px;background:#f8fafc;display:flex;align-items:center;justify-content:center;font-size:18px;">${emoji}</div>
+        <div>
+          <div style="font-size:14px;font-weight:500;color:#1e293b;">${i.name}</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:1px;">${i.category||'Other'} • ${i.base_unit}</div>
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;">
+        ${bp
+          ? `<div style="font-size:14px;font-weight:600;color:#1e293b;">$${(bp.unit_price||0).toFixed(2)}</div>
+             <div style="font-size:10px;color:#94a3b8;">${bp.vendor?.split('/')[0]?.trim()||bp.vendor} / ${bp.purchase_unit}</div>`
+          : `<div style="font-size:11px;color:#cbd5e1;">no price</div>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.filterIngredientsTab = (q) => {
+  renderIngredientsTab(allIngredients, window._ingrPriceMap);
+};
+
+window.filterIngrCategory = (cat, btn) => {
+  activeCategory = cat;
+  document.querySelectorAll('#ingrCategoryFilter button').forEach(b=>{
+    b.className = 'px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap';
+  });
+  btn.className = 'px-3 py-1 rounded-full text-xs font-medium bg-slate-900 text-white whitespace-nowrap';
+  renderIngredientsTab(allIngredients, window._ingrPriceMap);
+};

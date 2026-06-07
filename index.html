@@ -269,6 +269,32 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       <div id="alertsLogOut" class="hidden bg-white rounded-xl border p-3 text-sm overflow-auto min-h-[200px] mt-2"></div>
     </section>
 
+    <!-- ── INGREDIENTS TAB ── -->
+    <section id="vi" class="hidden px-3 pt-3 pb-24">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold text-slate-800">🏷️ Ingredients</h2>
+        <button onclick="openAddIngredient()" class="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-sm">+ Add</button>
+      </div>
+      <!-- Search -->
+      <input id="ingrSearchMain" placeholder="Search ingredient..."
+        class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3 outline-none"
+        oninput="filterIngredientsTab(this.value)">
+      <!-- Category filter -->
+      <div id="ingrCategoryFilter" class="flex gap-2 overflow-x-auto pb-2 mb-3" style="scrollbar-width:none;">
+        <button onclick="filterIngrCategory('all',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-900 text-white whitespace-nowrap">All</button>
+        <button onclick="filterIngrCategory('Dairy',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🧀 Dairy</button>
+        <button onclick="filterIngrCategory('Produce',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🥦 Produce</button>
+        <button onclick="filterIngrCategory('Protein',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🥩 Protein</button>
+        <button onclick="filterIngrCategory('Seafood',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🐟 Seafood</button>
+        <button onclick="filterIngrCategory('Dry Goods',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🌾 Dry Goods</button>
+        <button onclick="filterIngrCategory('Other',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">📦 Other</button>
+      </div>
+      <!-- List -->
+      <div id="ingrTabList" class="space-y-2">
+        <div class="text-sm text-slate-400 text-center py-8">Loading...</div>
+      </div>
+    </section>
+
   </main>
 
   <!-- Bottom Nav -->
@@ -290,9 +316,9 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         <span class="text-[10px] tab-label">Ricette</span>
       </button>
-      <button data-t="r" class="tab flex flex-col items-center gap-1 w-16 text-slate-500">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-        <span class="text-[10px] tab-label">Report</span>
+      <button data-t="i" class="tab flex flex-col items-center gap-1 w-16 text-slate-500">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+        <span class="text-[10px] tab-label">Ingredients</span>
       </button>
     </div>
   </nav>
