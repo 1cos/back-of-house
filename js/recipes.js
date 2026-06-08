@@ -139,9 +139,9 @@ function openRecipeEditor(rec=null){
       <input id="rImg" placeholder="URL foto" class="w-full px-3 py-2 border rounded-xl" value="${rec?.image_url||''}">
       <div class="grid grid-cols-2 gap-2"><input id="rCat" placeholder="Categoria" class="px-3 py-2 border rounded-xl" value="${rec?.category||''}"><input id="rYield" placeholder="Resa" class="px-3 py-2 border rounded-xl" value="${rec?.yield_text||rec?.yield||''}"></div>
       <div class="grid grid-cols-3 gap-2">
-        <input id="rTime" type="number" placeholder="Tempo min" class="px-3 py-2 border rounded-xl" value="${rec?.prep_time_minutes||rec?.prep_time||\'\'}">
-        <input id="rServings" type="number" placeholder="Porzioni" class="px-3 py-2 border rounded-xl" value="${rec?.base_servings||\'\'}">
-        <input id="rPrice" type="number" step="0.01" placeholder="Prezzo $" class="px-3 py-2 border rounded-xl" value="${rec?.selling_price||\'\'}">
+        <input id="rTime" type="number" placeholder="Tempo min" class="px-3 py-2 border rounded-xl" value="${rec?.prep_time_minutes || rec?.prep_time || ''}">
+        <input id="rServings" type="number" placeholder="Porzioni" class="px-3 py-2 border rounded-xl" value="${rec?.base_servings|| ''}">
+        <input id="rPrice" type="number" step="0.01" placeholder="Prezzo $" class="px-3 py-2 border rounded-xl" value="${rec?.selling_price|| ''}">
       </div>
       <div><div class="font-semibold mb-1">Ingredienti</div><div id="ingList" class="space-y-1"></div><button id="addIng" class="text-xs text-emerald-600 mt-1">+ ingrediente</button></div>
       <div><div class="font-semibold mb-1">Attrezzatura</div><textarea id="rEquip" class="w-full px-3 py-2 border rounded-xl h-16">${rec?.equipment||''}</textarea></div>
