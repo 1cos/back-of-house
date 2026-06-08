@@ -59,14 +59,8 @@ document.head.appendChild(shakeStyle);
 
 function doLogin(profile){
   user=profile;
-  // se l'utente ha selezionato una lingua diversa al login
-  if(loginLang && loginLang !== user.lang){
-    user.lang = loginLang;
-    // salva su Supabase solo per staff, non per admin
-    if(user.role !== 'admin' && !user.is_admin){
-      supa.from('users').update({lang:loginLang}).eq('id',user.id).then(()=>{});
-    }
-  }
+  // lingua: usa sempre user.lang dal DB — non sovrascrivere mai automaticamente
+  // loginLang usato solo come display fallback se user.lang è null
   // applica stazione default se presente
   if(user.default_station){
     station=user.default_station.replace(' Station','');
