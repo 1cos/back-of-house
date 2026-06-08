@@ -459,9 +459,17 @@ function openProfile(){
 }
 
 function saveNotifPref(key, value){
+  // Persist to localStorage
   const prefs=JSON.parse(localStorage.getItem('boh_notif_prefs')||'{"chat":true,"news":true,"closing":true}');
   prefs[key]=value;
   localStorage.setItem('boh_notif_prefs',JSON.stringify(prefs));
+  // Update toggle visual immediately — background + knob position
+  const cb=document.getElementById('notif_'+key);
+  if(!cb) return;
+  const track=cb.nextElementSibling;       // the <span> track
+  const knob=track?.firstElementChild;     // the <span> knob
+  if(track) track.style.background=value?'#3B82F6':'#cbd5e1';
+  if(knob)  knob.style.left=value?'22px':'3px';
 }
 
 async function saveProfile(btn){
