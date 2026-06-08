@@ -79,7 +79,7 @@ function doLogin(profile){
   });
   init(); applyLang(); updateAlertBtn(); setupPush();
   loadNews(); initNews(); // News per tutti — tradotte nella propria lingua
-  loadBriefing(); startPresence(); startUrgencyCheck();
+  loadBriefing(); startPresence(); startUrgencyCheck(); if(typeof startUsersRealtime==='function') startUsersRealtime();
   // avvia realtime chat subito al login
   setTimeout(()=>startChatRealtime(), 500);
   // mostra/nascondi sezioni in base al ruolo

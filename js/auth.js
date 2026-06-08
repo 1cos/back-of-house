@@ -276,6 +276,13 @@ async function saveEditUser(userId, btn){
   if(birth_date) updates.birth_date=birth_date;
   const{error}=await supa.from('users').update(updates).eq('id',userId);
   if(error){err.textContent='Errore: '+error.message;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return}
+  // If editing the currently logged-in user, sync in-memory user object
+  if(user && String(user.id)===String(userId)){
+    user={...user,...updates};
+    if(user.lang) user.lang=normalizeLang(user.lang);
+    applyLang();
+    updateTopBarAvatar();
+  }
   btn.closest('.fixed').remove();
   document.querySelector('.fixed')?.remove();
   openUserManager();
@@ -437,7 +444,7 @@ function openProfile(){
     <!-- Cambio password -->
     <div style="margin-bottom:16px;">
       <div style="font-size:11px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;">Security</div>
-      <button onclick="modal.remove();openChangePassword()" style="width:100%;padding:10px 12px;background:rgba(59,130,246,0.05);border:0.5px solid rgba(59,130,246,0.1);border-radius:12px;font-size:13px;color:#1e3a5f;text-align:left;cursor:pointer;">🔑 Change password</button>
+      <button onclick="this.closest('.fixed').remove();openChangePassword()" style="width:100%;padding:10px 12px;background:rgba(59,130,246,0.05);border:0.5px solid rgba(59,130,246,0.1);border-radius:12px;font-size:13px;color:#1e3a5f;text-align:left;cursor:pointer;">🔑 Change password</button>
     </div>
 
     <!-- Salva e chiudi -->
@@ -463,6 +470,10 @@ async function saveProfile(btn){
   if(quietStart) localStorage.setItem('boh_quiet_start',quietStart);
   if(quietEnd) localStorage.setItem('boh_quiet_end',quietEnd);
   btn.closest('.fixed').remove();
+  // Refresh UI — do NOT touch user.lang
+  updateTopBarAvatar();
+  if(typeof renderPresence === 'function') renderPresence();
+  if(typeof loadOnlineUsers === 'function') loadOnlineUsers();
 }
 
 function changeAvatar(){
@@ -495,6 +506,10 @@ function changeAvatar(){
         user.photo_url = url;
         if(av) av.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
         updateTopBarAvatar();
+        const profAv=document.getElementById('profileAvatar');
+        if(profAv) profAv.innerHTML=`<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
+        if(typeof renderPresence==='function') renderPresence();
+        if(typeof loadOnlineUsers==='function') loadOnlineUsers();
       };
       reader.readAsDataURL(file);
       return;
@@ -509,6 +524,11 @@ function changeAvatar(){
     user.photo_url = url;
     if(av) av.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
     updateTopBarAvatar();
+    // Refresh profile avatar if modal still open
+    const profAv=document.getElementById('profileAvatar');
+    if(profAv) profAv.innerHTML=`<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
+    if(typeof renderPresence==='function') renderPresence();
+    if(typeof loadOnlineUsers==='function') loadOnlineUsers();
   };
   input.click();
 }
@@ -522,6 +542,34 @@ function updateTopBarAvatar(){
     av.innerHTML = (user?.name||'?').slice(0,2).toUpperCase();
     av.style.background = '#3B82F6';
   }
+}
+
+// ── FIX 5: Realtime listener for users table ──
+// Keeps avatar/lang/role/station in sync without logout/login
+let usersRealtimeChannel = null;
+function startUsersRealtime(){
+  if(usersRealtimeChannel) supa.removeChannel(usersRealtimeChannel);
+  usersRealtimeChannel = supa.channel('users-rt-'+Date.now())
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'users'},(payload)=>{
+      const updated = payload.new;
+      if(!updated) return;
+      // If the updated user is the currently logged-in user, merge into memory
+      if(user && String(user.id)===String(updated.id)){
+        // Never auto-overwrite lang — only merge if explicitly changed by admin
+        user = {...user, ...updated};
+        if(user.lang) user.lang = normalizeLang(user.lang);
+        applyLang();
+        updateTopBarAvatar();
+      }
+      // Refresh presence/online users UI for all users (avatar may have changed)
+      if(typeof renderPresence==='function') renderPresence();
+      if(typeof loadOnlineUsers==='function') loadOnlineUsers();
+    })
+    .subscribe((status)=>{
+      if(status==='CLOSED'||status==='CHANNEL_ERROR'){
+        setTimeout(startUsersRealtime, 5000);
+      }
+    });
 }
 
 // notifiche check fascia oraria
