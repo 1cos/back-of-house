@@ -145,10 +145,32 @@ async function doCloseTurn(){
     });
   }catch(e){}
   closingAnswers={};
+  // Salva chiusura per oggi
+  const todayKey='boh_closed_'+new Date().toISOString().slice(0,10)+'_'+(user?.name||'');
+  localStorage.setItem(todayKey, '1');
   renderS(); renderHomeStations();
+  updateCloseTurnBtn();
+}
+
+function updateCloseTurnBtn(){
   const btn=document.getElementById('closeTurnBtn');
-  btn.textContent='✓ '+tr('closeTurnDone');
-  btn.classList.add('bg-green-600');
-  setTimeout(()=>{btn.textContent=tr('closeTurn');btn.classList.remove('bg-green-600')},3000);
+  if(!btn) return;
+  const todayKey='boh_closed_'+new Date().toISOString().slice(0,10)+'_'+(user?.name||'');
+  const alreadyClosed=localStorage.getItem(todayKey)==='1';
+  if(alreadyClosed){
+    btn.textContent='✓ '+tr('closeTurnDone');
+    btn.style.background='#16a34a';
+    btn.onclick=()=>{
+      const t=document.createElement('div');
+      t.className='fixed top-16 left-1/2 -translate-x-1/2 z-[70] bg-slate-800 text-white text-sm px-4 py-2.5 rounded-2xl shadow-xl';
+      t.textContent=tr('alreadyClosed')||'You already closed tonight 👌';
+      document.body.appendChild(t);
+      setTimeout(()=>t.remove(),2500);
+    };
+  } else {
+    btn.textContent=tr('closeTurn');
+    btn.style.background='';
+    btn.onclick=closeTurn;
+  }
 }
 
