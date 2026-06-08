@@ -391,16 +391,21 @@ async function suggestIngredientMatches(invoiceData){
   
   if(!allIngredients.size) return;
   
+  // Only skip items that are already CONFIRMED — unconfirmed links get re-suggested
   const{data:existingLinks}=await supa.from('ingredient_links')
     .select('invoice_description')
-    .eq('vendor', invoiceData.vendor||'');
+    .eq('vendor', invoiceData.vendor||'')
+    .eq('confirmed', true);
   const linked=new Set((existingLinks||[]).map(l=>l.invoice_description.toLowerCase()));
   
   const unlinked=invoiceData.items.filter(i=>
     i.description && !linked.has(i.description.toLowerCase())
   );
   
-  if(!unlinked.length) return;
+  if(!unlinked.length){
+    showScToast('✓ All items already matched');
+    return;
+  }
   
   const ingredientList=[...allIngredients].join(', ');
   const itemList=unlinked.map(i=>`"${i.description}"`).join(', ');
