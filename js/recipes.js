@@ -82,10 +82,13 @@ function showRecipeSheet(rec){
     ${rec.equipment?`<p class="text-sm font-semibold mb-1">Attrezzatura</p><p class="text-xs text-slate-600 mb-3 whitespace-pre-wrap">${rec.equipment}</p>`:''}
     ${rec.procedure?`<p class="text-sm font-semibold mb-1">Procedimento</p><p class="text-sm text-slate-700 whitespace-pre-wrap mb-4">${rec.procedure}</p>`:''}
     ${rec.note?`<p class="text-xs text-amber-700 bg-amber-50 p-2 rounded-lg mb-3">${rec.note}</p>`:''}
+    <div id="recipeFoodCost_${rec.id||'x'}" class="mb-3"></div>
     <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
   </div>`;
   sheet.onclick=e=>{if(e.target===sheet)sheet.remove()};
   document.body.appendChild(sheet);
+  // Calculate food cost async after render
+  if(rec.id) calcRecipeFoodCost(rec);
 }
 
 function renderRecipes(){
@@ -135,7 +138,11 @@ function openRecipeEditor(rec=null){
       <input id="rTitle" placeholder="Titolo" class="w-full px-3 py-2 border rounded-xl" value="${rec?.title||''}">
       <input id="rImg" placeholder="URL foto" class="w-full px-3 py-2 border rounded-xl" value="${rec?.image_url||''}">
       <div class="grid grid-cols-2 gap-2"><input id="rCat" placeholder="Categoria" class="px-3 py-2 border rounded-xl" value="${rec?.category||''}"><input id="rYield" placeholder="Resa" class="px-3 py-2 border rounded-xl" value="${rec?.yield_text||rec?.yield||''}"></div>
-      <input id="rTime" type="number" placeholder="Tempo min" class="w-full px-3 py-2 border rounded-xl" value="${rec?.prep_time_minutes||rec?.prep_time||''}">
+      <div class="grid grid-cols-3 gap-2">
+        <input id="rTime" type="number" placeholder="Tempo min" class="px-3 py-2 border rounded-xl" value="${rec?.prep_time_minutes||rec?.prep_time||\'\'}">
+        <input id="rServings" type="number" placeholder="Porzioni" class="px-3 py-2 border rounded-xl" value="${rec?.base_servings||\'\'}">
+        <input id="rPrice" type="number" step="0.01" placeholder="Prezzo $" class="px-3 py-2 border rounded-xl" value="${rec?.selling_price||\'\'}">
+      </div>
       <div><div class="font-semibold mb-1">Ingredienti</div><div id="ingList" class="space-y-1"></div><button id="addIng" class="text-xs text-emerald-600 mt-1">+ ingrediente</button></div>
       <div><div class="font-semibold mb-1">Attrezzatura</div><textarea id="rEquip" class="w-full px-3 py-2 border rounded-xl h-16">${rec?.equipment||''}</textarea></div>
       <div><div class="font-semibold mb-1">Procedimento</div><textarea id="rProc" class="w-full px-3 py-2 border rounded-xl h-32">${rec?.procedure||''}</textarea></div>
@@ -144,10 +151,17 @@ function openRecipeEditor(rec=null){
   </div>`;
   document.body.appendChild(modal);
   const ingList=modal.querySelector('#ingList');
-  function addRow(d={qty:'',name:'',comment:''}){
+  function addRow(d={qty:'',unit:'g',name:'',comment:''}){
     const row=document.createElement('div');
-    row.className='grid grid-cols-[80px_1fr_1fr_auto] gap-1';
-    row.innerHTML=`<input placeholder="60 gr" class="px-2 py-1.5 border rounded text-xs" value="${d.qty}"><input placeholder="ingrediente" class="px-2 py-1.5 border rounded text-xs" value="${d.name}"><input placeholder="nota" class="px-2 py-1.5 border rounded text-xs" value="${d.comment}"><button class="text-red-500">✕</button>`;
+    row.className='grid grid-cols-[60px_70px_1fr_90px_auto] gap-1';
+    row.innerHTML=`
+      <input placeholder="200" class="px-2 py-1.5 border rounded text-xs" value="${d.qty||''}" type="number" min="0" step="any">
+      <select class="px-1 py-1.5 border rounded text-xs bg-white">
+        ${['g','kg','ml','l','oz','lb','cup','tbsp','tsp','each'].map(u=>`<option ${(d.unit||'g')===u?'selected':''}>${u}</option>`).join('')}
+      </select>
+      <input placeholder="ingrediente" class="px-2 py-1.5 border rounded text-xs" value="${d.name||''}">
+      <input placeholder="nota" class="px-2 py-1.5 border rounded text-xs" value="${d.comment||''}">
+      <button class="text-red-500 px-1">✕</button>`;
     row.querySelector('button').onclick=()=>row.remove();
     ingList.appendChild(row);
   }
@@ -156,7 +170,9 @@ function openRecipeEditor(rec=null){
   modal.querySelector('#saveR').onclick=async()=>{
     const t=modal.querySelector('#rTitle').value.trim();
     if(!t){alert('Nome obbligatorio');return}
-    const newRec={title:t,category:modal.querySelector('#rCat').value,yield_text:modal.querySelector('#rYield').value,prep_time_minutes:parseInt(modal.querySelector('#rTime').value)||null,image_url:modal.querySelector('#rImg').value,equipment:modal.querySelector('#rEquip').value,procedure:modal.querySelector('#rProc').value,ingredients:[...ingList.children].map(r=>({qty:r.children[0].value,name:r.children[1].value,comment:r.children[2].value})).filter(i=>i.name)};
+    const sp=parseFloat(modal.querySelector('#rPrice')?.value)||null;
+const bs=parseInt(modal.querySelector('#rServings')?.value)||null;
+const newRec={title:t,category:modal.querySelector('#rCat').value,yield_text:modal.querySelector('#rYield').value,prep_time_minutes:parseInt(modal.querySelector('#rTime').value)||null,image_url:modal.querySelector('#rImg').value,equipment:modal.querySelector('#rEquip').value,procedure:modal.querySelector('#rProc').value,selling_price:sp,base_servings:bs,ingredients:[...ingList.children].map(r=>({qty:parseFloat(r.children[0].value)||r.children[0].value||'',unit:r.children[1].value||'g',name:r.children[2].value,comment:r.children[3].value})).filter(i=>i.name)};
     try{
       if(rec?.id){await supa.from('recipes').update(newRec).eq('id',rec.id)}else{await supa.from('recipes').insert(newRec)}
       modal.remove();await init();renderRecipes();
@@ -195,3 +211,154 @@ async function showTranslation(name, el){
   }catch(e){ tooltip.remove(); }
 }
 
+
+// ── FOOD COST CALCULATOR ──────────────────────────────────────
+// Carica unit_conversion_table una volta sola
+let _unitConversions = null;
+async function getUnitConversions(){
+  if(_unitConversions) return _unitConversions;
+  const{data} = await supa.from('unit_conversion_table').select('from_unit,to_unit,factor');
+  _unitConversions = {};
+  (data||[]).forEach(r=>{
+    if(!_unitConversions[r.from_unit]) _unitConversions[r.from_unit] = {};
+    _unitConversions[r.from_unit][r.to_unit] = r.factor;
+  });
+  return _unitConversions;
+}
+
+// Converte qty in grammi (o ml per liquidi)
+async function convertToG(qty, unit){
+  if(!qty || !unit) return null;
+  const q = parseFloat(qty);
+  if(isNaN(q)) return null;
+  if(unit === 'g' || unit === 'ml') return q;
+  const conv = await getUnitConversions();
+  // Prova diretto → g
+  if(conv[unit]?.['g']) return q * conv[unit]['g'];
+  // Prova diretto → ml
+  if(conv[unit]?.['ml']) return q * conv[unit]['ml'];
+  // Prova via kg → g
+  if(conv[unit]?.['kg']) return q * conv[unit]['kg'] * 1000;
+  return null;
+}
+
+async function calcRecipeFoodCost(rec){
+  const el = document.getElementById(`recipeFoodCost_${rec.id||'x'}`);
+  if(!el) return;
+
+  const ings = rec.ingredients||[];
+  if(!ings.length){ el.innerHTML=''; return; }
+
+  // Carica prezzi ingredienti — cerca per nome
+  const names = ings.map(i=>i.name).filter(Boolean);
+  if(!names.length) return;
+
+  // Cerca ingredient_id per nome in ingredients table
+  const{data:ingrRows} = await supa
+    .from('ingredients')
+    .select('id,name')
+    .in('name', names);
+
+  const nameToId = {};
+  (ingrRows||[]).forEach(r=>{ nameToId[r.name] = r.id; });
+
+  // Carica best price per ogni ingrediente
+  const ids = Object.values(nameToId);
+  let priceMap = {};
+  if(ids.length){
+    const{data:prices} = await supa
+      .from('ingredient_vendors')
+      .select('ingredient_id,price_per_100g,vendor')
+      .in('ingredient_id', ids)
+      .not('price_per_100g','is',null)
+      .order('price_per_100g',{ascending:true});
+
+    // Prendi il prezzo più basso per ogni ingrediente
+    (prices||[]).forEach(p=>{
+      if(!priceMap[p.ingredient_id]) priceMap[p.ingredient_id] = p;
+    });
+  }
+
+  // Calcola costo per ogni ingrediente
+  let totalCost = 0;
+  let hasAnyPrice = false;
+  const rows = await Promise.all(ings.map(async ing=>{
+    if(!ing.name) return null;
+    const ingId = nameToId[ing.name];
+    const price = ingId ? priceMap[ingId] : null;
+
+    // Converti qty in grammi
+    const qtyG = await convertToG(ing.qty, ing.unit||'g');
+
+    let lineCost = null;
+    if(price?.price_per_100g && qtyG){
+      lineCost = (qtyG / 100) * price.price_per_100g;
+      totalCost += lineCost;
+      hasAnyPrice = true;
+    }
+
+    return {
+      name: ing.name,
+      qty: ing.qty,
+      unit: ing.unit||'',
+      qtyG,
+      price_per_100g: price?.price_per_100g||null,
+      vendor: price?.vendor||null,
+      lineCost
+    };
+  }));
+
+  if(!hasAnyPrice){
+    el.innerHTML=`<div style="font-size:11px;color:#94a3b8;padding:8px 0;">No price data yet — import invoices to calculate food cost</div>`;
+    return;
+  }
+
+  // Calcola food cost %
+  const sellingPrice = rec.selling_price;
+  const servings = rec.base_servings||1;
+  const costPerServing = totalCost / servings;
+  const fcPct = sellingPrice ? (costPerServing / sellingPrice * 100) : null;
+  const fcColor = fcPct ? (fcPct < 28 ? '#10b981' : fcPct < 35 ? '#f59e0b' : '#ef4444') : '#94a3b8';
+
+  // Aggiorna food_cost_pct nel DB in background
+  if(fcPct && rec.id){
+    supa.from('recipes').update({food_cost_pct: parseFloat(fcPct.toFixed(1))}).eq('id',rec.id).then(()=>{});
+  }
+
+  el.innerHTML = `
+    <div style="background:#f8fafc;border-radius:14px;padding:12px;margin-bottom:8px;">
+      <div style="font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;">
+        Food Cost
+      </div>
+
+      <!-- Righe ingredienti -->
+      ${rows.filter(Boolean).map(r=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:0.5px solid #f1f5f9;">
+          <div>
+            <span style="font-size:12px;color:#1e293b;">${r.name}</span>
+            <span style="font-size:10px;color:#94a3b8;margin-left:4px;">${r.qty||''} ${r.unit||''}</span>
+          </div>
+          <div style="text-align:right;">
+            ${r.lineCost!=null
+              ? `<span style="font-size:12px;font-weight:500;color:#1e293b;">$${r.lineCost.toFixed(3)}</span>`
+              : `<span style="font-size:10px;color:#94a3b8;">no price</span>`}
+          </div>
+        </div>`).join('')}
+
+      <!-- Totale -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#1e293b;">Cost / serving</div>
+          ${servings>1?`<div style="font-size:10px;color:#94a3b8;">${servings} servings · total $${totalCost.toFixed(2)}</div>`:''}
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:16px;font-weight:700;color:#1e293b;">$${costPerServing.toFixed(2)}</div>
+          ${fcPct!=null
+            ? `<div style="font-size:12px;font-weight:600;color:${fcColor};">${fcPct.toFixed(1)}% FC</div>`
+            : sellingPrice
+              ? ''
+              : `<div style="font-size:10px;color:#94a3b8;">set selling price for %</div>`}
+        </div>
+      </div>
+    </div>`;
+}
