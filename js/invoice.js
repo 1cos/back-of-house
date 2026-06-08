@@ -286,7 +286,7 @@ async function saveInvoice(data, btn){
   btn.disabled=true;
   
   try{
-    const{error}=await supa.from('purchases').insert({
+    const{data:purchase, error}=await supa.from('purchases').insert({
       vendor: data.vendor||null,
       invoice_number: data.invoice_number||null,
       invoice_date: data.invoice_date||null,
@@ -296,10 +296,13 @@ async function saveInvoice(data, btn){
       total: data.total||null,
       items: data.items||[],
       uploaded_by: user?.name||'Max'
-    });
+    }).select().single();
     
     if(error) throw error;
     
+    // Attach purchase id to data so invoice_lines and matching can use it
+    data._purchase_id = purchase?.id || null;
+
     btn.closest('.fixed').remove();
     
     const toast=document.createElement('div');
@@ -363,8 +366,16 @@ async function showPurchaseDetail(id){
 async function suggestIngredientMatches(invoiceData){
   if(!invoiceData.items||!invoiceData.items.length) return;
   
-  const{data:recipes}=await supa.from('recipes').select('ingredients');
+  // Search BOTH: ingredients table + recipe ingredient lines
+  const [{data:ingrsDB}, {data:recipes}] = await Promise.all([
+    supa.from('ingredients').select('name').eq('active',true),
+    supa.from('recipes').select('ingredients')
+  ]);
+
   const allIngredients=new Set();
+  // From ingredients table (primary source)
+  (ingrsDB||[]).forEach(i=>{ if(i.name) allIngredients.add(i.name); });
+  // From recipe lines (may have more specific names)
   (recipes||[]).forEach(r=>{
     (r.ingredients||[]).forEach(i=>{ if(i.name) allIngredients.add(i.name); });
   });
@@ -454,12 +465,12 @@ function showIngredientMatchModal(matches, vendor, items){
   
   modal.onclick=e=>{if(e.target===modal)modal.remove()};
   document.body.appendChild(modal);
-  window._pendingMatches={matches, vendor};
+  window._pendingMatches={matches, vendor, invoiceData};
 }
 
 async function saveAllMatches(vendor){
   if(!window._pendingMatches) return;
-  const{matches}=window._pendingMatches;
+  const{matches, invoiceData}=window._pendingMatches;
   const checkboxes=document.querySelectorAll('[id^="match_"]');
   
   const toSave=[];
@@ -467,20 +478,74 @@ async function saveAllMatches(vendor){
     if(cb.checked && matches[idx]){
       toSave.push({
         invoice_description: matches[idx].invoice_item,
-        ingredient_name: matches[idx].ingredient,
-        vendor: vendor||null,
-        confirmed: true
+        ingredient_name:     matches[idx].ingredient,
+        vendor:              vendor||null,
+        confirmed:           true,
+        confidence:          matches[idx].confidence||null
       });
     }
   });
   
-  if(!toSave.length) return;
-  
+  if(!toSave.length){ window._pendingMatches=null; return; }
+
+  // 1. Save ingredient_links
   await supa.from('ingredient_links').upsert(toSave, {
     onConflict:'invoice_description,vendor'
   });
-  
-  showScToast(`✓ ${toSave.length} ingredient links saved`);
+
+  // 2. For each confirmed match: find ingredient.id → update invoice_lines safely
+  await Promise.all(toSave.map(async(m)=>{
+    // Find ingredient by name
+    const{data:ingr}=await supa.from('ingredients')
+      .select('id')
+      .eq('name', m.ingredient_name)
+      .single();
+    if(!ingr?.id) return;
+
+    // Update ingredient_links with ingredient_id
+    await supa.from('ingredient_links')
+      .update({ingredient_id: ingr.id})
+      .eq('invoice_description', m.invoice_description)
+      .eq('vendor', vendor||'');
+
+    // Update invoice_lines — scoped to THIS invoice only
+    // Primary filter: import_id (purchase id) — most precise
+    // Secondary: vendor + invoice_date + raw_description — fallback for older rows
+    const purchaseId = invoiceData?._purchase_id;
+    let query = supa.from('invoice_lines')
+      .update({
+        ingredient_id:     ingr.id,
+        match_status:      'matched',
+        match_confidence:  m.confidence||null
+      })
+      .eq('raw_description', m.invoice_description);
+
+    if(purchaseId){
+      // Precise: only this purchase
+      query = query.eq('import_id', purchaseId);
+    } else {
+      // Fallback: same vendor + invoice_date (never touches other invoices)
+      query = query
+        .eq('vendor', vendor||'')
+        .eq('invoice_date', invoiceData?.invoice_date||'');
+    }
+
+    await query;
+  }));
+
+  // 3. Update ingredient_vendors.price_per_100g for newly linked ingredients
+  if(invoiceData){
+    const{data:updatedLines}=await supa.from('invoice_lines')
+      .select('vendor,unit_price,cost_per_100g,total_weight_g,invoice_date,purchase_unit,raw_description,ingredient_id')
+      .eq('import_id', invoiceData._purchase_id||'')
+      .not('ingredient_id','is',null)
+      .not('cost_per_100g','is',null);
+    if(updatedLines?.length){
+      updateIngredientVendorPrices(vendor, updatedLines);
+    }
+  }
+
+  showScToast(`✓ ${toSave.length} match${toSave.length>1?'es':''} confirmed — prices updated`);
   window._pendingMatches=null;
 }
 
@@ -684,6 +749,7 @@ async function saveToInvoiceLines(data){
     const pack = parsePackFormat(packStr);
 
     return {
+      import_id:              data._purchase_id||null,
       invoice_date:           data.invoice_date||new Date().toISOString().slice(0,10),
       invoice_number:         data.invoice_number||null,
       vendor:                 data.vendor||'Unknown',
