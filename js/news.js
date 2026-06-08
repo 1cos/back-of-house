@@ -16,14 +16,18 @@ async function loadNews(){
     const sourceText=n.message||'';
     if(!sourceText.trim()) return sourceText+suf;
     try{
-      const detectRes=await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
-        method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
-        body:JSON.stringify({text:sourceText,targetLang:'__detect__'})
-      });
-      const detectData=await detectRes.json();
-      const sourceLang=normalizeLang(detectData.detected);
-      if(sourceLang!==viewerLang){
+      // Use stored source_lang if available, otherwise detect on the fly
+      let sourceLang=n.source_lang?normalizeLang(n.source_lang):null;
+      if(!sourceLang){
+        const detectRes=await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+          body:JSON.stringify({text:sourceText,targetLang:'__detect__'})
+        });
+        const detectData=await detectRes.json();
+        sourceLang=normalizeLang(detectData.detected||'');
+      }
+      if(sourceLang&&sourceLang!==viewerLang){
         const transRes=await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
           method:'POST',
           headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
@@ -114,10 +118,22 @@ window.sendNews=async(btn)=>{
   if(!text) return;
   btn.textContent='...';
   btn.disabled=true;
+  // Detect source language of the message text — never assume writer's lang
+  let source_lang=null;
+  try{
+    const dr=await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+      body:JSON.stringify({text,targetLang:'__detect__'})
+    });
+    const dd=await dr.json();
+    source_lang=normalizeLang(dd.detected||'')||null;
+  }catch(e){}
   await supa.from('alerts').insert({
     message:text,
     created_by:user?.name||'Admin',
-    is_active:true
+    is_active:true,
+    ...(source_lang?{source_lang}:{})
   });
   btn.closest('.fixed').remove();
   loadNews();
