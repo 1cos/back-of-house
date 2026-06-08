@@ -81,18 +81,27 @@ async function processInvoiceFile(input){
 // Ritorna {count, sizeEach, unit} o null se non riesce
 function parsePackFormat(str){
   if(!str) return null;
-  // Normalizza # → lb
-  const s = String(str).trim().replace(/#/g,'lb').toUpperCase();
 
-  // Formato "count/size unit" — es. "2/5 LB", "6/1GAL", "4/2.5LB"
-  let m = s.match(/^(\d+)\s*\/\s*([\d.]+)\s*([A-Z_]+)$/);
+  // Normalizza: # → lb, rimuovi trailing words (bag, box, case, pack)
+  let s = String(str).trim()
+    .replace(/#/g,'lb')
+    .replace(/\b(bag|box|case|pack|bx|cs)\b/gi,'')
+    .trim()
+    .toUpperCase();
+
+  // Formato "count X size unit" — es. "4 X 5 LB", "1 X 10 LB", "2 X 500G"
+  let m = s.match(/^(\d+)\s*X\s*([\d.]+)\s*([A-Z_]+)/);
   if(m) return {count:parseFloat(m[1]), sizeEach:parseFloat(m[2]), unit:m[3].toLowerCase()};
 
-  // Formato "size unit" solo — es. "5 LB", "12OZ", "1 GAL"
-  m = s.match(/^([\d.]+)\s*([A-Z_]+)$/);
+  // Formato "count/size unit" — es. "2/5 LB", "6/1GAL", "4/2.5LB", "12/3 CT"
+  m = s.match(/^(\d+)\s*\/\s*([\d.]+)\s*([A-Z_]+)/);
+  if(m) return {count:parseFloat(m[1]), sizeEach:parseFloat(m[2]), unit:m[3].toLowerCase()};
+
+  // Formato "size unit" — es. "5 LB", "10LB", "12OZ", "8LB", "1GAL"
+  m = s.match(/^([\d.]+)\s*([A-Z]+)$/);
   if(m) return {count:1, sizeEach:parseFloat(m[1]), unit:m[2].toLowerCase()};
 
-  // Formato "count EA" — es. "24 EA", "12 EACH"
+  // Formato "count EA/EACH/CT" — es. "24 EA", "100 CT"
   m = s.match(/^(\d+)\s*(EA|EACH|PC|PCS|CT|COUNT)$/);
   if(m) return {count:parseFloat(m[1]), sizeEach:1, unit:'each'};
 
@@ -382,16 +391,21 @@ async function suggestIngredientMatches(invoiceData){
   
   if(!allIngredients.size) return;
   
+  // Only skip items that are already CONFIRMED — unconfirmed links get re-suggested
   const{data:existingLinks}=await supa.from('ingredient_links')
     .select('invoice_description')
-    .eq('vendor', invoiceData.vendor||'');
+    .eq('vendor', invoiceData.vendor||'')
+    .eq('confirmed', true);
   const linked=new Set((existingLinks||[]).map(l=>l.invoice_description.toLowerCase()));
   
   const unlinked=invoiceData.items.filter(i=>
     i.description && !linked.has(i.description.toLowerCase())
   );
   
-  if(!unlinked.length) return;
+  if(!unlinked.length){
+    showScToast('✓ All items already matched');
+    return;
+  }
   
   const ingredientList=[...allIngredients].join(', ');
   const itemList=unlinked.map(i=>`"${i.description}"`).join(', ');
