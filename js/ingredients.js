@@ -522,6 +522,17 @@ window.openEditIngredient = async function(ingredientId){
         </div>
       </div>
 
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div>
+          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PURCHASE UNIT</label>
+          <input id="editIngrPurchaseUnit" value="${ingr.purchase_unit||''}" placeholder="lb, cs, each" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PACK SIZE</label>
+          <input id="editIngrPackDesc" value="${ingr.pack_description||''}" placeholder="5# bag, 2/5lb" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
+        </div>
+      </div>
+
       <div style="margin-bottom:16px;">
         <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">NOTES</label>
         <textarea id="editIngrNotes" rows="2" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;resize:none;box-sizing:border-box;">${ingr.notes||''}</textarea>
@@ -539,10 +550,12 @@ window.openEditIngredient = async function(ingredientId){
 window.saveEditIngredient = async function(ingredientId, btn){
   btn.textContent='Saving...'; btn.disabled=true;
   const updates = {
-    name:            document.getElementById('editIngrName')?.value?.trim(),
-    category:        document.getElementById('editIngrCat')?.value||null,
-    base_unit:       document.getElementById('editIngrUnit')?.value||'g',
-    notes:           document.getElementById('editIngrNotes')?.value||null,
+    name:             document.getElementById('editIngrName')?.value?.trim(),
+    category:         document.getElementById('editIngrCat')?.value||null,
+    base_unit:        document.getElementById('editIngrUnit')?.value||'g',
+    notes:            document.getElementById('editIngrNotes')?.value||null,
+    purchase_unit:    document.getElementById('editIngrPurchaseUnit')?.value?.trim()||null,
+    pack_description: document.getElementById('editIngrPackDesc')?.value?.trim()||null,
   };
   const w = parseFloat(document.getElementById('editIngrWeight')?.value);
   const v = parseFloat(document.getElementById('editIngrVol')?.value);
@@ -555,4 +568,16 @@ window.saveEditIngredient = async function(ingredientId, btn){
   // Riapri la scheda aggiornata
   document.querySelector('.fixed.inset-0')?.remove();
   openIngredientCard(ingredientId);
+};
+
+// ── Apre ricetta da scheda ingrediente con z-index corretto ──
+window.openRecipeFromCard = function(rec){
+  if(typeof showRecipeSheet === 'function'){
+    showRecipeSheet(rec);
+    setTimeout(()=>{
+      document.querySelectorAll('.fixed.inset-0').forEach(s=>{
+        if(s.classList.contains('z-50')||s.style.zIndex==='50') s.style.zIndex='80';
+      });
+    },10);
+  }
 };
