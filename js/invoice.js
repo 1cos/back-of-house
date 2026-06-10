@@ -103,15 +103,32 @@ function unitToG(unit){return UNIT_TO_G[(unit||'').toLowerCase().trim()]||null;}
 
 function calcTotalWeightG(item){
   const qty=parseFloat(item.quantity||item.qty)||1;
+
+  // ── Priority 1: pack_size (numeric) + pack_unit as split fields ──
+  // e.g. pack_size=11, pack_unit='lb' → 1 case = 11 lb = 4989 g
+  if(item.pack_size&&item.pack_unit&&item.pack_unit!=='each'){
+    const f=unitToG(item.pack_unit);
+    if(f) return qty*parseFloat(item.pack_size)*f;
+  }
+
+  // ── Priority 2: pack_size or pack_description as combined string ──
+  // e.g. pack_description='4 X 5 LB', pack_size='11LB'
   if(item.pack_size||item.pack_description){
     const p=parsePackFormat(item.pack_size||item.pack_description);
     if(p&&p.unit!=='each'){const f=unitToG(p.unit);if(f)return qty*p.count*p.sizeEach*f;}
   }
-  const pu=(item.purchase_unit||item.unit||'').toLowerCase();
-  if(pu&&pu!=='each'&&pu!=='cs'&&pu!=='case'){const f=unitToG(pu);if(f)return qty*f;}
+
+  // ── Priority 3: pack_qty + pack_unit as split fields ─────────────
+  // legacy field names used in some parsers
   if(item.pack_qty&&item.pack_unit&&item.pack_unit!=='each'){
     const f=unitToG(item.pack_unit);if(f)return qty*parseFloat(item.pack_qty)*f;
   }
+
+  // ── Priority 4: purchase_unit alone (1 unit = 1 lb etc.) ─────────
+  const pu=(item.purchase_unit||item.unit||'').toLowerCase();
+  if(pu&&pu!=='each'&&pu!=='cs'&&pu!=='case'){const f=unitToG(pu);if(f)return qty*f;}
+
+  // ── Priority 5: avg_unit_weight_g fallback ────────────────────────
   if(item.avg_unit_weight_g){
     const ps=parsePackFormat(item.pack_size||item.pack_description);
     const units=ps?ps.count*ps.sizeEach:qty;
