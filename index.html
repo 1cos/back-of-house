@@ -8,10 +8,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Back of House">
-
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="icon" href="favicon.ico">
-<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="manifest" href="./manifest.json">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -433,6 +431,9 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <button onclick="hideAdminMenu();document.getElementById('pwdBtn')?.click()" class="admin-menu-btn">
           <span style="font-size:24px;">🔑</span><span>Password</span>
         </button>
+        <button onclick="hideAdminMenu();openVendorParserTest()" class="admin-menu-btn">
+          <span style="font-size:24px;">🧪</span><span>Parser Test</span>
+        </button>
       </div>
     </div>
   </div>
@@ -464,6 +465,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/auth.js"></script>
 <script src="js/push.js"></script>
 <script src="js/souschef.js"></script>
+  <script src="js/vendor-parser-ui.js"></script>
 <script src="js/invoice.js"></script>
 <script src="js/ingredients.js"></script>
 <script>if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js')}</script>

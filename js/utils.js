@@ -1,6 +1,8 @@
 const SUPABASE_URL = 'https://ydqmumpytgrlceuinoqt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MzcyOTUsImV4cCI6MjA5NDUxMzI5NX0.MSIKL4nCOxK8YFFTkt9AbFGViiwl-KEhHy6cL25gnKc';
 const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+window.supa = supa;
+window.supabaseClient = supa;
 
 const DEFAULT_LANG = 'en';
 function normalizeLang(lang){
