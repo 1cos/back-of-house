@@ -7,23 +7,141 @@ const UNIT_CONVERSIONS = {
   'gal':3785.41,'qt':946.353,'pt':473.176,'fl_oz':29.5735,'l':1000,'ml':1,
   'cup':236.588,'tbsp':14.7868,'tsp':4.92892,
 };
+// ── INGREDIENT-SPECIFIC EMOJI ────────────────────────────────
+// Name-based, same logic used in vendor-documents-review.js.
+// Falls back to category emoji if no name match.
+function ingrEmoji(name, category){
+  const n = (name||'').toUpperCase();
+  if(/AVOCADO/.test(n))              return '🥑';
+  if(/LEMON/.test(n))                return '🍋';
+  if(/LIME/.test(n))                 return '🍋';
+  if(/TOMATO/.test(n))               return '🍅';
+  if(/WATERMELON/.test(n))           return '🍉';
+  if(/STRAWBERR/.test(n))            return '🍓';
+  if(/MUSHROOM/.test(n))             return '🍄';
+  if(/ARUGULA|LETTUCE|ROMAINE/.test(n)) return '🥬';
+  if(/SPINACH/.test(n))              return '🥬';
+  if(/ASPARAGUS/.test(n))            return '🥦';
+  if(/BRUSSEL/.test(n))              return '🥦';
+  if(/BROCCOLI/.test(n))             return '🥦';
+  if(/PEPPER/.test(n))               return '🫑';
+  if(/ONION/.test(n))                return '🧅';
+  if(/GARLIC/.test(n))               return '🧄';
+  if(/CARROT/.test(n))               return '🥕';
+  if(/POTATO/.test(n))               return '🥔';
+  if(/EGG/.test(n))                  return '🥚';
+  if(/CHEESE|CHZ/.test(n))           return '🧀';
+  if(/BUTTER/.test(n))               return '🧈';
+  if(/MILK|CREAM/.test(n))           return '🥛';
+  if(/BEEF|RIB|STEAK|TENDERLOIN/.test(n)) return '🥩';
+  if(/CHICKEN|POULTRY/.test(n))      return '🍗';
+  if(/PORK|BACON|HAM/.test(n))       return '🥓';
+  if(/SALMON|TUNA|HALIBUT|COD|FISH/.test(n)) return '🐟';
+  if(/SHRIMP|PRAWN/.test(n))         return '🍤';
+  if(/LOBSTER|CRAB|SCALLOP|CLAM|OYSTER/.test(n)) return '🦞';
+  if(/FLOUR|PASTA|SPAGHETTI|RICE|GRAIN/.test(n)) return '🌾';
+  if(/OIL/.test(n))                  return '🫒';
+  if(/VINEGAR/.test(n))              return '🫙';
+  if(/SALT|PEPPER|SPICE|HERB/.test(n)) return '🌶️';
+  if(/SUGAR|HONEY/.test(n))          return '🍯';
+  if(/MARIGOLD|FLOWER/.test(n))      return '🌸';
+  // category fallback
+  const cat = {
+    'Dairy':'🧀','Produce':'🥦','Protein':'🥩','Seafood':'🐟',
+    'Dry Goods':'🌾','Oil & Vinegar':'🫒','Spices & Condiments':'🌶️',
+    'Beverage':'🥤','Fees':'💸','Other':'📦'
+  };
+  return cat[category]||'📦';
+}
+
 function convertToBase(qty, unit){
   const f = UNIT_CONVERSIONS[(unit||'').toLowerCase()];
   return f ? qty * f : null;
 }
 
+// ── PARSE PACK DESCRIPTION → TOTAL GRAMS ────────────────────
+// Handles: 4#  25#  11/1#  4X5LB  2/5LB  8/12OZ  10LB  28LB
+// '#' means lb. Returns total grams or null.
+function parsePackDescG(str){
+  if(!str) return null;
+  // uppercase first, THEN replace X so it stays lowercase for regex matching
+  const s = String(str).trim()
+    .toUpperCase()
+    .replace(/#/g,'LB')                  // # → LB
+    .replace(/\s*\/\s*/g,'/')            // normalise slashes
+    .replace(/\s*X\s*/g,'x');            // normalise X multiplier → lowercase x
+  const UC = UNIT_CONVERSIONS;
+  let m;
+  // count x size unit  e.g. "4X5LB", "2x5 LB"
+  m = s.match(/^(\d+)x([\d.]+)\s*([A-Z]+)/);
+  if(m){ const f=UC[m[3].toLowerCase()]; if(f) return parseFloat(m[1])*parseFloat(m[2])*f; }
+  // count/size unit  e.g. "2/5LB", "8/12OZ", "11/1LB"
+  m = s.match(/^(\d+)\/([\d.]+)\s*([A-Z]+)/);
+  if(m){ const f=UC[m[3].toLowerCase()]; if(f) return parseFloat(m[1])*parseFloat(m[2])*f; }
+  // size unit  e.g. "10LB", "28 LB", "4LB"
+  m = s.match(/^([\d.]+)\s*([A-Z]+)$/);
+  if(m){ const f=UC[m[2].toLowerCase()]; if(f) return parseFloat(m[1])*f; }
+  return null;
+}
+
+// ── CALCOLA PESO BASE IN GRAMMI DA CAMPI VENDOR ─────────────
+// Unica fonte di verità — usata da calcVendorPrice100g,
+// saveEditVendorRow, saveNewVendorRow e tutti i live preview.
+//
+// Priorità:
+//  1. pack_size (numeric) × pack_unit          e.g. 11 lb  → 4989 g
+//  2. pack_description parsed                  e.g. "4#"   → 1814 g
+//  3. conversion_to_base  (già in grammi)
+//  4. last_total_weight_g (già in grammi)
+//  5. unit_weight_g       (già in grammi)
+//  6. purchase_unit da solo                   e.g. 'lb'   → 453 g
+function calcBaseWeightG(v){
+  // 1. pack_description string — parse first because pack_size=1 is a common
+  //    default/placeholder that should never override a real description like "25#"
+  const pdG = parsePackDescG(v.pack_description);
+  if(pdG) return pdG;
+
+  // 2. count-based pack: e.g. "16-22 CT" with unit_weight_g
+  //    parse average count from pack_description range, multiply by unit_weight_g
+  if(v.unit_weight_g && v.pack_description){
+    const pd = String(v.pack_description).toUpperCase();
+    // range: "16-22 CT" → average 19
+    const rangeM = pd.match(/(\d+)\s*[-–]\s*(\d+)\s*(?:CT|COUNT|EA|EACH)/);
+    if(rangeM){
+      const avg = (parseFloat(rangeM[1]) + parseFloat(rangeM[2])) / 2;
+      return avg * parseFloat(v.unit_weight_g);
+    }
+    // single count: "12 CT" → 12
+    const singleM = pd.match(/^(\d+)\s*(?:CT|COUNT|EA|EACH)$/);
+    if(singleM) return parseFloat(singleM[1]) * parseFloat(v.unit_weight_g);
+  }
+
+  // 3. pack_size + pack_unit as split numeric fields (only if pack_size > 1,
+  //    or if there is no pack_description at all)
+  if(v.pack_size && v.pack_unit && (parseFloat(v.pack_size) > 1 || !v.pack_description)){
+    const f = UNIT_CONVERSIONS[(v.pack_unit||'').toLowerCase()];
+    if(f) return parseFloat(v.pack_size) * f;
+  }
+
+  // 4–6. stored weight/conversion fields
+  return v.conversion_to_base
+      || v.last_total_weight_g
+      || v.unit_weight_g
+      || convertToBase(1, v.purchase_unit)
+      || null;
+}
+
 // ── CALCOLA price_per_100g DA CAMPI VENDOR ───────────────────
-// Priorità: price_per_100g salvato → conversion_to_base → last_total_weight_g → unit_weight_g → purchase_unit
+// IMPORTANT: always recalculates from pack_size+pack_unit first.
+// The stored price_per_100g may be stale (written before pack_size
+// was available) — we only fall back to it if we cannot compute.
 function calcVendorPrice100g(v){
-  if(v.price_per_100g) return v.price_per_100g;
   const up = v.unit_price;
   if(!up) return null;
-  const base = v.conversion_to_base
-    || v.last_total_weight_g
-    || v.unit_weight_g
-    || convertToBase(1, v.purchase_unit);
-  if(!base) return null;
-  return (up / base) * 100;
+  const base = calcBaseWeightG(v);
+  if(base) return (up / base) * 100;
+  // Last resort: stored value (may be stale but better than nothing)
+  return v.price_per_100g || null;
 }
 
 // ── MOTIVO MANCANZA price_per_100g ───────────────────────────
@@ -53,7 +171,7 @@ async function calculateIngredientCost(ingredientName, qty, unit){
   if(!ingrs.length) return null;
   const ingr = ingrs[0];
   const {data:vendors} = await supa.from('ingredient_vendors')
-    .select('vendor,unit_price,purchase_unit,price_per_100g,conversion_to_base,last_total_weight_g,unit_weight_g')
+    .select('vendor,unit_price,purchase_unit,pack_size,pack_unit,price_per_100g,conversion_to_base,last_total_weight_g,unit_weight_g')
     .eq('ingredient_id', ingr.id).eq('active',true);
   if(!vendors?.length) return {ingredient:ingr.name, error:'No price data'};
   const baseQty = convertToBase(qty, unit);
@@ -79,7 +197,7 @@ async function loadIngredientsTab(){
       .select('id,name,category,base_unit,count_unit,active')
       .eq('active',true).order('name'),
     supa.from('ingredient_vendors')
-      .select('ingredient_id,vendor,unit_price,purchase_unit,pack_description,price_per_100g,conversion_to_base,last_total_weight_g,unit_weight_g,active')
+      .select('ingredient_id,vendor,unit_price,purchase_unit,pack_size,pack_unit,pack_description,price_per_100g,conversion_to_base,last_total_weight_g,unit_weight_g,active')
       .eq('active',true)
   ]);
 
@@ -112,15 +230,9 @@ function renderIngredientsTab(ingrs, priceMap){
     return;
   }
 
-  const catEmoji = {
-    'Dairy':'🧀','Produce':'🥦','Protein':'🥩','Seafood':'🐟',
-    'Dry Goods':'🌾','Oil & Vinegar':'🫒','Spices & Condiments':'🌶️',
-    'Beverage':'🥤','Fees':'💸','Other':'📦'
-  };
-
   list.innerHTML = filtered.map(i=>{
     const bp = (priceMap||window._ingrPriceMap||{})[i.id];
-    const emoji = catEmoji[i.category]||'📦';
+    const emoji = ingrEmoji(i.name, i.category);
     let priceHtml = '<div style="font-size:11px;color:#cbd5e1;">no price</div>';
     if(bp){
       const p100 = bp._p100;
@@ -216,12 +328,7 @@ window.openIngredientCard = async function(ingredientId){
     )
   );
 
-  const catEmoji = {
-    'Dairy':'🧀','Produce':'🥦','Protein':'🥩','Seafood':'🐟',
-    'Dry Goods':'🌾','Oil & Vinegar':'🫒','Spices':'🌶️','Spices & Condiments':'🌶️',
-    'Beverage':'🥤','Bakery':'🥖','Frozen':'🧊','Fees':'💸','Other':'📦'
-  };
-  const emoji = catEmoji[ingr.category]||'📦';
+  const emoji = ingrEmoji(ingr.name, ingr.category);
 
   // ── VENDOR ROWS ──
   const vendorRows = vendorsSorted.length ? vendorsSorted.map((v,idx)=>{
@@ -537,7 +644,13 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
     const ltg = parseFloat(document.getElementById('evLastTotalG')?.value)||0;
     const uwg = parseFloat(document.getElementById('evUnitWeightG')?.value)||0;
     const conv= parseFloat(document.getElementById('evConversion')?.value)||0;
-    const base= conv||ltg||uwg||convertToBase(1,pu)||0;
+    const ps  = parseFloat(document.getElementById('evPackSize')?.value)||0;
+    const pu2 = document.getElementById('evPackUnit')?.value||'';
+    const base= calcBaseWeightG({
+      pack_size: ps||null, pack_unit: pu2||null,
+      conversion_to_base: conv||null, last_total_weight_g: ltg||null,
+      unit_weight_g: uwg||null, purchase_unit: pu||null,
+    })||0;
     const el  = document.getElementById('evCalcPreview');
     if(up&&base){
       const p100 = (up/base)*100;
@@ -548,7 +661,7 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
       el.style.color = '#92400e'; el.style.background='#fff7ed';
     }
   }
-  ['evUnitPrice','evPurchaseUnit','evLastTotalG','evUnitWeightG','evConversion'].forEach(id=>{
+  ['evUnitPrice','evPurchaseUnit','evPackSize','evPackUnit','evLastTotalG','evUnitWeightG','evConversion'].forEach(id=>{
     document.getElementById(id)?.addEventListener('input', livePreview);
   });
   livePreview();
@@ -562,8 +675,14 @@ window.saveEditVendorRow = async function(vendorId, ingredientId, btn){
   const uwg  = parseFloat(document.getElementById('evUnitWeightG')?.value)||null;
   const conv = parseFloat(document.getElementById('evConversion')?.value)||null;
 
-  // Ricalcola price_per_100g — stesso ordine di calcVendorPrice100g
-  const base = conv||ltg||uwg||convertToBase(1,pu)||null;
+  // Ricalcola price_per_100g — usa calcBaseWeightG (unica fonte di verità)
+  const packSizeVal = parseFloat(document.getElementById('evPackSize')?.value)||null;
+  const packUnitVal = document.getElementById('evPackUnit')?.value?.trim()||null;
+  const base = calcBaseWeightG({
+    pack_size: packSizeVal, pack_unit: packUnitVal,
+    conversion_to_base: conv, last_total_weight_g: ltg,
+    unit_weight_g: uwg, purchase_unit: pu,
+  });
   const p100 = up&&base ? parseFloat(((up/base)*100).toFixed(4)) : null;
 
   const updates = {
@@ -617,6 +736,16 @@ window.openAddVendorRow = function(ingredientId){
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
         <div>
+          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PACK SIZE</label>
+          <input id="avPackSize" type="number" step="0.01" placeholder="e.g. 4" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PACK UNIT</label>
+          <input id="avPackUnit" placeholder="lb, oz, kg" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div>
           <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PACK DESCRIPTION</label>
           <input id="avPackDesc" placeholder="5# bag, 2/5lb" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
         </div>
@@ -638,12 +767,19 @@ window.openAddVendorRow = function(ingredientId){
     const up  = parseFloat(document.getElementById('avUnitPrice')?.value)||0;
     const pu  = document.getElementById('avPurchaseUnit')?.value||'';
     const ltg = parseFloat(document.getElementById('avLastTotalG')?.value)||0;
-    const base= ltg||convertToBase(1,pu)||0;
+    const avPs  = parseFloat(document.getElementById('avPackSize')?.value)||0;
+    const avPu2 = document.getElementById('avPackUnit')?.value||'';
+    const avPd  = document.getElementById('avPackDesc')?.value||'';
+    const base= calcBaseWeightG({
+      pack_size: avPs||null, pack_unit: avPu2||null,
+      pack_description: avPd||null,
+      last_total_weight_g: ltg||null, purchase_unit: pu||null,
+    })||0;
     const el  = document.getElementById('avCalcPreview');
     if(up&&base){ el.textContent=`→ price_per_100g = $${((up/base)*100).toFixed(2)}`; el.style.color='#166534'; el.style.background='#f0fdf4'; }
     else{ el.textContent='Fill Unit Price + weight field to preview price_per_100g'; el.style.color='#92400e'; el.style.background='#fff7ed'; }
   }
-  ['avUnitPrice','avPurchaseUnit','avLastTotalG'].forEach(id=>document.getElementById(id)?.addEventListener('input',livePreview));
+  ['avUnitPrice','avPurchaseUnit','avPackSize','avPackUnit','avPackDesc','avLastTotalG'].forEach(id=>document.getElementById(id)?.addEventListener('input',livePreview));
 };
 
 window.saveNewVendorRow = async function(ingredientId, btn){
@@ -651,7 +787,14 @@ window.saveNewVendorRow = async function(ingredientId, btn){
   const up  = parseFloat(document.getElementById('avUnitPrice')?.value)||null;
   const pu  = document.getElementById('avPurchaseUnit')?.value?.trim()||null;
   const ltg = parseFloat(document.getElementById('avLastTotalG')?.value)||null;
-  const base= ltg||convertToBase(1,pu)||null;
+  const packSz = parseFloat(document.getElementById('avPackSize')?.value)||null;
+  const packUn = document.getElementById('avPackUnit')?.value?.trim()||null;
+  const packDesc = document.getElementById('avPackDesc')?.value?.trim()||null;
+  const base= calcBaseWeightG({
+    pack_size: packSz, pack_unit: packUn,
+    pack_description: packDesc,
+    last_total_weight_g: ltg, purchase_unit: pu,
+  });
   const p100= up&&base ? parseFloat(((up/base)*100).toFixed(4)) : null;
 
   const {error} = await supa.from('ingredient_vendors').insert({

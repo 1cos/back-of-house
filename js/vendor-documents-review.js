@@ -289,22 +289,64 @@ function vdrWarningToQuestion(w, item, docId, idx) {
     };
   }
 
-  // ── OQR-007: Qty mismatch ──────────────────────────────────
-  // "Ordered X, received Y. What happened?"
+  // ── OQR-007: Qty mismatch — three distinct cases ─────────────
+  // ordered = 0, received > 0 → unexpected item / substitution
+  // ordered > received         → short shipment
+  // ordered < received         → over-delivery
   if (w.code === 'OQR-007') {
-    const ord = item ? item.qty_ordered : '?';
-    const shp = item ? item.qty_received : '?';
+    const ord = item ? (item.qty_ordered  ?? '?') : '?';
+    const shp = item ? (item.qty_received ?? '?') : '?';
+    const ordN = parseFloat(ord);
+    const shpN = parseFloat(shp);
+
+    // Case A: ordered 0, received > 0 → unexpected / substitution
+    if (!isNaN(ordN) && !isNaN(shpN) && ordN === 0 && shpN > 0) {
+      return {
+        qid, code: 'OQR-007', item, docId, idx,
+        emoji: '⚠️',
+        title: name || 'Item',
+        detected: `Ordered ${ord} · Received ${shp}`,
+        question: `This item was received but was not expected.`,
+        meaning: `Not on original order — received ${shp}`,
+        yesLabel: 'Substitution',
+        noLabel: 'More options',
+        noNextQuestion: `What should happen with this item?`,
+        noPlaceholder: `e.g. Extra item received, vendor mistake, accept it`,
+        noUnit: null,
+        warnRef: w,
+      };
+    }
+
+    // Case B: ordered > received → short shipment
+    if (!isNaN(ordN) && !isNaN(shpN) && ordN > shpN) {
+      return {
+        qid, code: 'OQR-007', item, docId, idx,
+        emoji: '📦',
+        title: name || 'Item',
+        detected: `Ordered ${ord} · Received ${shp}`,
+        question: `What happened with the missing quantity?`,
+        meaning: `Expected ${ord}, got ${shp} — short by ${ordN - shpN}`,
+        yesLabel: 'Short ship — OK',
+        noLabel: 'Back order / other',
+        noNextQuestion: `What is the reason for the short shipment?`,
+        noPlaceholder: `e.g. Back ordered, refused delivery`,
+        noUnit: null,
+        warnRef: w,
+      };
+    }
+
+    // Case C: ordered < received → over-delivery (or fallback)
     return {
       qid, code: 'OQR-007', item, docId, idx,
       emoji: '📦',
       title: name || 'Item',
       detected: `Ordered ${ord} · Received ${shp}`,
-      question: `What happened with the missing quantity?`,
-      meaning: `Expected ${ord}, got ${shp}`,
-      yesLabel: 'Short ship — OK',
-      noLabel: 'Back order / other',
-      noNextQuestion: `What is the reason for the difference?`,
-      noPlaceholder: `e.g. Back ordered, refused delivery`,
+      question: `More items were received than ordered.`,
+      meaning: `Ordered ${ord}, received ${shp}`,
+      yesLabel: 'Accept extra',
+      noLabel: 'Return excess',
+      noNextQuestion: `What should happen with the extra quantity?`,
+      noPlaceholder: `e.g. Return to vendor, keep for prep`,
       noUnit: null,
       warnRef: w,
     };
