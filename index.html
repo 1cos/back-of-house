@@ -13,6 +13,7 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="js/vendor-documents-review.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -433,6 +434,18 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         </button>
         <button onclick="hideAdminMenu();openVendorParserTest()" class="admin-menu-btn">
           <span style="font-size:24px;">🧪</span><span>Parser Test</span>
+        </button>
+        <button onclick="hideAdminMenu();bootstrapIngredients()" class="admin-menu-btn">
+          <span style="font-size:24px;">🌱</span><span>Bootstrap Ingr.</span>
+        </button>
+        <button onclick="hideAdminMenu();openIngredientCleanup()" class="admin-menu-btn">
+          <span style="font-size:24px;">🧹</span><span>Ingr. Cleanup</span>
+        </button>
+        <button onclick="hideAdminMenu();openSimilarityCleanup()" class="admin-menu-btn">
+          <span style="font-size:24px;">🔍</span><span>Similarity</span>
+        </button>
+        <button onclick="hideAdminMenu();openVendorMatch()" class="admin-menu-btn">
+          <span style="font-size:24px;">🔗</span><span>Vendor Match</span>
         </button>
       </div>
     </div>

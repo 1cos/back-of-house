@@ -87,6 +87,8 @@ function doLogin(profile){
   if(checklistSection) checklistSection.style.display=isAdmin()?'block':'none';
   const invoiceSection=document.getElementById('invoiceSection');
   if(invoiceSection) invoiceSection.style.display=isAdmin()?'block':'none';
+  // Load pending vendor documents badge
+  if(isAdmin()) vdrLoadBadge();
 
   // ── RUOLI: admin vs staff ──
   const admin = isAdmin();
@@ -167,3 +169,26 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   if(t==='i') loadIngredientsTab();
 });
 
+
+
+// ── Vendor Documents pending badge ───────────────────────────
+async function vdrLoadBadge() {
+  const el = document.getElementById('vdrPendingBadge');
+  if (!el) return;
+  try {
+    const sb = window.supabaseClient;
+    if (!sb) return;
+    const { count, error } = await sb
+      .from('vendor_documents')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending');
+    if (error) return;
+    if (count === 0) {
+      el.textContent = '✓ Clear';
+      el.style.color = '#10b981';
+    } else {
+      el.textContent = count + ' Pending';
+      el.style.color = '#f59e0b';
+    }
+  } catch(e) { /* silent — badge is non-critical */ }
+}
