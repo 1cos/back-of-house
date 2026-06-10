@@ -944,26 +944,33 @@ function convertParserResultToInvoiceData(result) {
  * Closes the parser modal and hands off to the existing invoice.js pipeline.
  */
 window.continueToInvoiceImport = function() {
+  console.log('[InvoiceImport] Button clicked');
+
   const result = window._lastParserResult;
   if (!result || !(result.items || []).length) {
     showScToast('No parsed items to import');
     return;
   }
+  console.log('[InvoiceImport] Parser result:', result);
 
-  // Close the parser modal
-  const parserModal = document.querySelector('.fixed.inset-0[style*="background:white"]');
-  if (parserModal) parserModal.remove();
-
-  // Adapt and hand off to invoice.js pipeline
-  const invoiceData = convertParserResultToInvoiceData(result);
-
-  // enrichInvoiceItems and runOneQuestionRule are defined in invoice.js
-  if (typeof enrichInvoiceItems !== 'function' || typeof runOneQuestionRule !== 'function') {
+  // Verify all required pipeline functions before doing anything
+  const missing = ['enrichInvoiceItems', 'runOneQuestionRule', 'showInvoicePreview']
+    .filter(fn => typeof window[fn] !== 'function');
+  if (missing.length) {
     showScToast('❌ Invoice pipeline not available — check script load order');
-    console.error('continueToInvoiceImport: enrichInvoiceItems or runOneQuestionRule not found');
+    console.error('[InvoiceImport] Missing functions:', missing.join(', '));
     return;
   }
 
+  // Adapt parser result → invoice.js shape
+  const invoiceData = convertParserResultToInvoiceData(result);
+  console.log('[InvoiceImport] Adapted invoice data:', invoiceData);
+
+  // Close parser modal only after all checks pass
+  const parserModal = document.querySelector('.fixed.inset-0[style*="background:white"]');
+  if (parserModal) parserModal.remove();
+
+  console.log('[InvoiceImport] Calling OQR →', invoiceData.items.length, 'items');
   enrichInvoiceItems(invoiceData);
   runOneQuestionRule(invoiceData, showInvoicePreview);
 };
