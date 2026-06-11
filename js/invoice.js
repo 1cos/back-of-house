@@ -594,7 +594,13 @@ async function showSaveSuccessModal({data,linesCreated,linesError,ingr=[]}){
     +'</div>'
     +'</div>';
 
-  modal.querySelector('#_ssDone').addEventListener('click',()=>modal.remove());
+  modal.querySelector('#_ssDone').addEventListener('click',()=>{
+    // Close all modals and return to home
+    modal.remove();
+    document.querySelectorAll('.fixed').forEach(m=>m.remove());
+    const homeTab=document.querySelector('[data-t="h"]');
+    if(homeTab) homeTab.click();
+  });
   document.body.appendChild(modal);
 
   // Render item cards
