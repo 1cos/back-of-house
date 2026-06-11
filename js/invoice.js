@@ -67,22 +67,27 @@ async function processInvoiceFile(input){
 // ── PACK FORMAT PARSER ────────────────────────────────────────
 function parsePackFormat(str){
   if(!str) return null;
-  // Normalise # → lb; strip noise words but NOT 'case' (it may precede weight)
   let s=String(str).trim().replace(/#/g,'lb').replace(/\b(bag|box|pack|bx)\b/gi,'').trim().toUpperCase();
   let m;
-  // 'N pc/ea / N unit' — e.g. "1pc / 28lb", "1PC/28LB", "6ea/1GAL"
+  // Mixed number: "9-1/2 GAL" = 9.5 gal (Hardie's liquid format)
+  m=s.match(/^(\d+)-(\d+)\/(\d+)\s*([A-Z]+)/);
+  if(m) return {count:1,sizeEach:parseInt(m[1])+parseInt(m[2])/parseInt(m[3]),unit:m[4].toLowerCase()};
+  // count/subcount-sizeUNIT: "6/4-2OZ" = 6 packs × 4 pcs × 2oz
+  m=s.match(/^(\d+)\/(\d+)-(\d+\.?\d*)\s*([A-Z]+)/);
+  if(m) return {count:parseFloat(m[1]),subcount:parseFloat(m[2]),sizeEach:parseFloat(m[3]),unit:m[4].toLowerCase()};
+  // N pc/ea / N unit: "1pc / 28lb", "6ea/1GAL"
   m=s.match(/^\d+\s*(?:PC|PCS|EA|EACH|CT)\s*\/\s*([\d.]+)\s*([A-Z]+)/);
   if(m) return {count:1,sizeEach:parseFloat(m[1]),unit:m[2].toLowerCase()};
-  // 'count X size unit' — e.g. "4 X 5 LB"
+  // count X size unit: "4 X 5 LB"
   m=s.match(/^(\d+)\s*X\s*([\d.]+)\s*([A-Z_]+)/);
   if(m) return {count:parseFloat(m[1]),sizeEach:parseFloat(m[2]),unit:m[3].toLowerCase()};
-  // 'count/size unit' — e.g. "2/5 LB", "12/3 CT"
+  // count/size unit: "2/5 LB", "12/3 CT"
   m=s.match(/^(\d+)\s*\/\s*([\d.]+)\s*([A-Z_]+)/);
   if(m) return {count:parseFloat(m[1]),sizeEach:parseFloat(m[2]),unit:m[3].toLowerCase()};
-  // 'size unit' — e.g. "10LB", "28LB", "12OZ"
+  // size unit: "10LB", "28LB", "12OZ"
   m=s.match(/^([\d.]+)\s*([A-Z]+)$/);
   if(m) return {count:1,sizeEach:parseFloat(m[1]),unit:m[2].toLowerCase()};
-  // 'count each' — e.g. "24 EA", "100 CT"
+  // count each: "24 EA", "100 CT"
   m=s.match(/^(\d+)\s*(EA|EACH|PC|PCS|CT|COUNT)$/);
   if(m) return {count:parseFloat(m[1]),sizeEach:1,unit:'each'};
   return null;
@@ -105,7 +110,11 @@ function calcTotalWeightG(item){
   const qty=parseFloat(item.quantity||item.qty)||1;
   if(item.pack_size||item.pack_description){
     const p=parsePackFormat(item.pack_size||item.pack_description);
-    if(p&&p.unit!=='each'){const f=unitToG(p.unit);if(f)return qty*p.count*p.sizeEach*f;}
+    if(p&&p.unit!=='each'){
+      const f=unitToG(p.unit);
+      // subcount handles "6/4-2OZ" → count=6, subcount=4, sizeEach=2
+      if(f) return qty*p.count*(p.subcount||1)*p.sizeEach*f;
+    }
   }
   const pu=(item.purchase_unit||item.unit||'').toLowerCase();
   if(pu&&pu!=='each'&&pu!=='cs'&&pu!=='case'){const f=unitToG(pu);if(f)return qty*f;}
@@ -128,7 +137,12 @@ function enrichInvoiceItems(data){
     item._cost_per_100g=(totalG&&price)?((price/totalG)*100):null;
     if(!totalG&&!item.needs_clarification){
       const pu=(item.purchase_unit||item.unit||'').toLowerCase();
-      if(pu==='each'||pu==='cs'||pu==='case'||!pu) item._needs_weight_clarification=true;
+      const pack=item.pack_size||item.pack_description||'';
+      const isCountOnly=/\b(ct|ea|each|pc|pcs|count)\b/i.test(pack)&&!/\b(lb|oz|g|kg|gal|qt|pt|ml|l)\b/i.test(pack);
+      // Don't ask weight for pure count items (artichokes by CT, flowers by CT, etc.)
+      if(!isCountOnly&&(pu==='each'||pu==='cs'||pu==='case'||!pu)){
+        item._needs_weight_clarification=true;
+      }
     }
   });
 }
@@ -139,9 +153,14 @@ async function checkPriceAnomalies(data){
 
 // ── INVOICE PREVIEW ───────────────────────────────────────────
 function showInvoicePreview(data){
+  document.getElementById('_invoicePreviewModal')?.remove();
   const modal=document.createElement('div');
-  modal.className='fixed inset-0 z-50 flex items-end';
-  modal.style.background='rgba(0,0,0,0.3)';
+  modal.id='_invoicePreviewModal';
+  // z-9000 via inline style — sopra il Vendor Parser modal (z-65) e tutto il resto
+  modal.style.cssText='position:fixed;inset:0;z-index:9000;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.55);';
+  // Dati salvati sull'elemento — mai inline JSON.stringify in onclick
+  // (apostrofi nei nomi vendor tipo "Hardie's" rompono il parsing HTML)
+  modal._invoiceData=data;
   const itemsHtml=(data.items||[]).map(item=>{
     const weightLine=item._total_weight_g
       ?`<span style="color:#10b981;">${item._total_weight_g>=1000?(item._total_weight_g/1000).toFixed(2)+'kg':Math.round(item._total_weight_g)+'g'}</span>`
@@ -149,7 +168,7 @@ function showInvoicePreview(data){
     const costLine=item._cost_per_100g?` · $${item._cost_per_100g.toFixed(2)}/100g`:'';
     return `
     <div style="padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">
-      <div style="display:flex;justify-content:space-between;align-items:start;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div style="flex:1;min-width:0;">
           <div style="font-size:13px;color:#1e3a5f;font-weight:500;">${item.description||'Unknown'}</div>
           <div style="font-size:11px;color:#93c5fd;margin-top:2px;">${item.quantity||''} ${item.unit||''} ${item.pack_size?'· '+item.pack_size:''}</div>
@@ -163,9 +182,9 @@ function showInvoicePreview(data){
     </div>`;
   }).join('');
   const noWeight=(data.items||[]).filter(i=>!i._total_weight_g).length;
-  const warningBar=noWeight?`<div style="background:rgba(245,158,11,0.08);border:0.5px solid rgba(245,158,11,0.3);border-radius:12px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#92400e;">📦 ${noWeight} item${noWeight>1?'s':''} without calculable weight.</div>`:'';
+  const warningBar=noWeight?`<div style="background:rgba(245,158,11,0.08);border:0.5px solid rgba(245,158,11,0.3);border-radius:12px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#92400e;">📦 ${noWeight} item${noWeight>1?'s':''} without calculable weight — flagged for review.</div>`:'';
   modal.innerHTML=`
-    <div style="background:rgba(255,255,255,0.95);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:85vh;overflow-y:auto;animation:slideUp .25s ease">
+    <div style="background:rgba(255,255,255,0.98);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:85vh;overflow-y:auto;">
       <div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>
       <div style="background:rgba(59,130,246,0.06);border-radius:14px;padding:12px;margin-bottom:14px;">
         <div style="font-size:16px;font-weight:500;color:#1e3a5f;margin-bottom:6px;">${data.vendor||'Unknown Vendor'}</div>
@@ -185,11 +204,13 @@ function showInvoicePreview(data){
         <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:500;color:#1e3a5f;"><span>Total</span><span>$${(data.total||0).toFixed(2)}</span></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
-        <button onclick="this.closest('.fixed').remove()" style="height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:none;cursor:pointer;">Cancel</button>
-        <button onclick="saveInvoice(${JSON.stringify(data).replace(/"/g,'&quot;')},this)" style="height:44px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">✓ Save Invoice</button>
+        <button id="_ipCancel" style="height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:none;cursor:pointer;">Cancel</button>
+        <button id="_ipSave" style="height:44px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">✓ Save Invoice</button>
       </div>
     </div>`;
-  modal.onclick=e=>{if(e.target===modal)modal.remove();};
+  modal.querySelector('#_ipCancel').addEventListener('click',()=>modal.remove());
+  modal.querySelector('#_ipSave').addEventListener('click',function(){saveInvoice(modal._invoiceData,this);});
+  modal.addEventListener('click',e=>{if(e.target===modal)modal.remove();});
   document.body.appendChild(modal);
 }
 
@@ -204,40 +225,482 @@ async function saveInvoice(data,btn){
     }).select().single();
     if(error) throw error;
     data._purchase_id=purchase?.id||null;
-    btn.closest('.fixed').remove();
+    (document.getElementById('_invoicePreviewModal')||btn.closest('.fixed'))?.remove();
 
-    // Save invoice lines and get back inserted rows with their real UUIDs
     const savedLines=await saveToInvoiceLines(data);
-    // Build description→invoice_line_id map for precise updates later
     data._lineIdMap={};
     (savedLines||[]).forEach(row=>{
       if(row.id&&row.raw_description) data._lineIdMap[row.raw_description]=row.id;
     });
 
-    showImportSummary({
-      vendor:data.vendor||'vendor',
-      total:data.total||0,
-      linesCreated:savedLines?.length||0,
-      linesError:!savedLines?1:0
+    // Classify each item before opening the success modal
+    const descs=(data.items||[]).map(i=>i.description).filter(Boolean);
+    const vendor=data.vendor||'';
+    // Step 1: check ingredient_links for previously matched items
+    const{data:links}=await supa.from('ingredient_links')
+      .select('invoice_description,ingredient_name,ingredient_id,confirmed')
+      .eq('vendor',vendor).in('invoice_description',descs);
+    // Step 2: get price history only for matched ingredient IDs
+    const linkedIds=(links||[]).map(l=>l.ingredient_id).filter(Boolean);
+    let priceRows=[];
+    if(linkedIds.length){
+      const{data:pr}=await supa.from('ingredient_vendors')
+        .select('ingredient_id,unit_price,last_invoice_date')
+        .in('ingredient_id',linkedIds).eq('vendor',vendor);
+      priceRows=pr||[];
+    }
+    const linkMap={};
+    (links||[]).forEach(l=>{linkMap[l.invoice_description]={ingredient_name:l.ingredient_name,ingredient_id:l.ingredient_id,confirmed:l.confirmed};});
+    const priceMap={};
+    priceRows.forEach(p=>{priceMap[p.ingredient_id]=parseFloat(p.unit_price)||null;});
+
+    (data.items||[]).forEach(item=>{
+      const link=linkMap[item.description];
+      if(!link){
+        item._match_status='new';
+      } else {
+        item._matched_ingredient=link.ingredient_name;
+        item._matched_ingredient_id=link.ingredient_id;
+        const prevPrice=link.ingredient_id?priceMap[link.ingredient_id]:null;
+        const currPrice=parseFloat(item.unit_price)||null;
+        if(prevPrice&&currPrice){
+          const diff=currPrice-prevPrice;
+          const pct=Math.round((diff/prevPrice)*100);
+          if(Math.abs(pct)>=2){
+            item._match_status=diff>0?'price_up':'price_down';
+            item._prev_price=prevPrice;
+            item._price_pct=pct;
+          } else {
+            item._match_status='ok';
+          }
+        } else {
+          item._match_status='ok';
+        }
+      }
     });
 
-    setTimeout(()=>suggestIngredientMatches(data),1500);
+    // For items still 'new', search ingredients DB for fuzzy matches
+    // Extract 1-2 meaningful keywords from the invoice description
+    function extractKeywords(desc){
+      const stop=['large','small','medium','fresh','whole','sliced','diced','chopped',
+        'frozen','dried','organic','baby','jumbo','xl','super','grade','choice',
+        'usa','mex','loc','local','whl','fr','loc','cs','ct','ea','each','lb','oz','gal'];
+      return (desc||'').toLowerCase()
+        .replace(/[^a-z0-9 ]/g,' ')
+        .split(/\s+/)
+        .filter(w=>w.length>2&&!stop.includes(w))
+        .slice(0,2);
+    }
+
+    // Fetch all active ingredients for matching and autocomplete
+    const{data:allIngr}=await supa.from('ingredients')
+      .select('id,name,category').eq('active',true);
+    // Filter out Supply in JS — .neq() on null fields excludes nulls in PostgREST
+    const ingr=(allIngr||[]).filter(i=>i.category!=='Supply');
+    const newItems=(data.items||[]).filter(i=>i._match_status==='new');
+    if(newItems.length){
+
+      newItems.forEach(item=>{
+        const keywords=extractKeywords(item.description);
+        if(!keywords.length) return;
+
+        // Score each ingredient: count how many keywords appear in its name
+        const scored=ingr.map(ing=>{
+          const ingLower=ing.name.toLowerCase();
+          const score=keywords.filter(kw=>ingLower.includes(kw)).length;
+          return {ing,score};
+        }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
+
+        if(scored.length){
+          const best=scored[0];
+          const topCandidates=scored.filter(x=>x.score===best.score).slice(0,3);
+          item._candidates=topCandidates.map(x=>({id:x.ing.id,name:x.ing.name}));
+
+          const firstKw=keywords[0];
+          // Find exact/plural/singular match among all scored
+          const exactScored=scored.find(x=>{
+            const n=x.ing.name.toLowerCase();
+            return n===firstKw||n===firstKw+'s'||n===firstKw.replace(/s$/,'')||
+              n===keywords.join(' ')||n===keywords.join(' ')+'s';
+          });
+          // Pick best: exact match first, then shortest among top candidates
+          const pickedItem=exactScored||topCandidates.reduce((a,b)=>
+            a.ing.name.length<=b.ing.name.length?a:b
+          );
+          const shouldSuggest=!!(exactScored||topCandidates.length===1||
+            topCandidates.some(x=>x.ing.name.toLowerCase()===firstKw||x.ing.name.toLowerCase()===firstKw+'s'));
+          if(shouldSuggest){
+            item._match_status='suggest';
+            item._suggested_ingredient=pickedItem.ing.name;
+            item._suggested_ingredient_id=pickedItem.ing.id;
+          } else {
+            item._match_status='new';
+          }
+        }
+      });
+    } // end if(newItems.length)
+
+    await showSaveSuccessModal({data,linesCreated:savedLines?.length||0,linesError:!savedLines?1:0,ingr});
   }catch(e){
+    const isDuplicate=e.code==='23505'||/duplicate|unique/i.test(e.message||'');
+    if(isDuplicate){
+      btn.textContent='✓ Save Invoice'; btn.disabled=false;
+      showDuplicateInvoiceModal(data,btn);
+      return;
+    }
     btn.textContent='Error — retry'; btn.disabled=false;
     console.error('saveInvoice error:',e);
     showScToast('❌ Error saving invoice: '+e.message);
   }
 }
 
+function showDuplicateInvoiceModal(data,btn){
+  // Close the preview modal
+  btn.closest('.fixed')?.remove();
+  document.getElementById('_invoicePreviewModal')?.remove();
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;inset:0;z-index:9100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);';
+  modal.innerHTML=`
+    <div style="background:white;border-radius:20px;padding:24px;width:88%;max-width:340px;box-shadow:0 20px 60px rgba(0,0,0,0.25);text-align:center;">
+      <div style="font-size:32px;margin-bottom:12px;">🗂️</div>
+      <div style="font-size:15px;font-weight:600;color:#1e3a5f;margin-bottom:6px;">This invoice already exists.</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:20px;">${data.vendor||''}${data.invoice_number?' · #'+data.invoice_number:''}</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button id="_dupHistory" style="height:44px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Open Purchase History</button>
+        <button id="_dupCancel" style="height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:none;cursor:pointer;">Cancel</button>
+      </div>
+    </div>`;
+  modal.querySelector('#_dupHistory').addEventListener('click',()=>{modal.remove();openPurchaseHistory();});
+  modal.querySelector('#_dupCancel').addEventListener('click',()=>modal.remove());
+  modal.addEventListener('click',e=>{if(e.target===modal)modal.remove();});
+  document.body.appendChild(modal);
+}
+
+async function showSaveSuccessModal({data,linesCreated,linesError,ingr=[]}){
+  // For 'new' items, ask AI for ingredient name suggestions
+  const newItems=(data.items||[]).filter(i=>i._match_status==='new');
+  const aiSuggestions={};
+  if(newItems.length){
+    try{
+      const res=await fetch(`${SUPABASE_URL}/functions/v1/souschef-classify`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+        body:JSON.stringify({
+          transcript:'You are a kitchen ingredient matcher. For each invoice item return 2-3 short canonical ingredient name suggestions in English. Return ONLY a JSON object: {"ITEM_DESCRIPTION":["Suggestion1","Suggestion2"],...}. No markdown, no preamble.',
+          kitchenData:newItems.map(i=>i.description)
+        })
+      });
+      const rd=await res.json();
+      const raw=rd.result?.answer||rd.result?.summary||rd.answer||rd.summary||'';
+      const cleaned=raw.replace(/```json|```/g,'').trim();
+      try{Object.assign(aiSuggestions,JSON.parse(cleaned));}catch(_){}
+    }catch(_){}
+  }
+
+  const modal=document.createElement('div');
+  modal.id='_saveSuccessModal';
+  modal.style.cssText='position:fixed;inset:0;z-index:9200;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.55);';
+
+  const meta=[
+    data.invoice_number?'#'+data.invoice_number:'',
+    data.invoice_date||'',
+  ].filter(Boolean).join(' · ');
+
+  // ── renders a single item row — called on mount and after each action ──
+  function renderItemCard(item,modal){
+    const el=document.createElement('div');
+    el.dataset.desc=item.description;
+    el.style.cssText='border:0.5px solid rgba(59,130,246,0.12);border-radius:12px;padding:10px 12px;margin-bottom:8px;';
+
+    // Header row
+    const header=document.createElement('div');
+    header.style.cssText='display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;';
+    const nameDiv=document.createElement('div');
+    nameDiv.style.cssText='font-size:13px;font-weight:500;color:#1e3a5f;flex:1;min-width:0;';
+    nameDiv.textContent=item.description||'—';
+    const badgeDiv=document.createElement('div');
+    badgeDiv.style.cssText='flex-shrink:0;';
+
+    let badgeHtml='',badgeBg='',badgeColor='';
+    if(item._match_status==='suggest'){
+      badgeBg='rgba(59,130,246,0.08)';badgeColor='#1d4ed8';badgeHtml='? '+item._suggested_ingredient;
+    } else if(item._match_status==='new'){
+      badgeBg='rgba(245,158,11,0.12)';badgeColor='#92400e';badgeHtml='🟡 New item';
+    } else if(item._match_status==='ok'){
+      badgeBg='rgba(16,185,129,0.1)';badgeColor='#065f46';badgeHtml='✓ '+(item._matched_ingredient||'Matched');
+    } else if(item._match_status==='price_up'){
+      badgeBg='rgba(239,68,68,0.08)';badgeColor='#991b1b';
+      badgeHtml='↑ '+(item._price_pct>0?'+':'')+item._price_pct+'%';
+    } else if(item._match_status==='price_down'){
+      badgeBg='rgba(59,130,246,0.08)';badgeColor='#1d4ed8';
+      badgeHtml='↓ '+item._price_pct+'%';
+    } else if(item._match_status==='done'){
+      badgeBg='rgba(16,185,129,0.1)';badgeColor='#065f46';badgeHtml='✓ Saved';
+    }
+    badgeDiv.innerHTML='<span style="background:'+badgeBg+';color:'+badgeColor+';font-size:11px;font-weight:500;padding:3px 8px;border-radius:8px;">'+badgeHtml+'</span>';
+    header.appendChild(nameDiv);
+    header.appendChild(badgeDiv);
+    el.appendChild(header);
+
+    // Sub info
+    const sub=document.createElement('div');
+    sub.style.cssText='font-size:11px;color:#64748b;margin-bottom:8px;';
+    const parts=[
+      item.pack_size||item.pack_description||'',
+      item.unit_price?'$'+parseFloat(item.unit_price).toFixed(2):'',
+      item._cost_per_100g?'$'+item._cost_per_100g.toFixed(2)+'/100g':'',
+    ].filter(Boolean);
+    if(item._match_status==='price_up'||item._match_status==='price_down'){
+      parts.push('was $'+item._prev_price.toFixed(2));
+    }
+    if(item._matched_ingredient&&item._match_status!=='ok'&&item._match_status!=='done'){
+      parts.unshift(item._matched_ingredient);
+    }
+    sub.textContent=parts.join(' · ');
+    if(parts.length) el.appendChild(sub);
+
+    // Action area
+    const actions=document.createElement('div');
+    actions.style.cssText='display:flex;gap:6px;flex-wrap:wrap;';
+
+    if(item._match_status==='suggest'){
+      // DB found a likely match — one-tap confirm
+      const yesBtn=document.createElement('button');
+      yesBtn.textContent='Yes — '+item._suggested_ingredient;
+      yesBtn.style.cssText='font-size:12px;padding:7px 14px;border-radius:10px;background:rgba(16,185,129,0.1);color:#065f46;border:0.5px solid rgba(16,185,129,0.3);cursor:pointer;font-weight:500;';
+      yesBtn.addEventListener('click',async function(){
+        yesBtn.textContent='Saving...';yesBtn.disabled=true;
+        await linkItemToIngredient(item,item._suggested_ingredient,data,modal,item._suggested_ingredient_id);
+      });
+      actions.appendChild(yesBtn);
+      // Other candidates
+      if(item._candidates&&item._candidates.length>1){
+        item._candidates.slice(1).forEach(function(c){
+          const b=document.createElement('button');
+          b.textContent=c.name;
+          b.style.cssText='font-size:11px;padding:5px 10px;border-radius:8px;background:rgba(59,130,246,0.06);color:#1d4ed8;border:0.5px solid rgba(59,130,246,0.2);cursor:pointer;';
+          b.addEventListener('click',async function(){b.textContent='Saving...';b.disabled=true;await linkItemToIngredient(item,c.name,data,modal,c.id);});
+          actions.appendChild(b);
+        });
+      }
+      const notThis=document.createElement('button');
+      notThis.textContent='Not this';
+      notThis.style.cssText='font-size:11px;padding:5px 10px;border-radius:8px;background:rgba(0,0,0,0.04);color:#64748b;border:0.5px solid #e2e8f0;cursor:pointer;';
+      notThis.addEventListener('click',function(){item._match_status='new';item._candidates=[];refreshItemCard(item,modal);});
+      actions.appendChild(notThis);
+
+    } else if(item._match_status==='new'){
+      // No DB match — AI suggestions + manual input
+      const suggs=aiSuggestions[item.description]||[];
+      suggs.forEach(function(s){
+        const b=document.createElement('button');
+        b.textContent=s;
+        b.style.cssText='font-size:11px;padding:5px 10px;border-radius:8px;background:rgba(59,130,246,0.08);color:#1d4ed8;border:0.5px solid rgba(59,130,246,0.25);cursor:pointer;';
+        b.addEventListener('click',async function(){
+          b.textContent='Saving...';b.disabled=true;
+          await linkItemToIngredient(item,s,data,modal);
+        });
+        actions.appendChild(b);
+      });
+      // Custom name input
+      const wrap=document.createElement('div');
+      wrap.style.cssText='display:flex;gap:4px;width:100%;margin-top:4px;';
+      const inp=document.createElement('input');
+      inp.type='text';inp.placeholder='Type ingredient name...';
+      inp.style.cssText='flex:1;font-size:11px;padding:5px 8px;border:0.5px solid #e2e8f0;border-radius:8px;outline:none;';
+      inp.setAttribute('list','_ingrDatalist');
+      // Datalist for autocomplete — populated from ingredients already fetched
+      if(!document.getElementById('_ingrDatalist')&&ingr.length){
+        const dl=document.createElement('datalist');
+        dl.id='_ingrDatalist';
+        ingr.forEach(function(i){const opt=document.createElement('option');opt.value=i.name;dl.appendChild(opt);});
+        document.body.appendChild(dl);
+      }
+      const confirmBtn=document.createElement('button');
+      confirmBtn.textContent='Link';
+      confirmBtn.style.cssText='font-size:11px;padding:5px 10px;border-radius:8px;background:#1e3a5f;color:white;border:none;cursor:pointer;';
+      confirmBtn.addEventListener('click',async function(){
+        const val=inp.value.trim();
+        if(!val)return;
+        confirmBtn.textContent='...';confirmBtn.disabled=true;
+        await linkItemToIngredient(item,val,data,modal);
+      });
+      inp.addEventListener('keydown',function(e){if(e.key==='Enter'){confirmBtn.click();}});
+      wrap.appendChild(inp);wrap.appendChild(confirmBtn);
+      actions.appendChild(wrap);
+      // Skip
+      const skip=document.createElement('button');
+      skip.textContent='Skip for now';
+      skip.style.cssText='font-size:11px;padding:5px 10px;border-radius:8px;background:rgba(0,0,0,0.04);color:#64748b;border:0.5px solid #e2e8f0;cursor:pointer;';
+      skip.addEventListener('click',function(){
+        item._match_status='done';item._matched_ingredient='(skipped)';
+        refreshItemCard(item,modal);
+        refreshDoneButton(data,modal);
+      });
+      actions.appendChild(skip);
+
+    } else if(item._match_status==='price_up'||item._match_status==='price_down'){
+      const acceptBtn=document.createElement('button');
+      acceptBtn.textContent='Accept new price';
+      const col=item._match_status==='price_up'?'#991b1b':'#1d4ed8';
+      const bg=item._match_status==='price_up'?'rgba(239,68,68,0.08)':'rgba(59,130,246,0.08)';
+      acceptBtn.style.cssText='font-size:11px;padding:5px 10px;border-radius:8px;background:'+bg+';color:'+col+';border:0.5px solid '+col+'40;cursor:pointer;';
+      acceptBtn.addEventListener('click',async function(){
+        acceptBtn.textContent='Saving...';acceptBtn.disabled=true;
+        await acceptPriceChange(item,data);
+        item._match_status='done';
+        refreshItemCard(item,modal);
+        refreshDoneButton(data,modal);
+      });
+      actions.appendChild(acceptBtn);
+    }
+
+    if(actions.children.length) el.appendChild(actions);
+    return el;
+  }
+
+  function refreshItemCard(item,modal){
+    const old=modal.querySelector('[data-desc="'+item.description.replace(/"/g,'\\"')+'"]');
+    if(old) old.replaceWith(renderItemCard(item,modal));
+  }
+
+  function refreshDoneButton(data,modal){
+    const pending=(data.items||[]).filter(i=>i._match_status==='new'||i._match_status==='price_up'||i._match_status==='price_down');
+    const doneBtn=document.getElementById('_ssDone');
+    if(!doneBtn)return;
+    if(!pending.length){
+      doneBtn.style.background='#10b981';
+      doneBtn.textContent='✓ All done';
+    }
+  }
+
+  // Build modal HTML shell
+  const allOk=(data.items||[]).every(i=>i._match_status==='ok');
+  modal.innerHTML='<div style="background:rgba(255,255,255,0.98);border-radius:24px 24px 0 0;padding:20px;width:100%;max-width:480px;margin:0 auto;max-height:85vh;overflow-y:auto;">'
+    +'<div style="width:36px;height:4px;background:rgba(16,185,129,0.3);border-radius:2px;margin:0 auto 16px;"></div>'
+    +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">'
+      +'<div style="width:42px;height:42px;border-radius:13px;background:rgba(16,185,129,0.1);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;color:#065f46;">✓</div>'
+      +'<div>'
+        +'<div style="font-size:15px;font-weight:500;color:#1e3a5f;">Invoice saved</div>'
+        +'<div style="font-size:12px;color:#64748b;margin-top:1px;">'+(data.vendor||'Unknown Vendor')+(meta?' · '+meta:'')+'</div>'
+      +'</div>'
+    +'</div>'
+    +'<div style="background:rgba(16,185,129,0.07);border:0.5px solid rgba(16,185,129,0.2);border-radius:12px;padding:8px 14px;margin-bottom:14px;font-size:12px;color:#065f46;">'
+      +linesCreated+' line'+(linesCreated!==1?'s':'')+' saved'+(linesError?' · ⚠️ '+linesError+' error':'')
+    +'</div>'
+    +'<div id="_ssItems" style="margin-bottom:14px;"></div>'
+    +'<div style="display:flex;flex-direction:column;gap:8px;">'
+      +'<button id="_ssDone" style="height:44px;border-radius:14px;background:'+(allOk?'#10b981':'#1e3a5f')+';color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">'+(allOk?'✓ All done':'Done')+'</button>'
+    +'</div>'
+    +'</div>';
+
+  modal.querySelector('#_ssDone').addEventListener('click',()=>modal.remove());
+  document.body.appendChild(modal);
+
+  // Render item cards
+  const container=document.getElementById('_ssItems');
+  (data.items||[]).forEach(function(item){
+    container.appendChild(renderItemCard(item,modal));
+  });
+  refreshDoneButton(data,modal);
+}
+
+async function linkItemToIngredient(item,ingredientName,data,modal,knownId){
+  const vendor=data.vendor||'';
+  // Find or create ingredient (skip if knownId already provided)
+  let ingrId=knownId||null;
+  if(!ingrId){
+    const{data:found}=await supa.from('ingredients').select('id').ilike('name',ingredientName).eq('active',true).limit(1);
+    if(found?.length){
+      ingrId=found[0].id;
+    } else {
+      const{data:created,error:ce}=await supa.from('ingredients').insert({
+        name:ingredientName,category:'Other',base_unit:'g',active:true,
+        notes:'Created from invoice: '+item.description
+      }).select('id').single();
+      if(ce){showScToast('❌ Could not create ingredient: '+ce.message);return;}
+      ingrId=created.id;
+    }
+  }
+  // Upsert ingredient_link
+  await supa.from('ingredient_links').upsert({
+    invoice_description:item.description,ingredient_name:ingredientName,
+    vendor,confirmed:true,confidence:1.0,
+    invoice_unit:item.unit||item.purchase_unit||null,
+    base_unit:'g',conversion_g:null,ingredient_id:ingrId
+  },{onConflict:'invoice_description,vendor'});
+  // Upsert ingredient_vendors price
+  const up=parseFloat(item.unit_price)||null;
+  const ltg=item._total_weight_g||null;
+  const p100=item._cost_per_100g||null;
+  if(up||p100){
+    await supa.from('ingredient_vendors').upsert({
+      ingredient_id:ingrId,vendor,
+      purchase_unit:item.unit||item.purchase_unit||null,
+      pack_description:item.pack_size||item.pack_description||null,
+      unit_price:up,
+      price_per_100g:p100||(up&&ltg?parseFloat(((up/ltg)*100).toFixed(4)):null),
+      conversion_to_base:ltg||null,
+      last_invoice_date:data.invoice_date||null,
+      active:true
+    },{onConflict:'ingredient_id,vendor'});
+  }
+  // Update invoice_line match status
+  const lineId=data._lineIdMap?.[item.description];
+  if(lineId){
+    await supa.from('invoice_lines').update({ingredient_id:ingrId,match_status:'matched',match_confidence:1.0}).eq('id',lineId);
+  }
+  item._match_status='done';
+  item._matched_ingredient=ingredientName;
+  item._matched_ingredient_id=ingrId;
+  refreshItemCard(item,modal);
+  refreshDoneButton(data,modal);
+  function refreshItemCard(item,modal){
+    const old=modal.querySelector('[data-desc="'+item.description.replace(/"/g,'\\"')+'"]');
+    if(old) old.replaceWith(renderItemCardStatic(item));
+  }
+  function renderItemCardStatic(item){
+    const el=document.createElement('div');
+    el.dataset.desc=item.description;
+    el.style.cssText='border:0.5px solid rgba(16,185,129,0.25);border-radius:12px;padding:10px 12px;margin-bottom:8px;background:rgba(16,185,129,0.04);';
+    el.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;">'
+      +'<div style="font-size:13px;font-weight:500;color:#1e3a5f;">'+item.description+'</div>'
+      +'<span style="background:rgba(16,185,129,0.1);color:#065f46;font-size:11px;font-weight:500;padding:3px 8px;border-radius:8px;">✓ '+item._matched_ingredient+'</span>'
+      +'</div>';
+    return el;
+  }
+  function refreshDoneButton(data,modal){
+    const pending=(data.items||[]).filter(i=>i._match_status==='new'||i._match_status==='price_up'||i._match_status==='price_down');
+    const doneBtn=document.getElementById('_ssDone');
+    if(!doneBtn)return;
+    if(!pending.length){doneBtn.style.background='#10b981';doneBtn.textContent='✓ All done';}
+  }
+}
+
+async function acceptPriceChange(item,data){
+  if(!item._matched_ingredient_id)return;
+  const up=parseFloat(item.unit_price)||null;
+  const ltg=item._total_weight_g||null;
+  const p100=item._cost_per_100g||null;
+  await supa.from('ingredient_vendors').upsert({
+    ingredient_id:item._matched_ingredient_id,
+    vendor:data.vendor||'',
+    unit_price:up,
+    price_per_100g:p100||(up&&ltg?parseFloat(((up/ltg)*100).toFixed(4)):null),
+    conversion_to_base:ltg||null,
+    last_invoice_date:data.invoice_date||null,
+    active:true
+  },{onConflict:'ingredient_id,vendor'});
+  const lineId=data._lineIdMap?.[item.description];
+  if(lineId){
+    await supa.from('invoice_lines').update({match_status:'matched',match_confidence:1.0}).eq('id',lineId);
+  }
+}
+
+
 function showImportSummary({vendor,total,linesCreated,linesError}){
-  const toast=document.createElement('div');
-  toast.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:70;background:#1e293b;color:white;font-size:12px;padding:10px 16px;border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,0.3);max-width:340px;text-align:center;';
-  toast.innerHTML=`
-    <div style="font-weight:600;margin-bottom:4px;">✓ Invoice saved — $${(total||0).toFixed(2)}</div>
-    <div style="opacity:0.8;">${vendor} · ${linesCreated} lines created${linesError?` · ⚠️ ${linesError} failed`:''}</div>
-    <div style="opacity:0.6;margin-top:2px;font-size:11px;">Analyzing ingredients...</div>`;
-  document.body.appendChild(toast);
-  setTimeout(()=>toast.remove(),5000);
+  // Stub kept for any external callers
+  showSaveSuccessModal({data:{vendor,total},linesCreated,linesError:linesError||0,reviewCount:0});
 }
 
 // ── STORICO FATTURE ───────────────────────────────────────────
