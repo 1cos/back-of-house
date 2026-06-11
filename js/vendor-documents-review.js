@@ -39,6 +39,14 @@ window.vdrLoad = async function() {
     const sb = window.supabaseClient;
     if (!sb) throw new Error('Supabase client not available');
 
+    // Check for pdf_received (emails from Gmail not yet processed)
+    const { data: pdfQueue } = await sb
+      .from('vendor_documents')
+      .select('id,parsed_json,source_email_subject,created_at')
+      .eq('status', 'pdf_received')
+      .order('created_at', { ascending: true });
+
+    // Check for pending (parsed, ready for review)
     const { data, error } = await sb
       .from('vendor_documents')
       .select('id,vendor,document_type,document_number,document_date,delivery_date,parsed_json,warnings,status,created_at')
@@ -47,20 +55,162 @@ window.vdrLoad = async function() {
 
     if (error) throw new Error(error.message);
 
+    let html = '';
+
+    // Banner PDF ricevuti da Gmail
+    if (pdfQueue && pdfQueue.length > 0) {
+      html += `
+        <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:14px;padding:14px 16px;margin-bottom:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <div style="font-size:13px;font-weight:600;color:#1e3a5f;">📧 ${pdfQueue.length} PDF ricevuti da Hardie's</div>
+              <div style="font-size:11px;color:#64748b;margin-top:2px;">Arrivati via email — non ancora processati</div>
+            </div>
+            <button onclick="vdrProcessAllPdf()" id="vdrProcessAllBtn"
+              style="height:38px;padding:0 16px;border-radius:12px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;white-space:nowrap;">
+              ▶ Processa tutti
+            </button>
+          </div>
+          <div id="vdrProcessLog" style="display:none;margin-top:10px;font-size:11px;color:#64748b;"></div>
+        </div>`;
+    }
+
     if (!data || data.length === 0) {
-      list.innerHTML = `
+      html += `
         <div style="text-align:center;padding:48px 0;">
           <div style="font-size:32px;margin-bottom:10px;">✅</div>
           <div style="font-size:14px;font-weight:500;color:#1e293b;margin-bottom:4px;">All clear</div>
           <div style="font-size:12px;color:#94a3b8;">No pending documents</div>
         </div>`;
-      return;
+    } else {
+      html += data.map(doc => vdrCardHTML(doc)).join('');
     }
 
-    list.innerHTML = data.map(doc => vdrCardHTML(doc)).join('');
+    list.innerHTML = html;
+    if (data) for (const doc of data) vdrRegisterQuestions(doc);
 
   } catch(e) {
     list.innerHTML = `<div style="padding:16px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.25);border-radius:10px;color:#991b1b;font-size:13px;">✗ ${e.message}</div>`;
+  }
+};
+
+// ── Process all pdf_received using the existing import pipeline ──
+window.vdrProcessAllPdf = async function() {
+  const btn = document.getElementById('vdrProcessAllBtn');
+  const log = document.getElementById('vdrProcessLog');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Processing…'; }
+  if (log) { log.style.display = 'block'; log.textContent = 'Loading PDF.js…'; }
+
+  try {
+    const sb = window.supabaseClient;
+    const { data: queue } = await sb
+      .from('vendor_documents')
+      .select('id,parsed_json,source_email_subject')
+      .eq('status', 'pdf_received')
+      .order('created_at', { ascending: true });
+
+    if (!queue || queue.length === 0) { vdrLoad(); return; }
+
+    // Ensure PDF.js loaded
+    if (!window.pdfjsLib) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    const parsers = buildVendorParsers();
+    let done = 0;
+
+    for (const doc of queue) {
+      const storagePath = doc.parsed_json?.storage_path;
+      if (!log) break;
+      log.textContent = `Processing ${done + 1}/${queue.length}: ${doc.source_email_subject || storagePath}…`;
+
+      try {
+        // Download PDF from Storage
+        const { data: fileData, error: dlErr } = await sb.storage.from('app').download(storagePath);
+        if (dlErr || !fileData) throw new Error('Download failed: ' + dlErr?.message);
+
+        // Extract text with PDF.js — same as vendor-parser-ui.js extractWithPdfJs
+        const arrayBuffer = await fileData.arrayBuffer();
+        const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const pages = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const lineMap = {};
+          for (const item of content.items) {
+            const y = Math.round(item.transform[5]);
+            if (!lineMap[y]) lineMap[y] = [];
+            lineMap[y].push({ x: item.transform[4], text: item.str });
+          }
+          const sortedY = Object.keys(lineMap).map(Number).sort((a, b) => b - a);
+          pages.push(sortedY.map(y =>
+            lineMap[y].sort((a, b) => a.x - b.x).map(i => i.text).join(' ')
+          ).join('\n'));
+        }
+        const rawText = pages.join('\n');
+
+        if (!rawText || rawText.trim().length < 30) throw new Error('No text extracted');
+
+        // Parse with Hardie's parser
+        const parsed = parsers.parse(rawText);
+
+        const docNumber = parsed.order_number || parsed.credit_number || null;
+        const docDate   = parsed.order_date   || parsed.credit_date   || parsed.delivery_date || null;
+
+        // Duplicate check by doc number
+        if (docNumber) {
+          const { data: byNum } = await sb.from('vendor_documents').select('id').eq('vendor', parsed.vendor).eq('document_number', docNumber).neq('id', doc.id).limit(1);
+          if (byNum && byNum.length > 0) {
+            await sb.from('vendor_documents').update({ status: 'error', warnings: [{ code: 'DUPLICATE', message: `Document #${docNumber} already exists` }] }).eq('id', doc.id);
+            await sb.storage.from('app').remove([storagePath]);
+            done++; continue;
+          }
+        }
+
+        const allWarnings = [
+          ...(parsed.warnings || []),
+          ...(parsed.items || []).flatMap(i => (i.warnings || []).map(w => ({ ...w, item: i.description }))),
+        ];
+
+        await sb.from('vendor_documents').update({
+          vendor:          parsed.vendor || "Hardie's Fresh Foods / Dairyland Produce",
+          document_type:   parsed.document_type || 'invoice',
+          document_number: docNumber,
+          document_date:   docDate,
+          delivery_date:   parsed.delivery_date || null,
+          raw_text:        rawText,
+          parsed_json:     parsed,
+          status:          (parsed.items && parsed.items.length > 0) ? 'pending' : 'error',
+          warnings:        allWarnings.length ? allWarnings : null,
+          updated_at:      new Date().toISOString(),
+        }).eq('id', doc.id);
+
+        // Remove PDF from storage after successful parse
+        if (parsed.items && parsed.items.length > 0) {
+          await sb.storage.from('app').remove([storagePath]);
+        }
+
+        done++;
+      } catch(e) {
+        console.warn('[VDR] Error processing', doc.id, e.message);
+        await sb.from('vendor_documents').update({ status: 'error', warnings: [{ code: 'PROCESS_ERROR', message: e.message }] }).eq('id', doc.id);
+        done++;
+      }
+    }
+
+    if (log) log.textContent = `✓ Done — ${done} PDF processed.`;
+    setTimeout(() => vdrLoad(), 1000);
+
+  } catch(e) {
+    if (log) log.textContent = '✗ Error: ' + e.message;
+    if (btn) { btn.disabled = false; btn.textContent = '▶ Processa tutti'; }
   }
 };
 
@@ -677,44 +827,6 @@ function vdrRegisterQuestions(doc) {
     _vdrQMap[q.qid] = q;
   }
 }
-
-// Patch vdrLoad to register questions after render
-const _origVdrLoad = window.vdrLoad;
-window.vdrLoad = async function() {
-  const list = document.getElementById('vdrList');
-  if (!list) return;
-  list.innerHTML = '<div style="text-align:center;padding:40px 0;color:#94a3b8;font-size:13px;">Loading…</div>';
-
-  try {
-    const sb = window.supabaseClient;
-    if (!sb) throw new Error('Supabase client not available');
-
-    const { data, error } = await sb
-      .from('vendor_documents')
-      .select('id,vendor,document_type,document_number,document_date,delivery_date,parsed_json,warnings,status,created_at')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false });
-
-    if (error) throw new Error(error.message);
-
-    if (!data || data.length === 0) {
-      list.innerHTML = `
-        <div style="text-align:center;padding:48px 0;">
-          <div style="font-size:32px;margin-bottom:10px;">✅</div>
-          <div style="font-size:14px;font-weight:500;color:#1e293b;margin-bottom:4px;">All clear</div>
-          <div style="font-size:12px;color:#94a3b8;">No pending documents</div>
-        </div>`;
-      return;
-    }
-
-    list.innerHTML = data.map(doc => vdrCardHTML(doc)).join('');
-    // Register all questions in the global map
-    for (const doc of data) vdrRegisterQuestions(doc);
-
-  } catch(e) {
-    list.innerHTML = `<div style="padding:16px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.25);border-radius:10px;color:#991b1b;font-size:13px;">✗ ${e.message}</div>`;
-  }
-};
 
 // ── Helpers ───────────────────────────────────────────────────
 function vdrDocTypeLabel(t) {
