@@ -354,6 +354,9 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       </div>
     </section>
 
+    <!-- POS Analytics -->
+    <section id="vx" class="hidden overflow-y-auto" style="position:fixed;top:64px;left:0;right:0;bottom:72px;background:linear-gradient(160deg,#f0fdf4 0%,#f8fafc 60%);z-index:5;"></section>
+
   </main>
 
   <!-- Bottom Nav -->
@@ -391,6 +394,12 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       </button>
 
       <!-- CHAT — tutti, badge iOS celeste -->
+      <!-- SALES — admin only -->
+      <button id="tabSales" data-t="x" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span class="text-[10px] tab-label">Sales</span>
+      </button>
+
       <button id="tabChat" onclick="showChat()" class="flex flex-col items-center gap-1 w-14 text-slate-500 relative">
         <div class="relative">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -486,5 +495,6 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
   <script src="js/vendor-parser-ui.js"></script>
 <script src="js/invoice.js"></script>
 <script src="js/ingredients.js"></script>
+<script src="js/pos.js"></script>
 <script>if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js')}</script>
 </html>
