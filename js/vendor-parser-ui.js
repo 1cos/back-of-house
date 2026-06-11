@@ -859,6 +859,125 @@ function buildVendorParsers() {
       credit_number:creditNumber,credit_date:creditDate,original_order_number:originalOrder,total,items,warnings};
   }
 
+  // ── FreshPoint Dallas parser ──
+  function parseFreshPointOrder(rawText) {
+    const warnings = [];
+    const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+    // Reference number
+    let refNumber = null;
+    for (const line of lines) {
+      const m = line.match(/Reference\s*#?\s*(\d{6,12})/i);
+      if (m) { refNumber = m[1]; break; }
+    }
+
+    // Order date
+    let orderDate = null;
+    for (const line of lines) {
+      const m = line.match(/Order Date[\/\s]Time[:\s]+([\d]{1,2}\/[\d]{1,2}\/[\d]{4})/i);
+      if (m) { orderDate = parseDate(m[1]); break; }
+    }
+
+    // Delivery date
+    let deliveryDate = null;
+    for (const line of lines) {
+      const m = line.match(/Delivery Date[:\s]+(?:\w+\s+)?([\d]{1,2}\/[\d]{1,2}\/[\d]{4})/i);
+      if (m) { deliveryDate = parseDate(m[1]); break; }
+    }
+
+    // Total
+    let total = null;
+    for (const line of lines) {
+      const m = line.match(/Total\s+([\d,]+\.\d{2})\s*$/i);
+      if (m) { total = parsePrice(m[1]); break; }
+    }
+
+    // Line items
+    // Format: ITEM#  PRODUCT DESCRIPTION  SIZE  QTY  PRICE  EXT.P
+    // Example: 921068  LETTUCE ONECUT SPRING MIX TRUEMIX LOC TX  3/2# CS  1  33.95  33.95
+    const LINE_RE = /^(\d{4,8})\s+(.+?)\s{2,}(.+?)\s{2,}(\d+)\s+([\d,.]+)\s+([\d,.]+)$/;
+    // Fallback: item# then description ends before last 3 numbers
+    const LINE_RE2 = /^(\d{4,8})\s+(.+?)\s+([\d,.]+)\s+([\d,.]+)\s*$/;
+
+    const items = [];
+    let inItems = false;
+
+    for (const line of lines) {
+      // Start parsing after header row
+      if (/Item#.*Product.*Size.*Qty.*Price/i.test(line)) { inItems = true; continue; }
+      // Stop at order summary
+      if (/Order Summary|THANK YOU|This is not an invoice/i.test(line)) { inItems = false; continue; }
+      if (!inItems) continue;
+
+      let m = line.match(LINE_RE);
+      if (m) {
+        const [, sku, descRaw, sizeRaw, qtyStr, upStr, amtStr] = m;
+        const pack = parsePackSize(sizeRaw.trim());
+        const desc = cleanDescription(descRaw.trim());
+        const lw = [];
+        if (pack && ['ct','ea','each'].includes(pack.unit))
+          lw.push({ code: 'OQR-006', message: `Count-based: ${desc} (${sizeRaw.trim()})`, field: 'pack_unit' });
+        items.push({
+          vendor_sku:       sku,
+          raw_description:  descRaw.trim(),
+          description:      desc,
+          qty_ordered:      parseFloat(qtyStr),
+          qty_received:     null,
+          purchase_unit:    inferPurchaseUnit(pack),
+          pack_description: sizeRaw.trim(),
+          pack_qty:         pack ? pack.count    : null,
+          pack_unit:        pack ? pack.unit     : null,
+          pack_size_each:   pack ? pack.sizeEach : null,
+          unit_price:       parsePrice(upStr),
+          amount:           parsePrice(amtStr),
+          is_substitution:  false,
+          origin:           null,
+          warnings:         lw,
+        });
+        continue;
+      }
+
+      // Fallback — line with just item# + description + price + ext
+      m = line.match(LINE_RE2);
+      if (m) {
+        const [, sku, descRaw, upStr, amtStr] = m;
+        const desc = cleanDescription(descRaw.trim());
+        items.push({
+          vendor_sku:       sku,
+          raw_description:  descRaw.trim(),
+          description:      desc,
+          qty_ordered:      null,
+          qty_received:     null,
+          purchase_unit:    null,
+          pack_description: null,
+          pack_qty:         null,
+          pack_unit:        null,
+          pack_size_each:   null,
+          unit_price:       parsePrice(upStr),
+          amount:           parsePrice(amtStr),
+          is_substitution:  false,
+          origin:           null,
+          warnings:         [{ code: 'OQR-008', message: `Could not parse size/qty for ${desc}`, field: 'pack_description' }],
+        });
+      }
+    }
+
+    if (!items.length) warnings.push({ code: 'PARSE_ERROR', message: 'No line items found' });
+
+    return {
+      vendor:        'FreshPoint Dallas',
+      document_type: 'order_confirmation',
+      order_number:  refNumber,
+      order_date:    orderDate,
+      delivery_date: deliveryDate,
+      subtotal:      total,
+      tax:           null,
+      total:         total,
+      items,
+      warnings,
+    };
+  }
+
   // ── Router ──
   function detectVendor(text) {
     if (/dairyland produce|hardie'?s|chefs'?\s*wh?se/i.test(text)) return 'hardies';
@@ -871,6 +990,9 @@ function buildVendorParsers() {
     if (/CONFIRMATION OF SALE/i.test(text))  return 'order_confirmation';
     if (/\bCREDIT\s+\d{5,}/i.test(text))    return 'credit_memo';
     if (/INVOICE\/POD/i.test(text))          return 'invoice';
+    if (/\bINVOICE\b/i.test(text))           return 'invoice';
+    // FreshPoint: order confirmation uses "Reference #" and "Order Confirmation"
+    if (/Reference\s*#\s*\d{6,}/i.test(text) || /Order Confirmation/i.test(text)) return 'order_confirmation';
     if (/\bINVOICE\b/i.test(text))           return 'invoice';
     return 'unknown';
   }
@@ -887,6 +1009,10 @@ function buildVendorParsers() {
         if (docType === 'order_confirmation') return parseHardiesOrder(rawText);
         if (docType === 'invoice')            return parseHardiesInvoice(rawText);
         if (docType === 'credit_memo')        return parseHardiesCredit(rawText);
+      }
+      if (vendor === 'freshpoint') {
+        if (docType === 'order_confirmation') return parseFreshPointOrder(rawText);
+        if (docType === 'invoice')            return parseFreshPointOrder(rawText); // same format
       }
       return {vendor,document_type:docType,items:[],warnings:[{code:'NO_PARSER',message:`No parser for ${vendor}/${docType}`}]};
     } catch(e) {
@@ -942,10 +1068,6 @@ function convertParserResultToInvoiceData(result) {
 /**
  * Bridge handler — wired to the "Continue to Invoice Import" button.
  * Closes the parser modal and hands off to the existing invoice.js pipeline.
- *
- * OQR weight/clarification questions are NON-BLOCKING from this path.
- * All unresolved items are marked as skipped and tagged for Vendor Review.
- * The import proceeds immediately to showInvoicePreview without any modals.
  */
 window.continueToInvoiceImport = function() {
   console.log('[InvoiceImport] Button clicked');
@@ -957,8 +1079,8 @@ window.continueToInvoiceImport = function() {
   }
   console.log('[InvoiceImport] Parser result:', result);
 
-  // Verify required pipeline functions before doing anything
-  const missing = ['enrichInvoiceItems', 'showInvoicePreview']
+  // Verify all required pipeline functions before doing anything
+  const missing = ['enrichInvoiceItems', 'runOneQuestionRule', 'showInvoicePreview']
     .filter(fn => typeof window[fn] !== 'function');
   if (missing.length) {
     showScToast('❌ Invoice pipeline not available — check script load order');
@@ -970,45 +1092,11 @@ window.continueToInvoiceImport = function() {
   const invoiceData = convertParserResultToInvoiceData(result);
   console.log('[InvoiceImport] Adapted invoice data:', invoiceData);
 
-  // Enrich items (calculates weight/cost where possible from known pack sizes)
-  enrichInvoiceItems(invoiceData);
-
-  // ── Non-blocking OQR: pre-skip all unresolved weight/clarification items ──
-  // Weight and conversion questions are deferred to Vendor Review — they must
-  // never block the import from completing.
-  let reviewCount = 0;
-  (invoiceData.items || []).forEach(item => {
-    if (item._needs_weight_clarification && !item._weight_answered) {
-      // Mark as answered-skipped so runOneQuestionRule (if ever called) passes through
-      item._weight_answered = true;
-      item._review_needed = true;
-      item._review_reason = 'weight_unknown';
-      reviewCount++;
-    }
-    if (item.needs_clarification && !item._clarified) {
-      // Mark as clarified-skipped for the same reason
-      item._clarified = true;
-      item.needs_clarification = false;
-      item._review_needed = true;
-      item._review_reason = item._review_reason || 'unit_unknown';
-      reviewCount++;
-    }
-  });
-
-  if (reviewCount > 0) {
-    invoiceData.warnings = invoiceData.warnings || [];
-    invoiceData.warnings.push({
-      code: 'REVIEW_NEEDED',
-      message: `${reviewCount} item(s) need weight/unit review — flagged for Vendor Review`,
-    });
-    console.log(`[InvoiceImport] ${reviewCount} item(s) deferred to Vendor Review`);
-  }
-
   // Close parser modal only after all checks pass
   const parserModal = document.querySelector('.fixed.inset-0[style*="background:white"]');
   if (parserModal) parserModal.remove();
 
-  // Go straight to preview — no OQR blocking modals
-  console.log('[InvoiceImport] Opening invoice preview →', invoiceData.items.length, 'items');
-  showInvoicePreview(invoiceData);
+  console.log('[InvoiceImport] Calling OQR →', invoiceData.items.length, 'items');
+  enrichInvoiceItems(invoiceData);
+  runOneQuestionRule(invoiceData, showInvoicePreview);
 };
