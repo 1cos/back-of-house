@@ -20,7 +20,7 @@ async function loadPOS() {
                : monthAgo;
 
     // ── fetch daily summary
-    const { data: days, error: e1 } = await window._supabase
+    const { data: days, error: e1 } = await window.supabaseClient
       .from('pos_daily_summary')
       .select('*')
       .gte('sale_date', from)
@@ -30,7 +30,7 @@ async function loadPOS() {
     if (e1) throw e1;
 
     // ── fetch sales by item
-    const { data: items, error: e2 } = await window._supabase
+    const { data: items, error: e2 } = await window.supabaseClient
       .from('pos_sales_by_item')
       .select('menu_item,sales_category,menu_group,quantity,gross_sales,net_sales')
       .gte('sale_date', from)
@@ -40,7 +40,7 @@ async function loadPOS() {
     if (e2) throw e2;
 
     // ── fetch modifiers
-    const { data: mods, error: e3 } = await window._supabase
+    const { data: mods, error: e3 } = await window.supabaseClient
       .from('pos_modifiers')
       .select('modifier,quantity_sold')
       .gte('sale_date', from)
