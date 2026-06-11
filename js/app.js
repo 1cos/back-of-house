@@ -97,6 +97,10 @@ function doLogin(profile){
   const tabIngr = document.getElementById('tabIngredients');
   if(tabIngr) tabIngr.style.display = admin ? 'flex' : 'none';
 
+  // Tab Sales — solo admin
+  const tabSales = document.getElementById('tabSales');
+  if(tabSales) tabSales.style.display = admin ? 'flex' : 'none';
+
   // Tab Menu ••• — solo admin
   const tabMenu = document.getElementById('tabMenu');
   if(tabMenu) tabMenu.style.display = admin ? 'flex' : 'none';
@@ -162,6 +166,8 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   document.getElementById('vr').classList.toggle('hidden',t!=='r');
   document.getElementById('vp').classList.toggle('hidden',t!=='c');
   document.getElementById('vi').classList.toggle('hidden',t!=='i');
+  const vx = document.getElementById('vx');
+  if (vx) { vx.classList.toggle('hidden', t!=='x'); if (t==='x') loadPOS(); }
   if(t==='c') renderRecipes();
   if(t==='s'){ renderS(); if(typeof updateCloseTurnBtn==='function') updateCloseTurnBtn(); }
   if(t==='h') renderHomeStations();
