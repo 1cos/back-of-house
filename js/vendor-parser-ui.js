@@ -942,6 +942,10 @@ function convertParserResultToInvoiceData(result) {
 /**
  * Bridge handler — wired to the "Continue to Invoice Import" button.
  * Closes the parser modal and hands off to the existing invoice.js pipeline.
+ *
+ * OQR weight/clarification questions are NON-BLOCKING from this path.
+ * All unresolved items are marked as skipped and tagged for Vendor Review.
+ * The import proceeds immediately to showInvoicePreview without any modals.
  */
 window.continueToInvoiceImport = function() {
   console.log('[InvoiceImport] Button clicked');
@@ -953,8 +957,8 @@ window.continueToInvoiceImport = function() {
   }
   console.log('[InvoiceImport] Parser result:', result);
 
-  // Verify all required pipeline functions before doing anything
-  const missing = ['enrichInvoiceItems', 'runOneQuestionRule', 'showInvoicePreview']
+  // Verify required pipeline functions before doing anything
+  const missing = ['enrichInvoiceItems', 'showInvoicePreview']
     .filter(fn => typeof window[fn] !== 'function');
   if (missing.length) {
     showScToast('❌ Invoice pipeline not available — check script load order');
@@ -966,11 +970,45 @@ window.continueToInvoiceImport = function() {
   const invoiceData = convertParserResultToInvoiceData(result);
   console.log('[InvoiceImport] Adapted invoice data:', invoiceData);
 
+  // Enrich items (calculates weight/cost where possible from known pack sizes)
+  enrichInvoiceItems(invoiceData);
+
+  // ── Non-blocking OQR: pre-skip all unresolved weight/clarification items ──
+  // Weight and conversion questions are deferred to Vendor Review — they must
+  // never block the import from completing.
+  let reviewCount = 0;
+  (invoiceData.items || []).forEach(item => {
+    if (item._needs_weight_clarification && !item._weight_answered) {
+      // Mark as answered-skipped so runOneQuestionRule (if ever called) passes through
+      item._weight_answered = true;
+      item._review_needed = true;
+      item._review_reason = 'weight_unknown';
+      reviewCount++;
+    }
+    if (item.needs_clarification && !item._clarified) {
+      // Mark as clarified-skipped for the same reason
+      item._clarified = true;
+      item.needs_clarification = false;
+      item._review_needed = true;
+      item._review_reason = item._review_reason || 'unit_unknown';
+      reviewCount++;
+    }
+  });
+
+  if (reviewCount > 0) {
+    invoiceData.warnings = invoiceData.warnings || [];
+    invoiceData.warnings.push({
+      code: 'REVIEW_NEEDED',
+      message: `${reviewCount} item(s) need weight/unit review — flagged for Vendor Review`,
+    });
+    console.log(`[InvoiceImport] ${reviewCount} item(s) deferred to Vendor Review`);
+  }
+
   // Close parser modal only after all checks pass
   const parserModal = document.querySelector('.fixed.inset-0[style*="background:white"]');
   if (parserModal) parserModal.remove();
 
-  console.log('[InvoiceImport] Calling OQR →', invoiceData.items.length, 'items');
-  enrichInvoiceItems(invoiceData);
-  runOneQuestionRule(invoiceData, showInvoicePreview);
+  // Go straight to preview — no OQR blocking modals
+  console.log('[InvoiceImport] Opening invoice preview →', invoiceData.items.length, 'items');
+  showInvoicePreview(invoiceData);
 };
