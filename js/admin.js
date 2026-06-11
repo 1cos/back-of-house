@@ -340,7 +340,7 @@ window.openIngredientCleanup = function() {
     </div>
     <div style="padding:16px;max-width:640px;width:100%;margin:0 auto;">
       <!-- Filter tabs -->
-      <div style="display:flex;gap:6px;margin-bottom:14px;">
+      <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
         <button id="icTabSuspicious" onclick="icSetTab('suspicious')"
           style="padding:5px 12px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:600;background:#1e293b;color:white;">
           ⚠️ Suspicious
@@ -348,6 +348,10 @@ window.openIngredientCleanup = function() {
         <button id="icTabAll" onclick="icSetTab('all')"
           style="padding:5px 12px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:500;background:#f1f5f9;color:#64748b;">
           All
+        </button>
+        <button id="icTabMerge" onclick="icSetTab('merge')"
+          style="padding:5px 12px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:500;background:#f1f5f9;color:#64748b;">
+          🔀 Merge / Duplicates
         </button>
       </div>
       <div id="icList">
@@ -367,9 +371,12 @@ window.icSetTab = function(tab) {
   window._icTab = tab;
   const btnS = document.getElementById('icTabSuspicious');
   const btnA = document.getElementById('icTabAll');
-  if (btnS) { btnS.style.background = tab === 'suspicious' ? '#1e293b' : '#f1f5f9'; btnS.style.color = tab === 'suspicious' ? 'white' : '#64748b'; }
-  if (btnA) { btnA.style.background = tab === 'all'       ? '#1e293b' : '#f1f5f9'; btnA.style.color = tab === 'all'       ? 'white' : '#64748b'; }
-  icRender(window._icData);
+  const btnM = document.getElementById('icTabMerge');
+  const active = '#1e293b', inactive = '#f1f5f9', activeT = 'white', inactiveT = '#64748b';
+  if (btnS) { btnS.style.background = tab==='suspicious'?active:inactive; btnS.style.color = tab==='suspicious'?activeT:inactiveT; }
+  if (btnA) { btnA.style.background = tab==='all'       ?active:inactive; btnA.style.color = tab==='all'       ?activeT:inactiveT; }
+  if (btnM) { btnM.style.background = tab==='merge'     ?active:inactive; btnM.style.color = tab==='merge'     ?activeT:inactiveT; }
+  if (tab === 'merge') { icRenderMerge(); } else { icRender(window._icData); }
 };
 
 window.icLoad = async function() {
@@ -1695,3 +1702,685 @@ async function vmSaveMatch(idx, ingr) {
     if (statusEl)  { statusEl.style.display = 'block'; statusEl.style.color = '#991b1b'; statusEl.textContent = '✗ ' + e.message; }
   }
 }
+
+// ══════════════════════════════════════════════════════════════
+// INGREDIENT CLEANUP V2 — SOFT MERGE
+// Finds duplicates via fuzzy matching.
+// Soft merge: deactivates source, reassigns FK references.
+// Does NOT delete records. Hard merge is a future task.
+// ══════════════════════════════════════════════════════════════
+
+// ── Levenshtein distance ──────────────────────────────────────
+function icLev(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({length: m+1}, (_, i) => Array(n+1).fill(0).map((_, j) => j ? j : i));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1]
+               : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+  return dp[m][n];
+}
+
+// ── Normalise name for fuzzy comparison ──────────────────────
+// Returns { spaced, compact }:
+//   spaced  = lowercase, no punctuation, single spaces  ("extra vergine")
+//   compact = spaced with all spaces removed            ("extravergine")
+// Two names are capitalization/spacing/punctuation-only variants when
+// either their spaced OR compact forms are identical.
+function icFuzzyNorm(name) {
+  const spaced = (name||'').toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ').trim();
+  const compact = spaced.replace(/\s/g, '');
+  return { spaced, compact };
+}
+
+// ── Strict equality check: same ingredient, different style ───
+// Returns true if the two names are only capitalisation / spacing /
+// punctuation variants of each other (should go to Standardization,
+// never to Duplicates).
+function icSameNorm(a, b) {
+  const na = icFuzzyNorm(a), nb = icFuzzyNorm(b);
+  return na.spaced === nb.spaced || na.compact === nb.compact;
+}
+
+// ── Similarity 0–100 between two names ───────────────────────
+function icSimilarity(a, b) {
+  const na = icFuzzyNorm(a).spaced;
+  const nb = icFuzzyNorm(b).spaced;
+  if (!na || !nb) return 0;
+  if (na === nb) return 100;
+  const maxLen = Math.max(na.length, nb.length);
+  const lev = icLev(na, nb);
+  return Math.round((1 - lev / maxLen) * 100);
+}
+
+// ── Find duplicate candidate pairs from ingredient list ───────
+// Conservative: threshold 96, excludes all same-norm pairs.
+// Better to miss a duplicate than to suggest a wrong merge.
+function icFindDuplicatePairs(ingredients) {
+  const THRESHOLD = 96;
+  const active = ingredients.filter(i => i.active && !(i.notes||'').startsWith('merged_into'));
+  const pairs = [];
+  for (let i = 0; i < active.length; i++) {
+    for (let j = i + 1; j < active.length; j++) {
+      // Exclude capitalisation / spacing / punctuation variants entirely
+      if (icSameNorm(active[i].name, active[j].name)) continue;
+      // Hard guard: identical after simple lowercase+trim (catches invisible char differences)
+      if (active[i].name.trim().toLowerCase() === active[j].name.trim().toLowerCase()) continue;
+      const score = icSimilarity(active[i].name, active[j].name);
+      if (score >= THRESHOLD) {
+        const a = active[i], b = active[j];
+        const src = a.name.length <= b.name.length ? a : b;
+        const tgt = a.name.length <= b.name.length ? b : a;
+        pairs.push({ src, tgt, score });
+      }
+    }
+  }
+  pairs.sort((a, b) => b.score - a.score);
+  const seen = new Set();
+  return pairs.filter(p => {
+    if (seen.has(p.src.id)) return false;
+    seen.add(p.src.id);
+    return true;
+  });
+}
+
+// ── Find name standardization candidates ─────────────────────
+// Returns ingredients where name !== Title Case version of itself.
+// These differ only in capitalisation/punctuation — rename only,
+// no merge, no FK reassignment, no recipe update.
+function icFindStandardizationCases(ingredients) {
+  const active = ingredients.filter(i => i.active && !(i.notes||'').startsWith('merged_into'));
+  return active.filter(i => {
+    const std = icTitleCase(i.name);
+    return std !== i.name;
+  });
+}
+
+// ── Render Merge tab ──────────────────────────────────────────
+window.icRenderMerge = function() {
+  const list = document.getElementById('icList');
+  if (!list) return;
+
+  const ingredients = window._icData || [];
+  if (!ingredients.length) {
+    list.innerHTML = '<div style="text-align:center;padding:32px 0;color:#94a3b8;font-size:13px;">No ingredient data — refresh first</div>';
+    return;
+  }
+
+  const pairs   = icFindDuplicatePairs(ingredients);
+  const stdCases = icFindStandardizationCases(ingredients);
+  window._icMergePairs = pairs;
+
+  // Manual source/target picker (always shown)
+  const activeNames = ingredients.filter(i => i.active && !(i.notes||'').startsWith('merged_into'));
+  const optionsHTML = activeNames.map(i =>
+    `<option value="${escAttr(i.id)}">${escHtml(i.name)}</option>`
+  ).join('');
+
+  // ── Duplicates section ────────────────────────────────────
+  const dupSection = pairs.length ? `
+    <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">
+      Suggested Duplicates (${pairs.length})
+    </div>
+    ${pairs.map((p, idx) => icMergePairHTML(p, idx)).join('')}` : `
+    <div style="background:#f0fdf4;border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#166534;">
+      ✓ No duplicate ingredients detected
+    </div>`;
+
+  // ── Name Standardization section ─────────────────────────
+  // Store stdCases globally so bulk action can read them
+  window._icStdCases = stdCases;
+
+  const stdSection = stdCases.length ? `
+    <div style="margin-top:18px;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;flex:1;">
+          📝 Name Standardization (${stdCases.length})
+        </div>
+        <button onclick="icBulkStandardizePreview()"
+          style="height:28px;padding:0 12px;border-radius:7px;background:#1e293b;color:white;font-size:11px;font-weight:600;border:none;cursor:pointer;white-space:nowrap;">
+          ⚡ Preview All ${stdCases.length}
+        </button>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-bottom:10px;">
+        These differ only in capitalisation. No merge — rename only.
+      </div>
+      ${stdCases.map((ingr, idx) => {
+        const std = icTitleCase(ingr.name);
+        return `<div id="icStdRow-${escAttr(ingr.id)}" style="border:1px solid #f1f5f9;border-radius:10px;padding:9px 12px;margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-size:12px;color:#94a3b8;">${escHtml(ingr.name)}</span>
+            <span style="color:#cbd5e1;font-size:12px;">→</span>
+            <span style="font-size:12px;font-weight:600;color:#1e293b;">${escHtml(std)}</span>
+          </div>
+          <button onclick="icStandardizeName('${escAttr(ingr.id)}','${escAttr(std)}',this)"
+            style="height:28px;padding:0 10px;border-radius:7px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:11px;font-weight:500;border:none;cursor:pointer;flex-shrink:0;">
+            Rename
+          </button>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+  list.innerHTML = `
+    <div style="font-size:12px;color:#64748b;margin-bottom:14px;">
+      <strong style="color:#1e293b;">${pairs.length}</strong> possible duplicate${pairs.length!==1?'s':''}
+      ${stdCases.length ? ` · <strong style="color:#3B82F6;">${stdCases.length}</strong> name${stdCases.length!==1?'s':''} to standardize` : ''}
+    </div>
+
+    <!-- Manual merge picker -->
+    <div style="border:1px solid #f1f5f9;border-radius:12px;padding:12px 14px;margin-bottom:14px;background:#f8fafc;">
+      <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Manual Merge</div>
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-bottom:8px;">
+        <div>
+          <div style="font-size:10px;color:#94a3b8;margin-bottom:3px;">SOURCE (will be deactivated)</div>
+          <select id="icManualSrc" style="width:100%;height:34px;padding:0 8px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;">
+            <option value="">Select source…</option>${optionsHTML}
+          </select>
+        </div>
+        <div style="font-size:16px;color:#94a3b8;margin-top:14px;">→</div>
+        <div>
+          <div style="font-size:10px;color:#94a3b8;margin-bottom:3px;">TARGET (kept)</div>
+          <select id="icManualTgt" style="width:100%;height:34px;padding:0 8px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;">
+            <option value="">Select target…</option>${optionsHTML}
+          </select>
+        </div>
+      </div>
+      <button onclick="icManualMergePreview()"
+        style="height:34px;padding:0 14px;border-radius:9px;background:#1e293b;color:white;font-size:12px;font-weight:500;border:none;cursor:pointer;">
+        Preview Merge
+      </button>
+    </div>
+
+    ${dupSection}
+    ${stdSection}`;
+};
+
+// ── Render one suggested pair card ───────────────────────────
+function icMergePairHTML(p, idx) {
+  const confColor = p.score >= 98 ? '#7c3aed' : p.score >= 97 ? '#10b981' : '#3B82F6';
+  const srcNorm = icFuzzyNorm(p.src.name).spaced;
+  const tgtNorm = icFuzzyNorm(p.tgt.name).spaced;
+  return `
+    <div id="icMergePair-${idx}" style="border:1px solid #f1f5f9;border-radius:12px;padding:11px 13px;margin-bottom:8px;">
+      <div style="margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+          <span style="font-size:13px;font-weight:600;color:#991b1b;">${escHtml(p.src.name)}</span>
+          <span style="color:#94a3b8;">→</span>
+          <span style="font-size:13px;font-weight:600;color:#166534;">${escHtml(p.tgt.name)}</span>
+          <span style="font-size:11px;font-weight:700;color:${confColor};background:${confColor}12;padding:2px 7px;border-radius:20px;">${p.score}%</span>
+        </div>
+        <div style="font-size:10px;color:#cbd5e1;font-family:monospace;">
+          norm: "${escHtml(srcNorm)}" → "${escHtml(tgtNorm)}"
+          &nbsp;·&nbsp;len: ${p.src.name.length} / ${p.tgt.name.length}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button onclick="icMergePreview('${escAttr(p.src.id)}','${escAttr(p.tgt.id)}')"
+          style="height:30px;padding:0 12px;border-radius:8px;background:#1e293b;color:white;font-size:11px;font-weight:500;border:none;cursor:pointer;">
+          Preview Merge
+        </button>
+        <button onclick="icDismissPair(${idx})"
+          style="height:30px;padding:0 10px;border-radius:8px;background:#f1f5f9;color:#64748b;font-size:11px;border:none;cursor:pointer;">
+          Not Duplicate
+        </button>
+      </div>
+    </div>`;
+}
+
+window.icDismissPair = function(idx) {
+  const card = document.getElementById('icMergePair-' + idx);
+  if (card) { card.style.transition='opacity .2s'; card.style.opacity='0'; setTimeout(()=>card.remove(),200); }
+};
+
+// ── Rename ingredient to standardised Title Case ──────────────
+// Name only. No merge, no FK update, no recipe change.
+window.icStandardizeName = async function(id, stdName, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const sb = window.supabaseClient;
+    if (!sb) throw new Error('Supabase not available');
+    const { error } = await sb
+      .from('ingredients')
+      .update({ name: stdName, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw new Error(error.message);
+    // Update local cache
+    const rec = (window._icData || []).find(i => i.id === id);
+    if (rec) rec.name = stdName;
+    // Fade out row
+    const row = document.getElementById('icStdRow-' + id);
+    if (row) { row.style.transition='opacity .2s'; row.style.opacity='0'; setTimeout(()=>row.remove(),200); }
+    showScToast('✓ Renamed to ' + stdName);
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = 'Rename';
+    showScToast('Error: ' + e.message);
+  }
+};
+
+// ── Bulk standardization preview modal ───────────────────────
+window.icBulkStandardizePreview = function() {
+  const cases = window._icStdCases || [];
+  if (!cases.length) { showScToast('Nothing to standardize'); return; }
+
+  // Build preview rows — show first 8, then ellipsis
+  const PREVIEW_MAX = 8;
+  const shown = cases.slice(0, PREVIEW_MAX);
+  const remaining = cases.length - shown.length;
+
+  const rowsHTML = shown.map(ingr => {
+    const std = icTitleCase(ingr.name);
+    return `<div style="padding:6px 11px;border-bottom:0.5px solid #f8fafc;display:flex;align-items:center;gap:8px;font-size:12px;">
+      <span style="color:#94a3b8;flex:1;">${escHtml(ingr.name)}</span>
+      <span style="color:#cbd5e1;">→</span>
+      <span style="font-weight:600;color:#1e293b;flex:1;">${escHtml(std)}</span>
+    </div>`;
+  }).join('');
+
+  const moreHTML = remaining > 0
+    ? `<div style="padding:7px 11px;font-size:11px;color:#94a3b8;text-align:center;">…and ${remaining} more</div>`
+    : '';
+
+  const modal = document.createElement('div');
+  modal.id = 'icBulkStdModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:70;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.innerHTML = `
+    <div style="background:white;border-radius:20px;width:100%;max-width:440px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.18);">
+      <div style="padding:16px 18px 12px;border-bottom:1px solid #f1f5f9;">
+        <div style="font-size:15px;font-weight:700;color:#1e293b;">⚡ Bulk Name Standardization</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${cases.length} ingredient names will be capitalised to Title Case</div>
+      </div>
+      <div style="padding:14px 18px;overflow-y:auto;flex:1;">
+        <!-- Safety summary -->
+        <div style="background:#f0fdf4;border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:10px 12px;font-size:12px;color:#166534;line-height:1.7;margin-bottom:12px;">
+          <strong>Only ingredient.name is updated.</strong><br>
+          No merges · No FK updates · No recipe changes<br>
+          No deactivation · No notes changes · No id changes
+        </div>
+        <!-- Preview rows -->
+        <div style="border:1px solid #f1f5f9;border-radius:10px;overflow:hidden;margin-bottom:12px;">
+          <div style="padding:7px 11px;font-size:11px;font-weight:600;color:#94a3b8;background:#f8fafc;text-transform:uppercase;letter-spacing:.05em;display:flex;gap:8px;">
+            <span style="flex:1;">Current name</span>
+            <span style="flex:1;">Standardized</span>
+          </div>
+          ${rowsHTML}${moreHTML}
+        </div>
+        <div id="icBulkStdStatus" style="display:none;padding:10px 12px;border-radius:10px;font-size:12px;"></div>
+      </div>
+      <div style="padding:12px 18px 16px;border-top:1px solid #f1f5f9;display:flex;gap:8px;">
+        <button onclick="document.getElementById('icBulkStdModal').remove()"
+          style="flex:1;height:42px;border-radius:12px;background:#f1f5f9;color:#64748b;border:none;font-size:13px;font-weight:500;cursor:pointer;">
+          Cancel
+        </button>
+        <button id="icBulkStdConfirmBtn" onclick="icDoBulkStandardize()"
+          style="flex:2;height:42px;border-radius:12px;background:#1e293b;color:white;border:none;font-size:13px;font-weight:600;cursor:pointer;">
+          ✓ Apply All ${cases.length} Standardizations
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+};
+
+// ── Execute bulk standardization ──────────────────────────────
+window.icDoBulkStandardize = async function() {
+  const cases = window._icStdCases || [];
+  if (!cases.length) return;
+
+  const btn      = document.getElementById('icBulkStdConfirmBtn');
+  const statusEl = document.getElementById('icBulkStdStatus');
+
+  function setStatus(html, type) {
+    if (!statusEl) return;
+    const c = {
+      info:    ['rgba(59,130,246,0.06)','rgba(59,130,246,0.2)','#1e40af'],
+      success: ['rgba(16,185,129,0.06)','rgba(16,185,129,0.25)','#065f46'],
+      error:   ['rgba(239,68,68,0.06)','rgba(239,68,68,0.25)','#991b1b'],
+    }[type];
+    statusEl.style.display = 'block';
+    statusEl.style.cssText = `display:block;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.7;background:${c[0]};border:1px solid ${c[1]};color:${c[2]};`;
+    statusEl.innerHTML = html;
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Applying…'; btn.style.background = '#94a3b8'; }
+
+  try {
+    const sb = window.supabaseClient;
+    if (!sb) throw new Error('Supabase client not available');
+
+    const BATCH = 50;
+    let done = 0;
+    const errors = [];
+    const now = new Date().toISOString();
+
+    for (let i = 0; i < cases.length; i += BATCH) {
+      const batch = cases.slice(i, i + BATCH);
+      setStatus(`⏳ Updating names ${i + 1}–${Math.min(i + BATCH, cases.length)} of ${cases.length}…`, 'info');
+
+      // Run batch in parallel — each is a single-row update by id
+      const results = await Promise.all(batch.map(ingr => {
+        const std = icTitleCase(ingr.name);
+        return sb.from('ingredients')
+          .update({ name: std, updated_at: now })
+          .eq('id', ingr.id)
+          .then(({ error }) => {
+            if (error) return `"${ingr.name}": ${error.message}`;
+            // Update local cache immediately
+            const rec = (window._icData || []).find(r => r.id === ingr.id);
+            if (rec) rec.name = std;
+            done++;
+            return null;
+          });
+      }));
+
+      results.forEach(e => { if (e) errors.push(e); });
+    }
+
+    if (errors.length) {
+      setStatus(
+        `⚠️ ${done} standardized, ${errors.length} failed:<br>${errors.slice(0, 5).map(escHtml).join('<br>')}`,
+        'error'
+      );
+      if (btn) { btn.disabled = false; btn.textContent = 'Retry'; btn.style.background = '#1e293b'; }
+    } else {
+      setStatus(`✅ ${done} ingredient name${done !== 1 ? 's' : ''} standardized successfully.`, 'success');
+      if (btn) { btn.textContent = '✓ Done'; btn.style.background = '#10b981'; }
+      // Refresh the list after short delay
+      setTimeout(() => {
+        document.getElementById('icBulkStdModal')?.remove();
+        icLoad().then(() => icSetTab('merge'));
+      }, 1200);
+    }
+  } catch(e) {
+    setStatus('✗ ' + e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Apply All'; btn.style.background = '#1e293b'; }
+  }
+};
+
+// ── Manual merge: read dropdowns, open preview ────────────────
+window.icManualMergePreview = function() {
+  const srcId = document.getElementById('icManualSrc')?.value;
+  const tgtId = document.getElementById('icManualTgt')?.value;
+  if (!srcId || !tgtId) { showScToast('Select both source and target'); return; }
+  if (srcId === tgtId)  { showScToast('Source and target must be different'); return; }
+  icMergePreview(srcId, tgtId);
+};
+
+// ── Auto-merge high confidence ────────────────────────────────
+window.icAutoMergeHighConf = async function() {
+  const pairs = (window._icMergePairs || []).filter(p => p.score >= 98);
+  if (!pairs.length) { showScToast('No high-confidence pairs'); return; }
+  // Show first one as preview — after confirm, chain to next
+  window._icAutoMergeQueue = [...pairs];
+  icAutoMergeNext();
+};
+
+window.icAutoMergeNext = function() {
+  const queue = window._icAutoMergeQueue || [];
+  if (!queue.length) { showScToast('✓ Auto-merge complete'); icLoad(); return; }
+  const p = queue[0];
+  icMergePreview(p.src.id, p.tgt.id, true /* isAuto */);
+};
+
+// ── Load affected counts and show confirmation modal ──────────
+window.icMergePreview = async function(srcId, tgtId) {
+  const sb = window.supabaseClient;
+  if (!sb) { showScToast('Supabase not available'); return; }
+
+  const all = window._icData || [];
+  const src = all.find(i => i.id === srcId);
+  const tgt = all.find(i => i.id === tgtId);
+  if (!src || !tgt) { showScToast('Ingredient not found in local data'); return; }
+
+  // Show loading state immediately
+  const loadingModal = document.createElement('div');
+  loadingModal.id = 'icSoftMergeModal';
+  loadingModal.style.cssText = 'position:fixed;inset:0;z-index:70;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;padding:16px;';
+  loadingModal.innerHTML = `<div style="background:white;border-radius:20px;padding:32px;font-size:13px;color:#94a3b8;">⏳ Loading preview…</div>`;
+  document.body.appendChild(loadingModal);
+
+  try {
+    // Load FK counts + affected recipes in parallel
+    const [ivRes, ilRes, linkRes, recipesRes] = await Promise.all([
+      sb.from('ingredient_vendors').select('id', {count:'exact',head:true}).eq('ingredient_id', srcId),
+      sb.from('invoice_lines').select('id',      {count:'exact',head:true}).eq('ingredient_id', srcId),
+      sb.from('ingredient_links').select('id',   {count:'exact',head:true}).eq('ingredient_id', srcId),
+      sb.from('recipes').select('id,title,ingredients'),
+    ]);
+
+    const ivCount   = ivRes.count   || 0;
+    const ilCount   = ilRes.count   || 0;
+    const linkCount = linkRes.count || 0;
+
+    // Find affected recipes — exact name match only
+    const srcKey = src.name.toLowerCase().trim();
+    const affectedRecipes = (recipesRes.data || []).filter(r => {
+      const list = icExtractIngrList(r.ingredients);
+      return list.some(i => (i.name||'').toLowerCase().trim() === srcKey);
+    });
+
+    // Store everything for icDoSoftMerge
+    window._icPendingSoftMerge = {
+      srcId, tgtId, srcName: src.name, tgtName: tgt.name,
+      affectedRecipes,  // full recipe objects — used by doSoftMerge
+    };
+
+    // Build per-recipe before/after rows
+    const recipeRowsHTML = affectedRecipes.length ? `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">
+          Recipes (${affectedRecipes.length}) — will be updated
+        </div>
+        ${affectedRecipes.map(r => {
+          const list = icExtractIngrList(r.ingredients);
+          const match = list.find(i => (i.name||'').toLowerCase().trim() === srcKey);
+          const qty  = match ? (match.qty  || '') : '';
+          const unit = match ? (match.unit || '') : '';
+          const qtyUnit = [qty, unit].filter(Boolean).join(' ');
+          return `<div style="border:1px solid #f1f5f9;border-radius:10px;padding:9px 11px;margin-bottom:5px;">
+            <div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:5px;">📄 ${escHtml(r.title||'Untitled')}</div>
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px;">
+              <span style="color:#64748b;font-weight:500;">Current:</span>
+              ${qtyUnit?`<span style="color:#475569;">${escHtml(qtyUnit)}</span> `:''}
+              <span style="color:#991b1b;">${escHtml(match?match.name:src.name)}</span>
+            </div>
+            <div style="font-size:11px;color:#94a3b8;">
+              <span style="color:#64748b;font-weight:500;">After merge:</span>
+              ${qtyUnit?`<span style="color:#475569;">${escHtml(qtyUnit)}</span> `:''}
+              <span style="color:#166534;font-weight:600;">${escHtml(tgt.name)}</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>` : `
+      <div style="background:#f8fafc;border-radius:10px;padding:9px 11px;margin-bottom:12px;font-size:12px;color:#64748b;">
+        ℹ️ No recipes use "<strong>${escHtml(src.name)}</strong>" — only FK references will be reassigned.
+      </div>`;
+
+    loadingModal.innerHTML = `
+      <div style="background:white;border-radius:20px;width:100%;max-width:460px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.18);">
+        <div style="padding:16px 18px 12px;border-bottom:1px solid #f1f5f9;">
+          <div style="font-size:15px;font-weight:700;color:#1e293b;">🔀 Soft Merge Preview</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px;">Review all changes — you decide which name to keep</div>
+        </div>
+        <div style="padding:14px 18px;overflow-y:auto;flex:1;">
+
+          <!-- Source → Target with Swap button -->
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:8px 12px;flex:1;min-width:100px;">
+              <div style="font-size:10px;color:#94a3b8;font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px;">Deactivated</div>
+              <div style="font-size:13px;font-weight:600;color:#991b1b;">${escHtml(src.name)}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;">
+              <span style="font-size:16px;color:#94a3b8;">→</span>
+              <button onclick="document.getElementById('icSoftMergeModal').remove();icMergePreview('${escAttr(tgt.id)}','${escAttr(src.id)}')"
+                style="height:24px;padding:0 8px;border-radius:6px;background:#f1f5f9;color:#64748b;border:none;font-size:10px;font-weight:500;cursor:pointer;white-space:nowrap;">
+                ⇅ Swap
+              </button>
+            </div>
+            <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:8px 12px;flex:1;min-width:100px;">
+              <div style="font-size:10px;color:#94a3b8;font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px;">Kept</div>
+              <div style="font-size:13px;font-weight:600;color:#166534;">${escHtml(tgt.name)}</div>
+            </div>
+          </div>
+
+          <!-- FK counts summary -->
+          <div style="border:1px solid #f1f5f9;border-radius:10px;overflow:hidden;margin-bottom:12px;">
+            <div style="padding:7px 12px;font-size:11px;font-weight:600;color:#94a3b8;background:#f8fafc;text-transform:uppercase;letter-spacing:.05em;">FK References Reassigned</div>
+            ${[
+              ['Vendor rows',      ivCount,   'ingredient_vendors.ingredient_id'],
+              ['Invoice lines',    ilCount,   'invoice_lines.ingredient_id'],
+              ['Ingredient links', linkCount, 'ingredient_links.ingredient_id'],
+            ].map(([label, count, col]) => `
+              <div style="padding:7px 12px;border-bottom:0.5px solid #f8fafc;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <div style="font-size:12px;color:#1e293b;">${label}</div>
+                  <div style="font-size:10px;color:#94a3b8;">${col}</div>
+                </div>
+                <span style="font-size:13px;font-weight:600;color:${count>0?'#1e293b':'#cbd5e1'};">${count}</span>
+              </div>`).join('')}
+          </div>
+
+          <!-- Recipes before/after -->
+          ${recipeRowsHTML}
+
+          <!-- Summary of source/target changes -->
+          <div style="background:#fefce8;border:1px solid rgba(234,179,8,0.3);border-radius:10px;padding:10px 12px;font-size:12px;color:#78350f;line-height:1.7;">
+            <strong>What will happen:</strong><br>
+            • <span style="color:#991b1b;font-weight:600;">${escHtml(src.name)}</span> → <strong>deactivated</strong>, notes = merged_into: ${escHtml(tgt.name)}<br>
+            • <span style="color:#166534;font-weight:600;">${escHtml(tgt.name)}</span> → ${tgt.active === false
+              ? '<strong style="color:#7c3aed;">reactivated</strong> (currently inactive) + kept as canonical name'
+              : 'kept <strong>active</strong>, name unchanged'}
+          </div>
+
+          <div id="icSoftMergeStatus" style="display:none;margin-top:10px;padding:10px 12px;border-radius:10px;font-size:12px;"></div>
+        </div>
+        <div style="padding:12px 18px 16px;border-top:1px solid #f1f5f9;display:flex;gap:8px;">
+          <button onclick="document.getElementById('icSoftMergeModal').remove()"
+            style="flex:1;height:42px;border-radius:12px;background:#f1f5f9;color:#64748b;border:none;font-size:13px;font-weight:500;cursor:pointer;">
+            Cancel
+          </button>
+          <button id="icSoftMergeConfirmBtn" onclick="icDoSoftMerge()"
+            style="flex:2;height:42px;border-radius:12px;background:#1e293b;color:white;border:none;font-size:13px;font-weight:600;cursor:pointer;">
+            ✓ Confirm Soft Merge
+          </button>
+        </div>
+      </div>`;
+  } catch(e) {
+    loadingModal.innerHTML = `<div style="background:white;border-radius:20px;padding:24px;max-width:400px;">
+      <div style="font-size:13px;color:#991b1b;margin-bottom:12px;">✗ Failed to load preview: ${escHtml(e.message)}</div>
+      <button onclick="document.getElementById('icSoftMergeModal').remove()"
+        style="height:36px;padding:0 16px;border-radius:9px;background:#f1f5f9;color:#64748b;border:none;cursor:pointer;">Close</button>
+    </div>`;
+  }
+};
+
+// ── Execute soft merge ────────────────────────────────────────
+window.icDoSoftMerge = async function() {
+  const p = window._icPendingSoftMerge;
+  if (!p) return;
+
+  const btn      = document.getElementById('icSoftMergeConfirmBtn');
+  const statusEl = document.getElementById('icSoftMergeStatus');
+
+  if (btn) { btn.disabled=true; btn.textContent='⏳ Merging…'; btn.style.background='#94a3b8'; }
+
+  function setStatus(html, type) {
+    if (!statusEl) return;
+    const c = {
+      info:    ['rgba(59,130,246,0.06)','rgba(59,130,246,0.2)','#1e40af'],
+      success: ['rgba(16,185,129,0.06)','rgba(16,185,129,0.25)','#065f46'],
+      error:   ['rgba(239,68,68,0.06)', 'rgba(239,68,68,0.25)', '#991b1b'],
+    }[type];
+    statusEl.style.display='block';
+    statusEl.style.cssText=`display:block;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.7;background:${c[0]};border:1px solid ${c[1]};color:${c[2]};`;
+    statusEl.innerHTML=html;
+  }
+
+  try {
+    const sb = window.supabaseClient;
+    if (!sb) throw new Error('Supabase client not available');
+    const { srcId, tgtId, srcName, tgtName, affectedRecipes } = p;
+    const now = new Date().toISOString();
+    const errors = [];
+
+    // ── 1. Reassign ingredient_vendors ───────────────────────
+    setStatus('⏳ Reassigning vendor rows…', 'info');
+    const { error: ivErr } = await sb.from('ingredient_vendors')
+      .update({ ingredient_id: tgtId, updated_at: now })
+      .eq('ingredient_id', srcId);
+    if (ivErr) errors.push('ingredient_vendors: ' + ivErr.message);
+
+    // ── 2. Reassign invoice_lines ─────────────────────────────
+    const { error: ilErr } = await sb.from('invoice_lines')
+      .update({ ingredient_id: tgtId })
+      .eq('ingredient_id', srcId);
+    if (ilErr) errors.push('invoice_lines: ' + ilErr.message);
+
+    // ── 3. Reassign ingredient_links ──────────────────────────
+    const { error: lnErr } = await sb.from('ingredient_links')
+      .update({ ingredient_id: tgtId })
+      .eq('ingredient_id', srcId);
+    if (lnErr) errors.push('ingredient_links: ' + lnErr.message);
+
+    // ── 4. Update recipes.ingredients JSONB ───────────────────
+    // Exact name replacement only. qty/unit/all other fields unchanged.
+    if (affectedRecipes && affectedRecipes.length) {
+      setStatus(`⏳ Updating ${affectedRecipes.length} recipe${affectedRecipes.length!==1?'s':''}…`, 'info');
+      for (const recipe of affectedRecipes) {
+        const updatedIngr = icReplaceIngrName(recipe.ingredients, srcName, tgtName);
+        const { error: rErr } = await sb.from('recipes')
+          .update({ ingredients: updatedIngr })
+          .eq('id', recipe.id);
+        if (rErr) errors.push(`Recipe "${recipe.title||recipe.id}": ${rErr.message}`);
+      }
+    }
+
+    // ── 5. Ensure target ingredient is active ────────────────
+    // Clear notes only if they start with merged_into: (leftover from a
+    // previous merge). Any other notes are preserved.
+    setStatus('⏳ Activating target…', 'info');
+    const tgtLocal = (window._icData || []).find(i => i.id === tgtId);
+    const tgtNotes = (tgtLocal?.notes || '');
+    const tgtNotesCleared = tgtNotes.startsWith('merged_into:') ? null : (tgtNotes || null);
+    const { error: activateErr } = await sb.from('ingredients')
+      .update({ active: true, notes: tgtNotesCleared, updated_at: now })
+      .eq('id', tgtId);
+    if (activateErr) errors.push('activate target: ' + activateErr.message);
+    // Update local cache immediately so UI reflects it
+    if (tgtLocal) { tgtLocal.active = true; tgtLocal.notes = tgtNotesCleared; }
+
+    // ── 6. Deactivate source ingredient ───────────────────────
+    setStatus('⏳ Deactivating source…', 'info');
+    const { error: deactErr } = await sb.from('ingredients')
+      .update({ active: false, notes: 'merged_into: ' + tgtName, updated_at: now })
+      .eq('id', srcId);
+    if (deactErr) errors.push('deactivate source: ' + deactErr.message);
+
+    if (errors.length) throw new Error(errors.join('; '));
+
+    // ── 7. Update local cache ─────────────────────────────────
+    const local = window._icData || [];
+    const srcLocal = local.find(i => i.id === srcId);
+    if (srcLocal) { srcLocal.active = false; srcLocal.notes = 'merged_into: ' + tgtName; }
+
+    const recipeCount = (affectedRecipes||[]).length;
+    setStatus(
+      `✅ Soft merge complete.<br>` +
+      `"${escHtml(srcName)}" → "${escHtml(tgtName)}"<br>` +
+      `Source deactivated · ${recipeCount} recipe${recipeCount!==1?'s':''} updated`,
+      'success'
+    );
+    if (btn) { btn.textContent='✓ Done'; btn.style.background='#10b981'; }
+
+    setTimeout(() => {
+      document.getElementById('icSoftMergeModal')?.remove();
+      icLoad().then(() => icSetTab('merge'));
+    }, 1400);
+
+  } catch(e) {
+    setStatus('✗ ' + e.message, 'error');
+    if (btn) { btn.disabled=false; btn.textContent='✓ Confirm Soft Merge'; btn.style.background='#1e293b'; }
+  }
+};

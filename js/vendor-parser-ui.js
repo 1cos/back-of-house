@@ -98,6 +98,12 @@ window.openVendorParserTest = function() {
         💾 Save Parsed Document
       </button>
 
+      <!-- Continue to Invoice Import button (hidden until parse succeeds) -->
+      <button id="parserImportBtn" onclick="continueToInvoiceImport()"
+        style="display:none;width:100%;height:44px;border-radius:14px;background:#059669;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;margin-bottom:6px;">
+        ✓ Continue to Invoice Import
+      </button>
+
       <!-- Save status message -->
       <div id="parserSaveStatus" style="display:none;margin-bottom:10px;padding:10px 12px;border-radius:10px;font-size:13px;"></div>
 
@@ -364,6 +370,19 @@ window.runParserTest = function() {
     saveBtn.style.color = 'white';
     saveBtn.style.cursor = 'pointer';
   }
+
+  // Show Continue to Invoice Import button only for invoice/order docs with items
+  const importBtn = document.getElementById('parserImportBtn');
+  if (importBtn) {
+    const isImportable = (result.items || []).length > 0 &&
+      (result.document_type === 'invoice' || result.document_type === 'order_confirmation');
+    importBtn.style.display = isImportable ? 'block' : 'none';
+    importBtn.textContent = '✓ Continue to Invoice Import';
+    importBtn.disabled = false;
+    importBtn.style.background = '#059669';
+    importBtn.style.cursor = 'pointer';
+  }
+
   const saveStatus = document.getElementById('parserSaveStatus');
   if (saveStatus) saveStatus.style.display = 'none';
 };
@@ -877,3 +896,119 @@ function buildVendorParsers() {
 
   return { parse, detectVendor, detectDocumentType };
 }
+
+// ── BRIDGE: Parser result → Invoice Import pipeline ───────────
+
+/**
+ * Adapt a vendor parser result object into the shape expected by invoice.js.
+ * Maps parser field names → invoice pipeline field names.
+ * Safe to call on any parser result — missing fields become null.
+ */
+function convertParserResultToInvoiceData(result) {
+  // Normalise items: parser uses qty_ordered/qty_received; invoice.js uses quantity
+  const items = (result.items || []).map(item => ({
+    ...item,
+    // invoice.js reads item.quantity — map from whichever qty field is present
+    quantity:    item.qty_received != null ? item.qty_received
+                 : item.qty_ordered != null ? item.qty_ordered
+                 : item.qty_credited != null ? item.qty_credited
+                 : item.quantity != null ? item.quantity : null,
+    // invoice.js reads item.unit — map from purchase_unit
+    unit:        item.unit        || item.purchase_unit || null,
+    // invoice.js reads item.amount — already present in parser output
+    amount:      item.amount      != null ? item.amount : null,
+    unit_price:  item.unit_price  != null ? item.unit_price : null,
+    description: item.description || item.raw_description || '',
+    // Pack info — pass through as-is
+    pack_size:   item.pack_description || item.pack_size || null,
+  }));
+
+  return {
+    vendor:         result.vendor         || 'Unknown',
+    invoice_number: result.invoice_number || result.order_number || result.credit_number || null,
+    invoice_date:   result.invoice_date   || result.order_date   || result.delivery_date || null,
+    payment_terms:  result.payment_terms  || null,
+    subtotal:       result.subtotal       != null ? result.subtotal : null,
+    tax:            result.tax            != null ? result.tax : null,
+    total:          result.total          != null ? result.total : null,
+    items,
+    warnings:       result.warnings       || [],
+    // Preserve source metadata for debugging
+    _document_type: result.document_type  || null,
+    _source:        'vendor-parser',
+  };
+}
+
+/**
+ * Bridge handler — wired to the "Continue to Invoice Import" button.
+ * Closes the parser modal and hands off to the existing invoice.js pipeline.
+ *
+ * OQR weight/clarification questions are NON-BLOCKING from this path.
+ * All unresolved items are marked as skipped and tagged for Vendor Review.
+ * The import proceeds immediately to showInvoicePreview without any modals.
+ */
+window.continueToInvoiceImport = function() {
+  console.log('[InvoiceImport] Button clicked');
+
+  const result = window._lastParserResult;
+  if (!result || !(result.items || []).length) {
+    showScToast('No parsed items to import');
+    return;
+  }
+  console.log('[InvoiceImport] Parser result:', result);
+
+  // Verify required pipeline functions before doing anything
+  const missing = ['enrichInvoiceItems', 'showInvoicePreview']
+    .filter(fn => typeof window[fn] !== 'function');
+  if (missing.length) {
+    showScToast('❌ Invoice pipeline not available — check script load order');
+    console.error('[InvoiceImport] Missing functions:', missing.join(', '));
+    return;
+  }
+
+  // Adapt parser result → invoice.js shape
+  const invoiceData = convertParserResultToInvoiceData(result);
+  console.log('[InvoiceImport] Adapted invoice data:', invoiceData);
+
+  // Enrich items (calculates weight/cost where possible from known pack sizes)
+  enrichInvoiceItems(invoiceData);
+
+  // ── Non-blocking OQR: pre-skip all unresolved weight/clarification items ──
+  // Weight and conversion questions are deferred to Vendor Review — they must
+  // never block the import from completing.
+  let reviewCount = 0;
+  (invoiceData.items || []).forEach(item => {
+    if (item._needs_weight_clarification && !item._weight_answered) {
+      // Mark as answered-skipped so runOneQuestionRule (if ever called) passes through
+      item._weight_answered = true;
+      item._review_needed = true;
+      item._review_reason = 'weight_unknown';
+      reviewCount++;
+    }
+    if (item.needs_clarification && !item._clarified) {
+      // Mark as clarified-skipped for the same reason
+      item._clarified = true;
+      item.needs_clarification = false;
+      item._review_needed = true;
+      item._review_reason = item._review_reason || 'unit_unknown';
+      reviewCount++;
+    }
+  });
+
+  if (reviewCount > 0) {
+    invoiceData.warnings = invoiceData.warnings || [];
+    invoiceData.warnings.push({
+      code: 'REVIEW_NEEDED',
+      message: `${reviewCount} item(s) need weight/unit review — flagged for Vendor Review`,
+    });
+    console.log(`[InvoiceImport] ${reviewCount} item(s) deferred to Vendor Review`);
+  }
+
+  // Close parser modal only after all checks pass
+  const parserModal = document.querySelector('.fixed.inset-0[style*="background:white"]');
+  if (parserModal) parserModal.remove();
+
+  // Go straight to preview — no OQR blocking modals
+  console.log('[InvoiceImport] Opening invoice preview →', invoiceData.items.length, 'items');
+  showInvoicePreview(invoiceData);
+};
