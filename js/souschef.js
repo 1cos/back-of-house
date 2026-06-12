@@ -532,50 +532,53 @@ window.runSousChefScan = async function() {
       }
     }
 
-    // ── SC-NOLINK-001: ingredienti senza price_per_100g ─────────
+    // ── SC-NOLINK-001: due casi distinti ─────────────────────────
+    // A) Fantasma: no vendor + no link + no ricette → elimina
+    // B) Peso mancante: ha unit_price ma manca price_per_100g → inserisci peso
     if (rules['SC-NOLINK-001']) {
-      const { data: allIngr } = await sb
-        .from('ingredients')
-        .select('id,name,category')
-        .eq('active', true)
-        .neq('category', 'Supply');
+      const [{ data: allIngr }, { data: ivRows }, { data: linkRows }, { data: recipes }] = await Promise.all([
+        sb.from('ingredients').select('id,name,category').eq('active', true).neq('category', 'Supply'),
+        sb.from('ingredient_vendors').select('ingredient_id,vendor,unit_price,price_per_100g,pack_description'),
+        sb.from('ingredient_links').select('ingredient_id').eq('confirmed', true),
+        sb.from('recipes').select('ingredients'),
+      ]);
 
-      const { data: ivRows } = await sb
-        .from('ingredient_vendors')
-        .select('ingredient_id,vendor,unit_price,price_per_100g,pack_description,conversion_to_base');
-
-      // Mappa ingredient_id → vendor row
       const ivMap = {};
       for (const iv of (ivRows || [])) {
         if (!ivMap[iv.ingredient_id]) ivMap[iv.ingredient_id] = iv;
-        // Preferisci riga con price_per_100g
         else if (iv.price_per_100g && !ivMap[iv.ingredient_id].price_per_100g) ivMap[iv.ingredient_id] = iv;
       }
+      const linkedIds = new Set((linkRows || []).map(l => l.ingredient_id));
+      const inRecipes = new Set();
+      for (const r of (recipes || [])) for (const ing of (r.ingredients || [])) if (ing.name) inRecipes.add(ing.name.toLowerCase());
 
-      const missing = (allIngr || []).filter(i => {
-        const iv = ivMap[i.id];
-        return !iv || !iv.price_per_100g;
-      });
+      const ghosts = [], missingW = [];
+      for (const ingr of (allIngr || [])) {
+        const iv = ivMap[ingr.id];
+        if (iv && iv.price_per_100g) continue;
+        const hasVendor = !!(iv && iv.unit_price);
+        const hasLink = linkedIds.has(ingr.id);
+        const inRec = inRecipes.has(ingr.name.toLowerCase());
+        if (!hasVendor && !hasLink && !inRec) ghosts.push({ ingredient_id: ingr.id, ingredient_name: ingr.name });
+        else if (hasVendor) missingW.push({ ingredient_id: ingr.id, ingredient_name: ingr.name, vendor: iv.vendor, unit_price: parseFloat(iv.unit_price), pack_description: iv.pack_description });
+      }
 
-      for (let i = 0; i < missing.length; i += 3) {
-        const group = missing.slice(i, i + 3);
-        cards.push({
-          code: 'SC-NOLINK-001',
-          severity: 'insight',
-          title: `${missing.length} ingredienti senza $/100g`,
-          subtitle: `Gruppo ${Math.floor(i/3)+1} di ${Math.ceil(missing.length/3)}`,
-          items: group.map(ingr => {
-            const iv = ivMap[ingr.id];
-            return {
-              ingredient_id: ingr.id,
-              ingredient_name: ingr.name,
-              vendor: iv?.vendor || null,
-              unit_price: iv?.unit_price || null,
-              pack_description: iv?.pack_description || null,
-              conversion_to_base: iv?.conversion_to_base || null,
-            };
-          }),
-        });
+      for (let i = 0; i < ghosts.length; i += 3) {
+        const group = ghosts.slice(i, i + 3);
+        const n = ghosts.length;
+        cards.push({ code: 'SC-NOLINK-001', severity: 'insight', subtype: 'ghost',
+          title: n === 1 ? group[0].ingredient_name + ' — non collegato a niente' : n + ' ingredient' + (n===1?'e':'i') + ' senza dati',
+          subtitle: n > 3 ? 'Gruppo ' + (Math.floor(i/3)+1) + ' di ' + Math.ceil(n/3) : null,
+          items: group });
+      }
+
+      for (let i = 0; i < missingW.length; i += 3) {
+        const group = missingW.slice(i, i + 3);
+        const n = missingW.length;
+        cards.push({ code: 'SC-NOLINK-001', severity: 'insight', subtype: 'missing_weight',
+          title: n === 1 ? group[0].ingredient_name + ' — peso mancante' : n + ' ingredient' + (n===1?'e':'i') + ' senza $/100g',
+          subtitle: n > 3 ? 'Gruppo ' + (Math.floor(i/3)+1) + ' di ' + Math.ceil(n/3) : null,
+          items: group });
       }
     }
 
@@ -689,8 +692,8 @@ function showSousChefStack(cards) {
         el.innerHTML = `
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="width:10px;height:10px;border-radius:50%;background:${cfg.dot};flex-shrink:0;"></span>
-            <span style="font-size:14px;font-weight:700;color:${cfg.dot};">${card.title}</span>
-            <span style="font-size:12px;color:#94a3b8;margin-left:auto;">${i+1}/${total}</span>
+            <span style="font-size:16px;font-weight:700;color:${cfg.dot};">${card.title}</span>
+            <span style="font-size:13px;color:#94a3b8;margin-left:auto;">${i+1}/${total}</span>
           </div>`;
         stackWrap.insertBefore(el, stackWrap.firstChild);
         continue;
@@ -726,12 +729,12 @@ function showSousChefStack(cards) {
         <div style="display:flex;align-items:center;gap:8px;">
           <span style="font-size:22px;">${emoji}</span>
           <div>
-            <div style="font-size:16px;font-weight:700;color:#1e293b;line-height:1.2;">${card.title}</div>
-            <div style="font-size:11px;color:${cfg.dot};font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-top:2px;">${cfg.label}${subtitle}</div>
+            <div style="font-size:19px;font-weight:700;color:#1e293b;line-height:1.2;">${card.title}</div>
+            <div style="font-size:13px;color:${cfg.dot};font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-top:2px;">${cfg.label}${subtitle}</div>
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
-          ${total > 1 ? `<span style="font-size:12px;color:#94a3b8;">${total} problemi</span>` : ''}
+          ${total > 1 ? `<span style="font-size:14px;color:#94a3b8;">${total} problemi</span>` : ''}
           <button onclick="document.getElementById('_scStack')?.remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;cursor:pointer;font-size:16px;color:#64748b;">✕</button>
         </div>
       </div>`;
@@ -743,12 +746,12 @@ function showSousChefStack(cards) {
     html += `
       <div style="display:flex;justify-content:center;gap:32px;margin-top:16px;padding-top:12px;border-top:0.5px solid ${cfg.border};">
         <div style="text-align:center;color:#94a3b8;">
-          <div style="font-size:20px;">↓</div>
-          <div style="font-size:11px;margin-top:2px;">Skip</div>
+          <div style="font-size:24px;">↓</div>
+          <div style="font-size:13px;margin-top:2px;">Skip</div>
         </div>
         <div style="text-align:center;color:#94a3b8;">
-          <div style="font-size:20px;">↑</div>
-          <div style="font-size:11px;margin-top:2px;">Fine</div>
+          <div style="font-size:24px;">↑</div>
+          <div style="font-size:13px;margin-top:2px;">Fine</div>
         </div>
       </div>`;
 
@@ -762,15 +765,15 @@ function showSousChefStack(cards) {
         <div id="scItem-${i}" style="background:rgba(239,68,68,0.04);border:1px solid rgba(239,68,68,0.15);border-radius:14px;padding:12px 14px;margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
             <div>
-              <div style="font-size:15px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
-              <div style="font-size:12px;color:#64748b;margin-top:2px;">${item.vendor || ''} ${item.pack_description ? '· ' + item.pack_description : ''}</div>
+              <div style="font-size:18px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
+              <div style="font-size:14px;color:#64748b;margin-top:2px;">${item.vendor || ''} ${item.pack_description ? '· ' + item.pack_description : ''}</div>
             </div>
             <div style="text-align:right;">
-              <div style="font-size:13px;font-weight:600;color:#ef4444;">$${(item.price_per_100g||0).toFixed(4)}/100g</div>
-              <div style="font-size:11px;color:#64748b;">$${(item.unit_price||0).toFixed(2)}/case</div>
+              <div style="font-size:15px;font-weight:600;color:#ef4444;">$${(item.price_per_100g||0).toFixed(4)}/100g</div>
+              <div style="font-size:14px;color:#64748b;">$${(item.unit_price||0).toFixed(2)}/case</div>
             </div>
           </div>
-          <div style="font-size:12px;color:#475569;margin-bottom:8px;">Quanto pesa una cassa? <span style="color:#ef4444;">* Il prezzo sembra troppo basso.</span></div>
+          <div style="font-size:15px;font-weight:600;color:#475569;margin-bottom:10px;">Quanto pesa una cassa? <span style="color:#ef4444;">* Il prezzo sembra troppo basso.</span></div>
           <div style="display:flex;gap:8px;align-items:center;">
             <input id="scWeight-${i}" type="number" placeholder="es. 28" min="0.1" step="0.1"
               style="flex:1;height:40px;padding:0 12px;border:1.5px solid #fca5a5;border-radius:10px;font-size:16px;outline:none;background:white;"
@@ -796,12 +799,12 @@ function showSousChefStack(cards) {
         <div style="background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.2);border-radius:14px;padding:12px 14px;margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
             <div>
-              <div style="font-size:15px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
-              <div style="font-size:11px;color:#64748b;margin-top:1px;">${item.vendor||''} ${item.pack_description ? '· '+item.pack_description : ''}</div>
+              <div style="font-size:18px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
+              <div style="font-size:14px;color:#64748b;margin-top:1px;">${item.vendor||''} ${item.pack_description ? '· '+item.pack_description : ''}</div>
             </div>
-            <span style="background:rgba(239,68,68,0.1);color:#dc2626;font-size:13px;font-weight:700;padding:3px 10px;border-radius:8px;">+${item.pct}%</span>
+            <span style="background:rgba(239,68,68,0.1);color:#dc2626;font-size:15px;font-weight:700;padding:4px 12px;border-radius:8px;">+${item.pct}%</span>
           </div>
-          <div style="display:flex;gap:12px;font-size:12px;color:#64748b;margin-bottom:10px;">
+          <div style="display:flex;gap:12px;font-size:14px;color:#64748b;margin-bottom:12px;">
             <span>Media storica: <strong style="color:#1e293b;">$${(item.prev_avg||0).toFixed(2)}</strong></span>
             <span>Ultima fattura: <strong style="color:#dc2626;">$${(item.unit_price||0).toFixed(2)}</strong></span>
           </div>
@@ -818,36 +821,51 @@ function showSousChefStack(cards) {
         </div>`).join('');
     }
 
-    // ── SC-NOLINK-001: ingredienti senza prezzo ───────────────
+    // ── SC-NOLINK-001: due varianti ───────────────────────────
     if (card.code === 'SC-NOLINK-001') {
-      return card.items.map((item, i) => `
-        <div style="background:rgba(59,130,246,0.04);border:1px solid rgba(59,130,246,0.15);border-radius:14px;padding:12px 14px;margin-bottom:10px;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
-            <div>
-              <div style="font-size:15px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
-              <div style="font-size:11px;color:#64748b;margin-top:1px;">${item.vendor ? item.vendor + ' · ' : ''}${item.pack_description || 'Nessun pack'}${item.unit_price ? ' · $'+parseFloat(item.unit_price).toFixed(2)+'/case' : ' · prezzo sconosciuto'}</div>
+      // FANTASMA: nessun dato → bottone Elimina
+      if (card.subtype === 'ghost') {
+        return card.items.map((item, i) => `
+          <div id="scGhost-${i}" style="background:rgba(239,68,68,0.04);border:1px solid rgba(239,68,68,0.15);border-radius:16px;padding:16px;margin-bottom:12px;">
+            <div style="font-size:18px;font-weight:700;color:#1e293b;margin-bottom:6px;">${item.ingredient_name}</div>
+            <div style="font-size:14px;color:#64748b;margin-bottom:14px;">Non è collegato a nessuna fattura, nessun fornitore e non è usato in nessuna ricetta.</div>
+            <div style="display:flex;gap:10px;">
+              <button onclick="scDeleteGhost('${item.ingredient_id}',${i})"
+                style="flex:1;height:48px;border-radius:12px;background:#ef4444;color:white;font-size:16px;font-weight:700;border:none;cursor:pointer;">
+                🗑️ Elimina
+              </button>
+              <button onclick="document.getElementById('scGhost-${i}').style.opacity='0.4';document.getElementById('scGhost-${i}').style.pointerEvents='none'"
+                style="height:48px;padding:0 18px;border-radius:12px;background:#f1f5f9;color:#64748b;font-size:15px;border:none;cursor:pointer;">
+                Tieni
+              </button>
             </div>
-            <span style="font-size:11px;color:#3b82f6;background:rgba(59,130,246,0.1);padding:3px 8px;border-radius:6px;">no $/100g</span>
+          </div>`).join('');
+      }
+      // PESO MANCANTE: ha prezzo ma manca peso → input
+      return card.items.map((item, i) => `
+        <div id="scMW-${i}" style="background:rgba(59,130,246,0.04);border:1px solid rgba(59,130,246,0.15);border-radius:16px;padding:16px;margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+            <div style="font-size:18px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
+            <span style="font-size:12px;color:#3b82f6;background:rgba(59,130,246,0.1);padding:4px 10px;border-radius:8px;font-weight:600;">no $/100g</span>
           </div>
-          ${item.unit_price ? `
-          <div style="font-size:12px;color:#475569;margin-bottom:8px;">Inserisci il peso per calcolare il $/100g:</div>
+          <div style="font-size:14px;color:#64748b;margin-bottom:12px;">${item.vendor || ''} ${item.pack_description ? '· ' + item.pack_description : ''} · <strong style="color:#1e293b;">$${parseFloat(item.unit_price||0).toFixed(2)}/case</strong></div>
+          <div style="font-size:14px;color:#475569;font-weight:600;margin-bottom:10px;">Quanto pesa una cassa?</div>
           <div style="display:flex;gap:8px;align-items:center;">
-            <input id="scWeight-nl-${i}" type="number" placeholder="es. 10" min="0.1" step="0.1"
-              style="flex:1;height:40px;padding:0 12px;border:1.5px solid #93c5fd;border-radius:10px;font-size:16px;outline:none;background:white;"
-              oninput="scPreviewPriceNL(${i},${item.unit_price})">
-            <select id="scWeightUnitNL-${i}" style="height:40px;padding:0 8px;border:1.5px solid #93c5fd;border-radius:10px;font-size:14px;background:white;">
+            <input id="scWeightMW-${i}" type="number" placeholder="es. 10" min="0.1" step="0.1"
+              style="flex:1;height:48px;padding:0 14px;border:2px solid #93c5fd;border-radius:12px;font-size:18px;outline:none;background:white;"
+              oninput="scPreviewPriceMW(${i},${item.unit_price||0})">
+            <select id="scWeightUnitMW-${i}" style="height:48px;padding:0 10px;border:2px solid #93c5fd;border-radius:12px;font-size:16px;background:white;">
               <option value="lb">lb</option>
               <option value="kg">kg</option>
               <option value="oz">oz</option>
               <option value="g">g</option>
             </select>
-            <button onclick="scSaveWeightNL(${i},'${(item.ingredient_id||'').replace(/'/g,"\\'")}','${(item.vendor||'').replace(/'/g,"\\'")}',${item.unit_price})"
-              style="height:40px;padding:0 14px;border-radius:10px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;">
+            <button onclick="scSaveWeightMW(${i},'${(item.ingredient_id||'').replace(/'/g,"\\'")}','${(item.vendor||'').replace(/'/g,"\\'")}',${item.unit_price||0})"
+              style="height:48px;padding:0 16px;border-radius:12px;background:#1e293b;color:white;font-size:18px;font-weight:700;border:none;cursor:pointer;">
               ✓
             </button>
           </div>
-          <div id="scPricePreviewNL-${i}" style="font-size:12px;color:#10b981;margin-top:6px;display:none;"></div>
-          ` : `<div style="font-size:12px;color:#94a3b8;">Nessun prezzo in fattura — importa prima una fattura per questo ingrediente.</div>`}
+          <div id="scPriceMW-${i}" style="font-size:15px;font-weight:600;color:#10b981;margin-top:8px;display:none;"></div>
         </div>`).join('');
     }
 
@@ -948,6 +966,61 @@ function showSousChefStack(cards) {
     };
 
     // Accept price (SC-PRICE-002)
+    // scDeleteGhost: elimina ingrediente fantasma dal DB
+    window.scDeleteGhost = async function(ingredientId, idx) {
+      const sb = window.supabaseClient;
+      const el = document.getElementById('scGhost-' + idx);
+      if (el) { el.style.opacity = '0.5'; el.style.pointerEvents = 'none'; }
+      await sb.from('ingredients').update({ active: false }).eq('id', ingredientId);
+      if (el) {
+        const btn = el.querySelector('button');
+        if (btn) btn.textContent = '✅ Eliminato';
+        const allGhosts = stackWrap?.querySelectorAll('[id^="scGhost-"]') || [];
+        const allDone = [...allGhosts].every(g => g.style.opacity === '0.5');
+        if (allDone) setTimeout(() => scResolveTop(), 500);
+      }
+    };
+
+    // scPreviewPriceMW: preview $/100g per SC-NOLINK-001 missing_weight
+    window.scPreviewPriceMW = function(idx, unitPrice) {
+      const input = document.getElementById('scWeightMW-' + idx);
+      const unitSel = document.getElementById('scWeightUnitMW-' + idx);
+      const preview = document.getElementById('scPriceMW-' + idx);
+      if (!input || !preview) return;
+      const w = parseFloat(input.value);
+      const unit = unitSel?.value || 'lb';
+      if (!w || w <= 0) { preview.style.display = 'none'; return; }
+      const UNIT_G = { lb:453.592, kg:1000, oz:28.3495, g:1 };
+      const totalG = w * (UNIT_G[unit] || 453.592);
+      const p100 = (unitPrice / totalG) * 100;
+      preview.textContent = '→ $' + p100.toFixed(4) + '/100g';
+      preview.style.display = 'block';
+    };
+
+    // scSaveWeightMW: salva peso per SC-NOLINK-001 missing_weight
+    window.scSaveWeightMW = async function(idx, ingredientId, vendor, unitPrice) {
+      const input = document.getElementById('scWeightMW-' + idx);
+      const unitSel = document.getElementById('scWeightUnitMW-' + idx);
+      const w = parseFloat(input?.value);
+      if (!w || w <= 0) { input?.focus(); return; }
+      const UNIT_G = { lb:453.592, kg:1000, oz:28.3495, g:1 };
+      const unit = unitSel?.value || 'lb';
+      const totalG = w * (UNIT_G[unit] || 453.592);
+      const p100 = parseFloat(((unitPrice / totalG) * 100).toFixed(4));
+      const sb = window.supabaseClient;
+      const { error } = await sb.from('ingredient_vendors')
+        .update({ conversion_to_base: totalG, price_per_100g: p100 })
+        .eq('ingredient_id', ingredientId).eq('vendor', vendor);
+      if (error) { if (typeof showScToast === 'function') showScToast('❌ ' + error.message); return; }
+      const preview = document.getElementById('scPriceMW-' + idx);
+      if (preview) { preview.textContent = '✅ $' + p100.toFixed(4) + '/100g salvato'; preview.style.display = 'block'; }
+      const el = document.getElementById('scMW-' + idx);
+      if (el) { el.style.opacity = '0.5'; el.style.pointerEvents = 'none'; }
+      const allMW = el?.closest('[data-stack-idx]')?.querySelectorAll('[id^="scMW-"]') || [];
+      const allDone = [...allMW].every(m => m.style.opacity === '0.5');
+      if (allDone) setTimeout(() => scResolveTop(), 500);
+    };
+
     window.scAcceptPrice = async function(btn, vendor, desc, newPrice) {
       btn.textContent='...'; btn.disabled=true;
       // Aggiorna ingredient_vendors cercando per vendor + nome approx
