@@ -533,10 +533,28 @@ function vdrWarningToQuestion(w, item, docId, idx) {
   // "I found a count-based pack. Is this correct?"
   if (w.code === 'OQR-006') {
     const pack = item ? (item.pack_description || '') : '';
-    // Skip OQR-006 if this is a pure count item with no weight ambiguity
-    // e.g. "4/20 CT" artichokes, "50 CT" flowers, "95 CT" lemons — these are obvious
+    // Skip OQR-006 for pure count packs — no ambiguity
+    // e.g. "50 CT", "4/20 CT", "95 CT", "110 CT"
     const isPureCount = /^\d+\s*(\/\s*\d+\s*)?CT$/i.test(pack.trim());
     if (isPureCount) return null;
+    // Skip OQR-006 for CT range packs — auto-calculate average
+    // e.g. "16-22 CT" → average = 19, show info-only, no question
+    const isRangeCT = /^(\d+)-(\d+)\s*CT$/i.test(pack.trim());
+    if (isRangeCT) {
+      const rm = pack.match(/^(\d+)-(\d+)\s*CT$/i);
+      const avg = Math.round((parseInt(rm[1]) + parseInt(rm[2])) / 2);
+      const itemName = name ? name.toLowerCase() : 'item';
+      return {
+        qid, code: 'OQR-006', item, docId, idx,
+        emoji: vdrItemEmoji(name),
+        title: name || 'Item',
+        detected: pack,
+        question: null,
+        meaning: `Range ${pack} → using avg ${avg} ${itemName}s per case`,
+        warnRef: w,
+        infoOnly: true,
+      };
+    }
     // Calculate total count: "4/20 CT" → 4×20 = 80
     let totalCount = null;
     let unit = 'CT';
