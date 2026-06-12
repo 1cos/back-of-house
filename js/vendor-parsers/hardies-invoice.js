@@ -40,7 +40,7 @@ function buildItem(sku, descRaw, packRaw, ord, shp, unitPrice, amount, prevSku) 
     field:   'is_substitution',
   });
 
-  if (pack && ['ct','ea','each'].includes(pack.unit)) lw.push({
+  if (pack && ['ct','ea','each','dz','doz'].includes(pack.unit)) lw.push({
     code:    'OQR-006',
     message: `Count-based: ${desc} (${packRaw.trim()}) — no weight for costing`,
     field:   'pack_unit',
