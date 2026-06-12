@@ -69,7 +69,7 @@ window.vdrLoad = async function() {
     const { data, error } = await sb
       .from('vendor_documents')
       .select('id,vendor,document_type,document_number,document_date,delivery_date,parsed_json,warnings,status,created_at')
-      .eq('status', 'pending')
+      .in('status', ['pending','error'])
       .order('created_at', { ascending: false });
 
     if (error) throw new Error(error.message);
