@@ -1147,7 +1147,14 @@ async function vdrShowMatchModal(items, vendor, sb) {
         <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
           ${suggestBtns}
           <button onclick="vdrMatchSkip(${idx})" style="font-size:10px;padding:4px 8px;border-radius:8px;background:rgba(0,0,0,0.04);color:#94a3b8;border:1px solid #e2e8f0;cursor:pointer;">Skip</button>
-          <button onclick="vdrMatchNew(${idx})" style="font-size:10px;padding:4px 8px;border-radius:8px;background:rgba(245,158,11,0.08);color:#92400e;border:1px solid rgba(245,158,11,0.3);cursor:pointer;">New ingredient</button>
+          <button onclick="vdrMatchShowSearch(${idx})" style="font-size:10px;padding:4px 8px;border-radius:8px;background:rgba(245,158,11,0.08);color:#92400e;border:1px solid rgba(245,158,11,0.3);cursor:pointer;">🔍 Search</button>
+        </div>
+        <div id="vdrMSearch-${idx}" style="display:none;margin-top:6px;">
+          <div style="display:flex;gap:6px;">
+            <input id="vdrMInput-${idx}" type="text" placeholder="Type ingredient name..." list="vdrIngrList"
+              style="flex:1;height:34px;padding:0 10px;border:1px solid #e2e8f0;border-radius:10px;font-size:12px;outline:none;"/>
+            <button onclick="vdrMatchConfirmSearch(${idx})" style="height:34px;padding:0 12px;border-radius:10px;background:#1e293b;color:white;font-size:12px;border:none;cursor:pointer;">Link</button>
+          </div>
         </div>
       </div>`;
     }).join('');
@@ -1195,15 +1202,34 @@ async function vdrShowMatchModal(items, vendor, sb) {
     renderAll();
   };
 
-  window.vdrMatchNew = function(idx) {
-    const s = itemStates[idx];
-    const name = prompt('New ingredient name:', s.desc.toLowerCase().replace(/[^a-z0-9 ]/g,'').trim());
-    if (!name) return;
+  // Build datalist from all ingredients (once)
+  if (!document.getElementById('vdrIngrList')) {
+    const dl = document.createElement('datalist');
+    dl.id = 'vdrIngrList';
+    ingrs.forEach(i => { const o = document.createElement('option'); o.value = i.name; dl.appendChild(o); });
+    document.body.appendChild(dl);
+  }
+
+  window.vdrMatchShowSearch = function(idx) {
+    const el = document.getElementById('vdrMSearch-' + idx);
+    if (el) { el.style.display = 'block'; document.getElementById('vdrMInput-' + idx)?.focus(); }
+  };
+
+  window.vdrMatchConfirmSearch = async function(idx) {
+    const input = document.getElementById('vdrMInput-' + idx);
+    const val = input ? input.value.trim() : '';
+    if (!val) return;
     const sb2 = window.supabaseClient;
-    sb2.from('ingredients').insert({ name, count_unit: 'weight', active: true })
-      .select('id').single().then(({ data }) => {
-        if (data) window.vdrMatchLink(idx, data.id, name, { textContent:'', disabled:false });
-      });
+    // Check if ingredient exists
+    const { data: found } = await sb2.from('ingredients').select('id,name').ilike('name', val).limit(1);
+    if (found && found.length) {
+      window.vdrMatchLink(idx, found[0].id, found[0].name, { textContent:'', disabled:false });
+    } else {
+      // Create new ingredient
+      const { data: created } = await sb2.from('ingredients')
+        .insert({ name: val, count_unit: 'weight', active: true }).select('id').single();
+      if (created) window.vdrMatchLink(idx, created.id, val, { textContent:'', disabled:false });
+    }
   };
 
   window.vdrMatchDone = function() {
