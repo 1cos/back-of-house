@@ -1015,24 +1015,26 @@ window.vdrApprove = async function(docId, btn) {
         continue;
       }
 
-      // 2. Fuzzy match by ingredient name
-      const keywords = desc.toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
-        .filter(w => w.length > 2 && !['the','and','for','large','small','fresh','whole','organic','baby','jumbo','wild'].includes(w))
-        .slice(0,2);
+      // 2. Fuzzy match — only if ingredient_links has a confirmed mapping
+      // Without SKU and without a confirmed link, skip — user will match manually
+      const { data: confirmedLink } = await sb.from('ingredient_links')
+        .select('ingredient_id, ingredient_name')
+        .eq('vendor', vendor)
+        .eq('invoice_description', desc)
+        .eq('confirmed', true)
+        .limit(1)
+        .single();
 
-      if (!keywords.length) continue;
-      const best = ingrList.find(i => keywords.every(k => i.name.toLowerCase().includes(k)))
-                || ingrList.find(i => i.name.toLowerCase().includes(keywords[0]));
-      if (!best) continue;
+      if (!confirmedLink) continue; // no confirmed link yet — skip, match modal will handle it
 
-      // Skip if already processed this ingredient
-      if (processedIngrIds.has(best.id)) continue;
-      processedIngrIds.add(best.id);
+      const linkedIngrId = confirmedLink.ingredient_id;
+      if (processedIngrIds.has(linkedIngrId)) continue;
+      processedIngrIds.add(linkedIngrId);
 
-      if (ingrVendorMap[best.id]) {
-        toUpdate.push({ id: ingrVendorMap[best.id], ...fields });
+      if (ingrVendorMap[linkedIngrId]) {
+        toUpdate.push({ id: ingrVendorMap[linkedIngrId], ...fields });
       } else {
-        toInsert.push({ ingredient_id: best.id, vendor, vendor_sku: sku, active: true, ...fields });
+        toInsert.push({ ingredient_id: linkedIngrId, vendor, vendor_sku: sku, active: true, ...fields });
       }
     }
 
