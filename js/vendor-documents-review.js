@@ -988,6 +988,7 @@ window.vdrApprove = async function(docId, btn) {
     // ── Process each item ──
     const toInsert = [];
     const toUpdate = [];
+    const processedIngrIds = new Set(); // avoid duplicate ingredient_id in same batch
 
     for (const item of items) {
       const sku   = item.vendor_sku || item.item_code || null;
@@ -1004,9 +1005,13 @@ window.vdrApprove = async function(docId, btn) {
         updated_at: new Date().toISOString(),
       };
 
-      // 1. Match by SKU
+      // 1. Match by SKU — always wins, no dedup needed
       if (sku && skuMap[sku]) {
-        toUpdate.push({ id: skuMap[sku].id, ...fields });
+        const existingIngrId = skuMap[sku].ingredient_id;
+        if (!processedIngrIds.has(existingIngrId)) {
+          processedIngrIds.add(existingIngrId);
+          toUpdate.push({ id: skuMap[sku].id, ...fields });
+        }
         continue;
       }
 
@@ -1019,6 +1024,10 @@ window.vdrApprove = async function(docId, btn) {
       const best = ingrList.find(i => keywords.every(k => i.name.toLowerCase().includes(k)))
                 || ingrList.find(i => i.name.toLowerCase().includes(keywords[0]));
       if (!best) continue;
+
+      // Skip if already processed this ingredient
+      if (processedIngrIds.has(best.id)) continue;
+      processedIngrIds.add(best.id);
 
       if (ingrVendorMap[best.id]) {
         toUpdate.push({ id: ingrVendorMap[best.id], ...fields });
