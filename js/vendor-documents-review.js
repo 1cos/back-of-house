@@ -985,14 +985,24 @@ window.vdrApprove = async function(docId, btn) {
     const ingrVendorMap = {};
     (existingByIngr || []).forEach(r => { ingrVendorMap[r.ingredient_id] = r.id; });
 
+    // ── Batch fetch confirmed ingredient_links for all items at once ──
+    const allDescs = items.map(i => i.description || i.raw_description).filter(Boolean);
+    const { data: confirmedLinks } = allDescs.length ? await sb.from('ingredient_links')
+      .select('invoice_description,ingredient_id')
+      .eq('vendor', vendor)
+      .eq('confirmed', true)
+      .in('invoice_description', allDescs) : { data: [] };
+    const linkMap = {};
+    (confirmedLinks || []).forEach(l => { linkMap[l.invoice_description] = l.ingredient_id; });
+
     // ── Process each item ──
     const toInsert = [];
     const toUpdate = [];
-    const processedIngrIds = new Set(); // avoid duplicate ingredient_id in same batch
+    const processedIngrIds = new Set();
 
     for (const item of items) {
-      const sku   = item.vendor_sku || item.item_code || null;
-      const desc  = item.description || item.raw_description || null;
+      const sku  = item.vendor_sku || item.item_code || null;
+      const desc = item.description || item.raw_description || null;
       if (!desc) continue;
 
       const totalG  = window.calcTotalWeightG ? window.calcTotalWeightG(item) : null;
@@ -1002,10 +1012,9 @@ window.vdrApprove = async function(docId, btn) {
         unit_price: price, pack_description: item.pack_description || null,
         pack_size: item.pack_size || null, purchase_unit: item.purchase_unit || item.unit || null,
         price_per_100g: per100g, last_invoice_date: invoiceDate,
-        updated_at: new Date().toISOString(),
       };
 
-      // 1. Match by SKU — always wins, no dedup needed
+      // 1. Match by SKU
       if (sku && skuMap[sku]) {
         const existingIngrId = skuMap[sku].ingredient_id;
         if (!processedIngrIds.has(existingIngrId)) {
@@ -1015,27 +1024,16 @@ window.vdrApprove = async function(docId, btn) {
         continue;
       }
 
-      // 2. Fuzzy match — only if ingredient_links has a confirmed mapping
-      // Without SKU and without a confirmed link, skip — user will match manually
-      const { data: confirmedLinks } = await sb.from('ingredient_links')
-        .select('ingredient_id, ingredient_name')
-        .eq('vendor', vendor)
-        .eq('invoice_description', desc)
-        .eq('confirmed', true)
-        .limit(1);
-      const confirmedLink = confirmedLinks && confirmedLinks.length ? confirmedLinks[0] : null;
-
-      if (!confirmedLink) continue; // no confirmed link yet — skip, match modal will handle it
-
-      const linkedIngrId = confirmedLink.ingredient_id;
+      // 2. Match by confirmed ingredient_link
+      const linkedIngrId = linkMap[desc];
+      if (!linkedIngrId) continue;
       if (processedIngrIds.has(linkedIngrId)) continue;
       processedIngrIds.add(linkedIngrId);
 
       if (ingrVendorMap[linkedIngrId]) {
         toUpdate.push({ id: ingrVendorMap[linkedIngrId], ...fields });
       } else {
-        const { updated_at: _ua2, ...safeFields } = fields;
-        toInsert.push({ ingredient_id: linkedIngrId, vendor, vendor_sku: sku, active: true, ...safeFields });
+        toInsert.push({ ingredient_id: linkedIngrId, vendor, vendor_sku: sku, active: true, ...fields });
       }
     }
 
