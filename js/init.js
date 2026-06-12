@@ -28,6 +28,8 @@ async function init(){
   renderHomeStationItems();
   loadServiceUpdates();
   loadUpcomingDemand();
+  // Load warnings banner (TASK 1 — reads invoice_warnings + vendor_documents.warnings)
+  if (typeof loadWarningsBanner === 'function') loadWarningsBanner();
   const rb=document.getElementById('recipeAdminBtns');
   if(rb) rb.style.display=isAdmin()?'flex':'none';
 }

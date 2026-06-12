@@ -237,6 +237,35 @@ window.vdrProcessAllPdf = async function() {
           updated_at:      new Date().toISOString(),
         }).eq('id', doc.id);
 
+        // ── INSERT into invoice_warnings (persistent analytics) ──
+        // BIOS-009: warnings are never deleted. This is the source of truth
+        // for the home banner. vdrResolveQuestion will UPDATE status→resolved.
+        if (allWarnings.length > 0) {
+          const warnRows = allWarnings
+            .filter(w => w.code && !['OQR-006'].includes(w.code)) // OQR-006 auto-resolves in UI
+            .map(w => ({
+              document_id:      doc.id,
+              vendor:           parsed.vendor || "Hardie's Fresh Foods / Dairyland Produce",
+              document_date:    docDate || null,
+              document_number:  docNumber || null,
+              code:             w.code,
+              severity:         vdrCodeToSeverity(w.code),
+              item_description: w.item || null,
+              field:            w.field || null,
+              message:          w.message || '',
+              status:           'open',
+            }));
+          if (warnRows.length > 0) {
+            // upsert: same document + code + item → don't duplicate on re-process
+            await sb.from('invoice_warnings').upsert(warnRows, {
+              onConflict: 'document_id,code,item_description',
+              ignoreDuplicates: false,
+            }).then(({ error: wErr }) => {
+              if (wErr) console.warn('[VDR] invoice_warnings insert error:', wErr.message);
+            });
+          }
+        }
+
         // Remove PDF from storage after successful parse
         if (parsed.items && parsed.items.length > 0) {
           await sb.storage.from('app').remove([storagePath]);
@@ -1557,6 +1586,17 @@ function vdrRegisterQuestions(doc) {
   for (const q of qs) {
     _vdrQMap[q.qid] = q;
   }
+}
+
+// ── Warning severity lookup ───────────────────────────────────
+function vdrCodeToSeverity(code) {
+  const blocking = ['INV-PACK-001','OQR-008','DOC-PARSE-001','DOC-VENDOR-001','DOC-TYPE-001',
+    'DOC-NOPARSER-001','INV-MATCH-001','INV-DUP-001','INV-OCR-001','PARSE_ERROR',
+    'UNKNOWN_VENDOR','UNKNOWN_DOC_TYPE','NO_PARSER','PARSER_ERROR','DOC-TOTAL-001','PROCESS_ERROR'];
+  const insight  = ['INV-SUB-001','OQR-002','INV-PACKCT-001','OQR-006','INV-PRICE-001','INV-UNUSED-001'];
+  if (blocking.includes(code)) return 'blocking';
+  if (insight.includes(code))  return 'insight';
+  return 'alert';
 }
 
 // ── Helpers ───────────────────────────────────────────────────
