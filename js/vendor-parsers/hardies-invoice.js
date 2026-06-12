@@ -69,6 +69,11 @@ function buildItem(sku, descRaw, packRaw, ord, shp, unitPrice, amount, prevSku) 
 
 function parse(rawText) {
   const warnings = [];
+  // OCR sometimes glues the first item onto the table header line:
+  // "QUANTITY ITEM CODE ... SHIPPED AMOUNT 1 1 13544 RWPR ..."
+  // isSkipLine would drop the whole line (starts with QUANTITY) — losing the item.
+  // Inject a newline after the header keywords when item data follows.
+  rawText = String(rawText || '').replace(/(SHIPPED\s+AMOUNT)[ \t]+(?=\d)/g, '$1\n');
   const lines = rawText.split('\n').map(l => l.trim());
 
   const docNumber    = extractDocNumber(lines, ['INVOICE/POD', 'INVOICE']) || null;
@@ -132,8 +137,14 @@ function parse(rawText) {
       if (pm) {
         const rawDesc = rest.slice(0, rest.lastIndexOf(pm[0])).trim();
         const parts   = rawDesc.split(/\s{2,}/);
-        const packRaw = parts.length > 1 ? parts[parts.length - 1] : '';
-        const descRaw = parts.length > 1 ? parts.slice(0, -1).join(' ') : rawDesc;
+        let packRaw = parts.length > 1 ? parts[parts.length - 1] : '';
+        let descRaw = parts.length > 1 ? parts.slice(0, -1).join(' ') : rawDesc;
+        // Single-spaced OCR line: pack glued to description — extract trailing
+        // pack pattern like "1pc / 28#", "11/1#", "25#"
+        if (!packRaw) {
+          const pk = rawDesc.match(/^(.*?)\s+((?:\d+\s*(?:PC|PCS|EA|EACH)?\s*\/\s*)?[\d.]+\s*#)\s*$/i);
+          if (pk) { descRaw = pk[1].trim(); packRaw = pk[2].trim(); }
+        }
         const item = buildItem(sku, descRaw, packRaw, parseFloat(ordS), parseFloat(shpS),
           parsePrice(pm[1]), parsePrice(pm[2]), prevSku);
         items.push(item);
