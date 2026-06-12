@@ -46,6 +46,24 @@ function buildItem(sku, descRaw, packRaw, ord, shp, unitPrice, amount, prevSku) 
     field:   'pack_unit',
   });
 
+  // ── Catchweight detection (meat sold by the pound) ──
+  // Pattern: pack like "1pc / 28#" (nominal weight) + unit_price is PER POUND,
+  // line amount = actual weight × price/lb. Hardie's prints "Total weight: N"
+  // but the exact math is amount ÷ unit_price = actual pounds.
+  // Detection: amount ≠ unit_price (so not a flat case price) AND the implied
+  // weight is within 50% of the nominal pack weight.
+  let catchweight = false, priceLb = null, actualLb = null;
+  if (pack && pack.unit === 'lb' && unitPrice > 0 && amount > 0
+      && Math.abs(amount - unitPrice) > 0.02) {
+    const impliedLb = amount / unitPrice;
+    const nominalLb = pack.count * pack.sizeEach;
+    if (nominalLb > 0 && impliedLb >= nominalLb * 0.5 && impliedLb <= nominalLb * 1.5) {
+      catchweight = true;
+      priceLb  = unitPrice;
+      actualLb = Math.round(impliedLb * 100) / 100;
+    }
+  }
+
   return {
     vendor_sku:       sku,
     raw_description:  descRaw.trim(),
@@ -57,6 +75,9 @@ function buildItem(sku, descRaw, packRaw, ord, shp, unitPrice, amount, prevSku) 
     pack_qty:         pack ? pack.count     : null,
     pack_unit:        pack ? pack.unit      : null,
     pack_size_each:   pack ? pack.sizeEach  : null,
+    catchweight:      catchweight,
+    price_per_lb:     priceLb,
+    actual_weight_lb: actualLb,
     unit_price:       unitPrice,
     amount:           amount,
     is_substitution:  isSub,
