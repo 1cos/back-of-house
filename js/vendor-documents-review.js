@@ -11,13 +11,18 @@ window.openVendorDocumentsReview = function() {
   modal.className = 'fixed inset-0 z-[65] flex flex-col';
   modal.style.cssText = 'background:white;overflow-y:auto;';
   modal.innerHTML = `
-    <div style="position:sticky;top:0;z-index:10;background:white;border-bottom:1px solid #f1f5f9;padding:14px 16px;display:flex;align-items:center;gap:10px;">
-      <button onclick="this.closest('#vdrModal').remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
-      <div style="flex:1;">
-        <div style="font-size:15px;font-weight:600;color:#1e293b;">📋 Vendor Documents</div>
-        <div style="font-size:11px;color:#94a3b8;">Pending review</div>
+    <div style="position:sticky;top:0;z-index:10;background:white;border-bottom:1px solid #f1f5f9;">
+      <div style="padding:14px 16px;display:flex;align-items:center;gap:10px;">
+        <button onclick="this.closest('#vdrModal').remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
+        <div style="flex:1;">
+          <div style="font-size:15px;font-weight:600;color:#1e293b;">📋 Vendor Documents</div>
+          <div style="font-size:11px;color:#94a3b8;">Pending review</div>
+        </div>
+        <button onclick="vdrLoad()" style="font-size:11px;color:#3B82F6;background:rgba(59,130,246,0.08);border:none;padding:5px 10px;border-radius:8px;cursor:pointer;">↻ Refresh</button>
       </div>
-      <button onclick="vdrLoad()" style="font-size:11px;color:#3B82F6;background:rgba(59,130,246,0.08);border:none;padding:5px 10px;border-radius:8px;cursor:pointer;">↻ Refresh</button>
+      <div id="vdrVendorTabs" style="display:flex;gap:6px;padding:0 16px 12px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;">
+        <button onclick="vdrSetVendor('all')" id="vdrTab-all" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:#1e3a5f;color:white;">All</button>
+      </div>
     </div>
     <div style="padding:16px;max-width:640px;width:100%;margin:0 auto;">
       <div id="vdrList">
@@ -27,6 +32,20 @@ window.openVendorDocumentsReview = function() {
 
   document.body.appendChild(modal);
   vdrLoad();
+};
+
+// ── Vendor filter ─────────────────────────────────────────────
+let vdrCurrentVendor = 'all';
+
+window.vdrSetVendor = function(v) {
+  vdrCurrentVendor = v;
+  // Update tab styles
+  document.querySelectorAll('[id^="vdrTab-"]').forEach(btn => {
+    const active = btn.id === 'vdrTab-' + v;
+    btn.style.background = active ? '#1e3a5f' : '#f1f5f9';
+    btn.style.color = active ? 'white' : '#475569';
+  });
+  vdrRenderList();
 };
 
 // ── Load pending documents ────────────────────────────────────
@@ -75,18 +94,39 @@ window.vdrLoad = async function() {
         </div>`;
     }
 
-    if (!data || data.length === 0) {
-      html += `
-        <div style="text-align:center;padding:48px 0;">
-          <div style="font-size:32px;margin-bottom:10px;">✅</div>
-          <div style="font-size:14px;font-weight:500;color:#1e293b;margin-bottom:4px;">All clear</div>
-          <div style="font-size:12px;color:#94a3b8;">No pending documents</div>
-        </div>`;
-    } else {
-      html += data.map(doc => vdrCardHTML(doc)).join('');
+    // Build vendor tabs
+    if (data && data.length > 0) {
+      const vendors = [...new Set(data.map(d => d.vendor).filter(Boolean))].sort();
+      const tabsEl = document.getElementById('vdrVendorTabs');
+      if (tabsEl && vendors.length > 1) {
+        const shortName = v => {
+          if (!v) return '?';
+          if (v.toLowerCase().includes('freshpoint')) return 'FreshPoint';
+          if (v.toLowerCase().includes('hardie')) return "Hardie's";
+          if (v.toLowerCase().includes('global')) return 'Global';
+          if (v.toLowerCase().includes('sysco')) return 'Sysco';
+          if (v.toLowerCase().includes('frugé') || v.toLowerCase().includes('fruge')) return 'Frugé';
+          if (v.toLowerCase().includes('keith')) return 'Ben E. Keith';
+          return v.split('/')[0].trim().split(' ').slice(0,2).join(' ');
+        };
+        let tabsHTML = `<button onclick="vdrSetVendor('all')" id="vdrTab-all" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:${vdrCurrentVendor==='all'?'#1e3a5f':'#f1f5f9'};color:${vdrCurrentVendor==='all'?'white':'#475569'};">All</button>`;
+        vendors.forEach(v => {
+          const key = v.replace(/[^a-z0-9]/gi,'_');
+          const active = vdrCurrentVendor === key;
+          tabsHTML += `<button onclick="vdrSetVendor('${key}')" id="vdrTab-${key}" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:${active?'#1e3a5f':'#f1f5f9'};color:${active?'white':'#475569'};">${shortName(v)}</button>`;
+        });
+        tabsEl.innerHTML = tabsHTML;
+      } else if (tabsEl && vendors.length <= 1) {
+        tabsEl.style.display = 'none';
+      }
     }
 
+    // Store all docs for filtering
+    window._vdrAllDocs = data || [];
+    window._vdrPdfQueue = pdfQueue || [];
+
     list.innerHTML = html;
+    vdrRenderList();
     if (data) for (const doc of data) vdrRegisterQuestions(doc);
 
   } catch(e) {
@@ -214,6 +254,47 @@ window.vdrProcessAllPdf = async function() {
   }
 };
 
+// ── Render filtered list ──────────────────────────────────────
+window.vdrRenderList = function() {
+  const list = document.getElementById('vdrList');
+  if (!list) return;
+  const allDocs = window._vdrAllDocs || [];
+  const pdfQueue = window._vdrPdfQueue || [];
+
+  let html = '';
+
+  // PDF banner
+  if (pdfQueue.length > 0) {
+    html += `<div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:14px;padding:14px 16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#1e3a5f;">📧 ${pdfQueue.length} PDF ricevuti da Hardie's</div>
+          <div style="font-size:11px;color:#64748b;margin-top:2px;">Arrivati via email — non ancora processati</div>
+        </div>
+        <button onclick="vdrProcessAllPdf()" id="vdrProcessAllBtn" style="height:38px;padding:0 16px;border-radius:12px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;white-space:nowrap;">▶ Processa tutti</button>
+      </div>
+      <div id="vdrProcessLog" style="display:none;margin-top:10px;font-size:11px;color:#64748b;"></div>
+    </div>`;
+  }
+
+  // Filter by vendor
+  const filtered = vdrCurrentVendor === 'all' ? allDocs
+    : allDocs.filter(d => (d.vendor||'').replace(/[^a-z0-9]/gi,'_') === vdrCurrentVendor);
+
+  if (filtered.length === 0 && pdfQueue.length === 0) {
+    html += `<div style="text-align:center;padding:48px 0;">
+      <div style="font-size:32px;margin-bottom:10px;">✅</div>
+      <div style="font-size:14px;font-weight:500;color:#1e293b;margin-bottom:4px;">All clear</div>
+      <div style="font-size:12px;color:#94a3b8;">${vdrCurrentVendor === 'all' ? 'No pending documents' : 'No pending documents for this vendor'}</div>
+    </div>`;
+  } else {
+    html += filtered.map(doc => vdrCardHTML(doc)).join('');
+  }
+
+  list.innerHTML = html;
+  for (const doc of filtered) vdrRegisterQuestions(doc);
+};
+
 // ── Document card (collapsed) ─────────────────────────────────
 function vdrCardHTML(doc) {
   const pj        = doc.parsed_json || {};
@@ -256,12 +337,67 @@ function vdrCardHTML(doc) {
 }
 
 window.vdrToggle = function(id) {
-  const detail  = document.getElementById('vdrDetail-' + id);
-  const chevron = document.getElementById('vdrChevron-' + id);
-  if (!detail) return;
-  const open = detail.style.display === 'none';
-  detail.style.display = open ? 'block' : 'none';
-  chevron.style.transform = open ? 'rotate(90deg)' : '';
+  // Find doc from stored data
+  const allDocs = window._vdrAllDocs || [];
+  const doc = allDocs.find(d => d.id === id);
+  if (!doc) return;
+
+  // Remove existing sheet if any
+  const existing = document.getElementById('vdrSheet');
+  if (existing) existing.remove();
+
+  // Create bottom sheet
+  const sheet = document.createElement('div');
+  sheet.id = 'vdrSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;justify-content:flex-end;';
+
+  const pj = doc.parsed_json || {};
+  const questions = vdrBuildQuestions(doc);
+  const qCount = questions.length;
+  const total = pj.total != null ? '$' + Math.abs(pj.total).toFixed(2) : '—';
+
+  sheet.innerHTML = `
+    <div onclick="document.getElementById('vdrSheet').remove()" style="flex:1;background:rgba(0,0,0,0.4);"></div>
+    <div id="vdrSheetPanel" style="background:white;border-radius:20px 20px 0 0;max-height:88vh;display:flex;flex-direction:column;touch-action:pan-y;">
+      <!-- Drag handle -->
+      <div style="display:flex;justify-content:center;padding:12px 0 4px;" id="vdrSheetHandle">
+        <div style="width:36px;height:4px;border-radius:2px;background:#e2e8f0;"></div>
+      </div>
+      <!-- Top bar -->
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 16px 12px;border-bottom:1px solid #f1f5f9;flex-shrink:0;">
+        <button onclick="document.getElementById('vdrSheet').remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:14px;font-weight:600;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${doc.vendor || '—'}</div>
+          <div style="font-size:11px;color:#94a3b8;">#${doc.document_number || '—'} · ${vdrFmtDate(doc.document_date)} · ${total}</div>
+        </div>
+        ${qCount > 0 ? `<span style="background:rgba(245,158,11,0.1);color:#92400e;border:1px solid rgba(245,158,11,0.3);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;flex-shrink:0;">❓ ${qCount}</span>` : `<span style="background:rgba(16,185,129,0.08);color:#065f46;border:1px solid rgba(16,185,129,0.2);padding:3px 10px;border-radius:20px;font-size:11px;flex-shrink:0;">✓ Ready</span>`}
+      </div>
+      <!-- Scrollable content -->
+      <div style="overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;">
+        ${vdrDetailHTML(doc)}
+      </div>
+      <!-- Bottom safe area -->
+      <div style="height:env(safe-area-inset-bottom,0px);background:white;flex-shrink:0;"></div>
+    </div>`;
+
+  // Swipe down to close
+  let startY = 0;
+  const panel = sheet.querySelector('#vdrSheetPanel');
+  panel.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive:true });
+  panel.addEventListener('touchmove', e => {
+    const dy = e.touches[0].clientY - startY;
+    if (dy > 0) panel.style.transform = `translateY(${dy}px)`;
+  }, { passive:true });
+  panel.addEventListener('touchend', e => {
+    const dy = e.changedTouches[0].clientY - startY;
+    if (dy > 80) {
+      sheet.remove();
+    } else {
+      panel.style.transform = '';
+    }
+  });
+
+  document.body.appendChild(sheet);
 };
 
 // ── Detail panel ──────────────────────────────────────────────
