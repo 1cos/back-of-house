@@ -1020,8 +1020,7 @@ function buildVendorParsers() {
     // Build a single string and find item blocks
     // Each item starts with: number UNIT  SKU_CODE - DESCRIPTION
     // Regex: start of line, qty, unit (LB/CA/CS/EA/DZ), then SKU - desc
-    const itemRegex = /^([\d.]+)\s+(LB|CA|CS|EA|DZ|PC|BG|OZ|GL|GAL)\s+([A-Z0-9]{6,})\s*-\s*(.+?)(?:
-[\d*]+\s+(?:CA|LB|CS|EA)[\s,].*?)?\s+([\d.]+)\s+(LB|CA|CS|EA|DZ|PC|BG|OZ|GL|GAL)\s+\$?([\d.]+)\s+(?:LB|EA|CA|CS|DZ|PC|BG)?\s+\$?([\d.,]+)/gim;
+    const itemRegex = /^([\d.]+)\s+(LB|CA|CS|EA|DZ|PC|BG|OZ|GL|GAL)\s+([A-Z0-9]{6,})\s*-\s*(.+?)\s+([\d.]+)\s+(LB|CA|CS|EA|DZ|PC|BG|OZ|GL|GAL)\s+\$?([\d.]+)\s+(?:LB|EA|CA|CS|DZ|PC|BG)?\s+\$?([\d.,]+)/gim;
 
     let match;
     while ((match = itemRegex.exec(text)) !== null) {
