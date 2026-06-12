@@ -201,7 +201,12 @@ window.vdrProcessAllPdf = async function() {
         // Parse with Hardie's parser
         const parsed = parsers.parse(rawText);
 
-        const docNumber = parsed.order_number || parsed.credit_number || null;
+        let docNumber = parsed.order_number || parsed.credit_number || null;
+        // Fallback: extract from email subject, e.g. "INVOICE - #06997941"
+        if (!docNumber && doc.source_email_subject) {
+          const sm = doc.source_email_subject.match(/#?\s*(\d{6,10})/);
+          if (sm) docNumber = sm[1];
+        }
         const docDate   = parsed.order_date   || parsed.credit_date   || parsed.delivery_date || null;
 
         // Duplicate check by doc number
@@ -579,6 +584,11 @@ function vdrWarningToQuestion(w, item, docId, idx) {
     } else if (mSimple) {
       totalCount = parseInt(mSimple[1]);
       unit = mSimple[2].toUpperCase();
+    }
+    // Dozens → each: "15 DZ" = 180 pieces
+    if (totalCount && (unit === 'DZ' || unit === 'DOZ')) {
+      totalCount = totalCount * 12;
+      unit = 'EA';
     }
     const itemName = name ? name.toLowerCase() : unit.toLowerCase();
     const meaning = totalCount
@@ -1183,10 +1193,13 @@ async function vdrPreflight(docId, doc) {
   const vendor = pj.vendor || doc.vendor || '';
   const items = pj.items || [];
 
-  // 1. Unresolved warnings?
-  const warnings = Array.isArray(doc.warnings) ? doc.warnings : [];
-  if (warnings.length > 0) {
-    return { ok: false, reason: 'Resolve all warnings before approving.' };
+  // 1. Unresolved warnings → count ACTIONABLE questions, not raw warnings.
+  // Some warnings (e.g. pure-count OQR-006) are auto-resolved by the question
+  // builder and produce no question — they must not block approval.
+  const fakeDoc = { id: docId, warnings: doc.warnings, parsed_json: doc.parsed_json };
+  const openQuestions = vdrBuildQuestions(fakeDoc).filter(q => !q.infoOnly);
+  if (openQuestions.length > 0) {
+    return { ok: false, reason: `${openQuestions.length} question${openQuestions.length>1?'s':''} to answer before approving — open the document detail.` };
   }
 
   // 2. Check ingredient_links — are all items matched?
@@ -1355,6 +1368,8 @@ window.vdrApprove = async function(docId, btn) {
       statusEl.style.color = '#991b1b';
       statusEl.textContent = '✗ ' + e.message;
     }
+    // statusEl may not exist in the mobile sheet — always toast too
+    if (typeof showScToast === 'function') showScToast('✗ ' + e.message);
     console.error('vdrApprove error:', e);
   } finally {
     btn.disabled = false;
