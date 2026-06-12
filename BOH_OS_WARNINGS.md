@@ -52,6 +52,13 @@ These are laws of the system, not warnings.
 **Design philosophy:**
 The system should not ask *what to do*. The system should ask *who owns the problem*.
 
+**The Yes Chef rule (2026-06-12):**
+No action ends in silence. When a cook receives a task, he answers "Yes chef" and
+reports back when it's done. The software does the same: every completed action
+closes its screen and states exactly what happened —
+*"✓ Invoice #06997941 imported · 7 items — 2 new ingredients, 5 updated"*.
+A job done but not reported is half a job. Silence is a bug.
+
 Warnings exist only when:
 1. The system does not know a relationship.
 2. The system may learn something incorrect.
