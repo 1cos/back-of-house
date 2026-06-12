@@ -66,14 +66,7 @@ async function initSousChef(){
     <span id="scPulse" class="hidden absolute inset-0 rounded-full border-2 border-blue-400 animate-ping"></span>`;
   document.body.appendChild(btn);
 
-  // tieni premuto per registrare
-  btn.addEventListener('mousedown', startRecording);
-  btn.addEventListener('touchstart', e=>{e.preventDefault();startRecording();}, {passive:false});
-  btn.addEventListener('mouseup', stopRecording);
-  btn.addEventListener('touchend', e=>{e.preventDefault();stopRecording();}, {passive:false});
-  btn.addEventListener('mouseleave', ()=>{if(isRecording)stopRecording();});
-
-  // carica tasks esistenti
+  // Carica tasks esistenti (gesti gestiti da scAttachGestures dopo DOMContentLoaded)
   loadScTasks();
 }
 
@@ -370,14 +363,243 @@ function showScToast(msg, duration=3000){
   setTimeout(()=>toast.remove(), duration);
 }
 
-// ── CLICK SUL BOTTONE (breve = apri pannello, lungo = registra) ──
+// ── BOTTONE: tap breve = scan DB, long press = registra ──────
+// Tap breve (< 500ms): runSousChefScan() + aggiorna banner
+// Long press (≥ 500ms): avvia registrazione vocale
 let scPressTimer = null;
-document.addEventListener('DOMContentLoaded', ()=>{
-  setTimeout(()=>{
-    const btn = document.getElementById('scBtn');
-    if(!btn) return;
-    btn.addEventListener('click', ()=>{
-      if(!isRecording) openSousChef();
-    });
-  }, 2000);
+const SC_LONG_PRESS_MS = 500;
+
+function scAttachGestures() {
+  const btn = document.getElementById('scBtn');
+  if (!btn) return;
+
+  let pressStart = 0;
+  let longPressTriggered = false;
+
+  function onPressStart(e) {
+    e.preventDefault();
+    pressStart = Date.now();
+    longPressTriggered = false;
+    scPressTimer = setTimeout(() => {
+      longPressTriggered = true;
+      startRecording();
+    }, SC_LONG_PRESS_MS);
+  }
+
+  function onPressEnd(e) {
+    e.preventDefault();
+    clearTimeout(scPressTimer);
+    if (longPressTriggered) {
+      if (isRecording) stopRecording();
+    } else {
+      // Tap breve — scan
+      runSousChefScan();
+    }
+  }
+
+  btn.addEventListener('mousedown', onPressStart);
+  btn.addEventListener('touchstart', onPressStart, { passive: false });
+  btn.addEventListener('mouseup', onPressEnd);
+  btn.addEventListener('touchend', onPressEnd, { passive: false });
+  btn.addEventListener('mouseleave', () => {
+    clearTimeout(scPressTimer);
+    if (isRecording) stopRecording();
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(scAttachGestures, 2500);
 });
+
+// ── SOUS CHEF SCAN — scansione DB on demand ───────────────────
+// Chiamata a ogni tap breve. Scrive warning in invoice_warnings.
+// Il banner home si aggiorna dopo.
+
+const SC_SCAN_RULES_DEFAULT = {
+  'SC-PRICE-001': true,   // price_per_100g anomalo su carni (< $0.10)
+  'SC-PRICE-002': true,   // prezzo aumentato >20% vs media storica
+  'SC-NOLINK-001': true,  // ingrediente attivo senza price_per_100g
+  'SC-UNUSED-001': false, // ingrediente non in nessuna ricetta (off di default)
+};
+
+function scGetRules() {
+  try {
+    const saved = localStorage.getItem('sc_scan_rules');
+    return saved ? { ...SC_SCAN_RULES_DEFAULT, ...JSON.parse(saved) } : { ...SC_SCAN_RULES_DEFAULT };
+  } catch(_) { return { ...SC_SCAN_RULES_DEFAULT }; }
+}
+
+window.runSousChefScan = async function() {
+  const sb = window.supabaseClient;
+  if (!sb) return;
+
+  const btn = document.getElementById('scBtn');
+  if (btn) { btn.style.background = 'rgba(16,185,129,0.15)'; btn.style.borderColor = '#10b981'; }
+  if (typeof showScToast === 'function') showScToast('🔍 Sous Chef sta controllando...');
+
+  const rules = scGetRules();
+  const found = [];
+
+  try {
+    // ── SC-PRICE-001: price_per_100g < $0.10 su carni ──────────
+    if (rules['SC-PRICE-001']) {
+      const meatKeywords = ['beef','meat','steak','chicken','pork','veal','lamb',
+        'rib','loin','tenderloin','brisket','chuck','short','tomahawk','stew'];
+      const { data: lowPrice } = await sb
+        .from('ingredient_vendors')
+        .select('ingredient_id,vendor,unit_price,price_per_100g,ingredients(name)')
+        .not('price_per_100g', 'is', null)
+        .lt('price_per_100g', 0.10);
+
+      for (const row of (lowPrice || [])) {
+        const name = (row.ingredients?.name || '').toLowerCase();
+        if (!meatKeywords.some(k => name.includes(k))) continue;
+        found.push({
+          code: 'SC-PRICE-001', severity: 'blocking',
+          vendor: row.vendor || null,
+          item_description: row.ingredients?.name || null,
+          message: `${row.ingredients?.name} — $${(row.price_per_100g||0).toFixed(4)}/100g è sospettosamente basso. Catchweight non rilevato?`,
+        });
+      }
+    }
+
+    // ── SC-PRICE-002: prezzo aumentato >20% vs storico ─────────
+    if (rules['SC-PRICE-002']) {
+      const { data: purchases } = await sb
+        .from('purchases')
+        .select('vendor,items,invoice_date')
+        .order('invoice_date', { ascending: false })
+        .limit(30);
+
+      const pricesByKey = {};
+      for (const p of (purchases || [])) {
+        for (const item of (p.items || [])) {
+          if (!item.unit_price) continue;
+          const key = `${p.vendor}|||${item.description}`;
+          if (!pricesByKey[key]) pricesByKey[key] = [];
+          pricesByKey[key].push(parseFloat(item.unit_price));
+        }
+      }
+
+      for (const [key, prices] of Object.entries(pricesByKey)) {
+        if (prices.length < 2) continue;
+        const latest = prices[0];
+        const avg = prices.slice(1).reduce((a,b) => a+b, 0) / (prices.length - 1);
+        if (avg <= 0) continue;
+        const pct = Math.round(((latest - avg) / avg) * 100);
+        if (pct < 20) continue;
+        const [vendor, desc] = key.split('|||');
+        found.push({
+          code: 'SC-PRICE-002', severity: 'alert',
+          vendor: vendor || null,
+          item_description: desc || null,
+          message: `${desc} — prezzo +${pct}% rispetto alla media ($${avg.toFixed(2)} → $${latest.toFixed(2)})`,
+        });
+      }
+    }
+
+    // ── SC-NOLINK-001: ingrediente attivo senza price_per_100g ──
+    if (rules['SC-NOLINK-001']) {
+      const { data: allIngr } = await sb
+        .from('ingredients')
+        .select('id,name,category')
+        .eq('active', true);
+
+      const { data: hasPrice } = await sb
+        .from('ingredient_vendors')
+        .select('ingredient_id')
+        .not('price_per_100g', 'is', null);
+
+      const hasPriceSet = new Set((hasPrice || []).map(r => r.ingredient_id));
+      const missing = (allIngr || []).filter(i =>
+        i.category !== 'Supply' && !hasPriceSet.has(i.id)
+      );
+
+      if (missing.length > 0) {
+        const names = missing.slice(0, 5).map(i => i.name).join(', ');
+        const extra = missing.length > 5 ? ` +${missing.length - 5} altri` : '';
+        found.push({
+          code: 'SC-NOLINK-001', severity: 'insight',
+          vendor: null, item_description: null,
+          message: `${missing.length} ingredienti senza $/100g: ${names}${extra}`,
+        });
+      }
+    }
+
+    // ── SC-UNUSED-001: acquistato ma non in nessuna ricetta ─────
+    if (rules['SC-UNUSED-001']) {
+      const { data: linked } = await sb
+        .from('ingredient_links')
+        .select('invoice_description')
+        .eq('confirmed', true)
+        .limit(300);
+
+      const { data: recipes } = await sb
+        .from('recipes').select('ingredients');
+
+      const inRecipes = new Set();
+      for (const r of (recipes || [])) {
+        for (const ing of (r.ingredients || [])) {
+          if (ing.name) inRecipes.add(ing.name.toLowerCase());
+        }
+      }
+
+      const unused = (linked || []).filter(l =>
+        !inRecipes.has((l.invoice_description || '').toLowerCase())
+      );
+
+      if (unused.length > 0) {
+        const names = unused.slice(0, 5).map(l => l.invoice_description).join(', ');
+        const extra = unused.length > 5 ? ` +${unused.length - 5} altri` : '';
+        found.push({
+          code: 'SC-UNUSED-001', severity: 'insight',
+          vendor: null, item_description: null,
+          message: `${unused.length} articoli acquistati non usati in ricette: ${names}${extra}`,
+        });
+      }
+    }
+
+    // ── Salva in invoice_warnings ─────────────────────────────
+    if (found.length > 0) {
+      const scCodes = [...new Set(found.map(r => r.code))];
+      // Cancella vecchi SC-* open prima di inserire i nuovi
+      await sb.from('invoice_warnings')
+        .delete()
+        .in('code', scCodes)
+        .eq('status', 'open');
+
+      await sb.from('invoice_warnings').insert(found.map(w => ({
+        code:             w.code,
+        severity:         w.severity,
+        status:           'open',
+        vendor:           w.vendor || null,
+        item_description: w.item_description || null,
+        message:          w.message,
+        document_id:      null,
+        document_date:    null,
+        document_number:  null,
+        field:            null,
+      })));
+    } else {
+      // Nessun problema trovato — rimuovi vecchi SC-* open
+      await sb.from('invoice_warnings')
+        .delete()
+        .like('code', 'SC-%')
+        .eq('status', 'open');
+    }
+
+    // Aggiorna banner
+    if (typeof loadWarningsBanner === 'function') await loadWarningsBanner();
+
+    const msg = found.length > 0
+      ? `🔍 ${found.length} problema${found.length > 1 ? 'i' : ''} trovato${found.length > 1 ? 'i' : ''}`
+      : '✅ Sous Chef — tutto ok';
+    if (typeof showScToast === 'function') showScToast(msg);
+
+  } catch(e) {
+    console.error('[SousChefScan] Error:', e.message);
+    if (typeof showScToast === 'function') showScToast('⚠️ Scan error: ' + e.message);
+  } finally {
+    if (btn) { btn.style.background = ''; btn.style.borderColor = ''; }
+  }
+};
