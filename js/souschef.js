@@ -66,8 +66,10 @@ async function initSousChef(){
     <span id="scPulse" class="hidden absolute inset-0 rounded-full border-2 border-blue-400 animate-ping"></span>`;
   document.body.appendChild(btn);
 
-  // Carica tasks esistenti (gesti gestiti da scAttachGestures dopo DOMContentLoaded)
+  // Carica tasks esistenti
   loadScTasks();
+  // Attacca gesti tap/longpress subito dopo aver creato il bottone
+  setTimeout(scAttachGestures, 100);
 }
 
 // ── REGISTRAZIONE VOCALE ──
@@ -407,9 +409,7 @@ function scAttachGestures() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  setTimeout(scAttachGestures, 2500);
-});
+// scAttachGestures è chiamata da initSousChef dopo la creazione del bottone.
 
 // ── SOUS CHEF SCAN — scansione DB on demand ───────────────────
 // Chiamata a ogni tap breve. Scrive warning in invoice_warnings.
@@ -588,13 +588,15 @@ window.runSousChefScan = async function() {
         .eq('status', 'open');
     }
 
-    // Aggiorna banner
-    if (typeof loadWarningsBanner === 'function') await loadWarningsBanner();
+    // ── Aggiorna banner home ──────────────────────────────────
+    if (typeof loadWarningsBanner === 'function') loadWarningsBanner();
 
-    const msg = found.length > 0
-      ? `🔍 ${found.length} problema${found.length > 1 ? 'i' : ''} trovato${found.length > 1 ? 'i' : ''}`
-      : '✅ Sous Chef — tutto ok';
-    if (typeof showScToast === 'function') showScToast(msg);
+    // ── Apri lo stack OQR ────────────────────────────────────
+    if (found.length > 0) {
+      showSousChefStack(found);
+    } else {
+      if (typeof showScToast === 'function') showScToast('✅ Sous Chef — tutto ok');
+    }
 
   } catch(e) {
     console.error('[SousChefScan] Error:', e.message);
@@ -603,3 +605,314 @@ window.runSousChefScan = async function() {
     if (btn) { btn.style.background = ''; btn.style.borderColor = ''; }
   }
 };
+
+// ── SOUS CHEF STACK — card swipeable OQR ─────────────────────
+// Stack di card impilate: una per ogni warning trovato dalla scan.
+// Card in cima = più urgente (blocking > alert > insight).
+// Swipe giù = skip (va in fondo allo stack).
+// Swipe su = risolvi (OQR inline nella card stessa).
+
+function showSousChefStack(warnings) {
+  // Ordina: blocking prima, poi alert, poi insight
+  const order = { blocking: 0, alert: 1, insight: 2 };
+  const stack = [...warnings].sort((a, b) =>
+    (order[a.severity] ?? 2) - (order[b.severity] ?? 2)
+  );
+
+  const existing = document.getElementById('_scStack');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = '_scStack';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9600;display:flex;flex-direction:column;justify-content:flex-end;pointer-events:none;';
+
+  // Sfondo semi-trasparente cliccabile per chiudere
+  const backdrop = document.createElement('div');
+  backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.45);pointer-events:all;';
+  backdrop.addEventListener('click', () => overlay.remove());
+  overlay.appendChild(backdrop);
+
+  // Container stack
+  const stackEl = document.createElement('div');
+  stackEl.style.cssText = 'position:relative;width:100%;max-width:480px;margin:0 auto;height:420px;pointer-events:none;padding:0 12px 24px;box-sizing:border-box;';
+  overlay.appendChild(stackEl);
+
+  document.body.appendChild(overlay);
+
+  // Rendi le card (dalla più in basso allo stack alla più in cima)
+  function renderStack() {
+    stackEl.innerHTML = '';
+    const total = stack.length;
+    if (total === 0) { overlay.remove(); return; }
+
+    // Mostra massimo 3 card visibili (le prime dello stack)
+    const visible = Math.min(total, 3);
+
+    for (let i = visible - 1; i >= 0; i--) {
+      const w = stack[i];
+      const isTop = i === 0;
+      // Offset verticale: card sotto sono più in alto (si vedono i tab colorati)
+      const offsetY = i * 44; // px verso l'alto per ogni card sotto
+      const scale = 1 - i * 0.04;
+      const zIndex = visible - i;
+
+      const card = buildCard(w, i, isTop, offsetY, scale, zIndex, total);
+      stackEl.appendChild(card);
+    }
+  }
+
+  function buildCard(w, idx, isTop, offsetY, scale, zIndex, total) {
+    const cfg = {
+      blocking: { bg: '#fff5f5', border: '#fca5a5', dot: '#ef4444', label: '🔴 Urgente' },
+      alert:    { bg: '#fffbeb', border: '#fcd34d', dot: '#f59e0b', label: '🟡 Attenzione' },
+      insight:  { bg: '#eff6ff', border: '#93c5fd', dot: '#3b82f6', label: '🔵 Info' },
+    }[w.severity] || { bg: '#f8fafc', border: '#e2e8f0', dot: '#94a3b8', label: '⚪' };
+
+    const card = document.createElement('div');
+    card.dataset.idx = idx;
+    card.style.cssText = `
+      position:absolute;
+      bottom:${offsetY}px;
+      left:0;right:0;
+      background:${cfg.bg};
+      border:1.5px solid ${cfg.border};
+      border-radius:${isTop ? '20px' : '16px'};
+      padding:${isTop ? '18px 16px 14px' : '10px 16px'};
+      box-shadow:0 ${isTop ? '16px 40px' : '4px 12px'} rgba(0,0,0,${isTop ? '0.18' : '0.08'});
+      transform:scale(${scale});
+      transform-origin:center bottom;
+      z-index:${zIndex};
+      pointer-events:${isTop ? 'all' : 'none'};
+      transition:transform .2s,box-shadow .2s;
+      touch-action:none;
+      user-select:none;
+    `;
+
+    if (!isTop) {
+      // Card non in cima: mostra solo titolo colorato
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:${cfg.dot};flex-shrink:0;display:inline-block;"></span>
+          <span style="font-size:12px;font-weight:700;color:${cfg.dot};text-transform:uppercase;letter-spacing:.06em;">${cfg.label}</span>
+          <span style="font-size:11px;color:#94a3b8;margin-left:auto;">${total > 1 ? (idx + 1) + '/' + total : ''}</span>
+        </div>`;
+      return card;
+    }
+
+    // Card in cima: OQR completo
+    const oqr = scOQRForWarning(w);
+    const emoji = scWarnEmoji(w.code);
+
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:${cfg.dot};flex-shrink:0;display:inline-block;"></span>
+          <span style="font-size:11px;font-weight:700;color:${cfg.dot};text-transform:uppercase;letter-spacing:.06em;">${cfg.label}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:11px;color:#94a3b8;">${total > 1 ? '1/' + total : ''}</span>
+          <button onclick="document.getElementById('_scStack')?.remove()" style="width:28px;height:28px;border-radius:8px;background:#f1f5f9;border:none;cursor:pointer;font-size:14px;color:#94a3b8;">✕</button>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;">
+        <span style="font-size:28px;flex-shrink:0;">${emoji}</span>
+        <div>
+          <div style="font-size:15px;font-weight:700;color:#1e293b;line-height:1.3;margin-bottom:4px;">${oqr.title}</div>
+          <div style="font-size:13px;color:#475569;line-height:1.4;">${oqr.question}</div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;color:#94a3b8;background:rgba(0,0,0,0.03);border-radius:8px;padding:6px 10px;margin-bottom:14px;">
+        ${w.message}
+      </div>
+
+      <div id="_scOQROptions" style="display:flex;flex-direction:column;gap:7px;">
+        ${oqr.options.map((opt, oi) => `
+          <button data-answer="${opt.value}" data-oi="${oi}"
+            style="padding:11px 14px;border-radius:12px;border:1.5px solid ${oi === 0 ? cfg.border : '#e2e8f0'};
+              background:${oi === 0 ? cfg.bg : 'white'};
+              font-size:13px;color:#1e293b;cursor:pointer;text-align:left;font-weight:${oi === 0 ? 600 : 400};
+              display:flex;align-items:center;gap:8px;">
+            <span>${opt.emoji || ''}</span><span>${opt.label}</span>
+          </button>`).join('')}
+      </div>
+
+      <div style="display:flex;justify-content:center;gap:20px;margin-top:14px;">
+        <div style="text-align:center;">
+          <div style="font-size:18px;">↓</div>
+          <div style="font-size:10px;color:#94a3b8;">Skip</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:18px;">↑</div>
+          <div style="font-size:10px;color:#94a3b8;">Risolvi</div>
+        </div>
+      </div>`;
+
+    // Wire up option buttons
+    card.querySelectorAll('[data-answer]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const answer = btn.dataset.answer;
+        if (answer === 'skip') {
+          scSkipTop();
+        } else {
+          await scResolveTop(w, answer);
+        }
+      });
+    });
+
+    // Swipe gesture
+    attachSwipe(card, w);
+
+    return card;
+  }
+
+  // ── Swipe logic ───────────────────────────────────────────
+  function attachSwipe(card, w) {
+    let startY = 0, currentY = 0, dragging = false;
+
+    function onStart(e) {
+      // Ignore if tapping a button
+      if (e.target.closest('button,[data-answer]')) return;
+      startY = e.touches ? e.touches[0].clientY : e.clientY;
+      dragging = true;
+      card.style.transition = 'none';
+    }
+
+    function onMove(e) {
+      if (!dragging) return;
+      currentY = (e.touches ? e.touches[0].clientY : e.clientY) - startY;
+      card.style.transform = `scale(1) translateY(${currentY}px)`;
+    }
+
+    function onEnd() {
+      if (!dragging) return;
+      dragging = false;
+      card.style.transition = 'transform .3s,opacity .3s';
+
+      if (currentY > 60) {
+        // Swipe giù → skip
+        card.style.transform = `translateY(200px)`;
+        card.style.opacity = '0';
+        setTimeout(() => scSkipTop(), 280);
+      } else if (currentY < -60) {
+        // Swipe su → segna come da risolvere (apre prima opzione)
+        card.style.transform = `translateY(-200px)`;
+        card.style.opacity = '0';
+        setTimeout(() => scResolveTop(w, 'resolved'), 280);
+      } else {
+        // Torna in posizione
+        card.style.transform = 'scale(1) translateY(0)';
+      }
+      currentY = 0;
+    }
+
+    card.addEventListener('touchstart', onStart, { passive: true });
+    card.addEventListener('touchmove', onMove, { passive: true });
+    card.addEventListener('touchend', onEnd);
+    card.addEventListener('mousedown', onStart);
+    card.addEventListener('mousemove', onMove);
+    card.addEventListener('mouseup', onEnd);
+  }
+
+  // ── Skip top card → va in fondo ──────────────────────────
+  function scSkipTop() {
+    if (stack.length === 0) return;
+    const top = stack.shift();
+    stack.push(top); // in fondo
+    renderStack();
+  }
+
+  // ── Risolvi top card ──────────────────────────────────────
+  async function scResolveTop(w, answer) {
+    // Salva in invoice_warnings se ha un id
+    if (w.id) {
+      const sb = window.supabaseClient;
+      if (sb) {
+        await sb.from('invoice_warnings').update({
+          status: 'resolved',
+          resolution: answer,
+          resolved_by: window.user?.name || 'Admin',
+          resolved_at: new Date().toISOString(),
+        }).eq('id', w.id);
+      }
+    }
+    // Rimuovi dallo stack
+    stack.shift();
+    if (typeof loadWarningsBanner === 'function') loadWarningsBanner();
+    if (stack.length === 0) {
+      // Tutto risolto — chiudi con celebrazione
+      overlay.remove();
+      if (typeof showScToast === 'function') showScToast('✅ Sous Chef — tutto risolto!');
+    } else {
+      renderStack();
+    }
+  }
+
+  renderStack();
+}
+
+// ── OQR content per ogni codice warning ──────────────────────
+function scOQRForWarning(w) {
+  const item = w.item_description || 'Questo articolo';
+
+  if (w.code === 'SC-PRICE-001') return {
+    title: `${item} — prezzo sospetto`,
+    question: 'Il $/100g è troppo basso per una carne. Probabilmente il catchweight non è stato rilevato.',
+    options: [
+      { emoji: '✏️', label: 'Correggi il peso manualmente', value: 'fix_weight' },
+      { emoji: '✅', label: 'Il prezzo è corretto così', value: 'price_ok' },
+      { emoji: '⏭️', label: 'Skip — ci penso dopo', value: 'skip' },
+    ]
+  };
+
+  if (w.code === 'SC-PRICE-002') return {
+    title: `${item} — prezzo aumentato`,
+    question: 'Il prezzo di questo articolo è salito oltre il 20% rispetto alla media storica.',
+    options: [
+      { emoji: '✅', label: 'Accetto il nuovo prezzo', value: 'accepted' },
+      { emoji: '🔍', label: 'Voglio verificare prima', value: 'check' },
+      { emoji: '⏭️', label: 'Skip', value: 'skip' },
+    ]
+  };
+
+  if (w.code === 'SC-NOLINK-001') return {
+    title: 'Ingredienti senza prezzo',
+    question: 'Alcuni ingredienti attivi non hanno ancora un $/100g calcolato.',
+    options: [
+      { emoji: '📦', label: 'Vai agli ingredienti', value: 'open_ingredients' },
+      { emoji: '⏭️', label: 'Skip', value: 'skip' },
+    ]
+  };
+
+  if (w.code === 'SC-UNUSED-001') return {
+    title: 'Articoli non in ricette',
+    question: 'Questi articoli sono stati acquistati ma non compaiono in nessuna ricetta.',
+    options: [
+      { emoji: '📖', label: 'Vai alle ricette', value: 'open_recipes' },
+      { emoji: '✅', label: 'OK, è normale', value: 'resolved' },
+      { emoji: '⏭️', label: 'Skip', value: 'skip' },
+    ]
+  };
+
+  // Default
+  return {
+    title: item,
+    question: w.message || 'Questo elemento richiede attenzione.',
+    options: [
+      { emoji: '✅', label: 'Risolto', value: 'resolved' },
+      { emoji: '⏭️', label: 'Skip', value: 'skip' },
+    ]
+  };
+}
+
+function scWarnEmoji(code) {
+  const map = {
+    'SC-PRICE-001': '🥩', 'SC-PRICE-002': '📈',
+    'SC-NOLINK-001': '💡', 'SC-UNUSED-001': '🔗',
+    'OQR-008': '⚖️', 'OQR-007': '📦',
+    'DOC-TOTAL-001': '🧮', 'OQR-002': '🔄',
+  };
+  return map[code] || '⚠️';
+}
