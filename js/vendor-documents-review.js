@@ -948,57 +948,107 @@ function vdrRefreshBadge(docId) {
 // ── Approve document ──────────────────────────────────────────
 const _vdrQMap = {};
 window._vdrQuestions = _vdrQMap;
+// ── PRE-FLIGHT: run before approve button is enabled ──────────
+async function vdrPreflight(docId, doc) {
+  const sb = window.supabaseClient;
+  const pj = doc.parsed_json || {};
+  const vendor = pj.vendor || doc.vendor || '';
+  const items = pj.items || [];
+
+  // 1. Unresolved warnings?
+  const warnings = Array.isArray(doc.warnings) ? doc.warnings : [];
+  if (warnings.length > 0) {
+    return { ok: false, reason: 'Resolve all warnings before approving.' };
+  }
+
+  // 2. Check ingredient_links — are all items matched?
+  const descs = items.map(i => i.description || i.raw_description).filter(Boolean);
+  const skus  = items.map(i => i.vendor_sku || i.item_code).filter(Boolean);
+
+  // Fetch existing SKU matches
+  const { data: skuRows } = skus.length ? await sb.from('ingredient_vendors')
+    .select('vendor_sku').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] };
+  const matchedSkus = new Set((skuRows || []).map(r => r.vendor_sku));
+
+  // Fetch confirmed links
+  const { data: linkRows } = descs.length ? await sb.from('ingredient_links')
+    .select('invoice_description').eq('vendor', vendor).eq('confirmed', true)
+    .in('invoice_description', descs) : { data: [] };
+  const matchedDescs = new Set((linkRows || []).map(r => r.invoice_description));
+
+  // Find unmatched items
+  const unmatched = items.filter(item => {
+    const sku  = item.vendor_sku || item.item_code;
+    const desc = item.description || item.raw_description;
+    return !(sku && matchedSkus.has(sku)) && !(desc && matchedDescs.has(desc));
+  });
+
+  if (unmatched.length > 0) {
+    return { ok: false, reason: 'match_needed', unmatched, items, vendor };
+  }
+
+  return { ok: true, items, vendor };
+}
+
+// ── APPROVE BUTTON ─────────────────────────────────────────────
 window.vdrApprove = async function(docId, btn) {
   const statusEl = document.getElementById('vdrActionStatus-' + docId);
   btn.disabled = true;
-  btn.textContent = '⏳ Approving…';
+  btn.textContent = '⏳ Checking…';
   btn.style.background = '#94a3b8';
 
   try {
     const sb = window.supabaseClient;
-    if (!sb) throw new Error('Supabase client not available');
+    if (!sb) throw new Error('Supabase not available');
 
     // Fetch document
     const { data: doc, error: fetchErr } = await sb
-      .from('vendor_documents').select('parsed_json,vendor').eq('id', docId).single();
+      .from('vendor_documents').select('parsed_json,vendor,warnings').eq('id', docId).single();
     if (fetchErr) throw new Error(fetchErr.message);
 
-    const pj = doc.parsed_json || {};
+    // ── PREFLIGHT ──
+    const pre = await vdrPreflight(docId, doc);
+
+    if (!pre.ok) {
+      if (pre.reason === 'match_needed') {
+        // Open match modal BEFORE approval — Approve will re-run after Done
+        btn.disabled = false;
+        btn.textContent = '✓ Approve Document';
+        btn.style.background = '#1e293b';
+        await vdrShowMatchModal(pre.unmatched, pre.items, pre.vendor, sb, docId);
+        return; // match modal will re-trigger approve when Done
+      }
+      throw new Error(pre.reason);
+    }
+
+    // ── ALL CLEAR — save data ──
+    btn.textContent = '⏳ Saving…';
+
+    const pj    = doc.parsed_json || {};
     const vendor = pj.vendor || doc.vendor || 'Unknown';
     const invoiceDate = pj.invoice_date || null;
     const items = pj.items || [];
 
-    // ── Batch: fetch all matching SKUs in one query ──
+    // Batch fetch all needed data
     const skus = items.map(i => i.vendor_sku || i.item_code).filter(Boolean);
-    const { data: existingBySku } = skus.length ? await sb.from('ingredient_vendors')
-      .select('id,ingredient_id,vendor_sku').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] };
+    const descs = items.map(i => i.description || i.raw_description).filter(Boolean);
+
+    const [skuRes, ingrVendorRes, linkRes] = await Promise.all([
+      skus.length ? sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] },
+      sb.from('ingredient_vendors').select('id,ingredient_id').eq('vendor', vendor),
+      descs.length ? sb.from('ingredient_links').select('invoice_description,ingredient_id').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', descs) : { data: [] },
+    ]);
+
     const skuMap = {};
-    (existingBySku || []).forEach(r => { skuMap[r.vendor_sku] = r; });
-
-    // ── Batch: fetch all active ingredients for fuzzy matching ──
-    const { data: allIngr } = await sb.from('ingredients').select('id,name').eq('active', true);
-    const ingrList = allIngr || [];
-
-    // ── Batch: fetch all existing ingredient_vendors for this vendor ──
-    const { data: existingByIngr } = await sb.from('ingredient_vendors')
-      .select('id,ingredient_id').eq('vendor', vendor);
+    (skuRes.data || []).forEach(r => { skuMap[r.vendor_sku] = r; });
     const ingrVendorMap = {};
-    (existingByIngr || []).forEach(r => { ingrVendorMap[r.ingredient_id] = r.id; });
-
-    // ── Batch fetch confirmed ingredient_links for all items at once ──
-    const allDescs = items.map(i => i.description || i.raw_description).filter(Boolean);
-    const { data: confirmedLinks } = allDescs.length ? await sb.from('ingredient_links')
-      .select('invoice_description,ingredient_id')
-      .eq('vendor', vendor)
-      .eq('confirmed', true)
-      .in('invoice_description', allDescs) : { data: [] };
+    (ingrVendorRes.data || []).forEach(r => { ingrVendorMap[r.ingredient_id] = r.id; });
     const linkMap = {};
-    (confirmedLinks || []).forEach(l => { linkMap[l.invoice_description] = l.ingredient_id; });
+    (linkRes.data || []).forEach(l => { linkMap[l.invoice_description] = l.ingredient_id; });
 
-    // ── Process each item ──
-    const toInsert = [];
     const toUpdate = [];
-    const processedIngrIds = new Set();
+    const toInsert = [];
+    const processedIds = new Set();
 
     for (const item of items) {
       const sku  = item.vendor_sku || item.item_code || null;
@@ -1007,54 +1057,56 @@ window.vdrApprove = async function(docId, btn) {
 
       const totalG  = window.calcTotalWeightG ? window.calcTotalWeightG(item) : null;
       const price   = item.unit_price != null ? parseFloat(item.unit_price) : null;
-      const per100g = (totalG && price) ? ((price / totalG) * 100) : null;
+      const per100g = (totalG && price) ? (price / totalG * 100) : null;
       const fields  = {
-        unit_price: price, pack_description: item.pack_description || null,
-        pack_size: item.pack_size || null, purchase_unit: item.purchase_unit || item.unit || 'each',
-        price_per_100g: per100g, last_invoice_date: invoiceDate,
+        unit_price:       price,
+        pack_description: item.pack_description || null,
+        pack_size:        item.pack_size || null,
+        purchase_unit:    item.purchase_unit || item.unit || 'each',
+        price_per_100g:   per100g,
+        last_invoice_date: invoiceDate,
       };
 
-      // 1. Match by SKU
+      // Match by SKU first
       if (sku && skuMap[sku]) {
-        const existingIngrId = skuMap[sku].ingredient_id;
-        if (!processedIngrIds.has(existingIngrId)) {
-          processedIngrIds.add(existingIngrId);
+        const ingrId = skuMap[sku].ingredient_id;
+        if (!processedIds.has(ingrId)) {
+          processedIds.add(ingrId);
           toUpdate.push({ id: skuMap[sku].id, ...fields });
         }
         continue;
       }
 
-      // 2. Match by confirmed ingredient_link
-      const linkedIngrId = linkMap[desc];
-      if (!linkedIngrId) continue;
-      if (processedIngrIds.has(linkedIngrId)) continue;
-      processedIngrIds.add(linkedIngrId);
+      // Match by confirmed link
+      const linkedId = linkMap[desc];
+      if (!linkedId || processedIds.has(linkedId)) continue;
+      processedIds.add(linkedId);
 
-      if (ingrVendorMap[linkedIngrId]) {
-        toUpdate.push({ id: ingrVendorMap[linkedIngrId], ...fields });
+      if (ingrVendorMap[linkedId]) {
+        toUpdate.push({ id: ingrVendorMap[linkedId], ...fields });
       } else {
-        toInsert.push({ ingredient_id: linkedIngrId, vendor, vendor_sku: sku, active: true, ...fields });
+        toInsert.push({ ingredient_id: linkedId, vendor, vendor_sku: sku, active: true, ...fields });
       }
     }
 
-    // ── Execute batch updates ──
+    // Execute saves
     if (toUpdate.length) {
-      await Promise.all(toUpdate.map(r => {
+      const results = await Promise.all(toUpdate.map(r => {
         const { id, ...data } = r;
         return sb.from('ingredient_vendors').update(data).eq('id', id);
       }));
+      const failed = results.find(r => r.error);
+      if (failed) throw new Error('Update failed: ' + failed.error.message);
     }
-    if (toInsert.length) {
-      // Insert one by one — skip duplicates silently
-      for (const row of toInsert) {
-        const { error: insErr } = await sb.from('ingredient_vendors').insert(row);
-        if (insErr && !insErr.message.includes('duplicate') && !insErr.code === '23505') {
-          console.warn('ingredient_vendors insert skip:', insErr.message);
-        }
+
+    for (const row of toInsert) {
+      const { error: insErr } = await sb.from('ingredient_vendors').insert(row);
+      if (insErr && insErr.code !== '23505') {
+        throw new Error('Insert failed for ' + (row.ingredient_id || '?') + ': ' + insErr.message);
       }
     }
 
-    // ── Mark document as imported ──
+    // Mark imported
     const { error: updErr } = await sb.from('vendor_documents')
       .update({ status: 'imported', updated_at: new Date().toISOString() }).eq('id', docId);
     if (updErr) throw new Error(updErr.message);
@@ -1062,14 +1114,10 @@ window.vdrApprove = async function(docId, btn) {
     const card = document.getElementById('vdrCard-' + docId);
     if (card) {
       card.style.transition = 'opacity .3s'; card.style.opacity = '0';
-      setTimeout(() => {
-        card.remove();
-        const list = document.getElementById('vdrList');
-        if (list && list.querySelectorAll('[id^="vdrCard-"]').length === 0) vdrLoad();
-      }, 300);
+      setTimeout(() => { card.remove(); const list = document.getElementById('vdrList'); if (list && !list.querySelector('[id^="vdrCard-"]')) vdrLoad(); }, 300);
     }
-    // ── Open match modal ──
-    await vdrShowMatchModal(items, vendor, sb);
+    const saved = toUpdate.length + toInsert.length;
+    showScToast('✓ Approved — ' + saved + ' item' + (saved !== 1 ? 's' : '') + ' saved to inventory');
 
   } catch(e) {
     if (statusEl) {
@@ -1079,191 +1127,147 @@ window.vdrApprove = async function(docId, btn) {
       statusEl.style.color = '#991b1b';
       statusEl.textContent = '✗ ' + e.message;
     }
-    btn.disabled = false; btn.textContent = '✓ Approve Document'; btn.style.background = '#1e293b';
+    console.error('vdrApprove error:', e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✓ Approve Document';
+    btn.style.background = '#1e293b';
   }
 };
 
-// ── Post-Approve Match Modal ──────────────────────────────────
-async function vdrShowMatchModal(items, vendor, sb) {
-  // Fetch all active ingredients for matching
+// ── MATCH MODAL (opens BEFORE approve, not during) ─────────────
+async function vdrShowMatchModal(unmatchedItems, allItems, vendor, sb, docId) {
   const { data: allIngr } = await sb.from('ingredients').select('id,name,category').eq('active', true);
   const ingrs = (allIngr || []).filter(i => i.category !== 'Supply');
 
-  // For each item, find best match
   function findMatches(desc) {
-    const stop = ['large','small','medium','fresh','whole','organic','baby','jumbo','wild','red','green','yellow','white','black','blue','sliced','diced','chopped','dried','frozen','raw','salted','unsalted','ground','grated'];
-    const kws = (desc || '').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
-      .filter(w => w.length > 2 && !stop.includes(w)).slice(0, 3);
+    const stop = ['large','small','medium','fresh','whole','organic','baby','jumbo','wild','red','green','yellow','white','black','sliced','diced','dried','frozen','raw','salted','unsalted','ground','grated'];
+    const kws = (desc||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
+      .filter(w => w.length>2 && !stop.includes(w)).slice(0,3);
     if (!kws.length) return [];
-    const scored = ingrs.map(i => {
+    return ingrs.map(i => {
       const n = i.name.toLowerCase();
       const score = kws.filter(k => n.includes(k)).length;
-      return { ...i, score };
-    }).filter(x => x.score > 0).sort((a,b) => b.score - a.score || a.name.length - b.name.length);
-    return scored.slice(0, 3);
+      return {...i, score};
+    }).filter(x => x.score>0).sort((a,b) => b.score-a.score || a.name.length-b.name.length).slice(0,3);
   }
 
-  // Build item states
-  const itemStates = items.map(item => {
+  const itemStates = unmatchedItems.map(item => {
     const desc = item.description || item.raw_description || '';
     const matches = findMatches(desc);
-    return {
-      item, desc,
-      status: matches.length ? 'suggest' : 'new',
-      suggested: matches[0] || null,
-      candidates: matches,
-      linkedId: null, linkedName: null,
-    };
+    return { item, desc, status: matches.length?'suggest':'new', suggested: matches[0]||null, candidates: matches, linkedId: null, linkedName: null };
   });
 
-  // ── Render modal ──
   const existing = document.getElementById('_vdrMatchModal');
   if (existing) existing.remove();
-
   const modal = document.createElement('div');
   modal.id = '_vdrMatchModal';
   modal.style.cssText = 'position:fixed;inset:0;z-index:9300;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.5);';
 
   function renderAll() {
-    const done = itemStates.filter(s => s.status === 'done' || s.status === 'skip').length;
+    const done  = itemStates.filter(s => s.status==='done'||s.status==='skip').length;
     const total = itemStates.length;
-    const allDone = done === total;
-
-    const itemsHtml = itemStates.map((s, idx) => {
-      if (s.status === 'done') {
-        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid #f8fafc;">
-          <span style="font-size:16px;">✅</span>
-          <div style="flex:1;min-width:0;">
-            <div style="font-size:12px;font-weight:500;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.desc}</div>
-            <div style="font-size:10px;color:#10b981;">→ ${s.linkedName}</div>
-          </div>
-          <button onclick="vdrMatchUndo(${idx})" style="font-size:10px;padding:3px 8px;border-radius:8px;background:#f1f5f9;color:#64748b;border:none;cursor:pointer;flex-shrink:0;">↩</button>
-        </div>`;
-      }
-      if (s.status === 'skip') {
-        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid #f8fafc;opacity:0.4;">
-          <span style="font-size:16px;">⏭️</span>
-          <div style="font-size:12px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.desc}</div>
-        </div>`;
-      }
-
-      const suggestBtns = s.candidates.map((c,ci) => {
-        const isPrimary = ci === 0;
-        return `<button onclick="vdrMatchLink(${idx},'${c.id}','${c.name.replace(/'/g,"\'")}',this)"
-          style="font-size:${isPrimary?'12':'11'}px;padding:${isPrimary?'7px 12px':'5px 10px'};border-radius:${isPrimary?10:8}px;
-          background:${isPrimary?'rgba(16,185,129,0.1)':'rgba(59,130,246,0.06)'};
-          color:${isPrimary?'#065f46':'#1d4ed8'};
-          border:1px solid ${isPrimary?'rgba(16,185,129,0.3)':'rgba(59,130,246,0.2)'};
-          cursor:pointer;font-weight:${isPrimary?600:400};white-space:nowrap;">
-          ${isPrimary?'✓ ':''} ${c.name}
-        </button>`;
+    const allDone = done===total;
+    const itemsHtml = itemStates.map((s,idx) => {
+      if (s.status==='done') return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid #f8fafc;">
+        <span>✅</span><div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.desc}</div>
+        <div style="font-size:10px;color:#10b981;">→ ${s.linkedName}</div></div>
+        <button onclick="vdrMatchUndo(${idx})" style="font-size:10px;padding:3px 8px;border-radius:8px;background:#f1f5f9;color:#64748b;border:none;cursor:pointer;">↩</button></div>`;
+      if (s.status==='skip') return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid #f8fafc;opacity:0.4;">
+        <span>⏭️</span><div style="font-size:12px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.desc}</div>
+        <button onclick="vdrMatchUndo(${idx})" style="font-size:10px;padding:3px 8px;border-radius:8px;background:#f1f5f9;color:#64748b;border:none;cursor:pointer;">↩</button></div>`;
+      const btns = s.candidates.map((c,ci) => {
+        const p = ci===0;
+        return `<button onclick="vdrMatchLink(${idx},'${c.id}','${c.name.replace(/'/g,"\\'")}',this)" style="font-size:${p?12:11}px;padding:${p?'7px 12px':'5px 10px'};border-radius:${p?10:8}px;background:${p?'rgba(16,185,129,0.1)':'rgba(59,130,246,0.06)'};color:${p?'#065f46':'#1d4ed8'};border:1px solid ${p?'rgba(16,185,129,0.3)':'rgba(59,130,246,0.2)'};cursor:pointer;font-weight:${p?600:400};white-space:nowrap;">${p?'✓ ':''}${c.name}</button>`;
       }).join('');
-
       return `<div id="vdrMItem-${idx}" style="padding:8px 0;border-bottom:0.5px solid #f8fafc;">
         <div style="font-size:12px;font-weight:500;color:#1e293b;margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.desc}</div>
-        <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
-          ${suggestBtns}
+        <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">${btns}
           <button onclick="vdrMatchSkip(${idx})" style="font-size:10px;padding:4px 8px;border-radius:8px;background:rgba(0,0,0,0.04);color:#94a3b8;border:1px solid #e2e8f0;cursor:pointer;">Skip</button>
           <button onclick="vdrMatchShowSearch(${idx})" style="font-size:10px;padding:4px 8px;border-radius:8px;background:rgba(245,158,11,0.08);color:#92400e;border:1px solid rgba(245,158,11,0.3);cursor:pointer;">🔍 Search</button>
         </div>
         <div id="vdrMSearch-${idx}" style="display:none;margin-top:6px;">
           <div style="display:flex;gap:6px;">
-            <input id="vdrMInput-${idx}" type="text" placeholder="Type ingredient name..." list="vdrIngrList"
-              style="flex:1;height:34px;padding:0 10px;border:1px solid #e2e8f0;border-radius:10px;font-size:12px;outline:none;"/>
+            <input id="vdrMInput-${idx}" type="text" placeholder="Type ingredient name..." list="vdrIngrList" style="flex:1;height:34px;padding:0 10px;border:1px solid #e2e8f0;border-radius:10px;font-size:12px;outline:none;"/>
             <button onclick="vdrMatchConfirmSearch(${idx})" style="height:34px;padding:0 12px;border-radius:10px;background:#1e293b;color:white;font-size:12px;border:none;cursor:pointer;">Link</button>
           </div>
         </div>
       </div>`;
     }).join('');
-
     modal.innerHTML = `<div style="background:white;border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:85vh;display:flex;flex-direction:column;">
       <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 12px;"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
         <div style="font-size:15px;font-weight:600;color:#1e293b;">🔗 Match Ingredients</div>
         <div style="font-size:11px;color:#94a3b8;">${done}/${total} done</div>
       </div>
-      <div style="font-size:11px;color:#94a3b8;margin-bottom:12px;">Link each invoice item to an ingredient in your database.</div>
-      <div style="background:#f8fafc;border-radius:10px;height:4px;margin-bottom:14px;overflow:hidden;">
-        <div style="width:${Math.round((done/total)*100)}%;height:100%;background:#10b981;border-radius:10px;transition:width .3s;"></div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:10px;">Link each item to an ingredient. Then approve.</div>
+      <div style="background:#f8fafc;border-radius:10px;height:4px;margin-bottom:12px;overflow:hidden;">
+        <div style="width:${Math.round(done/total*100)}%;height:100%;background:#10b981;border-radius:10px;transition:width .3s;"></div>
       </div>
-      <div style="flex:1;overflow-y:auto;padding-bottom:4px;">${itemsHtml}</div>
+      <div style="flex:1;overflow-y:auto;">${itemsHtml}</div>
       <div style="margin-top:12px;">
-        <button onclick="vdrMatchDone()" style="width:100%;height:44px;border-radius:14px;background:${allDone?'#10b981':'#1e293b'};color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">
-          ${allDone?'✓ All matched — Done':'Done'}
+        <button onclick="vdrMatchDone('${docId}')" style="width:100%;height:44px;border-radius:14px;background:${allDone?'#10b981':'#1e293b'};color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">
+          ${allDone?'✓ Done — Approve Now':'Done'}
         </button>
       </div>
     </div>`;
   }
 
-  // ── Actions ──
-  window.vdrMatchLink = async function(idx, ingrId, ingrName, btn) {
-    btn.textContent = '...'; btn.disabled = true;
-    const s = itemStates[idx];
-    const sb2 = window.supabaseClient;
-    // Save to ingredient_links
-    await sb2.from('ingredient_links').upsert({
-      vendor, invoice_description: s.desc,
-      ingredient_id: ingrId, ingredient_name: ingrName,
-      confirmed: true, updated_at: new Date().toISOString()
-    }, { onConflict: 'vendor,invoice_description' });
-    // Update invoice_lines match_status
-    await sb2.from('invoice_lines')
-      .update({ match_status: 'matched', ingredient_id: ingrId })
-      .eq('vendor', vendor).eq('raw_description', s.desc);
-    s.status = 'done'; s.linkedId = ingrId; s.linkedName = ingrName;
-    renderAll();
-  };
-
-  window.vdrMatchSkip = function(idx) {
-    itemStates[idx].status = 'skip';
-    renderAll();
-  };
-
-  // Build datalist from all ingredients (once)
+  // Datalist
   if (!document.getElementById('vdrIngrList')) {
-    const dl = document.createElement('datalist');
-    dl.id = 'vdrIngrList';
+    const dl = document.createElement('datalist'); dl.id = 'vdrIngrList';
     ingrs.forEach(i => { const o = document.createElement('option'); o.value = i.name; dl.appendChild(o); });
     document.body.appendChild(dl);
   }
 
-  window.vdrMatchShowSearch = function(idx) {
-    const el = document.getElementById('vdrMSearch-' + idx);
-    if (el) { el.style.display = 'block'; document.getElementById('vdrMInput-' + idx)?.focus(); }
-  };
-
-  window.vdrMatchConfirmSearch = async function(idx) {
-    const input = document.getElementById('vdrMInput-' + idx);
-    const val = input ? input.value.trim() : '';
-    if (!val) return;
-    const sb2 = window.supabaseClient;
-    // Check if ingredient exists
-    const { data: found } = await sb2.from('ingredients').select('id,name').ilike('name', val).limit(1);
-    if (found && found.length) {
-      window.vdrMatchLink(idx, found[0].id, found[0].name, { textContent:'', disabled:false });
-    } else {
-      // Create new ingredient
-      const { data: created } = await sb2.from('ingredients')
-        .insert({ name: val, count_unit: 'weight', active: true }).select('id').single();
-      if (created) window.vdrMatchLink(idx, created.id, val, { textContent:'', disabled:false });
-    }
-  };
-
-  window.vdrMatchUndo = function(idx) {
+  window.vdrMatchLink = async function(idx, ingrId, ingrName, btn) {
+    if (btn) { btn.textContent = '...'; btn.disabled = true; }
     const s = itemStates[idx];
-    s.status = 'suggest';
-    s.linkedId = null; s.linkedName = null;
+    await sb.from('ingredient_links').upsert({
+      vendor, invoice_description: s.desc,
+      ingredient_id: ingrId, ingredient_name: ingrName,
+      confirmed: true, updated_at: new Date().toISOString()
+    }, { onConflict: 'vendor,invoice_description' });
+    s.status = 'done'; s.linkedId = ingrId; s.linkedName = ingrName;
     renderAll();
   };
 
-  window.vdrMatchDone = function() {
+  window.vdrMatchUndo = function(idx) {
+    itemStates[idx].status = 'suggest'; itemStates[idx].linkedId = null; itemStates[idx].linkedName = null;
+    renderAll();
+  };
+
+  window.vdrMatchSkip = function(idx) { itemStates[idx].status = 'skip'; renderAll(); };
+
+  window.vdrMatchShowSearch = function(idx) {
+    const el = document.getElementById('vdrMSearch-'+idx);
+    if (el) { el.style.display='block'; document.getElementById('vdrMInput-'+idx)?.focus(); }
+  };
+
+  window.vdrMatchConfirmSearch = async function(idx) {
+    const input = document.getElementById('vdrMInput-'+idx);
+    const val = input?.value.trim();
+    if (!val) return;
+    const { data: found } = await sb.from('ingredients').select('id,name').ilike('name', val).limit(1);
+    if (found?.length) {
+      window.vdrMatchLink(idx, found[0].id, found[0].name, null);
+    } else {
+      const { data: created } = await sb.from('ingredients').insert({ name: val, count_unit: 'weight', active: true }).select('id').single();
+      if (created) window.vdrMatchLink(idx, created.id, val, null);
+    }
+  };
+
+  window.vdrMatchDone = function(docId) {
     modal.remove();
-    showScToast('✓ Match complete');
+    // Re-trigger approve now that all items are matched
+    const btn = document.querySelector(`#vdrCard-${docId} button[onclick*="vdrApprove"]`);
+    if (btn) btn.click();
   };
 
   document.body.appendChild(modal);
   renderAll();
 }
+
 
 // Patch vdrToggle to register questions on first open
 const _origVdrToggle = window.vdrToggle;
