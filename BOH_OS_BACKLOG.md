@@ -117,12 +117,21 @@
 
 ## Prossima Sessione
 
-**Ultimo task completato:**
-Invoice Import pipeline end-to-end + DB ingredienti cleanup + matching post-salvataggio
+**Ultimo task completato (v64 — 2026-06-12):**
+- WARNING MASTER SYSTEM v2.0 (`BOH_OS_WARNINGS.md`) — OQR come canale, registry completo, lifecycle
+- Quadratura DOC-TOTAL-001: parser client (`index.js`) + Edge Function `gmail-vendor-import` v2 + backfill (6 doc flaggati)
+- Fix fantasma Hardie's #06977530: item incollato alla riga header → newline injection in `hardies-invoice.js` (testato: 1 item, $862.79, pack estratto)
+- Fix fantasma FreshPoint: prefissi `> ` email inoltrate + SKU 3 cifre (blackberries 918, blueberries 926 = i $28.56 della quadratura) + parsing tab-delimited + pack patterns → 11/11 item, zero OQR-008 (testato)
+- Documenti `status='error'` ora visibili in Vendor Review
+- `invoice_warnings.severity` (blocking/alert/insight) + backfill
+- Regole nuove in DECISIONS: version bump ogni commit, deploy branch = brigade-main (MAI main)
 
 **Prossimo task:**
-1. FreshPoint Dallas parser
-2. Gmail → Hardie's auto-import (setup Gmail API)
+1. **Pulizia DB + re-import fresco da Gmail** — backup tabelle, wipe vendor_documents/invoice_warnings, re-label email in Gmail, verifica pipeline end-to-end
+2. "Report a problem" — warning manuale su documenti e righe
+3. Home banner warning (severity colors, visibilità per ruolo)
+4. ALT-MISS-001 — item mancante → assign ruolo → persona
 
 **Blockers:**
-Gmail API credentials da configurare
+- FreshPoint non manda ancora le fatture (solo order confirmation) — Max ha richiesto, in attesa
+- Token GitHub in chat: da rigenerare/far scadere a fine fase
