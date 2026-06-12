@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Back of House — v29</title>
+<title>Back of House</title>
 <meta name="theme-color" content="#059669">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -132,7 +132,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <div id="topbarAvatar" style="width:38px;height:38px;border-radius:50%;background:#3B82F6;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:white;overflow:hidden;flex-shrink:0;border:2px solid rgba(59,130,246,0.2);"></div>
         <div style="line-height:1.2;">
           <div id="who" style="font-size:15px;font-weight:600;color:#1e3a5f;"></div>
-          <div style="display:flex;align-items:center;gap:5px;"><div style="font-size:11px;color:#60a5fa;" id="topbarRole"></div><div style="font-size:9px;color:#cbd5e1;font-weight:500;">v62</div></div>
+          <div style="display:flex;align-items:center;gap:5px;"><div style="font-size:11px;color:#60a5fa;" id="topbarRole"></div><div style="font-size:9px;color:#cbd5e1;font-weight:500;" id="appVersion"></div></div>
         </div>
       </div>
 
@@ -497,4 +497,19 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/ingredients.js"></script>
 <script src="js/pos.js"></script>
 <script>if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js')}</script>
+<script>
+// App version — single source of truth: CACHE_NAME in sw.js (boh-vNN).
+// Bumped on every deploy; label and title update automatically.
+fetch('sw.js?nocache=' + Date.now())
+  .then(r => r.text())
+  .then(t => {
+    const m = t.match(/boh-v(\d+)/);
+    if (!m) return;
+    const v = 'v' + m[1];
+    const el = document.getElementById('appVersion');
+    if (el) el.textContent = v;
+    document.title = 'Back of House — ' + v;
+  })
+  .catch(() => {});
+</script>
 </html>
