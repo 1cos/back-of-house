@@ -946,6 +946,8 @@ function vdrRefreshBadge(docId) {
 }
 
 // ── Approve document ──────────────────────────────────────────
+const _vdrQMap = {};
+window._vdrQuestions = _vdrQMap;
 window.vdrApprove = async function(docId, btn) {
   const statusEl = document.getElementById('vdrActionStatus-' + docId);
   btn.disabled = true;
@@ -1063,8 +1065,6 @@ window.vdrApprove = async function(docId, btn) {
     btn.disabled = false; btn.textContent = '✓ Approve Document'; btn.style.background = '#1e293b';
   }
 };
-window._vdrQuestions = _vdrQMap;
-
 // Patch vdrToggle to register questions on first open
 const _origVdrToggle = window.vdrToggle;
 window.vdrToggle = function(id) {
