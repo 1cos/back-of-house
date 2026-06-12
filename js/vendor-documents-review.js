@@ -716,6 +716,29 @@ function vdrWarningToQuestion(w, item, docId, idx) {
     };
   }
 
+  // ── DOC-TOTAL-001: Quadratura — lines don't reconcile with total ──
+  // Blocking (red). Data Priority P1: the document total is truth.
+  if (w.code === 'DOC-TOTAL-001') {
+    const sum  = w.sum_of_lines   != null ? '$' + Number(w.sum_of_lines).toFixed(2)   : '?';
+    const decl = w.declared_total != null ? '$' + Number(w.declared_total).toFixed(2) : '?';
+    const pct  = (w.sum_of_lines != null && w.declared_total)
+      ? Math.round(Math.abs(w.sum_of_lines / w.declared_total) * 100) + '%' : '?';
+    return {
+      qid, code: 'DOC-TOTAL-001', item: null, docId, idx,
+      emoji: '🧮',
+      title: 'Totals don\'t add up',
+      detected: `Lines ${sum} · Document total ${decl} (${pct} read)`,
+      question: `The lines don't add up to the document total. Lines may be missing.`,
+      meaning: `Approving as-is would put incomplete data into food cost`,
+      yesLabel: 'Accept as-is',
+      noLabel: 'Needs re-scan',
+      noNextQuestion: `What's wrong with this document?`,
+      noPlaceholder: `e.g. Bad scan, lines cut off, will re-upload`,
+      warnRef: w,
+      blocking: true,
+    };
+  }
+
   // ── OQR-008: Pack format not parseable ───────────────────────────
   // e.g. FreshPoint "3/2# CS", "11# BX", "5#(R) BX"
   if (w.code === 'OQR-008') {
@@ -886,8 +909,11 @@ function vdrQuestionHTML(docId, q, idx) {
   }
 
   // Standard OQR yes/no question
+  // Blocking questions render red; decision/insight questions amber.
+  const _qBg     = q.blocking ? '#fff5f5'             : '#fefce8';
+  const _qBorder = q.blocking ? 'rgba(239,68,68,0.3)' : 'rgba(234,179,8,0.3)';
   return `
-    <div id="${cardId}" style="background:#fefce8;border:1px solid rgba(234,179,8,0.3);border-radius:12px;padding:10px 12px;margin-bottom:6px;">
+    <div id="${cardId}" style="background:${_qBg};border:1px solid ${_qBorder};border-radius:12px;padding:10px 12px;margin-bottom:6px;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
         <span style="font-size:16px;flex-shrink:0;">${q.emoji}</span>
         <div style="flex:1;min-width:0;">
