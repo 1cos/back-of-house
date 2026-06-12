@@ -532,15 +532,20 @@ window.runSousChefScan = async function() {
       }
     }
 
-    // ── SC-NOLINK-001: due casi distinti ─────────────────────────
-    // A) Fantasma: no vendor + no link + no ricette → elimina
-    // B) Peso mancante: ha unit_price ma manca price_per_100g → inserisci peso
+    // ── SC-NOLINK-001: tre casi distinti ─────────────────────────
+    // Logica di classificazione:
+    // 1. Se l'ingrediente è anche una ricetta nel DB → sub-ricetta/produzione interna → SKIP
+    //    (es. Bolognese Sauce, Balsamic Glaze — fatti in cucina, non acquistati)
+    // 2. Ha unit_price in ingredient_vendors ma price_per_100g NULL → PESO MANCANTE
+    //    (es. Avocado 6CT $13.27 — il peso per unità non è mai stato salvato)
+    // 3. No vendor + no link fattura + non è sub-ricetta → FANTASMA → elimina
+    //    (es. Tomahoke Loin — creato per errore, nessun dato)
     if (rules['SC-NOLINK-001']) {
-      const [{ data: allIngr }, { data: ivRows }, { data: linkRows }, { data: recipes }] = await Promise.all([
+      const [{ data: allIngr }, { data: ivRows }, { data: linkRows }, { data: allRecipes }] = await Promise.all([
         sb.from('ingredients').select('id,name,category').eq('active', true).neq('category', 'Supply'),
         sb.from('ingredient_vendors').select('ingredient_id,vendor,unit_price,price_per_100g,pack_description'),
         sb.from('ingredient_links').select('ingredient_id').eq('confirmed', true),
-        sb.from('recipes').select('ingredients'),
+        sb.from('recipes').select('title,ingredients'),
       ]);
 
       const ivMap = {};
@@ -549,20 +554,52 @@ window.runSousChefScan = async function() {
         else if (iv.price_per_100g && !ivMap[iv.ingredient_id].price_per_100g) ivMap[iv.ingredient_id] = iv;
       }
       const linkedIds = new Set((linkRows || []).map(l => l.ingredient_id));
-      const inRecipes = new Set();
-      for (const r of (recipes || [])) for (const ing of (r.ingredients || [])) if (ing.name) inRecipes.add(ing.name.toLowerCase());
+
+      // Nomi delle ricette nel DB (lowercase) — questi sono sub-ricette/produzioni interne
+      // Un ingrediente con lo stesso nome di una ricetta NON è un acquisto
+      const recipeNames = new Set((allRecipes || []).map(r => (r.title || '').toLowerCase().trim()));
+
+      // Ingredienti usati dentro altre ricette (come ingrediente)
+      const usedInRecipes = new Set();
+      for (const r of (allRecipes || [])) {
+        for (const ing of (r.ingredients || [])) {
+          if (ing.name) usedInRecipes.add(ing.name.toLowerCase().trim());
+        }
+      }
 
       const ghosts = [], missingW = [];
       for (const ingr of (allIngr || [])) {
         const iv = ivMap[ingr.id];
+        // Già ok — ha price_per_100g
         if (iv && iv.price_per_100g) continue;
+
+        const nameLower = ingr.name.toLowerCase().trim();
+        // È una sub-ricetta/produzione interna → skip
+        // (il nome corrisponde a una ricetta esistente, o è usato come ingrediente
+        //  ma non ha mai avuto un vendor → viene prodotto in cucina)
+        const isSubRecipe = recipeNames.has(nameLower);
         const hasVendor = !!(iv && iv.unit_price);
         const hasLink = linkedIds.has(ingr.id);
-        const inRec = inRecipes.has(ingr.name.toLowerCase());
-        if (!hasVendor && !hasLink && !inRec) ghosts.push({ ingredient_id: ingr.id, ingredient_name: ingr.name });
-        else if (hasVendor) missingW.push({ ingredient_id: ingr.id, ingredient_name: ingr.name, vendor: iv.vendor, unit_price: parseFloat(iv.unit_price), pack_description: iv.pack_description });
+
+        // Se è sub-ricetta E non ha vendor → skip (produzione interna)
+        if (isSubRecipe && !hasVendor) continue;
+
+        if (hasVendor) {
+          // Ha prezzo in fattura ma manca il peso → peso mancante
+          missingW.push({
+            ingredient_id: ingr.id,
+            ingredient_name: ingr.name,
+            vendor: iv.vendor,
+            unit_price: parseFloat(iv.unit_price),
+            pack_description: iv.pack_description,
+          });
+        } else if (!hasLink && !isSubRecipe) {
+          // Nessun vendor, nessun link, non è sub-ricetta → fantasma
+          ghosts.push({ ingredient_id: ingr.id, ingredient_name: ingr.name });
+        }
       }
 
+      // Card fantasmi (max 3 per card)
       for (let i = 0; i < ghosts.length; i += 3) {
         const group = ghosts.slice(i, i + 3);
         const n = ghosts.length;
@@ -572,6 +609,7 @@ window.runSousChefScan = async function() {
           items: group });
       }
 
+      // Card peso mancante (max 3 per card)
       for (let i = 0; i < missingW.length; i += 3) {
         const group = missingW.slice(i, i + 3);
         const n = missingW.length;
