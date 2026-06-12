@@ -1052,7 +1052,8 @@ window.vdrApprove = async function(docId, btn) {
         if (list && list.querySelectorAll('[id^="vdrCard-"]').length === 0) vdrLoad();
       }, 300);
     }
-    showScToast('✓ Approved — ' + (toUpdate.length + toInsert.length) + ' items updated in inventory');
+    // ── Open match modal ──
+    await vdrShowMatchModal(items, vendor, sb);
 
   } catch(e) {
     if (statusEl) {
@@ -1065,6 +1066,155 @@ window.vdrApprove = async function(docId, btn) {
     btn.disabled = false; btn.textContent = '✓ Approve Document'; btn.style.background = '#1e293b';
   }
 };
+
+// ── Post-Approve Match Modal ──────────────────────────────────
+async function vdrShowMatchModal(items, vendor, sb) {
+  // Fetch all active ingredients for matching
+  const { data: allIngr } = await sb.from('ingredients').select('id,name,category').eq('active', true);
+  const ingrs = (allIngr || []).filter(i => i.category !== 'Supply');
+
+  // For each item, find best match
+  function findMatches(desc) {
+    const stop = ['large','small','medium','fresh','whole','organic','baby','jumbo','wild','red','green','yellow','white','black','blue','sliced','diced','chopped','dried','frozen','raw','salted','unsalted','ground','grated'];
+    const kws = (desc || '').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
+      .filter(w => w.length > 2 && !stop.includes(w)).slice(0, 3);
+    if (!kws.length) return [];
+    const scored = ingrs.map(i => {
+      const n = i.name.toLowerCase();
+      const score = kws.filter(k => n.includes(k)).length;
+      return { ...i, score };
+    }).filter(x => x.score > 0).sort((a,b) => b.score - a.score || a.name.length - b.name.length);
+    return scored.slice(0, 3);
+  }
+
+  // Build item states
+  const itemStates = items.map(item => {
+    const desc = item.description || item.raw_description || '';
+    const matches = findMatches(desc);
+    return {
+      item, desc,
+      status: matches.length ? 'suggest' : 'new',
+      suggested: matches[0] || null,
+      candidates: matches,
+      linkedId: null, linkedName: null,
+    };
+  });
+
+  // ── Render modal ──
+  const existing = document.getElementById('_vdrMatchModal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = '_vdrMatchModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9300;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.5);';
+
+  function renderAll() {
+    const done = itemStates.filter(s => s.status === 'done' || s.status === 'skip').length;
+    const total = itemStates.length;
+    const allDone = done === total;
+
+    const itemsHtml = itemStates.map((s, idx) => {
+      if (s.status === 'done') {
+        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid #f8fafc;">
+          <span style="font-size:16px;">✅</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;font-weight:500;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.desc}</div>
+            <div style="font-size:10px;color:#10b981;">→ ${s.linkedName}</div>
+          </div>
+        </div>`;
+      }
+      if (s.status === 'skip') {
+        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid #f8fafc;opacity:0.4;">
+          <span style="font-size:16px;">⏭️</span>
+          <div style="font-size:12px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.desc}</div>
+        </div>`;
+      }
+
+      const suggestBtns = s.candidates.map((c,ci) => {
+        const isPrimary = ci === 0;
+        return `<button onclick="vdrMatchLink(${idx},'${c.id}','${c.name.replace(/'/g,"\'")}',this)"
+          style="font-size:${isPrimary?'12':'11'}px;padding:${isPrimary?'7px 12px':'5px 10px'};border-radius:${isPrimary?10:8}px;
+          background:${isPrimary?'rgba(16,185,129,0.1)':'rgba(59,130,246,0.06)'};
+          color:${isPrimary?'#065f46':'#1d4ed8'};
+          border:1px solid ${isPrimary?'rgba(16,185,129,0.3)':'rgba(59,130,246,0.2)'};
+          cursor:pointer;font-weight:${isPrimary?600:400};white-space:nowrap;">
+          ${isPrimary?'✓ ':''} ${c.name}
+        </button>`;
+      }).join('');
+
+      return `<div id="vdrMItem-${idx}" style="padding:8px 0;border-bottom:0.5px solid #f8fafc;">
+        <div style="font-size:12px;font-weight:500;color:#1e293b;margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.desc}</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
+          ${suggestBtns}
+          <button onclick="vdrMatchSkip(${idx})" style="font-size:10px;padding:4px 8px;border-radius:8px;background:rgba(0,0,0,0.04);color:#94a3b8;border:1px solid #e2e8f0;cursor:pointer;">Skip</button>
+          <button onclick="vdrMatchNew(${idx})" style="font-size:10px;padding:4px 8px;border-radius:8px;background:rgba(245,158,11,0.08);color:#92400e;border:1px solid rgba(245,158,11,0.3);cursor:pointer;">New ingredient</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    modal.innerHTML = `<div style="background:white;border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:85vh;display:flex;flex-direction:column;">
+      <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 12px;"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <div style="font-size:15px;font-weight:600;color:#1e293b;">🔗 Match Ingredients</div>
+        <div style="font-size:11px;color:#94a3b8;">${done}/${total} done</div>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:12px;">Link each invoice item to an ingredient in your database.</div>
+      <div style="background:#f8fafc;border-radius:10px;height:4px;margin-bottom:14px;overflow:hidden;">
+        <div style="width:${Math.round((done/total)*100)}%;height:100%;background:#10b981;border-radius:10px;transition:width .3s;"></div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding-bottom:4px;">${itemsHtml}</div>
+      <div style="margin-top:12px;">
+        <button onclick="vdrMatchDone()" style="width:100%;height:44px;border-radius:14px;background:${allDone?'#10b981':'#1e293b'};color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">
+          ${allDone?'✓ All matched — Done':'Done'}
+        </button>
+      </div>
+    </div>`;
+  }
+
+  // ── Actions ──
+  window.vdrMatchLink = async function(idx, ingrId, ingrName, btn) {
+    btn.textContent = '...'; btn.disabled = true;
+    const s = itemStates[idx];
+    const sb2 = window.supabaseClient;
+    // Save to ingredient_links
+    await sb2.from('ingredient_links').upsert({
+      vendor, invoice_description: s.desc,
+      ingredient_id: ingrId, ingredient_name: ingrName,
+      confirmed: true, updated_at: new Date().toISOString()
+    }, { onConflict: 'vendor,invoice_description' });
+    // Update invoice_lines match_status
+    await sb2.from('invoice_lines')
+      .update({ match_status: 'matched', ingredient_id: ingrId })
+      .eq('vendor', vendor).eq('raw_description', s.desc);
+    s.status = 'done'; s.linkedId = ingrId; s.linkedName = ingrName;
+    renderAll();
+  };
+
+  window.vdrMatchSkip = function(idx) {
+    itemStates[idx].status = 'skip';
+    renderAll();
+  };
+
+  window.vdrMatchNew = function(idx) {
+    const s = itemStates[idx];
+    const name = prompt('New ingredient name:', s.desc.toLowerCase().replace(/[^a-z0-9 ]/g,'').trim());
+    if (!name) return;
+    const sb2 = window.supabaseClient;
+    sb2.from('ingredients').insert({ name, count_unit: 'weight', active: true })
+      .select('id').single().then(({ data }) => {
+        if (data) window.vdrMatchLink(idx, data.id, name, { textContent:'', disabled:false });
+      });
+  };
+
+  window.vdrMatchDone = function() {
+    modal.remove();
+    showScToast('✓ Match complete');
+  };
+
+  document.body.appendChild(modal);
+  renderAll();
+}
+
 // Patch vdrToggle to register questions on first open
 const _origVdrToggle = window.vdrToggle;
 window.vdrToggle = function(id) {
