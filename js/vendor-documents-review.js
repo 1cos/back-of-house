@@ -1010,7 +1010,7 @@ window.vdrApprove = async function(docId, btn) {
       const per100g = (totalG && price) ? ((price / totalG) * 100) : null;
       const fields  = {
         unit_price: price, pack_description: item.pack_description || null,
-        pack_size: item.pack_size || null, purchase_unit: item.purchase_unit || item.unit || null,
+        pack_size: item.pack_size || null, purchase_unit: item.purchase_unit || item.unit || 'each',
         price_per_100g: per100g, last_invoice_date: invoiceDate,
       };
 
