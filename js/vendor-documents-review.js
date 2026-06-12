@@ -716,6 +716,82 @@ function vdrWarningToQuestion(w, item, docId, idx) {
     };
   }
 
+  // ── OQR-008: Pack format not parseable ───────────────────────────
+  // e.g. FreshPoint "3/2# CS", "11# BX", "5#(R) BX"
+  if (w.code === 'OQR-008') {
+    const rawDesc = item ? (item.pack_description || item.description || '') : (w.item || '');
+    // Try to auto-resolve simple patterns before asking
+    // "X# BX/CS/BG" → X lb → totalG = X * 453.6
+    const lbMatch = rawDesc.match(/(\d+(?:\.\d+)?)#[^\d]/);
+    if (lbMatch) {
+      // Auto-resolvable — no question needed, just flag for parser fix
+      return null;
+    }
+    // "X/Y# ..." → X bags of Y lb
+    const bagMatch = rawDesc.match(/(\d+)\/(\d+(?:\.\d+)?)#/);
+    if (bagMatch) {
+      return null; // auto-resolvable
+    }
+    return {
+      qid, code: 'OQR-008', item, docId, idx,
+      emoji: '📦',
+      title: w.item || rawDesc || 'Item',
+      detected: rawDesc,
+      question: 'What is the total weight of this case?',
+      meaning: `Pack: ${rawDesc} — parser could not determine weight`,
+      yesLabel: 'Enter weight',
+      noLabel: 'Skip for now',
+      isWeightInput: true,
+      warnRef: w,
+    };
+  }
+
+  // ── OQR-009: CT item — need price per each or weight ─────────────
+  // Triggered when pack is CT but no weight/each price calculable
+  if (w.code === 'OQR-009') {
+    const EACH_ITEMS = ['FLOWER','LEMON','LIME','ARTICHOKE','AVOCADO','EGG'];
+    const name = w.item || '';
+    const isEach = EACH_ITEMS.some(k => name.toUpperCase().includes(k));
+    const pack = item ? (item.pack_description || '') : '';
+    // Parse units from pack
+    const mSlash = pack.match(/^(\d+)\s*\/\s*(\d+)\s*CT/i);
+    const mSimple = pack.match(/^(\d+)\s*CT/i);
+    const totalUnits = mSlash ? parseInt(mSlash[1]) * parseInt(mSlash[2])
+                    : mSimple ? parseInt(mSimple[1]) : null;
+
+    if (isEach) {
+      // OQR-009b: priced per each — just confirm units per case
+      return {
+        qid, code: 'OQR-009', item, docId, idx,
+        emoji: vdrItemEmoji(name),
+        title: name,
+        detected: pack,
+        question: `How many ${name.toLowerCase()}s per case?`,
+        meaning: totalUnits ? `Detected ${totalUnits} units — confirm or correct` : `Pack: ${pack}`,
+        yesLabel: totalUnits ? `Yes — ${totalUnits} each` : 'Enter count',
+        noLabel: 'Different count',
+        isEachInput: true,
+        detectedUnits: totalUnits,
+        warnRef: w,
+      };
+    } else {
+      // OQR-009a: sold by weight — ask avg weight per piece
+      return {
+        qid, code: 'OQR-009', item, docId, idx,
+        emoji: vdrItemEmoji(name),
+        title: name,
+        detected: pack,
+        question: `Average weight of 1 ${name.toLowerCase()}?`,
+        meaning: `Pack: ${pack}${totalUnits ? ` (${totalUnits} units)` : ''} — need unit weight to calculate $/100g`,
+        yesLabel: 'Enter grams',
+        noLabel: 'Skip — use each',
+        isWeightInput: true,
+        detectedUnits: totalUnits,
+        warnRef: w,
+      };
+    }
+  }
+
   return null; // unknown code — skip
 }
 
@@ -756,6 +832,55 @@ function vdrQuestionHTML(docId, q, idx) {
             style="height:36px;padding:0 14px;border-radius:8px;background:#1e293b;color:white;font-size:12px;font-weight:500;border:none;cursor:pointer;white-space:nowrap;">
             Save
           </button>
+        </div>
+      </div>`;
+  }
+
+  // OQR-009a: weight input
+  if (q.isWeightInput) {
+    return `
+      <div id="${cardId}" style="background:#fefce8;border:1px solid rgba(234,179,8,0.3);border-radius:12px;padding:10px 12px;margin-bottom:6px;">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+          <span style="font-size:16px;flex-shrink:0;">${q.emoji}</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;font-weight:600;color:#1e293b;">${q.title}</div>
+            <div style="font-size:10px;color:#94a3b8;">Pack: ${q.detected}</div>
+            ${q.meaning ? `<div style="font-size:10px;color:#64748b;">${q.meaning}</div>` : ''}
+          </div>
+        </div>
+        <div style="font-size:11px;color:#475569;font-weight:500;margin-bottom:6px;">${q.question}</div>
+        <div style="display:flex;gap:6px;">
+          <input id="vdrWInput-${q.qid}" type="number" placeholder="e.g. 150" min="1"
+            style="flex:1;height:32px;padding:0 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;outline:none;"/>
+          <span style="line-height:32px;font-size:11px;color:#64748b;">g</span>
+          <button onclick="vdrAnswerWeight('${docId}','${q.qid}',${idx})"
+            style="height:32px;padding:0 12px;border-radius:8px;background:#1e293b;color:white;font-size:11px;font-weight:500;border:none;cursor:pointer;">Save</button>
+          <button onclick="vdrAnswerSkip('${docId}','${q.qid}',${idx})"
+            style="height:32px;padding:0 10px;border-radius:8px;background:#f1f5f9;color:#64748b;font-size:11px;border:none;cursor:pointer;">Skip</button>
+        </div>
+      </div>`;
+  }
+
+  // OQR-009b: each input — confirm units per case
+  if (q.isEachInput) {
+    return `
+      <div id="${cardId}" style="background:#fefce8;border:1px solid rgba(234,179,8,0.3);border-radius:12px;padding:10px 12px;margin-bottom:6px;">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+          <span style="font-size:16px;flex-shrink:0;">${q.emoji}</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;font-weight:600;color:#1e293b;">${q.title}</div>
+            <div style="font-size:10px;color:#64748b;">${q.meaning}</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:#475569;font-weight:500;margin-bottom:6px;">${q.question}</div>
+        <div style="display:flex;gap:6px;">
+          ${q.detectedUnits ? `<button onclick="vdrAnswerEach('${docId}','${q.qid}',${idx},${q.detectedUnits})"
+            style="flex:1;height:32px;border-radius:8px;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;font-size:11px;font-weight:500;cursor:pointer;">
+            ✓ ${q.detectedUnits} each</button>` : ''}
+          <input id="vdrEInput-${q.qid}" type="number" placeholder="${q.detectedUnits || '50'}" min="1"
+            style="width:80px;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;outline:none;"/>
+          <button onclick="vdrAnswerEachCustom('${docId}','${q.qid}',${idx})"
+            style="height:32px;padding:0 10px;border-radius:8px;background:#1e293b;color:white;font-size:11px;border:none;cursor:pointer;">Save</button>
         </div>
       </div>`;
   }
@@ -838,6 +963,83 @@ window.vdrAnswerDirect = async function(docId, qid, idx) {
   if (!value) { input && input.focus(); return; }
   await vdrResolveQuestion(docId, qid, idx, { answered: true, answer: value });
 };
+
+// ── Answer: Weight input (OQR-009a) ──────────────────────────
+window.vdrAnswerWeight = async function(docId, qid, idx) {
+  const input = document.getElementById('vdrWInput-' + qid);
+  const grams = input ? parseFloat(input.value) : null;
+  if (!grams || grams <= 0) { input && input.focus(); return; }
+  const q = window._vdrQuestions && window._vdrQuestions[qid];
+  const totalUnits = q ? q.detectedUnits : null;
+  // Save to invoice_warnings table
+  const sb = window.supabaseClient;
+  if (sb && q) {
+    await sb.from('invoice_warnings')
+      .update({ status: 'resolved', resolution: `unit_weight_g=${grams}`, resolved_by: window._currentUser || 'admin', resolved_at: new Date().toISOString() })
+      .eq('document_id', docId).eq('item_description', q.title).eq('code', q.code);
+    // Update ingredient_vendors if item is already matched
+    if (q.item && q.item.vendor_sku) {
+      const { data: iv } = await sb.from('ingredient_vendors').select('id,unit_price').eq('vendor_sku', q.item.vendor_sku).limit(1);
+      if (iv && iv.length) {
+        const price = iv[0].unit_price;
+        const per100g = (price && grams && totalUnits) ? (price / (totalUnits * grams) * 100) : null;
+        await sb.from('ingredient_vendors').update({
+          unit_weight_g: grams,
+          units_per_case: totalUnits,
+          price_per_100g: per100g,
+        }).eq('id', iv[0].id);
+      }
+    }
+  }
+  await vdrResolveQuestion(docId, qid, idx, { answered: true, answer: `${grams}g per unit` });
+};
+
+// ── Answer: Skip weight (OQR-009a) ───────────────────────────
+window.vdrAnswerSkip = async function(docId, qid, idx) {
+  const sb = window.supabaseClient;
+  const q = window._vdrQuestions && window._vdrQuestions[qid];
+  if (sb && q) {
+    await sb.from('invoice_warnings')
+      .update({ status: 'skipped', resolution: 'skipped by user', resolved_by: window._currentUser || 'admin', resolved_at: new Date().toISOString() })
+      .eq('document_id', docId).eq('item_description', q.title).eq('code', q.code);
+  }
+  await vdrResolveQuestion(docId, qid, idx, { answered: true, answer: 'skipped' });
+};
+
+// ── Answer: Each confirmed (OQR-009b) ────────────────────────
+window.vdrAnswerEach = async function(docId, qid, idx, units) {
+  await vdrSaveEach(docId, qid, idx, units);
+};
+
+window.vdrAnswerEachCustom = async function(docId, qid, idx) {
+  const input = document.getElementById('vdrEInput-' + qid);
+  const units = input ? parseInt(input.value) : null;
+  if (!units || units <= 0) { input && input.focus(); return; }
+  await vdrSaveEach(docId, qid, idx, units);
+};
+
+async function vdrSaveEach(docId, qid, idx, units) {
+  const sb = window.supabaseClient;
+  const q = window._vdrQuestions && window._vdrQuestions[qid];
+  if (sb && q) {
+    await sb.from('invoice_warnings')
+      .update({ status: 'resolved', resolution: `units_per_case=${units}`, resolved_by: window._currentUser || 'admin', resolved_at: new Date().toISOString() })
+      .eq('document_id', docId).eq('item_description', q.title).eq('code', q.code);
+    // Update ingredient_vendors
+    if (q.item && q.item.vendor_sku) {
+      const { data: iv } = await sb.from('ingredient_vendors').select('id,unit_price').eq('vendor_sku', q.item.vendor_sku).limit(1);
+      if (iv && iv.length) {
+        const priceEach = iv[0].unit_price ? iv[0].unit_price / units : null;
+        await sb.from('ingredient_vendors').update({
+          units_per_case: units,
+          purchase_unit: 'each',
+          price_per_each: priceEach,
+        }).eq('id', iv[0].id);
+      }
+    }
+  }
+  await vdrResolveQuestion(docId, qid, idx, { answered: true, answer: `${units} each per case` });
+}
 
 // ── Resolve a question: remove warning from DB, fade card ─────
 async function vdrResolveQuestion(docId, qid, idx, resolution) {
