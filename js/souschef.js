@@ -362,7 +362,9 @@ async function markScDone(id, btn){
 function showScToast(msg, duration=3000){
   document.querySelectorAll('.sc-toast').forEach(t=>t.remove());
   const toast = document.createElement('div');
-  toast.className='sc-toast fixed top-16 left-1/2 -translate-x-1/2 z-[60] bg-slate-900 text-white text-sm px-4 py-2.5 rounded-2xl shadow-xl max-w-[80vw] text-center';
+  // bottom-24 so toast clears the bottom nav AND appears above any modal header
+  toast.className='sc-toast fixed z-[9999] bg-slate-900 text-white text-sm px-4 py-2.5 rounded-2xl shadow-xl max-w-[80vw] text-center';
+  toast.style.cssText += ';bottom:96px;left:50%;transform:translateX(-50%);';
   toast.textContent=msg;
   document.body.appendChild(toast);
   setTimeout(()=>toast.remove(), duration);
