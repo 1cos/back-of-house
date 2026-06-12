@@ -429,6 +429,7 @@ function scGetRules() {
   } catch(_) { return { ...SC_SCAN_RULES_DEFAULT }; }
 }
 
+
 window.runSousChefScan = async function() {
   const sb = window.supabaseClient;
   if (!sb) return;
@@ -438,32 +439,49 @@ window.runSousChefScan = async function() {
   if (typeof showScToast === 'function') showScToast('🔍 Sous Chef sta controllando...');
 
   const rules = scGetRules();
-  const found = [];
+  // found = array di "card objects" — ogni card ha contesto completo per risolvere inline
+  const cards = [];
 
   try {
-    // ── SC-PRICE-001: price_per_100g < $0.10 su carni ──────────
+    // ── SC-PRICE-001: carni con price_per_100g < $0.10 ─────────
+    // Porta contesto completo: vendor, pack, unit_price, ingredient_id
     if (rules['SC-PRICE-001']) {
       const meatKeywords = ['beef','meat','steak','chicken','pork','veal','lamb',
         'rib','loin','tenderloin','brisket','chuck','short','tomahawk','stew'];
       const { data: lowPrice } = await sb
         .from('ingredient_vendors')
-        .select('ingredient_id,vendor,unit_price,price_per_100g,ingredients(name)')
+        .select('ingredient_id,vendor,unit_price,price_per_100g,pack_description,purchase_unit,conversion_to_base,ingredients(id,name)')
         .not('price_per_100g', 'is', null)
         .lt('price_per_100g', 0.10);
 
-      for (const row of (lowPrice || [])) {
+      const meats = (lowPrice || []).filter(row => {
         const name = (row.ingredients?.name || '').toLowerCase();
-        if (!meatKeywords.some(k => name.includes(k))) continue;
-        found.push({
-          code: 'SC-PRICE-001', severity: 'blocking',
-          vendor: row.vendor || null,
-          item_description: row.ingredients?.name || null,
-          message: `${row.ingredients?.name} — $${(row.price_per_100g||0).toFixed(4)}/100g è sospettosamente basso. Catchweight non rilevato?`,
+        return meatKeywords.some(k => name.includes(k));
+      });
+
+      // Raggruppa in card da max 3 ingredienti
+      for (let i = 0; i < meats.length; i += 3) {
+        const group = meats.slice(i, i + 3);
+        cards.push({
+          code: 'SC-PRICE-001',
+          severity: 'blocking',
+          title: group.length === 1
+            ? `${group[0].ingredients?.name} — prezzo sospetto`
+            : `${group.length} carni con prezzo sospetto`,
+          items: group.map(row => ({
+            ingredient_id: row.ingredient_id,
+            ingredient_name: row.ingredients?.name || '?',
+            vendor: row.vendor,
+            unit_price: row.unit_price,
+            price_per_100g: row.price_per_100g,
+            pack_description: row.pack_description,
+            conversion_to_base: row.conversion_to_base, // grams per purchase unit
+          })),
         });
       }
     }
 
-    // ── SC-PRICE-002: prezzo aumentato >20% vs storico ─────────
+    // ── SC-PRICE-002: prezzi aumentati >20% ────────────────────
     if (rules['SC-PRICE-002']) {
       const { data: purchases } = await sb
         .from('purchases')
@@ -477,123 +495,129 @@ window.runSousChefScan = async function() {
           if (!item.unit_price) continue;
           const key = `${p.vendor}|||${item.description}`;
           if (!pricesByKey[key]) pricesByKey[key] = [];
-          pricesByKey[key].push(parseFloat(item.unit_price));
+          pricesByKey[key].push({ price: parseFloat(item.unit_price), date: p.invoice_date, pack: item.pack_size || item.pack_description });
         }
       }
 
-      for (const [key, prices] of Object.entries(pricesByKey)) {
-        if (prices.length < 2) continue;
-        const latest = prices[0];
-        const avg = prices.slice(1).reduce((a,b) => a+b, 0) / (prices.length - 1);
+      const spikes = [];
+      for (const [key, entries] of Object.entries(pricesByKey)) {
+        if (entries.length < 2) continue;
+        const latest = entries[0].price;
+        const avg = entries.slice(1).reduce((a,b) => a + b.price, 0) / (entries.length - 1);
         if (avg <= 0) continue;
         const pct = Math.round(((latest - avg) / avg) * 100);
         if (pct < 20) continue;
         const [vendor, desc] = key.split('|||');
-        found.push({
-          code: 'SC-PRICE-002', severity: 'alert',
-          vendor: vendor || null,
-          item_description: desc || null,
-          message: `${desc} — prezzo +${pct}% rispetto alla media ($${avg.toFixed(2)} → $${latest.toFixed(2)})`,
+        spikes.push({ vendor, desc, latest, avg, pct, pack: entries[0].pack, date: entries[0].date });
+      }
+
+      for (let i = 0; i < spikes.length; i += 3) {
+        const group = spikes.slice(i, i + 3);
+        cards.push({
+          code: 'SC-PRICE-002',
+          severity: 'alert',
+          title: group.length === 1
+            ? `${group[0].desc} — prezzo +${group[0].pct}%`
+            : `${group.length} articoli con prezzo in aumento`,
+          items: group.map(s => ({
+            ingredient_name: s.desc,
+            vendor: s.vendor,
+            unit_price: s.latest,
+            prev_avg: s.avg,
+            pct: s.pct,
+            pack_description: s.pack,
+            invoice_date: s.date,
+          })),
         });
       }
     }
 
-    // ── SC-NOLINK-001: ingrediente attivo senza price_per_100g ──
+    // ── SC-NOLINK-001: ingredienti senza price_per_100g ─────────
     if (rules['SC-NOLINK-001']) {
       const { data: allIngr } = await sb
         .from('ingredients')
         .select('id,name,category')
-        .eq('active', true);
+        .eq('active', true)
+        .neq('category', 'Supply');
 
-      const { data: hasPrice } = await sb
+      const { data: ivRows } = await sb
         .from('ingredient_vendors')
-        .select('ingredient_id')
-        .not('price_per_100g', 'is', null);
+        .select('ingredient_id,vendor,unit_price,price_per_100g,pack_description,conversion_to_base');
 
-      const hasPriceSet = new Set((hasPrice || []).map(r => r.ingredient_id));
-      const missing = (allIngr || []).filter(i =>
-        i.category !== 'Supply' && !hasPriceSet.has(i.id)
-      );
+      // Mappa ingredient_id → vendor row
+      const ivMap = {};
+      for (const iv of (ivRows || [])) {
+        if (!ivMap[iv.ingredient_id]) ivMap[iv.ingredient_id] = iv;
+        // Preferisci riga con price_per_100g
+        else if (iv.price_per_100g && !ivMap[iv.ingredient_id].price_per_100g) ivMap[iv.ingredient_id] = iv;
+      }
 
-      if (missing.length > 0) {
-        const names = missing.slice(0, 5).map(i => i.name).join(', ');
-        const extra = missing.length > 5 ? ` +${missing.length - 5} altri` : '';
-        found.push({
-          code: 'SC-NOLINK-001', severity: 'insight',
-          vendor: null, item_description: null,
-          message: `${missing.length} ingredienti senza $/100g: ${names}${extra}`,
+      const missing = (allIngr || []).filter(i => {
+        const iv = ivMap[i.id];
+        return !iv || !iv.price_per_100g;
+      });
+
+      for (let i = 0; i < missing.length; i += 3) {
+        const group = missing.slice(i, i + 3);
+        cards.push({
+          code: 'SC-NOLINK-001',
+          severity: 'insight',
+          title: `${missing.length} ingredienti senza $/100g`,
+          subtitle: `Gruppo ${Math.floor(i/3)+1} di ${Math.ceil(missing.length/3)}`,
+          items: group.map(ingr => {
+            const iv = ivMap[ingr.id];
+            return {
+              ingredient_id: ingr.id,
+              ingredient_name: ingr.name,
+              vendor: iv?.vendor || null,
+              unit_price: iv?.unit_price || null,
+              pack_description: iv?.pack_description || null,
+              conversion_to_base: iv?.conversion_to_base || null,
+            };
+          }),
         });
       }
     }
 
-    // ── SC-UNUSED-001: acquistato ma non in nessuna ricetta ─────
+    // ── SC-UNUSED-001 ────────────────────────────────────────
     if (rules['SC-UNUSED-001']) {
       const { data: linked } = await sb
-        .from('ingredient_links')
-        .select('invoice_description')
-        .eq('confirmed', true)
-        .limit(300);
-
-      const { data: recipes } = await sb
-        .from('recipes').select('ingredients');
-
+        .from('ingredient_links').select('invoice_description,vendor').eq('confirmed',true).limit(300);
+      const { data: recipes } = await sb.from('recipes').select('ingredients');
       const inRecipes = new Set();
-      for (const r of (recipes || [])) {
-        for (const ing of (r.ingredients || [])) {
-          if (ing.name) inRecipes.add(ing.name.toLowerCase());
+      for (const r of (recipes||[])) for (const ing of (r.ingredients||[])) if(ing.name) inRecipes.add(ing.name.toLowerCase());
+      const unused = (linked||[]).filter(l => !inRecipes.has((l.invoice_description||'').toLowerCase()));
+      if (unused.length > 0) {
+        for (let i = 0; i < Math.min(unused.length, 9); i += 3) {
+          const group = unused.slice(i, i+3);
+          cards.push({
+            code: 'SC-UNUSED-001', severity: 'insight',
+            title: `${unused.length} articoli non in ricette`,
+            items: group.map(u => ({ ingredient_name: u.invoice_description, vendor: u.vendor })),
+          });
         }
       }
-
-      const unused = (linked || []).filter(l =>
-        !inRecipes.has((l.invoice_description || '').toLowerCase())
-      );
-
-      if (unused.length > 0) {
-        const names = unused.slice(0, 5).map(l => l.invoice_description).join(', ');
-        const extra = unused.length > 5 ? ` +${unused.length - 5} altri` : '';
-        found.push({
-          code: 'SC-UNUSED-001', severity: 'insight',
-          vendor: null, item_description: null,
-          message: `${unused.length} articoli acquistati non usati in ricette: ${names}${extra}`,
-        });
-      }
     }
 
-    // ── Salva in invoice_warnings ─────────────────────────────
-    if (found.length > 0) {
-      const scCodes = [...new Set(found.map(r => r.code))];
-      // Cancella vecchi SC-* open prima di inserire i nuovi
-      await sb.from('invoice_warnings')
-        .delete()
-        .in('code', scCodes)
-        .eq('status', 'open');
-
-      await sb.from('invoice_warnings').insert(found.map(w => ({
-        code:             w.code,
-        severity:         w.severity,
-        status:           'open',
-        vendor:           w.vendor || null,
-        item_description: w.item_description || null,
-        message:          w.message,
-        document_id:      null,
-        document_date:    null,
-        document_number:  null,
-        field:            null,
+    // ── Salva warning sintetici in invoice_warnings ──────────
+    const scCodes = [...new Set(cards.map(c => c.code))];
+    if (scCodes.length > 0) {
+      await sb.from('invoice_warnings').delete().in('code', scCodes).eq('status','open');
+      await sb.from('invoice_warnings').insert(cards.map(c => ({
+        code: c.code, severity: c.severity, status: 'open',
+        vendor: c.items?.[0]?.vendor || null,
+        item_description: c.title,
+        message: c.title,
+        document_id: null, document_date: null, document_number: null, field: null,
       })));
     } else {
-      // Nessun problema trovato — rimuovi vecchi SC-* open
-      await sb.from('invoice_warnings')
-        .delete()
-        .like('code', 'SC-%')
-        .eq('status', 'open');
+      await sb.from('invoice_warnings').delete().like('code','SC-%').eq('status','open');
     }
 
-    // ── Aggiorna banner home ──────────────────────────────────
     if (typeof loadWarningsBanner === 'function') loadWarningsBanner();
 
-    // ── Apri lo stack OQR ────────────────────────────────────
-    if (found.length > 0) {
-      showSousChefStack(found);
+    if (cards.length > 0) {
+      showSousChefStack(cards);
     } else {
       if (typeof showScToast === 'function') showScToast('✅ Sous Chef — tutto ok');
     }
@@ -606,245 +630,388 @@ window.runSousChefScan = async function() {
   }
 };
 
-// ── SOUS CHEF STACK — card swipeable OQR ─────────────────────
-// Stack di card impilate: una per ogni warning trovato dalla scan.
-// Card in cima = più urgente (blocking > alert > insight).
-// Swipe giù = skip (va in fondo allo stack).
-// Swipe su = risolvi (OQR inline nella card stessa).
+// ── SOUS CHEF STACK ───────────────────────────────────────────
+// Card impilate. Card in cima: contesto fattura + azione inline.
+// Card sotto: solo titolo colorato visibile.
+// Swipe giù = skip (va in fondo). Swipe su = expand OQR.
 
-function showSousChefStack(warnings) {
-  // Ordina: blocking prima, poi alert, poi insight
-  const order = { blocking: 0, alert: 1, insight: 2 };
-  const stack = [...warnings].sort((a, b) =>
-    (order[a.severity] ?? 2) - (order[b.severity] ?? 2)
-  );
+function showSousChefStack(cards) {
+  const order = { blocking:0, alert:1, insight:2 };
+  const stack = [...cards].sort((a,b) => (order[a.severity]??2)-(order[b.severity]??2));
 
-  const existing = document.getElementById('_scStack');
-  if (existing) existing.remove();
-
+  document.getElementById('_scStack')?.remove();
   const overlay = document.createElement('div');
   overlay.id = '_scStack';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:9600;display:flex;flex-direction:column;justify-content:flex-end;pointer-events:none;';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9600;display:flex;flex-direction:column;justify-content:flex-end;';
 
-  // Sfondo semi-trasparente cliccabile per chiudere
   const backdrop = document.createElement('div');
-  backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.45);pointer-events:all;';
+  backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.5);';
   backdrop.addEventListener('click', () => overlay.remove());
   overlay.appendChild(backdrop);
 
-  // Container stack
-  const stackEl = document.createElement('div');
-  stackEl.style.cssText = 'position:relative;width:100%;max-width:480px;margin:0 auto;height:420px;pointer-events:none;padding:0 12px 24px;box-sizing:border-box;';
-  overlay.appendChild(stackEl);
-
+  const stackWrap = document.createElement('div');
+  stackWrap.style.cssText = 'position:relative;width:100%;max-width:480px;margin:0 auto;pointer-events:none;padding:0 0 32px;';
+  overlay.appendChild(stackWrap);
   document.body.appendChild(overlay);
 
-  // Rendi le card (dalla più in basso allo stack alla più in cima)
-  function renderStack() {
-    stackEl.innerHTML = '';
-    const total = stack.length;
-    if (total === 0) { overlay.remove(); return; }
+  // Altezza card in cima (dinamica — si espande con la tastiera)
+  const CARD_TOP_H = 'auto';
+  const TAB_H = 48; // px — altezza tab sotto
 
-    // Mostra massimo 3 card visibili (le prime dello stack)
+  function renderStack() {
+    stackWrap.innerHTML = '';
+    if (stack.length === 0) { overlay.remove(); return; }
+    const total = stack.length;
     const visible = Math.min(total, 3);
 
+    // Disegna dal fondo verso l'alto (z-index crescente)
     for (let i = visible - 1; i >= 0; i--) {
-      const w = stack[i];
+      const card = stack[i];
       const isTop = i === 0;
-      // Offset verticale: card sotto sono più in alto (si vedono i tab colorati)
-      const offsetY = i * 44; // px verso l'alto per ogni card sotto
-      const scale = 1 - i * 0.04;
-      const zIndex = visible - i;
+      const cfg = severityCfg(card.severity);
 
-      const card = buildCard(w, i, isTop, offsetY, scale, zIndex, total);
-      stackEl.appendChild(card);
+      const el = document.createElement('div');
+      el.dataset.stackIdx = i;
+
+      if (!isTop) {
+        // Tab visibile sotto la card principale
+        const bottomOffset = (visible - 1 - i) * 0; // impilate
+        el.style.cssText = `
+          position:relative;
+          background:${cfg.bg};border:1.5px solid ${cfg.border};
+          border-radius:16px;padding:12px 16px;
+          margin-bottom:6px;
+          box-shadow:0 2px 8px rgba(0,0,0,0.06);
+          pointer-events:none;
+          transform:scale(${1 - (i * 0.03)});
+          transform-origin:center bottom;
+          z-index:${10-i};`;
+        el.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="width:10px;height:10px;border-radius:50%;background:${cfg.dot};flex-shrink:0;"></span>
+            <span style="font-size:14px;font-weight:700;color:${cfg.dot};">${card.title}</span>
+            <span style="font-size:12px;color:#94a3b8;margin-left:auto;">${i+1}/${total}</span>
+          </div>`;
+        stackWrap.insertBefore(el, stackWrap.firstChild);
+        continue;
+      }
+
+      // Card in cima — completa
+      el.style.cssText = `
+        position:relative;
+        background:${cfg.bg};border:2px solid ${cfg.border};
+        border-radius:20px;padding:18px 16px 16px;
+        box-shadow:0 12px 40px rgba(0,0,0,0.18);
+        pointer-events:all;z-index:20;
+        margin-bottom:6px;`;
+
+      el.innerHTML = buildTopCardHTML(card, cfg, total);
+      stackWrap.appendChild(el);
+
+      // Wire up action buttons
+      wireCardActions(el, card);
+
+      // Swipe gesture
+      attachCardSwipe(el, card);
     }
   }
 
-  function buildCard(w, idx, isTop, offsetY, scale, zIndex, total) {
-    const cfg = {
-      blocking: { bg: '#fff5f5', border: '#fca5a5', dot: '#ef4444', label: '🔴 Urgente' },
-      alert:    { bg: '#fffbeb', border: '#fcd34d', dot: '#f59e0b', label: '🟡 Attenzione' },
-      insight:  { bg: '#eff6ff', border: '#93c5fd', dot: '#3b82f6', label: '🔵 Info' },
-    }[w.severity] || { bg: '#f8fafc', border: '#e2e8f0', dot: '#94a3b8', label: '⚪' };
+  function buildTopCardHTML(card, cfg, total) {
+    const emoji = scWarnEmoji(card.code);
+    const subtitle = card.subtitle ? `<span style="font-size:11px;color:#94a3b8;"> · ${card.subtitle}</span>` : '';
 
-    const card = document.createElement('div');
-    card.dataset.idx = idx;
-    card.style.cssText = `
-      position:absolute;
-      bottom:${offsetY}px;
-      left:0;right:0;
-      background:${cfg.bg};
-      border:1.5px solid ${cfg.border};
-      border-radius:${isTop ? '20px' : '16px'};
-      padding:${isTop ? '18px 16px 14px' : '10px 16px'};
-      box-shadow:0 ${isTop ? '16px 40px' : '4px 12px'} rgba(0,0,0,${isTop ? '0.18' : '0.08'});
-      transform:scale(${scale});
-      transform-origin:center bottom;
-      z-index:${zIndex};
-      pointer-events:${isTop ? 'all' : 'none'};
-      transition:transform .2s,box-shadow .2s;
-      touch-action:none;
-      user-select:none;
-    `;
-
-    if (!isTop) {
-      // Card non in cima: mostra solo titolo colorato
-      card.innerHTML = `
+    // Riga intestazione
+    let html = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <div style="display:flex;align-items:center;gap:8px;">
-          <span style="width:8px;height:8px;border-radius:50%;background:${cfg.dot};flex-shrink:0;display:inline-block;"></span>
-          <span style="font-size:12px;font-weight:700;color:${cfg.dot};text-transform:uppercase;letter-spacing:.06em;">${cfg.label}</span>
-          <span style="font-size:11px;color:#94a3b8;margin-left:auto;">${total > 1 ? (idx + 1) + '/' + total : ''}</span>
-        </div>`;
-      return card;
-    }
-
-    // Card in cima: OQR completo
-    const oqr = scOQRForWarning(w);
-    const emoji = scWarnEmoji(w.code);
-
-    card.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <span style="font-size:22px;">${emoji}</span>
+          <div>
+            <div style="font-size:16px;font-weight:700;color:#1e293b;line-height:1.2;">${card.title}</div>
+            <div style="font-size:11px;color:${cfg.dot};font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-top:2px;">${cfg.label}${subtitle}</div>
+          </div>
+        </div>
         <div style="display:flex;align-items:center;gap:8px;">
-          <span style="width:8px;height:8px;border-radius:50%;background:${cfg.dot};flex-shrink:0;display:inline-block;"></span>
-          <span style="font-size:11px;font-weight:700;color:${cfg.dot};text-transform:uppercase;letter-spacing:.06em;">${cfg.label}</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <span style="font-size:11px;color:#94a3b8;">${total > 1 ? '1/' + total : ''}</span>
-          <button onclick="document.getElementById('_scStack')?.remove()" style="width:28px;height:28px;border-radius:8px;background:#f1f5f9;border:none;cursor:pointer;font-size:14px;color:#94a3b8;">✕</button>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;">
-        <span style="font-size:28px;flex-shrink:0;">${emoji}</span>
-        <div>
-          <div style="font-size:15px;font-weight:700;color:#1e293b;line-height:1.3;margin-bottom:4px;">${oqr.title}</div>
-          <div style="font-size:13px;color:#475569;line-height:1.4;">${oqr.question}</div>
-        </div>
-      </div>
-
-      <div style="font-size:11px;color:#94a3b8;background:rgba(0,0,0,0.03);border-radius:8px;padding:6px 10px;margin-bottom:14px;">
-        ${w.message}
-      </div>
-
-      <div id="_scOQROptions" style="display:flex;flex-direction:column;gap:7px;">
-        ${oqr.options.map((opt, oi) => `
-          <button data-answer="${opt.value}" data-oi="${oi}"
-            style="padding:11px 14px;border-radius:12px;border:1.5px solid ${oi === 0 ? cfg.border : '#e2e8f0'};
-              background:${oi === 0 ? cfg.bg : 'white'};
-              font-size:13px;color:#1e293b;cursor:pointer;text-align:left;font-weight:${oi === 0 ? 600 : 400};
-              display:flex;align-items:center;gap:8px;">
-            <span>${opt.emoji || ''}</span><span>${opt.label}</span>
-          </button>`).join('')}
-      </div>
-
-      <div style="display:flex;justify-content:center;gap:20px;margin-top:14px;">
-        <div style="text-align:center;">
-          <div style="font-size:18px;">↓</div>
-          <div style="font-size:10px;color:#94a3b8;">Skip</div>
-        </div>
-        <div style="text-align:center;">
-          <div style="font-size:18px;">↑</div>
-          <div style="font-size:10px;color:#94a3b8;">Risolvi</div>
+          ${total > 1 ? `<span style="font-size:12px;color:#94a3b8;">${total} problemi</span>` : ''}
+          <button onclick="document.getElementById('_scStack')?.remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;cursor:pointer;font-size:16px;color:#64748b;">✕</button>
         </div>
       </div>`;
 
-    // Wire up option buttons
-    card.querySelectorAll('[data-answer]').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const answer = btn.dataset.answer;
-        if (answer === 'skip') {
-          scSkipTop();
-        } else {
-          await scResolveTop(w, answer);
-        }
-      });
-    });
+    // Contenuto specifico per codice
+    html += buildCardBody(card);
 
-    // Swipe gesture
-    attachSwipe(card, w);
+    // Hint swipe
+    html += `
+      <div style="display:flex;justify-content:center;gap:32px;margin-top:16px;padding-top:12px;border-top:0.5px solid ${cfg.border};">
+        <div style="text-align:center;color:#94a3b8;">
+          <div style="font-size:20px;">↓</div>
+          <div style="font-size:11px;margin-top:2px;">Skip</div>
+        </div>
+        <div style="text-align:center;color:#94a3b8;">
+          <div style="font-size:20px;">↑</div>
+          <div style="font-size:11px;margin-top:2px;">Fine</div>
+        </div>
+      </div>`;
 
-    return card;
+    return html;
   }
 
-  // ── Swipe logic ───────────────────────────────────────────
-  function attachSwipe(card, w) {
-    let startY = 0, currentY = 0, dragging = false;
-
-    function onStart(e) {
-      // Ignore if tapping a button
-      if (e.target.closest('button,[data-answer]')) return;
-      startY = e.touches ? e.touches[0].clientY : e.clientY;
-      dragging = true;
-      card.style.transition = 'none';
+  function buildCardBody(card) {
+    // ── SC-PRICE-001: peso mancante su carni ──────────────────
+    if (card.code === 'SC-PRICE-001') {
+      return card.items.map((item, i) => `
+        <div id="scItem-${i}" style="background:rgba(239,68,68,0.04);border:1px solid rgba(239,68,68,0.15);border-radius:14px;padding:12px 14px;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+            <div>
+              <div style="font-size:15px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
+              <div style="font-size:12px;color:#64748b;margin-top:2px;">${item.vendor || ''} ${item.pack_description ? '· ' + item.pack_description : ''}</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:13px;font-weight:600;color:#ef4444;">$${(item.price_per_100g||0).toFixed(4)}/100g</div>
+              <div style="font-size:11px;color:#64748b;">$${(item.unit_price||0).toFixed(2)}/case</div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#475569;margin-bottom:8px;">Quanto pesa una cassa? <span style="color:#ef4444;">* Il prezzo sembra troppo basso.</span></div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input id="scWeight-${i}" type="number" placeholder="es. 28" min="0.1" step="0.1"
+              style="flex:1;height:40px;padding:0 12px;border:1.5px solid #fca5a5;border-radius:10px;font-size:16px;outline:none;background:white;"
+              oninput="scPreviewPrice(${i},${item.unit_price||0},'lb')">
+            <select id="scWeightUnit-${i}" style="height:40px;padding:0 8px;border:1.5px solid #fca5a5;border-radius:10px;font-size:14px;background:white;">
+              <option value="lb">lb</option>
+              <option value="kg">kg</option>
+              <option value="oz">oz</option>
+              <option value="g">g</option>
+            </select>
+            <button onclick="scSaveWeight(${i},'${item.ingredient_id}','${(item.vendor||'').replace(/'/g,"\\'")}',${item.unit_price||0})"
+              style="height:40px;padding:0 14px;border-radius:10px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;white-space:nowrap;">
+              ✓ Salva
+            </button>
+          </div>
+          <div id="scPricePreview-${i}" style="font-size:12px;color:#10b981;margin-top:6px;display:none;"></div>
+        </div>`).join('');
     }
 
-    function onMove(e) {
-      if (!dragging) return;
-      currentY = (e.touches ? e.touches[0].clientY : e.clientY) - startY;
-      card.style.transform = `scale(1) translateY(${currentY}px)`;
+    // ── SC-PRICE-002: prezzo aumentato ────────────────────────
+    if (card.code === 'SC-PRICE-002') {
+      return card.items.map((item, i) => `
+        <div style="background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.2);border-radius:14px;padding:12px 14px;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+            <div>
+              <div style="font-size:15px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
+              <div style="font-size:11px;color:#64748b;margin-top:1px;">${item.vendor||''} ${item.pack_description ? '· '+item.pack_description : ''}</div>
+            </div>
+            <span style="background:rgba(239,68,68,0.1);color:#dc2626;font-size:13px;font-weight:700;padding:3px 10px;border-radius:8px;">+${item.pct}%</span>
+          </div>
+          <div style="display:flex;gap:12px;font-size:12px;color:#64748b;margin-bottom:10px;">
+            <span>Media storica: <strong style="color:#1e293b;">$${(item.prev_avg||0).toFixed(2)}</strong></span>
+            <span>Ultima fattura: <strong style="color:#dc2626;">$${(item.unit_price||0).toFixed(2)}</strong></span>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="scAcceptPrice(this,'${(item.vendor||'').replace(/'/g,"\\'")}','${(item.ingredient_name||'').replace(/'/g,"\\'")}',${item.unit_price||0})"
+              style="flex:1;height:40px;border-radius:10px;background:#f0fdf4;color:#166534;border:1.5px solid #bbf7d0;font-size:14px;font-weight:600;cursor:pointer;">
+              ✓ Accetto il nuovo prezzo
+            </button>
+            <button onclick="this.closest('[style*=border-radius:14px]').style.opacity='0.4'"
+              style="height:40px;padding:0 14px;border-radius:10px;background:#fef2f2;color:#991b1b;border:1.5px solid #fecaca;font-size:14px;cursor:pointer;">
+              ✕
+            </button>
+          </div>
+        </div>`).join('');
     }
 
-    function onEnd() {
-      if (!dragging) return;
-      dragging = false;
-      card.style.transition = 'transform .3s,opacity .3s';
+    // ── SC-NOLINK-001: ingredienti senza prezzo ───────────────
+    if (card.code === 'SC-NOLINK-001') {
+      return card.items.map((item, i) => `
+        <div style="background:rgba(59,130,246,0.04);border:1px solid rgba(59,130,246,0.15);border-radius:14px;padding:12px 14px;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+            <div>
+              <div style="font-size:15px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
+              <div style="font-size:11px;color:#64748b;margin-top:1px;">${item.vendor ? item.vendor + ' · ' : ''}${item.pack_description || 'Nessun pack'}${item.unit_price ? ' · $'+parseFloat(item.unit_price).toFixed(2)+'/case' : ' · prezzo sconosciuto'}</div>
+            </div>
+            <span style="font-size:11px;color:#3b82f6;background:rgba(59,130,246,0.1);padding:3px 8px;border-radius:6px;">no $/100g</span>
+          </div>
+          ${item.unit_price ? `
+          <div style="font-size:12px;color:#475569;margin-bottom:8px;">Inserisci il peso per calcolare il $/100g:</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input id="scWeight-nl-${i}" type="number" placeholder="es. 10" min="0.1" step="0.1"
+              style="flex:1;height:40px;padding:0 12px;border:1.5px solid #93c5fd;border-radius:10px;font-size:16px;outline:none;background:white;"
+              oninput="scPreviewPriceNL(${i},${item.unit_price})">
+            <select id="scWeightUnitNL-${i}" style="height:40px;padding:0 8px;border:1.5px solid #93c5fd;border-radius:10px;font-size:14px;background:white;">
+              <option value="lb">lb</option>
+              <option value="kg">kg</option>
+              <option value="oz">oz</option>
+              <option value="g">g</option>
+            </select>
+            <button onclick="scSaveWeightNL(${i},'${(item.ingredient_id||'').replace(/'/g,"\\'")}','${(item.vendor||'').replace(/'/g,"\\'")}',${item.unit_price})"
+              style="height:40px;padding:0 14px;border-radius:10px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;">
+              ✓
+            </button>
+          </div>
+          <div id="scPricePreviewNL-${i}" style="font-size:12px;color:#10b981;margin-top:6px;display:none;"></div>
+          ` : `<div style="font-size:12px;color:#94a3b8;">Nessun prezzo in fattura — importa prima una fattura per questo ingrediente.</div>`}
+        </div>`).join('');
+    }
 
-      if (currentY > 60) {
-        // Swipe giù → skip
-        card.style.transform = `translateY(200px)`;
-        card.style.opacity = '0';
-        setTimeout(() => scSkipTop(), 280);
-      } else if (currentY < -60) {
-        // Swipe su → segna come da risolvere (apre prima opzione)
-        card.style.transform = `translateY(-200px)`;
-        card.style.opacity = '0';
-        setTimeout(() => scResolveTop(w, 'resolved'), 280);
-      } else {
-        // Torna in posizione
-        card.style.transform = 'scale(1) translateY(0)';
+    // Default
+    return `<div style="font-size:14px;color:#475569;padding:8px 0;">${card.items.map(i=>i.ingredient_name).join(', ')}</div>`;
+  }
+
+  function wireCardActions(el, card) {
+    // scPreviewPrice: mostra calcolo real-time mentre digiti il peso (SC-PRICE-001)
+    window.scPreviewPrice = function(idx, unitPrice, defaultUnit) {
+      const input = document.getElementById(`scWeight-${idx}`);
+      const unitSel = document.getElementById(`scWeightUnit-${idx}`);
+      const preview = document.getElementById(`scPricePreview-${idx}`);
+      if (!input || !preview) return;
+      const w = parseFloat(input.value);
+      const unit = unitSel?.value || defaultUnit || 'lb';
+      if (!w || w <= 0) { preview.style.display='none'; return; }
+      const UNIT_G = {lb:453.592,kg:1000,oz:28.3495,g:1};
+      const totalG = w * (UNIT_G[unit]||453.592);
+      const p100 = (unitPrice / totalG) * 100;
+      preview.textContent = `→ $${p100.toFixed(4)}/100g`;
+      preview.style.display = 'block';
+    };
+
+    // scSaveWeight: salva peso corretto su ingredient_vendors (SC-PRICE-001)
+    window.scSaveWeight = async function(idx, ingredientId, vendor, unitPrice) {
+      const input = document.getElementById(`scWeight-${idx}`);
+      const unitSel = document.getElementById(`scWeightUnit-${idx}`);
+      const w = parseFloat(input?.value);
+      if (!w || w <= 0) { input?.focus(); return; }
+      const UNIT_G = {lb:453.592,kg:1000,oz:28.3495,g:1};
+      const unit = unitSel?.value || 'lb';
+      const totalG = w * (UNIT_G[unit]||453.592);
+      const p100 = parseFloat(((unitPrice/totalG)*100).toFixed(4));
+
+      const sbBtn = input?.parentElement?.querySelector('button');
+      if (sbBtn) { sbBtn.textContent='...'; sbBtn.disabled=true; }
+
+      const sb = window.supabaseClient;
+      const { error } = await sb.from('ingredient_vendors').update({
+        conversion_to_base: totalG,
+        price_per_100g: p100,
+      }).eq('ingredient_id', ingredientId).eq('vendor', vendor);
+
+      if (error) {
+        if (typeof showScToast === 'function') showScToast('❌ Errore: ' + error.message);
+        if (sbBtn) { sbBtn.textContent='✓ Salva'; sbBtn.disabled=false; }
+        return;
       }
-      currentY = 0;
-    }
 
-    card.addEventListener('touchstart', onStart, { passive: true });
-    card.addEventListener('touchmove', onMove, { passive: true });
-    card.addEventListener('touchend', onEnd);
-    card.addEventListener('mousedown', onStart);
-    card.addEventListener('mousemove', onMove);
-    card.addEventListener('mouseup', onEnd);
+      // Segna item risolto visivamente
+      const itemEl = document.getElementById(`scItem-${idx}`);
+      if (itemEl) {
+        itemEl.style.opacity = '0.5';
+        itemEl.style.pointerEvents = 'none';
+        const preview = document.getElementById(`scPricePreview-${idx}`);
+        if (preview) preview.textContent = `✅ Salvato — $${p100.toFixed(4)}/100g`;
+      }
+
+      // Controlla se tutti gli item nella card sono risolti
+      const allItems = el.querySelectorAll('[id^="scItem-"]');
+      const allDone = [...allItems].every(it => it.style.opacity === '0.5');
+      if (allDone) setTimeout(() => scResolveTop(), 600);
+    };
+
+    // Preview per SC-NOLINK-001
+    window.scPreviewPriceNL = function(idx, unitPrice) {
+      const input = document.getElementById(`scWeight-nl-${idx}`);
+      const unitSel = document.getElementById(`scWeightUnitNL-${idx}`);
+      const preview = document.getElementById(`scPricePreviewNL-${idx}`);
+      if (!input||!preview) return;
+      const w = parseFloat(input.value);
+      const unit = unitSel?.value||'lb';
+      if (!w||w<=0){preview.style.display='none';return;}
+      const UNIT_G={lb:453.592,kg:1000,oz:28.3495,g:1};
+      const totalG=w*(UNIT_G[unit]||453.592);
+      const p100=(unitPrice/totalG)*100;
+      preview.textContent=`→ $${p100.toFixed(4)}/100g`;
+      preview.style.display='block';
+    };
+
+    window.scSaveWeightNL = async function(idx, ingredientId, vendor, unitPrice) {
+      const input = document.getElementById(`scWeight-nl-${idx}`);
+      const unitSel = document.getElementById(`scWeightUnitNL-${idx}`);
+      const w = parseFloat(input?.value);
+      if (!w||w<=0){input?.focus();return;}
+      const UNIT_G={lb:453.592,kg:1000,oz:28.3495,g:1};
+      const unit=unitSel?.value||'lb';
+      const totalG=w*(UNIT_G[unit]||453.592);
+      const p100=parseFloat(((unitPrice/totalG)*100).toFixed(4));
+      const sb=window.supabaseClient;
+      await sb.from('ingredient_vendors').update({conversion_to_base:totalG,price_per_100g:p100})
+        .eq('ingredient_id',ingredientId).eq('vendor',vendor);
+      const preview=document.getElementById(`scPricePreviewNL-${idx}`);
+      if(preview){preview.textContent=`✅ $${p100.toFixed(4)}/100g`;preview.style.display='block';}
+      const itemEl=input?.closest('[style*="border-radius:14px"]');
+      if(itemEl){itemEl.style.opacity='0.5';itemEl.style.pointerEvents='none';}
+    };
+
+    // Accept price (SC-PRICE-002)
+    window.scAcceptPrice = async function(btn, vendor, desc, newPrice) {
+      btn.textContent='...'; btn.disabled=true;
+      // Aggiorna ingredient_vendors cercando per vendor + nome approx
+      const sb=window.supabaseClient;
+      const {data:links}=await sb.from('ingredient_links')
+        .select('ingredient_id').eq('vendor',vendor).ilike('invoice_description',`%${desc.slice(0,15)}%`).limit(1);
+      if (links?.length) {
+        await sb.from('ingredient_vendors').update({unit_price:newPrice})
+          .eq('ingredient_id',links[0].ingredient_id).eq('vendor',vendor);
+      }
+      btn.textContent='✅ Accettato';
+      const itemEl=btn.closest('[style*="border-radius:14px"]');
+      if(itemEl){itemEl.style.opacity='0.5';itemEl.style.pointerEvents='none';}
+    };
   }
 
-  // ── Skip top card → va in fondo ──────────────────────────
-  function scSkipTop() {
-    if (stack.length === 0) return;
-    const top = stack.shift();
-    stack.push(top); // in fondo
+  // ── Swipe ────────────────────────────────────────────────
+  function attachCardSwipe(el) {
+    let startY=0, curY=0, dragging=false;
+    const onStart=(e)=>{
+      if(e.target.closest('button,input,select')) return;
+      startY=e.touches?e.touches[0].clientY:e.clientY;
+      dragging=true; el.style.transition='none';
+    };
+    const onMove=(e)=>{
+      if(!dragging) return;
+      curY=(e.touches?e.touches[0].clientY:e.clientY)-startY;
+      el.style.transform=`translateY(${curY}px)`;
+    };
+    const onEnd=()=>{
+      if(!dragging) return; dragging=false;
+      el.style.transition='transform .3s,opacity .3s';
+      if(curY>70){
+        el.style.transform='translateY(200px)'; el.style.opacity='0';
+        setTimeout(scSkipTop, 280);
+      } else if(curY<-70){
+        el.style.transform='translateY(-200px)'; el.style.opacity='0';
+        setTimeout(scResolveTop, 280);
+      } else {
+        el.style.transform='';
+      }
+      curY=0;
+    };
+    el.addEventListener('touchstart',onStart,{passive:true});
+    el.addEventListener('touchmove',onMove,{passive:true});
+    el.addEventListener('touchend',onEnd);
+    el.addEventListener('mousedown',onStart);
+    el.addEventListener('mousemove',onMove);
+    el.addEventListener('mouseup',onEnd);
+  }
+
+  function scSkipTop(){
+    if(!stack.length) return;
+    stack.push(stack.shift());
     renderStack();
   }
 
-  // ── Risolvi top card ──────────────────────────────────────
-  async function scResolveTop(w, answer) {
-    // Salva in invoice_warnings se ha un id
-    if (w.id) {
-      const sb = window.supabaseClient;
-      if (sb) {
-        await sb.from('invoice_warnings').update({
-          status: 'resolved',
-          resolution: answer,
-          resolved_by: window.user?.name || 'Admin',
-          resolved_at: new Date().toISOString(),
-        }).eq('id', w.id);
-      }
-    }
-    // Rimuovi dallo stack
+  function scResolveTop(){
+    if(!stack.length) return;
     stack.shift();
-    if (typeof loadWarningsBanner === 'function') loadWarningsBanner();
-    if (stack.length === 0) {
-      // Tutto risolto — chiudi con celebrazione
+    if(typeof loadWarningsBanner==='function') loadWarningsBanner();
+    if(!stack.length){
       overlay.remove();
-      if (typeof showScToast === 'function') showScToast('✅ Sous Chef — tutto risolto!');
+      if(typeof showScToast==='function') showScToast('✅ Sous Chef — tutto risolto!');
     } else {
       renderStack();
     }
@@ -853,66 +1020,19 @@ function showSousChefStack(warnings) {
   renderStack();
 }
 
-// ── OQR content per ogni codice warning ──────────────────────
-function scOQRForWarning(w) {
-  const item = w.item_description || 'Questo articolo';
-
-  if (w.code === 'SC-PRICE-001') return {
-    title: `${item} — prezzo sospetto`,
-    question: 'Il $/100g è troppo basso per una carne. Probabilmente il catchweight non è stato rilevato.',
-    options: [
-      { emoji: '✏️', label: 'Correggi il peso manualmente', value: 'fix_weight' },
-      { emoji: '✅', label: 'Il prezzo è corretto così', value: 'price_ok' },
-      { emoji: '⏭️', label: 'Skip — ci penso dopo', value: 'skip' },
-    ]
-  };
-
-  if (w.code === 'SC-PRICE-002') return {
-    title: `${item} — prezzo aumentato`,
-    question: 'Il prezzo di questo articolo è salito oltre il 20% rispetto alla media storica.',
-    options: [
-      { emoji: '✅', label: 'Accetto il nuovo prezzo', value: 'accepted' },
-      { emoji: '🔍', label: 'Voglio verificare prima', value: 'check' },
-      { emoji: '⏭️', label: 'Skip', value: 'skip' },
-    ]
-  };
-
-  if (w.code === 'SC-NOLINK-001') return {
-    title: 'Ingredienti senza prezzo',
-    question: 'Alcuni ingredienti attivi non hanno ancora un $/100g calcolato.',
-    options: [
-      { emoji: '📦', label: 'Vai agli ingredienti', value: 'open_ingredients' },
-      { emoji: '⏭️', label: 'Skip', value: 'skip' },
-    ]
-  };
-
-  if (w.code === 'SC-UNUSED-001') return {
-    title: 'Articoli non in ricette',
-    question: 'Questi articoli sono stati acquistati ma non compaiono in nessuna ricetta.',
-    options: [
-      { emoji: '📖', label: 'Vai alle ricette', value: 'open_recipes' },
-      { emoji: '✅', label: 'OK, è normale', value: 'resolved' },
-      { emoji: '⏭️', label: 'Skip', value: 'skip' },
-    ]
-  };
-
-  // Default
+function severityCfg(severity) {
   return {
-    title: item,
-    question: w.message || 'Questo elemento richiede attenzione.',
-    options: [
-      { emoji: '✅', label: 'Risolto', value: 'resolved' },
-      { emoji: '⏭️', label: 'Skip', value: 'skip' },
-    ]
-  };
+    blocking: { bg:'#fff5f5', border:'#fca5a5', dot:'#ef4444', label:'🔴 Urgente' },
+    alert:    { bg:'#fffbeb', border:'#fcd34d', dot:'#f59e0b', label:'🟡 Attenzione' },
+    insight:  { bg:'#eff6ff', border:'#93c5fd', dot:'#3b82f6', label:'🔵 Info' },
+  }[severity] || { bg:'#f8fafc', border:'#e2e8f0', dot:'#94a3b8', label:'⚪' };
 }
 
 function scWarnEmoji(code) {
   const map = {
-    'SC-PRICE-001': '🥩', 'SC-PRICE-002': '📈',
-    'SC-NOLINK-001': '💡', 'SC-UNUSED-001': '🔗',
-    'OQR-008': '⚖️', 'OQR-007': '📦',
-    'DOC-TOTAL-001': '🧮', 'OQR-002': '🔄',
+    'SC-PRICE-001':'🥩','SC-PRICE-002':'📈',
+    'SC-NOLINK-001':'💡','SC-UNUSED-001':'🔗',
+    'OQR-008':'⚖️','OQR-007':'📦','DOC-TOTAL-001':'🧮','OQR-002':'🔄',
   };
-  return map[code] || '⚠️';
+  return map[code]||'⚠️';
 }
