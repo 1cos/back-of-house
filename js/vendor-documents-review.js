@@ -472,9 +472,14 @@ function vdrDetailHTML(doc) {
               const rc       = isCredit && item.return_code
                 ? ` <span style="color:#ef4444;font-size:10px;">[${item.return_code}]</span>` : '';
               // ── Weight & $/100g calculation ──
-              const totalG   = window.calcTotalWeightG ? window.calcTotalWeightG(item) : null;
+              // Catchweight (meat per-lb): unit_price IS the per-pound price
+              const totalG   = item.catchweight && item.actual_weight_lb
+                ? item.actual_weight_lb * 453.592
+                : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null);
               const price    = item.unit_price != null ? parseFloat(item.unit_price) : null;
-              const per100g  = (totalG && price) ? ((price / totalG) * 100) : null;
+              const per100g  = item.catchweight && item.price_per_lb
+                ? (item.price_per_lb / 453.592) * 100
+                : ((totalG && price) ? ((price / totalG) * 100) : null);
               const per100gHtml = per100g != null
                 ? `<span style="color:#059669;font-weight:500;">$${per100g.toFixed(2)}</span>`
                 : `<span style="color:#cbd5e1;font-size:10px;">—</span>`;
@@ -1306,9 +1311,13 @@ window.vdrApprove = async function(docId, btn) {
       const desc = item.description || item.raw_description || null;
       if (!desc) continue;
 
-      const totalG  = window.calcTotalWeightG ? window.calcTotalWeightG(item) : null;
+      const totalG  = item.catchweight && item.actual_weight_lb
+        ? item.actual_weight_lb * 453.592
+        : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null);
       const price   = item.unit_price != null ? parseFloat(item.unit_price) : null;
-      const per100g = (totalG && price) ? (price / totalG * 100) : null;
+      const per100g = item.catchweight && item.price_per_lb
+        ? (item.price_per_lb / 453.592) * 100
+        : ((totalG && price) ? (price / totalG * 100) : null);
       const fields  = {
         unit_price:       price,
         pack_description: item.pack_description || null,
@@ -1375,7 +1384,10 @@ window.vdrApprove = async function(docId, btn) {
     if (toInsert.length) parts.push(toInsert.length + ' new ingredient' + (toInsert.length !== 1 ? 's' : ''));
     if (toUpdate.length) parts.push(toUpdate.length + ' updated');
     const detail = parts.length ? ' — ' + parts.join(', ') : '';
-    showScToast('✓ Invoice ' + docLabel + ' imported · ' + items.length + ' item' + (items.length !== 1 ? 's' : '') + detail);
+    const yesChefMsg = '✓ Invoice ' + docLabel + ' imported · ' + items.length + ' item' + (items.length !== 1 ? 's' : '') + detail;
+    // Yes Chef must NEVER fail silently — toast if available, alert otherwise
+    if (typeof showScToast === 'function') { showScToast(yesChefMsg); }
+    else { alert(yesChefMsg); }
 
   } catch(e) {
     if (statusEl) {
