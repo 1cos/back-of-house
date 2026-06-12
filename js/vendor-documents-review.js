@@ -451,6 +451,7 @@ function vdrDetailHTML(doc) {
               ${!isInvoice ? '<th style="padding:5px 7px;color:#94a3b8;font-weight:500;text-align:right;">Qty</th>' : ''}
               <th style="padding:5px 7px;color:#94a3b8;font-weight:500;text-align:right;">Price</th>
               <th style="padding:5px 7px;color:#94a3b8;font-weight:500;text-align:right;">Ext.</th>
+              <th style="padding:5px 7px;color:#94a3b8;font-weight:500;text-align:right;white-space:nowrap;">$/100g</th>
             </tr>
           </thead>
           <tbody>
@@ -465,16 +466,28 @@ function vdrDetailHTML(doc) {
                 ? (item.amount < 0 ? `-$${Math.abs(item.amount).toFixed(2)}` : `$${item.amount.toFixed(2)}`) : '-';
               const rc       = isCredit && item.return_code
                 ? ` <span style="color:#ef4444;font-size:10px;">[${item.return_code}]</span>` : '';
+              // ── Weight & $/100g calculation ──
+              const totalG   = window.calcTotalWeightG ? window.calcTotalWeightG(item) : null;
+              const price    = item.unit_price != null ? parseFloat(item.unit_price) : null;
+              const per100g  = (totalG && price) ? ((price / totalG) * 100) : null;
+              const per100gHtml = per100g != null
+                ? `<span style="color:#059669;font-weight:500;">$${per100g.toFixed(2)}</span>`
+                : `<span style="color:#cbd5e1;font-size:10px;">—</span>`;
+              const weightHtml = totalG
+                ? `<span style="font-size:9px;color:#94a3b8;">${totalG>=1000?(totalG/1000).toFixed(1)+'kg':Math.round(totalG)+'g'}</span>`
+                : '';
               return `<tr style="border-bottom:0.5px solid #f8fafc;background:${rowBg}">
                 <td style="padding:4px 7px;color:#94a3b8;white-space:nowrap;">${item.vendor_sku || '-'}</td>
                 <td style="padding:4px 7px;color:#1e293b;max-width:160px;">
                   ${isSubst ? '<span style="font-size:9px;color:#f59e0b;font-weight:700;margin-right:3px;">SUB</span>' : ''}
                   ${item.description || item.raw_description || '-'}${rc}
+                  ${weightHtml ? `<br>${weightHtml}` : ''}
                 </td>
                 <td style="padding:4px 7px;color:#64748b;white-space:nowrap;">${item.pack_description || '-'}</td>
                 <td style="padding:4px 7px;text-align:${isInvoice ? 'center' : 'right'};color:${mismatch ? '#ef4444' : '#1e293b'};">${qty}</td>
                 <td style="padding:4px 7px;text-align:right;color:#1e293b;">${item.unit_price != null ? '$' + item.unit_price.toFixed(2) : '-'}</td>
                 <td style="padding:4px 7px;text-align:right;color:${item.amount < 0 ? '#ef4444' : '#1e293b'};font-weight:500;">${amt}</td>
+                <td style="padding:4px 7px;text-align:right;">${per100gHtml}</td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -943,12 +956,107 @@ window.vdrApprove = async function(docId, btn) {
     const sb = window.supabaseClient;
     if (!sb) throw new Error('Supabase client not available');
 
-    const { error } = await sb
+    // Fetch document to get parsed_json
+    const { data: doc, error: fetchErr } = await sb
+      .from('vendor_documents')
+      .select('parsed_json, vendor')
+      .eq('id', docId)
+      .single();
+    if (fetchErr) throw new Error(fetchErr.message);
+
+    const pj = doc.parsed_json || {};
+    const vendor = pj.vendor || doc.vendor || 'Unknown';
+    const invoiceDate = pj.invoice_date || null;
+    const items = pj.items || [];
+
+    // ── Write each item to ingredient_vendors ──
+    for (const item of items) {
+      const sku = item.vendor_sku || item.item_code || null;
+      const desc = item.description || item.raw_description || null;
+      if (!desc) continue;
+
+      const totalG  = window.calcTotalWeightG ? window.calcTotalWeightG(item) : null;
+      const price   = item.unit_price != null ? parseFloat(item.unit_price) : null;
+      const per100g = (totalG && price) ? ((price / totalG) * 100) : null;
+
+      // Try to find existing ingredient_vendors row by SKU or description
+      let ingrId = null;
+
+      // 1. Match by vendor_sku
+      if (sku) {
+        const { data: bysku } = await sb.from('ingredient_vendors')
+          .select('id, ingredient_id').eq('vendor_sku', sku).eq('vendor', vendor).limit(1);
+        if (bysku && bysku.length) {
+          // Update existing record
+          await sb.from('ingredient_vendors').update({
+            unit_price:       price,
+            pack_description: item.pack_description || null,
+            pack_size:        item.pack_size || null,
+            purchase_unit:    item.purchase_unit || item.unit || null,
+            price_per_100g:   per100g,
+            last_invoice_date: invoiceDate,
+            updated_at:       new Date().toISOString(),
+          }).eq('id', bysku[0].id);
+          continue;
+        }
+      }
+
+      // 2. Match by ingredient name (fuzzy — first word match)
+      const keywords = (desc || '').toLowerCase()
+        .replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
+        .filter(w => w.length > 2 && !['the','and','for','from','with','large','small','fresh','whole','organic','baby','jumbo'].includes(w))
+        .slice(0, 2);
+
+      if (keywords.length) {
+        const { data: ingrs } = await sb.from('ingredients')
+          .select('id,name').ilike('name', `%${keywords[0]}%`).limit(5);
+        if (ingrs && ingrs.length) {
+          // Pick best match
+          const best = ingrs.find(i => {
+            const n = i.name.toLowerCase();
+            return keywords.every(k => n.includes(k));
+          }) || ingrs[0];
+          ingrId = best.id;
+
+          // Upsert ingredient_vendors
+          const { data: existing } = await sb.from('ingredient_vendors')
+            .select('id').eq('ingredient_id', ingrId).eq('vendor', vendor).limit(1);
+
+          if (existing && existing.length) {
+            await sb.from('ingredient_vendors').update({
+              vendor_sku:       sku,
+              unit_price:       price,
+              pack_description: item.pack_description || null,
+              pack_size:        item.pack_size || null,
+              purchase_unit:    item.purchase_unit || item.unit || null,
+              price_per_100g:   per100g,
+              last_invoice_date: invoiceDate,
+              updated_at:       new Date().toISOString(),
+            }).eq('id', existing[0].id);
+          } else {
+            await sb.from('ingredient_vendors').insert({
+              ingredient_id:    ingrId,
+              vendor:           vendor,
+              vendor_sku:       sku,
+              unit_price:       price,
+              pack_description: item.pack_description || null,
+              pack_size:        item.pack_size || null,
+              purchase_unit:    item.purchase_unit || item.unit || null,
+              price_per_100g:   per100g,
+              last_invoice_date: invoiceDate,
+              active:           true,
+            });
+          }
+        }
+      }
+    }
+
+    // ── Mark document as imported ──
+    const { error: updateErr } = await sb
       .from('vendor_documents')
       .update({ status: 'imported', updated_at: new Date().toISOString() })
       .eq('id', docId);
-
-    if (error) throw new Error(error.message);
+    if (updateErr) throw new Error(updateErr.message);
 
     const card = document.getElementById('vdrCard-' + docId);
     if (card) {
@@ -960,6 +1068,8 @@ window.vdrApprove = async function(docId, btn) {
         if (list && list.querySelectorAll('[id^="vdrCard-"]').length === 0) vdrLoad();
       }, 300);
     }
+    showScToast('✓ Document approved — inventory updated');
+
   } catch(e) {
     if (statusEl) {
       statusEl.style.display = 'block';
