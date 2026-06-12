@@ -197,9 +197,35 @@ async function loadPOS() {
     }
 
     // ── no items message
-    const noItems = topItems.length === 0
-      ? `<div class="glass-card p-4 text-center text-slate-400 text-sm">Nessun dato articoli.<br><span class="text-xs">I CSV arrivano via email ogni mattina.</span></div>`
-      : '';
+    const noDays = d.length === 0;
+    const noItems = topItems.length === 0;
+
+    if (noDays) {
+      const emptyMsg = {
+        today:   'Nessun dato per oggi.<br><span class="text-xs">I CSV arrivano via email la mattina seguente.</span>',
+        yesterday: 'Nessun dato per ieri.<br><span class="text-xs">Possibile giorno di chiusura o CSV non ancora arrivato.</span>',
+        weekend: 'Nessun dato per il weekend scorso.<br><span class="text-xs">I CSV weekend arrivano il lunedì mattina.</span>',
+        week:    'Nessun dato per gli ultimi 7 giorni.',
+        month:   'Nessun dato per gli ultimi 30 giorni.',
+      }[posDateMode] || 'Nessun dato per questo periodo.';
+
+      sec.innerHTML = \`
+        <div class="px-3 pt-3 pb-24 space-y-3">
+          <div class="flex gap-1.5">
+            \${['today','yesterday','weekend','week','month'].map(m => {
+              const labels = { today:'Oggi', yesterday:'Ieri', weekend:'Weekend', week:'7 gg', month:'30 gg' };
+              const active = posDateMode === m;
+              return \`<button onclick="posSetMode('\${m}')" class="flex-1 text-[11px] font-medium py-2 rounded-xl transition-all \${active ? 'text-white shadow-sm' : 'text-slate-500 bg-white/60'}" style="\${active ? 'background:#059669' : ''}">\${labels[m]}</button>\`;
+            }).join('')}
+          </div>
+          <p class="text-xs text-slate-500 font-medium px-1">\${period.label}</p>
+          <div class="glass-card p-8 text-center">
+            <div class="text-4xl mb-3">📭</div>
+            <p class="text-sm text-slate-500">\${emptyMsg}</p>
+          </div>
+        </div>\`;
+      return;
+    }
 
     const catColors = { Food:'#059669', Alcohol:'#7c3aed', Wine:'#dc2626', Beer:'#d97706' };
 
@@ -208,7 +234,7 @@ async function loadPOS() {
 
         <!-- Selector -->
         <div class="flex gap-1.5">
-          ${['yesterday','today','weekend','week','month'].map(m => {
+          ${['today','yesterday','weekend','week','month'].map(m => {
             const labels = { today:'Oggi', yesterday:'Ieri', weekend:'Weekend', week:'7 gg', month:'30 gg' };
             const active = posDateMode === m;
             return `<button onclick="posSetMode('${m}')" class="flex-1 text-[11px] font-medium py-2 rounded-xl transition-all ${active ? 'text-white shadow-sm' : 'text-slate-500 bg-white/60'}" style="${active ? 'background:#059669' : ''}">${labels[m]}</button>`;
