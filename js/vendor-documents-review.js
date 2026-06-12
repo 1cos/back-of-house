@@ -1017,13 +1017,13 @@ window.vdrApprove = async function(docId, btn) {
 
       // 2. Fuzzy match — only if ingredient_links has a confirmed mapping
       // Without SKU and without a confirmed link, skip — user will match manually
-      const { data: confirmedLink } = await sb.from('ingredient_links')
+      const { data: confirmedLinks } = await sb.from('ingredient_links')
         .select('ingredient_id, ingredient_name')
         .eq('vendor', vendor)
         .eq('invoice_description', desc)
         .eq('confirmed', true)
-        .limit(1)
-        .single();
+        .limit(1);
+      const confirmedLink = confirmedLinks && confirmedLinks.length ? confirmedLinks[0] : null;
 
       if (!confirmedLink) continue; // no confirmed link yet — skip, match modal will handle it
 
@@ -1034,7 +1034,8 @@ window.vdrApprove = async function(docId, btn) {
       if (ingrVendorMap[linkedIngrId]) {
         toUpdate.push({ id: ingrVendorMap[linkedIngrId], ...fields });
       } else {
-        toInsert.push({ ingredient_id: linkedIngrId, vendor, vendor_sku: sku, active: true, ...fields });
+        const { updated_at: _ua2, ...safeFields } = fields;
+        toInsert.push({ ingredient_id: linkedIngrId, vendor, vendor_sku: sku, active: true, ...safeFields });
       }
     }
 
