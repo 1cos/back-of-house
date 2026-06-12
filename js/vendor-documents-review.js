@@ -1035,7 +1035,13 @@ window.vdrApprove = async function(docId, btn) {
       }));
     }
     if (toInsert.length) {
-      await sb.from('ingredient_vendors').upsert(toInsert, { onConflict: 'ingredient_id,vendor' });
+      // Insert one by one — skip duplicates silently
+      for (const row of toInsert) {
+        const { error: insErr } = await sb.from('ingredient_vendors').insert(row);
+        if (insErr && !insErr.message.includes('duplicate') && !insErr.code === '23505') {
+          console.warn('ingredient_vendors insert skip:', insErr.message);
+        }
+      }
     }
 
     // ── Mark document as imported ──
