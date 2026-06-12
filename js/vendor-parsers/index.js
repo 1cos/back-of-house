@@ -48,6 +48,61 @@ function detectDocumentType(rawText) {
   return 'unknown';
 }
 
+// ── Reconciliation check (Quadratura) ────────────────────────
+// Data Priority P1: the document total is the source of truth.
+// If the sum of parsed line amounts does not match the declared
+// subtotal OR total (within tolerance), lines are missing or
+// misread → blocking warning DOC-TOTAL-001.
+//
+// Pure function: takes a parsed document, returns it with the
+// warning appended when totals don't reconcile.
+const TOTAL_TOLERANCE = 0.02; // dollars
+
+function checkTotals(parsed) {
+  if (!parsed || !Array.isArray(parsed.items) || parsed.items.length === 0) {
+    return parsed; // empty docs are covered by PARSE_ERROR
+  }
+
+  const amounts = parsed.items
+    .map(it => it.amount)
+    .filter(a => a !== null && a !== undefined && !isNaN(parseFloat(a)));
+
+  if (amounts.length === 0) return parsed; // nothing to sum
+
+  const sumLines = Math.round(amounts.reduce((s, a) => s + parseFloat(a), 0) * 100) / 100;
+
+  // Candidates to reconcile against, in priority order
+  const candidates = [];
+  if (parsed.subtotal !== null && parsed.subtotal !== undefined && !isNaN(parseFloat(parsed.subtotal))) {
+    candidates.push(parseFloat(parsed.subtotal));
+  }
+  if (parsed.total !== null && parsed.total !== undefined && !isNaN(parseFloat(parsed.total))) {
+    candidates.push(parseFloat(parsed.total));
+  }
+
+  if (candidates.length === 0) return parsed; // no declared total to check against
+
+  const matches = candidates.some(c => Math.abs(c - sumLines) <= TOTAL_TOLERANCE);
+  if (matches) return parsed; // reconciled — silence
+
+  // Mismatch → blocking warning
+  const declared = candidates[candidates.length - 1]; // prefer total for the message
+  const pct = declared !== 0
+    ? Math.round(Math.abs(sumLines / declared) * 100)
+    : 0;
+
+  parsed.warnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+  parsed.warnings.push({
+    code:     'DOC-TOTAL-001',
+    severity: 'blocking',
+    message:  `Lines sum $${sumLines.toFixed(2)} but document total is $${declared.toFixed(2)} (${pct}% read) — possible missing lines`,
+    sum_of_lines:   sumLines,
+    declared_total: declared,
+  });
+
+  return parsed;
+}
+
 // ── Parse a document ─────────────────────────────────────────
 // Returns structured VendorDocument or error object
 function parse(rawText) {
@@ -92,7 +147,8 @@ function parse(rawText) {
   }
 
   try {
-    return parser.parse(rawText);
+    const parsed = parser.parse(rawText);
+    return checkTotals(parsed);
   } catch (err) {
     return {
       vendor,
@@ -106,4 +162,4 @@ function parse(rawText) {
   }
 }
 
-module.exports = { parse, detectVendor, detectDocumentType };
+module.exports = { parse, detectVendor, detectDocumentType, checkTotals };
