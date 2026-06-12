@@ -1244,8 +1244,18 @@ window.vdrApprove = async function(docId, btn) {
 
     // Fetch document
     const { data: doc, error: fetchErr } = await sb
-      .from('vendor_documents').select('parsed_json,vendor,warnings').eq('id', docId).single();
+      .from('vendor_documents').select('parsed_json,vendor,warnings,status,document_number').eq('id', docId).single();
     if (fetchErr) throw new Error(fetchErr.message);
+
+    // ── Guard: already imported — say so, close, done. No double work. ──
+    if (doc.status === 'imported') {
+      if (typeof showScToast === 'function') showScToast('✓ Already imported — nothing to do');
+      const sheetEl = document.getElementById('vdrSheet');
+      if (sheetEl) sheetEl.remove();
+      const cardEl = document.getElementById('vdrCard-' + docId);
+      if (cardEl) cardEl.remove();
+      return;
+    }
 
     // ── PREFLIGHT ──
     const pre = await vdrPreflight(docId, doc);
@@ -1357,8 +1367,15 @@ window.vdrApprove = async function(docId, btn) {
       card.style.transition = 'opacity .3s'; card.style.opacity = '0';
       setTimeout(() => { card.remove(); const list = document.getElementById('vdrList'); if (list && !list.querySelector('[id^="vdrCard-"]')) vdrLoad(); }, 300);
     }
-    const saved = toUpdate.length + toInsert.length;
-    showScToast('✓ Approved — ' + saved + ' item' + (saved !== 1 ? 's' : '') + ' saved to inventory');
+    // ── Yes chef: close the sheet, report exactly what was done ──
+    const sheetEl = document.getElementById('vdrSheet');
+    if (sheetEl) sheetEl.remove();
+    const docLabel = doc.document_number ? '#' + doc.document_number : 'Document';
+    const parts = [];
+    if (toInsert.length) parts.push(toInsert.length + ' new ingredient' + (toInsert.length !== 1 ? 's' : ''));
+    if (toUpdate.length) parts.push(toUpdate.length + ' updated');
+    const detail = parts.length ? ' — ' + parts.join(', ') : '';
+    showScToast('✓ Invoice ' + docLabel + ' imported · ' + items.length + ' item' + (items.length !== 1 ? 's' : '') + detail);
 
   } catch(e) {
     if (statusEl) {
