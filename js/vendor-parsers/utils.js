@@ -42,6 +42,16 @@ function parsePrice(str) {
 //           "110 CT" → {count:1,sizeEach:110,unit:'ct'}
 //           "6 CT" → {count:1,sizeEach:6,unit:'ct'}
 //           "16-22 CT" → {count:1,sizeEach:16,unit:'ct',sizeMax:22}
+//
+// FreshPoint patterns (weight repeated twice in description):
+//           "4# 4# BX"    → {count:1,sizeEach:4,unit:'lb'}
+//           "11# 11# BX"  → {count:1,sizeEach:11,unit:'lb'}
+//           "2/1.5# 2/1.5# BOX" → {count:2,sizeEach:1.5,unit:'lb'}
+//           "3/2# CS"     → {count:3,sizeEach:2,unit:'lb'}
+//           "5# BX"       → {count:1,sizeEach:5,unit:'lb'}
+//           "30CT BX"     → {count:1,sizeEach:30,unit:'ct'}
+//           "3 CT BOX"    → {count:1,sizeEach:3,unit:'ct'}
+//           "2 CT BX"     → {count:1,sizeEach:2,unit:'ct'}
 function parsePackSize(str) {
   if (!str) return null;
   const raw = str;
@@ -53,6 +63,36 @@ function parsePackSize(str) {
   // "Npc / Nunit" or "Nea / Nunit" — e.g. "1pc / 28lb", "1PC/28LB"
   m = s.match(/^(\d+)\s*(?:PC|PCS|EA|EACH)\s*\/\s*([\d.]+)\s*([A-Z]+)/i);
   if (m) return { count: parseFloat(m[1]), sizeEach: parseFloat(m[2]), unit: m[3].toLowerCase(), raw };
+
+  // ── FreshPoint: "N/N.Nunit N/N.Nunit BOX|BX|CS|BG" — weight repeated twice ──
+  // e.g. "2/1.5LB 2/1.5LB BOX" — take first occurrence only
+  m = s.match(/^(\d+)\s*\/\s*([\d.]+)\s*([A-Z]+)\s+\1\s*\/\s*\2\s*\3\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: parseFloat(m[1]), sizeEach: parseFloat(m[2]), unit: m[3].toLowerCase(), raw };
+
+  // ── FreshPoint: "N.Nunit N.Nunit BOX|BX|CS|BG" — weight repeated twice ──
+  // e.g. "4LB 4LB BX", "11LB 11LB BX", "1LB 1LB BG"
+  m = s.match(/^([\d.]+)\s*([A-Z]+)\s+\1\s*\2\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: 1, sizeEach: parseFloat(m[1]), unit: m[2].toLowerCase(), raw };
+
+  // ── FreshPoint: "N/N unit BOX|BX|CS|BG" — slash-count with container suffix ──
+  // e.g. "3/2LB CS", "2/1.5LB BOX" (not repeated — single occurrence)
+  m = s.match(/^(\d+)\s*\/\s*([\d.]+)\s*([A-Z]+)\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: parseFloat(m[1]), sizeEach: parseFloat(m[2]), unit: m[3].toLowerCase(), raw };
+
+  // ── FreshPoint: "N.Nunit BOX|BX|CS|BG" — single weight with container suffix ──
+  // e.g. "5LB BX", "4LB BX", "50LB BX"
+  m = s.match(/^([\d.]+)\s*([A-Z]+)\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: 1, sizeEach: parseFloat(m[1]), unit: m[2].toLowerCase(), raw };
+
+  // ── FreshPoint: "NNctunit BOX|BX" — e.g. "30CT BX", "3 CT BOX", "2 CT BX" ──
+  // Also catches "25 32CT 15LB BX" — take the weight (last N unit before BX)
+  m = s.match(/^.*?([\d.]+)\s*(LB|OZ|KG|G)\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: 1, sizeEach: parseFloat(m[1]), unit: m[2].toLowerCase(), raw };
+
+  // ── FreshPoint: "NctBOX|BX" or "N CT BOX" — count-only with container ──
+  // e.g. "30CT BX", "3 CT BOX", "2 CT BX"
+  m = s.match(/^([\d.]+)\s*CT\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: 1, sizeEach: parseFloat(m[1]), unit: 'ct', raw };
 
   // "N/N unit" — e.g. "12/3 CT", "11/1lb", "8/12 OZ"
   m = s.match(/^(\d+)\s*\/\s*([\d.]+)\s*([A-Z]+)/);
