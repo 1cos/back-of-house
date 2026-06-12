@@ -434,234 +434,233 @@ window.runSousChefScan = async function() {
   const sb = window.supabaseClient;
   if (!sb) return;
 
+  // Throttle: max 1 scan AI ogni 30 minuti (protegge Groq quota)
+  const lastScan = parseInt(localStorage.getItem('sc_last_scan') || '0');
+  const now = Date.now();
+  const THROTTLE_MS = 30 * 60 * 1000;
+  if (now - lastScan < THROTTLE_MS) {
+    const minsLeft = Math.ceil((THROTTLE_MS - (now - lastScan)) / 60000);
+    if (typeof showScToast === 'function') showScToast(`⏳ Prossima scan disponibile tra ${minsLeft} min`);
+    return;
+  }
+
   const btn = document.getElementById('scBtn');
   if (btn) { btn.style.background = 'rgba(16,185,129,0.15)'; btn.style.borderColor = '#10b981'; }
-  if (typeof showScToast === 'function') showScToast('🔍 Sous Chef sta controllando...');
-
-  const rules = scGetRules();
-  // found = array di "card objects" — ogni card ha contesto completo per risolvere inline
-  const cards = [];
+  if (typeof showScToast === 'function') showScToast('🔍 Sous Chef sta analizzando...');
 
   try {
-    // ── SC-PRICE-001: carni con price_per_100g < $0.10 ─────────
-    // Porta contesto completo: vendor, pack, unit_price, ingredient_id
-    if (rules['SC-PRICE-001']) {
-      const meatKeywords = ['beef','meat','steak','chicken','pork','veal','lamb',
-        'rib','loin','tenderloin','brisket','chuck','short','tomahawk','stew'];
-      const { data: lowPrice } = await sb
-        .from('ingredient_vendors')
-        .select('ingredient_id,vendor,unit_price,price_per_100g,pack_description,purchase_unit,conversion_to_base,ingredients(id,name)')
-        .not('price_per_100g', 'is', null)
-        .lt('price_per_100g', 0.10);
+    // ── 1. Raccogli dati reali dal DB ─────────────────────────
+    const [{ data: ivRows }, { data: allIngr }, { data: allRecipes }, { data: linkRows }] = await Promise.all([
+      sb.from('ingredient_vendors')
+        .select('ingredient_id,vendor,unit_price,price_per_100g,pack_description,last_invoice_date')
+        .not('unit_price', 'is', null),
+      sb.from('ingredients').select('id,name,category').eq('active', true),
+      sb.from('recipes').select('title,ingredients'),
+      sb.from('ingredient_links').select('ingredient_id').eq('confirmed', true),
+    ]);
 
-      const meats = (lowPrice || []).filter(row => {
-        const name = (row.ingredients?.name || '').toLowerCase();
-        return meatKeywords.some(k => name.includes(k));
+    // Mappa id → nome ingrediente
+    const ingrMap = {};
+    for (const i of (allIngr || [])) ingrMap[i.id] = i;
+
+    // Nomi ricette (sub-ricette = produzione interna)
+    const recipeNames = new Set((allRecipes || []).map(r => (r.title || '').toLowerCase().trim()));
+
+    // Ingredienti usati in ricette
+    const usedInRecipes = new Set();
+    for (const r of (allRecipes || [])) {
+      for (const ing of (r.ingredients || [])) {
+        if (ing.name) usedInRecipes.add(ing.name.toLowerCase().trim());
+      }
+    }
+
+    // Ingredienti con link fattura confermato
+    const linkedIds = new Set((linkRows || []).map(l => l.ingredient_id));
+
+    // ── 2. Costruisci dataset per Groq ───────────────────────
+    // Solo ingredienti rilevanti — non sub-ricette, non Supply
+    const dataset = [];
+    for (const iv of (ivRows || [])) {
+      const ingr = ingrMap[iv.ingredient_id];
+      if (!ingr) continue;
+      if (ingr.category === 'Supply') continue;
+      const nameLower = ingr.name.toLowerCase().trim();
+      // Skip sub-ricette (produzione interna)
+      if (recipeNames.has(nameLower) && !linkedIds.has(iv.ingredient_id)) continue;
+
+      dataset.push({
+        id: iv.ingredient_id,
+        name: ingr.name,
+        vendor: iv.vendor,
+        unit_price: parseFloat(iv.unit_price) || null,
+        price_per_100g: iv.price_per_100g ? parseFloat(iv.price_per_100g) : null,
+        pack: iv.pack_description,
+        last_invoice: iv.last_invoice_date,
+        in_recipes: usedInRecipes.has(nameLower),
+        has_link: linkedIds.has(iv.ingredient_id),
       });
+    }
 
-      // Raggruppa in card da max 3 ingredienti
-      for (let i = 0; i < meats.length; i += 3) {
-        const group = meats.slice(i, i + 3);
-        cards.push({
-          code: 'SC-PRICE-001',
-          severity: 'blocking',
-          title: group.length === 1
-            ? `${group[0].ingredients?.name} — prezzo sospetto`
-            : `${group.length} carni con prezzo sospetto`,
-          items: group.map(row => ({
-            ingredient_id: row.ingredient_id,
-            ingredient_name: row.ingredients?.name || '?',
-            vendor: row.vendor,
-            unit_price: row.unit_price,
-            price_per_100g: row.price_per_100g,
-            pack_description: row.pack_description,
-            conversion_to_base: row.conversion_to_base, // grams per purchase unit
-          })),
+    // Aggiungi ingredienti senza vendor (potenziali fantasmi)
+    for (const ingr of (allIngr || [])) {
+      if (ingr.category === 'Supply') continue;
+      const nameLower = ingr.name.toLowerCase().trim();
+      if (recipeNames.has(nameLower)) continue; // sub-ricetta
+      const alreadyIn = dataset.find(d => d.id === ingr.id);
+      if (alreadyIn) continue;
+      const hasLink = linkedIds.has(ingr.id);
+      const inRec = usedInRecipes.has(nameLower);
+      if (!hasLink && !inRec) {
+        dataset.push({
+          id: ingr.id, name: ingr.name,
+          vendor: null, unit_price: null, price_per_100g: null,
+          pack: null, last_invoice: null,
+          in_recipes: false, has_link: false,
         });
       }
     }
 
-    // ── SC-PRICE-002: prezzi aumentati >20% ────────────────────
-    if (rules['SC-PRICE-002']) {
-      const { data: purchases } = await sb
-        .from('purchases')
-        .select('vendor,items,invoice_date')
-        .order('invoice_date', { ascending: false })
-        .limit(30);
+    if (dataset.length === 0) {
+      if (typeof showScToast === 'function') showScToast('✅ Nessun dato da analizzare');
+      return;
+    }
 
-      const pricesByKey = {};
-      for (const p of (purchases || [])) {
-        for (const item of (p.items || [])) {
-          if (!item.unit_price) continue;
-          const key = `${p.vendor}|||${item.description}`;
-          if (!pricesByKey[key]) pricesByKey[key] = [];
-          pricesByKey[key].push({ price: parseFloat(item.unit_price), date: p.invoice_date, pack: item.pack_size || item.pack_description });
-        }
-      }
+    // ── 3. Chiedi a Groq di ragionare sui dati reali ─────────
+    const dataJson = JSON.stringify(dataset.slice(0, 80)); // max 80 items per token limit
 
-      const spikes = [];
-      for (const [key, entries] of Object.entries(pricesByKey)) {
-        if (entries.length < 2) continue;
-        const latest = entries[0].price;
-        const avg = entries.slice(1).reduce((a,b) => a + b.price, 0) / (entries.length - 1);
-        if (avg <= 0) continue;
-        const pct = Math.round(((latest - avg) / avg) * 100);
-        if (pct < 20) continue;
-        const [vendor, desc] = key.split('|||');
-        spikes.push({ vendor, desc, latest, avg, pct, pack: entries[0].pack, date: entries[0].date });
-      }
+    const prompt = `Sei l'Executive Sous Chef digitale di Zenos on the Square, ristorante italiano a Weatherford Texas.
+Il tuo compito è analizzare i dati reali degli ingredienti e trovare anomalie — come farebbe un sous chef esperto guardando i numeri della cucina.
 
-      for (let i = 0; i < spikes.length; i += 3) {
-        const group = spikes.slice(i, i + 3);
-        cards.push({
-          code: 'SC-PRICE-002',
-          severity: 'alert',
-          title: group.length === 1
-            ? `${group[0].desc} — prezzo +${group[0].pct}%`
-            : `${group.length} articoli con prezzo in aumento`,
-          items: group.map(s => ({
-            ingredient_name: s.desc,
-            vendor: s.vendor,
-            unit_price: s.latest,
-            prev_avg: s.avg,
-            pct: s.pct,
-            pack_description: s.pack,
-            invoice_date: s.date,
-          })),
-        });
+DATI INGREDIENTI (JSON):
+${dataJson}
+
+ISTRUZIONI PER L'ANALISI:
+Ragiona su questi dati come un esperto di food cost. Trova problemi reali, non teorici.
+
+Tipi di problemi da cercare:
+1. PREZZO IMPOSSIBILE: price_per_100g esiste ma è troppo basso per quel tipo di prodotto
+   (es. carne a $0.06/100g è impossibile — deve essere un errore di peso)
+2. PESO MANCANTE: unit_price esiste ma price_per_100g è null e il pack è in CT/DZ/EA
+   (il peso per unità non è mai stato inserito — senza peso non si calcola il food cost)
+3. FANTASMA: nessun vendor, nessun link fattura, non usato in ricette
+   (ingrediente creato per errore — va eliminato)
+
+REGOLE:
+- Usa il buon senso di un cuoco: la farina costa poco, la carne costa molto, il pesce ancora di più
+- Se il price_per_100g sembra impossibile per quel tipo di prodotto, segnalalo
+- Se il pack è in CT/EA/DZ e manca price_per_100g, il peso non è mai stato calcolato
+- Non segnalare sub-ricette o preparazioni interne
+- Sii conciso — Max è in cucina e ha poco tempo
+- Massimo 6 problemi totali — solo i più importanti
+
+RISPOSTA: JSON array, niente altro, niente markdown.
+Formato esatto:
+[
+  {
+    "code": "SC-PRICE-001" | "SC-NOLINK-001" | "SC-GHOST-001",
+    "severity": "blocking" | "alert" | "insight",
+    "subtype": "price_impossible" | "missing_weight" | "ghost",
+    "ingredient_id": "uuid",
+    "ingredient_name": "nome",
+    "vendor": "vendor o null",
+    "unit_price": numero o null,
+    "price_per_100g": numero o null,
+    "pack": "pack o null",
+    "title": "frase breve max 6 parole",
+    "question": "domanda OQR in italiano — una sola domanda",
+    "options": [
+      {"label": "risposta breve", "value": "valore_interno"},
+      {"label": "risposta breve", "value": "valore_interno"}
+    ],
+    "reasoning": "una frase: perché è un problema"
+  }
+]`;
+
+    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${window.GROQ_API_KEY || ''}`,
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 2000,
+        temperature: 0.1, // bassa temperatura = risposte precise
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!groqRes.ok) throw new Error('Groq API error: ' + groqRes.status);
+    const groqData = await groqRes.json();
+    const rawText = groqData.choices?.[0]?.message?.content || '';
+
+    // Parse JSON da Groq
+    let problems = [];
+    try {
+      const cleaned = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+      const arr = JSON.parse(cleaned);
+      problems = Array.isArray(arr) ? arr : [];
+    } catch(e) {
+      // Fallback: cerca array JSON nel testo
+      const m = rawText.match(/\[[\s\S]*\]/);
+      if (m) {
+        try { problems = JSON.parse(m[0]); } catch(_) {}
       }
     }
 
-    // ── SC-NOLINK-001: tre casi distinti ─────────────────────────
-    // Logica di classificazione:
-    // 1. Se l'ingrediente è anche una ricetta nel DB → sub-ricetta/produzione interna → SKIP
-    //    (es. Bolognese Sauce, Balsamic Glaze — fatti in cucina, non acquistati)
-    // 2. Ha unit_price in ingredient_vendors ma price_per_100g NULL → PESO MANCANTE
-    //    (es. Avocado 6CT $13.27 — il peso per unità non è mai stato salvato)
-    // 3. No vendor + no link fattura + non è sub-ricetta → FANTASMA → elimina
-    //    (es. Tomahoke Loin — creato per errore, nessun dato)
-    if (rules['SC-NOLINK-001']) {
-      const [{ data: allIngr }, { data: ivRows }, { data: linkRows }, { data: allRecipes }] = await Promise.all([
-        sb.from('ingredients').select('id,name,category').eq('active', true).neq('category', 'Supply'),
-        sb.from('ingredient_vendors').select('ingredient_id,vendor,unit_price,price_per_100g,pack_description'),
-        sb.from('ingredient_links').select('ingredient_id').eq('confirmed', true),
-        sb.from('recipes').select('title,ingredients'),
-      ]);
-
-      const ivMap = {};
-      for (const iv of (ivRows || [])) {
-        if (!ivMap[iv.ingredient_id]) ivMap[iv.ingredient_id] = iv;
-        else if (iv.price_per_100g && !ivMap[iv.ingredient_id].price_per_100g) ivMap[iv.ingredient_id] = iv;
-      }
-      const linkedIds = new Set((linkRows || []).map(l => l.ingredient_id));
-
-      // Nomi delle ricette nel DB (lowercase) — questi sono sub-ricette/produzioni interne
-      // Un ingrediente con lo stesso nome di una ricetta NON è un acquisto
-      const recipeNames = new Set((allRecipes || []).map(r => (r.title || '').toLowerCase().trim()));
-
-      // Ingredienti usati dentro altre ricette (come ingrediente)
-      const usedInRecipes = new Set();
-      for (const r of (allRecipes || [])) {
-        for (const ing of (r.ingredients || [])) {
-          if (ing.name) usedInRecipes.add(ing.name.toLowerCase().trim());
-        }
-      }
-
-      const ghosts = [], missingW = [];
-      for (const ingr of (allIngr || [])) {
-        const iv = ivMap[ingr.id];
-        // Già ok — ha price_per_100g
-        if (iv && iv.price_per_100g) continue;
-
-        const nameLower = ingr.name.toLowerCase().trim();
-        // È una sub-ricetta/produzione interna → skip
-        // (il nome corrisponde a una ricetta esistente, o è usato come ingrediente
-        //  ma non ha mai avuto un vendor → viene prodotto in cucina)
-        const isSubRecipe = recipeNames.has(nameLower);
-        const hasVendor = !!(iv && iv.unit_price);
-        const hasLink = linkedIds.has(ingr.id);
-
-        // Se è sub-ricetta E non ha vendor → skip (produzione interna)
-        if (isSubRecipe && !hasVendor) continue;
-
-        if (hasVendor) {
-          // Ha prezzo in fattura ma manca il peso → peso mancante
-          missingW.push({
-            ingredient_id: ingr.id,
-            ingredient_name: ingr.name,
-            vendor: iv.vendor,
-            unit_price: parseFloat(iv.unit_price),
-            pack_description: iv.pack_description,
-          });
-        } else if (!hasLink && !isSubRecipe) {
-          // Nessun vendor, nessun link, non è sub-ricetta → fantasma
-          ghosts.push({ ingredient_id: ingr.id, ingredient_name: ingr.name });
-        }
-      }
-
-      // Card fantasmi (max 3 per card)
-      for (let i = 0; i < ghosts.length; i += 3) {
-        const group = ghosts.slice(i, i + 3);
-        const n = ghosts.length;
-        cards.push({ code: 'SC-NOLINK-001', severity: 'insight', subtype: 'ghost',
-          title: n === 1 ? group[0].ingredient_name + ' — non collegato a niente' : n + ' ingredient' + (n===1?'e':'i') + ' senza dati',
-          subtitle: n > 3 ? 'Gruppo ' + (Math.floor(i/3)+1) + ' di ' + Math.ceil(n/3) : null,
-          items: group });
-      }
-
-      // Card peso mancante (max 3 per card)
-      for (let i = 0; i < missingW.length; i += 3) {
-        const group = missingW.slice(i, i + 3);
-        const n = missingW.length;
-        cards.push({ code: 'SC-NOLINK-001', severity: 'insight', subtype: 'missing_weight',
-          title: n === 1 ? group[0].ingredient_name + ' — peso mancante' : n + ' ingredient' + (n===1?'e':'i') + ' senza $/100g',
-          subtitle: n > 3 ? 'Gruppo ' + (Math.floor(i/3)+1) + ' di ' + Math.ceil(n/3) : null,
-          items: group });
-      }
+    if (problems.length === 0) {
+      if (typeof showScToast === 'function') showScToast('✅ Sous Chef — tutto ok');
+      localStorage.setItem('sc_last_scan', String(now));
+      return;
     }
 
-    // ── SC-UNUSED-001 ────────────────────────────────────────
-    if (rules['SC-UNUSED-001']) {
-      const { data: linked } = await sb
-        .from('ingredient_links').select('invoice_description,vendor').eq('confirmed',true).limit(300);
-      const { data: recipes } = await sb.from('recipes').select('ingredients');
-      const inRecipes = new Set();
-      for (const r of (recipes||[])) for (const ing of (r.ingredients||[])) if(ing.name) inRecipes.add(ing.name.toLowerCase());
-      const unused = (linked||[]).filter(l => !inRecipes.has((l.invoice_description||'').toLowerCase()));
-      if (unused.length > 0) {
-        for (let i = 0; i < Math.min(unused.length, 9); i += 3) {
-          const group = unused.slice(i, i+3);
-          cards.push({
-            code: 'SC-UNUSED-001', severity: 'insight',
-            title: `${unused.length} articoli non in ricette`,
-            items: group.map(u => ({ ingredient_name: u.invoice_description, vendor: u.vendor })),
-          });
-        }
-      }
+    // ── 4. Converti i problemi Groq in card per lo stack ─────
+    // Raggruppa per subtype (max 3 per card)
+    const order = { blocking:0, alert:1, insight:2 };
+    problems.sort((a,b) => (order[a.severity]??2) - (order[b.severity]??2));
+
+    const cards = [];
+    for (let i = 0; i < problems.length; i += 3) {
+      const group = problems.slice(i, i + 3);
+      const first = group[0];
+      const n = group.length;
+
+      cards.push({
+        code: first.code,
+        severity: first.severity,
+        subtype: first.subtype,
+        title: n === 1 ? first.title : `${n} problemi — ${first.title}`,
+        items: group.map(p => ({
+          ingredient_id: p.ingredient_id,
+          ingredient_name: p.ingredient_name,
+          vendor: p.vendor,
+          unit_price: p.unit_price,
+          price_per_100g: p.price_per_100g,
+          pack_description: p.pack,
+          // OQR da Groq — domanda e opzioni già pronte
+          oqr_question: p.question,
+          oqr_options: p.options || [],
+          oqr_reasoning: p.reasoning,
+        })),
+      });
     }
 
-    // ── Salva warning sintetici in invoice_warnings ──────────
+    // ── 5. Salva in invoice_warnings ─────────────────────────
     const scCodes = [...new Set(cards.map(c => c.code))];
-    if (scCodes.length > 0) {
-      await sb.from('invoice_warnings').delete().in('code', scCodes).eq('status','open');
-      await sb.from('invoice_warnings').insert(cards.map(c => ({
-        code: c.code, severity: c.severity, status: 'open',
-        vendor: c.items?.[0]?.vendor || null,
-        item_description: c.title,
-        message: c.title,
-        document_id: null, document_date: null, document_number: null, field: null,
-      })));
-    } else {
-      await sb.from('invoice_warnings').delete().like('code','SC-%').eq('status','open');
-    }
+    await sb.from('invoice_warnings').delete().in('code', scCodes).eq('status', 'open');
+    await sb.from('invoice_warnings').insert(cards.map(c => ({
+      code: c.code, severity: c.severity, status: 'open',
+      vendor: c.items?.[0]?.vendor || null,
+      item_description: c.title,
+      message: c.title,
+      document_id: null, document_date: null, document_number: null, field: null,
+    })));
 
     if (typeof loadWarningsBanner === 'function') loadWarningsBanner();
 
-    if (cards.length > 0) {
-      showSousChefStack(cards);
-    } else {
-      if (typeof showScToast === 'function') showScToast('✅ Sous Chef — tutto ok');
-    }
+    // ── 6. Mostra stack ───────────────────────────────────────
+    localStorage.setItem('sc_last_scan', String(now));
+    showSousChefStack(cards);
 
   } catch(e) {
     console.error('[SousChefScan] Error:', e.message);
@@ -797,6 +796,61 @@ function showSousChefStack(cards) {
   }
 
   function buildCardBody(card) {
+    // ── Groq OQR: domanda e opzioni già pronte da Groq ────────
+    // Se il primo item ha oqr_question, usa quello invece delle regole hardcodate
+    if (card.items?.[0]?.oqr_question) {
+      return card.items.map((item, i) => {
+        const hasWeightAction = item.subtype === 'missing_weight' || card.subtype === 'missing_weight' ||
+          (item.oqr_options||[]).some(o => o.value === 'manual_weight');
+        const bgColor = card.severity === 'blocking' ? 'rgba(239,68,68,0.04)' :
+                        card.severity === 'alert'    ? 'rgba(245,158,11,0.05)' :
+                                                       'rgba(59,130,246,0.04)';
+        const borderColor = card.severity === 'blocking' ? 'rgba(239,68,68,0.15)' :
+                            card.severity === 'alert'    ? 'rgba(245,158,11,0.2)' :
+                                                           'rgba(59,130,246,0.15)';
+        const optionsHtml = (item.oqr_options || []).map((opt, oi) => {
+          if (opt.value === 'manual_weight') {
+            // Opzione speciale: input peso
+            return `
+              <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+                <input id="scGroqWeight-${i}" type="number" placeholder="es. 28" min="0.1" step="0.1"
+                  style="flex:1;height:48px;padding:0 14px;border:2px solid #93c5fd;border-radius:12px;font-size:18px;outline:none;background:white;"
+                  oninput="scGroqPreview(${i},${item.unit_price||0})">
+                <select id="scGroqUnit-${i}" style="height:48px;padding:0 10px;border:2px solid #93c5fd;border-radius:12px;font-size:16px;background:white;">
+                  <option value="lb">lb</option><option value="kg">kg</option>
+                  <option value="oz">oz</option><option value="g">g</option>
+                </select>
+                <button onclick="scGroqSaveWeight(${i},'${(item.ingredient_id||'').replace(/'/g,"\'")}','${(item.vendor||'').replace(/'/g,"\'")}',${item.unit_price||0})"
+                  style="height:48px;padding:0 16px;border-radius:12px;background:#1e293b;color:white;font-size:18px;font-weight:700;border:none;cursor:pointer;">✓</button>
+              </div>
+              <div id="scGroqPreview-${i}" style="font-size:15px;font-weight:600;color:#10b981;margin-top:8px;display:none;"></div>`;
+          }
+          if (opt.value === 'delete') {
+            return `<button onclick="scDeleteGhost('${item.ingredient_id}',${i})"
+              style="flex:1;height:48px;border-radius:12px;background:#ef4444;color:white;font-size:16px;font-weight:700;border:none;cursor:pointer;">🗑️ ${opt.label}</button>`;
+          }
+          return `<button data-answer="${opt.value}"
+            onclick="scGroqAnswer(this,'${item.ingredient_id||''}','${(item.vendor||'').replace(/'/g,"\'")}','${opt.value}')"
+            style="flex:1;height:48px;border-radius:12px;background:${oi===0?'#f0fdf4':'#f8fafc'};color:${oi===0?'#166534':'#1e293b'};border:1.5px solid ${oi===0?'#bbf7d0':'#e2e8f0'};font-size:15px;font-weight:600;cursor:pointer;">
+            ${opt.label}
+          </button>`;
+        }).join('');
+
+        return `
+          <div id="scGroqItem-${i}" style="background:${bgColor};border:1px solid ${borderColor};border-radius:16px;padding:16px;margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+              <div style="font-size:18px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
+              ${item.price_per_100g ? `<span style="font-size:13px;color:#ef4444;font-weight:700;">$${parseFloat(item.price_per_100g).toFixed(3)}/100g</span>` :
+                item.unit_price ? `<span style="font-size:13px;color:#64748b;">$${parseFloat(item.unit_price).toFixed(2)}/case</span>` : ''}
+            </div>
+            ${item.vendor || item.pack_description ? `<div style="font-size:14px;color:#64748b;margin-bottom:6px;">${item.vendor||''} ${item.pack_description ? '· '+item.pack_description : ''}</div>` : ''}
+            ${item.oqr_reasoning ? `<div style="font-size:13px;color:#475569;font-style:italic;margin-bottom:10px;">${item.oqr_reasoning}</div>` : ''}
+            <div style="font-size:16px;font-weight:600;color:#1e293b;margin-bottom:10px;">${item.oqr_question}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">${optionsHtml}</div>
+          </div>`;
+      }).join('');
+    }
+
     // ── SC-PRICE-001: peso mancante su carni ──────────────────
     if (card.code === 'SC-PRICE-001') {
       return card.items.map((item, i) => `
@@ -1004,6 +1058,71 @@ function showSousChefStack(cards) {
     };
 
     // Accept price (SC-PRICE-002)
+    // scGroqAnswer: risposta generica a OQR da Groq
+    window.scGroqAnswer = async function(btn, ingredientId, vendor, answer) {
+      btn.style.opacity = '0.5'; btn.disabled = true;
+      const itemEl = btn.closest('[id^="scGroqItem-"]');
+      if (itemEl) { itemEl.style.opacity = '0.5'; itemEl.style.pointerEvents = 'none'; }
+      // Salva la risposta in invoice_line_clarifications se utile
+      if (ingredientId && answer && answer !== 'skip') {
+        const sb = window.supabaseClient;
+        // Marca il warning come resolved
+        await sb.from('invoice_warnings')
+          .update({ status: 'resolved', resolution: answer,
+            resolved_by: window.user?.name || 'Admin',
+            resolved_at: new Date().toISOString() })
+          .eq('item_description', itemEl?.closest('[data-stack-idx]')?.querySelector('[style*="font-weight:700"]')?.textContent || '')
+          .eq('status', 'open');
+      }
+      // Controlla se tutti risolti
+      const card = itemEl?.closest('[data-stack-idx="0"]');
+      if (card) {
+        const allItems = card.querySelectorAll('[id^="scGroqItem-"]');
+        const allDone = [...allItems].every(it => it.style.opacity === '0.5');
+        if (allDone) setTimeout(() => scResolveTop(), 400);
+      }
+    };
+
+    // scGroqPreview: anteprima $/100g mentre digiti il peso
+    window.scGroqPreview = function(idx, unitPrice) {
+      const input = document.getElementById('scGroqWeight-' + idx);
+      const unitSel = document.getElementById('scGroqUnit-' + idx);
+      const preview = document.getElementById('scGroqPreview-' + idx);
+      if (!input || !preview) return;
+      const w = parseFloat(input.value);
+      const unit = unitSel?.value || 'lb';
+      if (!w || w <= 0) { preview.style.display = 'none'; return; }
+      const UNIT_G = { lb:453.592, kg:1000, oz:28.3495, g:1 };
+      const totalG = w * (UNIT_G[unit] || 453.592);
+      const p100 = (unitPrice / totalG) * 100;
+      preview.textContent = '→ $' + p100.toFixed(4) + '/100g';
+      preview.style.display = 'block';
+    };
+
+    // scGroqSaveWeight: salva peso da OQR Groq
+    window.scGroqSaveWeight = async function(idx, ingredientId, vendor, unitPrice) {
+      const input = document.getElementById('scGroqWeight-' + idx);
+      const unitSel = document.getElementById('scGroqUnit-' + idx);
+      const w = parseFloat(input?.value);
+      if (!w || w <= 0) { input?.focus(); return; }
+      const UNIT_G = { lb:453.592, kg:1000, oz:28.3495, g:1 };
+      const unit = unitSel?.value || 'lb';
+      const totalG = w * (UNIT_G[unit] || 453.592);
+      const p100 = parseFloat(((unitPrice / totalG) * 100).toFixed(4));
+      const sb = window.supabaseClient;
+      const { error } = await sb.from('ingredient_vendors')
+        .update({ conversion_to_base: totalG, price_per_100g: p100 })
+        .eq('ingredient_id', ingredientId).eq('vendor', vendor);
+      if (error) { if (typeof showScToast === 'function') showScToast('❌ ' + error.message); return; }
+      const preview = document.getElementById('scGroqPreview-' + idx);
+      if (preview) { preview.textContent = '✅ $' + p100.toFixed(4) + '/100g salvato'; preview.style.display = 'block'; }
+      const el = document.getElementById('scGroqItem-' + idx);
+      if (el) { el.style.opacity = '0.5'; el.style.pointerEvents = 'none'; }
+      const allItems = el?.closest('[data-stack-idx="0"]')?.querySelectorAll('[id^="scGroqItem-"]') || [];
+      if ([...allItems].every(m => m.style.opacity === '0.5')) setTimeout(() => scResolveTop(), 400);
+      if (typeof loadWarningsBanner === 'function') loadWarningsBanner();
+    };
+
     // scDeleteGhost: elimina ingrediente fantasma dal DB
     window.scDeleteGhost = async function(ingredientId, idx) {
       const sb = window.supabaseClient;
