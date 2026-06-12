@@ -103,3 +103,6 @@
 - TouchBistro `Daily_HourlySales` aggrega per giorno della settimana, non per ora — non mappabile a fasce orarie
 - GrossMarginByDay storico ha food_cost e margin per giorno — fonte di verità per costing storico
 - GitHub secret scanning blocca push di token nel repo — il token va fornito da Max come file upload a ogni sessione
+
+| **Version bump obbligatorio** | **Ogni commit → incrementare `boh-vNN` in `sw.js`** | Max vede il numero in app. "Su che versione sei?" deve avere una risposta univoca per entrambi. |
+| **Branch di deploy: `brigade-main`** | **GitHub Pages deploya da `brigade-main`, NON da `main`** | Commit su `main` non vanno mai live. Sempre verificare il branch prima di pushare. Prima di modificare un file, leggerlo da `brigade-main`. |
