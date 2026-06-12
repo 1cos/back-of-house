@@ -1035,7 +1035,7 @@ window.vdrApprove = async function(docId, btn) {
       }));
     }
     if (toInsert.length) {
-      await sb.from('ingredient_vendors').upsert(toInsert, { onConflict: 'ingredient_id,vendor', ignoreDuplicates: false });
+      await sb.from('ingredient_vendors').upsert(toInsert, { onConflict: 'ingredient_id,vendor' });
     }
 
     // ── Mark document as imported ──
