@@ -956,12 +956,9 @@ window.vdrApprove = async function(docId, btn) {
     const sb = window.supabaseClient;
     if (!sb) throw new Error('Supabase client not available');
 
-    // Fetch document to get parsed_json
+    // Fetch document
     const { data: doc, error: fetchErr } = await sb
-      .from('vendor_documents')
-      .select('parsed_json, vendor')
-      .eq('id', docId)
-      .single();
+      .from('vendor_documents').select('parsed_json,vendor').eq('id', docId).single();
     if (fetchErr) throw new Error(fetchErr.message);
 
     const pj = doc.parsed_json || {};
@@ -969,106 +966,91 @@ window.vdrApprove = async function(docId, btn) {
     const invoiceDate = pj.invoice_date || null;
     const items = pj.items || [];
 
-    // ── Write each item to ingredient_vendors ──
+    // ── Batch: fetch all matching SKUs in one query ──
+    const skus = items.map(i => i.vendor_sku || i.item_code).filter(Boolean);
+    const { data: existingBySku } = skus.length ? await sb.from('ingredient_vendors')
+      .select('id,ingredient_id,vendor_sku').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] };
+    const skuMap = {};
+    (existingBySku || []).forEach(r => { skuMap[r.vendor_sku] = r; });
+
+    // ── Batch: fetch all active ingredients for fuzzy matching ──
+    const { data: allIngr } = await sb.from('ingredients').select('id,name').eq('active', true);
+    const ingrList = allIngr || [];
+
+    // ── Batch: fetch all existing ingredient_vendors for this vendor ──
+    const { data: existingByIngr } = await sb.from('ingredient_vendors')
+      .select('id,ingredient_id').eq('vendor', vendor);
+    const ingrVendorMap = {};
+    (existingByIngr || []).forEach(r => { ingrVendorMap[r.ingredient_id] = r.id; });
+
+    // ── Process each item ──
+    const toInsert = [];
+    const toUpdate = [];
+
     for (const item of items) {
-      const sku = item.vendor_sku || item.item_code || null;
-      const desc = item.description || item.raw_description || null;
+      const sku   = item.vendor_sku || item.item_code || null;
+      const desc  = item.description || item.raw_description || null;
       if (!desc) continue;
 
       const totalG  = window.calcTotalWeightG ? window.calcTotalWeightG(item) : null;
       const price   = item.unit_price != null ? parseFloat(item.unit_price) : null;
       const per100g = (totalG && price) ? ((price / totalG) * 100) : null;
+      const fields  = {
+        unit_price: price, pack_description: item.pack_description || null,
+        pack_size: item.pack_size || null, purchase_unit: item.purchase_unit || item.unit || null,
+        price_per_100g: per100g, last_invoice_date: invoiceDate,
+        updated_at: new Date().toISOString(),
+      };
 
-      // Try to find existing ingredient_vendors row by SKU or description
-      let ingrId = null;
-
-      // 1. Match by vendor_sku
-      if (sku) {
-        const { data: bysku } = await sb.from('ingredient_vendors')
-          .select('id, ingredient_id').eq('vendor_sku', sku).eq('vendor', vendor).limit(1);
-        if (bysku && bysku.length) {
-          // Update existing record
-          await sb.from('ingredient_vendors').update({
-            unit_price:       price,
-            pack_description: item.pack_description || null,
-            pack_size:        item.pack_size || null,
-            purchase_unit:    item.purchase_unit || item.unit || null,
-            price_per_100g:   per100g,
-            last_invoice_date: invoiceDate,
-            updated_at:       new Date().toISOString(),
-          }).eq('id', bysku[0].id);
-          continue;
-        }
+      // 1. Match by SKU
+      if (sku && skuMap[sku]) {
+        toUpdate.push({ id: skuMap[sku].id, ...fields });
+        continue;
       }
 
-      // 2. Match by ingredient name (fuzzy — first word match)
-      const keywords = (desc || '').toLowerCase()
-        .replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
-        .filter(w => w.length > 2 && !['the','and','for','from','with','large','small','fresh','whole','organic','baby','jumbo'].includes(w))
-        .slice(0, 2);
+      // 2. Fuzzy match by ingredient name
+      const keywords = desc.toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
+        .filter(w => w.length > 2 && !['the','and','for','large','small','fresh','whole','organic','baby','jumbo','wild'].includes(w))
+        .slice(0,2);
 
-      if (keywords.length) {
-        const { data: ingrs } = await sb.from('ingredients')
-          .select('id,name').ilike('name', `%${keywords[0]}%`).limit(5);
-        if (ingrs && ingrs.length) {
-          // Pick best match
-          const best = ingrs.find(i => {
-            const n = i.name.toLowerCase();
-            return keywords.every(k => n.includes(k));
-          }) || ingrs[0];
-          ingrId = best.id;
+      if (!keywords.length) continue;
+      const best = ingrList.find(i => keywords.every(k => i.name.toLowerCase().includes(k)))
+                || ingrList.find(i => i.name.toLowerCase().includes(keywords[0]));
+      if (!best) continue;
 
-          // Upsert ingredient_vendors
-          const { data: existing } = await sb.from('ingredient_vendors')
-            .select('id').eq('ingredient_id', ingrId).eq('vendor', vendor).limit(1);
-
-          if (existing && existing.length) {
-            await sb.from('ingredient_vendors').update({
-              vendor_sku:       sku,
-              unit_price:       price,
-              pack_description: item.pack_description || null,
-              pack_size:        item.pack_size || null,
-              purchase_unit:    item.purchase_unit || item.unit || null,
-              price_per_100g:   per100g,
-              last_invoice_date: invoiceDate,
-              updated_at:       new Date().toISOString(),
-            }).eq('id', existing[0].id);
-          } else {
-            await sb.from('ingredient_vendors').insert({
-              ingredient_id:    ingrId,
-              vendor:           vendor,
-              vendor_sku:       sku,
-              unit_price:       price,
-              pack_description: item.pack_description || null,
-              pack_size:        item.pack_size || null,
-              purchase_unit:    item.purchase_unit || item.unit || null,
-              price_per_100g:   per100g,
-              last_invoice_date: invoiceDate,
-              active:           true,
-            });
-          }
-        }
+      if (ingrVendorMap[best.id]) {
+        toUpdate.push({ id: ingrVendorMap[best.id], ...fields });
+      } else {
+        toInsert.push({ ingredient_id: best.id, vendor, vendor_sku: sku, active: true, ...fields });
       }
     }
 
+    // ── Execute batch updates ──
+    if (toUpdate.length) {
+      await Promise.all(toUpdate.map(r => {
+        const { id, ...data } = r;
+        return sb.from('ingredient_vendors').update(data).eq('id', id);
+      }));
+    }
+    if (toInsert.length) {
+      await sb.from('ingredient_vendors').insert(toInsert);
+    }
+
     // ── Mark document as imported ──
-    const { error: updateErr } = await sb
-      .from('vendor_documents')
-      .update({ status: 'imported', updated_at: new Date().toISOString() })
-      .eq('id', docId);
-    if (updateErr) throw new Error(updateErr.message);
+    const { error: updErr } = await sb.from('vendor_documents')
+      .update({ status: 'imported', updated_at: new Date().toISOString() }).eq('id', docId);
+    if (updErr) throw new Error(updErr.message);
 
     const card = document.getElementById('vdrCard-' + docId);
     if (card) {
-      card.style.transition = 'opacity .3s';
-      card.style.opacity = '0';
+      card.style.transition = 'opacity .3s'; card.style.opacity = '0';
       setTimeout(() => {
         card.remove();
         const list = document.getElementById('vdrList');
         if (list && list.querySelectorAll('[id^="vdrCard-"]').length === 0) vdrLoad();
       }, 300);
     }
-    showScToast('✓ Document approved — inventory updated');
+    showScToast('✓ Approved — ' + (toUpdate.length + toInsert.length) + ' items updated in inventory');
 
   } catch(e) {
     if (statusEl) {
@@ -1078,15 +1060,9 @@ window.vdrApprove = async function(docId, btn) {
       statusEl.style.color = '#991b1b';
       statusEl.textContent = '✗ ' + e.message;
     }
-    btn.disabled = false;
-    btn.textContent = '✓ Approve Document';
-    btn.style.background = '#1e293b';
+    btn.disabled = false; btn.textContent = '✓ Approve Document'; btn.style.background = '#1e293b';
   }
 };
-
-// ── Store question map when detail panel is rendered ─────────
-// Needed by answer handlers to retrieve question data by qid
-const _vdrQMap = {};
 window._vdrQuestions = _vdrQMap;
 
 // Patch vdrToggle to register questions on first open
