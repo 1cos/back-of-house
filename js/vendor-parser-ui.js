@@ -978,11 +978,138 @@ function buildVendorParsers() {
     };
   }
 
+
+  // ── Frugé Seafood Invoice Parser ──────────────────────────────
+  // Format: PDF from system@netyield.com
+  // Header: INVOICE 843487 / Taken 06/11/26 / Shipped 06/11/26 / Order 120948
+  // Rows:   Ordered | Product Description | Shipped | Unit Price | Amount
+  //         "8 LB   BRAFW8001000 - BRANZINI FR WHOLE 800-1000 1lb   8 LB  $11.25 LB  $90.00"
+  // Total:  "Pay: $490.00"
+  function parseFrugeInvoice(rawText) {
+    const text = rawText;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+    // ── Invoice number
+    let invoiceNumber = null;
+    const invM = text.match(/INVOICE\s+(\d+)/i);
+    if (invM) invoiceNumber = invM[1];
+
+    // ── Order number
+    let orderNumber = null;
+    const ordM = text.match(/Order\s+(\d+)/i);
+    if (ordM) orderNumber = ordM[1];
+
+    // ── Dates
+    let invoiceDate = null, shippedDate = null;
+    const takenM   = text.match(/Taken\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+    const shipM    = text.match(/Shipped\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+    if (takenM)  invoiceDate  = parseDate(takenM[1]);
+    if (shipM)   shippedDate  = parseDate(shipM[1]);
+
+    // ── Total
+    let total = null;
+    const payM = text.match(/Pay:\s*\$?([\d,]+\.\d{2})/i);
+    if (payM) total = parseFloat(payM[1].replace(/,/g,''));
+
+    // ── Parse line items
+    // Pattern: qty+unit  SKU - Description [newline possible] shipped+unit  price+unit  amount
+    // We look for lines starting with a quantity+unit pattern
+    const items = [];
+    const warnings = [];
+
+    // Build a single string and find item blocks
+    // Each item starts with: number UNIT  SKU_CODE - DESCRIPTION
+    // Regex: start of line, qty, unit (LB/CA/CS/EA/DZ), then SKU - desc
+    const itemRegex = /^([\d.]+)\s+(LB|CA|CS|EA|DZ|PC|BG|OZ|GL|GAL)\s+([A-Z0-9]{6,})\s*-\s*(.+?)(?:
+[\d*]+\s+(?:CA|LB|CS|EA)[\s,].*?)?\s+([\d.]+)\s+(LB|CA|CS|EA|DZ|PC|BG|OZ|GL|GAL)\s+\$?([\d.]+)\s+(?:LB|EA|CA|CS|DZ|PC|BG)?\s+\$?([\d.,]+)/gim;
+
+    let match;
+    while ((match = itemRegex.exec(text)) !== null) {
+      const orderedQty  = parseFloat(match[1]);
+      const orderedUnit = match[2].toUpperCase();
+      const sku         = match[3];
+      const description = cleanDescription(match[4].replace(/\n/g,' ').replace(/\s+/g,' '));
+      const shippedQty  = parseFloat(match[5]);
+      const unitPrice   = parseFloat(match[7]);
+      const amount      = parseFloat(match[8].replace(/,/g,''));
+
+      // Extract pack size from description if present (e.g. "5 X 2 LBS" or "10x2.5lb")
+      let pack = null;
+      const packM = description.match(/(\d+)\s*[Xx×]\s*([\d.]+)\s*(LB|lb|OZ|oz|KG|kg)/);
+      if (packM) pack = `${packM[1]}/${packM[2]}${packM[3].toUpperCase()}`;
+
+      // Size range (e.g. "800-1000 1lb" or "16-20")
+      let size = null;
+      const sizeM = description.match(/(\d{2,4}-\d{2,4})/);
+      if (sizeM) size = sizeM[1];
+
+      const variance = shippedQty !== orderedQty;
+
+      items.push({
+        vendor_sku:    sku,
+        description:   description,
+        pack:          pack,
+        size:          size,
+        ordered_qty:   orderedQty,
+        ordered_unit:  orderedUnit,
+        received_qty:  shippedQty,
+        received_unit: orderedUnit,
+        unit_price:    unitPrice,
+        extended_price: amount,
+        variance:      variance ? (shippedQty - orderedQty) : 0,
+      });
+
+      if (variance) {
+        warnings.push({
+          code: 'QTY_MISMATCH',
+          message: `${description}: ordered ${orderedQty} ${orderedUnit}, shipped ${shippedQty}`,
+          item_sku: sku,
+        });
+      }
+    }
+
+    // Fallback: simpler line parser if regex finds nothing
+    if (items.length === 0) {
+      // Try line-by-line: "8 LB   BRAFW8001000 - BRANZINI..."
+      for (const line of lines) {
+        const lm = line.match(/^([\d.]+)\s+(LB|CA|CS|EA|DZ)\s+([A-Z0-9]{5,})\s*-\s*(.+)/i);
+        if (!lm) continue;
+        // Find amount at end of same or next line
+        const amtM = line.match(/\$([\d.,]+)\s*$/);
+        items.push({
+          vendor_sku:   lm[3],
+          description:  cleanDescription(lm[4]),
+          ordered_qty:  parseFloat(lm[1]),
+          ordered_unit: lm[2].toUpperCase(),
+          received_qty: parseFloat(lm[1]),
+          extended_price: amtM ? parseFloat(amtM[1].replace(/,/g,'')) : null,
+        });
+      }
+    }
+
+    if (items.length === 0) {
+      warnings.push({ code: 'NO_ITEMS', message: 'No line items parsed from Frugé invoice' });
+    }
+
+    return {
+      vendor:          'Frugé Seafood',
+      document_type:   'invoice',
+      document_number: invoiceNumber,
+      order_number:    orderNumber,
+      document_date:   invoiceDate,
+      delivery_date:   shippedDate,
+      subtotal:        total,
+      total:           total,
+      items,
+      warnings,
+    };
+  }
+
   // ── Router ──
   function detectVendor(text) {
     if (/dairyland produce|hardie'?s|chefs'?\s*wh?se/i.test(text)) return 'hardies';
     if (/freshpoint/i.test(text)) return 'freshpoint';
-    if (/fruge/i.test(text)) return 'fruge';
+    if (/fruge|netyield/i.test(text)) return 'fruge';
     return 'unknown';
   }
 
@@ -1013,6 +1140,10 @@ function buildVendorParsers() {
       if (vendor === 'freshpoint') {
         if (docType === 'order_confirmation') return parseFreshPointOrder(rawText);
         if (docType === 'invoice')            return parseFreshPointOrder(rawText); // same format
+      }
+      if (vendor === 'fruge') {
+        if (docType === 'invoice') return parseFrugeInvoice(rawText);
+        return parseFrugeInvoice(rawText); // try invoice parser for any doc type
       }
       return {vendor,document_type:docType,items:[],warnings:[{code:'NO_PARSER',message:`No parser for ${vendor}/${docType}`}]};
     } catch(e) {
