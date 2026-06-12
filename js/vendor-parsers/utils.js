@@ -54,6 +54,34 @@ function parsePackSize(str) {
   m = s.match(/^(\d+)\s*(?:PC|PCS|EA|EACH)\s*\/\s*([\d.]+)\s*([A-Z]+)/i);
   if (m) return { count: parseFloat(m[1]), sizeEach: parseFloat(m[2]), unit: m[3].toLowerCase(), raw };
 
+  // ── FreshPoint: "N/N.Nunit N/N.Nunit BOX|BX|CS|BG" — weight repeated twice ──
+  // e.g. "2/1.5LB 2/1.5LB BOX" — take first occurrence only
+  m = s.match(/^(\d+)\s*\/\s*([\d.]+)\s*([A-Z]+)\s+\1\s*\/\s*\2\s*\3\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: parseFloat(m[1]), sizeEach: parseFloat(m[2]), unit: m[3].toLowerCase(), raw };
+
+  // ── FreshPoint: "N.Nunit N.Nunit BOX|BX|CS|BG" — weight repeated twice ──
+  // e.g. "4LB 4LB BX", "11LB 11LB BX", "1LB 1LB BG"
+  m = s.match(/^([\d.]+)\s*([A-Z]+)\s+\1\s*\2\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: 1, sizeEach: parseFloat(m[1]), unit: m[2].toLowerCase(), raw };
+
+  // ── FreshPoint: "N/N unit BOX|BX|CS|BG" — slash-count with container suffix ──
+  // e.g. "3/2LB CS", "2/1.5LB BOX"
+  m = s.match(/^(\d+)\s*\/\s*([\d.]+)\s*([A-Z]+)\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: parseFloat(m[1]), sizeEach: parseFloat(m[2]), unit: m[3].toLowerCase(), raw };
+
+  // ── FreshPoint: "N.Nunit BOX|BX|CS|BG" — single weight with container suffix ──
+  // e.g. "5LB BX", "50LB BX"
+  m = s.match(/^([\d.]+)\s*([A-Z]+)\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: 1, sizeEach: parseFloat(m[1]), unit: m[2].toLowerCase(), raw };
+
+  // ── FreshPoint: "...NCT 15LB BX" — weight buried at end before container ──
+  m = s.match(/^.*?([\d.]+)\s*(LB|OZ|KG|G)\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: 1, sizeEach: parseFloat(m[1]), unit: m[2].toLowerCase(), raw };
+
+  // ── FreshPoint: "N CT BOX|BX" — count-only with container ──
+  m = s.match(/^([\d.]+)\s*CT\s+(?:BOX|BX|CS|BG|BAG)$/);
+  if (m) return { count: 1, sizeEach: parseFloat(m[1]), unit: 'ct', raw };
+
   // "N/N unit" — e.g. "12/3 CT", "11/1lb", "8/12 OZ"
   m = s.match(/^(\d+)\s*\/\s*([\d.]+)\s*([A-Z]+)/);
   if (m) return { count: parseFloat(m[1]), sizeEach: parseFloat(m[2]), unit: m[3].toLowerCase(), raw };
