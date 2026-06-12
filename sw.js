@@ -1,20 +1,30 @@
 const CACHE_NAME = 'boh-v51';
-// ↑ Incrementa questo numero ad ogni deploy — es. v31, v32...
-// Il browser vede la versione diversa e aggiorna automaticamente
 
 self.addEventListener('install', e => {
-  self.skipWaiting(); // attiva subito senza aspettare che le tab si chiudano
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
-  // Cancella tutte le cache vecchie
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-      )
-    ).then(() => clients.claim()) // prendi controllo di tutte le tab aperte
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    ).then(() => clients.claim())
   );
+});
+
+// ── Network-first per JS/CSS — mai servire vecchi file dalla cache ──
+self.addEventListener('fetch', e => {
+  const url = new URL(e.request.url);
+  // Solo file JS e CSS del nostro sito
+  if (url.hostname === '1cos.github.io' && (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'))) {
+    e.respondWith(
+      fetch(e.request, { cache: 'no-store' }).catch(() =>
+        caches.match(e.request)
+      )
+    );
+    return;
+  }
+  // Tutto il resto: normale
 });
 
 self.addEventListener('push', e => {
