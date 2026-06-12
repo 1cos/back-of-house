@@ -217,6 +217,18 @@ function showInvoicePreview(data){
 async function saveInvoice(data,btn){
   btn.textContent='Saving...'; btn.disabled=true;
   try{
+    // Anti-duplicate: check if same vendor+date+total already saved
+    if(data.invoice_date&&data.vendor){
+      const q=supa.from('purchases')
+        .select('id').eq('vendor',data.vendor).eq('invoice_date',data.invoice_date);
+      if(data.total) q.eq('total',data.total);
+      const{data:existing}=await q.limit(1);
+      if(existing&&existing.length){
+        btn.textContent='✓ Save Invoice'; btn.disabled=false;
+        showDuplicateInvoiceModal(data,btn);
+        return;
+      }
+    }
     const{data:purchase,error}=await supa.from('purchases').insert({
       vendor:data.vendor||null,invoice_number:data.invoice_number||null,
       invoice_date:data.invoice_date||null,payment_terms:data.payment_terms||null,
@@ -1259,18 +1271,33 @@ window.answerOneQuestion=async(vendor,rawDesc,answer,btn)=>{
 
 // ── SALVA IN invoice_lines — returns inserted rows with IDs ──
 async function saveToInvoiceLines(data){
-  const lines=(data.items||[]).map(item=>({
-    import_id:       isValidUUID(data._purchase_id) ? data._purchase_id : null,
-    invoice_date:    data.invoice_date||new Date().toISOString().slice(0,10),
-    invoice_number:  data.invoice_number||null,
-    vendor:          data.vendor||'Unknown',
-    raw_description: item.description||'',
-    vendor_sku:      item.item_code||item.vendor_sku||null,
-    qty:             parseFloat(item.quantity||item.qty)||null,
-    purchase_unit:   item.purchase_unit||item.unit||null,
-    match_status:    'unmatched',
-    match_confidence:null,
-  }));
+  const lines=(data.items||[]).map(item=>{
+    const totalG=item._total_weight_g||null;
+    const price=parseFloat(item.unit_price||item.amount)||null;
+    const costPer100g=(totalG&&price)?((price/totalG)*100):null;
+    return {
+      import_id:        isValidUUID(data._purchase_id) ? data._purchase_id : null,
+      invoice_date:     data.invoice_date||new Date().toISOString().slice(0,10),
+      invoice_number:   data.invoice_number||null,
+      vendor:           data.vendor||'Unknown',
+      raw_description:  item.description||'',
+      vendor_sku:       item.item_code||item.vendor_sku||null,
+      qty:              parseFloat(item.quantity||item.qty)||null,
+      purchase_unit:    item.purchase_unit||item.unit||null,
+      pack_size:        item.pack_size||null,
+      pack_description: item.pack_description||item.pack_size||null,
+      pack_qty:         item.pack_qty||null,
+      pack_size_unit:   item.pack_unit||null,
+      unit_price:       parseFloat(item.unit_price)||null,
+      line_total:       parseFloat(item.amount||item.extended_price)||null,
+      total_weight_g:   totalG,
+      cost_per_100g:    costPer100g,
+      count_unit:       item.count_unit||null,
+      avg_unit_weight_g:item.avg_unit_weight_g||null,
+      match_status:     'unmatched',
+      match_confidence: null,
+    };
+  });
 
   // Use .select() to get back the inserted rows with their real UUIDs
   const{data:inserted,error}=await supa.from('invoice_lines').insert(lines).select('id,raw_description');
