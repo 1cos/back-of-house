@@ -1035,7 +1035,7 @@ window.vdrApprove = async function(docId, btn) {
       }));
     }
     if (toInsert.length) {
-      await sb.from('ingredient_vendors').insert(toInsert);
+      await sb.from('ingredient_vendors').upsert(toInsert, { onConflict: 'ingredient_id,vendor', ignoreDuplicates: false });
     }
 
     // ── Mark document as imported ──
@@ -1121,6 +1121,7 @@ async function vdrShowMatchModal(items, vendor, sb) {
             <div style="font-size:12px;font-weight:500;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.desc}</div>
             <div style="font-size:10px;color:#10b981;">→ ${s.linkedName}</div>
           </div>
+          <button onclick="vdrMatchUndo(${idx})" style="font-size:10px;padding:3px 8px;border-radius:8px;background:#f1f5f9;color:#64748b;border:none;cursor:pointer;flex-shrink:0;">↩</button>
         </div>`;
       }
       if (s.status === 'skip') {
@@ -1230,6 +1231,13 @@ async function vdrShowMatchModal(items, vendor, sb) {
         .insert({ name: val, count_unit: 'weight', active: true }).select('id').single();
       if (created) window.vdrMatchLink(idx, created.id, val, { textContent:'', disabled:false });
     }
+  };
+
+  window.vdrMatchUndo = function(idx) {
+    const s = itemStates[idx];
+    s.status = 'suggest';
+    s.linkedId = null; s.linkedName = null;
+    renderAll();
   };
 
   window.vdrMatchDone = function() {
