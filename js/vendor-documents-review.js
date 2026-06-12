@@ -533,11 +533,26 @@ function vdrWarningToQuestion(w, item, docId, idx) {
   // "I found a count-based pack. Is this correct?"
   if (w.code === 'OQR-006') {
     const pack = item ? (item.pack_description || '') : '';
-    // parse qty and unit from pack description
-    const m = pack.match(/^(\d+)\s*([A-Z]+)/i);
-    const qty  = m ? m[1] : '?';
-    const unit = m ? m[2].toUpperCase() : 'CT';
-    const meaning = `1 case = ${qty} ${name ? name.toLowerCase() + (parseInt(qty) > 1 ? 's' : '') : unit.toLowerCase() + (parseInt(qty) > 1 ? 's' : '')}`;
+    // Skip OQR-006 if this is a pure count item with no weight ambiguity
+    // e.g. "4/20 CT" artichokes, "50 CT" flowers, "95 CT" lemons — these are obvious
+    const isPureCount = /^\d+\s*(\/\s*\d+\s*)?CT$/i.test(pack.trim());
+    if (isPureCount) return null;
+    // Calculate total count: "4/20 CT" → 4×20 = 80
+    let totalCount = null;
+    let unit = 'CT';
+    const mSlash = pack.match(/^(\d+)\s*\/\s*(\d+)\s*([A-Z]+)/i);
+    const mSimple = pack.match(/^(\d+)\s*([A-Z]+)/i);
+    if (mSlash) {
+      totalCount = parseInt(mSlash[1]) * parseInt(mSlash[2]);
+      unit = mSlash[3].toUpperCase();
+    } else if (mSimple) {
+      totalCount = parseInt(mSimple[1]);
+      unit = mSimple[2].toUpperCase();
+    }
+    const itemName = name ? name.toLowerCase() : unit.toLowerCase();
+    const meaning = totalCount
+      ? `1 case = ${totalCount} ${itemName}${totalCount > 1 ? 's' : ''} (${pack})`
+      : `1 case = ${pack}`;
     return {
       qid, code: 'OQR-006', item, docId, idx,
       emoji: vdrItemEmoji(name),
@@ -547,8 +562,8 @@ function vdrWarningToQuestion(w, item, docId, idx) {
       meaning,
       yesLabel: 'Yes, correct',
       noLabel: 'No, fix it',
-      noNextQuestion: `How many ${name ? name.toLowerCase() + 's' : 'units'} are in one case?`,
-      noPlaceholder: `e.g. 24`,
+      noNextQuestion: `How many ${itemName}s are in one case?`,
+      noPlaceholder: `e.g. ${totalCount || 24}`,
       noUnit: unit,
       warnRef: w,
     };
@@ -716,34 +731,34 @@ function vdrQuestionHTML(docId, q, idx) {
 
   // Standard OQR yes/no question
   return `
-    <div id="${cardId}" style="background:#fefce8;border:1px solid rgba(234,179,8,0.3);border-radius:12px;padding:14px;margin-bottom:8px;">
-      <div style="display:flex;gap:10px;align-items:start;margin-bottom:10px;">
-        <span style="font-size:22px;flex-shrink:0;">${q.emoji}</span>
-        <div>
-          <div style="font-size:13px;font-weight:600;color:#1e293b;">${q.title}</div>
-          <div style="font-size:11px;color:#94a3b8;margin-top:1px;">Detected: ${q.detected}</div>
-          ${q.meaning ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">Meaning: ${q.meaning}</div>` : ''}
+    <div id="${cardId}" style="background:#fefce8;border:1px solid rgba(234,179,8,0.3);border-radius:12px;padding:10px 12px;margin-bottom:6px;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+        <span style="font-size:16px;flex-shrink:0;">${q.emoji}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:12px;font-weight:600;color:#1e293b;">${q.title}</div>
+          <div style="font-size:10px;color:#94a3b8;">Detected: ${q.detected}</div>
+          ${q.meaning ? `<div style="font-size:10px;color:#64748b;">Meaning: ${q.meaning}</div>` : ''}
         </div>
       </div>
-      <div style="font-size:12px;color:#475569;font-weight:500;margin-bottom:10px;">${q.question}</div>
-      <div id="vdrQButtons-${q.qid}" style="display:flex;gap:8px;">
+      <div style="font-size:11px;color:#475569;font-weight:500;margin-bottom:6px;">${q.question}</div>
+      <div id="vdrQButtons-${q.qid}" style="display:flex;gap:6px;">
         <button onclick="vdrAnswerYes('${docId}','${q.qid}',${idx})"
-          style="flex:1;height:38px;border-radius:10px;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;font-size:12px;font-weight:500;cursor:pointer;">
+          style="flex:1;height:32px;border-radius:8px;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;font-size:11px;font-weight:500;cursor:pointer;">
           ${q.yesLabel}
         </button>
         <button onclick="vdrAnswerNo('${docId}','${q.qid}',${idx})"
-          style="flex:1;height:38px;border-radius:10px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;font-size:12px;font-weight:500;cursor:pointer;">
+          style="flex:1;height:32px;border-radius:8px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;font-size:11px;font-weight:500;cursor:pointer;">
           ${q.noLabel}
         </button>
       </div>
       <!-- Follow-up input, hidden until No -->
-      <div id="vdrQFollowup-${q.qid}" style="display:none;margin-top:10px;">
-        <div style="font-size:12px;color:#475569;margin-bottom:6px;font-weight:500;" id="vdrQFollowupLabel-${q.qid}"></div>
-        <div style="display:flex;gap:8px;">
+      <div id="vdrQFollowup-${q.qid}" style="display:none;margin-top:8px;">
+        <div style="font-size:11px;color:#475569;margin-bottom:4px;font-weight:500;" id="vdrQFollowupLabel-${q.qid}"></div>
+        <div style="display:flex;gap:6px;">
           <input id="vdrQFollowupInput-${q.qid}" type="text"
-            style="flex:1;height:36px;padding:0 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;outline:none;" />
+            style="flex:1;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;outline:none;" />
           <button onclick="vdrAnswerFollowup('${docId}','${q.qid}',${idx})"
-            style="height:36px;padding:0 14px;border-radius:8px;background:#1e293b;color:white;font-size:12px;font-weight:500;border:none;cursor:pointer;white-space:nowrap;">
+            style="height:32px;padding:0 12px;border-radius:8px;background:#1e293b;color:white;font-size:11px;font-weight:500;border:none;cursor:pointer;white-space:nowrap;">
             Save
           </button>
         </div>
