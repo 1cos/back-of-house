@@ -681,11 +681,6 @@ Formato esatto:
     "price_per_100g": numero o null,
     "pack": "pack o null",
     "title": "frase breve max 6 parole",
-    "question": "domanda OQR in italiano — una sola domanda",
-    "options": [
-      {"label": "risposta breve", "value": "valore_interno"},
-      {"label": "risposta breve", "value": "valore_interno"}
-    ],
     "reasoning": "una frase: perché è un problema"
   }
 ]`;
@@ -906,9 +901,9 @@ function showSousChefStack(cards) {
   }
 
   function buildCardBody(card) {
-    // ── Groq OQR: domanda e opzioni già pronte da Groq ────────
-    // Se il primo item ha oqr_question, usa quello invece delle regole hardcodate
-    if (card.items?.[0]?.oqr_question) {
+    // ── Opzione 1: domande hardcoded — OpenRouter non genera domande ──
+    // Le domande vengono sempre dalle regole sotto, mai dall'AI
+    if (false) {
       return card.items.map((item, i) => {
         const hasWeightAction = item.subtype === 'missing_weight' || card.subtype === 'missing_weight' ||
           (item.oqr_options||[]).some(o => o.value === 'manual_weight');
@@ -961,38 +956,59 @@ function showSousChefStack(cards) {
       }).join('');
     }
 
-    // ── SC-PRICE-001: peso mancante su carni ──────────────────
+    // ── SC-PRICE-001: prezzo sospetto — peso auto-parsato dal pack ──
     if (card.code === 'SC-PRICE-001') {
-      return card.items.map((item, i) => `
-        <div id="scItem-${i}" style="background:rgba(239,68,68,0.04);border:1px solid rgba(239,68,68,0.15);border-radius:14px;padding:12px 14px;margin-bottom:10px;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
-            <div>
-              <div style="font-size:18px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
-              <div style="font-size:14px;color:#64748b;margin-top:2px;">${item.vendor || ''} ${item.pack_description ? '· ' + item.pack_description : ''}</div>
+      return card.items.map((item, i) => {
+        // Parse peso dal pack: "4 PC/12#"→48lb | "12#"→12lb | "28 LB"→28lb | "10 KG"→10kg
+        let sw = '', su = 'lb';
+        const pk = (item.pack_description || '').toUpperCase();
+        const pcM = pk.match(/(\d+)\s*PC\s*\/\s*(\d+(?:\.\d+)?)\s*#/);
+        const lbM = pk.match(/(\d+(?:\.\d+)?)\s*(?:#|LB)/);
+        const kgM = pk.match(/(\d+(?:\.\d+)?)\s*KG/);
+        if (pcM) { sw = String(parseFloat(pcM[1]) * parseFloat(pcM[2])); }
+        else if (lbM) { sw = lbM[1]; }
+        else if (kgM) { sw = kgM[1]; su = 'kg'; }
+
+        const UNIT_G = {lb:453.592,kg:1000,oz:28.3495,g:1};
+        let previewLine = '';
+        if (sw) {
+          const tg = parseFloat(sw)*(UNIT_G[su]||453.592);
+          const p = ((item.unit_price||0)/tg*100).toFixed(4);
+          previewLine = `Dal pack ${item.pack_description}: ${sw} ${su} → $${p}/100g`;
+        }
+
+        return `
+        <div id="scItem-${i}" style="background:rgba(239,68,68,0.04);border:1px solid rgba(239,68,68,0.15);border-radius:16px;padding:14px;margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:19px;font-weight:700;color:#1e293b;">${item.ingredient_name}</div>
+              <div style="font-size:13px;color:#64748b;margin-top:2px;">${item.vendor||''}${item.pack_description?' · '+item.pack_description:''}</div>
             </div>
-            <div style="text-align:right;">
-              <div style="font-size:15px;font-weight:600;color:#ef4444;">$${(item.price_per_100g||0).toFixed(4)}/100g</div>
-              <div style="font-size:14px;color:#64748b;">$${(item.unit_price||0).toFixed(2)}/case</div>
+            <div style="text-align:right;flex-shrink:0;margin-left:10px;">
+              <div style="font-size:14px;font-weight:700;color:#ef4444;">$${(item.price_per_100g||0).toFixed(4)}/100g ⚠️</div>
+              <div style="font-size:13px;color:#64748b;">$${(item.unit_price||0).toFixed(2)}/case</div>
             </div>
           </div>
-          <div style="font-size:15px;font-weight:600;color:#475569;margin-bottom:10px;">Quanto pesa una cassa? <span style="color:#ef4444;">* Il prezzo sembra troppo basso.</span></div>
+          ${previewLine ? `<div style="font-size:14px;color:#3b82f6;background:rgba(59,130,246,0.08);border-radius:10px;padding:8px 12px;margin-bottom:10px;">${previewLine}</div>` : ''}
+          <div style="font-size:16px;font-weight:600;color:#1e293b;margin-bottom:10px;">Quanto pesa una cassa?</div>
           <div style="display:flex;gap:8px;align-items:center;">
-            <input id="scWeight-${i}" type="number" placeholder="es. 28" min="0.1" step="0.1"
-              style="flex:1;height:40px;padding:0 12px;border:1.5px solid #fca5a5;border-radius:10px;font-size:16px;outline:none;background:white;"
-              oninput="scPreviewPrice(${i},${item.unit_price||0},'lb')">
-            <select id="scWeightUnit-${i}" style="height:40px;padding:0 8px;border:1.5px solid #fca5a5;border-radius:10px;font-size:14px;background:white;">
-              <option value="lb">lb</option>
-              <option value="kg">kg</option>
+            <input id="scWeight-${i}" type="number" placeholder="${sw||'es. 28'}" value="${sw}" min="0.1" step="0.1"
+              style="flex:1;height:52px;padding:0 14px;border:2px solid #fca5a5;border-radius:12px;font-size:22px;outline:none;background:white;"
+              oninput="scPreviewPrice(${i},${item.unit_price||0},'${su}')">
+            <select id="scWeightUnit-${i}" style="height:52px;padding:0 10px;border:2px solid #fca5a5;border-radius:12px;font-size:16px;background:white;">
+              <option value="lb" ${su==='lb'?'selected':''}>lb</option>
+              <option value="kg" ${su==='kg'?'selected':''}>kg</option>
               <option value="oz">oz</option>
               <option value="g">g</option>
             </select>
             <button onclick="scSaveWeight(${i},'${item.ingredient_id}','${(item.vendor||'').replace(/'/g,"\\'")}',${item.unit_price||0})"
-              style="height:40px;padding:0 14px;border-radius:10px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;white-space:nowrap;">
-              ✓ Salva
+              style="height:52px;padding:0 18px;border-radius:12px;background:#1e293b;color:white;font-size:22px;font-weight:700;border:none;cursor:pointer;">
+              ✓
             </button>
           </div>
-          <div id="scPricePreview-${i}" style="font-size:12px;color:#10b981;margin-top:6px;display:none;"></div>
-        </div>`).join('');
+          <div id="scPricePreview-${i}" style="font-size:15px;font-weight:600;color:#10b981;margin-top:8px;display:none;"></div>
+        </div>`;
+      }).join('');
     }
 
     // ── SC-PRICE-002: prezzo aumentato ────────────────────────
