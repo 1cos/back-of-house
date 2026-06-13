@@ -326,19 +326,74 @@ function updateScBadge(){
 // ── MOSTRA RISPOSTA DOMANDA ──
 function showScAnswer(result){
   const sheet = document.createElement('div');
-  sheet.className = 'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);display:flex;align-items:flex-end;';
+
+  // Categoria → colore e emoji
+  const catColor = {
+    'Food Cost': { bg:'#eff6ff', border:'#93c5fd', dot:'#3b82f6', emoji:'💰' },
+    'Acquisti':  { bg:'#f0fdf4', border:'#86efac', dot:'#22c55e', emoji:'🛒' },
+    'HR':        { bg:'#fdf4ff', border:'#d8b4fe', dot:'#a855f7', emoji:'👥' },
+    'Manutenzione': { bg:'#fff7ed', border:'#fdba74', dot:'#f97316', emoji:'🔧' },
+    'Task':      { bg:'#f8fafc', border:'#cbd5e1', dot:'#64748b', emoji:'✅' },
+  }[result.category] || { bg:'#eff6ff', border:'#93c5fd', dot:'#3b82f6', emoji:'🤖' };
+
+  const hasAnswer = result.answer && result.answer.trim().length > 0;
+
   sheet.innerHTML = `
-    <div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5 max-h-[60vh] overflow-auto" style="animation:slideUp .25s ease">
-      <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4"></div>
-      <div class="flex items-center gap-2 mb-3">
-        <span class="text-2xl">🤖</span>
-        <span class="font-semibold text-sm text-slate-500">Sous Chef</span>
+    <div style="
+      background:white;
+      width:100%;
+      max-width:480px;
+      margin:0 auto;
+      border-radius:28px 28px 0 0;
+      padding:0 0 32px;
+      max-height:80vh;
+      overflow:auto;
+      animation:slideUp .25s ease;
+      box-shadow:0 -8px 40px rgba(0,0,0,0.2);
+    ">
+      <!-- Handle -->
+      <div style="width:40px;height:4px;background:#e2e8f0;border-radius:2px;margin:12px auto 0;"></div>
+
+      <!-- Header -->
+      <div style="display:flex;align-items:center;gap:10px;padding:16px 20px 12px;">
+        <div style="width:44px;height:44px;border-radius:14px;background:${catColor.bg};border:1.5px solid ${catColor.border};display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">
+          ${catColor.emoji}
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:${catColor.dot};text-transform:uppercase;letter-spacing:.06em;">Sous Chef</div>
+          <div style="font-size:12px;color:#94a3b8;margin-top:1px;font-style:italic;">"${(result.text||'').slice(0,60)}${(result.text||'').length>60?'…':''}"</div>
+        </div>
       </div>
-      <p class="text-sm text-slate-500 mb-2 italic">"${result.text}"</p>
-      <div class="bg-blue-50 rounded-2xl p-4 text-sm text-slate-800 leading-relaxed">${result.answer}</div>
-      <button onclick="this.closest('.fixed').remove()" class="w-full mt-4 py-3 bg-slate-900 text-white rounded-xl">Chiudi</button>
+
+      <!-- Risposta -->
+      <div style="margin:0 16px 16px;padding:18px;background:${catColor.bg};border:1.5px solid ${catColor.border};border-radius:20px;">
+        <div style="font-size:19px;font-weight:600;color:#1e293b;line-height:1.5;">
+          ${hasAnswer ? result.answer : '⚠️ Nessuna informazione disponibile in questo momento.'}
+        </div>
+      </div>
+
+      <!-- Bottone -->
+      <div style="padding:0 16px;">
+        <button onclick="this.closest('[style*=position\\:fixed]').remove()"
+          style="
+            width:100%;
+            height:56px;
+            border-radius:16px;
+            background:#1e293b;
+            color:white;
+            font-size:18px;
+            font-weight:700;
+            border:none;
+            cursor:pointer;
+            letter-spacing:.02em;
+          ">
+          ✓ Capito, Chef
+        </button>
+      </div>
     </div>`;
-  sheet.onclick=e=>{if(e.target===sheet)sheet.remove()};
+
+  sheet.addEventListener('click', e => { if(e.target === sheet) sheet.remove(); });
   document.body.appendChild(sheet);
 }
 
