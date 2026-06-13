@@ -688,23 +688,19 @@ Formato esatto:
   }
 ]`;
 
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    // ── Chiama Edge Function (OpenRouter con fallback Groq) ───
+    const groqRes = await fetch(`${SUPABASE_URL}/functions/v1/souschef-classify`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${window.GROQ_API_KEY || ''}`,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
       },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        max_tokens: 2000,
-        temperature: 0.1, // bassa temperatura = risposte precise
-        messages: [{ role: 'user', content: prompt }],
-      }),
+      body: JSON.stringify({ mode: 'scan', scanPrompt: prompt }),
     });
 
-    if (!groqRes.ok) throw new Error('Groq API error: ' + groqRes.status);
+    if (!groqRes.ok) throw new Error('Scan error: ' + groqRes.status);
     const groqData = await groqRes.json();
-    const rawText = groqData.choices?.[0]?.message?.content || '';
+    const rawText = groqData.rawText || '';
 
     // Parse JSON da Groq
     let problems = [];
