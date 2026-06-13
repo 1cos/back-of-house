@@ -7,13 +7,16 @@
 
 | Decisione | Scelta | Motivo |
 |---|---|---|
-| OCR | Google Vision + Groq | Mindee scartato (pagamento), Groq Vision inaffidabile su fatture |
+| OCR fatture | ~~Google Vision + Groq~~ → **OpenRouter Gemini 2.0 Flash (PDF diretto)** | Gemini legge PDF direttamente, zero OCR, un solo step |
+| Fallback OCR | Google Vision + Groq | Se OpenRouter fallisce |
+| Trascrizione voce | **Groq Whisper** | Limite separato dal LLM, funziona anche con Groq bloccato |
+| LLM principale | ~~Groq LLaMA 3.3 70B~~ → **OpenRouter → meta-llama/llama-3.3-70b-instruct** | Groq free tier bloccato (upgrade non disponibile da 2 settimane) |
+| LLM chat | **OpenRouter** con fallback Groq | Stessa chiave, stesso modello |
 | Frontend attuale | HTML/JS vanilla | Prototipo funzionante in produzione |
 | Frontend futuro | Flutter | Siri AI integration richiede app nativa |
 | Database | Supabase | Auth, Realtime, Edge Functions, RLS tutto incluso |
-| AI principale | Groq LLaMA 3.3 70B | Velocità, costo (~$0.001/scan), qualità |
 | Deployment | GitHub Pages | Semplicità, zero costi, sufficiente per PWA |
-| Cron | GitHub Actions | Supabase cron richiede Piano Pro — GitHub Actions gratis |
+| Cron nightly brief | Supabase cron | `0 10 * * *` = 10:00 UTC = 5:00 AM CDT Texas |
 
 ---
 
@@ -24,7 +27,73 @@
 | App HTML/PWA attuale | **BRIGADE** |
 | App Flutter futura con Siri | **BOH OS** (separata, non ancora costruita) |
 | Branch deploy | **brigade-main** (MAI main) |
-| Versione attuale | **v77** |
+| Versione attuale | **v89** |
+| AI assistant in cucina | **Sous Chef** / **Chef AI** |
+
+---
+
+## AI Architecture
+
+| Componente | Tecnologia | Note |
+|---|---|---|
+| Chat privata Max | `souschef-chat` Edge Function | Porta TUTTO il DB senza filtri, OpenRouter ragiona |
+| Scan anomalie | `souschef-classify` mode=scan | Prompt costruito nel browser, mandato alla Edge Function |
+| Domanda vocale | `souschef-classify` mode=classify | Cerca in DB per keyword + passa tutto a OpenRouter |
+| Nightly brief | `sc-nightly-brief` | Legge vendite, note brigata, chef_attention, warning |
+| Parser fatture | `process-invoice` v27 | OpenRouter/Gemini PDF diretto, autoProcess mode |
+| Chef Memory | tabella `chef_attention` | Salva topic domande, nightly brief li include |
+
+---
+
+## Principio fondamentale Chat AI (IMPORTANTE)
+
+**Il codice porta i dati. L'AI ragiona.**
+
+Non filtrare per keyword prima di mandare a OpenRouter.
+Portare TUTTO il contesto (ingredienti, ricette, vendite, warning) e lasciare che OpenRouter trovi le connessioni semantiche.
+
+Es: Max chiede "Rosemary Potatoes" → il DB ha "ROSMARY POTATOES" → OpenRouter capisce da solo.
+Se filtrassimo per keyword "rosemary", non troveremmo "rosmary".
+
+---
+
+## price_type (IMPORTANTE — nuovo campo)
+
+Il campo `price_type` in `ingredient_vendors` risolve il problema catchweight:
+
+| Valore | Significato | Esempio |
+|---|---|---|
+| `per_case` | unit_price è per cassa intera | Hardie's, Sysco, BEK |
+| `per_lb` | unit_price è per libbra | Fruge (pesce), carni catchweight |
+| `per_kg` | unit_price è per kg | Global Gourmet (alcuni prodotti) |
+| `per_oz` | unit_price è per oncia | raro |
+| `per_each` | unit_price è per pezzo | raro |
+
+Formula $/100g:
+- `per_case`: `(unit_price / conversion_to_base) * 100`
+- `per_lb`: `(unit_price / 453.592) * 100`
+- `per_kg`: `(unit_price / 1000) * 100`
+
+---
+
+## Importazione fatture — architettura definitiva
+
+### Flusso email (automatico, silenzioso):
+```
+Email fornitore → Gmail label → Google Apps Script → process-invoice (autoProcess=true)
+→ OpenRouter/Gemini legge PDF → salva DB → confronta prezzi → avvisa solo anomalie
+```
+
+### Flusso foto/scan (manuale, da migrare):
+```
+Foto Max → [DA FARE: mandare a process-invoice invece di Google Vision]
+→ OpenRouter/Gemini legge immagine → stessa logica email
+```
+
+### Notifiche Brigade:
+- Prezzo cambiato >10%: warning in `invoice_warnings` (banner home)
+- Ingrediente nuovo: warning `insight` in `invoice_warnings`
+- Tutto il resto: silenzio
 
 ---
 
@@ -33,53 +102,34 @@
 | Decisione | Scelta | Motivo |
 |---|---|---|
 | Lingua UI | English only | Staff multilingue ma UI uniforme |
+| Chat AI | Italiano | Max è italiano, risponde sempre in italiano |
 | OQR | Obbligatorio | Una decisione alla volta |
 | Bottom decision zone | Obbligatorio | One thumb rule, iPhone first |
-| Warning color | Amber default, rosso solo high severity | Evitare "app rotta" |
+| Warning color | 🔴 blocking, 🟡 alert, 🔵 insight | Gradazione chiara |
 | Fake defaults | Vietati | Blank > placeholder > valore inventato |
-| Unmatched vs wrong match | Unmatched è più sicuro | Wrong match avvelena food cost |
-| Font size card OQR | Min 16px, titoli 18-19px | Max è in cucina, mani sporche, quasi cieco (sue parole) |
-| Yes Chef modal | Grande, celebrativo, non un toast | "Non un toast — un momento" |
-| Sous Chef stack | Card swipeable, swipe giù=skip, su=risolvi | Più naturale su iPhone |
+| Font size card OQR | Min 16px, titoli 18-19px | Max è in cucina, mani sporche |
+| Tap breve microfono | Apre chat Sous Chef | Prima lanciava scan — cambiato v86 |
+| Tap lungo microfono | Registrazione vocale | Invariato |
+| Scan manuale | Bottone 🔍 dentro la chat | Accessibile sempre dalla chat |
 
 ---
 
-## Sous Chef Engine
+## Sous Chef Engine — comportamento atteso
 
-| Decisione | Scelta | Motivo |
-|---|---|---|
-| Scan ingredienti | Groq AI sui dati reali | Regole hardcodate non funzionano (mango ≠ lime ma stesso problema) |
-| Sub-ricette escluse | Se nome ingrediente = titolo ricetta → skip | Bolognese, Béchamel sono produzioni interne non acquisti |
-| Throttle scan | 30 minuti | Protegge Groq free tier |
-| Note brigata | Tabella `operation_notes`, pop-up 22:30 | Memoria operativa umana collegata ai numeri POS |
-| Nightly brief | Edge Function + GitHub Actions cron | Supabase cron richiede Pro plan |
-| Frequenza scan | On demand (tap) + nightly automatico | On demand protegge quota, nightly garantisce continuità |
-| Notifiche blocking | Push immediata | Solo per problemi critici — Max non vuole spam |
+Il Sous Chef NON è un chatbot. È un agente operativo:
+
+- **Proattivo**: nota problemi prima che Max li chieda
+- **Silenzioso**: avvisa solo quando serve una decisione
+- **Impara**: `chef_attention` registra cosa chiede Max, nightly brief lo include
+- **Corregge il DB**: Max dice "Stew Meat, 12 lb, $3.29/lb" → aggiorna direttamente
+- **Ragiona semanticamente**: trova "ROSMARY POTATOES" quando chiedi "Rosemary Potatoes"
 
 ---
 
-## Sviluppo
+## Sessione 22:30 CDT — Operation Notes
 
-| Decisione | Scelta | Motivo |
-|---|---|---|
-| File completi | Obbligatorio | Patch incrementali hanno causato bug ripetuti |
-| Scope discipline | Obbligatorio | Toccare solo il modulo richiesto |
-| Base file per modifiche | Sempre da `brigade-main` su GitHub | `/mnt/project/` è snapshot iniziale, non aggiornato |
-| Conferma prima di modificare | Obbligatorio | Dichiarare scope esatto prima di scrivere codice |
-| Versione bump | Ogni commit | `boh-vNN` in `sw.js` — Max vede la versione nel topbar |
-
----
-
-## Lezioni apprese
-
-- `get_edge_function` Supabase MCP non restituisce body affidabilmente — chiedere codice a Max
-- Safari iPhone richiede `maximum-scale=1,user-scalable=no` nel viewport meta
-- Cache iPhone va svuotata per ricevere aggiornamenti (Settings → Safari → Clear)
-- JSON.stringify inline in onclick crasha su nomi con apostrofi ("Hardie's") — usare `element._data`
-- `.neq('category','Supply')` in PostgREST esclude anche righe con category=null — filtrare in JS
-- `topCandidates.reduce()` crasha su array vuoto senza valore iniziale
-- Groq AI è più flessibile di regole hardcodate per classificazione ingredienti
-- Sub-ricette (Bolognese, Béchamel, Balsamic Glaze) non hanno vendor → non sono acquisti → skip da SC-NOLINK-001
-- GitHub Actions cron può triggerare Edge Function Supabase gratis (alternativa a Supabase cron Pro)
-- Token GitHub deve avere scope `workflow` per pushare GitHub Actions
-- Max parla italiano e spesso usa termini italiani — Groq deve tradurre l'intento prima di cercare nel DB
+- Appare automaticamente a tutta la brigata loggata
+- Campo testo libero, qualsiasi lingua
+- Salva in `operation_notes` con `note_date` (CDT, non UTC), `user_name`, `note`, `service='dinner'`
+- Riappare ogni 30 min se non risponde, si blocca dopo mezzanotte CDT
+- Il nightly brief delle 5:00 AM legge le note e le collega ai dati vendite
