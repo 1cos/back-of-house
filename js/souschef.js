@@ -164,67 +164,24 @@ async function processAudio(blob, mimeType){
   }
 }
 
-// ── CLASSIFICAZIONE CON GROQ LLAMA ──
+// ── VOCE → SOUSCHEF-CHAT (accesso completo DB) ──────────────
+// Nessun intermediario. La chat gestisce tutto:
+// domande → risponde con dati reali
+// task → li salva (souschef-chat riconosce l'intento)
 async function classifyWithGroq(transcript){
   try{
-    // recupera dati cucina per domande sul database
-    const since = new Date(Date.now() - 14*24*60*60*1000).toISOString();
-    const {data:recentPreps} = await supa.from('prep_log')
-      .select('item,qty,unit,user_name,created_at')
-      .gte('created_at', since)
-      .order('created_at',{ascending:false})
-      .limit(50);
-
-    const kitchenContext = recentPreps?.length 
-      ? `\n\nDATA CUCINA (ultime 2 settimane):\n${JSON.stringify(recentPreps.slice(0,20))}`
-      : '';
-
-    // Groq non è accessibile dal browser — usiamo Edge Function
-    const groqRes = await fetch(`${SUPABASE_URL}/functions/v1/souschef-classify`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-      },
-      body: JSON.stringify({
-        transcript,
-        kitchenData: recentPreps?.slice(0,20) || []
-      })
-    });
-
-    const groqData = await groqRes.json();
-    const result = groqData.result;
-
-    if(!result){
-      showScToast('❌ Errore classificazione');
-      return;
+    // Salva attenzione chef in background (fire & forget)
+    const words = transcript.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+    if(words.length) {
+      saveChefAttention(words[0], words[0], 'general', transcript, null).catch(() => {});
     }
 
-    // ── CHEF MEMORY: salva domanda in background (fire & forget) ──
-    if(result.type === 'domanda' && result.attention_topic) {
-      saveChefAttention(
-        result.attention_topic,
-        result.attention_topic_en || null,
-        result.attention_type || 'general',
-        transcript,
-        result.answer || null
-      ).catch(() => {}); // silenzioso — non blocca mai l'UI
-    }
-
-    // se è una domanda — manda a souschef-chat che ha accesso completo DB
-    if(result.type === 'domanda'){
-      // Apri la chat e manda la domanda vocale
-      openSousChefChat();
-      // Aspetta che la sheet sia aperta poi manda il messaggio
-      setTimeout(() => scChatSend(transcript), 400);
-      return;
-    }
-
-    // se è un task — salva su Supabase
-    await saveScTask(result, transcript);
+    // Apri la chat e manda direttamente — nessun passaggio intermedio
+    openSousChefChat();
+    setTimeout(() => scChatSend(transcript), 400);
 
   }catch(e){
-    showScToast('❌ Errore AI: '+e.message);
+    showScToast('❌ Errore: '+e.message);
   }
 }
 
