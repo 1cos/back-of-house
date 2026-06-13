@@ -959,13 +959,29 @@ function showSousChefStack(cards) {
     // ── SC-PRICE-001: prezzo sospetto — peso auto-parsato dal pack ──
     if (card.code === 'SC-PRICE-001') {
       return card.items.map((item, i) => {
-        // Parse peso dal pack: "4 PC/12#"→48lb | "12#"→12lb | "28 LB"→28lb | "10 KG"→10kg
+        // Parse peso dal pack:
+        // "4 PC/12#" → 48 lb (4 pezzi × 12 lb) — SOLO se è carne/pesce (potrebbe essere catchweight, non moltiplicare)
+        // "1pc/28#"  → 28 lb (1 pezzo × 28 lb)
+        // "2/3KG"    → 6 kg  (2 confezioni × 3 kg) — regola standard
+        // "12#"      → 12 lb
+        // "28 LB"    → 28 lb
+        // "10 KG"    → 10 kg
         let sw = '', su = 'lb';
         const pk = (item.pack_description || '').toUpperCase();
+        // N/MKG o N/M KG → N×M kg (es. "2/3KG" = 6kg)
+        const nkgM = pk.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*KG/);
+        // N PC/M# → N×M lb (es. "4 PC/12#" = 48 lb — attenzione: per carne catchweight potrebbe essere solo M lb)
         const pcM = pk.match(/(\d+)\s*PC\s*\/\s*(\d+(?:\.\d+)?)\s*#/);
+        // 1pc/M# → M lb (1 pezzo, peso M lb)
+        const onepcM = pk.match(/^1\s*PC\s*\/\s*(\d+(?:\.\d+)?)\s*#/);
+        // N# o N LB singolo
         const lbM = pk.match(/(\d+(?:\.\d+)?)\s*(?:#|LB)/);
+        // N KG singolo
         const kgM = pk.match(/(\d+(?:\.\d+)?)\s*KG/);
-        if (pcM) { sw = String(parseFloat(pcM[1]) * parseFloat(pcM[2])); }
+
+        if (nkgM) { sw = String(parseFloat(nkgM[1]) * parseFloat(nkgM[2])); su = 'kg'; }
+        else if (onepcM) { sw = onepcM[1]; } // 1pc/28# → 28 lb
+        else if (pcM) { sw = String(parseFloat(pcM[1]) * parseFloat(pcM[2])); } // 4 PC/12# → 48 lb
         else if (lbM) { sw = lbM[1]; }
         else if (kgM) { sw = kgM[1]; su = 'kg'; }
 
