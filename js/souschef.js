@@ -1674,6 +1674,29 @@ async function scChatFetchContext(text, sb) {
       parts.push('WARNING APERTI:\n' + warns.map(w => `[${w.severity}] ${w.vendor}: ${w.message}`).join('\n'));
     }
 
+    // Ricette — sempre incluse se domanda riguarda ricette/ingredienti
+    const recipeTriggers = ['ricett', 'recipe', 'gramm', 'ingredi', 'quanto', 'rosemary', 'patate', 'piatt', 'dish', 'pasta', 'salsa', 'sauce'];
+    if (recipeTriggers.some(k => text.includes(k))) {
+      const { data: recipes } = await sb
+        .from('recipes')
+        .select('title, ingredients, servings')
+        .limit(50);
+      if (recipes?.length) {
+        // Filtra per keyword rilevanti
+        const relevantRecipes = recipes.filter(r =>
+          keywords.some(k => k.length > 3 && (
+            r.title?.toLowerCase().includes(k) ||
+            JSON.stringify(r.ingredients || []).toLowerCase().includes(k)
+          ))
+        );
+        const toShow = relevantRecipes.length ? relevantRecipes : recipes.slice(0, 5);
+        parts.push('RICETTE:\n' + toShow.map(r => {
+          const ingrs = (r.ingredients || []).map(i => `${i.name}: ${i.qty} ${i.unit}`).join(', ');
+          return `- ${r.title} (${r.servings || '?'} porzioni): ${ingrs}`;
+        }).join('\n'));
+      }
+    }
+
   } catch(e) {
     console.error('scChatFetchContext error:', e.message);
   }
