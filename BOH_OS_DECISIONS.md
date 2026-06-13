@@ -1,22 +1,6 @@
 # BRIGADE — DECISIONS
 *Perché abbiamo scelto certe cose. Non ridiscutere senza motivo.*
-
----
-
-## Stack
-
-| Decisione | Scelta | Motivo |
-|---|---|---|
-| OCR fatture | ~~Google Vision + Groq~~ → **OpenRouter Gemini 2.0 Flash (PDF diretto)** | Gemini legge PDF direttamente, zero OCR, un solo step |
-| Fallback OCR | Google Vision + Groq | Se OpenRouter fallisce |
-| Trascrizione voce | **Groq Whisper** | Limite separato dal LLM, funziona anche con Groq bloccato |
-| LLM principale | ~~Groq LLaMA 3.3 70B~~ → **OpenRouter → meta-llama/llama-3.3-70b-instruct** | Groq free tier bloccato (upgrade non disponibile da 2 settimane) |
-| LLM chat | **OpenRouter** con fallback Groq | Stessa chiave, stesso modello |
-| Frontend attuale | HTML/JS vanilla | Prototipo funzionante in produzione |
-| Frontend futuro | Flutter | Siri AI integration richiede app nativa |
-| Database | Supabase | Auth, Realtime, Edge Functions, RLS tutto incluso |
-| Deployment | GitHub Pages | Semplicità, zero costi, sufficiente per PWA |
-| Cron nightly brief | Supabase cron | `0 10 * * *` = 10:00 UTC = 5:00 AM CDT Texas |
+*Aggiornato: 2026-06-13 — v92 frontend + souschef-chat v14*
 
 ---
 
@@ -27,109 +11,118 @@
 | App HTML/PWA attuale | **BRIGADE** |
 | App Flutter futura con Siri | **BOH OS** (separata, non ancora costruita) |
 | Branch deploy | **brigade-main** (MAI main) |
-| Versione attuale | **v89** |
-| AI assistant in cucina | **Sous Chef** / **Chef AI** |
+| Versione attuale frontend | **v92** |
+| Versione souschef-chat | **v14** |
+| Supabase project attivo | `ydqmumpytgrlceuinoqt` |
+| Supabase project vecchio | `hykjompnvajjhggrnned` — tenere attivo fino a Flutter |
 
 ---
 
-## AI Architecture
+## Stack AI — CAMBIATO 2026-06-13
 
-| Componente | Tecnologia | Note |
-|---|---|---|
-| Chat privata Max | `souschef-chat` Edge Function | Porta TUTTO il DB senza filtri, OpenRouter ragiona |
-| Scan anomalie | `souschef-classify` mode=scan | Prompt costruito nel browser, mandato alla Edge Function |
-| Domanda vocale | `souschef-classify` mode=classify | Cerca in DB per keyword + passa tutto a OpenRouter |
-| Nightly brief | `sc-nightly-brief` | Legge vendite, note brigata, chef_attention, warning |
-| Parser fatture | `process-invoice` v27 | OpenRouter/Gemini PDF diretto, autoProcess mode |
-| Chef Memory | tabella `chef_attention` | Salva topic domande, nightly brief li include |
-
----
-
-## Principio fondamentale Chat AI (IMPORTANTE)
-
-**Il codice porta i dati. L'AI ragiona.**
-
-Non filtrare per keyword prima di mandare a OpenRouter.
-Portare TUTTO il contesto (ingredienti, ricette, vendite, warning) e lasciare che OpenRouter trovi le connessioni semantiche.
-
-Es: Max chiede "Rosemary Potatoes" → il DB ha "ROSMARY POTATOES" → OpenRouter capisce da solo.
-Se filtrassimo per keyword "rosemary", non troveremmo "rosmary".
+| Componente | Ora |
+|---|---|
+| LLM principale | OpenRouter → meta-llama/llama-3.3-70b-instruct |
+| OCR fatture | OpenRouter → google/gemini-2.0-flash-001 (PDF diretto) |
+| Voce trascrizione | Groq Whisper (rimane — limite separato) |
+| Fallback LLM | Groq se OpenRouter fallisce |
+| Chiave OpenRouter | Supabase secrets: OPENROUTER_API_KEY |
+| Chiave Groq | Supabase secrets: GROQ_API_KEY |
 
 ---
 
-## price_type (IMPORTANTE — nuovo campo)
+## Cos'è il Sous Chef AI — concetto v14
 
-Il campo `price_type` in `ingredient_vendors` risolve il problema catchweight:
+Il Sous Chef non è un chatbot. E' un agente operativo con accesso diretto al database.
 
-| Valore | Significato | Esempio |
-|---|---|---|
-| `per_case` | unit_price è per cassa intera | Hardie's, Sysco, BEK |
-| `per_lb` | unit_price è per libbra | Fruge (pesce), carni catchweight |
-| `per_kg` | unit_price è per kg | Global Gourmet (alcuni prodotti) |
-| `per_oz` | unit_price è per oncia | raro |
-| `per_each` | unit_price è per pezzo | raro |
+### Architettura:
+1. Max parla o scrive — voce e testo identici, stesso flusso
+2. Edge Function souschef-chat legge TUTTO il DB con service role key
+3. Manda tutto a OpenRouter LLaMA con contesto completo
+4. OpenRouter ragiona semanticamente — asparagi=asparagus, olio=oil
+5. Risponde in italiano, pulito, senza JSON visibile
+
+### Tabelle che legge:
+- recipes — ricette con ingredienti e grammature
+- ingredients + ingredient_vendors — prezzi per fornitore
+- pos_sales_by_item — vendite piatti (campo: menu_item, quantity)
+- pos_modifiers — vendite modifier (campo: modifier, quantity_sold)
+- pos_daily_summary — totali giornalieri
+- prep_log — prep ultime 2 settimane
+- sous_chef_tasks — task aperti
+- operation_notes — note brigata
+- invoice_warnings — warning aperti
+- chef_attention — topic frequenti di Max
+
+### Cosa puo' fare:
+- Rispondere su ricette, prezzi, vendite, prep
+- Aggiornare ingredient_vendors a voce
+- Creare task
+- Calcolare (scala ricette, food cost, conversioni)
+- Ragionare in italiano anche se dati sono in inglese
+
+### Principio fondamentale:
+IL CODICE PORTA I DATI. IL LLM RAGIONA.
+Non filtrare mai. Mandare tutto e lasciare ragionare OpenRouter.
+
+---
+
+## price_type in ingredient_vendors
+
+Aggiunto 2026-06-13. Valori: per_case (DEFAULT), per_lb, per_kg, per_oz, per_each
 
 Formula $/100g:
-- `per_case`: `(unit_price / conversion_to_base) * 100`
-- `per_lb`: `(unit_price / 453.592) * 100`
-- `per_kg`: `(unit_price / 1000) * 100`
+- per_case: (unit_price / conversion_to_base) * 100
+- per_lb: (unit_price / 453.592) * 100
+- per_kg: (unit_price / 1000) * 100
+
+Carni catchweight (Stew Meat, Tomahawk): usare per_lb.
 
 ---
 
-## Importazione fatture — architettura definitiva
+## Importazione fatture
 
-### Flusso email (automatico, silenzioso):
-```
-Email fornitore → Gmail label → Google Apps Script → process-invoice (autoProcess=true)
-→ OpenRouter/Gemini legge PDF → salva DB → confronta prezzi → avvisa solo anomalie
-```
+### Email automatica:
+Email → Gmail label → Google Apps Script → process-invoice (autoProcess=true)
+→ OpenRouter/Gemini legge PDF → DB → warning solo se anomalia >10%
 
-### Flusso foto/scan (manuale, da migrare):
-```
-Foto Max → [DA FARE: mandare a process-invoice invece di Google Vision]
-→ OpenRouter/Gemini legge immagine → stessa logica email
-```
+### Fornitori:
+- Hardies: label hardies-import, parser gmail-hardies-import
+- Fruge: system@netyield.com → label fruge-import → process-invoice
+- Ben E. Keith: forward iCloud→Gmail DA FARE → label bek-import
+- Freshpoint: in attesa
 
-### Notifiche Brigade:
-- Prezzo cambiato >10%: warning in `invoice_warnings` (banner home)
-- Ingrediente nuovo: warning `insight` in `invoice_warnings`
-- Tutto il resto: silenzio
+### Foto/scan — DA MIGRARE a OpenRouter
 
 ---
 
-## UX
+## Microfono (v92)
 
-| Decisione | Scelta | Motivo |
-|---|---|---|
-| Lingua UI | English only | Staff multilingue ma UI uniforme |
-| Chat AI | Italiano | Max è italiano, risponde sempre in italiano |
-| OQR | Obbligatorio | Una decisione alla volta |
-| Bottom decision zone | Obbligatorio | One thumb rule, iPhone first |
-| Warning color | 🔴 blocking, 🟡 alert, 🔵 insight | Gradazione chiara |
-| Fake defaults | Vietati | Blank > placeholder > valore inventato |
-| Font size card OQR | Min 16px, titoli 18-19px | Max è in cucina, mani sporche |
-| Tap breve microfono | Apre chat Sous Chef | Prima lanciava scan — cambiato v86 |
-| Tap lungo microfono | Registrazione vocale | Invariato |
-| Scan manuale | Bottone 🔍 dentro la chat | Accessibile sempre dalla chat |
+- Tap breve: apre chat Sous Chef
+- Tap lungo: voce → Whisper → souschef-chat
+- Voce e testo identici — stesso Edge Function
 
 ---
 
-## Sous Chef Engine — comportamento atteso
+## Operation Notes
 
-Il Sous Chef NON è un chatbot. È un agente operativo:
-
-- **Proattivo**: nota problemi prima che Max li chieda
-- **Silenzioso**: avvisa solo quando serve una decisione
-- **Impara**: `chef_attention` registra cosa chiede Max, nightly brief lo include
-- **Corregge il DB**: Max dice "Stew Meat, 12 lb, $3.29/lb" → aggiorna direttamente
-- **Ragiona semanticamente**: trova "ROSMARY POTATOES" quando chiedi "Rosemary Potatoes"
+- File: js/operation-notes.js
+- 22:30 CDT: popup a tutta la brigata
+- Salva in operation_notes (note_date in CDT)
+- Nightly brief le legge alle 5:00 AM CDT
 
 ---
 
-## Sessione 22:30 CDT — Operation Notes
+## Nightly Brief
 
-- Appare automaticamente a tutta la brigata loggata
-- Campo testo libero, qualsiasi lingua
-- Salva in `operation_notes` con `note_date` (CDT, non UTC), `user_name`, `note`, `service='dinner'`
-- Riappare ogni 30 min se non risponde, si blocca dopo mezzanotte CDT
-- Il nightly brief delle 5:00 AM legge le note e le collega ai dati vendite
+- Cron: 0 10 * * * = 10:00 UTC = 5:00 AM CDT
+- Edge Function: sc-nightly-brief
+- Legge: vendite, note brigata, warning, chef_attention
+
+---
+
+## Sales page
+
+- Tab Oggi: RIMOSSA (dati arrivano mattina dopo)
+- Da aggiungere: ricerca per data libera, filtro Food only
+- Da tradurre: Yesterday, Weekend, 7 days, 30 days
