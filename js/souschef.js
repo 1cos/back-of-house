@@ -1614,19 +1614,20 @@ async function scChatProcess(userText) {
   }
 }
 
-// ── Fetch contesto DB per la domanda ────────────────────────
+// ── Fetch contesto DB completo — nessun filtro, ragiona OpenRouter ──
+// Porta TUTTO il contesto e lascia che l'AI trovi le connessioni.
+// Non filtriamo per keyword — l'AI è più brava di noi a trovare similitudini.
 async function scChatFetchContext(text, sb) {
   const parts = [];
-  const t = text.toLowerCase();
 
   try {
-    // Sempre: ingredienti con prezzi (top 30 per rilevanza)
+    // 1. TUTTI gli ingredienti con prezzi
     const { data: ivAll } = await sb
       .from('ingredient_vendors')
       .select('vendor, unit_price, price_per_100g, price_type, pack_description, last_invoice_date, ingredient_id')
       .eq('active', true)
       .not('unit_price', 'is', null)
-      .limit(60);
+      .limit(80);
 
     const { data: ingrAll } = await sb
       .from('ingredients')
@@ -1636,35 +1637,37 @@ async function scChatFetchContext(text, sb) {
     const ingrMap = {};
     for (const i of (ingrAll || [])) ingrMap[i.id] = i;
 
-    // Filtra per keyword se presenti
-    const keywords = text.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-    const relevant = (ivAll || []).filter(iv => {
-      const name = ingrMap[iv.ingredient_id]?.name?.toLowerCase() || '';
-      return keywords.some(k => name.includes(k)) || keywords.length === 0;
-    });
-
-    const priceData = (relevant.length ? relevant : (ivAll || []).slice(0, 20)).map(iv => {
+    const priceData = (ivAll || []).map(iv => {
       const ingr = ingrMap[iv.ingredient_id];
-      return `${ingr?.name || '?'} | ${iv.vendor} | $${iv.unit_price}/${iv.price_type === 'per_lb' ? 'lb' : 'case'} | ${iv.pack_description || ''} | ${iv.price_per_100g ? '$' + parseFloat(iv.price_per_100g).toFixed(3) + '/100g' : 'NO $/100g'}`;
+      return `${ingr?.name || '?'} | ${iv.vendor} | $${iv.unit_price}/${iv.price_type === 'per_lb' ? 'lb' : 'case'} | ${iv.pack_description || ''} | ${iv.price_per_100g ? '$' + parseFloat(iv.price_per_100g).toFixed(3) + '/100g' : 'no $/100g'}`;
     });
     if (priceData.length) parts.push('PREZZI INGREDIENTI:\n' + priceData.join('\n'));
 
-    // Vendite se domanda su vendite
-    const salesTriggers = ['vend', 'sold', 'quant', 'piatt', 'ieri', 'settiman', 'record', 'lobster', 'pasta'];
-    if (salesTriggers.some(k => t.includes(k))) {
-      const { data: sales } = await sb
-        .from('pos_sales_by_item')
-        .select('item_name, quantity_sold, net_sales, sale_date')
-        .order('sale_date', { ascending: false })
-        .limit(30);
-      if (sales?.length) {
-        const relevant = sales.filter(s => keywords.some(k => s.item_name?.toLowerCase().includes(k)));
-        const toShow = relevant.length ? relevant : sales.slice(0, 15);
-        parts.push('VENDITE RECENTI:\n' + toShow.map(s => `${s.sale_date}: ${s.item_name} — ${s.quantity_sold} pz, $${s.net_sales}`).join('\n'));
-      }
+    // 2. TUTTE le ricette — l'AI trova le similitudini (rosmary = rosemary, patate = potatoes)
+    const { data: recipes } = await sb
+      .from('recipes')
+      .select('title, ingredients, servings, category')
+      .limit(100);
+    if (recipes?.length) {
+      parts.push('RICETTE:\n' + recipes.map(r => {
+        const ingrs = (r.ingredients || []).map(i => `${i.name}: ${i.qty} ${i.unit}${i.comment ? ' ('+i.comment+')' : ''}`).join(', ');
+        return `- ${r.title} | ${r.servings || '?'} porzioni | ${ingrs}`;
+      }).join('\n'));
     }
 
-    // Warning aperti
+    // 3. Vendite recenti
+    const { data: sales } = await sb
+      .from('pos_sales_by_item')
+      .select('item_name, quantity_sold, net_sales, sale_date')
+      .order('sale_date', { ascending: false })
+      .limit(40);
+    if (sales?.length) {
+      parts.push('VENDITE RECENTI:\n' + sales.map(s =>
+        `${s.sale_date}: ${s.item_name} — ${s.quantity_sold} pz, $${s.net_sales}`
+      ).join('\n'));
+    }
+
+    // 4. Warning aperti
     const { data: warns } = await sb
       .from('invoice_warnings')
       .select('code, severity, message, vendor')
@@ -1672,29 +1675,6 @@ async function scChatFetchContext(text, sb) {
       .limit(10);
     if (warns?.length) {
       parts.push('WARNING APERTI:\n' + warns.map(w => `[${w.severity}] ${w.vendor}: ${w.message}`).join('\n'));
-    }
-
-    // Ricette — sempre incluse se domanda riguarda ricette/ingredienti
-    const recipeTriggers = ['ricett', 'recipe', 'gramm', 'ingredi', 'quanto', 'rosemary', 'rosmary', 'potato', 'patate', 'piatt', 'dish', 'pasta', 'salsa', 'sauce', 'sale', 'salt', 'quanto'];
-    if (recipeTriggers.some(k => text.includes(k))) {
-      const { data: recipes } = await sb
-        .from('recipes')
-        .select('title, ingredients, servings')
-        .limit(50);
-      if (recipes?.length) {
-        // Filtra per keyword rilevanti
-        const relevantRecipes = recipes.filter(r =>
-          keywords.some(k => k.length > 3 && (
-            r.title?.toLowerCase().includes(k) ||
-            JSON.stringify(r.ingredients || []).toLowerCase().includes(k)
-          ))
-        );
-        const toShow = relevantRecipes.length ? relevantRecipes : recipes.slice(0, 5);
-        parts.push('RICETTE:\n' + toShow.map(r => {
-          const ingrs = (r.ingredients || []).map(i => `${i.name}: ${i.qty} ${i.unit}`).join(', ');
-          return `- ${r.title} (${r.servings || '?'} porzioni): ${ingrs}`;
-        }).join('\n'));
-      }
     }
 
   } catch(e) {
