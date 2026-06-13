@@ -136,11 +136,31 @@ function calcBaseWeightG(v){
 // The stored price_per_100g may be stale (written before pack_size
 // was available) — we only fall back to it if we cannot compute.
 function calcVendorPrice100g(v){
-  const up = v.unit_price;
+  const up = parseFloat(v.unit_price);
   if(!up) return null;
+
+  // Se price_type è per unità di peso, converti prima in prezzo per cassa
+  // poi calcola $/100g come sempre
+  const pt = v.price_type || 'per_case';
   const base = calcBaseWeightG(v);
+
+  if(pt === 'per_lb') {
+    // unit_price è $/lb — moltiplica per grammi totali della cassa / 453.592
+    // $/100g = ($/lb) / 453.592 * 100
+    return (up / 453.592) * 100;
+  }
+  if(pt === 'per_kg') {
+    return (up / 1000) * 100;
+  }
+  if(pt === 'per_oz') {
+    return (up / 28.3495) * 100;
+  }
+  if(pt === 'per_each' && v.unit_weight_g) {
+    return (up / parseFloat(v.unit_weight_g)) * 100;
+  }
+
+  // per_case (default): prezzo per cassa intera
   if(base) return (up / base) * 100;
-  // Last resort: stored value (may be stale but better than nothing)
   return v.price_per_100g || null;
 }
 
@@ -171,7 +191,7 @@ async function calculateIngredientCost(ingredientName, qty, unit){
   if(!ingrs.length) return null;
   const ingr = ingrs[0];
   const {data:vendors} = await supa.from('ingredient_vendors')
-    .select('vendor,unit_price,purchase_unit,pack_size,pack_unit,price_per_100g,conversion_to_base,last_total_weight_g,unit_weight_g')
+    .select('vendor,unit_price,purchase_unit,pack_size,pack_unit,price_per_100g,price_type,conversion_to_base,last_total_weight_g,unit_weight_g')
     .eq('ingredient_id', ingr.id).eq('active',true);
   if(!vendors?.length) return {ingredient:ingr.name, error:'No price data'};
   const baseQty = convertToBase(qty, unit);
@@ -282,7 +302,7 @@ window.openIngredientCard = async function(ingredientId){
       .select('id,name,category,base_unit,count_unit,avg_unit_weight_g,unit_volume_ml,notes,active')
       .eq('id', ingredientId).single(),
     supa.from('ingredient_vendors')
-      .select('id,vendor,vendor_sku,purchase_unit,pack_size,pack_unit,pack_description,unit_price,base_cost,conversion_to_base,unit_weight_g,conversion_notes,price_per_100g,last_invoice_date,last_total_weight_g,active,notes')
+      .select('id,vendor,vendor_sku,purchase_unit,pack_size,pack_unit,pack_description,unit_price,base_cost,conversion_to_base,unit_weight_g,conversion_notes,price_per_100g,price_type,last_invoice_date,last_total_weight_g,active,notes')
       .eq('ingredient_id', ingredientId)
       .eq('active', true),
     supa.from('recipes').select('id,title,category,ingredients'),
@@ -544,7 +564,7 @@ window.saveEditIngredient = async function(ingredientId, btn){
 // ── EDIT VENDOR ROW — campi ingredient_vendors ────────────────
 window.openEditVendorRow = async function(vendorId, ingredientId){
   const {data:v} = await supa.from('ingredient_vendors')
-    .select('id,vendor,vendor_sku,purchase_unit,pack_size,pack_unit,pack_description,unit_price,base_cost,conversion_to_base,unit_weight_g,conversion_notes,price_per_100g,last_invoice_date,last_total_weight_g,active,notes')
+    .select('id,vendor,vendor_sku,purchase_unit,pack_size,pack_unit,pack_description,unit_price,base_cost,conversion_to_base,unit_weight_g,conversion_notes,price_per_100g,price_type,last_invoice_date,last_total_weight_g,active,notes')
     .eq('id',vendorId).single();
   if(!v) return;
 
@@ -571,6 +591,20 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
           <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">UNIT PRICE ($)</label>
           <input id="evUnitPrice" type="number" step="0.01" value="${v.unit_price||''}" placeholder="e.g. 24.96" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
         </div>
+      </div>
+
+      <!-- PRICE TYPE -->
+      <div style="margin-bottom:12px;">
+        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:6px;">PRICE TYPE — il prezzo sopra è per...</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;" id="evPriceTypeGroup">
+          ${[['per_case','📦 Cassa intera'],['per_lb','⚖️ Per lb'],['per_kg','⚖️ Per kg'],['per_oz','⚖️ Per oz'],['per_each','🥚 Per pezzo']].map(([val,label])=>`
+            <button type="button" data-pt="${val}"
+              onclick="document.querySelectorAll('#evPriceTypeGroup button').forEach(b=>b.style.background=b.dataset.pt==='${val}'?'#1e293b':'#f1f5f9');document.querySelectorAll('#evPriceTypeGroup button').forEach(b=>b.style.color=b.dataset.pt==='${val}'?'white':'#475569');document.getElementById('evPriceType').value='${val}';evUpdatePreview();"
+              style="padding:8px 14px;border-radius:20px;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;background:${(v.price_type||'per_case')===val?'#1e293b':'#f1f5f9'};color:${(v.price_type||'per_case')===val?'white':'#475569'};">
+              ${label}
+            </button>`).join('')}
+        </div>
+        <input type="hidden" id="evPriceType" value="${v.price_type||'per_case'}">
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
@@ -638,7 +672,7 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
   document.body.appendChild(modal);
 
   // Live preview
-  function livePreview(){
+  function evUpdatePreview(){
     const up  = parseFloat(document.getElementById('evUnitPrice')?.value)||0;
     const pu  = document.getElementById('evPurchaseUnit')?.value||'';
     const ltg = parseFloat(document.getElementById('evLastTotalG')?.value)||0;
@@ -646,25 +680,36 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
     const conv= parseFloat(document.getElementById('evConversion')?.value)||0;
     const ps  = parseFloat(document.getElementById('evPackSize')?.value)||0;
     const pu2 = document.getElementById('evPackUnit')?.value||'';
-    const base= calcBaseWeightG({
-      pack_size: ps||null, pack_unit: pu2||null,
-      conversion_to_base: conv||null, last_total_weight_g: ltg||null,
-      unit_weight_g: uwg||null, purchase_unit: pu||null,
-    })||0;
+    const pt  = document.getElementById('evPriceType')?.value||'per_case';
     const el  = document.getElementById('evCalcPreview');
-    if(up&&base){
-      const p100 = (up/base)*100;
-      el.textContent = `→ price_per_100g = $${p100.toFixed(2)}`;
+    if(!up){ el.textContent='→ Inserisci Unit Price'; el.style.color='#92400e'; el.style.background='#fff7ed'; return; }
+    // Calcola p100 con price_type
+    let p100 = null;
+    if(pt === 'per_lb')   p100 = (up / 453.592) * 100;
+    else if(pt === 'per_kg')  p100 = (up / 1000) * 100;
+    else if(pt === 'per_oz')  p100 = (up / 28.3495) * 100;
+    else if(pt === 'per_each' && uwg) p100 = (up / uwg) * 100;
+    else {
+      const base = calcBaseWeightG({
+        pack_size: ps||null, pack_unit: pu2||null,
+        conversion_to_base: conv||null, last_total_weight_g: ltg||null,
+        unit_weight_g: uwg||null, purchase_unit: pu||null,
+      })||0;
+      if(base) p100 = (up/base)*100;
+    }
+    if(p100){
+      el.textContent = `→ price_per_100g = $${p100.toFixed(4)}`;
       el.style.color = '#166534'; el.style.background='#f0fdf4';
     } else {
-      el.textContent = '→ Cannot calculate — fill Unit Price + at least one weight/conversion field';
+      el.textContent = '→ Cannot calculate — fill Unit Price + weight/conversion field';
       el.style.color = '#92400e'; el.style.background='#fff7ed';
     }
   }
+  window.evUpdatePreview = evUpdatePreview;
   ['evUnitPrice','evPurchaseUnit','evPackSize','evPackUnit','evLastTotalG','evUnitWeightG','evConversion'].forEach(id=>{
-    document.getElementById(id)?.addEventListener('input', livePreview);
+    document.getElementById(id)?.addEventListener('input', evUpdatePreview);
   });
-  livePreview();
+  evUpdatePreview();
 };
 
 window.saveEditVendorRow = async function(vendorId, ingredientId, btn){
@@ -675,15 +720,18 @@ window.saveEditVendorRow = async function(vendorId, ingredientId, btn){
   const uwg  = parseFloat(document.getElementById('evUnitWeightG')?.value)||null;
   const conv = parseFloat(document.getElementById('evConversion')?.value)||null;
 
-  // Ricalcola price_per_100g — usa calcBaseWeightG (unica fonte di verità)
+  // Ricalcola price_per_100g — usa calcVendorPrice100g (unica fonte di verità)
   const packSizeVal = parseFloat(document.getElementById('evPackSize')?.value)||null;
   const packUnitVal = document.getElementById('evPackUnit')?.value?.trim()||null;
-  const base = calcBaseWeightG({
+  const priceTypeVal = document.getElementById('evPriceType')?.value||'per_case';
+  const vForCalc = {
+    unit_price: up, price_type: priceTypeVal,
     pack_size: packSizeVal, pack_unit: packUnitVal,
     conversion_to_base: conv, last_total_weight_g: ltg,
     unit_weight_g: uwg, purchase_unit: pu,
-  });
-  const p100 = up&&base ? parseFloat(((up/base)*100).toFixed(4)) : null;
+  };
+  const p100raw = calcVendorPrice100g(vForCalc);
+  const p100 = p100raw ? parseFloat(p100raw.toFixed(4)) : null;
 
   const updates = {
     vendor:            document.getElementById('evVendor')?.value?.trim()||null,
@@ -699,6 +747,7 @@ window.saveEditVendorRow = async function(vendorId, ingredientId, btn){
     conversion_notes:  document.getElementById('evConvNotes')?.value?.trim()||null,
     notes:             document.getElementById('evNotes')?.value||null,
     price_per_100g:    p100,
+    price_type:        priceTypeVal,
     active:            document.getElementById('evActive')?.checked!==false,
     updated_at:        new Date().toISOString(),
   };
