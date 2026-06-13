@@ -1675,7 +1675,7 @@ async function scChatFetchContext(text, sb) {
     }
 
     // Ricette — sempre incluse se domanda riguarda ricette/ingredienti
-    const recipeTriggers = ['ricett', 'recipe', 'gramm', 'ingredi', 'quanto', 'rosemary', 'patate', 'piatt', 'dish', 'pasta', 'salsa', 'sauce'];
+    const recipeTriggers = ['ricett', 'recipe', 'gramm', 'ingredi', 'quanto', 'rosemary', 'rosmary', 'potato', 'patate', 'piatt', 'dish', 'pasta', 'salsa', 'sauce', 'sale', 'salt', 'quanto'];
     if (recipeTriggers.some(k => text.includes(k))) {
       const { data: recipes } = await sb
         .from('recipes')
