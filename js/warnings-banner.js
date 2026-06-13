@@ -191,6 +191,16 @@ window.warnBannerTap = async function(el) {
     return;
   }
 
+  // Se è un warning del Sous Chef scan (SC-*) → apri stack OQR swipeable
+  if (code && code.startsWith('SC-')) {
+    if (typeof runSousChefScan === 'function') {
+      // Reset throttle per permettere riapertura immediata dallo stack
+      localStorage.removeItem('sc_last_scan');
+      runSousChefScan();
+    }
+    return;
+  }
+
   // Se è solo un invoice_warning senza documento vivo → mostra OQR inline
   if (warnId) {
     showBannerOQR(warnId, code, el);
