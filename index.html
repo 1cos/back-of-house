@@ -15,6 +15,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="js/vendor-documents-review.js"></script>
 <script src="js/warnings-banner.js"></script>
+<script src="js/operation-notes.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -467,6 +468,9 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         </button>
         <button onclick="hideAdminMenu();openChefAISettings()" class="admin-menu-btn">
           <span style="font-size:24px;">🤖</span><span>Chef AI</span>
+        </button>
+        <button onclick="hideAdminMenu();openOperationNotes()" class="admin-menu-btn">
+          <span style="font-size:24px;">🌙</span><span>Note brigata</span>
         </button>
       </div>
     </div>

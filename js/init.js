@@ -28,8 +28,10 @@ async function init(){
   renderHomeStationItems();
   loadServiceUpdates();
   loadUpcomingDemand();
-  // Load warnings banner (TASK 1 — reads invoice_warnings + vendor_documents.warnings)
+  // Load warnings banner
   if (typeof loadWarningsBanner === 'function') loadWarningsBanner();
+  // Check se mostrare il prompt note serale (dopo le 22:30)
+  if (typeof checkOperationNotePrompt === 'function') checkOperationNotePrompt();
   const rb=document.getElementById('recipeAdminBtns');
   if(rb) rb.style.display=isAdmin()?'flex':'none';
 }
