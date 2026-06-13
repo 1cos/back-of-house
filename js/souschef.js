@@ -40,7 +40,10 @@ OUTPUT FORMAT (sempre JSON, niente altro):
   "summary": "riassunto pulito del task in italiano",
   "due_date": "data ISO se menzionata, null altrimenti",
   "answer": "se type è domanda, la risposta qui in italiano, altrimenti null",
-  "notify": true/false
+  "notify": true/false,
+  "attention_topic": "parola chiave principale della domanda in italiano (es. burrata, salmone, pasta wheel) — null se è un task",
+  "attention_topic_en": "stessa keyword in inglese normalizzato (es. burrata, salmon, pasta wheel) — null se è un task",
+  "attention_type": "price | quantity | vendor | general — null se è un task"
 }`;
 
 let isRecording = false;
@@ -197,6 +200,17 @@ async function classifyWithGroq(transcript){
       return;
     }
 
+    // ── CHEF MEMORY: salva domanda in background (fire & forget) ──
+    if(result.type === 'domanda' && result.attention_topic) {
+      saveChefAttention(
+        result.attention_topic,
+        result.attention_topic_en || null,
+        result.attention_type || 'general',
+        transcript,
+        result.answer || null
+      ).catch(() => {}); // silenzioso — non blocca mai l'UI
+    }
+
     // se è una domanda — mostra risposta
     if(result.type === 'domanda'){
       showScAnswer(result);
@@ -208,6 +222,49 @@ async function classifyWithGroq(transcript){
 
   }catch(e){
     showScToast('❌ Errore AI: '+e.message);
+  }
+}
+
+// ── CHEF MEMORY ENGINE — salva attenzione in silenzio ──────────
+// Chiamata dopo ogni domanda vocale. Fuoco e dimentica.
+// Usa UPSERT: se il topic esiste già, incrementa il contatore.
+async function saveChefAttention(topic, topicEn, queryType, rawQuestion, lastAnswer) {
+  try {
+    const sb = window.supabaseClient;
+    if (!sb) return;
+
+    const topicNorm = topic.toLowerCase().trim();
+
+    // Cerca se esiste già
+    const { data: existing } = await sb
+      .from('chef_attention')
+      .select('id, ask_count')
+      .eq('topic', topicNorm)
+      .maybeSingle();
+
+    if (existing) {
+      // Incrementa contatore
+      await sb.from('chef_attention').update({
+        ask_count: existing.ask_count + 1,
+        last_asked: new Date().toISOString(),
+        last_answer: lastAnswer || null,
+        raw_question: rawQuestion || null,
+      }).eq('id', existing.id);
+    } else {
+      // Inserisci nuovo topic
+      await sb.from('chef_attention').insert({
+        topic: topicNorm,
+        topic_en: topicEn ? topicEn.toLowerCase().trim() : null,
+        query_type: queryType || 'general',
+        raw_question: rawQuestion || null,
+        ask_count: 1,
+        first_asked: new Date().toISOString(),
+        last_asked: new Date().toISOString(),
+        last_answer: lastAnswer || null,
+      });
+    }
+  } catch(_) {
+    // Silenzioso — la memoria non deve mai rompere il flusso principale
   }
 }
 
@@ -820,7 +877,7 @@ function showSousChefStack(cards) {
                   <option value="lb">lb</option><option value="kg">kg</option>
                   <option value="oz">oz</option><option value="g">g</option>
                 </select>
-                <button onclick="scGroqSaveWeight(${i},'${(item.ingredient_id||'').replace(/'/g,"\'")}','${(item.vendor||'').replace(/'/g,"\'")}',${item.unit_price||0})"
+                <button onclick="scGroqSaveWeight(${i},'${(item.ingredient_id||'').replace(/'/g,"\\'")}','${(item.vendor||'').replace(/'/g,"\\'")}',${item.unit_price||0})"
                   style="height:48px;padding:0 16px;border-radius:12px;background:#1e293b;color:white;font-size:18px;font-weight:700;border:none;cursor:pointer;">✓</button>
               </div>
               <div id="scGroqPreview-${i}" style="font-size:15px;font-weight:600;color:#10b981;margin-top:8px;display:none;"></div>`;
@@ -830,7 +887,7 @@ function showSousChefStack(cards) {
               style="flex:1;height:48px;border-radius:12px;background:#ef4444;color:white;font-size:16px;font-weight:700;border:none;cursor:pointer;">🗑️ ${opt.label}</button>`;
           }
           return `<button data-answer="${opt.value}"
-            onclick="scGroqAnswer(this,'${item.ingredient_id||''}','${(item.vendor||'').replace(/'/g,"\'")}','${opt.value}')"
+            onclick="scGroqAnswer(this,'${item.ingredient_id||''}','${(item.vendor||'').replace(/'/g,"\\'")}','${opt.value}')"
             style="flex:1;height:48px;border-radius:12px;background:${oi===0?'#f0fdf4':'#f8fafc'};color:${oi===0?'#166534':'#1e293b'};border:1.5px solid ${oi===0?'#bbf7d0':'#e2e8f0'};font-size:15px;font-weight:600;cursor:pointer;">
             ${opt.label}
           </button>`;
