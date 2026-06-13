@@ -339,6 +339,8 @@ function showScAnswer(result){
 
   const hasAnswer = result.answer && result.answer.trim().length > 0;
 
+  const sheetId = '_scAnswerSheet_' + Date.now();
+  sheet.id = sheetId;
   sheet.innerHTML = `
     <div style="
       background:white;
@@ -375,7 +377,7 @@ function showScAnswer(result){
 
       <!-- Bottone -->
       <div style="padding:0 16px;">
-        <button onclick="this.closest('[style*=position\\:fixed]').remove()"
+        <button onclick="document.getElementById('${sheetId}').remove()"
           style="
             width:100%;
             height:56px;
