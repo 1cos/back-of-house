@@ -1,137 +1,185 @@
-# BOH OS — BACKLOG
-*Aggiorna l'ultima riga dopo ogni sessione.*
-*Load after SPEC, before coding.*
+# BRIGADE — BACKLOG
+*App si chiama BRIGADE. Branch deploy: brigade-main (MAI main).*
+*Aggiorna dopo ogni sessione. Load dopo SPEC.*
 
 ---
 
-## Current Priority Order
+## Regole operative
 
-1. FreshPoint Dallas parser (HTML) — vendor parser mancante
-2. Gmail → Hardie's auto-import (Edge Function + Gmail API)
-3. Inventory section — placeholder stub da costruire
-4. Weight unknown residui (Burrata, Whipping Cream, Shredded Mozz) — verificare dopo prima fattura reale
-5. Recipe data cleanup (QA warnings)
-6. RLS Supabase — obbligatorio prima go-live staff
-7. Whiteboard / brigade handoff (HTML)
-8. Flutter: Thumb Engine V1 + OQR Engine
-9. Flutter: Attention Queue V1
-10. Siri AI integration (Flutter, iOS 27 — futuro)
-
-**Regola:** non costruire nuovi moduli finché Recipes, Inventory e Invoice Import non sono stabili.
+- App: **BRIGADE** (non BOH OS, non BIOS)
+- Branch: **brigade-main**
+- Versione attuale: **v77**
+- Supabase project: `ydqmumpytgrlceuinoqt`
+- GitHub repo: `1cos/back-of-house`
+- Leggi sempre file da `brigade-main` prima di modificare
+- File di progetto in `/mnt/project/` sono snapshot vecchi — usa GitHub
+- Ogni commit = bump `boh-vNN` in `sw.js`
 
 ---
 
-## HTML — Completato Oggi ✅
+## Sessione 2026-06-12 — Completato ✅
 
-### Invoice Import pipeline — end-to-end funzionante
-- Vendor Parser Test → Continue → Preview → Save → Match → Done → Home
-- OQR non blocca più l'import (`vendor-parser-ui.js`)
-- Preview modal visibile sopra tutto (z-index:9000, inline style)
-- `saveInvoice` fix: `btn.closest('.fixed')` → `_invoicePreviewModal`
-- Duplicate invoice modal con "Open Purchase History"
-- Success modal con matching ingredienti inline
-- Autocomplete datalist dal DB su campo testo manuale
-- Price change detection (↑↓ %) con "Accept new price"
-- Done → chiude tutti i modal → torna alla home
+### TASK 0a — Yes Chef modal (v69)
+- `showSaveSuccessModal` sostituito con modal celebrativo grande
+- ✅ Chef!, conteggio items/known/new, lista nuovi articoli
+- Bottone "Got it — back to kitchen" 52px
 
-### Pack format parser
-- `9-1/2 GAL` → 9.5 gallons ✅
-- `6/4-2OZ` → 6×4×2oz = 1361g ✅
-- Item CT/EA non flaggati come "weight unknown" ✅
+### TASK 0b — Pesi standard pack a conteggio (v69)
+- `STANDARD_UNIT_WEIGHTS` lookup (12 voci: egg 58g, lime 67g, lemon 100g, romaine 350g, flower 3g...)
+- `enrichInvoiceItems` applica automaticamente prima di OQR-009
+- `answerWeightQuestion` salva in `invoice_line_clarifications` (first time ask, second time learn)
 
-### Matching ingredienti post-salvataggio
-- Fuzzy search nel DB ingredienti (keyword extraction)
-- Status: `suggest` (un tap), `new` (campo manuale), `ok`, `price_up`, `price_down`
-- Memoria storica via `ingredient_links` — seconda volta è automatico
+### TASK 1 — Home Banner Warning (v70)
+- `js/warnings-banner.js` (nuovo): legge `invoice_warnings` status=open + `vendor_documents.warnings` JSONB
+- Banner colorato: 🔴 blocking, 🟡 alert, 🔵 insight
+- Visibilità per ruolo: Admin tutto, Chef/Sous Chef solo alert, Cook niente
+- `vendor-documents-review.js`: INSERT in `invoice_warnings` ad ogni parse PDF
+- `vdrCodeToSeverity()` helper
 
-### DB ingredienti — pulizia completa
-- 85 nomi accorpati (olive oil ×18, parmesan ×12, garlic ×12, tomatoes, rosemary, chocolate…)
-- 11 typo corretti (Anchovie→Anchovy, Heavu Cream→Heavy Cream, Parslay→Parsley…)
-- 34 non-ingredienti taggati `category='Supply'` (C57pst1, Pk5, Co2, Skewers…)
-- Tutte le ricette aggiornate con nomi canonici
-- Lingua: tutto in inglese
+### TASK 2 — Sous Chef proattivo (v71-v77)
+- Tap breve microfono = scan DB, long press = registra vocale
+- `runSousChefScan()` usa **Groq AI** (non regole hardcodate):
+  1. Raccoglie dati reali dal DB
+  2. Esclude sub-ricette/produzioni interne
+  3. Manda a Groq con prompt da sous chef esperto
+  4. Groq trova anomalie e le struttura come OQR
+  5. Card swipeable: swipe giù = skip, swipe su = risolto
+- Throttle: max 1 scan ogni 30 minuti
+- Regole SC-*: SC-PRICE-001, SC-PRICE-002, SC-NOLINK-001, SC-UNUSED-001
+- `openChefAISettings()` in Admin menu — toggle regole, localStorage
+- Font size aumentati (18-19px), leggibili in cucina
 
----
+### Operation Notes (v77)
+- Tabella `operation_notes` creata in Supabase
+- Pop-up alle 22:30 per tutta la brigata: "Come è andata stasera?"
+- Una nota per persona per serata (guard localStorage + DB)
+- Admin menu → "🌙 Note brigata" per storico completo
 
-## HTML — Blockers Attivi
-
-### FreshPoint Dallas parser
-- Vendor signature detection su raw text: `/freshpoint/i`
-- Parser specifico da costruire (formato diverso da Hardie's)
-- Già presente nel router `buildVendorParsers()` ma ritorna `NO_PARSER`
-
-### Gmail → Hardie's auto-import
-- Email PDF allegato → Edge Function → parser → Vendor Review
-- Richiede: Gmail API credentials, Supabase Edge Function
-- Max ha Gmail — da configurare nella prossima sessione
-
-### Inventory
-- Sezione attualmente placeholder stub
-- Units of measure / conversione IT-US (g/kg/lt ↔ lb/oz/gal) parziale
-- Categorie ingredienti da completare (oggi: solo 'Supply' aggiunta)
-
-### Weight residui da verificare
-- Burrata Belgioioso `6/4-2OZ` → parser fixato, verificare su fattura reale
-- Whipping Cream `9-1/2 GAL` → parser fixato, verificare
-- Shredded Mozzarella `5#` → dovrebbe funzionare (# → lb)
-- Se ancora wrong: debug `calcTotalWeightG` con log su item specifico
+### Nightly Brief Engine (v77)
+- Edge Function `sc-nightly-brief` deployata su Supabase
+- Aggrega ogni notte: vendite ieri + top piatti + note brigata + warning + fatture
+- Groq collega commenti umani ai dati POS
+- Scrive in tabella `briefing` → appare in Briefing AI su Brigade
+- **Cron automatico**: GitHub Actions `.github/workflows/nightly-brief.yml`
+  - 05:00 UTC ogni notte = mezzanotte CDT
+  - Trigger anche manuale da GitHub → Actions → Nightly Brief → Run workflow
 
 ---
 
-## Prima del Go-Live — Obbligatorio
+## Prossima Sessione — Priority
 
-- [ ] **RLS Supabase** — tabelle esposte senza autenticazione. Da fare prima di condividere con lo staff.
+### 1. Sous Chef Chat — interroga il DB in italiano
+Il microfono oggi risponde in modo generico. Max parla italiano —
+dice "cavoletti di Bruxelles" e il Sous Chef deve capire "Brussels Sprouts",
+cercare nel DB, rispondere con il prezzo reale.
+Flusso: voce → Groq capisce intento → query DB → risposta in italiano.
+Questo è il prossimo task più importante.
+
+### 2. Sous Chef Engine — scan periodica automatica
+Oggi la scan è on-demand (tap microfono).
+Prossimo step: Edge Function schedulata che gira ogni ora
+e scrive warning nel banner senza che Max lo chieda.
+Tre frequenze:
+- Ogni ora: solo cosa è cambiato (nuove fatture, nuovi eventi)
+- Ogni notte (già fatto): vendite + note brigata + briefing
+- Ogni lunedì: trend 7 giorni, pattern settimanali
+
+### 3. Good Job messages
+Il Sous Chef deve celebrare i record:
+"Ieri record di Tomahawk negli ultimi 90 giorni — cosa avete cambiato?"
+Vanno in Service Updates — visibili a tutta la brigata.
+
+### 4. Sous Chef Sales Anomaly detection
+Pattern vendite anomale:
+- Calo/picco >30% vs stesso giorno settimana scorsa
+- Es: giovedì 11/6 — $1,011 vs $7,000+ → Groq chiede "cosa è successo?"
+- Risposta salvata → quel giorno escluso dalle medie future
+
+### 5. TripleSeat integration
+Quando Monica aggiunge un evento su TripleSeat →
+Sous Chef ti avvisa: "Nuovo evento aggiunto — vuoi analizzare il menù?"
+(In attesa di credenziali API TripleSeat da Max)
+
+### 6. Recipe → Sales linkage
+Collegare ricette agli articoli POS:
+quante Caprese vendute → quanto mozzarella e pomodoro consumato teoricamente.
+Base per food cost futuro.
+
+### 7. Ingredienti con peso mancante da risolvere
+Avocado, Blackberry, Edible Flower, Eggs, Lemon, Lime, Romaine, Tomato, Watermelon
+— tutti hanno unit_price ma price_per_100g = NULL perché pack è CT/DZ.
+Il Sous Chef scan AI già li trova — risolvere con la card inline.
 
 ---
 
-## HTML — In Attesa di Input Esterni
+## Blockers attivi
 
-- Touch Bistro CSV → import POS sales (awaiting file)
-- TripleSeat API credentials → reservations (awaiting creds)
-- Gmail API credentials → Hardie's auto-import (da configurare)
-
----
-
-## Flutter — Stato Attivo
-
-### Ricette ✅ funzionante
-- 182 ricette importate, 183 versioni, 1230 lines, 688 steps
-- 286 QA warnings da risolvere
-- Yield mismatch, duplicati, porzioni mancanti
-
-### Inventory ✅ funzionante
-- ~439 ingredienti attivi (dopo cleanup oggi)
-- 157 disattivati (varianti accorpate)
-- 34 Supply
-
-### Invoice Import 🔧
-- Decimal weight handling
-- Vendor alias cleanup
-- Duplicate invoice detection
-
-### Production ⬜ non iniziato
-### Chef Mode ⬜ non iniziato
-### Attention Queue ⬜ in design
+- FreshPoint non manda ancora fatture (solo order confirmation)
+- TripleSeat API credentials — in attesa da Max
+- Touch Bistro CSV — in attesa da Max
+- RLS Supabase — obbligatorio prima go-live staff
 
 ---
 
-## Prossima Sessione
+## Architettura Sous Chef Engine — Blueprint completo
 
-**Ultimo task completato (v64 — 2026-06-12):**
-- WARNING MASTER SYSTEM v2.0 (`BOH_OS_WARNINGS.md`) — OQR come canale, registry completo, lifecycle
-- Quadratura DOC-TOTAL-001: parser client (`index.js`) + Edge Function `gmail-vendor-import` v2 + backfill (6 doc flaggati)
-- Fix fantasma Hardie's #06977530: item incollato alla riga header → newline injection in `hardies-invoice.js` (testato: 1 item, $862.79, pack estratto)
-- Fix fantasma FreshPoint: prefissi `> ` email inoltrate + SKU 3 cifre (blackberries 918, blueberries 926 = i $28.56 della quadratura) + parsing tab-delimited + pack patterns → 11/11 item, zero OQR-008 (testato)
-- Documenti `status='error'` ora visibili in Vendor Review
-- `invoice_warnings.severity` (blocking/alert/insight) + backfill
-- Regole nuove in DECISIONS: version bump ogni commit, deploy branch = brigade-main (MAI main)
+```
+FATTURE — event-driven:
+  Nuova fattura → elabora → se ok: toast silenzioso
+                          → se problemi: OQR in home banner
 
-**Prossimo task:**
-1. **Pulizia DB + re-import fresco da Gmail** — backup tabelle, wipe vendor_documents/invoice_warnings, re-label email in Gmail, verifica pipeline end-to-end
-2. "Report a problem" — warning manuale su documenti e righe
-3. Home banner warning (severity colors, visibilità per ruolo)
-4. ALT-MISS-001 — item mancante → assign ruolo → persona
+VENDITE — tre frequenze:
+  Ogni notte: ieri vs settimana scorsa, top piatti, anomalie
+  Ogni lunedì: trend 7gg, pattern giorno/settimana
+  Ogni mese: stagionalità, food cost trend
 
-**Blockers:**
-- FreshPoint non manda ancora le fatture (solo order confirmation) — Max ha richiesto, in attesa
-- Token GitHub in chat: da rigenerare/far scadere a fine fase
+OPERATION NOTES — ogni sera 22:30:
+  Pop-up brigata → commento libero → salvato in DB
+  Groq collega commenti ai numeri nel briefing mattutino
+
+NOTIFICHE:
+  🔴 Blocking → push immediata
+  🟡 Alert → home banner al prossimo accesso
+  🔵 Info/Good news → Briefing AI (visibile a tutta la brigata)
+```
+
+---
+
+## Tabelle DB rilevanti
+
+| Tabella | Uso |
+|---|---|
+| `invoice_warnings` | Warning aperti/risolti — fonte del banner |
+| `vendor_documents` | Fatture PDF con warnings JSONB |
+| `ingredient_vendors` | Prezzi per vendor + price_per_100g |
+| `ingredient_links` | Match fattura → ingrediente |
+| `operation_notes` | Commenti brigata post-servizio (NUOVO) |
+| `briefing` | Briefing mattutino generato da Groq |
+| `pos_daily_summary` | Vendite giornaliere da TouchBistro |
+| `pos_sales_by_item` | Vendite per piatto |
+| `purchases` | Fatture importate (invoice pipeline) |
+| `invoice_lines` | Righe fattura con match status |
+
+---
+
+## Edge Functions attive
+
+| Function | Trigger | Scopo |
+|---|---|---|
+| `process-invoice` | On demand | OCR pipeline Google Vision + Groq |
+| `gmail-hardies-import` | Cron orario | Gmail → Hardie's PDF → storage |
+| `sc-nightly-brief` | Cron 05:00 UTC | Vendite + note → Groq → briefing |
+| `souschef-classify` | On demand | Groq LLaMA classificazione AI |
+| `ai-translate` | On demand | Traduzione multilingue |
+| `transcribe-audio` | On demand | Groq Whisper trascrizione vocale |
+
+---
+
+## Decisions permanenti
+
+- File completi sempre — mai patch parziali
+- Base per modifiche: sempre da `brigade-main` su GitHub, mai da `/mnt/project/`
+- Scope discipline: tocca solo il modulo richiesto
+- Groq AI invece di regole hardcodate — più intelligente, più flessibile
+- Sub-ricette (Bolognese, Béchamel...) escluse dai warning ingredienti
+- Classificazione ingredienti: se nome = titolo ricetta → produzione interna → skip
