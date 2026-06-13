@@ -1,0 +1,19 @@
+name: Nightly Brief
+
+on:
+  schedule:
+    # 05:00 UTC = mezzanotte CDT (UTC-5)
+    - cron: '0 5 * * *'
+  workflow_dispatch: # permette trigger manuale
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger sc-nightly-brief
+        run: |
+          curl -s -X POST \
+            "https://ydqmumpytgrlceuinoqt.supabase.co/functions/v1/sc-nightly-brief" \
+            -H "Content-Type: application/json" \
+            -d '{"source":"github-cron"}' \
+            --max-time 60
