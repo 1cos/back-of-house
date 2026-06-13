@@ -211,9 +211,12 @@ async function classifyWithGroq(transcript){
       ).catch(() => {}); // silenzioso — non blocca mai l'UI
     }
 
-    // se è una domanda — mostra risposta
+    // se è una domanda — manda a souschef-chat che ha accesso completo DB
     if(result.type === 'domanda'){
-      showScAnswer(result);
+      // Apri la chat e manda la domanda vocale
+      openSousChefChat();
+      // Aspetta che la sheet sia aperta poi manda il messaggio
+      setTimeout(() => scChatSend(transcript), 400);
       return;
     }
 
