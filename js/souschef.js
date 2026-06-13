@@ -1646,12 +1646,12 @@ async function scChatFetchContext(text, sb) {
     // 2. TUTTE le ricette — l'AI trova le similitudini (rosmary = rosemary, patate = potatoes)
     const { data: recipes } = await sb
       .from('recipes')
-      .select('title, ingredients, servings, category')
+      .select('title, ingredients, base_servings, category')
       .limit(100);
     if (recipes?.length) {
       parts.push('RICETTE:\n' + recipes.map(r => {
         const ingrs = (r.ingredients || []).map(i => `${i.name}: ${i.qty} ${i.unit}${i.comment ? ' ('+i.comment+')' : ''}`).join(', ');
-        return `- ${r.title} | ${r.servings || '?'} porzioni | ${ingrs}`;
+        return `- ${r.title} | ${r.base_servings || '?'} porzioni | ${ingrs}`;
       }).join('\n'));
     }
 
@@ -1659,6 +1659,7 @@ async function scChatFetchContext(text, sb) {
     const { data: sales } = await sb
       .from('pos_sales_by_item')
       .select('item_name, quantity_sold, net_sales, sale_date')
+      .not('sale_date', 'is', null)
       .order('sale_date', { ascending: false })
       .limit(40);
     if (sales?.length) {
