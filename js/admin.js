@@ -15,13 +15,5 @@ function escAttr(str) {
 }
 
 // ── Menu Admin ───────────────────────────────────────────────
-function showAdminMenu() {
-  const sheet = document.getElementById('adminMenuSheet');
-  if (sheet) sheet.classList.remove('hidden');
-}
-function hideAdminMenu() {
-  const sheet = document.getElementById('adminMenuSheet');
-  if (sheet) sheet.classList.add('hidden');
-}
-window.showAdminMenu = showAdminMenu;
-window.hideAdminMenu = hideAdminMenu;
+// showAdminMenu e hideAdminMenu sono definite in app.js (con swipe-down e backdrop).
+// Non ridefinire qui — la doppia definizione sovrascriveva il listener e rompeva la chiusura.
