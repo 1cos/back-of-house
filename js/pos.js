@@ -1464,10 +1464,11 @@ function staffGetPeriod() {
     return { from:toISO(lastFri), to:toISO(lastSat), label:'Weekend '+toISO(lastFri).slice(5)+'-'+toISO(lastSat).slice(5) };
   }
   if (staffDateMode === 'settimana') {
-    var daysToSat2 = (dow + 1) % 7 || 7;
-    var lastSat2 = new Date(today); lastSat2.setDate(today.getDate()-daysToSat2);
-    var lastTue = new Date(lastSat2); lastTue.setDate(lastSat2.getDate()-4);
-    return { from:toISO(lastTue), to:toISO(lastSat2), label:'Sett. '+toISO(lastTue).slice(5)+'-'+toISO(lastSat2).slice(5) };
+    var daysToThisMon = (dow + 6) % 7;
+    var thisMon = new Date(today); thisMon.setDate(today.getDate()-daysToThisMon);
+    var lastMon = new Date(thisMon); lastMon.setDate(thisMon.getDate()-7);
+    var lastSat2 = new Date(lastMon); lastSat2.setDate(lastMon.getDate()+5);
+    return { from:toISO(lastMon), to:toISO(lastSat2), label:'Sett. '+toISO(lastMon).slice(5)+'-'+toISO(lastSat2).slice(5) };
   }
   var d2 = new Date(today); d2.setDate(d2.getDate()-1);
   var iso2 = toISO(d2);
