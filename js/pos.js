@@ -1455,7 +1455,8 @@ function staffGetPeriod() {
     return { from:iso, to:iso, label:dayNameIT(iso)+' '+iso.slice(5) };
   }
   if (staffDateMode === 'weekend') {
-    var daysToSat = ((dow+1)%7) + 1;
+    var daysToSat = (dow + 1) % 7;
+    if (daysToSat === 0) daysToSat = 7;
     var lastSat = new Date(today); lastSat.setDate(today.getDate()-daysToSat);
     var lastFri = new Date(lastSat); lastFri.setDate(lastSat.getDate()-1);
     return { from:toISO(lastFri), to:toISO(lastSat), label:'Weekend '+toISO(lastFri).slice(5)+'-'+toISO(lastSat).slice(5) };
