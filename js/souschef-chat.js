@@ -31,6 +31,8 @@ window.openSousChefChat = function() {
             </div>
           </div>
           <button onclick="document.getElementById('_scChatSheet').remove()"
+            style="width:36px;height:36px;border-radius:10px;background:#f8fafc;border:1px solid #e2e8f0;font-size:16px;cursor:pointer;" title="Scan warning" onclick="document.getElementById('_scChatSheet').remove();setTimeout(()=>{localStorage.removeItem('sc_last_scan');runSousChefScan();},100)">🔍</button>
+            <button onclick="document.getElementById('_scChatSheet').remove()"
             style="width:36px;height:36px;border-radius:10px;background:#f8fafc;border:1px solid #e2e8f0;font-size:18px;color:#64748b;cursor:pointer;">✕</button>
         </div>
       </div>
