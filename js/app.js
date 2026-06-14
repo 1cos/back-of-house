@@ -127,68 +127,11 @@ function doLogin(profile){
 
 document.getElementById('out').onclick=()=>{user=null;location.reload()};
 
-// ── ADMIN MENU ───────────────────────────────────────────────
-// ── ADMIN MENU SHEET — soluzione iOS Safari (Gemini) ──
-const _amSheet  = () => document.getElementById('adminMenuSheet');
-const _amPanel  = () => document.getElementById('adminMenuContent');
-
-let _amStartY=0, _amCurrentY=0, _amDragging=false;
-
-function _amTouchStart(e){
-  _amStartY = e.touches[0].clientY;
-  _amDragging = true;
-  _amPanel().style.transition = 'none';
-}
-function _amTouchMove(e){
-  if(!_amDragging) return;
-  _amCurrentY = e.touches[0].clientY;
-  const dY = _amCurrentY - _amStartY;
-  if(dY > 0){
-    e.preventDefault();
-    _amPanel().style.transform = `translateY(${dY}px)`;
-  }
-}
-function _amTouchEnd(){
-  if(!_amDragging) return;
-  _amDragging = false;
-  const panel = _amPanel();
-  panel.style.transition = 'transform 0.3s cubic-bezier(0.25,1,0.5,1)';
-  const dY = _amCurrentY - _amStartY;
-  if(dY > 100){
-    hideAdminMenu();
-  } else {
-    panel.style.transform = 'translateY(0)';
-  }
-  _amStartY=0; _amCurrentY=0;
-}
-
+// ── ADMIN MENU ──────────────────────────────────────────────
 function showAdminMenu(){
-  const sheet = _amSheet();
-  const panel = _amPanel();
-  if(!sheet||!panel) return;
-
+  const sheet = document.getElementById('adminMenuSheet');
+  if(!sheet) return;
   sheet.classList.remove('hidden');
-
-  // Anima da fuori schermo verso su
-  panel.style.transition = 'none';
-  panel.style.transform = 'translateY(100%)';
-  // Due frame per garantire che Safari veda la posizione iniziale
-  requestAnimationFrame(()=>{
-    requestAnimationFrame(()=>{
-      panel.style.transition = 'transform 0.3s cubic-bezier(0.25,1,0.5,1)';
-      panel.style.transform = 'translateY(0)';
-    });
-  });
-
-  // Listener swipe — aggiunti una volta sola
-  panel.removeEventListener('touchstart', _amTouchStart);
-  panel.removeEventListener('touchmove',  _amTouchMove);
-  panel.removeEventListener('touchend',   _amTouchEnd);
-  panel.addEventListener('touchstart', _amTouchStart, {passive:true});
-  panel.addEventListener('touchmove',  _amTouchMove,  {passive:false});
-  panel.addEventListener('touchend',   _amTouchEnd,   {passive:true});
-
-  // Chiudi su tap backdrop
   if(!sheet._backdropBound){
     sheet.addEventListener('click', e => { if(e.target===sheet) hideAdminMenu(); });
     sheet._backdropBound = true;
@@ -196,18 +139,8 @@ function showAdminMenu(){
 }
 
 function hideAdminMenu(){
-  const sheet = _amSheet();
-  const panel = _amPanel();
-  if(!panel||!sheet) return;
-
-  panel.style.transition = 'transform 0.3s cubic-bezier(0.25,1,0.5,1)';
-  panel.style.transform = 'translateY(100%)';
-  // scroll ripristinato
-
-  setTimeout(()=>{
-    sheet.classList.add('hidden');
-    panel.style.transform = ''; // reset per prossima apertura
-  }, 300);
+  const sheet = document.getElementById('adminMenuSheet');
+  if(sheet) sheet.classList.add('hidden');
 }
 
 // ── TRADUZIONI TAB INGREDIENTS ──
