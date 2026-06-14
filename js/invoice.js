@@ -129,18 +129,44 @@ function calcTotalWeightG(item){
   return null;
 }
 
+function detectPriceType(item){
+  // Regola: qty × unit_price ≈ extended_price (±1%) → per_case
+  //         qty × unit_price ≠ extended_price → per_lb (prezzo a lb, extended = unit_price × peso reale)
+  const qty       = parseFloat(item.quantity||item.qty)||1;
+  const unitPrice = parseFloat(item.unit_price)||null;
+  const extended  = parseFloat(item.extended_price||item.amount)||null;
+  if(!unitPrice||!extended) return 'per_case'; // default se mancano dati
+  const expected = qty * unitPrice;
+  const ratio    = Math.abs(extended - expected) / expected;
+  if(ratio < 0.01) return 'per_case'; // coincide → prezzo per confezione
+  return 'per_lb';                    // non coincide → prezzo per lb
+}
+
 function enrichInvoiceItems(data){
   (data.items||[]).forEach(item=>{
+    // Determina price_type prima di tutto
+    item._price_type = detectPriceType(item);
+
     const totalG=calcTotalWeightG(item);
     item._total_weight_g=totalG;
     const price=parseFloat(item.unit_price||item.amount)||null;
-    item._cost_per_100g=(totalG&&price)?((price/totalG)*100):null;
+
+    // Calcola cost_per_100g in base al price_type
+    if(item._price_type === 'per_lb' && price){
+      // Prezzo a lb: calcolo diretto senza bisogno del peso del pack
+      item._cost_per_100g = parseFloat(((price / 453.592) * 100).toFixed(4));
+    } else if(totalG && price){
+      item._cost_per_100g = parseFloat(((price / totalG) * 100).toFixed(4));
+    } else {
+      item._cost_per_100g = null;
+    }
+
     if(!totalG&&!item.needs_clarification){
       const pu=(item.purchase_unit||item.unit||'').toLowerCase();
       const pack=item.pack_size||item.pack_description||'';
       const isCountOnly=/\b(ct|ea|each|pc|pcs|count)\b/i.test(pack)&&!/\b(lb|oz|g|kg|gal|qt|pt|ml|l)\b/i.test(pack);
-      // Don't ask weight for pure count items (artichokes by CT, flowers by CT, etc.)
-      if(!isCountOnly&&(pu==='each'||pu==='cs'||pu==='case'||!pu)){
+      // Per articoli per_lb non serve il peso del pack
+      if(item._price_type !== 'per_lb' && !isCountOnly&&(pu==='each'||pu==='cs'||pu==='case'||!pu)){
         item._needs_weight_clarification=true;
       }
     }
@@ -1110,17 +1136,18 @@ async function saveAllMatches(vendor){
     if(up||p100){
       // Calculate price_per_100g if not already done
       const effectiveP100 = p100 || (up&&ltg ? parseFloat(((up/ltg)*100).toFixed(4)) : null);
+      const priceType = invoiceItem._price_type || 'per_case';
       const{error:ivErr}=await supa.from('ingredient_vendors').upsert({
-        ingredient_id:       ingrId,
-        vendor:              vendor||'Unknown',
-        purchase_unit:       pu,
-        pack_description:    pd,
-        unit_price:          up,
-        price_per_100g:      effectiveP100,
-        conversion_to_base:  ltg||null,  // grams per purchase unit — enables price_per_100g recalc
-        last_invoice_date:   invoiceData?.invoice_date||null,
-        last_total_weight_g: ltg,
-        active:              true,
+        ingredient_id:      ingrId,
+        vendor:             vendor||'Unknown',
+        purchase_unit:      pu,
+        pack_description:   pd,
+        unit_price:         up,
+        price_per_100g:     effectiveP100,
+        price_type:         priceType,
+        conversion_to_base: priceType === 'per_lb' ? null : (ltg||null),
+        last_invoice_date:  invoiceData?.invoice_date||null,
+        active:             true,
       },{onConflict:'ingredient_id,vendor'});
       if(ivErr){
         console.error('ingredient_vendors upsert error:',ivErr);
