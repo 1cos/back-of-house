@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-15 — v153*
+*Aggiornato: 2026-06-14 — v152*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -8,7 +8,7 @@
 
 - App: BRIGADE (non BOH OS)
 - Branch: brigade-main (MAI main)
-- Versione frontend: **v153**
+- Versione frontend: **v152**
 - Versione souschef-chat: v15 (Supabase Edge Function)
 - Supabase project: ydqmumpytgrlceuinoqt
 - Leggi file da GitHub brigade-main, NON da /mnt/project/ (snapshot vecchio)
@@ -92,6 +92,27 @@
 
 ---
 
+
+## Sessione 2026-06-14 — UI/Grafica (v139→v152)
+
+### Admin menu — fix chiusura (v139)
+- Rimossa doppia definizione `showAdminMenu`/`hideAdminMenu` da `admin.js` (sovrascriveva la versione corretta in `app.js` senza listener)
+- Aggiunto swipe-down gesture sul bottom sheet admin: il sheet segue il dito, soglia 80px, animazione spring se sotto soglia
+- Backdrop tap ripristinato e funzionante
+- File modificati: `js/admin.js`, `js/app.js`
+
+### Sales selettori — redesign compatto (v140)
+- Pillole giorni recenti: padding ridotto `8px→5px`, border-radius `12px→10px`
+- Bottoni period: padding `11px→8px`
+- Card Recent days: padding ridotto, gap tra card `10px→6px`
+- Risultato visivo allineato al mockup originale
+
+### Sales staff — fix copertura topbar (v152)
+- `section#vx` era `position:fixed; top:64px` — la topbar sticky + news bar coprivano il contenuto
+- Convertita a layout normale come `section#vi` (Ingredients): `class="hidden px-3 pt-3 pb-24"`
+- Modifica chirurgica solo su `index.html`, zero logica toccata
+
+---
 ## Sessione 2026-06-15 — completato
 
 ### TouchBistro — import pipeline completa (v148→v153)
