@@ -38,7 +38,7 @@ async function restorePrep(id){
 }
 window.adminRename=adminRename; window.adminDel=adminDel;
 
-const STATION_OPTIONS = ['Oven Station','Pasta Station','Plating Station','Salad Station','Freezer'];
+const STATION_OPTIONS = ['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Tableside','Freezer'];
 
 function openPrepEditor(prep=null){
   const isNew = !prep;
