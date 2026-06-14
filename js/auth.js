@@ -78,7 +78,7 @@ async function openUserManager(){
 }
 
 function openAddUser(){
-  const STATIONS=['Oven Station','Pasta Station','Plating Station','Salad Station','Freezer'];
+  const STATIONS=['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Tableside','Freezer'];
   const modal=document.createElement('div');
   modal.className='fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML=`
@@ -134,7 +134,7 @@ async function saveNewUser(btn){
 async function openEditUser(userId){
   const{data:u}=await supa.from('users').select('*').eq('id',userId).single();
   if(!u) return;
-  const STATIONS=['Oven Station','Pasta Station','Plating Station','Salad Station','Freezer'];
+  const STATIONS=['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Tableside','Freezer'];
   const modal=document.createElement('div');
   modal.className='fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML=`
