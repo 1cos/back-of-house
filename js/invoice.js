@@ -1140,7 +1140,6 @@ async function saveAllMatches(vendor){
       const{error:ivErr}=await supa.from('ingredient_vendors').upsert({
         ingredient_id:      ingrId,
         vendor:             vendor||'Unknown',
-        purchase_unit:      pu,
         pack_description:   pd,
         unit_price:         up,
         price_per_100g:     effectiveP100,
