@@ -27,6 +27,7 @@ function openInvoiceImport(){
     </div>`;
   modal.onclick=e=>{if(e.target===modal)modal.remove();};
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
 }
 
 async function processInvoiceFile(input){
@@ -412,6 +413,7 @@ function showDuplicateInvoiceModal(data,btn){
   modal.querySelector('#_dupCancel').addEventListener('click',()=>modal.remove());
   modal.addEventListener('click',e=>{if(e.target===modal)modal.remove();});
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
 }
 
 async function showSaveSuccessModal({data,linesCreated,linesError,ingr=[]}){
@@ -640,6 +642,7 @@ async function showSaveSuccessModal({data,linesCreated,linesError,ingr=[]}){
     if(homeTab) homeTab.click();
   });
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
 
   // Render item cards
   const container=document.getElementById('_ssItems');
@@ -776,6 +779,7 @@ async function openPurchaseHistory(){
     </div>`;
   modal.onclick=e=>{if(e.target===modal)modal.remove();};
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
 }
 
 async function showPurchaseDetail(id){
@@ -908,6 +912,7 @@ function showManualMatchModal(items,invoiceData){
   });
   modal.onclick=e=>{if(e.target===modal)modal.remove();};
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
   window._pendingManualItems=items;
   window._pendingManualInvoiceData=invoiceData;
 }
@@ -981,6 +986,7 @@ function showIngredientMatchModal(matches,vendor,items,invoiceData){
   });
   modal.onclick=e=>{if(e.target===modal)modal.remove();};
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
   window._pendingMatches={matches,vendor,invoiceData};
 }
 
@@ -1223,6 +1229,7 @@ function showWeightQuestionModal(item,invoiceData,onComplete){
     </div>`;
   modal._item=item; modal._invoiceData=invoiceData; modal._onComplete=onComplete; modal.id='weightModal';
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
   window.answerWeightQuestion=async(grams,btn)=>{
     btn.style.background='#1e3a5f'; btn.style.color='white';
     const m=document.getElementById('weightModal');
@@ -1261,6 +1268,7 @@ function showOneQuestionModal(item,invoiceData,onComplete){
     </div>`;
   modal._invoiceData=invoiceData; modal._item=item; modal._onComplete=onComplete; modal.id='oqModal';
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
 }
 
 window.answerOneQuestion=async(vendor,rawDesc,answer,btn)=>{
