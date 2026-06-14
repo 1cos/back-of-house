@@ -2,14 +2,26 @@
 // Read:  tutti gli utenti vedono gli alert attivi, tradotti nella propria lingua
 // Write: solo admin può creare, modificare, chiudere/disattivare
 
+// Traccia l'ID dell'ultima news vista per il flash staff
+let _lastNewsId = null;
+
 async function loadNews(){
   const{data}=await supa.from('alerts').select('*').eq('is_active',true).order('created_at',{ascending:false});
   currentNews=data||[];
   const bar=document.getElementById('newsBar');
-  // bellDot — accendi se ci sono news attive
+
+  // bellDot — solo admin
   const bellDot = document.getElementById('bellDot');
-  if(bellDot) bellDot.style.display = currentNews.length ? 'block' : 'none';
-  if(!currentNews.length){bar.classList.add('hidden');return}
+  if(bellDot) bellDot.style.display = (isAdmin() && currentNews.length) ? 'block' : 'none';
+
+  if(!currentNews.length){bar.classList.add('hidden');_lastNewsId=null;return}
+
+  // Flash news bar per staff quando arriva una news nuova
+  const latestId = currentNews[0]?.id || null;
+  const isNewForStaff = !isAdmin() && latestId && latestId !== _lastNewsId && _lastNewsId !== null;
+  if(isNewForStaff) _triggerNewsFlash();
+  _lastNewsId = latestId;
+
   bar.classList.remove('hidden');
   const viewerLang=normalizeLang(user?.lang);
 
@@ -48,6 +60,24 @@ async function loadNews(){
   document.getElementById('newsScroll').textContent=translated.join(' ✦ ');
 }
 
+// ── Flash news bar per staff ──
+// Pulsa il bordo della news bar per ~2 secondi poi torna normale
+function _triggerNewsFlash(){
+  const bar = document.getElementById('newsBar');
+  if(!bar) return;
+  const inner = bar.querySelector('div');
+  if(!inner) return;
+  const origBorder = inner.style.border;
+  const origBg = inner.style.background;
+  inner.style.transition = 'border 0.2s, background 0.2s';
+  inner.style.border = '1.5px solid rgba(59,130,246,0.7)';
+  inner.style.background = 'rgba(59,130,246,0.14)';
+  setTimeout(()=>{
+    inner.style.border = origBorder;
+    inner.style.background = origBg;
+  }, 2000);
+}
+
 // Realtime — tutti ascoltano, solo il canale è condiviso
 let newsChannel=null;
 function startNewsRealtime(){
@@ -70,9 +100,12 @@ function initNews(){
 
 // ── ADMIN ONLY — UI controls ──
 function updateAlertBtn(){
-  // Bottone 🚨 e "Gest" visibili solo ad admin
-  // alertBtn spostato nel menu — non mostrare nell'header
+  // alertBtn legacy — sempre nascosto
   if(document.getElementById('alertBtn')) document.getElementById('alertBtn').style.display='none';
+  // campanella — visibile solo ad admin
+  const bell = document.getElementById('bellBtn');
+  if(bell) bell.style.display = isAdmin() ? 'flex' : 'none';
+  // "Gest" nella news bar — solo admin
   document.getElementById('newsManage').classList.toggle('hidden',!isAdmin());
   const pb=document.getElementById('btnPresence'); if(pb) pb.classList.toggle('hidden',!isAdmin());
   const ab=document.getElementById('btnAlertsLog'); if(ab) ab.classList.toggle('hidden',!isAdmin());
