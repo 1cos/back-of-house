@@ -85,103 +85,116 @@ async function hasAnsweredToday() {
 
 // ── Bottom sheet serale ──────────────────────────────────────
 function showOperationNoteSheet() {
-  // Non mostrare se già aperto
   if (document.getElementById('_opNoteSheet')) return;
+
+  const userName = window.user?.name || '';
+  const hour = getNowCDT().getHours();
+  const greeting = hour >= 21 ? 'Buona notte' : hour >= 17 ? 'Buona serata' : 'Ciao';
+
+  const quickReplies = [
+    'Serata tranquilla 👌',
+    'Super impegnati 🔥',
+    'Tutto ok',
+    'Mancava personale',
+    'Cucina sotto pressione',
+    'Ottimo servizio ⭐',
+  ];
 
   const sheet = document.createElement('div');
   sheet.id = '_opNoteSheet';
-  sheet.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);display:flex;align-items:flex-end;';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px);display:flex;align-items:flex-end;';
 
   sheet.innerHTML = `
     <div style="
       background:white;
-      width:100%;
-      max-width:480px;
-      margin:0 auto;
+      width:100%;max-width:480px;margin:0 auto;
       border-radius:28px 28px 0 0;
-      padding:0 0 40px;
-      animation:slideUp .3s ease;
-      box-shadow:0 -8px 40px rgba(0,0,0,0.25);
+      padding:0 0 44px;
+      max-height:90vh;overflow-y:auto;
+      animation:slideUp .3s cubic-bezier(.34,1.56,.64,1);
+      box-shadow:0 -12px 60px rgba(0,0,0,0.3);
     ">
       <!-- Handle -->
-      <div style="width:40px;height:4px;background:#e2e8f0;border-radius:2px;margin:14px auto 0;"></div>
+      <div style="width:44px;height:5px;background:#e2e8f0;border-radius:3px;margin:14px auto 0;"></div>
 
       <!-- Header -->
-      <div style="padding:20px 20px 0;">
-        <div style="font-size:13px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">🌙 Fine Serata</div>
-        <div style="font-size:24px;font-weight:800;color:#1e293b;line-height:1.2;margin-bottom:4px;">Come è andata stasera?</div>
-        <div style="font-size:15px;color:#64748b;">Una frase. Qualsiasi lingua. Nessun formato.</div>
+      <div style="padding:22px 20px 0;text-align:center;">
+        <div style="font-size:44px;margin-bottom:8px;">🌙</div>
+        <div style="font-size:22px;font-weight:800;color:#1e293b;line-height:1.2;">
+          ${greeting}${userName ? ', ' + userName.split(' ')[0] : ''}!
+        </div>
+        <div style="font-size:15px;color:#64748b;margin-top:6px;line-height:1.4;">
+          Come è andata stasera?<br>
+          <span style="font-size:13px;opacity:.7;">Una frase. Qualsiasi lingua.</span>
+        </div>
       </div>
 
-      <!-- Esempi -->
-      <div style="padding:14px 20px 0;display:flex;gap:8px;flex-wrap:wrap;">
-        ${['Serata tranquilla 👌','Tutto ok ma lento','Super impegnati 🔥','Mancava personale'].map(ex => `
-          <button onclick="document.getElementById('_opNoteText').value='${ex}'"
-            style="padding:6px 12px;border-radius:20px;border:1.5px solid #e2e8f0;background:#f8fafc;font-size:13px;color:#475569;cursor:pointer;">
+      <!-- Quick replies -->
+      <div style="padding:16px 20px 0;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
+        ${quickReplies.map(ex => `
+          <button onclick="
+            document.getElementById('_opNoteText').value='${ex}';
+            document.getElementById('_opNoteText').style.borderColor='#3b82f6';
+            document.querySelectorAll('._qr').forEach(b=>b.style.background='#f8fafc');
+            this.style.background='#eff6ff';this.style.borderColor='#3b82f6';"
+            class="_qr"
+            style="padding:8px 14px;border-radius:20px;border:1.5px solid #e2e8f0;
+              background:#f8fafc;font-size:13px;color:#475569;cursor:pointer;
+              transition:all .15s;font-weight:500;">
             ${ex}
           </button>`).join('')}
       </div>
 
       <!-- Input -->
       <div style="padding:14px 20px 0;">
-        <textarea id="_opNoteText" placeholder="Es: serata tranquilla, mancava il salmone, tavolo 12 difficile..."
+        <textarea id="_opNoteText"
+          placeholder="Scrivi liberamente — anche una parola va bene…"
+          rows="3"
           style="
-            width:100%;
-            min-height:90px;
-            padding:14px;
-            border:2px solid #e2e8f0;
-            border-radius:16px;
-            font-size:17px;
-            line-height:1.5;
-            color:#1e293b;
-            background:#f8fafc;
-            outline:none;
-            resize:none;
-            box-sizing:border-box;
+            width:100%;padding:16px;
+            border:2px solid #e2e8f0;border-radius:18px;
+            font-size:17px;line-height:1.5;color:#1e293b;
+            background:#f8fafc;outline:none;resize:none;
+            box-sizing:border-box;transition:border-color .2s;
           "
-          oninput="this.style.borderColor='#3b82f6';"
+          oninput="this.style.borderColor='#3b82f6';this.style.height='auto';this.style.height=Math.min(this.scrollHeight,160)+'px';"
         ></textarea>
       </div>
 
       <!-- Bottoni -->
       <div style="padding:14px 20px 0;display:flex;gap:10px;">
-        <button onclick="submitOperationNote()"
+        <button id="_opNoteSubmit" onclick="submitOperationNote()"
           style="
-            flex:1;
-            height:56px;
-            border-radius:16px;
-            background:#1e293b;
-            color:white;
-            font-size:18px;
-            font-weight:700;
-            border:none;
-            cursor:pointer;
-          ">
-          ✓ Invia
+            flex:1;height:58px;border-radius:18px;
+            background:linear-gradient(135deg,#1e293b,#334155);
+            color:white;font-size:18px;font-weight:700;
+            border:none;cursor:pointer;
+            box-shadow:0 4px 16px rgba(30,41,59,0.3);
+            transition:transform .1s,box-shadow .1s;
+          "
+          onmousedown="this.style.transform='scale(0.98)'"
+          onmouseup="this.style.transform='scale(1)'">
+          ✓ Invia commento
         </button>
         <button onclick="document.getElementById('_opNoteSheet').remove()"
           style="
-            height:56px;
-            padding:0 20px;
-            border-radius:16px;
-            background:#f1f5f9;
-            color:#64748b;
-            font-size:15px;
-            border:none;
-            cursor:pointer;
+            height:58px;padding:0 20px;border-radius:18px;
+            background:#f1f5f9;color:#94a3b8;
+            font-size:15px;border:none;cursor:pointer;
           ">
           Dopo
         </button>
       </div>
     </div>`;
 
+  sheet.addEventListener('click', e => { if (e.target === sheet) sheet.remove(); });
   document.body.appendChild(sheet);
 
-  // Focus automatico dopo animazione
+  // Focus + tastiera aperta subito
   setTimeout(() => {
     const ta = document.getElementById('_opNoteText');
-    if (ta) ta.focus();
-  }, 350);
+    if (ta) { ta.focus(); ta.click(); }
+  }, 400);
 }
 
 // ── Salva nota ───────────────────────────────────────────────
