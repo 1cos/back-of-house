@@ -163,7 +163,7 @@ async function loadPOS() {
         month:    '📭 Nessun dato per gli ultimi 30 giorni.',
       };
       sec.innerHTML = `<div style="padding:12px;">
-        <div style="display:flex;gap:6px;margin-bottom:12px;">${posSelectors(period)}</div>
+        ${posSelectors(period)}
         <p style="font-size:11px;color:#64748b;font-weight:500;margin-bottom:16px;">${period.label}</p>
         <div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:40px 20px;text-align:center;font-size:13px;color:#475569;line-height:1.6;">
           ${msgs[posDateMode]||'Nessun dato per questo periodo.'}
@@ -239,7 +239,7 @@ async function loadPOS() {
     // ── Build HTML
     sec.innerHTML = `<div style="padding:12px 12px 100px;">
 
-      <div style="display:flex;gap:6px;margin-bottom:12px;">${posSelectors(period)}</div>
+      ${posSelectors(period)}
       <p style="font-size:11px;color:#64748b;font-weight:500;margin-bottom:12px;">${period.label}</p>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
