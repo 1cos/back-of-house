@@ -1,5 +1,5 @@
 // ── POS Analytics ──────────────────────────────────────────────────
-let posDateMode = 'yesterday';
+let posDateMode = 'day_0';
 let posCustomFrom = null;
 let posCustomTo   = null;
 
@@ -16,15 +16,14 @@ function getPeriod(mode) {
   const todayISO = toISO(today);
   const dow = today.getDay();
 
-  if (mode === 'today') {
-    return { from:todayISO, to:todayISO, label:'Oggi', compareDates:[] };
-  }
-  if (mode === 'yesterday') {
-    const yest = addDays(today,-1);
-    const yISO = toISO(yest);
+  // day_0 = ieri, day_1 = 2 giorni fa, ... day_5 = 6 giorni fa
+  if (mode && mode.startsWith('day_')) {
+    const offset = parseInt(mode.split('_')[1]) + 1;
+    const d = addDays(today, -offset);
+    const dISO = toISO(d);
     const cmp = [];
-    for (let w=1; w<=12 && cmp.length<8; w++) cmp.push(toISO(addDays(yest,-7*w)));
-    return { from:yISO, to:yISO, label:'Ieri — '+dayNameIT(yISO), compareLabel:'Avg '+dayNameIT(yISO), compareDates:cmp, singleDay:true };
+    for (let w=1; w<=12 && cmp.length<8; w++) cmp.push(toISO(addDays(d,-7*w)));
+    return { from:dISO, to:dISO, label:dayNameIT(dISO)+' '+dISO.slice(5), compareLabel:'Avg '+dayNameIT(dISO), compareDates:cmp, singleDay:true };
   }
   if (mode === 'weekend') {
     const lastFri = addDays(today,-(((dow+2)%7)+1));
@@ -35,45 +34,67 @@ function getPeriod(mode) {
       cmp.push(toISO(addDays(lastFri,-7*w+1)));
       cmp.push(toISO(addDays(lastFri,-7*w+2)));
     }
-    return { from:toISO(lastFri), to:toISO(lastSun), label:'Weekend '+toISO(lastFri).slice(5)+'–'+toISO(lastSun).slice(5), compareLabel:'Avg weekend', compareDates:cmp };
+    return { from:toISO(lastFri), to:toISO(lastSun), label:'Weekend '+toISO(lastFri).slice(5)+'-'+toISO(lastSun).slice(5), compareLabel:'Avg weekend', compareDates:cmp };
   }
   if (mode === 'week')  return { from:toISO(addDays(today,-6)), to:todayISO, label:'Ultimi 7 giorni', compareDates:[] };
   if (mode === 'month') return { from:toISO(addDays(today,-29)), to:todayISO, label:'Ultimi 30 giorni', compareDates:[] };
   if (mode === 'custom' && posCustomFrom && posCustomTo) {
     const label = posCustomFrom === posCustomTo
-      ? dayNameIT(posCustomFrom) + ' ' + posCustomFrom.slice(5)
-      : posCustomFrom.slice(5) + ' → ' + posCustomTo.slice(5);
+      ? dayNameIT(posCustomFrom)+' '+posCustomFrom.slice(5)
+      : posCustomFrom.slice(5)+' - '+posCustomTo.slice(5);
     return { from:posCustomFrom, to:posCustomTo, label, compareDates:[], singleDay: posCustomFrom === posCustomTo };
   }
-  // fallback
   return { from:toISO(addDays(today,-1)), to:toISO(addDays(today,-1)), label:'Ieri', compareDates:[], singleDay:true };
 }
 
 function posSelectors(period) {
-  const tabs = ['yesterday','weekend','week','month','custom'];
-  const labels = {yesterday:'Ieri',weekend:'Weekend',week:'7 gg',month:'30 gg',custom:'📅 Periodo'};
-  const btns = tabs.map(m => {
-    const a = posDateMode===m;
-    return `<button onclick="posSetMode('${m}')" style="flex:1;font-size:11px;font-weight:600;padding:8px 4px;border-radius:12px;border:none;cursor:pointer;background:${a?'#059669':'rgba(255,255,255,0.6)'};color:${a?'white':'#64748b'};">${labels[m]}</button>`;
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  // 6 giorni precedenti: ieri -> 6 giorni fa
+  const dayTabs = Array.from({length:6}, function(_,i) {
+    const d = addDays(today, -(i+1));
+    const iso = toISO(d);
+    const short = ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'][d.getDay()];
+    return { mode:'day_'+i, label:short+' '+iso.slice(8) };
+  });
+
+  const fixedTabs = [
+    { mode:'weekend', label:'Weekend' },
+    { mode:'week',    label:'7 gg' },
+    { mode:'month',   label:'30 gg' },
+    { mode:'custom',  label:'Periodo' },
+  ];
+
+  const row1 = dayTabs.map(function(t) {
+    const a = posDateMode === t.mode;
+    return '<button onclick="posSetMode(\'' + t.mode + '\')" style="flex:1;font-size:10px;font-weight:600;padding:7px 2px;border-radius:10px;border:none;cursor:pointer;background:' + (a?'#059669':'rgba(255,255,255,0.6)') + ';color:' + (a?'white':'#64748b') + ';">' + t.label + '</button>';
   }).join('');
 
-  const customPicker = posDateMode === 'custom' ? `
-    <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap;">
-      <div style="display:flex;align-items:center;gap:6px;flex:1;">
-        <span style="font-size:11px;color:#64748b;white-space:nowrap;">Dal</span>
-        <input type="date" id="_posFrom" value="${posCustomFrom||''}"
-          style="flex:1;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;color:#1e293b;"
-          onchange="posCustomFrom=this.value;if(posCustomTo&&posCustomFrom)loadPOS();">
-      </div>
-      <div style="display:flex;align-items:center;gap:6px;flex:1;">
-        <span style="font-size:11px;color:#64748b;white-space:nowrap;">Al</span>
-        <input type="date" id="_posTo" value="${posCustomTo||''}"
-          style="flex:1;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;color:#1e293b;"
-          onchange="posCustomTo=this.value;if(posCustomFrom&&posCustomTo)loadPOS();">
-      </div>
-    </div>` : '';
+  const row2 = fixedTabs.map(function(t) {
+    const a = posDateMode === t.mode;
+    return '<button onclick="posSetMode(\'' + t.mode + '\')" style="flex:1;font-size:11px;font-weight:600;padding:8px 4px;border-radius:12px;border:none;cursor:pointer;background:' + (a?'#059669':'rgba(255,255,255,0.6)') + ';color:' + (a?'white':'#64748b') + ';">' + t.label + '</button>';
+  }).join('');
 
-  return `<div style="display:flex;gap:4px;">${btns}</div>${customPicker}`;
+  const customPicker = posDateMode === 'custom' ? (
+    '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">' +
+    '<div style="display:flex;align-items:center;gap:6px;flex:1;">' +
+    '<span style="font-size:11px;color:#64748b;">Dal</span>' +
+    '<input type="date" id="_posFrom" value="' + (posCustomFrom||'') + '"' +
+    ' style="flex:1;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;color:#1e293b;"' +
+    ' onchange="posCustomFrom=this.value;if(posCustomTo&&posCustomFrom)loadPOS();">' +
+    '</div>' +
+    '<div style="display:flex;align-items:center;gap:6px;flex:1;">' +
+    '<span style="font-size:11px;color:#64748b;">Al</span>' +
+    '<input type="date" id="_posTo" value="' + (posCustomTo||'') + '"' +
+    ' style="flex:1;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;color:#1e293b;"' +
+    ' onchange="posCustomTo=this.value;if(posCustomFrom&&posCustomTo)loadPOS();">' +
+    '</div>' +
+    '</div>'
+  ) : '';
+
+  return '<div style="display:flex;gap:4px;margin-bottom:6px;">' + row1 + '</div>' +
+         '<div style="display:flex;gap:4px;">' + row2 + '</div>' +
+         customPicker;
 }
 
 async function loadPOS() {
