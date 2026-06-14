@@ -132,25 +132,91 @@ function showAdminMenu(){
   const sheet = document.getElementById('adminMenuSheet');
   if(!sheet) return;
   sheet.classList.remove('hidden');
-  const content = document.getElementById('adminMenuContent');
-  if(content){
-    // Niente translateX — il panel è già left:0;right:0
-    content.style.transform = 'translateY(30px)';
-    content.style.opacity = '0';
-    content.style.transition = 'transform .25s ease, opacity .25s ease';
+  document.body.style.overflow = 'hidden'; // blocca scroll body
+  const panel = document.getElementById('adminMenuContent');
+  if(!panel) return;
+
+  // Animazione entrata
+  panel.style.transition = 'none';
+  panel.style.transform = 'translateY(100%)';
+  panel.style.opacity = '0';
+  requestAnimationFrame(()=>{
     requestAnimationFrame(()=>{
-      content.style.transform = 'translateY(0)';
-      content.style.opacity = '1';
-      if(typeof addSwipeToClose==='function') addSwipeToClose(content, hideAdminMenu);
+      panel.style.transition = 'transform .28s cubic-bezier(.32,0,.67,0), opacity .28s ease';
+      panel.style.transform = 'translateY(0)';
+      panel.style.opacity = '1';
     });
+  });
+
+  // Swipe to close — gestito direttamente sul panel
+  let startY=0, currentY=0, dragging=false;
+
+  function onStart(e){
+    if(e.touches.length!==1) return;
+    startY = e.touches[0].clientY;
+    currentY = 0;
+    dragging = true;
+    panel.style.transition = 'none';
   }
+  function onMove(e){
+    if(!dragging) return;
+    currentY = e.touches[0].clientY - startY;
+    if(currentY < 0){ currentY=0; return; }
+    e.preventDefault();
+    e.stopPropagation();
+    panel.style.transform = `translateY(${currentY}px)`;
+    panel.style.opacity = String(Math.max(0, 1 - currentY/300));
+  }
+  function onEnd(){
+    if(!dragging) return;
+    dragging = false;
+    if(currentY > 100){
+      hideAdminMenu();
+    } else {
+      panel.style.transition = 'transform .2s ease, opacity .2s ease';
+      panel.style.transform = 'translateY(0)';
+      panel.style.opacity = '1';
+    }
+  }
+
+  // Rimuovi listener precedenti
+  if(panel._swipeStart) panel.removeEventListener('touchstart', panel._swipeStart);
+  if(panel._swipeMove)  panel.removeEventListener('touchmove',  panel._swipeMove);
+  if(panel._swipeEnd)   panel.removeEventListener('touchend',   panel._swipeEnd);
+
+  panel._swipeStart = onStart;
+  panel._swipeMove  = onMove;
+  panel._swipeEnd   = onEnd;
+
+  panel.addEventListener('touchstart', onStart, {passive:true});
+  panel.addEventListener('touchmove',  onMove,  {passive:false});
+  panel.addEventListener('touchend',   onEnd,   {passive:true});
+
+  // Blocca touchmove sull'overlay (impedisce scroll background)
+  sheet._blockMove = e => { if(e.target===sheet) e.preventDefault(); };
+  sheet.addEventListener('touchmove', sheet._blockMove, {passive:false});
 }
 
 function hideAdminMenu(){
   const sheet = document.getElementById('adminMenuSheet');
-  if(sheet) sheet.classList.add('hidden');
-  const content = document.getElementById('adminMenuContent');
-  if(content){ content.style.transform=''; content.style.opacity=''; }
+  const panel = document.getElementById('adminMenuContent');
+  if(panel){
+    panel.style.transition = 'transform .22s ease, opacity .22s ease';
+    panel.style.transform = 'translateY(110%)';
+    panel.style.opacity = '0';
+    setTimeout(()=>{
+      if(sheet) sheet.classList.add('hidden');
+      panel.style.transform = '';
+      panel.style.opacity = '';
+    }, 220);
+  } else {
+    if(sheet) sheet.classList.add('hidden');
+  }
+  document.body.style.overflow = ''; // ripristina scroll
+  if(sheet && sheet._blockMove){
+    sheet.removeEventListener('touchmove', sheet._blockMove);
+    delete sheet._blockMove;
+  }
 }
 
 // ── TRADUZIONI TAB INGREDIENTS ──
