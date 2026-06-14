@@ -618,41 +618,15 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
-        <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PACK SIZE (numeric)</label>
-          <input id="evPackSize" type="number" value="${v.pack_size||''}" placeholder="e.g. 5" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
-        </div>
-        <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PACK UNIT</label>
-          <input id="evPackUnit" value="${v.pack_unit||''}" placeholder="lb, oz, kg" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
-        </div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
-        <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">UNIT WEIGHT (g)</label>
-          <input id="evUnitWeightG" type="number" value="${v.unit_weight_g||''}" placeholder="weight of 1 unit in g" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
-        </div>
-        <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">LAST TOTAL WEIGHT (g)</label>
-          <input id="evLastTotalG" type="number" value="${v.last_total_weight_g||''}" placeholder="total g from last invoice" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
-        </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PESO PACK (g) — peso totale della confezione in grammi</label>
+        <input id="evConversion" type="number" value="${v.conversion_to_base||''}" placeholder="es. 1361 per 3 lb, 2268 per 5 lb" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;" oninput="evUpdatePreview()">
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px;">1 lb = 453g · 1 oz = 28g · 1 kg = 1000g</div>
       </div>
 
       <div style="margin-bottom:12px;">
-        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">CONVERSION TO BASE (g per purchase unit — overrides auto-calc)</label>
-        <input id="evConversion" type="number" value="${v.conversion_to_base||''}" placeholder="e.g. 2268 for 5lb bag" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
-      </div>
-
-      <div style="margin-bottom:12px;">
-        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">CONVERSION NOTES</label>
-        <input id="evConvNotes" value="${v.conversion_notes||''}" placeholder="e.g. 5lb bag = 2268g" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
-      </div>
-
-      <div style="margin-bottom:12px;">
-        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">NOTES</label>
-        <textarea id="evNotes" rows="2" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;resize:none;box-sizing:border-box;">${v.notes||''}</textarea>
+        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">COSTO PER UNITÀ ($) — per articoli CT/EA (fiori, limoni, ecc.)</label>
+        <input id="evPricePerEach" type="number" step="0.0001" value="${v.price_per_each||''}" placeholder="es. 0.4688 per fiore" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
       </div>
 
       <div style="margin-bottom:16px;display:flex;align-items:center;gap:8px;">
@@ -674,39 +648,24 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
   // Live preview
   function evUpdatePreview(){
     const up  = parseFloat(document.getElementById('evUnitPrice')?.value)||0;
-    const pu  = document.getElementById('evPurchaseUnit')?.value||'';
-    const ltg = parseFloat(document.getElementById('evLastTotalG')?.value)||0;
-    const uwg = parseFloat(document.getElementById('evUnitWeightG')?.value)||0;
     const conv= parseFloat(document.getElementById('evConversion')?.value)||0;
-    const ps  = parseFloat(document.getElementById('evPackSize')?.value)||0;
-    const pu2 = document.getElementById('evPackUnit')?.value||'';
     const pt  = document.getElementById('evPriceType')?.value||'per_case';
     const el  = document.getElementById('evCalcPreview');
     if(!up){ el.textContent='→ Inserisci Unit Price'; el.style.color='#92400e'; el.style.background='#fff7ed'; return; }
-    // Calcola p100 con price_type
     let p100 = null;
-    if(pt === 'per_lb')   p100 = (up / 453.592) * 100;
-    else if(pt === 'per_kg')  p100 = (up / 1000) * 100;
-    else if(pt === 'per_oz')  p100 = (up / 28.3495) * 100;
-    else if(pt === 'per_each' && uwg) p100 = (up / uwg) * 100;
-    else {
-      const base = calcBaseWeightG({
-        pack_size: ps||null, pack_unit: pu2||null,
-        conversion_to_base: conv||null, last_total_weight_g: ltg||null,
-        unit_weight_g: uwg||null, purchase_unit: pu||null,
-      })||0;
-      if(base) p100 = (up/base)*100;
-    }
+    if(pt === 'per_lb')      p100 = (up / 453.592) * 100;
+    else if(pt === 'per_kg') p100 = (up / 1000) * 100;
+    else if(conv > 0)        p100 = (up / conv) * 100;
     if(p100){
-      el.textContent = `→ price_per_100g = $${p100.toFixed(4)}`;
+      el.textContent = `→ $${p100.toFixed(4)}/100g`;
       el.style.color = '#166534'; el.style.background='#f0fdf4';
     } else {
-      el.textContent = '→ Cannot calculate — fill Unit Price + weight/conversion field';
+      el.textContent = '→ Inserisci peso pack per calcolare $/100g';
       el.style.color = '#92400e'; el.style.background='#fff7ed';
     }
   }
   window.evUpdatePreview = evUpdatePreview;
-  ['evUnitPrice','evPurchaseUnit','evPackSize','evPackUnit','evLastTotalG','evUnitWeightG','evConversion'].forEach(id=>{
+  ['evUnitPrice','evPriceType','evConversion'].forEach(id=>{
     document.getElementById(id)?.addEventListener('input', evUpdatePreview);
   });
   evUpdatePreview();
@@ -714,42 +673,32 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
 
 window.saveEditVendorRow = async function(vendorId, ingredientId, btn){
   btn.textContent='Saving...'; btn.disabled=true;
-  const up   = parseFloat(document.getElementById('evUnitPrice')?.value)||null;
-  const pu   = document.getElementById('evPurchaseUnit')?.value?.trim()||null;
-  const ltg  = parseFloat(document.getElementById('evLastTotalG')?.value)||null;
-  const uwg  = parseFloat(document.getElementById('evUnitWeightG')?.value)||null;
-  const conv = parseFloat(document.getElementById('evConversion')?.value)||null;
-
-  // Ricalcola price_per_100g — usa calcVendorPrice100g (unica fonte di verità)
-  const packSizeVal = parseFloat(document.getElementById('evPackSize')?.value)||null;
-  const packUnitVal = document.getElementById('evPackUnit')?.value?.trim()||null;
+  const up           = parseFloat(document.getElementById('evUnitPrice')?.value)||null;
+  const pu           = document.getElementById('evPurchaseUnit')?.value?.trim()||null;
+  const conv         = parseFloat(document.getElementById('evConversion')?.value)||null;
   const priceTypeVal = document.getElementById('evPriceType')?.value||'per_case';
-  const vForCalc = {
-    unit_price: up, price_type: priceTypeVal,
-    pack_size: packSizeVal, pack_unit: packUnitVal,
-    conversion_to_base: conv, last_total_weight_g: ltg,
-    unit_weight_g: uwg, purchase_unit: pu,
-  };
-  const p100raw = calcVendorPrice100g(vForCalc);
-  const p100 = p100raw ? parseFloat(p100raw.toFixed(4)) : null;
+  const pricePerEach = parseFloat(document.getElementById('evPricePerEach')?.value)||null;
+
+  // Calcola price_per_100g
+  let p100 = null;
+  if(up){
+    if(priceTypeVal === 'per_lb')      p100 = parseFloat(((up / 453.592) * 100).toFixed(4));
+    else if(priceTypeVal === 'per_kg') p100 = parseFloat(((up / 1000) * 100).toFixed(4));
+    else if(conv > 0)                  p100 = parseFloat(((up / conv) * 100).toFixed(4));
+  }
 
   const updates = {
-    vendor:            document.getElementById('evVendor')?.value?.trim()||null,
-    vendor_sku:        document.getElementById('evSku')?.value?.trim()||null,
-    unit_price:        up,
-    purchase_unit:     pu,
-    pack_description:  document.getElementById('evPackDesc')?.value?.trim()||null,
-    pack_size:         parseFloat(document.getElementById('evPackSize')?.value)||null,
-    pack_unit:         document.getElementById('evPackUnit')?.value?.trim()||null,
-    unit_weight_g:     uwg,
-    last_total_weight_g: ltg,
-    conversion_to_base:  conv,
-    conversion_notes:  document.getElementById('evConvNotes')?.value?.trim()||null,
-    notes:             document.getElementById('evNotes')?.value||null,
-    price_per_100g:    p100,
-    price_type:        priceTypeVal,
-    active:            document.getElementById('evActive')?.checked!==false,
-    updated_at:        new Date().toISOString(),
+    vendor:           document.getElementById('evVendor')?.value?.trim()||null,
+    vendor_sku:       document.getElementById('evSku')?.value?.trim()||null,
+    unit_price:       up,
+    purchase_unit:    pu,
+    pack_description: document.getElementById('evPackDesc')?.value?.trim()||null,
+    conversion_to_base: conv,
+    price_per_each:   pricePerEach,
+    price_per_100g:   p100,
+    price_type:       priceTypeVal,
+    active:           document.getElementById('evActive')?.checked!==false,
+    updated_at:       new Date().toISOString(),
   };
 
   const {error} = await supa.from('ingredient_vendors').update(updates).eq('id',vendorId);
