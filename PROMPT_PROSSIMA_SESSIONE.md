@@ -10,12 +10,14 @@ Carica sempre in questo ordine:
 
 ---
 
-## Stato attuale — Brigade v153
+## Stato attuale — Brigade v152
 
 Supabase project: ydqmumpytgrlceuinoqt
 Deploy: https://1cos.github.io/back-of-house — branch brigade-main
 souschef-chat: v15 | sc-nightly-brief: v5 | souschef-scan: v4
 gmail-touchbistro-import: v3
+
+Ultima sessione UI: fix admin menu swipe-down, Sales selettori compatti, fix copertura topbar staff Sales.
 
 ---
 
@@ -87,6 +89,7 @@ Vedi file `PROMPT_SALES_STAFF_VIEW.md` per specifiche complete.
 7. Dichiara cosa cambi prima di farlo — aspetta conferma Max
 8. File completi — zero patch parziali
 9. La view admin Sales rimane intatta — modifiche solo additive
+10. sw.js: leggere versione attuale da GitHub e incrementare di 1 — MAI sovrascrivere con numero fisso
 
 ---
 
