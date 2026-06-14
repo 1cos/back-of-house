@@ -1,6 +1,6 @@
 # BRIGADE — DECISIONS
 *Perché abbiamo scelto certe cose. Non ridiscutere senza motivo.*
-*Aggiornato: 2026-06-13 — v92 frontend + souschef-chat v14*
+*Aggiornato: 2026-06-15 — v153*
 
 ---
 
@@ -11,14 +11,14 @@
 | App HTML/PWA attuale | **BRIGADE** |
 | App Flutter futura con Siri | **BOH OS** (separata, non ancora costruita) |
 | Branch deploy | **brigade-main** (MAI main) |
-| Versione attuale frontend | **v92** |
-| Versione souschef-chat | **v14** |
+| Versione attuale frontend | **v153** |
+| Versione souschef-chat | **v15** |
 | Supabase project attivo | `ydqmumpytgrlceuinoqt` |
 | Supabase project vecchio | `hykjompnvajjhggrnned` — tenere attivo fino a Flutter |
 
 ---
 
-## Stack AI — CAMBIATO 2026-06-13
+## Stack AI
 
 | Componente | Ora |
 |---|---|
@@ -31,7 +31,7 @@
 
 ---
 
-## Cos'è il Sous Chef AI — concetto v14
+## Sous Chef AI — concetto v15
 
 Il Sous Chef non è un chatbot. E' un agente operativo con accesso diretto al database.
 
@@ -39,27 +39,14 @@ Il Sous Chef non è un chatbot. E' un agente operativo con accesso diretto al da
 1. Max parla o scrive — voce e testo identici, stesso flusso
 2. Edge Function souschef-chat legge TUTTO il DB con service role key
 3. Manda tutto a OpenRouter LLaMA con contesto completo
-4. OpenRouter ragiona semanticamente — asparagi=asparagus, olio=oil
+4. OpenRouter ragiona semanticamente
 5. Risponde in italiano, pulito, senza JSON visibile
 
 ### Tabelle che legge:
-- recipes — ricette con ingredienti e grammature
-- ingredients + ingredient_vendors — prezzi per fornitore
-- pos_sales_by_item — vendite piatti (campo: menu_item, quantity)
-- pos_modifiers — vendite modifier (campo: modifier, quantity_sold)
-- pos_daily_summary — totali giornalieri
-- prep_log — prep ultime 2 settimane
-- sous_chef_tasks — task aperti
-- operation_notes — note brigata
-- invoice_warnings — warning aperti
-- chef_attention — topic frequenti di Max
-
-### Cosa puo' fare:
-- Rispondere su ricette, prezzi, vendite, prep
-- Aggiornare ingredient_vendors a voce
-- Creare task
-- Calcolare (scala ricette, food cost, conversioni)
-- Ragionare in italiano anche se dati sono in inglese
+- recipes, ingredients, ingredient_vendors
+- pos_sales_by_item, pos_modifiers, pos_modifier_by_item, pos_daily_summary
+- prep_log, sous_chef_tasks, operation_notes
+- invoice_warnings, chef_attention
 
 ### Principio fondamentale:
 IL CODICE PORTA I DATI. IL LLM RAGIONA.
@@ -67,9 +54,65 @@ Non filtrare mai. Mandare tutto e lasciare ragionare OpenRouter.
 
 ---
 
+## TouchBistro — import pipeline (2026-06-15)
+
+4 file CSV arrivano ogni notte via Gmail:
+
+| File | Tabella | Note |
+|---|---|---|
+| Daily_HourlySales | pos_daily_summary | coperti + fatturato |
+| SalesByMenuItem | pos_sales_by_item | piatti venduti |
+| TextModifier | pos_modifiers | modifier totali |
+| ModifierPreferenceByMenuItem | pos_modifier_by_item | modifier + piatto padre |
+
+Edge Function: `gmail-touchbistro-import` v3
+Google Apps Script: `TouchBistroImport.gs` in "Brigade hardies import"
+
+---
+
+## Sales — decisioni architetturali (2026-06-15)
+
+### Admin view
+- Selettori: 6 giorni recenti + Weekend + Last week + 30 days + Periodo custom
+- Mostra: fatturato, coperti, food cost, sconti, top 10 revenue, categorie, trend
+- **Deep Analysis**: modal separato con 200 domande su 9 categorie
+- Weekend = venerdì + sabato (Zenos chiuso domenica)
+- Last week = lunedì → sabato della settimana precedente
+
+### Staff view
+- Selettori: Ieri / Weekend / Sett.
+- Mostra: solo quantità, solo Food, zero prezzi
+- Livello 1: gruppi cucina (Pasta, Secondi, ecc.) con barre
+- Livello 2: tap su gruppo → lista piatti
+- Modifier cucina con colori per categoria
+- Modal su tap: porzioni da preparare con calcolo side + modifier
+- Weekend = venerdì + sabato
+- Sett. = lunedì → sabato settimana precedente
+
+### Regola porzioni modifier
+- Contorni come modifier = mezza porzione
+- Proteine come modifier = porzione intera
+- Pasta come modifier su secondi = mezza porzione
+- Half/Child nel nome = mezza porzione
+- Arrotonda sempre per eccesso (Math.ceil)
+
+### Gruppi Food da mostrare allo staff
+```
+Pasta, Secondi/entrees, Antipasti/appetizer, Insalate/salad,
+Dolcezze/dessert, Kids menu, Soup, Sides, Lunch
+```
+
+### Gruppi Food da ESCLUDERE allo staff
+```
+NA Beverages, The Bar, Mocktail, Happy hours, Wine dinner,
+Testing menu, Catering, Peach Festival, Resturant week
+```
+
+---
+
 ## price_type in ingredient_vendors
 
-Aggiunto 2026-06-13. Valori: per_case (DEFAULT), per_lb, per_kg, per_oz, per_each
+Valori: per_case (DEFAULT), per_lb, per_kg, per_oz, per_each
 
 Formula $/100g:
 - per_case: (unit_price / conversion_to_base) * 100
@@ -87,16 +130,14 @@ Email → Gmail label → Google Apps Script → process-invoice (autoProcess=tr
 → OpenRouter/Gemini legge PDF → DB → warning solo se anomalia >10%
 
 ### Fornitori:
-- Hardies: label hardies-import, parser gmail-hardies-import
-- Fruge: system@netyield.com → label fruge-import → process-invoice
+- Hardies: label hardies-import
+- Fruge: system@netyield.com → label fruge-import
 - Ben E. Keith: forward iCloud→Gmail DA FARE → label bek-import
 - Freshpoint: in attesa
 
-### Foto/scan — DA MIGRARE a OpenRouter
-
 ---
 
-## Microfono (v92)
+## Microfono (v92+)
 
 - Tap breve: apre chat Sous Chef
 - Tap lungo: voce → Whisper → souschef-chat
@@ -116,13 +157,6 @@ Email → Gmail label → Google Apps Script → process-invoice (autoProcess=tr
 ## Nightly Brief
 
 - Cron: 0 10 * * * = 10:00 UTC = 5:00 AM CDT
-- Edge Function: sc-nightly-brief
+- Edge Function: sc-nightly-brief v5
 - Legge: vendite, note brigata, warning, chef_attention
-
----
-
-## Sales page
-
-- Tab Oggi: RIMOSSA (dati arrivano mattina dopo)
-- Da aggiungere: ricerca per data libera, filtro Food only
-- Da tradurre: Yesterday, Weekend, 7 days, 30 days
+- Domenica: recap settimana (no scan giornaliero)
