@@ -4,9 +4,10 @@
 // Formato colonne OCR:
 // Item(SKU) | QtyOrd | QtyShip | Pack | PackSize | Description | UnitPrice | ExtendedPrice | St
 //
-// Logica price_type:
-//   qty × unit_price ≈ extended (±2%) → per_case
-//   qty × unit_price ≠ extended        → per_lb
+// Logica prezzi:
+// - Tutto è per_case — il prezzo è sempre per confezione
+// - conversion_to_base calcolato dal pack size (es. 11# → 4989g, 3/2# → 2722g)
+// - price_per_100g = unit_price / conversion_to_base × 100
 
 'use strict';
 
@@ -14,76 +15,92 @@ const {
   parseDate, parsePrice, parsePackSize, cleanDescription, isSkipLine,
 } = require('./utils');
 
-const SKIP_RE = /invoice|customer|salesman|bill to|ship to|route|terms|due date|fuel surcharge|^page\s|special instructions|remit payment|p\.o\. number|order date|quantit|item\s+desc|unit\s+price|extended|sub.?total|^cases|driver|splits|cubes|state|tax|total weight/i;
+const SKIP_RE = /invoice|customer|salesman|bill to|ship to|route|terms|due date|fuel surcharge|^page\s|special instructions|remit payment|p\.o\. number|order date|quantit|unit\s+price|extended|sub.?total|^cases|driver|splits|cubes|state|tax|total weight|item\s+desc/i;
 
-function detectPriceType(qty, unitPrice, extended) {
-  if (!unitPrice || !extended || !qty) return 'per_case';
-  const expected = qty * unitPrice;
-  const ratio = Math.abs(extended - expected) / Math.max(expected, 0.01);
-  return ratio < 0.02 ? 'per_case' : 'per_lb';
+// Converte pack size string in grammi totali
+// Esempi: "11#" → 4989g, "3/2#" → 3×2×453.592=2722g
+// "5 LB" → 2268g, "48CT" → null (conta), "3 CT" → null
+function packToGrams(packStr) {
+  if (!packStr) return null;
+  const s = packStr.trim().toUpperCase();
+
+  // Pattern "N/M#" o "N/MLB" — N unità da M lb
+  // Es: "3/2#" = 3 × 2 lb = 6 lb
+  const fracM = s.match(/^(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(?:#|LB|LBS)$/);
+  if (fracM) return parseFloat(fracM[1]) * parseFloat(fracM[2]) * 453.592;
+
+  // Pattern "N#" o "N LB" — N lb totali
+  const lbM = s.match(/^(\d+(?:\.\d+)?)\s*(?:#|LB|LBS)$/);
+  if (lbM) return parseFloat(lbM[1]) * 453.592;
+
+  // Pattern "N OZ"
+  const ozM = s.match(/^(\d+(?:\.\d+)?)\s*OZ$/);
+  if (ozM) return parseFloat(ozM[1]) * 28.3495;
+
+  // Pattern "N KG"
+  const kgM = s.match(/^(\d+(?:\.\d+)?)\s*KG$/);
+  if (kgM) return parseFloat(kgM[1]) * 1000;
+
+  // Pattern "N/MOZ" — N unità da M oz
+  const fracOzM = s.match(/^(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*OZ$/);
+  if (fracOzM) return parseFloat(fracOzM[1]) * parseFloat(fracOzM[2]) * 28.3495;
+
+  // CT/EA — conta, nessun peso
+  return null;
 }
 
-// Tenta di estrarre campi da una riga FreshPoint
-// Formato: SKU  QtyOrd  QtyShip  Pack  PackSize  Description...  UnitPrice  ExtendedPrice  [St]
 function parseLine(line) {
-  // Rimuovi caratteri non stampabili
   line = line.replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim();
 
-  // SKU = 4-6 cifre all'inizio
+  // SKU = 3-6 cifre all'inizio
   const skuM = line.match(/^(\d{3,6})\s+(.+)/);
   if (!skuM) return null;
   const sku  = skuM[1];
   const rest = skuM[2];
 
-  // Cerca i due prezzi alla fine: ... UnitPrice  ExtendedPrice  [St]
-  // Es: "... 33.15  66.30  US" oppure "... 56.45  56.45  MX"
-  const priceM = rest.match(/(\d{1,3}(?:,\d{3})*(?:\.\d{2}))\s+(\d{1,3}(?:,\d{3})*(?:\.\d{2}))(?:\s+[A-Z]{2})?$/);
+  // Estrai i due prezzi alla fine della riga
+  // Es: "... 33.15  66.30  US" o "... 33.15  66.30"
+  const priceM = rest.match(/(\d{1,4}(?:,\d{3})*\.\d{2})\s+(\d{1,4}(?:,\d{3})*\.\d{2})(?:\s+[A-Z]{2})?$/);
   if (!priceM) return null;
 
   const unitPrice = parsePrice(priceM[1]);
   const extended  = parsePrice(priceM[2]);
-  const middle    = rest.slice(0, rest.lastIndexOf(priceM[0])).trim();
+  if (!unitPrice) return null;
 
-  // Estrai qty ordinato e spedito (prime due cifre dopo SKU)
+  const middle = rest.slice(0, rest.lastIndexOf(priceM[0])).trim();
+
+  // Qty ordinato e spedito
   const qtyM = middle.match(/^(\d+)\s+(\d+)\s+(.+)/);
   if (!qtyM) return null;
 
   const qtyOrd  = parseInt(qtyM[1]) || 0;
   const qtyShip = parseInt(qtyM[2]) || 0;
-  const packDesc = qtyM[3].trim();
+  let   packRest = qtyM[3].trim();
 
-  // Estrai pack type (BX, CS, BOX, EACH) e pack size
-  // Es: "BX 1" "BX 11#" "CS 3/2#" "BX 48CT" "EACH"
-  const packTypeM = packDesc.match(/^(BX|CS|BOX|EACH|EA|CT|LB)\s*(.*)/i);
-  let packType = null, packSize = null, descRaw = '';
+  // Pack type: BX, CS, BOX, EACH, EA, LB, CT
+  const packTypeM = packRest.match(/^(BX|CS|BOX|EACH|EA|CT|LB)\s*(.*)/i);
+  let packType = null, packSize = null, descRaw = packRest;
+
   if (packTypeM) {
     packType = packTypeM[1].toUpperCase();
-    const afterPack = packTypeM[2].trim();
-    // Il packSize è il primo token se inizia con numero o contiene #/CT/LB
-    const sizeM = afterPack.match(/^(\S+(?:\s+\S+)?)\s{2,}(.+)/);
-    if (sizeM && /[\d#]/.test(sizeM[1])) {
+    const afterType = packTypeM[2].trim();
+
+    // Pack size è il primo token se contiene #, LB, OZ, KG, CT, numeri con /
+    const sizeM = afterType.match(/^(\d[\d\/\.]*\s*(?:#|LB|LBS|OZ|KG|CT|DZ)?)\s+(.+)/i);
+    if (sizeM) {
       packSize = sizeM[1].trim();
       descRaw  = sizeM[2].trim();
     } else {
-      // PackSize potrebbe essere solo 1 token
-      const tok = afterPack.split(/\s+/);
-      if (tok.length > 1 && /[\d#]/.test(tok[0])) {
-        packSize = tok[0];
-        descRaw  = tok.slice(1).join(' ');
-      } else {
-        descRaw = afterPack;
-      }
+      descRaw = afterType;
     }
-  } else {
-    descRaw = packDesc;
   }
 
-  // Rimuovi suffissi di origine alla fine della descrizione (US, MX, etc.)
+  // Rimuovi suffisso origine (US, MX, ecc.) dalla descrizione
   descRaw = descRaw.replace(/\s+[A-Z]{2}\s*$/, '').trim();
 
-  const desc      = cleanDescription(descRaw || packDesc);
-  const packObj   = parsePackSize(packSize || packDesc);
-  const priceType = detectPriceType(qtyShip || qtyOrd, unitPrice, extended);
+  const desc    = cleanDescription(descRaw || packRest);
+  const totalG  = packToGrams(packSize);
+  const p100    = (totalG && unitPrice) ? parseFloat(((unitPrice / totalG) * 100).toFixed(4)) : null;
 
   const itemWarnings = [];
 
@@ -95,7 +112,7 @@ function parseLine(line) {
     });
   }
 
-  if (packObj && ['ct','ea','each','dz','doz'].includes(packObj.unit)) {
+  if (!totalG && packSize) {
     itemWarnings.push({
       code: 'OQR-006',
       message: `Count-based: ${desc} (${packSize}) — no weight for costing`,
@@ -104,21 +121,22 @@ function parseLine(line) {
   }
 
   return {
-    vendor_sku:       sku,
-    raw_description:  descRaw || packDesc,
-    description:      desc,
-    qty_ordered:      qtyOrd,
-    qty_received:     qtyShip,
-    pack_description: packSize || packDesc,
-    pack_qty:         packObj ? packObj.count    : null,
-    pack_unit:        packObj ? packObj.unit     : null,
-    pack_size_each:   packObj ? packObj.sizeEach : null,
-    unit_price:       unitPrice,
-    amount:           extended,
-    extended_price:   extended,
-    price_type:       priceType,
-    catchweight:      priceType === 'per_lb',
-    warnings:         itemWarnings,
+    vendor_sku:        sku,
+    raw_description:   descRaw || packRest,
+    description:       desc,
+    qty_ordered:       qtyOrd,
+    qty_received:      qtyShip,
+    pack_description:  packSize || packRest,
+    pack_qty:          null,
+    pack_unit:         packType,
+    unit_price:        unitPrice,
+    amount:            extended,
+    extended_price:    extended,
+    price_type:        'per_case',
+    conversion_to_base: totalG ? Math.round(totalG) : null,
+    _cost_per_100g:    p100,
+    catchweight:       false,
+    warnings:          itemWarnings,
   };
 }
 
@@ -138,7 +156,7 @@ function parse(rawText) {
   const items = [];
   for (const line of lines) {
     if (SKIP_RE.test(line)) continue;
-    if (line.length < 15) continue;
+    if (line.length < 20) continue;
     const item = parseLine(line);
     if (item && item.unit_price) items.push(item);
   }
