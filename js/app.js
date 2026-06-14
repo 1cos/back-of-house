@@ -63,8 +63,8 @@ function doLogin(profile){
   // loginLang usato solo come display fallback se user.lang è null
   // applica stazione default se presente
   if(user.default_station){
-    station=user.default_station.replace(' Station','');
-    station2=user.default_station.replace(' Station','');
+    station=user.default_station;
+    station2=user.default_station;
   }
   document.getElementById('login').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
