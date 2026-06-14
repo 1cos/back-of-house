@@ -195,18 +195,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Closing Checklist</span>
           <button onclick="document.querySelector('[data-t=s]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Open →</button>
         </div>
-        <!-- Closing stazioni pill -->
         <div id="homeClosingStations" style="padding:9px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
-        <!-- Your Station nella closing -->
-        <div style="padding:4px 14px 0;border-top:0.5px solid rgba(59,130,246,0.08);">
-          <span style="font-size:10px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Your Station</span>
-        </div>
-        <div id="homeClosingYourStation" style="padding:4px 14px 0;"></div>
-        <!-- Other Stations nella closing -->
-        <div id="homeClosingOtherLabel" style="display:none;padding:8px 14px 0;border-top:0.5px solid rgba(59,130,246,0.08);">
-          <span style="font-size:10px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Other Stations</span>
-        </div>
-        <div id="homeClosingOtherStations" style="padding:4px 14px 8px;display:none;flex-wrap:wrap;gap:6px;"></div>
         <!-- Campo commento serale — appare solo dopo le 20:00 -->
         <div id="homeEveningNote" style="padding:0 14px 14px;">
           <textarea id="homeEveningNoteText" rows="2" placeholder="Anything to pass on for tomorrow?"
@@ -272,7 +261,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         </div>
       </div>
 
-      <!-- Your Station — admin: tutte le stazioni; staff: top 3 propria stazione -->
+      <!-- Stations — admin: tutte le stazioni; staff: la propria + altre in pill -->
       <div id="homeStationsWidget" style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
           <span id="homeStationsTitle" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Stations</span>
@@ -282,15 +271,11 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <div id="homeStations" style="padding:9px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
         <!-- Staff: top 3 item propria stazione -->
         <div id="homeStationItems" style="padding:9px 14px;padding-bottom:14px;display:none;"></div>
-      </div>
-
-      <!-- Other Stations — solo staff, solo se ci sono stazioni con todo — widget separato -->
-      <div id="homeOtherStationsWidget" style="display:none;background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
-          <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Other Stations</span>
-          <button onclick="document.querySelector('[data-t=m]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Go to prep →</button>
+        <!-- Staff: altre stazioni con item da fare — label + pill -->
+        <div id="homeOtherStationsLabel" style="display:none;padding:8px 14px 4px;border-top:0.5px solid rgba(59,130,246,0.08);">
+          <span style="font-size:10px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Other Stations</span>
         </div>
-        <div id="homeOtherStations" style="padding:9px 14px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+        <div id="homeOtherStations" style="padding:4px 14px 14px;display:none;flex-wrap:wrap;gap:6px;"></div>
       </div>
 
       <!-- Closing Checklist nella posizione originale — solo admin, solo prima delle 20:00 -->
