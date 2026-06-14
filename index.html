@@ -126,39 +126,47 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 
 <div id="app" class="hidden min-h-screen flex flex-col" style="background:transparent;">
   <!-- Top bar -->
-  <div class="sticky top-0 z-30 border-b" style="background:rgba(255,255,255,0.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-color:rgba(59,130,246,0.12);">
-    <div class="max-w-md mx-auto px-3 h-16 flex items-center gap-2">
+  <div class="sticky top-0 z-30" style="background:rgba(255,255,255,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:0.5px solid rgba(59,130,246,0.12);box-shadow:0 2px 8px rgba(30,58,95,0.06);">
+    <div class="max-w-md mx-auto px-4 h-16 flex items-center gap-2">
 
-      <!-- SINISTRA: avatar + nome utente -->
-      <div onclick="openProfile()" style="display:flex;align-items:center;gap:9px;cursor:pointer;flex-shrink:0;">
-        <div id="topbarAvatar" style="width:38px;height:38px;border-radius:50%;background:#3B82F6;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:white;overflow:hidden;flex-shrink:0;border:2px solid rgba(59,130,246,0.2);"></div>
+      <!-- SINISTRA: avatar + buongiorno + nome -->
+      <div onclick="openProfile()" style="display:flex;align-items:center;gap:10px;cursor:pointer;flex-shrink:0;-webkit-tap-highlight-color:transparent;">
+        <div id="topbarAvatar" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#1e3a5f,#2563eb);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:white;overflow:hidden;flex-shrink:0;box-shadow:0 3px 8px rgba(30,58,95,0.3);"></div>
         <div style="line-height:1.2;">
-          <div id="who" style="font-size:15px;font-weight:600;color:#1e3a5f;"></div>
-          <div style="display:flex;align-items:center;gap:5px;"><div style="font-size:11px;color:#60a5fa;" id="topbarRole"></div><div style="font-size:9px;color:#cbd5e1;font-weight:500;" id="appVersion"></div></div>
+          <div id="topbarGreeting" style="font-size:11px;color:#60a5fa;line-height:1;"></div>
+          <div id="who" style="font-size:16px;font-weight:600;color:#1e3a5f;line-height:1.3;"></div>
         </div>
       </div>
 
-      <!-- CENTRO: utenti online — flex:1 per prendere tutto lo spazio -->
+      <!-- CENTRO: utenti online -->
       <div id="online" class="flex items-center" style="flex:1;justify-content:center;gap:4px;"></div>
 
-      <!-- DESTRA: bottoni admin + esci -->
-      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+      <!-- DESTRA: campanella → apre menu admin; bottoni legacy nascosti -->
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
         <button id="alertBtn" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#fee2e2;border:none;font-size:16px;cursor:pointer;">🚨</button>
-        <button id="userMgrBtn" onclick="openUserManager()" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;">👥</button>
-        <button id="pwdBtn" onclick="openChangePIN()" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;">🔑</button>
-        <button id="out" onclick="user=null;location.reload()" style="height:32px;padding:0 12px;background:#f1f5f9;border:none;border-radius:10px;font-size:13px;font-weight:500;color:#64748b;cursor:pointer;">Esci</button>
+        <button id="userMgrBtn" onclick="openUserManager()" style="display:none;"></button>
+        <button id="pwdBtn" onclick="openChangePIN()" style="display:none;"></button>
+        <button id="out" onclick="user=null;location.reload()" style="display:none;"></button>
+        <button id="bellBtn" onclick="isAdmin()?showAdminMenu():null" style="width:38px;height:38px;border-radius:50%;background:white;border:0.5px solid rgba(59,130,246,0.2);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(30,58,95,0.1);position:relative;-webkit-tap-highlight-color:transparent;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e3a5f" stroke-width="1.8" stroke-linecap="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          <span id="bellDot" style="display:none;position:absolute;top:7px;right:7px;width:8px;height:8px;background:#ef4444;border-radius:50%;border:1.5px solid white;"></span>
+        </button>
       </div>
 
     </div>
-  </div>
 
-  <!-- News ticker -->
-  <div id="newsBar" class="hidden bg-amber-100 border-b border-amber-200">
-    <div class="max-w-md mx-auto px-3 py-1.5 flex items-center gap-2">
-      <span class="text-xs font-bold text-amber-800 uppercase">NEWS</span>
-      <div class="flex-1 overflow-hidden"><div id="newsScroll" class="whitespace-nowrap text-sm text-slate-700 animate-marquee"></div></div>
-      <button id="newsManage" class="hidden text-xs px-2 py-1 bg-amber-600 text-white rounded-lg">Gest</button>
+    <!-- News pill blu scorrevole — visibile solo se ci sono news -->
+    <div id="newsBar" class="hidden" style="padding:0 14px 8px;">
+      <div style="background:rgba(59,130,246,0.07);border:0.5px solid rgba(59,130,246,0.18);border-radius:12px;padding:6px 13px;display:flex;align-items:center;gap:9px;overflow:hidden;box-shadow:0 1px 4px rgba(59,130,246,0.08);">
+        <span style="font-size:10px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;flex-shrink:0;">News</span>
+        <span style="width:1px;height:13px;background:rgba(59,130,246,0.2);flex-shrink:0;"></span>
+        <div style="flex:1;overflow:hidden;">
+          <div id="newsScroll" class="whitespace-nowrap animate-marquee" style="font-size:12px;color:#1e3a5f;"></div>
+        </div>
+        <button id="newsManage" class="hidden" style="font-size:10px;padding:2px 8px;background:#3b82f6;color:white;border:none;border-radius:6px;cursor:pointer;flex-shrink:0;">Gest</button>
+      </div>
     </div>
+
   </div>
 
   <!-- Right rail -->
@@ -167,75 +175,75 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 
   <main class="flex-1 max-w-md w-full mx-auto pb-24" style="background:transparent;">
 
-    <!-- HOME REFACTORED -->
+    <!-- HOME -->
     <section id="vh" class="px-3 pt-3 pb-4 space-y-3">
 
       <!-- WARNINGS BANNER — populated by warnings-banner.js -->
       <div id="warningsBanner" style="display:none;"></div>
 
-      <!-- SECTION 1: Service Updates -->
-      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
-          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Service Updates</span>
-          <button onclick="openServiceUpdates()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">View all</button>
-        </div>
-        <div id="serviceUpdatesList" style="padding:8px 14px;"></div>
-      </div>
-
-      <!-- Invoice button — solo admin -->
+      <!-- Invoice quick actions — solo admin -->
       <div id="invoiceSection" style="display:none;">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
-          <button onclick="openInvoiceImport()" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;padding:14px;text-align:left;cursor:pointer;">
-            <div style="font-size:22px;margin-bottom:4px;">📷</div>
-            <div style="font-size:13px;font-weight:500;color:#1e3a5f;">Import Invoice</div>
-            <div style="font-size:11px;color:#93c5fd;margin-top:2px;">Photo or gallery</div>
+          <button onclick="openInvoiceImport()" style="background:white;border:0.5px solid rgba(59,130,246,0.12);border-radius:16px;padding:14px 12px;text-align:left;cursor:pointer;box-shadow:0 2px 8px rgba(30,58,95,0.08),0 6px 16px rgba(30,58,95,0.05);-webkit-tap-highlight-color:transparent;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round" style="margin-bottom:7px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            <div style="font-size:12px;font-weight:600;color:#1e3a5f;line-height:1.3;">Import Invoice</div>
+            <div style="font-size:10px;color:#60a5fa;margin-top:3px;">Photo / PDF</div>
           </button>
-          <button onclick="openVendorDocumentsReview()" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;padding:14px;text-align:left;cursor:pointer;">
-            <div style="font-size:22px;margin-bottom:4px;">📋</div>
-            <div style="font-size:13px;font-weight:500;color:#1e3a5f;">Vendor Review</div>
-            <div id="vdrPendingBadge" style="font-size:11px;color:#93c5fd;margin-top:2px;">Pending review</div>
+          <button onclick="openVendorDocumentsReview()" style="background:white;border:0.5px solid rgba(59,130,246,0.12);border-radius:16px;padding:14px 12px;text-align:left;cursor:pointer;box-shadow:0 2px 8px rgba(30,58,95,0.08),0 6px 16px rgba(30,58,95,0.05);-webkit-tap-highlight-color:transparent;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round" style="margin-bottom:7px;"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="m9 14 2 2 4-4"/></svg>
+            <div style="font-size:12px;font-weight:600;color:#1e3a5f;line-height:1.3;">Vendor Review</div>
+            <div id="vdrPendingBadge" style="font-size:10px;color:#60a5fa;margin-top:3px;">Pending</div>
           </button>
-          <button onclick="openPurchaseHistory()" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;padding:14px;text-align:left;cursor:pointer;">
-            <div style="font-size:22px;margin-bottom:4px;">📋</div>
-            <div style="font-size:13px;font-weight:500;color:#1e3a5f;">Purchase History</div>
-            <div style="font-size:11px;color:#93c5fd;margin-top:2px;">All invoices</div>
+          <button onclick="openPurchaseHistory()" style="background:white;border:0.5px solid rgba(59,130,246,0.12);border-radius:16px;padding:14px 12px;text-align:left;cursor:pointer;box-shadow:0 2px 8px rgba(30,58,95,0.08),0 6px 16px rgba(30,58,95,0.05);-webkit-tap-highlight-color:transparent;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round" style="margin-bottom:7px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <div style="font-size:12px;font-weight:600;color:#1e3a5f;line-height:1.3;">Purchase History</div>
+            <div style="font-size:10px;color:#60a5fa;margin-top:3px;">All invoices</div>
           </button>
         </div>
       </div>
 
-      <!-- SECTION 2: Upcoming Demand -->
-      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
-        <div style="padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
-          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Upcoming Demand</span>
+      <!-- Service Updates -->
+      <div style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Service Updates</span>
+          <button onclick="openServiceUpdates()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">View all</button>
         </div>
-        <div id="upcomingDemand" style="padding:8px 14px;">
-          <div style="font-size:12px;color:#93c5fd;padding:4px 0;">No upcoming events</div>
+        <div id="serviceUpdatesList" style="padding:9px 14px;"></div>
+      </div>
+
+      <!-- Upcoming Demand -->
+      <div style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
+        <div style="padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Upcoming Demand</span>
+        </div>
+        <div id="upcomingDemand" style="padding:9px 14px;">
+          <div style="font-size:13px;color:#94a3b8;padding:4px 0;">No upcoming events</div>
         </div>
       </div>
 
-      <!-- SECTION 3: Assigned Station -->
-      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
-          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Your Station</span>
-          <button onclick="document.querySelector('[data-t=m]').click()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Go to prep →</button>
+      <!-- Your Station -->
+      <div style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Your Station</span>
+          <button onclick="document.querySelector('[data-t=m]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Go to prep →</button>
         </div>
-        <div id="homeStationItems" style="padding:8px 14px;"></div>
+        <div id="homeStationItems" style="padding:9px 14px;padding-bottom:14px;"></div>
       </div>
 
-      <!-- Checklist chiusura stazioni — solo admin -->
-      <div id="homeChecklistSection" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
-          <span id="homeChecklistLabel" style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Checklist chiusura</span>
-          <button id="homeOpenBtn" onclick="document.querySelector('[data-t=s]').click()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Open →</button>
+      <!-- Checklist chiusura — solo admin -->
+      <div id="homeChecklistSection" style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span id="homeChecklistLabel" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Closing Checklist</span>
+          <button id="homeOpenBtn" onclick="document.querySelector('[data-t=s]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Open →</button>
         </div>
-        <div id="homeStations" style="padding:8px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+        <div id="homeStations" style="padding:9px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
       </div>
 
       <!-- Briefing AI — solo admin -->
-      <div id="homeBriefingSection" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
-          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Briefing AI</span>
-          <button id="briefingRefreshBtn" onclick="refreshBriefing()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Refresh</button>
+      <div id="homeBriefingSection" style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Briefing AI</span>
+          <button id="briefingRefreshBtn" onclick="refreshBriefing()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Refresh</button>
         </div>
         <div id="briefingContent" style="padding:10px 14px;">
           <div class="animate-pulse h-4 bg-slate-100 rounded w-3/4 mb-2"></div>
@@ -492,6 +500,19 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/utils.js"></script>
 <script src="js/news.js"></script>
 <script src="js/app.js"></script>
+<script>
+// Greeting dinamico basato sull'ora (CDT)
+(function(){
+  var el = document.getElementById('topbarGreeting');
+  if(!el) return;
+  var h = new Date().toLocaleString('en-US',{timeZone:'America/Chicago',hour:'numeric',hour12:false});
+  h = parseInt(h);
+  if(h>=5 && h<12) el.textContent='Good morning,';
+  else if(h>=12 && h<17) el.textContent='Good afternoon,';
+  else if(h>=17 && h<21) el.textContent='Good evening,';
+  else el.textContent='Good night,';
+})();
+</script>
 <script src="js/briefing.js"></script>
 <script src="js/init.js"></script>
 <script src="js/admin.js"></script>
