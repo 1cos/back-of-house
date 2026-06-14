@@ -81,28 +81,10 @@ function _applyHomeTimeLayout(){
     // Dopo le 20:00 — closing sale in cima per tutti
     if(closingWidget){
       closingWidget.style.display = 'block';
-      // Popola pill stazioni nella closing (stesse di homeStations per admin)
+      // Popola le stazioni nella closing widget in cima
       const stEl = document.getElementById('homeClosingStations');
       const srcEl = document.getElementById('homeStations');
       if(stEl && srcEl) stEl.innerHTML = srcEl.innerHTML;
-      // Your Station nella closing — specchio di homeStationItems (solo staff)
-      const closingYours = document.getElementById('homeClosingYourStation');
-      const srcYours = document.getElementById('homeStationItems');
-      if(closingYours && srcYours) closingYours.innerHTML = srcYours.innerHTML;
-      // Other Stations nella closing — specchio di homeOtherStations (solo staff)
-      const closingOtherLabel = document.getElementById('homeClosingOtherLabel');
-      const closingOther = document.getElementById('homeClosingOtherStations');
-      const srcOther = document.getElementById('homeOtherStations');
-      if(closingOther && srcOther){
-        if(srcOther.innerHTML.trim()){
-          closingOther.innerHTML = srcOther.innerHTML;
-          closingOther.style.display = 'flex';
-          if(closingOtherLabel) closingOtherLabel.style.display = 'block';
-        } else {
-          closingOther.style.display = 'none';
-          if(closingOtherLabel) closingOtherLabel.style.display = 'none';
-        }
-      }
     }
     // Nascondi closing section in fondo (era solo admin)
     if(checklistSection) checklistSection.style.display = 'none';
