@@ -69,9 +69,15 @@ function doLogin(profile){
   document.getElementById('login').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('who').textContent=user.name;
-  // ruolo sotto il nome
-  const roleEl = document.getElementById('topbarRole');
-  if(roleEl) roleEl.textContent = user.role==='admin' ? 'Admin' : (user.default_station||'Staff');
+  // greeting dinamico basato sull'ora CDT
+  const greetEl = document.getElementById('topbarGreeting');
+  if(greetEl){
+    const h = parseInt(new Date().toLocaleString('en-US',{timeZone:'America/Chicago',hour:'numeric',hour12:false}));
+    if(h>=5&&h<12) greetEl.textContent='Good morning,';
+    else if(h>=12&&h<17) greetEl.textContent='Good afternoon,';
+    else if(h>=17&&h<21) greetEl.textContent='Good evening,';
+    else greetEl.textContent='Good night,';
+  }
   // Ricarica photo_url dal DB per assicurarsi che sia aggiornata
   supa.from('users').select('photo_url').eq('id', user.id).single().then(({data})=>{
     if(data?.photo_url) user.photo_url = data.photo_url;
