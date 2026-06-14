@@ -152,11 +152,14 @@ let doneTarget=null;
 // threshold = pixel di swipe per triggare la chiusura (default 120)
 window.addSwipeToClose = function(panelEl, closeFn, threshold=120){
   if(!panelEl) return;
+  // Rimuovi listener precedenti se ri-chiamato
+  if(panelEl._swipeCleanup) panelEl._swipeCleanup();
+
   let startY=0, currentY=0, dragging=false;
 
   function onStart(e){
-    const touch = e.touches ? e.touches[0] : e;
-    startY = touch.clientY;
+    if(e.touches.length !== 1) return;
+    startY = e.touches[0].clientY;
     currentY = 0;
     dragging = true;
     panelEl.style.transition = 'none';
@@ -164,24 +167,22 @@ window.addSwipeToClose = function(panelEl, closeFn, threshold=120){
 
   function onMove(e){
     if(!dragging) return;
-    const touch = e.touches ? e.touches[0] : e;
-    currentY = touch.clientY - startY;
-    if(currentY < 0) currentY = 0; // solo verso il basso
+    currentY = e.touches[0].clientY - startY;
+    if(currentY < 0){ currentY = 0; return; }
+    e.preventDefault(); // blocca scroll background solo quando swipe verso il basso
     panelEl.style.transform = `translateY(${currentY}px)`;
-    panelEl.style.opacity = Math.max(0, 1 - currentY / (threshold * 2));
+    panelEl.style.opacity = String(Math.max(0, 1 - currentY / (threshold * 2)));
   }
 
   function onEnd(){
     if(!dragging) return;
     dragging = false;
     if(currentY >= threshold){
-      // chiudi con animazione
-      panelEl.style.transition = 'transform .2s ease, opacity .2s ease';
-      panelEl.style.transform = `translateY(100%)`;
+      panelEl.style.transition = 'transform .22s ease, opacity .22s ease';
+      panelEl.style.transform = `translateY(110%)`;
       panelEl.style.opacity = '0';
-      setTimeout(closeFn, 200);
+      setTimeout(closeFn, 220);
     } else {
-      // torna su
       panelEl.style.transition = 'transform .2s ease, opacity .2s ease';
       panelEl.style.transform = 'translateY(0)';
       panelEl.style.opacity = '1';
@@ -189,6 +190,13 @@ window.addSwipeToClose = function(panelEl, closeFn, threshold=120){
   }
 
   panelEl.addEventListener('touchstart', onStart, {passive:true});
-  panelEl.addEventListener('touchmove',  onMove,  {passive:true});
+  panelEl.addEventListener('touchmove',  onMove,  {passive:false}); // passive:false per preventDefault
   panelEl.addEventListener('touchend',   onEnd,   {passive:true});
+
+  // Cleanup per evitare duplicati
+  panelEl._swipeCleanup = ()=>{
+    panelEl.removeEventListener('touchstart', onStart);
+    panelEl.removeEventListener('touchmove',  onMove);
+    panelEl.removeEventListener('touchend',   onEnd);
+  };
 };
