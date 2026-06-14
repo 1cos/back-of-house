@@ -624,6 +624,7 @@ window.openEditIngredient = async function(ingredientId){
     </div>`;
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
 };
 
 window.saveEditIngredient = async function(ingredientId, btn){
@@ -726,6 +727,7 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
     </div>`;
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
 
   // Live preview
   function evUpdatePreview(){
@@ -851,6 +853,7 @@ window.openAddVendorRow = function(ingredientId){
     </div>`;
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
 
   window.avUpdatePreview = function(){
     const up   = parseFloat(document.getElementById('avUnitPrice')?.value)||0;
@@ -939,6 +942,7 @@ function openAddIngredient(prefillName=''){
     </div>`;
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
 }
 
 window.saveNewIngredient = async ()=>{
