@@ -170,8 +170,11 @@ function showAdminMenu(){
   sheet.classList.remove('hidden');
   document.body.classList.add('sheet-open'); // iOS Safari scroll lock
 
-  void panel.offsetHeight; // forza reflow
-  panel.style.transform = 'translateY(0)';
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      panel.style.transform = 'translateY(0)';
+    });
+  });
 
   // Listener swipe — aggiunti una volta sola
   panel.removeEventListener('touchstart', _amTouchStart);
