@@ -134,11 +134,12 @@ function showAdminMenu(){
   sheet.classList.remove('hidden');
   const content = document.getElementById('adminMenuContent');
   if(content){
-    content.style.transform = 'translateX(-50%) translateY(20px)';
+    // Niente translateX — il panel è già left:0;right:0
+    content.style.transform = 'translateY(30px)';
     content.style.opacity = '0';
-    content.style.transition = 'all .25s ease';
+    content.style.transition = 'transform .25s ease, opacity .25s ease';
     requestAnimationFrame(()=>{
-      content.style.transform = 'translateX(-50%) translateY(0)';
+      content.style.transform = 'translateY(0)';
       content.style.opacity = '1';
       if(typeof addSwipeToClose==='function') addSwipeToClose(content, hideAdminMenu);
     });
@@ -148,6 +149,8 @@ function showAdminMenu(){
 function hideAdminMenu(){
   const sheet = document.getElementById('adminMenuSheet');
   if(sheet) sheet.classList.add('hidden');
+  const content = document.getElementById('adminMenuContent');
+  if(content){ content.style.transform=''; content.style.opacity=''; }
 }
 
 // ── TRADUZIONI TAB INGREDIENTS ──
