@@ -8,6 +8,8 @@ const hardiesOrder      = require('./hardies-order');
 const hardiesInvoice    = require('./hardies-invoice');
 const hardiesCredit     = require('./hardies-credit');
 const freshpointInvoice = require('./freshpoint-invoice');
+const frugeInvoice      = require('./fruge-invoice');
+const bekInvoice        = require('./bek-invoice');
 
 const VENDORS = {
   hardies: {
@@ -31,9 +33,25 @@ const VENDORS = {
       invoice: freshpointInvoice,
     },
   },
-  // Future:
-  // fruge:    { ... },
-  // bekeeper: { ... },
+  fruge: {
+    patterns: [
+      /fruge/i,
+      /fruge seafood/i,
+      /fruge distributing/i,
+    ],
+    documents: {
+      invoice: frugeInvoice,
+    },
+  },
+  bek: {
+    patterns: [
+      /ben e\.? keith/i,
+      /ben e keith/i,
+    ],
+    documents: {
+      invoice: bekInvoice,
+    },
+  },
 };
 
 // ── Detect vendor from raw text ───────────────────────────────
