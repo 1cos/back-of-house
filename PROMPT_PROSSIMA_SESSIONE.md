@@ -9,28 +9,50 @@ Carica sempre in questo ordine:
 
 ---
 
-## Stato attuale — Brigade v123
+## Stato attuale — Brigade v131
 
 Supabase project: ydqmumpytgrlceuinoqt
 Deploy: https://1cos.github.io/back-of-house — branch brigade-main
-souschef-scan: v4, souschef-chat: v15
+souschef-scan: v4, souschef-chat: v15, sc-nightly-brief: v5
 
 ---
 
-## PASSO 1 — COMPLETATO v123
+## PASSO 1 — COMPLETATO v131
 
 - Warning Center OQR funzionante
-- souschef-scan v4: soglie carne corrette, tagli economici non segnalati
 - Scan automatica Texas: 06:30 + oraria 06:30-17:30, solo Lun-Sab
-- Domenica: zero scan, solo messaggio buona domenica alle 06:30
-  - Recap settimana: coperti, giorno più pieno, top piatti (no dollari per la crew)
+- Domenica: zero scan, messaggio buona domenica alle 06:30
+  - Recap settimana: coperti, giorno piu pieno, top piatti (no dollari)
   - Settimana prossima: eventi TripleSeat (pronto quando connesso)
-- Prompt serale 22:30 Texas riparato
-- DB ingredienti: 337 attivi, tutti in inglese, emoji 80+ pattern
+- Prompt serale 22:30 Texas: push via alerts table, modal redesignato
+- sc-nightly-brief v5: sintetizza commenti brigata in UNA frase, non lista
+- Console pulita — SyntaxError risolti in souschef-core.js e souschef-chat.js
 
 ---
 
-## Parser fornitori — completi v109
+## Sales — completato v131
+
+- Tab: 6 giorni settimana (Sab/Ven/Gio/Mer/Mar/Lun) + Weekend + 7gg + 30gg + Periodo
+- Periodo: selettore Dal/Al con date picker
+- Dati TouchBistro recuperati (sabato 13 giugno importato)
+
+---
+
+## Google Apps Script — Brigade hardies import
+
+Struttura multi-file completata:
+- Codice.gs: solo checkAllEmails() + setupTrigger()
+- HardiesImport.gs, FreshpointImport.gs, TouchBistroImport.gs
+- BEKImport.gs, FrugeImport.gs (placeholder — label Gmail da creare)
+- TripleSeat.gs, SevenShift.gs (placeholder)
+- Utils.gs: sendToEdge(), processLabelPDF(), processLabelCSV(), resetLabel()
+
+checkAllEmails chiama ora anche processTouchBistroEmails — fix applicato.
+Label Gmail da creare: bek-import, fruge-import
+
+---
+
+## Parser fornitori — completi
 
 Hardie's, FreshPoint, Fruge Seafood, Ben E. Keith
 
@@ -46,21 +68,14 @@ PASSO 5: DA FARE — SevenShift (verificare API)
 
 ---
 
-## Warning Center — problemi aperti da risolvere
-
-- "No — peso diverso" chiude il modal senza fare niente — deve aprire input peso
-- Campo libero nel modal non ha bottone salva diretto — solo "Chiedi al Sous Chef"
-- Questi due fix sono rimandati alla prossima sessione
-
----
-
-## Pendenti minori
+## Pendenti
 
 - Romaine: Max pesa una testa e inserisce peso nel DB
 - FreshPoint articoli: conversion_to_base null, reimportare fattura
-- Sysco: Sun Dry Tomatoes, Canned Tomatoes, Tomato Paste, Tomato Puree
-- SevenShift: verificare piano API
-- TripleSeat: credenziali da Max
+- Sysco: fattura da importare (Sun Dry Tomatoes, Canned Tomatoes, Tomato Paste, Tomato Puree)
+- Label Gmail: bek-import e fruge-import da creare
+- Icona Periodo in Sales: da aggiornare in sessione grafica
+- Warning Center: No peso diverso chiude senza fare niente (da fixare)
 
 ---
 
@@ -71,3 +86,4 @@ PASSO 5: DA FARE — SevenShift (verificare API)
 3. Bumpa sw.js nello stesso push
 4. Verifica via API dopo ogni push
 5. Supabase project: ydqmumpytgrlceuinoqt
+6. MAI usare template literals multiriga o emoji nei file JS — causano SyntaxError
