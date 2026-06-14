@@ -36,6 +36,14 @@ function getPeriod(mode) {
     }
     return { from:toISO(lastFri), to:toISO(lastSun), label:'Weekend '+toISO(lastFri).slice(5)+'-'+toISO(lastSun).slice(5), compareLabel:'Avg weekend', compareDates:cmp };
   }
+  if (mode === 'lastweek') {
+    // Lunedì-Sabato della settimana scorsa
+    const dayOfWeek = today.getDay(); // 0=Dom, 1=Lun...
+    const daysToLastMon = dayOfWeek === 0 ? 6 : dayOfWeek + 6;
+    const lastMon = addDays(today, -daysToLastMon);
+    const lastSat = addDays(lastMon, 5);
+    return { from:toISO(lastMon), to:toISO(lastSat), label:'Last week ('+toISO(lastMon).slice(5)+' – '+toISO(lastSat).slice(5)+')', compareDates:[] };
+  }
   if (mode === 'week')  return { from:toISO(addDays(today,-6)), to:todayISO, label:'Ultimi 7 giorni', compareDates:[] };
   if (mode === 'month') return { from:toISO(addDays(today,-29)), to:todayISO, label:'Ultimi 30 giorni', compareDates:[] };
   if (mode === 'custom' && posCustomFrom && posCustomTo) {
@@ -59,20 +67,37 @@ function posSelectors(period) {
   });
 
   const fixedTabs = [
-    { mode:'weekend', label:'Weekend' },
-    { mode:'week',    label:'7 gg' },
-    { mode:'month',   label:'30 gg' },
-    { mode:'custom',  label:'Periodo' },
+    { mode:'weekend',  label:'Weekend' },
+    { mode:'lastweek', label:'Last week' },
+    { mode:'month',    label:'30 days' },
+    { mode:'custom',   label:'📅' },
   ];
 
   const row1 = dayTabs.map(function(t) {
     const a = posDateMode === t.mode;
-    return '<button onclick="posSetMode(\'' + t.mode + '\')" style="flex:1;font-size:10px;font-weight:600;padding:7px 2px;border-radius:10px;border:none;cursor:pointer;background:' + (a?'#059669':'rgba(255,255,255,0.6)') + ';color:' + (a?'white':'#64748b') + ';">' + t.label + '</button>';
+    const d = addDays(today, -(parseInt(t.mode.split('_')[1])+1));
+    const num = toISO(d).slice(8);
+    const dayName = t.label.replace(/\s*\d+/,''); // solo nome giorno
+    return '<button onclick="posSetMode(\'' + t.mode + '\')"' +
+      ' style="flex:1;border-radius:12px;border:0.5px solid ' + (a?'#2563eb':'rgba(59,130,246,0.15)') + ';' +
+      'background:' + (a?'#3b82f6':'white') + ';' +
+      'box-shadow:0 2px 6px rgba(30,58,95,' + (a?'0.2':'0.07') + ');' +
+      'cursor:pointer;padding:8px 2px;text-align:center;-webkit-tap-highlight-color:transparent;">' +
+      '<div style="font-size:9px;font-weight:500;color:' + (a?'rgba(255,255,255,0.8)':'#94a3b8') + ';line-height:1.2;">' + (t.mode==='day_0'?'Yest.':dayName) + '</div>' +
+      '<div style="font-size:14px;font-weight:700;color:' + (a?'white':'#1e3a5f') + ';line-height:1.3;">' + num + '</div>' +
+      '</button>';
   }).join('');
 
   const row2 = fixedTabs.map(function(t) {
     const a = posDateMode === t.mode;
-    return '<button onclick="posSetMode(\'' + t.mode + '\')" style="flex:1;font-size:11px;font-weight:600;padding:8px 4px;border-radius:12px;border:none;cursor:pointer;background:' + (a?'#059669':'rgba(255,255,255,0.6)') + ';color:' + (a?'white':'#64748b') + ';">' + t.label + '</button>';
+    return '<button onclick="posSetMode(\'' + t.mode + '\')"' +
+      ' style="flex:1;font-size:12px;font-weight:600;padding:11px 4px;border-radius:12px;' +
+      'border:0.5px solid ' + (a?'#2563eb':'rgba(59,130,246,0.15)') + ';' +
+      'background:' + (a?'#3b82f6':'white') + ';' +
+      'color:' + (a?'white':'#1e3a5f') + ';' +
+      'box-shadow:0 2px 6px rgba(30,58,95,' + (a?'0.2':'0.07') + ');' +
+      'cursor:pointer;text-align:center;-webkit-tap-highlight-color:transparent;">' +
+      t.label + '</button>';
   }).join('');
 
   const customPicker = posDateMode === 'custom' ? (
@@ -92,9 +117,15 @@ function posSelectors(period) {
     '</div>'
   ) : '';
 
-  return '<div style="display:flex;gap:4px;margin-bottom:6px;">' + row1 + '</div>' +
-         '<div style="display:flex;gap:4px;">' + row2 + '</div>' +
-         customPicker;
+  return '<div style="background:white;border-radius:16px;border:0.5px solid rgba(59,130,246,0.1);box-shadow:0 2px 8px rgba(30,58,95,0.07);padding:10px 10px 10px;margin-bottom:10px;">' +
+           '<div style="font-size:10px;font-weight:600;color:#60a5fa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Recent days</div>' +
+           '<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:5px;">' + row1 + '</div>' +
+           '</div>' +
+           '<div style="background:white;border-radius:16px;border:0.5px solid rgba(59,130,246,0.1);box-shadow:0 2px 8px rgba(30,58,95,0.07);padding:10px;margin-bottom:10px;">' +
+           '<div style="font-size:10px;font-weight:600;color:#60a5fa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Periods</div>' +
+           '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 44px;gap:6px;">' + row2 + '</div>' +
+           '</div>' +
+           customPicker;
 }
 
 async function loadPOS() {
