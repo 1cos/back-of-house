@@ -32,6 +32,19 @@ window.checkOperationNotePrompt = async function() {
   const alreadyAnswered = await hasAnsweredToday();
   if (alreadyAnswered) return;
 
+  // Manda push notification a tutta la crew (anche con app chiusa)
+  try {
+    const sb = window.supabaseClient;
+    if (sb) {
+      await sb.from('alerts').insert({
+        message: '🍽️ Fine servizio — lascia il tuo commento sulla serata in Brigade!',
+        level: 'info',
+        created_by: 'Sous Chef',
+        source_lang: 'it',
+      });
+    }
+  } catch(e) { console.warn('[OperationNote] Push failed:', e.message); }
+
   // Mostra il prompt
   showOperationNoteSheet();
 
