@@ -271,8 +271,11 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <div id="homeStations" style="padding:9px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
         <!-- Staff: top 3 item propria stazione -->
         <div id="homeStationItems" style="padding:9px 14px;padding-bottom:14px;display:none;"></div>
-        <!-- Staff: altre stazioni in pill -->
-        <div id="homeOtherStations" style="padding:0 14px 14px;display:none;flex-wrap:wrap;gap:6px;"></div>
+        <!-- Staff: altre stazioni con item da fare — label + pill -->
+        <div id="homeOtherStationsLabel" style="display:none;padding:8px 14px 4px;border-top:0.5px solid rgba(59,130,246,0.08);">
+          <span style="font-size:10px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Other Stations</span>
+        </div>
+        <div id="homeOtherStations" style="padding:4px 14px 14px;display:none;flex-wrap:wrap;gap:6px;"></div>
       </div>
 
       <!-- Closing Checklist nella posizione originale — solo admin, solo prima delle 20:00 -->
