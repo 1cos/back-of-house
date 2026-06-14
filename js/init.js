@@ -15,16 +15,13 @@ async function init(){
     const{data:recs}=await supa.from('recipes').select('*').order('title');
     if(recs) SHOP_RECIPES=recs.map(r=>({...r,ingredients:typeof r.ingredients==='string'?JSON.parse(r.ingredients):(r.ingredients||[]),yield:r.yield_text,prep_time:r.prep_time_minutes}));
   }catch(e){}
-  // Stazioni dinamiche dal DB — prende le categorie distinte da prep_tasks
-  const allCategories = [...new Set(items.map(i=>i.category).filter(Boolean))].sort();
-  const coreStations = allCategories.filter(s=>s!=='Chiusura');
+  const ALL_STATIONS = ['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Tableside','Freezer'];
   const stationList = isAdmin()
-    ? ['All', ...coreStations, 'Chiusura']
-    : [...coreStations, 'Chiusura'];
+    ? ['All', ...ALL_STATIONS, 'Chiusura']
+    : [...ALL_STATIONS, 'Chiusura'];
   if(!isAdmin()){
-    const firstStation = coreStations[0]||'Oven Station';
-    if(station==='All') station=firstStation;
-    if(station2==='All') station2=firstStation;
+    if(station==='All') station='Oven Station';
+    if(station2==='All') station2='Oven Station';
   }
   const stationsEl=document.getElementById('stations');
   const stations2El=document.getElementById('stations2');
