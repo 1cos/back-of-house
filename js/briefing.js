@@ -1,12 +1,12 @@
 // ── BRIEFING AI ──
 async function loadBriefing(){
   const el=document.getElementById('briefingContent');
-  el.innerHTML=`<div class="animate-pulse h-4 bg-slate-100 rounded w-3/4"></div><div class="animate-pulse h-4 bg-slate-100 rounded w-full mt-2"></div><div class="animate-pulse h-4 bg-slate-100 rounded w-2/3 mt-2"></div>`;
+  if(!el) return;
+  el.innerHTML='<div class="animate-pulse h-4 bg-slate-100 rounded w-3/4"></div><div class="animate-pulse h-4 bg-slate-100 rounded w-full mt-2"></div><div class="animate-pulse h-4 bg-slate-100 rounded w-2/3 mt-2"></div>';
   try{
-    const today=getNowDallas().toLocaleDateString('en-CA'); // YYYY-MM-DD Dallas time
+    const today=getNowDallas().toLocaleDateString('en-CA');
     let{data:briefing}=await supa.from('briefing').select('*').eq('date',today).maybeSingle();
     if(!briefing){
-      // genera al momento
       const res=await fetch(`${SUPABASE_URL}/functions/v1/generate-briefing`,{
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`}
@@ -15,12 +15,11 @@ async function loadBriefing(){
       if(json.points) briefing={points:json.points};
     }
     if(!briefing||!briefing.points||!briefing.points.length){
-      el.innerHTML=`<p class="text-sm text-slate-400">${tr('briefingEmpty')}</p>`;
+      el.innerHTML='<p class="text-sm text-slate-400">'+tr('briefingEmpty')+'</p>';
       return;
     }
     const icons=['🔴','🟡','🔵'];
     let points = briefing.points;
-    // traduci se necessario
     if(user?.lang && user.lang !== 'it'){
       try{
         points = await Promise.all(points.map(p=>
@@ -32,85 +31,77 @@ async function loadBriefing(){
         ));
       }catch(e){}
     }
-    el.innerHTML=points.map((p,i)=>`
-      <div class="flex gap-2 items-start py-1">
-        <span class="text-sm mt-0.5 flex-shrink-0">${icons[i]||'•'}</span>
-        <p class="text-sm text-slate-700 leading-snug">${p}</p>
-      </div>`).join('');
+    el.innerHTML=points.map((p,i)=>
+      '<div class="flex gap-2 items-start py-1">' +
+      '<span class="text-sm mt-0.5 flex-shrink-0">'+(icons[i]||'•')+'</span>' +
+      '<p class="text-sm text-slate-700 leading-snug">'+p+'</p>' +
+      '</div>'
+    ).join('');
   }catch(e){
-    el.innerHTML=`<p class="text-sm text-red-500">${tr('briefingError')}</p>`;
+    el.innerHTML='<p class="text-sm text-red-500">'+tr('briefingError')+'</p>';
   }
 }
 
 async function refreshBriefing(){
-  // cancella il briefing di oggi e rigenera
   const today=new Date().toISOString().slice(0,10);
   await supa.from('briefing').delete().eq('date',today);
   loadBriefing();
 }
 
-// ── HOME STATIONS (pill per stazione con count) ──
+// ── HOME STATIONS ──
+// Admin: popola #homeStations con pill di tutte le stazioni
+// Staff: popola #homeStationItems (top 3 propria stazione) + #homeOtherStations (pill altre stazioni)
 function renderHomeStations(){
-  // usa le categorie reali dal database
   const allCats=[...new Set(items.map(i=>i.category).filter(Boolean))].sort();
-  const el=document.getElementById('homeStations');
-  if(!allCats.length){el.innerHTML=`<p class="text-xs text-slate-400">${tr("noStation")}</p>`;return}
-  el.innerHTML=allCats.map(s=>{
-    const missing=items.filter(i=>i.need_tomorrow&&i.category===s).length;
-    const label=s.replace(' Station','').replace('Station','');
-    return `<div onclick="goToStation('${s}')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition ${missing>0?'bg-red-100 text-red-700 border border-red-200':'bg-green-100 text-green-700 border border-green-200'}">
-      <span>${label}</span>
-      ${missing>0?`<span class="bg-red-500 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full">${missing}</span>`:`<span>✓</span>`}
-    </div>`;
-  }).join('');
+
+  if(isAdmin()){
+    // Admin — pill tutte le stazioni in #homeStations
+    const el=document.getElementById('homeStations');
+    if(!el) return;
+    if(!allCats.length){
+      el.innerHTML='<p class="text-xs text-slate-400">'+tr('noStation')+'</p>';
+      return;
+    }
+    el.innerHTML=allCats.map(s=>{
+      const missing=items.filter(i=>i.need_tomorrow&&i.category===s).length;
+      const label=s.replace(' Station','').replace('Station','');
+      return '<div onclick="goToStation(\''+s+'\')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition '+(missing>0?'bg-red-100 text-red-700 border border-red-200':'bg-green-100 text-green-700 border border-green-200')+'">' +
+        '<span>'+label+'</span>' +
+        (missing>0?'<span class="bg-red-500 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full">'+missing+'</span>':'<span>✓</span>') +
+        '</div>';
+    }).join('');
+
+  } else {
+    // Staff — #homeStationItems: top 3 propria stazione
+    renderHomeStationItems();
+
+    // Staff — #homeOtherStations: pill delle altre stazioni (esclusa la propria)
+    const otherEl=document.getElementById('homeOtherStations');
+    if(!otherEl) return;
+    const userStation=user?.default_station||null;
+    const otherCats=allCats.filter(s=>s!==userStation);
+    if(!otherCats.length){
+      otherEl.innerHTML='';
+      return;
+    }
+    otherEl.innerHTML=otherCats.map(s=>{
+      const missing=items.filter(i=>i.need_tomorrow&&i.category===s).length;
+      const label=s.replace(' Station','').replace('Station','');
+      return '<div onclick="goToStation(\''+s+'\')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition '+(missing>0?'bg-red-100 text-red-700 border border-red-200':'bg-slate-100 text-slate-600 border border-slate-200')+'">' +
+        '<span>'+label+'</span>' +
+        (missing>0?'<span class="bg-red-500 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full">'+missing+'</span>':'') +
+        '</div>';
+    }).join('');
+  }
 }
 
 function goToStation(s){
+  station=s;
   station2=s;
-  document.querySelector('[data-t=s]').click();
+  document.querySelector('[data-t=m]').click();
 }
 
-
-
-// ── SERVICE UPDATES ──
-async function loadServiceUpdates(){
-  try{
-    const{data}=await supa.from('service_updates').select('*').order('created_at',{ascending:false}).limit(3);
-    const el=document.getElementById('serviceUpdatesList');
-    if(!el) return;
-    if(!data||!data.length){
-      el.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
-      return;
-    }
-    el.innerHTML=data.map(u=>{
-      const color=u.level==='urgent'?'#ef4444':u.level==='warning'?'#f59e0b':'#3B82F6';
-      const t=new Date(u.created_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/Chicago'});
-      return `<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;">
-        <div style="width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0;margin-top:4px;"></div>
-        <span style="font-size:13px;color:#1e3a5f;flex:1;line-height:1.4;">${u.message}</span>
-        <span style="font-size:10px;color:#93c5fd;white-space:nowrap;">${t}</span>
-      </div>`;
-    }).join('');
-  }catch(e){}
-}
-
-// ── UPCOMING DEMAND ──
-async function loadUpcomingDemand(){
-  // per ora placeholder — verrà collegato a TripleSeat
-  const el=document.getElementById('upcomingDemand');
-  if(!el) return;
-  // legge da tabella service_updates con level='event' se esiste
-  try{
-    const{data}=await supa.from('service_updates').select('*').eq('level','event').order('created_at',{ascending:true}).limit(5);
-    if(data&&data.length){
-      el.innerHTML=data.map(e=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">
-        <span style="font-size:13px;color:#1e3a5f;">${e.message}</span>
-      </div>`).join('');
-    }
-  }catch(e){}
-}
-
-// ── HOME STATION ITEMS ──
+// ── HOME STATION ITEMS (top 3 propria stazione — solo staff) ──
 function renderHomeStationItems(){
   const el=document.getElementById('homeStationItems');
   if(!el) return;
@@ -132,13 +123,51 @@ function renderHomeStationItems(){
     const color=i.need_tomorrow?'#b91c1c':i.in_progress?'#1d4ed8':'#1e3a5f';
     const dot=i.need_tomorrow?'#ef4444':i.in_progress?'#3B82F6':'transparent';
     const dotBorder=i.need_tomorrow||i.in_progress?'none':'0.5px solid #93c5fd';
-    return `<div onclick="document.querySelector('[data-t=m]').click()" style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;border-bottom:0.5px solid rgba(59,130,246,0.08);">
-      <div style="width:7px;height:7px;border-radius:50%;background:${dot};border:${dotBorder};flex-shrink:0;"></div>
-      <span style="font-size:14px;color:${color};font-weight:${i.need_tomorrow?'500':'400'};">${i.name}</span>
-      ${i.need_tomorrow?'<span style="margin-left:auto;font-size:10px;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 7px;border-radius:20px;">'+tr('daFare')+'</span>':''}
-      ${i.in_progress&&!i.need_tomorrow?'<span style="margin-left:auto;font-size:10px;color:#3B82F6;">'+tr('inProgress')+'</span>':''}
-    </div>`;
+    return '<div onclick="document.querySelector(\'[data-t=m]\').click()" style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;border-bottom:0.5px solid rgba(59,130,246,0.08);">' +
+      '<div style="width:7px;height:7px;border-radius:50%;background:'+dot+';border:'+dotBorder+';flex-shrink:0;"></div>' +
+      '<span style="font-size:14px;color:'+color+';font-weight:'+(i.need_tomorrow?'500':'400')+';">'+i.name+'</span>' +
+      (i.need_tomorrow?'<span style="margin-left:auto;font-size:10px;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 7px;border-radius:20px;">'+tr('daFare')+'</span>':'') +
+      (i.in_progress&&!i.need_tomorrow?'<span style="margin-left:auto;font-size:10px;color:#3B82F6;">'+tr('inProgress')+'</span>':'') +
+      '</div>';
   }).join('');
+}
+
+// ── SERVICE UPDATES ──
+async function loadServiceUpdates(){
+  try{
+    const{data}=await supa.from('service_updates').select('*').order('created_at',{ascending:false}).limit(3);
+    const el=document.getElementById('serviceUpdatesList');
+    if(!el) return;
+    if(!data||!data.length){
+      el.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
+      return;
+    }
+    el.innerHTML=data.map(u=>{
+      const color=u.level==='urgent'?'#ef4444':u.level==='warning'?'#f59e0b':'#3B82F6';
+      const t=new Date(u.created_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/Chicago'});
+      return '<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;">' +
+        '<div style="width:7px;height:7px;border-radius:50%;background:'+color+';flex-shrink:0;margin-top:4px;"></div>' +
+        '<span style="font-size:13px;color:#1e3a5f;flex:1;line-height:1.4;">'+u.message+'</span>' +
+        '<span style="font-size:10px;color:#93c5fd;white-space:nowrap;">'+t+'</span>' +
+        '</div>';
+    }).join('');
+  }catch(e){}
+}
+
+// ── UPCOMING DEMAND ──
+async function loadUpcomingDemand(){
+  const el=document.getElementById('upcomingDemand');
+  if(!el) return;
+  try{
+    const{data}=await supa.from('service_updates').select('*').eq('level','event').order('created_at',{ascending:true}).limit(5);
+    if(data&&data.length){
+      el.innerHTML=data.map(e=>
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">' +
+        '<span style="font-size:13px;color:#1e3a5f;">'+e.message+'</span>' +
+        '</div>'
+      ).join('');
+    }
+  }catch(e){}
 }
 
 // ── SERVICE UPDATES MODAL ──
@@ -147,33 +176,28 @@ async function openServiceUpdates(){
   const modal=document.createElement('div');
   modal.className='fixed inset-0 z-50 flex items-end';
   modal.style.background='rgba(0,0,0,0.3)';
-  modal.innerHTML=`<div style="background:rgba(255,255,255,0.95);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:70vh;overflow-y:auto;animation:slideUp .25s ease">
-    <div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <div style="font-size:14px;font-weight:500;color:#1e3a5f;">Service Updates</div>
-      ${isAdmin()?`<button onclick="addServiceUpdate()" style="font-size:12px;color:#3B82F6;background:rgba(59,130,246,0.1);border:none;padding:4px 10px;border-radius:8px;cursor:pointer;">+ Add</button>`:''}
-    </div>
-    <div style="space-y:4px;">
-      ${(data||[]).map(u=>{
-        const color=u.level==='urgent'?'#ef4444':u.level==='warning'?'#f59e0b':'#3B82F6';
-        const t=new Date(u.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Chicago'});
-        return `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">
-          <div style="width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0;margin-top:5px;"></div>
-          <div style="flex:1;">
-            <div style="font-size:13px;color:#1e3a5f;line-height:1.4;">${u.message}</div>
-            <div style="font-size:10px;color:#93c5fd;margin-top:2px;">${u.created_by||'System'} · ${t}</div>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>
-    <button onclick="this.closest('.fixed').remove()" style="width:100%;height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;margin-top:14px;">Close</button>
-  </div>`;
+  modal.innerHTML='<div style="background:rgba(255,255,255,0.95);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:70vh;overflow-y:auto;animation:slideUp .25s ease">' +
+    '<div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">' +
+    '<div style="font-size:14px;font-weight:500;color:#1e3a5f;">Yesterday\'s Highlights</div>' +
+    (isAdmin()?'<button onclick="addServiceUpdate()" style="font-size:12px;color:#3B82F6;background:rgba(59,130,246,0.1);border:none;padding:4px 10px;border-radius:8px;cursor:pointer;">+ Add</button>':'') +
+    '</div><div>' +
+    (data||[]).map(u=>{
+      const color=u.level==='urgent'?'#ef4444':u.level==='warning'?'#f59e0b':'#3B82F6';
+      const t=new Date(u.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Chicago'});
+      return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">' +
+        '<div style="width:7px;height:7px;border-radius:50%;background:'+color+';flex-shrink:0;margin-top:5px;"></div>' +
+        '<div style="flex:1;"><div style="font-size:13px;color:#1e3a5f;line-height:1.4;">'+u.message+'</div>' +
+        '<div style="font-size:10px;color:#93c5fd;margin-top:2px;">'+(u.created_by||'System')+' · '+t+'</div></div>' +
+        '</div>';
+    }).join('') +
+    '</div><button onclick="this.closest(\'.fixed\').remove()" style="width:100%;height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;margin-top:14px;">Close</button>' +
+    '</div>';
   modal.onclick=e=>{if(e.target===modal)modal.remove()};
   document.body.appendChild(modal);
 }
 
 async function addServiceUpdate(){
-  const levels=['info','warning','urgent','event'];
   const msg=prompt('Service update message:');
   if(!msg) return;
   const lvl=prompt('Level (info/warning/urgent/event):','info');
