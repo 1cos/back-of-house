@@ -28,8 +28,7 @@ window.runSousChefScan = async function() {
     const [{ data: ivRows }, { data: allIngr }, { data: allRecipes }, { data: linkRows }] = await Promise.all([
       sb.from('ingredient_vendors')
         .select('ingredient_id,vendor,unit_price,price_per_100g,price_type,pack_description,conversion_to_base,last_invoice_date')
-        .not('unit_price', 'is', null)
-        .not('unit_price', 'eq', 0),
+        .not('unit_price', 'is', null),
       sb.from('ingredients').select('id,name,category').eq('active', true),
       sb.from('recipes').select('title,ingredients'),
       sb.from('ingredient_links').select('ingredient_id').eq('confirmed', true),
@@ -69,6 +68,8 @@ window.runSousChefScan = async function() {
       });
     }
 
+    // DEBUG TEMPORANEO — rimuovere dopo test
+    showScToast(`🔍 Dataset: ${dataset.length} ingr, ivRows: ${(ivRows||[]).length}, allIngr: ${(allIngr||[]).length}`, 6000);
     if (dataset.length === 0) {
       showScToast('✅ Nessun dato da analizzare');
       return;
