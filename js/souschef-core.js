@@ -101,14 +101,25 @@ function scScheduleAutoScan() {
   function tick() {
     const { hour, minute, texas } = scGetTexasHour();
     const now = Date.now();
+    const dayOfWeek = texas.getDay(); // 0=domenica, 1=lunedì...
+    const isSunday = dayOfWeek === 0;
 
-    // Scan mattina alle 06:30 — una volta al giorno
     const is630 = hour === 6 && minute >= 30 && minute < 35;
     const todayKey = texas.toISOString().slice(0, 10);
     const lastMorningKey = localStorage.getItem('sc_last_morning_scan') || '';
+
     if (is630 && lastMorningKey !== todayKey) {
       localStorage.setItem('sc_last_morning_scan', todayKey);
-      localStorage.removeItem('sc_last_scan'); // forza scan anche se throttle
+
+      if (isSunday) {
+        // Domenica 06:30 — solo messaggio buona domenica, zero scan
+        console.log('[AutoScan] Domenica — solo buongiorno, nessuna scan');
+        scSundayGreeting(texas);
+        return;
+      }
+
+      // Lunedì-Sabato 06:30 — scan mattina normale
+      localStorage.removeItem('sc_last_scan');
       if (typeof runSousChefScan === 'function') {
         console.log('[AutoScan] Scan mattina 06:30 Texas');
         runSousChefScan(true);
@@ -118,18 +129,59 @@ function scScheduleAutoScan() {
       return;
     }
 
-    // Scan oraria 06:30-17:30
-    if (scIsActiveHour()) {
+    // Scan oraria 06:30-17:30 — solo Lunedì-Sabato
+    if (!isSunday && scIsActiveHour()) {
       const ONE_HOUR = 60 * 60 * 1000;
       if (now - lastAutoScan >= ONE_HOUR) {
         lastAutoScan = now;
         localStorage.setItem('sc_last_auto_scan', String(now));
-        localStorage.removeItem('sc_last_scan'); // bypassa throttle manuale
+        localStorage.removeItem('sc_last_scan');
         if (typeof runSousChefScan === 'function') {
           console.log('[AutoScan] Scan oraria', `${hour}:${String(minute).padStart(2,'0')} Texas`);
           runSousChefScan(true);
         }
       }
+    }
+  }
+
+  // ── DOMENICA — messaggio buona domenica + recap settimana ──
+  async function scSundayGreeting(texas) {
+    try {
+      const sb = window.supabaseClient;
+      if (!sb) return;
+
+      // Calcola inizio settimana (lunedì scorso)
+      const monday = new Date(texas);
+      monday.setDate(texas.getDate() - texas.getDay() + 1);
+      const mondayStr = monday.toISOString().slice(0, 10);
+
+      // Vendite settimana
+      const { data: sales } = await sb
+        .from('pos_daily_summary')
+        .select('sale_date, net_sales, bill_count')
+        .gte('sale_date', mondayStr)
+        .order('sale_date', { ascending: true });
+
+      const totalSales = (sales || []).reduce((s, d) => s + parseFloat(d.net_sales || 0), 0);
+      const totalCovers = (sales || []).reduce((s, d) => s + parseInt(d.bill_count || 0), 0);
+      const bestDay = (sales || []).sort((a, b) => parseFloat(b.net_sales) - parseFloat(a.net_sales))[0];
+
+      let recap = `Settimana: $${totalSales.toFixed(0)} totale, ${totalCovers} coperti`;
+      if (bestDay) recap += `, giornata migliore ${bestDay.sale_date} ($${parseFloat(bestDay.net_sales).toFixed(0)})`;
+
+      // Mostra toast domenicale
+      showScToast(`☀️ Buona domenica crew! ${recap}`, 8000);
+
+      // Crea service update visibile a tutti
+      await sb.from('service_updates').insert({
+        message: `☀️ Buona domenica! ${recap}. Buon riposo a tutti! 🍝`,
+        level: 'info',
+        created_by: 'Sous Chef',
+      });
+
+    } catch(e) {
+      console.error('[SundayGreeting]', e.message);
+      showScToast('☀️ Buona domenica! Buon riposo crew! 🍝', 6000);
     }
   }
 
