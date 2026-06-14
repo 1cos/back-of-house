@@ -151,7 +151,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       <!-- CENTRO: utenti online -->
       <div id="online" class="flex items-center" style="flex:1;justify-content:center;gap:4px;"></div>
 
-      <!-- DESTRA: campanella → apre menu admin; bottoni legacy nascosti -->
+      <!-- DESTRA: campanella → solo admin; bottoni legacy nascosti -->
       <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
         <button id="alertBtn" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#fee2e2;border:none;font-size:16px;cursor:pointer;">🚨</button>
         <button id="userMgrBtn" onclick="openUserManager()" style="display:none;"></button>
@@ -188,7 +188,23 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
     <!-- HOME -->
     <section id="vh" class="px-3 pt-3 pb-4 space-y-3">
 
-      <!-- WARNINGS BANNER — populated by warnings-banner.js -->
+      <!-- ── CLOSING CHECKLIST (sale in cima dopo le 20:00) — tutti ── -->
+      <!-- Nascosto di default, JS lo mostra dopo le 20:00 -->
+      <div id="homeClosingWidget" style="display:none;background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Closing Checklist</span>
+          <button onclick="document.querySelector('[data-t=s]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Open →</button>
+        </div>
+        <div id="homeClosingStations" style="padding:9px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+        <!-- Campo commento serale — appare solo dopo le 20:00 -->
+        <div id="homeEveningNote" style="padding:0 14px 14px;">
+          <textarea id="homeEveningNoteText" rows="2" placeholder="Anything to pass on for tomorrow?"
+            style="width:100%;padding:8px 12px;border:0.5px solid rgba(59,130,246,0.2);border-radius:10px;font-size:13px;resize:none;box-sizing:border-box;outline:none;font-family:inherit;color:#1e3a5f;background:rgba(59,130,246,0.03);"></textarea>
+          <button onclick="saveEveningNote()" style="margin-top:6px;width:100%;height:36px;border-radius:10px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Save note</button>
+        </div>
+      </div>
+
+      <!-- WARNINGS BANNER — populated by warnings-banner.js — solo admin -->
       <div id="warningsBanner" style="display:none;"></div>
 
       <!-- Invoice quick actions — solo admin -->
@@ -212,45 +228,8 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         </div>
       </div>
 
-      <!-- Service Updates -->
-      <div style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
-          <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Service Updates</span>
-          <button onclick="openServiceUpdates()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">View all</button>
-        </div>
-        <div id="serviceUpdatesList" style="padding:9px 14px;"></div>
-      </div>
-
-      <!-- Upcoming Demand -->
-      <div style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
-        <div style="padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
-          <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Upcoming Demand</span>
-        </div>
-        <div id="upcomingDemand" style="padding:9px 14px;">
-          <div style="font-size:13px;color:#94a3b8;padding:4px 0;">No upcoming events</div>
-        </div>
-      </div>
-
-      <!-- Your Station -->
-      <div style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
-          <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Your Station</span>
-          <button onclick="document.querySelector('[data-t=m]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Go to prep →</button>
-        </div>
-        <div id="homeStationItems" style="padding:9px 14px;padding-bottom:14px;"></div>
-      </div>
-
-      <!-- Checklist chiusura — solo admin -->
-      <div id="homeChecklistSection" style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
-          <span id="homeChecklistLabel" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Closing Checklist</span>
-          <button id="homeOpenBtn" onclick="document.querySelector('[data-t=s]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Open →</button>
-        </div>
-        <div id="homeStations" style="padding:9px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
-      </div>
-
       <!-- Briefing AI — solo admin -->
-      <div id="homeBriefingSection" style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
+      <div id="homeBriefingSection" style="display:none;background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
           <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Briefing AI</span>
           <button id="briefingRefreshBtn" onclick="refreshBriefing()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Refresh</button>
@@ -260,6 +239,49 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <div class="animate-pulse h-4 bg-slate-100 rounded w-full mb-2"></div>
           <div class="animate-pulse h-4 bg-slate-100 rounded w-2/3"></div>
         </div>
+      </div>
+
+      <!-- Yesterday's Highlights / Weekly Highlights — admin: tecnico, staff: motivazionale -->
+      <!-- Il titolo viene aggiornato da JS in base al giorno della settimana -->
+      <div id="homeHighlightsWidget" style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span id="homeHighlightsTitle" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Yesterday's Highlights</span>
+          <button onclick="openServiceUpdates()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">View all</button>
+        </div>
+        <div id="serviceUpdatesList" style="padding:9px 14px;"></div>
+      </div>
+
+      <!-- Upcoming Demand — tutti -->
+      <div style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
+        <div style="padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Upcoming Demand</span>
+        </div>
+        <div id="upcomingDemand" style="padding:9px 14px;">
+          <div style="font-size:13px;color:#94a3b8;padding:4px 0;">No upcoming events</div>
+        </div>
+      </div>
+
+      <!-- Stations — admin: tutte le stazioni; staff: la propria + altre in pill -->
+      <div id="homeStationsWidget" style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span id="homeStationsTitle" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Stations</span>
+          <button id="homeStationsGoBtn" onclick="document.querySelector('[data-t=m]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Go to prep →</button>
+        </div>
+        <!-- Admin: pill tutte le stazioni -->
+        <div id="homeStations" style="padding:9px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+        <!-- Staff: top 3 item propria stazione -->
+        <div id="homeStationItems" style="padding:9px 14px;padding-bottom:14px;display:none;"></div>
+        <!-- Staff: altre stazioni in pill -->
+        <div id="homeOtherStations" style="padding:0 14px 14px;display:none;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+
+      <!-- Closing Checklist nella posizione originale — solo admin, solo prima delle 20:00 -->
+      <div id="homeChecklistSection" style="display:none;background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 8px 24px rgba(30,58,95,0.05);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span id="homeChecklistLabel" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Closing Checklist</span>
+          <button id="homeOpenBtn" onclick="document.querySelector('[data-t=s]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Open →</button>
+        </div>
+        <div id="homeChecklistStations" style="padding:9px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
       </div>
 
     </section>
@@ -392,13 +414,13 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <span class="text-[10px] font-medium tab-label" style="color:#059669">Home</span>
       </button>
 
-      <!-- PREP — staff only, nascosto per admin -->
+      <!-- PREP — staff only -->
       <button id="tabPrep" data-t="m" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/></svg>
         <span class="text-[10px] tab-label">Prep</span>
       </button>
 
-      <!-- CHIUSURA — staff only, nascosto per admin -->
+      <!-- CHIUSURA — staff only -->
       <button id="tabChiusura" data-t="s" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><path d="m9 14 2 2 4-4"/></svg>
         <span class="text-[10px] tab-label">Closing</span>
@@ -416,13 +438,13 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <span class="text-[10px] tab-label" data-i18n="ingredients">Ingredienti</span>
       </button>
 
-      <!-- CHAT — tutti, badge iOS celeste -->
-      <!-- SALES — admin only -->
+      <!-- SALES — admin e staff (contenuto diverso) -->
       <button id="tabSales" data-t="x" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         <span class="text-[10px] tab-label">Sales</span>
       </button>
 
+      <!-- CHAT — tutti -->
       <button id="tabChat" onclick="showChat()" class="flex flex-col items-center gap-1 w-14 text-slate-500 relative">
         <div class="relative">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
