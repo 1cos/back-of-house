@@ -24,19 +24,20 @@ async function loadPresence(){
   if(!data) return;
   const now = Date.now();
   const online = data.filter(u => (now - new Date(u.last_seen).getTime()) < 2*60*1000);
+  // Escludi l'utente corrente — il suo avatar è già nel topbar a sinistra
+  const others = online.filter(u => u.user_name !== user?.name);
   const el = document.getElementById('online');
-  el.innerHTML = online.map(u => {
+  if(!el) return;
+  el.innerHTML = others.map(u => {
     const initials = u.user_name.slice(0,2).toUpperCase();
-    const isMe = u.user_name === user?.name;
     const bgColors = ['#10b981','#3b82f6','#8b5cf6','#f59e0b','#ef4444','#14b8a6'];
     const colorIdx = u.user_name.charCodeAt(0) % bgColors.length;
     const bg = bgColors[colorIdx];
-    const ring = isMe ? 'box-shadow:0 0 0 2px #6ee7b7;' : '';
     const inner = u.photo_url
       ? `<img src="${u.photo_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`
       : initials;
     return `<div onclick="showPresenceTooltip('${u.user_name}','${u.station||''}',this)"
-      style="width:36px;height:36px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;color:white;font-size:13px;font-weight:700;border:2.5px solid white;cursor:pointer;overflow:hidden;flex-shrink:0;${ring}"
+      style="width:32px;height:32px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:700;border:2px solid white;cursor:pointer;overflow:hidden;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,0.15);"
       title="${u.user_name}${u.station?' • '+u.station:''}">
       ${inner}
     </div>`;
@@ -44,7 +45,6 @@ async function loadPresence(){
 }
 
 function showPresenceTooltip(name, station, el){
-  // rimuovi tooltip esistenti
   document.querySelectorAll('.presence-tooltip').forEach(t=>t.remove());
   const tip = document.createElement('div');
   tip.className = 'presence-tooltip fixed z-50 bg-slate-900 text-white text-xs px-3 py-2 rounded-xl shadow-xl';
@@ -60,7 +60,6 @@ function startPresence(){
   updatePresence();
   loadPresence();
   presenceInterval = setInterval(()=>{updatePresence();loadPresence();}, 60000);
-  // realtime
   presenceChannel = supa.channel('presence-rt')
     .on('postgres_changes',{event:'*',schema:'public',table:'user_presence'},loadPresence)
     .subscribe();
@@ -76,7 +75,6 @@ async function loadPresenceLog(){
   const out = document.getElementById('presenceLogOut');
   if(!out) return;
   out.innerHTML = `<p class="text-slate-400 text-xs">${tr('loading')}</p>`;
-  const since = new Date(Date.now() - 7*24*60*60*1000).toISOString();
   const{data} = await supa.from('user_presence').select('*').order('last_seen',{ascending:false});
   if(!data||!data.length){out.innerHTML=`<p class="text-slate-400 text-xs">${tr('noData2')}</p>`;return}
   const now = Date.now();
@@ -96,8 +94,6 @@ async function loadPresenceLog(){
       </tr>`;
     }).join('')+`</tbody></table>`;
 }
-
-
 
 async function showAlertsLogTab(){
   ['btnToday','btnWeek','btnPresence'].forEach(id=>{
@@ -135,5 +131,3 @@ function showPresenceTab(){
   document.getElementById('presenceLogOut').classList.remove('hidden');
   loadPresenceLog();
 }
-
-
