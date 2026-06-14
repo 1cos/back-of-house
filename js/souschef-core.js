@@ -188,11 +188,11 @@ function scScheduleAutoScan() {
 
       let recapSettimana = `📊 *RECAP SETTIMANA*
 `;
-      recapSettimana += `💰 Totale: $${totalSales.toFixed(0)} | ${totalCovers} coperti | avg $${avgCover}/coperto
+      recapSettimana += `👥 ${totalCovers} coperti totali\n`;
 `;
-      if (bestDay) recapSettimana += `🏆 Miglior giorno: ${days[new Date(bestDay.sale_date).getDay()]} ($${parseFloat(bestDay.net_sales).toFixed(0)})
+      if (bestDay) recapSettimana += `🏆 Giorno più pieno: ${days[new Date(bestDay.sale_date).getDay()]} (${parseInt(bestDay.bill_count || 0)} coperti)\n`;
 `;
-      if (worstDay && worstDay.sale_date !== bestDay?.sale_date) recapSettimana += `📉 Giorno più quieto: ${days[new Date(worstDay.sale_date).getDay()]} ($${parseFloat(worstDay.net_sales).toFixed(0)})
+      if (worstDay && worstDay.sale_date !== bestDay?.sale_date) recapSettimana += `📉 Giorno più quieto: ${days[new Date(worstDay.sale_date).getDay()]} (${parseInt(worstDay.bill_count || 0)} coperti)\n`;
 `;
       if (topItemsStr) recapSettimana += `🍽️ Top piatti: ${topItemsStr}`;
 
