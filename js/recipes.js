@@ -33,6 +33,7 @@ function showNoteSheet(name, note){
   </div>`;
   sheet.onclick = e=>{ if(e.target===sheet) sheet.remove(); };
   document.body.appendChild(sheet);
+  addSwipeToClose(sheet.querySelector('div'), ()=>sheet.remove());
 }
 
 async function openRecipeByData(idx){
@@ -150,6 +151,7 @@ function showRecipeSheet(rec){
     </div>`;
   sheet.onclick = e=>{ if(e.target===sheet) sheet.remove(); };
   document.body.appendChild(sheet);
+  addSwipeToClose(sheet.querySelector('div'), ()=>sheet.remove());
   calcRecipeFoodCost(rec);
 }
 
