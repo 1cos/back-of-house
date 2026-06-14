@@ -76,39 +76,33 @@ function renderHomeStations(){
     // ── STAFF: Your Station (top 3 item) ──
     renderHomeStationItems();
 
-    // ── STAFF: Other Stations — solo quelle con item da fare ──
+    // ── STAFF: Other Stations — widget separato, solo stazioni con todo ──
+    const otherWidget=document.getElementById('homeOtherStationsWidget');
     const otherEl=document.getElementById('homeOtherStations');
-    if(!otherEl) return;
+    if(!otherWidget||!otherEl) return;
 
     const userStation=user?.default_station||null;
 
-    // Tutte le stazioni esclusa la propria, con almeno 1 item need_tomorrow
     const otherCats=allCats.filter(s=>{
       if(s===userStation) return false;
       if(s==='Chiusura') return false;
-      const hasTodo=items.some(i=>i.need_tomorrow&&i.category===s);
-      return hasTodo;
+      return items.some(i=>i.need_tomorrow&&i.category===s);
     });
 
     if(!otherCats.length){
+      otherWidget.style.display='none';
       otherEl.innerHTML='';
-      otherEl.style.display='none';
-      // Nascondi anche il label "Other Stations" se esiste
-      const otherLabel=document.getElementById('homeOtherStationsLabel');
-      if(otherLabel) otherLabel.style.display='none';
       return;
     }
 
-    // Mostra label e pill
-    const otherLabel=document.getElementById('homeOtherStationsLabel');
-    if(otherLabel) otherLabel.style.display='block';
+    otherWidget.style.display='block';
     otherEl.style.display='flex';
 
     otherEl.innerHTML=otherCats.map(s=>{
       const missing=items.filter(i=>i.need_tomorrow&&i.category===s).length;
       const label=s.replace(' Station','').replace('Station','');
-      return '<div onclick="goToStation(\''+s+'\')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition bg-red-100 text-red-700 border border-red-200">' +
-        '<span>'+label+'</span>' +
+      return '<div onclick="goToStation(''+s+'')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition bg-red-100 text-red-700 border border-red-200">'+
+        '<span>'+label+'</span>'+
         '<span class="bg-red-500 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full">'+missing+'</span>'+
         '</div>';
     }).join('');
