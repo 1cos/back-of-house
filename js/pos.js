@@ -16,7 +16,6 @@ function getPeriod(mode) {
   const todayISO = toISO(today);
   const dow = today.getDay();
 
-  // day_0 = ieri, day_1 = 2 giorni fa, ... day_5 = 6 giorni fa
   if (mode && mode.startsWith('day_')) {
     const offset = parseInt(mode.split('_')[1]) + 1;
     const d = addDays(today, -offset);
@@ -37,8 +36,7 @@ function getPeriod(mode) {
     return { from:toISO(lastFri), to:toISO(lastSun), label:'Weekend '+toISO(lastFri).slice(5)+'-'+toISO(lastSun).slice(5), compareLabel:'Avg weekend', compareDates:cmp };
   }
   if (mode === 'lastweek') {
-    // Lunedì-Sabato della settimana scorsa
-    const dayOfWeek = today.getDay(); // 0=Dom, 1=Lun...
+    const dayOfWeek = today.getDay();
     const daysToLastMon = dayOfWeek === 0 ? 6 : dayOfWeek + 6;
     const lastMon = addDays(today, -daysToLastMon);
     const lastSat = addDays(lastMon, 5);
@@ -58,7 +56,6 @@ function getPeriod(mode) {
 function posSelectors(period) {
   const today = new Date(); today.setHours(0,0,0,0);
 
-  // 6 giorni precedenti: ieri -> 6 giorni fa
   const dayTabs = Array.from({length:6}, function(_,i) {
     const d = addDays(today, -(i+1));
     const iso = toISO(d);
@@ -77,12 +74,12 @@ function posSelectors(period) {
     const a = posDateMode === t.mode;
     const d = addDays(today, -(parseInt(t.mode.split('_')[1])+1));
     const num = toISO(d).slice(8);
-    const dayName = t.label.replace(/\s*\d+/,''); // solo nome giorno
+    const dayName = t.label.replace(/\s*\d+/,'');
     return '<button onclick="posSetMode(\'' + t.mode + '\')"' +
-      ' style="flex:1;border-radius:12px;border:0.5px solid ' + (a?'#2563eb':'rgba(59,130,246,0.15)') + ';' +
+      ' style="flex:1;border-radius:10px;border:0.5px solid ' + (a?'#2563eb':'rgba(59,130,246,0.15)') + ';' +
       'background:' + (a?'#3b82f6':'white') + ';' +
-      'box-shadow:0 2px 6px rgba(30,58,95,' + (a?'0.2':'0.07') + ');' +
-      'cursor:pointer;padding:8px 2px;text-align:center;-webkit-tap-highlight-color:transparent;">' +
+      'box-shadow:0 1px 4px rgba(30,58,95,' + (a?'0.18':'0.05') + ');' +
+      'cursor:pointer;padding:5px 2px;text-align:center;-webkit-tap-highlight-color:transparent;">' +
       '<div style="font-size:9px;font-weight:500;color:' + (a?'rgba(255,255,255,0.8)':'#94a3b8') + ';line-height:1.2;">' + (t.mode==='day_0'?'Yest.':dayName) + '</div>' +
       '<div style="font-size:14px;font-weight:700;color:' + (a?'white':'#1e3a5f') + ';line-height:1.3;">' + num + '</div>' +
       '</button>';
@@ -91,17 +88,17 @@ function posSelectors(period) {
   const row2 = fixedTabs.map(function(t) {
     const a = posDateMode === t.mode;
     return '<button onclick="posSetMode(\'' + t.mode + '\')"' +
-      ' style="flex:1;font-size:12px;font-weight:600;padding:11px 4px;border-radius:12px;' +
+      ' style="flex:1;font-size:12px;font-weight:600;padding:8px 4px;border-radius:10px;' +
       'border:0.5px solid ' + (a?'#2563eb':'rgba(59,130,246,0.15)') + ';' +
       'background:' + (a?'#3b82f6':'white') + ';' +
       'color:' + (a?'white':'#1e3a5f') + ';' +
-      'box-shadow:0 2px 6px rgba(30,58,95,' + (a?'0.2':'0.07') + ');' +
+      'box-shadow:0 1px 4px rgba(30,58,95,' + (a?'0.18':'0.05') + ');' +
       'cursor:pointer;text-align:center;-webkit-tap-highlight-color:transparent;">' +
       t.label + '</button>';
   }).join('');
 
   const customPicker = posDateMode === 'custom' ? (
-    '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">' +
+    '<div style="display:flex;gap:8px;margin-top:8px;align-items:center;">' +
     '<div style="display:flex;align-items:center;gap:6px;flex:1;">' +
     '<span style="font-size:11px;color:#64748b;">Dal</span>' +
     '<input type="date" id="_posFrom" value="' + (posCustomFrom||'') + '"' +
@@ -117,13 +114,13 @@ function posSelectors(period) {
     '</div>'
   ) : '';
 
-  return '<div style="background:white;border-radius:16px;border:0.5px solid rgba(59,130,246,0.1);box-shadow:0 2px 8px rgba(30,58,95,0.07);padding:10px 10px 10px;margin-bottom:10px;">' +
-           '<div style="font-size:10px;font-weight:600;color:#60a5fa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Recent days</div>' +
-           '<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:5px;">' + row1 + '</div>' +
+  return '<div style="background:white;border-radius:14px;border:0.5px solid rgba(59,130,246,0.1);box-shadow:0 2px 8px rgba(30,58,95,0.07);padding:8px 8px 6px;margin-bottom:6px;">' +
+           '<div style="font-size:10px;font-weight:600;color:#60a5fa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Recent days</div>' +
+           '<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;">' + row1 + '</div>' +
            '</div>' +
-           '<div style="background:white;border-radius:16px;border:0.5px solid rgba(59,130,246,0.1);box-shadow:0 2px 8px rgba(30,58,95,0.07);padding:10px;margin-bottom:10px;">' +
-           '<div style="font-size:10px;font-weight:600;color:#60a5fa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Periods</div>' +
-           '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 44px;gap:6px;">' + row2 + '</div>' +
+           '<div style="background:white;border-radius:14px;border:0.5px solid rgba(59,130,246,0.1);box-shadow:0 2px 8px rgba(30,58,95,0.07);padding:8px;margin-bottom:10px;">' +
+           '<div style="font-size:10px;font-weight:600;color:#60a5fa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Periods</div>' +
+           '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 44px;gap:5px;">' + row2 + '</div>' +
            '</div>' +
            customPicker;
 }
@@ -131,7 +128,7 @@ function posSelectors(period) {
 async function loadPOS() {
   const sec = document.getElementById('vx');
   if (!sec || sec.classList.contains('hidden')) return;
-  sec.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px;">Caricamento…</div>';
+  sec.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px;">Caricamento\u2026</div>';
 
   try {
     const sb = window.supabaseClient;
@@ -153,26 +150,23 @@ async function loadPOS() {
 
     const d = days || [];
 
-    // ── Empty state
     if (d.length === 0) {
       const msgs = {
-        today:    '📭 Nessun dato per oggi.<br><small style="color:#94a3b8">I CSV arrivano via email la mattina seguente.</small>',
-        yesterday:'📭 Nessun dato per ieri.<br><small style="color:#94a3b8">Possibile giorno di chiusura o CSV non ancora arrivato.</small>',
-        weekend:  '📭 Nessun dato per il weekend scorso.<br><small style="color:#94a3b8">I CSV arrivano il lunedì mattina.</small>',
-        week:     '📭 Nessun dato per gli ultimi 7 giorni.',
-        month:    '📭 Nessun dato per gli ultimi 30 giorni.',
+        today:    '\uD83D\uDCED Nessun dato per oggi.<br><small style="color:#94a3b8">I CSV arrivano via email la mattina seguente.</small>',
+        yesterday:'\uD83D\uDCED Nessun dato per ieri.<br><small style="color:#94a3b8">Possibile giorno di chiusura o CSV non ancora arrivato.</small>',
+        weekend:  '\uD83D\uDCED Nessun dato per il weekend scorso.<br><small style="color:#94a3b8">I CSV arrivano il lunedì mattina.</small>',
+        week:     '\uD83D\uDCED Nessun dato per gli ultimi 7 giorni.',
+        month:    '\uD83D\uDCED Nessun dato per gli ultimi 30 giorni.',
       };
-      sec.innerHTML = `<div style="padding:12px;">
-        ${posSelectors(period)}
-        <p style="font-size:11px;color:#64748b;font-weight:500;margin-bottom:16px;">${period.label}</p>
-        <div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:40px 20px;text-align:center;font-size:13px;color:#475569;line-height:1.6;">
-          ${msgs[posDateMode]||'Nessun dato per questo periodo.'}
-        </div>
-      </div>`;
+      sec.innerHTML = '<div style="padding:12px;">' +
+        posSelectors(period) +
+        '<p style="font-size:11px;color:#64748b;font-weight:500;margin-bottom:16px;">' + period.label + '</p>' +
+        '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:40px 20px;text-align:center;font-size:13px;color:#475569;line-height:1.6;">' +
+        (msgs[posDateMode]||'Nessun dato per questo periodo.') +
+        '</div></div>';
       return;
     }
 
-    // ── Aggregate
     const totalRevenue  = d.reduce((s,x)=>s+(x.net_sales||0),0);
     const totalCovers   = d.reduce((s,x)=>s+(x.bill_count||0),0);
     const totalDisc     = d.reduce((s,x)=>s+(x.discounts||0),0);
@@ -181,7 +175,6 @@ async function loadPOS() {
     const foodCostPct   = totalRevenue>0 ? (totalFoodCost/totalRevenue)*100 : 0;
     const nDays         = d.length||1;
 
-    // ── Compare block
     let cmpHtml = '';
     if (compareDays.length > 0) {
       const div = period.singleDay ? compareDays.length : Math.max(compareDays.length/3,1);
@@ -190,19 +183,18 @@ async function loadPOS() {
       const cChk = cCov>0 ? cRev/cCov : 0;
       const cFcP = cRev>0 ? (compareDays.reduce((s,x)=>s+(x.food_cost||0),0)/div/cRev)*100 : 0;
       const arrow = (cur,ref) => ref>0 ? ((cur-ref)/ref*100) : null;
-      const arrowHtml = (v) => v===null ? '' : `<span style="font-size:10px;color:${v>=0?'#059669':'#dc2626'};">${v>=0?'▲':'▼'} ${Math.abs(v).toFixed(0)}%</span>`;
-      cmpHtml = `<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;">
-        <p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">${period.compareLabel} · ${compareDays.length} date</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
-          <div><p style="font-size:9px;color:#94a3b8;">Revenue avg</p><p style="font-size:14px;font-weight:700;color:#475569;">${fmt(cRev)}</p>${arrowHtml(arrow(totalRevenue,cRev))}</div>
-          <div><p style="font-size:9px;color:#94a3b8;">Coperti avg</p><p style="font-size:14px;font-weight:700;color:#475569;">${Math.round(cCov)}</p>${arrowHtml(arrow(totalCovers,cCov))}</div>
-          <div><p style="font-size:9px;color:#94a3b8;">Check avg</p><p style="font-size:14px;font-weight:700;color:#475569;">${fmtD(cChk)}</p></div>
-        </div>
-        <p style="font-size:10px;color:#94a3b8;text-align:center;margin-top:8px;">Food cost avg: ${cFcP.toFixed(1)}%</p>
-      </div>`;
+      const arrowHtml = (v) => v===null ? '' : '<span style="font-size:10px;color:'+(v>=0?'#059669':'#dc2626')+'">'+(v>=0?'\u25B2':'\u25BC')+' '+Math.abs(v).toFixed(0)+'%</span>';
+      cmpHtml = '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;">' +
+        '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">'+period.compareLabel+' \u00B7 '+compareDays.length+' date</p>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">' +
+        '<div><p style="font-size:9px;color:#94a3b8;">Revenue avg</p><p style="font-size:14px;font-weight:700;color:#475569;">'+fmt(cRev)+'</p>'+arrowHtml(arrow(totalRevenue,cRev))+'</div>' +
+        '<div><p style="font-size:9px;color:#94a3b8;">Coperti avg</p><p style="font-size:14px;font-weight:700;color:#475569;">'+Math.round(cCov)+'</p>'+arrowHtml(arrow(totalCovers,cCov))+'</div>' +
+        '<div><p style="font-size:9px;color:#94a3b8;">Check avg</p><p style="font-size:14px;font-weight:700;color:#475569;">'+fmtD(cChk)+'</p></div>' +
+        '</div>' +
+        '<p style="font-size:10px;color:#94a3b8;text-align:center;margin-top:8px;">Food cost avg: '+cFcP.toFixed(1)+'%</p>' +
+        '</div>';
     }
 
-    // ── Top sellers
     const itemMap = {};
     (items||[]).forEach(r => {
       if (!itemMap[r.menu_item]) itemMap[r.menu_item]={name:r.menu_item,cat:r.sales_category,qty:0,rev:0};
@@ -212,119 +204,116 @@ async function loadPOS() {
     const topItems = Object.values(itemMap).filter(x=>x.rev>0).sort((a,b)=>b.rev-a.rev).slice(0,10);
     const catColors = {Food:'#059669',Alcohol:'#7c3aed',Wine:'#dc2626',Beer:'#d97706'};
 
-    // ── Category
     const catMap = {};
     (items||[]).forEach(r => { const c=r.sales_category||'Other'; catMap[c]=(catMap[c]||0)+(Number(r.gross_sales)||0); });
     const cats = Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
 
-    // ── Trend bars
     let trendHtml = '';
     if (['week','month','weekend'].includes(posDateMode) && d.length>1) {
       const sorted = [...d].sort((a,b)=>a.sale_date.localeCompare(b.sale_date));
       const maxR = Math.max(...sorted.map(x=>x.net_sales||0));
-      trendHtml = `<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;">
-        <p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Andamento Revenue</p>
-        <div style="display:flex;align-items:flex-end;gap:3px;height:64px;">
-          ${sorted.map(x=>{
-            const h=maxR>0?Math.round(((x.net_sales||0)/maxR)*60):3;
-            return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
-              <div style="height:${h}px;background:#059669;border-radius:2px 2px 0 0;width:100%;min-height:2px;"></div>
-              <span style="font-size:7px;color:#94a3b8;">${x.sale_date.slice(5)}</span>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>`;
+      trendHtml = '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;">' +
+        '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Andamento Revenue</p>' +
+        '<div style="display:flex;align-items:flex-end;gap:3px;height:64px;">' +
+        sorted.map(x => {
+          const h=maxR>0?Math.round(((x.net_sales||0)/maxR)*60):3;
+          return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">' +
+            '<div style="height:'+h+'px;background:#059669;border-radius:2px 2px 0 0;width:100%;min-height:2px;"></div>' +
+            '<span style="font-size:7px;color:#94a3b8;">'+x.sale_date.slice(5)+'</span>' +
+            '</div>';
+        }).join('') +
+        '</div></div>';
     }
 
-    // ── Build HTML
-    sec.innerHTML = `<div style="padding:12px 12px 100px;">
+    const topHtml = topItems.length>0 ?
+      '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;margin-bottom:8px;">' +
+      '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Top 10 per Revenue</p>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;">' +
+      topItems.map(function(it,i) {
+        const bw=topItems[0].rev>0?Math.round((it.rev/topItems[0].rev)*100):0;
+        const col=catColors[it.cat]||'#64748b';
+        return '<div>' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">' +
+          '<span style="font-size:12px;font-weight:500;color:#1e293b;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(i+1)+'. '+it.name+'</span>' +
+          '<span style="font-size:12px;font-weight:700;color:#1e293b;">'+fmt(it.rev)+'</span>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<div style="flex:1;height:4px;background:#f1f5f9;border-radius:2px;overflow:hidden;">' +
+          '<div style="width:'+bw+'%;height:100%;background:'+col+';border-radius:2px;"></div>' +
+          '</div>' +
+          '<span style="font-size:10px;color:#94a3b8;width:32px;text-align:right;">'+it.qty+'x</span>' +
+          '</div></div>';
+      }).join('') +
+      '</div></div>' : '';
 
-      ${posSelectors(period)}
-      <p style="font-size:11px;color:#64748b;font-weight:500;margin-bottom:12px;">${period.label}</p>
+    const catsHtml = cats.length>0 ?
+      '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;margin-bottom:8px;">' +
+      '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Per categoria</p>' +
+      '<div style="display:flex;flex-direction:column;gap:6px;">' +
+      cats.map(function(entry) {
+        const cat=entry[0]; const rev=entry[1];
+        const col=catColors[cat]||'#64748b';
+        const pct=totalRevenue>0?((rev/totalRevenue)*100).toFixed(1):0;
+        return '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<span style="font-size:10px;color:#64748b;width:52px;flex-shrink:0;">'+cat+'</span>' +
+          '<div style="flex:1;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;">' +
+          '<div style="width:'+pct+'%;height:100%;background:'+col+';border-radius:3px;"></div>' +
+          '</div>' +
+          '<span style="font-size:11px;font-weight:600;color:#1e293b;width:52px;text-align:right;">'+fmt(rev)+'</span>' +
+          '</div>';
+      }).join('') +
+      '</div></div>' : '';
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
-        <div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">
-          <p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Revenue netto</p>
-          <p style="font-size:22px;font-weight:700;color:#059669;">${fmt(totalRevenue)}</p>
-          ${nDays>1?`<p style="font-size:10px;color:#94a3b8;">avg/gg ${fmt(totalRevenue/nDays)}</p>`:''}
-        </div>
-        <div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">
-          <p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Coperti</p>
-          <p style="font-size:22px;font-weight:700;color:#1e293b;">${totalCovers}</p>
-          <p style="font-size:10px;color:#94a3b8;">check ${fmtD(avgCheck)}</p>
-        </div>
-        <div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">
-          <p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Food cost</p>
-          <p style="font-size:22px;font-weight:700;color:${foodCostPct>35?'#dc2626':'#1e293b'};">${foodCostPct.toFixed(1)}%</p>
-          <p style="font-size:10px;color:#94a3b8;">${fmt(totalFoodCost)}</p>
-        </div>
-        <div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">
-          <p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Sconti</p>
-          <p style="font-size:22px;font-weight:700;color:#d97706;">${fmt(totalDisc)}</p>
-          <p style="font-size:10px;color:#94a3b8;">${totalRevenue>0?((totalDisc/(totalRevenue+totalDisc))*100).toFixed(1)+'%':'—'} del lordo</p>
-        </div>
-      </div>
+    const daysHtml = d.length>0 ?
+      '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;">' +
+      '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Giornate</p>' +
+      '<div>' +
+      d.map(function(x) {
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f8fafc;">' +
+          '<div>' +
+          '<p style="font-size:12px;font-weight:500;color:#1e293b;">'+dayNameIT(x.sale_date)+' '+x.sale_date.slice(5)+'</p>' +
+          '<p style="font-size:10px;color:#94a3b8;">'+(x.bill_count||'\u2014')+' cop \u00B7 check '+(x.bill_count?fmtD((x.net_sales||0)/x.bill_count):'\u2014')+'</p>' +
+          '</div>' +
+          '<p style="font-size:15px;font-weight:700;color:#059669;">'+fmt(x.net_sales||0)+'</p>' +
+          '</div>';
+      }).join('') +
+      '</div></div>' : '';
 
-      ${cmpHtml ? cmpHtml+'<div style="height:8px;"></div>' : ''}
-      ${trendHtml ? trendHtml+'<div style="height:8px;"></div>' : ''}
-
-      ${topItems.length>0?`<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;margin-bottom:8px;">
-        <p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Top 10 per Revenue</p>
-        <div style="display:flex;flex-direction:column;gap:8px;">
-          ${topItems.map((it,i)=>{
-            const bw=topItems[0].rev>0?Math.round((it.rev/topItems[0].rev)*100):0;
-            const col=catColors[it.cat]||'#64748b';
-            return `<div>
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
-                <span style="font-size:12px;font-weight:500;color:#1e293b;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${i+1}. ${it.name}</span>
-                <span style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(it.rev)}</span>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <div style="flex:1;height:4px;background:#f1f5f9;border-radius:2px;overflow:hidden;">
-                  <div style="width:${bw}%;height:100%;background:${col};border-radius:2px;"></div>
-                </div>
-                <span style="font-size:10px;color:#94a3b8;width:32px;text-align:right;">${it.qty}x</span>
-              </div>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>`:''}
-
-      ${cats.length>0?`<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;margin-bottom:8px;">
-        <p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Per categoria</p>
-        <div style="display:flex;flex-direction:column;gap:6px;">
-          ${cats.map(([cat,rev])=>{
-            const col=catColors[cat]||'#64748b';
-            const pct=totalRevenue>0?((rev/totalRevenue)*100).toFixed(1):0;
-            return `<div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:10px;color:#64748b;width:52px;flex-shrink:0;">${cat}</span>
-              <div style="flex:1;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;">
-                <div style="width:${pct}%;height:100%;background:${col};border-radius:3px;"></div>
-              </div>
-              <span style="font-size:11px;font-weight:600;color:#1e293b;width:52px;text-align:right;">${fmt(rev)}</span>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>`:''}
-
-      ${d.length>0?`<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;">
-        <p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Giornate</p>
-        <div>
-          ${d.map(x=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f8fafc;">
-            <div>
-              <p style="font-size:12px;font-weight:500;color:#1e293b;">${dayNameIT(x.sale_date)} ${x.sale_date.slice(5)}</p>
-              <p style="font-size:10px;color:#94a3b8;">${x.bill_count||'—'} cop · check ${x.bill_count?fmtD((x.net_sales||0)/x.bill_count):'—'}</p>
-            </div>
-            <p style="font-size:15px;font-weight:700;color:#059669;">${fmt(x.net_sales||0)}</p>
-          </div>`).join('')}
-        </div>
-      </div>`:''}
-
-    </div>`;
+    sec.innerHTML = '<div style="padding:12px 12px 100px;">' +
+      posSelectors(period) +
+      '<p style="font-size:11px;color:#64748b;font-weight:500;margin-bottom:12px;">' + period.label + '</p>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">' +
+        '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">' +
+          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Revenue netto</p>' +
+          '<p style="font-size:22px;font-weight:700;color:#059669;">'+fmt(totalRevenue)+'</p>' +
+          (nDays>1?'<p style="font-size:10px;color:#94a3b8;">avg/gg '+fmt(totalRevenue/nDays)+'</p>':'') +
+        '</div>' +
+        '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">' +
+          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Coperti</p>' +
+          '<p style="font-size:22px;font-weight:700;color:#1e293b;">'+totalCovers+'</p>' +
+          '<p style="font-size:10px;color:#94a3b8;">check '+fmtD(avgCheck)+'</p>' +
+        '</div>' +
+        '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">' +
+          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Food cost</p>' +
+          '<p style="font-size:22px;font-weight:700;color:'+(foodCostPct>35?'#dc2626':'#1e293b')+';">'+foodCostPct.toFixed(1)+'%</p>' +
+          '<p style="font-size:10px;color:#94a3b8;">'+fmt(totalFoodCost)+'</p>' +
+        '</div>' +
+        '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">' +
+          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Sconti</p>' +
+          '<p style="font-size:22px;font-weight:700;color:#d97706;">'+fmt(totalDisc)+'</p>' +
+          '<p style="font-size:10px;color:#94a3b8;">'+(totalRevenue>0?((totalDisc/(totalRevenue+totalDisc))*100).toFixed(1)+'%':'\u2014')+' del lordo</p>' +
+        '</div>' +
+      '</div>' +
+      (cmpHtml ? cmpHtml+'<div style="height:8px;"></div>' : '') +
+      (trendHtml ? trendHtml+'<div style="height:8px;"></div>' : '') +
+      topHtml +
+      catsHtml +
+      daysHtml +
+    '</div>';
 
   } catch(err) {
     console.error('POS error:',err);
-    document.getElementById('vx').innerHTML = `<div style="padding:16px;color:#dc2626;font-size:13px;">Errore: ${err.message}</div>`;
+    document.getElementById('vx').innerHTML = '<div style="padding:16px;color:#dc2626;font-size:13px;">Errore: '+err.message+'</div>';
   }
 }
 
