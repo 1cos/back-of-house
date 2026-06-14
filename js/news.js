@@ -6,6 +6,9 @@ async function loadNews(){
   const{data}=await supa.from('alerts').select('*').eq('is_active',true).order('created_at',{ascending:false});
   currentNews=data||[];
   const bar=document.getElementById('newsBar');
+  // bellDot — accendi se ci sono news attive
+  const bellDot = document.getElementById('bellDot');
+  if(bellDot) bellDot.style.display = currentNews.length ? 'block' : 'none';
   if(!currentNews.length){bar.classList.add('hidden');return}
   bar.classList.remove('hidden');
   const viewerLang=normalizeLang(user?.lang);
