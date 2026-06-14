@@ -27,6 +27,7 @@ function openInvoiceImport(){
     </div>`;
   modal.onclick=e=>{if(e.target===modal)modal.remove();};
   document.body.appendChild(modal);
+  addSwipeToClose(modal.querySelector('div'), ()=>modal.remove());
 }
 
 async function processInvoiceFile(input){
