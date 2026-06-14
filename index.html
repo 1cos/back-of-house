@@ -145,7 +145,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
         <button id="alertBtn" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#fee2e2;border:none;font-size:16px;cursor:pointer;">🚨</button>
         <button id="userMgrBtn" onclick="openUserManager()" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;">👥</button>
-        <button id="pwdBtn" onclick="openChangePassword()" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;">🔑</button>
+        <button id="pwdBtn" onclick="openChangePIN()" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;">🔑</button>
         <button id="out" onclick="user=null;location.reload()" style="height:32px;padding:0 12px;background:#f1f5f9;border:none;border-radius:10px;font-size:13px;font-weight:500;color:#64748b;cursor:pointer;">Esci</button>
       </div>
 
@@ -449,7 +449,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span style="font-size:24px;">👤</span><span>Utenti</span>
         </button>
         <button onclick="hideAdminMenu();document.getElementById('pwdBtn')?.click()" class="admin-menu-btn">
-          <span style="font-size:24px;">🔑</span><span>Password</span>
+          <span style="font-size:24px;">🔑</span><span>PIN</span>
         </button>
         <button onclick="hideAdminMenu();openVendorParserTest()" class="admin-menu-btn">
           <span style="font-size:24px;">🧪</span><span>Parser Test</span>
@@ -498,7 +498,6 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/admin-prep.js"></script>
 <script src="js/admin-ingredients.js"></script>
 <script src="js/admin-chef-ai.js"></script>
-<script src="js/admin-team.js"></script>
 <script src="js/prep.js"></script>
 <script src="js/closing.js"></script>
 <script src="js/recipes.js"></script>
