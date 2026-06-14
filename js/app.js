@@ -122,7 +122,7 @@ function doLogin(profile){
   // La barra viene nascosta da loadNews() se non ci sono news attive
 
   // check primo accesso e compleanni
-  setTimeout(()=>{checkFirstLogin(); checkBirthdays(); initSousChef();}, 1000);
+  setTimeout(()=>{checkBirthdays(); initSousChef();}, 1000);
 }
 
 document.getElementById('out').onclick=()=>{user=null;location.reload()};
