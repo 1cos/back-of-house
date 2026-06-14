@@ -186,14 +186,10 @@ function scScheduleAutoScan() {
         .map((t, i) => `${i+1}. ${t.menu_item} (${t.quantity} pz)`)
         .join(', ');
 
-      let recapSettimana = `📊 *RECAP SETTIMANA*
-`;
+      let recapSettimana = `📊 *RECAP SETTIMANA*\n`;
       recapSettimana += `👥 ${totalCovers} coperti totali\n`;
-`;
       if (bestDay) recapSettimana += `🏆 Giorno più pieno: ${days[new Date(bestDay.sale_date).getDay()]} (${parseInt(bestDay.bill_count || 0)} coperti)\n`;
-`;
       if (worstDay && worstDay.sale_date !== bestDay?.sale_date) recapSettimana += `📉 Giorno più quieto: ${days[new Date(worstDay.sale_date).getDay()]} (${parseInt(worstDay.bill_count || 0)} coperti)\n`;
-`;
       if (topItemsStr) recapSettimana += `🍽️ Top piatti: ${topItemsStr}`;
 
       // ── PARTE 2: Settimana prossima ─────────────────────────
