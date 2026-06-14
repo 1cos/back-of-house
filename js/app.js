@@ -128,95 +128,76 @@ function doLogin(profile){
 document.getElementById('out').onclick=()=>{user=null;location.reload()};
 
 // ── ADMIN MENU ───────────────────────────────────────────────
-function showAdminMenu(){
-  const sheet = document.getElementById('adminMenuSheet');
-  if(!sheet) return;
-  sheet.classList.remove('hidden');
-  document.body.style.overflow = 'hidden'; // blocca scroll body
-  const panel = document.getElementById('adminMenuContent');
-  if(!panel) return;
+// ── ADMIN MENU SHEET — soluzione iOS Safari (Gemini) ──
+const _amSheet  = () => document.getElementById('adminMenuSheet');
+const _amPanel  = () => document.getElementById('adminMenuContent');
 
-  // Animazione entrata
-  panel.style.transition = 'none';
-  panel.style.transform = 'translateY(100%)';
-  panel.style.opacity = '0';
-  requestAnimationFrame(()=>{
-    requestAnimationFrame(()=>{
-      panel.style.transition = 'transform .28s cubic-bezier(.32,0,.67,0), opacity .28s ease';
-      panel.style.transform = 'translateY(0)';
-      panel.style.opacity = '1';
-    });
-  });
+let _amStartY=0, _amCurrentY=0, _amDragging=false;
 
-  // Swipe to close — gestito direttamente sul panel
-  let startY=0, currentY=0, dragging=false;
-
-  function onStart(e){
-    if(e.touches.length!==1) return;
-    startY = e.touches[0].clientY;
-    currentY = 0;
-    dragging = true;
-    panel.style.transition = 'none';
-  }
-  function onMove(e){
-    if(!dragging) return;
-    currentY = e.touches[0].clientY - startY;
-    if(currentY < 0){ currentY=0; return; }
+function _amTouchStart(e){
+  _amStartY = e.touches[0].clientY;
+  _amDragging = true;
+  _amPanel().style.transition = 'none';
+}
+function _amTouchMove(e){
+  if(!_amDragging) return;
+  _amCurrentY = e.touches[0].clientY;
+  const dY = _amCurrentY - _amStartY;
+  if(dY > 0){
     e.preventDefault();
-    e.stopPropagation();
-    panel.style.transform = `translateY(${currentY}px)`;
-    panel.style.opacity = String(Math.max(0, 1 - currentY/300));
+    _amPanel().style.transform = `translateY(${dY}px)`;
   }
-  function onEnd(){
-    if(!dragging) return;
-    dragging = false;
-    if(currentY > 100){
-      hideAdminMenu();
-    } else {
-      panel.style.transition = 'transform .2s ease, opacity .2s ease';
-      panel.style.transform = 'translateY(0)';
-      panel.style.opacity = '1';
-    }
+}
+function _amTouchEnd(){
+  if(!_amDragging) return;
+  _amDragging = false;
+  const panel = _amPanel();
+  panel.style.transition = 'transform 0.3s cubic-bezier(0.25,1,0.5,1)';
+  const dY = _amCurrentY - _amStartY;
+  if(dY > 100){
+    hideAdminMenu();
+  } else {
+    panel.style.transform = 'translateY(0)';
   }
+  _amStartY=0; _amCurrentY=0;
+}
 
-  // Rimuovi listener precedenti
-  if(panel._swipeStart) panel.removeEventListener('touchstart', panel._swipeStart);
-  if(panel._swipeMove)  panel.removeEventListener('touchmove',  panel._swipeMove);
-  if(panel._swipeEnd)   panel.removeEventListener('touchend',   panel._swipeEnd);
+function showAdminMenu(){
+  const sheet = _amSheet();
+  const panel = _amPanel();
+  if(!sheet||!panel) return;
 
-  panel._swipeStart = onStart;
-  panel._swipeMove  = onMove;
-  panel._swipeEnd   = onEnd;
+  sheet.classList.remove('hidden');
+  document.body.classList.add('sheet-open'); // iOS Safari scroll lock
 
-  panel.addEventListener('touchstart', onStart, {passive:true});
-  panel.addEventListener('touchmove',  onMove,  {passive:false});
-  panel.addEventListener('touchend',   onEnd,   {passive:true});
+  void panel.offsetHeight; // forza reflow
+  panel.style.transform = 'translateY(0)';
 
-  // Blocca touchmove sull'overlay (impedisce scroll background)
-  sheet._blockMove = e => { if(e.target===sheet) e.preventDefault(); };
-  sheet.addEventListener('touchmove', sheet._blockMove, {passive:false});
+  // Listener swipe — aggiunti una volta sola
+  panel.removeEventListener('touchstart', _amTouchStart);
+  panel.removeEventListener('touchmove',  _amTouchMove);
+  panel.removeEventListener('touchend',   _amTouchEnd);
+  panel.addEventListener('touchstart', _amTouchStart, {passive:true});
+  panel.addEventListener('touchmove',  _amTouchMove,  {passive:false});
+  panel.addEventListener('touchend',   _amTouchEnd,   {passive:true});
+
+  // Chiudi su tap backdrop
+  sheet.onclick = e => { if(e.target===sheet) hideAdminMenu(); };
 }
 
 function hideAdminMenu(){
-  const sheet = document.getElementById('adminMenuSheet');
-  const panel = document.getElementById('adminMenuContent');
-  if(panel){
-    panel.style.transition = 'transform .22s ease, opacity .22s ease';
-    panel.style.transform = 'translateY(110%)';
-    panel.style.opacity = '0';
-    setTimeout(()=>{
-      if(sheet) sheet.classList.add('hidden');
-      panel.style.transform = '';
-      panel.style.opacity = '';
-    }, 220);
-  } else {
-    if(sheet) sheet.classList.add('hidden');
-  }
-  document.body.style.overflow = ''; // ripristina scroll
-  if(sheet && sheet._blockMove){
-    sheet.removeEventListener('touchmove', sheet._blockMove);
-    delete sheet._blockMove;
-  }
+  const sheet = _amSheet();
+  const panel = _amPanel();
+  if(!panel||!sheet) return;
+
+  panel.style.transition = 'transform 0.3s cubic-bezier(0.25,1,0.5,1)';
+  panel.style.transform = 'translateY(100%)';
+  document.body.classList.remove('sheet-open'); // ripristina scroll iOS
+
+  setTimeout(()=>{
+    sheet.classList.add('hidden');
+    panel.style.transform = ''; // reset per prossima apertura
+  }, 300);
 }
 
 // ── TRADUZIONI TAB INGREDIENTS ──
