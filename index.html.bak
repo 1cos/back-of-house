@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Back of House</title>
+<meta name="theme-color" content="#059669">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Back of House">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="manifest" href="./manifest.json">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="js/vendor-documents-review.js"></script>
+<script src="js/warnings-banner.js"></script>
+<script src="js/operation-notes.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body{font-family:Inter,system-ui,sans-serif}
+  .glass{background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;}
+  .glass-card{background:rgba(255,255,255,0.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1.5px solid rgba(59,130,246,0.15);border-radius:16px;}
+  .tab-active{color:#059669} .tab-active svg{stroke:#059669}
+  .scrollbar-hide::-webkit-scrollbar{display:none}
+  @keyframes marquee{0%{transform:translateX(100%)}100%{transform:translateX(-100%)}}
+  .animate-marquee{animation:marquee 25s linear infinite}
+  .snap-y{scroll-snap-type:y mandatory} .snap-start{scroll-snap-align:start}
+  @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .animate-pulse{animation:pulse 1.5s ease-in-out infinite}
+  @keyframes flyOut{0%{transform:scale(1);opacity:1}50%{transform:scale(1.1) translateY(-10px);opacity:0.8}100%{transform:scale(0.5) translateY(-30px);opacity:0}}
+  .fly-out{animation:flyOut 0.5s ease-out forwards}
+  @keyframes confettiFall{0%{transform:translateY(-20px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
+</style>
+</style>
+  <style>
+    /* ── TYPOGRAPHY & COLOR OVERRIDES ── */
+    /* Top bar */
+    #app .text-sm { font-size: 14px !important; }
+    /* Back of House title */
+    .app-title { font-size: 17px !important; font-weight: 600 !important; }
+    /* Username nel top bar */
+    #who { font-size: 14px !important; font-weight: 500 !important; }
+    /* News bar */
+    #newsBar { font-size: 13px !important; }
+    #newsScroll { font-size: 13px !important; }
+    /* Widget titles (SERVICE UPDATES, YOUR STATION, etc) */
+    .text-\[11px\] { font-size: 12px !important; }
+    .text-\[10px\] { font-size: 11px !important; }
+    /* Tono celeste più scuro — sostituzione variabili colore */
+    :root {
+      --color-blue-light: #bfdbfe;   /* era #93c5fd */
+      --color-blue-mid:   #3b82f6;   /* invariato */
+      --color-blue-dark:  #1d4ed8;   /* più scuro */
+      --color-navy:       #1e3a5f;   /* invariato */
+    }
+    /* Subtitles e labels celesti più scuri */
+    [style*="color:#93c5fd"] { color: #60a5fa !important; }
+    [style*="color: #93c5fd"] { color: #60a5fa !important; }
+    /* Tab labels */
+    .tab-label { font-size: 11px !important; }
+    /* Avatar utenti online nel top bar — più grandi */
+    #online .online-dot,
+    #online img,
+    #online div {
+      width: 36px !important;
+      height: 36px !important;
+      min-width: 36px !important;
+      font-size: 13px !important;
+      border: 2px solid white !important;
+    }
+    /* Section headers (UPCOMING DEMAND, SERVICE UPDATES...) */
+    .tracking-wider { letter-spacing: 0.08em; }
+  </style>
+</head>
+
+<body style="background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);min-height:100vh;">
+
+<!-- LOGIN — PIN KEYPAD -->
+<div id="login" class="min-h-screen flex items-center justify-center p-4" style="background:linear-gradient(160deg,#1e3a5f 0%,#1e40af 100%);">
+  <div style="width:100%;max-width:340px;">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:22px;font-weight:500;color:white;margin-bottom:4px;">Back of House</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.5);">Zenos on the Square</div>
+    </div>
+
+    <!-- PIN dots -->
+    <div id="pinDots" style="display:flex;justify-content:center;gap:14px;margin-bottom:32px;">
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+    </div>
+
+    <!-- Keypad -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:280px;margin:0 auto;">
+      <button class="pin-key" onclick="pinPress('1')">1</button>
+      <button class="pin-key" onclick="pinPress('2')">2</button>
+      <button class="pin-key" onclick="pinPress('3')">3</button>
+      <button class="pin-key" onclick="pinPress('4')">4</button>
+      <button class="pin-key" onclick="pinPress('5')">5</button>
+      <button class="pin-key" onclick="pinPress('6')">6</button>
+      <button class="pin-key" onclick="pinPress('7')">7</button>
+      <button class="pin-key" onclick="pinPress('8')">8</button>
+      <button class="pin-key" onclick="pinPress('9')">9</button>
+      <div></div>
+      <button class="pin-key" onclick="pinPress('0')">0</button>
+      <button class="pin-key pin-del" onclick="pinDel()">⌫</button>
+    </div>
+
+    <p id="err" class="text-red-400 text-xs text-center mt-5 hidden"></p>
+  </div>
+</div>
+
+<style>
+.pin-key{height:70px;border-radius:50%;background:rgba(255,255,255,0.12);border:0.5px solid rgba(255,255,255,0.2);color:white;font-size:24px;font-weight:400;cursor:pointer;transition:background .15s;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none;}
+.pin-key:active{background:rgba(255,255,255,0.28);}
+.pin-del{font-size:20px;}
+</style>
+<script>
+function pinPress(d){if(typeof window._pinPress==='function')window._pinPress(d);}
+function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
+</script>
+
+<div id="app" class="hidden min-h-screen flex flex-col" style="background:transparent;">
+  <!-- Top bar -->
+  <div class="sticky top-0 z-30 border-b" style="background:rgba(255,255,255,0.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-color:rgba(59,130,246,0.12);">
+    <div class="max-w-md mx-auto px-3 h-16 flex items-center gap-2">
+
+      <!-- SINISTRA: avatar + nome utente -->
+      <div onclick="openProfile()" style="display:flex;align-items:center;gap:9px;cursor:pointer;flex-shrink:0;">
+        <div id="topbarAvatar" style="width:38px;height:38px;border-radius:50%;background:#3B82F6;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:white;overflow:hidden;flex-shrink:0;border:2px solid rgba(59,130,246,0.2);"></div>
+        <div style="line-height:1.2;">
+          <div id="who" style="font-size:15px;font-weight:600;color:#1e3a5f;"></div>
+          <div style="display:flex;align-items:center;gap:5px;"><div style="font-size:11px;color:#60a5fa;" id="topbarRole"></div><div style="font-size:9px;color:#cbd5e1;font-weight:500;" id="appVersion"></div></div>
+        </div>
+      </div>
+
+      <!-- CENTRO: utenti online — flex:1 per prendere tutto lo spazio -->
+      <div id="online" class="flex items-center" style="flex:1;justify-content:center;gap:4px;"></div>
+
+      <!-- DESTRA: bottoni admin + esci -->
+      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+        <button id="alertBtn" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#fee2e2;border:none;font-size:16px;cursor:pointer;">🚨</button>
+        <button id="userMgrBtn" onclick="openUserManager()" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;">👥</button>
+        <button id="pwdBtn" onclick="openChangePIN()" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;">🔑</button>
+        <button id="out" onclick="user=null;location.reload()" style="height:32px;padding:0 12px;background:#f1f5f9;border:none;border-radius:10px;font-size:13px;font-weight:500;color:#64748b;cursor:pointer;">Esci</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- News ticker -->
+  <div id="newsBar" class="hidden bg-amber-100 border-b border-amber-200">
+    <div class="max-w-md mx-auto px-3 py-1.5 flex items-center gap-2">
+      <span class="text-xs font-bold text-amber-800 uppercase">NEWS</span>
+      <div class="flex-1 overflow-hidden"><div id="newsScroll" class="whitespace-nowrap text-sm text-slate-700 animate-marquee"></div></div>
+      <button id="newsManage" class="hidden text-xs px-2 py-1 bg-amber-600 text-white rounded-lg">Gest</button>
+    </div>
+  </div>
+
+  <!-- Right rail -->
+  <!-- Menu laterale rimosso — tutto nella bottom bar -->
+  <!-- Badge rimosso dalla posizione fixed — ora è solo nella bottom bar -->
+
+  <main class="flex-1 max-w-md w-full mx-auto pb-24" style="background:transparent;">
+
+    <!-- HOME REFACTORED -->
+    <section id="vh" class="px-3 pt-3 pb-4 space-y-3">
+
+      <!-- WARNINGS BANNER — populated by warnings-banner.js -->
+      <div id="warningsBanner" style="display:none;"></div>
+
+      <!-- SECTION 1: Service Updates -->
+      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
+          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Service Updates</span>
+          <button onclick="openServiceUpdates()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">View all</button>
+        </div>
+        <div id="serviceUpdatesList" style="padding:8px 14px;"></div>
+      </div>
+
+      <!-- Invoice button — solo admin -->
+      <div id="invoiceSection" style="display:none;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <button onclick="openInvoiceImport()" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;padding:14px;text-align:left;cursor:pointer;">
+            <div style="font-size:22px;margin-bottom:4px;">📷</div>
+            <div style="font-size:13px;font-weight:500;color:#1e3a5f;">Import Invoice</div>
+            <div style="font-size:11px;color:#93c5fd;margin-top:2px;">Photo or gallery</div>
+          </button>
+          <button onclick="openVendorDocumentsReview()" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;padding:14px;text-align:left;cursor:pointer;">
+            <div style="font-size:22px;margin-bottom:4px;">📋</div>
+            <div style="font-size:13px;font-weight:500;color:#1e3a5f;">Vendor Review</div>
+            <div id="vdrPendingBadge" style="font-size:11px;color:#93c5fd;margin-top:2px;">Pending review</div>
+          </button>
+          <button onclick="openPurchaseHistory()" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;padding:14px;text-align:left;cursor:pointer;">
+            <div style="font-size:22px;margin-bottom:4px;">📋</div>
+            <div style="font-size:13px;font-weight:500;color:#1e3a5f;">Purchase History</div>
+            <div style="font-size:11px;color:#93c5fd;margin-top:2px;">All invoices</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- SECTION 2: Upcoming Demand -->
+      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
+        <div style="padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
+          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Upcoming Demand</span>
+        </div>
+        <div id="upcomingDemand" style="padding:8px 14px;">
+          <div style="font-size:12px;color:#93c5fd;padding:4px 0;">No upcoming events</div>
+        </div>
+      </div>
+
+      <!-- SECTION 3: Assigned Station -->
+      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
+          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Your Station</span>
+          <button onclick="document.querySelector('[data-t=m]').click()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Go to prep →</button>
+        </div>
+        <div id="homeStationItems" style="padding:8px 14px;"></div>
+      </div>
+
+      <!-- Checklist chiusura stazioni — solo admin -->
+      <div id="homeChecklistSection" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
+          <span id="homeChecklistLabel" style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Checklist chiusura</span>
+          <button id="homeOpenBtn" onclick="document.querySelector('[data-t=s]').click()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Open →</button>
+        </div>
+        <div id="homeStations" style="padding:8px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+
+      <!-- Briefing AI — solo admin -->
+      <div id="homeBriefingSection" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.1);">
+          <span style="font-size:10px;font-weight:500;color:#93c5fd;letter-spacing:.06em;text-transform:uppercase;">Briefing AI</span>
+          <button id="briefingRefreshBtn" onclick="refreshBriefing()" style="font-size:11px;color:#3B82F6;background:none;border:none;cursor:pointer;">Refresh</button>
+        </div>
+        <div id="briefingContent" style="padding:10px 14px;">
+          <div class="animate-pulse h-4 bg-slate-100 rounded w-3/4 mb-2"></div>
+          <div class="animate-pulse h-4 bg-slate-100 rounded w-full mb-2"></div>
+          <div class="animate-pulse h-4 bg-slate-100 rounded w-2/3"></div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- PREP -->
+    <section id="vm" class="hidden px-3 pt-2">
+      <!-- Barra progresso urgenti -->
+      <div id="urgentProgress" class="hidden mb-2 bg-white rounded-2xl border border-slate-200 p-3 shadow-sm">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-semibold text-red-600">🔴 <span id="urgentCount">0</span> urgenti</span>
+          <span id="urgentTime" class="text-xs text-slate-400"></span>
+        </div>
+        <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
+          <div id="urgentBar" class="h-full bg-red-500 rounded-full transition-all duration-500" style="width:0%"></div>
+        </div>
+        <p id="urgentDone" class="hidden text-xs text-emerald-600 font-semibold text-center mt-1">✅ Tutte le urgenti completate!</p>
+      </div>
+      <div class="flex items-center gap-2 mb-2">
+        <div id="stations" class="flex gap-2 overflow-x-auto scrollbar-hide flex-1"></div>
+        <button id="toggleView" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-semibold shadow-sm">Feed</button>
+        <button id="addPrepBtn" onclick="adminAdd()" class="hidden px-2.5 py-1.5 bg-emerald-600 text-white rounded-xl text-[11px] font-semibold shadow-sm">+ Prep</button>
+      </div>
+      <div id="grid" class="grid grid-cols-1 gap-2"></div>
+      <div id="feed" class="hidden -mx-3 h-[calc(100vh-170px)] overflow-y-auto snap-y snap-mandatory bg-[#f5f7fb]"></div>
+    </section>
+
+    <!-- CHIUSURA -->
+    <section id="vs" class="hidden px-3 pt-2">
+      <div id="stations2" class="flex gap-2 overflow-x-auto scrollbar-hide pb-2"></div>
+      <div id="checks" class="space-y-2 mt-2"></div>
+      <div class="mt-4 pb-4">
+        <button id="closeTurnBtn" onclick="closeTurn()" class="w-full py-3.5 bg-slate-900 text-white rounded-2xl font-semibold text-sm">Chiudi Turno</button>
+      </div>
+    </section>
+
+    <!-- CHAT -->
+    <section id="vc" class="hidden flex flex-col" style="position:fixed;top:64px;left:0;right:0;bottom:72px;overflow:hidden;background:linear-gradient(160deg,#e0f2fe 0%,#f0f9ff 40%,#f8fafc 100%);z-index:10;">
+      
+      <!-- Header chat glass -->
+      <div style="padding:12px 16px;border-bottom:0.5px solid rgba(255,255,255,0.6);background:rgba(255,255,255,0.6);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:16px;font-weight:600;color:#1e3a5f;">💬 Chat Brigata</div>
+        <div id="chatOnlineCount" style="font-size:12px;color:#60a5fa;"></div>
+      </div>
+
+      <!-- Messaggi -->
+      <div id="msgs" style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:4px;"></div>
+
+      <!-- Input glass -->
+      <form id="f" style="padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:rgba(255,255,255,0.75);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:0.5px solid rgba(255,255,255,0.8);display:flex;gap:8px;align-items:center;box-shadow:0 -4px 20px rgba(0,0,0,0.04);">
+        <input id="txt" autocomplete="off"
+          style="flex:1;padding:11px 16px;background:rgba(241,245,249,0.8);backdrop-filter:blur(10px);border:0.5px solid rgba(255,255,255,0.8);border-radius:24px;font-size:14px;color:#1e293b;outline:none;box-shadow:inset 0 1px 3px rgba(0,0,0,0.05);"
+          placeholder="Scrivi un messaggio...">
+        <button type="submit" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#0369a1,#0284c7);border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;box-shadow:0 4px 12px rgba(3,105,161,0.35);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </form>
+    </section>
+
+    <!-- RICETTE -->
+    <section id="vp" class="hidden px-3 pt-3">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-lg font-semibold" id="recipesHeading">Ricette</h2>
+        <div id="recipeAdminBtns" class="flex gap-2">
+          <button onclick="openRecipeManager()" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs">Collega</button>
+          <button onclick="openRecipeEditor()" class="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs">+ Nuova</button>
+        </div>
+      </div>
+      <div class="mb-2">
+        <input id="recipeSearch" placeholder="Cerca ricetta..." class="w-full px-3 py-2 rounded-xl bg-white border text-sm" oninput="renderRecipes()">
+      </div>
+      <div id="recipeCats" class="flex gap-2 overflow-x-auto scrollbar-hide pb-2"></div>
+      <div id="recipeGrid" class="grid grid-cols-2 gap-2.5 mt-2 pb-4"></div>
+    </section>
+
+    <!-- REPORT -->
+    <section id="vr" class="hidden px-3 pt-3">
+      <div class="flex items-center justify-between mb-3">
+        <h2 id="reportTitle" class="text-lg font-semibold">Report</h2>
+        <div class="flex gap-2 flex-wrap">
+          <button id="btnToday" onclick="loadReport('today')" class="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-sm">Oggi</button>
+          <button id="btnWeek" onclick="loadReport('week')" class="px-3 py-1.5 bg-slate-200 rounded-lg text-sm">Settimana</button>
+          <button id="btnPresence" onclick="showPresenceTab()" class="hidden px-3 py-1.5 bg-slate-200 rounded-lg text-sm">Presenze</button>
+          <button id="btnAlertsLog" onclick="showAlertsLogTab()" class="hidden px-3 py-1.5 bg-slate-200 rounded-lg text-sm">Avvisi</button>
+          <button id="btnPDF" onclick="exportPDF()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">PDF</button>
+        </div>
+      </div>
+      <div id="reportOut" class="bg-white rounded-xl border p-3 text-sm overflow-auto min-h-[200px]">Seleziona Oggi o Settimana</div>
+      <div id="presenceLogOut" class="hidden bg-white rounded-xl border p-3 text-sm overflow-auto min-h-[200px] mt-2"></div>
+      <div id="alertsLogOut" class="hidden bg-white rounded-xl border p-3 text-sm overflow-auto min-h-[200px] mt-2"></div>
+    </section>
+
+    <!-- ── INGREDIENTS TAB ── -->
+    <section id="vi" class="hidden px-3 pt-3 pb-24">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold text-slate-800">🏷️ Ingredients</h2>
+        <button onclick="openAddIngredient()" class="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-sm">+ Add</button>
+      </div>
+      <!-- Search -->
+      <input id="ingrSearchMain" placeholder="Search ingredient..."
+        class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3 outline-none"
+        oninput="filterIngredientsTab(this.value)">
+      <!-- Category filter -->
+      <div id="ingrCategoryFilter" class="flex gap-2 overflow-x-auto pb-2 mb-3" style="scrollbar-width:none;">
+        <button onclick="filterIngrCategory('all',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-900 text-white whitespace-nowrap">All</button>
+        <button onclick="filterIngrCategory('Dairy',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🧀 Dairy</button>
+        <button onclick="filterIngrCategory('Produce',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🥦 Produce</button>
+        <button onclick="filterIngrCategory('Protein',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🥩 Protein</button>
+        <button onclick="filterIngrCategory('Seafood',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🐟 Seafood</button>
+        <button onclick="filterIngrCategory('Dry Goods',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🌾 Dry Goods</button>
+        <button onclick="filterIngrCategory('Other',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">📦 Other</button>
+      </div>
+      <!-- List -->
+      <div id="ingrTabList" class="space-y-2">
+        <div class="text-sm text-slate-400 text-center py-8">Loading...</div>
+      </div>
+    </section>
+
+    <!-- POS Analytics -->
+    <section id="vx" class="hidden overflow-y-auto" style="position:fixed;top:64px;left:0;right:0;bottom:72px;background:linear-gradient(160deg,#f0fdf4 0%,#f8fafc 60%);z-index:5;"></section>
+
+  </main>
+
+  <!-- Bottom Nav -->
+  <nav class="fixed bottom-0 left-0 right-0 z-40 border-t" style="background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-color:rgba(59,130,246,0.12);">
+    <div class="max-w-md mx-auto h-[72px] flex items-end justify-around pb-3 px-1">
+
+      <!-- HOME — tutti -->
+      <button data-t="h" class="tab flex flex-col items-center gap-1 w-14 tab-active">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon" style="stroke:#059669"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span class="text-[10px] font-medium tab-label" style="color:#059669">Home</span>
+      </button>
+
+      <!-- PREP — staff only, nascosto per admin -->
+      <button id="tabPrep" data-t="m" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/></svg>
+        <span class="text-[10px] tab-label">Prep</span>
+      </button>
+
+      <!-- CHIUSURA — staff only, nascosto per admin -->
+      <button id="tabChiusura" data-t="s" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><path d="m9 14 2 2 4-4"/></svg>
+        <span class="text-[10px] tab-label">Closing</span>
+      </button>
+
+      <!-- RICETTE — tutti -->
+      <button data-t="c" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span class="text-[10px] tab-label">Recipes</span>
+      </button>
+
+      <!-- INGREDIENTI — solo admin -->
+      <button id="tabIngredients" data-t="i" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+        <span class="text-[10px] tab-label" data-i18n="ingredients">Ingredienti</span>
+      </button>
+
+      <!-- CHAT — tutti, badge iOS celeste -->
+      <!-- SALES — admin only -->
+      <button id="tabSales" data-t="x" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span class="text-[10px] tab-label">Sales</span>
+      </button>
+
+      <button id="tabChat" onclick="showChat()" class="flex flex-col items-center gap-1 w-14 text-slate-500 relative">
+        <div class="relative">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span id="badge" class="hidden absolute -top-1 -right-2 text-white text-[10px] w-5 h-5 items-center justify-center rounded-full font-bold" style="background:#0a84ff;min-width:18px;"></span>
+        </div>
+        <span class="text-[10px] tab-label">Chat</span>
+      </button>
+
+      <!-- MENU ••• — solo admin -->
+      <button id="tabMenu" onclick="showAdminMenu()" class="flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="19" r="1.5" fill="currentColor"/></svg>
+        <span class="text-[10px] tab-label">Menu</span>
+      </button>
+
+    </div>
+  </nav>
+
+  <!-- ADMIN MENU TENDINA -->
+  <div id="adminMenuSheet" class="fixed inset-0 z-[60] hidden" onclick="if(event.target===this)hideAdminMenu()">
+    <div id="adminMenuContent" style="position:absolute;bottom:80px;left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:448px;background:rgba(255,255,255,0.97);backdrop-filter:blur(20px);border-radius:20px;padding:14px;box-shadow:0 -4px 40px rgba(0,0,0,0.15);">
+      <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 14px;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        <button onclick="hideAdminMenu();document.querySelector('[data-t=m]').click()" class="admin-menu-btn">
+          <span style="font-size:24px;">📋</span><span>Prep</span>
+        </button>
+        <button onclick="hideAdminMenu();document.querySelector('[data-t=s]').click()" class="admin-menu-btn">
+          <span style="font-size:24px;">✅</span><span>Chiusura</span>
+        </button>
+        <button onclick="hideAdminMenu();openInvoiceImport()" class="admin-menu-btn">
+          <span style="font-size:24px;">📄</span><span>Invoice</span>
+        </button>
+        <button onclick="hideAdminMenu();openPurchaseHistory()" class="admin-menu-btn">
+          <span style="font-size:24px;">📦</span><span>Acquisti</span>
+        </button>
+        <button onclick="hideAdminMenu();document.querySelector('[data-t=r]').click()" class="admin-menu-btn">
+          <span style="font-size:24px;">📊</span><span>Report</span>
+        </button>
+        <button onclick="hideAdminMenu();showPresenceTab()" class="admin-menu-btn">
+          <span style="font-size:24px;">👥</span><span>Presenze</span>
+        </button>
+        <button onclick="hideAdminMenu();document.getElementById('userMgrBtn')?.click()" class="admin-menu-btn">
+          <span style="font-size:24px;">👤</span><span>Utenti</span>
+        </button>
+        <button onclick="hideAdminMenu();document.getElementById('pwdBtn')?.click()" class="admin-menu-btn">
+          <span style="font-size:24px;">🔑</span><span>PIN</span>
+        </button>
+        <button onclick="hideAdminMenu();openVendorParserTest()" class="admin-menu-btn">
+          <span style="font-size:24px;">🧪</span><span>Parser Test</span>
+        </button>
+        <button onclick="hideAdminMenu();bootstrapIngredients()" class="admin-menu-btn">
+          <span style="font-size:24px;">🌱</span><span>Bootstrap Ingr.</span>
+        </button>
+        <button onclick="hideAdminMenu();openIngredientCleanup()" class="admin-menu-btn">
+          <span style="font-size:24px;">🧹</span><span>Ingr. Cleanup</span>
+        </button>
+        <button onclick="hideAdminMenu();openSimilarityCleanup()" class="admin-menu-btn">
+          <span style="font-size:24px;">🔍</span><span>Similarity</span>
+        </button>
+        <button onclick="hideAdminMenu();openVendorMatch()" class="admin-menu-btn">
+          <span style="font-size:24px;">🔗</span><span>Vendor Match</span>
+        </button>
+        <button onclick="hideAdminMenu();openChefAISettings()" class="admin-menu-btn">
+          <span style="font-size:24px;">🤖</span><span>Chef AI</span>
+        </button>
+        <button onclick="hideAdminMenu();openOperationNotes()" class="admin-menu-btn">
+          <span style="font-size:24px;">🌙</span><span>Note brigata</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .admin-menu-btn {
+      display:flex;flex-direction:column;align-items:center;gap:6px;
+      padding:14px 8px;border-radius:14px;background:#f8fafc;
+      border:none;cursor:pointer;font-size:12px;color:#1e293b;font-weight:500;
+      transition:background .15s;-webkit-tap-highlight-color:transparent;
+    }
+    .admin-menu-btn:active { background:#e2e8f0; }
+  </style>
+
+</div>
+
+
+<script src="js/utils.js"></script>
+<script src="js/news.js"></script>
+<script src="js/app.js"></script>
+<script src="js/briefing.js"></script>
+<script src="js/init.js"></script>
+<script src="js/admin.js"></script>
+<script src="js/admin-prep.js"></script>
+<script src="js/admin-ingredients.js"></script>
+<script src="js/admin-chef-ai.js"></script>
+<script src="js/prep.js"></script>
+<script src="js/closing.js"></script>
+<script src="js/recipes.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/presence.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/push.js"></script>
+<script src="js/souschef-core.js"></script>
+<script src="js/souschef-voice.js"></script>
+<script src="js/souschef-scan.js"></script>
+<script src="js/souschef-warnings.js"></script>
+<script src="js/souschef-chat.js"></script>
+<script src="js/operation-notes.js"></script>
+  <script src="js/vendor-parser-ui.js"></script>
+<script src="js/invoice.js"></script>
+<script src="js/ingredients.js"></script>
+<script src="js/pos.js"></script>
+<script>if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js')}</script>
+<script>
+// App version — single source of truth: CACHE_NAME in sw.js (boh-vNN).
+// Bumped on every deploy; label and title update automatically.
+fetch('sw.js?nocache=' + Date.now())
+  .then(r => r.text())
+  .then(t => {
+    const m = t.match(/boh-v(\d+)/);
+    if (!m) return;
+    const v = 'v' + m[1];
+    const el = document.getElementById('appVersion');
+    if (el) el.textContent = v;
+    document.title = 'Back of House — ' + v;
+  })
+  .catch(() => {});
+</script>
+</html>
