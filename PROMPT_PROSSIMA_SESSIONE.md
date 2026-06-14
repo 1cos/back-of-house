@@ -1,22 +1,5 @@
-## 🔴 DA FARE SUBITO (annotato sessione grafica)
-
-### 1. Campanella → News/Alert (non Menu admin)
-La campanella in alto a destra (id: `bellBtn`) ora apre `showAdminMenu()`.
-**Deve tornare a fare quello che faceva la sirena 🚨** — inserire una news/alert nella barra scorrevole.
-- Spostare `openNewsManager()` (o funzione equivalente) sulla campanella
-- Il menu admin rimane accessibile solo dal tab ••• in basso
-- `bellDot` si illumina quando ci sono news non lette
-
-### 2. Sales — redesign selettori data
-I bottoni attuali (Oggi/Ieri/Weekend/7gg/30gg) sono troppo piccoli su iPhone.
-**Nuovo layout su due righe:**
-- **Riga 1:** ultimi 7 giorni cliccabili singolarmente (da ieri a 7 giorni fa) — pillole con data
-- **Riga 2:** Weekend | Settimana | 30 giorni | 📅 (date picker campo libero)
-Mockup prima di implementare.
-
----
-
 # Prompt Prossima Sessione — Brigade
+*Carica sempre questo file per primo, poi gli altri MD.*
 
 Carica sempre in questo ordine:
 1. PROMPT_PROSSIMA_SESSIONE.md da brigade-main
@@ -27,62 +10,58 @@ Carica sempre in questo ordine:
 
 ---
 
-## Stato attuale — Brigade v131
+## Stato attuale — Brigade v153
 
 Supabase project: ydqmumpytgrlceuinoqt
 Deploy: https://1cos.github.io/back-of-house — branch brigade-main
-souschef-scan: v4, souschef-chat: v15, sc-nightly-brief: v5
+souschef-chat: v15 | sc-nightly-brief: v5 | souschef-scan: v4
+gmail-touchbistro-import: v3
 
 ---
 
-## PASSO 1 — COMPLETATO v131
+## Completato in questa sessione (2026-06-15)
 
-- Warning Center OQR funzionante
-- Scan automatica Texas: 06:30 + oraria 06:30-17:30, solo Lun-Sab
-- Domenica: zero scan, messaggio buona domenica alle 06:30
-  - Recap settimana: coperti, giorno piu pieno, top piatti (no dollari)
-  - Settimana prossima: eventi TripleSeat (pronto quando connesso)
-- Prompt serale 22:30 Texas: push via alerts table, modal redesignato
-- sc-nightly-brief v5: sintetizza commenti brigata in UNA frase, non lista
-- Console pulita — SyntaxError risolti in souschef-core.js e souschef-chat.js
+### TouchBistro pipeline completa
+- 4 file CSV importati ogni notte (era 3 — mancava ModifierPreferenceByMenuItem)
+- Nuova tabella `pos_modifier_by_item` — modifier collegato al piatto padre
+- Nuova tabella `modifier_config` — 86 modifier classificati (22 cucina, 64 non-cucina)
+- Edge Function gmail-touchbistro-import v2→v3
 
----
+### Sales admin — Deep Analysis
+- Bottone "Deep Analysis" in fondo alla tab Sales (solo admin)
+- Modal con 9 categorie, 200+ domande, 25 query types implementate
+- Categorie: Primi, Secondi, Antipasti, Contorni e Modifier, Riepilogo, Insalate e Zuppe, Dolci, Confronti Temporali, Performance e Record
+- File: js/pos.js
 
-## Sales — completato v131
+### Sales staff view
+- Staff vede view completamente separata dall'admin
+- Zero prezzi, zero incassi, solo quantità e cibo
+- Selettori: Ieri / Weekend (ven+sab) / Sett. (lun→sab settimana precedente)
+- Livello 1: gruppi cucina con barre
+- Livello 2: tap su gruppo → lista piatti
+- Modifier cucina colorati per categoria
+- Modal porzioni su tap con calcolo side + modifier + totale
 
-- Tab: 6 giorni settimana (Sab/Ven/Gio/Mer/Mar/Lun) + Weekend + 7gg + 30gg + Periodo
-- Periodo: selettore Dal/Al con date picker
-- Dati TouchBistro recuperati (sabato 13 giugno importato)
-
----
-
-## Google Apps Script — Brigade hardies import
-
-Struttura multi-file completata:
-- Codice.gs: solo checkAllEmails() + setupTrigger()
-- HardiesImport.gs, FreshpointImport.gs, TouchBistroImport.gs
-- BEKImport.gs, FrugeImport.gs (placeholder — label Gmail da creare)
-- TripleSeat.gs, SevenShift.gs (placeholder)
-- Utils.gs: sendToEdge(), processLabelPDF(), processLabelCSV(), resetLabel()
-
-checkAllEmails chiama ora anche processTouchBistroEmails — fix applicato.
-Label Gmail da creare: bek-import, fruge-import
+### Fix date
+- Weekend: venerdì + sabato (era sbagliato per entrambi admin e staff)
+- Settimana staff: lunedì → sabato settimana precedente (era martedì sbagliato)
 
 ---
 
-## Parser fornitori — completi
+## DA FARE SUBITO — prossima sessione
 
-Hardie's, FreshPoint, Fruge Seafood, Ben E. Keith
+### 1. PASSO 2 — Checklist sera → preplist mattina
+Il ciclo fondamentale Brigade:
+- Sera: brigata compila checklist per stazione
+- Notte: AI genera preplist mattina basata su checklist + vendite
+- Mattina: cuoco vede la sua preplist, segna fatto
 
----
+### 2. Sales staff — modal porzioni (da completare)
+Il modal su tap piatto/modifier è implementato ma va testato e rifinito.
+Vedi file `PROMPT_SALES_STAFF_VIEW.md` per specifiche complete.
 
-## 5 PASSI — stato
-
-PASSO 1: COMPLETO
-PASSO 2: DA FARE — checklist sera → preplist mattina (PROSSIMA SESSIONE)
-PASSO 3: DA FARE — TripleSeat (credenziali da Max)
-PASSO 4: DA FARE — Display cucina TV
-PASSO 5: DA FARE — SevenShift (verificare API)
+### 3. Warning Center fix
+- "No peso" chiude senza fare niente — da fixare
 
 ---
 
@@ -92,8 +71,8 @@ PASSO 5: DA FARE — SevenShift (verificare API)
 - FreshPoint articoli: conversion_to_base null, reimportare fattura
 - Sysco: fattura da importare (Sun Dry Tomatoes, Canned Tomatoes, Tomato Paste, Tomato Puree)
 - Label Gmail: bek-import e fruge-import da creare
-- Icona Periodo in Sales: da aggiornare in sessione grafica
-- Warning Center: No peso diverso chiude senza fare niente (da fixare)
+- Ben E. Keith: forward iCloud→Gmail da fare
+- FreshPoint: non manda ancora fatture (solo order confirmation)
 
 ---
 
@@ -105,3 +84,18 @@ PASSO 5: DA FARE — SevenShift (verificare API)
 4. Verifica via API dopo ogni push
 5. Supabase project: ydqmumpytgrlceuinoqt
 6. MAI usare template literals multiriga o emoji nei file JS — causano SyntaxError
+7. Dichiara cosa cambi prima di farlo — aspetta conferma Max
+8. File completi — zero patch parziali
+9. La view admin Sales rimane intatta — modifiche solo additive
+
+---
+
+## Struttura file Sales (pos.js) — v153
+
+- Righe 1-127: utility functions (toISO, addDays, getPeriod, posSelectors)
+- Righe 128-320: loadPOS() — view admin (NON TOCCARE)
+- Righe 321-324: posSetMode()
+- Righe 325-1440: Deep Analysis (DA_CATEGORIES, openDeepAnalysis, daExecuteQuery)
+- Righe 1441-1760: Staff view (staffGetPeriod, loadPOSStaff, staffOpenGroup, staffOpenDishModal)
+
+**Redirect admin/staff: riga 129** — `if (!isAdmin()) { loadPOSStaff(); return; }`
