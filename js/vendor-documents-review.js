@@ -31,7 +31,6 @@ window.openVendorDocumentsReview = function() {
     </div>`;
 
   document.body.appendChild(modal);
-  addSwipeToClose(modal, ()=>modal.remove());
   vdrLoad();
 };
 
@@ -433,6 +432,8 @@ window.vdrToggle = function(id) {
   });
 
   document.body.appendChild(sheet);
+  const _vdrPanel = sheet.querySelector('#vdrSheetPanel');
+  if(_vdrPanel) addSwipeToClose(_vdrPanel, ()=>sheet.remove());
 };
 
 // ── Detail panel ──────────────────────────────────────────────
