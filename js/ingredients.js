@@ -716,94 +716,100 @@ window.openAddVendorRow = function(ingredientId){
   modal.innerHTML = `
     <div style="background:white;border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:85vh;overflow-y:auto;animation:slideUp .25s ease">
       <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;"></div>
-      <div style="font-size:15px;font-weight:500;color:#1e293b;margin-bottom:16px;">➕ Add Vendor</div>
+      <div style="font-size:15px;font-weight:500;color:#1e293b;margin-bottom:16px;">➕ Aggiungi Fornitore</div>
 
       <div style="margin-bottom:12px;">
-        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">VENDOR</label>
-        <input id="avVendor" placeholder="e.g. Fruge Seafood" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
+        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">FORNITORE</label>
+        <input id="avVendor" placeholder="es. Fruge Seafood" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
       </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div>
+          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PRICE TYPE</label>
+          <select id="avPriceType" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;" oninput="avUpdatePreview()">
+            <option value="per_case">Per Case</option>
+            <option value="per_lb">Per Lb</option>
+            <option value="per_kg">Per Kg</option>
+          </select>
+        </div>
         <div>
           <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">UNIT PRICE ($)</label>
-          <input id="avUnitPrice" type="number" step="0.01" placeholder="e.g. 24.96" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
-        </div>
-        <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PURCHASE UNIT</label>
-          <input id="avPurchaseUnit" placeholder="lb, cs, each" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
+          <input id="avUnitPrice" type="number" step="0.01" placeholder="es. 24.96" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;" oninput="avUpdatePreview()">
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
-        <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PACK SIZE</label>
-          <input id="avPackSize" type="number" step="0.01" placeholder="e.g. 4" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
-        </div>
-        <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PACK UNIT</label>
-          <input id="avPackUnit" placeholder="lb, oz, kg" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
-        </div>
-      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
         <div>
           <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PACK DESCRIPTION</label>
-          <input id="avPackDesc" placeholder="5# bag, 2/5lb" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
+          <input id="avPackDesc" placeholder="es. 5# bag, 6 CT, 1pc/28#" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
         </div>
         <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">LAST TOTAL WEIGHT (g)</label>
-          <input id="avLastTotalG" type="number" placeholder="e.g. 2268" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
+          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">VENDOR SKU</label>
+          <input id="avSku" placeholder="es. 03075" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
         </div>
       </div>
-      <div id="avCalcPreview" style="background:#fff7ed;border-radius:10px;padding:10px 12px;margin-bottom:16px;font-size:12px;color:#92400e;">Fill Unit Price + weight field to preview price_per_100g</div>
+
+      <div style="margin-bottom:12px;">
+        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PESO PACK (g) — peso totale della confezione in grammi</label>
+        <input id="avConversion" type="number" placeholder="es. 1361 per 3 lb, 2268 per 5 lb" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;" oninput="avUpdatePreview()">
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px;">1 lb = 453g · 1 oz = 28g · 1 kg = 1000g</div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">COSTO PER UNITÀ ($) — per articoli CT/EA (fiori, limoni, ecc.)</label>
+        <input id="avPricePerEach" type="number" step="0.0001" placeholder="es. 0.4688 per fiore" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
+      </div>
+
+      <div id="avCalcPreview" style="background:#fff7ed;border-radius:10px;padding:10px 12px;margin-bottom:16px;font-size:12px;color:#92400e;">Inserisci Unit Price + peso per vedere $/100g</div>
+
       <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
-        <button onclick="this.closest('.fixed').remove()" style="height:44px;border-radius:14px;background:#f1f5f9;color:#6b7280;font-size:13px;border:none;cursor:pointer;">Cancel</button>
-        <button onclick="saveNewVendorRow('${ingredientId}',this)" style="height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Add Vendor</button>
+        <button onclick="this.closest('.fixed').remove()" style="height:44px;border-radius:14px;background:#f1f5f9;color:#6b7280;font-size:13px;border:none;cursor:pointer;">Annulla</button>
+        <button onclick="saveNewVendorRow('${ingredientId}',this)" style="height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Salva Fornitore</button>
       </div>
     </div>`;
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
   document.body.appendChild(modal);
 
-  function livePreview(){
-    const up  = parseFloat(document.getElementById('avUnitPrice')?.value)||0;
-    const pu  = document.getElementById('avPurchaseUnit')?.value||'';
-    const ltg = parseFloat(document.getElementById('avLastTotalG')?.value)||0;
-    const avPs  = parseFloat(document.getElementById('avPackSize')?.value)||0;
-    const avPu2 = document.getElementById('avPackUnit')?.value||'';
-    const avPd  = document.getElementById('avPackDesc')?.value||'';
-    const base= calcBaseWeightG({
-      pack_size: avPs||null, pack_unit: avPu2||null,
-      pack_description: avPd||null,
-      last_total_weight_g: ltg||null, purchase_unit: pu||null,
-    })||0;
-    const el  = document.getElementById('avCalcPreview');
-    if(up&&base){ el.textContent=`→ price_per_100g = $${((up/base)*100).toFixed(2)}`; el.style.color='#166534'; el.style.background='#f0fdf4'; }
-    else{ el.textContent='Fill Unit Price + weight field to preview price_per_100g'; el.style.color='#92400e'; el.style.background='#fff7ed'; }
-  }
-  ['avUnitPrice','avPurchaseUnit','avPackSize','avPackUnit','avPackDesc','avLastTotalG'].forEach(id=>document.getElementById(id)?.addEventListener('input',livePreview));
+  window.avUpdatePreview = function(){
+    const up   = parseFloat(document.getElementById('avUnitPrice')?.value)||0;
+    const conv = parseFloat(document.getElementById('avConversion')?.value)||0;
+    const pt   = document.getElementById('avPriceType')?.value||'per_case';
+    const el   = document.getElementById('avCalcPreview');
+    if(!up){ el.textContent='Inserisci Unit Price'; el.style.color='#92400e'; el.style.background='#fff7ed'; return; }
+    let p100 = null;
+    if(pt === 'per_lb')      p100 = (up / 453.592) * 100;
+    else if(pt === 'per_kg') p100 = (up / 1000) * 100;
+    else if(conv > 0)        p100 = (up / conv) * 100;
+    if(p100){ el.textContent=`→ $${p100.toFixed(4)}/100g`; el.style.color='#166534'; el.style.background='#f0fdf4'; }
+    else{ el.textContent='Inserisci peso pack per calcolare $/100g'; el.style.color='#92400e'; el.style.background='#fff7ed'; }
+  };
 };
 
 window.saveNewVendorRow = async function(ingredientId, btn){
   btn.textContent='Saving...'; btn.disabled=true;
-  const up  = parseFloat(document.getElementById('avUnitPrice')?.value)||null;
-  const pu  = document.getElementById('avPurchaseUnit')?.value?.trim()||null;
-  const ltg = parseFloat(document.getElementById('avLastTotalG')?.value)||null;
-  const packSz = parseFloat(document.getElementById('avPackSize')?.value)||null;
-  const packUn = document.getElementById('avPackUnit')?.value?.trim()||null;
-  const packDesc = document.getElementById('avPackDesc')?.value?.trim()||null;
-  const base= calcBaseWeightG({
-    pack_size: packSz, pack_unit: packUn,
-    pack_description: packDesc,
-    last_total_weight_g: ltg, purchase_unit: pu,
-  });
-  const p100= up&&base ? parseFloat(((up/base)*100).toFixed(4)) : null;
+  const up           = parseFloat(document.getElementById('avUnitPrice')?.value)||null;
+  const conv         = parseFloat(document.getElementById('avConversion')?.value)||null;
+  const priceTypeVal = document.getElementById('avPriceType')?.value||'per_case';
+  const pricePerEach = parseFloat(document.getElementById('avPricePerEach')?.value)||null;
+
+  let p100 = null;
+  if(up){
+    if(priceTypeVal === 'per_lb')      p100 = parseFloat(((up / 453.592) * 100).toFixed(4));
+    else if(priceTypeVal === 'per_kg') p100 = parseFloat(((up / 1000) * 100).toFixed(4));
+    else if(conv > 0)                  p100 = parseFloat(((up / conv) * 100).toFixed(4));
+  }
 
   const {error} = await supa.from('ingredient_vendors').insert({
-    ingredient_id:     ingredientId,
-    vendor:            document.getElementById('avVendor')?.value?.trim()||null,
-    unit_price:        up,
-    purchase_unit:     pu,
-    pack_description:  document.getElementById('avPackDesc')?.value?.trim()||null,
-    last_total_weight_g: ltg,
-    price_per_100g:    p100,
-    active:            true,
+    ingredient_id:      ingredientId,
+    vendor:             document.getElementById('avVendor')?.value?.trim()||null,
+    vendor_sku:         document.getElementById('avSku')?.value?.trim()||null,
+    unit_price:         up,
+    pack_description:   document.getElementById('avPackDesc')?.value?.trim()||null,
+    conversion_to_base: conv,
+    price_per_each:     pricePerEach,
+    price_per_100g:     p100,
+    price_type:         priceTypeVal,
+    active:             true,
   });
   if(error){ btn.textContent='Error: '+error.message; btn.disabled=false; return; }
   btn.closest('.fixed').remove();
