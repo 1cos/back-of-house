@@ -6,18 +6,23 @@
 
 const SC_THROTTLE_MS = 30 * 60 * 1000;
 
-window.runSousChefScan = async function() {
+// silent=true → scan automatica, nessun toast, nessun feedback visivo
+window.runSousChefScan = async function(silent = false) {
   const lastScan = parseInt(localStorage.getItem('sc_last_scan') || '0');
   const now = Date.now();
   if (now - lastScan < SC_THROTTLE_MS) {
-    const minsLeft = Math.ceil((SC_THROTTLE_MS - (now - lastScan)) / 60000);
-    showScToast(`⏳ Prossima scan tra ${minsLeft} min`);
+    if (!silent) {
+      const minsLeft = Math.ceil((SC_THROTTLE_MS - (now - lastScan)) / 60000);
+      showScToast(`⏳ Prossima scan tra ${minsLeft} min`);
+    }
     return;
   }
 
   const btn = document.getElementById('scBtn');
-  if (btn) { btn.style.background = 'rgba(16,185,129,0.15)'; btn.style.borderColor = '#10b981'; }
-  showScToast('🔍 Sous Chef sta analizzando...');
+  if (!silent) {
+    if (btn) { btn.style.background = 'rgba(16,185,129,0.15)'; btn.style.borderColor = '#10b981'; }
+    showScToast('🔍 Sous Chef sta analizzando...');
+  }
 
   try {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/souschef-scan`, {
@@ -35,16 +40,17 @@ window.runSousChefScan = async function() {
     localStorage.setItem('sc_last_scan', String(now));
 
     if (data.count === 0) {
-      showScToast('✅ Sous Chef — tutto ok');
+      if (!silent) showScToast('✅ Sous Chef — tutto ok');
     } else {
-      showScToast(`⚠️ ${data.count} warning trovati`);
+      // Aggiorna sempre il banner, anche in silent
       if (typeof loadWarningsBanner === 'function') loadWarningsBanner();
+      if (!silent) showScToast(`⚠️ ${data.count} warning trovati`);
     }
 
   } catch(e) {
     console.error('[SousChefScan]', e.message);
-    showScToast('⚠️ Scan error: ' + e.message);
+    if (!silent) showScToast('⚠️ Scan error: ' + e.message);
   } finally {
-    if (btn) { btn.style.background = ''; btn.style.borderColor = ''; }
+    if (!silent && btn) { btn.style.background = ''; btn.style.borderColor = ''; }
   }
 };
