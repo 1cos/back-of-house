@@ -1,5 +1,7 @@
 // ── POS Analytics ──────────────────────────────────────────────────
-let posDateMode = 'today';
+let posDateMode = 'yesterday';
+let posCustomFrom = null;
+let posCustomTo   = null;
 
 function toISO(d) { return d.toISOString().slice(0,10); }
 function addDays(d,n) { const r=new Date(d); r.setDate(r.getDate()+n); return r; }
@@ -37,14 +39,41 @@ function getPeriod(mode) {
   }
   if (mode === 'week')  return { from:toISO(addDays(today,-6)), to:todayISO, label:'Ultimi 7 giorni', compareDates:[] };
   if (mode === 'month') return { from:toISO(addDays(today,-29)), to:todayISO, label:'Ultimi 30 giorni', compareDates:[] };
+  if (mode === 'custom' && posCustomFrom && posCustomTo) {
+    const label = posCustomFrom === posCustomTo
+      ? dayNameIT(posCustomFrom) + ' ' + posCustomFrom.slice(5)
+      : posCustomFrom.slice(5) + ' → ' + posCustomTo.slice(5);
+    return { from:posCustomFrom, to:posCustomTo, label, compareDates:[], singleDay: posCustomFrom === posCustomTo };
+  }
+  // fallback
+  return { from:toISO(addDays(today,-1)), to:toISO(addDays(today,-1)), label:'Ieri', compareDates:[], singleDay:true };
 }
 
 function posSelectors(period) {
-  return ['today','yesterday','weekend','week','month'].map(m => {
-    const labels = {today:'Oggi',yesterday:'Ieri',weekend:'Weekend',week:'7 gg',month:'30 gg'};
+  const tabs = ['yesterday','weekend','week','month','custom'];
+  const labels = {yesterday:'Ieri',weekend:'Weekend',week:'7 gg',month:'30 gg',custom:'📅 Periodo'};
+  const btns = tabs.map(m => {
     const a = posDateMode===m;
     return `<button onclick="posSetMode('${m}')" style="flex:1;font-size:11px;font-weight:600;padding:8px 4px;border-radius:12px;border:none;cursor:pointer;background:${a?'#059669':'rgba(255,255,255,0.6)'};color:${a?'white':'#64748b'};">${labels[m]}</button>`;
   }).join('');
+
+  const customPicker = posDateMode === 'custom' ? `
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:6px;flex:1;">
+        <span style="font-size:11px;color:#64748b;white-space:nowrap;">Dal</span>
+        <input type="date" id="_posFrom" value="${posCustomFrom||''}"
+          style="flex:1;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;color:#1e293b;"
+          onchange="posCustomFrom=this.value;if(posCustomTo&&posCustomFrom)loadPOS();">
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex:1;">
+        <span style="font-size:11px;color:#64748b;white-space:nowrap;">Al</span>
+        <input type="date" id="_posTo" value="${posCustomTo||''}"
+          style="flex:1;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;color:#1e293b;"
+          onchange="posCustomTo=this.value;if(posCustomFrom&&posCustomTo)loadPOS();">
+      </div>
+    </div>` : '';
+
+  return `<div style="display:flex;gap:4px;">${btns}</div>${customPicker}`;
 }
 
 async function loadPOS() {
