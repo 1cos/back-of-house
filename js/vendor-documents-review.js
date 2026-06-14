@@ -1053,9 +1053,9 @@ window.vdrAnswerWeight = async function(docId, qid, idx) {
       if (iv && iv.length) {
         const price = iv[0].unit_price;
         const per100g = (price && grams && totalUnits) ? (price / (totalUnits * grams) * 100) : null;
+        const convG = totalUnits ? Math.round(totalUnits * grams) : Math.round(grams);
         await sb.from('ingredient_vendors').update({
-          unit_weight_g: grams,
-          units_per_case: totalUnits,
+          conversion_to_base: convG,
           price_per_100g: per100g,
         }).eq('id', iv[0].id);
       }
@@ -1101,8 +1101,6 @@ async function vdrSaveEach(docId, qid, idx, units) {
       if (iv && iv.length) {
         const priceEach = iv[0].unit_price ? iv[0].unit_price / units : null;
         await sb.from('ingredient_vendors').update({
-          units_per_case: units,
-          purchase_unit: 'each',
           price_per_each: priceEach,
         }).eq('id', iv[0].id);
       }
@@ -1347,13 +1345,17 @@ window.vdrApprove = async function(docId, btn) {
       const per100g = item.catchweight && item.price_per_lb
         ? (item.price_per_lb / 453.592) * 100
         : ((totalG && price) ? (price / totalG * 100) : null);
+      // Determina price_type e conversion_to_base
+      const priceType = item.price_type || (item.catchweight ? 'per_lb' : 'per_case');
+      const convBase  = priceType === 'per_lb' ? null : (item.conversion_to_base || totalG || null);
+
       const fields  = {
-        unit_price:       price,
-        pack_description: item.pack_description || null,
-        pack_size:        item.pack_size || null,
-        purchase_unit:    item.purchase_unit || item.unit || 'each',
-        price_per_100g:   per100g,
-        last_invoice_date: invoiceDate,
+        unit_price:         price,
+        pack_description:   item.pack_description || null,
+        price_type:         priceType,
+        conversion_to_base: convBase ? Math.round(convBase) : null,
+        price_per_100g:     per100g,
+        last_invoice_date:  invoiceDate,
       };
 
       // Match by SKU first
