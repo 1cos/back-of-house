@@ -168,7 +168,6 @@ function showAdminMenu(){
   if(!sheet||!panel) return;
 
   sheet.classList.remove('hidden');
-  document.body.classList.add('sheet-open'); // iOS Safari scroll lock
 
   // Anima da fuori schermo verso su
   panel.style.transition = 'none';
@@ -190,7 +189,10 @@ function showAdminMenu(){
   panel.addEventListener('touchend',   _amTouchEnd,   {passive:true});
 
   // Chiudi su tap backdrop
-  sheet.onclick = e => { if(e.target===sheet) hideAdminMenu(); };
+  if(!sheet._backdropBound){
+    sheet.addEventListener('click', e => { if(e.target===sheet) hideAdminMenu(); });
+    sheet._backdropBound = true;
+  }
 }
 
 function hideAdminMenu(){
@@ -200,7 +202,7 @@ function hideAdminMenu(){
 
   panel.style.transition = 'transform 0.3s cubic-bezier(0.25,1,0.5,1)';
   panel.style.transform = 'translateY(100%)';
-  document.body.classList.remove('sheet-open'); // ripristina scroll iOS
+  // scroll ripristinato
 
   setTimeout(()=>{
     sheet.classList.add('hidden');
