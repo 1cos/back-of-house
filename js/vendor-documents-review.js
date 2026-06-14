@@ -31,6 +31,7 @@ window.openVendorDocumentsReview = function() {
     </div>`;
 
   document.body.appendChild(modal);
+  addSwipeToClose(modal, ()=>modal.remove());
   vdrLoad();
 };
 
