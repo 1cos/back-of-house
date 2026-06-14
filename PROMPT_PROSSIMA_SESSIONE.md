@@ -1,3 +1,21 @@
+## 🔴 DA FARE SUBITO (annotato sessione grafica)
+
+### 1. Campanella → News/Alert (non Menu admin)
+La campanella in alto a destra (id: `bellBtn`) ora apre `showAdminMenu()`.
+**Deve tornare a fare quello che faceva la sirena 🚨** — inserire una news/alert nella barra scorrevole.
+- Spostare `openNewsManager()` (o funzione equivalente) sulla campanella
+- Il menu admin rimane accessibile solo dal tab ••• in basso
+- `bellDot` si illumina quando ci sono news non lette
+
+### 2. Sales — redesign selettori data
+I bottoni attuali (Oggi/Ieri/Weekend/7gg/30gg) sono troppo piccoli su iPhone.
+**Nuovo layout su due righe:**
+- **Riga 1:** ultimi 7 giorni cliccabili singolarmente (da ieri a 7 giorni fa) — pillole con data
+- **Riga 2:** Weekend | Settimana | 30 giorni | 📅 (date picker campo libero)
+Mockup prima di implementare.
+
+---
+
 # Prompt Prossima Sessione — Brigade
 
 Carica sempre in questo ordine:
