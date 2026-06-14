@@ -170,8 +170,13 @@ function showAdminMenu(){
   sheet.classList.remove('hidden');
   document.body.classList.add('sheet-open'); // iOS Safari scroll lock
 
+  // Anima da fuori schermo verso su
+  panel.style.transition = 'none';
+  panel.style.transform = 'translateY(100%)';
+  // Due frame per garantire che Safari veda la posizione iniziale
   requestAnimationFrame(()=>{
     requestAnimationFrame(()=>{
+      panel.style.transition = 'transform 0.3s cubic-bezier(0.25,1,0.5,1)';
       panel.style.transform = 'translateY(0)';
     });
   });
