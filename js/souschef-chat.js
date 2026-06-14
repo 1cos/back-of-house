@@ -126,7 +126,7 @@ window.scChatSend = async function(prefill) {
         await scSundayGreeting(texas);
         scChatAddMsg('assistant', '✅ Messaggio domenicale inviato in Service Updates. Controlla la home!');
       } else {
-        scChatAddMsg('assistant', '❌ Funzione scSundayGreeting non trovata — ricarica l'app.');
+        scChatAddMsg('assistant', "❌ Funzione scSundayGreeting non trovata — ricarica l'app.");
       }
     } catch(e) {
       scChatAddMsg('assistant', '❌ Errore: ' + e.message);
