@@ -12,44 +12,163 @@ const UNIT_CONVERSIONS = {
 // Falls back to category emoji if no name match.
 function ingrEmoji(name, category){
   const n = (name||'').toUpperCase();
+
+  // ── Frutta & Verdura ──────────────────────────────────────
   if(/AVOCADO/.test(n))              return '🥑';
   if(/LEMON/.test(n))                return '🍋';
   if(/LIME/.test(n))                 return '🍋';
   if(/TOMATO/.test(n))               return '🍅';
   if(/WATERMELON/.test(n))           return '🍉';
   if(/STRAWBERR/.test(n))            return '🍓';
+  if(/RASPBERR/.test(n))             return '🫐';
+  if(/BLUEBERR/.test(n))             return '🫐';
+  if(/BLACKBERR/.test(n))            return '🫐';
+  if(/BERRY|BERRIES/.test(n))        return '🫐';
+  if(/GRAPE/.test(n))                return '🍇';
+  if(/APPLE/.test(n))                return '🍎';
+  if(/PEAR/.test(n))                 return '🍐';
+  if(/ORANGE|MANDARIN/.test(n))      return '🍊';
+  if(/PEACH|NECTARINE/.test(n))      return '🍑';
+  if(/CHERRY/.test(n))               return '🍒';
+  if(/MANGO/.test(n))                return '🥭';
+  if(/PINEAPPLE/.test(n))            return '🍍';
+  if(/COCONUT/.test(n))              return '🥥';
+  if(/BANANA/.test(n))               return '🍌';
+  if(/FIG/.test(n))                  return '🫐';
+  if(/POMEGRANATE/.test(n))          return '🍎';
   if(/MUSHROOM/.test(n))             return '🍄';
   if(/ARUGULA|LETTUCE|ROMAINE/.test(n)) return '🥬';
   if(/SPINACH/.test(n))              return '🥬';
-  if(/ASPARAGUS/.test(n))            return '🥦';
+  if(/ENDIVE|RADICCHIO/.test(n))     return '🥬';
+  if(/KALE/.test(n))                 return '🥬';
+  if(/ASPARAGUS/.test(n))            return '🫛';
   if(/BRUSSEL/.test(n))              return '🥦';
   if(/BROCCOLI/.test(n))             return '🥦';
+  if(/ARTICHOKE/.test(n))            return '🫛';
+  if(/ZUCCHINI|COURGETTE/.test(n))   return '🥒';
+  if(/CUCUMBER/.test(n))             return '🥒';
+  if(/EGGPLANT|AUBERGINE/.test(n))   return '🍆';
   if(/PEPPER/.test(n))               return '🫑';
+  if(/CORN/.test(n))                 return '🌽';
   if(/ONION/.test(n))                return '🧅';
   if(/GARLIC/.test(n))               return '🧄';
-  if(/CARROT/.test(n))               return '🥕';
-  if(/POTATO/.test(n))               return '🥔';
+  if(/CARROT|SHREDDED CARROT/.test(n)) return '🥕';
+  if(/POTATO|GNOCCHI/.test(n))       return '🥔';
+  if(/BEET/.test(n))                 return '🫚';
+  if(/FENNEL/.test(n))               return '🌿';
+  if(/CELERY/.test(n))               return '🌿';
+  if(/LEEK/.test(n))                 return '🌿';
+  if(/HERB|BASIL|ROSEMARY|THYME|SAGE|MINT|PARSLEY|CHIVE/.test(n)) return '🌿';
+  if(/TRUFFLE/.test(n))              return '🍄';
+  if(/CAPERS/.test(n))               return '🫙';
+
+  // ── Uova & Latticini ──────────────────────────────────────
   if(/EGG/.test(n))                  return '🥚';
+  if(/BURRATA/.test(n))              return '🧀';
+  if(/MOZZARELLA|MOZZ/.test(n))      return '🧀';
+  if(/PARMESAN|PARMIGIANO|PECORINO|GORGONZOLA|RICOTTA|MASCARPONE/.test(n)) return '🧀';
   if(/CHEESE|CHZ/.test(n))           return '🧀';
   if(/BUTTER/.test(n))               return '🧈';
-  if(/MILK|CREAM/.test(n))           return '🥛';
-  if(/BEEF|RIB|STEAK|TENDERLOIN/.test(n)) return '🥩';
+  if(/MILK|CREAM|LATTE/.test(n))     return '🥛';
+  if(/YOGURT/.test(n))               return '🥛';
+
+  // ── Carne ─────────────────────────────────────────────────
+  if(/BEEF|RIB|STEAK|TENDERLOIN|FILET|TOMAHAK|BRISKET|VEAL|VITELLO/.test(n)) return '🥩';
+  if(/LAMB|AGNELLO/.test(n))         return '🍖';
   if(/CHICKEN|POULTRY/.test(n))      return '🍗';
-  if(/PORK|BACON|HAM/.test(n))       return '🥓';
-  if(/SALMON|TUNA|HALIBUT|COD|FISH/.test(n)) return '🐟';
-  if(/SHRIMP|PRAWN/.test(n))         return '🍤';
-  if(/LOBSTER|CRAB|SCALLOP|CLAM|OYSTER/.test(n)) return '🦞';
-  if(/FLOUR|PASTA|SPAGHETTI|RICE|GRAIN/.test(n)) return '🌾';
-  if(/OIL/.test(n))                  return '🫒';
-  if(/VINEGAR/.test(n))              return '🫙';
-  if(/SALT|PEPPER|SPICE|HERB/.test(n)) return '🌶️';
-  if(/SUGAR|HONEY/.test(n))          return '🍯';
-  if(/MARIGOLD|FLOWER/.test(n))      return '🌸';
-  // category fallback
+  if(/PORK|BACON|PANCETTA|GUANCIALE|LARD/.test(n)) return '🥓';
+  if(/HAM|PROSCIUTTO|SALAMI|SALAME|MORTADELLA|BRESAOLA|COPPA/.test(n)) return '🍖';
+  if(/MEATBALL|SAUSAGE|GROUND BEEF|PULLED/.test(n)) return '🍖';
+
+  // ── Pesce & Frutti di mare ────────────────────────────────
+  if(/SALMON|SALMONE/.test(n))       return '🐟';
+  if(/TUNA|TONNO/.test(n))           return '🐟';
+  if(/BRANZINO|SEABASS|SEA BASS|ORATA|SEABREAM/.test(n)) return '🐟';
+  if(/HALIBUT|COD|BACCALA|SOLE|TROUT/.test(n)) return '🐟';
+  if(/ANCHOV/.test(n))               return '🐟';
+  if(/SHRIMP|PRAWN|GAMBERI/.test(n)) return '🍤';
+  if(/LOBSTER|ARAGOSTA/.test(n))     return '🦞';
+  if(/CRAB|GRANCHIO/.test(n))        return '🦀';
+  if(/SCALLOP|CAPASANTA/.test(n))    return '🐚';
+  if(/CLAM|VONGOLE|MUSSEL|COZZE/.test(n)) return '🐚';
+  if(/OYSTER|OSTRICA/.test(n))       return '🦪';
+  if(/SQUID|CALAMARI|CUTTLEFISH|SEPPIA/.test(n)) return '🦑';
+  if(/OCTOPUS|POLPO/.test(n))        return '🐙';
+
+  // ── Pasta, Pane, Cereali ──────────────────────────────────
+  if(/SPAGHETTI|LINGUINE|TAGLIATELLE|PAPPARDELLE|BUCATINI/.test(n)) return '🍝';
+  if(/PASTA|PENNE|RIGATONI|FARFALLE|FUSILLI|ORECCHIETTE|GNOCCHI/.test(n)) return '🍝';
+  if(/RAVIOLI|TORTELLINI|LASAGNA|CANNELLONI/.test(n)) return '🍝';
+  if(/RICE|RISO|RISOTTO|CARNAROLI|ARBORIO/.test(n)) return '🍚';
+  if(/BREAD|PANE|SOURDOUGH|FOCACCIA|CIABATTA|BAGUETTE/.test(n)) return '🍞';
+  if(/BREADCRUMB|PANGRATTATO/.test(n)) return '🍞';
+  if(/PIZZA|DOUGH/.test(n))          return '🍕';
+  if(/FLOUR|FARINA/.test(n))         return '🌾';
+  if(/CRACKER|TARALLI|GRISSINI/.test(n)) return '🥨';
+  if(/CROISSANT|BRIOCHE/.test(n))    return '🥐';
+  if(/POLENTA/.test(n))              return '🌽';
+
+  // ── Salse & Preparazioni ──────────────────────────────────
+  if(/SAUCE|RAGÙ|BOLOGNESE|ARRABBIATA|LIVORNESE/.test(n)) return '🫕';
+  if(/PESTO/.test(n))                return '🌿';
+  if(/DEMI|STOCK|BROTH|BRODO/.test(n)) return '🍲';
+  if(/BECHAMEL|BESCIAME/.test(n))    return '🥛';
+  if(/MAYO|AIOLI|BERNESE/.test(n))   return '🫙';
+  if(/DRESSING|VINAIGRETTE|CITRONETTE/.test(n)) return '🥗';
+  if(/CONFIT/.test(n))               return '🍳';
+  if(/CREAM SAUCE|PINK SAUCE/.test(n)) return '🫕';
+
+  // ── Olio, Aceto, Condimenti ───────────────────────────────
+  if(/OLIVE OIL|OIL/.test(n))        return '🫒';
+  if(/VINEGAR|ACETO/.test(n))        return '🫙';
+  if(/SALT|SALE/.test(n))            return '🧂';
+  if(/PEPPER|PEPE/.test(n))          return '🌶️';
+  if(/SPICE|SEASONING|PAPRIKA|CUMIN|OREGANO/.test(n)) return '🌶️';
+  if(/JUNIPER/.test(n))              return '🫐';
+  if(/CAPER/.test(n))                return '🫙';
+  if(/MUSTARD/.test(n))              return '🫙';
+  if(/SOY SAUCE|WORCESTER/.test(n))  return '🫙';
+
+  // ── Dolci & Dessert ───────────────────────────────────────
+  if(/SUGAR|ZUCCHERO|MUSCOVADO/.test(n)) return '🍬';
+  if(/HONEY|MIELE/.test(n))          return '🍯';
+  if(/CHOCOLATE|CIOCCOLATO|COCOA/.test(n)) return '🍫';
+  if(/NUTELLA/.test(n))              return '🍫';
+  if(/VANILLA/.test(n))              return '🌿';
+  if(/CARAMEL/.test(n))              return '🍮';
+  if(/BROWNIE|CAKE|TORTA/.test(n))   return '🎂';
+  if(/CREAM PUFF|PROFITEROLE/.test(n)) return '🍮';
+  if(/TIRAMISU/.test(n))             return '☕';
+  if(/GELATO|ICE CREAM/.test(n))     return '🍨';
+  if(/SABLE|SHORTBREAD|COOKIE/.test(n)) return '🍪';
+  if(/PISTACHIO|PISTACCHIO/.test(n)) return '🫘';
+  if(/ALMOND|MANDORLE/.test(n))      return '🫘';
+  if(/WALNUT|NOCE/.test(n))          return '🫘';
+  if(/HAZELNUT|NOCCIOLA/.test(n))    return '🫘';
+  if(/NUT|FRUIT MIX|BERRY MIX/.test(n)) return '🫘';
+
+  // ── Bevande ───────────────────────────────────────────────
+  if(/WINE|VINO/.test(n))            return '🍷';
+  if(/BEER|BIRRA/.test(n))           return '🍺';
+  if(/WATER|ACQUA|SPARKLING/.test(n)) return '💧';
+  if(/COFFEE|CAFFE|ESPRESSO/.test(n)) return '☕';
+  if(/JUICE|SUCCO/.test(n))          return '🥤';
+  if(/LIQUEUR|LIQUORE|BRANDY|RUM|WHISKEY|GIN/.test(n)) return '🥃';
+
+  // ── Forniture ─────────────────────────────────────────────
+  if(/BAG|WRAP|FILM|VACUUM/.test(n)) return '🛍️';
+  if(/BOX|CONTAINER|CUP|LID/.test(n)) return '📦';
+  if(/GLOVE|TOWEL/.test(n))          return '🧤';
+  if(/SKEWER/.test(n))               return '🍢';
+  if(/PAN|TRAY/.test(n))             return '🍳';
+  if(/CO2|GAS|BUTANE/.test(n))       return '🔵';
+  if(/SPRAY/.test(n))                return '💨';
+
+  // ── Category fallback ─────────────────────────────────────
   const cat = {
     'Dairy':'🧀','Produce':'🥦','Protein':'🥩','Seafood':'🐟',
     'Dry Goods':'🌾','Oil & Vinegar':'🫒','Spices & Condiments':'🌶️',
-    'Beverage':'🥤','Fees':'💸','Other':'📦'
+    'Beverage':'🥤','Supply':'📦','Fees':'💸','Other':'📦'
   };
   return cat[category]||'📦';
 }
