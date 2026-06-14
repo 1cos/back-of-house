@@ -1,7 +1,8 @@
 // ── CHIUSURA OQR ──
 function renderS(){
   const list=items.filter(i=>station2==='All'||i.category?.includes(station2));
-  const counts=['Oven','Pasta','Plating','Salad','Freezer'].map(s=>{
+  const allStations=[...new Set(items.map(i=>i.category).filter(c=>c&&c!=='Chiusura'))].sort();
+  const counts=allStations.map(s=>{
     const c=items.filter(i=>i.need_tomorrow&&i.category?.includes(s)).length;
     return c?`${s}: ${c} ${tr('closeCount')}`:null;
   }).filter(Boolean).join(' • ');
