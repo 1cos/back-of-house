@@ -69,14 +69,74 @@ async function initSousChef(){
   loadScTasks();
   setTimeout(scAttachGestures, 100);
 
-  // Scan automatica ogni 30 minuti — in silenzio, senza toast
-  // Prima scan dopo 5 secondi dall'apertura app (solo se throttle lo permette)
-  setTimeout(() => {
-    if (typeof runSousChefScan === 'function') runSousChefScan(true);
-  }, 5000);
-  setInterval(() => {
-    if (typeof runSousChefScan === 'function') runSousChefScan(true);
-  }, 30 * 60 * 1000);
+  // Scan automatica — orari Texas CDT (UTC-5)
+  // 06:30 → scan mattina speciale
+  // 06:30-17:30 → ogni ora
+  // 17:30-06:30 → nessuna scan
+  scScheduleAutoScan();
+}
+
+function scGetTexasHour() {
+  // CDT = UTC-5 (estate), CST = UTC-6 (inverno)
+  // Usiamo offset fisso -5 per CDT (maggio-novembre)
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const texas = new Date(utc - 5 * 60 * 60 * 1000);
+  return { hour: texas.getHours(), minute: texas.getMinutes(), texas };
+}
+
+function scIsActiveHour() {
+  const { hour } = scGetTexasHour();
+  // Attivo dalle 06:30 alle 17:30
+  return hour >= 6 && hour < 17 || (hour === 6 && scGetTexasHour().minute >= 30);
+}
+
+function scScheduleAutoScan() {
+  // Controlla ogni minuto se è il momento giusto di scandire
+  const CHECK_INTERVAL = 60 * 1000; // 1 minuto
+
+  // Ultima scan tracciata separata dal throttle manuale
+  let lastAutoScan = parseInt(localStorage.getItem('sc_last_auto_scan') || '0');
+
+  function tick() {
+    const { hour, minute, texas } = scGetTexasHour();
+    const now = Date.now();
+
+    // Scan mattina alle 06:30 — una volta al giorno
+    const is630 = hour === 6 && minute >= 30 && minute < 35;
+    const todayKey = texas.toISOString().slice(0, 10);
+    const lastMorningKey = localStorage.getItem('sc_last_morning_scan') || '';
+    if (is630 && lastMorningKey !== todayKey) {
+      localStorage.setItem('sc_last_morning_scan', todayKey);
+      localStorage.removeItem('sc_last_scan'); // forza scan anche se throttle
+      if (typeof runSousChefScan === 'function') {
+        console.log('[AutoScan] Scan mattina 06:30 Texas');
+        runSousChefScan(true);
+      }
+      lastAutoScan = now;
+      localStorage.setItem('sc_last_auto_scan', String(now));
+      return;
+    }
+
+    // Scan oraria 06:30-17:30
+    if (scIsActiveHour()) {
+      const ONE_HOUR = 60 * 60 * 1000;
+      if (now - lastAutoScan >= ONE_HOUR) {
+        lastAutoScan = now;
+        localStorage.setItem('sc_last_auto_scan', String(now));
+        localStorage.removeItem('sc_last_scan'); // bypassa throttle manuale
+        if (typeof runSousChefScan === 'function') {
+          console.log('[AutoScan] Scan oraria', `${hour}:${String(minute).padStart(2,'0')} Texas`);
+          runSousChefScan(true);
+        }
+      }
+    }
+  }
+
+  // Prima esecuzione dopo 10 secondi (app appena aperta)
+  setTimeout(tick, 10000);
+  // Poi ogni minuto
+  setInterval(tick, CHECK_INTERVAL);
 }
 
 // ── GESTURE: tap breve = chat, long press = voce ──
