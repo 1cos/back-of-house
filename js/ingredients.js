@@ -96,39 +96,10 @@ function parsePackDescG(str){
 //  5. unit_weight_g       (già in grammi)
 //  6. purchase_unit da solo                   e.g. 'lb'   → 453 g
 function calcBaseWeightG(v){
-  // 1. pack_description string — parse first because pack_size=1 is a common
-  //    default/placeholder that should never override a real description like "25#"
-  const pdG = parsePackDescG(v.pack_description);
-  if(pdG) return pdG;
-
-  // 2. count-based pack: e.g. "16-22 CT" with unit_weight_g
-  //    parse average count from pack_description range, multiply by unit_weight_g
-  if(v.unit_weight_g && v.pack_description){
-    const pd = String(v.pack_description).toUpperCase();
-    // range: "16-22 CT" → average 19
-    const rangeM = pd.match(/(\d+)\s*[-–]\s*(\d+)\s*(?:CT|COUNT|EA|EACH)/);
-    if(rangeM){
-      const avg = (parseFloat(rangeM[1]) + parseFloat(rangeM[2])) / 2;
-      return avg * parseFloat(v.unit_weight_g);
-    }
-    // single count: "12 CT" → 12
-    const singleM = pd.match(/^(\d+)\s*(?:CT|COUNT|EA|EACH)$/);
-    if(singleM) return parseFloat(singleM[1]) * parseFloat(v.unit_weight_g);
-  }
-
-  // 3. pack_size + pack_unit as split numeric fields (only if pack_size > 1,
-  //    or if there is no pack_description at all)
-  if(v.pack_size && v.pack_unit && (parseFloat(v.pack_size) > 1 || !v.pack_description)){
-    const f = UNIT_CONVERSIONS[(v.pack_unit||'').toLowerCase()];
-    if(f) return parseFloat(v.pack_size) * f;
-  }
-
-  // 4–6. stored weight/conversion fields
-  return v.conversion_to_base
-      || v.last_total_weight_g
-      || v.unit_weight_g
-      || convertToBase(1, v.purchase_unit)
-      || null;
+  // Priority: conversion_to_base > pack_description parse
+  if(v.conversion_to_base && parseFloat(v.conversion_to_base) > 0)
+    return parseFloat(v.conversion_to_base);
+  return parsePackDescG(v.pack_description) || null;
 }
 
 // ── CALCOLA price_per_100g DA CAMPI VENDOR ───────────────────
@@ -155,8 +126,8 @@ function calcVendorPrice100g(v){
   if(pt === 'per_oz') {
     return (up / 28.3495) * 100;
   }
-  if(pt === 'per_each' && v.unit_weight_g) {
-    return (up / parseFloat(v.unit_weight_g)) * 100;
+  if(pt === 'per_each' && v.price_per_each) {
+    return null; // per_each usa price_per_each, non price_per_100g
   }
 
   // per_case (default): prezzo per cassa intera
@@ -167,20 +138,15 @@ function calcVendorPrice100g(v){
 // ── MOTIVO MANCANZA price_per_100g ───────────────────────────
 function missingPriceReason(v){
   if(!v.unit_price)           return 'Missing unit_price';
-  if(!v.purchase_unit && !v.conversion_to_base && !v.last_total_weight_g && !v.unit_weight_g)
-                              return 'Missing purchase_unit';
-  if(!v.conversion_to_base && !v.last_total_weight_g && !v.unit_weight_g
-     && !convertToBase(1, v.purchase_unit))
+  if(!v.conversion_to_base && !parsePackWeightG(v.pack_description))
                               return 'Missing conversion_to_base';
-  if(!v.last_total_weight_g && !v.conversion_to_base && !v.unit_weight_g)
-                              return 'Missing last_total_weight_g';
   return 'Needs review';
 }
 
 // ── CERCA INGREDIENTE PER NOME ────────────────────────────────
 async function searchIngredient(name){
   const {data} = await supa.from('ingredients')
-    .select('id,name,category,base_unit,count_unit,avg_unit_weight_g,unit_volume_ml,notes,active')
+    .select('id,name,category,base_unit,measure_type,notes,active')
     .ilike('name', `%${name}%`).eq('active',true).limit(10);
   return data||[];
 }
@@ -191,7 +157,7 @@ async function calculateIngredientCost(ingredientName, qty, unit){
   if(!ingrs.length) return null;
   const ingr = ingrs[0];
   const {data:vendors} = await supa.from('ingredient_vendors')
-    .select('vendor,unit_price,purchase_unit,pack_size,pack_unit,price_per_100g,price_type,conversion_to_base,last_total_weight_g,unit_weight_g')
+    .select('vendor,unit_price,price_per_100g,price_type,pack_description,conversion_to_base')
     .eq('ingredient_id', ingr.id).eq('active',true);
   if(!vendors?.length) return {ingredient:ingr.name, error:'No price data'};
   const baseQty = convertToBase(qty, unit);
@@ -256,7 +222,7 @@ function renderIngredientsTab(ingrs, priceMap){
     let priceHtml = '<div style="font-size:11px;color:#cbd5e1;">no price</div>';
     if(bp){
       const p100 = bp._p100;
-      const packStr = bp.pack_description || bp.purchase_unit || '';
+      const packStr = bp.pack_description || '';
       if(p100){
         priceHtml = `
           <div style="font-size:13px;font-weight:600;color:#1e293b;">$${(bp.unit_price||0).toFixed(2)}${packStr?' / '+packStr:''}</div>
@@ -299,15 +265,15 @@ window.openIngredientCard = async function(ingredientId){
     {data:invoiceHistory}
   ] = await Promise.all([
     supa.from('ingredients')
-      .select('id,name,category,base_unit,count_unit,avg_unit_weight_g,unit_volume_ml,notes,active')
+      .select('id,name,category,base_unit,measure_type,notes,active')
       .eq('id', ingredientId).single(),
     supa.from('ingredient_vendors')
-      .select('id,vendor,vendor_sku,purchase_unit,pack_size,pack_unit,pack_description,unit_price,base_cost,conversion_to_base,unit_weight_g,conversion_notes,price_per_100g,price_type,last_invoice_date,last_total_weight_g,active,notes')
+      .select('id,vendor,vendor_sku,pack_description,unit_price,price_type,conversion_to_base,price_per_100g,price_per_each,last_invoice_date,active')
       .eq('ingredient_id', ingredientId)
       .eq('active', true),
     supa.from('recipes').select('id,title,category,ingredients'),
     supa.from('invoice_lines')
-      .select('vendor,invoice_date,purchase_unit,qty,match_status')
+      .select('vendor,invoice_date,qty,match_status')
       .eq('ingredient_id', ingredientId)
       .order('invoice_date',{ascending:false})
       .limit(12)
@@ -354,7 +320,7 @@ window.openIngredientCard = async function(ingredientId){
   const vendorRows = vendorsSorted.length ? vendorsSorted.map((v,idx)=>{
     const isLowest = idx===0 && v._p100!=null;
     const p100 = v._p100;
-    const packStr = v.pack_description || (v.pack_size&&v.pack_unit?`${v.pack_size} ${v.pack_unit}`:null) || v.purchase_unit || '';
+    const packStr = v.pack_description || '';
     const unitLine = v.unit_price ? `$${v.unit_price.toFixed(2)}${packStr?' / '+packStr:''}` : '—';
     const p100Line = p100
       ? `<span style="font-size:13px;font-weight:600;color:${isLowest?'#10b981':'#1e293b'};">$${p100.toFixed(2)}/100g</span>`
@@ -385,7 +351,7 @@ window.openIngredientCard = async function(ingredientId){
     <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:0.5px solid #f1f5f9;">
       <div>
         <div style="font-size:12px;color:#1e293b;">${h.vendor}</div>
-        <div style="font-size:10px;color:#94a3b8;">${d}${h.purchase_unit?' · '+h.purchase_unit:''}${h.qty?' · qty '+h.qty:''}</div>
+        <div style="font-size:10px;color:#94a3b8;">${d}${h.qty?' · qty '+h.qty:''}</div>
       </div>
       <div style="font-size:11px;color:#94a3b8;">${h.match_status||''}</div>
     </div>`;
@@ -412,7 +378,7 @@ window.openIngredientCard = async function(ingredientId){
         <button onclick="this.closest('.fixed').remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
         <div style="flex:1;">
           <div style="font-size:16px;font-weight:600;color:#1e293b;">${emoji} ${ingr.name}</div>
-          <div style="font-size:11px;color:#94a3b8;">${ingr.category||'Other'} · ${ingr.base_unit} · ${ingr.count_unit||'weight'}</div>
+          <div style="font-size:11px;color:#94a3b8;">${ingr.category||'Other'} · ${ingr.base_unit} · ${ingr.measure_type||'weight'}</div>
         </div>
         ${isAdmin()?`<button onclick="openEditIngredient('${ingr.id}')" style="font-size:12px;color:#3B82F6;background:rgba(59,130,246,0.08);border:none;padding:5px 10px;border-radius:8px;cursor:pointer;">Edit</button>`:''}
       </div>
@@ -462,12 +428,12 @@ window.openIngredientCard = async function(ingredientId){
         <div style="font-size:13px;color:#475569;background:#f8fafc;border-radius:10px;padding:10px 12px;line-height:1.5;">${ingr.notes}</div>
       </div>`:''}
 
-      ${ingr.avg_unit_weight_g?`
+      ${false?`
       <div style="margin-bottom:20px;">
         <div style="font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px;">Unit Info</div>
         <div style="font-size:13px;color:#475569;background:#f8fafc;border-radius:10px;padding:10px 12px;">
-          Avg unit weight: <strong>${ingr.avg_unit_weight_g}g</strong>
-          ${ingr.unit_volume_ml?` · Volume: <strong>${ingr.unit_volume_ml}ml</strong>`:''}
+          
+          
         </div>
       </div>`:''}
 
@@ -480,7 +446,7 @@ window.openIngredientCard = async function(ingredientId){
 // ── EDIT INGREDIENTE — solo campi master ingredients ──────────
 window.openEditIngredient = async function(ingredientId){
   const {data:ingr} = await supa.from('ingredients')
-    .select('id,name,category,base_unit,count_unit,avg_unit_weight_g,unit_volume_ml,notes')
+    .select('id,name,category,base_unit,measure_type,notes')
     .eq('id',ingredientId).single();
   if(!ingr) return;
 
@@ -519,11 +485,11 @@ window.openEditIngredient = async function(ingredientId){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
         <div>
           <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">AVG UNIT WEIGHT (g)</label>
-          <input id="editIngrWeight" type="number" value="${ingr.avg_unit_weight_g||''}" placeholder="e.g. 200" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
+          
         </div>
         <div>
           <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">UNIT VOLUME (ml)</label>
-          <input id="editIngrVol" type="number" value="${ingr.unit_volume_ml||''}" placeholder="e.g. 500" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
+          
         </div>
       </div>
 
@@ -552,8 +518,8 @@ window.saveEditIngredient = async function(ingredientId, btn){
   };
   const w = parseFloat(document.getElementById('editIngrWeight')?.value);
   const v = parseFloat(document.getElementById('editIngrVol')?.value);
-  if(w) updates.avg_unit_weight_g = w;
-  if(v) updates.unit_volume_ml = v;
+
+
   const {error} = await supa.from('ingredients').update(updates).eq('id',ingredientId);
   if(error){ btn.textContent='Error: '+error.message; btn.disabled=false; return; }
   btn.closest('.fixed').remove();
@@ -564,7 +530,7 @@ window.saveEditIngredient = async function(ingredientId, btn){
 // ── EDIT VENDOR ROW — campi ingredient_vendors ────────────────
 window.openEditVendorRow = async function(vendorId, ingredientId){
   const {data:v} = await supa.from('ingredient_vendors')
-    .select('id,vendor,vendor_sku,purchase_unit,pack_size,pack_unit,pack_description,unit_price,base_cost,conversion_to_base,unit_weight_g,conversion_notes,price_per_100g,price_type,last_invoice_date,last_total_weight_g,active,notes')
+    .select('id,vendor,vendor_sku,pack_description,unit_price,price_type,conversion_to_base,price_per_100g,price_per_each,last_invoice_date,active')
     .eq('id',vendorId).single();
   if(!v) return;
 
@@ -608,10 +574,7 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
-        <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PURCHASE UNIT</label>
-          <input id="evPurchaseUnit" value="${v.purchase_unit||''}" placeholder="lb, cs, each" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
-        </div>
+
         <div>
           <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PACK DESCRIPTION</label>
           <input id="evPackDesc" value="${v.pack_description||''}" placeholder="5# bag, 2/5lb" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
@@ -691,7 +654,7 @@ window.saveEditVendorRow = async function(vendorId, ingredientId, btn){
     vendor:           document.getElementById('evVendor')?.value?.trim()||null,
     vendor_sku:       document.getElementById('evSku')?.value?.trim()||null,
     unit_price:       up,
-    purchase_unit:    pu,
+
     pack_description: document.getElementById('evPackDesc')?.value?.trim()||null,
     conversion_to_base: conv,
     price_per_each:   pricePerEach,
