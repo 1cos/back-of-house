@@ -1407,18 +1407,82 @@ window.vdrApprove = async function(docId, btn) {
       card.style.transition = 'opacity .3s'; card.style.opacity = '0';
       setTimeout(() => { card.remove(); const list = document.getElementById('vdrList'); if (list && !list.querySelector('[id^="vdrCard-"]')) vdrLoad(); }, 300);
     }
-    // ── Yes chef: close the sheet, report exactly what was done ──
+    // ── Yes Chef modal — celebrativo, grande, leggibile ──────────
     const sheetEl = document.getElementById('vdrSheet');
     if (sheetEl) sheetEl.remove();
-    const docLabel = doc.document_number ? '#' + doc.document_number : 'Document';
-    const parts = [];
-    if (toInsert.length) parts.push(toInsert.length + ' new ingredient' + (toInsert.length !== 1 ? 's' : ''));
-    if (toUpdate.length) parts.push(toUpdate.length + ' updated');
-    const detail = parts.length ? ' — ' + parts.join(', ') : '';
-    const yesChefMsg = '✓ Invoice ' + docLabel + ' imported · ' + items.length + ' item' + (items.length !== 1 ? 's' : '') + detail;
-    // Yes Chef must NEVER fail silently — toast if available, alert otherwise
-    if (typeof showScToast === 'function') { showScToast(yesChefMsg); }
-    else { alert(yesChefMsg); }
+
+    const docLabel  = doc.document_number ? '#' + doc.document_number : 'Document';
+    const vendorLabel = doc.vendor || vendor || 'Vendor';
+
+    // Costruisci lista articoli
+    const itemLines = items.slice(0, 12).map(item => {
+      const name  = item.description || item.raw_description || '?';
+      const price = item.unit_price ? '$' + parseFloat(item.unit_price).toFixed(2) : '';
+      const p100  = item._cost_per_100g ? ` · $${parseFloat(item._cost_per_100g).toFixed(2)}/100g` : '';
+      return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:14px;">
+        <span style="color:#1e293b;font-weight:500;">${name}</span>
+        <span style="color:#64748b;white-space:nowrap;margin-left:8px;">${price}${p100}</span>
+      </div>`;
+    }).join('');
+    const moreCount = items.length > 12 ? `<div style="font-size:13px;color:#94a3b8;padding-top:8px;">+ altri ${items.length - 12} articoli</div>` : '';
+
+    const statsLine = [
+      toInsert.length ? `${toInsert.length} nuovo${toInsert.length !== 1 ? 'i' : ''}` : '',
+      toUpdate.length ? `${toUpdate.length} aggiornato${toUpdate.length !== 1 ? 'i' : ''}` : '',
+    ].filter(Boolean).join(' · ') || `${items.length} articoli`;
+
+    const overlay = document.createElement('div');
+    overlay.id = '_yesChefOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);display:flex;align-items:flex-end;justify-content:center;';
+    overlay.innerHTML = `
+      <div style="
+        background:white;width:100%;max-width:480px;
+        border-radius:28px 28px 0 0;
+        padding:0 0 40px;
+        max-height:85vh;overflow-y:auto;
+        animation:slideUp .3s cubic-bezier(.34,1.56,.64,1);
+        box-shadow:0 -8px 40px rgba(0,0,0,0.25);
+      ">
+        <!-- Handle -->
+        <div style="width:40px;height:4px;background:#e2e8f0;border-radius:2px;margin:14px auto 0;"></div>
+
+        <!-- Header celebrativo -->
+        <div style="text-align:center;padding:24px 20px 16px;">
+          <div style="font-size:52px;margin-bottom:8px;">👨‍🍳</div>
+          <div style="font-size:28px;font-weight:800;color:#1e293b;letter-spacing:-.5px;">Yes, Chef!</div>
+          <div style="font-size:15px;color:#64748b;margin-top:6px;">${vendorLabel} · ${docLabel}</div>
+          <div style="
+            display:inline-block;
+            margin-top:12px;padding:6px 16px;
+            background:#f0fdf4;border:1.5px solid #86efac;
+            border-radius:20px;font-size:13px;font-weight:600;color:#166534;
+          ">✅ ${statsLine}</div>
+        </div>
+
+        <!-- Lista articoli -->
+        <div style="padding:0 20px;">
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;">Articoli importati</div>
+          ${itemLines}
+          ${moreCount}
+        </div>
+
+        <!-- Bottone chiudi -->
+        <div style="padding:20px 20px 0;">
+          <button onclick="document.getElementById('_yesChefOverlay').remove()"
+            style="
+              width:100%;height:56px;border-radius:18px;
+              background:#1e293b;color:white;
+              font-size:18px;font-weight:700;
+              border:none;cursor:pointer;
+              letter-spacing:.01em;
+            ">
+            🍽️ Fatto, Chef
+          </button>
+        </div>
+      </div>`;
+
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
 
   } catch(e) {
     if (statusEl) {
