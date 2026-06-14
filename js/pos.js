@@ -126,6 +126,7 @@ function posSelectors(period) {
 }
 
 async function loadPOS() {
+  if (!isAdmin()) { loadPOSStaff(); return; }
   const sec = document.getElementById('vx');
   if (!sec || sec.classList.contains('hidden')) return;
   sec.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px;">Caricamento\u2026</div>';
@@ -1433,4 +1434,323 @@ async function daExecuteQuery(sb, q, from, to) {
     'Analisi <strong>'+qtype+'</strong> in arrivo nel prossimo aggiornamento.<br>' +
     '<span style="font-size:11px;color:#b45309;">Usa Sous Chef AI per questa domanda nel frattempo.</span>' +
     '</div>');
+}
+
+// ── POS Staff View ──────────────────────────────────────────────────
+// Solo per utenti non-admin. Zero prezzi, zero incassi, solo quantità cibo.
+
+var staffDateMode = 'ieri';
+
+var STAFF_FOOD_GROUPS = ['Pasta','Secondi/entrees','Secondi','Antipasti/appetizer','Antipasti','Insalate/salad','Dolcezze/dessert','Dolcezze','Kids menu','Soup','Sides','Lunch'];
+var STAFF_GROUP_LABELS = {'Pasta':'Pasta','Secondi/entrees':'Secondi','Secondi':'Secondi','Antipasti/appetizer':'Antipasti','Antipasti':'Antipasti','Insalate/salad':'Insalate','Dolcezze/dessert':'Dolcezze','Dolcezze':'Dolcezze','Kids menu':'Kids','Soup':'Zuppe','Sides':'Contorni','Lunch':'Pranzo'};
+var STAFF_EXCL = ['NA Beverages','The Bar','Mocktail','Happy hours','Wine dinner','Testing menu','Catering','Peach Festival','Resturant week'];
+var STAFF_GROUP_EMOJI = {'Pasta':'🍝','Secondi':'🥩','Antipasti':'🫙','Insalate':'🥗','Dolcezze':'🍮','Kids':'👶','Zuppe':'🍲','Contorni':'🥦','Pranzo':'🌞'};
+
+function staffGetPeriod() {
+  var today = new Date(); today.setHours(0,0,0,0);
+  var dow = today.getDay();
+  if (staffDateMode === 'ieri') {
+    var d = new Date(today); d.setDate(d.getDate()-1);
+    var iso = toISO(d);
+    return { from:iso, to:iso, label:dayNameIT(iso)+' '+iso.slice(5) };
+  }
+  if (staffDateMode === 'weekend') {
+    var daysToSat = ((dow+1)%7) + 1;
+    var lastSat = new Date(today); lastSat.setDate(today.getDate()-daysToSat);
+    var lastFri = new Date(lastSat); lastFri.setDate(lastSat.getDate()-1);
+    return { from:toISO(lastFri), to:toISO(lastSat), label:'Weekend '+toISO(lastFri).slice(5)+'-'+toISO(lastSat).slice(5) };
+  }
+  if (staffDateMode === 'settimana') {
+    var daysToLastTue = ((dow + 5) % 7) + 2;
+    var lastTue = new Date(today); lastTue.setDate(today.getDate()-daysToLastTue);
+    var lastSat2 = new Date(lastTue); lastSat2.setDate(lastTue.getDate()+4);
+    return { from:toISO(lastTue), to:toISO(lastSat2), label:'Sett. '+toISO(lastTue).slice(5)+'-'+toISO(lastSat2).slice(5) };
+  }
+  var d2 = new Date(today); d2.setDate(d2.getDate()-1);
+  var iso2 = toISO(d2);
+  return { from:iso2, to:iso2, label:dayNameIT(iso2)+' '+iso2.slice(5) };
+}
+
+function staffSetMode(m) {
+  staffDateMode = m;
+  loadPOSStaff();
+}
+
+async function loadPOSStaff() {
+  var sec = document.getElementById('vx');
+  if (!sec || sec.classList.contains('hidden')) return;
+  sec.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px;">Caricamento\u2026</div>';
+
+  try {
+    var sb = window.supabaseClient;
+    var period = staffGetPeriod();
+
+    // Selettori
+    var modes = [
+      {mode:'ieri',label:'Ieri'},
+      {mode:'weekend',label:'Weekend'},
+      {mode:'settimana',label:'Sett.'}
+    ];
+    var selHtml = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">' +
+      modes.map(function(m) {
+        var a = staffDateMode === m.mode;
+        return '<button onclick="staffSetMode(\''+m.mode+'\')" style="padding:10px 4px;border-radius:12px;border:0.5px solid '+(a?'#6366f1':'rgba(99,102,241,0.15)')+';background:'+(a?'#6366f1':'white')+';color:'+(a?'white':'#1e293b')+';font-size:13px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;">'+m.label+'</button>';
+      }).join('') +
+      '</div>';
+
+    // Coperti (solo numero, niente fatturato)
+    var rCov = await sb.from('pos_daily_summary').select('bill_count,sale_date').gte('sale_date',period.from).lte('sale_date',period.to);
+    var totalCovers = (rCov.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var nDays = (rCov.data||[]).filter(function(x){return x.bill_count>0;}).length;
+
+    var coverHtml = '<div style="background:white;border-radius:16px;padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;">' +
+      '<div>' +
+      '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">'+period.label+'</div>' +
+      '<div style="font-size:28px;font-weight:800;color:#1e293b;line-height:1.1;">'+totalCovers+' <span style="font-size:14px;font-weight:500;color:#64748b;">coperti</span></div>' +
+      (nDays>1?'<div style="font-size:11px;color:#94a3b8;">media '+Math.round(totalCovers/nDays)+'/giorno</div>':'') +
+      '</div>' +
+      '<div style="font-size:40px;">🍽️</div>' +
+      '</div>';
+
+    if (totalCovers === 0) {
+      sec.innerHTML = '<div style="padding:12px 12px 100px;">'+selHtml+coverHtml+
+        '<div style="background:white;border-radius:16px;padding:40px 20px;text-align:center;color:#94a3b8;font-size:13px;">Nessun dato per questo periodo.</div></div>';
+      return;
+    }
+
+    // Piatti Food
+    var rItems = await sb.from('pos_sales_by_item')
+      .select('menu_item,menu_group,quantity,sales_category')
+      .gte('sale_date',period.from).lte('sale_date',period.to)
+      .eq('sales_category','Food').eq('is_historical',false);
+
+    var items = (rItems.data||[]).filter(function(x){ return STAFF_EXCL.indexOf(x.menu_group)<0; });
+
+    // Aggrega per gruppo canonico
+    var groupMap = {};
+    items.forEach(function(x) {
+      var label = STAFF_GROUP_LABELS[x.menu_group] || x.menu_group;
+      if (!groupMap[label]) groupMap[label] = {qty:0,items:{}};
+      groupMap[label].qty += Number(x.quantity)||0;
+      var it = x.menu_item;
+      groupMap[label].items[it] = (groupMap[label].items[it]||0) + (Number(x.quantity)||0);
+    });
+
+    var groupOrder = ['Pasta','Secondi','Antipasti','Insalate','Dolcezze','Kids','Zuppe','Contorni','Pranzo'];
+    var groupsSorted = groupOrder.filter(function(g){return groupMap[g] && groupMap[g].qty>0;});
+    var maxGroupQty = Math.max.apply(null, groupsSorted.map(function(g){return groupMap[g].qty;}));
+
+    var groupsHtml = groupsSorted.map(function(g) {
+      var data = groupMap[g];
+      var emoji = STAFF_GROUP_EMOJI[g]||'🍴';
+      var pct = maxGroupQty>0 ? Math.round((data.qty/maxGroupQty)*100) : 0;
+      return '<div onclick="staffOpenGroup(\''+g+'\')" style="background:white;border-radius:14px;padding:12px 14px;margin-bottom:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;active:opacity:0.7;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+        '<span style="font-size:20px;">'+emoji+'</span>' +
+        '<span style="font-size:15px;font-weight:700;color:#1e293b;">'+g+'</span>' +
+        '</div>' +
+        '<span style="font-size:18px;font-weight:800;color:#6366f1;">'+data.qty+'<span style="font-size:11px;font-weight:500;color:#94a3b8;">x</span></span>' +
+        '</div>' +
+        '<div style="height:4px;background:#f1f5f9;border-radius:2px;overflow:hidden;">' +
+        '<div style="width:'+pct+'%;height:100%;background:#6366f1;border-radius:2px;"></div>' +
+        '</div>' +
+        '</div>';
+    }).join('');
+
+    // Modifier cucina
+    var rModCfg = await sb.from('modifier_config').select('modifier,kitchen_cat,portion_note').eq('is_kitchen',true);
+    var rModSales = await sb.from('pos_modifiers').select('modifier,quantity_sold').gte('sale_date',period.from).lte('sale_date',period.to).eq('is_historical',false);
+
+    var kitchenMods = (rModCfg.data||[]).map(function(x){return x.modifier.toLowerCase();});
+    var modAgg = {};
+    (rModSales.data||[]).forEach(function(x) {
+      if (!x.modifier) return;
+      var low = x.modifier.toLowerCase();
+      if (kitchenMods.some(function(m){return low.indexOf(m)>=0 || m.indexOf(low)>=0;})) {
+        modAgg[x.modifier] = (modAgg[x.modifier]||0) + (Number(x.quantity_sold)||0);
+      }
+    });
+    var modSorted = Object.entries(modAgg).sort(function(a,b){return b[1]-a[1];});
+    var maxMod = modSorted.length>0 ? modSorted[0][1] : 1;
+
+    var modHtml = '';
+    if (modSorted.length > 0) {
+      modHtml = '<div style="background:white;border-radius:16px;padding:14px 16px;margin-bottom:12px;">' +
+        '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Modifier cucina</div>' +
+        modSorted.map(function(e) {
+          var pct = Math.round((e[1]/maxMod)*100);
+          var cfg = (rModCfg.data||[]).find(function(x){return x.modifier.toLowerCase()===e[0].toLowerCase();});
+          var cat = cfg ? cfg.kitchen_cat : '';
+          var catColors = {Contorni:'#059669',Proteine:'#dc2626',Upgrade:'#d97706',Extra:'#6366f1'};
+          var col = catColors[cat]||'#6366f1';
+          return '<div onclick="staffOpenModifier(\''+e[0].replace(/'/g,"\\'")+'\',\''+period.from+'\',\''+period.to+'\')" style="margin-bottom:10px;cursor:pointer;-webkit-tap-highlight-color:transparent;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">' +
+            '<span style="font-size:13px;font-weight:600;color:#1e293b;">'+e[0]+'</span>' +
+            '<span style="font-size:14px;font-weight:800;color:'+col+';">'+e[1]+'<span style="font-size:10px;font-weight:500;color:#94a3b8;">x</span></span>' +
+            '</div>' +
+            '<div style="height:3px;background:#f1f5f9;border-radius:2px;overflow:hidden;">' +
+            '<div style="width:'+pct+'%;height:100%;background:'+col+';border-radius:2px;"></div>' +
+            '</div>' +
+            '</div>';
+        }).join('') +
+        '</div>';
+    }
+
+    // Salvo i dati nel DOM per uso successivo
+    window._staffData = { groupMap:groupMap, period:period, modCfg:rModCfg.data||[] };
+
+    sec.innerHTML = '<div style="padding:12px 12px 100px;">' +
+      selHtml + coverHtml +
+      '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Cucina</div>' +
+      groupsHtml +
+      modHtml +
+      '</div>';
+
+  } catch(err) {
+    console.error('POS Staff error:',err);
+    document.getElementById('vx').innerHTML = '<div style="padding:16px;color:#dc2626;font-size:13px;">Errore: '+err.message+'</div>';
+  }
+}
+
+function staffOpenGroup(groupName) {
+  if (!window._staffData) return;
+  var gd = window._staffData.groupMap[groupName];
+  var period = window._staffData.period;
+  if (!gd) return;
+
+  var items = Object.entries(gd.items).sort(function(a,b){return b[1]-a[1];});
+  var max = items.length>0 ? items[0][1] : 1;
+  var emoji = STAFF_GROUP_EMOJI[groupName]||'🍴';
+
+  var html = '<div id="sg-modal" style="position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.5);display:flex;align-items:flex-end;">' +
+    '<div style="background:#f8faff;border-radius:24px 24px 0 0;width:100%;max-height:88vh;overflow-y:auto;padding:20px 16px 40px;">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
+    '<div style="display:flex;align-items:center;gap:10px;">' +
+    '<span style="font-size:28px;">'+emoji+'</span>' +
+    '<div>' +
+    '<div style="font-size:18px;font-weight:800;color:#1e293b;">'+groupName+'</div>' +
+    '<div style="font-size:11px;color:#94a3b8;">'+period.label+' · '+gd.qty+'x totali</div>' +
+    '</div>' +
+    '</div>' +
+    '<button onclick="document.getElementById(\'sg-modal\').remove()" style="width:34px;height:34px;border-radius:50%;border:none;background:rgba(100,116,139,0.12);font-size:18px;cursor:pointer;color:#475569;">✕</button>' +
+    '</div>' +
+    items.map(function(e,i) {
+      var pct = Math.round((e[1]/max)*100);
+      var isHalf = e[0].toLowerCase().indexOf('half')>=0 || e[0].toLowerCase().indexOf('child')>=0;
+      return '<div onclick="staffOpenDishModal(\''+e[0].replace(/'/g,"\\'")+'\',\''+period.from+'\',\''+period.to+'\')" style="background:white;border-radius:12px;padding:11px 14px;margin-bottom:7px;cursor:pointer;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+        '<span style="font-size:13px;font-weight:600;color:#1e293b;max-width:75%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(i+1)+'. '+e[0]+'</span>' +
+        '<span style="font-size:15px;font-weight:800;color:#6366f1;">'+e[1]+'<span style="font-size:10px;color:#94a3b8;">x</span>'+(isHalf?' <span style="font-size:9px;color:#d97706;">½</span>':'')+'</span>' +
+        '</div>' +
+        '<div style="height:3px;background:#f1f5f9;border-radius:2px;overflow:hidden;">' +
+        '<div style="width:'+pct+'%;height:100%;background:#6366f1;border-radius:2px;"></div>' +
+        '</div>' +
+        '</div>';
+    }).join('') +
+    '</div></div>';
+
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function staffOpenDishModal(dishName, from, to) {
+  // Rimuovi eventuali modal precedenti dello stesso tipo
+  var old = document.getElementById('sd-modal');
+  if (old) old.remove();
+
+  var sb = window.supabaseClient;
+
+  // Mostra loading
+  var loadHtml = '<div id="sd-modal" style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:flex-end;">' +
+    '<div style="background:#f8faff;border-radius:24px 24px 0 0;width:100%;padding:24px 16px 40px;text-align:center;color:#94a3b8;font-size:13px;">Caricamento\u2026</div></div>';
+  document.body.insertAdjacentHTML('beforeend', loadHtml);
+
+  try {
+    // Vendite come piatto
+    var r1 = await sb.from('pos_sales_by_item')
+      .select('menu_item,quantity').gte('sale_date',from).lte('sale_date',to)
+      .eq('is_historical',false).ilike('menu_item','%'+dishName+'%');
+
+    // Vendite come modifier su altri piatti
+    var r2 = await sb.from('pos_modifier_by_item')
+      .select('modifier,parent_item,quantity_sold').gte('sale_date',from).lte('sale_date',to)
+      .ilike('modifier','%'+dishName+'%');
+
+    var piatti = (r1.data||[]);
+    var modItems = (r2.data||[]);
+
+    // Calcolo porzioni
+    var totalePortioni = 0;
+    var righe = [];
+
+    piatti.forEach(function(x) {
+      var isHalf = x.menu_item.toLowerCase().indexOf('half')>=0 || x.menu_item.toLowerCase().indexOf('child')>=0;
+      var mult = isHalf ? 0.5 : 1;
+      var qty = Number(x.quantity)||0;
+      totalePortioni += qty * mult;
+      righe.push({label:x.menu_item, qty:qty, note:isHalf?'mezza porzione':'porzione intera', mult:mult});
+    });
+
+    var modQty = modItems.reduce(function(s,x){return s+Number(x.quantity_sold);},0);
+    if (modQty > 0) {
+      // Controlla se è proteina (porzione intera) o contorno (mezza)
+      var cfg = window._staffData && window._staffData.modCfg.find(function(c){
+        return c.modifier.toLowerCase() === dishName.toLowerCase();
+      });
+      var isIntera = cfg && cfg.portion_note && cfg.portion_note.indexOf('intera')>=0;
+      var modMult = isIntera ? 1 : 0.5;
+      totalePortioni += modQty * modMult;
+      righe.push({label:'Come modifier su altri piatti', qty:modQty, note:isIntera?'porzione intera':'mezza porzione', mult:modMult});
+    }
+
+    totalePortioni = Math.ceil(totalePortioni);
+
+    var emojis = {'Pasta':'🍝','Secondi':'🥩','chicken':'🍗','shrimp':'🦐','brussels':'🥦','asparagus':'🌿','meatball':'🍖','truffle':'🍄','burrata':'🧀','scallop':'🫧','salmon':'🐟','beef':'🥩'};
+    var emoji = '🍴';
+    Object.keys(emojis).forEach(function(k){if(dishName.toLowerCase().indexOf(k)>=0) emoji=emojis[k];});
+
+    // Periodo leggibile
+    var periodLabel = from===to ? (dayNameIT(from)+' '+from.slice(5)) : (from.slice(5)+' → '+to.slice(5));
+
+    var modal = document.getElementById('sd-modal');
+    if (!modal) return;
+    modal.innerHTML = '<div style="background:#f8faff;border-radius:24px 24px 0 0;width:100%;max-height:85vh;overflow-y:auto;padding:20px 16px 40px;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">' +
+      '<div style="display:flex;align-items:center;gap:10px;">' +
+      '<span style="font-size:32px;">'+emoji+'</span>' +
+      '<div>' +
+      '<div style="font-size:17px;font-weight:800;color:#1e293b;">'+dishName+'</div>' +
+      '<div style="font-size:11px;color:#94a3b8;">'+periodLabel+'</div>' +
+      '</div>' +
+      '</div>' +
+      '<button onclick="document.getElementById(\'sd-modal\').remove()" style="width:34px;height:34px;border-radius:50%;border:none;background:rgba(100,116,139,0.12);font-size:18px;cursor:pointer;color:#475569;">✕</button>' +
+      '</div>' +
+      '<div style="background:white;border-radius:14px;padding:14px;margin-bottom:14px;">' +
+      righe.map(function(r) {
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #f1f5f9;">' +
+          '<div>' +
+          '<div style="font-size:13px;font-weight:500;color:#1e293b;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+r.label+'</div>' +
+          '<div style="font-size:10px;color:#94a3b8;">'+r.note+'</div>' +
+          '</div>' +
+          '<span style="font-size:15px;font-weight:700;color:#475569;">'+r.qty+'x</span>' +
+          '</div>';
+      }).join('') +
+      '</div>' +
+      '<div style="background:linear-gradient(135deg,#6366f1,#4f46e5);border-radius:14px;padding:18px;text-align:center;">' +
+      '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">Da preparare</div>' +
+      '<div style="font-size:48px;font-weight:900;color:white;line-height:1;">'+totalePortioni+'</div>' +
+      '<div style="font-size:13px;color:rgba(255,255,255,0.8);margin-top:2px;">porzioni</div>' +
+      '</div>' +
+      '</div>';
+
+  } catch(e) {
+    var modal2 = document.getElementById('sd-modal');
+    if (modal2) modal2.innerHTML = '<div style="background:#f8faff;border-radius:24px 24px 0 0;width:100%;padding:24px;color:#dc2626;">Errore: '+e.message+'</div>';
+  }
+}
+
+async function staffOpenModifier(modName, from, to) {
+  var old = document.getElementById('sd-modal');
+  if (old) old.remove();
+  await staffOpenDishModal(modName, from, to);
 }
