@@ -144,40 +144,123 @@ function scScheduleAutoScan() {
     }
   }
 
-  // ── DOMENICA — messaggio buona domenica + recap settimana ──
+  // ── DOMENICA — buona domenica + recap settimana + settimana prossima ──
   async function scSundayGreeting(texas) {
     try {
       const sb = window.supabaseClient;
       if (!sb) return;
 
-      // Calcola inizio settimana (lunedì scorso)
+      const days = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
+      const months = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+
+      // ── PARTE 1: Recap settimana passata ────────────────────
       const monday = new Date(texas);
       monday.setDate(texas.getDate() - texas.getDay() + 1);
       const mondayStr = monday.toISOString().slice(0, 10);
+      const sundayStr = texas.toISOString().slice(0, 10);
 
-      // Vendite settimana
       const { data: sales } = await sb
         .from('pos_daily_summary')
         .select('sale_date, net_sales, bill_count')
         .gte('sale_date', mondayStr)
+        .lte('sale_date', sundayStr)
         .order('sale_date', { ascending: true });
 
       const totalSales = (sales || []).reduce((s, d) => s + parseFloat(d.net_sales || 0), 0);
       const totalCovers = (sales || []).reduce((s, d) => s + parseInt(d.bill_count || 0), 0);
-      const bestDay = (sales || []).sort((a, b) => parseFloat(b.net_sales) - parseFloat(a.net_sales))[0];
+      const avgCover = totalCovers > 0 ? (totalSales / totalCovers).toFixed(2) : '0';
+      const sorted = [...(sales || [])].sort((a, b) => parseFloat(b.net_sales) - parseFloat(a.net_sales));
+      const bestDay = sorted[0];
+      const worstDay = sorted[sorted.length - 1];
 
-      let recap = `Settimana: $${totalSales.toFixed(0)} totale, ${totalCovers} coperti`;
-      if (bestDay) recap += `, giornata migliore ${bestDay.sale_date} ($${parseFloat(bestDay.net_sales).toFixed(0)})`;
+      // Piatto più venduto della settimana
+      const { data: topItems } = await sb
+        .from('pos_sales_by_item')
+        .select('menu_item, quantity')
+        .gte('sale_date', mondayStr)
+        .lte('sale_date', sundayStr)
+        .order('quantity', { ascending: false })
+        .limit(3);
 
-      // Mostra toast domenicale
-      showScToast(`☀️ Buona domenica crew! ${recap}`, 8000);
+      const topItemsStr = (topItems || []).slice(0, 3)
+        .map((t, i) => `${i+1}. ${t.menu_item} (${t.quantity} pz)`)
+        .join(', ');
 
-      // Crea service update visibile a tutti
+      let recapSettimana = `📊 *RECAP SETTIMANA*
+`;
+      recapSettimana += `💰 Totale: $${totalSales.toFixed(0)} | ${totalCovers} coperti | avg $${avgCover}/coperto
+`;
+      if (bestDay) recapSettimana += `🏆 Miglior giorno: ${days[new Date(bestDay.sale_date).getDay()]} ($${parseFloat(bestDay.net_sales).toFixed(0)})
+`;
+      if (worstDay && worstDay.sale_date !== bestDay?.sale_date) recapSettimana += `📉 Giorno più quieto: ${days[new Date(worstDay.sale_date).getDay()]} ($${parseFloat(worstDay.net_sales).toFixed(0)})
+`;
+      if (topItemsStr) recapSettimana += `🍽️ Top piatti: ${topItemsStr}`;
+
+      // ── PARTE 2: Settimana prossima ─────────────────────────
+      const nextMonday = new Date(texas);
+      nextMonday.setDate(texas.getDate() + 1); // domani = lunedì
+      const nextSunday = new Date(nextMonday);
+      nextSunday.setDate(nextMonday.getDate() + 6);
+      const nextMondayStr = nextMonday.toISOString().slice(0, 10);
+      const nextSundayStr = nextSunday.toISOString().slice(0, 10);
+
+      // TripleSeat events settimana prossima
+      const { data: events } = await sb
+        .from('tripleseat_events')
+        .select('name, event_date, guest_count, menu_type, location')
+        .gte('event_date', nextMondayStr)
+        .lte('event_date', nextSundayStr)
+        .order('event_date', { ascending: true })
+        .limit(10);
+
+      // Service updates con level='event' settimana prossima (fallback se TripleSeat non è connesso)
+      const { data: serviceEvents } = await sb
+        .from('service_updates')
+        .select('message, created_at')
+        .eq('level', 'event')
+        .gte('created_at', nextMondayStr)
+        .lte('created_at', nextSundayStr + 'T23:59:59')
+        .order('created_at', { ascending: true })
+        .limit(5);
+
+      let recapProssima = `📅 *SETTIMANA PROSSIMA*
+`;
+      recapProssima += `${nextMonday.getDate()} ${months[nextMonday.getMonth()]} — ${nextSunday.getDate()} ${months[nextSunday.getMonth()]}
+`;
+
+      if (events && events.length > 0) {
+        recapProssima += events.map(e => {
+          const d = new Date(e.event_date);
+          return `🎉 ${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}: ${e.name}${e.guest_count ? ' (' + e.guest_count + ' ospiti)' : ''}${e.menu_type ? ' — ' + e.menu_type : ''}`;
+        }).join('
+');
+      } else if (serviceEvents && serviceEvents.length > 0) {
+        recapProssima += serviceEvents.map(e => `📌 ${e.message}`).join('
+');
+      } else {
+        recapProssima += `✅ Nessun evento/catering in agenda.
+Collega TripleSeat per vedere gli eventi automaticamente.`;
+      }
+
+      // ── MESSAGGIO FINALE ─────────────────────────────────────
+      const msg = `☀️ Buona domenica crew! Buon riposo a tutti — ci vediamo lunedì! 🍝
+
+${recapSettimana}
+
+${recapProssima}`;
+
+      // Toast breve
+      showScToast('☀️ Buona domenica! Recap settimana disponibile in Service Updates.', 6000);
+
+      // Service update visibile a tutta la crew
       await sb.from('service_updates').insert({
-        message: `☀️ Buona domenica! ${recap}. Buon riposo a tutti! 🍝`,
+        message: msg,
         level: 'info',
         created_by: 'Sous Chef',
       });
+
+      // Aggiorna banner
+      if (typeof loadServiceUpdates === 'function') loadServiceUpdates();
 
     } catch(e) {
       console.error('[SundayGreeting]', e.message);
