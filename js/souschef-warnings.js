@@ -94,7 +94,9 @@ window.openWarningModal = async function(warningId) {
   const modalId = '_scWarnModal_' + Date.now();
   const overlay = document.createElement('div');
   overlay.id = modalId;
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);display:flex;flex-direction:column;justify-content:flex-end;';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);display:flex;flex-direction:column;justify-content:flex-end;touch-action:none;';
+  // Blocca scroll del body mentre il modal è aperto
+  document.body.style.overflow = 'hidden';
 
   overlay.innerHTML = `
     <div style="
@@ -177,8 +179,17 @@ window.openWarningModal = async function(warningId) {
       </div>
     </div>`;
 
-  overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove(); });
+  overlay.addEventListener('click', e => {
+    if(e.target === overlay){ document.body.style.overflow=''; overlay.remove(); }
+  });
   document.body.appendChild(overlay);
+  // Swipe to close sul panel interno + ripristina body scroll
+  const _panel = overlay.querySelector('div');
+  if(_panel){
+    addSwipeToClose(_panel, ()=>{ document.body.style.overflow=''; overlay.remove(); });
+    // Impedisci che il touch sul panel propaghi al body (no background scroll)
+    _panel.addEventListener('touchmove', e=>e.stopPropagation(), {passive:false});
+  }
 
   // Salva opzioni in memoria per accederle da scApplyWarningOption
   window._scWarningOptions = window._scWarningOptions || {};
@@ -240,7 +251,7 @@ window.scApplyWarningOption = async function(warningId, optIdx) {
     }).eq('id', warningId);
 
     // Chiudi modal e aggiorna banner
-    document.getElementById(ctx.modalId)?.remove();
+    document.getElementById(ctx.modalId)?.remove(); document.body.style.overflow='';
     loadWarningsBanner();
     showScToast('✅ Risolto — ' + opt.label);
 
@@ -258,7 +269,7 @@ window.scSendWarningToChat = function(warningId) {
   const w = ctx.warning;
 
   // Chiudi modal warning
-  document.getElementById(ctx.modalId)?.remove();
+  document.getElementById(ctx.modalId)?.remove(); document.body.style.overflow='';
 
   // Apri chat con contesto precaricato
   openSousChefChat();
@@ -278,6 +289,6 @@ window.scDismissWarning = async function(warningId, modalId) {
     resolution: 'skip — rivisto manualmente',
     resolved_at: new Date().toISOString(),
   }).eq('id', warningId);
-  document.getElementById(modalId)?.remove();
+  document.getElementById(modalId)?.remove(); document.body.style.overflow='';
   loadWarningsBanner();
 };
