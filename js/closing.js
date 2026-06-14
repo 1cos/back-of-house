@@ -101,8 +101,7 @@ function showForgottenPopup(forgotten){
   window.goCheckStation=async(category,itemId)=>{
     popup.remove();
     // porta alla tab chiusura con la stazione giusta
-    const stName=category.replace(' Station','').replace('Station','').trim();
-    if(stName) station2=stName;
+    if(category) station2=category;
     document.querySelector('[data-t=s]').click();
     // evidenzia l'item specifico
     setTimeout(()=>{
