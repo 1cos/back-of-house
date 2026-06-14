@@ -68,6 +68,15 @@ async function initSousChef(){
   document.body.appendChild(btn);
   loadScTasks();
   setTimeout(scAttachGestures, 100);
+
+  // Scan automatica ogni 30 minuti — in silenzio, senza toast
+  // Prima scan dopo 5 secondi dall'apertura app (solo se throttle lo permette)
+  setTimeout(() => {
+    if (typeof runSousChefScan === 'function') runSousChefScan(true);
+  }, 5000);
+  setInterval(() => {
+    if (typeof runSousChefScan === 'function') runSousChefScan(true);
+  }, 30 * 60 * 1000);
 }
 
 // ── GESTURE: tap breve = chat, long press = voce ──
