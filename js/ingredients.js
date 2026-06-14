@@ -138,7 +138,7 @@ function calcVendorPrice100g(v){
 // ── MOTIVO MANCANZA price_per_100g ───────────────────────────
 function missingPriceReason(v){
   if(!v.unit_price)           return 'Missing unit_price';
-  if(!v.conversion_to_base && !parsePackWeightG(v.pack_description))
+  if(!v.conversion_to_base && !parsePackDescG(v.pack_description))
                               return 'Missing conversion_to_base';
   return 'Needs review';
 }
