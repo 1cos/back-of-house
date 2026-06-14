@@ -116,49 +116,46 @@ window.scChatSend = async function(prefill) {
   if (!text) return;
   if (input) { input.value = ''; input.style.height = 'auto'; }
 
-  // ── Comandi test speciali ──────────────────────────────────
+  // Comando test: domenica
   if (text.toLowerCase().includes('test domenica')) {
     scChatAddMsg('user', text);
-    scChatAddMsg('assistant', '⏳ Genero il messaggio domenicale...');
+    scChatAddMsg('assistant', 'Genero il messaggio domenicale...');
     try {
       if (typeof scSundayGreeting === 'function') {
         const texas = new Date(Date.now() - 5*60*60*1000);
         await scSundayGreeting(texas);
-        scChatAddMsg('assistant', '✅ Messaggio domenicale inviato in Service Updates. Controlla la home!');
+        scChatAddMsg('assistant', 'Messaggio domenicale inviato in Service Updates. Controlla la home!');
       } else {
-        scChatAddMsg('assistant', "❌ Funzione scSundayGreeting non trovata — ricarica l'app.");
+        scChatAddMsg('assistant', 'Funzione scSundayGreeting non trovata — ricarica l app.');
       }
     } catch(e) {
-      scChatAddMsg('assistant', '❌ Errore: ' + e.message);
+      scChatAddMsg('assistant', 'Errore: ' + e.message);
     }
     return;
   }
 
+  // Comando test: briefing
   if (text.toLowerCase().includes('test briefing')) {
     scChatAddMsg('user', text);
-    scChatAddMsg('assistant', '⏳ Genero il briefing mattutino...');
+    scChatAddMsg('assistant', 'Genero il briefing mattutino...');
     try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/sc-nightly-brief`, {
+      const res = await fetch(SUPABASE_URL + '/functions/v1/sc-nightly-brief', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
         body: JSON.stringify({})
       });
       const data = await res.json();
-      if (data.points?.length) {
-        scChatAddMsg('assistant', '✅ Briefing generato:
-
-' + data.points.map((p, i) => `${i+1}. ${p}`).join('
-
-'));
+      if (data.points && data.points.length) {
+        const pts = data.points.map(function(p, i) { return (i+1) + '. ' + p; }).join('\n\n');
+        scChatAddMsg('assistant', 'Briefing generato:\n\n' + pts);
       } else {
-        scChatAddMsg('assistant', '⚠️ Nessun punto generato: ' + JSON.stringify(data));
+        scChatAddMsg('assistant', 'Nessun punto generato: ' + JSON.stringify(data));
       }
     } catch(e) {
-      scChatAddMsg('assistant', '❌ Errore: ' + e.message);
+      scChatAddMsg('assistant', 'Errore: ' + e.message);
     }
     return;
   }
-  // ──────────────────────────────────────────────────────────
 
   scChatAddMsg('user', text);
   await scChatProcess(text);
