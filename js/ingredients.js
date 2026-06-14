@@ -214,10 +214,10 @@ async function loadIngredientsTab(){
 
   const [{data:ingrs}, {data:vendors}] = await Promise.all([
     supa.from('ingredients')
-      .select('id,name,category,base_unit,count_unit,active')
+      .select('id,name,category,base_unit,measure_type,active')
       .eq('active',true).order('name'),
     supa.from('ingredient_vendors')
-      .select('ingredient_id,vendor,unit_price,purchase_unit,pack_size,pack_unit,pack_description,price_per_100g,conversion_to_base,last_total_weight_g,unit_weight_g,active')
+      .select('ingredient_id,vendor,vendor_sku,unit_price,price_type,pack_description,price_per_100g,price_per_each,conversion_to_base,active')
       .eq('active',true)
   ]);
 
