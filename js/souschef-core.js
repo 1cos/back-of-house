@@ -56,7 +56,8 @@ async function initSousChef(){
   if(document.getElementById('scBtn')) return;
   const btn = document.createElement('button');
   btn.id = 'scBtn';
-  btn.className = 'fixed bottom-24 left-3 z-40 w-14 h-14 bg-white/80 backdrop-blur border border-slate-200 rounded-full shadow-lg flex items-center justify-center active:scale-95 transition select-none';
+  btn.className = 'fixed z-50 w-14 h-14 bg-white/90 backdrop-blur border border-slate-200 rounded-full shadow-lg flex items-center justify-center active:scale-95 transition select-none';
+  btn.style.cssText = 'position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));right:16px;z-index:50;';
   btn.innerHTML = `
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="1.5">
       <path d="M12 2a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
