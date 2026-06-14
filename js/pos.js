@@ -25,8 +25,10 @@ function getPeriod(mode) {
     return { from:dISO, to:dISO, label:dayNameIT(dISO)+' '+dISO.slice(5), compareLabel:'Avg '+dayNameIT(dISO), compareDates:cmp, singleDay:true };
   }
   if (mode === 'weekend') {
-    const lastFri = addDays(today,-(((dow+2)%7)+1));
-    const lastSun = addDays(lastFri,2);
+    const daysToSat = (dow + 1) % 7 || 7;
+    const lastSat = addDays(today, -daysToSat);
+    const lastFri = addDays(lastSat, -1);
+    const lastSun = lastSat;
     const cmp = [];
     for (let w=1; w<=8; w++) {
       cmp.push(toISO(addDays(lastFri,-7*w)));
