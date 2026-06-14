@@ -158,3 +158,21 @@
 | Freshpoint | in attesa | freshpoint-import | ⏳ in attesa |
 | Global Gourmet | manuale | — | scan manuale |
 | Sysco | manuale | — | scan manuale |
+## Prossima Sessione
+
+**Ultimo task completato (v114 — 2026-06-14):**
+- Refactor admin.js → moduli separati (admin-prep.js, admin-ingredients.js, admin-chef-ai.js)
+- Sistema autenticazione PIN-only: rimossi password_hash, hashPassword, checkFirstLogin
+- Gestione brigata completa: aggiungi, modifica, reset PIN, disattiva cuoco
+- 10 stazioni definite: Oven, Fresh Pasta, Pasta, Sauté, Saucier, Plating, Salad, Pastry, Tableside, Freezer
+- Brigata completa con stazioni assegnate (15 utenti attivi)
+- Tela = Operations/Manager — nessuna stazione cucina, modulo futuro
+
+**Prossimo task:**
+1. Checklist sera → preplist mattina per stazione (ciclo fondamentale Brigade)
+2. Bulk move prep — spostare prep in blocco tra stazioni
+3. Warning Center OQR — opzioni con valori concreti
+
+**Blockers:**
+- FreshPoint non manda ancora fatture (solo order confirmation)
+- Tela module da progettare da zero
