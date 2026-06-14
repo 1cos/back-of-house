@@ -1513,7 +1513,11 @@ async function loadPOSStaff() {
       '</div>';
 
     if (totalCovers === 0) {
-      sec.innerHTML = '<div style="padding:12px 12px 100px;">'+selHtml+coverHtml+
+      // Calcola offset per newsBar se visibile
+    var newsBar = document.getElementById('newsBar');
+    var newsOffset = (newsBar && !newsBar.classList.contains('hidden')) ? (newsBar.offsetHeight + 4) : 0;
+
+    sec.innerHTML = '<div style="padding:'+(12+newsOffset)+'px 12px 100px;">'+selHtml+coverHtml+
         '<div style="background:white;border-radius:16px;padding:40px 20px;text-align:center;color:#94a3b8;font-size:13px;">Nessun dato per questo periodo.</div></div>';
       return;
     }
