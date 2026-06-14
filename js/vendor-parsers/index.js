@@ -4,9 +4,10 @@
 
 'use strict';
 
-const hardiesOrder   = require('./hardies-order');
-const hardiesInvoice = require('./hardies-invoice');
-const hardiesCredit  = require('./hardies-credit');
+const hardiesOrder      = require('./hardies-order');
+const hardiesInvoice    = require('./hardies-invoice');
+const hardiesCredit     = require('./hardies-credit');
+const freshpointInvoice = require('./freshpoint-invoice');
 
 const VENDORS = {
   hardies: {
@@ -21,10 +22,18 @@ const VENDORS = {
       credit_memo:        hardiesCredit,
     },
   },
+  freshpoint: {
+    patterns: [
+      /freshpoint/i,
+      /fresh\s*point/i,
+    ],
+    documents: {
+      invoice: freshpointInvoice,
+    },
+  },
   // Future:
-  // freshpoint: { ... },
-  // fruge:      { ... },
-  // bekeeper:   { ... },
+  // fruge:    { ... },
+  // bekeeper: { ... },
 };
 
 // ── Detect vendor from raw text ───────────────────────────────
