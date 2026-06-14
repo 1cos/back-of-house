@@ -140,6 +140,7 @@ function showAdminMenu(){
     requestAnimationFrame(()=>{
       content.style.transform = 'translateX(-50%) translateY(0)';
       content.style.opacity = '1';
+      if(typeof addSwipeToClose==='function') addSwipeToClose(content, hideAdminMenu);
     });
   }
 }
