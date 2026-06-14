@@ -68,7 +68,8 @@ function initNews(){
 // ── ADMIN ONLY — UI controls ──
 function updateAlertBtn(){
   // Bottone 🚨 e "Gest" visibili solo ad admin
-  document.getElementById('alertBtn').classList.toggle('hidden',!isAdmin());
+  // alertBtn spostato nel menu — non mostrare nell'header
+  if(document.getElementById('alertBtn')) document.getElementById('alertBtn').style.display='none';
   document.getElementById('newsManage').classList.toggle('hidden',!isAdmin());
   const pb=document.getElementById('btnPresence'); if(pb) pb.classList.toggle('hidden',!isAdmin());
   const ab=document.getElementById('btnAlertsLog'); if(ab) ab.classList.toggle('hidden',!isAdmin());
