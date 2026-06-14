@@ -130,18 +130,74 @@ document.getElementById('out').onclick=()=>{user=null;location.reload()};
 // ── ADMIN MENU ──────────────────────────────────────────────
 function showAdminMenu(){
   const sheet = document.getElementById('adminMenuSheet');
-  if(!sheet) return;
+  const content = document.getElementById('adminMenuContent');
+  if(!sheet || !content) return;
+
+  // Mostra overlay
   sheet.classList.remove('hidden');
+  // Reset posizione
+  content.style.transition = 'none';
+  content.style.transform = 'translateY(0)';
+
+  // ── Backdrop tap ──
   if(!sheet._backdropBound){
-    sheet.addEventListener('click', e => { if(e.target===sheet) hideAdminMenu(); });
+    sheet.addEventListener('click', function(e){ if(e.target===sheet) hideAdminMenu(); });
     sheet._backdropBound = true;
+  }
+
+  // ── Swipe down per chiudere ──
+  if(!content._swipeBound){
+    var startY = 0;
+    var currentY = 0;
+    var dragging = false;
+
+    content.addEventListener('touchstart', function(e){
+      startY = e.touches[0].clientY;
+      currentY = 0;
+      dragging = true;
+      content.style.transition = 'none';
+    }, {passive: true});
+
+    content.addEventListener('touchmove', function(e){
+      if(!dragging) return;
+      var dy = e.touches[0].clientY - startY;
+      if(dy < 0) return; // non permettere swipe up
+      currentY = dy;
+      content.style.transform = 'translateY(' + dy + 'px)';
+    }, {passive: true});
+
+    content.addEventListener('touchend', function(){
+      if(!dragging) return;
+      dragging = false;
+      if(currentY > 80){
+        // soglia raggiunta — chiudi con animazione
+        content.style.transition = 'transform 0.25s ease';
+        content.style.transform = 'translateY(100%)';
+        setTimeout(function(){ hideAdminMenu(); }, 240);
+      } else {
+        // sotto soglia — rimbalza su
+        content.style.transition = 'transform 0.3s cubic-bezier(0.34,1.56,0.64,1)';
+        content.style.transform = 'translateY(0)';
+      }
+    }, {passive: true});
+
+    content._swipeBound = true;
   }
 }
 
 function hideAdminMenu(){
   const sheet = document.getElementById('adminMenuSheet');
+  const content = document.getElementById('adminMenuContent');
   if(sheet) sheet.classList.add('hidden');
+  // Reset transform per la prossima apertura
+  if(content){
+    content.style.transition = 'none';
+    content.style.transform = 'translateY(0)';
+  }
 }
+
+window.showAdminMenu = showAdminMenu;
+window.hideAdminMenu = hideAdminMenu;
 
 // ── TRADUZIONI TAB INGREDIENTS ──
 // Viene chiamata da applyLang() già esistente
