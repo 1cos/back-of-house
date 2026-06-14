@@ -39,7 +39,6 @@ async function attemptPinLogin(){
   if(error || !profile){
     err.textContent = 'PIN non valido';
     err.classList.remove('hidden');
-    // shake e reset
     const dots = document.getElementById('pinDots');
     dots.style.animation = 'shake .3s ease';
     setTimeout(()=>{ dots.style.animation=''; pinBuffer=''; updatePinDots(); err.classList.add('hidden'); }, 600);
@@ -57,11 +56,72 @@ const shakeStyle = document.createElement('style');
 shakeStyle.textContent = '@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}';
 document.head.appendChild(shakeStyle);
 
+// ── HIGHLIGHTS TITLE — Yesterday's vs Weekly ──
+function getHighlightsTitle(){
+  const dow = new Date().toLocaleString('en-US',{timeZone:'America/Chicago',weekday:'long'});
+  return dow === 'Monday' ? "Weekly Highlights" : "Yesterday's Highlights";
+}
+
+// ── HOME TIME CHECK — logica oraria 20:00 ──
+let _homeTimeCheckInterval = null;
+
+function startHomeTimeCheck(){
+  _applyHomeTimeLayout();
+  if(_homeTimeCheckInterval) clearInterval(_homeTimeCheckInterval);
+  _homeTimeCheckInterval = setInterval(_applyHomeTimeLayout, 60000);
+}
+
+function _applyHomeTimeLayout(){
+  const h = parseInt(new Date().toLocaleString('en-US',{timeZone:'America/Chicago',hour:'numeric',hour12:false}));
+  const isEvening = h >= 20;
+  const closingWidget = document.getElementById('homeClosingWidget');
+  const checklistSection = document.getElementById('homeChecklistSection');
+
+  if(isEvening){
+    // Dopo le 20:00 — closing sale in cima per tutti
+    if(closingWidget){
+      closingWidget.style.display = 'block';
+      // Popola le stazioni nella closing widget in cima
+      const stEl = document.getElementById('homeClosingStations');
+      const srcEl = document.getElementById('homeStations');
+      if(stEl && srcEl) stEl.innerHTML = srcEl.innerHTML;
+    }
+    // Nascondi closing section in fondo (era solo admin)
+    if(checklistSection) checklistSection.style.display = 'none';
+  } else {
+    // Prima delle 20:00 — closing widget in cima nascosto
+    if(closingWidget) closingWidget.style.display = 'none';
+    // Closing section in fondo — solo admin
+    if(checklistSection) checklistSection.style.display = isAdmin() ? 'block' : 'none';
+  }
+}
+
+// ── SAVE EVENING NOTE ──
+window.saveEveningNote = async function(){
+  const text = document.getElementById('homeEveningNoteText')?.value?.trim();
+  if(!text) return;
+  const btn = document.querySelector('#homeClosingWidget button[onclick="saveEveningNote()"]');
+  if(btn){ btn.textContent = '...'; btn.disabled = true; }
+  try{
+    const todayCDT = new Date().toLocaleString('en-CA',{timeZone:'America/Chicago'}).slice(0,10);
+    await supa.from('operation_notes').upsert({
+      note_date: todayCDT,
+      user_name: user?.name || '',
+      note: text,
+      submitted_at: new Date().toISOString()
+    },{onConflict:'note_date,user_name'});
+    document.getElementById('homeEveningNoteText').value = '';
+    showScToast('Note saved — thanks!');
+    // Segna che ha già risposto oggi — la push delle 22:30 non arriverà
+    localStorage.setItem('operation_note_date', todayCDT);
+  }catch(e){
+    showScToast('Error saving note');
+  }
+  if(btn){ btn.textContent = 'Save note'; btn.disabled = false; }
+};
+
 function doLogin(profile){
   user=profile;
-  // lingua: usa sempre user.lang dal DB — non sovrascrivere mai automaticamente
-  // loginLang usato solo come display fallback se user.lang è null
-  // applica stazione default se presente
   if(user.default_station){
     station=user.default_station;
     station2=user.default_station;
@@ -78,48 +138,93 @@ function doLogin(profile){
     else if(h>=17&&h<21) greetEl.textContent='Good evening,';
     else greetEl.textContent='Good night,';
   }
-  // Ricarica photo_url dal DB per assicurarsi che sia aggiornata
+  // Ricarica photo_url dal DB
   supa.from('users').select('photo_url').eq('id', user.id).single().then(({data})=>{
     if(data?.photo_url) user.photo_url = data.photo_url;
     updateTopBarAvatar();
   });
   init(); applyLang(); updateAlertBtn(); setupPush();
-  loadNews(); initNews(); // News per tutti — tradotte nella propria lingua
+  loadNews(); initNews();
   loadBriefing(); startPresence(); startUrgencyCheck(); if(typeof startUsersRealtime==='function') startUsersRealtime();
-  // avvia realtime chat subito al login
   setTimeout(()=>startChatRealtime(), 500);
-  // mostra/nascondi sezioni in base al ruolo
-  const checklistSection=document.getElementById('homeChecklistSection');
-  if(checklistSection) checklistSection.style.display=isAdmin()?'block':'none';
-  const invoiceSection=document.getElementById('invoiceSection');
-  if(invoiceSection) invoiceSection.style.display=isAdmin()?'block':'none';
-  // Load pending vendor documents badge
-  if(isAdmin()) vdrLoadBadge();
 
-  // ── RUOLI: admin vs staff ──
   const admin = isAdmin();
 
-  // Tab Ingredients — solo admin
+  // ── HIGHLIGHTS TITLE ──
+  const hlTitle = document.getElementById('homeHighlightsTitle');
+  if(hlTitle) hlTitle.textContent = getHighlightsTitle();
+
+  // ── ADMIN HOME ──
+  if(admin){
+    // Warnings banner — admin vede tutto
+    const wb = document.getElementById('warningsBanner');
+    if(wb) wb.style.display = '';
+
+    // Invoice section
+    const inv = document.getElementById('invoiceSection');
+    if(inv) inv.style.display = 'block';
+    vdrLoadBadge();
+
+    // Briefing AI
+    const brief = document.getElementById('homeBriefingSection');
+    if(brief) brief.style.display = 'block';
+
+    // Stations widget — admin: titolo "Stations", mostra pill tutte, nascondi your station e other
+    const stTitle = document.getElementById('homeStationsTitle');
+    if(stTitle) stTitle.textContent = 'Stations';
+    const goBtn = document.getElementById('homeStationsGoBtn');
+    if(goBtn) goBtn.style.display = 'none'; // admin non ha "Go to prep"
+    const stItems = document.getElementById('homeStationItems');
+    if(stItems) stItems.style.display = 'none';
+    const otherSt = document.getElementById('homeOtherStations');
+    if(otherSt) otherSt.style.display = 'none';
+    // homeStations (pill) già visibile di default
+
+  // ── STAFF HOME ──
+  } else {
+    // Nascondi tutto admin
+    const wb = document.getElementById('warningsBanner');
+    if(wb) wb.style.display = 'none';
+    const inv = document.getElementById('invoiceSection');
+    if(inv) inv.style.display = 'none';
+    const brief = document.getElementById('homeBriefingSection');
+    if(brief) brief.style.display = 'none';
+
+    // Stations widget — staff: titolo "Your Station", nascondi pill admin, mostra your station + altre
+    const stTitle = document.getElementById('homeStationsTitle');
+    if(stTitle) stTitle.textContent = 'Your Station';
+    const adminPills = document.getElementById('homeStations');
+    if(adminPills) adminPills.style.display = 'none';
+    const stItems = document.getElementById('homeStationItems');
+    if(stItems) stItems.style.display = 'block';
+    const otherSt = document.getElementById('homeOtherStations');
+    if(otherSt) otherSt.style.display = 'flex';
+  }
+
+  // ── TAB VISIBILITY ──
+  // Ingredients — solo admin
   const tabIngr = document.getElementById('tabIngredients');
   if(tabIngr) tabIngr.style.display = admin ? 'flex' : 'none';
 
-  // Tab Sales — solo admin
+  // Sales — tutti (contenuto diverso gestito da pos.js)
   const tabSales = document.getElementById('tabSales');
-  if(tabSales) tabSales.style.display = admin ? 'flex' : 'none';
+  if(tabSales) tabSales.style.display = 'flex';
 
-  // Tab Menu ••• — solo admin
+  // Menu ••• — solo admin
   const tabMenu = document.getElementById('tabMenu');
   if(tabMenu) tabMenu.style.display = admin ? 'flex' : 'none';
 
-  // Staff: Prep e Chiusura in bottom bar
-  // Admin: Prep e Chiusura nel menu tendina — li nascondiamo dalla bottom
+  // Prep e Chiusura — solo staff in bottom bar
   const tabPrep = document.getElementById('tabPrep');
   if(tabPrep) tabPrep.style.display = admin ? 'none' : 'flex';
   const tabChiusura = document.getElementById('tabChiusura');
   if(tabChiusura) tabChiusura.style.display = admin ? 'none' : 'flex';
 
-  // News bar — visibile a tutti (tradotta nella propria lingua)
-  // La barra viene nascosta da loadNews() se non ci sono news attive
+  // Chat — tutti
+  // (già visibile di default)
+
+  // ── LOGICA ORARIA 20:00 ──
+  startHomeTimeCheck();
 
   // check primo accesso e compleanni
   setTimeout(()=>{checkBirthdays(); initSousChef();}, 1000);
@@ -133,19 +238,15 @@ function showAdminMenu(){
   const content = document.getElementById('adminMenuContent');
   if(!sheet || !content) return;
 
-  // Mostra overlay
   sheet.classList.remove('hidden');
-  // Reset posizione
   content.style.transition = 'none';
   content.style.transform = 'translateY(0)';
 
-  // ── Backdrop tap ──
   if(!sheet._backdropBound){
     sheet.addEventListener('click', function(e){ if(e.target===sheet) hideAdminMenu(); });
     sheet._backdropBound = true;
   }
 
-  // ── Swipe down per chiudere ──
   if(!content._swipeBound){
     var startY = 0;
     var currentY = 0;
@@ -161,7 +262,7 @@ function showAdminMenu(){
     content.addEventListener('touchmove', function(e){
       if(!dragging) return;
       var dy = e.touches[0].clientY - startY;
-      if(dy < 0) return; // non permettere swipe up
+      if(dy < 0) return;
       currentY = dy;
       content.style.transform = 'translateY(' + dy + 'px)';
     }, {passive: true});
@@ -170,12 +271,10 @@ function showAdminMenu(){
       if(!dragging) return;
       dragging = false;
       if(currentY > 80){
-        // soglia raggiunta — chiudi con animazione
         content.style.transition = 'transform 0.25s ease';
         content.style.transform = 'translateY(100%)';
         setTimeout(function(){ hideAdminMenu(); }, 240);
       } else {
-        // sotto soglia — rimbalza su
         content.style.transition = 'transform 0.3s cubic-bezier(0.34,1.56,0.64,1)';
         content.style.transform = 'translateY(0)';
       }
@@ -189,7 +288,6 @@ function hideAdminMenu(){
   const sheet = document.getElementById('adminMenuSheet');
   const content = document.getElementById('adminMenuContent');
   if(sheet) sheet.classList.add('hidden');
-  // Reset transform per la prossima apertura
   if(content){
     content.style.transition = 'none';
     content.style.transform = 'translateY(0)';
@@ -200,7 +298,6 @@ window.showAdminMenu = showAdminMenu;
 window.hideAdminMenu = hideAdminMenu;
 
 // ── TRADUZIONI TAB INGREDIENTS ──
-// Viene chiamata da applyLang() già esistente
 function applyIngredientsLang(){
   const lang = user?.lang || 'en';
   const labels = { it:'Ingredienti', en:'Ingredients', es:'Ingredientes' };
@@ -231,9 +328,7 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   if(t==='i') loadIngredientsTab();
 });
 
-
-
-// ── Vendor Documents pending badge ───────────────────────────
+// ── Vendor Documents pending badge ──
 async function vdrLoadBadge() {
   const el = document.getElementById('vdrPendingBadge');
   if (!el) return;
@@ -246,11 +341,11 @@ async function vdrLoadBadge() {
       .eq('status', 'pending');
     if (error) return;
     if (count === 0) {
-      el.textContent = '✓ Clear';
+      el.textContent = 'Clear';
       el.style.color = '#10b981';
     } else {
       el.textContent = count + ' Pending';
       el.style.color = '#f59e0b';
     }
-  } catch(e) { /* silent — badge is non-critical */ }
+  } catch(e) {}
 }
