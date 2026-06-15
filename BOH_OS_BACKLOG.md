@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-14 — v152*
+*Aggiornato: 2026-06-15 — v177*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -8,7 +8,7 @@
 
 - App: BRIGADE (non BOH OS)
 - Branch: brigade-main (MAI main)
-- Versione frontend: **v152**
+- Versione frontend: **v177**
 - Versione souschef-chat: v15 (Supabase Edge Function)
 - Supabase project: ydqmumpytgrlceuinoqt
 - Leggi file da GitHub brigade-main, NON da /mnt/project/ (snapshot vecchio)
@@ -93,6 +93,35 @@
 ---
 
 
+
+## Sessione 2026-06-15 — UI/Grafica e fix DB (v152→v177)
+
+### Fix admin menu — swipe down (v152, già in backlog)
+- Già documentato sopra
+
+### Sales selettori — fix topbar staff (v152, già in backlog)
+- Già documentato sopra
+
+### Prep → ricette — 47 collegamenti ripristinati nel DB
+- Tutti i recipe_id nei prep_tasks erano stati azzerati (0 su 142)
+- Ricollegate 47 ricette via match per nome + conferma Max
+- Solo DB — zero file JS toccati
+- Esempi: Arrabbiata sauce→ARRABBIATA, Fettuccine+Spaghetti→FETTUCCINE AND SPAGHETTI,
+  Branzino→BRANZINO TABLE SIDE, Lobster sauce→SALSA LIVORNESE, Demi glacé→DEMI FOR RAVIOLI
+
+### Indicatore ⚪ no ricetta in prep list (v162)
+- Solo admin vede pallino grigio "⚪ no ricetta" sui task senza link
+- Staff non vede niente
+- Fix chirurgica solo riga 189 di prep.js
+
+### briefing.js — 4 syntax error consecutivi (v174→v177)
+- Eredità di un'altra chat che aveva corrotto il file
+- Errori in cascata: riga 69 (goToStation apostrofi), riga 146 (querySelector apici),
+  riga 202 (Yesterday's apostrofo), riga 214 (closest('.fixed') apostrofi)
+- Fix uno alla volta seguendo gli errori in console
+- Risultato: admin torna con interfaccia completa, Your Station staff funziona
+
+---
 ## Sessione 2026-06-14 — UI/Grafica (v139→v152)
 
 ### Admin menu — fix chiusura (v139)
