@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-15 — v180*
+*Aggiornato: 2026-06-15 — v190*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -8,7 +8,7 @@
 
 - App: BRIGADE (non BOH OS)
 - Branch: brigade-main (MAI main)
-- Versione frontend: **v180**
+- Versione frontend: **v190**
 - Versione souschef-chat: v15 (Supabase Edge Function)
 - Supabase project: ydqmumpytgrlceuinoqt
 - Leggi file da GitHub brigade-main, NON da /mnt/project/ (snapshot vecchio)
@@ -42,40 +42,41 @@
 | pos_modifiers | Modifier totali per giorno (TextModifier) | 711 |
 | pos_modifier_by_item | Modifier collegato al piatto padre | 1.167 |
 | modifier_config | Whitelist modifier cucina classificati | 86 |
-| ingredients | Ingredienti | 400 |
-| ingredient_vendors | Prezzi per fornitore | 30 |
+| ingredients | Ingredienti con categorie | 400 |
+| ingredient_vendors | Prezzi per fornitore | 30+ |
+| ingredient_links | Link descrizione fattura -> ingrediente | attivo |
 | recipes | Ricette | 182 |
 | chef_attention | Topic frequenti Max | 7 |
-| invoice_lines | Storico prezzi fatture | 33 |
-
-### pos_modifier_by_item — colonne
-- sale_date, is_historical, modifier, parent_item, quantity_sold, pct_of_parent
-
-### modifier_config — colonne
-- modifier (PK), is_kitchen, kitchen_cat (Contorni/Proteine/Upgrade/Extra), portion_note
+| invoice_lines | Storico prezzi fatture | 33+ |
+| invoice_warnings | Warning fatture | 3 open |
 
 ---
 
-## PRIORITA' ALTA — prossima sessione
+## PRIORITA' ALTA — PROSSIMA SESSIONE
 
-- [ ] **REDESIGN review fattura** (vendor-documents-review.js): una riga per articolo, 4 campi modificabili inline
-- [ ] **PASSO 2**: Checklist sera -> preplist mattina per stazione (ciclo fondamentale Brigade)
-- [ ] **Foto/scan -> OpenRouter**: collegare Import Invoice foto a process-invoice con autoProcess=true
-- [ ] **Edit Vendor semplificato**: 5 campi visibili (unit_price, price_type, pack_description, total_weight_g, notes)
-- [ ] **Warning che riappaiono**: dopo aver salvato peso nella card OQR, warning riappare — price_per_100g non ricalcolato
-- [ ] **Ben E. Keith**: forward iCloud->Gmail, poi testare import
+- [ ] **PREP redesign — Swipe gestuale**
+  - Lista a tutto schermo, font 22px, nome prep gigante
+  - Swipe destra -> verde -> Fatta (scende in fondo)
+  - Swipe sinistra -> blu -> In corso (rimane in cima)
+  - Soglia 60% per conferma (evita falsi positivi mani bagnate)
+  - Tap nome -> apre ricetta
+  - Swipe sinistra su riga verde -> riporta su (undo)
+  - Zero bottoni visibili — solo la lista
+  - Pillole stazione invece dei cerchi attuali
+  - Fatte in fondo automaticamente con opacita ridotta
+  - File: js/prep.js
 
 ---
 
 ## PRIORITA' MEDIA
 
-- [ ] Sales staff — modal porzioni su tap piatto (vedi PROMPT_SALES_STAFF_VIEW.md)
-- [ ] Sales admin — Deep Analysis: query rimanenti nel fallback
+- [ ] Auto-approve fatture senza warning e ingredienti gia linkati
+- [ ] Edit Vendor semplificato (5 campi: unit_price, price_type, pack_description, conversion_to_base, notes)
+- [ ] Warning che riappaiono dopo salvataggio peso OQR
+- [ ] Ben E. Keith: testare import dopo fix Apps Script
+- [ ] Sales staff — modal porzioni su tap piatto
 - [ ] Card OQR — ancora troppo grandi su iPhone
-- [ ] Skip/Fine — ritardo e click accidentale sul microfono
-- [ ] Sous Chef proattivo: scansione automatica ogni ora senza che Max premi niente
-- [ ] Bulk move prep — spostare prep in blocco tra stazioni
-- [ ] Warning Center OQR — opzioni con valori concreti
+- [ ] Sous Chef proattivo: scansione automatica ogni ora
 
 ---
 
@@ -85,7 +86,6 @@
 - [ ] Digital whiteboard (prep handoffs brigata)
 - [ ] Good Job messages nel nightly brief
 - [ ] Sales anomaly detection (calo/picco >30% vs settimana scorsa)
-- [ ] Tabella pesi standard CT/DZ (uova 58g, lime 67g, lemon 100g, avocado 200g)
 - [ ] Yes Chef modal (sostituire toast con modal celebrativo)
 - [ ] Tela module — da progettare da zero
 - [ ] Display cucina TV (PASSO 4)
@@ -98,87 +98,60 @@
 | Fornitore | Email import | Label Gmail | Stato |
 |---|---|---|---|
 | Hardie's | Gmail automatico | hardies-import | attivo |
-| Fruge Seafood | system@netyield.com | fruge-import | configurato |
-| Ben E. Keith | iCloud->Gmail forward | bek-import | forward DA FARE |
-| Freshpoint | in attesa | freshpoint-import | in attesa |
+| Fruge Seafood | system@netyield.com | fruge-import | Apps Script fixato -> gmail-vendor-import |
+| Ben E. Keith | iCloud->Gmail forward | bek-import | Apps Script fixato -> gmail-vendor-import |
+| Freshpoint | body email | freshpoint-import | attivo (conferme ordine, non fatture) |
 | Global Gourmet | manuale | — | scan manuale |
 | Sysco | manuale | — | scan manuale |
 
 ---
 
-## Fatture in attesa (Hardie's — non approvare finche UI review non e pronta)
+## Sessione 2026-06-15 — vendor review redesign + DB (v180->v190)
 
-06976333 (23 items), 06977530 (1), 06978984 (10), 06981903 (11),
-06983333 (6), 06986639 (10), 06989667 (7), 06991299 (15),
-06992511 (6), 06992515 (2), 06995651 (7), 06996814 (1),
-06997941 (7), 07000322 (9), credit memo 00668419 (1)
+### vendor-documents-review.js — redesign completo righe articoli
+- Formato nuovo: Warning/OK label + 5 campi + Sous Chef calc
+- Campi editabili inline: Qty (number), Pack (text), Unit Price (number), Ext (number)
+- Ricalcolo live Sous Chef con bottone ricorda (fix 107 elementi DOM duplicati)
+- Fix scoping querySelector -> closest('[data-vdr-row]')
+- Approve legge _vdrEdits prima di salvare nel DB
+- Dizionario 50 pesi standard USDA: lemon 100g, lime 67g, avocado 200g, romaine 626g, ecc.
+- CT auto-calc dal dizionario senza domande
+- Parser: fix 1pc/28# , fix 9-1/2 GAL numeri misti
+- Fix insert ingredienti: count_unit -> base_unit
+- Fix iOS: aggiunto onchange oltre oninput
 
----
+### DB updates
+- Link RWPR 103 RIB REF -> Tomahake Loin in ingredient_links
+- Tomahake Loin price_type = per_lb
+- Edible Flower conversion_to_base = 100g (50 CT x 2g)
+- SUNFLOWER Seed ripristinato a 2268g (5lb)
+- Carrots: pack 5# = 2268g, price_per_100g calcolato
+- Romaine: 12/3 CT = 36 teste x 626g = 22536g, price_per_100g calcolato
 
-## Sessione 2026-06-15 — UI/Grafica e fix DB (v152->v180)
+### Ingredienti categorizzati
+- 320 ingredienti senza categoria -> 0
+- Categorie: Produce, Dairy, Meat, Seafood, Dry Goods, Oil & Vinegar,
+  Spices & Herbs, Beverages & Spirits, Prepared, Bakery, Frozen, Supply
 
-### Admin menu — fix chiusura (v139)
-- Rimossa doppia definizione showAdminMenu/hideAdminMenu da admin.js
-- Aggiunto swipe-down gesture sul bottom sheet admin
-- File modificati: js/admin.js, js/app.js
-
-### Sales selettori — redesign compatto (v140)
-- Pillole giorni recenti: padding ridotto, border-radius ridotto
-- Bottoni period: padding ridotto
-- Card Recent days: padding ridotto, gap tra card ridotto
-
-### Sales staff — fix copertura topbar (v152)
-- section#vx convertita a layout normale come section#vi
-- Modifica chirurgica solo su index.html
-
-### TouchBistro — import pipeline completa (v148->v153)
-- 4 file CSV arrivano ogni notte via Gmail -> Supabase
-- Tabella pos_modifier_by_item creata e popolata
-- Tabella modifier_config creata con 86 modifier classificati
-- Edge Function gmail-touchbistro-import v2->v3
-
-### Sales admin — Deep Analysis (v145->v147)
-- Bottone Deep Analysis in fondo alla tab Sales admin
-- Modal con 8 categorie x 25 domande = 200 domande totali
-- 25 query types implementate
-
-### Sales staff view (v148)
-- Staff (non admin) vede view separata — zero prezzi, zero incassi
-- Selettori: Ieri / Weekend / Sett.
-- Livello 1: gruppi cucina con barre
-- Livello 2: tap su gruppo -> lista piatti
-
-### Prep -> ricette — 47 collegamenti ripristinati nel DB (v162)
-- Tutti i recipe_id nei prep_tasks erano stati azzerati
-- Ricollegate 47 ricette via match per nome + conferma Max
-
-### briefing.js — 4 syntax error consecutivi (v174->v177)
-- Eredita di un'altra chat che aveva corrotto il file
-- Fix uno alla volta seguendo gli errori in console
-
-### Allineamento versione (v177->v180)
-- sw.js riportato a v180 (versione reale confermata da Max)
-- Tutti i file .md aggiornati a v180
+### Apps Script fix
+- checkBEKEmails: gmail-hardies-import -> gmail-vendor-import
+- checkFrugeEmails: gmail-hardies-import -> gmail-vendor-import
 
 ---
 
-## Note importanti per prossima sessione
+## Note importanti
+
+### vendor-documents-review.js — architettura
+- File unico, 1900 righe, non suddividere
+- Entra da un punto solo: openVendorDocumentsReview() in app.js
+- _vdrEdits[docId][itemIdx] = {qty, pack, unitPrice, ext} — store edits in memoria
+- VDR_UNIT_WEIGHTS — dizionario pesi standard, definito PRIMA di vdrCalcPack e vdrPackToGrams
+- vdrLookupUnitWeight — cerca per nome ingrediente nel dizionario
+- vdrRecalcRow(docId, idx, btn) — btn.closest('[data-vdr-row]') per scope corretto
 
 ### pos_sales_by_item — nomi colonne CORRETTI:
 - menu_item (NON item_name)
 - quantity (NON quantity_sold)
 - net_sales, sale_date, sales_category
-
-### pos_modifiers — nomi colonne CORRETTI:
-- modifier, quantity_sold, gross_sales, sale_date
-
-### pos_modifier_by_item — nomi colonne:
-- modifier, parent_item, quantity_sold, pct_of_parent, sale_date
-
-### Regola porzioni modifier:
-- Contorni (Brussels, Asparagus, ecc.) = mezza porzione come modifier
-- Proteine (Add chicken, Meatballs, ecc.) = porzione intera
-- Pasta come modifier su secondi = mezza porzione
-- Half/Child nel nome piatto = mezza porzione
 
 ### souschef-chat — non toccare senza leggere prima v15 da GitHub
