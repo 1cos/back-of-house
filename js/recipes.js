@@ -680,10 +680,11 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     const posNames = rec.pos_name.split('|').map(s => s.trim()).filter(Boolean);
     const isSide = rec.menu_group === 'Sides';
 
-    // Fattore porzione per ogni variante: half/child = 0.5, full = 1
+    // Fattore porzione per ogni variante: half/child/modifier aggiunta = 0.5, full = 1
     const portionFactor = (name) => {
       const low = name.toLowerCase();
       if (low.includes('half') || low.includes('child')) return 0.5;
+      if (low.startsWith('add ') || low.startsWith('sub ') || low === 'spaghetti' || low === 'fettuccine' || low === 'fettuccine pasta') return 0.5;
       return 1;
     };
 
@@ -697,16 +698,18 @@ async function loadRecipeSalesStats(rec, sheetEl) {
       if (data) allItemRows = allItemRows.concat(data);
     }
 
-    // Vendite come modifier (pos_modifiers) — solo per Sides
+    // Vendite come modifier (pos_modifiers) — per Sides E per ricette con modifier nel pos_name
     let allModRows = [];
-    if (isSide) {
-      for (const pn of posNames) {
+    const modNames = posNames.filter(pn => {
+      const low = pn.toLowerCase();
+      return isSide || low.startsWith('add ') || low.startsWith('sub ') || low === 'spaghetti' || low === 'fettuccine' || low === 'fettuccine pasta' || low.includes('half') && !low.includes('al ');
+    });
+    for (const pn of (isSide ? posNames : modNames)) {
         const { data } = await sb.from('pos_modifiers')
           .select('sale_date,quantity_sold')
           .gte('sale_date', isoFrom).lte('sale_date', isoTo)
           .eq('is_historical', false).ilike('modifier', '%' + pn + '%');
         if (data) allModRows = allModRows.concat(data);
-      }
     }
 
     // Calcola feriali (lun→gio = dow 1,2,3,4) e weekend (ven+sab = dow 5,6)
@@ -750,7 +753,7 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     const fmtAvg = v => v > 0 ? '~' + v.toFixed(1) + '/gg' : '';
 
     el.innerHTML =
-      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Sett. scorsa' + (isSide ? ' (side + modifier)' : '') + '</div>' +
+      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Sett. scorsa' + (hasVariants ? ' · porz. equiv.' : '') + '</div>' +
       '<div style="display:flex;gap:8px;">' +
 
       '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
