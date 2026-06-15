@@ -1478,25 +1478,40 @@ window.vdrApprove = async function(docId, btn) {
     const toInsert = [];
     const processedIds = new Set();
 
-    for (const item of items) {
+    const docEdits = (window._vdrEdits && window._vdrEdits[docId]) || {};
+
+    for (const [itemIdx, item] of items.entries()) {
       const sku  = item.vendor_sku || item.item_code || null;
       const desc = item.description || item.raw_description || null;
       if (!desc) continue;
 
+      // Applica modifiche utente da _vdrEdits (sovrascrive i valori parsati)
+      const edits = docEdits[itemIdx] || {};
+      const effectivePack  = (edits.pack      != null && edits.pack !== '')      ? edits.pack                          : (item.pack_description || null);
+      const effectivePrice = (edits.unitPrice  != null && !isNaN(edits.unitPrice)) ? edits.unitPrice                   : (item.unit_price != null ? parseFloat(item.unit_price) : null);
+      const effectiveExt   = (edits.ext        != null && !isNaN(edits.ext))       ? edits.ext                         : (item.amount != null ? Math.abs(item.amount) : null);
+      const effectiveQty   = (edits.qty        != null && !isNaN(edits.qty))       ? edits.qty                         : (item.qty_ordered || 1);
+
+      // Calcola totalG dal pack effettivo
       const totalG  = item.catchweight && item.actual_weight_lb
         ? item.actual_weight_lb * 453.592
-        : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null);
-      const price   = item.unit_price != null ? parseFloat(item.unit_price) : null;
+        : (window.vdrPackToGrams ? window.vdrPackToGrams(effectivePack, false, null)
+          : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null));
+
+      // Prezzo: usa unit price se disponibile, altrimenti ext/qty
+      const price   = effectivePrice != null ? effectivePrice
+                    : (effectiveExt && effectiveQty ? effectiveExt / effectiveQty : null);
+
       const per100g = item.catchweight && item.price_per_lb
         ? (item.price_per_lb / 453.592) * 100
         : ((totalG && price) ? (price / totalG * 100) : null);
-      // Determina price_type e conversion_to_base
+
       const priceType = item.price_type || (item.catchweight ? 'per_lb' : 'per_case');
       const convBase  = priceType === 'per_lb' ? null : (item.conversion_to_base || totalG || null);
 
       const fields  = {
         unit_price:         price,
-        pack_description:   item.pack_description || null,
+        pack_description:   effectivePack,
         price_type:         priceType,
         conversion_to_base: convBase ? Math.round(convBase) : null,
         price_per_100g:     per100g,
