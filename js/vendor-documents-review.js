@@ -635,7 +635,7 @@ function vdrDetailHTML(doc) {
   // -- Approve --
   var approveHTML = '<div style="padding:12px 14px 14px;">' +
     '<div id="vdrActionStatus-' + doc.id + '" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>' +
-    '<button onclick="vdrApprove('' + doc.id + '',this)" style="width:100%;height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">' +
+    '<button onclick="vdrApprove(\'' + doc.id + '\',this)" style="width:100%;height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">' +
       'Approve Document' +
     '</button>' +
   '</div>';
