@@ -680,6 +680,13 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     const posNames = rec.pos_name.split('|').map(s => s.trim()).filter(Boolean);
     const isSide = rec.menu_group === 'Sides';
 
+    // Fattore porzione per ogni variante: half/child = 0.5, full = 1
+    const portionFactor = (name) => {
+      const low = name.toLowerCase();
+      if (low.includes('half') || low.includes('child')) return 0.5;
+      return 1;
+    };
+
     // Vendite come piatto (pos_sales_by_item)
     let allItemRows = [];
     for (const pn of posNames) {
@@ -708,7 +715,10 @@ async function loadRecipeSalesStats(rec, sheetEl) {
 
     allItemRows.forEach(r => {
       const dw = new Date(r.sale_date + 'T12:00:00').getDay();
-      const q = Number(r.quantity) || 0;
+      // Trova il pos_name che ha matchato questa voce per applicare il fattore corretto
+      const matchedName = posNames.find(pn => r.menu_item && r.menu_item.toLowerCase().includes(pn.toLowerCase())) || posNames[0];
+      const factor = portionFactor(matchedName);
+      const q = (Number(r.quantity) || 0) * factor;
       if (dw >= 1 && dw <= 4) { ferC += q; if (!counted['fer_' + r.sale_date]) { counted['fer_' + r.sale_date] = 1; ferDays++; } }
       if (dw === 5 || dw === 6) { wkC += q; if (!counted['wk_' + r.sale_date]) { counted['wk_' + r.sale_date] = 1; wkDays++; } }
     });
@@ -734,7 +744,9 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     const prepToday = Math.ceil(isWeekendToday ? wkAvg : ferAvg);
 
     // Render pillole stile Opzione B
-    const fmt1 = v => v > 0 ? Math.round(v) + 'x' : '—';
+    const hasVariants = posNames.length > 1;
+    const unitLabel = hasVariants ? 'porz. equiv.' : 'x';
+    const fmt1 = v => v > 0 ? (hasVariants ? v.toFixed(1) : Math.round(v)) + (hasVariants ? '' : 'x') : '—';
     const fmtAvg = v => v > 0 ? '~' + v.toFixed(1) + '/gg' : '';
 
     el.innerHTML =
