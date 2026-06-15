@@ -1,181 +1,130 @@
-# Prompt Prossima Sessione — Brigade
-*Carica sempre questo file per primo, poi gli altri MD.*
+# PROMPT PROSSIMA SESSIONE — Brigade
 
-Carica sempre in questo ordine:
-1. PROMPT_PROSSIMA_SESSIONE.md da brigade-main
-2. BOH_OS_SPEC.md da brigade-main
-3. BOH_OS_BACKLOG.md da brigade-main
-4. BOH_OS_DECISIONS.md da brigade-main
-5. BRIGADE_VISION.md da brigade-main
+## PRIMA DI TUTTO
 
----
-
-## Stato attuale — Brigade v177
-
-Supabase project: ydqmumpytgrlceuinoqt
-Deploy: https://1cos.github.io/back-of-house — branch brigade-main
-souschef-chat: v15 | sc-nightly-brief: v5 | souschef-scan: v4
-gmail-touchbistro-import: v3
+1. Leggi il file `x_claude_GIthub.txt` nel progetto — contiene il token GitHub
+2. Leggi questi file da brigade-main:
+   - BOH_OS_SPEC.md
+   - BOH_OS_BACKLOG.md
+   - BOH_OS_DECISIONS.md
+   - BRIGADE_VISION.md
+3. Per leggere file GitHub: GET https://api.github.com/repos/1cos/back-of-house/contents/{path}?ref=brigade-main
+4. Prima di modificare qualsiasi file JS: scaricalo fresco da GitHub, modificalo, ricaricalo
+5. Bumpa sempre sw.js nello stesso push
 
 ---
 
-## Completato sessione 2026-06-15
+## STATO — Brigade v131
 
-### TouchBistro pipeline completa
-- 4 file CSV importati ogni notte (era 3 — mancava ModifierPreferenceByMenuItem)
-- Nuova tabella `pos_modifier_by_item` — modifier collegato al piatto padre
-- Nuova tabella `modifier_config` — 86 modifier classificati (22 cucina, 64 non-cucina)
-- Edge Function gmail-touchbistro-import v2→v3
-
-### Sales admin — Deep Analysis
-- Bottone "Deep Analysis" in fondo alla tab Sales (solo admin)
-- Modal con 9 categorie, 200+ domande, 25 query types implementate
-- File: js/pos.js
-
-### Sales staff view
-- Staff vede view completamente separata dall'admin
-- Zero prezzi, zero incassi, solo quantità e cibo
-- Selettori: Ieri / Weekend (ven+sab) / Sett. (lun→sab settimana precedente)
-- Livello 1: gruppi cucina con barre
-- Livello 2: tap su gruppo → lista piatti
-- Modifier cucina colorati per categoria
-- Modal porzioni su tap con calcolo side + modifier + totale
-
-### Fix date
-- Weekend: venerdì + sabato (era sbagliato per entrambi admin e staff)
-- Settimana staff: lunedì → sabato settimana precedente
+- Supabase: ydqmumpytgrlceuinoqt
+- Deploy: https://1cos.github.io/back-of-house
+- Branch: brigade-main
 
 ---
 
-## Completato sessione 2026-06-14 — UI Split Admin/Staff (v146)
+## COSA FARE IN QUESTA SESSIONE — UNA SOLA COSA
 
-### Architettura UI biforcata — decisioni definitive
+### Redesign schermata review fattura (vendor-documents-review.js)
 
-#### Top bar
-- Admin: campanella visibile, cliccabile, apre News Manager, bellDot rosso se news attive
-- Staff: campanella RIMOSSA. bellDot non mostrato.
-- News bar: flash blu 2 secondi quando arriva news nuova mentre app è già aperta (staff)
-- Push notification: non toccate — funzionano indipendentemente
+La schermata attuale mostra gli articoli in colonna con vecchi warning OQR.
+Max vuole vedere ogni articolo in UNA RIGA con 4 campi modificabili.
 
-#### Home page — struttura widget
-**Prima delle 20:00:**
+**Formato riga articolo (OBBLIGATORIO):**
 
-| Widget | Admin | Staff |
-|---|---|---|
-| Warnings Banner | ✅ tutto | ❌ nascosto |
-| Invoice quick actions | ✅ | ❌ nascosto |
-| Briefing AI (tecnico) | ✅ | ❌ nascosto |
-| Yesterday's/Weekly Highlights | ✅ sunto tecnico | ✅ sunto motivazionale |
-| Upcoming Demand | ✅ | ✅ |
-| Stations (tutte pill) | ✅ | ❌ |
-| Your Station (top 3 item) | ❌ | ✅ |
-| Other Stations (pill solo con todo) | ❌ | ✅ widget separato |
-| Closing Checklist | ✅ solo admin | ❌ |
+Warning [Nome Articolo]
+Qty [val] . Pack [val] . Unit Price [val] . Ext [val]
+Sous Chef: [calcolo pack] . [risultato]
 
-**Dopo le 20:00 (tutti):**
-- Closing Checklist sale in cima con campo commento "Anything to pass on for tomorrow?"
-- Se staff compila campo → operation_note salvata → push 22:30 non arriva
-- Il resto dei widget rimane invariato
+Tutti e 4 i campi sono modificabili inline.
+Quando modifichi un campo, il $/100g si ricalcola in background automaticamente.
+Nessun giudizio sul prezzo. Solo matematica.
 
-**Highlights title — logica automatica:**
-- Lunedì → "Weekly Highlights" (recap settimana intera)
-- Tutti gli altri giorni → "Yesterday's Highlights"
+**Esempio Burrata:**
+Warning Burrata
+Qty 1 . Pack 6-4/2oz . Unit $26.73 . Ext $26.73
+Sous Chef: 6x4x2 = 48oz . $26.73
 
-#### Bottom bar biforcata
-| Tab | Admin | Staff |
-|---|---|---|
-| Home | ✅ | ✅ |
-| Prep | ❌ (nel menu •••) | ✅ |
-| Closing | ❌ (nel menu •••) | ✅ |
-| Recipes | ✅ | ✅ |
-| Ingredients | ✅ | ❌ |
-| Sales | ✅ | ✅ (view filtrata) |
-| Chat | ✅ | ✅ |
-| Menu ••• | ✅ | ❌ |
+**Esempio Stew Meat (per lb):**
+Warning Stew Meat (ABR Brochette in fattura)
+Qty 1 . Pack 4 PC/12# . Unit $3.42/lb . Ext $44.90
+DB: 4x12 = 48lb . $3.42/lb = $0.754/100g
 
-#### Sales staff — già implementata (sessione 15 giugno)
-- View staff separata già funzionante in pos.js
-- Zero prezzi, zero fatturato, solo quantità Food
+**Logica pack ambiguo:**
+Se il parser calcola due risultati diversi dallo stesso pack (es. 4 PC/12# = 4x12=48lb OPPURE 12lb)
+mostrare ENTRAMBE le interpretazioni come opzioni cliccabili.
+Max sceglie quale e giusta. Nessuna AI coinvolta — e pura matematica.
 
-#### Recipes — read-only per staff
-- `recipeAdminBtns` (Collega / + Nuova) già nascosti per staff ✅
-
-### File modificati in questa sessione
-- `sw.js` — v141→v146
-- `js/news.js` — campanella admin only, flash news bar staff
-- `js/app.js` — doLogin biforcato admin/staff, startHomeTimeCheck, saveEveningNote
-- `js/briefing.js` — renderHomeStations split, Other Stations widget separato
-- `index.html` — struttura home widget, bottom bar, closing widget
-
-### Pendente da questa sessione
-- **Other Stations widget separato** — HTML creato, JS parzialmente implementato. v145 aveva rotto admin home — rollback a v144 (ora v146). Da riprendere con audit preventivo completo ID HTML↔JS prima di implementare.
+**Cosa NON fare:**
+- Non mostrare warning SC-PRICE-001 (giudizio prezzi eliminato)
+- Non mostrare colonne separate per ogni campo
+- Non fare domande sul prezzo
 
 ---
 
-## DA FARE SUBITO — prossima sessione
+## REGOLE WARNING — DEFINITIVO
 
-### 1. Other Stations widget separato (riprendere da v146)
-Audit preventivo: mappare tutti gli ID HTML vs JS prima di toccare.
-Problema v145: doLogin cercava homeOtherStations ma era in widget separato non gestito.
-Soluzione: aggiornare doLogin + renderHomeStations + _applyHomeTimeLayout in modo coordinato.
+Solo due warning validi durante importazione fattura:
 
-### 2. PASSO 2 — Checklist sera → preplist mattina
-Il ciclo fondamentale Brigade:
-- Sera: brigata compila checklist per stazione
-- Notte: AI genera preplist mattina basata su checklist + vendite
-- Mattina: cuoco vede la sua preplist, segna fatto
+1. SC-GHOST-001: ingrediente senza nessun vendor/prezzo nel DB
+2. SC-NOLINK-001: ha vendor e prezzo ma manca conversion_to_base (per_case senza peso pack)
 
-### 3. Sales staff — modal porzioni (da completare)
-Vedi file `PROMPT_SALES_STAFF_VIEW.md` per specifiche complete.
+SC-PRICE-001 E ELIMINATO PER SEMPRE durante importazione.
+Il giudizio sui prezzi e capitolo futuro (confronto storico) — non ora.
 
-### 4. Warning Center fix
-- "No peso" chiude senza fare niente — da fixare
+souschef-scan v5 e gia deployata con questa logica.
 
 ---
 
-## Pendenti operativi
+## FATTURE IN ATTESA
+
+15 fatture Hardie's sono in Vendor Review con status pending:
+06976333 (23 items), 06977530 (1), 06978984 (10), 06981903 (11),
+06983333 (6), 06986639 (10), 06989667 (7), 06991299 (15),
+06992511 (6), 06992515 (2), 06995651 (7), 06996814 (1),
+06997941 (7), 07000322 (9), credit memo 00668419 (1)
+
+Non approvare finche la nuova UI non e pronta.
+
+---
+
+## WARNING PROSSIMA SESSIONE DEDICATA (dopo UI)
+
+Due nuovi tipi di warning da costruire:
+
+1. PACK AMBIGUO: quando il parser trova due interpretazioni matematiche diverse
+   Es: 4 PC/12# = 48lb OPPURE 12lb — mostrare entrambe, Max sceglie
+   Non serve AI. E logica del parser.
+
+2. PREZZO CAMBIATO: quando unit_price fattura attuale != ultima fattura importata
+   Es: Stew Meat era $3.29/lb, ora e $3.42/lb
+   Questo e il vero compito di Sous Chef AI — confronto storico prezzi
+
+---
+
+## 5 PASSI — stato
+
+PASSO 1: COMPLETO
+PASSO 2: DA FARE — checklist sera -> preplist mattina
+PASSO 3: DA FARE — TripleSeat (credenziali da Max)
+PASSO 4: DA FARE — Display cucina TV
+PASSO 5: DA FARE — SevenShift (verificare API)
+
+---
+
+## Pendenti minori
 
 - Romaine: Max pesa una testa e inserisce peso nel DB
-- FreshPoint articoli: conversion_to_base null, reimportare fattura
-- Sysco: fattura da importare (Sun Dry Tomatoes, Canned Tomatoes, Tomato Paste, Tomato Puree)
+- FreshPoint: reimportare fattura per conversion_to_base
+- Sysco: fattura da importare
 - Label Gmail: bek-import e fruge-import da creare
-- Ben E. Keith: forward iCloud→Gmail da fare
-- FreshPoint: non manda ancora fatture (solo order confirmation)
-- Push notification primo login staff: banner sparisce dopo 8s, non ritorna (FIX-001)
+- invoice_date sempre null nei vendor_documents — il parser non estrae la data dal PDF
 
 ---
 
 ## Regole operative
 
-1. Leggi SEMPRE il file da GitHub prima di modificarlo
-2. Usa API GitHub base64 decode — non raw CDN
-3. Bumpa sw.js nello stesso push — leggere versione attuale e incrementare di 1
+1. Leggi sempre i file da GitHub prima di modificarli
+2. Mai usare template literals multiriga o emoji nei file JS
+3. Bumpa sw.js nello stesso push
 4. Verifica via API dopo ogni push
-5. Supabase project: ydqmuppytgrlceuinoqt
-6. MAI usare template literals multiriga o emoji nei file JS — causano SyntaxError
-7. Dichiara cosa cambi prima di farlo — aspetta conferma Max
-8. File completi — zero patch parziali
-9. La view admin Sales rimane intatta — modifiche solo additive
-10. Mai sovrascrivere sw.js con numero fisso — sempre leggere versione corrente e +1
-11. briefing.js contiene HTML con apici annidati — ogni modifica richiede audit completo degli apici prima del push
-
----
-
-## Struttura file Sales (pos.js) — v153
-
-- Righe 1-127: utility functions (toISO, addDays, getPeriod, posSelectors)
-- Righe 128-320: loadPOS() — view admin (NON TOCCARE)
-- Righe 321-324: posSetMode()
-- Righe 325-1440: Deep Analysis (DA_CATEGORIES, openDeepAnalysis, daExecuteQuery)
-- Righe 1441-1760: Staff view (staffGetPeriod, loadPOSStaff, staffOpenGroup, staffOpenDishModal)
-
-**Redirect admin/staff: riga 129** — `if (!isAdmin()) { loadPOSStaff(); return; }`
-
----
-
-## FIX da fare (chat dedicata)
-
-| # | Fix | File | Note |
-|---|---|---|---|
-| FIX-001 | Push notification primo login staff | push.js | Banner sparisce dopo 8s, non ritorna se ignorato |
-| FIX-002 | ~~News push non arriva staff~~ | ~~push.js~~ | ✅ Risolto — arriva con piccolo delay normale |
+5. Supabase: ydqmumpytgrlceuinoqt
