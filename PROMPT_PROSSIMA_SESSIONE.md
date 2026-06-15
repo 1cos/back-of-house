@@ -4,17 +4,15 @@
 
 1. Leggi il file x_claude_GIthub.txt nel progetto — contiene il token GitHub
 2. Leggi questi file da brigade-main:
-   - BOH_OS_SPEC.md
    - BOH_OS_BACKLOG.md
    - BOH_OS_DECISIONS.md
-   - BRIGADE_VISION.md
 3. Per leggere file GitHub: GET https://api.github.com/repos/1cos/back-of-house/contents/{path}?ref=brigade-main
 4. Prima di modificare qualsiasi file JS: scaricalo fresco da GitHub, modificalo, ricaricalo
 5. Bumpa sempre sw.js nello stesso push
 
 ---
 
-## STATO — Brigade v190
+## STATO — Brigade v191
 
 - Supabase: ydqmumpytgrlceuinoqt
 - Deploy: https://1cos.github.io/back-of-house
