@@ -437,109 +437,136 @@ window.vdrToggle = function(id) {
 };
 
 // ── Detail panel ──────────────────────────────────────────────
+// -- Edits store: vdrEdits[docId][itemIdx] = {qty, pack, unitPrice, ext}
+if (!window._vdrEdits) window._vdrEdits = {};
+
+// -- Parser pack -> calcolo testuale (solo matematica, zero AI)
+window.vdrCalcPack = function(pack, catchweight, actualWeightLb) {
+  if (!pack) return null;
+  var p = pack.trim();
+  if (catchweight) {
+    if (actualWeightLb) return actualWeightLb.toFixed(1) + 'lb (catchweight)';
+    var lbm = p.match(/(\d+(?:\.\d+)?)\s*#/);
+    if (lbm) return lbm[1] + 'lb';
+    return null;
+  }
+  // Numero misto tipo "9-1/2 GAL" = 9.5 gal
+  var mixedGal = p.match(/^(\d+)-(\d+)\/(\d+)\s*(GAL|gal)/i);
+  if (mixedGal) {
+    var whole = parseInt(mixedGal[1]), num = parseInt(mixedGal[2]), den = parseInt(mixedGal[3]);
+    var gal = whole + num / den;
+    var liters = (gal * 3785.41).toFixed(0);
+    return gal.toFixed(2) + 'gal = ' + liters + 'ml';
+  }
+  // A-B/Coz o A/B/Coz — es. 6-4/2oz
+  var m3 = p.match(/(\d+)[\-\/](\d+)\s*[\/\-]\s*(\d+(?:\.\d+)?)\s*(oz|lb|g|kg)/i);
+  if (m3) {
+    var a = parseInt(m3[1]), b = parseInt(m3[2]), c = parseFloat(m3[3]), u = m3[4].toLowerCase();
+    return a + 'x' + b + 'x' + c + u + ' = ' + (a * b * c) + u;
+  }
+  // A/Boz — es. 12/8oz
+  var m2 = p.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(oz|lb|g|kg)/i);
+  if (m2) {
+    var a2 = parseInt(m2[1]), b2 = parseFloat(m2[2]), u2 = m2[3].toLowerCase();
+    return a2 + 'x' + b2 + u2 + ' = ' + (a2 * b2) + u2;
+  }
+  // X/Ylb
+  var mxylb = p.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(lb|#)/i);
+  if (mxylb) {
+    var ax = parseInt(mxylb[1]), bx = parseFloat(mxylb[2]);
+    return ax + 'x' + bx + 'lb = ' + (ax * bx) + 'lb';
+  }
+  // Xlb o X#
+  var mlb = p.match(/^(\d+(?:\.\d+)?)\s*(lb|#)/i);
+  if (mlb) return parseFloat(mlb[1]).toFixed(1) + 'lb';
+  // CT
+  var mct2 = p.match(/^(\d+)\s*\/\s*(\d+)\s*CT/i);
+  if (mct2) return parseInt(mct2[1]) * parseInt(mct2[2]) + ' each';
+  var mct1 = p.match(/^(\d+)\s*CT/i);
+  if (mct1) return mct1[1] + ' each';
+  return null;
+};
+
+// -- Calcola totalG da pack string (per $/100g)
+window.vdrPackToGrams = function(pack, catchweight, actualWeightLb) {
+  if (!pack) return null;
+  var p = pack.trim();
+  if (catchweight && actualWeightLb) return actualWeightLb * 453.592;
+  // Numero misto GAL
+  var mixedGal = p.match(/^(\d+)-(\d+)\/(\d+)\s*(GAL|gal)/i);
+  if (mixedGal) {
+    var gal = parseInt(mixedGal[1]) + parseInt(mixedGal[2]) / parseInt(mixedGal[3]);
+    return gal * 3785.41;
+  }
+  // oz cases
+  var m3oz = p.match(/(\d+)[\-\/](\d+)\s*[\/\-]\s*(\d+(?:\.\d+)?)\s*oz/i);
+  if (m3oz) return parseInt(m3oz[1]) * parseInt(m3oz[2]) * parseFloat(m3oz[3]) * 28.3495;
+  var m2oz = p.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*oz/i);
+  if (m2oz) return parseInt(m2oz[1]) * parseFloat(m2oz[2]) * 28.3495;
+  var m1oz = p.match(/^(\d+(?:\.\d+)?)\s*oz/i);
+  if (m1oz) return parseFloat(m1oz[1]) * 28.3495;
+  // lb cases
+  var mxylb = p.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(lb|#)/i);
+  if (mxylb) return parseInt(mxylb[1]) * parseFloat(mxylb[2]) * 453.592;
+  var m3lb = p.match(/(\d+)[\-\/](\d+)\s*[\/\-]\s*(\d+(?:\.\d+)?)\s*(lb|#)/i);
+  if (m3lb) return parseInt(m3lb[1]) * parseInt(m3lb[2]) * parseFloat(m3lb[3]) * 453.592;
+  var m1lb = p.match(/^(\d+(?:\.\d+)?)\s*(lb|#)/i);
+  if (m1lb) return parseFloat(m1lb[1]) * 453.592;
+  // kg
+  var m2kg = p.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*kg/i);
+  if (m2kg) return parseInt(m2kg[1]) * parseFloat(m2kg[2]) * 1000;
+  var m1kg = p.match(/^(\d+(?:\.\d+)?)\s*kg/i);
+  if (m1kg) return parseFloat(m1kg[1]) * 1000;
+  // g
+  var m1g = p.match(/^(\d+(?:\.\d+)?)\s*g$/i);
+  if (m1g) return parseFloat(m1g[1]);
+  return null;
+};
+
+// -- Ricalcola riga Sous Chef quando l'utente modifica un campo
+window.vdrRecalcRow = function(docId, idx) {
+  if (!window._vdrEdits[docId]) window._vdrEdits[docId] = {};
+  var qtyEl   = document.getElementById('vdrQty-'   + docId + '-' + idx);
+  var packEl  = document.getElementById('vdrPack-'  + docId + '-' + idx);
+  var unitEl  = document.getElementById('vdrUnit-'  + docId + '-' + idx);
+  var extEl   = document.getElementById('vdrExt-'   + docId + '-' + idx);
+  var scEl    = document.getElementById('vdrSC-'    + docId + '-' + idx);
+  if (!packEl) return;
+
+  var qty       = qtyEl  ? parseFloat(qtyEl.value)  : null;
+  var pack      = packEl.value.trim();
+  var unitPrice = unitEl ? parseFloat(unitEl.value) : null;
+  var ext       = extEl  ? parseFloat(extEl.value)  : null;
+
+  // Salva in edits store
+  window._vdrEdits[docId][idx] = { qty: qty, pack: pack, unitPrice: unitPrice, ext: ext };
+
+  // Ricalcola
+  var packCalc = window.vdrCalcPack(pack, false, null);
+  var totalG   = window.vdrPackToGrams(pack, false, null);
+  var price    = unitPrice != null && !isNaN(unitPrice) ? unitPrice : (ext && qty ? ext / qty : null);
+  var per100g  = (totalG && price) ? (price / totalG * 100).toFixed(2) : null;
+
+  var parts = [];
+  if (packCalc) parts.push(packCalc);
+  if (per100g)  parts.push('$' + per100g + '/100g');
+
+  if (scEl) {
+    scEl.textContent = parts.length ? parts.join(' · ') : '—';
+    scEl.style.color = parts.length ? '#0369a1' : '#94a3b8';
+  }
+};
+
 function vdrDetailHTML(doc) {
-  const pj       = doc.parsed_json || {};
-  const items    = pj.items || [];
+  const pj        = doc.parsed_json || {};
+  const items     = pj.items || [];
   const isInvoice = doc.document_type === 'invoice';
   const isCredit  = doc.document_type === 'credit_memo';
   const questions = vdrBuildQuestions(doc);
+  const docId     = doc.id;
 
-  // -- Warning codes per item (lookup rapido)
-  function itemWarningCodes(item) {
-    return (item.warnings || []).map(function(w) { return w.code; });
-  }
-
-  // -- Calcolo pack leggibile: "6x4x2oz = 48oz"
-  function parsPackCalc(pack, item) {
-    if (!pack) return null;
-    var p = pack.trim();
-
-    // Catchweight: "4 PC/12#" o "12#" o simili
-    if (item.catchweight) {
-      if (item.actual_weight_lb) {
-        return (item.actual_weight_lb).toFixed(1) + 'lb (catchweight)';
-      }
-      var lbm = p.match(/(\d+(?:\.\d+)?)\s*#/);
-      if (lbm) return lbm[1] + 'lb';
-      return null;
-    }
-
-    // Formato "A/BxCoz" o "A-B/Coz" — es. 6-4/2oz, 6/4/2oz
-    var m3 = p.match(/(\d+)[\-\/](\d+)\s*[\/\-]\s*(\d+(?:\.\d+)?)\s*(oz|lb|g|kg)/i);
-    if (m3) {
-      var a = parseInt(m3[1]), b = parseInt(m3[2]), c = parseFloat(m3[3]), u = m3[4].toLowerCase();
-      var tot = a * b * c;
-      return a + 'x' + b + 'x' + c + u + ' = ' + tot + u;
-    }
-
-    // Formato "A/Boz" — es. 12/8oz
-    var m2 = p.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(oz|lb|g|kg)/i);
-    if (m2) {
-      var a2 = parseInt(m2[1]), b2 = parseFloat(m2[2]), u2 = m2[3].toLowerCase();
-      var tot2 = a2 * b2;
-      return a2 + 'x' + b2 + u2 + ' = ' + tot2 + u2;
-    }
-
-    // Formato "Xlb" o "X#" semplice
-    var mlb = p.match(/^(\d+(?:\.\d+)?)\s*(lb|#)/i);
-    if (mlb) return parseFloat(mlb[1]).toFixed(1) + 'lb';
-
-    // Formato "X/Ylb"
-    var mxylb = p.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(lb|#)/i);
-    if (mxylb) {
-      var ax = parseInt(mxylb[1]), bx = parseFloat(mxylb[2]);
-      return ax + 'x' + bx + 'lb = ' + (ax * bx) + 'lb';
-    }
-
-    // CT puri: "50 CT", "4/20 CT"
-    var mct2 = p.match(/^(\d+)\s*\/\s*(\d+)\s*CT/i);
-    if (mct2) return parseInt(mct2[1]) * parseInt(mct2[2]) + ' each';
-    var mct1 = p.match(/^(\d+)\s*CT/i);
-    if (mct1) return mct1[1] + ' each';
-
-    return null;
-  }
-
-  // -- $/100g formattato
-  function calc100g(item) {
-    var price = item.unit_price != null ? parseFloat(item.unit_price) : null;
-    if (item.catchweight && item.price_per_lb) {
-      return (item.price_per_lb / 453.592 * 100).toFixed(2);
-    }
-    var totalG = item.catchweight && item.actual_weight_lb
-      ? item.actual_weight_lb * 453.592
-      : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null);
-    if (totalG && price) return (price / totalG * 100).toFixed(2);
-    return null;
-  }
-
-  // -- Qty display
-  function qtyDisplay(item) {
-    if (isInvoice) {
-      var o = item.qty_ordered != null ? item.qty_ordered : '-';
-      var s = item.qty_received != null ? item.qty_received : '-';
-      if (o !== s && item.qty_received != null) return o + '/' + s;
-      return '' + o;
-    }
-    if (isCredit) return item.qty_credited != null ? '' + item.qty_credited : '-';
-    return item.qty_ordered != null ? '' + item.qty_ordered : '-';
-  }
-
-  // -- Unit price display
-  function unitPriceDisplay(item) {
-    if (item.unit_price != null) return '$' + parseFloat(item.unit_price).toFixed(2);
-    if (item.price_per_lb != null) return '$' + parseFloat(item.price_per_lb).toFixed(2) + '/lb';
-    return '-';
-  }
-
-  // -- Ext display
-  function extDisplay(item) {
-    if (item.amount != null) {
-      var a = item.amount;
-      return a < 0 ? '-$' + Math.abs(a).toFixed(2) : '$' + parseFloat(a).toFixed(2);
-    }
-    return '-';
-  }
+  // Init edits store per questo doc
+  if (!window._vdrEdits[docId]) window._vdrEdits[docId] = {};
 
   // -- Header fattura --
   var headerFields = [
@@ -563,81 +590,88 @@ function vdrDetailHTML(doc) {
   var questionsHTML = questions.length ? (
     '<div style="padding:12px 14px 0;">' +
     '<div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Review Required</div>' +
-    questions.map(function(q, idx) { return vdrQuestionHTML(doc.id, q, idx); }).join('') +
+    questions.map(function(q, qi) { return vdrQuestionHTML(docId, q, qi); }).join('') +
     '</div>'
   ) : '';
 
-  // -- Righe articoli --
+  // -- Righe articoli con campi editabili --
   var itemsHTML = '';
   if (items.length) {
-    var rows = items.map(function(item) {
-      var warnCodes   = itemWarningCodes(item);
-      var hasWarning  = warnCodes.length > 0;
+    var inputStyle = 'border:none;border-bottom:1px solid #e2e8f0;background:transparent;font-weight:600;color:#1e293b;outline:none;padding:0;font-size:12px;font-family:inherit;';
+
+    var rows = items.map(function(item, idx) {
+      var hasWarning  = (item.warnings || []).length > 0;
       var name        = item.description || item.raw_description || '-';
-      var qty         = qtyDisplay(item);
-      var pack        = item.pack_description || '-';
-      var unitPrice   = unitPriceDisplay(item);
-      var ext         = extDisplay(item);
-      var packCalc    = parsPackCalc(pack, item);
-      var per100g     = calc100g(item);
       var mismatch    = isInvoice && item.qty_ordered !== item.qty_received && item.qty_received != null;
 
-      // Label riga: warning o ok
-      var labelColor = hasWarning ? '#b45309' : '#059669';
-      var labelBg    = hasWarning ? 'rgba(245,158,11,0.08)' : 'rgba(16,185,129,0.07)';
-      var labelBorder= hasWarning ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.25)';
-      var labelIcon  = hasWarning ? 'Warning' : 'OK';
-      var rowBorder  = hasWarning ? 'border-left:3px solid #f59e0b;' : 'border-left:3px solid #10b981;';
+      // Valori iniziali (da edits store se gia modificati, altrimenti da item)
+      var edits     = window._vdrEdits[docId][idx] || {};
+      var qtyVal    = edits.qty      != null ? edits.qty      : (isCredit ? (item.qty_credited || '') : (item.qty_ordered || ''));
+      var packVal   = edits.pack     != null ? edits.pack     : (item.pack_description || '');
+      var unitVal   = edits.unitPrice!= null ? edits.unitPrice: (item.unit_price != null ? parseFloat(item.unit_price).toFixed(2) : (item.price_per_lb != null ? parseFloat(item.price_per_lb).toFixed(2) : ''));
+      var extVal    = edits.ext      != null ? edits.ext      : (item.amount != null ? Math.abs(item.amount).toFixed(2) : '');
 
-      // Sous Chef line: calcolo pack + $/100g (solo parser+DB, zero AI)
-      var scParts = [];
+      // Calcolo Sous Chef iniziale
+      var packCalc  = window.vdrCalcPack(packVal, item.catchweight, item.actual_weight_lb);
+      var totalG    = window.vdrPackToGrams(packVal, item.catchweight, item.actual_weight_lb);
+      var price     = parseFloat(unitVal) || null;
+      var per100g   = (totalG && price) ? (price / totalG * 100).toFixed(2) : null;
+      var scParts   = [];
       if (packCalc) scParts.push(packCalc);
       if (per100g)  scParts.push('$' + per100g + '/100g');
-      var scLine = scParts.length ? scParts.join(' · ') : null;
+      var scText    = scParts.length ? scParts.join(' · ') : '—';
+      var scColor   = scParts.length ? '#0369a1' : '#94a3b8';
 
-      // Qty color se mismatch
-      var qtyColor = mismatch ? '#ef4444' : '#1e293b';
+      // Stili riga
+      var labelColor  = hasWarning ? '#b45309' : '#059669';
+      var labelBg     = hasWarning ? 'rgba(245,158,11,0.08)' : 'rgba(16,185,129,0.07)';
+      var labelBorder = hasWarning ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.25)';
+      var labelIcon   = hasWarning ? 'Warning' : 'OK';
+      var rowBorder   = hasWarning ? 'border-left:3px solid #f59e0b;' : 'border-left:3px solid #10b981;';
+      var qtyColor    = mismatch ? '#ef4444' : '#1e293b';
+      var rid         = docId + '-' + idx;
+      var onInput     = 'window.vdrRecalcRow(\'' + docId + '\',' + idx + ')';
 
       return '<div style="padding:10px 14px;border-bottom:1px solid #f1f5f9;' + rowBorder + '">' +
 
         // Riga 1: label + nome
-        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
           '<span style="font-size:10px;font-weight:700;color:' + labelColor + ';background:' + labelBg + ';border:1px solid ' + labelBorder + ';padding:1px 7px;border-radius:6px;white-space:nowrap;">' + labelIcon + '</span>' +
           '<span style="font-size:13px;font-weight:600;color:#1e293b;">' + name + '</span>' +
           (item.is_substitution ? '<span style="font-size:9px;font-weight:700;color:#f59e0b;margin-left:2px;">SUB</span>' : '') +
         '</div>' +
 
-        // Riga 2: 5 campi
-        '<div style="display:flex;flex-wrap:wrap;gap:4px 0;font-size:12px;color:#475569;margin-bottom:3px;">' +
-          '<span>Qty <strong style="color:' + qtyColor + ';">' + qty + '</strong></span>' +
-          '<span style="color:#cbd5e1;padding:0 6px;">·</span>' +
-          '<span>Pack <strong style="color:#1e293b;">' + pack + '</strong></span>' +
-          '<span style="color:#cbd5e1;padding:0 6px;">·</span>' +
-          '<span>Unit Price <strong style="color:#1e293b;">' + unitPrice + '</strong></span>' +
-          '<span style="color:#cbd5e1;padding:0 6px;">·</span>' +
-          '<span>Ext <strong style="color:#1e293b;">' + ext + '</strong></span>' +
+        // Riga 2: 5 campi editabili
+        '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:#64748b;margin-bottom:5px;">' +
+          '<span>Qty</span>' +
+          '<input id="vdrQty-' + rid + '" type="number" value="' + qtyVal + '" oninput="' + onInput + '" style="' + inputStyle + 'width:36px;color:' + qtyColor + ';">' +
+          '<span style="color:#cbd5e1;">·</span>' +
+          '<span>Pack</span>' +
+          '<input id="vdrPack-' + rid + '" type="text" value="' + packVal.replace(/"/g, '&quot;') + '" oninput="' + onInput + '" style="' + inputStyle + 'width:80px;">' +
+          '<span style="color:#cbd5e1;">·</span>' +
+          '<span>Unit</span>' +
+          '<input id="vdrUnit-' + rid + '" type="number" step="0.01" value="' + unitVal + '" oninput="' + onInput + '" style="' + inputStyle + 'width:56px;">' +
+          '<span style="color:#cbd5e1;">·</span>' +
+          '<span>Ext</span>' +
+          '<input id="vdrExt-' + rid + '" type="number" step="0.01" value="' + extVal + '" oninput="' + onInput + '" style="' + inputStyle + 'width:56px;">' +
         '</div>' +
 
-        // Riga 3: Sous Chef (parser+DB)
-        (scLine ? '<div style="font-size:11px;color:#64748b;">Sous Chef: <span style="color:#0369a1;">' + scLine + '</span></div>' : '') +
+        // Riga 3: Sous Chef (ricalcolabile)
+        '<div style="font-size:11px;color:#64748b;">Sous Chef: <span id="vdrSC-' + rid + '" style="color:' + scColor + ';">' + scText + '</span></div>' +
 
       '</div>';
     }).join('');
 
     itemsHTML = '<div style="padding:6px 0 0;">' +
-      '<div style="padding:4px 14px 6px;font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;">' +
-        'Items (' + items.length + ')' +
-      '</div>' +
+      '<div style="padding:4px 14px 6px;font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;">Items (' + items.length + ')</div>' +
       rows +
     '</div>';
   }
 
   // -- Approve --
   var approveHTML = '<div style="padding:12px 14px 14px;">' +
-    '<div id="vdrActionStatus-' + doc.id + '" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>' +
-    '<button onclick="vdrApprove(\'' + doc.id + '\',this)" style="width:100%;height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">' +
-      'Approve Document' +
-    '</button>' +
+    '<div id="vdrActionStatus-' + docId + '" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>' +
+    '<button onclick="vdrApprove(\'' + docId + '\',this)" style="width:100%;height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Approve Document</button>' +
   '</div>';
 
   return headerHTML + questionsHTML + itemsHTML + approveHTML;
