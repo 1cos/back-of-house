@@ -652,16 +652,16 @@ function vdrDetailHTML(doc) {
         // Riga 2: 5 campi editabili
         '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:#64748b;margin-bottom:5px;">' +
           '<span>Qty</span>' +
-          '<input id="vdrQty-' + rid + '" type="number" value="' + qtyVal + '" oninput="' + onInput + '" style="' + inputStyle + 'width:36px;color:' + qtyColor + ';">' +
+          '<input id="vdrQty-' + rid + '" type="number" value="' + qtyVal + '" oninput="' + onInput + '" onchange="' + onInput + '" style="' + inputStyle + 'width:36px;color:' + qtyColor + ';">' +
           '<span style="color:#cbd5e1;">·</span>' +
           '<span>Pack</span>' +
-          '<input id="vdrPack-' + rid + '" type="text" value="' + packVal.replace(/"/g, '&quot;') + '" oninput="' + onInput + '" style="' + inputStyle + 'width:80px;">' +
+          '<input id="vdrPack-' + rid + '" type="text" value="' + packVal.replace(/"/g, '&quot;') + '" oninput="' + onInput + '" onchange="' + onInput + '" style="' + inputStyle + 'width:80px;">' +
           '<span style="color:#cbd5e1;">·</span>' +
           '<span>Unit</span>' +
-          '<input id="vdrUnit-' + rid + '" type="number" step="0.01" value="' + unitVal + '" oninput="' + onInput + '" style="' + inputStyle + 'width:56px;">' +
+          '<input id="vdrUnit-' + rid + '" type="number" step="0.01" value="' + unitVal + '" oninput="' + onInput + '" onchange="' + onInput + '" style="' + inputStyle + 'width:56px;">' +
           '<span style="color:#cbd5e1;">·</span>' +
           '<span>Ext</span>' +
-          '<input id="vdrExt-' + rid + '" type="number" step="0.01" value="' + extVal + '" oninput="' + onInput + '" style="' + inputStyle + 'width:56px;">' +
+          '<input id="vdrExt-' + rid + '" type="number" step="0.01" value="' + extVal + '" oninput="' + onInput + '" onchange="' + onInput + '" style="' + inputStyle + 'width:56px;">' +
         '</div>' +
 
         // Riga 3: Sous Chef (ricalcolabile)
