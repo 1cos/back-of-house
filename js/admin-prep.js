@@ -40,8 +40,13 @@ window.adminRename=adminRename; window.adminDel=adminDel;
 
 const STATION_OPTIONS = ['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Tableside','Freezer'];
 
-function openPrepEditor(prep=null){
+async function openPrepEditor(prep=null){
   const isNew = !prep;
+  // Assicurati che le ricette siano caricate
+  if(!window.SHOP_RECIPES || !window.SHOP_RECIPES.length){
+    const {data:recs} = await supa.from('recipes').select('id,title').order('title');
+    if(recs) window.SHOP_RECIPES = recs;
+  }
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   const currentRecipeId = prep ? (prep.recipe_id||null) : null;
