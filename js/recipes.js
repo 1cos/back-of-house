@@ -586,7 +586,7 @@ async function calcRecipeFoodCost(rec){
       return {name:ing.name, qty:ing.qty, unit:ing.unit, qtyG, issue:'Ingredient not linked — name does not match ingredients table'};
 
     const {data:prices} = await supa.from('ingredient_vendors')
-      .select('price_per_100g,vendor,unit_price,purchase_unit,conversion_to_base,last_total_weight_g,unit_weight_g')
+      .select('price_per_100g,vendor,unit_price,purchase_unit,conversion_to_base,unit_weight_g')
       .eq('ingredient_id', ingr.id)
       .eq('active', true)
       .order('price_per_100g', {ascending: true})
@@ -597,7 +597,7 @@ async function calcRecipeFoodCost(rec){
 
     const p = prices[0];
     const p100 = p.price_per_100g || (()=>{
-      const base = p.conversion_to_base || p.last_total_weight_g || p.unit_weight_g
+      const base = p.conversion_to_base || p.unit_weight_g
         || (p.purchase_unit ? LOCAL_CONV[p.purchase_unit.toLowerCase()] : null);
       return p.unit_price && base ? (p.unit_price/base)*100 : null;
     })();
