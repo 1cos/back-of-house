@@ -10,7 +10,7 @@ Carica sempre in questo ordine:
 
 ---
 
-## Stato attuale — Brigade v152
+## Stato attuale — Brigade v177
 
 Supabase project: ydqmumpytgrlceuinoqt
 Deploy: https://1cos.github.io/back-of-house — branch brigade-main
@@ -157,6 +157,7 @@ Vedi file `PROMPT_SALES_STAFF_VIEW.md` per specifiche complete.
 8. File completi — zero patch parziali
 9. La view admin Sales rimane intatta — modifiche solo additive
 10. Mai sovrascrivere sw.js con numero fisso — sempre leggere versione corrente e +1
+11. briefing.js contiene HTML con apici annidati — ogni modifica richiede audit completo degli apici prima del push
 
 ---
 
