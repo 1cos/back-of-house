@@ -1430,6 +1430,626 @@ async function daExecuteQuery(sb, q, from, to) {
     return resultBlock(q.label, rows);
   }
 
+  // ── QUERY: top_item_by_dow ────────────────────────────────────────
+  if (qtype === 'top_item_by_dow') {
+    var groups4 = f.groups || [];
+    var dowNames = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
+    var r = await sb.from('pos_sales_by_item').select('sale_date,menu_item,menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).eq('sales_category','Food');
+    var data = (r.data||[]).filter(function(x){ return groups4.length===0 || groups4.indexOf(x.menu_group)>=0; });
+    var byDow = {};
+    data.forEach(function(x){
+      var dw = new Date(x.sale_date+'T12:00:00').getDay();
+      if (!byDow[dw]) byDow[dw] = {};
+      byDow[dw][x.menu_item] = (byDow[dw][x.menu_item]||0) + Number(x.quantity);
+    });
+    var rows = [1,2,3,4,5,6,0].filter(function(d){return byDow[d];}).map(function(d){
+      var sorted = Object.entries(byDow[d]).sort(function(a,b){return b[1]-a[1];}).slice(0,3);
+      return '<div style="margin-bottom:10px;"><div style="font-size:11px;font-weight:700;color:#6366f1;margin-bottom:4px;">'+dowNames[d]+'</div>'+
+        sorted.map(function(e,i){return rowItem((i+1)+'. '+e[0],e[1]+'x');}).join('')+'</div>';
+    }).join('');
+    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+  }
+
+  // ── QUERY: top_item_dow ───────────────────────────────────────────
+  if (qtype === 'top_item_dow') {
+    var groups5 = f.groups || []; var dow = f.dow || 6;
+    var dowNames = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
+    var r = await sb.from('pos_sales_by_item').select('sale_date,menu_item,menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).eq('sales_category','Food');
+    var data = (r.data||[]).filter(function(x){
+      var dw = new Date(x.sale_date+'T12:00:00').getDay();
+      return dw===dow && (groups5.length===0 || groups5.indexOf(x.menu_group)>=0);
+    });
+    var agg = {}; data.forEach(function(x){ agg[x.menu_item]=(agg[x.menu_item]||0)+Number(x.quantity); });
+    var sorted = Object.entries(agg).sort(function(a,b){return b[1]-a[1];}).slice(0,10);
+    var items = sorted.map(function(e){return{menu_item:e[0],qty:e[1]};});
+    return resultBlock('Top piatti il '+dowNames[dow], barList(items,'menu_item','qty'));
+  }
+
+  // ── QUERY: weekend_vs_week ────────────────────────────────────────
+  if (qtype === 'weekend_vs_week') {
+    var groups6 = f.groups || [];
+    var r = await sb.from('pos_sales_by_item').select('sale_date,menu_item,menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).eq('sales_category','Food');
+    var data = (r.data||[]).filter(function(x){ return groups6.length===0 || groups6.indexOf(x.menu_group)>=0; });
+    var wknd={}, week={};
+    data.forEach(function(x){
+      var dw=new Date(x.sale_date+'T12:00:00').getDay();
+      var isWknd = dw===5||dw===6;
+      var target = isWknd?wknd:week;
+      target[x.menu_item]=(target[x.menu_item]||0)+Number(x.quantity);
+    });
+    var allItems = new Set([...Object.keys(wknd),...Object.keys(week)]);
+    var compared = Array.from(allItems).map(function(item){
+      return{item,wknd:wknd[item]||0,week:week[item]||0};
+    }).sort(function(a,b){return (b.wknd+b.week)-(a.wknd+a.week);}).slice(0,10);
+    var rows = compared.map(function(x){
+      return '<div style="padding:8px 0;border-bottom:1px solid #f1f5f9;">' +
+        '<div style="font-size:13px;font-weight:600;color:#1e293b;margin-bottom:4px;">'+x.item+'</div>' +
+        '<div style="display:flex;gap:12px;">' +
+        '<span style="font-size:12px;color:#6366f1;">Ven+Sab: <strong>'+x.wknd+'x</strong></span>' +
+        '<span style="font-size:12px;color:#94a3b8;">Feriali: <strong>'+x.week+'x</strong></span>' +
+        '</div></div>';
+    }).join('');
+    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+  }
+
+  // ── QUERY: top_modifier_dow ───────────────────────────────────────
+  if (qtype === 'top_modifier_dow') {
+    var kcat=f.kitchen_cat||'Contorni'; var dow=f.dow||6;
+    var dowNames=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
+    var rCfg=await sb.from('modifier_config').select('modifier,kitchen_cat').eq('is_kitchen',true).eq('kitchen_cat',kcat);
+    var kitchenMods=(rCfg.data||[]).map(function(x){return x.modifier.toLowerCase();});
+    var r=await sb.from('pos_modifiers').select('sale_date,modifier,quantity_sold').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false);
+    var agg={};
+    (r.data||[]).forEach(function(x){
+      var dw=new Date(x.sale_date+'T12:00:00').getDay();
+      if(dw!==dow) return;
+      var low=x.modifier.toLowerCase();
+      if(kitchenMods.some(function(m){return low.indexOf(m)>=0||m.indexOf(low)>=0;}))
+        agg[x.modifier]=(agg[x.modifier]||0)+Number(x.quantity_sold);
+    });
+    var sorted=Object.entries(agg).sort(function(a,b){return b[1]-a[1];}).slice(0,10);
+    var items=sorted.map(function(e){return{menu_item:e[0],qty:e[1]};});
+    return resultBlock(kcat+' più ordinati il '+dowNames[dow], barList(items,'menu_item','qty'));
+  }
+
+  // ── QUERY: top_modifier_weekend ───────────────────────────────────
+  if (qtype === 'top_modifier_weekend') {
+    var kcat=f.kitchen_cat||'Contorni';
+    var rCfg=await sb.from('modifier_config').select('modifier,kitchen_cat').eq('is_kitchen',true).eq('kitchen_cat',kcat);
+    var kitchenMods=(rCfg.data||[]).map(function(x){return x.modifier.toLowerCase();});
+    var r=await sb.from('pos_modifiers').select('sale_date,modifier,quantity_sold').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false);
+    var agg={};
+    (r.data||[]).forEach(function(x){
+      var dw=new Date(x.sale_date+'T12:00:00').getDay();
+      if(dw!==5&&dw!==6) return;
+      var low=x.modifier.toLowerCase();
+      if(kitchenMods.some(function(m){return low.indexOf(m)>=0||m.indexOf(low)>=0;}))
+        agg[x.modifier]=(agg[x.modifier]||0)+Number(x.quantity_sold);
+    });
+    var sorted=Object.entries(agg).sort(function(a,b){return b[1]-a[1];}).slice(0,10);
+    var items=sorted.map(function(e){return{menu_item:e[0],qty:e[1]};});
+    return resultBlock(kcat+' più ordinati nel weekend', barList(items,'menu_item','qty'));
+  }
+
+  // ── QUERY: most_modifiers_dish ────────────────────────────────────
+  if (qtype === 'most_modifiers_dish') {
+    var groups7=f.groups||[];
+    var r=await sb.from('pos_modifier_by_item').select('parent_item,modifier').gte('sale_date',from).lte('sale_date',to);
+    var agg={};
+    (r.data||[]).forEach(function(x){
+      if(!agg[x.parent_item]) agg[x.parent_item]=new Set();
+      agg[x.parent_item].add(x.modifier);
+    });
+    var sorted=Object.entries(agg).map(function(e){return{item:e[0],n:e[1].size};}).sort(function(a,b){return b.n-a.n;}).slice(0,10);
+    var rows=sorted.map(function(x,i){return rowItem((i+1)+'. '+x.item,x.n+' varianti');}).join('');
+    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+  }
+
+  // ── QUERY: half_portions ──────────────────────────────────────────
+  if (qtype === 'half_portions') {
+    var groups8=f.groups||[];
+    var r=await sb.from('pos_sales_by_item').select('menu_item,menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).eq('sales_category','Food');
+    var data=(r.data||[]).filter(function(x){
+      var isHalf=x.menu_item.toLowerCase().indexOf('half')>=0||x.menu_item.toLowerCase().indexOf('child')>=0;
+      return isHalf&&(groups8.length===0||groups8.indexOf(x.menu_group)>=0);
+    });
+    var agg={};data.forEach(function(x){agg[x.menu_item]=(agg[x.menu_item]||0)+Number(x.quantity);});
+    var sorted=Object.entries(agg).sort(function(a,b){return b[1]-a[1];});
+    var total=sorted.reduce(function(s,e){return s+e[1];},0);
+    var rows=sorted.map(function(e){return rowItem(e[0],e[1]+'x','mezza porzione');}).join('');
+    return resultBlock(q.label,
+      '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:28px;font-weight:800;color:#6366f1;">'+total+'x</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">mezze porzioni totali</span></div>'+
+      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>'));
+  }
+
+  // ── QUERY: kids_vs_adult_pasta ────────────────────────────────────
+  if (qtype === 'kids_vs_adult_pasta') {
+    var r=await sb.from('pos_sales_by_item').select('menu_item,menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).eq('sales_category','Food');
+    var kids=0,adult=0;
+    (r.data||[]).forEach(function(x){
+      var g=x.menu_group||'';
+      if(g==='Kids menu') kids+=Number(x.quantity);
+      else if(g==='Pasta'||g==='Lunch') adult+=Number(x.quantity);
+    });
+    var total=kids+adult;
+    return resultBlock('Pasta Kids vs Adulti',
+      rowItem('Pasta adulti',adult+'x',total>0?((adult/total*100).toFixed(0)+'%'):'-')+
+      rowItem('Pasta kids',kids+'x',total>0?((kids/total*100).toFixed(0)+'%'):'-')+
+      '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-top:10px;"><span style="font-size:24px;font-weight:800;color:#6366f1;">'+total+'x</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">pasta totale</span></div>');
+  }
+
+  // ── QUERY: modifier_avg_per_day ───────────────────────────────────
+  if (qtype === 'modifier_avg_per_day') {
+    var rCfg=await sb.from('modifier_config').select('modifier').eq('is_kitchen',true);
+    var kitchenMods=(rCfg.data||[]).map(function(x){return x.modifier.toLowerCase();});
+    var r=await sb.from('pos_modifiers').select('sale_date,modifier,quantity_sold').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false);
+    var byDate={};
+    (r.data||[]).forEach(function(x){
+      var low=x.modifier.toLowerCase();
+      if(!kitchenMods.some(function(m){return low.indexOf(m)>=0||m.indexOf(low)>=0;})) return;
+      byDate[x.sale_date]=(byDate[x.sale_date]||0)+Number(x.quantity_sold);
+    });
+    var days=Object.keys(byDate).length;
+    var total=Object.values(byDate).reduce(function(s,v){return s+v;},0);
+    var avg=days>0?(total/days).toFixed(1):0;
+    var rows=Object.entries(byDate).sort(function(a,b){return a[0].localeCompare(b[0]);}).map(function(e){
+      return rowItem(dayNameIT(e[0])+' '+e[0].slice(5),e[1]+'x');
+    }).join('');
+    return resultBlock('Modifier cucina per giorno — media',
+      '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:36px;font-weight:800;color:#6366f1;">'+avg+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">modifier cucina/giorno</span></div>'+rows);
+  }
+
+  // ── QUERY: modifier_split ─────────────────────────────────────────
+  if (qtype === 'modifier_split') {
+    var mod8=f.modifier||'Brussels';
+    var r1=await sb.from('pos_sales_by_item').select('menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).ilike('menu_item','%'+mod8+'%');
+    var r2=await sb.from('pos_modifiers').select('modifier,quantity_sold').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).ilike('modifier','%'+mod8+'%');
+    var sideQty=(r1.data||[]).reduce(function(s,x){return s+Number(x.quantity);},0);
+    var modQty=(r2.data||[]).reduce(function(s,x){return s+Number(x.quantity_sold);},0);
+    return resultBlock(mod8+' — pasta vs secondi',
+      rowItem('Su piatti di pasta',sideQty+'x')+
+      rowItem('Su secondi / altri',modQty+'x')+
+      '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-top:10px;"><span style="font-size:24px;font-weight:800;color:#6366f1;">'+(sideQty+modQty)+'x</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">totale</span></div>');
+  }
+
+  // ── QUERY: mom_covers / mom_revenue ───────────────────────────────
+  if (qtype === 'mom_covers' || qtype === 'mom_revenue') {
+    var now=new Date(); var y=now.getFullYear(); var m=now.getMonth();
+    var thisStart=y+'-'+(m+1<10?'0':'')+(m+1)+'-01';
+    var prevStart=m===0?(y-1)+'-12-01':y+'-'+(m<10?'0':'')+m+'-01';
+    var prevEnd=y+'-'+(m+1<10?'0':'')+(m+1)+'-01';
+    var r1=await sb.from('pos_daily_summary').select('bill_count,net_sales').gte('sale_date',thisStart).lte('sale_date',toISO(new Date()));
+    var r2=await sb.from('pos_daily_summary').select('bill_count,net_sales').gte('sale_date',prevStart).lt('sale_date',prevEnd);
+    var field=qtype==='mom_covers'?'bill_count':'net_sales';
+    var cur=(r1.data||[]).reduce(function(s,x){return s+(Number(x[field])||0);},0);
+    var prev=(r2.data||[]).reduce(function(s,x){return s+(Number(x[field])||0);},0);
+    var diff=prev>0?((cur-prev)/prev*100):null;
+    var label=qtype==='mom_covers'?'coperti':'fatturato';
+    var valFn=qtype==='mom_covers'?function(v){return v+'';}:fmt;
+    function arrow3(v){if(v===null)return '—';var c=v>=0?'#059669':'#dc2626';return '<span style="color:'+c+'">'+(v>=0?'▲':'▼')+' '+Math.abs(v).toFixed(0)+'%</span>';}
+    return resultBlock('Confronto '+label+' mese su mese',
+      rowItem('Questo mese (so far)',valFn(cur))+
+      rowItem('Mese scorso (completo)',valFn(prev))+
+      '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-top:10px;font-size:14px;color:#6366f1;">'+arrow3(diff)+(diff!==null?' rispetto al mese scorso':'')+'</div>');
+  }
+
+  // ── QUERY: cat_ranking ────────────────────────────────────────────
+  if (qtype === 'cat_ranking') {
+    var r=await sb.from('pos_sales_by_item').select('menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).eq('sales_category','Food');
+    var GROUP_LABEL={'Pasta':'Pasta','Secondi/entrees':'Secondi','Secondi':'Secondi','Antipasti/appetizer':'Antipasti','Antipasti':'Antipasti','Insalate/salad':'Insalate','Dolcezze/dessert':'Dolcezze','Dolcezze':'Dolcezze','Kids menu':'Kids','Soup':'Zuppe','Sides':'Contorni','Lunch':'Pranzo'};
+    var EXCL=['NA Beverages','The Bar','Mocktail','Happy hours','Wine dinner','Testing menu','Catering','Peach Festival','Resturant week'];
+    var agg={};
+    (r.data||[]).forEach(function(x){
+      if(EXCL.indexOf(x.menu_group)>=0) return;
+      var label=GROUP_LABEL[x.menu_group]||x.menu_group;
+      agg[label]=(agg[label]||0)+Number(x.quantity);
+    });
+    var sorted=Object.entries(agg).sort(function(a,b){return b[1]-a[1];});
+    var items=sorted.map(function(e){return{menu_item:e[0],qty:e[1]};});
+    return resultBlock('Categorie cucina per quantità', barList(items,'menu_item','qty'));
+  }
+
+  // ── QUERY: total_food_items ───────────────────────────────────────
+  if (qtype === 'total_food_items') {
+    var EXCL2=['NA Beverages','The Bar','Mocktail','Happy hours','Wine dinner','Testing menu','Catering','Peach Festival','Resturant week'];
+    var r=await sb.from('pos_sales_by_item').select('quantity,menu_group').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).eq('sales_category','Food');
+    var total=(r.data||[]).filter(function(x){return EXCL2.indexOf(x.menu_group)<0;}).reduce(function(s,x){return s+Number(x.quantity);},0);
+    var rCov=await sb.from('pos_daily_summary').select('bill_count').gte('sale_date',from).lte('sale_date',to);
+    var cov=(rCov.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    return resultBlock(q.label,
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center;">'+
+      '<div style="background:#f0f4ff;border-radius:10px;padding:12px;"><div style="font-size:10px;color:#94a3b8;">Piatti Food totali</div><div style="font-size:28px;font-weight:800;color:#6366f1;">'+total+'</div></div>'+
+      '<div style="background:#f0f4ff;border-radius:10px;padding:12px;"><div style="font-size:10px;color:#94a3b8;">Media per coperto</div><div style="font-size:28px;font-weight:800;color:#6366f1;">'+(cov>0?(total/cov).toFixed(1):'—')+'</div></div>'+
+      '</div>');
+  }
+
+  // ── QUERY: total_kitchen_modifiers ────────────────────────────────
+  if (qtype === 'total_kitchen_modifiers') {
+    var rCfg=await sb.from('modifier_config').select('modifier').eq('is_kitchen',true);
+    var kitchenMods=(rCfg.data||[]).map(function(x){return x.modifier.toLowerCase();});
+    var r=await sb.from('pos_modifiers').select('modifier,quantity_sold').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false);
+    var total=0;
+    (r.data||[]).forEach(function(x){
+      var low=x.modifier.toLowerCase();
+      if(kitchenMods.some(function(m){return low.indexOf(m)>=0||m.indexOf(low)>=0;}))
+        total+=Number(x.quantity_sold)||0;
+    });
+    return resultBlock(q.label,
+      '<div style="background:#f0f4ff;border-radius:10px;padding:16px;text-align:center;"><span style="font-size:40px;font-weight:900;color:#6366f1;">'+total+'</span><div style="font-size:12px;color:#6366f1;margin-top:4px;">modifier cucina nel periodo</div></div>');
+  }
+
+  // ── QUERY: avg_discount ───────────────────────────────────────────
+  if (qtype === 'avg_discount') {
+    var r=await sb.from('pos_daily_summary').select('sale_date,net_sales,discounts').gte('sale_date',from).lte('sale_date',to);
+    var data=(r.data||[]).filter(function(x){return Number(x.discounts)||0;});
+    var totDisc=data.reduce(function(s,x){return s+(Number(x.discounts)||0);},0);
+    var totRev=data.reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    var avgDisc=data.length>0?totDisc/data.length:0;
+    var pct=totRev>0?(totDisc/totRev*100).toFixed(1):0;
+    var rows=data.sort(function(a,b){return (Number(b.discounts)||0)-(Number(a.discounts)||0);}).slice(0,10).map(function(x){
+      var g=(Number(x.net_sales)||0)+(Number(x.discounts)||0);
+      var p=g>0?((Number(x.discounts)||0)/g*100).toFixed(0):0;
+      return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date.slice(5),fmt(x.discounts||0),p+'% del lordo');
+    }).join('');
+    return resultBlock('Sconti nel periodo',
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;text-align:center;">'+
+      '<div style="background:#fef3c7;border-radius:10px;padding:10px;"><div style="font-size:10px;color:#92400e;">Sconto medio/giorno</div><div style="font-size:20px;font-weight:800;color:#d97706;">'+fmt(avgDisc)+'</div></div>'+
+      '<div style="background:#fef3c7;border-radius:10px;padding:10px;"><div style="font-size:10px;color:#92400e;">% su fatturato</div><div style="font-size:20px;font-weight:800;color:#d97706;">'+pct+'%</div></div>'+
+      '</div>'+rows);
+  }
+
+  // ── QUERY: wow_comparison ─────────────────────────────────────────
+  if (qtype === 'wow_comparison') {
+    var today2=new Date(); today2.setHours(0,0,0,0);
+    var dow2=today2.getDay();
+    var daysToThisMon=((dow2+6)%7);
+    var thisMon=new Date(today2); thisMon.setDate(today2.getDate()-daysToThisMon);
+    var lastMon2=new Date(thisMon); lastMon2.setDate(thisMon.getDate()-7);
+    var lastSun=new Date(thisMon); lastSun.setDate(thisMon.getDate()-1);
+    var r1=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',toISO(thisMon)).lte('sale_date',toISO(today2));
+    var r2=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',toISO(lastMon2)).lte('sale_date',toISO(lastSun));
+    var curCov=(r1.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var curRev=(r1.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    var prvCov=(r2.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var prvRev=(r2.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    function pct2(a,b){if(!b)return null;return((a-b)/b*100);}
+    function arw(v){if(v===null)return '—';var c=v>=0?'#059669':'#dc2626';return '<span style="color:'+c+'">'+(v>=0?'▲':'▼')+Math.abs(v).toFixed(0)+'%</span>';}
+    return resultBlock('Questa settimana vs settimana scorsa',
+      rowItem('Coperti questa sett.',curCov+'','Scorsa: '+prvCov+'  '+arw(pct2(curCov,prvCov)))+
+      rowItem('Fatturato questa sett.',fmt(curRev),'Scorsa: '+fmt(prvRev)+'  '+arw(pct2(curRev,prvRev))));
+  }
+
+  // ── QUERY: yoy_month ─────────────────────────────────────────────
+  if (qtype === 'yoy_month') {
+    var now2=new Date(); var y2=now2.getFullYear(); var m2=now2.getMonth();
+    var thisStart2=y2+'-'+(m2+1<10?'0':'')+(m2+1)+'-01';
+    var prevStart2=(y2-1)+'-'+(m2+1<10?'0':'')+(m2+1)+'-01';
+    var prevEnd2=y2+'-'+(m2+1<10?'0':'')+(m2+1)+'-01';
+    var r1=await sb.from('pos_daily_summary').select('bill_count,net_sales').gte('sale_date',thisStart2).lte('sale_date',toISO(now2));
+    var r2=await sb.from('pos_daily_summary').select('bill_count,net_sales').gte('sale_date',prevStart2).lt('sale_date',prevEnd2);
+    var curC=(r1.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var curR=(r1.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    var prvC=(r2.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var prvR=(r2.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    function arw2(a,b){if(!b)return '—';var v=(a-b)/b*100;var c=v>=0?'#059669':'#dc2626';return '<span style="color:'+c+'">'+(v>=0?'▲':'▼')+Math.abs(v).toFixed(0)+'%</span>';}
+    var mNames=['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+    return resultBlock('Confronto '+mNames[m2]+' '+y2+' vs '+mNames[m2]+' '+(y2-1),
+      rowItem('Coperti '+y2,curC+'',''+prvC+' nel '+(y2-1)+'  '+arw2(curC,prvC))+
+      rowItem('Fatturato '+y2,fmt(curR),''+fmt(prvR)+' nel '+(y2-1)+'  '+arw2(curR,prvR)));
+  }
+
+  // ── QUERY: yoy_month_fixed ────────────────────────────────────────
+  if (qtype === 'yoy_month_fixed') {
+    var fixMonth=f.month||12; var now3=new Date(); var y3=now3.getFullYear();
+    var start1=y3+'-'+(fixMonth<10?'0':'')+fixMonth+'-01';
+    var end1=y3+'-'+(fixMonth<10?'0':'')+fixMonth+'-31';
+    var start2=(y3-1)+'-'+(fixMonth<10?'0':'')+fixMonth+'-01';
+    var end2=(y3-1)+'-'+(fixMonth<10?'0':'')+fixMonth+'-31';
+    var r1=await sb.from('pos_daily_summary').select('bill_count,net_sales').gte('sale_date',start1).lte('sale_date',end1);
+    var r2=await sb.from('pos_daily_summary').select('bill_count,net_sales').gte('sale_date',start2).lte('sale_date',end2);
+    var curC=(r1.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var curR=(r1.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    var prvC=(r2.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var prvR=(r2.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    var mNames2=['','Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+    function arw3(a,b){if(!b)return '—';var v=(a-b)/b*100;var c=v>=0?'#059669':'#dc2626';return '<span style="color:'+c+'">'+(v>=0?'▲':'▼')+Math.abs(v).toFixed(0)+'%</span>';}
+    return resultBlock(mNames2[fixMonth]+' '+y3+' vs '+mNames2[fixMonth]+' '+(y3-1),
+      rowItem('Coperti '+y3,curC+'',''+prvC+' nel '+(y3-1)+'  '+arw3(curC,prvC))+
+      rowItem('Fatturato '+y3,fmt(curR),''+fmt(prvR)+' nel '+(y3-1)+'  '+arw3(curR,prvR)));
+  }
+
+  // ── QUERY: yoy_weekend ───────────────────────────────────────────
+  if (qtype === 'yoy_weekend') {
+    var r1=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',from).lte('sale_date',to);
+    var yr=from.slice(0,4); var prevFrom=(parseInt(yr)-1)+from.slice(4); var prevTo=(parseInt(yr)-1)+to.slice(4);
+    var r2=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',prevFrom).lte('sale_date',prevTo);
+    var curC=(r1.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var curR=(r1.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    var prvC=(r2.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var prvR=(r2.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    function arw4(a,b){if(!b)return '—';var v=(a-b)/b*100;var c=v>=0?'#059669':'#dc2626';return '<span style="color:'+c+'">'+(v>=0?'▲':'▼')+Math.abs(v).toFixed(0)+'%</span>';}
+    return resultBlock('Weekend '+from.slice(5)+' vs stesso weekend '+(parseInt(yr)-1),
+      rowItem('Coperti '+yr,curC+'',''+prvC+' nel '+(parseInt(yr)-1)+'  '+arw4(curC,prvC))+
+      rowItem('Fatturato '+yr,fmt(curR),''+fmt(prvR)+' nel '+(parseInt(yr)-1)+'  '+arw4(curR,prvR)));
+  }
+
+  // ── QUERY: weekend_vs_prev ────────────────────────────────────────
+  if (qtype === 'weekend_vs_prev') {
+    var r1=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',from).lte('sale_date',to);
+    var prevFri=toISO(addDays(new Date(from+'T12:00:00'),-7));
+    var prevSat=toISO(addDays(new Date(to+'T12:00:00'),-7));
+    var r2=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',prevFri).lte('sale_date',prevSat);
+    var curC=(r1.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var curR=(r1.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    var prvC=(r2.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var prvR=(r2.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    function arw5(a,b){if(!b)return '—';var v=(a-b)/b*100;var c=v>=0?'#059669':'#dc2626';return '<span style="color:'+c+'">'+(v>=0?'▲':'▼')+Math.abs(v).toFixed(0)+'%</span>';}
+    return resultBlock('Questo weekend vs weekend scorso',
+      rowItem('Coperti questo weekend',curC+'','Scorso: '+prvC+'  '+arw5(curC,prvC))+
+      rowItem('Fatturato questo weekend',fmt(curR),'Scorso: '+fmt(prvR)+'  '+arw5(curR,prvR)));
+  }
+
+  // ── QUERY: weekend_vs_weekday_covers / revenue ────────────────────
+  if (qtype === 'weekend_vs_weekday_covers' || qtype === 'weekend_vs_weekday_revenue') {
+    var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',from).lte('sale_date',to);
+    var wkC=0,wkR=0,wdC=0,wdR=0,wkDays=0,wdDays=0;
+    (r.data||[]).forEach(function(x){
+      var dw=new Date(x.sale_date+'T12:00:00').getDay();
+      if(dw===5||dw===6){wkC+=x.bill_count||0;wkR+=Number(x.net_sales)||0;wkDays++;}
+      else if(dw>0){wdC+=x.bill_count||0;wdR+=Number(x.net_sales)||0;wdDays++;}
+    });
+    if(qtype==='weekend_vs_weekday_covers'){
+      return resultBlock('Coperti: weekend vs feriali',
+        rowItem('Weekend (ven+sab) — '+wkDays+' giorni',wkC+'','media '+(wkDays?Math.round(wkC/wkDays):0)+'/giorno')+
+        rowItem('Feriali (mar→gio) — '+wdDays+' giorni',wdC+'','media '+(wdDays?Math.round(wdC/wdDays):0)+'/giorno'));
+    } else {
+      return resultBlock('Fatturato: weekend vs feriali',
+        rowItem('Weekend (ven+sab) — '+wkDays+' giorni',fmt(wkR),'media '+fmt(wkDays?wkR/wkDays:0)+'/giorno')+
+        rowItem('Feriali (mar→gio) — '+wdDays+' giorni',fmt(wdR),'media '+fmt(wdDays?wdR/wdDays:0)+'/giorno'));
+    }
+  }
+
+  // ── QUERY: rolling_30_comparison ─────────────────────────────────
+  if (qtype === 'rolling_30_comparison') {
+    var today3=new Date(); today3.setHours(0,0,0,0);
+    var d30=toISO(addDays(today3,-1)); var d60=toISO(addDays(today3,-31)); var d31=toISO(addDays(today3,-30));
+    var r1=await sb.from('pos_daily_summary').select('bill_count,net_sales').gte('sale_date',d31).lte('sale_date',d30);
+    var r2=await sb.from('pos_daily_summary').select('bill_count,net_sales').gte('sale_date',d60).lt('sale_date',d31);
+    var c1=(r1.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var r1v=(r1.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    var c2=(r2.data||[]).reduce(function(s,x){return s+(x.bill_count||0);},0);
+    var r2v=(r2.data||[]).reduce(function(s,x){return s+(Number(x.net_sales)||0);},0);
+    function arw6(a,b){if(!b)return '—';var v=(a-b)/b*100;var c=v>=0?'#059669':'#dc2626';return '<span style="color:'+c+'">'+(v>=0?'▲':'▼')+Math.abs(v).toFixed(0)+'%</span>';}
+    return resultBlock('Ultimi 30 giorni vs 30 giorni precedenti',
+      rowItem('Coperti ultimi 30gg',c1+'','Precedenti 30gg: '+c2+'  '+arw6(c1,c2))+
+      rowItem('Fatturato ultimi 30gg',fmt(r1v),'Precedenti 30gg: '+fmt(r2v)+'  '+arw6(r1v,r2v)));
+  }
+
+  // ── QUERY: trend_90d ─────────────────────────────────────────────
+  if (qtype === 'trend_90d') {
+    var today4=new Date(); today4.setHours(0,0,0,0);
+    var d90=toISO(addDays(today4,-89));
+    var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',d90).order('sale_date',{ascending:true});
+    var data=(r.data||[]);
+    if(data.length<2) return resultBlock(q.label,'<div style="color:#94a3b8;text-align:center;padding:16px;">Dati insufficienti.</div>');
+    var half=Math.floor(data.length/2);
+    var first=data.slice(0,half); var last=data.slice(half);
+    var avgC1=first.reduce(function(s,x){return s+(x.bill_count||0);},0)/first.length;
+    var avgC2=last.reduce(function(s,x){return s+(x.bill_count||0);},0)/last.length;
+    var avgR1=first.reduce(function(s,x){return s+(Number(x.net_sales)||0);},0)/first.length;
+    var avgR2=last.reduce(function(s,x){return s+(Number(x.net_sales)||0);},0)/last.length;
+    var trendC=avgC2>avgC1?'in crescita':'in calo';
+    var trendR=avgR2>avgR1?'in crescita':'in calo';
+    var diffC=avgC1>0?((avgC2-avgC1)/avgC1*100).toFixed(0):0;
+    var diffR=avgR1>0?((avgR2-avgR1)/avgR1*100).toFixed(0):0;
+    return resultBlock('Trend ultimi 90 giorni',
+      '<div style="background:'+(trendC==='in crescita'?'#f0fdf4':'#fff1f2')+';border-radius:12px;padding:14px;margin-bottom:8px;text-align:center;">' +
+      '<div style="font-size:24px;">'+(trendC==='in crescita'?'📈':'📉')+'</div>' +
+      '<div style="font-size:15px;font-weight:700;color:#1e293b;">Coperti '+trendC+'</div>' +
+      '<div style="font-size:12px;color:#64748b;">'+(diffC>=0?'+':'')+diffC+'% prima metà vs seconda metà</div>' +
+      '</div>' +
+      '<div style="background:'+(trendR==='in crescita'?'#f0fdf4':'#fff1f2')+';border-radius:12px;padding:14px;text-align:center;">' +
+      '<div style="font-size:24px;">'+(trendR==='in crescita'?'📈':'📉')+'</div>' +
+      '<div style="font-size:15px;font-weight:700;color:#1e293b;">Fatturato '+trendR+'</div>' +
+      '<div style="font-size:12px;color:#64748b;">'+(diffR>=0?'+':'')+diffR+'% prima metà vs seconda metà</div>' +
+      '</div>');
+  }
+
+  // ── QUERY: trend_category ─────────────────────────────────────────
+  if (qtype === 'trend_category') {
+    var groups9=f.groups||['Pasta'];
+    var r=await sb.from('pos_sales_by_item').select('sale_date,menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).eq('sales_category','Food');
+    var data=(r.data||[]).filter(function(x){return groups9.indexOf(x.menu_group)>=0;});
+    var byDate={};data.forEach(function(x){byDate[x.sale_date]=(byDate[x.sale_date]||0)+Number(x.quantity);});
+    var sorted=Object.entries(byDate).sort(function(a,b){return a[0].localeCompare(b[0]);});
+    var rows=sorted.map(function(e){return rowItem(dayNameIT(e[0])+' '+e[0].slice(5),e[1]+'x');}).join('');
+    var total=sorted.reduce(function(s,e){return s+e[1];},0);
+    return resultBlock(groups9.join('+')+' — trend nel periodo',
+      '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:28px;font-weight:800;color:#6366f1;">'+total+'x</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">totale</span></div>'+
+      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>'));
+  }
+
+  // ── QUERY: trend_check_avg ────────────────────────────────────────
+  if (qtype === 'trend_check_avg') {
+    var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',from).lte('sale_date',to).order('sale_date',{ascending:true});
+    var data=(r.data||[]).filter(function(x){return x.bill_count>0;});
+    var rows=data.map(function(x){var chk=(x.net_sales||0)/x.bill_count;return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date.slice(5),fmtD(chk),x.bill_count+' coperti');}).join('');
+    return resultBlock('Check medio — trend nel periodo', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+  }
+
+  // ── QUERY: trend_covers_mom ───────────────────────────────────────
+  if (qtype === 'trend_covers_mom') {
+    var r=await sb.from('pos_daily_summary').select('sale_date,bill_count');
+    var byMonth={};
+    (r.data||[]).forEach(function(x){var m=x.sale_date.slice(0,7);byMonth[m]=(byMonth[m]||0)+(x.bill_count||0);});
+    var sorted=Object.entries(byMonth).sort(function(a,b){return a[0].localeCompare(b[0]);}).slice(-6);
+    var rows=sorted.map(function(e,i){
+      var prev=i>0?sorted[i-1][1]:null;
+      var diff=prev?((e[1]-prev)/prev*100).toFixed(0):null;
+      var arrow=diff===null?'':diff>=0?'<span style="color:#059669"> ▲'+diff+'%</span>':'<span style="color:#dc2626"> ▼'+Math.abs(diff)+'%</span>';
+      return rowItem(e[0],e[1]+' cop'+arrow);
+    }).join('');
+    return resultBlock('Trend coperti — ultimi 6 mesi', rows);
+  }
+
+  // ── QUERY: trend_dow ─────────────────────────────────────────────
+  if (qtype === 'trend_dow') {
+    var dow9=f.dow||1;
+    var dowNames=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
+    var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',from).lte('sale_date',to).order('sale_date',{ascending:true});
+    var data=(r.data||[]).filter(function(x){return new Date(x.sale_date+'T12:00:00').getDay()===dow9;});
+    var rows=data.map(function(x){return rowItem(x.sale_date,x.bill_count+' coperti',fmt(x.net_sales||0));}).join('');
+    var avgC=data.length>0?Math.round(data.reduce(function(s,x){return s+(x.bill_count||0);},0)/data.length):0;
+    return resultBlock(dowNames[dow9]+' — storico nel periodo',
+      '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:24px;font-weight:800;color:#6366f1;">'+avgC+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">coperti medi il '+dowNames[dow9]+'</span></div>'+
+      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>'));
+  }
+
+  // ── QUERY: contorno_totale_combinato ──────────────────────────────
+  if (qtype === 'contorno_totale_combinato') {
+    var rCfg=await sb.from('modifier_config').select('modifier,kitchen_cat,portion_note').eq('is_kitchen',true).eq('kitchen_cat','Contorni');
+    var contorni=(rCfg.data||[]);
+    var rMod=await sb.from('pos_modifiers').select('modifier,quantity_sold').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false);
+    var rSide=await sb.from('pos_sales_by_item').select('menu_item,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).eq('menu_group','Sides');
+    var results=[];
+    contorni.forEach(function(cfg){
+      var modQty=(rMod.data||[]).filter(function(x){return x.modifier&&x.modifier.toLowerCase().indexOf(cfg.modifier.toLowerCase())>=0;}).reduce(function(s,x){return s+Number(x.quantity_sold);},0);
+      var sideQty=(rSide.data||[]).filter(function(x){return x.menu_item&&x.menu_item.toLowerCase().indexOf(cfg.modifier.toLowerCase())>=0;}).reduce(function(s,x){return s+Number(x.quantity);},0);
+      if(modQty+sideQty>0) results.push({name:cfg.modifier,side:sideQty,mod:modQty,total:Math.ceil(sideQty+modQty*0.5)});
+    });
+    results.sort(function(a,b){return b.total-a.total;});
+    var rows=results.map(function(x){return rowItem(x.name,x.total+' porzioni equiv.',x.side+'x side + '+x.mod+'x modifier');}).join('');
+    return resultBlock('Contorni — classifica combinata (side + modifier)', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+  }
+
+  // ── QUERY: top_item_all ───────────────────────────────────────────
+  if (qtype === 'top_item_all') {
+    var EXCL3=['NA Beverages','The Bar','Mocktail','Happy hours'];
+    var r=await sb.from('pos_sales_by_item').select('menu_item,menu_group,quantity,sales_category').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false);
+    var data=(r.data||[]).filter(function(x){return EXCL3.indexOf(x.menu_group)<0;});
+    var agg={};data.forEach(function(x){agg[x.menu_item]=(agg[x.menu_item]||0)+Number(x.quantity);});
+    var sorted=Object.entries(agg).sort(function(a,b){return b[1]-a[1];}).slice(0,15);
+    var items=sorted.map(function(e){return{menu_item:e[0],qty:e[1]};});
+    return resultBlock('Top piatti (tutte le categorie)', barList(items,'menu_item','qty'));
+  }
+
+  // ── QUERY: bottom_item_all ────────────────────────────────────────
+  if (qtype === 'bottom_item_all') {
+    var EXCL4=['NA Beverages','The Bar','Mocktail','Happy hours'];
+    var r=await sb.from('pos_sales_by_item').select('menu_item,menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).eq('sales_category','Food');
+    var data=(r.data||[]).filter(function(x){return EXCL4.indexOf(x.menu_group)<0;});
+    var agg={};data.forEach(function(x){agg[x.menu_item]=(agg[x.menu_item]||0)+Number(x.quantity);});
+    var sorted=Object.entries(agg).sort(function(a,b){return a[1]-b[1];}).slice(0,10);
+    var rows=sorted.map(function(e,i){return rowItem((i+1)+'. '+e[0],e[1]+'x');}).join('');
+    return resultBlock('Piatti meno venduti nel periodo', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+  }
+
+  // ── QUERY: fastest_growing_dish / fastest_declining_dish ──────────
+  if (qtype === 'fastest_growing_dish' || qtype === 'fastest_declining_dish') {
+    var today5=new Date(); today5.setHours(0,0,0,0);
+    var d15=toISO(addDays(today5,-1)); var d16=toISO(addDays(today5,-15)); var d30b=toISO(addDays(today5,-30));
+    var r1=await sb.from('pos_sales_by_item').select('menu_item,quantity').gte('sale_date',d16).lte('sale_date',d15).eq('is_historical',false).eq('sales_category','Food');
+    var r2=await sb.from('pos_sales_by_item').select('menu_item,quantity').gte('sale_date',d30b).lt('sale_date',d16).eq('is_historical',false).eq('sales_category','Food');
+    var agg1={},agg2={};
+    (r1.data||[]).forEach(function(x){agg1[x.menu_item]=(agg1[x.menu_item]||0)+Number(x.quantity);});
+    (r2.data||[]).forEach(function(x){agg2[x.menu_item]=(agg2[x.menu_item]||0)+Number(x.quantity);});
+    var allItems=new Set([...Object.keys(agg1),...Object.keys(agg2)]);
+    var compared=Array.from(allItems).map(function(item){
+      var a=agg1[item]||0; var b=agg2[item]||0;
+      var pct=b>0?((a-b)/b*100):null;
+      return{item,recent:a,prev:b,pct};
+    }).filter(function(x){return x.pct!==null;}).sort(function(a,b){
+      return qtype==='fastest_growing_dish'?b.pct-a.pct:a.pct-b.pct;
+    }).slice(0,10);
+    var rows=compared.map(function(x,i){
+      var arrow=x.pct>=0?'▲':'▼'; var col=x.pct>=0?'#059669':'#dc2626';
+      return rowItem((i+1)+'. '+x.item,'<span style="color:'+col+'">'+arrow+Math.abs(x.pct).toFixed(0)+'%</span>',x.recent+'x ora vs '+x.prev+'x prima');
+    }).join('');
+    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Dati insufficienti.</div>');
+  }
+
+  // ── QUERY: best_ever_dow ──────────────────────────────────────────
+  if (qtype === 'best_ever_dow') {
+    var dow8=f.dow||6;
+    var dowNames=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
+    var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').order('net_sales',{ascending:false});
+    var data=(r.data||[]).filter(function(x){return new Date(x.sale_date+'T12:00:00').getDay()===dow8;}).slice(0,5);
+    var rows=data.map(function(x,i){return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date,fmt(x.net_sales||0),x.bill_count+' coperti');}).join('');
+    return resultBlock('Migliori '+dowNames[dow8]+' di sempre', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+  }
+
+  // ── QUERY: best_ever_month ────────────────────────────────────────
+  if (qtype === 'best_ever_month') {
+    var r=await sb.from('pos_daily_summary').select('sale_date,net_sales,bill_count');
+    var byMonth={};
+    (r.data||[]).forEach(function(x){var m=x.sale_date.slice(0,7);if(!byMonth[m])byMonth[m]={rev:0,cov:0};byMonth[m].rev+=Number(x.net_sales)||0;byMonth[m].cov+=Number(x.bill_count)||0;});
+    var sorted=Object.entries(byMonth).sort(function(a,b){return b[1].rev-a[1].rev;}).slice(0,10);
+    var rows=sorted.map(function(e,i){return rowItem((i+1)+'. '+e[0],fmt(e[1].rev),e[1].cov+' coperti');}).join('');
+    return resultBlock('Mesi migliori di sempre per fatturato', rows);
+  }
+
+  // ── QUERY: worst_ever_month ───────────────────────────────────────
+  if (qtype === 'worst_ever_month') {
+    var r=await sb.from('pos_daily_summary').select('sale_date,net_sales,bill_count');
+    var byMonth={};
+    (r.data||[]).filter(function(x){return Number(x.net_sales)>0;}).forEach(function(x){var m=x.sale_date.slice(0,7);if(!byMonth[m])byMonth[m]={rev:0,cov:0};byMonth[m].rev+=Number(x.net_sales)||0;byMonth[m].cov+=Number(x.bill_count)||0;});
+    var sorted=Object.entries(byMonth).sort(function(a,b){return a[1].rev-b[1].rev;}).slice(0,10);
+    var rows=sorted.map(function(e,i){return rowItem((i+1)+'. '+e[0],fmt(e[1].rev),e[1].cov+' coperti');}).join('');
+    return resultBlock('Mesi peggiori di sempre per fatturato', rows);
+  }
+
+  // ── QUERY: best_week_historical ───────────────────────────────────
+  if (qtype === 'best_week_historical') {
+    var r=await sb.from('pos_daily_summary').select('sale_date,net_sales,bill_count');
+    var byWeek={};
+    (r.data||[]).forEach(function(x){
+      var d=new Date(x.sale_date+'T12:00:00');
+      var dw=d.getDay(); var daysToMon=(dw+6)%7;
+      var mon=new Date(d); mon.setDate(d.getDate()-daysToMon);
+      var key=toISO(mon);
+      if(!byWeek[key])byWeek[key]={rev:0,cov:0};
+      byWeek[key].rev+=Number(x.net_sales)||0;
+      byWeek[key].cov+=Number(x.bill_count)||0;
+    });
+    var sorted=Object.entries(byWeek).sort(function(a,b){return b[1].rev-a[1].rev;}).slice(0,10);
+    var rows=sorted.map(function(e,i){return rowItem((i+1)+'. Sett. del '+e[0],fmt(e[1].rev),e[1].cov+' coperti');}).join('');
+    return resultBlock('Settimane migliori di sempre', rows);
+  }
+
+  // ── QUERY: season_comparison ──────────────────────────────────────
+  if (qtype === 'season_comparison') {
+    var r=await sb.from('pos_daily_summary').select('sale_date,net_sales,bill_count');
+    var seasons={estate:{rev:0,cov:0,n:0},autunno:{rev:0,cov:0,n:0},inverno:{rev:0,cov:0,n:0},primavera:{rev:0,cov:0,n:0}};
+    (r.data||[]).forEach(function(x){
+      var mo=new Date(x.sale_date+'T12:00:00').getMonth();
+      var s=mo>=5&&mo<=7?'estate':mo>=8&&mo<=10?'autunno':mo>=11||mo<=1?'inverno':'primavera';
+      seasons[s].rev+=Number(x.net_sales)||0;seasons[s].cov+=Number(x.bill_count)||0;seasons[s].n++;
+    });
+    var rows=['estate','primavera','autunno','inverno'].map(function(s){
+      var emoji={estate:'☀️',primavera:'🌸',autunno:'🍂',inverno:'❄️'}[s];
+      var avgR=seasons[s].n>0?seasons[s].rev/seasons[s].n:0;
+      var avgC=seasons[s].n>0?seasons[s].cov/seasons[s].n:0;
+      return rowItem(emoji+' '+s.charAt(0).toUpperCase()+s.slice(1),fmt(avgR)+'/giorno',Math.round(avgC)+' coperti medi · '+seasons[s].n+' giorni');
+    }).join('');
+    return resultBlock('Confronto stagionale (media giornaliera)', rows);
+  }
+
+  // ── QUERY: seasonal_pattern ───────────────────────────────────────
+  if (qtype === 'seasonal_pattern') {
+    var r=await sb.from('pos_daily_summary').select('sale_date,bill_count');
+    var byMonth={};
+    (r.data||[]).forEach(function(x){
+      var mo=new Date(x.sale_date+'T12:00:00').getMonth();
+      if(!byMonth[mo])byMonth[mo]={sum:0,n:0};
+      byMonth[mo].sum+=Number(x.bill_count)||0;byMonth[mo].n++;
+    });
+    var mNames=['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+    var items=[0,1,2,3,4,5,6,7,8,9,10,11].filter(function(m){return byMonth[m]&&byMonth[m].n>0;}).map(function(m){
+      return{menu_item:mNames[m],qty:Math.round(byMonth[m].sum/byMonth[m].n)};
+    });
+    return resultBlock('Pattern stagionale — coperti medi per mese', barList(items,'menu_item','qty'));
+  }
+
   // ── Fallback ───────────────────────────────────────────────────────
   return resultBlock(q.label,
     '<div style="background:#fef3c7;border-radius:12px;padding:16px;text-align:center;color:#92400e;font-size:13px;">' +
