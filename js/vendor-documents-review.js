@@ -492,7 +492,7 @@ window.vdrCalcPack = function(pack, catchweight, actualWeightLb) {
 };
 
 // -- Calcola totalG da pack string (per $/100g)
-window.vdrPackToGrams = function(pack, catchweight, actualWeightLb) {
+window.vdrPackToGrams = function(pack, catchweight, actualWeightLb, ingredientName) {
   if (!pack) return null;
   var p = pack.trim();
   if (catchweight && actualWeightLb) return actualWeightLb * 453.592;
@@ -528,6 +528,19 @@ window.vdrPackToGrams = function(pack, catchweight, actualWeightLb) {
   // g
   var m1g = p.match(/^(\d+(?:\.\d+)?)\s*g$/i);
   if (m1g) return parseFloat(m1g[1]);
+  // CT — usa dizionario pesi standard se disponibile
+  var mct2g = p.match(/^(\d+)\s*\/\s*(\d+)\s*CT/i);
+  if (mct2g) {
+    var totalCT2 = parseInt(mct2g[1]) * parseInt(mct2g[2]);
+    var uw2g = ingredientName ? window.vdrLookupUnitWeight(ingredientName) : null;
+    return uw2g ? totalCT2 * uw2g : null;
+  }
+  var mct1g = p.match(/^(\d+)\s*CT/i);
+  if (mct1g) {
+    var totalCT1g = parseInt(mct1g[1]);
+    var uw1g = ingredientName ? window.vdrLookupUnitWeight(ingredientName) : null;
+    return uw1g ? totalCT1g * uw1g : null;
+  }
   return null;
 };
 
@@ -555,8 +568,11 @@ window.vdrRecalcRow = function(docId, idx, btn) {
 
   window._vdrEdits[docId][idx] = { qty: qty, pack: pack, unitPrice: unitPrice, ext: ext };
 
-  var packCalc = window.vdrCalcPack(pack, false, null);
-  var totalG   = window.vdrPackToGrams(pack, false, null);
+  // Recupera nome ingrediente dalla riga
+  var nameEl = row ? row.querySelector('[data-ingr-name]') : null;
+  var ingrName = nameEl ? nameEl.getAttribute('data-ingr-name') : null;
+  var packCalc = window.vdrCalcPack(pack, false, null, ingrName);
+  var totalG   = window.vdrPackToGrams(pack, false, null, ingrName);
   var price    = (unitPrice != null && !isNaN(unitPrice)) ? unitPrice
                : (ext && qty && !isNaN(ext) && !isNaN(qty) ? ext / qty : null);
   var per100g  = (totalG && price) ? (price / totalG * 100).toFixed(2) : null;
@@ -624,8 +640,8 @@ function vdrDetailHTML(doc) {
       var extVal    = edits.ext      != null ? edits.ext      : (item.amount != null ? Math.abs(item.amount).toFixed(2) : '');
 
       // Calcolo Sous Chef iniziale
-      var packCalc  = window.vdrCalcPack(packVal, item.catchweight, item.actual_weight_lb);
-      var totalG    = window.vdrPackToGrams(packVal, item.catchweight, item.actual_weight_lb);
+      var packCalc  = window.vdrCalcPack(packVal, item.catchweight, item.actual_weight_lb, name);
+      var totalG    = window.vdrPackToGrams(packVal, item.catchweight, item.actual_weight_lb, name);
       var price     = parseFloat(unitVal) || null;
       var per100g   = (totalG && price) ? (price / totalG * 100).toFixed(2) : null;
       var scParts   = [];
@@ -649,7 +665,7 @@ function vdrDetailHTML(doc) {
         // Riga 1: label + nome
         '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
           '<span style="font-size:10px;font-weight:700;color:' + labelColor + ';background:' + labelBg + ';border:1px solid ' + labelBorder + ';padding:1px 7px;border-radius:6px;white-space:nowrap;">' + labelIcon + '</span>' +
-          '<span style="font-size:13px;font-weight:600;color:#1e293b;">' + name + '</span>' +
+          '<span data-ingr-name="' + name + '" style="font-size:13px;font-weight:600;color:#1e293b;">' + name + '</span>' +
           (item.is_substitution ? '<span style="font-size:9px;font-weight:700;color:#f59e0b;margin-left:2px;">SUB</span>' : '') +
         '</div>' +
 
@@ -1495,7 +1511,7 @@ window.vdrApprove = async function(docId, btn) {
       // Calcola totalG dal pack effettivo
       const totalG  = item.catchweight && item.actual_weight_lb
         ? item.actual_weight_lb * 453.592
-        : (window.vdrPackToGrams ? window.vdrPackToGrams(effectivePack, false, null)
+        : (window.vdrPackToGrams ? window.vdrPackToGrams(effectivePack, false, null, desc)
           : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null));
 
       // Prezzo: usa unit price se disponibile, altrimenti ext/qty
