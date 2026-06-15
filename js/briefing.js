@@ -19,8 +19,7 @@ async function loadBriefing(){
       return;
     }
     const icons=['🔴','🟡','🔵'];
-    const isAdminUser = typeof isAdmin === "function" && isAdmin();
-    let points = isAdminUser ? (briefing.points || []) : (briefing.points_staff || briefing.points || []);
+    let points=briefing.points;
     if(user?.lang&&user.lang!=='it'){
       try{
         points=await Promise.all(points.map(p=>
