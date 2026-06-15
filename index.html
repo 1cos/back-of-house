@@ -291,17 +291,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 
     <!-- PREP -->
     <section id="vm" class="hidden px-3 pt-2">
-      <!-- Barra progresso urgenti -->
-      <div id="urgentProgress" class="hidden mb-2 bg-white rounded-2xl border border-slate-200 p-3 shadow-sm">
-        <div class="flex items-center justify-between mb-1.5">
-          <span class="text-xs font-semibold text-red-600">🔴 <span id="urgentCount">0</span> urgenti</span>
-          <span id="urgentTime" class="text-xs text-slate-400"></span>
-        </div>
-        <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
-          <div id="urgentBar" class="h-full bg-red-500 rounded-full transition-all duration-500" style="width:0%"></div>
-        </div>
-        <p id="urgentDone" class="hidden text-xs text-emerald-600 font-semibold text-center mt-1">✅ Tutte le urgenti completate!</p>
-      </div>
+      <!-- urgentProgress rimosso -->
       <div class="flex items-center gap-2 mb-2">
         <div id="stations" class="flex gap-2 overflow-x-auto scrollbar-hide flex-1"></div>
         <button id="toggleView" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-semibold shadow-sm">Feed</button>
@@ -423,8 +413,14 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <span class="text-[10px] tab-label">Prep</span>
       </button>
 
-      <!-- CHIUSURA — staff only -->
-      <button id="tabChiusura" data-t="s" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
+      <!-- OTHER STATIONS — staff only, terza tab -->
+      <button id="tabOtherStations" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" onclick="showOtherStationsTab()">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        <span class="text-[10px] tab-label" id="otherStationsLabel">Stations</span>
+      </button>
+
+      <!-- CHIUSURA — staff only, nascosta fino alle 20:00 CDT -->
+      <button id="tabChiusura" data-t="s" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><path d="m9 14 2 2 4-4"/></svg>
         <span class="text-[10px] tab-label">Closing</span>
       </button>
