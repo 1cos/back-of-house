@@ -169,6 +169,7 @@ function showRecipeSheet(rec){
       <h3 class="text-xl font-bold mb-1">${rec.title||rec.name||''}</h3>
       <p class="text-xs text-slate-500 mb-3">${headerMeta}</p>
       ${rec.pos_name ? '<div id="recipeSalesStats" style="margin-bottom:12px;"></div>' : ''}
+      ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">🔄 Ogni '+rec.prep_frequency_days+(rec.prep_frequency_days===1?' giorno':' giorni')+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">📦 Dura '+rec.shelf_life_days+(rec.shelf_life_days===1?' giorno':' giorni')+'</span>' : ''}</div>` : ''}
       ${rec.image_url ? `<img src="${rec.image_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${rec.photo_url ? `<img src="${rec.photo_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${scalingUI}
@@ -354,6 +355,17 @@ function openRecipeEditor(rec=null){
         </div>
       </div>
 
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <div class="text-xs text-slate-500 mb-1">🔄 Prep ogni (giorni)</div>
+          <input id="rPrepFreq" type="number" min="1" placeholder="es. 7" class="w-full px-3 py-2 border rounded-xl" value="${rec?.prep_frequency_days||''}">
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 mb-1">📦 Shelf life (giorni)</div>
+          <input id="rShelfLife" type="number" min="1" placeholder="es. 7" class="w-full px-3 py-2 border rounded-xl" value="${rec?.shelf_life_days||''}">
+        </div>
+      </div>
+
       <div>
         <div class="flex items-center justify-between mb-1">
           <div class="font-semibold">Ingredients <span class="text-xs text-slate-400 font-normal">qty · unit · name · note</span></div>
@@ -466,6 +478,8 @@ function openRecipeEditor(rec=null){
       title:             t,
       menu_group:        modal.querySelector('#rMenuGroup').value || null,
       pos_name:          modal.querySelector('#rPosName').value.trim() || null,
+      prep_frequency_days: parseInt(modal.querySelector('#rPrepFreq').value) || null,
+      shelf_life_days:     parseInt(modal.querySelector('#rShelfLife').value) || null,
       yield_text:        modal.querySelector('#rYield').value,
       prep_time_minutes: parseInt(modal.querySelector('#rTime').value)||null,
       image_url:         modal.querySelector('#rImg').value.trim() || null,
