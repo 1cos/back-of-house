@@ -1749,7 +1749,7 @@ async function vdrShowMatchModal(unmatchedItems, allItems, vendor, sb, docId) {
     if (found?.length) {
       window.vdrMatchLink(idx, found[0].id, found[0].name, null);
     } else {
-      const { data: created } = await sb.from('ingredients').insert({ name: val, count_unit: 'weight', active: true }).select('id').single();
+      const { data: created } = await sb.from('ingredients').insert({ name: val, base_unit: 'g', active: true }).select('id').single();
       if (created) window.vdrMatchLink(idx, created.id, val, null);
     }
   };
