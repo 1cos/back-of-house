@@ -547,13 +547,16 @@ async function convertQtyToG(qty, unit){
 
 async function findIngredientByName(name){
   if(!name) return null;
+  // Exact match
   const r1 = await supa.from('ingredients').select('id,name').eq('name',name).eq('active',true).maybeSingle();
   if(r1.data) return r1.data;
+  // Case-insensitive exact match
   const r2 = await supa.from('ingredients').select('id,name').ilike('name',name).eq('active',true).limit(1);
   if(r2.data?.length) return r2.data[0];
-  const first = name.split(' ')[0];
-  if(first.length > 2){
-    const r3 = await supa.from('ingredients').select('id,name').ilike('name',`%${first}%`).eq('active',true).limit(1);
+  // Fuzzy only if first word is 4+ chars AND name has only one word (avoid "cacio e pepe" → wrong match)
+  const words = name.trim().split(/\s+/);
+  if(words.length === 1 && words[0].length >= 4){
+    const r3 = await supa.from('ingredients').select('id,name').ilike('name',`%${words[0]}%`).eq('active',true).limit(1);
     if(r3.data?.length) return r3.data[0];
   }
   return null;
@@ -579,7 +582,7 @@ async function calcRecipeFoodCost(rec){
       return {name:ing.name, qty:ing.qty, unit:ing.unit, issue:`Cannot convert "${ing.unit}" to grams`};
 
     const ingr = await findIngredientByName(ing.name);
-    if(!ingr)
+    if(!ingr || !ingr.id || !/^[0-9a-f-]{36}$/i.test(ingr.id))
       return {name:ing.name, qty:ing.qty, unit:ing.unit, qtyG, issue:'Ingredient not linked — name does not match ingredients table'};
 
     const {data:prices} = await supa.from('ingredient_vendors')
