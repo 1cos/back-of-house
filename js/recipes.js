@@ -589,7 +589,7 @@ async function calcRecipeFoodCost(rec){
       .select('price_per_100g,vendor,unit_price,purchase_unit,conversion_to_base,last_total_weight_g,unit_weight_g')
       .eq('ingredient_id', ingr.id)
       .eq('active', true)
-      .order('price_per_100g',{ascending:true,nullsLast:true})
+      .order('price_per_100g', {ascending: true})
       .limit(1);
 
     if(!prices?.length)
