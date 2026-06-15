@@ -1,6 +1,6 @@
 // ── RICETTE ──────────────────────────────────────────────────
 
-const MENU_GROUPS = ['Pasta','Entrees','Appetizers','Salads','Sides','Sauces','Bases','Desserts','Soups','Finger Food','Catering','Condiments','Add-ons'];
+const MENU_GROUPS = ['Antipasti','Primi','Secondi','Table Side','Salads','Sides','Soups','Desserts','Sauces','Bases','Catering','Add-ons'];
 
 async function openRecipeForItem(itemId){
   const task = tasks[itemId];
