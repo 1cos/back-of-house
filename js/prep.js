@@ -186,7 +186,7 @@ function renderM(){
           <div style="flex:1;min-width:0;" onclick="openRecipeForItem('${i.id}')">
             <div style="font-size:15px;font-weight:500;color:${nameColor};cursor:pointer;">${i.name}</div>
             ${hint}
-            ${(i.recipe_id||i.note)?`<span style="font-size:10px;color:${i.recipe_id?'#059669':'#d97706'};">${i.recipe_id?'📖 ricetta':'📝 nota'}</span>`:''}
+            ${i.recipe_id?'<span style="font-size:10px;color:#059669;">📖 ricetta</span>':i.note?'<span style="font-size:10px;color:#d97706;">📝 nota</span>':isAdmin()?'<span style="font-size:10px;color:#94a3b8;">⚪ no ricetta</span>':''}
           </div>
           <div style="display:flex;gap:5px;flex-shrink:0;margin-left:8px;">
             ${isUrgent||!isWip?`<button onpointerdown="startWipPress('${i.id}',this)" onpointerup="endWipPress()" onpointerleave="endWipPress()" 
