@@ -440,8 +440,39 @@ window.vdrToggle = function(id) {
 // -- Edits store: vdrEdits[docId][itemIdx] = {qty, pack, unitPrice, ext}
 if (!window._vdrEdits) window._vdrEdits = {};
 
+// -- Dizionario pesi standard per unita (USDA/industry) — zero AI, zero domande
+window.VDR_UNIT_WEIGHTS = {
+  'lemon':100,'lime':67,'orange':130,'grapefruit':230,'avocado':200,
+  'banana':120,'apple':182,'pear':166,'peach':150,'plum':66,
+  'mango':336,'pineapple':905,'strawberry':18,'blueberry':340,
+  'raspberry':170,'blackberry':170,'fig':50,'watermelon':9000,'cantaloupe':1200,
+  'tomato':123,'cherry tomato':17,'garlic head':50,'garlic clove':5,
+  'onion':150,'shallot':30,'carrot':61,'celery':40,'bell pepper':119,
+  'pepper':119,'jalapeno':25,'zucchini':196,'eggplant':458,'cucumber':201,
+  'artichoke':128,'asparagus':20,'brussels':19,'potato':150,
+  'sweet potato':130,'beet':82,'fennel':234,'romaine':626,'radicchio':100,
+  'egg':57,'basil':30,'rosemary':3,'thyme':2,'parsley':60,
+  'flower':2,'marigold':2,'truffle':30
+};
+
+window.vdrLookupUnitWeight = function(name) {
+  if (!name) return null;
+  var n = name.toLowerCase();
+  if (window.VDR_UNIT_WEIGHTS[n]) return window.VDR_UNIT_WEIGHTS[n];
+  var best = null, bestLen = 0;
+  var keys = Object.keys(window.VDR_UNIT_WEIGHTS);
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    if (n.indexOf(k) !== -1 && k.length > bestLen) {
+      best = window.VDR_UNIT_WEIGHTS[k];
+      bestLen = k.length;
+    }
+  }
+  return best;
+};
+
 // -- Parser pack -> calcolo testuale (solo matematica, zero AI)
-window.vdrCalcPack = function(pack, catchweight, actualWeightLb) {
+window.vdrCalcPack = function(pack, catchweight, actualWeightLb, ingredientName) {
   if (!pack) return null;
   var p = pack.trim();
   if (catchweight) {
@@ -483,11 +514,19 @@ window.vdrCalcPack = function(pack, catchweight, actualWeightLb) {
   // Xlb o X#
   var mlb = p.match(/^(\d+(?:\.\d+)?)\s*(lb|#)/i);
   if (mlb) return parseFloat(mlb[1]).toFixed(1) + 'lb';
-  // CT
+  // CT — usa dizionario pesi standard se disponibile
   var mct2 = p.match(/^(\d+)\s*\/\s*(\d+)\s*CT/i);
-  if (mct2) return parseInt(mct2[1]) * parseInt(mct2[2]) + ' each';
+  if (mct2) {
+    var total2 = parseInt(mct2[1]) * parseInt(mct2[2]);
+    var uw2 = ingredientName ? window.vdrLookupUnitWeight(ingredientName) : null;
+    return uw2 ? (total2 + ' x ' + uw2 + 'g = ' + (total2 * uw2) + 'g') : (total2 + ' each');
+  }
   var mct1 = p.match(/^(\d+)\s*CT/i);
-  if (mct1) return mct1[1] + ' each';
+  if (mct1) {
+    var total1 = parseInt(mct1[1]);
+    var uw1 = ingredientName ? window.vdrLookupUnitWeight(ingredientName) : null;
+    return uw1 ? (total1 + ' x ' + uw1 + 'g = ' + (total1 * uw1) + 'g') : (total1 + ' each');
+  }
   return null;
 };
 
