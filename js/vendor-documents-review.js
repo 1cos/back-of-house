@@ -438,113 +438,207 @@ window.vdrToggle = function(id) {
 
 // ── Detail panel ──────────────────────────────────────────────
 function vdrDetailHTML(doc) {
-  const pj    = doc.parsed_json || {};
-  const items = pj.items || [];
+  const pj       = doc.parsed_json || {};
+  const items    = pj.items || [];
   const isInvoice = doc.document_type === 'invoice';
   const isCredit  = doc.document_type === 'credit_memo';
   const questions = vdrBuildQuestions(doc);
 
-  // ── Header ──
-  const headerFields = [
-    ['Vendor',        doc.vendor],
-    ['Type',          vdrDocTypeLabel(doc.document_type)],
-    ['Document #',    doc.document_number],
-    ['Doc Date',      vdrFmtDate(doc.document_date)],
-    ['Delivery',      vdrFmtDate(doc.delivery_date)],
-    ['Subtotal',      pj.subtotal != null ? '$' + pj.subtotal.toFixed(2) : null],
-    ['Tax',           pj.tax      != null ? '$' + pj.tax.toFixed(2)      : null],
-    ['Total',         pj.total    != null ? '$' + Math.abs(pj.total).toFixed(2) : null],
-  ].filter(([, v]) => v != null && v !== '');
+  // -- Warning codes per item (lookup rapido)
+  function itemWarningCodes(item) {
+    return (item.warnings || []).map(function(w) { return w.code; });
+  }
 
-  const headerHTML = `
-    <div style="padding:12px 14px;background:#f8fafc;display:flex;flex-wrap:wrap;gap:6px 20px;">
-      ${headerFields.map(([label, val]) => `
-        <div>
-          <div style="font-size:10px;color:#94a3b8;font-weight:500;text-transform:uppercase;letter-spacing:.05em;">${label}</div>
-          <div style="font-size:12px;color:#1e293b;font-weight:500;">${val}</div>
-        </div>`).join('')}
-    </div>`;
+  // -- Calcolo pack leggibile: "6x4x2oz = 48oz"
+  function parsPackCalc(pack, item) {
+    if (!pack) return null;
+    var p = pack.trim();
 
-  // ── Questions (OQR) ──
-  const questionsHTML = questions.length ? `
-    <div style="padding:12px 14px 0;">
-      <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Review Required</div>
-      ${questions.map((q, idx) => vdrQuestionHTML(doc.id, q, idx)).join('')}
-    </div>` : '';
+    // Catchweight: "4 PC/12#" o "12#" o simili
+    if (item.catchweight) {
+      if (item.actual_weight_lb) {
+        return (item.actual_weight_lb).toFixed(1) + 'lb (catchweight)';
+      }
+      var lbm = p.match(/(\d+(?:\.\d+)?)\s*#/);
+      if (lbm) return lbm[1] + 'lb';
+      return null;
+    }
 
-  // ── Items table ──
-  const itemsHTML = items.length ? `
-    <div style="padding:10px 14px 0;">
-      <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Parsed Items (${items.length})</div>
-      <div style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:11px;">
-          <thead>
-            <tr style="border-bottom:2px solid #f1f5f9;text-align:left;">
-              <th style="padding:5px 7px;color:#94a3b8;font-weight:500;white-space:nowrap;">SKU</th>
-              <th style="padding:5px 7px;color:#94a3b8;font-weight:500;">Description</th>
-              <th style="padding:5px 7px;color:#94a3b8;font-weight:500;white-space:nowrap;">Pack</th>
-              ${isInvoice ? '<th style="padding:5px 7px;color:#94a3b8;font-weight:500;text-align:center;white-space:nowrap;">Ord/Shp</th>' : ''}
-              ${!isInvoice ? '<th style="padding:5px 7px;color:#94a3b8;font-weight:500;text-align:right;">Qty</th>' : ''}
-              <th style="padding:5px 7px;color:#94a3b8;font-weight:500;text-align:right;">Price</th>
-              <th style="padding:5px 7px;color:#94a3b8;font-weight:500;text-align:right;">Ext.</th>
-              <th style="padding:5px 7px;color:#94a3b8;font-weight:500;text-align:right;white-space:nowrap;">$/100g</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.map(item => {
-              const isSubst  = item.is_substitution;
-              const mismatch = isInvoice && item.qty_ordered !== item.qty_received && item.qty_received != null;
-              const rowBg    = isSubst ? 'rgba(245,158,11,0.05)' : mismatch ? 'rgba(239,68,68,0.04)' : '';
-              const qty      = isInvoice ? `${item.qty_ordered}/${item.qty_received}`
-                             : isCredit  ? (item.qty_credited || '-')
-                                         : (item.qty_ordered  || '-');
-              const amt      = item.amount != null
-                ? (item.amount < 0 ? `-$${Math.abs(item.amount).toFixed(2)}` : `$${item.amount.toFixed(2)}`) : '-';
-              const rc       = isCredit && item.return_code
-                ? ` <span style="color:#ef4444;font-size:10px;">[${item.return_code}]</span>` : '';
-              // ── Weight & $/100g calculation ──
-              // Catchweight (meat per-lb): unit_price IS the per-pound price
-              const totalG   = item.catchweight && item.actual_weight_lb
-                ? item.actual_weight_lb * 453.592
-                : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null);
-              const price    = item.unit_price != null ? parseFloat(item.unit_price) : null;
-              const per100g  = item.catchweight && item.price_per_lb
-                ? (item.price_per_lb / 453.592) * 100
-                : ((totalG && price) ? ((price / totalG) * 100) : null);
-              const per100gHtml = per100g != null
-                ? `<span style="color:#059669;font-weight:500;">$${per100g.toFixed(2)}</span>`
-                : `<span style="color:#cbd5e1;font-size:10px;">—</span>`;
-              const weightHtml = totalG
-                ? `<span style="font-size:9px;color:#94a3b8;">${totalG>=1000?(totalG/1000).toFixed(1)+'kg':Math.round(totalG)+'g'}</span>`
-                : '';
-              return `<tr style="border-bottom:0.5px solid #f8fafc;background:${rowBg}">
-                <td style="padding:4px 7px;color:#94a3b8;white-space:nowrap;">${item.vendor_sku || '-'}</td>
-                <td style="padding:4px 7px;color:#1e293b;max-width:160px;">
-                  ${isSubst ? '<span style="font-size:9px;color:#f59e0b;font-weight:700;margin-right:3px;">SUB</span>' : ''}
-                  ${item.description || item.raw_description || '-'}${rc}
-                  ${weightHtml ? `<br>${weightHtml}` : ''}
-                </td>
-                <td style="padding:4px 7px;color:#64748b;white-space:nowrap;">${item.pack_description || '-'}</td>
-                <td style="padding:4px 7px;text-align:${isInvoice ? 'center' : 'right'};color:${mismatch ? '#ef4444' : '#1e293b'};">${qty}</td>
-                <td style="padding:4px 7px;text-align:right;color:#1e293b;">${item.unit_price != null ? '$' + item.unit_price.toFixed(2) : '-'}</td>
-                <td style="padding:4px 7px;text-align:right;color:${item.amount < 0 ? '#ef4444' : '#1e293b'};font-weight:500;">${amt}</td>
-                <td style="padding:4px 7px;text-align:right;">${per100gHtml}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>` : '';
+    // Formato "A/BxCoz" o "A-B/Coz" — es. 6-4/2oz, 6/4/2oz
+    var m3 = p.match(/(\d+)[\-\/](\d+)\s*[\/\-]\s*(\d+(?:\.\d+)?)\s*(oz|lb|g|kg)/i);
+    if (m3) {
+      var a = parseInt(m3[1]), b = parseInt(m3[2]), c = parseFloat(m3[3]), u = m3[4].toLowerCase();
+      var tot = a * b * c;
+      return a + 'x' + b + 'x' + c + u + ' = ' + tot + u;
+    }
 
-  // ── Approve ──
-  const approveHTML = `
-    <div style="padding:12px 14px 14px;">
-      <div id="vdrActionStatus-${doc.id}" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>
-      <button onclick="vdrApprove('${doc.id}',this)"
-        style="width:100%;height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">
-        ✓ Approve Document
-      </button>
-    </div>`;
+    // Formato "A/Boz" — es. 12/8oz
+    var m2 = p.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(oz|lb|g|kg)/i);
+    if (m2) {
+      var a2 = parseInt(m2[1]), b2 = parseFloat(m2[2]), u2 = m2[3].toLowerCase();
+      var tot2 = a2 * b2;
+      return a2 + 'x' + b2 + u2 + ' = ' + tot2 + u2;
+    }
+
+    // Formato "Xlb" o "X#" semplice
+    var mlb = p.match(/^(\d+(?:\.\d+)?)\s*(lb|#)/i);
+    if (mlb) return parseFloat(mlb[1]).toFixed(1) + 'lb';
+
+    // Formato "X/Ylb"
+    var mxylb = p.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(lb|#)/i);
+    if (mxylb) {
+      var ax = parseInt(mxylb[1]), bx = parseFloat(mxylb[2]);
+      return ax + 'x' + bx + 'lb = ' + (ax * bx) + 'lb';
+    }
+
+    // CT puri: "50 CT", "4/20 CT"
+    var mct2 = p.match(/^(\d+)\s*\/\s*(\d+)\s*CT/i);
+    if (mct2) return parseInt(mct2[1]) * parseInt(mct2[2]) + ' each';
+    var mct1 = p.match(/^(\d+)\s*CT/i);
+    if (mct1) return mct1[1] + ' each';
+
+    return null;
+  }
+
+  // -- $/100g formattato
+  function calc100g(item) {
+    var price = item.unit_price != null ? parseFloat(item.unit_price) : null;
+    if (item.catchweight && item.price_per_lb) {
+      return (item.price_per_lb / 453.592 * 100).toFixed(2);
+    }
+    var totalG = item.catchweight && item.actual_weight_lb
+      ? item.actual_weight_lb * 453.592
+      : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null);
+    if (totalG && price) return (price / totalG * 100).toFixed(2);
+    return null;
+  }
+
+  // -- Qty display
+  function qtyDisplay(item) {
+    if (isInvoice) {
+      var o = item.qty_ordered != null ? item.qty_ordered : '-';
+      var s = item.qty_received != null ? item.qty_received : '-';
+      if (o !== s && item.qty_received != null) return o + '/' + s;
+      return '' + o;
+    }
+    if (isCredit) return item.qty_credited != null ? '' + item.qty_credited : '-';
+    return item.qty_ordered != null ? '' + item.qty_ordered : '-';
+  }
+
+  // -- Unit price display
+  function unitPriceDisplay(item) {
+    if (item.unit_price != null) return '$' + parseFloat(item.unit_price).toFixed(2);
+    if (item.price_per_lb != null) return '$' + parseFloat(item.price_per_lb).toFixed(2) + '/lb';
+    return '-';
+  }
+
+  // -- Ext display
+  function extDisplay(item) {
+    if (item.amount != null) {
+      var a = item.amount;
+      return a < 0 ? '-$' + Math.abs(a).toFixed(2) : '$' + parseFloat(a).toFixed(2);
+    }
+    return '-';
+  }
+
+  // -- Header fattura --
+  var headerFields = [
+    ['Vendor',     doc.vendor],
+    ['Type',       vdrDocTypeLabel(doc.document_type)],
+    ['Document #', doc.document_number],
+    ['Doc Date',   vdrFmtDate(doc.document_date)],
+    ['Delivery',   vdrFmtDate(doc.delivery_date)],
+    ['Subtotal',   pj.subtotal != null ? '$' + pj.subtotal.toFixed(2) : null],
+    ['Tax',        pj.tax      != null ? '$' + pj.tax.toFixed(2)      : null],
+    ['Total',      pj.total    != null ? '$' + Math.abs(pj.total).toFixed(2) : null],
+  ].filter(function(pair) { return pair[1] != null && pair[1] !== ''; });
+
+  var headerHTML = '<div style="padding:12px 14px;background:#f8fafc;display:flex;flex-wrap:wrap;gap:6px 20px;">' +
+    headerFields.map(function(pair) {
+      return '<div><div style="font-size:10px;color:#94a3b8;font-weight:500;text-transform:uppercase;letter-spacing:.05em;">' + pair[0] + '</div>' +
+             '<div style="font-size:12px;color:#1e293b;font-weight:500;">' + pair[1] + '</div></div>';
+    }).join('') + '</div>';
+
+  // -- Domande OQR --
+  var questionsHTML = questions.length ? (
+    '<div style="padding:12px 14px 0;">' +
+    '<div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Review Required</div>' +
+    questions.map(function(q, idx) { return vdrQuestionHTML(doc.id, q, idx); }).join('') +
+    '</div>'
+  ) : '';
+
+  // -- Righe articoli --
+  var itemsHTML = '';
+  if (items.length) {
+    var rows = items.map(function(item) {
+      var warnCodes   = itemWarningCodes(item);
+      var hasWarning  = warnCodes.length > 0;
+      var name        = item.description || item.raw_description || '-';
+      var qty         = qtyDisplay(item);
+      var pack        = item.pack_description || '-';
+      var unitPrice   = unitPriceDisplay(item);
+      var ext         = extDisplay(item);
+      var packCalc    = parsPackCalc(pack, item);
+      var per100g     = calc100g(item);
+      var mismatch    = isInvoice && item.qty_ordered !== item.qty_received && item.qty_received != null;
+
+      // Label riga: warning o ok
+      var labelColor = hasWarning ? '#b45309' : '#059669';
+      var labelBg    = hasWarning ? 'rgba(245,158,11,0.08)' : 'rgba(16,185,129,0.07)';
+      var labelBorder= hasWarning ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.25)';
+      var labelIcon  = hasWarning ? 'Warning' : 'OK';
+      var rowBorder  = hasWarning ? 'border-left:3px solid #f59e0b;' : 'border-left:3px solid #10b981;';
+
+      // Sous Chef line: calcolo pack + $/100g (solo parser+DB, zero AI)
+      var scParts = [];
+      if (packCalc) scParts.push(packCalc);
+      if (per100g)  scParts.push('$' + per100g + '/100g');
+      var scLine = scParts.length ? scParts.join(' · ') : null;
+
+      // Qty color se mismatch
+      var qtyColor = mismatch ? '#ef4444' : '#1e293b';
+
+      return '<div style="padding:10px 14px;border-bottom:1px solid #f1f5f9;' + rowBorder + '">' +
+
+        // Riga 1: label + nome
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
+          '<span style="font-size:10px;font-weight:700;color:' + labelColor + ';background:' + labelBg + ';border:1px solid ' + labelBorder + ';padding:1px 7px;border-radius:6px;white-space:nowrap;">' + labelIcon + '</span>' +
+          '<span style="font-size:13px;font-weight:600;color:#1e293b;">' + name + '</span>' +
+          (item.is_substitution ? '<span style="font-size:9px;font-weight:700;color:#f59e0b;margin-left:2px;">SUB</span>' : '') +
+        '</div>' +
+
+        // Riga 2: 5 campi
+        '<div style="display:flex;flex-wrap:wrap;gap:4px 0;font-size:12px;color:#475569;margin-bottom:3px;">' +
+          '<span>Qty <strong style="color:' + qtyColor + ';">' + qty + '</strong></span>' +
+          '<span style="color:#cbd5e1;padding:0 6px;">·</span>' +
+          '<span>Pack <strong style="color:#1e293b;">' + pack + '</strong></span>' +
+          '<span style="color:#cbd5e1;padding:0 6px;">·</span>' +
+          '<span>Unit Price <strong style="color:#1e293b;">' + unitPrice + '</strong></span>' +
+          '<span style="color:#cbd5e1;padding:0 6px;">·</span>' +
+          '<span>Ext <strong style="color:#1e293b;">' + ext + '</strong></span>' +
+        '</div>' +
+
+        // Riga 3: Sous Chef (parser+DB)
+        (scLine ? '<div style="font-size:11px;color:#64748b;">Sous Chef: <span style="color:#0369a1;">' + scLine + '</span></div>' : '') +
+
+      '</div>';
+    }).join('');
+
+    itemsHTML = '<div style="padding:6px 0 0;">' +
+      '<div style="padding:4px 14px 6px;font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;">' +
+        'Items (' + items.length + ')' +
+      '</div>' +
+      rows +
+    '</div>';
+  }
+
+  // -- Approve --
+  var approveHTML = '<div style="padding:12px 14px 14px;">' +
+    '<div id="vdrActionStatus-' + doc.id + '" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>' +
+    '<button onclick="vdrApprove('' + doc.id + '',this)" style="width:100%;height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">' +
+      'Approve Document' +
+    '</button>' +
+  '</div>';
 
   return headerHTML + questionsHTML + itemsHTML + approveHTML;
 }
