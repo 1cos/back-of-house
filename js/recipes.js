@@ -307,9 +307,8 @@ function openRecipeManager(){
 function openRecipeEditor(rec=null){
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
-  modal.style.overflowX = 'hidden';
-  modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col" style="touch-action:pan-y;overflow-x:hidden;">
-    <div class="p-4 border-b" id="recipeEditorHandle" style="cursor:grab;"><h3 class="font-bold">${rec?'Edit':'New'} Recipe</h3></div>
+  modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col">
+    <div class="p-4 border-b"><h3 class="font-bold">${rec?'Edit':'New'} Recipe</h3></div>
     <div class="p-4 overflow-auto space-y-3 text-sm">
 
       <input id="rTitle" placeholder="Title" class="w-full px-3 py-2 border rounded-xl" value="${rec?.title||''}">
@@ -388,11 +387,19 @@ function openRecipeEditor(rec=null){
   </div>`;
   document.body.appendChild(modal);
 
-  // Swipe-down per chiudere — solo sul drag handle (non interferisce con scroll)
-  const editorInner = modal.querySelector('[id="recipeEditorHandle"]')?.closest('div[style]');
-  if(editorInner && window.addSwipeToClose){
-    addSwipeToClose(editorInner, ()=>modal.remove(), 100);
-  }
+  // Block horizontal swipe only — let vertical scroll work freely
+  modal.addEventListener('touchmove', function(e){
+    if(e.touches.length === 1){
+      const dx = Math.abs(e.touches[0].clientX - (modal._tx||e.touches[0].clientX));
+      const dy = Math.abs(e.touches[0].clientY - (modal._ty||e.touches[0].clientY));
+      if(dx > dy) e.preventDefault();
+    }
+  }, {passive:false});
+  modal.addEventListener('touchstart', function(e){
+    if(e.touches.length===1){ modal._tx=e.touches[0].clientX; modal._ty=e.touches[0].clientY; }
+  }, {passive:true});
+  // Tap backdrop to close
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
 
   // Serving weight hint
   const servInput  = modal.querySelector('#rServings');
@@ -804,4 +811,5 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     console.warn('recipeSalesStats error:', e.message);
   }
 }
+
 
