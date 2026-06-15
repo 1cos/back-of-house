@@ -57,7 +57,7 @@ async function openRecipeByData(idx){
       try{
         const translatedProcedure = rec.procedure ? await groqTranslate(rec.procedure, user.lang) : '';
         const translatedEquipment = rec.equipment ? await groqTranslate(rec.equipment, user.lang) : '';
-        const translatedTitle     = rec.title     ? await groqTranslate(rec.title, user.lang)     : rec.title;
+        const translatedTitle     = rec.title; // titolo non si traduce — è un nome proprio
         const newTr = {
           recipe_id: rec.id,
           lang:      user.lang,
@@ -71,7 +71,7 @@ async function openRecipeByData(idx){
     }
 
     if(translation){
-      rec.title     = translation.title     || rec.title;
+      // rec.title non si aggiorna dalla traduzione — è un nome proprio
       rec.procedure = translation.procedure || rec.procedure;
       rec.equipment = translation.equipment || rec.equipment;
     }
