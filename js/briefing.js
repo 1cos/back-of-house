@@ -19,7 +19,8 @@ async function loadBriefing(){
       return;
     }
     const icons=['🔴','🟡','🔵'];
-    let points=briefing.points;
+    const isAdminUser = typeof isAdmin === "function" && isAdmin();
+    let points = isAdminUser ? (briefing.points || []) : (briefing.points_staff || briefing.points || []);
     if(user?.lang&&user.lang!=='it'){
       try{
         points=await Promise.all(points.map(p=>
@@ -66,7 +67,7 @@ function renderHomeStations(){
     el.innerHTML=allCats.map(s=>{
       const missing=items.filter(i=>i.need_tomorrow&&i.category===s).length;
       const label=s.replace(' Station','').replace('Station','');
-      return '<div onclick="goToStation(\''+s+'\')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition '+(missing>0?'bg-red-100 text-red-700 border border-red-200':'bg-green-100 text-green-700 border border-green-200')+'">' +
+      return '<div onclick="goToStation(''+s+'')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition '+(missing>0?'bg-red-100 text-red-700 border border-red-200':'bg-green-100 text-green-700 border border-green-200')+'">' +
         '<span>'+label+'</span>' +
         (missing>0?'<span class="bg-red-500 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full">'+missing+'</span>':'<span>✓</span>')+
         '</div>';
@@ -107,7 +108,7 @@ function renderHomeStations(){
     otherEl.innerHTML=otherCats.map(s=>{
       const missing=items.filter(i=>i.need_tomorrow&&i.category===s).length;
       const label=s.replace(' Station','').replace('Station','');
-      return '<div onclick="goToStation(\''+s+'\')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition bg-red-100 text-red-700 border border-red-200">' +
+      return '<div onclick="goToStation(''+s+'')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition bg-red-100 text-red-700 border border-red-200">' +
         '<span>'+label+'</span>' +
         '<span class="bg-red-500 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full">'+missing+'</span>'+
         '</div>';
@@ -143,7 +144,7 @@ function renderHomeStationItems(){
     const color=i.need_tomorrow?'#b91c1c':i.in_progress?'#1d4ed8':'#1e3a5f';
     const dot=i.need_tomorrow?'#ef4444':i.in_progress?'#3B82F6':'transparent';
     const dotBorder=i.need_tomorrow||i.in_progress?'none':'0.5px solid #93c5fd';
-    return '<div onclick="document.querySelector(\'[data-t=m]\').click()" style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+    return '<div onclick="document.querySelector('[data-t=m]').click()" style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
       '<div style="width:7px;height:7px;border-radius:50%;background:'+dot+';border:'+dotBorder+';flex-shrink:0;"></div>'+
       '<span style="font-size:14px;color:'+color+';font-weight:'+(i.need_tomorrow?'500':'400')+';">'+i.name+'</span>'+
       (i.need_tomorrow?'<span style="margin-left:auto;font-size:10px;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 7px;border-radius:20px;">'+tr('daFare')+'</span>':'')+
@@ -199,7 +200,7 @@ async function openServiceUpdates(){
   modal.innerHTML='<div style="background:rgba(255,255,255,0.95);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:70vh;overflow-y:auto;animation:slideUp .25s ease">'+
     '<div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>'+
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'+
-    '<div style="font-size:14px;font-weight:500;color:#1e3a5f;">Yesterday\'s Highlights</div>'+
+    '<div style="font-size:14px;font-weight:500;color:#1e3a5f;">Yesterday's Highlights</div>'+
     (isAdmin()?'<button onclick="addServiceUpdate()" style="font-size:12px;color:#3B82F6;background:rgba(59,130,246,0.1);border:none;padding:4px 10px;border-radius:8px;cursor:pointer;">+ Add</button>':'')+
     '</div><div>'+
     (data||[]).map(u=>{
@@ -211,7 +212,7 @@ async function openServiceUpdates(){
         '<div style="font-size:10px;color:#93c5fd;margin-top:2px;">'+(u.created_by||'System')+' · '+t+'</div></div>'+
         '</div>';
     }).join('')+
-    '</div><button onclick="this.closest(\'.fixed\').remove()" style="width:100%;height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;margin-top:14px;">Close</button>'+
+    '</div><button onclick="this.closest('.fixed').remove()" style="width:100%;height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;margin-top:14px;">Close</button>'+
     '</div>';
   modal.onclick=e=>{if(e.target===modal)modal.remove()};
   document.body.appendChild(modal);
