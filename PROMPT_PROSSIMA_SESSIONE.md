@@ -2,7 +2,7 @@
 
 ## PRIMA DI TUTTO
 
-1. Leggi il file `x_claude_GIthub.txt` nel progetto — contiene il token GitHub
+1. Leggi il file x_claude_GIthub.txt nel progetto — contiene il token GitHub
 2. Leggi questi file da brigade-main:
    - BOH_OS_SPEC.md
    - BOH_OS_BACKLOG.md
@@ -14,7 +14,7 @@
 
 ---
 
-## STATO — Brigade v131
+## STATO — Brigade v180
 
 - Supabase: ydqmumpytgrlceuinoqt
 - Deploy: https://1cos.github.io/back-of-house
@@ -68,7 +68,7 @@ Solo due warning validi durante importazione fattura:
 1. SC-GHOST-001: ingrediente senza nessun vendor/prezzo nel DB
 2. SC-NOLINK-001: ha vendor e prezzo ma manca conversion_to_base (per_case senza peso pack)
 
-SC-PRICE-001 E ELIMINATO PER SEMPRE durante importazione.
+SC-PRICE-001 ELIMINATO PER SEMPRE durante importazione.
 Il giudizio sui prezzi e capitolo futuro (confronto storico) — non ora.
 
 souschef-scan v5 e gia deployata con questa logica.
