@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-15 — v177*
+*Aggiornato: 2026-06-15 — v180*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -8,7 +8,7 @@
 
 - App: BRIGADE (non BOH OS)
 - Branch: brigade-main (MAI main)
-- Versione frontend: **v177**
+- Versione frontend: **v180**
 - Versione souschef-chat: v15 (Supabase Edge Function)
 - Supabase project: ydqmumpytgrlceuinoqt
 - Leggi file da GitHub brigade-main, NON da /mnt/project/ (snapshot vecchio)
@@ -28,7 +28,7 @@
 | gmail-hardies-import | v9 | Import PDF Hardie's |
 | gmail-touchbistro-import | v3 | Import 4 CSV TouchBistro ogni notte |
 | gmail-vendor-import | v3 | Import fatture fornitori via Gmail |
-| transcribe-audio | v22 | Whisper voce→testo |
+| transcribe-audio | v22 | Whisper voce->testo |
 | ai-translate | v22 | Traduzioni brigata |
 
 ---
@@ -58,11 +58,12 @@
 
 ## PRIORITA' ALTA — prossima sessione
 
-- [ ] **PASSO 2**: Checklist sera → preplist mattina per stazione (ciclo fondamentale Brigade)
-- [ ] **Foto/scan → OpenRouter**: collegare Import Invoice foto a process-invoice con autoProcess=true
+- [ ] **REDESIGN review fattura** (vendor-documents-review.js): una riga per articolo, 4 campi modificabili inline
+- [ ] **PASSO 2**: Checklist sera -> preplist mattina per stazione (ciclo fondamentale Brigade)
+- [ ] **Foto/scan -> OpenRouter**: collegare Import Invoice foto a process-invoice con autoProcess=true
 - [ ] **Edit Vendor semplificato**: 5 campi visibili (unit_price, price_type, pack_description, total_weight_g, notes)
 - [ ] **Warning che riappaiono**: dopo aver salvato peso nella card OQR, warning riappare — price_per_100g non ricalcolato
-- [ ] **Ben E. Keith**: forward iCloud→Gmail, poi testare import
+- [ ] **Ben E. Keith**: forward iCloud->Gmail, poi testare import
 
 ---
 
@@ -92,83 +93,72 @@
 
 ---
 
+## Fornitori attivi
 
-
-## Sessione 2026-06-15 — UI/Grafica e fix DB (v152→v177)
-
-### Fix admin menu — swipe down (v152, già in backlog)
-- Già documentato sopra
-
-### Sales selettori — fix topbar staff (v152, già in backlog)
-- Già documentato sopra
-
-### Prep → ricette — 47 collegamenti ripristinati nel DB
-- Tutti i recipe_id nei prep_tasks erano stati azzerati (0 su 142)
-- Ricollegate 47 ricette via match per nome + conferma Max
-- Solo DB — zero file JS toccati
-- Esempi: Arrabbiata sauce→ARRABBIATA, Fettuccine+Spaghetti→FETTUCCINE AND SPAGHETTI,
-  Branzino→BRANZINO TABLE SIDE, Lobster sauce→SALSA LIVORNESE, Demi glacé→DEMI FOR RAVIOLI
-
-### Indicatore ⚪ no ricetta in prep list (v162)
-- Solo admin vede pallino grigio "⚪ no ricetta" sui task senza link
-- Staff non vede niente
-- Fix chirurgica solo riga 189 di prep.js
-
-### briefing.js — 4 syntax error consecutivi (v174→v177)
-- Eredità di un'altra chat che aveva corrotto il file
-- Errori in cascata: riga 69 (goToStation apostrofi), riga 146 (querySelector apici),
-  riga 202 (Yesterday's apostrofo), riga 214 (closest('.fixed') apostrofi)
-- Fix uno alla volta seguendo gli errori in console
-- Risultato: admin torna con interfaccia completa, Your Station staff funziona
+| Fornitore | Email import | Label Gmail | Stato |
+|---|---|---|---|
+| Hardie's | Gmail automatico | hardies-import | attivo |
+| Fruge Seafood | system@netyield.com | fruge-import | configurato |
+| Ben E. Keith | iCloud->Gmail forward | bek-import | forward DA FARE |
+| Freshpoint | in attesa | freshpoint-import | in attesa |
+| Global Gourmet | manuale | — | scan manuale |
+| Sysco | manuale | — | scan manuale |
 
 ---
-## Sessione 2026-06-14 — UI/Grafica (v139→v152)
+
+## Fatture in attesa (Hardie's — non approvare finche UI review non e pronta)
+
+06976333 (23 items), 06977530 (1), 06978984 (10), 06981903 (11),
+06983333 (6), 06986639 (10), 06989667 (7), 06991299 (15),
+06992511 (6), 06992515 (2), 06995651 (7), 06996814 (1),
+06997941 (7), 07000322 (9), credit memo 00668419 (1)
+
+---
+
+## Sessione 2026-06-15 — UI/Grafica e fix DB (v152->v180)
 
 ### Admin menu — fix chiusura (v139)
-- Rimossa doppia definizione `showAdminMenu`/`hideAdminMenu` da `admin.js` (sovrascriveva la versione corretta in `app.js` senza listener)
-- Aggiunto swipe-down gesture sul bottom sheet admin: il sheet segue il dito, soglia 80px, animazione spring se sotto soglia
-- Backdrop tap ripristinato e funzionante
-- File modificati: `js/admin.js`, `js/app.js`
+- Rimossa doppia definizione showAdminMenu/hideAdminMenu da admin.js
+- Aggiunto swipe-down gesture sul bottom sheet admin
+- File modificati: js/admin.js, js/app.js
 
 ### Sales selettori — redesign compatto (v140)
-- Pillole giorni recenti: padding ridotto `8px→5px`, border-radius `12px→10px`
-- Bottoni period: padding `11px→8px`
-- Card Recent days: padding ridotto, gap tra card `10px→6px`
-- Risultato visivo allineato al mockup originale
+- Pillole giorni recenti: padding ridotto, border-radius ridotto
+- Bottoni period: padding ridotto
+- Card Recent days: padding ridotto, gap tra card ridotto
 
 ### Sales staff — fix copertura topbar (v152)
-- `section#vx` era `position:fixed; top:64px` — la topbar sticky + news bar coprivano il contenuto
-- Convertita a layout normale come `section#vi` (Ingredients): `class="hidden px-3 pt-3 pb-24"`
-- Modifica chirurgica solo su `index.html`, zero logica toccata
+- section#vx convertita a layout normale come section#vi
+- Modifica chirurgica solo su index.html
 
----
-## Sessione 2026-06-15 — completato
+### TouchBistro — import pipeline completa (v148->v153)
+- 4 file CSV arrivano ogni notte via Gmail -> Supabase
+- Tabella pos_modifier_by_item creata e popolata
+- Tabella modifier_config creata con 86 modifier classificati
+- Edge Function gmail-touchbistro-import v2->v3
 
-### TouchBistro — import pipeline completa (v148→v153)
-- 4 file CSV arrivano ogni notte via Gmail → Supabase
-- Tabella `pos_modifier_by_item` creata e popolata (modifier + piatto padre)
-- Tabella `modifier_config` creata con 86 modifier classificati (22 cucina, 64 non-cucina)
-- Edge Function `gmail-touchbistro-import` v2→v3: ora importa tutti e 4 i file
-
-### Sales admin — Deep Analysis (v145→v147)
-- Bottone "🔍 Deep Analysis" in fondo alla tab Sales admin
-- Modal con 8 categorie × 25 domande = 200 domande totali
-- 25 query types implementate (top piatti, cotture, contorni per piatto, trend, record, YoY, ecc.)
-- Categorie: Primi, Secondi, Antipasti, Contorni e Modifier, Riepilogo, Insalate e Zuppe, Dolci, Confronti Temporali, Performance e Record
+### Sales admin — Deep Analysis (v145->v147)
+- Bottone Deep Analysis in fondo alla tab Sales admin
+- Modal con 8 categorie x 25 domande = 200 domande totali
+- 25 query types implementate
 
 ### Sales staff view (v148)
 - Staff (non admin) vede view separata — zero prezzi, zero incassi
 - Selettori: Ieri / Weekend / Sett.
-- Livello 1: gruppi cucina con barre (Pasta 106x, Secondi 54x...)
-- Livello 2: tap su gruppo → lista piatti
-- Sezione modifier cucina con colori per categoria
-- Modal porzioni su tap: mostra side + modifier separati + totale da preparare
+- Livello 1: gruppi cucina con barre
+- Livello 2: tap su gruppo -> lista piatti
 
-### Fix calcoli date (v149→v153)
-- Weekend admin: formula corretta venerdì + sabato
-- Weekend staff: formula corretta venerdì + sabato
-- Settimana staff: lunedì → sabato della settimana precedente
-- Padding dinamico per news bar su iPhone
+### Prep -> ricette — 47 collegamenti ripristinati nel DB (v162)
+- Tutti i recipe_id nei prep_tasks erano stati azzerati
+- Ricollegate 47 ricette via match per nome + conferma Max
+
+### briefing.js — 4 syntax error consecutivi (v174->v177)
+- Eredita di un'altra chat che aveva corrotto il file
+- Fix uno alla volta seguendo gli errori in console
+
+### Allineamento versione (v177->v180)
+- sw.js riportato a v180 (versione reale confermata da Max)
+- Tutti i file .md aggiornati a v180
 
 ---
 
@@ -192,16 +182,3 @@
 - Half/Child nel nome piatto = mezza porzione
 
 ### souschef-chat — non toccare senza leggere prima v15 da GitHub
-
----
-
-## Fornitori attivi
-
-| Fornitore | Email import | Label Gmail | Stato |
-|---|---|---|---|
-| Hardie's | Gmail automatico | hardies-import | ✅ attivo |
-| Fruge Seafood | system@netyield.com | fruge-import | ✅ configurato |
-| Ben E. Keith | iCloud→Gmail forward | bek-import | ⏳ forward DA FARE |
-| Freshpoint | in attesa | freshpoint-import | ⏳ in attesa |
-| Global Gourmet | manuale | — | scan manuale |
-| Sysco | manuale | — | scan manuale |
