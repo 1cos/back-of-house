@@ -183,10 +183,10 @@ function renderM(){
       return `<div class="col-span-2 rounded-2xl p-3 mb-1 cursor-pointer active:scale-[0.98] transition" 
         style="background:rgba(255,255,255,0.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1.5px solid ${borderColor};">
         <div class="flex items-center justify-between">
-          <div style="flex:1;min-width:0;" onclick="openRecipeForItem('${i.id}')">
+          <div style="flex:1;min-width:0;">
             <div style="font-size:15px;font-weight:500;color:${nameColor};cursor:pointer;" onclick="showTranslation('${i.name}',this)">${i.name}</div>
             ${hint}
-            ${(i.recipe_id||i.note)?`<span style="font-size:10px;color:${i.recipe_id?'#059669':'#d97706'}">${i.recipe_id?'📖 ricetta':'📝 nota'}</span>`:''}
+            ${(i.recipe_id||i.note)?`<span onclick="openRecipeForItem('${i.id}')" style="font-size:10px;color:${i.recipe_id?'#059669':'#d97706'};cursor:pointer;text-decoration:underline;">${i.recipe_id?'📖 ricetta':'📝 nota'}</span>`:''}
           </div>
           <div style="display:flex;gap:5px;flex-shrink:0;margin-left:8px;">
             ${isUrgent||!isWip?`<button onpointerdown="startWipPress('${i.id}',this)" onpointerup="endWipPress()" onpointerleave="endWipPress()" 
