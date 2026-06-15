@@ -532,28 +532,29 @@ window.vdrPackToGrams = function(pack, catchweight, actualWeightLb) {
 };
 
 // -- Ricalcola riga Sous Chef quando l'utente modifica un campo
-window.vdrRecalcRow = function(docId, idx) {
+window.vdrRecalcRow = function(docId, idx, btn) {
   if (!window._vdrEdits[docId]) window._vdrEdits[docId] = {};
-  var rid     = docId + '-' + idx;
-  var qtyEl   = document.getElementById('vdrQty-'  + rid);
-  var packEl  = document.getElementById('vdrPack-' + rid);
-  var unitEl  = document.getElementById('vdrUnit-' + rid);
-  var extEl   = document.getElementById('vdrExt-'  + rid);
-  var scEl    = document.getElementById('vdrSC-'   + rid);
+  var rid = docId + '-' + idx;
 
-  // Debug
-  if (!packEl) { console.warn('[vdrRecalcRow] packEl not found for rid:', rid); return; }
-  if (!scEl)   { console.warn('[vdrRecalcRow] scEl not found for rid:', rid); return; }
+  // Cerca gli elementi nel contenitore della riga (evita duplicati nel DOM)
+  var row = btn ? btn.closest('[data-vdr-row]') : null;
+  var scope = row || document;
 
-  var qty       = qtyEl  ? parseFloat(qtyEl.value)   : null;
+  var qtyEl  = scope.querySelector('[id="vdrQty-'  + rid + '"]');
+  var packEl = scope.querySelector('[id="vdrPack-' + rid + '"]');
+  var unitEl = scope.querySelector('[id="vdrUnit-' + rid + '"]');
+  var extEl  = scope.querySelector('[id="vdrExt-'  + rid + '"]');
+  var scEl   = scope.querySelector('[id="vdrSC-'   + rid + '"]');
+
+  if (!packEl || !scEl) return;
+
+  var qty       = qtyEl  ? parseFloat(qtyEl.value)  : null;
   var pack      = packEl.value.trim();
-  var unitPrice = unitEl ? parseFloat(unitEl.value)  : null;
-  var ext       = extEl  ? parseFloat(extEl.value)   : null;
+  var unitPrice = unitEl ? parseFloat(unitEl.value) : null;
+  var ext       = extEl  ? parseFloat(extEl.value)  : null;
 
-  // Salva edits
   window._vdrEdits[docId][idx] = { qty: qty, pack: pack, unitPrice: unitPrice, ext: ext };
 
-  // Calcola
   var packCalc = window.vdrCalcPack(pack, false, null);
   var totalG   = window.vdrPackToGrams(pack, false, null);
   var price    = (unitPrice != null && !isNaN(unitPrice)) ? unitPrice
@@ -563,8 +564,6 @@ window.vdrRecalcRow = function(docId, idx) {
   var parts = [];
   if (packCalc) parts.push(packCalc);
   if (per100g)  parts.push('$' + per100g + '/100g');
-
-  console.log('[vdrRecalcRow] pack:', pack, 'packCalc:', packCalc, 'totalG:', totalG, 'price:', price, 'per100g:', per100g);
 
   scEl.textContent = parts.length ? parts.join(' · ') : '—';
   scEl.style.color = parts.length ? '#0369a1' : '#94a3b8';
@@ -643,9 +642,9 @@ function vdrDetailHTML(doc) {
       var rowBorder   = hasWarning ? 'border-left:3px solid #f59e0b;' : 'border-left:3px solid #10b981;';
       var qtyColor    = mismatch ? '#ef4444' : '#1e293b';
       var rid         = docId + '-' + idx;
-      var onInput     = 'window.vdrRecalcRow(\'' + docId + '\',' + idx + ')';
+      var onInput     = 'window.vdrRecalcRow(\'' + docId + '\',' + idx + ',this)';
 
-      return '<div style="padding:10px 14px;border-bottom:1px solid #f1f5f9;' + rowBorder + '">' +
+      return '<div data-vdr-row="' + rid + '" style="padding:10px 14px;border-bottom:1px solid #f1f5f9;' + rowBorder + '">' +
 
         // Riga 1: label + nome
         '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
@@ -672,7 +671,7 @@ function vdrDetailHTML(doc) {
         // Riga 3: Sous Chef + bottone ricalcola
         '<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b;">' +
           'Sous Chef: <span id="vdrSC-' + rid + '" style="color:' + scColor + ';">' + scText + '</span>' +
-          '<button onclick="window.vdrRecalcRow(\'' + docId + '\',' + idx + ')" style="margin-left:4px;padding:2px 8px;border-radius:6px;background:#f1f5f9;border:none;font-size:11px;color:#475569;cursor:pointer;">↻</button>' +
+          '<button onclick="window.vdrRecalcRow(\'' + docId + '\',' + idx + ',this)" style="margin-left:4px;padding:2px 8px;border-radius:6px;background:#f1f5f9;border:none;font-size:11px;color:#475569;cursor:pointer;">↻</button>' +
         '</div>' +
 
       '</div>';
