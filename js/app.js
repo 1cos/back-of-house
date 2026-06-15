@@ -62,6 +62,54 @@ function getHighlightsTitle(){
   return dow === 'Monday' ? "Weekly Highlights" : "Yesterday's Highlights";
 }
 
+// ── STAFF TAB BAR — logica oraria 20:00 CDT ──
+function updateStaffTabs() {
+  var h = parseInt(new Date().toLocaleString('en-US', {timeZone: 'America/Chicago', hour: 'numeric', hour12: false}));
+  var isEvening = h >= 20;
+  var tabChiusura = document.getElementById('tabChiusura');
+  var otherLabel = document.getElementById('otherStationsLabel');
+  if (tabChiusura) tabChiusura.style.display = isEvening ? 'flex' : 'none';
+  if (otherLabel) otherLabel.textContent = 'Stations';
+}
+
+window.showOtherStationsTab = function() {
+  var h = parseInt(new Date().toLocaleString('en-US', {timeZone: 'America/Chicago', hour: 'numeric', hour12: false}));
+  var isEvening = h >= 20;
+  var existing = document.getElementById('otherStationsSheet');
+  if (existing) existing.remove();
+  var sheet = document.createElement('div');
+  sheet.id = 'otherStationsSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;justify-content:flex-end;';
+  var title = isEvening ? 'Closing — Altre Stazioni' : 'Prep — Altre Stazioni';
+  sheet.innerHTML = '<div style="flex:1;background:rgba(0,0,0,0.4);" id="otherSheetBg"></div>' +
+    '<div style="background:white;border-radius:20px 20px 0 0;max-height:80vh;overflow-y:auto;padding:16px;">' +
+      '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;"></div>' +
+      '<div style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:12px;">' + title + '</div>' +
+      '<div id="otherStationsSheetContent" style="display:flex;flex-direction:column;gap:8px;">' +
+        '<div style="color:#94a3b8;font-size:13px;">Caricamento...</div>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(sheet);
+  document.getElementById('otherSheetBg').onclick = function() { sheet.remove(); };
+  var stationsEl = document.getElementById('homeOtherStations');
+  var contentEl = document.getElementById('otherStationsSheetContent');
+  if (stationsEl && contentEl) {
+    var pills = stationsEl.querySelectorAll('button,[data-station]');
+    if (pills.length > 0) {
+      contentEl.innerHTML = '';
+      pills.forEach(function(p) {
+        var btn = document.createElement('button');
+        btn.textContent = p.textContent.trim();
+        btn.style.cssText = 'width:100%;padding:14px;border-radius:12px;background:#f8fafc;border:1px solid #e2e8f0;text-align:left;font-size:14px;font-weight:500;cursor:pointer;';
+        btn.onclick = function() { sheet.remove(); p.click(); };
+        contentEl.appendChild(btn);
+      });
+    } else {
+      contentEl.innerHTML = '<div style="color:#94a3b8;font-size:13px;">Nessuna altra stazione attiva.</div>';
+    }
+  }
+};
+
 // ── HOME TIME CHECK — logica oraria 20:00 ──
 let _homeTimeCheckInterval = null;
 
@@ -232,17 +280,21 @@ function doLogin(profile){
   const tabMenu = document.getElementById('tabMenu');
   if(tabMenu) tabMenu.style.display = admin ? 'flex' : 'none';
 
-  // Prep e Chiusura — solo staff in bottom bar
+  // Prep — solo staff
   const tabPrep = document.getElementById('tabPrep');
   if(tabPrep) tabPrep.style.display = admin ? 'none' : 'flex';
-  const tabChiusura = document.getElementById('tabChiusura');
-  if(tabChiusura) tabChiusura.style.display = admin ? 'none' : 'flex';
+  // Other Stations tab — solo staff
+  const tabOther = document.getElementById('tabOtherStations');
+  if(tabOther) tabOther.style.display = admin ? 'none' : 'flex';
+  // tabChiusura gestita da updateStaffTabs() in base all'orario
+  if(!admin) updateStaffTabs();
 
   // Chat — tutti
-  // (già visibile di default)
+  // (gia visibile di default)
 
   // ── LOGICA ORARIA 20:00 ──
   startHomeTimeCheck();
+  if(!admin) setInterval(updateStaffTabs, 60000);
 
   // check primo accesso e compleanni
   setTimeout(()=>{checkBirthdays(); initSousChef();}, 1000);
