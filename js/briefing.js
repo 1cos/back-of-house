@@ -66,7 +66,7 @@ function renderHomeStations(){
     el.innerHTML=allCats.map(s=>{
       const missing=items.filter(i=>i.need_tomorrow&&i.category===s).length;
       const label=s.replace(' Station','').replace('Station','');
-      return '<div onclick="goToStation(''+s+'')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition '+(missing>0?'bg-red-100 text-red-700 border border-red-200':'bg-green-100 text-green-700 border border-green-200')+'">' +
+      return '<div onclick="goToStation(\'' + s + '\')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition ' + (missing>0?'bg-red-100 text-red-700 border border-red-200':'bg-green-100 text-green-700 border border-green-200') + '">' +
         '<span>'+label+'</span>' +
         (missing>0?'<span class="bg-red-500 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full">'+missing+'</span>':'<span>✓</span>')+
         '</div>';
@@ -107,7 +107,7 @@ function renderHomeStations(){
     otherEl.innerHTML=otherCats.map(s=>{
       const missing=items.filter(i=>i.need_tomorrow&&i.category===s).length;
       const label=s.replace(' Station','').replace('Station','');
-      return '<div onclick="goToStation(''+s+'')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition bg-red-100 text-red-700 border border-red-200">' +
+      return '<div onclick="goToStation(\'' + s + '\')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer active:scale-95 transition bg-red-100 text-red-700 border border-red-200">' +
         '<span>'+label+'</span>' +
         '<span class="bg-red-500 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full">'+missing+'</span>'+
         '</div>';
