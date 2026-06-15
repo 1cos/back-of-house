@@ -211,7 +211,7 @@ async function openServiceUpdates(){
         '<div style="font-size:10px;color:#93c5fd;margin-top:2px;">'+(u.created_by||'System')+' · '+t+'</div></div>'+
         '</div>';
     }).join('')+
-    '</div><button onclick="this.closest('.fixed').remove()" style="width:100%;height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;margin-top:14px;">Close</button>'+
+    '</div><button onclick="this.closest(\'.fixed\').remove()" style="width:100%;height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;margin-top:14px;">Close</button>'+
     '</div>';
   modal.onclick=e=>{if(e.target===modal)modal.remove()};
   document.body.appendChild(modal);
