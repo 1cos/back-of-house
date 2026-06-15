@@ -450,6 +450,10 @@ window.vdrCalcPack = function(pack, catchweight, actualWeightLb) {
     if (lbm) return lbm[1] + 'lb';
     return null;
   }
+  // Formato "Xpc / Y#" o "X PC/Y#" — es. "1pc / 28#" = 28lb
+  var mpc = p.match(/\d+\s*pc\s*\/\s*(\d+(?:\.\d+)?)\s*#/i);
+  if (mpc) return parseFloat(mpc[1]).toFixed(1) + 'lb';
+
   // Numero misto tipo "9-1/2 GAL" = 9.5 gal
   var mixedGal = p.match(/^(\d+)-(\d+)\/(\d+)\s*(GAL|gal)/i);
   if (mixedGal) {
@@ -492,6 +496,10 @@ window.vdrPackToGrams = function(pack, catchweight, actualWeightLb) {
   if (!pack) return null;
   var p = pack.trim();
   if (catchweight && actualWeightLb) return actualWeightLb * 453.592;
+  // Formato "Xpc / Y#" o "X PC/Y#" — es. "1pc / 28#" = 28lb
+  var mpc = p.match(/\d+\s*pc\s*\/\s*(\d+(?:\.\d+)?)\s*#/i);
+  if (mpc) return parseFloat(mpc[1]) * 453.592;
+
   // Numero misto GAL
   var mixedGal = p.match(/^(\d+)-(\d+)\/(\d+)\s*(GAL|gal)/i);
   if (mixedGal) {
