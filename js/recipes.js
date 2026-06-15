@@ -307,8 +307,9 @@ function openRecipeManager(){
 function openRecipeEditor(rec=null){
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
-  modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col">
-    <div class="p-4 border-b"><h3 class="font-bold">${rec?'Edit':'New'} Recipe</h3></div>
+  modal.style.overflowX = 'hidden';
+  modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col" style="touch-action:pan-y;overflow-x:hidden;">
+    <div class="p-4 border-b" id="recipeEditorHandle" style="cursor:grab;"><h3 class="font-bold">${rec?'Edit':'New'} Recipe</h3></div>
     <div class="p-4 overflow-auto space-y-3 text-sm">
 
       <input id="rTitle" placeholder="Title" class="w-full px-3 py-2 border rounded-xl" value="${rec?.title||''}">
@@ -387,6 +388,12 @@ function openRecipeEditor(rec=null){
   </div>`;
   document.body.appendChild(modal);
 
+  // Swipe-down per chiudere — solo sul drag handle (non interferisce con scroll)
+  const editorInner = modal.querySelector('[id="recipeEditorHandle"]')?.closest('div[style]');
+  if(editorInner && window.addSwipeToClose){
+    addSwipeToClose(editorInner, ()=>modal.remove(), 100);
+  }
+
   // Serving weight hint
   const servInput  = modal.querySelector('#rServings');
   const weightInput = modal.querySelector('#rWeightKg');
@@ -421,7 +428,7 @@ function openRecipeEditor(rec=null){
       </select>
       <input placeholder="ingredient" class="px-2 py-1.5 border rounded text-xs" value="${d.name||''}">
       <input placeholder="note" class="px-2 py-1.5 border rounded text-xs" value="${d.comment||''}">
-      <button class="text-red-400 px-1 text-sm">✕</button>`;
+      <button class="text-red-400 text-base" style="min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>`;
     row.querySelector('button').onclick = ()=>row.remove();
     ingList.appendChild(row);
   }
@@ -435,7 +442,7 @@ function openRecipeEditor(rec=null){
     row.style.alignItems = 'center';
     row.innerHTML = `
       <input placeholder="Section label (e.g. For the sauce)" class="px-2 py-1.5 border-2 border-dashed border-slate-200 rounded text-xs font-semibold text-slate-500 bg-slate-50" value="${d.name||''}">
-      <button class="text-red-400 px-1 text-sm">✕</button>`;
+      <button class="text-red-400 text-base" style="min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>`;
     row.querySelector('button').onclick = ()=>row.remove();
     ingList.appendChild(row);
   }
@@ -797,3 +804,4 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     console.warn('recipeSalesStats error:', e.message);
   }
 }
+
