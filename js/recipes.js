@@ -177,12 +177,20 @@ function showRecipeSheet(rec){
       <div id="recipeFoodCost_${rec.id||'x'}" class="mb-3">
         <div style="font-size:11px;color:#94a3b8;padding:6px 0;">Loading food cost...</div>
       </div>
+      ${isAdmin() ? `<button id="recipeEditBtn" class="w-full mt-2 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm">✏️ Edit Recipe</button>` : ''}
       <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
     </div>`;
 
   sheet.onclick = e=>{ if(e.target===sheet) sheet.remove(); };
   document.body.appendChild(sheet);
   addSwipeToClose(sheet.querySelector('div'), ()=>sheet.remove());
+
+  // Edit button — needs rec in closure
+  const editBtn = sheet.querySelector('#recipeEditBtn');
+  if(editBtn){
+    editBtn.onclick = ()=>{ sheet.remove(); openRecipeEditor(rec); };
+  }
+
   calcRecipeFoodCost(rec);
 
   // Scaling logic
