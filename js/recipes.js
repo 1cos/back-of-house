@@ -168,6 +168,7 @@ function showRecipeSheet(rec){
       <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4"></div>
       <h3 class="text-xl font-bold mb-1">${rec.title||rec.name||''}</h3>
       <p class="text-xs text-slate-500 mb-3">${headerMeta}</p>
+      ${rec.pos_name ? '<div id="recipeSalesStats" style="margin-bottom:12px;"></div>' : ''}
       ${rec.image_url ? `<img src="${rec.image_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${rec.photo_url ? `<img src="${rec.photo_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${scalingUI}
@@ -192,6 +193,7 @@ function showRecipeSheet(rec){
   }
 
   calcRecipeFoodCost(rec);
+  if(rec.pos_name) loadRecipeSalesStats(rec, sheet);
 
   // Scaling logic
   if(canScale){
@@ -653,4 +655,115 @@ async function calcRecipeFoodCost(rec){
         ${issues.map(r=>`<div style="font-size:10px;color:#f59e0b;margin-bottom:2px;">· <b>${r.name}</b>: ${r.issue}</div>`).join('')}
       </div>` : ''}
     </div>`;
+}
+
+// ── RECIPE SALES STATS (opzione B — pillole) ─────────────────────────
+async function loadRecipeSalesStats(rec, sheetEl) {
+  const el = sheetEl.querySelector('#recipeSalesStats');
+  if (!el) return;
+
+  try {
+    const sb = window.supabaseClient;
+
+    // Date ultima settimana (lun→sab scorsi)
+    const today = new Date(); today.setHours(0,0,0,0);
+    const dow = today.getDay(); // 0=dom, 1=lun...6=sab
+    const daysToThisMon = (dow + 6) % 7;
+    const thisMon = new Date(today); thisMon.setDate(today.getDate() - daysToThisMon);
+    const lastMon = new Date(thisMon); lastMon.setDate(thisMon.getDate() - 7);
+    const lastSat = new Date(lastMon); lastSat.setDate(lastMon.getDate() + 5);
+
+    const isoFrom = lastMon.toISOString().slice(0,10);
+    const isoTo   = lastSat.toISOString().slice(0,10);
+
+    // pos_name può contenere pipe-separated (es. "Brussel Sprouts|Brussels")
+    const posNames = rec.pos_name.split('|').map(s => s.trim()).filter(Boolean);
+    const isSide = rec.menu_group === 'Sides';
+
+    // Vendite come piatto (pos_sales_by_item)
+    let allItemRows = [];
+    for (const pn of posNames) {
+      const { data } = await sb.from('pos_sales_by_item')
+        .select('sale_date,quantity')
+        .gte('sale_date', isoFrom).lte('sale_date', isoTo)
+        .eq('is_historical', false).ilike('menu_item', '%' + pn + '%');
+      if (data) allItemRows = allItemRows.concat(data);
+    }
+
+    // Vendite come modifier (pos_modifiers) — solo per Sides
+    let allModRows = [];
+    if (isSide) {
+      for (const pn of posNames) {
+        const { data } = await sb.from('pos_modifiers')
+          .select('sale_date,quantity_sold')
+          .gte('sale_date', isoFrom).lte('sale_date', isoTo)
+          .eq('is_historical', false).ilike('modifier', '%' + pn + '%');
+        if (data) allModRows = allModRows.concat(data);
+      }
+    }
+
+    // Calcola feriali (lun→gio = dow 1,2,3,4) e weekend (ven+sab = dow 5,6)
+    let ferC = 0, ferDays = 0, wkC = 0, wkDays = 0;
+    const counted = {};
+
+    allItemRows.forEach(r => {
+      const dw = new Date(r.sale_date + 'T12:00:00').getDay();
+      const q = Number(r.quantity) || 0;
+      if (dw >= 1 && dw <= 4) { ferC += q; if (!counted['fer_' + r.sale_date]) { counted['fer_' + r.sale_date] = 1; ferDays++; } }
+      if (dw === 5 || dw === 6) { wkC += q; if (!counted['wk_' + r.sale_date]) { counted['wk_' + r.sale_date] = 1; wkDays++; } }
+    });
+
+    // Modifier: contorno = mezza porzione
+    allModRows.forEach(r => {
+      const dw = new Date(r.sale_date + 'T12:00:00').getDay();
+      const q = (Number(r.quantity_sold) || 0) * 0.5;
+      if (dw >= 1 && dw <= 4) { ferC += q; if (!counted['fer_' + r.sale_date]) { counted['fer_' + r.sale_date] = 1; ferDays++; } }
+      if (dw === 5 || dw === 6) { wkC += q; if (!counted['wk_' + r.sale_date]) { counted['wk_' + r.sale_date] = 1; wkDays++; } }
+    });
+
+    // Nessun dato
+    if (ferC === 0 && wkC === 0) { el.innerHTML = ''; return; }
+
+    // Media giornaliera e prep consigliata (arrotonda per eccesso)
+    const ferAvg = ferDays > 0 ? ferC / ferDays : 0;
+    const wkAvg  = wkDays  > 0 ? wkC  / wkDays  : 0;
+
+    // Oggi è feriale o weekend?
+    const todayDow = today.getDay();
+    const isWeekendToday = todayDow === 5 || todayDow === 6;
+    const prepToday = Math.ceil(isWeekendToday ? wkAvg : ferAvg);
+
+    // Render pillole stile Opzione B
+    const fmt1 = v => v > 0 ? Math.round(v) + 'x' : '—';
+    const fmtAvg = v => v > 0 ? '~' + v.toFixed(1) + '/gg' : '';
+
+    el.innerHTML =
+      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Sett. scorsa' + (isSide ? ' (side + modifier)' : '') + '</div>' +
+      '<div style="display:flex;gap:8px;">' +
+
+      '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
+        '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Lun→Gio</div>' +
+        '<div style="font-size:18px;font-weight:900;color:#6366f1;line-height:1;">' + fmt1(ferC) + '</div>' +
+        '<div style="font-size:9px;color:#94a3b8;margin-top:2px;">' + fmtAvg(ferAvg) + '</div>' +
+      '</div>' +
+
+      '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
+        '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Ven+Sab</div>' +
+        '<div style="font-size:18px;font-weight:900;color:#059669;line-height:1;">' + fmt1(wkC) + '</div>' +
+        '<div style="font-size:9px;color:#94a3b8;margin-top:2px;">' + fmtAvg(wkAvg) + '</div>' +
+      '</div>' +
+
+      (prepToday > 0 ?
+      '<div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:8px 10px;text-align:center;">' +
+        '<div style="font-size:9px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Prep oggi</div>' +
+        '<div style="font-size:18px;font-weight:900;color:#059669;line-height:1;">' + prepToday + '</div>' +
+        '<div style="font-size:9px;color:#059669;margin-top:2px;">porzioni</div>' +
+      '</div>' : '') +
+
+      '</div>';
+
+  } catch(e) {
+    // Silenzioso — non mostrare errori nella preview
+    console.warn('recipeSalesStats error:', e.message);
+  }
 }
