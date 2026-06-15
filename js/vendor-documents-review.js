@@ -534,35 +534,40 @@ window.vdrPackToGrams = function(pack, catchweight, actualWeightLb) {
 // -- Ricalcola riga Sous Chef quando l'utente modifica un campo
 window.vdrRecalcRow = function(docId, idx) {
   if (!window._vdrEdits[docId]) window._vdrEdits[docId] = {};
-  var qtyEl   = document.getElementById('vdrQty-'   + docId + '-' + idx);
-  var packEl  = document.getElementById('vdrPack-'  + docId + '-' + idx);
-  var unitEl  = document.getElementById('vdrUnit-'  + docId + '-' + idx);
-  var extEl   = document.getElementById('vdrExt-'   + docId + '-' + idx);
-  var scEl    = document.getElementById('vdrSC-'    + docId + '-' + idx);
-  if (!packEl) return;
+  var rid     = docId + '-' + idx;
+  var qtyEl   = document.getElementById('vdrQty-'  + rid);
+  var packEl  = document.getElementById('vdrPack-' + rid);
+  var unitEl  = document.getElementById('vdrUnit-' + rid);
+  var extEl   = document.getElementById('vdrExt-'  + rid);
+  var scEl    = document.getElementById('vdrSC-'   + rid);
 
-  var qty       = qtyEl  ? parseFloat(qtyEl.value)  : null;
+  // Debug
+  if (!packEl) { console.warn('[vdrRecalcRow] packEl not found for rid:', rid); return; }
+  if (!scEl)   { console.warn('[vdrRecalcRow] scEl not found for rid:', rid); return; }
+
+  var qty       = qtyEl  ? parseFloat(qtyEl.value)   : null;
   var pack      = packEl.value.trim();
-  var unitPrice = unitEl ? parseFloat(unitEl.value) : null;
-  var ext       = extEl  ? parseFloat(extEl.value)  : null;
+  var unitPrice = unitEl ? parseFloat(unitEl.value)  : null;
+  var ext       = extEl  ? parseFloat(extEl.value)   : null;
 
-  // Salva in edits store
+  // Salva edits
   window._vdrEdits[docId][idx] = { qty: qty, pack: pack, unitPrice: unitPrice, ext: ext };
 
-  // Ricalcola
+  // Calcola
   var packCalc = window.vdrCalcPack(pack, false, null);
   var totalG   = window.vdrPackToGrams(pack, false, null);
-  var price    = unitPrice != null && !isNaN(unitPrice) ? unitPrice : (ext && qty ? ext / qty : null);
+  var price    = (unitPrice != null && !isNaN(unitPrice)) ? unitPrice
+               : (ext && qty && !isNaN(ext) && !isNaN(qty) ? ext / qty : null);
   var per100g  = (totalG && price) ? (price / totalG * 100).toFixed(2) : null;
 
   var parts = [];
   if (packCalc) parts.push(packCalc);
   if (per100g)  parts.push('$' + per100g + '/100g');
 
-  if (scEl) {
-    scEl.textContent = parts.length ? parts.join(' · ') : '—';
-    scEl.style.color = parts.length ? '#0369a1' : '#94a3b8';
-  }
+  console.log('[vdrRecalcRow] pack:', pack, 'packCalc:', packCalc, 'totalG:', totalG, 'price:', price, 'per100g:', per100g);
+
+  scEl.textContent = parts.length ? parts.join(' · ') : '—';
+  scEl.style.color = parts.length ? '#0369a1' : '#94a3b8';
 };
 
 function vdrDetailHTML(doc) {
@@ -664,8 +669,11 @@ function vdrDetailHTML(doc) {
           '<input id="vdrExt-' + rid + '" type="number" step="0.01" value="' + extVal + '" oninput="' + onInput + '" onchange="' + onInput + '" style="' + inputStyle + 'width:56px;">' +
         '</div>' +
 
-        // Riga 3: Sous Chef (ricalcolabile)
-        '<div style="font-size:11px;color:#64748b;">Sous Chef: <span id="vdrSC-' + rid + '" style="color:' + scColor + ';">' + scText + '</span></div>' +
+        // Riga 3: Sous Chef + bottone ricalcola
+        '<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b;">' +
+          'Sous Chef: <span id="vdrSC-' + rid + '" style="color:' + scColor + ';">' + scText + '</span>' +
+          '<button onclick="window.vdrRecalcRow(\'' + docId + '\',' + idx + ')" style="margin-left:4px;padding:2px 8px;border-radius:6px;background:#f1f5f9;border:none;font-size:11px;color:#475569;cursor:pointer;">↻</button>' +
+        '</div>' +
 
       '</div>';
     }).join('');
