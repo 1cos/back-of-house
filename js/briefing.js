@@ -199,7 +199,7 @@ async function openServiceUpdates(){
   modal.innerHTML='<div style="background:rgba(255,255,255,0.95);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:70vh;overflow-y:auto;animation:slideUp .25s ease">'+
     '<div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>'+
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'+
-    '<div style="font-size:14px;font-weight:500;color:#1e3a5f;">Yesterday's Highlights</div>'+
+    '<div style="font-size:14px;font-weight:500;color:#1e3a5f;">Yesterday\'s Highlights</div>'+
     (isAdmin()?'<button onclick="addServiceUpdate()" style="font-size:12px;color:#3B82F6;background:rgba(59,130,246,0.1);border:none;padding:4px 10px;border-radius:8px;cursor:pointer;">+ Add</button>':'')+
     '</div><div>'+
     (data||[]).map(u=>{
