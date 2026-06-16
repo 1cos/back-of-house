@@ -456,7 +456,7 @@ async function loadPresence() {
 }
 
 async function loadAlerts() {
-  const {data} = await supa.from('alerts').select('title,body').eq('is_active',true).order('created_at',{ascending:false});
+  const {data} = await supa.from('alerts').select('message,created_by,priority').eq('is_active',true).order('created_at',{ascending:false});
   alerts = data||[];
   renderFooter();
   const pill = document.getElementById('alert-pill');
@@ -658,7 +658,7 @@ function renderChat() {
 function renderFooter() {
   const inner = document.getElementById('f-inner');
   inner.textContent = alerts.length
-    ? alerts.map(a=>(a.title?a.title+': ':'')+a.body).join('   ·   ')
+    ? alerts.map(a=>a.message||'').join('   ·   ')
     : 'Zenos on the Square — No active alerts';
   inner.style.animation='none'; inner.offsetHeight; inner.style.animation='';
 }
@@ -680,6 +680,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
