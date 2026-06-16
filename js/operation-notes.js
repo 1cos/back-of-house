@@ -96,7 +96,7 @@ window.checkOperationNotePrompt = async function(forceShow) {
   if (!forceShow) {
     try {
       const s = _onLang();
-      await fetch(SUPABASE_URL + '/functions/v1/send-push', {
+      await fetch(SUPABASE_URL + '/functions/v1/notifications', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
         body: JSON.stringify({
