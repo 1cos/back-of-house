@@ -386,7 +386,12 @@ async function loadSales() {
 
   // Yesterday summary + top food items
   const {data:ySum} = await supa.from('pos_daily_summary').select('net_sales,gross_sales,bill_count').eq('sale_date',yest).maybeSingle();
-  const {data:yItems} = await supa.from('pos_sales_by_item').select('menu_item,quantity').eq('sale_date',yest).eq('sales_category','Food').order('quantity',{ascending:false}).limit(6);
+  const {data:yItemsRaw} = await supa.from('pos_sales_by_item').select('menu_item,quantity,menu_group').eq('sale_date',yest).eq('sales_category','Food').order('quantity',{ascending:false}).limit(20);
+  const SKIP_YITEMS = ['Tea','Water','Lemonade','Coffee','Espresso','Diet Pepsi','Pepsi',
+    'Sprite','Dr Pepper','Topo Chico','Cappuccino','San Pellegrino','Root Beer',
+    'Bush NA Beer','Crodino N/a Spritz','N/A Prosecco','Decaf Coffe','Acqua Panna Still Water',
+    'Gluten Free Bread','Gift Card','Open Food'];
+  const yItems = (yItemsRaw||[]).filter(r=>!SKIP_YITEMS.includes(r.menu_item)).slice(0,6);
 
   // This week top food (last 7 days, only clean days)
   const weekStart = (() => { const d=new Date(); d.setDate(d.getDate()-7); return d.toISOString().slice(0,10); })();
@@ -395,8 +400,13 @@ async function loadSales() {
   const dayTotals={};
   (wItems||[]).forEach(r=>{ dayTotals[r.sale_date]=(dayTotals[r.sale_date]||0)+Number(r.quantity); });
   const cleanDays = new Set(Object.entries(dayTotals).filter(([,q])=>q<5000).map(([d])=>d));
+  const SKIP_ITEMS_TOP = ['Tea','Water','Lemonade','Coffee','Espresso','Diet Pepsi','Pepsi',
+    'Sprite','Dr Pepper','Topo Chico','Cappuccino','San Pellegrino','Root Beer',
+    'Bush NA Beer','Crodino N/a Spritz','N/A Prosecco','Decaf Coffe','Acqua Panna Still Water',
+    'Gluten Free Bread','Gift Card','Open Food'];
   const wMap={};
-  (wItems||[]).filter(r=>cleanDays.has(r.sale_date)).forEach(r=>{ if(!wMap[r.menu_item]) wMap[r.menu_item]=0; wMap[r.menu_item]+=Number(r.quantity); });
+  (wItems||[]).filter(r=>cleanDays.has(r.sale_date) && !SKIP_ITEMS_TOP.includes(r.menu_item))
+    .forEach(r=>{ if(!wMap[r.menu_item]) wMap[r.menu_item]=0; wMap[r.menu_item]+=Number(r.quantity); });
   const weekTop = Object.entries(wMap).map(([n,q])=>({n,q})).sort((a,b)=>b.q-a.q).slice(0,6);
 
   // Expected tonight: avg per DOW — only on CLEAN dates
@@ -427,11 +437,37 @@ async function loadSales() {
   // Best by category last week
   // Best by category: ultimi 7 giorni (stessi dati disponibili)
   const {data:catItems} = await supa.from('pos_sales_by_item').select('menu_item,menu_group,quantity').gte('sale_date',weekStart).eq('sales_category','Food');
-  const EXCLUDE_GROUPS = ['Happy hours','Kids menu','NA Beverages','Mocktail','Lunch','Sides','Soup'];
+  // Map secondary categories to primary ones — data is merged, category hidden
+  const GROUP_REMAP = {
+    'Happy hours':    'Antipasti/appetizer',  // calamari, caprese etc → antipasti
+    'Kids menu':      null,                   // pasta kids → Pasta (by item name match)
+    'Sides':          null,                   // sides shown separately, skip
+    'Soup':           null,                   // skip
+    'NA Beverages':   null,                   // skip
+    'Mocktail':       null,                   // skip
+    'Lunch':          null,                   // skip
+  };
+  // Items in Kids menu that are pasta go to Pasta
+  const KIDS_PASTA_GROUPS = ['Cacio e Pepe Half','Cacio & Pepe Half Child','Fettuccine Alla Vodka',
+    'La N.4 Half','Penne Midnight','Spaghetti  al Pomodoro Half','Spaghetti Al Ragu','The PeeWee'];
+  // Excluded from all stats (beverages, non-food)
+  const SKIP_GROUPS = ['NA Beverages','Mocktail','Lunch','Soup'];
+  // Also exclude specific items that are beverages even in Food category
+  const SKIP_ITEMS = ['Tea','Water','Lemonade','Coffee','Espresso','Diet Pepsi','Pepsi',
+    'Sprite','Dr Pepper','Topo Chico','Cappuccino','San Pellegrino','Root Beer',
+    'Bush NA Beer','Crodino N/a Spritz','N/A Prosecco','Decaf Coffe','Acqua Panna Still Water'];
+
   const catMap={};
   (catItems||[]).forEach(r=>{
-    const g = r.menu_group||'Other';
-    if(EXCLUDE_GROUPS.includes(g)) return;
+    // Skip beverage items regardless of group
+    if(SKIP_ITEMS.includes(r.menu_item)) return;
+    let g = r.menu_group||'Other';
+    // Skip non-food groups entirely
+    if(SKIP_GROUPS.includes(g)) return;
+    // Remap Happy hours → Antipasti
+    if(g === 'Happy hours') g = 'Antipasti/appetizer';
+    // Remap Kids menu pasta → Pasta
+    if(g === 'Kids menu') g = 'Pasta';
     if(!catMap[g]) catMap[g]={};
     catMap[g][r.menu_item]=(catMap[g][r.menu_item]||0)+Number(r.quantity);
   });
@@ -712,6 +748,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
