@@ -174,20 +174,53 @@ async function loadServiceUpdates(){
   }catch(e){}
 }
 
-// ── UPCOMING DEMAND ──
+// ── UPCOMING DEMAND — legge tabella events (TripleSeat) ──
 async function loadUpcomingDemand(){
   const el=document.getElementById('upcomingDemand');
+  const widget=el?el.closest('[id]'):null;
+  // Trova il widget padre (homeHighlightsWidget contiene anche questa sezione)
+  const section=document.getElementById('upcomingDemandSection');
   if(!el) return;
   try{
-    const{data}=await supa.from('service_updates').select('*').eq('level','event').order('created_at',{ascending:true}).limit(5);
-    if(data&&data.length){
-      el.innerHTML=data.map(e=>
-        '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">'+
-        '<span style="font-size:13px;color:#1e3a5f;">'+e.message+'</span>'+
-        '</div>'
-      ).join('');
+    const today=getNowDallas().toLocaleDateString('en-CA');
+    const{data}=await supa.from('events')
+      .select('name,event_date,event_time,guest_count,menu_type,location')
+      .gte('event_date',today)
+      .order('event_date',{ascending:true})
+      .limit(5);
+    // Se nessun evento: nascondi tutta la sezione
+    if(!data||!data.length){
+      // Nascondi il widget padre se esiste come sezione separata
+      if(section) section.style.display='none';
+      else el.closest('div[style]') && (el.style.display='none');
+      return;
     }
-  }catch(e){}
+    // Mostra sezione e popola
+    if(section) section.style.display='';
+    el.style.display='';
+    el.innerHTML=data.map(e=>{
+      const d=new Date(e.event_date+'T12:00:00');
+      const dayStr=d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+      const timeStr=e.event_time?e.event_time.slice(0,5):'';
+      return '<div style="display:flex;align-items:flex-start;gap:10px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+        '<div style="flex-shrink:0;text-align:center;min-width:38px;">'+
+          '<div style="font-size:10px;color:#60a5fa;font-weight:600;">'+dayStr.split(',')[0]+'</div>'+
+          '<div style="font-size:13px;color:#1e3a5f;font-weight:700;">'+d.getDate()+'</div>'+
+        '</div>'+
+        '<div style="flex:1;">'+
+          '<div style="font-size:13px;color:#1e3a5f;font-weight:500;">'+e.name+'</div>'+
+          '<div style="font-size:11px;color:#93c5fd;margin-top:1px;">'+
+            (e.guest_count?e.guest_count+' guests':'')+
+            (e.guest_count&&e.menu_type?' · ':'')+
+            (e.menu_type||'')+
+            (timeStr?' · '+timeStr:'') +
+          '</div>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+  }catch(e){
+    el.style.display='none';
+  }
 }
 
 // ── SERVICE UPDATES MODAL ──
