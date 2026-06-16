@@ -74,8 +74,11 @@
 | qty | numeric | Quantità prodotta |
 | unit | text | Unità |
 | container | text | Contenitore usato |
+| started_at | timestamptz | Quando il cuoco ha premuto START (Focus Mode) |
+| duration_minutes | integer | Durata calcolata al DONE: (created_at - started_at) / 60 |
 
 **Stato:** 22 righe — tutti dati di test. App non ancora in uso reale.
+**Timing:** started_at + duration_minutes aggiunti per Focus Mode — storico per persona per prep (Cole vs Antonella).
 
 ---
 
