@@ -6,6 +6,7 @@
 2. Leggi questi file da brigade-main:
    - BOH_OS_BACKLOG.md
    - BOH_OS_DECISIONS.md
+   - BRIGADE_DB_SCHEMA.md  ← OBBLIGATORIO — colonne reali del DB, leggerlo sempre
 3. Per leggere file GitHub: GET https://api.github.com/repos/1cos/back-of-house/contents/{path}?ref=brigade-main
 4. Prima di modificare qualsiasi file JS: scaricalo fresco da GitHub, modificalo, ricaricalo
 5. Bumpa sempre sw.js nello stesso push
