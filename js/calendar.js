@@ -6,24 +6,18 @@ let _calFilter = 'upcoming' // upcoming | past | all
 
 async function showCalendar() {
   hideAdminMenu()
-  // Nascondi tutte le sezioni
-  document.querySelectorAll('section[id^="v"]').forEach(s => {
-    s.classList.add('hidden')
-    s.style.display = ''
-  })
+  // Show section
+  document.querySelectorAll('section[id^="v"]').forEach(s => s.classList.add('hidden'))
   const sec = document.getElementById('vkal')
   if (!sec) return
   sec.classList.remove('hidden')
-  sec.style.display = 'block'
   sec.innerHTML = _calShell()
-  // Piccolo delay per assicurare che supa sia pronto
-  await new Promise(r => setTimeout(r, 100))
   await _calLoad()
 }
 
 function _calShell() {
   return `
-<div style="padding:14px 14px 0;padding-top:80px;">
+<div style="padding:14px 14px 0;">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
     <div style="font-size:18px;font-weight:700;color:#1e3a5f;">📅 Events</div>
     <button onclick="_calSync()" id="calSyncBtn"
@@ -81,9 +75,7 @@ async function _calLoad() {
     _calEvents = data || []
     _calRender()
   } catch(e) {
-    console.error('Calendar load error:', e)
-    const l2 = document.getElementById('calList')
-    if (l2) l2.innerHTML = '<div style="text-align:center;padding:40px;color:#ef4444;font-size:13px;">Error: ' + e.message + '</div>'
+    list.innerHTML = '<div style="text-align:center;padding:40px;color:#ef4444;font-size:13px;">Error loading events</div>'
   }
 }
 
@@ -224,11 +216,9 @@ async function _calSync() {
   const btn = document.getElementById('calSyncBtn')
   if (btn) { btn.textContent = '↻ Syncing…'; btn.style.opacity = '0.6'; btn.disabled = true }
   try {
-    const { data: { session } } = await supa.auth.getSession()
-    const token = session?.access_token || ''
     const res = await fetch('https://ydqmumpytgrlceuinoqt.supabase.co/functions/v1/tripleseat-sync', {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' }
     })
     const result = await res.json()
     if (result.success) {
