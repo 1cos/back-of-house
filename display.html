@@ -207,9 +207,7 @@ html, body {
 .f-ticker { flex:1; overflow:hidden; display:flex; align-items:center; padding:0 12px; }
 .f-inner  { white-space:nowrap; font-size:24px; color:#e2e8f0; font-weight:700; display:inline-block; animation:ticker 40s linear infinite; }
 @keyframes ticker { 0%{transform:translateX(100vw)} 100%{transform:translateX(-100%)} }
-.f-brief  { border-left:1px solid #2d3748; padding:0 14px; display:flex; align-items:center; gap:6px; flex-shrink:0; max-width:340px; overflow:hidden; }
-.f-brief-tag { font-size:14px; font-weight:900; color:#3b82f6; text-transform:uppercase; letter-spacing:0.1em; flex-shrink:0; }
-.f-brief-text { font-size:22px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+
 
 /* ── SCREEN FADE ── */
 .fade { animation:fadeIn 0.4s ease; }
@@ -276,10 +274,7 @@ html, body {
   <div id="footer">
     <div class="f-label">Alert</div>
     <div class="f-ticker"><div class="f-inner" id="f-inner">Zenos on the Square</div></div>
-    <div class="f-brief">
-      <div class="f-brief-tag">AI</div>
-      <div class="f-brief-text" id="brief-text">Loading briefing…</div>
-    </div>
+
   </div>
 
 </div>
@@ -365,7 +360,7 @@ let salesScreen = 0;
 let salesData = { ySum:null, yItems:[], weekTop:[], expected:[], bestByCat:[] };
 let prepTasks=[], prepDone=new Set();
 let presenceData=[], prepLogData=[];
-let alerts=[], briefPoints=[], chatMessages=[];
+let alerts=[], chatMessages=[];
 
 const STATION_MAP = {
   'Oven Station':'s-oven','Fresh Pasta Station':'s-fpasta',
@@ -377,7 +372,7 @@ const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ef4444','#14b8a
 
 // ── LOAD ──
 async function loadAll() {
-  await Promise.all([loadSales(), loadPrep(), loadPresence(), loadAlerts(), loadBriefing(), loadChat()]);
+  await Promise.all([loadSales(), loadPrep(), loadPresence(), loadAlerts(), loadChat()]);
 }
 
 async function loadSales() {
@@ -586,11 +581,7 @@ async function loadAlerts() {
   }
 }
 
-async function loadBriefing() {
-  const {data} = await supa.from('briefing').select('points').eq('date',todayISO()).maybeSingle();
-  briefPoints = data?.points||[];
-  document.getElementById('brief-text').textContent = briefPoints[0]||'No briefing today';
-}
+
 
 async function loadChat() {
   const {data} = await supa.from('messages')
@@ -843,6 +834,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
