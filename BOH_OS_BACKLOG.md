@@ -311,6 +311,36 @@ Zero rumore. Solo la tua stazione. Gesti naturali.
 
 ---
 
+## IDEE NUOVE — sessione 2026-06-16
+
+### Chef Rover 🔄
+Antonella (o altra figura senior) ruota nelle stazioni settimanalmente come affiancamento professionale — non ispezione.
+- Max assegna la stazione della settimana da admin
+- La stazione riceve notifica: "Questa settimana [nome] è con te"
+- Il Rover lavora con il ragazzo, dimostra come si fa — non giudica, insegna
+- Dopo l'affiancamento, il Rover lascia una nota breve visibile solo a Max
+- Il ragazzo non vede il giudizio — vede solo il suo progresso nel tempo
+- Contesto: Antonella ha professionalità europea alta, la brigata è livello medio-basso difficile da formare. Il sistema deve sembrare un privilegio, non una punizione.
+
+### Backlist per stazione 📋
+Lista di task secondari per ogni stazione — visibile automaticamente quando il ragazzo ha finito la preplist.
+- Max o Antonella la compilano una volta per stazione (5-8 voci)
+- Esempi: pulire equipment, organizzare frigo, controllare etichette/date, pulire griglie, riordinare spezie
+- Si attiva automaticamente quando la preplist è completata al 100%
+- Il ragazzo spunta quello che fa → entra nel log
+- Max vede chi ha fatto cosa e quando
+- Il Chef Rover durante l'affiancamento può aggiornare/migliorare la backlist di quella stazione
+
+### TelChef 📢
+Inbox unidirezionale brigata → Max — aperto a tutti i turni, sempre disponibile.
+- Qualsiasi membro della brigata può mandare note, suggerimenti, reclami, osservazioni in qualsiasi momento
+- Non è una chat — è una segnalazione strutturata (un messaggio, una foto, un commento)
+- Esempi: "Manca il procedimento sulla ricetta X", "Gli spelucchini sono da comprare", "L'arrabbiata finisce sempre prima"
+- Tutto passa da Max prima di qualsiasi azione
+- Collegato al modulo "Contributi della brigata" già spec'd in BRIGADE_VISION.md
+
+---
+
 ## Fornitori attivi
 
 | Fornitore | Email import | Label Gmail | Stato |
