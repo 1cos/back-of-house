@@ -152,26 +152,86 @@ function renderHomeStationItems(){
   }).join('');
 }
 
-// ── SERVICE UPDATES ──
+// ── SERVICE UPDATES — Yesterday's Highlights ──
+// Admin: bills + net sales + top 3 piatti
+// Staff: solo top 3 piatti (zero dati finanziari — regola ferrea)
 async function loadServiceUpdates(){
+  const el=document.getElementById('serviceUpdatesList');
+  if(!el) return;
   try{
-    const{data}=await supa.from('service_updates').select('*').order('created_at',{ascending:false}).limit(3);
-    const el=document.getElementById('serviceUpdatesList');
-    if(!el) return;
-    if(!data||!data.length){
-      el.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
+    // Trova la data di ieri CDT
+    const now=getNowDallas();
+    const yesterday=new Date(now);
+    yesterday.setDate(yesterday.getDate()-1);
+    const yStr=yesterday.toLocaleDateString('en-CA');
+
+    // Query 1: summary di ieri
+    const{data:summary}=await supa.from('pos_daily_summary')
+      .select('sale_date,bill_count,net_sales')
+      .eq('sale_date',yStr)
+      .maybeSingle();
+
+    // Query 2: top 3 piatti di ieri (escludi bevande e dati corrotti)
+    const{data:items}=await supa.from('pos_sales_by_item')
+      .select('menu_item,quantity')
+      .eq('sale_date',yStr)
+      .not('menu_group','in','("NA Beverages","Beverages","Mocktail")')
+      .lt('quantity',1000)
+      .order('quantity',{ascending:false})
+      .limit(3);
+
+    // Se nessun dato POS: fallback su service_updates
+    if(!summary&&(!items||!items.length)){
+      const{data:updates}=await supa.from('service_updates')
+        .select('*').order('created_at',{ascending:false}).limit(3);
+      if(!updates||!updates.length){
+        el.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
+        return;
+      }
+      el.innerHTML=updates.map(u=>{
+        const color=u.level==='urgent'?'#ef4444':u.level==='warning'?'#f59e0b':'#3B82F6';
+        return '<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;">'+
+          '<div style="width:7px;height:7px;border-radius:50%;background:'+color+';flex-shrink:0;margin-top:4px;"></div>'+
+          '<span style="font-size:13px;color:#1e3a5f;flex:1;line-height:1.4;">'+u.message+'</span>'+
+          '</div>';
+      }).join('');
       return;
     }
-    el.innerHTML=data.map(u=>{
-      const color=u.level==='urgent'?'#ef4444':u.level==='warning'?'#f59e0b':'#3B82F6';
-      const t=new Date(u.created_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/Chicago'});
-      return '<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;">'+
-        '<div style="width:7px;height:7px;border-radius:50%;background:'+color+';flex-shrink:0;margin-top:4px;"></div>'+
-        '<span style="font-size:13px;color:#1e3a5f;flex:1;line-height:1.4;">'+u.message+'</span>'+
-        '<span style="font-size:10px;color:#93c5fd;white-space:nowrap;">'+t+'</span>'+
-        '</div>';
-    }).join('');
-  }catch(e){}
+
+    const rows=[];
+    const medals=['🥇','🥈','🥉'];
+
+    // Admin: mostra dati finanziari
+    if(typeof isAdmin==='function'&&isAdmin()&&summary){
+      const sales=parseFloat(summary.net_sales||0).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
+      rows.push(
+        '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+        '<span style="font-size:15px;">💰</span>'+
+        '<span style="font-size:13px;color:#1e3a5f;font-weight:600;">'+sales+'</span>'+
+        '<span style="font-size:12px;color:#64748b;">·</span>'+
+        '<span style="font-size:13px;color:#64748b;">'+summary.bill_count+' bills</span>'+
+        '</div>'
+      );
+    }
+
+    // Tutti: top 3 piatti
+    if(items&&items.length){
+      items.forEach(function(item,i){
+        rows.push(
+          '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+          '<span style="font-size:15px;">'+medals[i]+'</span>'+
+          '<span style="font-size:13px;color:#1e3a5f;font-weight:500;">'+item.menu_item+'</span>'+
+          '<span style="margin-left:auto;font-size:12px;color:#60a5fa;font-weight:600;">'+item.quantity+' pcs</span>'+
+          '</div>'
+        );
+      });
+    }
+
+    el.innerHTML=rows.length?rows.join(''):'<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
+
+  }catch(e){
+    el.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
+  }
 }
 
 // ── UPCOMING DEMAND — legge tabella events (TripleSeat) ──
