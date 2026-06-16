@@ -37,25 +37,34 @@
 
 ## Tabelle DB — stato completo
 
-| Tabella | Scopo | Righe |
+| Tabella | Scopo | Note |
 |---|---|---|
-| pos_daily_summary | Totali giornalieri (scontrini, fatturato) | 305 |
-| pos_sales_by_item | Piatti venduti per giorno | 3.924 |
-| pos_modifiers | Modifier totali per giorno (TextModifier) | 712 |
-| pos_modifier_by_item | Modifier collegato al piatto padre | 1.167 |
-| modifier_config | Whitelist modifier cucina classificati | 86 |
-| pos_item_aliases | Mapping alias→canonical per stats produzione | 40 |
-| ingredients | Ingredienti con categorie | 400 |
-| ingredient_vendors | Prezzi per fornitore | 30+ |
+| pos_daily_summary | Totali giornalieri (scontrini, fatturato) | 305 righe |
+| pos_sales_by_item | Piatti venduti per giorno | 3.924 righe |
+| pos_modifiers | Modifier totali per giorno (TextModifier) | 712 righe |
+| pos_modifier_by_item | Modifier collegato al piatto padre | 1.167 righe |
+| modifier_config | Whitelist modifier cucina classificati | 86 righe |
+| pos_item_aliases | Mapping alias→canonical per stats produzione | 40 regole |
+| ingredients | Ingredienti con categorie | 400 righe |
+| ingredient_vendors | Prezzi per fornitore | 30+ righe |
 | ingredient_links | Link descrizione fattura -> ingrediente | attivo |
-| recipes | Ricette | 182 |
-| chef_attention | Topic frequenti Max | 7 |
-| invoice_lines | Storico prezzi fatture | 33+ |
+| recipes | Ricette | 182 righe |
+| recipes_with_cost | View ricette con costo calcolato | 181 righe |
+| recipe_bom | Grafo dipendenze ricette (parent/sub-recipe) | attivo |
+| chef_attention | Topic frequenti — ask_count + last_asked | attivo |
+| briefing | Snapshot AI giornaliero JSONB | attivo — prompt da migliorare |
+| operation_notes | Note servizio serale brigata | attivo — sentiment/tags da popolare |
+| sous_chef_tasks | Task assegnati dall'AI | attivo |
+| invoice_lines | Storico prezzi fatture | 33+ righe |
 | invoice_warnings | Warning fatture | 3 open |
+| ingredient_monthly_spend | Storico spesa mensile per ingrediente | attivo — non ancora usato dall'AI |
+| v_prep_daily | Vista prep giornaliera | attivo |
+| v_prep_weekly | Vista prep settimanale | attivo |
 | user_presence | Presenza real-time brigata | attivo |
 | messages | Chat brigata | attivo |
 | alerts | Alert attivi | attivo |
-| briefing | Briefing AI giornaliero | attivo |
+
+**NOTA DATI:** Tutti i dati nel DB sono dati di TEST inseriti da Max. L'app non è ancora stata distribuita alla brigata. Nessun dato è produzione reale.
 
 ---
 
@@ -152,6 +161,88 @@ Schermo: Insignia Fire TV (Silk Browser), kiosk mode
 
 ---
 
+## SOUS CHEF AI — visione e stato (sessione 2026-06-16)
+
+### Cosa esiste già nel DB (pronto per il Sous Chef)
+- `briefing` — snapshot giornaliero, già attivo ma **prompt vago** (da migliorare)
+- `operation_notes` — tabella pronta, zero righe reali, campi sentiment/tags mai popolati
+- `chef_attention` — memoria topic frequenti, aggiorna ask_count ad ogni domanda
+- `sous_chef_tasks` — task AI con urgency, category, done
+- `recipe_bom` — **grafo dipendenze ricette già strutturato** (Gemini voleva costruirlo, esiste già)
+- `recipes_with_cost` — view con costo già calcolato
+- `v_prep_daily`, `v_prep_weekly` — viste prep già pronte
+- `ingredient_monthly_spend` — storico spesa ingredienti (non ancora interrogato dall'AI)
+
+### Architettura concordata
+- **Pipeline asincrona** — snapshot JSON pre-calcolato ogni notte, l'AI legge quello non le tabelle grezze
+- **Tre livelli di memoria:** episodica (note servizio in operation_notes), semantica (regole operative), contestuale (cosa succede adesso)
+- **Lingua come segnale di profondità** — Max vuole analisi, Cole vuole "cosa faccio adesso" — stesso DB, risposta diversa per role + lang
+- **`chef_attention` come auto-calibrazione briefing** — se "uova" chiesto 7 volte, appare sempre nel briefing
+
+### Le 10 funzionalità (Livelli)
+1. Assistente operativo — ricette, fornitori, prep, personale
+2. Analista food cost — prezzi, trend, anomalie fornitori
+3. Produzione intelligente — suggerisce batch del giorno basato su storico + eventi
+4. Controllo prep — cosa è in ritardo, cosa manca
+5. Gestione personale — chi sa fare cosa, coperture (richiede skills JSONB su users)
+6. Event readiness — cosa manca per il catering di giovedì
+7. Attenzione automatica — ti cerca lui, non aspetta che chiedi (scan già attiva)
+8. Fatture intelligenti — parla da sous chef non da sistema
+9. TouchBistro brain — top seller, trend, analisi giorno settimana
+10. Memoria del ristorante — ricorda decisioni, note, eventi passati
+
+### Le Perle
+- **Perla #1 Morning Briefing** — struttura ok (tabella briefing + sc-nightly-brief v5 alle 5AM CDT), **prompt da migliorare urgente** — contenuto attualmente vago
+- **Perla #2 Night Recap** — UI scritta in operation-notes.js (v192+), manca **parsing AI post-salvataggio** per estrarre sentiment e tags automaticamente
+- **Perla #3 Chef's Radar** — schermata che mostra solo anomalie, non tutto — da costruire
+- **Perla #4 Prep Coach** — priorità su tempo rimasto + storico vendite + recipe_bom — da costruire
+
+### Priorità ingegneristica Sous Chef (in ordine)
+1. **Migliorare prompt sc-nightly-brief** — ROI massimo, zero nuova infrastruttura
+2. **AI parsing post-salvataggio su operation_notes** — dopo salvataggio nota, Groq estrae sentiment + tags (~50 token)
+3. **Aggiungere skills JSONB su users** — una riga SQL, sblocca Livello 5 completo
+4. **Connettere souschef-chat a recipe_bom e ingredient_monthly_spend** — tabelle esistenti mai usate dall'AI
+5. Solo dopo — nuove tabelle o Edge Functions
+
+---
+
+## NIGHT RECAP — stato (sessione 2026-06-16)
+
+### Implementato (v192-v195)
+- Push reale via send-push Edge Function alle 22:30 CDT
+- Messaggio motivazionale in 3 lingue IT/EN/ES — invoglia a scrivere per crescere professionalmente
+- Privacy badge nello sheet — "Solo Max lo vede, usato in forma anonima"
+- Quick replies tradotte nelle 3 lingue
+- Trigger automatico post-chiusura turno — 800ms dopo doCloseTurn() appare il prompt
+- Fix data CDT in updateCloseTurnBtn() — usava UTC, ora usa CDT corretta
+
+### CORS error send-push
+- Edge Function send-push blocca richieste da 1cos.github.io per CORS
+- Non blocca la chiusura (catch silenzioso) ma genera errore in console
+- Da fixare: aggiungere header CORS alla Edge Function send-push
+
+---
+
+## CLOSING — stato e bug (sessione 2026-06-16)
+
+### Comportamento corretto
+- Chiunque può chiudere qualsiasi stazione
+- La UI suggerisce la stazione di default ma non blocca
+- Non si può chiudere il turno senza aver risposto a TUTTI gli item della stazione selezionata
+- Closing appare dalle 20:00 alle 02:00 CDT (h >= 20 || h < 2)
+
+### Bug attivo — chiusura stazioni errata
+- **_closingStationLock** implementato in v195 — blocca station2 durante il flow
+- **Causa identificata:** goCheckStation() sovrascriveva station2 globalmente, rompendo i controlli nel popup forgotten
+- **Stato:** fix applicata ma comportamento ancora da verificare con test pulito
+- **CORS send-push:** errore in console ma non blocca la chiusura
+
+### Da investigare
+- renderS() post-chiusura — se mostra UI sbagliata dopo doCloseTurn()
+- Test pulito: rispondere a tutti gli item di una sola stazione e verificare nel DB
+
+---
+
 ## FOCUS MODE — spec (v195+)
 
 Nuova modalità per la brigata — accesso con swipe destra dalla home.
@@ -165,17 +256,16 @@ Zero rumore. Solo la tua stazione. Gesti naturali.
 - Swipe destra da home → Focus Mode (slide animation)
 - Swipe sinistra → torna Brigade
 - 3 sezioni collassabili verticali:
-  - 🔴 To Do — in cima, bordo rosso
-  - 🟡 In Progress — mezzo
-  - ✅ Done — collassata di default, opaca
+  - To Do — in cima, bordo rosso
+  - In Progress — mezzo
+  - Done — collassata di default, opaca
 - Ogni card: swipe destra = Done, swipe sinistra = In Progress
 - Soglia 60% per conferma (mani bagnate)
-- Solo ite stazione del cuoco loggato
+- Solo item stazione del cuoco loggato
 - Aggiornamento realtime
 
 ### Landscape mode — da esplorare
 - Quando il telefono è orizzontale, layout cambia automaticamente
-- Idea da sviluppare insieme con Max nella prossima sessione
 - Possibilità: 3 colonne side-by-side invece di sezioni verticali
 
 ### In Service view — da esplorare
@@ -187,25 +277,24 @@ Zero rumore. Solo la tua stazione. Gesti naturali.
 
 ## PRIORITA' ALTA — PROSSIMA SESSIONE
 
+- [ ] **Fix CORS send-push** — aggiungere headers CORS alla Edge Function
+- [ ] **Fix closing bug** — verificare _closingStationLock con test pulito, debug renderS() post-chiusura
+- [ ] **Migliorare prompt sc-nightly-brief** — dati strutturati reali invece di frasi vaghe
 - [ ] **Focus Mode** — costruire in js/prep.js o modulo separato
-  - Swipe destra da home
-  - 3 sezioni collassabili
-  - Card swipe per completare
-  - Filtro stazione automatico da user_presence
-  - Landscape mode da definire con Max
 
 ---
 
 ## PRIORITA' MEDIA
 
+- [ ] AI parsing post-salvataggio su operation_notes (sentiment + tags automatici)
+- [ ] skills JSONB su users — sblocca Livello 5 Sous Chef
+- [ ] Connettere souschef-chat a recipe_bom e ingredient_monthly_spend
 - [ ] Foto display TV — upload da Brigade admin → Supabase Storage bucket app/display/
 - [ ] Pasta halves sommati nelle statistiche TV usando pos_item_aliases
 - [ ] Auto-approve fatture senza warning e ingredienti già linkati
 - [ ] Edit Vendor semplificato (5 campi)
-- [ ] Warning che riappaiono dopo salvataggio peso OQR
 - [ ] Ben E. Keith: testare import dopo fix Apps Script
 - [ ] Sales staff — modal porzioni su tap piatto
-- [ ] Sous Chef proattivo: scansione automatica ogni ora
 - [ ] Guest count: aggiungere a pos_daily_summary quando arriva report TouchBistro
 
 ---
@@ -216,7 +305,6 @@ Zero rumore. Solo la tua stazione. Gesti naturali.
 - [ ] Digital whiteboard (prep handoffs brigata)
 - [ ] Sales anomaly detection (calo/picco >30% vs settimana scorsa)
 - [ ] Yes Chef modal (sostituire toast con modal celebrativo)
-- [ ] Tela module — da progettare da zero
 - [ ] SevenShift API
 - [ ] Apple Watch / Wear OS
 - [ ] Apple Intelligence / new Siri integration
@@ -233,32 +321,3 @@ Zero rumore. Solo la tua stazione. Gesti naturali.
 | Freshpoint | body email | freshpoint-import | attivo |
 | Global Gourmet | manuale | — | scan manuale |
 | Sysco | manuale | — | scan manuale |
-
----
-
-## Sessione 2026-06-16 — Kitchen Display + pos_item_aliases
-
-### Kitchen Display (display.html) — v192→v195
-- Completato layout KDS professionale tema chiaro per cucina luminosa
-- Service timer CDT (Opens in / In service N h left / Closing in N m)
-- 4 schermate sales con rotazione 20s (Yesterday/Week/Expected/Best by Category)
-- Expected Tonight: fix DOW calculation, escluse date sporche, solo food
-- Best by Category: Happy Hours→Antipasti, Kids→Pasta, Sides visibili, Bevande escluse
-- Contorni: sommano modifier via pos_item_aliases (Brussels, Rosemary, Spinach, ecc.)
-- Categoria Proteins Add-on da modifier (Chicken, Shrimp, Salmon, Scallops, Lobster)
-- Auto-scroll Best by Category con etichette italiane (Antipasti, Secondi, Contorni, ecc.)
-- Chat brigata realtime (ultimi 5 messaggi) tradotti in inglese via ai-translate literal:true
-- Staff chips in header (solo chi è online in user_presence <2 min)
-- Realtime: 3 canali (presence-rt, chat-rt, alerts-rt)
-- ai-translate v23: aggiunto parametro literal:true per traduzione word-for-word
-- Rimosso AI briefing dal footer — solo ticker alert 24px
-
-### pos_item_aliases — creata e popolata
-- 40 regole di mapping alias→canonical
-- Categorie: protein, side, pasta, appetizer
-- Usata per calcolo porzioni e statistiche produzione
-
-### Focus Mode — mockup completato
-- Concept approvato da Max
-- Landscape mode da esplorare insieme
-- In Service view — idea da sviluppare
