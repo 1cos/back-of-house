@@ -300,6 +300,15 @@ function doLogin(profile){
   startHomeTimeCheck();
   if(!admin) setInterval(updateStaffTabs, 60000);
 
+  // ── FOCUS MODE — solo staff, 8AM-8PM ──
+  if (!admin) {
+    var fName = document.getElementById('focusUserName');
+    var fStation = document.getElementById('focusStation');
+    if (fName) fName.textContent = user.name;
+    if (fStation) fStation.textContent = user.default_station || '';
+    setTimeout(function() { if (typeof initFocusMode === 'function') initFocusMode(); }, 600);
+  }
+
   // check primo accesso e compleanni
   setTimeout(()=>{checkBirthdays(); initSousChef();}, 1000);
 }
