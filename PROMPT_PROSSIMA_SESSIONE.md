@@ -1,117 +1,69 @@
-# PROMPT PROSSIMA SESSIONE — Brigade
+# PROMPT PROSSIMA SESSIONE — Brigade v202
 
 ## PRIMA DI TUTTO
+1. Carica x_claude_GIthub.txt dal progetto
+2. Leggi BOH_OS_BACKLOG.md e BOH_OS_DECISIONS.md da brigade-main
+3. Leggi sempre i file da GitHub prima di modificarli
+4. Bumpa sw.js ad ogni push
 
-1. Leggi il file x_claude_GIthub.txt nel progetto — contiene il token GitHub
-2. Leggi questi file da brigade-main:
-   - BOH_OS_BACKLOG.md
-   - BOH_OS_DECISIONS.md
-   - BRIGADE_DB_SCHEMA.md  ← OBBLIGATORIO — colonne reali del DB, leggerlo sempre
-3. Per leggere file GitHub: GET https://api.github.com/repos/1cos/back-of-house/contents/{path}?ref=brigade-main
-4. Prima di modificare qualsiasi file JS: scaricalo fresco da GitHub, modificalo, ricaricalo
-5. Bumpa sempre sw.js nello stesso push
-6. Chiedi sempre a Max un aggiornamento su cosa ha fatto dall'ultima sessione
-
----
-
-## STATO — Brigade v195
-
+## STATO
 - Supabase: ydqmumpytgrlceuinoqt
 - Deploy: https://1cos.github.io/back-of-house
 - Branch: brigade-main
-- Kitchen Display: https://1cos.github.io/back-of-house/display.html (LIVE su Insignia Fire TV)
-- App NON ancora distribuita alla brigata — tutti i dati nel DB sono di test
+- Display: https://1cos.github.io/back-of-house/display.html (LIVE su Fire TV)
+- Versione: v202
 
 ---
 
-## BUG ATTIVI DA RISOLVERE
+## OPZIONE A — Chef Inbox (priorità alta)
 
-### 1. Closing — chiusura stazioni errata (PRIORITA' ALTA)
-- Fix _closingStationLock applicata in v195 ma comportamento da verificare
-- Il bug: goCheckStation() nel popup forgotten cambiava station2 globalmente
-- Dopo il fix c'era ancora comportamento strano — test non completato
-- Da fare: test pulito con una stazione sola, verificare DB dopo chiusura
-- Da investigare: renderS() post-chiusura — possibile problema visivo
+Inbox unificato admin stile chat. Accessibile da ••• → "Chef Inbox".
 
-### 2. CORS error su send-push (PRIORITA' ALTA)
-- Edge Function send-push blocca richieste da 1cos.github.io
-- Errore: "blocked by CORS policy" in console (closing.js:137 e operation-notes.js)
-- Non blocca la chiusura ma la push non arriva
-- Da fare: aggiungere Access-Control-Allow-Origin header alla Edge Function send-push
-
----
-
-## SOUS CHEF AI — PRIORITA' INGEGNERISTICA
-
-In ordine di impatto / facilità:
-
-### 1. Migliorare prompt sc-nightly-brief (ALTA)
-- Problema: genera frasi vaghe ("La brigata ha lavorato in modo efficiente")
-- Soluzione: iniettare dati strutturati reali da v_prep_daily, pos_daily_summary, v_item_alerts
-- Tono richiesto: chef di linea, ultra-conciso, max 40 parole, zero convenevoli
-- Zero nuova infrastruttura — solo migliorare il prompt nella Edge Function
-
-### 2. AI parsing post-salvataggio su operation_notes (MEDIA)
-- Dopo che un ragazzo salva la nota serale, chiamata Groq con prompt 3 righe
-- Estrae: sentiment (positive/neutral/negative) + 2-3 tags operativi
-- Fa UPDATE sulla riga appena inserita
-- Costo: ~50 token per nota
-- Sblocca: analisi storica del morale brigata, pattern servizio
-
-### 3. skills JSONB su users (MEDIA)
-- ALTER TABLE users ADD COLUMN skills JSONB DEFAULT '[]';
-- Esempio: ["pasta fresca", "pastry", "oven"]
-- Sblocca Livello 5 Sous Chef: "chi può coprire il grill stasera?"
-- 10 minuti di lavoro
-
-### 4. Connettere souschef-chat a recipe_bom e ingredient_monthly_spend (MEDIA)
-- Le tabelle esistono ma souschef-chat v15 non le usa
-- recipe_bom = grafo dipendenze (Lasagna → Ragù + Besciamella + Pasta)
-- ingredient_monthly_spend = storico spesa per analisi food cost
-- Richede lettura Edge Function souschef-chat per capire cosa inietta nel contesto
-
----
-
-## FOCUS MODE — da costruire
-
-Mockup approvato da Max (2026-06-16).
-
-**Accesso:** swipe destra dalla home di Brigade → slide animation → Focus Mode
-**Uscita:** swipe sinistra → torna Brigade normale
+**Tabelle sorgente:**
+- `chef_reports` — Tell Chef (arancio 📢)
+- `operation_notes` — Feedback serale post-closing (viola 🌙)
+- `briefing` — punti Chef AI (blu 🤖)
 
 **Layout:**
-- Header: nome cuoco + stazione + pallino online
-- Hint bar: "← in progress · swipe · done →"
-- 3 sezioni collassabili verticali con tap sul titolo:
-  - To Do — bordo rosso, in cima
-  - In Progress — bordo giallo
-  - Done — collassata di default, opaca, in fondo
-- Card swipe: destra = Done (verde), sinistra = In Progress (giallo)
-- Soglia 60% larghezza per conferma (mani bagnate)
-- Filtro automatico sulla stazione del cuoco loggato
-- Realtime: si aggiorna quando altri completano prep
+- Messaggi in ordine cronologico inverso
+- Colori: blu=Chef AI, arancio=Tell Chef, viola=Operation Note
+- Nome sempre visibile (mai anonimo verso Max)
+- Bottoni: Resolve / Keep open / Ask Chef AI
+- Resolve = chiude ma resta in archivio
+- Sezione "From your team" nel briefing admin mattutino
 
-**Landscape mode:** da esplorare con Max — probabilmente 3 colonne side-by-side
+**Fix briefing admin:**
+- Mostra 2-3 punti chiave invece di tutti
+- Bottone "View all" → modal con tutto + chef_reports + operation_notes
 
-**File da leggere prima:**
-- js/prep.js (logica prep esistente)
-- js/presence.js (per stazione utente loggato)
+**File da leggere:**
+- js/briefing.js
+- js/operation-notes.js  
+- js/tell-chef.js
+- js/admin.js
 
-**Cosa NON toccare:**
-- Logica salvataggio DB esistente
-- Admin view prep
-- Nessun altro modulo
+---
+
+## OPZIONE B — Focus Mode (priorità alta)
+
+Modalità lavagna digitale staff. Swipe destra dalla home.
+Attiva 8:00 AM → 8:00 PM CDT automaticamente.
+Solo staff (role != admin).
+
+**Spec completa nel BACKLOG sezione FOCUS MODE.**
+
+**File da leggere:**
+- js/prep.js
+- js/presence.js
+- js/app.js (sezione doLogin/tab visibility)
 
 ---
 
 ## REGOLE OPERATIVE
-
-1. Leggi sempre i file da GitHub prima di modificarli
-2. Mai usare template literals multiriga o emoji nei file JS
+1. Leggi sempre da GitHub prima di modificare
+2. Mai template literals multiriga nei file JS
 3. Bumpa sw.js nello stesso push
-4. Verifica via API dopo ogni push
-5. Supabase: ydqmumpytgrlceuinoqt
-6. Dichiara sempre cosa cambierai prima di scrivere codice
-7. KITCHEN DISPLAY = SOLO INGLESE — regola permanente
-8. pos_item_aliases: 40 regole di produzione — usarla per tutte le stats
-9. Tutti i dati DB sono test — non fare considerazioni su volumi o comportamenti utente
+4. Dichiara sempre cosa cambierai prima di scrivere codice
+5. KITCHEN DISPLAY = SOLO INGLESE — regola permanente
+6. pos_item_aliases: 40 regole produzione — usarla per tutte le stats
+7. "Anonimo" in operation_notes = privato verso colleghi, non verso Max
