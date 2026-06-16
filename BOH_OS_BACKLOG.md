@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-16 — v204*
+*Aggiornato: 2026-06-16 — v217*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,7 +10,7 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v204**
+- Versione frontend: **v217**
 - Versione souschef-chat: v15
 - Supabase: ydqmumpytgrlceuinoqt
 - Leggi sempre da GitHub brigade-main, MAI da /mnt/project/
@@ -259,3 +259,22 @@ Solo per staff (role != admin) — Max vede sempre Brigade normale.
 ### pos_item_aliases
 - 40 regole mapping alias→canonical
 - Categorie: protein, side, pasta, appetizer
+
+---
+
+## Sessione 2026-06-16 — TripleSeat Calendar
+
+### TripleSeat Integration
+- OAuth 2.0 app creata su TripleSeat (ZOTS LLC) — app "MAX"
+- Client ID + Secret salvati nei Supabase secrets
+- Edge Function `tripleseat-sync` v4 — OAuth 2.0 client_credentials flow
+- Tabella `events` estesa: contact_name, contact_email, contact_phone, room_name, total_amount, documents JSONB, last_synced_at
+- **PENDING:** premere Authorize su TripleSeat (Monica deve farlo) per completare il flow OAuth 2.0 authorization_code
+
+### Calendar Tab (v217)
+- js/calendar.js — lista eventi scrollabile solo admin
+- section#vkal in index.html — non-fixed, scroll normale
+- Filtri: Upcoming / Past / All
+- Card evento: data, orario, guests, room, status, link PDF documenti, link TripleSeat
+- Bottone ↻ Sync TripleSeat in alto a destra
+- Layout: segue topbar + newsBar correttamente
