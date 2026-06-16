@@ -1,6 +1,6 @@
-// ── FOCUS MODE v3 ──
+// ── FOCUS MODE v4 ──
 // Staff only, 8AM-8PM CDT
-// Feed view — 3 card uguali in colonna scorrevole
+// Bottoni START/DONE su tutte le card — libertà totale
 
 var _focusStartTimes = {};
 var _focusChannel = null;
@@ -57,7 +57,6 @@ function buildFocusList() {
     if (!myStation) return true;
     return i.category && i.category.includes(myStation);
   });
-  // Sort: in_progress first, then need_tomorrow, then done
   _focusList = all.sort(function(a, b) {
     var aScore = a.in_progress ? 3 : (a.need_tomorrow ? 2 : 0);
     var bScore = b.in_progress ? 3 : (b.need_tomorrow ? 2 : 0);
@@ -66,52 +65,42 @@ function buildFocusList() {
   });
 }
 
-window.buildFocusListAll = function() {
-  _focusList = items.slice().sort(function(a, b) {
-    var aScore = a.in_progress ? 3 : (a.need_tomorrow ? 2 : 0);
-    var bScore = b.in_progress ? 3 : (b.need_tomorrow ? 2 : 0);
-    if (bScore !== aScore) return bScore - aScore;
-    return a.name.localeCompare(b.name);
-  });
-  renderFocusFeed();
-};
-
 window.renderFocusFeed = function() {
   var container = document.getElementById('focusFeed');
   if (!container) return;
-
   if (!_focusList.length) {
-    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:18px;">All done! ✅</div>';
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:18px;">Nothing to prep ✅</div>';
     return;
   }
-
   var html = '';
-  _focusList.forEach(function(i) {
-    html += renderOneFocusCard(i);
-  });
+  _focusList.forEach(function(i) { html += renderOneFocusCard(i); });
   container.innerHTML = html;
 };
 
 function renderOneFocusCard(i) {
   var isWip = i.in_progress;
   var isDone = !i.need_tomorrow && !i.in_progress;
-  var isUrgent = i.need_tomorrow && !i.in_progress;
 
   var statusColor = isWip ? '#3b82f6' : (isDone ? '#16a34a' : '#ef4444');
   var statusLabel = isWip
     ? 'IN PROGRESS' + (_focusStartTimes[i.id] ? ' · ' + Math.round((Date.now()-_focusStartTimes[i.id])/60000) + ' min ⏱' : '')
     : (isDone ? 'DONE' : 'DA FARE');
 
-  var recipeLink = i.recipe_id
+  var hasRecipe = i.recipe_id || (typeof recipeLinks !== 'undefined' && recipeLinks[i.id]) || i.note;
+  var recipeLink = hasRecipe
     ? '<div onclick="openRecipeForItem(\'' + i.id + '\')" style="font-size:13px;color:#059669;cursor:pointer;margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;">📖 Ricetta</div>'
     : '';
 
-  var btns = '';
-  if (isUrgent) {
-    btns = '<button onclick="focusStart(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:#16a34a;color:white;font-size:18px;font-weight:700;border:none;cursor:pointer;margin-top:14px;">START</button>';
-  } else if (isWip) {
-    btns = '<button onclick="focusDone(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:#ef4444;color:white;font-size:18px;font-weight:700;border:none;cursor:pointer;margin-top:14px;">DONE</button>';
-  }
+  // START sempre visibile tranne su in_progress
+  // DONE sempre visibile tranne su done
+  var startBtn = !isWip
+    ? '<button onclick="focusStart(\'' + i.id + '\')" style="flex:1;height:54px;border-radius:16px;background:#16a34a;color:white;font-size:17px;font-weight:700;border:none;cursor:pointer;">START</button>'
+    : '';
+  var doneBtn = !isDone
+    ? '<button onclick="focusDone(\'' + i.id + '\')" style="flex:1;height:54px;border-radius:16px;background:#ef4444;color:white;font-size:17px;font-weight:700;border:none;cursor:pointer;">DONE</button>'
+    : '<button onclick="focusReopen(\'' + i.id + '\')" style="flex:1;height:54px;border-radius:16px;background:#e2e8f0;color:#64748b;font-size:15px;font-weight:600;border:none;cursor:pointer;">Riapri</button>';
+
+  var btns = '<div style="display:flex;gap:8px;margin-top:14px;">' + startBtn + doneBtn + '</div>';
 
   return '<div style="background:white;border-radius:24px;box-shadow:0 2px 16px rgba(30,58,95,0.09);border:1px solid rgba(59,130,246,0.08);padding:22px 20px;margin-bottom:12px;">' +
     '<div style="font-size:12px;font-weight:700;color:' + statusColor + ';letter-spacing:.06em;margin-bottom:4px;">' + statusLabel + '</div>' +
@@ -131,6 +120,14 @@ window.focusStart = async function(id) {
   renderFocusFeed();
 };
 
+window.focusReopen = async function(id) {
+  await supa.from('prep_tasks').update({need_tomorrow: true, in_progress: false}).eq('id', id);
+  tasks[id].need_tomorrow = true;
+  tasks[id].in_progress = false;
+  buildFocusList();
+  renderFocusFeed();
+};
+
 window.focusDone = async function(id) {
   var it = tasks[id];
   var startedAt = _focusStartTimes[id] || null;
@@ -138,7 +135,7 @@ window.focusDone = async function(id) {
   var durLabel = durationMinutes ? '<div style="font-size:13px;color:#f59e0b;margin-bottom:14px;">⏱ Tempo: ' + durationMinutes + ' min</div>' : '';
 
   var sheet = document.createElement('div');
-  sheet.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.4);display:flex;align-items:flex-end;';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.4);display:flex;align-items:flex-end;';
   sheet.innerHTML =
     '<div style="background:white;border-radius:24px 24px 0 0;padding:20px;width:100%;max-width:480px;margin:0 auto;">' +
       '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;"></div>' +
