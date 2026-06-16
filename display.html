@@ -5,185 +5,189 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Brigade — Kitchen Display</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body {
   width:100%; height:100%; overflow:hidden;
-  background:#08090c !important;
-  background-color:#08090c !important;
-  color:#e8eaf0;
+  background:#f0f2f5 !important;
+  color:#1a202c;
   font-family:'Inter',sans-serif;
-  font-size:13px;
 }
+#root { display:flex; flex-direction:column; height:100vh; background:#f0f2f5; }
 
-/* ── HEADER BAR ── */
+/* ── HEADER ── */
 #header {
-  display:flex; align-items:center; gap:0;
-  background:#0d0f14; border-bottom:1px solid #1e2330;
-  height:46px; flex-shrink:0; padding:0 14px;
+  background:#1a202c; color:#fff;
+  display:flex; align-items:center; gap:12px;
+  height:52px; padding:0 16px; flex-shrink:0;
 }
-#header .h-brand { font-size:11px; font-weight:800; letter-spacing:0.2em; color:#4a5568; text-transform:uppercase; margin-right:16px; }
-#header .h-clock { font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:600; color:#fff; margin-right:8px; }
-#header .h-date  { font-size:11px; color:#4a5568; margin-right:auto; }
-.status-pill {
-  display:flex; align-items:center; gap:5px;
-  padding:4px 10px; border-radius:20px; font-size:10px; font-weight:700;
-  letter-spacing:0.08em; text-transform:uppercase; margin-left:8px;
-}
-.pill-green  { background:rgba(34,197,94,0.12);  border:1px solid rgba(34,197,94,0.3);  color:#22c55e; }
-.pill-amber  { background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#f59e0b; }
-.pill-red    { background:rgba(239,68,68,0.12);  border:1px solid rgba(239,68,68,0.3);  color:#ef4444; }
-.pill-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.h-brand { font-size:11px; font-weight:900; letter-spacing:0.25em; color:#4a5568; text-transform:uppercase; }
+.h-divider { width:1px; height:24px; background:#2d3748; }
+.h-clock { font-family:'JetBrains Mono',monospace; font-size:26px; font-weight:700; color:#fff; }
+.h-date  { font-size:11px; color:#718096; margin-right:auto; }
 
-/* ── BODY GRID ── */
+/* Service timer pill */
+.svc-pill {
+  display:flex; align-items:center; gap:6px;
+  padding:5px 14px; border-radius:24px; font-size:11px; font-weight:800;
+  letter-spacing:0.08em; text-transform:uppercase;
+}
+.svc-before  { background:#1e3a5f; color:#60a5fa; border:1px solid #1e40af; }
+.svc-open    { background:#14532d; color:#4ade80; border:1px solid #166534; }
+.svc-closing { background:#78350f; color:#fbbf24; border:1px solid #92400e; }
+.svc-dot { width:7px; height:7px; border-radius:50%; background:currentColor; }
+.svc-blink { animation:blink 1.2s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* Alert pill */
+.alert-pill {
+  display:flex; align-items:center; gap:5px;
+  padding:5px 12px; border-radius:24px; font-size:10px; font-weight:800;
+  letter-spacing:0.08em; text-transform:uppercase;
+}
+.ap-ok     { background:#14532d; color:#4ade80; border:1px solid #166534; }
+.ap-warn   { background:#78350f; color:#fbbf24; border:1px solid #92400e; }
+
+/* ── BODY ── */
 #body {
   display:grid;
-  grid-template-columns: 280px 1fr 260px;
-  grid-template-rows: 1fr;
-  flex:1; overflow:hidden;
-  gap:0;
+  grid-template-columns: 270px 1fr 250px;
+  flex:1; overflow:hidden; gap:8px; padding:8px;
 }
 
-/* ── PANEL BASE ── */
-.panel { display:flex; flex-direction:column; overflow:hidden; border-right:1px solid #1e2330; }
-.panel:last-child { border-right:none; }
-.panel-head {
-  padding:8px 12px 6px; border-bottom:1px solid #1e2330; flex-shrink:0;
-  display:flex; align-items:center; justify-content:space-between;
+/* ── CARD BASE ── */
+.card {
+  background:#fff; border-radius:12px;
+  box-shadow:0 1px 4px rgba(0,0,0,0.08);
+  display:flex; flex-direction:column; overflow:hidden;
 }
-.panel-head .ph-title { font-size:9px; font-weight:800; letter-spacing:0.2em; text-transform:uppercase; color:#4a5568; }
-.panel-head .ph-sub   { font-size:9px; color:#2d3748; font-weight:600; }
-.panel-body { flex:1; overflow:hidden; padding:8px 10px; display:flex; flex-direction:column; gap:6px; }
+.card-head {
+  padding:10px 14px 8px; border-bottom:2px solid #f0f2f5;
+  display:flex; align-items:baseline; justify-content:space-between; flex-shrink:0;
+}
+.card-title { font-size:18px; font-weight:900; color:#1a202c; letter-spacing:-0.02em; }
+.card-sub   { font-size:10px; font-weight:700; color:#a0aec0; text-transform:uppercase; letter-spacing:0.1em; }
+.card-body  { flex:1; overflow:hidden; padding:10px 12px; display:flex; flex-direction:column; gap:6px; }
 
 /* ── LEFT: SALES ── */
-#panel-left { background:#08090c; }
-
-/* Sales screen indicator */
+#panel-left { }
 .sales-tabs { display:flex; gap:4px; }
-.stab { width:18px; height:3px; border-radius:2px; background:#1e2330; transition:background 0.3s; }
+.stab { width:20px; height:3px; border-radius:2px; background:#e2e8f0; transition:background 0.3s; }
 .stab.active { background:#3b82f6; }
 
-/* Screen A — Yesterday */
-.sales-big-number { font-family:'JetBrains Mono',monospace; font-size:36px; font-weight:700; color:#22c55e; line-height:1; }
-.sales-label { font-size:9px; color:#4a5568; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; margin-bottom:2px; }
-.sales-sub-row { display:flex; gap:10px; margin-top:4px; }
-.sales-sub-item { font-size:10px; color:#64748b; }
-.sales-sub-item span { color:#94a3b8; font-weight:600; }
+.big-num { font-family:'JetBrains Mono',monospace; font-size:40px; font-weight:700; color:#1a202c; line-height:1; }
+.big-label { font-size:10px; font-weight:800; color:#a0aec0; text-transform:uppercase; letter-spacing:0.15em; margin-bottom:3px; }
+.sales-meta { display:flex; gap:12px; margin-top:5px; }
+.sales-meta span { font-size:11px; color:#718096; font-weight:600; }
 
-.sales-divider { height:1px; background:#1e2330; margin:6px 0; }
+.sdivider { height:1px; background:#f0f2f5; margin:6px 0; }
+.section-label { font-size:10px; font-weight:800; color:#a0aec0; text-transform:uppercase; letter-spacing:0.15em; margin-bottom:4px; }
 
-/* Top items list */
-.rank-row {
-  display:flex; align-items:center; gap:6px;
-  padding:4px 0; border-bottom:1px solid #12151d;
-}
-.rank-num { font-size:9px; color:#2d3748; font-family:'JetBrains Mono',monospace; width:14px; flex-shrink:0; }
-.rank-name { flex:1; font-size:12px; font-weight:600; color:#cbd5e1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.rank-qty  { font-size:10px; color:#475569; margin-right:4px; }
-.rank-rev  { font-size:11px; font-weight:700; color:#22c55e; font-family:'JetBrains Mono',monospace; }
+.rank-row { display:flex; align-items:center; gap:6px; padding:5px 0; border-bottom:1px solid #f7f8fa; }
+.rank-n   { font-size:10px; color:#cbd5e0; font-family:'JetBrains Mono',monospace; width:16px; flex-shrink:0; }
+.rank-nm  { flex:1; font-size:13px; font-weight:700; color:#2d3748; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rank-q   { font-size:12px; font-weight:800; color:#3b82f6; font-family:'JetBrains Mono',monospace; }
 
-/* Expected tonight */
-.exp-row {
-  display:flex; align-items:center; gap:6px; padding:4px 0; border-bottom:1px solid #12151d;
-}
-.exp-name { flex:1; font-size:12px; font-weight:600; color:#cbd5e1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.exp-qty  { font-size:11px; font-weight:700; color:#f59e0b; font-family:'JetBrains Mono',monospace; }
-.exp-label { font-size:9px; color:#374151; }
+.exp-row  { display:flex; align-items:center; gap:6px; padding:5px 0; border-bottom:1px solid #f7f8fa; }
+.exp-nm   { flex:1; font-size:13px; font-weight:700; color:#2d3748; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.exp-q    { font-size:13px; font-weight:800; color:#f59e0b; font-family:'JetBrains Mono',monospace; }
+.exp-avg  { font-size:9px; color:#cbd5e0; }
 
 /* ── CENTRE: PREP ── */
-#panel-centre { background:#08090c; border-right:1px solid #1e2330; }
+#panel-centre { }
 #prep-grid {
   flex:1; overflow:hidden;
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap:6px;
-  padding:8px 10px;
+  display:grid; grid-template-columns:1fr 1fr 1fr;
+  gap:6px; padding:10px 12px;
 }
-.station-col { display:flex; flex-direction:column; gap:4px; overflow:hidden; }
-.station-col-head {
-  font-size:9px; font-weight:800; letter-spacing:0.18em; text-transform:uppercase;
-  color:#fff; padding:5px 8px; border-radius:6px; margin-bottom:2px;
+.st-col { display:flex; flex-direction:column; gap:4px; }
+.st-head {
+  padding:6px 10px; border-radius:8px; font-size:11px; font-weight:900;
+  letter-spacing:0.1em; text-transform:uppercase;
   display:flex; align-items:center; justify-content:space-between;
 }
-.col-oven    { background:#1a1208; border:1px solid #78350f; color:#f59e0b !important; }
-.col-pasta   { background:#0a1628; border:1px solid #1e3a5f; color:#60a5fa !important; }
-.col-salad   { background:#0a1a0d; border:1px solid #14532d; color:#4ade80 !important; }
-.col-saute   { background:#1a0a0a; border:1px solid #7f1d1d; color:#f87171 !important; }
-.col-plating { background:#12081a; border:1px solid #4c1d95; color:#c084fc !important; }
-.col-pastry  { background:#1a1208; border:1px solid #92400e; color:#fbbf24 !important; }
-.col-freezer { background:#08121a; border:1px solid #0e4166; color:#38bdf8 !important; }
-.col-other   { background:#0f0f0f; border:1px solid #1e2330; color:#94a3b8 !important; }
+.st-count { font-size:10px; font-weight:700; opacity:0.75; }
 
-.col-count { font-size:9px; font-weight:600; opacity:0.7; }
+/* Station colors — light theme */
+.s-oven    { background:#fff7ed; border:2px solid #fb923c; color:#c2410c; }
+.s-pasta   { background:#eff6ff; border:2px solid #60a5fa; color:#1d4ed8; }
+.s-fpasta  { background:#f0fdf4; border:2px solid #34d399; color:#065f46; }
+.s-salad   { background:#f0fdf4; border:2px solid #4ade80; color:#15803d; }
+.s-saute   { background:#fff1f2; border:2px solid #f87171; color:#be123c; }
+.s-plating { background:#faf5ff; border:2px solid #c084fc; color:#7e22ce; }
+.s-pastry  { background:#fefce8; border:2px solid #fbbf24; color:#92400e; }
+.s-freezer { background:#eff6ff; border:2px solid #38bdf8; color:#0369a1; }
+.s-other   { background:#f8fafc; border:2px solid #cbd5e0; color:#475569; }
 
-.prep-card {
+.prep-item-card {
+  background:#f8fafc; border-radius:6px; padding:5px 8px;
   display:flex; align-items:center; gap:6px;
-  background:#0d1018; border:1px solid #1a1f2e;
-  border-radius:5px; padding:5px 7px;
-  min-height:28px;
+  border-left:3px solid #e2e8f0;
 }
-.prep-card.done { opacity:0.25; }
-.prep-card .pc-dot { width:6px; height:6px; border-radius:50%; background:#2d3748; flex-shrink:0; }
-.prep-card.done .pc-dot { background:#22c55e; }
-.prep-card .pc-name { flex:1; font-size:12px; font-weight:600; color:#e2e8f0; line-height:1.2; }
-.prep-card.done .pc-name { color:#374151; text-decoration:line-through; }
+.prep-item-card.done { opacity:0.3; border-left-color:#22c55e; }
+.pi-dot { width:6px; height:6px; border-radius:50%; background:#cbd5e0; flex-shrink:0; }
+.prep-item-card.done .pi-dot { background:#22c55e; }
+.pi-name { font-size:12px; font-weight:700; color:#2d3748; }
+.prep-item-card.done .pi-name { text-decoration:line-through; color:#a0aec0; }
+.prep-more { font-size:10px; color:#a0aec0; font-weight:600; padding:3px 8px; }
 
-/* ── RIGHT: STATIONS ── */
-#panel-right { background:#08090c; }
-.staff-station {
-  background:#0d1018; border:1px solid #1a1f2e;
-  border-radius:7px; padding:7px 9px; flex-shrink:0;
+/* ── RIGHT: STAFF LEADERBOARD ── */
+#panel-right { }
+.staff-card {
+  background:#f8fafc; border-radius:8px; padding:8px 10px;
+  display:flex; align-items:center; gap:9px;
+  border:1px solid #e2e8f0;
 }
-.ss-name {
-  font-size:9px; font-weight:800; letter-spacing:0.15em; text-transform:uppercase;
-  color:#4a5568; margin-bottom:5px; display:flex; align-items:center; justify-content:space-between;
-}
-.ss-name-colored { }
-.staff-row { display:flex; align-items:center; gap:7px; margin-bottom:3px; }
-.staff-row:last-child { margin-bottom:0; }
-.staff-avatar {
-  width:26px; height:26px; border-radius:50%; background:#1e3a5f;
+.staff-rank { font-size:14px; font-weight:900; color:#e2e8f0; width:18px; flex-shrink:0; text-align:center; }
+.staff-rank.top1 { color:#f59e0b; }
+.staff-rank.top2 { color:#94a3b8; }
+.staff-rank.top3 { color:#cd7f32; }
+.s-avatar {
+  width:34px; height:34px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
-  font-size:10px; font-weight:800; color:#93c5fd; flex-shrink:0; overflow:hidden;
+  font-size:13px; font-weight:800; color:#fff; flex-shrink:0; overflow:hidden;
+  position:relative;
 }
-.staff-avatar img { width:100%; height:100%; object-fit:cover; }
-.staff-name-text { font-size:13px; font-weight:700; color:#e2e8f0; }
-.staff-role-text { font-size:9px; color:#4a5568; }
+.s-avatar img { width:100%; height:100%; object-fit:cover; }
+.online-dot {
+  position:absolute; bottom:0; right:0;
+  width:9px; height:9px; border-radius:50%; background:#22c55e;
+  border:2px solid #fff;
+}
+.s-info { flex:1; min-width:0; }
+.s-name { font-size:14px; font-weight:800; color:#1a202c; }
+.s-station { font-size:10px; color:#a0aec0; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.s-prep-count {
+  font-family:'JetBrains Mono',monospace; font-size:20px; font-weight:700;
+  color:#3b82f6; flex-shrink:0;
+}
+.s-prep-label { font-size:9px; color:#a0aec0; text-align:center; }
 
-/* ── BOTTOM: ALERTS + BRIEFING ── */
+/* offline staff */
+.staff-card.offline { opacity:0.4; }
+.staff-card.offline .s-prep-count { color:#cbd5e0; }
+
+/* ── FOOTER ── */
 #footer {
-  display:flex; align-items:stretch;
-  background:#0a0b10; border-top:1px solid #1e2330;
-  height:38px; flex-shrink:0; overflow:hidden;
+  background:#1a202c; height:36px; flex-shrink:0;
+  display:flex; align-items:center; overflow:hidden;
 }
-#footer .f-label {
-  padding:0 10px; display:flex; align-items:center;
-  font-size:9px; font-weight:800; letter-spacing:0.15em; text-transform:uppercase;
-  color:#f59e0b; border-right:1px solid #1e2330; flex-shrink:0;
-  background:#0d0c08;
+.f-label {
+  padding:0 12px; font-size:9px; font-weight:900; letter-spacing:0.2em;
+  text-transform:uppercase; color:#f59e0b; border-right:1px solid #2d3748;
+  flex-shrink:0; height:100%; display:flex; align-items:center;
 }
-#footer .f-ticker { flex:1; overflow:hidden; display:flex; align-items:center; padding:0 10px; }
-#footer .f-inner  { white-space:nowrap; font-size:12px; color:#94a3b8; font-weight:500; animation:ticker 50s linear infinite; display:inline-block; }
+.f-ticker { flex:1; overflow:hidden; display:flex; align-items:center; padding:0 12px; }
+.f-inner  { white-space:nowrap; font-size:12px; color:#a0aec0; font-weight:500; display:inline-block; animation:ticker 50s linear infinite; }
 @keyframes ticker { 0%{transform:translateX(100vw)} 100%{transform:translateX(-100%)} }
-#footer .f-brief  {
-  border-left:1px solid #1e2330; padding:0 12px; display:flex; align-items:center;
-  font-size:11px; color:#60a5fa; font-weight:500; max-width:320px;
-  overflow:hidden; white-space:nowrap; text-overflow:ellipsis; flex-shrink:0;
-}
-#footer .f-brief-label { font-size:9px; color:#1e3a5f; font-weight:800; text-transform:uppercase; letter-spacing:0.1em; margin-right:6px; flex-shrink:0; }
+.f-brief  { border-left:1px solid #2d3748; padding:0 14px; display:flex; align-items:center; gap:6px; flex-shrink:0; max-width:340px; overflow:hidden; }
+.f-brief-tag { font-size:9px; font-weight:900; color:#3b82f6; text-transform:uppercase; letter-spacing:0.1em; flex-shrink:0; }
+.f-brief-text { font-size:11px; color:#718096; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-/* ── ROOT FLEX ── */
-#root { display:flex; flex-direction:column; height:100vh; background:#08090c; }
-#root > #body { flex:1; }
-
-/* ── SALES PANEL SCREENS ── */
-.sales-screen { display:none; flex-direction:column; gap:0; }
-.sales-screen.active { display:flex; }
-
-/* ── SCREEN TRANSITION ── */
-.fade-in { animation:fi 0.4s ease; }
-@keyframes fi { from{opacity:0} to{opacity:1} }
+/* ── SCREEN FADE ── */
+.fade { animation:fadeIn 0.4s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
 </style>
 </head>
 <body>
@@ -192,51 +196,50 @@ html, body {
   <!-- HEADER -->
   <div id="header">
     <div class="h-brand">Brigade</div>
+    <div class="h-divider"></div>
     <div class="h-clock" id="clock">--:--</div>
     <div class="h-date" id="hdate">--</div>
-    <div class="status-pill pill-green" id="pill-system"><div class="pill-dot"></div>System OK</div>
-    <div class="status-pill pill-green" id="pill-prep"><div class="pill-dot"></div><span id="pill-prep-text">Prep OK</span></div>
-    <div class="status-pill pill-green" id="pill-alerts"><div class="pill-dot"></div><span id="pill-alerts-text">No Alerts</span></div>
+    <div class="svc-pill svc-before" id="svc-pill">
+      <div class="svc-dot" id="svc-dot"></div>
+      <span id="svc-text">--</span>
+    </div>
+    <div class="alert-pill ap-ok" id="alert-pill">
+      <span id="alert-pill-text">No Alerts</span>
+    </div>
   </div>
 
   <!-- BODY -->
   <div id="body">
 
     <!-- LEFT: SALES -->
-    <div class="panel" id="panel-left">
-      <div class="panel-head">
-        <div class="ph-title" id="sales-panel-title">Yesterday Sales</div>
+    <div class="card" id="panel-left">
+      <div class="card-head">
+        <div class="card-title" id="sales-title">Sales</div>
         <div class="sales-tabs" id="sales-tabs">
           <div class="stab active"></div>
           <div class="stab"></div>
           <div class="stab"></div>
         </div>
       </div>
-      <div class="panel-body" id="sales-body">
-        <!-- filled by JS -->
-      </div>
+      <div class="card-body" id="sales-body"></div>
     </div>
 
     <!-- CENTRE: PREP -->
-    <div class="panel" id="panel-centre">
-      <div class="panel-head">
-        <div class="ph-title">Today's Prep</div>
-        <div class="ph-sub" id="prep-count">— items</div>
+    <div class="card" id="panel-centre">
+      <div class="card-head">
+        <div class="card-title">Today's Prep</div>
+        <div class="card-sub" id="prep-sub">loading…</div>
       </div>
-      <div id="prep-grid">
-        <!-- filled by JS -->
-      </div>
+      <div id="prep-grid"></div>
     </div>
 
-    <!-- RIGHT: STATIONS -->
-    <div class="panel" id="panel-right">
-      <div class="panel-head">
-        <div class="ph-title">Stations</div>
-        <div class="ph-sub" id="staff-count">— on shift</div>
+    <!-- RIGHT: STAFF LEADERBOARD -->
+    <div class="card" id="panel-right">
+      <div class="card-head">
+        <div class="card-title">On Shift</div>
+        <div class="card-sub" id="staff-sub">— online</div>
       </div>
-      <div class="panel-body" id="stations-body">
-        <!-- filled by JS -->
-      </div>
+      <div class="card-body" id="staff-body"></div>
     </div>
 
   </div>
@@ -244,10 +247,10 @@ html, body {
   <!-- FOOTER -->
   <div id="footer">
     <div class="f-label">Alert</div>
-    <div class="f-ticker"><div class="f-inner" id="f-inner">Loading…</div></div>
+    <div class="f-ticker"><div class="f-inner" id="f-inner">Zenos on the Square</div></div>
     <div class="f-brief">
-      <div class="f-brief-label">AI</div>
-      <div id="brief-footer">Loading briefing…</div>
+      <div class="f-brief-tag">AI</div>
+      <div class="f-brief-text" id="brief-text">Loading briefing…</div>
     </div>
   </div>
 
@@ -257,34 +260,66 @@ const SUPABASE_URL = 'https://ydqmumpytgrlceuinoqt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MzcyOTUsImV4cCI6MjA5NDUxMzI5NX0.MSIKL4nCOxK8YFFTkt9AbFGViiwl-KEhHy6cL25gnKc';
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ── STATE ──
-let salesScreen = 0;
-let salesData = { yesterday: null, weekTop: [], expected: [] };
-let prepTasks = [], prepDone = new Set();
-let staffList = [];
-let alerts = [];
-let briefPoints = [];
-let salesTimer = null;
+// ── SERVICE HOURS ──
+// Mon-Thu: 11:00-21:00 / Fri-Sat: 11:00-22:00 / Sun: closed
+const SVC_OPEN = 11 * 60;
+function svcClose(dow) {
+  return (dow >= 5) ? 22 * 60 : 21 * 60; // Fri=5, Sat=6
+}
 
-const STATION_COLORS = {
-  'Oven Station':        'col-oven',
-  'Pasta Station':       'col-pasta',
-  'Fresh Pasta Station': 'col-pasta',
-  'Salad Station':       'col-salad',
-  'Sauté Station':       'col-saute',
-  'Saucier Station':     'col-saute',
-  'Plating Station':     'col-plating',
-  'Pastry Station':      'col-pastry',
-  'Freezer':             'col-freezer',
-};
+function getChicagoTime() {
+  const s = new Date().toLocaleString('en-US', { timeZone: 'America/Chicago', hour:'numeric', minute:'numeric', weekday:'short', hour12:false });
+  const parts = new Date().toLocaleString('en-US', { timeZone:'America/Chicago' });
+  const d = new Date(parts);
+  return { h: d.getHours(), m: d.getMinutes(), dow: d.getDay(), totalMin: d.getHours()*60+d.getMinutes() };
+}
+
+function updateServicePill() {
+  const { h, m, dow, totalMin } = getChicagoTime();
+  const close = svcClose(dow);
+  const pill = document.getElementById('svc-pill');
+  const dot  = document.getElementById('svc-dot');
+  const txt  = document.getElementById('svc-text');
+
+  if (dow === 0) { // Sunday closed
+    pill.className = 'svc-pill svc-before';
+    dot.className = 'svc-dot';
+    txt.textContent = 'Closed Sunday';
+    return;
+  }
+
+  const minsToOpen  = SVC_OPEN - totalMin;
+  const minsToClose = close - totalMin;
+
+  if (totalMin < SVC_OPEN) {
+    pill.className = 'svc-pill svc-before';
+    dot.className = 'svc-dot';
+    const hh = Math.floor(minsToOpen/60), mm = minsToOpen%60;
+    txt.textContent = hh > 0 ? `Opens in ${hh}h ${mm}m` : `Opens in ${mm}m`;
+  } else if (totalMin >= close) {
+    pill.className = 'svc-pill svc-before';
+    dot.className = 'svc-dot';
+    txt.textContent = 'Service ended';
+  } else if (minsToClose <= 60) {
+    pill.className = 'svc-pill svc-closing';
+    dot.className = 'svc-dot svc-blink';
+    txt.textContent = `Closing in ${minsToClose}m`;
+  } else {
+    pill.className = 'svc-pill svc-open';
+    dot.className = 'svc-dot svc-blink';
+    const hh = Math.floor(minsToClose/60), mm = minsToClose%60;
+    txt.textContent = `In service · ${hh}h ${mm}m left`;
+  }
+}
 
 // ── CLOCK ──
 function tick() {
   const now = new Date();
-  const t = now.toLocaleTimeString('en-US', { timeZone:'America/Chicago', hour:'2-digit', minute:'2-digit', hour12:false });
-  const d = now.toLocaleDateString('en-US', { timeZone:'America/Chicago', weekday:'long', month:'short', day:'numeric' });
+  const t = now.toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour:'2-digit',minute:'2-digit',hour12:false});
+  const d = now.toLocaleDateString('en-US',{timeZone:'America/Chicago',weekday:'long',month:'short',day:'numeric'});
   document.getElementById('clock').textContent = t;
   document.getElementById('hdate').textContent = d;
+  updateServicePill();
 }
 setInterval(tick, 1000); tick();
 
@@ -294,154 +329,151 @@ function todayISO() {
 }
 function yesterdayISO() {
   const d = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'}));
-  d.setDate(d.getDate()-1);
-  return d.toISOString().slice(0,10);
+  d.setDate(d.getDate()-1); return d.toISOString().slice(0,10);
 }
-function fmt$(n) { return '$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0}); }
-function dowNow() {
-  return new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'})).getDay();
-}
+
+// ── STATE ──
+let salesScreen = 0;
+let salesData = { ySum:null, yItems:[], weekTop:[], expected:[] };
+let prepTasks=[], prepDone=new Set();
+let presenceData=[], prepLogData=[];
+let alerts=[], briefPoints=[];
+
+const STATION_MAP = {
+  'Oven Station':'s-oven','Fresh Pasta Station':'s-fpasta',
+  'Pasta Station':'s-pasta','Salad Station':'s-salad',
+  'Sauté Station':'s-saute','Saucier Station':'s-saute',
+  'Plating Station':'s-plating','Pastry Station':'s-pastry','Freezer':'s-freezer'
+};
+const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ef4444','#14b8a6','#f97316'];
 
 // ── LOAD ──
 async function loadAll() {
-  await Promise.all([loadSales(), loadPrep(), loadStaff(), loadAlerts(), loadBriefing()]);
+  await Promise.all([loadSales(), loadPrep(), loadPresence(), loadAlerts(), loadBriefing()]);
 }
 
 async function loadSales() {
   const yest = yesterdayISO();
-  const { data: sum } = await supa.from('pos_daily_summary').select('net_sales,gross_sales,bill_count').eq('sale_date',yest).maybeSingle();
-  const { data: yItems } = await supa.from('pos_sales_by_item').select('menu_item,quantity,net_sales').eq('sale_date',yest).eq('sales_category','Food').order('net_sales',{ascending:false}).limit(6);
-  const dow = dowNow();
-  const { data: expItems } = await supa.from('pos_sales_by_item').select('menu_item,quantity').lt('sale_date',todayISO()).order('sale_date',{ascending:false});
-  // Calculate expected: avg by DOW
-  const dowMap = {};
-  (expItems||[]).forEach(r => {
-    // We approximate — just use recent week top items
-    if (!dowMap[r.menu_item]) dowMap[r.menu_item] = [];
+  const {data:ySum} = await supa.from('pos_daily_summary').select('net_sales,gross_sales,bill_count').eq('sale_date',yest).maybeSingle();
+  const {data:yItems} = await supa.from('pos_sales_by_item').select('menu_item,quantity').eq('sale_date',yest).eq('sales_category','Food').order('quantity',{ascending:false}).limit(6);
+  const weekStart = (() => { const d=new Date(); d.setDate(d.getDate()-7); return d.toISOString().slice(0,10); })();
+  const {data:wItems} = await supa.from('pos_sales_by_item').select('menu_item,quantity').gte('sale_date',weekStart).eq('sales_category','Food');
+  const wMap={};
+  (wItems||[]).forEach(r=>{ if(!wMap[r.menu_item]) wMap[r.menu_item]=0; wMap[r.menu_item]+=Number(r.quantity); });
+  const weekTop = Object.entries(wMap).map(([n,q])=>({n,q})).sort((a,b)=>b.q-a.q).slice(0,6);
+  const {data:allItems} = await supa.from('pos_sales_by_item').select('menu_item,quantity,sale_date').eq('sales_category','Food').lt('sale_date',todayISO());
+  const dow = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'})).getDay();
+  const dowMap={};
+  (allItems||[]).filter(r=>new Date(r.sale_date+'T12:00:00').getDay()===dow).forEach(r=>{
+    if(!dowMap[r.menu_item]) dowMap[r.menu_item]=[];
     dowMap[r.menu_item].push(Number(r.quantity));
   });
-  const expected = Object.entries(dowMap)
-    .map(([item, qtys]) => ({ menu_item: item, avg_qty: Math.round(qtys.reduce((a,b)=>a+b,0)/qtys.length) }))
-    .filter(x => x.avg_qty >= 3)
-    .sort((a,b) => b.avg_qty - a.avg_qty)
-    .slice(0,6);
-
-  const { data: weekItems } = await supa.from('pos_sales_by_item').select('menu_item,quantity,net_sales').gte('sale_date', (() => { const d=new Date(); d.setDate(d.getDate()-7); return d.toISOString().slice(0,10); })()).eq('sales_category','Food');
-  const weekMap = {};
-  (weekItems||[]).forEach(r => {
-    if (!weekMap[r.menu_item]) weekMap[r.menu_item] = { qty:0, rev:0 };
-    weekMap[r.menu_item].qty += Number(r.quantity);
-    weekMap[r.menu_item].rev += Number(r.net_sales);
-  });
-  const weekTop = Object.entries(weekMap).map(([item,v])=>({menu_item:item,...v})).sort((a,b)=>b.qty-a.qty).slice(0,6);
-
-  salesData = { yesterday: sum, yItems: yItems||[], weekTop, expected };
+  const expected = Object.entries(dowMap).map(([n,qs])=>({n,avg:Math.round(qs.reduce((a,b)=>a+b,0)/qs.length)})).filter(x=>x.avg>=2).sort((a,b)=>b.avg-a.avg).slice(0,6);
+  salesData = {ySum, yItems:yItems||[], weekTop, expected};
   renderSales();
 }
 
 async function loadPrep() {
-  const { data: tasks } = await supa.from('prep_tasks').select('*').eq('archived',false).order('category').order('name');
+  const {data:tasks} = await supa.from('prep_tasks').select('*').eq('archived',false).order('category').order('name');
   prepTasks = tasks||[];
   const today = todayISO();
-  const { data: logs } = await supa.from('prep_log').select('item').gte('created_at', today+'T00:00:00+00:00').lte('created_at', today+'T23:59:59+00:00');
+  const {data:logs} = await supa.from('prep_log').select('item,user_name').gte('created_at',today+'T00:00:00+00:00');
   prepDone = new Set((logs||[]).map(l=>l.item));
+  prepLogData = logs||[];
   renderPrep();
 }
 
-async function loadStaff() {
-  const { data } = await supa.from('users').select('name,role,default_station,photo_url').eq('active',true).neq('is_admin',true).order('default_station').order('name');
-  staffList = (data||[]).filter(u => u.role !== 'admin');
-  renderStations();
+async function loadPresence() {
+  const {data} = await supa.from('user_presence').select('*').order('last_seen',{ascending:false});
+  presenceData = data||[];
+  renderStaff();
 }
 
 async function loadAlerts() {
-  const { data } = await supa.from('alerts').select('title,body').eq('is_active',true).order('created_at',{ascending:false});
+  const {data} = await supa.from('alerts').select('title,body').eq('is_active',true).order('created_at',{ascending:false});
   alerts = data||[];
   renderFooter();
+  const pill = document.getElementById('alert-pill');
+  const txt  = document.getElementById('alert-pill-text');
+  if (alerts.length) {
+    pill.className = 'alert-pill ap-warn';
+    txt.textContent = `${alerts.length} Alert${alerts.length>1?'s':''}`;
+  } else {
+    pill.className = 'alert-pill ap-ok';
+    txt.textContent = 'No Alerts';
+  }
 }
 
 async function loadBriefing() {
-  const { data } = await supa.from('briefing').select('points').eq('date',todayISO()).maybeSingle();
+  const {data} = await supa.from('briefing').select('points').eq('date',todayISO()).maybeSingle();
   briefPoints = data?.points||[];
-  renderFooter();
+  document.getElementById('brief-text').textContent = briefPoints[0]||'No briefing today';
 }
 
 // ── RENDER SALES ──
-const SCREEN_TITLES = ['Yesterday Sales','This Week Top','Expected Tonight'];
+const SALES_TITLES = ['Yesterday', 'This Week', 'Expected Tonight'];
 function renderSales() {
-  const tabs = document.getElementById('sales-tabs');
-  tabs.querySelectorAll('.stab').forEach((t,i) => t.classList.toggle('active', i===salesScreen));
-  document.getElementById('sales-panel-title').textContent = SCREEN_TITLES[salesScreen];
+  const tabs = document.querySelectorAll('.stab');
+  tabs.forEach((t,i) => t.classList.toggle('active', i===salesScreen));
+  document.getElementById('sales-title').textContent = SALES_TITLES[salesScreen];
   const body = document.getElementById('sales-body');
-  body.innerHTML = '';
-  body.className = 'panel-body fade-in';
-
-  if (salesScreen === 0) renderYesterday(body);
-  else if (salesScreen === 1) renderWeekTop(body);
+  body.className = 'card-body fade';
+  if (salesScreen===0) renderYesterday(body);
+  else if (salesScreen===1) renderWeekTop(body);
   else renderExpected(body);
 }
+setInterval(()=>{ salesScreen=(salesScreen+1)%3; renderSales(); }, 20000);
 
 function renderYesterday(el) {
-  const s = salesData.yesterday;
-  if (!s) { el.innerHTML = '<div style="color:#4a5568;font-size:12px;padding:10px">No data for yesterday</div>'; return; }
+  const s = salesData.ySum;
   const yest = yesterdayISO();
   const day = new Date(yest+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'});
-
+  if (!s) { el.innerHTML=`<div style="color:#a0aec0;font-size:13px">No data for ${day}</div>`; return; }
   el.innerHTML = `
     <div>
-      <div class="sales-label">${day}</div>
-      <div class="sales-big-number">${fmt$(s.net_sales)}</div>
-      <div class="sales-sub-row">
-        <div class="sales-sub-item"><span>${s.bill_count}</span> bills</div>
-        <div class="sales-sub-item">gross <span>${fmt$(s.gross_sales)}</span></div>
-      </div>
+      <div class="big-label">${day}</div>
+      <div class="big-num">${s.bill_count} <span style="font-size:18px;color:#a0aec0">bills</span></div>
+      <div class="sales-meta"><span>net $${Number(s.net_sales).toLocaleString('en-US',{maximumFractionDigits:0})}</span></div>
     </div>
-    <div class="sales-divider"></div>
-    <div style="font-size:9px;color:#4a5568;font-weight:800;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:4px">Top Food</div>
-    ${(salesData.yItems||[]).map((item,i)=>`
+    <div class="sdivider"></div>
+    <div class="section-label">Top Food</div>
+    ${salesData.yItems.map((r,i)=>`
       <div class="rank-row">
-        <div class="rank-num">${i+1}</div>
-        <div class="rank-name">${item.menu_item}</div>
-        <div class="rank-qty">×${Math.round(item.quantity)}</div>
-        <div class="rank-rev">${fmt$(item.net_sales)}</div>
-      </div>`).join('')}
-  `;
+        <div class="rank-n">${i+1}</div>
+        <div class="rank-nm">${r.menu_item}</div>
+        <div class="rank-q">×${Math.round(r.quantity)}</div>
+      </div>`).join('')}`;
 }
 
 function renderWeekTop(el) {
   el.innerHTML = `
-    <div style="font-size:9px;color:#4a5568;font-weight:800;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:6px">Last 7 Days</div>
-    ${salesData.weekTop.map((item,i)=>`
+    <div class="section-label">Last 7 Days — Food</div>
+    ${salesData.weekTop.map((r,i)=>`
       <div class="rank-row">
-        <div class="rank-num">${i+1}</div>
-        <div class="rank-name">${item.menu_item}</div>
-        <div class="rank-qty">×${Math.round(item.qty)}</div>
-        <div class="rank-rev">${fmt$(item.rev)}</div>
-      </div>`).join('')}
-  `;
+        <div class="rank-n">${i+1}</div>
+        <div class="rank-nm">${r.n}</div>
+        <div class="rank-q">×${r.q}</div>
+      </div>`).join('')}`;
 }
 
 function renderExpected(el) {
-  const dow = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
+  const dow=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
   el.innerHTML = `
-    <div style="font-size:9px;color:#4a5568;font-weight:800;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:4px">Avg for ${dow}</div>
-    ${salesData.expected.map(item=>`
+    <div class="section-label">Avg for ${dow}</div>
+    ${salesData.expected.map(r=>`
       <div class="exp-row">
-        <div class="exp-name">${item.menu_item}</div>
-        <div class="exp-qty">~${item.avg_qty}</div>
-        <div class="exp-label">avg</div>
-      </div>`).join('')}
-  `;
-}
-
-// Sales auto-rotation
-function startSalesRotation() {
-  salesTimer = setInterval(()=>{ salesScreen=(salesScreen+1)%3; renderSales(); }, 20000);
+        <div class="exp-nm">${r.n}</div>
+        <div class="exp-q">~${r.avg}</div>
+        <div class="exp-avg">avg</div>
+      </div>`).join('')}`;
 }
 
 // ── RENDER PREP ──
 function renderPrep() {
-  const grid = document.getElementById('prep-grid');
+  const total = prepTasks.length;
+  const done  = prepTasks.filter(t=>prepDone.has(t.name)).length;
+  document.getElementById('prep-sub').textContent = `${done}/${total} done`;
+
   const byStation = {};
   prepTasks.forEach(t => {
     const s = t.category||'Other';
@@ -450,107 +482,102 @@ function renderPrep() {
   });
 
   const stations = Object.keys(byStation);
-  const total = prepTasks.length;
-  const done  = prepTasks.filter(t=>prepDone.has(t.name)).length;
-  document.getElementById('prep-count').textContent = `${done}/${total} done`;
+  // 3 columns
+  const cols = [[],[],[]];
+  stations.forEach((s,i) => cols[i%3].push(s));
 
-  // Update pill
-  const pct = total ? done/total : 0;
-  const pill = document.getElementById('pill-prep');
-  const pillTxt = document.getElementById('pill-prep-text');
-  pill.className = 'status-pill ' + (pct===1?'pill-green':pct>0.5?'pill-amber':'pill-red');
-  pillTxt.textContent = `Prep ${Math.round(pct*100)}%`;
-
-  // 2-column grid
-  const cols = [[], []];
-  stations.forEach((s,i) => cols[i%2].push(s));
-
-  grid.innerHTML = cols.map(colStations => `
-    <div class="station-col">
-      ${colStations.map(s => {
+  document.getElementById('prep-grid').innerHTML = cols.map(colSt => `
+    <div class="st-col">
+      ${colSt.map(s => {
         const items = byStation[s];
-        const colClass = STATION_COLORS[s]||'col-other';
-        const shortName = s.replace(' Station','').replace(' station','');
+        const cls = STATION_MAP[s]||'s-other';
+        const short = s.replace(' Station','').replace(' station','');
         const stDone = items.filter(i=>prepDone.has(i.name)).length;
+        const top3 = items.slice(0,3);
+        const remaining = items.length - 3;
         return `
-          <div class="station-col-head ${colClass}">
-            <span>${shortName}</span>
-            <span class="col-count">${stDone}/${items.length}</span>
+          <div class="st-head ${cls}">
+            <span>${short}</span>
+            <span class="st-count">${stDone}/${items.length}</span>
           </div>
-          ${items.map(item=>`
-            <div class="prep-card ${prepDone.has(item.name)?'done':''}">
-              <div class="pc-dot"></div>
-              <div class="pc-name">${item.name}</div>
+          ${top3.map(item=>`
+            <div class="prep-item-card ${prepDone.has(item.name)?'done':''}">
+              <div class="pi-dot"></div>
+              <div class="pi-name">${item.name}</div>
             </div>`).join('')}
+          ${remaining>0?`<div class="prep-more">+${remaining} more</div>`:''}
         `;
       }).join('')}
     </div>`).join('');
 }
 
-// ── RENDER STATIONS ──
-function renderStations() {
-  const body = document.getElementById('stations-body');
-  const byStation = {};
-  staffList.forEach(u => {
-    const s = u.default_station||'Unassigned';
-    if (!byStation[s]) byStation[s] = [];
-    byStation[s].push(u);
+// ── RENDER STAFF LEADERBOARD ──
+function renderStaff() {
+  const now = Date.now();
+  const online = presenceData.filter(u => (now - new Date(u.last_seen).getTime()) < 2*60*1000);
+
+  // Count prep done per user today
+  const prepByUser = {};
+  prepLogData.forEach(l => {
+    if (!prepByUser[l.user_name]) prepByUser[l.user_name] = 0;
+    prepByUser[l.user_name]++;
   });
 
-  document.getElementById('staff-count').textContent = `${staffList.length} staff`;
+  // All users who have presence (online or offline today)
+  const today = todayISO();
+  const todayUsers = presenceData.filter(u => u.last_seen >= today+'T00:00:00Z');
+  const onlineNames = new Set(online.map(u=>u.user_name));
 
-  body.innerHTML = Object.entries(byStation).map(([station, members]) => {
-    const shortName = station.replace(' Station','');
-    const colClass = STATION_COLORS[station]||'col-other';
+  // Sort by prep done desc
+  const sorted = todayUsers.sort((a,b) => (prepByUser[b.user_name]||0) - (prepByUser[a.user_name]||0));
+
+  document.getElementById('staff-sub').textContent = `${online.length} online now`;
+
+  document.getElementById('staff-body').innerHTML = sorted.map((u,i) => {
+    const isOnline = onlineNames.has(u.user_name);
+    const count = prepByUser[u.user_name]||0;
+    const colorIdx = u.user_name.charCodeAt(0) % AVATAR_COLORS.length;
+    const bg = AVATAR_COLORS[colorIdx];
+    const initials = u.user_name.slice(0,1).toUpperCase();
+    const rankCls = i===0?'top1':i===1?'top2':i===2?'top3':'';
+    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
+    const shortStation = (u.station||'').replace(' Station','');
     return `
-      <div class="staff-station">
-        <div class="ss-name"><span>${shortName.toUpperCase()}</span></div>
-        ${members.map(m=>`
-          <div class="staff-row">
-            <div class="staff-avatar">
-              ${m.photo_url ? `<img src="${m.photo_url}" onerror="this.parentElement.textContent='${m.name[0]}'">` : m.name[0]}
-            </div>
-            <div>
-              <div class="staff-name-text">${m.name}</div>
-            </div>
-          </div>`).join('')}
+      <div class="staff-card ${isOnline?'':'offline'}">
+        <div class="staff-rank ${rankCls}">${medal||i+1}</div>
+        <div class="s-avatar" style="background:${bg}">
+          ${u.photo_url?`<img src="${u.photo_url}" onerror="this.parentElement.innerHTML='${initials}'">`:initials}
+          ${isOnline?'<div class="online-dot"></div>':''}
+        </div>
+        <div class="s-info">
+          <div class="s-name">${u.user_name}</div>
+          <div class="s-station">${shortStation||'—'}</div>
+        </div>
+        <div>
+          <div class="s-prep-count">${count}</div>
+          <div class="s-prep-label">prep</div>
+        </div>
       </div>`;
-  }).join('');
+  }).join('') || '<div style="color:#a0aec0;font-size:13px;padding:10px">No staff online</div>';
 }
 
 // ── RENDER FOOTER ──
 function renderFooter() {
-  // Ticker
   const inner = document.getElementById('f-inner');
-  if (alerts.length) {
-    inner.textContent = alerts.map(a=>(a.title?a.title+': ':'')+a.body).join('   ·   ');
-  } else {
-    inner.textContent = 'Zenos on the Square — No active alerts';
-  }
+  inner.textContent = alerts.length
+    ? alerts.map(a=>(a.title?a.title+': ':'')+a.body).join('   ·   ')
+    : 'Zenos on the Square — No active alerts';
   inner.style.animation='none'; inner.offsetHeight; inner.style.animation='';
-
-  // Alerts pill
-  const pill = document.getElementById('pill-alerts');
-  const pillTxt = document.getElementById('pill-alerts-text');
-  if (alerts.length) {
-    pill.className = 'status-pill pill-amber';
-    pillTxt.textContent = `${alerts.length} Alert${alerts.length>1?'s':''}`;
-  } else {
-    pill.className = 'status-pill pill-green';
-    pillTxt.textContent = 'No Alerts';
-  }
-
-  // Brief footer
-  const bf = document.getElementById('brief-footer');
-  bf.textContent = briefPoints[0]||'No briefing today';
 }
 
 // ── BOOT ──
 async function boot() {
   await loadAll();
-  startSalesRotation();
-  // Refresh every 5 min
   setInterval(loadAll, 5*60*1000);
+  // Realtime presence
+  supa.channel('presence-rt')
+    .on('postgres_changes',{event:'*',schema:'public',table:'user_presence'}, loadPresence)
+    .subscribe();
 }
 boot();
 </script>
