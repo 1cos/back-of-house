@@ -5,557 +5,554 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Brigade — Kitchen Display</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg:       #0a0e14;
-    --surface:  #111720;
-    --border:   rgba(255,255,255,0.07);
-    --green:    #22c55e;
-    --green-dim:#166534;
-    --amber:    #f59e0b;
-    --red:      #ef4444;
-    --blue:     #3b82f6;
-    --purple:   #a78bfa;
-    --text:     #f1f5f9;
-    --muted:    #64748b;
-    --panel-r-bg: #0d1219;
-  }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html, body { width:100%; height:100%; overflow:hidden; background:#0a0e14 !important; background-color:#0a0e14 !important; color:var(--text); font-family:'DM Sans',sans-serif; }
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  width:100%; height:100%; overflow:hidden;
+  background:#08090c !important;
+  background-color:#08090c !important;
+  color:#e8eaf0;
+  font-family:'Inter',sans-serif;
+  font-size:13px;
+}
 
-  /* ── LAYOUT ── */
-  #root { display:flex; flex-direction:column; height:100vh; background:#0a0e14; }
-  #main { display:flex; flex:1; overflow:hidden; }
-  #left  { width:60%; border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
-  #right { width:40%; display:flex; flex-direction:column; overflow:hidden; background:var(--panel-r-bg); }
-  #newsbar { height:36px; background:#0a0e14; border-top:1px solid var(--border); display:flex; align-items:center; flex-shrink:0; overflow:hidden; }
+/* ── HEADER BAR ── */
+#header {
+  display:flex; align-items:center; gap:0;
+  background:#0d0f14; border-bottom:1px solid #1e2330;
+  height:46px; flex-shrink:0; padding:0 14px;
+}
+#header .h-brand { font-size:11px; font-weight:800; letter-spacing:0.2em; color:#4a5568; text-transform:uppercase; margin-right:16px; }
+#header .h-clock { font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:600; color:#fff; margin-right:8px; }
+#header .h-date  { font-size:11px; color:#4a5568; margin-right:auto; }
+.status-pill {
+  display:flex; align-items:center; gap:5px;
+  padding:4px 10px; border-radius:20px; font-size:10px; font-weight:700;
+  letter-spacing:0.08em; text-transform:uppercase; margin-left:8px;
+}
+.pill-green  { background:rgba(34,197,94,0.12);  border:1px solid rgba(34,197,94,0.3);  color:#22c55e; }
+.pill-amber  { background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#f59e0b; }
+.pill-red    { background:rgba(239,68,68,0.12);  border:1px solid rgba(239,68,68,0.3);  color:#ef4444; }
+.pill-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
 
-  /* ── TOP BAR ── */
-  #topbar { display:flex; align-items:center; justify-content:space-between; padding:8px 16px 6px; flex-shrink:0; border-bottom:1px solid var(--border); }
-  #topbar .logo { font-size:11px; font-weight:700; letter-spacing:0.18em; color:var(--muted); text-transform:uppercase; }
-  #topbar .clock { font-family:'DM Mono',monospace; font-size:20px; font-weight:500; color:var(--text); letter-spacing:0.04em; }
-  #topbar .date  { font-size:11px; color:var(--muted); text-align:right; line-height:1.4; }
+/* ── BODY GRID ── */
+#body {
+  display:grid;
+  grid-template-columns: 280px 1fr 260px;
+  grid-template-rows: 1fr;
+  flex:1; overflow:hidden;
+  gap:0;
+}
 
-  /* ── PREPLIST ── */
-  #preplist-wrap { flex:1; overflow-y:auto; padding:0 0 8px; scrollbar-width:none; }
-  #preplist-wrap::-webkit-scrollbar { display:none; }
+/* ── PANEL BASE ── */
+.panel { display:flex; flex-direction:column; overflow:hidden; border-right:1px solid #1e2330; }
+.panel:last-child { border-right:none; }
+.panel-head {
+  padding:8px 12px 6px; border-bottom:1px solid #1e2330; flex-shrink:0;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.panel-head .ph-title { font-size:9px; font-weight:800; letter-spacing:0.2em; text-transform:uppercase; color:#4a5568; }
+.panel-head .ph-sub   { font-size:9px; color:#2d3748; font-weight:600; }
+.panel-body { flex:1; overflow:hidden; padding:8px 10px; display:flex; flex-direction:column; gap:6px; }
 
-  .station-block { margin-bottom:4px; }
-  .station-label {
-    font-size:10px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase;
-    color:var(--muted); padding:5px 16px 3px;
-    display:flex; align-items:center; gap:8px;
-  }
-  .station-label::after { content:''; flex:1; height:1px; background:var(--border); }
+/* ── LEFT: SALES ── */
+#panel-left { background:#08090c; }
 
-  .prep-item {
-    display:flex; align-items:center; gap:12px;
-    padding:5px 16px;
-    border-bottom:1px solid rgba(255,255,255,0.03);
-    transition:background 0.2s;
-  }
-  .prep-item.done { opacity:0.3; }
-  .prep-item .dot {
-    width:8px; height:8px; border-radius:50%; flex-shrink:0;
-    background:var(--muted);
-  }
-  .prep-item.done .dot { background:var(--green); }
-  .prep-item.in-progress .dot { background:var(--amber); }
-  .prep-item .name {
-    font-size:16px; font-weight:600; color:var(--text); flex:1; line-height:1.2;
-  }
-  .prep-item.done .name { color:var(--muted); text-decoration:line-through; }
-  .prep-item .who {
-    font-size:12px; color:var(--muted); font-weight:500; flex-shrink:0;
-  }
-  .prep-item.done .who { color:var(--green); }
+/* Sales screen indicator */
+.sales-tabs { display:flex; gap:4px; }
+.stab { width:18px; height:3px; border-radius:2px; background:#1e2330; transition:background 0.3s; }
+.stab.active { background:#3b82f6; }
 
-  /* ── RIGHT PANEL ── */
-  #right-header {
-    padding:8px 16px 6px; border-bottom:1px solid var(--border); flex-shrink:0;
-    display:flex; align-items:center; justify-content:space-between;
-  }
-  #panel-title { font-size:11px; font-weight:700; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); }
-  #panel-dots { display:flex; gap:5px; }
-  .pdot { width:6px; height:6px; border-radius:50%; background:var(--border); transition:background 0.3s; }
-  .pdot.active { background:var(--green); }
+/* Screen A — Yesterday */
+.sales-big-number { font-family:'JetBrains Mono',monospace; font-size:36px; font-weight:700; color:#22c55e; line-height:1; }
+.sales-label { font-size:9px; color:#4a5568; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; margin-bottom:2px; }
+.sales-sub-row { display:flex; gap:10px; margin-top:4px; }
+.sales-sub-item { font-size:10px; color:#64748b; }
+.sales-sub-item span { color:#94a3b8; font-weight:600; }
 
-  #panel-content { flex:1; overflow:hidden; padding:10px 16px; }
+.sales-divider { height:1px; background:#1e2330; margin:6px 0; }
 
-  /* panel transition */
-  .panel-fade { animation:fadeIn 0.5s ease; }
-  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+/* Top items list */
+.rank-row {
+  display:flex; align-items:center; gap:6px;
+  padding:4px 0; border-bottom:1px solid #12151d;
+}
+.rank-num { font-size:9px; color:#2d3748; font-family:'JetBrains Mono',monospace; width:14px; flex-shrink:0; }
+.rank-name { flex:1; font-size:12px; font-weight:600; color:#cbd5e1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rank-qty  { font-size:10px; color:#475569; margin-right:4px; }
+.rank-rev  { font-size:11px; font-weight:700; color:#22c55e; font-family:'JetBrains Mono',monospace; }
 
-  /* ── BRIEFING PANEL ── */
-  .brief-point {
-    display:flex; gap:10px; margin-bottom:12px; align-items:flex-start;
-  }
-  .brief-icon { font-size:16px; flex-shrink:0; margin-top:2px; }
-  .brief-text { font-size:14px; line-height:1.45; color:var(--text); font-weight:400; }
+/* Expected tonight */
+.exp-row {
+  display:flex; align-items:center; gap:6px; padding:4px 0; border-bottom:1px solid #12151d;
+}
+.exp-name { flex:1; font-size:12px; font-weight:600; color:#cbd5e1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.exp-qty  { font-size:11px; font-weight:700; color:#f59e0b; font-family:'JetBrains Mono',monospace; }
+.exp-label { font-size:9px; color:#374151; }
 
-  /* ── STATIONS PANEL ── */
-  .station-card {
-    background:var(--surface); border-radius:10px; padding:8px 12px;
-    margin-bottom:7px; border:1px solid var(--border);
-    display:flex; align-items:center; gap:12px;
-  }
-  .station-card .sname { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; flex:1; }
-  .station-card .staff-chips { display:flex; gap:6px; flex-wrap:wrap; }
-  .chip {
-    background:rgba(59,130,246,0.12); border:1px solid rgba(59,130,246,0.25);
-    color:#93c5fd; border-radius:20px; padding:3px 8px; font-size:11px; font-weight:600;
-  }
+/* ── CENTRE: PREP ── */
+#panel-centre { background:#08090c; border-right:1px solid #1e2330; }
+#prep-grid {
+  flex:1; overflow:hidden;
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:6px;
+  padding:8px 10px;
+}
+.station-col { display:flex; flex-direction:column; gap:4px; overflow:hidden; }
+.station-col-head {
+  font-size:9px; font-weight:800; letter-spacing:0.18em; text-transform:uppercase;
+  color:#fff; padding:5px 8px; border-radius:6px; margin-bottom:2px;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.col-oven    { background:#1a1208; border:1px solid #78350f; color:#f59e0b !important; }
+.col-pasta   { background:#0a1628; border:1px solid #1e3a5f; color:#60a5fa !important; }
+.col-salad   { background:#0a1a0d; border:1px solid #14532d; color:#4ade80 !important; }
+.col-saute   { background:#1a0a0a; border:1px solid #7f1d1d; color:#f87171 !important; }
+.col-plating { background:#12081a; border:1px solid #4c1d95; color:#c084fc !important; }
+.col-pastry  { background:#1a1208; border:1px solid #92400e; color:#fbbf24 !important; }
+.col-freezer { background:#08121a; border:1px solid #0e4166; color:#38bdf8 !important; }
+.col-other   { background:#0f0f0f; border:1px solid #1e2330; color:#94a3b8 !important; }
 
-  /* ── CLOSING PANEL ── */
-  .closing-station { margin-bottom:14px; }
-  .closing-name { font-size:13px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:6px; display:flex; justify-content:space-between; }
-  .closing-bar-bg { height:10px; background:var(--surface); border-radius:6px; overflow:hidden; }
-  .closing-bar-fill { height:100%; border-radius:6px; background:var(--green); transition:width 0.8s ease; }
-  .closing-bar-fill.partial { background:var(--amber); }
-  .closing-bar-fill.empty { background:var(--red); width:4px !important; }
+.col-count { font-size:9px; font-weight:600; opacity:0.7; }
 
-  /* ── SALES PANEL ── */
-  .sales-header { margin-bottom:16px; }
-  .sales-date { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:0.1em; }
-  .sales-total { font-size:32px; font-weight:800; color:var(--green); line-height:1; margin-top:4px; font-family:'DM Mono',monospace; }
-  .sales-sub { font-size:14px; color:var(--muted); margin-top:4px; }
-  .sales-item { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); }
-  .sales-rank { font-size:12px; color:var(--muted); font-family:'DM Mono',monospace; width:20px; }
-  .sales-iname { flex:1; font-size:14px; font-weight:600; }
-  .sales-qty { font-size:13px; color:var(--muted); }
-  .sales-rev { font-size:13px; font-weight:700; color:var(--green); font-family:'DM Mono',monospace; }
+.prep-card {
+  display:flex; align-items:center; gap:6px;
+  background:#0d1018; border:1px solid #1a1f2e;
+  border-radius:5px; padding:5px 7px;
+  min-height:28px;
+}
+.prep-card.done { opacity:0.25; }
+.prep-card .pc-dot { width:6px; height:6px; border-radius:50%; background:#2d3748; flex-shrink:0; }
+.prep-card.done .pc-dot { background:#22c55e; }
+.prep-card .pc-name { flex:1; font-size:12px; font-weight:600; color:#e2e8f0; line-height:1.2; }
+.prep-card.done .pc-name { color:#374151; text-decoration:line-through; }
 
-  /* ── STAFF REPORT PANEL ── */
-  .staff-card {
-    background:var(--surface); border-radius:10px; padding:8px 12px;
-    margin-bottom:7px; border:1px solid var(--border);
-    display:flex; align-items:center; gap:14px;
-  }
-  .staff-avatar {
-    width:42px; height:42px; border-radius:50%; background:#1e3a5f;
-    display:flex; align-items:center; justify-content:center;
-    font-size:16px; font-weight:700; color:#93c5fd; flex-shrink:0;
-    overflow:hidden;
-  }
-  .staff-avatar img { width:100%; height:100%; object-fit:cover; }
-  .staff-info { flex:1; }
-  .staff-name { font-size:16px; font-weight:700; }
-  .staff-station { font-size:12px; color:var(--muted); }
-  .staff-stat { font-size:13px; font-weight:600; color:var(--green); }
+/* ── RIGHT: STATIONS ── */
+#panel-right { background:#08090c; }
+.staff-station {
+  background:#0d1018; border:1px solid #1a1f2e;
+  border-radius:7px; padding:7px 9px; flex-shrink:0;
+}
+.ss-name {
+  font-size:9px; font-weight:800; letter-spacing:0.15em; text-transform:uppercase;
+  color:#4a5568; margin-bottom:5px; display:flex; align-items:center; justify-content:space-between;
+}
+.ss-name-colored { }
+.staff-row { display:flex; align-items:center; gap:7px; margin-bottom:3px; }
+.staff-row:last-child { margin-bottom:0; }
+.staff-avatar {
+  width:26px; height:26px; border-radius:50%; background:#1e3a5f;
+  display:flex; align-items:center; justify-content:center;
+  font-size:10px; font-weight:800; color:#93c5fd; flex-shrink:0; overflow:hidden;
+}
+.staff-avatar img { width:100%; height:100%; object-fit:cover; }
+.staff-name-text { font-size:13px; font-weight:700; color:#e2e8f0; }
+.staff-role-text { font-size:9px; color:#4a5568; }
 
-  /* ── PHOTOS PANEL ── */
-  #photos-panel { width:100%; height:100%; display:flex; align-items:center; justify-content:center; overflow:hidden; }
-  #photos-panel img { max-width:100%; max-height:100%; object-fit:contain; border-radius:8px; }
-  .photo-caption { text-align:center; margin-top:10px; font-size:13px; color:var(--muted); }
+/* ── BOTTOM: ALERTS + BRIEFING ── */
+#footer {
+  display:flex; align-items:stretch;
+  background:#0a0b10; border-top:1px solid #1e2330;
+  height:38px; flex-shrink:0; overflow:hidden;
+}
+#footer .f-label {
+  padding:0 10px; display:flex; align-items:center;
+  font-size:9px; font-weight:800; letter-spacing:0.15em; text-transform:uppercase;
+  color:#f59e0b; border-right:1px solid #1e2330; flex-shrink:0;
+  background:#0d0c08;
+}
+#footer .f-ticker { flex:1; overflow:hidden; display:flex; align-items:center; padding:0 10px; }
+#footer .f-inner  { white-space:nowrap; font-size:12px; color:#94a3b8; font-weight:500; animation:ticker 50s linear infinite; display:inline-block; }
+@keyframes ticker { 0%{transform:translateX(100vw)} 100%{transform:translateX(-100%)} }
+#footer .f-brief  {
+  border-left:1px solid #1e2330; padding:0 12px; display:flex; align-items:center;
+  font-size:11px; color:#60a5fa; font-weight:500; max-width:320px;
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis; flex-shrink:0;
+}
+#footer .f-brief-label { font-size:9px; color:#1e3a5f; font-weight:800; text-transform:uppercase; letter-spacing:0.1em; margin-right:6px; flex-shrink:0; }
 
-  /* ── NEWS BAR ── */
-  #newsbar .nb-label { font-size:9px; font-weight:700; letter-spacing:0.18em; color:var(--amber); padding:0 16px; flex-shrink:0; text-transform:uppercase; }
-  #newsbar .nb-scroll { flex:1; overflow:hidden; position:relative; }
-  #newsbar .nb-inner { white-space:nowrap; font-size:12px; color:var(--text); font-weight:500; display:inline-block; animation:ticker 40s linear infinite; }
-  @keyframes ticker { 0%{transform:translateX(100vw)} 100%{transform:translateX(-100%)} }
+/* ── ROOT FLEX ── */
+#root { display:flex; flex-direction:column; height:100vh; background:#08090c; }
+#root > #body { flex:1; }
 
-  /* ── EMPTY STATES ── */
-  .empty-state { text-align:center; padding:40px 20px; color:var(--muted); font-size:16px; }
-  .empty-state .big { font-size:48px; margin-bottom:12px; }
+/* ── SALES PANEL SCREENS ── */
+.sales-screen { display:none; flex-direction:column; gap:0; }
+.sales-screen.active { display:flex; }
 
-  /* ── PHOTOS panel placeholder ── */
-  .photo-notice { text-align:center; padding:30px 20px; }
-  .photo-notice .pn-icon { font-size:40px; margin-bottom:10px; }
-  .photo-notice .pn-title { font-size:16px; font-weight:700; color:var(--text); margin-bottom:6px; }
-  .photo-notice .pn-sub { font-size:13px; color:var(--muted); line-height:1.5; }
+/* ── SCREEN TRANSITION ── */
+.fade-in { animation:fi 0.4s ease; }
+@keyframes fi { from{opacity:0} to{opacity:1} }
 </style>
 </head>
 <body>
 <div id="root">
 
-  <!-- ── MAIN ── -->
-  <div id="main">
+  <!-- HEADER -->
+  <div id="header">
+    <div class="h-brand">Brigade</div>
+    <div class="h-clock" id="clock">--:--</div>
+    <div class="h-date" id="hdate">--</div>
+    <div class="status-pill pill-green" id="pill-system"><div class="pill-dot"></div>System OK</div>
+    <div class="status-pill pill-green" id="pill-prep"><div class="pill-dot"></div><span id="pill-prep-text">Prep OK</span></div>
+    <div class="status-pill pill-green" id="pill-alerts"><div class="pill-dot"></div><span id="pill-alerts-text">No Alerts</span></div>
+  </div>
 
-    <!-- LEFT: PREPLIST -->
-    <div id="left">
-      <div id="topbar">
-        <div class="logo">Brigade</div>
-        <div class="clock" id="clock">--:--</div>
-        <div class="date" id="topdate"></div>
-      </div>
-      <div id="preplist-wrap">
-        <div id="preplist-body">
-          <div class="empty-state"><div class="big">👨‍🍳</div>Loading prep…</div>
+  <!-- BODY -->
+  <div id="body">
+
+    <!-- LEFT: SALES -->
+    <div class="panel" id="panel-left">
+      <div class="panel-head">
+        <div class="ph-title" id="sales-panel-title">Yesterday Sales</div>
+        <div class="sales-tabs" id="sales-tabs">
+          <div class="stab active"></div>
+          <div class="stab"></div>
+          <div class="stab"></div>
         </div>
+      </div>
+      <div class="panel-body" id="sales-body">
+        <!-- filled by JS -->
       </div>
     </div>
 
-    <!-- RIGHT: ROTATING PANELS -->
-    <div id="right">
-      <div id="right-header">
-        <div id="panel-title">Briefing AI</div>
-        <div id="panel-dots"></div>
+    <!-- CENTRE: PREP -->
+    <div class="panel" id="panel-centre">
+      <div class="panel-head">
+        <div class="ph-title">Today's Prep</div>
+        <div class="ph-sub" id="prep-count">— items</div>
       </div>
-      <div id="panel-content">
-        <div class="empty-state"><div class="big">⏳</div>Loading…</div>
+      <div id="prep-grid">
+        <!-- filled by JS -->
+      </div>
+    </div>
+
+    <!-- RIGHT: STATIONS -->
+    <div class="panel" id="panel-right">
+      <div class="panel-head">
+        <div class="ph-title">Stations</div>
+        <div class="ph-sub" id="staff-count">— on shift</div>
+      </div>
+      <div class="panel-body" id="stations-body">
+        <!-- filled by JS -->
       </div>
     </div>
 
   </div>
 
-  <!-- NEWS BAR -->
-  <div id="newsbar">
-    <div class="nb-label">Alert</div>
-    <div class="nb-scroll"><div class="nb-inner" id="nb-inner">Loading news…</div></div>
+  <!-- FOOTER -->
+  <div id="footer">
+    <div class="f-label">Alert</div>
+    <div class="f-ticker"><div class="f-inner" id="f-inner">Loading…</div></div>
+    <div class="f-brief">
+      <div class="f-brief-label">AI</div>
+      <div id="brief-footer">Loading briefing…</div>
+    </div>
   </div>
 
 </div>
-
 <script>
-// ── SUPABASE ──
 const SUPABASE_URL = 'https://ydqmumpytgrlceuinoqt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MzcyOTUsImV4cCI6MjA5NDUxMzI5NX0.MSIKL4nCOxK8YFFTkt9AbFGViiwl-KEhHy6cL25gnKc';
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ── GOOGLE DRIVE FOLDER ID (da impostare) ──
-// 1. Crea cartella "Brigade Display" in Google Drive
-// 2. Condividila come pubblica ("Anyone with the link")
-// 3. Prendi l'ID dalla URL: drive.google.com/drive/folders/QUESTO_ID
-// 4. Sostituisci il valore qui sotto
-const GDRIVE_FOLDER_ID = '';
-const GDRIVE_API_KEY   = '';  // Google Drive API Key (da Google Cloud Console)
-
 // ── STATE ──
-let prepTasks    = [];
-let prepDone     = new Set();
-let briefPoints  = [];
-let staffList    = [];
-let salesData    = null;
-let alerts       = [];
-let photos       = [];
-let closingItems = [];
-let closingDone  = {};
-let currentPanel = 0;
-const PANELS = ['briefing','stations','closing','sales','photos'];
-const PANEL_LABELS = ['Briefing AI','Stazioni','Closing Tasks','Sales Ieri','Zenos'];
-const PANEL_DURATION = 17000; // ms
-let panelTimer = null;
+let salesScreen = 0;
+let salesData = { yesterday: null, weekTop: [], expected: [] };
+let prepTasks = [], prepDone = new Set();
+let staffList = [];
+let alerts = [];
+let briefPoints = [];
+let salesTimer = null;
+
+const STATION_COLORS = {
+  'Oven Station':        'col-oven',
+  'Pasta Station':       'col-pasta',
+  'Fresh Pasta Station': 'col-pasta',
+  'Salad Station':       'col-salad',
+  'Sauté Station':       'col-saute',
+  'Saucier Station':     'col-saute',
+  'Plating Station':     'col-plating',
+  'Pastry Station':      'col-pastry',
+  'Freezer':             'col-freezer',
+};
 
 // ── CLOCK ──
-function updateClock() {
+function tick() {
   const now = new Date();
-  const opts = { timeZone: 'America/Chicago', hour: '2-digit', minute: '2-digit', hour12: false };
-  const dOpts = { timeZone: 'America/Chicago', weekday: 'long', month: 'long', day: 'numeric' };
-  document.getElementById('clock').textContent = now.toLocaleTimeString('en-US', opts);
-  document.getElementById('topdate').textContent = now.toLocaleDateString('en-US', dOpts);
+  const t = now.toLocaleTimeString('en-US', { timeZone:'America/Chicago', hour:'2-digit', minute:'2-digit', hour12:false });
+  const d = now.toLocaleDateString('en-US', { timeZone:'America/Chicago', weekday:'long', month:'short', day:'numeric' });
+  document.getElementById('clock').textContent = t;
+  document.getElementById('hdate').textContent = d;
 }
-setInterval(updateClock, 1000);
-updateClock();
+setInterval(tick, 1000); tick();
 
-// ── UTILS ──
-function getNowChicago() {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
-}
 function todayISO() {
-  const d = getNowChicago();
-  return d.toISOString().slice(0, 10);
+  const d = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'}));
+  return d.toISOString().slice(0,10);
 }
 function yesterdayISO() {
-  const d = getNowChicago();
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
+  const d = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'}));
+  d.setDate(d.getDate()-1);
+  return d.toISOString().slice(0,10);
 }
-function fmt$(n) {
-  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+function fmt$(n) { return '$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0}); }
+function dowNow() {
+  return new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'})).getDay();
 }
 
-// ── LOAD DATA ──
+// ── LOAD ──
 async function loadAll() {
-  await Promise.all([
-    loadPrep(),
-    loadBriefing(),
-    loadStaff(),
-    loadSales(),
-    loadAlerts(),
-    loadClosing(),
-    loadPhotos(),
-  ]);
-}
-
-async function loadPrep() {
-  const today = todayISO();
-  const { data: tasks } = await supa.from('prep_tasks').select('*').eq('archived', false).order('category').order('name');
-  prepTasks = tasks || [];
-
-  // load today's done items from prep_log
-  const start = today + 'T00:00:00+00:00';
-  const end   = today + 'T23:59:59+00:00';
-  const { data: logs } = await supa.from('prep_log').select('item, user_name').gte('created_at', start).lte('created_at', end);
-  prepDone = new Set((logs || []).map(l => l.item));
-
-  renderPrep();
-}
-
-async function loadBriefing() {
-  const today = todayISO();
-  const { data } = await supa.from('briefing').select('points').eq('date', today).maybeSingle();
-  briefPoints = data?.points || [];
-}
-
-async function loadStaff() {
-  const { data } = await supa.from('users').select('name, role, default_station, photo_url').eq('active', true).neq('role', 'admin').order('name');
-  staffList = data || [];
+  await Promise.all([loadSales(), loadPrep(), loadStaff(), loadAlerts(), loadBriefing()]);
 }
 
 async function loadSales() {
   const yest = yesterdayISO();
-  const { data: summary } = await supa.from('pos_daily_summary').select('net_sales, gross_sales, bill_count').eq('sale_date', yest).maybeSingle();
-  const { data: items } = await supa.from('pos_sales_by_item').select('menu_item, quantity, net_sales, sales_category').eq('sale_date', yest).eq('sales_category', 'Food').order('net_sales', { ascending: false }).limit(5);
-  salesData = { date: yest, summary: summary || null, items: items || [] };
+  const { data: sum } = await supa.from('pos_daily_summary').select('net_sales,gross_sales,bill_count').eq('sale_date',yest).maybeSingle();
+  const { data: yItems } = await supa.from('pos_sales_by_item').select('menu_item,quantity,net_sales').eq('sale_date',yest).eq('sales_category','Food').order('net_sales',{ascending:false}).limit(6);
+  const dow = dowNow();
+  const { data: expItems } = await supa.from('pos_sales_by_item').select('menu_item,quantity').lt('sale_date',todayISO()).order('sale_date',{ascending:false});
+  // Calculate expected: avg by DOW
+  const dowMap = {};
+  (expItems||[]).forEach(r => {
+    // We approximate — just use recent week top items
+    if (!dowMap[r.menu_item]) dowMap[r.menu_item] = [];
+    dowMap[r.menu_item].push(Number(r.quantity));
+  });
+  const expected = Object.entries(dowMap)
+    .map(([item, qtys]) => ({ menu_item: item, avg_qty: Math.round(qtys.reduce((a,b)=>a+b,0)/qtys.length) }))
+    .filter(x => x.avg_qty >= 3)
+    .sort((a,b) => b.avg_qty - a.avg_qty)
+    .slice(0,6);
+
+  const { data: weekItems } = await supa.from('pos_sales_by_item').select('menu_item,quantity,net_sales').gte('sale_date', (() => { const d=new Date(); d.setDate(d.getDate()-7); return d.toISOString().slice(0,10); })()).eq('sales_category','Food');
+  const weekMap = {};
+  (weekItems||[]).forEach(r => {
+    if (!weekMap[r.menu_item]) weekMap[r.menu_item] = { qty:0, rev:0 };
+    weekMap[r.menu_item].qty += Number(r.quantity);
+    weekMap[r.menu_item].rev += Number(r.net_sales);
+  });
+  const weekTop = Object.entries(weekMap).map(([item,v])=>({menu_item:item,...v})).sort((a,b)=>b.qty-a.qty).slice(0,6);
+
+  salesData = { yesterday: sum, yItems: yItems||[], weekTop, expected };
+  renderSales();
+}
+
+async function loadPrep() {
+  const { data: tasks } = await supa.from('prep_tasks').select('*').eq('archived',false).order('category').order('name');
+  prepTasks = tasks||[];
+  const today = todayISO();
+  const { data: logs } = await supa.from('prep_log').select('item').gte('created_at', today+'T00:00:00+00:00').lte('created_at', today+'T23:59:59+00:00');
+  prepDone = new Set((logs||[]).map(l=>l.item));
+  renderPrep();
+}
+
+async function loadStaff() {
+  const { data } = await supa.from('users').select('name,role,default_station,photo_url').eq('active',true).neq('is_admin',true).order('default_station').order('name');
+  staffList = (data||[]).filter(u => u.role !== 'admin');
+  renderStations();
 }
 
 async function loadAlerts() {
-  const { data } = await supa.from('alerts').select('title, body, is_active').eq('is_active', true).order('created_at', { ascending: false });
-  alerts = data || [];
-  renderNewsBar();
+  const { data } = await supa.from('alerts').select('title,body').eq('is_active',true).order('created_at',{ascending:false});
+  alerts = data||[];
+  renderFooter();
 }
 
-async function loadClosing() {
-  const { data: items } = await supa.from('prep_tasks').select('id, name, category').eq('archived', false).eq('need_tomorrow', true).order('category');
-  closingItems = items || [];
-  // closing done = items logged today
-  const today = todayISO();
-  const start = today + 'T00:00:00+00:00';
-  const { data: logs } = await supa.from('prep_log').select('item').gte('created_at', start);
-  const doneNames = new Set((logs || []).map(l => l.item));
-  closingDone = {};
-  closingItems.forEach(i => { closingDone[i.id] = doneNames.has(i.name); });
+async function loadBriefing() {
+  const { data } = await supa.from('briefing').select('points').eq('date',todayISO()).maybeSingle();
+  briefPoints = data?.points||[];
+  renderFooter();
 }
 
-async function loadPhotos() {
-  if (!GDRIVE_FOLDER_ID || !GDRIVE_API_KEY) { photos = []; return; }
-  try {
-    const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent("'" + GDRIVE_FOLDER_ID + "' in parents and mimeType contains 'image/'") + '&key=' + GDRIVE_API_KEY + '&fields=files(id,name)&pageSize=50';
-    const res = await fetch(url);
-    const json = await res.json();
-    photos = (json.files || []).map(f => ({
-      name: f.name,
-      url: 'https://drive.google.com/uc?export=view&id=' + f.id
-    }));
-  } catch(e) { photos = []; }
+// ── RENDER SALES ──
+const SCREEN_TITLES = ['Yesterday Sales','This Week Top','Expected Tonight'];
+function renderSales() {
+  const tabs = document.getElementById('sales-tabs');
+  tabs.querySelectorAll('.stab').forEach((t,i) => t.classList.toggle('active', i===salesScreen));
+  document.getElementById('sales-panel-title').textContent = SCREEN_TITLES[salesScreen];
+  const body = document.getElementById('sales-body');
+  body.innerHTML = '';
+  body.className = 'panel-body fade-in';
+
+  if (salesScreen === 0) renderYesterday(body);
+  else if (salesScreen === 1) renderWeekTop(body);
+  else renderExpected(body);
+}
+
+function renderYesterday(el) {
+  const s = salesData.yesterday;
+  if (!s) { el.innerHTML = '<div style="color:#4a5568;font-size:12px;padding:10px">No data for yesterday</div>'; return; }
+  const yest = yesterdayISO();
+  const day = new Date(yest+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'});
+
+  el.innerHTML = `
+    <div>
+      <div class="sales-label">${day}</div>
+      <div class="sales-big-number">${fmt$(s.net_sales)}</div>
+      <div class="sales-sub-row">
+        <div class="sales-sub-item"><span>${s.bill_count}</span> bills</div>
+        <div class="sales-sub-item">gross <span>${fmt$(s.gross_sales)}</span></div>
+      </div>
+    </div>
+    <div class="sales-divider"></div>
+    <div style="font-size:9px;color:#4a5568;font-weight:800;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:4px">Top Food</div>
+    ${(salesData.yItems||[]).map((item,i)=>`
+      <div class="rank-row">
+        <div class="rank-num">${i+1}</div>
+        <div class="rank-name">${item.menu_item}</div>
+        <div class="rank-qty">×${Math.round(item.quantity)}</div>
+        <div class="rank-rev">${fmt$(item.net_sales)}</div>
+      </div>`).join('')}
+  `;
+}
+
+function renderWeekTop(el) {
+  el.innerHTML = `
+    <div style="font-size:9px;color:#4a5568;font-weight:800;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:6px">Last 7 Days</div>
+    ${salesData.weekTop.map((item,i)=>`
+      <div class="rank-row">
+        <div class="rank-num">${i+1}</div>
+        <div class="rank-name">${item.menu_item}</div>
+        <div class="rank-qty">×${Math.round(item.qty)}</div>
+        <div class="rank-rev">${fmt$(item.rev)}</div>
+      </div>`).join('')}
+  `;
+}
+
+function renderExpected(el) {
+  const dow = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
+  el.innerHTML = `
+    <div style="font-size:9px;color:#4a5568;font-weight:800;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:4px">Avg for ${dow}</div>
+    ${salesData.expected.map(item=>`
+      <div class="exp-row">
+        <div class="exp-name">${item.menu_item}</div>
+        <div class="exp-qty">~${item.avg_qty}</div>
+        <div class="exp-label">avg</div>
+      </div>`).join('')}
+  `;
+}
+
+// Sales auto-rotation
+function startSalesRotation() {
+  salesTimer = setInterval(()=>{ salesScreen=(salesScreen+1)%3; renderSales(); }, 20000);
 }
 
 // ── RENDER PREP ──
 function renderPrep() {
-  const body = document.getElementById('preplist-body');
-  if (!prepTasks.length) {
-    body.innerHTML = '<div class="empty-state"><div class="big">✅</div>Nessuna prep caricata</div>';
-    return;
-  }
-
-  // Group by station
+  const grid = document.getElementById('prep-grid');
   const byStation = {};
   prepTasks.forEach(t => {
-    const s = t.category || 'Other';
+    const s = t.category||'Other';
     if (!byStation[s]) byStation[s] = [];
     byStation[s].push(t);
   });
 
-  let html = '';
-  Object.entries(byStation).forEach(([station, items]) => {
-    const shortName = station.replace(' Station', '').replace(' station', '');
-    html += '<div class="station-block">';
-    html += '<div class="station-label">' + shortName + '</div>';
-    items.forEach(item => {
-      const done = prepDone.has(item.name);
-      html += '<div class="prep-item' + (done ? ' done' : '') + '">';
-      html += '<div class="dot"></div>';
-      html += '<div class="name">' + item.name + '</div>';
-      if (done) html += '<div class="who">✓ done</div>';
-      html += '</div>';
-    });
-    html += '</div>';
-  });
+  const stations = Object.keys(byStation);
+  const total = prepTasks.length;
+  const done  = prepTasks.filter(t=>prepDone.has(t.name)).length;
+  document.getElementById('prep-count').textContent = `${done}/${total} done`;
 
-  body.innerHTML = html;
+  // Update pill
+  const pct = total ? done/total : 0;
+  const pill = document.getElementById('pill-prep');
+  const pillTxt = document.getElementById('pill-prep-text');
+  pill.className = 'status-pill ' + (pct===1?'pill-green':pct>0.5?'pill-amber':'pill-red');
+  pillTxt.textContent = `Prep ${Math.round(pct*100)}%`;
+
+  // 2-column grid
+  const cols = [[], []];
+  stations.forEach((s,i) => cols[i%2].push(s));
+
+  grid.innerHTML = cols.map(colStations => `
+    <div class="station-col">
+      ${colStations.map(s => {
+        const items = byStation[s];
+        const colClass = STATION_COLORS[s]||'col-other';
+        const shortName = s.replace(' Station','').replace(' station','');
+        const stDone = items.filter(i=>prepDone.has(i.name)).length;
+        return `
+          <div class="station-col-head ${colClass}">
+            <span>${shortName}</span>
+            <span class="col-count">${stDone}/${items.length}</span>
+          </div>
+          ${items.map(item=>`
+            <div class="prep-card ${prepDone.has(item.name)?'done':''}">
+              <div class="pc-dot"></div>
+              <div class="pc-name">${item.name}</div>
+            </div>`).join('')}
+        `;
+      }).join('')}
+    </div>`).join('');
 }
 
-// ── RENDER NEWS BAR ──
-function renderNewsBar() {
-  const inner = document.getElementById('nb-inner');
-  if (!alerts.length) {
-    inner.textContent = 'Zenos on the Square — Brigade Kitchen Display';
-    return;
-  }
-  inner.textContent = alerts.map(a => (a.title ? a.title + ': ' : '') + (a.body || '')).join('   ·   ');
-  // restart animation
-  inner.style.animation = 'none';
-  inner.offsetHeight;
-  inner.style.animation = '';
-}
-
-// ── RENDER PANELS ──
-function buildDots() {
-  const container = document.getElementById('panel-dots');
-  container.innerHTML = '';
-  PANELS.forEach((_, i) => {
-    const d = document.createElement('div');
-    d.className = 'pdot' + (i === currentPanel ? ' active' : '');
-    container.appendChild(d);
-  });
-}
-
-function showPanel(idx) {
-  currentPanel = idx % PANELS.length;
-  const panel = PANELS[currentPanel];
-  document.getElementById('panel-title').textContent = PANEL_LABELS[currentPanel];
-  buildDots();
-  const content = document.getElementById('panel-content');
-  content.innerHTML = '';
-  content.className = 'panel-fade';
-
-  if (panel === 'briefing')  renderBriefingPanel(content);
-  if (panel === 'stations')  renderStationsPanel(content);
-  if (panel === 'closing')   renderClosingPanel(content);
-  if (panel === 'sales')     renderSalesPanel(content);
-  if (panel === 'photos')    renderPhotosPanel(content);
-}
-
-function renderBriefingPanel(el) {
-  if (!briefPoints.length) {
-    el.innerHTML = '<div class="empty-state"><div class="big">🌅</div>Briefing non disponibile</div>';
-    return;
-  }
-  const icons = ['🔴', '🟡', '🔵', '🔵', '🔵'];
-  el.innerHTML = briefPoints.slice(0, 4).map((p, i) =>
-    '<div class="brief-point"><div class="brief-icon">' + (icons[i] || '●') + '</div><div class="brief-text">' + p + '</div></div>'
-  ).join('');
-}
-
-function renderStationsPanel(el) {
-  // Group staff by station
+// ── RENDER STATIONS ──
+function renderStations() {
+  const body = document.getElementById('stations-body');
   const byStation = {};
   staffList.forEach(u => {
-    const s = u.default_station || 'Unassigned';
+    const s = u.default_station||'Unassigned';
     if (!byStation[s]) byStation[s] = [];
     byStation[s].push(u);
   });
 
-  if (!Object.keys(byStation).length) {
-    el.innerHTML = '<div class="empty-state"><div class="big">👥</div>Nessun staff caricato</div>';
-    return;
-  }
+  document.getElementById('staff-count').textContent = `${staffList.length} staff`;
 
-  el.innerHTML = Object.entries(byStation).map(([station, members]) => {
-    const shortName = station.replace(' Station', '');
-    const chips = members.map(m => '<span class="chip">' + m.name + '</span>').join('');
-    return '<div class="station-card"><div class="sname">' + shortName + '</div><div class="staff-chips">' + chips + '</div></div>';
+  body.innerHTML = Object.entries(byStation).map(([station, members]) => {
+    const shortName = station.replace(' Station','');
+    const colClass = STATION_COLORS[station]||'col-other';
+    return `
+      <div class="staff-station">
+        <div class="ss-name"><span>${shortName.toUpperCase()}</span></div>
+        ${members.map(m=>`
+          <div class="staff-row">
+            <div class="staff-avatar">
+              ${m.photo_url ? `<img src="${m.photo_url}" onerror="this.parentElement.textContent='${m.name[0]}'">` : m.name[0]}
+            </div>
+            <div>
+              <div class="staff-name-text">${m.name}</div>
+            </div>
+          </div>`).join('')}
+      </div>`;
   }).join('');
 }
 
-function renderClosingPanel(el) {
-  if (!closingItems.length) {
-    el.innerHTML = '<div class="empty-state"><div class="big">✅</div>Nessuna closing task</div>';
-    return;
+// ── RENDER FOOTER ──
+function renderFooter() {
+  // Ticker
+  const inner = document.getElementById('f-inner');
+  if (alerts.length) {
+    inner.textContent = alerts.map(a=>(a.title?a.title+': ':'')+a.body).join('   ·   ');
+  } else {
+    inner.textContent = 'Zenos on the Square — No active alerts';
+  }
+  inner.style.animation='none'; inner.offsetHeight; inner.style.animation='';
+
+  // Alerts pill
+  const pill = document.getElementById('pill-alerts');
+  const pillTxt = document.getElementById('pill-alerts-text');
+  if (alerts.length) {
+    pill.className = 'status-pill pill-amber';
+    pillTxt.textContent = `${alerts.length} Alert${alerts.length>1?'s':''}`;
+  } else {
+    pill.className = 'status-pill pill-green';
+    pillTxt.textContent = 'No Alerts';
   }
 
-  // Group by station
-  const byStation = {};
-  closingItems.forEach(i => {
-    const s = i.category || 'Other';
-    if (!byStation[s]) byStation[s] = [];
-    byStation[s].push(i);
-  });
-
-  el.innerHTML = Object.entries(byStation).map(([station, items]) => {
-    const total = items.length;
-    const done  = items.filter(i => closingDone[i.id]).length;
-    const pct   = total ? Math.round((done / total) * 100) : 0;
-    const shortName = station.replace(' Station', '');
-    const fillClass = pct === 0 ? 'empty' : pct < 100 ? 'partial' : '';
-    return '<div class="closing-station">' +
-      '<div class="closing-name"><span>' + shortName + '</span><span>' + done + '/' + total + '</span></div>' +
-      '<div class="closing-bar-bg"><div class="closing-bar-fill ' + fillClass + '" style="width:' + Math.max(pct, 2) + '%"></div></div>' +
-      '</div>';
-  }).join('');
+  // Brief footer
+  const bf = document.getElementById('brief-footer');
+  bf.textContent = briefPoints[0]||'No briefing today';
 }
-
-function renderSalesPanel(el) {
-  const yest = yesterdayISO();
-  const dayName = new Date(yest + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-
-  if (!salesData?.summary) {
-    el.innerHTML = '<div class="empty-state"><div class="big">📊</div>Nessun dato per ' + dayName + '</div>';
-    return;
-  }
-
-  const s = salesData.summary;
-  const items = salesData.items || [];
-
-  const header = '<div class="sales-header">' +
-    '<div class="sales-date">' + dayName + '</div>' +
-    '<div class="sales-total">' + fmt$(s.net_sales) + '</div>' +
-    '<div class="sales-sub">' + s.bill_count + ' bills · gross ' + fmt$(s.gross_sales) + '</div>' +
-    '</div>';
-
-  const rows = items.slice(0, 5).map((item, i) =>
-    '<div class="sales-item">' +
-    '<div class="sales-rank">' + (i + 1) + '</div>' +
-    '<div class="sales-iname">' + item.menu_item + '</div>' +
-    '<div class="sales-qty">×' + Math.round(item.quantity) + '</div>' +
-    '<div class="sales-rev">' + fmt$(item.net_sales) + '</div>' +
-    '</div>'
-  ).join('');
-
-  el.innerHTML = header + rows;
-}
-
-function renderPhotosPanel(el) {
-  if (!GDRIVE_FOLDER_ID || !GDRIVE_API_KEY) {
-    el.innerHTML = '<div class="photo-notice">' +
-      '<div class="pn-icon">📸</div>' +
-      '<div class="pn-title">Foto non configurate</div>' +
-      '<div class="pn-sub">Aggiungi GDRIVE_FOLDER_ID e GDRIVE_API_KEY<br>nel file display.html per mostrare le foto</div>' +
-      '</div>';
-    return;
-  }
-  if (!photos.length) {
-    el.innerHTML = '<div class="empty-state"><div class="big">🖼</div>Nessuna foto nella cartella</div>';
-    return;
-  }
-
-  // Pick random photo
-  const pick = photos[Math.floor(Math.random() * photos.length)];
-  el.innerHTML = '<div id="photos-panel">' +
-    '<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;">' +
-    '<img src="' + pick.url + '" style="max-width:100%;max-height:calc(100% - 30px);object-fit:contain;border-radius:8px;" onerror="this.parentElement.innerHTML=\'<div class=empty-state><div class=big>🖼</div>Foto non disponibile</div>\'">' +
-    '<div class="photo-caption">' + pick.name.replace(/\.[^.]+$/, '') + '</div>' +
-    '</div></div>';
-}
-
-// ── PANEL ROTATION ──
-function startPanelRotation() {
-  showPanel(0);
-  panelTimer = setInterval(() => {
-    showPanel(currentPanel + 1);
-  }, PANEL_DURATION);
-}
-
-// ── REFRESH DATA every 5 minutes ──
-async function refreshData() {
-  await loadAll();
-  renderPrep();
-  renderNewsBar();
-  // Re-render current panel with fresh data
-  showPanel(currentPanel);
-}
-setInterval(refreshData, 5 * 60 * 1000);
 
 // ── BOOT ──
 async function boot() {
   await loadAll();
-  renderPrep();
-  renderNewsBar();
-  startPanelRotation();
+  startSalesRotation();
+  // Refresh every 5 min
+  setInterval(loadAll, 5*60*1000);
 }
 boot();
 </script>
 </body>
 </html>
-
