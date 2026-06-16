@@ -8,6 +8,8 @@
 
 - App: BRIGADE (non BOH OS)
 - Branch: brigade-main (MAI main)
+- **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto in inglese. Mai italiano sul TV. Regola permanente.
+- **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
 - Versione frontend: **v191**
 - Versione souschef-chat: v15 (Supabase Edge Function)
 - Supabase project: ydqmumpytgrlceuinoqt
@@ -182,3 +184,4 @@
 - net_sales, sale_date, sales_category
 
 ### souschef-chat — non toccare senza leggere prima v15 da GitHub
+
