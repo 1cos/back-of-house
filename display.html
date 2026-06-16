@@ -421,9 +421,8 @@ async function loadSales() {
     .sort((a,b)=>b.avg-a.avg).slice(0,6);
 
   // Best by category last week
-  const lastWeekStart = (() => { const d=new Date(); d.setDate(d.getDate()-14); return d.toISOString().slice(0,10); })();
-  const lastWeekEnd   = weekStart;
-  const {data:catItems} = await supa.from('pos_sales_by_item').select('menu_item,menu_group,quantity').gte('sale_date',lastWeekStart).lt('sale_date',lastWeekEnd).eq('sales_category','Food');
+  // Best by category: ultimi 7 giorni (stessi dati disponibili)
+  const {data:catItems} = await supa.from('pos_sales_by_item').select('menu_item,menu_group,quantity').gte('sale_date',weekStart).eq('sales_category','Food');
   const catMap={};
   (catItems||[]).forEach(r=>{
     const g = r.menu_group||'Other';
@@ -552,7 +551,7 @@ function renderBestByCat(el) {
     el.innerHTML='<div style="color:#a0aec0;font-size:13px">No category data</div>'; return;
   }
   el.innerHTML = `
-    <div class="section-label">Last Week — by Category</div>
+    <div class="section-label">Last 7 Days — by Category</div>
     ${salesData.bestByCat.map(({cat,top2})=>`
       <div style="margin-bottom:8px">
         <div style="font-size:10px;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px">${cat}</div>
@@ -681,6 +680,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
