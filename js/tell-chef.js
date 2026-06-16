@@ -36,7 +36,7 @@ function openTellChef() {
 
   document.body.appendChild(modal);
   modal.addEventListener('click', function(e) { if (e.target === modal) closeTellChef(); });
-  setTimeout(function() { var t = document.getElementById('tellChefText'); if (t) t.focus(); }, 100);
+  setTimeout(function() { var t = document.getElementById('tellChefText'); if (t) { t.focus(); t.click(); } }, 300);
 }
 
 function closeTellChef() {
