@@ -22,20 +22,20 @@
     --panel-r-bg: #0d1219;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
-  html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:'DM Sans',sans-serif; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#0a0e14 !important; background-color:#0a0e14 !important; color:var(--text); font-family:'DM Sans',sans-serif; }
 
   /* ── LAYOUT ── */
-  #root { display:flex; flex-direction:column; height:100vh; }
+  #root { display:flex; flex-direction:column; height:100vh; background:#0a0e14; }
   #main { display:flex; flex:1; overflow:hidden; }
   #left  { width:60%; border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
   #right { width:40%; display:flex; flex-direction:column; overflow:hidden; background:var(--panel-r-bg); }
-  #newsbar { height:44px; background:#0a0e14; border-top:1px solid var(--border); display:flex; align-items:center; flex-shrink:0; overflow:hidden; }
+  #newsbar { height:36px; background:#0a0e14; border-top:1px solid var(--border); display:flex; align-items:center; flex-shrink:0; overflow:hidden; }
 
   /* ── TOP BAR ── */
-  #topbar { display:flex; align-items:center; justify-content:space-between; padding:14px 20px 10px; flex-shrink:0; border-bottom:1px solid var(--border); }
-  #topbar .logo { font-size:13px; font-weight:700; letter-spacing:0.18em; color:var(--muted); text-transform:uppercase; }
-  #topbar .clock { font-family:'DM Mono',monospace; font-size:28px; font-weight:500; color:var(--text); letter-spacing:0.04em; }
-  #topbar .date  { font-size:13px; color:var(--muted); text-align:right; line-height:1.4; }
+  #topbar { display:flex; align-items:center; justify-content:space-between; padding:8px 16px 6px; flex-shrink:0; border-bottom:1px solid var(--border); }
+  #topbar .logo { font-size:11px; font-weight:700; letter-spacing:0.18em; color:var(--muted); text-transform:uppercase; }
+  #topbar .clock { font-family:'DM Mono',monospace; font-size:20px; font-weight:500; color:var(--text); letter-spacing:0.04em; }
+  #topbar .date  { font-size:11px; color:var(--muted); text-align:right; line-height:1.4; }
 
   /* ── PREPLIST ── */
   #preplist-wrap { flex:1; overflow-y:auto; padding:0 0 8px; scrollbar-width:none; }
@@ -44,26 +44,26 @@
   .station-block { margin-bottom:4px; }
   .station-label {
     font-size:10px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase;
-    color:var(--muted); padding:10px 20px 4px;
+    color:var(--muted); padding:5px 16px 3px;
     display:flex; align-items:center; gap:8px;
   }
   .station-label::after { content:''; flex:1; height:1px; background:var(--border); }
 
   .prep-item {
     display:flex; align-items:center; gap:12px;
-    padding:9px 20px;
+    padding:5px 16px;
     border-bottom:1px solid rgba(255,255,255,0.03);
     transition:background 0.2s;
   }
   .prep-item.done { opacity:0.3; }
   .prep-item .dot {
-    width:10px; height:10px; border-radius:50%; flex-shrink:0;
+    width:8px; height:8px; border-radius:50%; flex-shrink:0;
     background:var(--muted);
   }
   .prep-item.done .dot { background:var(--green); }
   .prep-item.in-progress .dot { background:var(--amber); }
   .prep-item .name {
-    font-size:22px; font-weight:600; color:var(--text); flex:1; line-height:1.2;
+    font-size:16px; font-weight:600; color:var(--text); flex:1; line-height:1.2;
   }
   .prep-item.done .name { color:var(--muted); text-decoration:line-through; }
   .prep-item .who {
@@ -73,7 +73,7 @@
 
   /* ── RIGHT PANEL ── */
   #right-header {
-    padding:14px 20px 10px; border-bottom:1px solid var(--border); flex-shrink:0;
+    padding:8px 16px 6px; border-bottom:1px solid var(--border); flex-shrink:0;
     display:flex; align-items:center; justify-content:space-between;
   }
   #panel-title { font-size:11px; font-weight:700; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); }
@@ -81,7 +81,7 @@
   .pdot { width:6px; height:6px; border-radius:50%; background:var(--border); transition:background 0.3s; }
   .pdot.active { background:var(--green); }
 
-  #panel-content { flex:1; overflow:hidden; padding:16px 20px; }
+  #panel-content { flex:1; overflow:hidden; padding:10px 16px; }
 
   /* panel transition */
   .panel-fade { animation:fadeIn 0.5s ease; }
@@ -89,22 +89,22 @@
 
   /* ── BRIEFING PANEL ── */
   .brief-point {
-    display:flex; gap:12px; margin-bottom:16px; align-items:flex-start;
+    display:flex; gap:10px; margin-bottom:12px; align-items:flex-start;
   }
-  .brief-icon { font-size:20px; flex-shrink:0; margin-top:2px; }
-  .brief-text { font-size:17px; line-height:1.5; color:var(--text); font-weight:400; }
+  .brief-icon { font-size:16px; flex-shrink:0; margin-top:2px; }
+  .brief-text { font-size:14px; line-height:1.45; color:var(--text); font-weight:400; }
 
   /* ── STATIONS PANEL ── */
   .station-card {
-    background:var(--surface); border-radius:12px; padding:12px 14px;
-    margin-bottom:10px; border:1px solid var(--border);
+    background:var(--surface); border-radius:10px; padding:8px 12px;
+    margin-bottom:7px; border:1px solid var(--border);
     display:flex; align-items:center; gap:12px;
   }
-  .station-card .sname { font-size:13px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; flex:1; }
+  .station-card .sname { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; flex:1; }
   .station-card .staff-chips { display:flex; gap:6px; flex-wrap:wrap; }
   .chip {
     background:rgba(59,130,246,0.12); border:1px solid rgba(59,130,246,0.25);
-    color:#93c5fd; border-radius:20px; padding:4px 10px; font-size:13px; font-weight:600;
+    color:#93c5fd; border-radius:20px; padding:3px 8px; font-size:11px; font-weight:600;
   }
 
   /* ── CLOSING PANEL ── */
@@ -118,18 +118,18 @@
   /* ── SALES PANEL ── */
   .sales-header { margin-bottom:16px; }
   .sales-date { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:0.1em; }
-  .sales-total { font-size:42px; font-weight:800; color:var(--green); line-height:1; margin-top:4px; font-family:'DM Mono',monospace; }
+  .sales-total { font-size:32px; font-weight:800; color:var(--green); line-height:1; margin-top:4px; font-family:'DM Mono',monospace; }
   .sales-sub { font-size:14px; color:var(--muted); margin-top:4px; }
   .sales-item { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); }
   .sales-rank { font-size:12px; color:var(--muted); font-family:'DM Mono',monospace; width:20px; }
-  .sales-iname { flex:1; font-size:16px; font-weight:600; }
+  .sales-iname { flex:1; font-size:14px; font-weight:600; }
   .sales-qty { font-size:13px; color:var(--muted); }
-  .sales-rev { font-size:15px; font-weight:700; color:var(--green); font-family:'DM Mono',monospace; }
+  .sales-rev { font-size:13px; font-weight:700; color:var(--green); font-family:'DM Mono',monospace; }
 
   /* ── STAFF REPORT PANEL ── */
   .staff-card {
-    background:var(--surface); border-radius:12px; padding:12px 14px;
-    margin-bottom:10px; border:1px solid var(--border);
+    background:var(--surface); border-radius:10px; padding:8px 12px;
+    margin-bottom:7px; border:1px solid var(--border);
     display:flex; align-items:center; gap:14px;
   }
   .staff-avatar {
@@ -150,9 +150,9 @@
   .photo-caption { text-align:center; margin-top:10px; font-size:13px; color:var(--muted); }
 
   /* ── NEWS BAR ── */
-  #newsbar .nb-label { font-size:10px; font-weight:700; letter-spacing:0.18em; color:var(--amber); padding:0 16px; flex-shrink:0; text-transform:uppercase; }
+  #newsbar .nb-label { font-size:9px; font-weight:700; letter-spacing:0.18em; color:var(--amber); padding:0 16px; flex-shrink:0; text-transform:uppercase; }
   #newsbar .nb-scroll { flex:1; overflow:hidden; position:relative; }
-  #newsbar .nb-inner { white-space:nowrap; font-size:13px; color:var(--text); font-weight:500; display:inline-block; animation:ticker 40s linear infinite; }
+  #newsbar .nb-inner { white-space:nowrap; font-size:12px; color:var(--text); font-weight:500; display:inline-block; animation:ticker 40s linear infinite; }
   @keyframes ticker { 0%{transform:translateX(100vw)} 100%{transform:translateX(-100%)} }
 
   /* ── EMPTY STATES ── */
@@ -558,3 +558,4 @@ boot();
 </script>
 </body>
 </html>
+
