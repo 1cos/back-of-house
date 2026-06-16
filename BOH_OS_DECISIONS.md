@@ -1,6 +1,6 @@
 # BRIGADE — DECISIONS
 *Perche abbiamo scelto certe cose. Non ridiscutere senza motivo.*
-*Aggiornato: 2026-06-16 — v195*
+*Aggiornato: 2026-06-16 — v217*
 
 ---
 
@@ -11,7 +11,7 @@
 | App HTML/PWA attuale | **BRIGADE** |
 | App Flutter futura con Siri | **BOH OS** (separata, non ancora costruita) |
 | Branch deploy | **brigade-main** (MAI main) |
-| Versione attuale frontend | **v195** |
+| Versione attuale frontend | **v217** |
 | Versione souschef-chat | **v15** |
 | Supabase project attivo | ydqmumpytgrlceuinoqt |
 | Supabase project vecchio | hykjompnvajjhggrnned — tenere attivo fino a Flutter |
@@ -186,3 +186,17 @@ Tutti i 400 ingredienti attivi hanno categoria assegnata.
 - Edge Function: sc-nightly-brief v5
 - Domenica: recap settimana
 - PROBLEMA NOTO: prompt genera frasi vaghe invece di dati strutturati — da migliorare
+
+---
+
+## TripleSeat OAuth 2.0 (2026-06-16)
+
+- TripleSeat usa OAuth 2.0 **authorization_code** flow — NON client_credentials
+- Serve un Authorize manuale (una sola volta) da parte di Monica (admin TripleSeat)
+- Dopo l'Authorize: access_token (2h) + refresh_token (automatico)
+- Public API key (`6aaf13...`) = solo per leads/rooms, NON per eventi privati
+- OAuth app "MAX" creata su `zottsllc.tripleseat.com/settings/api`
+- Secrets Supabase: TRIPLESEAT_CLIENT_ID, TRIPLESEAT_CLIENT_SECRET
+- Edge Function: `tripleseat-sync` v4
+- Endpoint token: `https://api.tripleseat.com/oauth2/token`
+- Endpoint eventi: `https://api.tripleseat.com/v1/events`
