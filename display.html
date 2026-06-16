@@ -432,7 +432,7 @@ function renderYesterday(el) {
   el.innerHTML = `
     <div>
       <div class="big-label">${day}</div>
-      <div class="big-num">${s.bill_count} <span style="font-size:18px;color:#a0aec0">bills</span></div>
+      <div class="big-num">${s.bill_count} <span style="font-size:16px;color:#a0aec0;font-weight:500">bills</span></div>
       <div class="sales-meta"><span>net $${Number(s.net_sales).toLocaleString('en-US',{maximumFractionDigits:0})}</span></div>
     </div>
     <div class="sdivider"></div>
@@ -441,7 +441,7 @@ function renderYesterday(el) {
       <div class="rank-row">
         <div class="rank-n">${i+1}</div>
         <div class="rank-nm">${r.menu_item}</div>
-        <div class="rank-q">×${Math.round(r.quantity)}</div>
+        <div class="rank-q">${Math.round(r.quantity)}</div>
       </div>`).join('')}`;
 }
 
@@ -452,7 +452,7 @@ function renderWeekTop(el) {
       <div class="rank-row">
         <div class="rank-n">${i+1}</div>
         <div class="rank-nm">${r.n}</div>
-        <div class="rank-q">×${r.q}</div>
+        <div class="rank-q">${r.q}</div>
       </div>`).join('')}`;
 }
 
@@ -463,8 +463,7 @@ function renderExpected(el) {
     ${salesData.expected.map(r=>`
       <div class="exp-row">
         <div class="exp-nm">${r.n}</div>
-        <div class="exp-q">~${r.avg}</div>
-        <div class="exp-avg">avg</div>
+        <div class="exp-q">${r.avg}</div>
       </div>`).join('')}`;
 }
 
@@ -583,3 +582,4 @@ boot();
 </script>
 </body>
 </html>
+
