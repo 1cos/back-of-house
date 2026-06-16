@@ -138,8 +138,8 @@ async function tellChefTranscribe() {
     var form = new FormData();
     form.append('audio', blob, 'tell-chef.webm');
 
-    var SUPABASE_URL = window.SUPABASE_URL || 'https://ydqmumpytgrlceuinoqt.supabase.co';
-    var SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
+    var SUPABASE_URL = window.SUPABASE_URL || (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : 'https://ydqmumpytgrlceuinoqt.supabase.co');
+    var SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || (typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : '');
 
     var res = await fetch(SUPABASE_URL + '/functions/v1/transcribe-audio', {
       method: 'POST',
@@ -262,3 +262,4 @@ async function tcSetStatus(id, status, btn) {
     await tcAdminLoad();
   } catch(e) {}
 }
+
