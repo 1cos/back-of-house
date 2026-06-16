@@ -1,6 +1,6 @@
 # BRIGADE — DATABASE SCHEMA COMPLETO
 *Supabase project: ydqmumpytgrlceuinoqt*
-*Aggiornato: 2026-06-16 — v197*
+*Aggiornato: 2026-06-16 — v217*
 *Leggi questo file all'inizio di ogni sessione. Contiene le colonne reali del DB.*
 
 ---
@@ -461,3 +461,15 @@ Stessa struttura di recipes + colonne calcolate:
 6. **recipes.ingredients** = JSONB non strutturato. Per dipendenze strutturate usare `recipe_bom`
 7. **Dati finanziari** = mai allo staff: net_sales, gross_sales, food_cost, labor_cost, margin, total_spend, avg_unit_price
 8. **App non in produzione** — tutti i dati nel DB sono test di Max. Non fare considerazioni su volumi o comportamenti utente
+
+
+### events (aggiornata v217)
+Colonne aggiunte per TripleSeat:
+- contact_name, contact_email, contact_phone — contatto evento
+- room_name — sala (The Scuderia ecc.)
+- total_amount — importo totale
+- documents JSONB — array PDF {type, name, url} (BEO, Kitchen Sheet, Menu, Contract)
+- last_synced_at — ultimo sync TripleSeat
+
+source='tripleseat' per eventi importati, source='manual' per eventi manuali
+tripleseat_id UNIQUE — evita duplicati al sync
