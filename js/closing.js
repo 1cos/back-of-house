@@ -150,6 +150,12 @@ async function doCloseTurn(){
   localStorage.setItem(todayKey, '1');
   renderS(); renderHomeStations();
   updateCloseTurnBtn();
+
+  // ── Prompt note serale — appare 800ms dopo la chiusura turno ──
+  // Solo se non ha già risposto oggi
+  if (typeof window.checkOperationNotePrompt === 'function') {
+    window.checkOperationNotePrompt(true);
+  }
 }
 
 function updateCloseTurnBtn(){
@@ -173,4 +179,3 @@ function updateCloseTurnBtn(){
     btn.onclick=closeTurn;
   }
 }
-
