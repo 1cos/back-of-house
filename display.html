@@ -693,19 +693,24 @@ function renderFooter() {
 async function boot() {
   await loadAll();
   setInterval(loadAll, 5*60*1000);
-  // Realtime presence
+  // Realtime presence — staff chips update instantly
   supa.channel('presence-rt')
     .on('postgres_changes',{event:'*',schema:'public',table:'user_presence'}, loadPresence)
     .subscribe();
-  // Realtime chat
+  // Realtime chat — new messages appear instantly
   supa.channel('chat-rt')
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'}, async ()=>{ await loadChat(); })
+    .subscribe();
+  // Realtime alerts — new/updated alerts appear instantly (with translation)
+  supa.channel('alerts-rt')
+    .on('postgres_changes',{event:'*',schema:'public',table:'alerts'}, async ()=>{ await loadAlerts(); })
     .subscribe();
 }
 boot();
 </script>
 </body>
 </html>
+
 
 
 
