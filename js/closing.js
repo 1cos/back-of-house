@@ -49,6 +49,10 @@ window.setClosing=async(id,value)=>{
 };
 
 async function closeTurn(){
+  // Disabilita subito il bottone — evita doppio click
+  const _btn = document.getElementById('closeTurnBtn');
+  if(_btn) { _btn.disabled = true; _btn.style.opacity = '0.5'; }
+
   // Blocca la stazione al momento del click — non cambierà più durante il flow
   _closingStationLock = station2;
 
@@ -82,7 +86,14 @@ function showForgottenPopup(forgotten){
       </div>
       <button id="popupCloseBtn" onclick="tryCloseFromPopup()" class="w-full py-3 bg-slate-900 text-white rounded-xl font-semibold">${tr('closeTurn')}</button>
     </div>`;
-  popup.onclick=e=>{if(e.target===popup)popup.remove()};
+  popup.onclick=e=>{
+    if(e.target===popup){
+      popup.remove();
+      _closingStationLock = null;
+      const _btn = document.getElementById('closeTurnBtn');
+      if(_btn) { _btn.disabled = false; _btn.style.opacity = ''; }
+    }
+  };
   document.body.appendChild(popup);
 
   window._activePopup=popup;
@@ -136,23 +147,13 @@ function showForgottenPopup(forgotten){
 
 async function doCloseTurn(){
   const missing=items.filter(i=>closingAnswers[i.id]===false);
-  const missingList=missing.map(i=>i.name).join(', ')||'niente';
+  const missingList=missing.map(i=>i.name).join(', ')||'nothing';
   await supa.from('messages').insert({
     text:`🔒 ${tr("shiftClosed")} ${user.name}. ${tr("missing2")}: ${missingList}.`,
     user_name:'Sistema',
     lang:user.lang||'it'
   });
-  try{
-    await fetch(`${SUPABASE_URL}/functions/v1/notifications`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
-      body:JSON.stringify({
-        title:'🔒 Turno chiuso',
-        body: missingList==='niente' ? `${user.name} closed. ${tr('allGood')}` : `${user.name} closed. ${tr('daFare')}: ${missingList}`,
-        exclude_user: user.name
-      })
-    });
-  }catch(e){}
+  // Push gestita automaticamente dal webhook su messages — non chiamare notifications manualmente
 
   closingAnswers={};
   _closingStationLock = null; // reset lock dopo chiusura
