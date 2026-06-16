@@ -177,9 +177,6 @@ function showRecipeSheet(rec){
       ${(rec.ingredients||[]).length ? `<p class="text-sm font-semibold mb-1">${tr("ingredients")}</p><ul id="ingDisplay" class="text-sm mb-3" style="padding:0;">${renderIngs(1)}</ul>` : ''}
       ${rec.equipment ? `<p class="text-sm font-semibold mb-1">Equipment</p><p class="text-xs text-slate-600 mb-3 whitespace-pre-wrap">${rec.equipment}</p>` : ''}
       ${rec.procedure ? `<p class="text-sm font-semibold mb-1">Procedure</p><p class="text-sm text-slate-700 whitespace-pre-wrap mb-4">${rec.procedure}</p>` : ''}
-      <div id="recipeFoodCost_${rec.id||'x'}" class="mb-3">
-        <div style="font-size:11px;color:#94a3b8;padding:6px 0;">Loading food cost...</div>
-      </div>
       ${isAdmin() ? `<button id="recipeEditBtn" class="w-full mt-2 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm">✏️ Edit Recipe</button>` : ''}
       <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
     </div>`;
@@ -194,7 +191,6 @@ function showRecipeSheet(rec){
     editBtn.onclick = ()=>{ sheet.remove(); openRecipeEditor(rec); };
   }
 
-  calcRecipeFoodCost(rec);
   if(rec.pos_name) loadRecipeSalesStats(rec, sheet);
 
   // Scaling logic
@@ -266,11 +262,9 @@ function renderRecipes(){
 
   document.getElementById('recipeGrid').innerHTML = filtered.map((r,idx)=>{
     const realIdx = SHOP_RECIPES.indexOf(r);
-    const fcColor = r.food_cost_pct ? (r.food_cost_pct<28?'#10b981':r.food_cost_pct<35?'#f59e0b':'#ef4444') : null;
     const dispCat = r.menu_group || r.category || 'General';
     const badges = [
-      r.selling_price ? `<span style="font-size:10px;color:#64748b;">$${parseFloat(r.selling_price).toFixed(2)}</span>` : '',
-      r.food_cost_pct && fcColor ? `<span style="font-size:10px;color:${fcColor};font-weight:600;">${parseFloat(r.food_cost_pct).toFixed(1)}% FC</span>` : ''
+      r.selling_price ? `<span style="font-size:10px;color:#64748b;">$${parseFloat(r.selling_price).toFixed(2)}</span>` : ''
     ].filter(Boolean).join('');
     return `<div class="bg-white p-3 rounded-2xl border shadow-sm cursor-pointer active:scale-[0.98] transition" onclick="openRecipeByData(${realIdx})">
       <div class="font-semibold text-[15px] leading-tight mb-1">${r.title}</div>
