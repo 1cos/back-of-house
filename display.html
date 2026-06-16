@@ -196,20 +196,20 @@ html, body {
 
 /* ── FOOTER ── */
 #footer {
-  background:#1a202c; height:36px; flex-shrink:0;
+  background:#1a202c; height:56px; flex-shrink:0;
   display:flex; align-items:center; overflow:hidden;
 }
 .f-label {
-  padding:0 12px; font-size:9px; font-weight:900; letter-spacing:0.2em;
+  padding:0 14px; font-size:14px; font-weight:900; letter-spacing:0.15em;
   text-transform:uppercase; color:#f59e0b; border-right:1px solid #2d3748;
   flex-shrink:0; height:100%; display:flex; align-items:center;
 }
 .f-ticker { flex:1; overflow:hidden; display:flex; align-items:center; padding:0 12px; }
-.f-inner  { white-space:nowrap; font-size:12px; color:#a0aec0; font-weight:500; display:inline-block; animation:ticker 50s linear infinite; }
+.f-inner  { white-space:nowrap; font-size:24px; color:#e2e8f0; font-weight:700; display:inline-block; animation:ticker 40s linear infinite; }
 @keyframes ticker { 0%{transform:translateX(100vw)} 100%{transform:translateX(-100%)} }
 .f-brief  { border-left:1px solid #2d3748; padding:0 14px; display:flex; align-items:center; gap:6px; flex-shrink:0; max-width:340px; overflow:hidden; }
-.f-brief-tag { font-size:9px; font-weight:900; color:#3b82f6; text-transform:uppercase; letter-spacing:0.1em; flex-shrink:0; }
-.f-brief-text { font-size:11px; color:#718096; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.f-brief-tag { font-size:14px; font-weight:900; color:#3b82f6; text-transform:uppercase; letter-spacing:0.1em; flex-shrink:0; }
+.f-brief-text { font-size:22px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
 
 /* ── SCREEN FADE ── */
 .fade { animation:fadeIn 0.4s ease; }
@@ -681,6 +681,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
