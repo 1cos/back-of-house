@@ -427,9 +427,11 @@ async function loadSales() {
   // Best by category last week
   // Best by category: ultimi 7 giorni (stessi dati disponibili)
   const {data:catItems} = await supa.from('pos_sales_by_item').select('menu_item,menu_group,quantity').gte('sale_date',weekStart).eq('sales_category','Food');
+  const EXCLUDE_GROUPS = ['Happy hours','Kids menu','NA Beverages','Mocktail','Lunch','Sides','Soup'];
   const catMap={};
   (catItems||[]).forEach(r=>{
     const g = r.menu_group||'Other';
+    if(EXCLUDE_GROUPS.includes(g)) return;
     if(!catMap[g]) catMap[g]={};
     catMap[g][r.menu_item]=(catMap[g][r.menu_item]||0)+Number(r.quantity);
   });
@@ -710,6 +712,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
