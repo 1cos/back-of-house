@@ -455,9 +455,26 @@ async function loadPresence() {
   renderStaff();
 }
 
+async function translateToEn(text) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+      body: JSON.stringify({text, targetLang:'en'})
+    });
+    const j = await r.json();
+    return j.translated || text;
+  } catch(e) { return text; }
+}
+
 async function loadAlerts() {
   const {data} = await supa.from('alerts').select('message,created_by,priority').eq('is_active',true).order('created_at',{ascending:false});
-  alerts = data||[];
+  const raw = data||[];
+  // Translate all messages to English
+  alerts = await Promise.all(raw.map(async a => ({
+    ...a,
+    message: await translateToEn(a.message)
+  })));
   renderFooter();
   const pill = document.getElementById('alert-pill');
   const txt  = document.getElementById('alert-pill-text');
@@ -481,7 +498,12 @@ async function loadChat() {
     .select('user_name,text,created_at,pinned,channel')
     .order('created_at',{ascending:false})
     .limit(5);
-  chatMessages = (data||[]).reverse();
+  const raw = (data||[]).reverse();
+  // Translate all messages to English
+  chatMessages = await Promise.all(raw.map(async m => ({
+    ...m,
+    text: await translateToEn(m.text||'')
+  })));
   renderChat();
 }
 
@@ -680,6 +702,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
