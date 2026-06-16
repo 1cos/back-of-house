@@ -24,21 +24,21 @@ const T={
     ingredients:'Ingredienti',loading:'Caricamento...',noData2:'Nessun dato',
     station:'Stazione',role:'Ruolo',lastAccess:'Ultimo accesso',status:'Stato',
     online:'Online',shiftClosed:'Turno chiuso da',missing2:'Manca',allGood:'Tutto ok',
-    noActivenews:'Nessuna comunicazione attiva',closeAll:'Chiudi tutte'},
+    noActivenews:'Nessuna comunicazione attiva',closeAll:'Chiudi tutte',answerAll:'Rispondi a tutte le voci prima di chiudere'},
   en:{home:'Home',prep:'Prep',evening:'Closing',recipes:'Recipes',logout:'Logout',login:'Enter',name:'Name',pass:'Password',write:'Write...',send:'Send',save:'Save',ok:'OK',report:'Report',today:'Today',week:'Week',pdf:'PDF',noData:'No data today',item:'Item',unit:'Unit',prepBy:'Preparations by person',toDo:'TO PREPARE — flagged at close',closeCount:'to do',selectReport:'Select Today or Week',closeTurn:'Close Shift',thereIs:'In stock ✓',missing:'Missing ✗',forgottenAlert:'You forgot these items:',closeTurnDone:'Shift closed.',alreadyClosed:'You already closed tonight 👌',goCheck:'Go Check →',briefingLoading:'Loading briefing...',briefingEmpty:'No data available.',briefingError:'Error loading briefing.',homeChecklist:'Closing checklist',homeOpen:'Open →',homePrepSub:'Morning prep',homeCloseSub:'Evening checklist',homeRecSub:'All recipes',homeChatSub:'Crew',translating:'...',briefingRefresh:'Refresh',quickComment:'Quick note',skipComment:'Skip',
     daFare:'to do',inProgress:'in progress',noStation:'No stations',
     close:'Close',cancel:'Cancel',send:'Send to team',writePlaceholder:'Write a message for the team...',
     ingredients:'Ingredients',loading:'Loading...',noData2:'No data',
     station:'Station',role:'Role',lastAccess:'Last seen',status:'Status',
     online:'Online',shiftClosed:'Shift closed by',missing2:'Missing',allGood:'All good',
-    noActivenews:'No active announcements',closeAll:'Close all'},
+    noActivenews:'No active announcements',closeAll:'Close all',answerAll:'Answer all items before closing'},
   es:{home:'Home',prep:'Prep',evening:'Cierre',recipes:'Recetas',logout:'Salir',login:'Entrar',name:'Nombre',pass:'Contraseña',write:'Escribe...',send:'Enviar',save:'Guardar',ok:'OK',report:'Informe',today:'Hoy',week:'Semana',pdf:'PDF',noData:'Sin datos hoy',item:'Artículo',unit:'Unidad',prepBy:'Preparaciones por persona',toDo:'POR PREPARAR — marcado al cierre',closeCount:'por hacer',selectReport:'Selecciona Hoy o Semana',closeTurn:'Cerrar Turno',thereIs:'Hay ✓',missing:'Falta ✗',forgottenAlert:'Olvidaste estos items:',closeTurnDone:'Turno cerrado.',alreadyClosed:'Ya cerraste esta noche 👌',goCheck:'Go Check →',briefingLoading:'Cargando briefing...',briefingEmpty:'Sin datos disponibles.',briefingError:'Error al cargar.',homeChecklist:'Lista de cierre',homeOpen:'Abrir →',homePrepSub:'Preparaciones mañana',homeCloseSub:'Lista de cierre',homeRecSub:'Todas las recetas',homeChatSub:'Brigada',translating:'...',briefingRefresh:'Actualizar',quickComment:'Nota rápida',skipComment:'Omitir',
     daFare:'por hacer',inProgress:'en progreso',noStation:'Sin estaciones',
     close:'Cerrar',cancel:'Cancelar',send:'Enviar al equipo',writePlaceholder:'Escribe un mensaje para el equipo...',
     ingredients:'Ingredientes',loading:'Cargando...',noData2:'Sin datos',
     station:'Estación',role:'Rol',lastAccess:'Último acceso',status:'Estado',
     online:'En línea',shiftClosed:'Turno cerrado por',missing2:'Falta',allGood:'Todo bien',
-    noActivenews:'Sin anuncios activos',closeAll:'Cerrar todo'}
+    noActivenews:'Sin anuncios activos',closeAll:'Cerrar todo',answerAll:'Responde todos los items antes de cerrar'}
 };
 function tr(k){
   const lang=normalizeLang(user?.lang||loginLang||DEFAULT_LANG);
