@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-15 — v190*
+*Aggiornato: 2026-06-15 — v191*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -8,7 +8,7 @@
 
 - App: BRIGADE (non BOH OS)
 - Branch: brigade-main (MAI main)
-- Versione frontend: **v190**
+- Versione frontend: **v191**
 - Versione souschef-chat: v15 (Supabase Edge Function)
 - Supabase project: ydqmumpytgrlceuinoqt
 - Leggi file da GitHub brigade-main, NON da /mnt/project/ (snapshot vecchio)
@@ -37,9 +37,9 @@
 
 | Tabella | Scopo | Righe |
 |---|---|---|
-| pos_daily_summary | Totali giornalieri (coperti, fatturato) | 305 |
+| pos_daily_summary | Totali giornalieri (scontrini, fatturato) | 305 |
 | pos_sales_by_item | Piatti venduti per giorno | 3.924 |
-| pos_modifiers | Modifier totali per giorno (TextModifier) | 711 |
+| pos_modifiers | Modifier totali per giorno (TextModifier) | 712 |
 | pos_modifier_by_item | Modifier collegato al piatto padre | 1.167 |
 | modifier_config | Whitelist modifier cucina classificati | 86 |
 | ingredients | Ingredienti con categorie | 400 |
@@ -77,6 +77,7 @@
 - [ ] Sales staff — modal porzioni su tap piatto
 - [ ] Card OQR — ancora troppo grandi su iPhone
 - [ ] Sous Chef proattivo: scansione automatica ogni ora
+- [ ] Aggiungere guest_count a pos_daily_summary quando arriva il nuovo report TouchBistro (richiesto da Max)
 
 ---
 
@@ -139,6 +140,27 @@
 
 ---
 
+## Sessione 2026-06-15 — scan stato app + TouchBistro audit (v191)
+
+### TouchBistro CSV — stato import
+- pos_daily_summary: 305 giorni (2025-06-02 -> 2026-06-13) — PULITO
+- pos_sales_by_item: solo 19 date distinte su 305 — copertura parziale
+  - 5 date recenti (2026-06-09/10/11/12/13) hanno detail per piatto — OK
+  - Maggio 2026 e prima: solo summary, nessun dettaglio per piatto
+  - Alcune date vecchie (2025-06-01, 2025-12-01, 2025-05-08) hanno righe aggregate sporche
+    (quantita assurde: Wheel Pasta 2763 pezzi) — CSV mensili importati come giornalieri
+- pos_modifiers: 712 righe (2025-07-12 -> 2026-06-14) — OK
+
+### bill_count vs guest_count
+- bill_count in pos_daily_summary = SCONTRINI CHIUSI, non coperti
+- I 4 CSV TouchBistro (SalesByMenuItem, TextModifier, ModifierPreferenceByMenuItem,
+  Daily&HourlySales) NON contengono guest count
+- Max ha richiesto a TouchBistro un report separato con guest count
+- Quando arriva: aggiungere colonna guest_count INTEGER a pos_daily_summary
+  e aggiornare gmail-touchbistro-import per importarla
+
+---
+
 ## Note importanti
 
 ### vendor-documents-review.js — architettura
@@ -148,6 +170,11 @@
 - VDR_UNIT_WEIGHTS — dizionario pesi standard, definito PRIMA di vdrCalcPack e vdrPackToGrams
 - vdrLookupUnitWeight — cerca per nome ingrediente nel dizionario
 - vdrRecalcRow(docId, idx, btn) — btn.closest('[data-vdr-row]') per scope corretto
+
+### pos_daily_summary — bill_count
+- bill_count = scontrini chiusi (NON coperti/guest count)
+- Dire sempre "scontrini" o "bills" in app e Sous Chef, mai "tavoli" o "coperti"
+- guest_count da aggiungere quando arriva nuovo report TB
 
 ### pos_sales_by_item — nomi colonne CORRETTI:
 - menu_item (NON item_name)
