@@ -164,6 +164,32 @@ html, body {
 }
 .s-prep-label { font-size:9px; color:#a0aec0; text-align:center; }
 
+/* ── CHAT PANEL ── */
+.chat-msg {
+  background:#f8fafc; border-radius:8px; padding:8px 10px;
+  border-left:3px solid #3b82f6; margin-bottom:0;
+}
+.chat-msg.pinned { border-left-color:#f59e0b; background:#fffbeb; }
+.chat-name { font-size:10px; font-weight:800; color:#3b82f6; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:3px; display:flex; align-items:center; gap:6px; }
+.chat-name .chat-time { font-size:9px; color:#a0aec0; font-weight:500; text-transform:none; letter-spacing:0; }
+.chat-text { font-size:14px; font-weight:500; color:#1a202c; line-height:1.4; }
+.chat-pin { font-size:9px; color:#f59e0b; }
+
+/* ── STAFF CHIPS IN HEADER ── */
+.h-staff-chips { display:flex; gap:4px; align-items:center; margin-right:8px; }
+.h-chip {
+  display:flex; align-items:center; gap:4px;
+  background:#2d3748; border-radius:20px; padding:3px 8px 3px 4px;
+  font-size:10px; font-weight:700; color:#e2e8f0;
+}
+.h-chip-avatar {
+  width:18px; height:18px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:8px; font-weight:800; color:#fff; overflow:hidden; flex-shrink:0;
+}
+.h-chip-avatar img { width:100%; height:100%; object-fit:cover; }
+.h-online-dot { width:5px; height:5px; border-radius:50%; background:#22c55e; flex-shrink:0; }
+
 /* offline staff */
 .staff-card.offline { opacity:0.4; }
 .staff-card.offline .s-prep-count { color:#cbd5e0; }
@@ -199,6 +225,7 @@ html, body {
     <div class="h-divider"></div>
     <div class="h-clock" id="clock">--:--</div>
     <div class="h-date" id="hdate">--</div>
+    <div class="h-staff-chips" id="h-staff-chips"></div>
     <div class="svc-pill svc-before" id="svc-pill">
       <div class="svc-dot" id="svc-dot"></div>
       <span id="svc-text">--</span>
@@ -234,13 +261,13 @@ html, body {
       <div id="prep-grid"></div>
     </div>
 
-    <!-- RIGHT: STAFF LEADERBOARD -->
+    <!-- RIGHT: KITCHEN CHAT -->
     <div class="card" id="panel-right">
       <div class="card-head">
-        <div class="card-title">On Shift</div>
-        <div class="card-sub" id="staff-sub">— online</div>
+        <div class="card-title">Kitchen Chat</div>
+        <div class="card-sub" id="chat-sub">live</div>
       </div>
-      <div class="card-body" id="staff-body"></div>
+      <div class="card-body" id="chat-body" style="gap:8px"></div>
     </div>
 
   </div>
@@ -338,7 +365,7 @@ let salesScreen = 0;
 let salesData = { ySum:null, yItems:[], weekTop:[], expected:[], bestByCat:[] };
 let prepTasks=[], prepDone=new Set();
 let presenceData=[], prepLogData=[];
-let alerts=[], briefPoints=[];
+let alerts=[], briefPoints=[], chatMessages=[];
 
 const STATION_MAP = {
   'Oven Station':'s-oven','Fresh Pasta Station':'s-fpasta',
@@ -350,7 +377,7 @@ const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ef4444','#14b8a
 
 // ── LOAD ──
 async function loadAll() {
-  await Promise.all([loadSales(), loadPrep(), loadPresence(), loadAlerts(), loadBriefing()]);
+  await Promise.all([loadSales(), loadPrep(), loadPresence(), loadAlerts(), loadBriefing(), loadChat()]);
 }
 
 async function loadSales() {
@@ -448,6 +475,15 @@ async function loadBriefing() {
   const {data} = await supa.from('briefing').select('points').eq('date',todayISO()).maybeSingle();
   briefPoints = data?.points||[];
   document.getElementById('brief-text').textContent = briefPoints[0]||'No briefing today';
+}
+
+async function loadChat() {
+  const {data} = await supa.from('messages')
+    .select('user_name,text,created_at,pinned,channel')
+    .order('created_at',{ascending:false})
+    .limit(5);
+  chatMessages = (data||[]).reverse();
+  renderChat();
 }
 
 // ── RENDER SALES ──
@@ -572,54 +608,51 @@ function renderPrep() {
     </div>`).join('');
 }
 
-// ── RENDER STAFF LEADERBOARD ──
+// ── RENDER STAFF HEADER CHIPS ──
 function renderStaff() {
   const now = Date.now();
   const online = presenceData.filter(u => (now - new Date(u.last_seen).getTime()) < 2*60*1000);
-
-  // Count prep done per user today
   const prepByUser = {};
-  prepLogData.forEach(l => {
-    if (!prepByUser[l.user_name]) prepByUser[l.user_name] = 0;
-    prepByUser[l.user_name]++;
-  });
+  prepLogData.forEach(l => { if(!prepByUser[l.user_name]) prepByUser[l.user_name]=0; prepByUser[l.user_name]++; });
 
-  // All users who have presence (online or offline today)
-  const today = todayISO();
-  const todayUsers = presenceData.filter(u => u.last_seen >= today+'T00:00:00Z');
-  const onlineNames = new Set(online.map(u=>u.user_name));
-
-  // Sort by prep done desc
-  const sorted = todayUsers.sort((a,b) => (prepByUser[b.user_name]||0) - (prepByUser[a.user_name]||0));
-
-  document.getElementById('staff-sub').textContent = `${online.length} online now`;
-
-  document.getElementById('staff-body').innerHTML = sorted.map((u,i) => {
-    const isOnline = onlineNames.has(u.user_name);
-    const count = prepByUser[u.user_name]||0;
+  const chips = document.getElementById('h-staff-chips');
+  if (!chips) return;
+  chips.innerHTML = online.map(u => {
     const colorIdx = u.user_name.charCodeAt(0) % AVATAR_COLORS.length;
     const bg = AVATAR_COLORS[colorIdx];
     const initials = u.user_name.slice(0,1).toUpperCase();
-    const rankCls = i===0?'top1':i===1?'top2':i===2?'top3':'';
-    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
-    const shortStation = (u.station||'').replace(' Station','');
-    return `
-      <div class="staff-card ${isOnline?'':'offline'}">
-        <div class="staff-rank ${rankCls}">${medal||i+1}</div>
-        <div class="s-avatar" style="background:${bg}">
-          ${u.photo_url?`<img src="${u.photo_url}" onerror="this.parentElement.innerHTML='${initials}'">`:initials}
-          ${isOnline?'<div class="online-dot"></div>':''}
-        </div>
-        <div class="s-info">
-          <div class="s-name">${u.user_name}</div>
-          <div class="s-station">${shortStation||'—'}</div>
-        </div>
-        <div>
-          <div class="s-prep-count">${count}</div>
-          <div class="s-prep-label">prep</div>
-        </div>
-      </div>`;
-  }).join('') || '<div style="color:#a0aec0;font-size:13px;padding:10px">No staff online</div>';
+    const count = prepByUser[u.user_name]||0;
+    return `<div class="h-chip">
+      <div class="h-chip-avatar" style="background:${bg}">
+        ${u.photo_url?`<img src="${u.photo_url}" onerror="this.parentElement.textContent='${initials}'">`:initials}
+      </div>
+      ${u.user_name} ${count>0?'·'+count:''}
+      <div class="h-online-dot"></div>
+    </div>`;
+  }).join('');
+}
+
+// ── RENDER CHAT ──
+function renderChat() {
+  const body = document.getElementById('chat-body');
+  if (!body) return;
+  if (!chatMessages.length) {
+    body.innerHTML='<div style="color:#a0aec0;font-size:13px;padding:10px">No messages yet</div>';
+    return;
+  }
+  body.innerHTML = chatMessages.map(m => {
+    const colorIdx = m.user_name.charCodeAt(0) % AVATAR_COLORS.length;
+    const nameColor = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ef4444','#14b8a6','#f97316'][colorIdx];
+    const t = new Date(m.created_at).toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour:'2-digit',minute:'2-digit',hour12:true});
+    return `<div class="chat-msg${m.pinned?' pinned':''}">
+      <div class="chat-name" style="color:${nameColor}">
+        ${m.pinned?'<span class="chat-pin">📌</span>':''}
+        ${m.user_name}
+        <span class="chat-time">${t}</span>
+      </div>
+      <div class="chat-text">${m.text||''}</div>
+    </div>`;
+  }).join('');
 }
 
 // ── RENDER FOOTER ──
@@ -639,10 +672,15 @@ async function boot() {
   supa.channel('presence-rt')
     .on('postgres_changes',{event:'*',schema:'public',table:'user_presence'}, loadPresence)
     .subscribe();
+  // Realtime chat
+  supa.channel('chat-rt')
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'}, async ()=>{ await loadChat(); })
+    .subscribe();
 }
 boot();
 </script>
 </body>
 </html>
+
 
 
