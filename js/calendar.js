@@ -67,7 +67,7 @@ async function _calLoad() {
   if (!list) return
   list.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;font-size:13px;">Loading events…</div>'
   try {
-    const { data, error } = await window._supabase
+    const { data, error } = await supa
       .from('events')
       .select('*')
       .order('event_date', { ascending: true })
@@ -216,7 +216,7 @@ async function _calSync() {
   const btn = document.getElementById('calSyncBtn')
   if (btn) { btn.textContent = '↻ Syncing…'; btn.style.opacity = '0.6'; btn.disabled = true }
   try {
-    const { data: { session } } = await window._supabase.auth.getSession()
+    const { data: { session } } = await supa.auth.getSession()
     const token = session?.access_token || ''
     const res = await fetch('https://ydqmumpytgrlceuinoqt.supabase.co/functions/v1/tripleseat-sync', {
       method: 'POST',
