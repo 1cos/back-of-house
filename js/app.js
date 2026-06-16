@@ -65,7 +65,7 @@ function getHighlightsTitle(){
 // ── STAFF TAB BAR — logica oraria 20:00 CDT ──
 function updateStaffTabs() {
   var h = parseInt(new Date().toLocaleString('en-US', {timeZone: 'America/Chicago', hour: 'numeric', hour12: false}));
-  var isEvening = h >= 2;
+  var isEvening = h >= 20 || h < 2;
   var tabChiusura = document.getElementById('tabChiusura');
   var otherLabel = document.getElementById('otherStationsLabel');
   if (tabChiusura) tabChiusura.style.display = isEvening ? 'flex' : 'none';
@@ -74,7 +74,7 @@ function updateStaffTabs() {
 
 window.showOtherStationsTab = function() {
   var h = parseInt(new Date().toLocaleString('en-US', {timeZone: 'America/Chicago', hour: 'numeric', hour12: false}));
-  var isEvening = h >= 2;
+  var isEvening = h >= 20 || h < 2;
   var existing = document.getElementById('otherStationsSheet');
   if (existing) existing.remove();
   var sheet = document.createElement('div');
@@ -121,7 +121,7 @@ function startHomeTimeCheck(){
 
 function _applyHomeTimeLayout(){
   const h = parseInt(new Date().toLocaleString('en-US',{timeZone:'America/Chicago',hour:'numeric',hour12:false}));
-  const isEvening = h >= 2;
+  const isEvening = h >= 20 || h < 2;
   const closingWidget = document.getElementById('homeClosingWidget');
   const checklistSection = document.getElementById('homeChecklistSection');
 
@@ -419,4 +419,5 @@ async function vdrLoadBadge() {
     }
   } catch(e) {}
 }
+
 
