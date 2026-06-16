@@ -12,46 +12,46 @@
 
 ---
 
-## STATO — Brigade v191
+## STATO — Brigade v195
 
 - Supabase: ydqmumpytgrlceuinoqt
 - Deploy: https://1cos.github.io/back-of-house
 - Branch: brigade-main
+- Kitchen Display: https://1cos.github.io/back-of-house/display.html (LIVE su Insignia Fire TV)
 
 ---
 
-## COSA FARE IN QUESTA SESSIONE — UNA SOLA COSA
+## COSA FARE IN QUESTA SESSIONE
 
-### Prep redesign — Swipe gestuale ("Il Tabellone Digitale")
+### Focus Mode — "Il Tabellone Digitale"
 
-File da modificare: js/prep.js
-Leggilo fresco da GitHub prima di toccare qualsiasi cosa.
+Mockup già approvato da Max (2026-06-16). Ora si costruisce.
 
-**Concept:**
-Ispirazione al foglio plastificato con pennarello che usano i ragazzi in cucina.
-Zero bottoni. Solo nomi grandi. Gesti naturali.
-
-**Comportamento swipe:**
-- Swipe destra (>60% larghezza riga) -> Fatta -> verde -> scende in fondo
-- Swipe sinistra (>60%) -> In corso -> blu -> rimane in cima evidenziata
-- Swipe sinistra su riga gia fatta -> riporta su (undo)
-- Soglia 60% obbligatoria — evita falsi positivi con mani bagnate
-- Feedback visivo durante swipe (la riga segue il dito, colore appare progressivamente)
-- Tap sul nome -> apre ricetta (non swipe)
+**Accesso:** swipe destra dalla home di Brigade → slide animation → Focus Mode
+**Uscita:** swipe sinistra → torna Brigade normale
 
 **Layout:**
-- Font nome prep: 22px minimo, bold, leggibile a 1 metro
-- Altezza riga: minimo 64px
-- Zero bottoni visibili nella lista
-- Sezione DA FARE in cima (bordo/sfondo rosso leggero)
-- Sezione FATTE in fondo (opacita 40%, grigio)
-- Pillole stazione in orizzontale scroll invece dei cerchi attuali
+- Header: nome cuoco + stazione + pallino online
+- Hint bar: "← in progress · swipe · done →"
+- 3 sezioni collassabili verticali con tap sul titolo:
+  - 🔴 To Do — bordo rosso, in cima
+  - 🟡 In Progress — bordo giallo
+  - ✅ Done — collassata di default, opaca, in fondo
+- Card swipe: destra = Done (verde), sinistra = In Progress (giallo)
+- Soglia 60% larghezza per conferma (mani bagnate)
+- Filtro automatico sulla stazione del cuoco loggato
+- Realtime: si aggiorna quando altri completano prep
+
+**Landscape mode:** da esplorare con Max — probabilmente 3 colonne side-by-side
+
+**File da leggere prima:**
+- js/prep.js (logica prep esistente)
+- js/presence.js (per stazione utente loggato)
 
 **Cosa NON toccare:**
-- Logica di salvataggio DB (prepLog, updateTaskStatus)
-- Sistema di notifiche
-- Admin view
-- Nessun altro file
+- Logica salvataggio DB esistente
+- Admin view prep
+- Nessun altro modulo
 
 ---
 
@@ -63,3 +63,5 @@ Zero bottoni. Solo nomi grandi. Gesti naturali.
 4. Verifica via API dopo ogni push
 5. Supabase: ydqmumpytgrlceuinoqt
 6. Dichiara sempre cosa cambierai prima di scrivere codice
+7. KITCHEN DISPLAY = SOLO INGLESE — regola permanente
+8. pos_item_aliases: 40 regole di produzione — usarla per tutte le stats
