@@ -173,5 +173,63 @@ window.focusMyStation = function() {
 };
 
 window.focusShowStations = function() {
-  if (typeof showOtherStationsTab === 'function') showOtherStationsTab();
+  var myStation = user && user.default_station ? user.default_station : null;
+
+  // Raccogli stazioni uniche da items, escludi la mia
+  var stationMap = {};
+  items.forEach(function(i) {
+    if (!i.category) return;
+    var cats = i.category.split(',');
+    cats.forEach(function(c) {
+      var s = c.trim();
+      if (s && s !== myStation) stationMap[s] = true;
+    });
+  });
+  var stations = Object.keys(stationMap).sort();
+
+  var existing = document.getElementById('focusStationsSheet');
+  if (existing) existing.remove();
+
+  var sheet = document.createElement('div');
+  sheet.id = 'focusStationsSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:200;display:flex;flex-direction:column;justify-content:flex-end;';
+
+  var rows = stations.length
+    ? stations.map(function(s) {
+        var count = items.filter(function(i) { return i.category && i.category.includes(s); }).length;
+        return '<button onclick="focusLoadStation(\'' + s + '\')" style="width:100%;padding:16px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;text-align:left;font-size:15px;font-weight:600;color:#1e3a5f;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">' +
+          s + '<span style="font-size:13px;color:#94a3b8;">' + count + ' items</span></button>';
+      }).join('')
+    : '<div style="color:#94a3b8;font-size:14px;text-align:center;padding:16px;">Nessuna altra stazione.</div>';
+
+  sheet.innerHTML =
+    '<div style="flex:1;background:rgba(0,0,0,0.4);" id="focusStationsBg"></div>' +
+    '<div style="background:white;border-radius:24px 24px 0 0;padding:20px;max-height:70vh;overflow-y:auto;">' +
+      '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;"></div>' +
+      '<div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:14px;">Altre Stazioni</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;">' + rows + '</div>' +
+      (myStation ? '<button onclick="focusMyStation()" style="width:100%;margin-top:12px;padding:14px;border-radius:14px;background:#eff6ff;border:1px solid #bfdbfe;font-size:14px;font-weight:600;color:#1d4ed8;cursor:pointer;">↩ Torna a ' + myStation + '</button>' : '') +
+    '</div>';
+
+  sheet.querySelector('#focusStationsBg').onclick = function() { sheet.remove(); };
+  document.body.appendChild(sheet);
+};
+
+window.focusLoadStation = function(station) {
+  var sheet = document.getElementById('focusStationsSheet');
+  if (sheet) sheet.remove();
+
+  _focusList = items.filter(function(i) {
+    return i.category && i.category.includes(station);
+  }).sort(function(a, b) {
+    var aScore = a.in_progress ? 3 : (a.need_tomorrow ? 2 : 0);
+    var bScore = b.in_progress ? 3 : (b.need_tomorrow ? 2 : 0);
+    if (bScore !== aScore) return bScore - aScore;
+    return a.name.localeCompare(b.name);
+  });
+
+  var stationEl = document.getElementById('focusHeaderStation');
+  if (stationEl) stationEl.textContent = station;
+
+  renderFocusFeed();
 };
