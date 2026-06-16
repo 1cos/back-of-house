@@ -464,7 +464,7 @@ async function translateToEn(text) {
     const r = await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`, {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
-      body: JSON.stringify({text, targetLang:'en'})
+      body: JSON.stringify({text, targetLang:'en', literal:true})
     });
     const j = await r.json();
     return j.translated || text;
@@ -706,6 +706,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
