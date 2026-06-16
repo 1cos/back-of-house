@@ -1,4 +1,9 @@
 // ── CHIUSURA OQR ──
+
+// Stazione bloccata per tutta la durata del flow di chiusura
+// Evita che goCheckStation() cambi station2 e rompa i controlli
+let _closingStationLock = null;
+
 function renderS(){
   const list=items.filter(i=>station2==='All'||i.category?.includes(station2));
   const allStations=['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Tableside','Freezer'];
@@ -11,7 +16,6 @@ function renderS(){
       const ans=closingAnswers[i.id];
       const isChiusura=i.category==='Chiusura';
       if(isChiusura){
-        // spunta semplice per stazione Chiusura
         return `<label class="flex items-center gap-3 p-3 bg-white rounded-2xl border ${ans===true?'border-green-300 bg-green-50':'border-slate-200'} shadow-sm cursor-pointer active:scale-[0.99] transition">
           <div onclick="setClosing('${i.id}',${ans===true?'false':'true'})" class="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition ${ans===true?'bg-green-600 border-green-600':'border-slate-300'}">
             ${ans===true?'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>':''}
@@ -35,7 +39,6 @@ function renderS(){
 
 window.setClosing=async(id,value)=>{
   if(value===false){
-    // controlla se prodotto stamani
     const proceed = await checkBeforeMissing(id, tasks[id]?.name||'');
     if(!proceed) return;
   }
@@ -46,7 +49,10 @@ window.setClosing=async(id,value)=>{
 };
 
 async function closeTurn(){
-  const list=items.filter(i=>station2==='All'||i.category?.includes(station2));
+  // Blocca la stazione al momento del click — non cambierà più durante il flow
+  _closingStationLock = station2;
+
+  const list=items.filter(i=>_closingStationLock==='All'||i.category?.includes(_closingStationLock));
   const forgotten=list.filter(i=>closingAnswers[i.id]===undefined);
   if(forgotten.length>0){
     showForgottenPopup(forgotten);
@@ -56,6 +62,7 @@ async function closeTurn(){
 }
 
 function showForgottenPopup(forgotten){
+  // Usa _closingStationLock — non station2 che può cambiare
   const popup=document.createElement('div');
   popup.className='fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end';
   popup.innerHTML=`
@@ -88,30 +95,33 @@ function showForgottenPopup(forgotten){
     closingAnswers[id]=value;
     await supa.from('prep_tasks').update({need_tomorrow:!value}).eq('id',id);
     tasks[id].need_tomorrow=!value;
-    // aggiorna visivamente la card nel popup
     const card=document.getElementById(`fp_${id}`);
     if(card) card.style.opacity='0.4';
     renderS(); renderM(); renderHomeStations();
-    // controlla se tutti risposti
-    const allList=items.filter(i=>station2==='All'||i.category?.includes(station2));
+    // Usa _closingStationLock — NON station2
+    const allList=items.filter(i=>_closingStationLock==='All'||i.category?.includes(_closingStationLock));
     const still=allList.filter(i=>closingAnswers[i.id]===undefined);
     if(!still.length){popup.remove();doCloseTurn();}
   };
 
   window.goCheckStation=async(category,itemId)=>{
     popup.remove();
-    // porta alla tab chiusura con la stazione giusta
+    // Porta alla tab chiusura con la stazione dell'item
+    // MA non sovrascrive _closingStationLock — solo station2 per la UI
     if(category) station2=category;
     document.querySelector('[data-t=s]').click();
-    // evidenzia l'item specifico
     setTimeout(()=>{
       const el=document.querySelector(`[onclick*="setClosing('${itemId}'"]`);
-      if(el){el.closest('div.bg-white')?.scrollIntoView({behavior:'smooth',block:'center'});el.closest('div.bg-white')?.classList.add('ring-2','ring-amber-400')}
+      if(el){
+        el.closest('div.bg-white')?.scrollIntoView({behavior:'smooth',block:'center'});
+        el.closest('div.bg-white')?.classList.add('ring-2','ring-amber-400');
+      }
     },300);
   };
 
   window.tryCloseFromPopup=async()=>{
-    const allList=items.filter(i=>station2==='All'||i.category?.includes(station2));
+    // Usa _closingStationLock — NON station2
+    const allList=items.filter(i=>_closingStationLock==='All'||i.category?.includes(_closingStationLock));
     const still=allList.filter(i=>closingAnswers[i.id]===undefined);
     if(still.length>0){
       const btn=document.getElementById('popupCloseBtn');
@@ -132,7 +142,6 @@ async function doCloseTurn(){
     user_name:'Sistema',
     lang:user.lang||'it'
   });
-  // invia push alla brigata della mattina
   try{
     await fetch(`${SUPABASE_URL}/functions/v1/send-push`,{
       method:'POST',
@@ -144,15 +153,19 @@ async function doCloseTurn(){
       })
     });
   }catch(e){}
+
   closingAnswers={};
-  // Salva chiusura per oggi
-  const todayKey='boh_closed_'+new Date().toISOString().slice(0,10)+'_'+(user?.name||'');
+  _closingStationLock = null; // reset lock dopo chiusura
+
+  // Salva chiusura per oggi (CDT)
+  const todayCDT = getNowCDT().toISOString().slice(0,10);
+  const todayKey='boh_closed_'+todayCDT+'_'+(user?.name||'');
   localStorage.setItem(todayKey, '1');
+
   renderS(); renderHomeStations();
   updateCloseTurnBtn();
 
-  // ── Prompt note serale — appare 800ms dopo la chiusura turno ──
-  // Solo se non ha già risposto oggi
+  // Prompt note serale — appare 800ms dopo la chiusura turno
   if (typeof window.checkOperationNotePrompt === 'function') {
     window.checkOperationNotePrompt(true);
   }
@@ -161,7 +174,8 @@ async function doCloseTurn(){
 function updateCloseTurnBtn(){
   const btn=document.getElementById('closeTurnBtn');
   if(!btn) return;
-  const todayKey='boh_closed_'+new Date().toISOString().slice(0,10)+'_'+(user?.name||'');
+  const todayCDT = getNowCDT().toISOString().slice(0,10);
+  const todayKey='boh_closed_'+todayCDT+'_'+(user?.name||'');
   const alreadyClosed=localStorage.getItem(todayKey)==='1';
   if(alreadyClosed){
     btn.textContent='✓ '+tr('closeTurnDone');
