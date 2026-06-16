@@ -471,9 +471,50 @@ async function loadSales() {
     if(!catMap[g]) catMap[g]={};
     catMap[g][r.menu_item]=(catMap[g][r.menu_item]||0)+Number(r.quantity);
   });
+  // ── MODIFIER → SIDES: leggi pos_modifiers e somma usando pos_item_aliases ──
+  const {data:modItems} = await supa.from('pos_modifiers')
+    .select('modifier,quantity_sold')
+    .gte('sale_date', weekStart);
+  const {data:aliases} = await supa.from('pos_item_aliases')
+    .select('alias_name,canonical_name,portion_factor,category')
+    .eq('category','side')
+    .eq('source','modifier');
+
+  if (aliases && modItems) {
+    // Build alias lookup: alias_name → {canonical, factor}
+    const aliasMap = {};
+    aliases.forEach(a => { aliasMap[a.alias_name.toLowerCase()] = a; });
+
+    // Sum modifier quantities into Sides catMap
+    if (!catMap['Sides']) catMap['Sides'] = {};
+    modItems.forEach(m => {
+      const alias = aliasMap[m.modifier?.toLowerCase()];
+      if (!alias) return;
+      const qty = Number(m.quantity_sold) * alias.portion_factor;
+      const key = alias.canonical_name;
+      catMap['Sides'][key] = (catMap['Sides'][key]||0) + qty;
+    });
+
+    // Also add item-source aliases (sides sold as menu items with different portion)
+    const {data:itemAliases} = await supa.from('pos_item_aliases')
+      .select('alias_name,canonical_name,portion_factor')
+      .eq('category','side').eq('source','item');
+    if (itemAliases) {
+      itemAliases.forEach(a => {
+        const found = catMap['Sides']?.[a.alias_name];
+        if (found) {
+          // Move from alias_name to canonical_name with correct factor
+          const qty = found * a.portion_factor;
+          catMap['Sides'][a.canonical_name] = (catMap['Sides'][a.canonical_name]||0) + qty;
+          if (a.alias_name !== a.canonical_name) delete catMap['Sides'][a.alias_name];
+        }
+      });
+    }
+  }
+
   // Per ogni categoria: top 2 items
   const bestByCat = Object.entries(catMap).map(([cat,items])=>{
-    const top2 = Object.entries(items).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([n,q])=>({n,q}));
+    const top2 = Object.entries(items).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([n,q])=>({n,q:Math.round(q)}));
     return {cat, top2};
   }).filter(x=>x.top2.length>0).sort((a,b)=>a.cat.localeCompare(b.cat));
 
@@ -748,6 +789,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
