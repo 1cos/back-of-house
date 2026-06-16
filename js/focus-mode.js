@@ -82,30 +82,35 @@ window.renderFocusFeed = function() {
 function renderOneFocusCard(i) {
   var isWip = i.in_progress;
   var isDone = !i.need_tomorrow && !i.in_progress;
-  var statusColor = isWip ? '#3b82f6' : (isDone ? '#16a34a' : '#ef4444');
+
+  // Colori sfondo e bordo per stato
+  var bgColor = isWip ? '#fffbeb' : (isDone ? '#f0f9ff' : '#fff1f1');
+  var borderColor = isWip ? '#fcd34d' : (isDone ? '#7dd3fc' : '#fca5a5');
+  var statusColor = isWip ? '#d97706' : (isDone ? '#0369a1' : '#dc2626');
   var statusLabel = isWip
     ? 'IN PROGRESS' + (_focusStartTimes[i.id] ? ' · ' + Math.round((Date.now()-_focusStartTimes[i.id])/60000) + ' min ⏱' : '')
     : (isDone ? 'DONE' : 'DA FARE');
 
   var hasRecipe = i.recipe_id || (typeof recipeLinks !== 'undefined' && recipeLinks[i.id]) || i.note;
   var recipeLink = hasRecipe
-    ? '<div onclick="openRecipeForItem(\'' + i.id + '\')" style="font-size:13px;color:#059669;cursor:pointer;margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;">📖 Ricetta</div>'
+    ? '<div onclick="openRecipeForItem(\'' + i.id + '\')" style="font-size:13px;color:#059669;cursor:pointer;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.06);">📖 Ricetta</div>'
     : '';
 
-  var startBtn = !isWip
-    ? '<button onclick="focusStart(\'' + i.id + '\')" style="flex:1;height:54px;border-radius:16px;background:#16a34a;color:white;font-size:17px;font-weight:700;border:none;cursor:pointer;">START</button>'
-    : '';
-  var actionBtn = !isDone
-    ? '<button onclick="focusDone(\'' + i.id + '\')" style="flex:1;height:54px;border-radius:16px;background:#ef4444;color:white;font-size:17px;font-weight:700;border:none;cursor:pointer;">DONE</button>'
-    : '<button onclick="focusReopen(\'' + i.id + '\')" style="flex:1;height:54px;border-radius:16px;background:#e2e8f0;color:#64748b;font-size:15px;font-weight:600;border:none;cursor:pointer;">Riapri</button>';
+  // Un solo bottone per stato
+  var btn = '';
+  if (!isWip && !isDone) {
+    btn = '<button onclick="focusStart(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:#1e3a5f;color:white;font-size:17px;font-weight:700;border:none;cursor:pointer;margin-top:14px;">START</button>';
+  } else if (isWip) {
+    btn = '<button onclick="focusDone(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:#1e3a5f;color:white;font-size:17px;font-weight:700;border:none;cursor:pointer;margin-top:14px;">DONE</button>';
+  } else {
+    btn = '<button onclick="focusReopen(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:rgba(30,58,95,0.08);color:#1e3a5f;font-size:16px;font-weight:600;border:none;cursor:pointer;margin-top:14px;">Riapri</button>';
+  }
 
-  var btns = '<div style="display:flex;gap:8px;margin-top:14px;">' + startBtn + actionBtn + '</div>';
-
-  return '<div style="background:white;border-radius:24px;box-shadow:0 2px 16px rgba(30,58,95,0.09);border:1px solid rgba(59,130,246,0.08);padding:22px 20px;margin-bottom:12px;">' +
+  return '<div style="background:' + bgColor + ';border-radius:24px;border:1.5px solid ' + borderColor + ';padding:22px 20px;margin-bottom:12px;">' +
     '<div style="font-size:12px;font-weight:700;color:' + statusColor + ';letter-spacing:.06em;margin-bottom:4px;">' + statusLabel + '</div>' +
     '<h2 style="font-size:26px;font-weight:800;color:#1e3a5f;margin:0 0 2px 0;">' + i.name + '</h2>' +
     '<p style="font-size:13px;color:#94a3b8;margin:0;">' + (i.category || '') + '</p>' +
-    btns + recipeLink +
+    btn + recipeLink +
   '</div>';
 }
 
