@@ -6,12 +6,20 @@ let _calFilter = 'upcoming' // upcoming | past | all
 
 async function showCalendar() {
   hideAdminMenu()
-  // Show section
   document.querySelectorAll('section[id^="v"]').forEach(s => s.classList.add('hidden'))
   const sec = document.getElementById('vkal')
   if (!sec) return
   sec.classList.remove('hidden')
+  // Adatta top alla topbar reale (include newsBar se visibile)
+  const appHeader = document.querySelector('#app > header, #app > div:first-child, header')
+  const nb = document.getElementById('newsBar')
+  let topPx = 64
+  if (nb && !nb.classList.contains('hidden') && nb.offsetHeight > 0) {
+    topPx = 64 + nb.offsetHeight
+  }
+  sec.style.top = topPx + 'px'
   sec.innerHTML = _calShell()
+  await new Promise(r => setTimeout(r, 80))
   await _calLoad()
 }
 
