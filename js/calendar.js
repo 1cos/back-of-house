@@ -231,5 +231,6 @@ async function _calSync() {
   } catch(e) {
     if (btn) { btn.textContent = '✗ Error — retry'; btn.style.opacity = '1'; btn.disabled = false }
     console.error('TripleSeat sync error:', e)
+    alert('Sync error: ' + e.message)
   }
 }
