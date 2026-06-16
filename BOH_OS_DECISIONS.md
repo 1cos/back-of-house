@@ -1,6 +1,6 @@
 # BRIGADE — DECISIONS
 *Perche abbiamo scelto certe cose. Non ridiscutere senza motivo.*
-*Aggiornato: 2026-06-15 — v190*
+*Aggiornato: 2026-06-16 — v195*
 
 ---
 
@@ -11,7 +11,7 @@
 | App HTML/PWA attuale | **BRIGADE** |
 | App Flutter futura con Siri | **BOH OS** (separata, non ancora costruita) |
 | Branch deploy | **brigade-main** (MAI main) |
-| Versione attuale frontend | **v190** |
+| Versione attuale frontend | **v195** |
 | Versione souschef-chat | **v15** |
 | Supabase project attivo | ydqmumpytgrlceuinoqt |
 | Supabase project vecchio | hykjompnvajjhggrnned — tenere attivo fino a Flutter |
@@ -31,6 +31,88 @@
 
 ---
 
+## Closing — decisioni (2026-06-16)
+
+### Modello di accesso stazioni
+- **Chiunque può chiudere qualsiasi stazione** — non esiste blocco per ruolo
+- La UI suggerisce la stazione di default dell'utente ma non la impone
+- Se stasera Max è alla pasta e vuole che Sofia la chiuda, Sofia può farlo
+- Domani un'altra persona può chiudere quella stessa stazione
+
+### Orario tab Closing
+- Visibile dalle **20:00 alle 02:00 CDT** — `h >= 20 || h < 2`
+- Prima delle 20:00 la tab non appare — i ragazzi vedono solo Prep
+
+### _closingStationLock (v195)
+- Variabile locale che blocca `station2` al momento del click su "Chiudi Turno"
+- Evita che `goCheckStation()` cambi `station2` globalmente durante il flow di chiusura
+- Il flow di chiusura usa sempre `_closingStationLock`, mai `station2` direttamente
+- Si resetta a null dopo `doCloseTurn()` completato
+
+### Regola chiusura turno
+- Non si può chiudere senza aver risposto a TUTTI gli item della stazione selezionata
+- Se ci sono item senza risposta appare il popup forgotten con tre opzioni: In stock / Missing / Go Check
+- Go Check porta all'item nell'UI ma non sblocca la chiusura — bisogna tornare e rispondere
+
+---
+
+## Night Recap — decisioni (2026-06-16)
+
+### Push motivazionale (non solo operativa)
+- Il messaggio push delle 22:30 non è un reminder burocratico
+- È un invito professionale — "la tua voce aiuta il team a crescere"
+- Testo in 3 lingue (IT/EN/ES) basato su users.lang
+
+### Privacy della nota
+- Le note di operation_notes sono visibili SOLO a Max
+- Non vengono condivise con altri membri della brigata
+- Vengono usate in forma anonima in report o azioni correttive
+- Questo messaggio appare nello sheet prima del textarea
+
+### Trigger doppio
+- Il prompt appare sia alle 22:30 CDT via push
+- Sia automaticamente 800ms dopo doCloseTurn() — così chi chiude il turno lo vede subito
+- Se ha già risposto oggi, non appare una seconda volta (check su operation_notes)
+
+---
+
+## Sous Chef AI — decisioni (2026-06-16)
+
+### Principio fondamentale
+IL CODICE PORTA I DATI. IL LLM RAGIONA.
+Non filtrare mai. Mandare tutto e lasciare ragionare OpenRouter.
+
+### Il Sous Chef non è un chatbot
+È un agente operativo proattivo. La differenza:
+- Chatbot: aspetta che tu chieda
+- Sous Chef: ti avvisa prima che tu apra la chat
+
+### Pipeline asincrona (DECISIONE ARCHITETTURALE)
+- L'AI non interroga mai tabelle grezze al momento della richiesta
+- Uno snapshot JSON pre-calcolato ogni notte a 04:00 CDT viene letto istantaneamente
+- Il LLM traduce i dati pre-masticati in linguaggio da cucina
+- Questo elimina latenza e riduce il consumo di token
+
+### Lingua come segnale di profondità (non solo traduzione)
+- users.lang già in DB — usato per tradurre l'interfaccia
+- DECISIONE: usare lang + role per cambiare il TIPO di risposta, non solo la lingua
+- Max (admin, IT): vuole analisi, numeri, trend
+- Cole (cook, EN): vuole solo "cosa faccio adesso"
+- Stessa domanda al Sous Chef = risposte radicalmente diverse
+
+### recipe_bom è già il grafo di dipendenze
+- Gemini proponeva di costruire un grafo da zero
+- recipe_bom con parent_recipe_id / sub_recipe_id / quantity esiste già
+- Il Prep Coach può usarlo oggi senza nessuna nuova tabella
+
+### chef_attention come auto-calibrazione
+- Ogni domanda alla chat aggiorna ask_count su chef_attention
+- Il briefing mattutino deve leggere chef_attention e includere automaticamente
+  gli ingredienti/topic con ask_count più alto
+- Se "uova" è stato chiesto 7 volte → il prezzo delle uova va sempre nel briefing
+
+---
+
 ## Prep redesign — decisione (2026-06-15)
 
 ### Swipe gestuale — "Il Tabellone Digitale"
@@ -43,16 +125,6 @@
 - Font 22px minimo, leggibile a 1 metro sul tavolo di acciaio
 - Pillole stazione invece dei cerchi
 - Sessione dedicata richiesta
-
----
-
-## Sous Chef AI — concetto v15
-
-Il Sous Chef non e un chatbot. E' un agente operativo con accesso diretto al database.
-
-### Principio fondamentale:
-IL CODICE PORTA I DATI. IL LLM RAGIONA.
-Non filtrare mai. Mandare tutto e lasciare ragionare OpenRouter.
 
 ---
 
@@ -113,3 +185,4 @@ Tutti i 400 ingredienti attivi hanno categoria assegnata.
 - Cron: 0 10 * * * = 10:00 UTC = 5:00 AM CDT
 - Edge Function: sc-nightly-brief v5
 - Domenica: recap settimana
+- PROBLEMA NOTO: prompt genera frasi vaghe invece di dati strutturati — da migliorare
