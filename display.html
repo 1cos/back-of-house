@@ -400,25 +400,29 @@ async function loadSales() {
   const weekTop = Object.entries(wMap).map(([n,q])=>({n,q})).sort((a,b)=>b.q-a.q).slice(0,6);
 
   // Expected tonight: avg per DOW — only on CLEAN dates
-  const dow = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'})).getDay();
+  // DOW calcolato in CDT per evitare timezone mismatch sul browser TV
+  const chicagoNow = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'}));
+  const dow = chicagoNow.getDay(); // 0=Sun,1=Mon...6=Sat
   const {data:allItems} = await supa.from('pos_sales_by_item').select('menu_item,quantity,sale_date').eq('sales_category','Food').lt('sale_date',today);
-  // Compute day totals for all historical dates
+  // Compute day totals to identify clean dates (no aggregate CSVs)
   const allDayTotals={};
   (allItems||[]).forEach(r=>{ allDayTotals[r.sale_date]=(allDayTotals[r.sale_date]||0)+Number(r.quantity); });
   const allCleanDays = new Set(Object.entries(allDayTotals).filter(([,q])=>q<5000).map(([d])=>d));
-  // Filter same DOW + clean
+  // Parse DOW from date string directly (YYYY-MM-DD) to avoid browser timezone issues
+  function dateDOW(dateStr) {
+    const [y,m,d] = dateStr.split('-').map(Number);
+    return new Date(y, m-1, d).getDay();
+  }
   const dowMap={};
-  (allItems||[]).filter(r => {
-    if (!allCleanDays.has(r.sale_date)) return false;
-    return new Date(r.sale_date+'T12:00:00').getDay() === dow;
-  }).forEach(r=>{
+  (allItems||[]).filter(r => allCleanDays.has(r.sale_date) && dateDOW(r.sale_date) === dow)
+  .forEach(r=>{
     if(!dowMap[r.menu_item]) dowMap[r.menu_item]=[];
     dowMap[r.menu_item].push(Number(r.quantity));
   });
   const expected = Object.entries(dowMap)
     .map(([n,qs])=>({n, avg:Math.round(qs.reduce((a,b)=>a+b,0)/qs.length), days:qs.length}))
-    .filter(x=>x.avg>=2 && x.days>=2)
-    .sort((a,b)=>b.avg-a.avg).slice(0,6);
+    .filter(x=>x.avg>=1 && x.days>=2)
+    .sort((a,b)=>b.avg-a.avg).slice(0,8);
 
   // Best by category last week
   // Best by category: ultimi 7 giorni (stessi dati disponibili)
@@ -702,6 +706,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
