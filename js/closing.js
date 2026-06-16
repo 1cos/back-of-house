@@ -143,7 +143,7 @@ async function doCloseTurn(){
     lang:user.lang||'it'
   });
   try{
-    await fetch(`${SUPABASE_URL}/functions/v1/send-push`,{
+    await fetch(`${SUPABASE_URL}/functions/v1/notifications`,{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
       body:JSON.stringify({
