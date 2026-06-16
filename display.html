@@ -219,6 +219,7 @@ html, body {
           <div class="stab active"></div>
           <div class="stab"></div>
           <div class="stab"></div>
+          <div class="stab"></div>
         </div>
       </div>
       <div class="card-body" id="sales-body"></div>
@@ -334,7 +335,7 @@ function yesterdayISO() {
 
 // ── STATE ──
 let salesScreen = 0;
-let salesData = { ySum:null, yItems:[], weekTop:[], expected:[] };
+let salesData = { ySum:null, yItems:[], weekTop:[], expected:[], bestByCat:[] };
 let prepTasks=[], prepDone=new Set();
 let presenceData=[], prepLogData=[];
 let alerts=[], briefPoints=[];
@@ -354,22 +355,61 @@ async function loadAll() {
 
 async function loadSales() {
   const yest = yesterdayISO();
+  const today = todayISO();
+
+  // Yesterday summary + top food items
   const {data:ySum} = await supa.from('pos_daily_summary').select('net_sales,gross_sales,bill_count').eq('sale_date',yest).maybeSingle();
   const {data:yItems} = await supa.from('pos_sales_by_item').select('menu_item,quantity').eq('sale_date',yest).eq('sales_category','Food').order('quantity',{ascending:false}).limit(6);
+
+  // This week top food (last 7 days, only clean days)
   const weekStart = (() => { const d=new Date(); d.setDate(d.getDate()-7); return d.toISOString().slice(0,10); })();
-  const {data:wItems} = await supa.from('pos_sales_by_item').select('menu_item,quantity').gte('sale_date',weekStart).eq('sales_category','Food');
+  const {data:wItems} = await supa.from('pos_sales_by_item').select('menu_item,quantity,sale_date').gte('sale_date',weekStart).eq('sales_category','Food');
+  // Find clean dates (total daily qty < 5000)
+  const dayTotals={};
+  (wItems||[]).forEach(r=>{ dayTotals[r.sale_date]=(dayTotals[r.sale_date]||0)+Number(r.quantity); });
+  const cleanDays = new Set(Object.entries(dayTotals).filter(([,q])=>q<5000).map(([d])=>d));
   const wMap={};
-  (wItems||[]).forEach(r=>{ if(!wMap[r.menu_item]) wMap[r.menu_item]=0; wMap[r.menu_item]+=Number(r.quantity); });
+  (wItems||[]).filter(r=>cleanDays.has(r.sale_date)).forEach(r=>{ if(!wMap[r.menu_item]) wMap[r.menu_item]=0; wMap[r.menu_item]+=Number(r.quantity); });
   const weekTop = Object.entries(wMap).map(([n,q])=>({n,q})).sort((a,b)=>b.q-a.q).slice(0,6);
-  const {data:allItems} = await supa.from('pos_sales_by_item').select('menu_item,quantity,sale_date').eq('sales_category','Food').lt('sale_date',todayISO());
+
+  // Expected tonight: avg per DOW — only on CLEAN dates
   const dow = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'})).getDay();
+  const {data:allItems} = await supa.from('pos_sales_by_item').select('menu_item,quantity,sale_date').eq('sales_category','Food').lt('sale_date',today);
+  // Compute day totals for all historical dates
+  const allDayTotals={};
+  (allItems||[]).forEach(r=>{ allDayTotals[r.sale_date]=(allDayTotals[r.sale_date]||0)+Number(r.quantity); });
+  const allCleanDays = new Set(Object.entries(allDayTotals).filter(([,q])=>q<5000).map(([d])=>d));
+  // Filter same DOW + clean
   const dowMap={};
-  (allItems||[]).filter(r=>new Date(r.sale_date+'T12:00:00').getDay()===dow).forEach(r=>{
+  (allItems||[]).filter(r => {
+    if (!allCleanDays.has(r.sale_date)) return false;
+    return new Date(r.sale_date+'T12:00:00').getDay() === dow;
+  }).forEach(r=>{
     if(!dowMap[r.menu_item]) dowMap[r.menu_item]=[];
     dowMap[r.menu_item].push(Number(r.quantity));
   });
-  const expected = Object.entries(dowMap).map(([n,qs])=>({n,avg:Math.round(qs.reduce((a,b)=>a+b,0)/qs.length)})).filter(x=>x.avg>=2).sort((a,b)=>b.avg-a.avg).slice(0,6);
-  salesData = {ySum, yItems:yItems||[], weekTop, expected};
+  const expected = Object.entries(dowMap)
+    .map(([n,qs])=>({n, avg:Math.round(qs.reduce((a,b)=>a+b,0)/qs.length), days:qs.length}))
+    .filter(x=>x.avg>=2 && x.days>=2)
+    .sort((a,b)=>b.avg-a.avg).slice(0,6);
+
+  // Best by category last week
+  const lastWeekStart = (() => { const d=new Date(); d.setDate(d.getDate()-14); return d.toISOString().slice(0,10); })();
+  const lastWeekEnd   = weekStart;
+  const {data:catItems} = await supa.from('pos_sales_by_item').select('menu_item,menu_group,quantity').gte('sale_date',lastWeekStart).lt('sale_date',lastWeekEnd).eq('sales_category','Food');
+  const catMap={};
+  (catItems||[]).forEach(r=>{
+    const g = r.menu_group||'Other';
+    if(!catMap[g]) catMap[g]={};
+    catMap[g][r.menu_item]=(catMap[g][r.menu_item]||0)+Number(r.quantity);
+  });
+  // Per ogni categoria: top 2 items
+  const bestByCat = Object.entries(catMap).map(([cat,items])=>{
+    const top2 = Object.entries(items).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([n,q])=>({n,q}));
+    return {cat, top2};
+  }).filter(x=>x.top2.length>0).sort((a,b)=>a.cat.localeCompare(b.cat));
+
+  salesData = {ySum, yItems:yItems||[], weekTop, expected, bestByCat};
   renderSales();
 }
 
@@ -411,7 +451,7 @@ async function loadBriefing() {
 }
 
 // ── RENDER SALES ──
-const SALES_TITLES = ['Yesterday', 'This Week', 'Expected Tonight'];
+const SALES_TITLES = ['Yesterday', 'This Week', 'Expected Tonight', 'Best by Category'];
 function renderSales() {
   const tabs = document.querySelectorAll('.stab');
   tabs.forEach((t,i) => t.classList.toggle('active', i===salesScreen));
@@ -420,9 +460,10 @@ function renderSales() {
   body.className = 'card-body fade';
   if (salesScreen===0) renderYesterday(body);
   else if (salesScreen===1) renderWeekTop(body);
-  else renderExpected(body);
+  else if (salesScreen===2) renderExpected(body);
+  else renderBestByCat(body);
 }
-setInterval(()=>{ salesScreen=(salesScreen+1)%3; renderSales(); }, 20000);
+setInterval(()=>{ salesScreen=(salesScreen+1)%4; renderSales(); }, 20000);
 
 function renderYesterday(el) {
   const s = salesData.ySum;
@@ -458,12 +499,33 @@ function renderWeekTop(el) {
 
 function renderExpected(el) {
   const dow=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
+  if (!salesData.expected.length) {
+    el.innerHTML='<div style="color:#a0aec0;font-size:13px">Not enough historical data</div>'; return;
+  }
   el.innerHTML = `
     <div class="section-label">Avg for ${dow}</div>
     ${salesData.expected.map(r=>`
       <div class="exp-row">
         <div class="exp-nm">${r.n}</div>
         <div class="exp-q">${r.avg}</div>
+      </div>`).join('')}`;
+}
+
+function renderBestByCat(el) {
+  if (!salesData.bestByCat||!salesData.bestByCat.length) {
+    el.innerHTML='<div style="color:#a0aec0;font-size:13px">No category data</div>'; return;
+  }
+  el.innerHTML = `
+    <div class="section-label">Last Week — by Category</div>
+    ${salesData.bestByCat.map(({cat,top2})=>`
+      <div style="margin-bottom:8px">
+        <div style="font-size:10px;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px">${cat}</div>
+        ${top2.map((r,i)=>`
+          <div class="rank-row" style="padding:3px 0">
+            <div class="rank-n">${i+1}</div>
+            <div class="rank-nm">${r.n}</div>
+            <div class="rank-q">${r.q}</div>
+          </div>`).join('')}
       </div>`).join('')}`;
 }
 
@@ -582,4 +644,5 @@ boot();
 </script>
 </body>
 </html>
+
 
