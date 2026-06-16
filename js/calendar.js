@@ -1,5 +1,5 @@
 // calendar.js — TripleSeat Events Calendar (admin only)
-// Brigade v205
+// Brigade v216
 
 let _calEvents = []
 let _calFilter = 'upcoming' // upcoming | past | all
@@ -10,16 +10,7 @@ async function showCalendar() {
   const sec = document.getElementById('vkal')
   if (!sec) return
   sec.classList.remove('hidden')
-  // Adatta top alla topbar reale (include newsBar se visibile)
-  const appHeader = document.querySelector('#app > header, #app > div:first-child, header')
-  const nb = document.getElementById('newsBar')
-  let topPx = 64
-  if (nb && !nb.classList.contains('hidden') && nb.offsetHeight > 0) {
-    topPx = 64 + nb.offsetHeight
-  }
-  sec.style.top = topPx + 'px'
   sec.innerHTML = _calShell()
-  await new Promise(r => setTimeout(r, 80))
   await _calLoad()
 }
 
@@ -75,7 +66,9 @@ async function _calLoad() {
   if (!list) return
   list.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;font-size:13px;">Loading events…</div>'
   try {
-    const { data, error } = await supa
+    const client = window.supa || window.supabaseClient
+    if (!client) throw new Error('Supabase not ready')
+    const { data, error } = await client
       .from('events')
       .select('*')
       .order('event_date', { ascending: true })
