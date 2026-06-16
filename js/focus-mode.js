@@ -110,10 +110,7 @@ function renderOneFocusCard(i) {
   if (isUrgent) {
     btns = '<button onclick="focusStart(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:#16a34a;color:white;font-size:18px;font-weight:700;border:none;cursor:pointer;margin-top:14px;">START</button>';
   } else if (isWip) {
-    btns = '<div style="display:flex;gap:8px;margin-top:14px;">' +
-      '<button onclick="focusStart(\'' + i.id + '\')" style="flex:1;height:54px;border-radius:16px;background:#e0f2fe;color:#0369a1;font-size:15px;font-weight:700;border:none;cursor:pointer;">RESTART</button>' +
-      '<button onclick="focusDone(\'' + i.id + '\')" style="flex:2;height:54px;border-radius:16px;background:#ef4444;color:white;font-size:18px;font-weight:700;border:none;cursor:pointer;">DONE</button>' +
-    '</div>';
+    btns = '<button onclick="focusDone(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:#ef4444;color:white;font-size:18px;font-weight:700;border:none;cursor:pointer;margin-top:14px;">DONE</button>';
   }
 
   return '<div style="background:white;border-radius:24px;box-shadow:0 2px 16px rgba(30,58,95,0.09);border:1px solid rgba(59,130,246,0.08);padding:22px 20px;margin-bottom:12px;">' +
