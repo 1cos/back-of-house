@@ -25,7 +25,7 @@ async function openRecipeForItem(itemId){
 
 function showNoteSheet(name, note){
   const sheet = document.createElement('div');
-  sheet.className = 'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end';
+  sheet.className = 'fixed inset-0 z-[150] bg-black/40 backdrop-blur-sm flex items-end';
   sheet.innerHTML = `<div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5 max-h-[70vh] overflow-auto" style="animation:slideUp .25s ease">
     <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4"></div>
     <h3 class="text-xl font-bold mb-3">📝 ${name}</h3>
@@ -116,7 +116,7 @@ function renderIngLine(i, scaleFactor){
 // ── RECIPE PREVIEW SHEET ─────────────────────────────────────
 function showRecipeSheet(rec){
   const sheet = document.createElement('div');
-  sheet.className = 'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end';
+  sheet.className = 'fixed inset-0 z-[150] bg-black/40 backdrop-blur-sm flex items-end';
 
   // Scaling state
   const baseServings   = rec.base_servings   || null;
@@ -283,7 +283,7 @@ function renderRecipes(){
 // ── RECIPE MANAGER (link prep → recipe) ─────────────────────
 function openRecipeManager(){
   const modal = document.createElement('div');
-  modal.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
+  modal.className = 'fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[85vh] flex flex-col">
     <div class="p-4 border-b flex items-center justify-between"><h3 class="font-bold text-lg">Link Recipes</h3><button onclick="this.closest('.fixed').remove()" class="text-slate-400">✕</button></div>
     <div class="p-4 overflow-auto flex-1">
@@ -307,7 +307,7 @@ function openRecipeManager(){
 // ── RECIPE EDITOR (admin only) ───────────────────────────────
 function openRecipeEditor(rec=null){
   const modal = document.createElement('div');
-  modal.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
+  modal.className = 'fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col">
     <div class="p-4 border-b"><h3 class="font-bold">${rec?'Edit':'New'} Recipe</h3></div>
     <div class="p-4 overflow-auto space-y-3 text-sm">
