@@ -147,9 +147,11 @@ function showForgottenPopup(forgotten){
 
 async function doCloseTurn(){
   const missing=items.filter(i=>closingAnswers[i.id]===false);
-  const missingList=missing.map(i=>i.name).join(', ')||'nothing';
+  const missingList=missing.map(i=>i.name).join(', ');
   await supa.from('messages').insert({
-    text:`🔒 ${tr("shiftClosed")} ${user.name}. ${tr("missing2")}: ${missingList}.`,
+    text: missingList
+      ? `🔒 ${tr("shiftClosed")} ${user.name}. ${tr("missing2")}: ${missingList}.`
+      : `🔒 ${tr("shiftClosed")} ${user.name}. ${tr("allGood")}.`,
     user_name:'Sistema',
     lang:user.lang||'it'
   });
