@@ -40,6 +40,8 @@ async function init(){
   if (typeof checkOperationNotePrompt === 'function') checkOperationNotePrompt();
   const rb=document.getElementById('recipeAdminBtns');
   if(rb) rb.style.display=isAdmin()?'flex':'none';
+  // Focus Mode — attiva dopo che items è caricato
+  if (!isAdmin() && typeof initFocusMode === 'function') initFocusMode();
 }
 
 document.getElementById('toggleView').onclick=()=>{
