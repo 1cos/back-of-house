@@ -23,7 +23,7 @@ async function showCalendar() {
 
 function _calShell() {
   return `
-<div style="padding:14px 14px 0;">
+<div style="padding:14px 14px 0;padding-top:80px;">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
     <div style="font-size:18px;font-weight:700;color:#1e3a5f;">📅 Events</div>
     <button onclick="_calSync()" id="calSyncBtn"
