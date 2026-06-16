@@ -36,6 +36,7 @@ function showNoteSheet(name, note){
   document.body.appendChild(sheet);
   addSwipeToClose(sheet.querySelector('div'), ()=>sheet.remove());
 }
+window.openRecipeForItem = openRecipeForItem;
 
 async function openRecipeByData(idx){
   const stale = SHOP_RECIPES[idx];
