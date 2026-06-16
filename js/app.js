@@ -280,6 +280,10 @@ function doLogin(profile){
   const tabMenu = document.getElementById('tabMenu');
   if(tabMenu) tabMenu.style.display = admin ? 'flex' : 'none';
 
+  // Tell Chef — solo staff (non admin)
+  const tabTellChef = document.getElementById('tabTellChef');
+  if(tabTellChef) tabTellChef.style.display = admin ? 'none' : 'flex';
+
   // Prep — solo staff
   const tabPrep = document.getElementById('tabPrep');
   if(tabPrep) tabPrep.style.display = admin ? 'none' : 'flex';
@@ -419,5 +423,6 @@ async function vdrLoadBadge() {
     }
   } catch(e) {}
 }
+
 
 
