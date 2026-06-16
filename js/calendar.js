@@ -6,12 +6,18 @@ let _calFilter = 'upcoming' // upcoming | past | all
 
 async function showCalendar() {
   hideAdminMenu()
-  // Show section
-  document.querySelectorAll('section[id^="v"]').forEach(s => s.classList.add('hidden'))
+  // Nascondi tutte le sezioni
+  document.querySelectorAll('section[id^="v"]').forEach(s => {
+    s.classList.add('hidden')
+    s.style.display = ''
+  })
   const sec = document.getElementById('vkal')
   if (!sec) return
   sec.classList.remove('hidden')
+  sec.style.display = 'block'
   sec.innerHTML = _calShell()
+  // Piccolo delay per assicurare che supa sia pronto
+  await new Promise(r => setTimeout(r, 100))
   await _calLoad()
 }
 
@@ -75,7 +81,9 @@ async function _calLoad() {
     _calEvents = data || []
     _calRender()
   } catch(e) {
-    list.innerHTML = '<div style="text-align:center;padding:40px;color:#ef4444;font-size:13px;">Error loading events</div>'
+    console.error('Calendar load error:', e)
+    const l2 = document.getElementById('calList')
+    if (l2) l2.innerHTML = '<div style="text-align:center;padding:40px;color:#ef4444;font-size:13px;">Error: ' + e.message + '</div>'
   }
 }
 
