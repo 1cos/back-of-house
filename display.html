@@ -512,6 +512,22 @@ async function loadSales() {
     }
   }
 
+  // ── PROTEINS: somma modifier da pos_modifiers usando pos_item_aliases ──
+  const {data:protAliases} = await supa.from('pos_item_aliases')
+    .select('alias_name,canonical_name,portion_factor')
+    .eq('category','protein').eq('source','modifier');
+  if (protAliases && modItems) {
+    const protMap = {};
+    protAliases.forEach(a => { protMap[a.alias_name.toLowerCase()] = a; });
+    if (!catMap['Proteins']) catMap['Proteins'] = {};
+    modItems.forEach(m => {
+      const alias = protMap[m.modifier?.toLowerCase()];
+      if (!alias) return;
+      const qty = Number(m.quantity_sold) * alias.portion_factor;
+      catMap['Proteins'][alias.canonical_name] = (catMap['Proteins'][alias.canonical_name]||0) + qty;
+    });
+  }
+
   // Per ogni categoria: top 2 items
   const bestByCat = Object.entries(catMap).map(([cat,items])=>{
     const top2 = Object.entries(items).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([n,q])=>({n,q:Math.round(q)}));
@@ -651,23 +667,61 @@ function renderExpected(el) {
       </div>`).join('')}`;
 }
 
+let bestCatScrollTimer = null;
 function renderBestByCat(el) {
   if (!salesData.bestByCat||!salesData.bestByCat.length) {
     el.innerHTML='<div style="color:#a0aec0;font-size:13px">No category data</div>'; return;
   }
-  el.innerHTML = `
-    <div class="section-label">Last 7 Days — by Category</div>
-    ${salesData.bestByCat.map(({cat,top2})=>`
-      <div style="margin-bottom:8px">
-        <div style="font-size:10px;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px">${cat}</div>
-        ${top2.map((r,i)=>`
-          <div class="rank-row" style="padding:3px 0">
-            <div class="rank-n">${i+1}</div>
-            <div class="rank-nm">${r.n}</div>
-            <div class="rank-q">${r.q}</div>
-          </div>`).join('')}
-      </div>`).join('')}`;
+  if (bestCatScrollTimer) { clearInterval(bestCatScrollTimer); bestCatScrollTimer = null; }
+
+  const CAT_LABELS = {
+    'Antipasti/appetizer': 'Antipasti',
+    'Pasta': 'Pasta & Risotto',
+    'Secondi/entrees': 'Secondi',
+    'Insalate/salad': 'Insalate',
+    'Dolcezze/dessert': 'Dolci',
+    'Sides': 'Contorni',
+    'Proteins': 'Proteine Add-on',
+  };
+
+  const html = salesData.bestByCat.map(function({cat,top2}){
+    const label = CAT_LABELS[cat] || cat;
+    const color = cat==='Proteins' ? '#f59e0b' : cat==='Sides' ? '#10b981' : '#7c3aed';
+    return '<div style="margin-bottom:10px;flex-shrink:0">' +
+      '<div style="font-size:11px;font-weight:800;color:'+color+';text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px;padding-bottom:3px;border-bottom:2px solid '+color+'44">'+label+'</div>' +
+      top2.map(function(r,i){
+        return '<div class="rank-row" style="padding:4px 0">' +
+          '<div class="rank-n">'+(i+1)+'</div>' +
+          '<div class="rank-nm">'+r.n+'</div>' +
+          '<div class="rank-q" style="font-size:13px;font-weight:800;color:#3b82f6">'+r.q+'</div>' +
+          '</div>';
+      }).join('') +
+      '</div>';
+  }).join('');
+
+  el.innerHTML =
+    '<div class="section-label" style="margin-bottom:8px;flex-shrink:0">Last 7 Days</div>' +
+    '<div id="cat-scroll-wrap" style="flex:1;overflow:hidden;position:relative;">' +
+    '<div id="cat-scroll-inner" style="position:absolute;top:0;left:0;right:0;transition:transform 0.8s ease;">' +
+    html + '</div></div>';
+
+  setTimeout(function(){
+    var wrap = document.getElementById('cat-scroll-wrap');
+    var inner = document.getElementById('cat-scroll-inner');
+    if (!wrap || !inner) return;
+    var wrapH = wrap.offsetHeight;
+    var innerH = inner.offsetHeight;
+    if (innerH <= wrapH) return;
+    var pos = 0;
+    var maxPos = innerH - wrapH;
+    bestCatScrollTimer = setInterval(function(){
+      pos += 55;
+      if (pos > maxPos) pos = 0;
+      inner.style.transform = 'translateY(-' + pos + 'px)';
+    }, 2500);
+  }, 600);
 }
+
 
 // ── RENDER PREP ──
 function renderPrep() {
@@ -789,6 +843,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
