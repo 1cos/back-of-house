@@ -21,13 +21,11 @@ function openTellChef() {
           '<div style="font-size:12px;color:#94a3b8;">Only Chef Max will see this</div>' +
         '</div>' +
       '</div>' +
+      '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">💡 Tip: use the mic on your keyboard to dictate</div>' +
       '<textarea id="tellChefText" placeholder="Write your note, suggestion or report..." ' +
         'style="width:100%;min-height:120px;border:2px solid #e2e8f0;border-radius:14px;padding:12px 14px;font-size:15px;font-family:inherit;resize:none;outline:none;color:#1a202c;line-height:1.5;" ' +
         'onfocus="this.style.borderColor=\'#f59e0b\'" onblur="this.style.borderColor=\'#e2e8f0\'"></textarea>' +
       '<div style="display:flex;gap:10px;margin-top:12px;">' +
-        '<button onclick="tellChefStartVoice()" id="tellChefMicBtn" ' +
-          'style="flex:0 0 48px;height:48px;border:2px solid #e2e8f0;border-radius:14px;background:#f8fafc;display:flex;align-items:center;justify-content:center;font-size:22px;cursor:pointer;" ' +
-          'title="Hold to dictate">🎙️</button>' +
         '<button onclick="tellChefSend()" ' +
           'style="flex:1;height:48px;background:#1a202c;color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:800;cursor:pointer;letter-spacing:0.02em;">Send to Chef →</button>' +
         '<button onclick="closeTellChef()" ' +
@@ -94,74 +92,7 @@ function tellChefSetStatus(msg, color) {
   if (el) { el.textContent = msg; el.style.color = color || '#94a3b8'; }
 }
 
-// ── VOICE (usa transcribe-audio come in chat) ──
-var tellChefMediaRec = null;
-var tellChefChunks = [];
-var tellChefRecording = false;
-
-function tellChefStartVoice() {
-  if (tellChefRecording) { tellChefStopVoice(); return; }
-  if (!navigator.mediaDevices) { tellChefSetStatus('Microphone not available', '#ef4444'); return; }
-
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
-    tellChefChunks = [];
-    tellChefRecording = true;
-    var btn = document.getElementById('tellChefMicBtn');
-    if (btn) { btn.textContent = '🔴'; btn.style.borderColor = '#ef4444'; btn.style.background = '#fff1f2'; }
-    tellChefSetStatus('Recording... tap mic to stop', '#ef4444');
-
-    tellChefMediaRec = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-    tellChefMediaRec.ondataavailable = function(e) { if (e.data.size > 0) tellChefChunks.push(e.data); };
-    tellChefMediaRec.onstop = function() {
-      stream.getTracks().forEach(function(t) { t.stop(); });
-      tellChefTranscribe();
-    };
-    tellChefMediaRec.start();
-  }).catch(function() {
-    tellChefSetStatus('Cannot access microphone', '#ef4444');
-  });
-}
-
-function tellChefStopVoice() {
-  if (tellChefMediaRec && tellChefRecording) {
-    tellChefRecording = false;
-    tellChefMediaRec.stop();
-    var btn = document.getElementById('tellChefMicBtn');
-    if (btn) { btn.textContent = '🎙️'; btn.style.borderColor = '#e2e8f0'; btn.style.background = '#f8fafc'; }
-    tellChefSetStatus('Transcribing...', '#f59e0b');
-  }
-}
-
-async function tellChefTranscribe() {
-  try {
-    var blob = new Blob(tellChefChunks, { type: 'audio/webm' });
-    var form = new FormData();
-    form.append('audio', blob, 'tell-chef.webm');
-
-    var SUPABASE_URL = window.SUPABASE_URL || (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : 'https://ydqmumpytgrlceuinoqt.supabase.co');
-    var SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || (typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : '');
-
-    var res = await fetch(SUPABASE_URL + '/functions/v1/transcribe-audio', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
-      body: form
-    });
-    var json = await res.json();
-    var text = json.text || json.transcript || '';
-    if (text) {
-      var ta = document.getElementById('tellChefText');
-      if (ta) {
-        ta.value = (ta.value ? ta.value + ' ' : '') + text;
-        ta.focus();
-      }
-      tellChefSetStatus('', '');
-    } else {
-      tellChefSetStatus('Could not transcribe. Try again.', '#ef4444');
-    }
-  } catch(e) {
-    tellChefSetStatus('Transcription error', '#ef4444');
-  }
-}
+// Voice: usa la dettatura nativa iOS dalla tastiera (microfono sulla tastiera)
 
 // ── ADMIN INBOX ──
 async function openTellChefAdmin() {
@@ -262,4 +193,5 @@ async function tcSetStatus(id, status, btn) {
     await tcAdminLoad();
   } catch(e) {}
 }
+
 
