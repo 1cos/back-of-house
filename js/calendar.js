@@ -39,7 +39,7 @@ function _calShell() {
     </button>
   </div>
 </div>
-<div id="calList" style="padding:0 14px 100px;overflow-y:auto;height:calc(100vh - 210px);-webkit-overflow-scrolling:touch;"></div>
+<div id="calList" style="padding:0 14px 100px;"></div>
 `
 }
 
