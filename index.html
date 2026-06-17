@@ -541,9 +541,10 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span>PIN</span>
         </button>
 
-        <button onclick="openOffice()" class="amenu-btn" style="border:2px solid #dbeafe;background:#eff6ff;">
+        <button onclick="openOffice()" class="amenu-btn" style="border:2px solid #dbeafe;background:#eff6ff;position:relative;">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1e3a5f" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           <span style="color:#1e3a5f;font-weight:700;">L'Ufficio</span>
+          <span id="officeMenuBadge" style="display:none;position:absolute;top:6px;right:6px;background:#ef4444;color:white;border-radius:20px;padding:2px 7px;font-size:11px;font-weight:700;line-height:1.4;"></span>
         </button>
 
         <button onclick="hideAdminMenu();openChefAISettings()" class="amenu-btn">
