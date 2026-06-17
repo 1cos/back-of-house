@@ -426,7 +426,7 @@ async function loadSales() {
   });
   const expected = Object.entries(dowMap)
     .map(([n,qs])=>({n, avg:Math.round(qs.reduce((a,b)=>a+b,0)/qs.length), days:qs.length}))
-    .filter(x=>x.avg>=1 && x.days>=2)
+    .filter(x=>x.avg>=1 && x.days>=1)
     .sort((a,b)=>b.avg-a.avg).slice(0,8);
 
   // Best by category last week
@@ -587,8 +587,11 @@ async function loadChat() {
   const {data} = await supa.from('messages')
     .select('user_name,text,created_at,pinned,channel')
     .order('created_at',{ascending:false})
-    .limit(5);
-  const raw = (data||[]).reverse();
+    .limit(20);
+  const raw = (data||[])
+    .filter(m => !['sistema','system','Sistema','SISTEMA'].includes(m.user_name))
+    .slice(0,5)
+    .reverse();
   // Translate all messages to English
   chatMessages = await Promise.all(raw.map(async m => ({
     ...m,
@@ -598,7 +601,7 @@ async function loadChat() {
 }
 
 // ── RENDER SALES ──
-const SALES_TITLES = ['Yesterday', 'This Week', 'Expected Tonight', 'Best by Category'];
+const SALES_TITLES = ['Yesterday', 'Last Week', 'Expected Tonight', 'Best by Category'];
 function renderSales() {
   const tabs = document.querySelectorAll('.stab');
   tabs.forEach((t,i) => t.classList.toggle('active', i===salesScreen));
@@ -621,7 +624,7 @@ function renderYesterday(el) {
     <div>
       <div class="big-label">${day}</div>
       <div class="big-num">${s.bill_count} <span style="font-size:16px;color:#a0aec0;font-weight:500">bills</span></div>
-      <div class="sales-meta"><span>net $${Number(s.net_sales).toLocaleString('en-US',{maximumFractionDigits:0})}</span></div>
+
     </div>
     <div class="sdivider"></div>
     <div class="section-label">Top Food</div>
@@ -666,13 +669,13 @@ function renderBestByCat(el) {
   if (bestCatScrollTimer) { clearInterval(bestCatScrollTimer); bestCatScrollTimer = null; }
 
   const CAT_LABELS = {
-    'Antipasti/appetizer': 'Antipasti',
-    'Pasta': 'Pasta & Risotto',
-    'Secondi/entrees': 'Secondi',
-    'Insalate/salad': 'Insalate',
-    'Dolcezze/dessert': 'Dolci',
-    'Sides': 'Contorni',
-    'Proteins': 'Proteine Add-on',
+    'Antipasti/appetizer': 'Appetizers',
+    'Pasta': 'Pasta',
+    'Secondi/entrees': 'Entrees',
+    'Insalate/salad': 'Salad',
+    'Dolcezze/dessert': 'Desserts',
+    'Sides': 'Sides',
+    'Proteins': 'Proteins Add-on',
   };
 
   const html = salesData.bestByCat.map(function({cat,top2}){
@@ -834,6 +837,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
