@@ -44,7 +44,7 @@ window.openOffice = function() {
 
   modal.innerHTML =
     '<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:0.5px solid rgba(59,130,246,0.12);box-shadow:0 2px 8px rgba(30,58,95,0.06);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;">' +
-      '<button onclick="document.getElementById(\'officeModal\').remove()" style="color:#60a5fa;background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1;">&#8592;</button>' +
+      '<button onclick="officeStopRealtime();document.getElementById(\'officeModal\').remove()" style="color:#60a5fa;background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1;">&#8592;</button>' +
       '<div style="font-size:16px;font-weight:600;color:#1e3a5f;flex:1;">L\'Ufficio</div>' +
       '<div id="officeBadge" style="display:none;background:#ef4444;color:white;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;"></div>' +
     '</div>' +
@@ -55,14 +55,15 @@ window.openOffice = function() {
 
   document.body.appendChild(modal);
   officeRenderSmartFocus();
-  // Prima analizza gli items senza AI, poi carica
-  officeRunAI().then(() => officeLoad());
+  officeLoad();
+  officeStartRealtime();
 };
 
-// ── CHIAMA office-ai PER ANALIZZARE ITEMS SENZA ANALISI ──
-async function officeRunAI() {
+// ── ANALIZZA ORA (on demand) ──
+window.officeAnalyzeNow = async function(btn) {
+  if (btn) { btn.textContent = '...'; btn.disabled = true; }
   try {
-    await fetch(window.SUPABASE_URL + '/functions/v1/office-ai', {
+    const res = await fetch(window.SUPABASE_URL + '/functions/v1/office-ai', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -70,8 +71,49 @@ async function officeRunAI() {
       },
       body: JSON.stringify({}),
     });
+    const d = await res.json();
+    if (typeof showScToast === 'function') {
+      showScToast(d.processed > 0 ? '✓ Analizzati ' + d.processed + ' item' : '✓ Tutto già analizzato');
+    }
+    officeLoad();
   } catch(e) {
     console.warn('[Office] office-ai call failed:', e.message);
+    if (typeof showScToast === 'function') showScToast('❌ Errore analisi');
+  } finally {
+    if (btn) { btn.textContent = 'Analizza'; btn.disabled = false; }
+  }
+};
+
+// ── REALTIME — aggiorna lista quando arriva un nuovo item ──
+var _officeRealtimeSub = null;
+
+function officeStartRealtime() {
+  var sb = window.supa;
+  if (!sb) return;
+  // Cancella subscription precedente se esiste
+  if (_officeRealtimeSub) {
+    sb.removeChannel(_officeRealtimeSub);
+    _officeRealtimeSub = null;
+  }
+  _officeRealtimeSub = sb.channel('office-items-changes')
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'office_items',
+    }, function() {
+      officeLoad();
+      officeBadgeUpdate();
+    })
+    .subscribe();
+}
+
+// Cancella realtime quando si chiude L'Ufficio
+var _origOfficeClose = null;
+function officeStopRealtime() {
+  var sb = window.supa;
+  if (sb && _officeRealtimeSub) {
+    sb.removeChannel(_officeRealtimeSub);
+    _officeRealtimeSub = null;
   }
 }
 
@@ -273,4 +315,24 @@ window.officeResolve = async function(id, resolution) {
   } catch(e) {
     if (typeof showScToast === 'function') showScToast('❌ Errore: ' + e.message);
   }
+};
+
+// ── BADGE NEI TRE PUNTINI — mostra numero items aperti ──
+window.officeBadgeUpdate = async function() {
+  var sb = window.supa;
+  if (!sb) return;
+  try {
+    var res = await sb.from('office_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'open');
+    var count = res.count || 0;
+    var badge = document.getElementById('officeMenuBadge');
+    if (!badge) return;
+    if (count > 0) {
+      badge.style.display = 'inline-flex';
+      badge.textContent = count;
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch(e) {}
 };
