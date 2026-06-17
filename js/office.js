@@ -170,7 +170,7 @@ async function officeLoad() {
 
     items.forEach(function(item) {
       if (item.priority !== lastPriority) {
-        html += '<div style="font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:.08em;text-transform:uppercase;padding:14px 16px 6px;">' +
+        html += '<div style="font-size:12px;font-weight:700;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;padding:14px 16px 6px;">' +
           (priorityLabels[item.priority] || 'Info') + '</div>';
         lastPriority = item.priority;
       }
@@ -207,8 +207,8 @@ function officeRenderCard(item) {
   if (item.ai_analysis) {
     aiBlock =
       '<div style="margin:0 14px 8px;padding:8px 11px;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:10px;border-left:2px solid #3b82f6;">' +
-        '<div style="font-size:10px;color:#3b82f6;font-weight:700;letter-spacing:.04em;margin-bottom:3px;">Chef AI</div>' +
-        '<div style="font-size:12px;color:#1e3a5f;line-height:1.4;">' + item.ai_analysis + '</div>' +
+        '<div style="font-size:11px;color:#3b82f6;font-weight:700;letter-spacing:.04em;margin-bottom:4px;">Chef AI</div>' +
+        '<div style="font-size:14px;color:#1e3a5f;line-height:1.5;">' + item.ai_analysis + '</div>' +
       '</div>';
   }
 
@@ -241,10 +241,10 @@ function officeRenderCard(item) {
       '<div style="font-size:13px;font-weight:600;color:#1e3a5f;flex:1;line-height:1.35;">' + (item.title || '') + '</div>' +
       '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(59,130,246,0.07);color:#60a5fa;font-weight:600;white-space:nowrap;flex-shrink:0;">' + sourceLabel + '</span>' +
     '</div>' +
-    (item.body ? '<div style="font-size:12px;color:#64748b;padding:0 14px 8px;line-height:1.45;">' + item.body + '</div>' : '') +
+    (item.body ? '<div style="font-size:14px;color:#475569;padding:0 14px 10px;line-height:1.5;">' + item.body + '</div>' : '') +
     aiBlock +
     actionsHtml +
-    '<div style="padding:0 14px 8px;font-size:10px;color:#94a3b8;">' + ts + (item.from_user ? ' · ' + item.from_user : '') + '</div>' +
+    '<div style="padding:0 14px 10px;font-size:12px;color:#94a3b8;font-weight:500;">' + (item.from_user && item.from_user !== 'system' ? item.from_user + ' · ' : '') + ts + '</div>' +
   '</div>';
 }
 
