@@ -96,8 +96,16 @@ async function tellChefSend() {
       status: 'new'
     };
 
-    var res = await window.supa.from('chef_reports').insert([payload]);
+    var res = await window.supa.from('chef_reports').insert([payload]).select().single();
     if (res.error) throw res.error;
+
+    // Scrivi in office_items per L'Ufficio
+    if (typeof officeWriteItem === 'function') {
+      var reportId = res.data ? res.data.id : null;
+      var stationLabel = payload.station ? payload.station.replace(' Station','') : '';
+      var titleLabel = (payload.user_name || 'Staff') + (stationLabel ? ' (' + stationLabel + ')' : '') + ': ' + text.slice(0, 80) + (text.length > 80 ? '...' : '');
+      officeWriteItem('tell_chef', reportId, payload.user_name, titleLabel, text);
+    }
 
     // Success
     var sheet = document.getElementById('tellChefSheet');
