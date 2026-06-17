@@ -561,6 +561,11 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span style="color:#f59e0b;">Tell Chef</span>
         </button>
 
+        <button onclick="toggleKitchenDisplay()" id="tvToggleBtn" class="amenu-btn" style="border:2px solid #e0f2fe;background:#f0f9ff;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <span id="tvToggleLabel" style="color:#0ea5e9;">TV ●</span>
+        </button>
+
         <button onclick="hideAdminMenu();openVendorParserTest()" class="amenu-btn amenu-dev">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           <span>Parser Test</span>
@@ -676,6 +681,35 @@ fetch('sw.js?nocache=' + Date.now())
   })
   .catch(() => {});
 </script>
+<script>
+async function toggleKitchenDisplay() {
+  try {
+    var res = await supa.from('settings').select('value').eq('key','display_active').maybeSingle();
+    var current = !res.data || res.data.value === 'true';
+    var newVal = current ? 'false' : 'true';
+    var user = window.currentUser || {};
+    await supa.from('settings').upsert({key:'display_active', value:newVal, updated_by: user.name||'admin', updated_at: new Date().toISOString()});
+    updateTVButtonState(newVal === 'true');
+    if (typeof showToast === 'function') showToast(newVal === 'true' ? 'TV Display enabled' : 'TV Display disabled');
+  } catch(e) {
+    if (typeof showToast === 'function') showToast('Error toggling display');
+  }
+}
+
+function updateTVButtonState(active) {
+  var label = document.getElementById('tvToggleLabel');
+  var btn = document.getElementById('tvToggleBtn');
+  if (!label || !btn) return;
+  if (active) {
+    label.textContent = 'TV ON'; label.style.color='#0ea5e9';
+    btn.style.background='#f0f9ff'; btn.style.borderColor='#e0f2fe';
+  } else {
+    label.textContent = 'TV OFF'; label.style.color='#ef4444';
+    btn.style.background='#fff1f2'; btn.style.borderColor='#fecdd3';
+  }
+}
+</script>
 </html>
+
 
 
