@@ -310,3 +310,19 @@ Il prompt di sc-nightly-brief genera frasi vaghe e generiche invece di dati conc
 - Ottimizzazione token AI (sessione dedicata)
 - Smart Office calendario meeting interni
 
+## Aggiornamento 2026-06-17 — Fine sessione (v229→v237)
+
+### Aggiunto in questa sessione
+- L'Ufficio completo (office_items, office.js, office-ai)
+- Realtime, badge, Analizza, Letto/Risolto, data+ora
+- Sous Chef SQL v21 — query reali al DB per numeri precisi
+- sous_chef_tasks eliminata
+
+### Backlog aggiornato
+- Demo Bot — sessione dedicata
+- Audit menu tre puntini
+- office-ai → pg_cron orario
+- Ottimizzazione token AI
+- Calendario meeting interni Brigade
+- Sous Chef SQL — espandere pattern riconoscimento
+
