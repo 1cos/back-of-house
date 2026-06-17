@@ -841,7 +841,6 @@ async function checkDisplayActive() {
 
 async function boot() {
   await checkDisplayActive();
-  setInterval(checkDisplayActive, 60*1000); // check every minute
   await loadAll();
   setInterval(loadAll, 5*60*1000);
   // Realtime presence — staff chips update instantly
@@ -856,11 +855,16 @@ async function boot() {
   supa.channel('alerts-rt')
     .on('postgres_changes',{event:'*',schema:'public',table:'alerts'}, async ()=>{ await loadAlerts(); })
     .subscribe();
+  // Realtime settings — TV on/off istantaneo
+  supa.channel('settings-rt')
+    .on('postgres_changes',{event:'*',schema:'public',table:'settings'}, async ()=>{ await checkDisplayActive(); })
+    .subscribe();
 }
 boot();
 </script>
 </body>
 </html>
+
 
 
 
