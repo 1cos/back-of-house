@@ -817,7 +817,31 @@ function renderFooter() {
 }
 
 // ── BOOT ──
+async function checkDisplayActive() {
+  try {
+    const {data} = await supa.from('settings').select('value').eq('key','display_active').maybeSingle();
+    const active = !data || data.value === 'true';
+    const root = document.getElementById('root');
+    const disabled = document.getElementById('display-disabled');
+    if (!active) {
+      if (root) root.style.display = 'none';
+      if (!disabled) {
+        const el = document.createElement('div');
+        el.id = 'display-disabled';
+        el.style.cssText = 'position:fixed;inset:0;background:#0a0e14;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#2d3748;font-family:Inter,sans-serif;';
+        el.innerHTML = '<div style="font-size:48px;margin-bottom:16px;">📺</div><div style="font-size:18px;font-weight:700;">Display disabled by Chef</div>';
+        document.body.appendChild(el);
+      }
+    } else {
+      if (root) root.style.display = 'flex';
+      if (disabled) disabled.remove();
+    }
+  } catch(e) {}
+}
+
 async function boot() {
+  await checkDisplayActive();
+  setInterval(checkDisplayActive, 60*1000); // check every minute
   await loadAll();
   setInterval(loadAll, 5*60*1000);
   // Realtime presence — staff chips update instantly
@@ -837,6 +861,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
