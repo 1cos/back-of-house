@@ -55,8 +55,25 @@ window.openOffice = function() {
 
   document.body.appendChild(modal);
   officeRenderSmartFocus();
-  officeLoad();
+  // Prima analizza gli items senza AI, poi carica
+  officeRunAI().then(() => officeLoad());
 };
+
+// ── CHIAMA office-ai PER ANALIZZARE ITEMS SENZA ANALISI ──
+async function officeRunAI() {
+  try {
+    await fetch(window.SUPABASE_URL + '/functions/v1/office-ai', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + window.SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({}),
+    });
+  } catch(e) {
+    console.warn('[Office] office-ai call failed:', e.message);
+  }
+}
 
 // ── SMART FOCUS — ora e appuntamenti imminenti ──
 function officeRenderSmartFocus() {
