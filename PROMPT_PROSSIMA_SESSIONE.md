@@ -1,4 +1,4 @@
-# PROMPT PROSSIMA SESSIONE — Brigade v235
+# PROMPT PROSSIMA SESSIONE — Brigade v237
 
 ## PRIMA DI TUTTO
 1. Carica x_claude_GIthub.txt dal progetto
@@ -10,89 +10,102 @@
 - Supabase: ydqmumpytgrlceuinoqt
 - Deploy: https://1cos.github.io/back-of-house
 - Branch: brigade-main
-- Display: https://1cos.github.io/back-of-house/display.html (LIVE su Fire TV)
-- Versione: v235
+- Versione: v237
+- souschef-chat: v21
+- office-ai: v1
 
 ---
 
-## SESSIONE 2026-06-17 — L'UFFICIO
+## SESSIONE 2026-06-17 — L'UFFICIO COMPLETO + SQL SOUS CHEF
 
-### Cosa è stato costruito
-- **`office_items`** — nuova tabella DB, struttura completa e scalabile
-- **`sous_chef_tasks`** — eliminata (era vuota, ridondante)
-- **`js/office.js`** — L'Ufficio completo: Smart Focus, lista per urgenza red/orange/blue, resolve
-- **`js/tell-chef.js`** — scrive in office_items ad ogni segnalazione brigata
-- **`js/operation-notes.js`** — scrive in office_items ad ogni nota serale
-- **`js/souschef-core.js`** — rimossi tutti i riferimenti a sous_chef_tasks
-- **`index.html`** — bottone "L'Ufficio" nel menu tre puntini + script caricato
-- **Edge Function `office-ai` v1** — analizza office_items senza ai_analysis, scrive priority + ai_analysis + ai_options
+### Costruito
+- **`office_items`** — tabella DB struttura completa
+- **`sous_chef_tasks`** — eliminata (era vuota)
+- **`js/office.js`** — scrivania operativa: Smart Focus, lista red/orange/blue, realtime, badge, bottone Analizza, Letto/Risolto, data+ora
+- **`js/tell-chef.js`** — trigger → office_items con nome utente reale
+- **`js/operation-notes.js`** — trigger → office_items
+- **`js/souschef-core.js`** — rimossi riferimenti sous_chef_tasks
+- **`js/init.js`** — officeBadgeUpdate() all'avvio admin
+- **`index.html`** — bottone L'Ufficio + badge rosso nel menu tre puntini
+- **Edge Function `office-ai` v1** — analisi AI automatica degli office_items
+- **Edge Function `souschef-chat` v21** — SQL query detection: domande su numeri → query reale al DB → numeri esatti. Parla come sous chef, non cita fonti tecniche
 
-### Come funziona il flusso
+### Come funziona il flusso L'Ufficio
 ```
 Cuoco manda Tell Chef / Operation Note
         ↓
-chef_reports / operation_notes (archivio) + office_items (scrivania) — in parallelo
+chef_reports / operation_notes + office_items — in parallelo
         ↓
-Max apre L'Ufficio → chiama office-ai
+Max apre L'Ufficio → lista realtime red/orange/blue
         ↓
-office-ai legge items senza analisi → OpenRouter → scrive ai_analysis + ai_options + priority
+Premi "Analizza" → office-ai → ai_analysis + ai_options + priority
         ↓
-Lista ordinata red / orange / blue — con analisi AI e bottoni pronti
-        ↓
-Max tocca → officeResolve() → resolved → sparisce
+Max tocca Letto (rimane open, diventa blue) o Risolto (chiude)
 ```
 
-### Decisioni architetturali prese
-- L'Ufficio vive nei tre puntini — non nella bottom nav
-- Scrivania unica per ora (operativa) — finanziaria e comunicazioni = future
-- Smart Focus: si riconfigura automaticamente prima dei meeting ricorrenti
-- office-ai NON gira ad ogni apertura — va spostata a cron orario (TODO)
-- Demo Bot: da costruire in sessione separata (vedi backlog)
+### Come funziona SQL Sous Chef
+```
+Max chiede "quante house salad la scorsa settimana come modifier?"
+        ↓
+detectQueryIntent() riconosce: modifier_item + scorsa settimana
+        ↓
+Query diretta su pos_modifier_by_item con date range reale
+        ↓
+Aggrega risultati → passa DATA REALI all'AI
+        ↓
+AI risponde: "La scorsa settimana 24 house salad come modifier"
+```
+
+### Decisioni architetturali
+- office-ai NON gira ad ogni apertura — gira solo con bottone "Analizza" manuale
+- Realtime Supabase attivo solo quando L'Ufficio è aperto, si chiude col back
+- Letto = item rimane open ma diventa blue (ci penso)
+- Risolto = chiude definitivamente
+- Sous Chef non cita mai "SQL_RESULTS" o fonti tecniche — parla come sous chef
 
 ---
 
 ## PRIORITÀ PROSSIMA SESSIONE
 
 ### 1. ⚠️ Audit menu tre puntini
-Molte voci non hanno collegamento funzionante. Fare audit completo prima di aggiungere altro.
+Molte voci non hanno collegamento funzionante. Fare audit completo.
 
-### 2. office-ai → cron orario
-Togliere la chiamata da openOffice() e metterla come cron (come souschef-scan).
-Aggiungere bottone "Analizza ora" manuale per Max.
-Ottimizzazione token AI — sessione dedicata.
-
-### 3. Demo Bot
+### 2. Demo Bot (sessione dedicata)
 Edge Function + pannello admin con:
 - Dropdown frequenza: 5 / 10 / 15 / 20 minuti
 - Start / Stop
-- Ogni tick = un giorno simulato — UN solo evento casuale
-- Tipi evento: Tell Chef, Operation Note, prep log con timing, chiusura turno, messaggio chat
-- Push notification: UNA sola push riassuntiva quando tutti hanno "chiuso" nel giorno simulato
+- Ogni tick = un giorno simulato — UN evento casuale
+- Tipi: Tell Chef, Operation Note, prep log con timing, chiusura turno, chat
+- Push notification: UNA sola riassuntiva quando tutti hanno "chiuso"
 - ai_analysis pre-scritta (NO chiamate AI durante demo — risparmio token)
 - Reset: cancella tutto in un click
-- Sessione dedicata
 
-### 4. Smart Office — calendario meeting
-- Meeting ricorrenti inseribili da Max dentro Brigade
-- Martedi ore 15 → Monica (catering)
-- Mercoledi mattina → Zeno & Bo (FOH)
-- Mercoledi dopo → meeting aziendale
+### 3. office-ai → cron orario
+Aggiungere pg_cron per analisi automatica ogni ora.
+Ottimizzazione token AI — sessione dedicata.
+
+### 4. Smart Office — calendario meeting interni
+Meeting ricorrenti inseribili da Max dentro Brigade:
+- Martedì ore 15 → Monica (catering)
+- Mercoledì mattina → Zeno & Bo (FOH)
+- Mercoledì dopo → meeting aziendale
 - Smart Focus li rileva automaticamente 1h prima
-- Connessione iPhone Calendar = futura
 
-### 5. Briefing AI fix
-- sc-nightly-brief legge anche chef_reports (status new/read)
-- 2-3 punti concreti con numeri reali
-- Sezione "From your team"
+### 5. Sous Chef SQL — espandere pattern
+Aggiungere più pattern di riconoscimento per domande sui dati:
+- Prep timing per persona (chi è più veloce/lento)
+- Food cost per ricetta
+- Confronto settimane
+- Top seller per periodo
 
 ---
 
 ## REGOLE OPERATIVE — INVIOLABILI
-1. Leggi SEMPRE i file da GitHub (mai da /mnt/project/ o memoria)
-2. Bumpa sw.js in ogni push che tocca file visibili all'utente
-3. Dichiara cosa cambierai prima di scrivere codice — aspetta conferma
+1. Leggi SEMPRE i file da GitHub (mai da memoria)
+2. Bumpa sw.js in ogni push che tocca file visibili
+3. Dichiara cosa cambierai prima di scrivere — aspetta conferma
 4. KITCHEN DISPLAY = SOLO INGLESE — regola permanente
-5. Non lavorare mai su file in memoria — sempre online
-6. MAI pushare su main — sempre brigade-main
-7. node --check su ogni file JS prima di pushare
-8. office-ai NON va chiamata ad ogni apertura — è costosa in token
+5. MAI pushare su main — sempre brigade-main
+6. node --check su ogni file JS prima di pushare
+7. office-ai NON va chiamata ad ogni apertura
+8. Sous Chef NON cita mai "SQL_RESULTS" o fonti tecniche
