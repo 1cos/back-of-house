@@ -175,7 +175,7 @@ async function loadServiceUpdates(){
     const{data:items}=await supa.from('pos_sales_by_item')
       .select('menu_item,quantity')
       .eq('sale_date',yStr)
-      .not('menu_group','in','("NA Beverages","Beverages","Mocktail")')
+      .not('menu_group','in','("NA Beverages","Beverages","Mocktail","Beer","Common Cocktails","House Cocktails","Gin","Rum","Scotch","Tequila","Liqueurs")')
       .lt('quantity',1000)
       .order('quantity',{ascending:false})
       .limit(3);
@@ -209,7 +209,7 @@ async function loadServiceUpdates(){
         '<span style="font-size:15px;">💰</span>'+
         '<span style="font-size:13px;color:#1e3a5f;font-weight:600;">'+sales+'</span>'+
         '<span style="font-size:12px;color:#64748b;">·</span>'+
-        '<span style="font-size:13px;color:#64748b;">'+summary.bill_count+' tavoli</span>'+
+        '<span style="font-size:13px;color:#64748b;">'+summary.bill_count+' bills</span>'+
         '</div>'
       );
     }
