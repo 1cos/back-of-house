@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-16 — v217*
+*Aggiornato: 2026-06-17 — v218*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,7 +10,7 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v217**
+- Versione frontend: **v218**
 - Versione souschef-chat: v15
 - Supabase: ydqmumpytgrlceuinoqt
 - Leggi sempre da GitHub brigade-main, MAI da /mnt/project/
@@ -110,7 +110,7 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 
 ---
 
-## TELL CHEF — v202
+## TELL CHEF — v202 ✅ IMPLEMENTATO
 
 ### Cos'è
 Canale unidirezionale: cuoco → Max + Sous Chef. Nessun collega lo vede.
@@ -129,7 +129,7 @@ Non è conversazione — è segnalazione.
 
 ---
 
-## OPERATION NOTES — esistente
+## OPERATION NOTES — esistente ✅
 
 - File: js/operation-notes.js
 - Appare alle 22:30 CDT dopo closing (o subito dopo doCloseTurn)
@@ -139,11 +139,11 @@ Non è conversazione — è segnalazione.
 
 ---
 
-## CHEF INBOX — da costruire (PRIORITÀ ALTA)
+## CHEF INBOX — IN COSTRUZIONE (PRIORITÀ ALTA)
 
 ### Concept
 Unico inbox admin stile chat dove convergono tutte le voci della brigata.
-Accessibile dai tre puntini → "Chef Inbox" (o nome da decidere).
+Accessibile dai tre puntini → "Chef Inbox".
 
 ### Layout chat-style
 Messaggi in ordine cronologico, colorati per fonte:
@@ -165,47 +165,45 @@ Messaggi in ordine cronologico, colorati per fonte:
 - Aggiungere lettura operation_notes ultimi 7 giorni al briefing
 - Sezione "From your team" nel briefing con colori per fonte
 
-### Briefing AI fix (da fare)
-- Mostra 2-3 punti chiave invece di tutti
-- Bottone "View all" apre modal con tutto + chef_reports + operation_notes
-- Fix tre puntini/refresh → mostra contenuto reale
+---
+
+## BRIEFING AI FIX — da fare dopo Chef Inbox
+
+### Problema attuale
+Il prompt di sc-nightly-brief genera frasi vaghe e generiche invece di dati concreti.
+
+### Cosa fare
+- **2-3 punti chiave** — invece di un muro di testo, mostrare solo i punti più importanti con emoji e numeri reali. Es: "🔴 Salmon +22% vs last week · 🟡 Stew Meat zero prep da 3 giorni · 🔵 52 bills ieri — record del mese"
+- **Bottone "View all"** — apre un modal con tutto il briefing completo + chef_reports + operation_notes
+- **Connessione al team** — il briefing legge anche chef_reports (Tell Chef non letti) e operation_notes (ultimi 7 giorni) così al mattino Max trova tutto in un posto: vendite + prep + cosa ha scritto la brigata la sera prima
 
 ---
 
-## FOCUS MODE — spec approvata
+## FOCUS MODE — v5 ✅ IMPLEMENTATO
 
-### Concept
-Modalità lavagna digitale per i cuochi. Swipe destra dalla home.
-Attiva automaticamente 8:00 AM → 8:00 PM CDT.
-Solo per staff (role != admin) — Max vede sempre Brigade normale.
+### Spec corretta (aggiornata 2026-06-17)
+- **Attivazione automatica:** 8:00 AM → 8:00 PM CDT — nessun swipe, nessuna gesture
+- **Sostituisce la home** per tutto lo staff (role != admin) durante quelle ore
+- Max (admin) vede sempre Brigade normale
+- Al login se sono le 8-20 → Focus Mode diretto, nessuna home
 
-### Layout
-- Swipe destra → Focus Mode (slide animation)
-- Swipe sinistra → torna Brigade
-- 3 sezioni collassabili: 🔴 To Do · 🟡 In Progress · ✅ Done (collassata)
-- Card swipe destra = Done, sinistra = In Progress, soglia 60%
-- Filtro automatico sulla stazione del cuoco loggato
-- Realtime aggiornamento
-- News/alert in banner scorrevole
+### Cosa fa
+- Mostra solo la prep della stazione del cuoco loggato
+- Card: DA FARE (rosso) · IN PROGRESS (giallo, con timer) · DONE (blu)
+- Bottone START → avvia timer · DONE → logga in prep_log con durata
+- Può cambiare stazione (bottone stazioni → sheet)
+- Realtime: aggiorna solo il task cambiato in memoria, no re-query
+- Clock CDT in header
 
-### Interfaccia ridotta a 3 cose
-- Prep (solo sua stazione)
-- Chat brigata
-- Tell Chef
-
-### Landscape mode — da esplorare
-- 3 colonne side-by-side invece di sezioni verticali?
-
-### In Service view — da esplorare
-- Focus Mode ha due stati: Prep (mattina) e Service (11 AM → chiusura)
+### File
+- js/focus-mode.js v5
 
 ---
 
 ## PRIORITÀ ALTA — PROSSIME SESSIONI
 
-1. **Chef Inbox** — inbox unificato admin (Tell Chef + Operation Notes + Chef AI)
-2. **Focus Mode** — lavagna digitale staff 8AM-8PM
-3. **Briefing AI fix** — 2-3 punti + View all + chef_reports + operation_notes
+1. **Chef Inbox** — inbox unificato admin (Tell Chef + Operation Notes + Chef AI) — IN COSTRUZIONE OGGI
+2. **Briefing AI fix** — 2-3 punti concreti + View all + lettura chef_reports + operation_notes
 
 ---
 
@@ -223,7 +221,7 @@ Solo per staff (role != admin) — Max vede sempre Brigade normale.
 
 ## BACKLOG
 
-- [ ] TripleSeat API (credenziali Monica)
+- [ ] TripleSeat API (credenziali Monica — Authorize pending)
 - [ ] SevenShift API
 - [ ] Apple Watch
 - [ ] Apple Intelligence / Siri
@@ -278,3 +276,11 @@ Solo per staff (role != admin) — Max vede sempre Brigade normale.
 - Card evento: data, orario, guests, room, status, link PDF documenti, link TripleSeat
 - Bottone ↻ Sync TripleSeat in alto a destra
 - Layout: segue topbar + newsBar correttamente
+
+---
+
+## Sessione 2026-06-17 — Aggiornamento stato
+
+- Focus Mode: spec corretta — automatico 8-20 CDT, nessun swipe, già implementato v5
+- Briefing AI fix: chiarito — 2-3 punti concreti + View all + connessione chef_reports/operation_notes
+- Chef Inbox: confermato priorità alta — costruzione iniziata questa sessione
