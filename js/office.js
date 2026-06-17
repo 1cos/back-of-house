@@ -236,7 +236,8 @@ function officeRenderCard(item) {
   var ts = '';
   try {
     var d = new Date(item.created_at);
-    ts = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' });
+    ts = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' }) +
+         ' · ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Chicago' });
   } catch(e) {}
 
   // Parse ai_options
@@ -271,9 +272,9 @@ function officeRenderCard(item) {
     actionsHtml =
       '<div style="display:flex;gap:7px;padding:0 14px 12px;">' +
         '<button onclick="officeResolve(\'' + item.id + '\',\'skip\')" ' +
-          'style="flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;">Ignora</button>' +
+          'style="flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;">Letto</button>' +
         '<button onclick="officeResolve(\'' + item.id + '\',\'visto\')" ' +
-          'style="flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid #1e3a5f;background:#1e3a5f;color:white;">Visto</button>' +
+          'style="flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid #1e3a5f;background:#1e3a5f;color:white;">Risolto</button>' +
       '</div>';
   }
 
@@ -299,11 +300,13 @@ window.officeResolve = async function(id, resolution) {
   var sb = window.supa;
   if (!sb) return;
   try {
+    var isLetto = (resolution === 'letto');
     await sb.from('office_items').update({
-      status: 'resolved',
+      status: isLetto ? 'open' : 'resolved',
       resolved_by: window.user?.name || 'Max',
-      resolved_at: new Date().toISOString(),
-      resolution: resolution,
+      resolved_at: isLetto ? null : new Date().toISOString(),
+      resolution: isLetto ? null : resolution,
+      priority: isLetto ? 'blue' : undefined,
     }).eq('id', id);
 
     // Rimuovi la card con animazione
@@ -311,7 +314,7 @@ window.officeResolve = async function(id, resolution) {
     // Ricarica la lista
     officeLoad();
 
-    if (typeof showScToast === 'function') showScToast('✓ ' + (resolution === 'skip' ? 'Ignorato' : 'Risolto — ' + resolution));
+    if (typeof showScToast === 'function') showScToast('✓ ' + (resolution === 'letto' ? 'Letto — ci pensi' : 'Risolto'));
   } catch(e) {
     if (typeof showScToast === 'function') showScToast('❌ Errore: ' + e.message);
   }
