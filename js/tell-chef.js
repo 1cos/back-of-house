@@ -102,9 +102,10 @@ async function tellChefSend() {
     // Scrivi in office_items per L'Ufficio
     if (typeof officeWriteItem === 'function') {
       var reportId = res.data ? res.data.id : null;
+      var userName = payload.user_name && payload.user_name !== 'Unknown' ? payload.user_name : (window.user?.name || 'Staff');
       var stationLabel = payload.station ? payload.station.replace(' Station','') : '';
-      var titleLabel = (payload.user_name || 'Staff') + (stationLabel ? ' (' + stationLabel + ')' : '') + ': ' + text.slice(0, 80) + (text.length > 80 ? '...' : '');
-      officeWriteItem('tell_chef', reportId, payload.user_name, titleLabel, text);
+      var titleLabel = userName + (stationLabel ? ' (' + stationLabel + ')' : '') + ': ' + text.slice(0, 80) + (text.length > 80 ? '...' : '');
+      officeWriteItem('tell_chef', reportId, userName, titleLabel, text);
     }
 
     // Success
