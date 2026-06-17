@@ -2136,7 +2136,7 @@ async function loadPOSStaff() {
     var coverHtml = '<div style="background:white;border-radius:16px;padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;">' +
       '<div>' +
       '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">'+period.label+'</div>' +
-      '<div style="font-size:28px;font-weight:800;color:#1e293b;line-height:1.1;">'+totalCovers+' <span style="font-size:14px;font-weight:500;color:#64748b;"'>'+tr('covers')+'</span></div>\' +
+      '<div style="font-size:28px;font-weight:800;color:#1e293b;line-height:1.1;">'+totalCovers+' <span style="font-size:14px;font-weight:500;color:#64748b;">'+tr('covers')+'</span></div>' +
       (nDays>1?'<div style="font-size:11px;color:#94a3b8;">'+tr('avgPerDay')+' '+Math.round(totalCovers/nDays)+'/'+tr('day')+'</div>':'') +
       '</div>' +
       '<div style="font-size:40px;">🍽️</div>' +
@@ -2388,4 +2388,5 @@ async function staffOpenModifier(modName, from, to) {
   if (old) old.remove();
   await staffOpenDishModal(modName, from, to);
 }
+
 
