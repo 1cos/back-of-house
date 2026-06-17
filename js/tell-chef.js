@@ -1,4 +1,4 @@
-// ── TELL CHEF ──
+// ── TELL CHEF v2 ── fix: user_name da window.user
 // Canale unidirezionale: cuoco → chef_reports DB → visibile solo a Max + Sous Chef
 // Nessun user puo leggere i report altrui
 
@@ -90,8 +90,8 @@ async function tellChefSend() {
   try {
     var user = window.user || {};
     var payload = {
-      user_name: user.name || 'Unknown',
-      station: user.default_station || user.station || null,
+      user_name: (window.user || user || {}).name || 'Unknown',
+      station: (window.user || user || {}).default_station || (window.user || user || {}).station || null,
       message: text,
       status: 'new'
     };
@@ -223,5 +223,6 @@ async function tcSetStatus(id, status, btn) {
     await tcAdminLoad();
   } catch(e) {}
 }
+
 
 
