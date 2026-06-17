@@ -15,7 +15,7 @@ async function init(){
     const{data:recs}=await supa.from('recipes').select('*').order('title');
     if(recs) SHOP_RECIPES=recs.map(r=>({...r,ingredients:typeof r.ingredients==='string'?JSON.parse(r.ingredients):(r.ingredients||[]),yield:r.yield_text,prep_time:r.prep_time_minutes}));
   }catch(e){}
-  const ALL_STATIONS = ['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Tableside','Freezer'];
+  const ALL_STATIONS = ['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Table Side','Freezer'];
   const stationList = isAdmin()
     ? ['All', ...ALL_STATIONS, 'Chiusura']
     : [...ALL_STATIONS, 'Chiusura'];
@@ -51,4 +51,5 @@ document.getElementById('toggleView').onclick=()=>{
   document.getElementById('toggleView').textContent=feedMode?'Griglia':'Feed';
   if(feedMode) renderFeed();
 };
+
 
