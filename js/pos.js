@@ -6,7 +6,13 @@ let posCustomTo   = null;
 function toISO(d) { return d.toISOString().slice(0,10); }
 function addDays(d,n) { const r=new Date(d); r.setDate(r.getDate()+n); return r; }
 function dayNameIT(iso) {
-  return ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'][new Date(iso+'T12:00:00').getDay()];
+  var lang = (typeof user !== 'undefined' && user && user.lang) ? user.lang.slice(0,2).toLowerCase() : 'en';
+  var dayNames = {
+    it: ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'],
+    en: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'],
+    es: ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado']
+  };
+  return (dayNames[lang]||dayNames['en'])[new Date(iso+'T12:00:00').getDay()];
 }
 function fmt(n)  { return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}); }
 function fmtD(n) { return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -2111,9 +2117,9 @@ async function loadPOSStaff() {
 
     // Selettori
     var modes = [
-      {mode:'ieri',label:'Ieri'},
+      {mode:'ieri',label:tr('yesterday')},
       {mode:'weekend',label:'Weekend'},
-      {mode:'settimana',label:'Sett.'}
+      {mode:'settimana',label:tr('weekShort')}
     ];
     var selHtml = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">' +
       modes.map(function(m) {
@@ -2131,7 +2137,7 @@ async function loadPOSStaff() {
       '<div>' +
       '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">'+period.label+'</div>' +
       '<div style="font-size:28px;font-weight:800;color:#1e293b;line-height:1.1;">'+totalCovers+' <span style="font-size:14px;font-weight:500;color:#64748b;">coperti</span></div>' +
-      (nDays>1?'<div style="font-size:11px;color:#94a3b8;">media '+Math.round(totalCovers/nDays)+'/giorno</div>':'') +
+      (nDays>1?'<div style="font-size:11px;color:#94a3b8;">'+tr('avgPerDay')+' '+Math.round(totalCovers/nDays)+'/'+tr('day')+'</div>':'') +
       '</div>' +
       '<div style="font-size:40px;">🍽️</div>' +
       '</div>';
