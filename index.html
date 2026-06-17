@@ -541,6 +541,11 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span>PIN</span>
         </button>
 
+        <button onclick="openOffice()" class="amenu-btn" style="border:2px solid #dbeafe;background:#eff6ff;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1e3a5f" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <span style="color:#1e3a5f;font-weight:700;">L'Ufficio</span>
+        </button>
+
         <button onclick="hideAdminMenu();openChefAISettings()" class="amenu-btn">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
           <span>Chef AI</span>
@@ -654,6 +659,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/pos.js"></script>
 <script src="js/focus-mode.js"></script>
 <script src="js/calendar.js"></script>
+<script src="js/office.js"></script>
 <script>if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js')}</script>
 <script>
 // App version — single source of truth: CACHE_NAME in sw.js (boh-vNN).
