@@ -1,4 +1,4 @@
-# PROMPT PROSSIMA SESSIONE — Brigade v219
+# PROMPT PROSSIMA SESSIONE — Brigade v235
 
 ## PRIMA DI TUTTO
 1. Carica x_claude_GIthub.txt dal progetto
@@ -11,74 +11,79 @@
 - Deploy: https://1cos.github.io/back-of-house
 - Branch: brigade-main
 - Display: https://1cos.github.io/back-of-house/display.html (LIVE su Fire TV)
-- Versione: v219
+- Versione: v235
 
 ---
 
-## SESSIONE 2026-06-17 — cosa è successo
+## SESSIONE 2026-06-17 — L'UFFICIO
 
-### Fix pushati (v219)
-- `js/tell-chef.js` — fix user_name: ora prende da window.user, non più "Unknown"
-- `js/operation-notes.js` — fix window.supabaseClient → window.supa (le note ora si salvano)
-- DB: tutti i chef_reports con user_name "Unknown" aggiornati a "Anto"
+### Cosa è stato costruito
+- **`office_items`** — nuova tabella DB, struttura completa e scalabile
+- **`sous_chef_tasks`** — eliminata (era vuota, ridondante)
+- **`js/office.js`** — L'Ufficio completo: Smart Focus, lista per urgenza red/orange/blue, resolve
+- **`js/tell-chef.js`** — scrive in office_items ad ogni segnalazione brigata
+- **`js/operation-notes.js`** — scrive in office_items ad ogni nota serale
+- **`js/souschef-core.js`** — rimossi tutti i riferimenti a sous_chef_tasks
+- **`index.html`** — bottone "L'Ufficio" nel menu tre puntini + script caricato
+- **Edge Function `office-ai` v1** — analizza office_items senza ai_analysis, scrive priority + ai_analysis + ai_options
 
-### Visione documentata
-- Aggiunta sezione "Brigade Communication & Decision System" in BRIGADE_VISION.md
-- I tre livelli: 🔴 RED (Act Now) · 🟠 ORANGE (Must Read + conferma) · 🔵 BLUE (FYI)
-- Decision Loop documentato: problema → Chef AI analizza + propone → Max decide → sistema esegue → archivio
-- I tre meeting documentati: Pre-Lunch (11:00) · Pre-Dinner (16:00) · Post-Service (22:00)
-- Regola fondamentale: i cuochi portano problemi e idee. Max decide sempre. Chef AI propone, non decide mai.
+### Come funziona il flusso
+```
+Cuoco manda Tell Chef / Operation Note
+        ↓
+chef_reports / operation_notes (archivio) + office_items (scrivania) — in parallelo
+        ↓
+Max apre L'Ufficio → chiama office-ai
+        ↓
+office-ai legge items senza analisi → OpenRouter → scrive ai_analysis + ai_options + priority
+        ↓
+Lista ordinata red / orange / blue — con analisi AI e bottoni pronti
+        ↓
+Max tocca → officeResolve() → resolved → sparisce
+```
+
+### Decisioni architetturali prese
+- L'Ufficio vive nei tre puntini — non nella bottom nav
+- Scrivania unica per ora (operativa) — finanziaria e comunicazioni = future
+- Smart Focus: si riconfigura automaticamente prima dei meeting ricorrenti
+- office-ai NON gira ad ogni apertura — va spostata a cron orario (TODO)
+- Demo Bot: da costruire in sessione separata (vedi backlog)
 
 ---
 
 ## PRIORITÀ PROSSIMA SESSIONE
 
-### 1. Decision Loop — il cuore (da costruire)
-Il posto dove Chef AI porta problemi e osservazioni a Max con opzioni concrete.
-NON è il Warning Center fatture (quello rimane separato, solo finanziario).
-È una sezione nuova — accessibile dai tre puntini → "Chef AI" o "Meeting".
-Leggi BRIGADE_VISION.md sezione "Brigade Communication & Decision System" per la spec completa.
+### 1. ⚠️ Audit menu tre puntini
+Molte voci non hanno collegamento funzionante. Fare audit completo prima di aggiungere altro.
 
-**Cosa costruire:**
-- Tabella DB: `chef_decisions` (problema, fonte, livello_suggerito, opzioni JSON, decisione_max, stato, created_at)
-- Edge Function: `sc-nightly-brief` v11 — aggiungere lettura chef_reports (status=new) al prompt admin
-- UI: sezione admin "Chef AI" — lista problemi aperti con opzioni, Max risponde, sistema esegue
+### 2. office-ai → cron orario
+Togliere la chiamata da openOffice() e metterla come cron (come souschef-scan).
+Aggiungere bottone "Analizza ora" manuale per Max.
+Ottimizzazione token AI — sessione dedicata.
 
-### 2. Sistema livelli 🔴🟠🔵 — sulla comunicazione
-Colonna `priority_level` (red/orange/blue) su alerts e chef_decisions.
-Per orange: conferma di lettura obbligatoria al login + tracker chi ha confermato.
+### 3. Demo Bot
+Edge Function + pannello admin con:
+- Dropdown frequenza: 5 / 10 / 15 / 20 minuti
+- Start / Stop
+- Ogni tick = un giorno simulato — UN solo evento casuale
+- Tipi evento: Tell Chef, Operation Note, prep log con timing, chiusura turno, messaggio chat
+- Push notification: UNA sola push riassuntiva quando tutti hanno "chiuso" nel giorno simulato
+- ai_analysis pre-scritta (NO chiamate AI durante demo — risparmio token)
+- Reset: cancella tutto in un click
+- Sessione dedicata
 
-### 3. Briefing AI fix (v11 sc-nightly-brief)
-- Aggiungere lettura chef_reports (status new/read) al prompt
-- 2-3 punti concreti con numeri reali invece di frasi vaghe
-- Sezione "From your team" nel briefing
+### 4. Smart Office — calendario meeting
+- Meeting ricorrenti inseribili da Max dentro Brigade
+- Martedi ore 15 → Monica (catering)
+- Mercoledi mattina → Zeno & Bo (FOH)
+- Mercoledi dopo → meeting aziendale
+- Smart Focus li rileva automaticamente 1h prima
+- Connessione iPhone Calendar = futura
 
----
-
-## CONTESTO IMPORTANTE — per capire le priorità
-
-### Warning Center — due separati
-- **Warning Center Finanziario** (esistente): fatture, prezzi, link mancanti — solo Max, già funziona
-- **Warning Center Operativo** (da costruire): questo è il Decision Loop — problemi operativi, segnalazioni brigata, osservazioni AI
-
-### Tell Chef — stato attuale
-- Funziona: cuoco manda segnalazione → va in chef_reports
-- Manca: Chef AI non legge chef_reports nel briefing
-- Manca: nessun loop decisionale — Max vede il messaggio ma non ha opzioni/risposta strutturata
-- Manca: badge notifica sui tre puntini per nuovi report
-
-### Operation Notes — stato attuale
-- Fix pushato oggi (window.supa): ora si salvano correttamente
-- Tabella vuota — app pre-launch, nessun uso reale ancora
-- Non entrano nel briefing AI
-
-### Focus Mode — IMPLEMENTATO v5
-- Automatico 8:00-20:00 CDT, sostituisce la home per staff (non admin)
-- Nessun swipe — era nella spec vecchia, rimosso
-
-### TripleSeat — PENDING Monica
-- Monica deve premere Authorize su zottsllc.tripleseat.com/settings/api
-- Tutto il codice è pronto, manca solo quel click
+### 5. Briefing AI fix
+- sc-nightly-brief legge anche chef_reports (status new/read)
+- 2-3 punti concreti con numeri reali
+- Sezione "From your team"
 
 ---
 
@@ -90,3 +95,4 @@ Per orange: conferma di lettura obbligatoria al login + tracker chi ha confermat
 5. Non lavorare mai su file in memoria — sempre online
 6. MAI pushare su main — sempre brigade-main
 7. node --check su ogni file JS prima di pushare
+8. office-ai NON va chiamata ad ogni apertura — è costosa in token
