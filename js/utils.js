@@ -24,7 +24,7 @@ const T={
     ingredients:'Ingredienti',loading:'Caricamento...',noData2:'Nessun dato',
     station:'Stazione',role:'Ruolo',lastAccess:'Ultimo accesso',status:'Stato',
     online:'Online',shiftClosed:'Turno chiuso da',missing2:'Manca',allGood:'Tutto ok',
-    noActivenews:'Nessuna comunicazione attiva',closeAll:'Chiudi tutte',answerAll:'Rispondi a tutte le voci prima di chiudere',searchRecipe:'Cerca ricetta...',yourStation:'La tua stazione',otherStations:'Altre stazioni',goToPrep:'Vai alla prep →',upcomingDemand:'Domanda prevista',yesterdayHL:'Highlights di ieri',viewAll:'Vedi tutti',noRecipe:'⚪ nessuna ricetta',stations:'Stazioni',nothingToDo:'Niente da fare ✅',recipe:'Ricetta',note:'Nota'},
+    noActivenews:'Nessuna comunicazione attiva',closeAll:'Chiudi tutte',answerAll:'Rispondi a tutte le voci prima di chiudere',searchRecipe:'Cerca ricetta...',yourStation:'La tua stazione',otherStations:'Altre stazioni',goToPrep:'Vai alla prep →',upcomingDemand:'Prossimi eventi',yesterdayHL:'Highlights di ieri',viewAll:'Vedi tutti',noRecipe:'⚪ nessuna ricetta',stations:'Stazioni',nothingToDo:'Niente da fare ✅',recipe:'Ricetta',note:'Nota'},
   en:{home:'Home',prep:'Prep',evening:'Closing',recipes:'Recipes',logout:'Logout',login:'Enter',name:'Name',pass:'Password',write:'Write...',send:'Send',save:'Save',ok:'OK',report:'Report',today:'Today',week:'Week',pdf:'PDF',noData:'No data today',item:'Item',unit:'Unit',prepBy:'Preparations by person',toDo:'TO PREPARE — flagged at close',closeCount:'to do',selectReport:'Select Today or Week',closeTurn:'Close Shift',thereIs:'In stock ✓',missing:'Missing ✗',forgottenAlert:'You forgot these items:',closeTurnDone:'Shift closed.',alreadyClosed:'You already closed tonight 👌',goCheck:'Go Check →',briefingLoading:'Loading briefing...',briefingEmpty:'No data available.',briefingError:'Error loading briefing.',homeChecklist:'Closing checklist',homeOpen:'Open →',homePrepSub:'Morning prep',homeCloseSub:'Evening checklist',homeRecSub:'All recipes',homeChatSub:'Crew',translating:'...',briefingRefresh:'Refresh',quickComment:'Quick note',skipComment:'Skip',
     daFare:'to do',inProgress:'in progress',noStation:'No stations',
     close:'Close',cancel:'Cancel',send:'Send to team',writePlaceholder:'Write a message for the team...',
@@ -38,7 +38,7 @@ const T={
     ingredients:'Ingredientes',loading:'Cargando...',noData2:'Sin datos',
     station:'Estación',role:'Rol',lastAccess:'Último acceso',status:'Estado',
     online:'En línea',shiftClosed:'Turno cerrado por',missing2:'Falta',allGood:'Todo bien',
-    noActivenews:'Sin anuncios activos',closeAll:'Cerrar todo',answerAll:'Responde todos los items antes de cerrar',searchRecipe:'Buscar receta...',yourStation:'Tu estación',otherStations:'Otras estaciones',goToPrep:'Ir a prep →',upcomingDemand:'Demanda prevista',yesterdayHL:'Resumen de ayer',viewAll:'Ver todo',noRecipe:'⚪ sin receta',stations:'Estaciones',nothingToDo:'Nada por hacer ✅',recipe:'Receta',note:'Nota'}
+    noActivenews:'Sin anuncios activos',closeAll:'Cerrar todo',answerAll:'Responde todos los items antes de cerrar',searchRecipe:'Buscar receta...',yourStation:'Tu estación',otherStations:'Otras estaciones',goToPrep:'Ir a prep →',upcomingDemand:'Próximos eventos',yesterdayHL:'Resumen de ayer',viewAll:'Ver todo',noRecipe:'⚪ sin receta',stations:'Estaciones',nothingToDo:'Nada por hacer ✅',recipe:'Receta',note:'Nota'}
 };
 function tr(k){
   const lang=normalizeLang(user?.lang||loginLang||DEFAULT_LANG);
