@@ -2211,7 +2211,7 @@ async function loadPOSStaff() {
     var modHtml = '';
     if (modSorted.length > 0) {
       modHtml = '<div style="background:white;border-radius:16px;padding:14px 16px;margin-bottom:12px;">' +
-        '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Modifier cucina</div>' +
+        '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">'+tr('kitchenModifiers').toUpperCase()+'</div>' +
         modSorted.map(function(e) {
           var pct = Math.round((e[1]/maxMod)*100);
           var cfg = (rModCfg.data||[]).find(function(x){return x.modifier.toLowerCase()===e[0].toLowerCase();});
@@ -2236,7 +2236,7 @@ async function loadPOSStaff() {
 
     sec.innerHTML = '<div style="padding:12px 12px 100px;">' +
       selHtml + coverHtml +
-      '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Cucina</div>' +
+      '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">'+tr('kitchen').toUpperCase()+'</div>' +
       groupsHtml +
       modHtml +
       '</div>';
