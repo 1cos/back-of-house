@@ -209,7 +209,7 @@ async function loadServiceUpdates(){
         '<span style="font-size:15px;">💰</span>'+
         '<span style="font-size:13px;color:#1e3a5f;font-weight:600;">'+sales+'</span>'+
         '<span style="font-size:12px;color:#64748b;">·</span>'+
-        '<span style="font-size:13px;color:#64748b;">'+summary.bill_count+' bills</span>'+
+        '<span style="font-size:13px;color:#64748b;">'+summary.bill_count+' tavoli</span>'+
         '</div>'
       );
     }
@@ -343,3 +343,4 @@ async function addServiceUpdate(){
   loadServiceUpdates();
   document.querySelector('.fixed')?.remove();
 }
+
