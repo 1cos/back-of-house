@@ -248,18 +248,25 @@ window.submitOperationNote = async function() {
   const sb = window.supa;
   const todayCDT = getNowCDT().toISOString().slice(0, 10);
 
-  const { error } = await sb.from('operation_notes').insert({
+  const { data: opData, error } = await sb.from('operation_notes').insert({
     note_date: todayCDT,
     user_name: window.user?.name || 'Unknown',
     note: note,
     lang: window.user?.lang || 'en',
     service: 'dinner',
-  });
+  }).select().single();
 
   if (error) {
     if (btn) { btn.textContent = s.submit; btn.disabled = false; }
     if (typeof showScToast === 'function') showScToast('❌ ' + error.message);
     return;
+  }
+
+  // Scrivi in office_items per L'Ufficio
+  if (typeof officeWriteItem === 'function') {
+    const userName = window.user?.name || 'Staff';
+    const titleLabel = userName + ' — nota serale: ' + note.slice(0, 80) + (note.length > 80 ? '...' : '');
+    officeWriteItem('operation_note', opData ? opData.id : null, userName, titleLabel, note);
   }
 
   const sheet = document.getElementById('_opNoteSheet');
