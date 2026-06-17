@@ -42,6 +42,8 @@ async function init(){
   if(rb) rb.style.display=isAdmin()?'flex':'none';
   // Focus Mode — attiva dopo che items è caricato
   if (!isAdmin() && typeof initFocusMode === 'function') initFocusMode();
+  // Badge L'Ufficio — mostra items aperti nel menu admin
+  if (isAdmin() && typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
 }
 
 document.getElementById('toggleView').onclick=()=>{
