@@ -115,8 +115,8 @@ function officeRenderSmartFocus() {
     '<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px 7px;border-bottom:0.5px solid rgba(59,130,246,0.08);">' +
       '<span style="font-size:13px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Smart focus</span>' +
     '</div>' +
-    '<div style="padding:10px 14px 5px;font-size:17px;font-weight:700;color:#1e3a5f;">' + focus.label + '</div>' +
-    '<div style="padding:0 14px 12px;font-size:14px;color:#60a5fa;">' + focus.sub + '</div>';
+    '<div style="padding:10px 14px 5px;font-size:22px;font-weight:700;color:#1e3a5f;">' + focus.label + '</div>' +
+    '<div style="padding:0 14px 14px;font-size:17px;color:#60a5fa;">' + focus.sub + '</div>';
 }
 
 // ── CARICA ITEMS DAL DB ──
@@ -208,7 +208,7 @@ function officeRenderCard(item) {
     aiBlock =
       '<div style="margin:0 14px 8px;padding:8px 11px;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:10px;border-left:2px solid #3b82f6;">' +
         '<div style="font-size:11px;color:#3b82f6;font-weight:700;letter-spacing:.04em;margin-bottom:4px;">Chef AI</div>' +
-        '<div style="font-size:14px;color:#1e3a5f;line-height:1.5;">' + item.ai_analysis + '</div>' +
+        '<div style="font-size:17px;color:#1e3a5f;line-height:1.5;">' + item.ai_analysis + '</div>' +
       '</div>';
   }
 
@@ -219,7 +219,7 @@ function officeRenderCard(item) {
       var isPrimary = idx === options.length - 1;
       actionsHtml +=
         '<button onclick="officeResolve(\'' + item.id + '\',\'' + escOpt(opt.label) + '\')" ' +
-        'style="flex:1;padding:8px 0;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;border:0.5px solid ' +
+        'style="flex:1;padding:8px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid ' +
         (isPrimary ? '#1e3a5f;background:#1e3a5f;color:white;' : 'rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;') +
         '">' + opt.label + '</button>';
     });
@@ -229,19 +229,19 @@ function officeRenderCard(item) {
     actionsHtml =
       '<div style="display:flex;gap:7px;padding:0 14px 12px;">' +
         '<button onclick="officeResolve(\'' + item.id + '\',\'skip\')" ' +
-          'style="flex:1;padding:10px 0;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;">Ignora</button>' +
+          'style="flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;">Ignora</button>' +
         '<button onclick="officeResolve(\'' + item.id + '\',\'visto\')" ' +
-          'style="flex:1;padding:10px 0;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid #1e3a5f;background:#1e3a5f;color:white;">Visto</button>' +
+          'style="flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid #1e3a5f;background:#1e3a5f;color:white;">Visto</button>' +
       '</div>';
   }
 
   return '<div style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-left:' + borderLeft + ';border-radius:16px;margin:0 12px 8px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 6px 16px rgba(30,58,95,0.04);">' +
     '<div style="display:flex;align-items:flex-start;gap:8px;padding:11px 14px 6px;">' +
       '<div style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;margin-top:4px;"></div>' +
-      '<div style="font-size:16px;font-weight:700;color:#1e3a5f;flex:1;line-height:1.35;">' + (item.title || '') + '</div>' +
+      '<div style="font-size:20px;font-weight:700;color:#1e3a5f;flex:1;line-height:1.3;">' + (item.title || '') + '</div>' +
       '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(59,130,246,0.07);color:#60a5fa;font-weight:600;white-space:nowrap;flex-shrink:0;">' + sourceLabel + '</span>' +
     '</div>' +
-    (item.body ? '<div style="font-size:14px;color:#475569;padding:0 14px 10px;line-height:1.5;">' + item.body + '</div>' : '') +
+    (item.body ? '<div style="font-size:17px;color:#475569;padding:0 14px 12px;line-height:1.5;">' + item.body + '</div>' : '') +
     aiBlock +
     actionsHtml +
     '<div style="padding:0 14px 10px;font-size:12px;color:#94a3b8;font-weight:500;">' + (item.from_user && item.from_user !== 'system' ? item.from_user + ' · ' : '') + ts + '</div>' +
