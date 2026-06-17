@@ -284,3 +284,29 @@ Il prompt di sc-nightly-brief genera frasi vaghe e generiche invece di dati conc
 - Focus Mode: spec corretta — automatico 8-20 CDT, nessun swipe, già implementato v5
 - Briefing AI fix: chiarito — 2-3 punti concreti + View all + connessione chef_reports/operation_notes
 - Chef Inbox: confermato priorità alta — costruzione iniziata questa sessione
+
+## Sessione 2026-06-17 — L'Ufficio (v229→v235)
+
+### Costruito
+- `office_items` tabella DB — struttura scalabile
+- `sous_chef_tasks` eliminata — era vuota
+- `js/office.js` — scrivania operativa completa
+- `js/tell-chef.js` — trigger → office_items
+- `js/operation-notes.js` — trigger → office_items
+- `js/souschef-core.js` — rimossi riferimenti sous_chef_tasks
+- `index.html` — bottone L'Ufficio nei tre puntini
+- Edge Function `office-ai` v1 — analisi AI automatica
+
+### Decisioni
+- L'Ufficio nei tre puntini, non nella bottom nav
+- Scrivania unica MVP — operativa sola per il lancio
+- Smart Focus automatico pre-meeting
+- office-ai NON ad ogni apertura — TODO cron orario
+
+### Backlog aggiunto
+- Demo Bot (sessione dedicata)
+- Audit menu tre puntini
+- office-ai → cron orario + bottone manuale
+- Ottimizzazione token AI (sessione dedicata)
+- Smart Office calendario meeting interni
+
