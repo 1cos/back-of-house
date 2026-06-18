@@ -257,7 +257,7 @@ function officeRenderCard(item) {
   var aiBlock = '';
   if (item.ai_analysis) {
     aiBlock =
-      '<div style="margin:0 14px 8px;padding:8px 11px;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:10px;border-left:2px solid #3b82f6;">' +
+      '<div data-role="ai" style="margin:0 14px 8px;padding:8px 11px;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:10px;border-left:2px solid #3b82f6;">' +
         '<div style="font-size:11px;color:#3b82f6;font-weight:700;letter-spacing:.04em;margin-bottom:4px;">Chef AI</div>' +
         '<div style="font-size:17px;color:#1e3a5f;line-height:1.5;">' + item.ai_analysis + '</div>' +
       '</div>';
@@ -265,7 +265,7 @@ function officeRenderCard(item) {
 
   var actionsHtml = '';
   if (options.length > 0) {
-    actionsHtml = '<div style="display:flex;gap:7px;padding:0 14px 12px;">';
+    actionsHtml = '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">';
     options.forEach(function(opt, idx) {
       var isPrimary = idx === options.length - 1;
       actionsHtml +=
@@ -278,7 +278,7 @@ function officeRenderCard(item) {
   } else {
     // Nessuna opzione AI — mostra solo "Visto" e "Ignora"
     actionsHtml =
-      '<div style="display:flex;gap:7px;padding:0 14px 12px;">' +
+      '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">' +
         '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" ' +
           'style="flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;">Letto</button>' +
         '<button onclick="officeResolve(\'' + item.id + '\',\'risolto\')" ' +
@@ -286,16 +286,16 @@ function officeRenderCard(item) {
       '</div>';
   }
 
-  return '<div style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-left:' + borderLeft + ';border-radius:16px;margin:0 12px 8px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 6px 16px rgba(30,58,95,0.04);">' +
+  return '<div data-item-id="' + item.id + '" style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-left:' + borderLeft + ';border-radius:16px;margin:0 12px 8px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 6px 16px rgba(30,58,95,0.04);">' +
     '<div style="display:flex;align-items:flex-start;gap:8px;padding:11px 14px 6px;">' +
-      '<div style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;margin-top:4px;"></div>' +
+      '<div data-role="dot" style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;margin-top:4px;"></div>' +
       '<div style="font-size:20px;font-weight:700;color:#1e3a5f;flex:1;line-height:1.3;">' + (item.title || '') + '</div>' +
       '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(59,130,246,0.07);color:#60a5fa;font-weight:600;white-space:nowrap;flex-shrink:0;">' + sourceLabel + '</span>' +
     '</div>' +
-    (item.body ? '<div style="font-size:17px;color:#475569;padding:0 14px 12px;line-height:1.5;">' + item.body + '</div>' : '') +
+    (item.body ? '<div data-role="body" style="font-size:17px;color:#475569;padding:0 14px 12px;line-height:1.5;">' + item.body + '</div>' : '') +
     aiBlock +
     actionsHtml +
-    '<div style="padding:0 14px 10px;font-size:12px;color:#94a3b8;font-weight:500;">' + (item.from_user && item.from_user !== 'system' ? item.from_user + ' · ' : '') + ts + '</div>' +
+    '<div data-role="meta" style="padding:0 14px 10px;font-size:12px;color:#94a3b8;font-weight:500;">' + (item.from_user && item.from_user !== 'system' ? item.from_user + ' · ' : '') + ts + '</div>' +
   '</div>';
 }
 
@@ -317,14 +317,58 @@ window.officeResolve = async function(id, resolution) {
       priority: isLetto ? 'blue' : undefined,
     }).eq('id', id);
 
-    // Rimuovi la card con animazione
-    var cards = document.querySelectorAll('#officeList [style*="border-left"]');
-    // Ricarica la lista
-    officeLoad();
+    var card = document.querySelector('[data-item-id="' + id + '"]');
 
-    if (typeof showScToast === 'function') showScToast('✓ ' + (isLetto ? 'Letto — ci torni dopo' : 'Risolto ✓'));
+    if (isLetto) {
+      // Comprimi — non sparisce, si minimizza
+      if (card) {
+        card.style.transition = 'all 0.3s ease';
+        card.style.opacity = '0.5';
+        card.style.borderLeft = '3px solid #cbd5e1';
+        var body = card.querySelector('[data-role="body"]');
+        var aiBlock = card.querySelector('[data-role="ai"]');
+        var actions = card.querySelector('[data-role="actions"]');
+        var meta = card.querySelector('[data-role="meta"]');
+        var dot = card.querySelector('[data-role="dot"]');
+        if (body) body.style.display = 'none';
+        if (aiBlock) aiBlock.style.display = 'none';
+        if (meta) meta.style.display = 'none';
+        if (dot) dot.style.background = '#cbd5e1';
+        if (actions) actions.innerHTML =
+          '<div style="padding:0 14px 10px;">' +
+            '<button onclick="officeReopen(\'' + id + '\')" ' +
+              'style="width:100%;padding:8px;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#94a3b8;">↩ Riapri</button>' +
+          '</div>';
+      }
+      if (typeof showScToast === 'function') showScToast('📌 Letto — ci torni dopo');
+    } else {
+      // Risolto — slide out e ricarica
+      if (card) {
+        card.style.transition = 'all 0.25s ease';
+        card.style.opacity = '0';
+        card.style.transform = 'translateX(40px)';
+        setTimeout(function() { officeLoad(); if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate(); }, 270);
+      } else {
+        officeLoad();
+        if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
+      }
+      if (typeof showScToast === 'function') showScToast('✓ Risolto');
+    }
+
   } catch(e) {
     if (typeof showScToast === 'function') showScToast('❌ Errore: ' + e.message);
+  }
+};
+
+// ── RIAPRI item da stato letto ──
+window.officeReopen = async function(id) {
+  var sb = window.supa;
+  if (!sb) return;
+  try {
+    await sb.from('office_items').update({ priority: 'orange', resolution: null }).eq('id', id);
+    officeLoad();
+  } catch(e) {
+    if (typeof showScToast === 'function') showScToast('❌ ' + e.message);
   }
 };
 
