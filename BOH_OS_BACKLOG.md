@@ -326,3 +326,25 @@ Il prompt di sc-nightly-brief genera frasi vaghe e generiche invece di dati conc
 - Calendario meeting interni Brigade
 - Sous Chef SQL — espandere pattern riconoscimento
 
+
+
+---
+
+## Sessione 2026-06-17 — Prep List PDF + Checklist Chiusura
+
+### Prep List PDF (v237)
+- Generato PDF statico Brigade_PrepList.pdf da prep_tasks DB
+- Una pagina per stazione, header navy, colonna ✓ + item + QTY/NOTES
+- 4 righe vuote in fondo per aggiungere voci a mano
+- Stazioni incluse: Oven, Fresh Pasta, Pasta, Saucier, Sauté, Salad, Pastry, Table Side, Manager
+- Stampato e distribuito alla brigata per compilazione manuale
+
+### In arrivo
+- **Dati prep compilati** — la brigata ha compilato le schede (qty, unit, container, note) → da inserire in prep_tasks
+- **Checklist chiusura reale** — checklist operativa vera (spegnere forno, controllare pilote, aree condizionate, ecc.) — consegnata da David
+- Da costruire come tabella separata da prep_tasks (non è prep, è chiusura operativa)
+
+### TODO prossima sessione
+- [ ] Ricevere dati prep compilati da Max → update prep_tasks (qty, unit, container, note)
+- [ ] Definire struttura DB per checklist chiusura operativa
+- [ ] Costruire UI checklist chiusura in Brigade
