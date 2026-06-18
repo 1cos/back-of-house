@@ -220,6 +220,7 @@ async function demoBotTick() {
         qty: prep.qty,
         unit: prep.unit,
         user_name: staff.name,
+        station: staff.station,
         duration_minutes: mins,
         started_at: new Date(Date.now() - mins * 60000).toISOString(),
         is_demo: true,
