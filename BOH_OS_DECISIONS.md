@@ -1,6 +1,6 @@
 # BRIGADE — DECISIONS
 *Perche abbiamo scelto certe cose. Non ridiscutere senza motivo.*
-*Aggiornato: 2026-06-16 — v217*
+*Aggiornato: 2026-06-18 — v255*
 
 ---
 
@@ -11,10 +11,72 @@
 | App HTML/PWA attuale | **BRIGADE** |
 | App Flutter futura con Siri | **BOH OS** (separata, non ancora costruita) |
 | Branch deploy | **brigade-main** (MAI main) |
-| Versione attuale frontend | **v217** |
-| Versione souschef-chat | **v15** |
+| Versione attuale frontend | **v255** |
+| Versione souschef-chat | **v21** |
 | Supabase project attivo | ydqmumpytgrlceuinoqt |
-| Supabase project vecchio | hykjompnvajjhggrnned — tenere attivo fino a Flutter |
+| AI in-app | **Chef AI** — MAI "Sous Chef AI" o "Sous Chef" |
+
+---
+
+## Gerarchia cucina Zenos on the Square — DEFINITIVA
+
+| Ruolo | Nome | Funzione |
+|---|---|---|
+| Executive Chef | **Max** | Visione, decisioni, direzione — NON owner/proprietario |
+| Chef Rover | **Anto** | Occhi di Max in cucina — gira ovunque, riporta a Max |
+| Sous Chef sera | **David** | Esegue direttive, gestisce brigata sera |
+| Sous Chef mattina | **Colton** | Esegue direttive, gestisce brigata mattina |
+| Pastry Chef | **Samantha** | Pasticceria |
+| Kitchen Manager | **Tela** | Operations, gestione logistica — NON sous chef |
+| Chef de partie | Cole, Rachel, Sofia, altri | Stazioni fisse (line cook = termine USA informale) |
+
+### Flusso di comando
+Max → Chef Rover (Anto) → Sous Chef (David/Colton) → Chef de partie
+
+### Chef Rover — perché questo titolo
+Il Rover (dal francese "tournant") è il cuoco che non ha stazione fissa ma conosce tutto.
+È il ponte tra l'executive chef e la linea — non comanda i sous chef, riporta a Max.
+È figura di intelligence operativa, non di comando diretto.
+
+### REGOLE INVIOLABILI per Brigade e Chef AI
+- Max = Executive Chef. MAI owner, MAI proprietario.
+- Tela = Kitchen Manager. MAI sous chef.
+- Il sous chef umano di Max è David (sera) e Colton (mattina).
+- Chef AI è il segretario digitale — non è il sous chef.
+- "Sous Chef" nell'app si riferisce SOLO a Chef AI come funzione — non come titolo gerarchico.
+
+---
+
+## Chef AI — definizione ufficiale (2026-06-18)
+
+### Cos'è
+Chef AI è il **segretario digitale di cucina** di Max.
+NON è il sous chef — il sous chef è umano (David/Colton).
+NON si chiama "Sous Chef" nell'interfaccia pubblica.
+
+### Cosa fa
+- Accesso in **lettura** a tutto: DB, messaggi, email, Tell Chef, fatture, vendite, operazioni
+- **Non modifica mai niente** — Max è l'unico che modifica
+- Convoglia informazioni nei tre canali giusti
+
+### I tre canali di output
+
+| Canale | Per chi | Contenuto |
+|---|---|---|
+| **Briefing AI** | Solo Max | Tutto — incluso finanziario, food cost, margini |
+| **L'Ufficio** | Solo Max | Tutto — avvisi bot, tell chef classificati, anomalie |
+| **Yesterday/Weekly Highlights** | Brigata + Max | Operativo only — porzioni, piatti venduti, ratio pasta/secondi, analisi chat settimana. **MAI soldi, MAI prezzi** |
+
+### I bot e Chef AI
+- I bot (5) sono il **mise en place** — esaminano dati, trovano anomalie, le scrivono già strutturate
+- Chef AI arriva e trova tutto pronto — non cerca, **legge e interpreta**
+- I bot NON pensano — i bot esaminano. Chef AI ragiona su quello che i bot hanno già trovato.
+- I bot usano AI internamente solo dove necessario (Bot 2 chat, Bot 4 tell chef) — non consumano token per le matematiche (Bot 1, 3, 5 = zero AI)
+
+### Analogia cucina
+I commis (bot) fanno il mise en place.
+Chef AI arriva e ha tutto pronto per cucinare.
+Max assaggia e decide.
 
 ---
 
@@ -22,8 +84,8 @@
 
 | Componente | Ora |
 |---|---|
-| LLM principale | OpenRouter -> meta-llama/llama-3.3-70b-instruct |
-| OCR fatture | OpenRouter -> google/gemini-2.0-flash-001 (PDF diretto) |
+| LLM principale | OpenRouter → meta-llama/llama-3.3-70b-instruct |
+| OCR fatture | OpenRouter → google/gemini-2.0-flash-001 (PDF diretto) |
 | Voce trascrizione | Groq Whisper (rimane — limite separato) |
 | Fallback LLM | Groq se OpenRouter fallisce |
 | Chiave OpenRouter | Supabase secrets: OPENROUTER_API_KEY |
@@ -67,25 +129,24 @@
 - Le note di operation_notes sono visibili SOLO a Max
 - Non vengono condivise con altri membri della brigata
 - Vengono usate in forma anonima in report o azioni correttive
-- Questo messaggio appare nello sheet prima del textarea
 
 ### Trigger doppio
 - Il prompt appare sia alle 22:30 CDT via push
-- Sia automaticamente 800ms dopo doCloseTurn() — così chi chiude il turno lo vede subito
-- Se ha già risposto oggi, non appare una seconda volta (check su operation_notes)
+- Sia automaticamente 800ms dopo doCloseTurn()
+- Se ha già risposto oggi, non appare una seconda volta
 
 ---
 
-## Sous Chef AI — decisioni (2026-06-16)
+## Chef AI (souschef-chat) — decisioni (2026-06-16)
 
 ### Principio fondamentale
 IL CODICE PORTA I DATI. IL LLM RAGIONA.
 Non filtrare mai. Mandare tutto e lasciare ragionare OpenRouter.
 
-### Il Sous Chef non è un chatbot
+### Chef AI non è un chatbot
 È un agente operativo proattivo. La differenza:
 - Chatbot: aspetta che tu chieda
-- Sous Chef: ti avvisa prima che tu apra la chat
+- Chef AI: ti avvisa prima che tu apra la chat
 
 ### Pipeline asincrona (DECISIONE ARCHITETTURALE)
 - L'AI non interroga mai tabelle grezze al momento della richiesta
@@ -93,38 +154,15 @@ Non filtrare mai. Mandare tutto e lasciare ragionare OpenRouter.
 - Il LLM traduce i dati pre-masticati in linguaggio da cucina
 - Questo elimina latenza e riduce il consumo di token
 
-### Lingua come segnale di profondità (non solo traduzione)
-- users.lang già in DB — usato per tradurre l'interfaccia
-- DECISIONE: usare lang + role per cambiare il TIPO di risposta, non solo la lingua
+### Lingua come segnale di profondità
 - Max (admin, IT): vuole analisi, numeri, trend
 - Cole (cook, EN): vuole solo "cosa faccio adesso"
-- Stessa domanda al Sous Chef = risposte radicalmente diverse
-
-### recipe_bom è già il grafo di dipendenze
-- Gemini proponeva di costruire un grafo da zero
-- recipe_bom con parent_recipe_id / sub_recipe_id / quantity esiste già
-- Il Prep Coach può usarlo oggi senza nessuna nuova tabella
+- Stessa domanda = risposte radicalmente diverse per ruolo
 
 ### chef_attention come auto-calibrazione
 - Ogni domanda alla chat aggiorna ask_count su chef_attention
 - Il briefing mattutino deve leggere chef_attention e includere automaticamente
   gli ingredienti/topic con ask_count più alto
-- Se "uova" è stato chiesto 7 volte → il prezzo delle uova va sempre nel briefing
-
----
-
-## Prep redesign — decisione (2026-06-15)
-
-### Swipe gestuale — "Il Tabellone Digitale"
-- Ispirazione: foglio plastificato con pennarello che usano i ragazzi
-- Zero bottoni visibili — solo lista gigante
-- Swipe destra -> Fatta (verde, scende in fondo)
-- Swipe sinistra -> In corso (blu, rimane in cima)
-- Soglia 60% per conferma (evita falsi positivi mani bagnate)
-- Tap nome -> apre ricetta
-- Font 22px minimo, leggibile a 1 metro sul tavolo di acciaio
-- Pillole stazione invece dei cerchi
-- Sessione dedicata richiesta
 
 ---
 
@@ -132,7 +170,7 @@ Non filtrare mai. Mandare tutto e lasciare ragionare OpenRouter.
 
 Solo due warning validi durante importazione:
 1. SC-GHOST-001: ingrediente senza nessun vendor/prezzo nel DB
-2. SC-NOLINK-001: ha vendor e prezzo ma manca conversion_to_base (per_case senza peso pack)
+2. SC-NOLINK-001: ha vendor e prezzo ma manca conversion_to_base
 
 SC-PRICE-001 ELIMINATO PER SEMPRE durante importazione.
 
@@ -141,13 +179,8 @@ SC-PRICE-001 ELIMINATO PER SEMPRE durante importazione.
 ## Review fattura — formato riga articolo (v190)
 
 Warning [Nome Articolo] / OK [Nome Articolo]
-Qty [input] . Pack [input] . Unit Price [input] . Ext [input]
-Sous Chef: [calcolo pack dal parser] . [$/100g]
-
-- Tutti e 4 i campi modificabili inline
-- Ricalcolo automatico con bottone ricorda
-- Nessun AI — solo parser + dizionario pesi standard
-- _vdrEdits salvati e letti da vdrApprove al momento del save
+Qty [input] · Pack [input] · Unit Price [input] · Ext [input]
+Sous Chef: [calcolo pack dal parser] · [$/100g]
 
 ---
 
@@ -160,7 +193,7 @@ Formula $/100g:
 - per_lb: (unit_price / 453.592) * 100
 - per_kg: (unit_price / 1000) * 100
 
-Carni catchweight (Tomahake Loin, Stew Meat): usare per_lb.
+Carni catchweight: usare per_lb.
 
 ---
 
@@ -169,14 +202,12 @@ Carni catchweight (Tomahake Loin, Stew Meat): usare per_lb.
 Produce, Dairy, Meat, Seafood, Dry Goods, Oil & Vinegar,
 Spices & Herbs, Beverages & Spirits, Prepared, Bakery, Frozen, Supply
 
-Tutti i 400 ingredienti attivi hanno categoria assegnata.
-
 ---
 
 ## Microfono (v92+)
 
-- Tap breve: apre chat Sous Chef
-- Tap lungo: voce -> Whisper -> souschef-chat
+- Tap breve: apre chat Chef AI
+- Tap lungo: voce → Whisper → Chef AI
 
 ---
 
@@ -185,44 +216,45 @@ Tutti i 400 ingredienti attivi hanno categoria assegnata.
 - Cron: 0 10 * * * = 10:00 UTC = 5:00 AM CDT
 - Edge Function: sc-nightly-brief v5
 - Domenica: recap settimana
-- PROBLEMA NOTO: prompt genera frasi vaghe invece di dati strutturati — da migliorare
 
 ---
 
 ## TripleSeat OAuth 2.0 (2026-06-16)
 
-- TripleSeat usa OAuth 2.0 **authorization_code** flow — NON client_credentials
-- Serve un Authorize manuale (una sola volta) da parte di Monica (admin TripleSeat)
-- Dopo l'Authorize: access_token (2h) + refresh_token (automatico)
-- Public API key (`6aaf13...`) = solo per leads/rooms, NON per eventi privati
-- OAuth app "MAX" creata su `zottsllc.tripleseat.com/settings/api`
-- Secrets Supabase: TRIPLESEAT_CLIENT_ID, TRIPLESEAT_CLIENT_SECRET
-- Edge Function: `tripleseat-sync` v4
-- Endpoint token: `https://api.tripleseat.com/oauth2/token`
-- Endpoint eventi: `https://api.tripleseat.com/v1/events`
+- OAuth 2.0 authorization_code flow
+- Serve Authorize manuale da Monica (admin TripleSeat)
+- OAuth app "MAX" creata su zottsllc.tripleseat.com
+- Edge Function: tripleseat-sync v4
+- PENDING: Monica deve fare Authorize
 
 ---
 
 ## Sistema Traduzioni — decisioni (2026-06-17)
 
 ### Motore
-- Google Cloud Translation API come primario — preciso, consistente, gratuito fino a 500k char/mese
-- Groq llama-3.3-70b-versatile come fallback — aggiornato da llama-3.1-8b-instant (troppo inaffidabile)
-- Secret Supabase: GOOGLE_TRANSLATE_API_KEY (creata 2026-06-17 su Google Cloud Console, progetto "My First Project")
+- Google Cloud Translation API come primario
+- Groq llama-3.3-70b-versatile come fallback
+- Secret: GOOGLE_TRANSLATE_API_KEY
 
 ### Flusso
-- Invio messaggio: detect lingua → salva m.lang nel DB
+- Invio messaggio: detect lingua → salva m.lang
 - Ricezione: se m.lang !== user.lang → traduzione → mostra sotto bubble
 - Kitchen Display: translateToEn con literal:true → sempre inglese
-- Ottimizzazione: se testo già nella lingua target → return immediato senza chiamata translate
 
-### Perché detect sull'invio e non sull'arrivo
-- Il detect una sola volta (sull'invio) è più efficiente di N detect (uno per ogni viewer)
-- m.lang salvato nel DB è fonte di verità permanente
-- L'arrivo usa solo il confronto m.lang vs user.lang → nessun detect aggiuntivo
+---
 
-### Bug Groq confermato e risolto
-- llama-3.1-8b-instant traduceva messaggi inglesi in spagnolo invece di inglese
-- Causa: modello piccolo con scarso rispetto del targetLang parameter
-- Fix: Google Translate come primario elimina il problema alla radice
+## Yesterday / Weekly Highlights — decisioni (2026-06-18)
 
+### Cos'è
+Tab dedicata visibile a brigata + Max con highlights operativi.
+
+### Regole contenuto
+- ✅ Porzioni vendute, piatti top, ratio pasta/secondi
+- ✅ Analisi chat settimana (pattern, dinamiche)
+- ✅ Prep performance
+- ❌ MAI prezzi, MAI food cost, MAI margini, MAI dollari
+- ❌ MAI dati finanziari di nessun tipo
+
+### Stato
+- Dati disponibili nel DB (pos_production_daily, messages, prep_log)
+- UI da costruire — sessione dedicata
