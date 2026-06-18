@@ -782,11 +782,11 @@ async function loadRecipeSalesStats(rec, sheetEl) {
       if (dw === 5 || dw === 6) { wkC += q; if (!counted['wk_' + r.sale_date]) { counted['wk_' + r.sale_date] = 1; wkDays++; } }
     });
 
-    // Modifier: per i Sides come Brussels, modifier = 1.0 (porzione intera), side item = 0.5
-    // Regola Zenos: Brussels modifier = 1.0, Brussels come item side = 0.5
+    // Modifier: Brussels modifier = 0.5 (aggiunta su piatto), Brussels side item = 1.0
+    // Regola Zenos: modifier = mezza porzione, side = porzione intera
     allModRows.forEach(r => {
       const dw = new Date(r.sale_date + 'T12:00:00').getDay();
-      const q = (Number(r.quantity_sold) || 0) * 1.0;
+      const q = (Number(r.quantity_sold) || 0) * 0.5;
       if (dw >= 1 && dw <= 4) { ferC += q; if (!counted['fer_' + r.sale_date]) { counted['fer_' + r.sale_date] = 1; ferDays++; } }
       if (dw === 5 || dw === 6) { wkC += q; if (!counted['wk_' + r.sale_date]) { counted['wk_' + r.sale_date] = 1; wkDays++; } }
     });
@@ -837,6 +837,7 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     console.warn('recipeSalesStats error:', e.message);
   }
 }
+
 
 
 
