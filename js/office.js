@@ -272,9 +272,9 @@ function officeRenderCard(item) {
     // Nessuna opzione AI — mostra solo "Visto" e "Ignora"
     actionsHtml =
       '<div style="display:flex;gap:7px;padding:0 14px 12px;">' +
-        '<button onclick="officeResolve(\'' + item.id + '\',\'skip\')" ' +
+        '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" ' +
           'style="flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;">Letto</button>' +
-        '<button onclick="officeResolve(\'' + item.id + '\',\'visto\')" ' +
+        '<button onclick="officeResolve(\'' + item.id + '\',\'risolto\')" ' +
           'style="flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid #1e3a5f;background:#1e3a5f;color:white;">Risolto</button>' +
       '</div>';
   }
@@ -315,7 +315,7 @@ window.officeResolve = async function(id, resolution) {
     // Ricarica la lista
     officeLoad();
 
-    if (typeof showScToast === 'function') showScToast('✓ ' + (resolution === 'letto' ? 'Letto — ci pensi' : 'Risolto'));
+    if (typeof showScToast === 'function') showScToast('✓ ' + (isLetto ? 'Letto — ci torni dopo' : 'Risolto ✓'));
   } catch(e) {
     if (typeof showScToast === 'function') showScToast('❌ Errore: ' + e.message);
   }
