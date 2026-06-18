@@ -34,8 +34,15 @@ window.openOffice = function() {
 
   var modal = document.createElement('div');
   modal.id = 'officeModal';
+  // Overlay scuro dietro
+  var overlay = document.createElement('div');
+  overlay.id = 'officeOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:299;background:rgba(0,0,0,0.5);';
+  overlay.onclick = function() { officeStopRealtime(); overlay.remove(); modal.remove(); };
+  document.body.appendChild(overlay);
+
   modal.style.cssText = [
-    'position:fixed;inset:0;z-index:300;',
+    'position:fixed;top:0;bottom:0;z-index:300;',
     'background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);',
     'display:flex;flex-direction:column;',
     'font-family:Inter,system-ui,sans-serif;',
@@ -45,7 +52,7 @@ window.openOffice = function() {
 
   modal.innerHTML =
     '<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:0.5px solid rgba(59,130,246,0.12);box-shadow:0 2px 8px rgba(30,58,95,0.06);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;">' +
-      '<button onclick="officeStopRealtime();document.getElementById(\'officeModal\').remove()" style="color:#60a5fa;background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1;">&#8592;</button>' +
+      '<button onclick="officeStopRealtime();document.getElementById(\'officeOverlay\')?.remove();document.getElementById(\'officeModal\').remove()" style="color:#60a5fa;background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1;">&#8592;</button>' +
       '<div style="font-size:16px;font-weight:600;color:#1e3a5f;flex:1;">L\'Ufficio</div>' +
       '<div id="officeBadge" style="display:none;background:#ef4444;color:white;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;"></div>' +
     '</div>' +
