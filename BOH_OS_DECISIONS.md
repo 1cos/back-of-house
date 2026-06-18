@@ -200,3 +200,29 @@ Tutti i 400 ingredienti attivi hanno categoria assegnata.
 - Edge Function: `tripleseat-sync` v4
 - Endpoint token: `https://api.tripleseat.com/oauth2/token`
 - Endpoint eventi: `https://api.tripleseat.com/v1/events`
+
+---
+
+## Sistema Traduzioni — decisioni (2026-06-17)
+
+### Motore
+- Google Cloud Translation API come primario — preciso, consistente, gratuito fino a 500k char/mese
+- Groq llama-3.3-70b-versatile come fallback — aggiornato da llama-3.1-8b-instant (troppo inaffidabile)
+- Secret Supabase: GOOGLE_TRANSLATE_API_KEY (creata 2026-06-17 su Google Cloud Console, progetto "My First Project")
+
+### Flusso
+- Invio messaggio: detect lingua → salva m.lang nel DB
+- Ricezione: se m.lang !== user.lang → traduzione → mostra sotto bubble
+- Kitchen Display: translateToEn con literal:true → sempre inglese
+- Ottimizzazione: se testo già nella lingua target → return immediato senza chiamata translate
+
+### Perché detect sull'invio e non sull'arrivo
+- Il detect una sola volta (sull'invio) è più efficiente di N detect (uno per ogni viewer)
+- m.lang salvato nel DB è fonte di verità permanente
+- L'arrivo usa solo il confronto m.lang vs user.lang → nessun detect aggiuntivo
+
+### Bug Groq confermato e risolto
+- llama-3.1-8b-instant traduceva messaggi inglesi in spagnolo invece di inglese
+- Causa: modello piccolo con scarso rispetto del targetLang parameter
+- Fix: Google Translate come primario elimina il problema alla radice
+
