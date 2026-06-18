@@ -719,7 +719,7 @@ async function loadRecipeSalesStats(rec, sheetEl) {
   if (!el) return;
 
   try {
-    const sb = window.supabaseClient;
+    const sb = supa;
 
     // Date ultima settimana (lun→sab scorsi)
     const today = new Date(); today.setHours(0,0,0,0);
@@ -782,10 +782,11 @@ async function loadRecipeSalesStats(rec, sheetEl) {
       if (dw === 5 || dw === 6) { wkC += q; if (!counted['wk_' + r.sale_date]) { counted['wk_' + r.sale_date] = 1; wkDays++; } }
     });
 
-    // Modifier: contorno = mezza porzione
+    // Modifier: per i Sides come Brussels, modifier = 1.0 (porzione intera), side item = 0.5
+    // Regola Zenos: Brussels modifier = 1.0, Brussels come item side = 0.5
     allModRows.forEach(r => {
       const dw = new Date(r.sale_date + 'T12:00:00').getDay();
-      const q = (Number(r.quantity_sold) || 0) * 0.5;
+      const q = (Number(r.quantity_sold) || 0) * 1.0;
       if (dw >= 1 && dw <= 4) { ferC += q; if (!counted['fer_' + r.sale_date]) { counted['fer_' + r.sale_date] = 1; ferDays++; } }
       if (dw === 5 || dw === 6) { wkC += q; if (!counted['wk_' + r.sale_date]) { counted['wk_' + r.sale_date] = 1; wkDays++; } }
     });
@@ -805,21 +806,21 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     // Render pillole stile Opzione B
     const hasVariants = posNames.length > 1;
     const withBuffer = v => v > 0 ? Math.ceil(v * 1.15) : 0;
-    const fmt1 = v => v > 0 ? Math.ceil(v) + ' porzioni' : '—';
+    const fmt1 = v => v > 0 ? Math.ceil(v) + ' pz' : '—';
     const fmtPrep = v => v > 0 ? v + ' porzioni' : '—';
 
     el.innerHTML =
-      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Sett. scorsa' + (hasVariants ? ' · porz. equiv.' : '') + '</div>' +
+      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Sett. scorsa · media/giorno' + (hasVariants ? ' · porz. equiv.' : '') + '</div>' +
       '<div style="display:flex;gap:8px;">' +
 
       '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
         '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Lun→Gio</div>' +
-        '<div style="font-size:16px;font-weight:900;color:#6366f1;line-height:1;">' + fmt1(ferC) + '</div>' +
+        '<div style="font-size:16px;font-weight:900;color:#6366f1;line-height:1;">' + fmt1(ferAvg) + '</div>' +
       '</div>' +
 
       '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
         '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Ven+Sab</div>' +
-        '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + fmt1(wkC) + '</div>' +
+        '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + fmt1(wkAvg) + '</div>' +
       '</div>' +
 
       (prepToday > 0 ?
@@ -836,6 +837,7 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     console.warn('recipeSalesStats error:', e.message);
   }
 }
+
 
 
 
