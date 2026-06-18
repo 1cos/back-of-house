@@ -391,3 +391,17 @@ window.officeBadgeUpdate = async function() {
     }
   } catch(e) {}
 };
+
+// ── INVESTIGA — apre Sous Chef con testo item precaricato ──
+window.officeInvestiga = function(id) {
+  var card = document.querySelector('[data-item-id="' + id + '"]');
+  var title = card ? (card.querySelector('[data-role="body"]')?.textContent || card.querySelector('div[style*="font-size:20px"]')?.textContent || '') : '';
+  // Chiudi L'Ufficio
+  if (typeof officeStopRealtime === 'function') officeStopRealtime();
+  document.getElementById('officeOverlay')?.remove();
+  document.getElementById('officeModal')?.remove();
+  // Apri Sous Chef con testo precaricato
+  if (typeof window.openSousChef === 'function') {
+    window.openSousChef(title.trim());
+  }
+};
