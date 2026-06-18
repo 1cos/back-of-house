@@ -248,3 +248,20 @@ Non è conversazione — è segnalazione.
 - "Investiga" deve aprire Sous Chef con contesto precaricato
 - "Archivia" chiude silenziosamente, resta in memoria AI
 
+
+---
+
+## BOT SYSTEM — Da costruire (sessione dedicata)
+
+### Architettura
+Bot specializzati che girano in background via pg_cron / Edge Functions.
+Alimentano L'Ufficio mentre Max dorme. Non rispondono — osservano e preparano.
+
+| Bot | Trigger | Cosa fa | Output |
+|---|---|---|---|
+| Bot 1 — Guardiano Prezzi | Dopo ogni import fattura | Confronta prezzi vs media storica ingredient_monthly_spend | Warning 🟠 in office_items con domanda già pronta |
+| Bot 2 — Lettore Chat | Orario | Legge messages, cerca ripetizioni keyword in 48h | Warning 🟡/🔴 a Max se pattern rilevato |
+| Bot 3 — Costruttore Preplist | Notte 04:00 | Legge vendite storiche DOW + prep_log → calcola quantità | Popola prep_tasks con qty suggerite |
+| Bot 4 — Lettore Tell Chef | Orario | Legge chef_reports non letti, genera suggestion AI | Scrive souschef_suggestion su chef_reports |
+| Bot 5 — Guardiano Food Cost | Dopo ogni import fattura | Ricalcola food_cost_pct su recipe_bom | Warning 🟠 se ricetta supera soglia Max |
+
