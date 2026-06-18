@@ -229,3 +229,22 @@ Non è conversazione — è segnalazione.
 - tripleseat-sync v4
 - js/calendar.js — lista eventi admin
 - PENDING: Monica deve fare Authorize
+
+## Aggiornamento 2026-06-17 — Fine sessione completa (v237→v249)
+
+### Aggiunto
+- Demo Bot + Bug Tracker (js/demo-bot.js) — frequenza 1/5/10/15/20m
+- is_demo flag su 4 tabelle — reset pulisce tutto in un click
+- L'Ufficio: overlay, animazioni Letto/Risolto, Riapri
+- Fix prep_log station NOT NULL in demo-bot
+- Bottone 1m nel Demo Bot
+
+### Bug aperti
+- Realtime L'Ufficio non funziona — richiede chiudi/riapri
+- Bottoni L'Ufficio non collegati ad azioni reali
+
+### Decisioni prese
+- Bottoni diversi per fonte: Op.Note→Archivia, TellChef→Risolto, AI→Investiga
+- "Investiga" deve aprire Sous Chef con contesto precaricato
+- "Archivia" chiude silenziosamente, resta in memoria AI
+
