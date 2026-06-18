@@ -94,7 +94,7 @@ async function groqTranslate(text, targetLang){
 }
 
 // ── RENDER INGREDIENT LINE (used by preview + scaled view) ──
-function renderIngLine(i, scaleFactor){
+function renderIngLine(i, scaleFactor, trMap, uLang){
   // Section header — bold label, no bullet, no qty
   if(i.type === 'section'){
     return `<li style="list-style:none;font-weight:700;font-size:16px;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;padding:12px 0 4px 0;margin-top:6px;">${i.name||''}</li>`;
@@ -110,17 +110,39 @@ function renderIngLine(i, scaleFactor){
   }
   const unit = i.unit || '';
   const qtyStr = qtyDisplay && unit ? `<b>${qtyDisplay} ${unit}</b>` : qtyDisplay ? `<b>${qtyDisplay}</b>` : '';
-  // Capitalize each word of ingredient name
-  const displayName = (i.name||'').replace(/\b\w/g, c => c.toUpperCase());
+  // Pick translated name from DB if available, else capitalize English name
+  const nameKey = (i.name||'').toLowerCase();
+  const trEntry = trMap && trMap[nameKey];
+  let displayName;
+  if(trEntry && uLang === 'it' && trEntry.it) displayName = trEntry.it;
+  else if(trEntry && uLang === 'es' && trEntry.es) displayName = trEntry.es;
+  else displayName = (i.name||'').replace(/\b\w/g, c => c.toUpperCase());
   // Show Italian comment only for Italian users
-  const showComment = i.comment && (user?.lang === 'it' || (!user?.lang && true));
+  const showComment = i.comment && uLang === 'it';
   return `<li style="list-style:none;padding:8px 0;font-size:19px;">• ${qtyStr}${qtyStr?' ':''}<span>${displayName}</span>${showComment?` <span style="color:#94a3b8;">(${i.comment})</span>`:''}</li>`;
 }
 
+// ── INGREDIENT TRANSLATION CACHE ──
+let _ingTranslations = null; // {name_en: {it: name_it, es: name_es}}
+
+async function loadIngTranslations(){
+  if(_ingTranslations) return _ingTranslations;
+  const {data} = await supa.from('ingredients').select('name,name_it,name_es').not('name_it','is',null);
+  _ingTranslations = {};
+  (data||[]).forEach(r=>{
+    _ingTranslations[r.name.toLowerCase()] = {it: r.name_it, es: r.name_es};
+  });
+  return _ingTranslations;
+}
+
 // ── RECIPE PREVIEW SHEET ─────────────────────────────────────
-function showRecipeSheet(rec){
+async function showRecipeSheet(rec){
   const sheet = document.createElement('div');
   sheet.className = 'fixed inset-0 z-[150] bg-black/40 backdrop-blur-sm flex items-end';
+
+  // Load ingredient translations for current user language
+  const _trMap = await loadIngTranslations();
+  const _uLang = user?.lang || 'en';
 
   // Scaling state
   const baseServings   = rec.base_servings   || null;
@@ -153,7 +175,7 @@ function showRecipeSheet(rec){
   ].filter(Boolean).join(' · ');
 
   // Initial ingredients render (scale = 1)
-  const renderIngs = (factor) => (rec.ingredients||[]).map(i => renderIngLine(i, factor)).join('');
+  const renderIngs = (factor) => (rec.ingredients||[]).map(i => renderIngLine(i, factor, _trMap, _uLang)).join('');
 
   const scalingUI = canScale ? `
     <div id="recipeScaler" style="background:#f8fafc;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:12px;">
@@ -814,6 +836,7 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     console.warn('recipeSalesStats error:', e.message);
   }
 }
+
 
 
 
