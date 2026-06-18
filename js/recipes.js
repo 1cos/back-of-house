@@ -110,7 +110,11 @@ function renderIngLine(i, scaleFactor){
   }
   const unit = i.unit || '';
   const qtyStr = qtyDisplay && unit ? `<b>${qtyDisplay} ${unit}</b>` : qtyDisplay ? `<b>${qtyDisplay}</b>` : '';
-  return `<li style="list-style:none;padding:8px 0;font-size:19px;">• ${qtyStr}${qtyStr?' ':''}<span>${i.name||''}</span>${i.comment?` <span style="color:#94a3b8;">(${i.comment})</span>`:''}</li>`;
+  // Capitalize each word of ingredient name
+  const displayName = (i.name||'').replace(/\b\w/g, c => c.toUpperCase());
+  // Show Italian comment only for Italian users
+  const showComment = i.comment && (user?.lang === 'it' || (!user?.lang && true));
+  return `<li style="list-style:none;padding:8px 0;font-size:19px;">• ${qtyStr}${qtyStr?' ':''}<span>${displayName}</span>${showComment?` <span style="color:#94a3b8;">(${i.comment})</span>`:''}</li>`;
 }
 
 // ── RECIPE PREVIEW SHEET ─────────────────────────────────────
@@ -127,10 +131,22 @@ function showRecipeSheet(rec){
 
   const sellingInfo = rec.selling_price ? `$${parseFloat(rec.selling_price).toFixed(2)}` : '';
   const fcInfo      = rec.food_cost_pct ? `${parseFloat(rec.food_cost_pct).toFixed(1)}% FC` : '';
-  const dispCat     = rec.menu_group || rec.category || '';
+  // Translate category
+  const CAT_MAP = {
+    it:{ Antipasti:'Antipasti', Primi:'Primi', Secondi:'Secondi', 'Table Side':'Table Side', Salads:'Insalate', Sides:'Contorni', Soups:'Zuppe', Desserts:'Dolci', Sauces:'Salse', Bases:'Basi', 'Finger Food':'Finger Food', Catering:'Catering', 'Add-ons':'Aggiunte' },
+    en:{ Antipasti:'Appetizers', Primi:'Pasta', Secondi:'Mains', 'Table Side':'Table Side', Salads:'Salads', Sides:'Sides', Soups:'Soups', Desserts:'Desserts', Sauces:'Sauces', Bases:'Bases', 'Finger Food':'Finger Food', Catering:'Catering', 'Add-ons':'Add-ons' },
+    es:{ Antipasti:'Aperitivos', Primi:'Pasta', Secondi:'Platos principales', 'Table Side':'Table Side', Salads:'Ensaladas', Sides:'Guarniciones', Soups:'Sopas', Desserts:'Postres', Sauces:'Salsas', Bases:'Bases', 'Finger Food':'Finger Food', Catering:'Catering', 'Add-ons':'Extras' }
+  };
+  const lang = user?.lang || 'en';
+  const rawCat = rec.menu_group || rec.category || '';
+  const dispCat = (CAT_MAP[lang]||CAT_MAP.en)[rawCat] || rawCat;
+  // Translate yield text (e.g. "1 porzione" → "1 serving")
+  const YIELD_MAP = { it:'porzione', en:'serving', es:'porción' };
+  const yieldRaw = rec.yield_text || rec.yield || '';
+  const yieldTr = yieldRaw.replace(/porzione|serving|porción/gi, YIELD_MAP[lang]||'serving');
   const headerMeta  = [
     dispCat,
-    rec.yield_text || rec.yield,
+    yieldTr,
     (rec.prep_time_minutes||rec.prep_time) ? ((rec.prep_time_minutes||rec.prep_time)+' min') : null,
     sellingInfo,
     fcInfo
@@ -140,28 +156,20 @@ function showRecipeSheet(rec){
   const renderIngs = (factor) => (rec.ingredients||[]).map(i => renderIngLine(i, factor)).join('');
 
   const scalingUI = canScale ? `
-    <div id="recipeScaler" style="background:#f8fafc;border-radius:14px;padding:12px;margin-bottom:12px;">
-      <div style="font-size:15px;font-weight:600;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px;">Scale Recipe</div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <div style="flex:1;">
-          <div style="font-size:15px;color:#64748b;margin-bottom:3px;">Servings</div>
-          <div style="display:flex;align-items:center;gap:4px;">
-            <button id="scaleMinus" style="width:28px;height:28px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">−</button>
-            <input id="scaleServings" type="number" min="1" value="${baseServings||1}" style="width:56px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;font-size:18px;font-weight:600;">
-            <button id="scalePlus" style="width:28px;height:28px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
-          </div>
-        </div>
-        ${servingWeightG ? `
-        <div style="color:#cbd5e1;font-size:18px;padding-top:14px;">|</div>
-        <div style="flex:1;">
-          <div style="font-size:15px;color:#64748b;margin-bottom:3px;">Total weight</div>
-          <div style="display:flex;align-items:center;gap:4px;">
-            <input id="scaleWeight" type="number" min="0.1" step="0.1" value="${baseWeightG ? (baseWeightG/1000).toFixed(2).replace(/\.?0+$/,'') : ''}" style="width:76px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;font-size:18px;font-weight:600;">
-            <span style="font-size:14px;color:#64748b;">kg</span>
-          </div>
-        </div>` : ''}
+    <div id="recipeScaler" style="background:#f8fafc;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:13px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;">${tr('scaleRecipe')}</span>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button id="scaleMinus" style="width:32px;height:32px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">−</button>
+        <input id="scaleServings" type="number" min="1" value="${baseServings||1}" style="width:52px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:5px 6px;font-size:18px;font-weight:700;">
+        <button id="scalePlus" style="width:32px;height:32px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">+</button>
       </div>
-      <div id="scaleNote" style="font-size:12px;color:#94a3b8;margin-top:6px;">Base: ${baseServings||'?'} servings${baseWeightG ? ' · '+(baseWeightG/1000).toFixed(2).replace(/\.?0+$/,'')+'kg' : ''}</div>
+      ${servingWeightG ? `
+      <div style="color:#cbd5e1;font-size:16px;">|</div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <input id="scaleWeight" type="number" min="0.1" step="0.1" value="${baseWeightG ? (baseWeightG/1000).toFixed(2).replace(/\.?0+$/,'') : ''}" style="width:68px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:5px 6px;font-size:18px;font-weight:700;">
+        <span style="font-size:13px;color:#64748b;">kg</span>
+      </div>` : ''}
+      <span id="scaleNote" style="font-size:12px;color:#94a3b8;margin-left:auto;white-space:nowrap;">× ${baseServings||1}</span>
     </div>` : '';
 
   sheet.innerHTML = `
@@ -806,6 +814,7 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     console.warn('recipeSalesStats error:', e.message);
   }
 }
+
 
 
 
