@@ -13,22 +13,25 @@
 - Versione: v249
 - souschef-chat: v21
 - office-ai: v1
+- process-invoice: v29
 
 ---
 
-## SESSIONE 2026-06-17 — COMPLETATA
+## SESSIONE 2026-06-18 — COMPLETATA
 
-### Costruito oggi (v229 → v249)
-- **L'Ufficio completo** — scrivania operativa, realtime, badge, Analizza, Letto/Risolto, overlay, animazioni
-- **Demo Bot + Bug Tracker** — js/demo-bot.js, frequenza 1/5/10/15/20m, reset completo
-- **is_demo flag** — su office_items, chef_reports, prep_log, operation_notes
-- **Sous Chef SQL v21** — query reali al DB, numeri precisi, no citazioni tecniche
-- **office-ai v1** — analisi AI on demand
-- **Fix prep_log station** — NOT NULL constraint risolto in demo-bot
+### Costruito oggi — Bot System completo
+- **Bot 1 — Guardiano Prezzi** (bot-price-guard v1): dopo ogni fattura, confronta prezzi vs media storica, soglia 10%, min 3 acquisti storici
+- **Bot 2 — Analista Chat** (bot-chat-analyst v2): AI legge chat ogni notte ore 3AM CDT, recap settimanale domenica. Analisi libera — non keyword.
+- **Bot 3 — Costruttore Preplist** (bot-preplist-builder v1): ogni notte ore 4AM CDT, calcola suggested_qty da POS + prep_log (3 settimane stesso DOW, +10% buffer)
+- **Bot 4 — Lettore Tell Chef** (bot-tell-chef-reader v1): ogni ora, classifica tell chef in 5 tipi (CONTRIBUTO_RICETTA / GAP_CHECKLIST / PROBLEMA_OPERATIVO / FEEDBACK_RICETTA / SEGNALE_PERSONALE), genera suggestion AI
+- **Bot 5 — Guardiano Food Cost** (bot-food-cost-guard v1 — versione A): dopo ogni fattura, calcola impatto $ su ricette × venduto settimana, soglia $20/sett
+- **process-invoice v29**: chiama bot-price-guard + bot-food-cost-guard in parallelo dopo ogni import
+- **Nuove colonne DB**: prep_tasks.suggested_qty/suggested_by/suggested_at, chef_reports.report_type
+- **4 cron jobs**: chat analyst daily (3AM lun-sab), chat analyst weekly (domenica), preplist nightly (4AM), tell chef hourly
 
-### Bug noti aperti
-- **Realtime L'Ufficio** — non si aggiorna automaticamente, richiede chiudi/riapri. Max sta lavorando su altra chat.
-- **Bottoni L'Ufficio** — azioni non collegate. Sessione dedicata necessaria.
+### Bug noti aperti (invariati)
+- **🔴 Realtime L'Ufficio** — non si aggiorna automaticamente, richiede chiudi/riapri
+- **🔴 Bottoni L'Ufficio** — azioni non collegate
 
 ---
 
@@ -49,25 +52,20 @@ L'Ufficio richiede chiudi/riapri per vedere nuovi item.
 
 ### 3. 🟠 Audit menu tre puntini
 Molte voci non hanno collegamento funzionante.
-Fare audit completo prima di aggiungere altro.
 
-### 4. 🟠 Demo Bot — reset prima di usare
-I bug rossi pre-fix sono ancora in DB.
-Fare Reset dal Demo Bot prima di ogni sessione di test.
+### 4. 🟠 Bot 4 Fase 2 — esecuzione automatica
+Quando Max approva "Aggiungi alla ricetta" → bot esegue materialmente.
+Sessione dedicata.
 
-### 5. 🔵 office-ai → cron orario
-Aggiungere pg_cron per analisi automatica ogni ora.
-Ottimizzazione token AI — sessione dedicata.
+### 5. 🔵 Bot 5 versione B — food cost %
+Prerequisito: inserire selling_price nelle ricette.
+Poi upgrade bot-food-cost-guard per calcolare food cost % reale + margine $.
 
-### 6. 🔵 Smart Office — calendario meeting interni
-Meeting ricorrenti inseribili da Max dentro Brigade:
-- Martedì ore 15 → Monica (catering)
-- Mercoledì mattina → Zeno & Bo (FOH)
+### 6. 🔵 office-ai → cron orario
+Analisi automatica ogni ora invece che solo on demand.
 
-### 7. 🔵 Sous Chef SQL — espandere pattern
-- Prep timing per persona (chi è più veloce/lento)
-- Confronto settimane
-- Top seller per periodo
+### 7. 🔵 Smart Office — calendario meeting interni
+Meeting ricorrenti inseribili da Max dentro Brigade.
 
 ---
 
