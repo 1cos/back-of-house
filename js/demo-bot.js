@@ -96,8 +96,9 @@ window.openDemoBot = function() {
       '<div style="background:white;border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(146,64,14,0.07);">' +
         '<div style="font-size:12px;font-weight:700;color:#92400e;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px;">Frequenza eventi</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-          '<button onclick="demoBotSetFreq(this,5)" class="freq-btn" style="flex:1;padding:12px;border-radius:10px;font-size:15px;font-weight:600;border:1.5px solid rgba(146,64,14,0.2);background:rgba(146,64,14,0.04);color:#92400e;cursor:pointer;min-width:60px;">5m</button>' +
-          '<button onclick="demoBotSetFreq(this,10)" class="freq-btn active-freq" style="flex:1;padding:12px;border-radius:10px;font-size:15px;font-weight:600;border:1.5px solid #92400e;background:#92400e;color:white;cursor:pointer;min-width:60px;">10m</button>' +
+          '<button onclick="demoBotSetFreq(this,1)" class="freq-btn" style="flex:1;padding:12px;border-radius:10px;font-size:15px;font-weight:600;border:1.5px solid rgba(146,64,14,0.2);background:rgba(146,64,14,0.04);color:#92400e;cursor:pointer;min-width:60px;">1m</button>' +
+          '<button onclick="demoBotSetFreq(this,5)" class="freq-btn active-freq" style="flex:1;padding:12px;border-radius:10px;font-size:15px;font-weight:600;border:1.5px solid rgba(146,64,14,0.2);background:rgba(146,64,14,0.04);color:#92400e;cursor:pointer;min-width:60px;">5m</button>' +
+          '<button onclick="demoBotSetFreq(this,10)" class="freq-btn" style="flex:1;padding:12px;border-radius:10px;font-size:15px;font-weight:600;border:1.5px solid rgba(146,64,14,0.2);background:rgba(146,64,14,0.04);color:#92400e;cursor:pointer;min-width:60px;">10m</button>' +
           '<button onclick="demoBotSetFreq(this,15)" class="freq-btn" style="flex:1;padding:12px;border-radius:10px;font-size:15px;font-weight:600;border:1.5px solid rgba(146,64,14,0.2);background:rgba(146,64,14,0.04);color:#92400e;cursor:pointer;min-width:60px;">15m</button>' +
           '<button onclick="demoBotSetFreq(this,20)" class="freq-btn" style="flex:1;padding:12px;border-radius:10px;font-size:15px;font-weight:600;border:1.5px solid rgba(146,64,14,0.2);background:rgba(146,64,14,0.04);color:#92400e;cursor:pointer;min-width:60px;">20m</button>' +
         '</div>' +
