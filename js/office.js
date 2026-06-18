@@ -103,16 +103,20 @@ function officeStartRealtime() {
     sb.removeChannel(_officeRealtimeSub);
     _officeRealtimeSub = null;
   }
-  _officeRealtimeSub = sb.channel('office-items-changes')
+  // Nome univoco per evitare conflitti con sessioni precedenti
+  var channelName = 'office-items-' + Date.now();
+  _officeRealtimeSub = sb.channel(channelName)
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
       table: 'office_items',
-    }, function() {
+    }, function(payload) {
       officeLoad();
       officeBadgeUpdate();
     })
-    .subscribe();
+    .subscribe(function(status) {
+      console.log('[Office] Realtime status:', status);
+    });
 }
 
 // Cancella realtime quando si chiude L'Ufficio
@@ -405,3 +409,4 @@ window.officeInvestiga = function(id) {
     window.openSousChef(title.trim());
   }
 };
+
