@@ -39,7 +39,8 @@ window.openOffice = function() {
     'background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);',
     'display:flex;flex-direction:column;',
     'font-family:Inter,system-ui,sans-serif;',
-    'max-width:480px;margin:0 auto;',
+    'width:100%;max-width:480px;',
+    'left:50%;transform:translateX(-50%);',
   ].join('');
 
   modal.innerHTML =
