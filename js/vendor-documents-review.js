@@ -612,8 +612,9 @@ window.vdrRecalcRow = function(docId, idx, btn) {
   var ingrName = nameEl ? nameEl.getAttribute('data-ingr-name') : null;
   var packCalc = window.vdrCalcPack(pack, false, null, ingrName);
   var totalG   = window.vdrPackToGrams(pack, false, null, ingrName);
-  var price    = (unitPrice != null && !isNaN(unitPrice)) ? unitPrice
-               : (ext && qty && !isNaN(ext) && !isNaN(qty) ? ext / qty : null);
+  // $/100g usa ext/qty (prezzo reale per pack) come priorità, unitPrice come fallback
+  var price    = (ext && qty && !isNaN(ext) && !isNaN(qty) && qty > 0) ? ext / qty
+               : (unitPrice != null && !isNaN(unitPrice) ? unitPrice : null);
   var per100g  = (totalG && price) ? (price / totalG * 100).toFixed(2) : null;
 
   var parts = [];
@@ -678,10 +679,12 @@ function vdrDetailHTML(doc) {
       var unitVal   = edits.unitPrice!= null ? edits.unitPrice: (item.unit_price != null ? parseFloat(item.unit_price).toFixed(2) : (item.price_per_lb != null ? parseFloat(item.price_per_lb).toFixed(2) : ''));
       var extVal    = edits.ext      != null ? edits.ext      : (item.amount != null ? Math.abs(item.amount).toFixed(2) : '');
 
-      // Calcolo Sous Chef iniziale
+      // Calcolo Sous Chef iniziale — usa ext/qty come prezzo reale per pack
       var packCalc  = window.vdrCalcPack(packVal, item.catchweight, item.actual_weight_lb, name);
       var totalG    = window.vdrPackToGrams(packVal, item.catchweight, item.actual_weight_lb, name);
-      var price     = parseFloat(unitVal) || null;
+      var extNum    = parseFloat(extVal) || null;
+      var qtyNum2   = parseFloat(qtyVal) || null;
+      var price     = (extNum && qtyNum2 && qtyNum2 > 0) ? extNum / qtyNum2 : (parseFloat(unitVal) || null);
       var per100g   = (totalG && price) ? (price / totalG * 100).toFixed(2) : null;
       var scParts   = [];
       if (packCalc) scParts.push(packCalc);
