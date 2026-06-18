@@ -1001,61 +1001,83 @@ function buildVendorParsers() {
 
     // ── Dates
     let invoiceDate = null, shippedDate = null;
-    const takenM   = text.match(/Taken\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
-    const shipM    = text.match(/Shipped\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
-    if (takenM)  invoiceDate  = parseDate(takenM[1]);
-    if (shipM)   shippedDate  = parseDate(shipM[1]);
+    const takenM = text.match(/Taken\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+    const shipM  = text.match(/Shipped\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+    if (takenM) invoiceDate = parseDate(takenM[1]);
+    if (shipM)  shippedDate = parseDate(shipM[1]);
 
     // ── Total
     let total = null;
     const payM = text.match(/Pay:\s*\$?([\d,]+\.\d{2})/i);
     if (payM) total = parseFloat(payM[1].replace(/,/g,''));
 
-    // ── Parse line items
-    // Pattern: qty+unit  SKU - Description [newline possible] shipped+unit  price+unit  amount
-    // We look for lines starting with a quantity+unit pattern
     const items = [];
     const warnings = [];
 
-    // Build a single string and find item blocks
-    // Each item starts with: number UNIT  SKU_CODE - DESCRIPTION
-    // Regex: start of line, qty, unit (LB/CA/CS/EA/DZ), then SKU - desc
-    const itemRegex = /^([\d.]+)\s+(LB|CA|CS|EA|DZ|PC|BG|OZ|GL|GAL)\s+([A-Z0-9]{6,})\s*-\s*(.+?)\s+([\d.]+)\s+(LB|CA|CS|EA|DZ|PC|BG|OZ|GL|GAL)\s+\$?([\d.]+)\s+(?:LB|EA|CA|CS|DZ|PC|BG)?\s+\$?([\d.,]+)/gim;
+    // ── Units used by Frugé
+    const UNITS = 'LB|BG|GA|GAL|GL|CA|CS|EA|DZ|PC|OZ';
 
-    let match;
-    while ((match = itemRegex.exec(text)) !== null) {
-      const orderedQty  = parseFloat(match[1]);
-      const orderedUnit = match[2].toUpperCase();
-      const sku         = match[3];
-      const description = cleanDescription(match[4].replace(/\n/g,' ').replace(/\s+/g,' '));
-      const shippedQty  = parseFloat(match[5]);
-      const unitPrice   = parseFloat(match[7]);
-      const amount      = parseFloat(match[8].replace(/,/g,''));
+    // ── PASS 1: two-line format (PDF.js output)
+    // Line 1: orderedQty orderedUnit SKU - Description [extra info]
+    // Line 2: shippedQty shippedUnit $unitPrice unit $amount
+    const ROW1 = new RegExp(`^([\\d.]+)\\s+(${UNITS})\\s+([A-Z0-9]{5,})\\s*-\\s*(.+)$`, 'i');
+    const ROW2 = new RegExp(`^([\\d.]+)\\s+(${UNITS})\\s+\\$?([\\d.]+)\\s+(?:${UNITS})?\\s+\\$?([\\d.,]+)$`, 'i');
 
-      // Extract pack size from description if present (e.g. "5 X 2 LBS" or "10x2.5lb")
-      let pack = null;
-      const packM = description.match(/(\d+)\s*[Xx×]\s*([\d.]+)\s*(LB|lb|OZ|oz|KG|kg)/);
-      if (packM) pack = `${packM[1]}/${packM[2]}${packM[3].toUpperCase()}`;
+    const SKIP = /invoice|sold to|ship to|customer|freight|sales|route|broker|ordered\s+product|total weight|total carton|carrier|payment|due before|wholesale|driver|signature|check|service charge|lobster|crawfish|shrink|purchaser|attorney|venue|interest|acadia|fruge distributing|purge|credit memo|frozen items|taken|shipped|invoiced/i;
 
-      // Size range (e.g. "800-1000 1lb" or "16-20")
-      let size = null;
-      const sizeM = description.match(/(\d{2,4}-\d{2,4})/);
-      if (sizeM) size = sizeM[1];
+    for (let i = 0; i < lines.length - 1; i++) {
+      const l1 = lines[i];
+      const l2 = lines[i + 1];
+      if (SKIP.test(l1)) continue;
+      const m1 = l1.match(ROW1);
+      if (!m1) continue;
+      const m2 = l2.match(ROW2);
+      if (!m2) continue;
 
-      const variance = shippedQty !== orderedQty;
+      const orderedQty  = parseFloat(m1[1]);
+      const orderedUnit = m1[2].toUpperCase();
+      const sku         = m1[3];
+      const descRaw     = m1[4].trim();
+      const shippedQty  = parseFloat(m2[1]);
+      const unitPrice   = parseFloat(m2[3]);
+      const amount      = parseFloat(m2[4].replace(/,/g,''));
+
+      // Extract weight from description for BG/GA units (e.g. "10lb" or "8 LB")
+      let packDescription = `${shippedQty} ${orderedUnit}`;
+      let conversionToBase = null;
+      if (/^(BG|GA|GAL|GL)$/i.test(orderedUnit)) {
+        const wm = descRaw.match(/([\d.]+)\s*lb/i);
+        if (wm) {
+          const lbs = parseFloat(wm[1]);
+          conversionToBase = Math.round(lbs * 453.592);
+          packDescription = `${shippedQty} ${orderedUnit} (${lbs} lb each)`;
+        }
+      } else if (/^LB$/i.test(orderedUnit)) {
+        conversionToBase = Math.round(shippedQty * 453.592);
+        packDescription = `${shippedQty} LB`;
+      }
+
+      const p100 = (conversionToBase && unitPrice)
+        ? parseFloat(((unitPrice / conversionToBase) * 100).toFixed(4))
+        : null;
+
+      const description = cleanDescription(descRaw.replace(/\d+\s*lb\b/gi,'').replace(/\s+/g,' ').trim());
+      const variance = Math.abs(shippedQty - orderedQty) > 0.01;
 
       items.push({
-        vendor_sku:    sku,
-        description:   description,
-        pack:          pack,
-        size:          size,
-        ordered_qty:   orderedQty,
-        ordered_unit:  orderedUnit,
-        received_qty:  shippedQty,
-        received_unit: orderedUnit,
-        unit_price:    unitPrice,
-        extended_price: amount,
-        variance:      variance ? (shippedQty - orderedQty) : 0,
+        vendor_sku:       sku,
+        description,
+        ordered_qty:      orderedQty,
+        ordered_unit:     orderedUnit,
+        received_qty:     shippedQty,
+        received_unit:    orderedUnit,
+        pack_description: packDescription,
+        unit_price:       unitPrice,
+        extended_price:   amount,
+        conversion_to_base: conversionToBase,
+        _cost_per_100g:   p100,
+        catchweight:      /^LB$/i.test(orderedUnit),
+        variance:         variance ? (shippedQty - orderedQty) : 0,
       });
 
       if (variance) {
@@ -1065,24 +1087,35 @@ function buildVendorParsers() {
           item_sku: sku,
         });
       }
+      i++; // skip line 2
     }
 
-    // Fallback: simpler line parser if regex finds nothing
+    // ── PASS 2: single-line fallback (original format)
     if (items.length === 0) {
-      // Try line-by-line: "8 LB   BRAFW8001000 - BRANZINI..."
-      for (const line of lines) {
-        const lm = line.match(/^([\d.]+)\s+(LB|CA|CS|EA|DZ)\s+([A-Z0-9]{5,})\s*-\s*(.+)/i);
-        if (!lm) continue;
-        // Find amount at end of same or next line
-        const amtM = line.match(/\$([\d.,]+)\s*$/);
+      const itemRegex = new RegExp(
+        `^([\\d.]+)\\s+(${UNITS})\\s+([A-Z0-9]{6,})\\s*-\\s*(.+?)\\s+([\\d.]+)\\s+(${UNITS})\\s+\\$?([\\d.]+)\\s+(?:${UNITS})?\\s+\\$?([\\d.,]+)`,
+        'gim'
+      );
+      let match;
+      while ((match = itemRegex.exec(text)) !== null) {
+        const orderedQty  = parseFloat(match[1]);
+        const orderedUnit = match[2].toUpperCase();
+        const sku         = match[3];
+        const descRaw     = match[4].replace(/\n/g,' ').replace(/\s+/g,' ').trim();
+        const shippedQty  = parseFloat(match[5]);
+        const unitPrice   = parseFloat(match[7]);
+        const amount      = parseFloat(match[8].replace(/,/g,''));
+        const description = cleanDescription(descRaw);
+        const variance    = Math.abs(shippedQty - orderedQty) > 0.01;
         items.push({
-          vendor_sku:   lm[3],
-          description:  cleanDescription(lm[4]),
-          ordered_qty:  parseFloat(lm[1]),
-          ordered_unit: lm[2].toUpperCase(),
-          received_qty: parseFloat(lm[1]),
-          extended_price: amtM ? parseFloat(amtM[1].replace(/,/g,'')) : null,
+          vendor_sku: sku, description,
+          ordered_qty: orderedQty, ordered_unit: orderedUnit,
+          received_qty: shippedQty, received_unit: orderedUnit,
+          pack_description: `${shippedQty} ${orderedUnit}`,
+          unit_price: unitPrice, extended_price: amount,
+          variance: variance ? (shippedQty - orderedQty) : 0,
         });
+        if (variance) warnings.push({ code:'QTY_MISMATCH', message:`${description}: ordered ${orderedQty} ${orderedUnit}, shipped ${shippedQty}`, item_sku:sku });
       }
     }
 
