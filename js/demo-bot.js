@@ -136,6 +136,12 @@ window.demoBotSetFreq = function(btn, mins) {
   btn.style.color = 'white';
   btn.style.borderColor = '#92400e';
   window._demoBotFreq = mins;
+  // Se il bot è già in corsa, riavvia il timer con la nuova frequenza
+  if (_demoBotRunning && _demoBotTimer) {
+    clearInterval(_demoBotTimer);
+    _demoBotTimer = setInterval(demoBotTick, mins * 60 * 1000);
+    demoBotAddLog('⏱ Frequenza cambiata: ogni ' + mins + ' min');
+  }
 };
 
 // ── LOG UI ──
