@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-17 — v218*
+*Aggiornato: 2026-06-17 — v237*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,8 +10,9 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v218**
-- Versione souschef-chat: v15
+- Versione frontend: **v237**
+- Versione souschef-chat: v21
+- ai-translate: **v28** (Google Translate attivo)
 - Supabase: ydqmumpytgrlceuinoqt
 - Leggi sempre da GitHub brigade-main, MAI da /mnt/project/
 - Bump boh-vNN in sw.js ad ogni commit
@@ -22,7 +23,7 @@
 
 | Function | Ver | Scopo |
 |---|---|---|
-| souschef-chat | v15 | Chat AI — accesso completo DB |
+| souschef-chat | v21 | Chat AI — accesso completo DB + SQL query detection |
 | souschef-classify | v17 | Scan anomalie |
 | souschef-scan | v4 | Scan automatica oraria lun-sab |
 | sc-nightly-brief | v5 | Briefing notturno 5:00 AM CDT — solo admin |
@@ -31,7 +32,30 @@
 | gmail-touchbistro-import | v3 | Import 4 CSV TouchBistro nightly |
 | gmail-vendor-import | v3 | Import fatture fornitori Gmail |
 | transcribe-audio | v22 | Whisper voce→testo |
-| ai-translate | v23 | Traduzioni — supporta literal:true |
+| ai-translate | v28 | Google Translate primario + Groq 70b fallback — literal:true supportato |
+| office-ai | v1 | Analisi AI office_items |
+
+---
+
+## Sistema traduzioni — stato (aggiornato 2026-06-17)
+
+### Come funziona
+- Ogni messaggio chat → al momento dell'invio: detect lingua → salva `lang` in messages.lang
+- Al momento della ricezione: se `m.lang !== user.lang` → ai-translate → mostra traduzione sotto bubble
+- Kitchen Display: translateToEn con literal:true → tutto in inglese
+
+### Motore
+- **GOOGLE_TRANSLATE_API_KEY** impostata nei Supabase secrets ✅ (creata 2026-06-17)
+- ai-translate v28: Google Translate (primario) → Groq llama-3.3-70b-versatile (fallback)
+- Ottimizzazione: se testo già nella lingua target → nessuna chiamata translate
+
+### Bug UI annotati (sessione grafica)
+- BUG UI 1: Bottone "Send to team" (freccia invio) sovrapposto al microfono Sous Chef → impossibile toccare su iPhone
+- BUG UI 2: Long press su messaggio chat non funziona — impossibile copiare testo
+
+### Ancora da verificare
+- [ ] Antonella (lang=it) riceve traduzione italiana sotto bubble messaggi inglesi
+- [ ] TV realtime — si blocca dopo molti messaggi ravvicinati (loadChat() troppo frequente)
 
 ---
 
@@ -42,6 +66,7 @@
 | briefing | Briefing AI mattutino | Solo admin |
 | chef_reports | Tell Chef — segnalazioni brigata→Max | Solo admin + Sous Chef |
 | operation_notes | Feedback serale post-closing (22:30 CDT) | Solo admin + Sous Chef |
+| office_items | Inbox unificato L'Ufficio | Solo admin |
 | messages | Chat brigata | Tutti |
 | alerts | Alert/news banner | Tutti |
 | user_presence | Presenza realtime | Tutti |
@@ -94,17 +119,11 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 - C: Expected Tonight — media storica stesso DOW, date sporche escluse
 - D: Best by Category — Antipasti · Pasta · Secondi · Insalate · Dolci · Contorni · Proteine
 
-### Categorie stats
-- Happy Hours → merge Antipasti; Kids → merge Pasta
-- Esclusi: Soup, NA Beverages, Mocktail, Lunch
-- Bevande escluse per nome: Tea, Water, Coffee, Pepsi ecc.
-- Contorni: sommano modifier via pos_item_aliases
-- Proteine Add-on: da pos_modifiers via pos_item_aliases
-
 ### Realtime: presence-rt · chat-rt · alerts-rt
-### Traduzioni: chat e alert → inglese via ai-translate literal:true
+### Traduzioni: chat e alert → inglese via ai-translate v28 literal:true
 
 ### TODO display
+- [ ] Fix realtime TV — aggiungere solo nuovo messaggio via payload.new invece di loadChat() completo
 - [ ] Foto slideshow Supabase Storage
 - [ ] Pasta halves sommati nelle stats
 
@@ -129,81 +148,28 @@ Non è conversazione — è segnalazione.
 
 ---
 
-## OPERATION NOTES — esistente ✅
+## L'UFFICIO — v235 ✅ IMPLEMENTATO
 
-- File: js/operation-notes.js
-- Appare alle 22:30 CDT dopo closing (o subito dopo doCloseTurn)
-- Tabella: operation_notes (note_date, user_name, note, sentiment, service, tags)
-- "Anonimo" = solo Max lo vede, mai condiviso con colleghi
-- Al momento tabella vuota (app pre-launch, nessun uso reale)
+### Costruito
+- office_items tabella DB
+- js/office.js — scrivania operativa: Smart Focus, lista red/orange/blue, realtime, badge, Analizza, Letto/Risolto
+- Flusso: Tell Chef / Operation Note → office_items → Max analizza → AI suggestion
+- office-ai v1 — analisi AI manuale (bottone Analizza)
 
----
-
-## CHEF INBOX — IN COSTRUZIONE (PRIORITÀ ALTA)
-
-### Concept
-Unico inbox admin stile chat dove convergono tutte le voci della brigata.
-Accessibile dai tre puntini → "Chef Inbox".
-
-### Layout chat-style
-Messaggi in ordine cronologico, colorati per fonte:
-- 🤖 **Chef AI** [blu] — analisi, suggerimenti, pattern rilevati
-- 📢 **Nome cuoco** [arancio] — Tell Chef (segnalazioni giorno)
-- 🌙 **Nome cuoco** [viola] — Operation Note (feedback serale post-closing)
-
-### Regole
-- Nome sempre visibile a Max — mai anonimo verso di lui
-- Mai visibile ai colleghi — privato verso la brigata
-- "Anonimo" = solo Max lo vede
-- Resolve chiude ma rimane in archivio (non si cancella mai)
-- Keep open = rimane visibile finché Max non decide
-- Max può chiedere a Chef AI analisi o azioni su ogni messaggio
-- Chef AI può rilevare pattern ("terza volta che Tela segnala pressione")
-
-### Integrazione sc-nightly-brief
-- Aggiungere lettura chef_reports (status new/read) al briefing mattutino
-- Aggiungere lettura operation_notes ultimi 7 giorni al briefing
-- Sezione "From your team" nel briefing con colori per fonte
-
----
-
-## BRIEFING AI FIX — da fare dopo Chef Inbox
-
-### Problema attuale
-Il prompt di sc-nightly-brief genera frasi vaghe e generiche invece di dati concreti.
-
-### Cosa fare
-- **2-3 punti chiave** — invece di un muro di testo, mostrare solo i punti più importanti con emoji e numeri reali. Es: "🔴 Salmon +22% vs last week · 🟡 Stew Meat zero prep da 3 giorni · 🔵 52 bills ieri — record del mese"
-- **Bottone "View all"** — apre un modal con tutto il briefing completo + chef_reports + operation_notes
-- **Connessione al team** — il briefing legge anche chef_reports (Tell Chef non letti) e operation_notes (ultimi 7 giorni) così al mattino Max trova tutto in un posto: vendite + prep + cosa ha scritto la brigata la sera prima
-
----
-
-## FOCUS MODE — v5 ✅ IMPLEMENTATO
-
-### Spec corretta (aggiornata 2026-06-17)
-- **Attivazione automatica:** 8:00 AM → 8:00 PM CDT — nessun swipe, nessuna gesture
-- **Sostituisce la home** per tutto lo staff (role != admin) durante quelle ore
-- Max (admin) vede sempre Brigade normale
-- Al login se sono le 8-20 → Focus Mode diretto, nessuna home
-
-### Cosa fa
-- Mostra solo la prep della stazione del cuoco loggato
-- Card: DA FARE (rosso) · IN PROGRESS (giallo, con timer) · DONE (blu)
-- Bottone START → avvia timer · DONE → logga in prep_log con durata
-- Può cambiare stazione (bottone stazioni → sheet)
-- Realtime: aggiorna solo il task cambiato in memoria, no re-query
-- Clock CDT in header
-
-### File
-- js/focus-mode.js v5
+### TODO L'Ufficio
+- [ ] office-ai → pg_cron orario (analisi automatica ogni ora)
+- [ ] Smart Office — calendario meeting interni Brigade
 
 ---
 
 ## PRIORITÀ ALTA — PROSSIME SESSIONI
 
-1. **Chef Inbox** — inbox unificato admin (Tell Chef + Operation Notes + Chef AI) — IN COSTRUZIONE OGGI
-2. **Briefing AI fix** — 2-3 punti concreti + View all + lettura chef_reports + operation_notes
+1. **Fix realtime TV** — loadChat() troppo pesante, aggiungere solo nuovo messaggio via payload
+2. **Bug UI chat** — send button sovrapposto al mic, long press copia
+3. **Verifica traduzioni Antonella** — lang=it, deve vedere italiano
+4. **Audit menu tre puntini** — molte voci non collegate
+5. **Demo Bot** — sessione dedicata
+6. **office-ai cron orario**
 
 ---
 
@@ -216,6 +182,7 @@ Il prompt di sc-nightly-brief genera frasi vaghe e generiche invece di dati conc
 - [ ] Badge sui tre puntini per nuovi Tell Chef
 - [ ] Sous Chef suggestion automatica su chef_reports
 - [ ] Ben E. Keith: testare import
+- [ ] Briefing AI fix — 2-3 punti concreti + View all + chef_reports + operation_notes
 
 ---
 
@@ -228,123 +195,37 @@ Il prompt di sc-nightly-brief genera frasi vaghe e generiche invece di dati conc
 - [ ] Sales anomaly detection
 - [ ] Yes Chef modal
 - [ ] Skill progression brigata
+- [ ] Chef Inbox unificato (Tell Chef + Operation Notes + Chef AI)
 
 ---
 
-## Sessione 2026-06-16 — TellChef + Display + pos_item_aliases
+## Log sessioni
 
-### TellChef (v201→v202)
-- Tabella chef_reports creata
-- js/tell-chef.js — modal user + inbox admin
-- Bottone nav staff (non admin)
-- Admin inbox nei tre puntini con status buttons
-- Fix: rimosso mic custom Groq — usa dettatura iOS nativa
-- Fix: SUPABASE vars da globali utils.js
+### Sessione 2026-06-17 — Audit Traduzioni + Google Translate
+- Identificato bug: Groq traduceva messaggi inglesi in spagnolo (confermato visivamente su TV)
+- Causa: GOOGLE_TRANSLATE_API_KEY non impostata → Groq come unico motore → comportamento erratico
+- Fix: creata chiave Google Cloud Translation API, aggiunta Supabase secrets
+- ai-translate v28 deployata: Google Translate primario, Groq llama-3.3-70b-versatile fallback
+- Ottimizzazione: detect prima della traduzione → se già nella lingua target, nessuna chiamata
+- Bug UI annotati: send button sovrapposto mic, long press copia non funziona
+- Test chat EN→EN ✅, TV EN ✅, bug spagnolo risolto ✅
 
-### Kitchen Display
-- Service timer CDT corretto
-- 4 schermate sales con rotazione
-- Best by Category: Happy Hours→Antipasti, Kids→Pasta, Sides visibili
-- Contorni sommano modifier via pos_item_aliases
-- Categoria Proteins Add-on
-- Auto-scroll Best by Category
-- Chat realtime tradotta EN
-- Staff chips header
-- Realtime: presence-rt · chat-rt · alerts-rt
-- ai-translate v23 con literal:true
-- Rimosso AI briefing dal footer
-
-### pos_item_aliases
-- 40 regole mapping alias→canonical
-- Categorie: protein, side, pasta, appetizer
-
----
-
-## Sessione 2026-06-16 — TripleSeat Calendar
-
-### TripleSeat Integration
-- OAuth 2.0 app creata su TripleSeat (ZOTS LLC) — app "MAX"
-- Client ID + Secret salvati nei Supabase secrets
-- Edge Function `tripleseat-sync` v4 — OAuth 2.0 client_credentials flow
-- Tabella `events` estesa: contact_name, contact_email, contact_phone, room_name, total_amount, documents JSONB, last_synced_at
-- **PENDING:** premere Authorize su TripleSeat (Monica deve farlo) per completare il flow OAuth 2.0 authorization_code
-
-### Calendar Tab (v217)
-- js/calendar.js — lista eventi scrollabile solo admin
-- section#vkal in index.html — non-fixed, scroll normale
-- Filtri: Upcoming / Past / All
-- Card evento: data, orario, guests, room, status, link PDF documenti, link TripleSeat
-- Bottone ↻ Sync TripleSeat in alto a destra
-- Layout: segue topbar + newsBar correttamente
-
----
-
-## Sessione 2026-06-17 — Aggiornamento stato
-
-- Focus Mode: spec corretta — automatico 8-20 CDT, nessun swipe, già implementato v5
-- Briefing AI fix: chiarito — 2-3 punti concreti + View all + connessione chef_reports/operation_notes
-- Chef Inbox: confermato priorità alta — costruzione iniziata questa sessione
-
-## Sessione 2026-06-17 — L'Ufficio (v229→v235)
-
-### Costruito
-- `office_items` tabella DB — struttura scalabile
-- `sous_chef_tasks` eliminata — era vuota
-- `js/office.js` — scrivania operativa completa
-- `js/tell-chef.js` — trigger → office_items
-- `js/operation-notes.js` — trigger → office_items
-- `js/souschef-core.js` — rimossi riferimenti sous_chef_tasks
-- `index.html` — bottone L'Ufficio nei tre puntini
-- Edge Function `office-ai` v1 — analisi AI automatica
-
-### Decisioni
-- L'Ufficio nei tre puntini, non nella bottom nav
-- Scrivania unica MVP — operativa sola per il lancio
-- Smart Focus automatico pre-meeting
-- office-ai NON ad ogni apertura — TODO cron orario
-
-### Backlog aggiunto
-- Demo Bot (sessione dedicata)
-- Audit menu tre puntini
-- office-ai → cron orario + bottone manuale
-- Ottimizzazione token AI (sessione dedicata)
-- Smart Office calendario meeting interni
-
-## Aggiornamento 2026-06-17 — Fine sessione (v229→v237)
-
-### Aggiunto in questa sessione
-- L'Ufficio completo (office_items, office.js, office-ai)
-- Realtime, badge, Analizza, Letto/Risolto, data+ora
-- Sous Chef SQL v21 — query reali al DB per numeri precisi
+### Sessione 2026-06-17 — L'Ufficio (v229→v237)
+- office_items tabella, office.js, office-ai v1
 - sous_chef_tasks eliminata
+- Sous Chef SQL v21 — query reali al DB
 
-### Backlog aggiornato
-- Demo Bot — sessione dedicata
-- Audit menu tre puntini
-- office-ai → pg_cron orario
-- Ottimizzazione token AI
-- Calendario meeting interni Brigade
-- Sous Chef SQL — espandere pattern riconoscimento
+### Sessione 2026-06-17 — Prep List PDF + Checklist Chiusura
+- PDF statico Brigade_PrepList.pdf generato
+- Brigata ha compilato schede — dati da inserire in prep_tasks
 
+### Sessione 2026-06-16 — TellChef + Display + pos_item_aliases
+- chef_reports tabella + js/tell-chef.js
+- Kitchen Display: 4 schermate sales, chat realtime EN, staff chips
+- pos_item_aliases: 40 regole mapping
 
-
----
-
-## Sessione 2026-06-17 — Prep List PDF + Checklist Chiusura
-
-### Prep List PDF (v237)
-- Generato PDF statico Brigade_PrepList.pdf da prep_tasks DB
-- Una pagina per stazione, header navy, colonna ✓ + item + QTY/NOTES
-- 4 righe vuote in fondo per aggiungere voci a mano
-- Stazioni incluse: Oven, Fresh Pasta, Pasta, Saucier, Sauté, Salad, Pastry, Table Side, Manager
-- Stampato e distribuito alla brigata per compilazione manuale
-
-### In arrivo
-- **Dati prep compilati** — la brigata ha compilato le schede (qty, unit, container, note) → da inserire in prep_tasks
-- **Checklist chiusura reale** — checklist operativa vera (spegnere forno, controllare pilote, aree condizionate, ecc.) — consegnata da David
-- Da costruire come tabella separata da prep_tasks (non è prep, è chiusura operativa)
-
-### TODO prossima sessione
-- [ ] Ricevere dati prep compilati da Max → update prep_tasks (qty, unit, container, note)
-- [ ] Definire struttura DB per checklist chiusura operativa
-- [ ] Costruire UI checklist chiusura in Brigade
+### Sessione 2026-06-16 — TripleSeat Calendar
+- OAuth 2.0 app "MAX" creata
+- tripleseat-sync v4
+- js/calendar.js — lista eventi admin
+- PENDING: Monica deve fare Authorize
