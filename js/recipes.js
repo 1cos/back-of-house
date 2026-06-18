@@ -97,7 +97,7 @@ async function groqTranslate(text, targetLang){
 function renderIngLine(i, scaleFactor){
   // Section header — bold label, no bullet, no qty
   if(i.type === 'section'){
-    return `<li style="list-style:none;font-weight:700;font-size:11px;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;padding:8px 0 2px 0;margin-top:4px;">${i.name||''}</li>`;
+    return `<li style="list-style:none;font-weight:700;font-size:14px;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;padding:10px 0 4px 0;margin-top:6px;">${i.name||''}</li>`;
   }
   const rawQty = parseFloat(i.qty);
   let qtyDisplay = i.qty || '';
@@ -110,7 +110,7 @@ function renderIngLine(i, scaleFactor){
   }
   const unit = i.unit || '';
   const qtyStr = qtyDisplay && unit ? `<b>${qtyDisplay} ${unit}</b>` : qtyDisplay ? `<b>${qtyDisplay}</b>` : '';
-  return `<li style="list-style:none;padding:3px 0;">• ${qtyStr}${qtyStr?' ':''}<span>${i.name||''}</span>${i.comment?` <span style="color:#94a3b8;">(${i.comment})</span>`:''}</li>`;
+  return `<li style="list-style:none;padding:6px 0;font-size:16px;">• ${qtyStr}${qtyStr?' ':''}<span>${i.name||''}</span>${i.comment?` <span style="color:#94a3b8;">(${i.comment})</span>`:''}</li>`;
 }
 
 // ── RECIPE PREVIEW SHEET ─────────────────────────────────────
@@ -141,42 +141,42 @@ function showRecipeSheet(rec){
 
   const scalingUI = canScale ? `
     <div id="recipeScaler" style="background:#f8fafc;border-radius:14px;padding:12px;margin-bottom:12px;">
-      <div style="font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px;">Scale Recipe</div>
+      <div style="font-size:13px;font-weight:600;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px;">Scale Recipe</div>
       <div style="display:flex;gap:8px;align-items:center;">
         <div style="flex:1;">
-          <div style="font-size:10px;color:#64748b;margin-bottom:3px;">Servings</div>
+          <div style="font-size:13px;color:#64748b;margin-bottom:3px;">Servings</div>
           <div style="display:flex;align-items:center;gap:4px;">
             <button id="scaleMinus" style="width:28px;height:28px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">−</button>
-            <input id="scaleServings" type="number" min="1" value="${baseServings||1}" style="width:52px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:4px 6px;font-size:14px;font-weight:600;">
+            <input id="scaleServings" type="number" min="1" value="${baseServings||1}" style="width:52px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;font-size:16px;font-weight:600;">
             <button id="scalePlus" style="width:28px;height:28px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
           </div>
         </div>
         ${servingWeightG ? `
         <div style="color:#cbd5e1;font-size:18px;padding-top:14px;">|</div>
         <div style="flex:1;">
-          <div style="font-size:10px;color:#64748b;margin-bottom:3px;">Total weight</div>
+          <div style="font-size:13px;color:#64748b;margin-bottom:3px;">Total weight</div>
           <div style="display:flex;align-items:center;gap:4px;">
-            <input id="scaleWeight" type="number" min="0.1" step="0.1" value="${baseWeightG ? (baseWeightG/1000).toFixed(2).replace(/\.?0+$/,'') : ''}" style="width:72px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:4px 6px;font-size:14px;font-weight:600;">
-            <span style="font-size:12px;color:#64748b;">kg</span>
+            <input id="scaleWeight" type="number" min="0.1" step="0.1" value="${baseWeightG ? (baseWeightG/1000).toFixed(2).replace(/\.?0+$/,'') : ''}" style="width:72px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;font-size:16px;font-weight:600;">
+            <span style="font-size:14px;color:#64748b;">kg</span>
           </div>
         </div>` : ''}
       </div>
-      <div id="scaleNote" style="font-size:10px;color:#94a3b8;margin-top:6px;">Base: ${baseServings||'?'} servings${baseWeightG ? ' · '+(baseWeightG/1000).toFixed(2).replace(/\.?0+$/,'')+'kg' : ''}</div>
+      <div id="scaleNote" style="font-size:12px;color:#94a3b8;margin-top:6px;">Base: ${baseServings||'?'} servings${baseWeightG ? ' · '+(baseWeightG/1000).toFixed(2).replace(/\.?0+$/,'')+'kg' : ''}</div>
     </div>` : '';
 
   sheet.innerHTML = `
     <div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5 max-h-[85vh] overflow-auto" style="animation:slideUp .25s ease">
       <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4"></div>
-      <h3 class="text-xl font-bold mb-1">${rec.title||rec.name||''}</h3>
-      <p class="text-xs text-slate-500 mb-3">${headerMeta}</p>
+      <h3 class="text-2xl font-bold mb-2">${rec.title||rec.name||''}</h3>
+      <p class="text-sm text-slate-500 mb-3">${headerMeta}</p>
       ${rec.pos_name ? '<div id="recipeSalesStats" style="margin-bottom:12px;"></div>' : ''}
       ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">🔄 Ogni '+rec.prep_frequency_days+(rec.prep_frequency_days===1?' giorno':' giorni')+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">📦 Dura '+rec.shelf_life_days+(rec.shelf_life_days===1?' giorno':' giorni')+'</span>' : ''}</div>` : ''}
       ${rec.image_url ? `<img src="${rec.image_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${rec.photo_url ? `<img src="${rec.photo_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${scalingUI}
-      ${(rec.ingredients||[]).length ? `<p class="text-sm font-semibold mb-1">${tr("ingredients")}</p><ul id="ingDisplay" class="text-sm mb-3" style="padding:0;">${renderIngs(1)}</ul>` : ''}
-      ${rec.equipment ? `<p class="text-sm font-semibold mb-1">Equipment</p><p class="text-xs text-slate-600 mb-3 whitespace-pre-wrap">${rec.equipment}</p>` : ''}
-      ${rec.procedure ? `<p class="text-sm font-semibold mb-1">Procedure</p><p class="text-sm text-slate-700 whitespace-pre-wrap mb-4">${rec.procedure}</p>` : ''}
+      ${(rec.ingredients||[]).length ? `<p class="text-base font-semibold mb-2">${tr("ingredients")}</p><ul id="ingDisplay" class="mb-4" style="padding:0;">${renderIngs(1)}</ul>` : ''}
+      ${rec.equipment ? `<p class="text-base font-semibold mb-2">Equipment</p><p class="text-sm text-slate-600 mb-4 whitespace-pre-wrap">${rec.equipment}</p>` : ''}
+      ${rec.procedure ? `<p class="text-base font-semibold mb-2">Procedure</p><p class="text-base text-slate-700 whitespace-pre-wrap mb-5 leading-relaxed">${rec.procedure}</p>` : ''}
       ${isAdmin() ? `<button id="recipeEditBtn" class="w-full mt-2 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm">✏️ Edit Recipe</button>` : ''}
       <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
     </div>`;
@@ -806,5 +806,6 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     console.warn('recipeSalesStats error:', e.message);
   }
 }
+
 
 
