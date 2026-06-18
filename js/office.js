@@ -280,13 +280,29 @@ function officeRenderCard(item) {
     });
     actionsHtml += '</div>';
   } else {
-    // Nessuna opzione AI — mostra solo "Visto" e "Ignora"
+    // Bottoni differenziati per fonte
+    var src = item.source;
+    var styleGhost = 'flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;';
+    var styleSolid = 'flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid #1e3a5f;background:#1e3a5f;color:white;';
+    var btnLeft = '', btnRight = '';
+
+    if (src === 'tell_chef') {
+      btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
+      btnRight = '<button onclick="officeResolve(\'' + item.id + '\',\'risolto\')" style="' + styleSolid + '">Risolto</button>';
+    } else if (src === 'operation_note') {
+      btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
+      btnRight = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleSolid + '">Archivia</button>';
+    } else if (src === 'ai_scan') {
+      btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleGhost + '">Ignora</button>';
+      btnRight = '<button onclick="officeInvestiga(\'' + item.id + '\')" style="' + styleSolid + '">Investiga</button>';
+    } else {
+      // sous_chef_chat — solo Letto
+      btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
+    }
+
     actionsHtml =
       '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">' +
-        '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" ' +
-          'style="flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;">Letto</button>' +
-        '<button onclick="officeResolve(\'' + item.id + '\',\'risolto\')" ' +
-          'style="flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid #1e3a5f;background:#1e3a5f;color:white;">Risolto</button>' +
+        btnLeft + btnRight +
       '</div>';
   }
 
