@@ -547,6 +547,12 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span id="officeMenuBadge" style="display:none;position:absolute;top:6px;right:6px;background:#ef4444;color:white;border-radius:20px;padding:2px 7px;font-size:11px;font-weight:700;line-height:1.4;"></span>
         </button>
 
+        <button onclick="openDemoBot()" class="amenu-btn" style="border:2px solid #fde68a;background:#fffbeb;position:relative;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#92400e" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9h.01M15 9h.01M9.5 14.5s1 1.5 2.5 1.5 2.5-1.5 2.5-1.5"/><path d="M8 3l1 3M16 3l-1 3"/></svg>
+          <span style="color:#92400e;font-weight:700;">Demo Bot</span>
+          <span id="demoBotBadge" style="display:none;position:absolute;top:6px;right:6px;background:#22c55e;color:white;border-radius:20px;padding:2px 7px;font-size:11px;font-weight:700;line-height:1.4;">ON</span>
+        </button>
+
         <button onclick="hideAdminMenu();openChefAISettings()" class="amenu-btn">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
           <span>Chef AI</span>
@@ -666,6 +672,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/focus-mode.js"></script>
 <script src="js/calendar.js"></script>
 <script src="js/office.js"></script>
+<script src="js/demo-bot.js"></script>
 <script>if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js')}</script>
 <script>
 // App version — single source of truth: CACHE_NAME in sw.js (boh-vNN).
