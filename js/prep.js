@@ -195,6 +195,7 @@ function renderM(){
             <button onpointerdown="startDonePress('${i.id}',this)" onpointerup="endDonePress('${i.id}')" onpointerleave="endDonePress('${i.id}')"
               style="height:30px;padding:0 10px;border-radius:9px;font-size:11px;font-weight:500;background:#1e3a5f;color:white;white-space:nowrap;">
               Fatta</button>
+            ${isUrgent?`<button onclick="noNeed('${i.id}')" style="height:30px;padding:0 10px;border-radius:9px;font-size:11px;font-weight:500;background:rgba(234,179,8,0.12);color:#854d0e;border:0.5px solid rgba(234,179,8,0.4);white-space:nowrap;">No Need</button>`:''}
             ${isAdmin()?`<span style="display:flex;gap:4px;"><button onclick="adminRename('${i.id}')" style="font-size:13px;color:#94a3b8;">✏</button><button onclick="adminDel('${i.id}')" style="font-size:13px;color:#94a3b8;">🗑</button></span>`:''}
           </div>
         </div>
@@ -332,6 +333,30 @@ function openWipNoteSheet(id){
   document.body.appendChild(sheet);
 }
 
+
+// -- NO NEED --
+window.noNeed = async function(id) {
+  const it = tasks[id];
+  if (!it) return;
+  const msg = it.name + ' — No Need: hai controllato e ce ne e abbastanza?';
+  if (!confirm(msg)) return;
+  await supa.from('prep_log').insert({
+    item: it.name,
+    station: it.category || 'Generale',
+    qty: 0,
+    unit: 'no_need',
+    container: '',
+    user_name: user.name,
+    started_at: new Date().toISOString()
+  });
+  await supa.from('prep_tasks').update({need_tomorrow: false, in_progress: false}).eq('id', id);
+  tasks[id].need_tomorrow = false;
+  tasks[id].in_progress = false;
+  renderM();
+  renderS();
+  renderHomeStations();
+};
+
 async function saveWip(id, note){
   tasks[id].in_progress=true;
   await supa.from('prep_tasks').update({in_progress:true}).eq('id',id);
@@ -423,4 +448,5 @@ async function feedSave(id,qty,btn){
   tasks[id].need_tomorrow=false;
   setTimeout(()=>{document.getElementById('feed').scrollBy({top:window.innerHeight*0.8,behavior:'smooth'});renderM();renderS();renderHomeStations()},600);
 }
+
 
