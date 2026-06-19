@@ -201,3 +201,36 @@ async function syncSevenShift() {
     if (btn) { btn.textContent = 'Errore'; btn.disabled = false; }
   }
 }
+
+// Attacca il click handler al tab Schedule dopo il caricamento
+// (necessario perche il tab e display:none quando il nav handler viene registrato)
+document.addEventListener('DOMContentLoaded', function() {
+  var tabSched = document.getElementById('tabSchedule');
+  if (!tabSched) return;
+  tabSched.addEventListener('click', function() {
+    // Nascondi tutte le sezioni v*
+    document.querySelectorAll('main section[id^="v"]').forEach(function(s) {
+      s.classList.add('hidden');
+    });
+    // Mostra vsched
+    var vsched = document.getElementById('vsched');
+    if (vsched) vsched.classList.remove('hidden');
+    // Aggiorna stile tab attivo
+    document.querySelectorAll('.tab').forEach(function(t) {
+      t.classList.remove('tab-active');
+      t.classList.add('text-slate-500');
+      var svg = t.querySelector('svg');
+      if (svg) svg.style.stroke = '';
+      var sp = t.querySelector('.tab-label');
+      if (sp) sp.style.color = '';
+    });
+    tabSched.classList.add('tab-active');
+    tabSched.classList.remove('text-slate-500');
+    var svg = tabSched.querySelector('svg');
+    if (svg) svg.style.stroke = '#059669';
+    var sp = tabSched.querySelector('.tab-label');
+    if (sp) sp.style.color = '#059669';
+    // Carica dati
+    schedLoadData();
+  });
+});
