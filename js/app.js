@@ -276,6 +276,10 @@ function doLogin(profile){
   const tabSales = document.getElementById('tabSales');
   if(tabSales) tabSales.style.display = 'flex';
 
+  // Schedule 7shifts — solo admin
+  const tabSchedule = document.getElementById('tabSchedule');
+  if(tabSchedule) tabSchedule.style.display = admin ? 'flex' : 'none';
+
   // Menu ••• — solo admin
   const tabMenu = document.getElementById('tabMenu');
   if(tabMenu) tabMenu.style.display = admin ? 'flex' : 'none';
