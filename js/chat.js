@@ -6,6 +6,9 @@ function showChat(){
   // Chiudi Focus Mode se aperto
   const fm = document.getElementById('focusMode');
   if (fm) fm.style.display = 'none';
+  // Nascondi mic Chef AI — sovrappone il bottone invio su iPhone
+  var scBtn = document.getElementById('scBtn');
+  if (scBtn) scBtn.style.display = 'none';
   // Resetta navigazione tab
   document.querySelectorAll('.tab').forEach(x=>{
     x.classList.remove('tab-active');x.classList.add('text-slate-500');
