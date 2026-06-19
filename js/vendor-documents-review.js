@@ -1665,16 +1665,16 @@ window.vdrApprove = async function(docId, btn) {
       <div style="
         background:white;width:100%;max-width:480px;
         border-radius:28px 28px 0 0;
-        padding:0 0 40px;
-        max-height:85vh;overflow-y:auto;
+        max-height:85vh;
+        display:flex;flex-direction:column;
         animation:slideUp .3s cubic-bezier(.34,1.56,.64,1);
         box-shadow:0 -8px 40px rgba(0,0,0,0.25);
       ">
         <!-- Handle -->
-        <div style="width:40px;height:4px;background:#e2e8f0;border-radius:2px;margin:14px auto 0;"></div>
+        <div style="width:40px;height:4px;background:#e2e8f0;border-radius:2px;margin:14px auto 0;flex-shrink:0;"></div>
 
         <!-- Header celebrativo -->
-        <div style="text-align:center;padding:24px 20px 16px;">
+        <div style="text-align:center;padding:24px 20px 16px;flex-shrink:0;">
           <div style="font-size:52px;margin-bottom:8px;">👨‍🍳</div>
           <div style="font-size:28px;font-weight:800;color:#1e293b;letter-spacing:-.5px;">Yes, Chef!</div>
           <div style="font-size:15px;color:#64748b;margin-top:6px;">${vendorLabel} · ${docLabel}</div>
@@ -1686,15 +1686,15 @@ window.vdrApprove = async function(docId, btn) {
           ">✅ ${statsLine}</div>
         </div>
 
-        <!-- Lista articoli -->
-        <div style="padding:0 20px;">
+        <!-- Lista articoli — scrollabile -->
+        <div style="padding:0 20px;overflow-y:auto;flex:1;">
           <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;">Articoli importati</div>
           ${itemLines}
           ${moreCount}
         </div>
 
-        <!-- Bottone chiudi -->
-        <div style="padding:20px 20px 0;">
+        <!-- Bottone chiudi — fisso in fondo, fuori dallo scroll -->
+        <div style="padding:16px 20px 40px;flex-shrink:0;">
           <button onclick="document.getElementById('_yesChefOverlay').remove()"
             style="
               width:100%;height:56px;border-radius:18px;
@@ -1928,3 +1928,4 @@ function vdrItemEmoji(name) {
   if (/SHRIMP|PRAWN/.test(n)) return '🍤';
   return '📦';
 }
+
