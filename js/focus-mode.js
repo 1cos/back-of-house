@@ -96,10 +96,13 @@ function renderOneFocusCard(i) {
     ? '<div onclick="openRecipeForItem(\'' + i.id + '\')" style="font-size:13px;color:#059669;cursor:pointer;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.06);">📖 Ricetta</div>'
     : '';
 
-  // Un solo bottone per stato
+  // Bottoni per stato
   var btn = '';
   if (!isWip && !isDone) {
-    btn = '<button onclick="focusStart(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:#1e3a5f;color:white;font-size:17px;font-weight:700;border:none;cursor:pointer;margin-top:14px;">START</button>';
+    btn = '<div style="display:flex;gap:8px;margin-top:14px;">' +
+      '<button onclick="focusStart(\'' + i.id + '\')" style="flex:1;height:54px;border-radius:16px;background:#1e3a5f;color:white;font-size:17px;font-weight:700;border:none;cursor:pointer;">START</button>' +
+      (i.need_tomorrow ? '<button onclick="noNeed(\'' + i.id + '\')" style="height:54px;padding:0 16px;border-radius:16px;background:rgba(234,179,8,0.12);color:#854d0e;font-size:14px;font-weight:600;border:0.5px solid rgba(234,179,8,0.4);cursor:pointer;white-space:nowrap;">No Need</button>' : '') +
+    '</div>';
   } else if (isWip) {
     btn = '<button onclick="focusDone(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:#1e3a5f;color:white;font-size:17px;font-weight:700;border:none;cursor:pointer;margin-top:14px;">DONE</button>';
   } else {
@@ -229,3 +232,4 @@ window.focusLoadStation = function(station) {
   buildFocusList();
   renderFocusFeed();
 };
+
