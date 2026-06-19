@@ -1014,112 +1014,125 @@ function buildVendorParsers() {
     const items = [];
     const warnings = [];
 
-    // ── Units used by Frugé
+    // ── Detect value line: starts with qty+unit then price pattern
+    // e.g. "1 BG $38.50 BG $38.50"  or  "12.5 LB $9.98 LB $124.75"  or  "1 GA $325.00 GA $325.00"
     const UNITS = 'LB|BG|GA|GAL|GL|CA|CS|EA|DZ|PC|OZ';
+    const VALUE_RE = new RegExp(
+      '^([\\d.]+)\\s+(' + UNITS + ')\\s+\\$?([\\d.,]+)\\s+(?:' + UNITS + ')?\\s+\\$?([\\d.,]+)\\s*$', 'i'
+    );
+    // Detect description/ordered line: starts with qty+unit then SKU
+    const DESC_RE = new RegExp(
+      '^([\\d.]+)\\s+(' + UNITS + ')\\s+([A-Z0-9]{5,})\\s*-\\s*(.+)$', 'i'
+    );
+    // Skip lines
+    const SKIP = /^(invoice|sold to|ship to|customer|freight|sales|route|broker|ordered|total weight|total carton|carrier|payment|due before|wholesale|driver|signature|check|service charge|purchaser|attorney|venue|interest|acadia|fruge distributing|purge|credit memo|frozen items|taken|shipped|invoiced|\*\*|1 [a-z]+,|12\.5 [a-z]+,|www\.|877\.|mailing|dallas|simple)/i;
 
-    // ── PASS 1: two-line format (PDF.js output)
-    // Line 1: orderedQty orderedUnit SKU - Description [extra info]
-    // Line 2: shippedQty shippedUnit $unitPrice unit $amount
-    const ROW1 = new RegExp(`^([\\d.]+)\\s+(${UNITS})\\s+([A-Z0-9]{5,})\\s*-\\s*(.+)$`, 'i');
-    const ROW2 = new RegExp(`^([\\d.]+)\\s+(${UNITS})\\s+\\$?([\\d.]+)\\s+(?:${UNITS})?\\s+\\$?([\\d.,]+)$`, 'i');
+    // Build item blocks: find all DESC lines, then look ahead for VALUE line
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (SKIP.test(line)) continue;
 
-    const SKIP = /invoice|sold to|ship to|customer|freight|sales|route|broker|ordered\s+product|total weight|total carton|carrier|payment|due before|wholesale|driver|signature|check|service charge|lobster|crawfish|shrink|purchaser|attorney|venue|interest|acadia|fruge distributing|purge|credit memo|frozen items|taken|shipped|invoiced/i;
+      const dm = line.match(DESC_RE);
+      if (!dm) continue;
 
-    for (let i = 0; i < lines.length - 1; i++) {
-      const l1 = lines[i];
-      const l2 = lines[i + 1];
-      if (SKIP.test(l1)) continue;
-      const m1 = l1.match(ROW1);
-      if (!m1) continue;
-      const m2 = l2.match(ROW2);
-      if (!m2) continue;
+      const orderedQty  = parseFloat(dm[1]);
+      const orderedUnit = dm[2].toUpperCase();
+      const sku         = dm[3];
+      let   descRaw     = dm[4].trim();
 
-      const orderedQty  = parseFloat(m1[1]);
-      const orderedUnit = m1[2].toUpperCase();
-      const sku         = m1[3];
-      const descRaw     = m1[4].trim();
-      const shippedQty  = parseFloat(m2[1]);
-      const unitPrice   = parseFloat(m2[3]);
-      const amount      = parseFloat(m2[4].replace(/,/g,''));
+      // Look ahead up to 3 lines for the value line
+      let valueMatch = null;
+      let valueIdx   = -1;
+      for (let j = i + 1; j <= Math.min(i + 3, lines.length - 1); j++) {
+        const vm = lines[j].match(VALUE_RE);
+        if (vm) {
+          // Make sure it is not another desc line
+          if (!lines[j].match(DESC_RE)) {
+            valueMatch = vm;
+            valueIdx   = j;
+            // Collect continuation description lines between i and j
+            for (let k = i + 1; k < j; k++) {
+              const cont = lines[k].trim();
+              if (!SKIP.test(cont) && cont.length > 2 && !/^\d+\s+[A-Z]+,/.test(cont) && !/^\*\*/.test(cont)) {
+                descRaw += ' ' + cont;
+              }
+            }
+            break;
+          }
+        }
+      }
 
-      // Extract weight from description for BG/GA units (e.g. "10lb" or "8 LB")
-      let packDescription = `${shippedQty} ${orderedUnit}`;
-      let conversionToBase = null;
+      if (!valueMatch) continue;
+
+      const shippedQty  = parseFloat(valueMatch[1]);
+      const unitPrice   = parseFloat(valueMatch[3].replace(/,/g,''));
+      const amount      = parseFloat(valueMatch[4].replace(/,/g,''));
+
+      // Sanity: unit_price * shipped_qty should be close to amount
+      if (unitPrice && shippedQty && amount) {
+        const calc  = unitPrice * shippedQty;
+        const ratio = Math.abs(calc - amount) / amount;
+        if (ratio > 0.10) continue; // skip if math doesn't add up
+      }
+
+      // Extract weight from description for BG/GA units
+      let packDescription    = shippedQty + ' ' + orderedUnit;
+      let conversionToBase   = null;
+      const cleanedDesc      = descRaw.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
+
       if (/^(BG|GA|GAL|GL)$/i.test(orderedUnit)) {
-        const wm = descRaw.match(/([\d.]+)\s*lb/i);
+        const wm = cleanedDesc.match(/(\d+(?:\.\d+)?)\s*lb/i);
         if (wm) {
           const lbs = parseFloat(wm[1]);
           conversionToBase = Math.round(lbs * 453.592);
-          packDescription = `${shippedQty} ${orderedUnit} (${lbs} lb each)`;
+          packDescription  = shippedQty + ' ' + orderedUnit + ' (' + lbs + ' lb each)';
         }
       } else if (/^LB$/i.test(orderedUnit)) {
         conversionToBase = Math.round(shippedQty * 453.592);
-        packDescription = `${shippedQty} LB`;
+        packDescription  = shippedQty + ' LB';
       }
 
       const p100 = (conversionToBase && unitPrice)
-        ? parseFloat(((unitPrice / conversionToBase) * 100).toFixed(4))
+        ? parseFloat((unitPrice / conversionToBase * 100).toFixed(4))
         : null;
 
-      const description = cleanDescription(descRaw.replace(/\d+\s*lb\b/gi,'').replace(/\s+/g,' ').trim());
+      const description = cleanDescription(
+        cleanedDesc
+          .replace(/\d+(?:\.\d+)?\s*lb\b/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+      );
+
       const variance = Math.abs(shippedQty - orderedQty) > 0.01;
 
       items.push({
-        vendor_sku:       sku,
+        vendor_sku:         sku,
         description,
-        ordered_qty:      orderedQty,
-        ordered_unit:     orderedUnit,
-        received_qty:     shippedQty,
-        received_unit:    orderedUnit,
-        pack_description: packDescription,
-        unit_price:       unitPrice,
-        extended_price:   amount,
-        amount:           amount,
-        qty_ordered:      orderedQty,
-        qty_received:     shippedQty,
+        ordered_qty:        orderedQty,
+        ordered_unit:       orderedUnit,
+        received_qty:       shippedQty,
+        received_unit:      orderedUnit,
+        qty_ordered:        orderedQty,
+        qty_received:       shippedQty,
+        pack_description:   packDescription,
+        unit_price:         unitPrice,
+        extended_price:     amount,
+        amount:             amount,
         conversion_to_base: conversionToBase,
-        _cost_per_100g:   p100,
-        catchweight:      /^LB$/i.test(orderedUnit),
-        variance:         variance ? (shippedQty - orderedQty) : 0,
+        _cost_per_100g:     p100,
+        catchweight:        /^LB$/i.test(orderedUnit),
+        variance:           variance ? (shippedQty - orderedQty) : 0,
       });
 
       if (variance) {
         warnings.push({
-          code: 'QTY_MISMATCH',
-          message: `${description}: ordered ${orderedQty} ${orderedUnit}, shipped ${shippedQty}`,
+          code:     'QTY_MISMATCH',
+          message:  description + ': ordered ' + orderedQty + ' ' + orderedUnit + ', shipped ' + shippedQty,
           item_sku: sku,
         });
       }
-      i++; // skip line 2
-    }
 
-    // ── PASS 2: single-line fallback (original format)
-    if (items.length === 0) {
-      const itemRegex = new RegExp(
-        `^([\\d.]+)\\s+(${UNITS})\\s+([A-Z0-9]{6,})\\s*-\\s*(.+?)\\s+([\\d.]+)\\s+(${UNITS})\\s+\\$?([\\d.]+)\\s+(?:${UNITS})?\\s+\\$?([\\d.,]+)`,
-        'gim'
-      );
-      let match;
-      while ((match = itemRegex.exec(text)) !== null) {
-        const orderedQty  = parseFloat(match[1]);
-        const orderedUnit = match[2].toUpperCase();
-        const sku         = match[3];
-        const descRaw     = match[4].replace(/\n/g,' ').replace(/\s+/g,' ').trim();
-        const shippedQty  = parseFloat(match[5]);
-        const unitPrice   = parseFloat(match[7]);
-        const amount      = parseFloat(match[8].replace(/,/g,''));
-        const description = cleanDescription(descRaw);
-        const variance    = Math.abs(shippedQty - orderedQty) > 0.01;
-        items.push({
-          vendor_sku: sku, description,
-          ordered_qty: orderedQty, ordered_unit: orderedUnit,
-          received_qty: shippedQty, received_unit: orderedUnit,
-          pack_description: `${shippedQty} ${orderedUnit}`,
-          unit_price: unitPrice, extended_price: amount,
-          variance: variance ? (shippedQty - orderedQty) : 0,
-        });
-        if (variance) warnings.push({ code:'QTY_MISMATCH', message:`${description}: ordered ${orderedQty} ${orderedUnit}, shipped ${shippedQty}`, item_sku:sku });
-      }
+      i = valueIdx; // skip processed lines
     }
 
     if (items.length === 0) {
