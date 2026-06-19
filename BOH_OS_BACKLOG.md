@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-18 — v257*
+*Aggiornato: 2026-06-19 — v266*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,7 +10,7 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v257**
+- Versione frontend: **v266**
 - Versione souschef-chat: v21
 - ai-translate: **v28** (Google Translate attivo)
 - Supabase: ydqmumpytgrlceuinoqt
@@ -55,6 +55,7 @@ Alimentano L'Ufficio mentre Max dorme. Non rispondono — osservano e preparano.
 | Bot 3 — Costruttore Preplist | Cron 4AM CDT ogni notte | ✅ v1 attivo | 3 sett. storia, +10% buffer |
 | Bot 4 — Lettore Tell Chef | Cron ogni ora | ✅ v1 attivo | Fase 1: classificazione + suggestion |
 | Bot 5 — Guardiano Food Cost | Dopo ogni import fattura | ✅ v1 attivo (versione A) | Impatto $ — upgrade a % quando selling_price popolato |
+| Bot 6 — Guardiano Accuratezza Prep | Cron 17:30 CDT ogni giorno | ✅ v1 attivo | No Need + prep log pomeridiano = identifica chi ha sbagliato |
 
 ### Dettagli Bot
 
@@ -88,6 +89,14 @@ Alimentano L'Ufficio mentre Max dorme. Non rispondono — osservano e preparano.
 - Versione B (futura): food cost % reale quando selling_price popolato nelle ricette
 - Output: 🟠/🔴 in office_items con impatto settimanale e mensile
 
+**Bot 6 — Guardiano Accuratezza Prep**
+- Gira ogni giorno alle 17:30 CDT (dopo la finestra 14:00-17:00)
+- Legge tutti i No Need del giorno (prep_log.unit=no_need)
+- Per ogni No Need: cerca se lo stesso item appare in prep_log tra 14:00-17:00
+- Se SI: colpevole morning — No Need errato, andava fatto → output orange in office_items
+- Se NO: colpevole evening — closing impreciso, non serviva → output blue in office_items
+- Zero AI — puro SQL
+
 ### Cron jobs attivi
 | Job | Schedule | Bot |
 |---|---|---|
@@ -95,6 +104,7 @@ Alimentano L'Ufficio mentre Max dorme. Non rispondono — osservano e preparano.
 | bot-chat-analyst-weekly | 0 8 * * 0 (3AM CDT domenica) | Bot 2 settimanale |
 | bot-preplist-builder-nightly | 0 9 * * * (4AM CDT) | Bot 3 |
 | bot-tell-chef-reader-hourly | 0 * * * * (ogni ora) | Bot 4 |
+| bot-prep-accuracy-daily | 30 22 * * * (17:30 CDT) | Bot 6 |
 
 ---
 
@@ -275,6 +285,11 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 
 ## Log sessioni
 
+### Sessione 2026-06-19 — No Need + Bot 6 (v266)
+- Bottone No Need su prep tasks urgenti (unit=no_need in prep_log)
+- Bot 6 — Guardiano Accuratezza Prep (bot-prep-accuracy v1): identifica chi ha sbagliato tra morning e evening crew
+- Cron: 17:30 CDT ogni giorno
+
 ### Sessione 2026-06-18 — Bot System completo (v249)
 - **Bot 1 — Guardiano Prezzi** (bot-price-guard v1): confronta prezzi fattura vs storico, soglia 10%, min 3 acquisti
 - **Bot 2 — Analista Chat** (bot-chat-analyst v2): AI legge chat ogni notte, recap settimanale domenica
@@ -307,4 +322,3 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 - OAuth 2.0 app "MAX" creata
 - tripleseat-sync v4, js/calendar.js
 - PENDING: Monica deve fare Authorize
-
