@@ -174,14 +174,10 @@ async function syncSevenShift() {
   if (btn) { btn.textContent = 'Sincronizzando...'; btn.disabled = true; }
 
   try {
-    var session = await window.supa.auth.getSession();
-    var jwt = session.data.session ? session.data.session.access_token : '';
-
     var resp = await fetch('https://ydqmumpytgrlceuinoqt.supabase.co/functions/v1/sevenshift-sync', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + jwt,
       },
       body: JSON.stringify({})
     });
