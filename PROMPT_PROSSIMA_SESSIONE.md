@@ -66,8 +66,8 @@
 - App deve funzionare per la brigata: Chat, Prep, Closing, Tell Chef
 - Kitchen Display (display.html) deve funzionare
 - Bug UI noti da risolvere prima del lancio:
-  - [ ] BUG: ai-translate chiamato decine di volte per pagina — indagare urgente
-  - [ ] BUG: L'Ufficio realtime non si aggiorna (richiede close/reopen)
+  - [x] BUG: ai-translate chiamato decine di volte per pagina — RISOLTO 2026-06-19
+  - [x] BUG: L'Ufficio realtime non si aggiorna — RISOLTO 2026-06-19
   - [ ] BUG: Kitchen Display si blocca quando si apre/chiude L'Ufficio
   - [ ] BUG: send button sovrapposto al microfono in chat (iPhone)
 
