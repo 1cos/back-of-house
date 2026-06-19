@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-19 — v275*
+*Aggiornato: 2026-06-19 — v276*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,7 +10,7 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v275**
+- Versione frontend: **v276**
 - Versione souschef-chat: v23
 - ai-translate: **v28** (Google Translate attivo)
 - Supabase: ydqmumpytgrlceuinoqt
@@ -122,7 +122,7 @@ Alimentano L'Ufficio mentre Max dorme. Non rispondono — osservano e preparano.
 - Ottimizzazione: se testo già nella lingua target → nessuna chiamata translate
 
 ### Bug UI annotati (sessione grafica)
-- BUG UI 1: Bottone "Send to team" (freccia invio) sovrapposto al microfono Sous Chef → impossibile toccare su iPhone
+- ✅ RISOLTO v276: mic Chef AI nascosto quando chat e aperta — showChat() setta scBtn.style.display='none'
 - BUG UI 2: Long press su messaggio chat non funziona — impossibile copiare testo
 
 ### Ancora da verificare
@@ -288,6 +288,12 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 
 
 
+
+
+### Sessione 2026-06-19 (e) — Fix mic sovrapposto send button (v276)
+- `chat.js`: `showChat()` nasconde `scBtn` all'apertura chat
+- Ripristino automatico al cambio tab gia gestito da `app.js`
+- Tutti i bug pre-lancio beta risolti
 
 ### Sessione 2026-06-19 (d) — Fix TV toggle realtime (v275)
 - `settings` aggiunta a `supabase_realtime` publication (era assente — causa root)
