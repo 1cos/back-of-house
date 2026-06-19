@@ -446,22 +446,91 @@ function openRecipeEditor(rec=null){
   const ingList = modal.querySelector('#ingList');
   const UNITS = ['g','kg','ml','l','oz','lb','cup','tbsp','tsp','each'];
 
-  function addIngRow(d={qty:'',unit:'g',name:'',comment:'',type:'ingredient'}){
+  function addIngRow(d={qty:'',unit:'g',name:'',comment:'',type:'ingredient',ingredient_id:null,sub_recipe_id:null}){
     const row = document.createElement('div');
     row.dataset.type = 'ingredient';
+    row.dataset.ingredientId = d.ingredient_id || '';
+    row.dataset.subRecipeId  = d.sub_recipe_id  || '';
     row.style.display = 'grid';
     row.style.gridTemplateColumns = '56px 66px 1fr 80px auto';
     row.style.gap = '4px';
     row.style.alignItems = 'center';
+
+    const linkedColor = d.ingredient_id ? '#10b981' : d.sub_recipe_id ? '#3b82f6' : '';
+    const linkedBg    = d.ingredient_id ? '#f0fdf4' : d.sub_recipe_id ? '#eff6ff' : '';
+    const safeName    = (d.name||'').replace(/"/g,'&quot;');
+
     row.innerHTML = `
       <input placeholder="200" class="px-2 py-1.5 border rounded text-xs" value="${d.qty||''}" type="number" min="0" step="any">
       <select class="px-1 py-1.5 border rounded text-xs bg-white">
         ${UNITS.map(u=>`<option ${(d.unit||'g')===u?'selected':''}>${u}</option>`).join('')}
       </select>
-      <input placeholder="ingredient" class="px-2 py-1.5 border rounded text-xs" value="${d.name||''}">
-      <input placeholder="note" class="px-2 py-1.5 border rounded text-xs" value="${d.comment||''}">
+      <div style="position:relative;">
+        <input placeholder="ingredient / sub-recipe" class="ing-name-input w-full px-2 py-1.5 border rounded text-xs"
+          value="${safeName}"
+          style="border-color:${linkedColor};background:${linkedBg};">
+        <div class="ing-ac-drop" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);max-height:200px;overflow-y:auto;"></div>
+      </div>
+      <input placeholder="note" class="px-2 py-1.5 border rounded text-xs" value="${(d.comment||'').replace(/"/g,'&quot;')}">
       <button class="text-red-400 text-base" style="min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>`;
     row.querySelector('button').onclick = ()=>row.remove();
+
+    // ── Autocomplete ──
+    const nameInput = row.querySelector('.ing-name-input');
+    const drop      = row.querySelector('.ing-ac-drop');
+    let _t = null;
+
+    function resetLink(){
+      row.dataset.ingredientId = '';
+      row.dataset.subRecipeId  = '';
+      nameInput.style.borderColor = '';
+      nameInput.style.background  = '';
+    }
+
+    function selectItem(name, iid, rid){
+      nameInput.value = name;
+      row.dataset.ingredientId = iid || '';
+      row.dataset.subRecipeId  = rid || '';
+      nameInput.style.borderColor = iid ? '#10b981' : '#3b82f6';
+      nameInput.style.background  = iid ? '#f0fdf4' : '#eff6ff';
+      drop.style.display = 'none';
+    }
+
+    nameInput.addEventListener('input', ()=>{
+      clearTimeout(_t);
+      resetLink();
+      const q = nameInput.value.trim();
+      if(q.length < 2){ drop.style.display='none'; return; }
+      _t = setTimeout(async()=>{
+        const [ri, rr] = await Promise.all([
+          supa.from('ingredients').select('id,name,category').ilike('name',`%${q}%`).eq('active',true).order('name').limit(8),
+          supa.from('recipes').select('id,title,menu_group').ilike('title',`%${q}%`).order('title').limit(4)
+        ]);
+        const ings = ri.data||[], recs = rr.data||[];
+        if(!ings.length && !recs.length){ drop.style.display='none'; return; }
+        drop.innerHTML = [
+          ...ings.map(i=>`<div class="ac-opt" data-iid="${i.id}" data-name="${i.name.replace(/"/g,'&quot;')}"
+            style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f8fafc;">
+            <span><b>${i.name}</b> <span style="color:#94a3b8;font-size:10px;">${i.category||''}</span></span>
+            <span style="font-size:9px;background:#f0fdf4;color:#059669;padding:1px 6px;border-radius:4px;flex-shrink:0;">ingredient</span>
+          </div>`),
+          ...recs.map(r=>`<div class="ac-opt" data-rid="${r.id}" data-name="${r.title.replace(/"/g,'&quot;')}"
+            style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f8fafc;">
+            <span><b>${r.title}</b> <span style="color:#94a3b8;font-size:10px;">${r.menu_group||''}</span></span>
+            <span style="font-size:9px;background:#eff6ff;color:#3b82f6;padding:1px 6px;border-radius:4px;flex-shrink:0;">sub-recipe</span>
+          </div>`)
+        ].join('');
+        drop.style.display = 'block';
+        drop.querySelectorAll('.ac-opt').forEach(el=>{
+          el.addEventListener('mousedown', e=>{
+            e.preventDefault();
+            selectItem(el.dataset.name, el.dataset.iid||'', el.dataset.rid||'');
+          });
+        });
+      }, 220);
+    });
+
+    nameInput.addEventListener('blur', ()=>{ setTimeout(()=>{ drop.style.display='none'; }, 160); });
     ingList.appendChild(row);
   }
 
@@ -504,12 +573,17 @@ function openRecipeEditor(rec=null){
       if(row.dataset.type === 'section'){
         return { type:'section', name: row.querySelector('input').value.trim() };
       }
-      const [qtyEl, unitEl, nameEl, commentEl] = row.querySelectorAll('input, select');
+      const qtyEl     = row.querySelector('input[type="number"]');
+      const unitEl    = row.querySelector('select');
+      const nameEl    = row.querySelector('.ing-name-input');
+      const commentEl = row.querySelector('input:not([type="number"]):not(.ing-name-input)');
       return {
-        qty:     parseFloat(qtyEl.value)||qtyEl.value||'',
-        unit:    unitEl.value||'g',
-        name:    nameEl.value.trim(),
-        comment: commentEl.value.trim()
+        qty:           parseFloat(qtyEl?.value)||qtyEl?.value||'',
+        unit:          unitEl?.value||'g',
+        name:          nameEl?.value.trim()||'',
+        comment:       commentEl?.value.trim()||'',
+        ingredient_id: row.dataset.ingredientId || null,
+        sub_recipe_id: row.dataset.subRecipeId  || null
       };
     }).filter(i=> i.type==='section' ? i.name : i.name);
 
@@ -532,12 +606,15 @@ function openRecipeEditor(rec=null){
     };
 
     try{
+      let savedId = rec?.id;
       if(rec?.id){
         await supa.from('recipes').update(newRec).eq('id',rec.id);
         await supa.from('recipe_translations').delete().eq('recipe_id',rec.id);
       } else {
-        await supa.from('recipes').insert(newRec);
+        const {data:inserted} = await supa.from('recipes').insert(newRec).select('id').single();
+        savedId = inserted?.id;
       }
+      if(savedId) await saveRecipeBOM(savedId, ingredients);
       modal.remove();
       await init();
       renderRecipes();
@@ -838,10 +915,24 @@ async function loadRecipeSalesStats(rec, sheetEl) {
   }
 }
 
+// ── RECIPE BOM — save structured links ───────────────────────
+async function saveRecipeBOM(recipeId, ingredientRows){
+  // Delete existing BOM rows for this recipe
+  await supa.from('recipe_bom').delete().eq('parent_recipe_id', recipeId);
 
+  const rows = ingredientRows
+    .filter(i => i.type !== 'section' && (i.ingredient_id || i.sub_recipe_id))
+    .map(i => ({
+      parent_recipe_id: recipeId,
+      component_type:   i.sub_recipe_id ? 'sub_recipe' : 'ingredient',
+      item_id:          i.ingredient_id ? parseInt(i.ingredient_id) : null,
+      sub_recipe_id:    i.sub_recipe_id || null,
+      quantity:         parseFloat(i.qty) || null,
+      unit:             i.unit || null,
+      notes:            i.comment || null
+    }));
 
-
-
-
-
+  if(!rows.length) return;
+  await supa.from('recipe_bom').insert(rows);
+}
 
