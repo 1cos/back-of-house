@@ -23,12 +23,13 @@
 
 | Function | Ver | Scopo |
 |---|---|---|
-| souschef-chat | v21 | Chat AI — accesso completo DB + SQL query detection |
+| souschef-chat | v23 | Chat AI — accesso completo DB + SQL query detection |
 | souschef-classify | v17 | Scan anomalie |
 | souschef-scan | v4 | Scan automatica oraria lun-sab |
 | sc-nightly-brief | v5 | Briefing notturno 5:00 AM CDT — solo admin |
 | process-invoice | v29 | Parser fatture OpenRouter + chiama bot-price-guard e bot-food-cost-guard |
 | gmail-hardies-import | v9 | Import PDF Hardie's |
+| hardies-order-check | v2 | Controllo articoli bloccati in conferme ordine Chef's Warehouse |
 | gmail-touchbistro-import | v3 | Import 4 CSV TouchBistro nightly |
 | gmail-vendor-import | v3 | Import fatture fornitori Gmail |
 | transcribe-audio | v22 | Whisper voce→testo |
@@ -322,3 +323,12 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 - OAuth 2.0 app "MAX" creata
 - tripleseat-sync v4, js/calendar.js
 - PENDING: Monica deve fare Authorize
+
+## BACKLOG — Walmart Wishlist
+
+I ragazzi scrivono da Brigade cosa serve da Walmart (come la lavagna magnetica sul frigo).
+Max vede la lista e fa l'ordine sul sito Walmart.
+- Spazio dedicato da costruire (posizione UI da decidere)
+- Solo staff cucina puo aggiungere voci
+- Max vede tutto e spunta quello che ha ordinato
+
