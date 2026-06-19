@@ -1551,18 +1551,27 @@ window.vdrApprove = async function(docId, btn) {
       const effectiveQty   = (edits.qty        != null && !isNaN(edits.qty))       ? edits.qty                         : (item.qty_ordered || 1);
 
       // Calcola totalG dal pack effettivo
-      const totalG  = item.catchweight && item.actual_weight_lb
-        ? item.actual_weight_lb * 453.592
-        : (window.vdrPackToGrams ? window.vdrPackToGrams(effectivePack, false, null, desc)
-          : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null));
+      // Use total_weight_lb from Fruge parser if available
+      const totalG  = item.total_weight_lb
+        ? item.total_weight_lb * 453.592
+        : item.catchweight && item.actual_weight_lb
+          ? item.actual_weight_lb * 453.592
+          : (window.vdrPackToGrams ? window.vdrPackToGrams(effectivePack, false, null, desc)
+            : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null));
 
-      // Prezzo: usa unit price se disponibile, altrimenti ext/qty
-      const price   = effectivePrice != null ? effectivePrice
+      // Prezzo: Fruge parser -> cost_per_lb, altrimenti unit price, altrimenti ext/qty
+      const price   = item.cost_per_lb != null ? item.cost_per_lb
+                    : effectivePrice != null ? effectivePrice
                     : (effectiveExt && effectiveQty ? effectiveExt / effectiveQty : null);
 
-      const per100g = item.catchweight && item.price_per_lb
-        ? (item.price_per_lb / 453.592) * 100
-        : ((totalG && price) ? (price / totalG * 100) : null);
+      // Fruge parser produces _cost_per_100g and cost_per_lb directly — use them
+      const per100g = item._cost_per_100g
+        ? parseFloat(item._cost_per_100g)
+        : (item.catchweight && item.price_per_lb)
+          ? (item.price_per_lb / 453.592) * 100
+          : (item.cost_per_lb)
+            ? (item.cost_per_lb / 453.592) * 100
+            : ((totalG && price) ? (price / totalG * 100) : null);
 
       const priceType = item.price_type || (item.catchweight ? 'per_lb' : 'per_case');
       const convBase  = priceType === 'per_lb' ? null : (item.conversion_to_base || totalG || null);
