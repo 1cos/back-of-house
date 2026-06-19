@@ -986,6 +986,7 @@ function buildVendorParsers() {
   //         "8 LB   BRAFW8001000 - BRANZINI FR WHOLE 800-1000 1lb   8 LB  $11.25 LB  $90.00"
   // Total:  "Pay: $490.00"
   function parseFrugeInvoice(rawText) {
+    console.log('[FRUGE PARSER v261] lines:', rawText.split('\n').length);
     // ── Header fields ──
     let invoiceNumber = null, orderNumber = null, invoiceDate = null, shippedDate = null, total = null;
     const invM  = rawText.match(/INVOICE\s+(\d+)/i);           if (invM)  invoiceNumber = invM[1];
