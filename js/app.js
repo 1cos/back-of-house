@@ -408,6 +408,9 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   if(t==='h') renderHomeStations();
   if(t==='r') loadReport('today');
   if(t==='i') loadIngredientsTab();
+  // Nascondi mic Sous Chef nella tab Chat — evita sovrapposizione col send button
+  var scBtn = document.getElementById('scBtn');
+  if (scBtn) scBtn.style.display = (t === 'm') ? 'none' : '';
 });
 
 // ── Vendor Documents pending badge ──
