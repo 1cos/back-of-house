@@ -986,86 +986,181 @@ function buildVendorParsers() {
   //         "8 LB   BRAFW8001000 - BRANZINI FR WHOLE 800-1000 1lb   8 LB  $11.25 LB  $90.00"
   // Total:  "Pay: $490.00"
   function parseFrugeInvoice(rawText) {
-    console.log('[FRUGE v263-gemini] chars:', rawText.length);
+    // FRUGE PARSER v2 — riscrittura completa
+    // Logica: PDF.js spezza ogni colonna su righe separate.
+    // Strategia: raggruppa le righe in blocchi per item, poi estrai i campi.
+    //
+    // 3 tipi di pack:
+    // TIPO 1 — LB dirette (catchweight): shipped = LB -> amount / shipped_lbs
+    // TIPO 2 — BG/GA: peso nel nome (es. "10lb", "8 LB") -> amount / peso_da_descrizione
+    // TIPO 3 — CA: moltiplicazione (es. "5 X 2 LBS") -> amount / (N1 x N2)
 
-    // Header fields
-    let invoiceNumber = null, orderNumber = null, invoiceDate = null, shippedDate = null, total = null;
-    const invM = rawText.match(/INVOICE\s+(\d+)/i);            if (invM) invoiceNumber = invM[1];
-    const ordM = rawText.match(/Order\s+(\d+)/i);              if (ordM) orderNumber   = ordM[1];
-    const takM = rawText.match(/Taken\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i);   if (takM) invoiceDate  = parseDate(takM[1]);
-    const shiM = rawText.match(/Shipped\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i); if (shiM) shippedDate = parseDate(shiM[1]);
-    const payM = rawText.match(/Pay:\s*\$?([\d,]+\.\d{2})/i);  if (payM) total = parseFloat(payM[1].replace(/,/g,''));
+    var invoiceNumber = null, invoiceDate = null, total = null;
+    var invM = rawText.match(/INVOICE\s+(\d+)/i);          if (invM) invoiceNumber = invM[1];
+    var takM = rawText.match(/Taken\s+([\d\/]+)/i);        if (takM) invoiceDate = parseDate(takM[1]);
+    var payM = rawText.match(/Pay:\s*\$?([\d,]+\.\d{2})/i); if (payM) total = parseFloat(payM[1].replace(/,/g, ''));
 
-    const items = [];
-    const warnings = [];
-    const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+    var lines = rawText.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+    var items = [];
+    var warnings = [];
 
-    // Regex ESATTA di Gemini — tutto sulla stessa riga
-    const LINE_REGEX = /^(\d+)\s+(BG|LB|GA|GAL|CS|EA)\s+([A-Z0-9]{7,15})\s*-\s*(.+?)\s+(\d+(?:\.\d+)?)\s+(?:BG|LB|GA|GAL|CS|EA)\s+\$(\d+(?:\.\d+)?)\s+(?:BG|LB|GA|GAL|CS|EA)?\s+\$(\d+(?:\.\d+)?)$/i;
+    // Skip lines that are clearly headers/footers
+    var SKIP_RE = /invoice|sold to|ship to|customer po|freight|sales|route|broker|ordered.*product|total weight|total carton|carrier|payment terms|due before|wholesale|driver int|signature|service charge|lobster|crawfish|purchaser|attorney|venue|interest|acadia|fruge distributing|purge|credit memo|frozen items|mailing|877\.|frugeseafood|simple.*fresh|dallas.*tx/i;
 
-    for (const line of lines) {
-      const match = line.match(LINE_REGEX);
-      if (!match) continue;
+    // --- STEP 1: Find SKU lines (format: XXXYYY0000000 - Description)
+    // Each item starts with a line like: BRAFW8001000 - BRANZINI FR WHOLE 800-1000 1lb
+    // Preceded by ordered qty line, followed by shipped/price/amount lines
 
-      const [_, qtyOrdered, unit, itemCode, description, qtyShipped, unitPrice, extPrice] = match;
+    // Collect non-skip lines with index
+    var validLines = [];
+    for (var i = 0; i < lines.length; i++) {
+      if (!SKIP_RE.test(lines[i]) && lines[i].length > 3) {
+        validLines.push({ idx: i, text: lines[i] });
+      }
+    }
 
-      // Weight from description for BG/GA
-      let conversionToBase = null;
-      let packDescription  = parseFloat(qtyShipped) + ' ' + unit.toUpperCase();
-      if (/^(BG|GA|GAL)$/i.test(unit)) {
-        const wm = description.match(/(\d+(?:\.\d+)?)\s*lb\b/i);
-        if (wm) {
-          const lbs = parseFloat(wm[1]);
-          conversionToBase = Math.round(lbs * 453.592);
-          packDescription  = parseFloat(qtyShipped) + ' ' + unit.toUpperCase() + ' (' + lbs + ' lb each)';
-        }
-      } else if (/^LB$/i.test(unit)) {
-        conversionToBase = Math.round(parseFloat(qtyShipped) * 453.592);
+    // Find lines that contain a SKU pattern: LETTERS+DIGITS0 - Description
+    var SKU_RE = /^([A-Z0-9]{7,15})\s+-\s+(.+)/i;
+    // Also find lines that are pure amounts: $XX.XX
+    var AMOUNT_RE = /^\$?([\d,]+\.[\d]{2})$/;
+    // Price with unit: $XX.XX LB or $XX.XX BG etc
+    var PRICE_UNIT_RE = /^\$?([\d,]+\.[\d]{2})\s+(LB|BG|GA|GAL|CS|EA)$/i;
+    // Shipped line: XX.XX LB or X BG or X GA
+    var SHIPPED_RE = /^([\d]+(?:\.[\d]+)?)\s+(LB|BG|GA|GAL|CS|EA)$/i;
+    // Ordered line (at start): just a number + unit
+    var ORDERED_RE = /^([\d]+(?:\.[\d]+)?)\s+(LB|BG|GA|GAL|CS|EA)$/i;
+
+    // Strategy: scan for SKU lines, then look around them for qty/price/amount
+    for (var vi = 0; vi < validLines.length; vi++) {
+      var skuMatch = validLines[vi].text.match(SKU_RE);
+      if (!skuMatch) continue;
+
+      var sku = skuMatch[1];
+      var descRaw = skuMatch[2].trim();
+
+      // Look back up to 2 lines for ordered qty
+      var orderedQty = null, orderedUnit = null;
+      for (var back = vi - 1; back >= Math.max(0, vi - 3); back--) {
+        var om = validLines[back].text.match(ORDERED_RE);
+        if (om) { orderedQty = parseFloat(om[1]); orderedUnit = om[2].toUpperCase(); break; }
       }
 
-      const p100 = (conversionToBase && parseFloat(unitPrice))
-        ? parseFloat((parseFloat(unitPrice) / conversionToBase * 100).toFixed(4)) : null;
+      // Look ahead for: lot number line (100-Pxxx), shipped line, price line, amount line
+      var shippedQty = null, shippedUnit = null, unitPrice = null, amount = null;
+      var lookahead = Math.min(validLines.length, vi + 8);
 
-      const desc = cleanDescription(description.replace(/\d+(?:\.\d+)?\s*lb\b/gi,'').replace(/\s+/g,' ').trim());
+      for (var fwd = vi + 1; fwd < lookahead; fwd++) {
+        var lt = validLines[fwd].text;
 
-      console.log('[FRUGE] item:', itemCode, '|', desc, '| qty:', qtyShipped, unit, '| unit:', unitPrice, '| ext:', extPrice);
+        // Skip lot number lines like "1 BG, 100-P107349-032-001, CANADA - FARMED"
+        if (/100-[A-Z]/.test(lt) || /\*\*/.test(lt)) continue;
+
+        // Next SKU = stop
+        if (lt.match(SKU_RE)) break;
+
+        // Shipped: "7.85 LB" or "1 BG" or "1 GA"
+        if (shippedQty === null) {
+          var sm = lt.match(SHIPPED_RE);
+          if (sm) { shippedQty = parseFloat(sm[1]); shippedUnit = sm[2].toUpperCase(); continue; }
+        }
+
+        // Price: "$11.25 LB" or "$35.25 BG" or "$325.00 GA"
+        if (unitPrice === null) {
+          var pm = lt.match(PRICE_UNIT_RE);
+          if (pm) { unitPrice = parseFloat(pm[1].replace(/,/g, '')); continue; }
+        }
+
+        // Amount: "$88.31"
+        if (amount === null) {
+          var am = lt.match(AMOUNT_RE);
+          if (am) { amount = parseFloat(am[1].replace(/,/g, '')); continue; }
+        }
+      }
+
+      if (amount === null || shippedQty === null) continue;
+
+      // --- COMPUTE $/lb based on pack type ---
+      var costPerLb = null;
+      var totalWeightLb = null;
+      var packDesc = '';
+
+      if (shippedUnit === 'LB') {
+        // TIPO 1: catchweight — direct
+        totalWeightLb = shippedQty;
+        costPerLb = amount / shippedQty;
+        packDesc = shippedQty + ' LB';
+
+      } else if (shippedUnit === 'BG' || shippedUnit === 'GA' || shippedUnit === 'GAL') {
+        // TIPO 2: peso nel nome della descrizione
+        // cerca "10lb", "10 LB", "8lb", "8 LB GALLON"
+        var wm = descRaw.match(/([\d]+(?:\.[\d]+)?)\s*(?:LB|lb)/i);
+        if (wm) {
+          var lbsEach = parseFloat(wm[1]);
+          totalWeightLb = shippedQty * lbsEach;
+          costPerLb = amount / totalWeightLb;
+          packDesc = shippedQty + ' ' + shippedUnit + ' x ' + lbsEach + ' LB';
+        } else {
+          // Fallback: usa unit price dal PDF se disponibile
+          costPerLb = unitPrice;
+          packDesc = shippedQty + ' ' + shippedUnit;
+        }
+
+      } else if (shippedUnit === 'CA' || shippedUnit === 'CS') {
+        // TIPO 3: moltiplicazione tipo "5 X 2 LBS" nella descrizione
+        var mxm = descRaw.match(/([\d]+)\s*[Xx]\s*([\d]+(?:\.[\d]+)?)\s*(?:LBS?|lb)/i);
+        if (mxm) {
+          totalWeightLb = shippedQty * parseFloat(mxm[1]) * parseFloat(mxm[2]);
+          costPerLb = amount / totalWeightLb;
+          packDesc = shippedQty + ' CA (' + mxm[1] + ' x ' + mxm[2] + ' LB)';
+        } else {
+          costPerLb = unitPrice;
+          packDesc = shippedQty + ' CA';
+        }
+      }
+
+      var costPer100g = costPerLb ? parseFloat(((costPerLb / 453.592) * 100).toFixed(4)) : null;
+
+      // Clean description
+      var desc = descRaw
+        .replace(/[\d]+(?:\.[\d]+)?\s*(?:LB|lb)/gi, '')
+        .replace(/GALLON/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 
       items.push({
-        vendor_sku:         itemCode,
-        description:        desc,
-        ordered_qty:        parseFloat(qtyOrdered),
-        ordered_unit:       unit.toUpperCase(),
-        received_qty:       parseFloat(qtyShipped),
-        received_unit:      unit.toUpperCase(),
-        qty_ordered:        parseFloat(qtyOrdered),
-        qty_received:       parseFloat(qtyShipped),
-        pack_description:   packDescription,
-        unit_price:         parseFloat(unitPrice),
-        extended_price:     parseFloat(extPrice),
-        amount:             parseFloat(extPrice),
-        conversion_to_base: conversionToBase,
-        _cost_per_100g:     p100,
-        catchweight:        /^LB$/i.test(unit),
-        variance:           Math.abs(parseFloat(qtyShipped) - parseFloat(qtyOrdered)) > 0.01 ? parseFloat(qtyShipped) - parseFloat(qtyOrdered) : 0,
+        vendor_sku:       sku,
+        description:      desc,
+        raw_description:  descRaw,
+        qty_ordered:      orderedQty,
+        qty_received:     shippedQty,
+        received_unit:    shippedUnit,
+        pack_description: packDesc,
+        total_weight_lb:  totalWeightLb,
+        unit_price:       unitPrice,
+        amount:           amount,
+        cost_per_lb:      costPerLb ? parseFloat(costPerLb.toFixed(4)) : null,
+        _cost_per_100g:   costPer100g,
+        price_type:       'per_lb',
+        warnings:         [],
       });
     }
 
     if (items.length === 0) {
-      console.log('[FRUGE] NO ITEMS. Lines sample:', lines.slice(0,15).join(' || '));
-      warnings.push({ code:'NO_ITEMS', message:'No line items parsed from Frugé invoice' });
+      console.log('[FRUGE v2] NO ITEMS. Lines:', lines.slice(0, 20).join(' || '));
+      warnings.push({ code: 'NO_ITEMS', message: 'No line items parsed from Fruge invoice' });
+    } else {
+      console.log('[FRUGE v2] Parsed', items.length, 'items OK');
     }
 
     return {
-      vendor:          'Frugé Seafood',
+      vendor:          'Fruge Seafood',
       document_type:   'invoice',
       document_number: invoiceNumber,
-      order_number:    orderNumber,
       document_date:   invoiceDate,
-      delivery_date:   shippedDate,
       subtotal:        total,
       total:           total,
-      items,
-      warnings,
+      items:           items,
+      warnings:        warnings,
     };
   }
 
