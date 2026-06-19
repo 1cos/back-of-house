@@ -295,3 +295,174 @@ Esempi:
 Questi appaiono come warning blu (informativi) nel Warning Center.
 Max li risolve quando ha un minuto — da solo o approvando un contributo della brigata.
 
+
+
+---
+
+## Brigade Communication & Decision System
+*Aggiunto: 2026-06-17 — sessione con Max*
+
+---
+
+### Il problema che stiamo risolvendo
+
+In cucina la formazione e le decisioni viaggiano a voce.
+Funziona finché il chef è presente. Non scala con turni sfalsati, giorni off, malattie.
+Il risultato: informazioni che muoiono appena il chef esce dalla cucina.
+Questo è il complaint principale ricevuto in brigata: *"quando le cose cambiano, non tutti lo sanno."*
+
+Brigade risolve questo con un sistema a tre livelli che governa ogni informazione che circola in cucina — in entrambe le direzioni.
+
+---
+
+### I tre livelli — su tutto, per tutti
+
+Ogni informazione in Brigade ha un livello. Sempre. Senza eccezioni.
+
+**🔴 RED — Act Now**
+Intervento immediato richiesto. Non si può ignorare.
+*Esempi: 86 Brussels sprouts, forno rotto, allergene non verificato.*
+Appare: banner ovunque, TV display, push notification, blocca l'interfaccia.
+Azione richiesta: intervieni adesso.
+
+**🟠 ORANGE — Must Read**
+Cambiamento procedurale, decisione del chef, aggiornamento ricetta.
+Non è un'emergenza ma non si può saltare.
+*Esempi: "La piccata catering va salsata in busta + setup decorazione buffet", "Le bistecche si ordinano doppie il venerdì".*
+Appare: al login obbligatorio prima di tutto il resto, nel briefing, aggiorna la ricetta se pertinente.
+Azione richiesta: conferma di lettura. Brigade traccia chi ha confermato e chi no. Max vede la lista.
+
+**🔵 BLUE — FYI**
+Informativo. Nessuna azione richiesta.
+*Esempi: "Ieri 52 bills — record del mese", "Ottima serata, grazie brigata".*
+Appare: nel briefing, nel ticker TV, consultabile.
+Azione richiesta: nessuna.
+
+**⚪ ARCHIVE**
+Già letto, già confermato, già risolto. Sempre consultabile, mai cancellato.
+
+---
+
+### Chi assegna i livelli
+
+**Solo Max assegna i livelli.**
+I cuochi non decidono il livello di niente — segnalano problemi e idee liberamente.
+Il Chef AI suggerisce un livello provvisorio quando porta un'osservazione a Max.
+Max conferma o cambia. Poi il sistema esegue.
+
+---
+
+### Il Decision Loop — il cuore del sistema
+
+Tutto in Brigade segue questo flusso:
+
+```
+PROBLEMA / OSSERVAZIONE
+        ↓
+  Chiunque lo vede
+  (cuoco, AI, dati automatici)
+        ↓
+  Segnalazione → Chef AI
+        ↓
+  Chef AI analizza
+  + suggerisce 2-3 opzioni concrete
+  + assegna livello provvisorio
+        ↓
+  MAX DECIDE
+  (conferma opzione, modifica, o ignora)
+        ↓
+  Sistema esegue:
+  - comunica alla brigata al livello giusto
+  - aggiorna ricetta / prep se pertinente
+  - notifica Tela per ordini se serve
+        ↓
+  ARCHIVIO
+  (la decisione rimane, con data e autore)
+```
+
+**Regola fondamentale:** i cuochi portano problemi e idee. Max decide sempre. Il Chef AI propone, non decide mai.
+
+---
+
+### Esempio reale — le bistecche
+
+- **Anto segnala** via Tell Chef: *"Finiamo sempre le bistecche il sabato"*
+- **Chef AI porta a Max** 🟠: *"Anto segnala scorta bistecche il sabato. Opzioni: A) ordine doppio il venerdì B) ordine extra il mercoledì C) niente — gestione caso per caso. Cosa decidi Chef?"*
+- **Max risponde:** *"Ordine doppio il venerdì"*
+- **Sistema esegue:** comunica a Tela per l'ordine, notifica brigata 🔵 *"Le bistecche si ordinano doppie ogni venerdì"*, archivia la decisione con data
+
+---
+
+### Esempio reale — la piccata catering
+
+- **Max parla con Antonella** e decide una modifica al procedimento
+- **Max dice al Chef AI:** *"Nella ricetta piccata catering — aggiungi: salsare in busta prima del servizio, setup decorazione buffet: prezzemolo, capperi, limoni tagliati"*
+- **Chef AI esegue:**
+  1. Aggiorna la ricetta nel DB con la nota
+  2. Crea annuncio 🟠 visibile a tutta la brigata al prossimo login con conferma di lettura obbligatoria
+  3. Porta a Max la lista di chi ha confermato e chi no
+
+---
+
+### I tre meeting — il Sous Chef come secondo di cucina
+
+Il Sous Chef AI non aspetta che tu chieda. Ti parla come un vero secondo che entra nell'ufficio e fa il punto. Tre momenti al giorno:
+
+**🌅 Pre-Lunch — verso le 11:00**
+Breve. 3 punti veloci.
+Sous Chef ha già letto: vendite ieri, Tell Chef non letti, prep in ritardo, operation notes.
+*"Chef, tre cose: Anto ha segnalato le bistecche — vuoi che ordiniamo doppio venerdì? Ieri 47 bills, giù del 12%. Il risotto di oggi non è ancora definito."*
+Tu rispondi. Lui esegue o annota.
+
+**🌆 Pre-Dinner — verso le 16:00-16:30**
+Più sostanzioso. 10-15 minuti.
+Feature della sera, risotto of the day, assegnazione stazioni, se siamo corti su qualcosa, motivazione brigata.
+Sous Chef porta già i dati — tu conduci, lui esegue.
+
+**🌙 Post-Service — verso le 22:00**
+Breve. Come è andata, anomalie, cosa prepararsi per domani.
+Alimenta il ciclo notturno dell'AI.
+
+---
+
+### Dove va ogni canale esistente in questo sistema
+
+| Canale | Ruolo nel nuovo sistema |
+|---|---|
+| **Alerts / News** | 🔴 RED — urgenze operative immediate |
+| **Tell Chef** | Ingresso segnalazioni brigata → Chef AI → Decision Loop |
+| **Operation Notes** | Feedback serale → alimenta briefing mattina + Decision Loop |
+| **Briefing AI** | Output del meeting pre-lunch — 2-3 punti concreti con dati reali |
+| **Warning Center** | Fatture: rimane separato (finanziario, solo Max). Operativo: entra nel Decision Loop |
+| **Chat brigata** | Comunicazione libera — l'AI osserva in silenzio, porta pattern a Max |
+| **Sous Chef chat** | Il meeting — Max parla, l'AI esegue |
+| **Ricette** | Destinazione finale delle decisioni procedurali — sempre aggiornate, mai statiche |
+
+---
+
+### La conferma di lettura — chiudere il cerchio
+
+Il problema storico: Max comunica qualcosa, non sa chi lo ha recepito.
+Brigade risolve questo per ogni comunicazione 🟠 ORANGE:
+
+1. Al login, prima di tutto il resto, appare il messaggio da confermare
+2. Bottone: *"Ho capito — Chef"* (o nella lingua del cuoco)
+3. Brigade registra: nome + timestamp della conferma
+4. Max vede in tempo reale chi ha confermato e chi manca
+5. Per chi è fuori turno: appare al prossimo login, senza eccezioni
+
+---
+
+### La regola dei contenuti nel briefing
+
+Il briefing non è solo vendite e numeri.
+Le informazioni più importanti per la brigata sono le decisioni operative e procedurali.
+
+**Priorità nel briefing:**
+1. 🟠 Decisioni e aggiornamenti procedurali recenti non ancora confermati da tutti
+2. 🔴 Urgenze operative (se ce ne sono)
+3. Vendite e highlights operativi con dati reali e numeri concreti
+4. 🔵 FYI — record, motivazione, contesto
+
+I valori generici e motivazionali senza contenuto concreto sono sempre 🔵 e non occupano mai i primi posti.
+

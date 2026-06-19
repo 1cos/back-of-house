@@ -1,4 +1,4 @@
-// ── OPERATION NOTES — Prompt serale brigata ──────────────────
+// ── OPERATION NOTES v2 — fix: window.supa (era window.supabaseClient) ──
 // Appare dopo le 22:30 CDT se l'utente non ha ancora risposto oggi.
 // Appare anche subito dopo doCloseTurn() in closing.js.
 // Salva in tabella operation_notes.
@@ -135,7 +135,7 @@ function msUntilPrompt(nowCDT) {
 }
 
 async function hasAnsweredToday() {
-  const sb = window.supabaseClient;
+  const sb = window.supa;
   if (!sb || !window.user) return false;
   const todayCDT = getNowCDT().toISOString().slice(0, 10);
   const { data } = await sb
@@ -245,21 +245,28 @@ window.submitOperationNote = async function() {
   const btn = document.getElementById('_opNoteSubmit');
   if (btn) { btn.textContent = '...'; btn.disabled = true; }
 
-  const sb = window.supabaseClient;
+  const sb = window.supa;
   const todayCDT = getNowCDT().toISOString().slice(0, 10);
 
-  const { error } = await sb.from('operation_notes').insert({
+  const { data: opData, error } = await sb.from('operation_notes').insert({
     note_date: todayCDT,
     user_name: window.user?.name || 'Unknown',
     note: note,
     lang: window.user?.lang || 'en',
     service: 'dinner',
-  });
+  }).select().single();
 
   if (error) {
     if (btn) { btn.textContent = s.submit; btn.disabled = false; }
     if (typeof showScToast === 'function') showScToast('❌ ' + error.message);
     return;
+  }
+
+  // Scrivi in office_items per L'Ufficio
+  if (typeof officeWriteItem === 'function') {
+    const userName = window.user?.name || 'Staff';
+    const titleLabel = userName + ' — nota serale: ' + note.slice(0, 80) + (note.length > 80 ? '...' : '');
+    officeWriteItem('operation_note', opData ? opData.id : null, userName, titleLabel, note);
   }
 
   const sheet = document.getElementById('_opNoteSheet');
@@ -271,3 +278,4 @@ window.submitOperationNote = async function() {
 
   if (typeof showScToast === 'function') showScToast('✅ ' + (window.user?.name?.split(' ')[0] || '') + ' — ' + s.toast);
 };
+

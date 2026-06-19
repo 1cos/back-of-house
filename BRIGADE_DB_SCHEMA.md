@@ -1,6 +1,6 @@
 # BRIGADE — DATABASE SCHEMA COMPLETO
 *Supabase project: ydqmumpytgrlceuinoqt*
-*Aggiornato: 2026-06-16 — v197*
+*Aggiornato: 2026-06-16 — v217*
 *Leggi questo file all'inizio di ogni sessione. Contiene le colonne reali del DB.*
 
 ---
@@ -74,8 +74,11 @@
 | qty | numeric | Quantità prodotta |
 | unit | text | Unità |
 | container | text | Contenitore usato |
+| started_at | timestamptz | Quando il cuoco ha premuto START (Focus Mode) |
+| duration_minutes | integer | Durata calcolata al DONE: (created_at - started_at) / 60 |
 
 **Stato:** 22 righe — tutti dati di test. App non ancora in uso reale.
+**Timing:** started_at + duration_minutes aggiunti per Focus Mode — storico per persona per prep (Cole vs Antonella).
 
 ---
 
@@ -213,6 +216,10 @@ Stessa struttura di recipes + colonne calcolate:
 | conversion_to_base | numeric | Grammi totali per unità acquisto |
 | last_invoice_date | date | |
 | active | boolean | |
+| do_not_order | boolean | DEFAULT false — blocco ordine per questo fornitore |
+| do_not_order_reason | text | Motivo blocco (es. "Max: non voglio piu farina da Hardies") |
+| do_not_order_set_at | timestamptz | Quando impostato il blocco |
+| do_not_order_set_by | text | Chi ha impostato (sempre Max via Chef AI) |
 
 **Formula $/100g:** per_case=(unit_price/conversion_to_base)*100 · per_lb=(unit_price/453.592)*100
 
@@ -458,3 +465,15 @@ Stessa struttura di recipes + colonne calcolate:
 6. **recipes.ingredients** = JSONB non strutturato. Per dipendenze strutturate usare `recipe_bom`
 7. **Dati finanziari** = mai allo staff: net_sales, gross_sales, food_cost, labor_cost, margin, total_spend, avg_unit_price
 8. **App non in produzione** — tutti i dati nel DB sono test di Max. Non fare considerazioni su volumi o comportamenti utente
+
+
+### events (aggiornata v217)
+Colonne aggiunte per TripleSeat:
+- contact_name, contact_email, contact_phone — contatto evento
+- room_name — sala (The Scuderia ecc.)
+- total_amount — importo totale
+- documents JSONB — array PDF {type, name, url} (BEO, Kitchen Sheet, Menu, Contract)
+- last_synced_at — ultimo sync TripleSeat
+
+source='tripleseat' per eventi importati, source='manual' per eventi manuali
+tripleseat_id UNIQUE — evita duplicati al sync

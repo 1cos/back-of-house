@@ -25,7 +25,7 @@ async function openRecipeForItem(itemId){
 
 function showNoteSheet(name, note){
   const sheet = document.createElement('div');
-  sheet.className = 'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end';
+  sheet.className = 'fixed inset-0 z-[150] bg-black/40 backdrop-blur-sm flex items-end';
   sheet.innerHTML = `<div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5 max-h-[70vh] overflow-auto" style="animation:slideUp .25s ease">
     <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4"></div>
     <h3 class="text-xl font-bold mb-3">📝 ${name}</h3>
@@ -36,6 +36,7 @@ function showNoteSheet(name, note){
   document.body.appendChild(sheet);
   addSwipeToClose(sheet.querySelector('div'), ()=>sheet.remove());
 }
+window.openRecipeForItem = openRecipeForItem;
 
 async function openRecipeByData(idx){
   const stale = SHOP_RECIPES[idx];
@@ -93,10 +94,10 @@ async function groqTranslate(text, targetLang){
 }
 
 // ── RENDER INGREDIENT LINE (used by preview + scaled view) ──
-function renderIngLine(i, scaleFactor){
+function renderIngLine(i, scaleFactor, trMap, uLang){
   // Section header — bold label, no bullet, no qty
   if(i.type === 'section'){
-    return `<li style="list-style:none;font-weight:700;font-size:11px;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;padding:8px 0 2px 0;margin-top:4px;">${i.name||''}</li>`;
+    return `<li style="list-style:none;font-weight:700;font-size:16px;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;padding:12px 0 4px 0;margin-top:6px;">${i.name||''}</li>`;
   }
   const rawQty = parseFloat(i.qty);
   let qtyDisplay = i.qty || '';
@@ -109,13 +110,39 @@ function renderIngLine(i, scaleFactor){
   }
   const unit = i.unit || '';
   const qtyStr = qtyDisplay && unit ? `<b>${qtyDisplay} ${unit}</b>` : qtyDisplay ? `<b>${qtyDisplay}</b>` : '';
-  return `<li style="list-style:none;padding:3px 0;">• ${qtyStr}${qtyStr?' ':''}<span>${i.name||''}</span>${i.comment?` <span style="color:#94a3b8;">(${i.comment})</span>`:''}</li>`;
+  // Pick translated name from DB if available, else capitalize English name
+  const nameKey = (i.name||'').toLowerCase();
+  const trEntry = trMap && trMap[nameKey];
+  let displayName;
+  if(trEntry && uLang === 'it' && trEntry.it) displayName = trEntry.it;
+  else if(trEntry && uLang === 'es' && trEntry.es) displayName = trEntry.es;
+  else displayName = (i.name||'').replace(/\b\w/g, c => c.toUpperCase());
+  // Show Italian comment only for Italian users
+  const showComment = i.comment && uLang === 'it';
+  return `<li style="list-style:none;padding:8px 0;font-size:19px;">• ${qtyStr}${qtyStr?' ':''}<span>${displayName}</span>${showComment?` <span style="color:#94a3b8;">(${i.comment})</span>`:''}</li>`;
+}
+
+// ── INGREDIENT TRANSLATION CACHE ──
+let _ingTranslations = null; // {name_en: {it: name_it, es: name_es}}
+
+async function loadIngTranslations(){
+  if(_ingTranslations) return _ingTranslations;
+  const {data} = await supa.from('ingredients').select('name,name_it,name_es').not('name_it','is',null);
+  _ingTranslations = {};
+  (data||[]).forEach(r=>{
+    _ingTranslations[r.name.toLowerCase()] = {it: r.name_it, es: r.name_es};
+  });
+  return _ingTranslations;
 }
 
 // ── RECIPE PREVIEW SHEET ─────────────────────────────────────
-function showRecipeSheet(rec){
+async function showRecipeSheet(rec){
   const sheet = document.createElement('div');
-  sheet.className = 'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end';
+  sheet.className = 'fixed inset-0 z-[150] bg-black/40 backdrop-blur-sm flex items-end';
+
+  // Load ingredient translations for current user language
+  const _trMap = await loadIngTranslations();
+  const _uLang = user?.lang || 'en';
 
   // Scaling state
   const baseServings   = rec.base_servings   || null;
@@ -126,59 +153,60 @@ function showRecipeSheet(rec){
 
   const sellingInfo = rec.selling_price ? `$${parseFloat(rec.selling_price).toFixed(2)}` : '';
   const fcInfo      = rec.food_cost_pct ? `${parseFloat(rec.food_cost_pct).toFixed(1)}% FC` : '';
-  const dispCat     = rec.menu_group || rec.category || '';
+  // Translate category
+  const CAT_MAP = {
+    it:{ Antipasti:'Antipasti', Primi:'Primi', Secondi:'Secondi', 'Table Side':'Table Side', Salads:'Insalate', Sides:'Contorni', Soups:'Zuppe', Desserts:'Dolci', Sauces:'Salse', Bases:'Basi', 'Finger Food':'Finger Food', Catering:'Catering', 'Add-ons':'Aggiunte' },
+    en:{ Antipasti:'Appetizers', Primi:'Pasta', Secondi:'Mains', 'Table Side':'Table Side', Salads:'Salads', Sides:'Sides', Soups:'Soups', Desserts:'Desserts', Sauces:'Sauces', Bases:'Bases', 'Finger Food':'Finger Food', Catering:'Catering', 'Add-ons':'Add-ons' },
+    es:{ Antipasti:'Aperitivos', Primi:'Pasta', Secondi:'Platos principales', 'Table Side':'Table Side', Salads:'Ensaladas', Sides:'Guarniciones', Soups:'Sopas', Desserts:'Postres', Sauces:'Salsas', Bases:'Bases', 'Finger Food':'Finger Food', Catering:'Catering', 'Add-ons':'Extras' }
+  };
+  const lang = user?.lang || 'en';
+  const rawCat = rec.menu_group || rec.category || '';
+  const dispCat = (CAT_MAP[lang]||CAT_MAP.en)[rawCat] || rawCat;
+  // Translate yield text (e.g. "1 porzione" → "1 serving")
+  const YIELD_MAP = { it:'porzione', en:'serving', es:'porción' };
+  const yieldRaw = rec.yield_text || rec.yield || '';
+  const yieldTr = yieldRaw.replace(/porzione|serving|porción/gi, YIELD_MAP[lang]||'serving');
   const headerMeta  = [
     dispCat,
-    rec.yield_text || rec.yield,
+    yieldTr,
     (rec.prep_time_minutes||rec.prep_time) ? ((rec.prep_time_minutes||rec.prep_time)+' min') : null,
     sellingInfo,
     fcInfo
   ].filter(Boolean).join(' · ');
 
   // Initial ingredients render (scale = 1)
-  const renderIngs = (factor) => (rec.ingredients||[]).map(i => renderIngLine(i, factor)).join('');
+  const renderIngs = (factor) => (rec.ingredients||[]).map(i => renderIngLine(i, factor, _trMap, _uLang)).join('');
 
   const scalingUI = canScale ? `
-    <div id="recipeScaler" style="background:#f8fafc;border-radius:14px;padding:12px;margin-bottom:12px;">
-      <div style="font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px;">Scale Recipe</div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <div style="flex:1;">
-          <div style="font-size:10px;color:#64748b;margin-bottom:3px;">Servings</div>
-          <div style="display:flex;align-items:center;gap:4px;">
-            <button id="scaleMinus" style="width:28px;height:28px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">−</button>
-            <input id="scaleServings" type="number" min="1" value="${baseServings||1}" style="width:52px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:4px 6px;font-size:14px;font-weight:600;">
-            <button id="scalePlus" style="width:28px;height:28px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
-          </div>
-        </div>
-        ${servingWeightG ? `
-        <div style="color:#cbd5e1;font-size:18px;padding-top:14px;">|</div>
-        <div style="flex:1;">
-          <div style="font-size:10px;color:#64748b;margin-bottom:3px;">Total weight</div>
-          <div style="display:flex;align-items:center;gap:4px;">
-            <input id="scaleWeight" type="number" min="0.1" step="0.1" value="${baseWeightG ? (baseWeightG/1000).toFixed(2).replace(/\.?0+$/,'') : ''}" style="width:72px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:4px 6px;font-size:14px;font-weight:600;">
-            <span style="font-size:12px;color:#64748b;">kg</span>
-          </div>
-        </div>` : ''}
+    <div id="recipeScaler" style="background:#f8fafc;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:13px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;">${tr('scaleRecipe')}</span>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button id="scaleMinus" style="width:32px;height:32px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">−</button>
+        <input id="scaleServings" type="number" min="1" value="${baseServings||1}" style="width:52px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:5px 6px;font-size:18px;font-weight:700;">
+        <button id="scalePlus" style="width:32px;height:32px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">+</button>
       </div>
-      <div id="scaleNote" style="font-size:10px;color:#94a3b8;margin-top:6px;">Base: ${baseServings||'?'} servings${baseWeightG ? ' · '+(baseWeightG/1000).toFixed(2).replace(/\.?0+$/,'')+'kg' : ''}</div>
+      ${servingWeightG ? `
+      <div style="color:#cbd5e1;font-size:16px;">|</div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <input id="scaleWeight" type="number" min="0.1" step="0.1" value="${baseWeightG ? (baseWeightG/1000).toFixed(2).replace(/\.?0+$/,'') : ''}" style="width:68px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:5px 6px;font-size:18px;font-weight:700;">
+        <span style="font-size:13px;color:#64748b;">kg</span>
+      </div>` : ''}
+      <span id="scaleNote" style="font-size:12px;color:#94a3b8;margin-left:auto;white-space:nowrap;">× ${baseServings||1}</span>
     </div>` : '';
 
   sheet.innerHTML = `
     <div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5 max-h-[85vh] overflow-auto" style="animation:slideUp .25s ease">
       <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4"></div>
-      <h3 class="text-xl font-bold mb-1">${rec.title||rec.name||''}</h3>
-      <p class="text-xs text-slate-500 mb-3">${headerMeta}</p>
+      <h3 class="text-3xl font-bold mb-2">${rec.title||rec.name||''}</h3>
+      <p class="text-base text-slate-500 mb-3">${headerMeta}</p>
       ${rec.pos_name ? '<div id="recipeSalesStats" style="margin-bottom:12px;"></div>' : ''}
       ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">🔄 Ogni '+rec.prep_frequency_days+(rec.prep_frequency_days===1?' giorno':' giorni')+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">📦 Dura '+rec.shelf_life_days+(rec.shelf_life_days===1?' giorno':' giorni')+'</span>' : ''}</div>` : ''}
       ${rec.image_url ? `<img src="${rec.image_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${rec.photo_url ? `<img src="${rec.photo_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${scalingUI}
-      ${(rec.ingredients||[]).length ? `<p class="text-sm font-semibold mb-1">${tr("ingredients")}</p><ul id="ingDisplay" class="text-sm mb-3" style="padding:0;">${renderIngs(1)}</ul>` : ''}
-      ${rec.equipment ? `<p class="text-sm font-semibold mb-1">Equipment</p><p class="text-xs text-slate-600 mb-3 whitespace-pre-wrap">${rec.equipment}</p>` : ''}
-      ${rec.procedure ? `<p class="text-sm font-semibold mb-1">Procedure</p><p class="text-sm text-slate-700 whitespace-pre-wrap mb-4">${rec.procedure}</p>` : ''}
-      <div id="recipeFoodCost_${rec.id||'x'}" class="mb-3">
-        <div style="font-size:11px;color:#94a3b8;padding:6px 0;">Loading food cost...</div>
-      </div>
+      ${(rec.ingredients||[]).length ? `<p class="text-lg font-semibold mb-2">${tr("ingredients")}</p><ul id="ingDisplay" class="mb-4" style="padding:0;">${renderIngs(1)}</ul>` : ''}
+      ${rec.equipment ? `<p class="text-lg font-semibold mb-2">Equipment</p><p class="text-base text-slate-600 mb-4 whitespace-pre-wrap">${rec.equipment}</p>` : ''}
+      ${rec.procedure ? `<p class="text-lg font-semibold mb-2">Procedure</p><p class="text-lg text-slate-700 whitespace-pre-wrap mb-5 leading-relaxed">${rec.procedure}</p>` : ''}
       ${isAdmin() ? `<button id="recipeEditBtn" class="w-full mt-2 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm">✏️ Edit Recipe</button>` : ''}
       <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
     </div>`;
@@ -193,7 +221,6 @@ function showRecipeSheet(rec){
     editBtn.onclick = ()=>{ sheet.remove(); openRecipeEditor(rec); };
   }
 
-  calcRecipeFoodCost(rec);
   if(rec.pos_name) loadRecipeSalesStats(rec, sheet);
 
   // Scaling logic
@@ -265,11 +292,9 @@ function renderRecipes(){
 
   document.getElementById('recipeGrid').innerHTML = filtered.map((r,idx)=>{
     const realIdx = SHOP_RECIPES.indexOf(r);
-    const fcColor = r.food_cost_pct ? (r.food_cost_pct<28?'#10b981':r.food_cost_pct<35?'#f59e0b':'#ef4444') : null;
     const dispCat = r.menu_group || r.category || 'General';
     const badges = [
-      r.selling_price ? `<span style="font-size:10px;color:#64748b;">$${parseFloat(r.selling_price).toFixed(2)}</span>` : '',
-      r.food_cost_pct && fcColor ? `<span style="font-size:10px;color:${fcColor};font-weight:600;">${parseFloat(r.food_cost_pct).toFixed(1)}% FC</span>` : ''
+      r.selling_price ? `<span style="font-size:10px;color:#64748b;">$${parseFloat(r.selling_price).toFixed(2)}</span>` : ''
     ].filter(Boolean).join('');
     return `<div class="bg-white p-3 rounded-2xl border shadow-sm cursor-pointer active:scale-[0.98] transition" onclick="openRecipeByData(${realIdx})">
       <div class="font-semibold text-[15px] leading-tight mb-1">${r.title}</div>
@@ -282,7 +307,7 @@ function renderRecipes(){
 // ── RECIPE MANAGER (link prep → recipe) ─────────────────────
 function openRecipeManager(){
   const modal = document.createElement('div');
-  modal.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
+  modal.className = 'fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[85vh] flex flex-col">
     <div class="p-4 border-b flex items-center justify-between"><h3 class="font-bold text-lg">Link Recipes</h3><button onclick="this.closest('.fixed').remove()" class="text-slate-400">✕</button></div>
     <div class="p-4 overflow-auto flex-1">
@@ -306,7 +331,7 @@ function openRecipeManager(){
 // ── RECIPE EDITOR (admin only) ───────────────────────────────
 function openRecipeEditor(rec=null){
   const modal = document.createElement('div');
-  modal.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
+  modal.className = 'fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col">
     <div class="p-4 border-b"><h3 class="font-bold">${rec?'Edit':'New'} Recipe</h3></div>
     <div class="p-4 overflow-auto space-y-3 text-sm">
@@ -421,22 +446,91 @@ function openRecipeEditor(rec=null){
   const ingList = modal.querySelector('#ingList');
   const UNITS = ['g','kg','ml','l','oz','lb','cup','tbsp','tsp','each'];
 
-  function addIngRow(d={qty:'',unit:'g',name:'',comment:'',type:'ingredient'}){
+  function addIngRow(d={qty:'',unit:'g',name:'',comment:'',type:'ingredient',ingredient_id:null,sub_recipe_id:null}){
     const row = document.createElement('div');
     row.dataset.type = 'ingredient';
+    row.dataset.ingredientId = d.ingredient_id || '';
+    row.dataset.subRecipeId  = d.sub_recipe_id  || '';
     row.style.display = 'grid';
     row.style.gridTemplateColumns = '56px 66px 1fr 80px auto';
     row.style.gap = '4px';
     row.style.alignItems = 'center';
+
+    const linkedColor = d.ingredient_id ? '#10b981' : d.sub_recipe_id ? '#3b82f6' : '';
+    const linkedBg    = d.ingredient_id ? '#f0fdf4' : d.sub_recipe_id ? '#eff6ff' : '';
+    const safeName    = (d.name||'').replace(/"/g,'&quot;');
+
     row.innerHTML = `
       <input placeholder="200" class="px-2 py-1.5 border rounded text-xs" value="${d.qty||''}" type="number" min="0" step="any">
       <select class="px-1 py-1.5 border rounded text-xs bg-white">
         ${UNITS.map(u=>`<option ${(d.unit||'g')===u?'selected':''}>${u}</option>`).join('')}
       </select>
-      <input placeholder="ingredient" class="px-2 py-1.5 border rounded text-xs" value="${d.name||''}">
-      <input placeholder="note" class="px-2 py-1.5 border rounded text-xs" value="${d.comment||''}">
+      <div style="position:relative;">
+        <input placeholder="ingredient / sub-recipe" class="ing-name-input w-full px-2 py-1.5 border rounded text-xs"
+          value="${safeName}"
+          style="border-color:${linkedColor};background:${linkedBg};">
+        <div class="ing-ac-drop" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);max-height:200px;overflow-y:auto;"></div>
+      </div>
+      <input placeholder="note" class="px-2 py-1.5 border rounded text-xs" value="${(d.comment||'').replace(/"/g,'&quot;')}">
       <button class="text-red-400 text-base" style="min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>`;
     row.querySelector('button').onclick = ()=>row.remove();
+
+    // ── Autocomplete ──
+    const nameInput = row.querySelector('.ing-name-input');
+    const drop      = row.querySelector('.ing-ac-drop');
+    let _t = null;
+
+    function resetLink(){
+      row.dataset.ingredientId = '';
+      row.dataset.subRecipeId  = '';
+      nameInput.style.borderColor = '';
+      nameInput.style.background  = '';
+    }
+
+    function selectItem(name, iid, rid){
+      nameInput.value = name;
+      row.dataset.ingredientId = iid || '';
+      row.dataset.subRecipeId  = rid || '';
+      nameInput.style.borderColor = iid ? '#10b981' : '#3b82f6';
+      nameInput.style.background  = iid ? '#f0fdf4' : '#eff6ff';
+      drop.style.display = 'none';
+    }
+
+    nameInput.addEventListener('input', ()=>{
+      clearTimeout(_t);
+      resetLink();
+      const q = nameInput.value.trim();
+      if(q.length < 2){ drop.style.display='none'; return; }
+      _t = setTimeout(async()=>{
+        const [ri, rr] = await Promise.all([
+          supa.from('ingredients').select('id,name,category').ilike('name',`%${q}%`).eq('active',true).order('name').limit(8),
+          supa.from('recipes').select('id,title,menu_group').ilike('title',`%${q}%`).order('title').limit(4)
+        ]);
+        const ings = ri.data||[], recs = rr.data||[];
+        if(!ings.length && !recs.length){ drop.style.display='none'; return; }
+        drop.innerHTML = [
+          ...ings.map(i=>`<div class="ac-opt" data-iid="${i.id}" data-name="${i.name.replace(/"/g,'&quot;')}"
+            style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f8fafc;">
+            <span><b>${i.name}</b> <span style="color:#94a3b8;font-size:10px;">${i.category||''}</span></span>
+            <span style="font-size:9px;background:#f0fdf4;color:#059669;padding:1px 6px;border-radius:4px;flex-shrink:0;">ingredient</span>
+          </div>`),
+          ...recs.map(r=>`<div class="ac-opt" data-rid="${r.id}" data-name="${r.title.replace(/"/g,'&quot;')}"
+            style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f8fafc;">
+            <span><b>${r.title}</b> <span style="color:#94a3b8;font-size:10px;">${r.menu_group||''}</span></span>
+            <span style="font-size:9px;background:#eff6ff;color:#3b82f6;padding:1px 6px;border-radius:4px;flex-shrink:0;">sub-recipe</span>
+          </div>`)
+        ].join('');
+        drop.style.display = 'block';
+        drop.querySelectorAll('.ac-opt').forEach(el=>{
+          el.addEventListener('mousedown', e=>{
+            e.preventDefault();
+            selectItem(el.dataset.name, el.dataset.iid||'', el.dataset.rid||'');
+          });
+        });
+      }, 220);
+    });
+
+    nameInput.addEventListener('blur', ()=>{ setTimeout(()=>{ drop.style.display='none'; }, 160); });
     ingList.appendChild(row);
   }
 
@@ -457,7 +551,14 @@ function openRecipeEditor(rec=null){
   // Populate existing ingredients
   (rec?.ingredients||[{},{},{}]).forEach(i=>{
     if(i.type === 'section') addSectionRow(i);
-    else addIngRow(i);
+    else addIngRow({
+      qty:           i.qty,
+      unit:          i.unit,
+      name:          i.name,
+      comment:       i.comment,
+      ingredient_id: i.ingredient_id || null,
+      sub_recipe_id: i.sub_recipe_id  || null
+    });
   });
 
   modal.querySelector('#addIng').onclick     = ()=>addIngRow();
@@ -475,16 +576,26 @@ function openRecipeEditor(rec=null){
     const sp       = parseFloat(modal.querySelector('#rPrice')?.value)||null;
 
     // Collect ingredients — both section headers and ingredient rows
+    // Retrocompatibile: righe vecchie non hanno .ing-name-input — fallback su tutti gli input testo
     const ingredients = [...ingList.children].map(row=>{
       if(row.dataset.type === 'section'){
         return { type:'section', name: row.querySelector('input').value.trim() };
       }
-      const [qtyEl, unitEl, nameEl, commentEl] = row.querySelectorAll('input, select');
+      const qtyEl  = row.querySelector('input[type="number"]');
+      const unitEl = row.querySelector('select');
+      // Nome: preferisce .ing-name-input (righe nuove), fallback primo input testo (righe vecchie)
+      const nameEl = row.querySelector('.ing-name-input') ||
+                     [...row.querySelectorAll('input')].find(el => el.type !== 'number');
+      // Note: ultimo input testo che non è il nome
+      const allTextInputs = [...row.querySelectorAll('input')].filter(el => el.type !== 'number' && el !== nameEl);
+      const commentEl = allTextInputs[allTextInputs.length - 1] || null;
       return {
-        qty:     parseFloat(qtyEl.value)||qtyEl.value||'',
-        unit:    unitEl.value||'g',
-        name:    nameEl.value.trim(),
-        comment: commentEl.value.trim()
+        qty:           parseFloat(qtyEl?.value)||qtyEl?.value||'',
+        unit:          unitEl?.value||'g',
+        name:          nameEl?.value.trim()||'',
+        comment:       commentEl?.value.trim()||'',
+        ingredient_id: row.dataset.ingredientId || null,
+        sub_recipe_id: row.dataset.subRecipeId  || null
       };
     }).filter(i=> i.type==='section' ? i.name : i.name);
 
@@ -507,12 +618,15 @@ function openRecipeEditor(rec=null){
     };
 
     try{
+      let savedId = rec?.id;
       if(rec?.id){
         await supa.from('recipes').update(newRec).eq('id',rec.id);
         await supa.from('recipe_translations').delete().eq('recipe_id',rec.id);
       } else {
-        await supa.from('recipes').insert(newRec);
+        const {data:inserted} = await supa.from('recipes').insert(newRec).select('id').single();
+        savedId = inserted?.id;
       }
+      if(savedId) await saveRecipeBOM(savedId, ingredients);
       modal.remove();
       await init();
       renderRecipes();
@@ -694,7 +808,7 @@ async function loadRecipeSalesStats(rec, sheetEl) {
   if (!el) return;
 
   try {
-    const sb = window.supabaseClient;
+    const sb = supa;
 
     // Date ultima settimana (lun→sab scorsi)
     const today = new Date(); today.setHours(0,0,0,0);
@@ -757,7 +871,8 @@ async function loadRecipeSalesStats(rec, sheetEl) {
       if (dw === 5 || dw === 6) { wkC += q; if (!counted['wk_' + r.sale_date]) { counted['wk_' + r.sale_date] = 1; wkDays++; } }
     });
 
-    // Modifier: contorno = mezza porzione
+    // Modifier: Brussels modifier = 0.5 (aggiunta su piatto), Brussels side item = 1.0
+    // Regola Zenos: modifier = mezza porzione, side = porzione intera
     allModRows.forEach(r => {
       const dw = new Date(r.sale_date + 'T12:00:00').getDay();
       const q = (Number(r.quantity_sold) || 0) * 0.5;
@@ -780,21 +895,21 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     // Render pillole stile Opzione B
     const hasVariants = posNames.length > 1;
     const withBuffer = v => v > 0 ? Math.ceil(v * 1.15) : 0;
-    const fmt1 = v => v > 0 ? Math.ceil(v) + ' porzioni' : '—';
+    const fmt1 = v => v > 0 ? Math.ceil(v) + ' pz' : '—';
     const fmtPrep = v => v > 0 ? v + ' porzioni' : '—';
 
     el.innerHTML =
-      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Sett. scorsa' + (hasVariants ? ' · porz. equiv.' : '') + '</div>' +
+      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Sett. scorsa · media/giorno' + (hasVariants ? ' · porz. equiv.' : '') + '</div>' +
       '<div style="display:flex;gap:8px;">' +
 
       '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
         '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Lun→Gio</div>' +
-        '<div style="font-size:16px;font-weight:900;color:#6366f1;line-height:1;">' + fmt1(ferC) + '</div>' +
+        '<div style="font-size:16px;font-weight:900;color:#6366f1;line-height:1;">' + fmt1(ferAvg) + '</div>' +
       '</div>' +
 
       '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
         '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Ven+Sab</div>' +
-        '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + fmt1(wkC) + '</div>' +
+        '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + fmt1(wkAvg) + '</div>' +
       '</div>' +
 
       (prepToday > 0 ?
@@ -812,4 +927,25 @@ async function loadRecipeSalesStats(rec, sheetEl) {
   }
 }
 
+// ── RECIPE BOM — save structured links ───────────────────────
+async function saveRecipeBOM(recipeId, ingredientRows){
+  // Delete existing BOM rows for this recipe
+  await supa.from('recipe_bom').delete().eq('parent_recipe_id', recipeId);
+
+  const rows = ingredientRows
+    .filter(i => i.type !== 'section' && (i.ingredient_id || i.sub_recipe_id))
+    .map(i => ({
+      parent_recipe_id: recipeId,
+      component_type:   i.sub_recipe_id ? 'RECIPE' : 'ITEM',
+      item_id:          i.ingredient_id || null,
+      sub_recipe_id:    i.sub_recipe_id || null,
+      quantity:         parseFloat(i.qty) || null,
+      unit:             i.unit || null,
+      notes:            i.comment || null
+    }));
+
+  if(!rows.length) return;
+  const {error} = await supa.from('recipe_bom').insert(rows);
+  if(error) console.error('[BOM] insert error:', error);
+}
 

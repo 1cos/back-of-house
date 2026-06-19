@@ -264,7 +264,7 @@ window.icLoad = async function() {
 
     const { data, error } = await sb
       .from('ingredients')
-      .select('id,name,category,base_unit,active,notes')
+      .select('id,name,category,base_unit,active,notes,avg_unit_weight_g')
       .order('name', { ascending: true });
 
     if (error) throw new Error(error.message);
@@ -336,6 +336,19 @@ function icRowHTML(ingr) {
           </div>
         </div>
       </div>
+      <!-- Avg Unit Weight — always visible, inline editable -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <label style="font-size:12px;font-weight:600;color:#64748b;white-space:nowrap;min-width:140px;">AVG UNIT WEIGHT (g)</label>
+        <input id="icWeightInput-${ingr.id}" type="number" min="0" step="0.1"
+          value="${ingr.avg_unit_weight_g != null ? ingr.avg_unit_weight_g : ''}"
+          placeholder="—"
+          style="width:90px;height:34px;padding:0 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:16px;font-weight:600;text-align:center;outline:none;" />
+        <button onclick="icSaveWeight('${ingr.id}')"
+          style="height:34px;padding:0 12px;border-radius:8px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;white-space:nowrap;">
+          Save
+        </button>
+        <div id="icWeightStatus-${ingr.id}" style="font-size:12px;color:#10b981;display:none;">✓ Saved</div>
+      </div>
       <!-- Edit form (hidden by default) -->
       <div id="icEditForm-${ingr.id}" style="display:none;margin-bottom:8px;">
         <div style="display:flex;gap:6px;">
@@ -382,6 +395,47 @@ window.icStartEdit = function(id, currentName) {
 window.icCancelEdit = function(id) {
   document.getElementById('icEditForm-' + id).style.display = 'none';
   document.getElementById('icActions-' + id).style.display = 'flex';
+};
+
+// ── Save avg_unit_weight_g ────────────────────────────────────
+window.icSaveWeight = async function(id) {
+  const input = document.getElementById('icWeightInput-' + id);
+  const statusEl = document.getElementById('icWeightStatus-' + id);
+  if (!input) return;
+
+  const raw = input.value.trim();
+  const val = raw === '' ? null : parseFloat(raw);
+  if (raw !== '' && isNaN(val)) { input.focus(); return; }
+
+  input.disabled = true;
+  try {
+    const sb = window.supabaseClient;
+    if (!sb) throw new Error('Supabase not available');
+    const { error } = await sb
+      .from('ingredients')
+      .update({ avg_unit_weight_g: val, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw new Error(error.message);
+
+    // Update local cache
+    const rec = (window._icData || []).find(r => r.id === id);
+    if (rec) rec.avg_unit_weight_g = val;
+
+    // Show ✓ briefly
+    if (statusEl) {
+      statusEl.style.display = 'inline';
+      setTimeout(() => { if (statusEl) statusEl.style.display = 'none'; }, 2000);
+    }
+  } catch(e) {
+    if (statusEl) {
+      statusEl.style.display = 'inline';
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = '✗ ' + e.message;
+      setTimeout(() => { if (statusEl) { statusEl.style.display = 'none'; statusEl.style.color = '#10b981'; statusEl.textContent = '✓ Saved'; } }, 3000);
+    }
+  } finally {
+    input.disabled = false;
+  }
 };
 
 // ── Title Case helper ────────────────────────────────────────

@@ -5,38 +5,32 @@ async function loadBriefing(){
   el.innerHTML='<div class="animate-pulse h-4 bg-slate-100 rounded w-3/4"></div><div class="animate-pulse h-4 bg-slate-100 rounded w-full mt-2"></div><div class="animate-pulse h-4 bg-slate-100 rounded w-2/3 mt-2"></div>';
   try{
     const today=getNowDallas().toLocaleDateString('en-CA');
-    let{data:briefing}=await supa.from('briefing').select('*').eq('date',today).maybeSingle();
-    if(!briefing){
-      const res=await fetch(`${SUPABASE_URL}/functions/v1/generate-briefing`,{
-        method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`}
-      });
-      const json=await res.json();
-      if(json.points) briefing={points:json.points};
-    }
+    const{data:briefing}=await supa.from('briefing').select('*').eq('date',today).maybeSingle();
     if(!briefing||!briefing.points||!briefing.points.length){
       el.innerHTML='<p class="text-sm text-slate-400">'+tr('briefingEmpty')+'</p>';
       return;
     }
     const icons=['🔴','🟡','🔵'];
-    let points=briefing.points;
-    if(user?.lang&&user.lang!=='it'){
-      try{
-        points=await Promise.all(points.map(p=>
-          fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
-            method:'POST',
-            headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
-            body:JSON.stringify({text:p,targetLang:user.lang})
-          }).then(r=>r.json()).then(j=>j.translated||p).catch(()=>p)
-        ));
-      }catch(e){}
+    const lang=user&&user.lang?user.lang:'it';
+    const isAdmin_flag=typeof isAdmin==='function'&&isAdmin();
+    // Legge colonna gia tradotta dal DB --- zero chiamate ai-translate
+    var points;
+    if(isAdmin_flag){
+      if(lang==='en'&&briefing.points_en&&briefing.points_en.length) points=briefing.points_en;
+      else if(lang==='es'&&briefing.points_es&&briefing.points_es.length) points=briefing.points_es;
+      else points=briefing.points;
+    } else {
+      const staffPts=briefing.points_staff&&briefing.points_staff.length?briefing.points_staff:briefing.points;
+      if(lang==='en'&&briefing.points_staff_en&&briefing.points_staff_en.length) points=briefing.points_staff_en;
+      else if(lang==='es'&&briefing.points_staff_es&&briefing.points_staff_es.length) points=briefing.points_staff_es;
+      else points=staffPts;
     }
-    el.innerHTML=points.map((p,i)=>
-      '<div class="flex gap-2 items-start py-1">'+
+    el.innerHTML=(points||[]).map(function(p,i){
+      return '<div class="flex gap-2 items-start py-1">'+
       '<span class="text-sm mt-0.5 flex-shrink-0">'+(icons[i]||'•')+'</span>'+
       '<p class="text-sm text-slate-700 leading-snug">'+p+'</p>'+
-      '</div>'
-    ).join('');
+      '</div>';
+    }).join('');
   }catch(e){
     el.innerHTML='<p class="text-sm text-red-500">'+tr('briefingError')+'</p>';
   }
@@ -175,7 +169,7 @@ async function loadServiceUpdates(){
     const{data:items}=await supa.from('pos_sales_by_item')
       .select('menu_item,quantity')
       .eq('sale_date',yStr)
-      .not('menu_group','in','("NA Beverages","Beverages","Mocktail")')
+      .not('menu_group','in','("NA Beverages","Beverages","Mocktail","Beer","Common Cocktails","House Cocktails","Gin","Rum","Scotch","Tequila","Liqueurs")')
       .lt('quantity',1000)
       .order('quantity',{ascending:false})
       .limit(3);
@@ -285,26 +279,51 @@ async function loadUpcomingDemand(){
 
 // ── SERVICE UPDATES MODAL ──
 async function openServiceUpdates(){
-  const{data}=await supa.from('service_updates').select('*').order('created_at',{ascending:false}).limit(20);
+  // Top food di ieri — no drink, no alcol, no dati finanziari
+  const now=getNowDallas();
+  const yesterday=new Date(now);
+  yesterday.setDate(yesterday.getDate()-1);
+  const yStr=yesterday.toLocaleDateString('en-CA');
+
+  const EXCLUDED_GROUPS=['NA Beverages','Beverages','Mocktail','Lunch','Soup'];
+  const EXCLUDED_KEYWORDS=['tea','water','coffee','pepsi','coke','soda','beer','wine','liquor','spirit','cocktail','margarita','michelob','modelo','corona','seltzr','seltzer','lemonade','juice','milk','espresso','cappuccino'];
+
+  const{data:items}=await supa.from('pos_sales_by_item')
+    .select('menu_item,quantity,menu_group')
+    .eq('sale_date',yStr)
+    .not('menu_group','in','("'+EXCLUDED_GROUPS.join('","')+'")')
+    .lt('quantity',1000)
+    .order('quantity',{ascending:false})
+    .limit(20);
+
+  // Filtra per keyword bevande
+  const filtered=(items||[]).filter(i=>{
+    const name=(i.menu_item||'').toLowerCase();
+    return !EXCLUDED_KEYWORDS.some(k=>name.includes(k));
+  }).slice(0,10);
+
+  const medals=['🥇','🥈','🥉'];
+  const dayLabel=yesterday.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'});
+
+  const rows=filtered.length
+    ? filtered.map((item,i)=>
+        '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+        '<span style="font-size:18px;min-width:28px;">'+(medals[i]||'·')+'</span>'+
+        '<span style="font-size:14px;color:#1e3a5f;font-weight:500;flex:1;">'+item.menu_item+'</span>'+
+        '<span style="font-size:13px;color:#60a5fa;font-weight:600;">'+item.quantity+' pcs</span>'+
+        '</div>'
+      ).join('')
+    : '<div style="font-size:13px;color:#93c5fd;padding:8px 0;">No food data for yesterday</div>';
+
   const modal=document.createElement('div');
   modal.className='fixed inset-0 z-50 flex items-end';
   modal.style.background='rgba(0,0,0,0.3)';
-  modal.innerHTML='<div style="background:rgba(255,255,255,0.95);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:70vh;overflow-y:auto;animation:slideUp .25s ease">'+
+  modal.innerHTML='<div style="background:rgba(255,255,255,0.97);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:75vh;overflow-y:auto;animation:slideUp .25s ease">'+
     '<div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>'+
-    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'+
-    '<div style="font-size:14px;font-weight:500;color:#1e3a5f;">Yesterday\'s Highlights</div>'+
-    (isAdmin()?'<button onclick="addServiceUpdate()" style="font-size:12px;color:#3B82F6;background:rgba(59,130,246,0.1);border:none;padding:4px 10px;border-radius:8px;cursor:pointer;">+ Add</button>':'')+
-    '</div><div>'+
-    (data||[]).map(u=>{
-      const color=u.level==='urgent'?'#ef4444':u.level==='warning'?'#f59e0b':'#3B82F6';
-      const t=new Date(u.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Chicago'});
-      return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
-        '<div style="width:7px;height:7px;border-radius:50%;background:'+color+';flex-shrink:0;margin-top:5px;"></div>'+
-        '<div style="flex:1;"><div style="font-size:13px;color:#1e3a5f;line-height:1.4;">'+u.message+'</div>'+
-        '<div style="font-size:10px;color:#93c5fd;margin-top:2px;">'+(u.created_by||'System')+' · '+t+'</div></div>'+
-        '</div>';
-    }).join('')+
-    '</div><button onclick="this.closest(\'.fixed\').remove()" style="width:100%;height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;margin-top:14px;">Close</button>'+
+    '<div style="font-size:14px;font-weight:600;color:#1e3a5f;margin-bottom:4px;">Yesterday\'s Highlights</div>'+
+    '<div style="font-size:11px;color:#93c5fd;margin-bottom:14px;">'+dayLabel+'</div>'+
+    '<div>'+rows+'</div>'+
+    '<button onclick="this.closest(\'.fixed\').remove()" style="width:100%;height:44px;border-radius:14px;background:#1e3a5f;color:white;font-size:14px;font-weight:600;margin-top:16px;border:none;">Close</button>'+
     '</div>';
   modal.onclick=e=>{if(e.target===modal)modal.remove()};
   document.body.appendChild(modal);
@@ -318,3 +337,4 @@ async function addServiceUpdate(){
   loadServiceUpdates();
   document.querySelector('.fixed')?.remove();
 }
+

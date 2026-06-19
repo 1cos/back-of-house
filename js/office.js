@@ -1,0 +1,659 @@
+// ══════════════════════════════════════════════════════════════
+// L'UFFICIO — js/office.js
+// Scrivania operativa admin. Legge office_items dal DB.
+// Fonti: tell_chef, operation_note, ai_scan, sous_chef_chat
+// ══════════════════════════════════════════════════════════════
+
+// ── SCRIVI IN OFFICE_ITEMS (usata da tell-chef e operation-notes) ──
+window.officeWriteItem = async function(source, sourceId, fromUser, title, body) {
+  const sb = window.supa;
+  if (!sb) return;
+  try {
+    await sb.from('office_items').insert({
+      source: source,
+      source_id: sourceId ? String(sourceId) : null,
+      from_user: fromUser || 'system',
+      priority: 'blue',
+      title: title,
+      body: body,
+      ai_analysis: null,
+      ai_options: [],
+      status: 'open',
+    });
+  } catch(e) {
+    console.error('[Office] officeWriteItem error:', e.message);
+  }
+};
+
+
+var _officeFolderMap = {
+  tell_chef:      'brigata',
+  operation_note: 'brigata',
+  ai_scan:        'chefai',
+  sous_chef_chat: 'chefai',
+  prep_timing:    'prep',
+  price_guard:    'incongruenze',
+  food_cost_guard:'incongruenze',
+  suggestion:     'miglioramenti',
+  vendor_warning: 'fornitori'
+};
+
+var _officeFolders = [
+  { id:'brigata',       icon:'👨‍🍳', label:'La Brigata',    desc:'Tell Chef · Note serali',          ribbon:'#3b82f6', badge:'rgba(59,130,246,0.12)', badgeTxt:'#2563eb' },
+  { id:'chefai',        icon:'🤖',        label:'Chef AI',       desc:'AI scan · Sous Chef chat',         ribbon:'#8b5cf6', badge:'rgba(139,92,246,0.12)',  badgeTxt:'#7c3aed' },
+  { id:'prep',          icon:'📋',        label:'Prep & Check',  desc:'Alert timing · Task mancanti',     ribbon:'#f59e0b', badge:'rgba(245,158,11,0.12)',  badgeTxt:'#d97706' },
+  { id:'incongruenze',  icon:'⚠️',        label:'Incongruenze',  desc:'Prezzi · Pesi · Catchweight',      ribbon:'#f97316', badge:'rgba(249,115,22,0.12)',  badgeTxt:'#ea580c' },
+  { id:'miglioramenti', icon:'💡',        label:'Miglioramenti', desc:'Suggerimenti AI · Menu · Processi', ribbon:'#14b8a6', badge:'rgba(20,184,166,0.12)',  badgeTxt:'#0f766e' },
+  { id:'fornitori',     icon:'📦',        label:'Fornitori',     desc:'Warning prezzi · Fatture',         ribbon:'#10b981', badge:'rgba(16,185,129,0.12)',  badgeTxt:'#059669' },
+  { id:'dati',          icon:'📊',        label:'Dati',          desc:'Report vendite · Food cost',       ribbon:'#ec4899', badge:'rgba(236,72,153,0.12)',  badgeTxt:'#db2777' }
+];
+
+window.openOffice = function() {
+  if (typeof hideAdminMenu === 'function') hideAdminMenu();
+  var existing = document.getElementById('officeModal');
+  if (existing) existing.remove();
+  var existingOv = document.getElementById('officeOverlay');
+  if (existingOv) existingOv.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'officeOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:299;background:rgba(0,0,0,0.3);';
+  overlay.onclick = function() { officeStopRealtime(); overlay.remove(); document.getElementById('officeModal')?.remove(); };
+  document.body.appendChild(overlay);
+
+  var modal = document.createElement('div');
+  modal.id = 'officeModal';
+  modal.style.cssText = [
+    'position:fixed;top:0;bottom:0;z-index:300;',
+    'background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);',
+    'display:flex;flex-direction:column;overflow:hidden;',
+    'font-family:Inter,system-ui,sans-serif;',
+    'width:100%;max-width:480px;left:50%;transform:translateX(-50%);',
+  ].join('');
+
+  modal.innerHTML =
+    '<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:0.5px solid rgba(59,130,246,0.12);box-shadow:0 2px 8px rgba(30,58,95,0.06);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;">' +
+      '<button onclick="officeStopRealtime();document.getElementById(\'officeOverlay\')?.remove();document.getElementById(\'officeModal\')?.remove();" style="color:#60a5fa;background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1;">&#8592;</button>' +
+      '<div style="font-size:16px;font-weight:700;color:#1e3a5f;flex:1;">L\'Ufficio</div>' +
+      '<div id="officeBadge" style="display:none;background:#ef4444;color:white;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;"></div>' +
+    '</div>' +
+    '<div id="officeHomeContent" style="flex:1;overflow-y:auto;padding:16px 16px 60px;-webkit-overflow-scrolling:touch;">' +
+      '<div style="text-align:center;padding:40px;color:#94a3b8;">Caricamento...</div>' +
+    '</div>';
+
+  document.body.appendChild(modal);
+  officeLoadHome();
+  officeStartRealtime();
+};
+
+// ── CARICA HOME CON CASSETTI ──
+async function officeLoadHome() {
+  var sb = window.supa;
+  if (!sb) return;
+  var container = document.getElementById('officeHomeContent');
+  if (!container) return;
+
+  try {
+    var res = await sb.from('office_items').select('*').eq('status','open').order('created_at',{ascending:false}).limit(200);
+    var items = res.data || [];
+
+    // Conta per folder
+    var counts = {};
+    var previews = {};
+    _officeFolders.forEach(function(f) { counts[f.id] = 0; previews[f.id] = ''; });
+
+    items.forEach(function(item) {
+      var folder = _officeFolderMap[item.source] || 'chefai';
+      counts[folder] = (counts[folder] || 0) + 1;
+      if (!previews[folder]) previews[folder] = item.title || '';
+    });
+
+    var totalUnread = items.length;
+
+    // Badge header
+    var badge = document.getElementById('officeBadge');
+    if (badge) {
+      if (totalUnread > 0) { badge.style.display='block'; badge.textContent=totalUnread+' nuovi'; }
+      else badge.style.display='none';
+    }
+
+    // Costruisco con DOM invece di innerHTML per evitare problemi di escape
+    container.innerHTML = '';
+
+    // ── DA LEGGERE ──
+    var strip = document.createElement('div');
+    strip.style.cssText = 'background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:18px;padding:16px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;box-shadow:0 4px 16px rgba(30,58,95,0.25),0 8px 32px rgba(37,99,235,0.15);-webkit-tap-highlight-color:transparent;';
+    strip.innerHTML = '<div style="display:flex;align-items:center;gap:12px;"><span style="font-size:26px;">📬</span><div><div style="color:white;font-size:17px;font-weight:700;">Da leggere</div><div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:2px;">Tutti i messaggi in attesa</div></div></div><div style="background:white;color:#1e3a5f;font-size:22px;font-weight:800;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(30,58,95,0.2);">' + totalUnread + '</div>';
+    strip.addEventListener('click', function() { officeOpenFolder('nonletti'); });
+    container.appendChild(strip);
+
+    // Label
+    var lbl = document.createElement('div');
+    lbl.style.cssText = 'font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;padding-left:4px;';
+    lbl.textContent = 'Cassetti';
+    container.appendChild(lbl);
+
+    // Lista cassetti
+    var list = document.createElement('div');
+    list.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
+
+    _officeFolders.forEach(function(f) {
+      var count = counts[f.id] || 0;
+      var preview = previews[f.id] || 'Nessun messaggio';
+
+      var row = document.createElement('div');
+      row.style.cssText = 'background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;cursor:pointer;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 6px 20px rgba(30,58,95,0.04);-webkit-tap-highlight-color:transparent;';
+      row.innerHTML =
+        '<div style="display:flex;align-items:center;padding:14px 16px;gap:12px;">' +
+          '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:46px;flex-shrink:0;background:' + f.ribbon + ';"></div>' +
+          '<div style="font-size:26px;width:32px;text-align:center;">' + f.icon + '</div>' +
+          '<div style="flex:1;">' +
+            '<div style="color:#1e3a5f;font-size:16px;font-weight:600;">' + f.label + '</div>' +
+            '<div style="color:#60a5fa;font-size:12px;margin-top:3px;">' + f.desc + '</div>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<span style="font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px;background:' + f.badge + ';color:' + f.badgeTxt + ';">' + count + '</span>' +
+            '<span style="color:rgba(30,58,95,0.25);font-size:18px;">&#x203A;</span>' +
+          '</div>' +
+        '</div>' +
+        '<div style="border-top:0.5px solid rgba(59,130,246,0.1);padding:9px 16px 11px 65px;color:rgba(30,58,95,0.4);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + preview + '</div>';
+
+      var fid = f.id;
+      row.addEventListener('click', function() { officeOpenFolder(fid); });
+      list.appendChild(row);
+    });
+
+    container.appendChild(list);
+
+  } catch(e) {
+    container.innerHTML = '<div style="color:#ef4444;padding:40px;text-align:center;">Errore: ' + e.message + '</div>';
+  }
+}
+
+// ── APRI CASSETTO FULLSCREEN ──
+window.officeOpenFolder = async function(folderId) {
+  // Carica items dal DB invece di passarli inline
+  var sb = window.supa;
+  var items = [];
+  if (sb) {
+    try {
+      var res = await sb.from('office_items').select('*').eq('status','open').order('created_at',{ascending:false}).limit(200);
+      var all = res.data || [];
+      if (folderId === 'nonletti') {
+        items = all;
+      } else {
+        items = all.filter(function(i){ return (_officeFolderMap[i.source]||'chefai') === folderId; });
+      }
+    } catch(e) { console.warn('[Office] folder load error:', e.message); }
+  }
+  var existing = document.getElementById('officeFolder');
+  if (existing) existing.remove();
+
+  // Dati cassetto
+  var folderData = _officeFolders.find(function(f){ return f.id===folderId; });
+  var isNonLetti = folderId === 'nonletti';
+  var icon   = isNonLetti ? '📬' : (folderData ? folderData.icon : '📁');
+  var label  = isNonLetti ? 'Da leggere' : (folderData ? folderData.label : folderId);
+  var desc   = isNonLetti ? 'Tutti i messaggi in attesa' : (folderData ? folderData.desc : '');
+  var ribbon = isNonLetti ? '#1e3a5f' : (folderData ? folderData.ribbon : '#3b82f6');
+
+  var el = document.createElement('div');
+  el.id = 'officeFolder';
+  el.style.cssText = [
+    'position:fixed;top:0;left:50%;transform:translateX(-50%) translateY(100%);',
+    'width:100%;max-width:480px;height:100vh;z-index:400;',
+    'background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);',
+    'display:flex;flex-direction:column;overflow:hidden;',
+    'font-family:Inter,system-ui,sans-serif;',
+    'transition:transform 0.4s cubic-bezier(0.4,0,0.2,1);',
+  ].join('');
+
+  // Sort items: red → orange → blue
+  var sorted = (items || []).slice().sort(function(a,b){
+    var o={red:0,orange:1,blue:2};
+    return (o[a.priority]||2)-(o[b.priority]||2);
+  });
+
+  // Header del cassetto
+  el.innerHTML =
+    '<div style="width:40px;height:5px;background:rgba(30,58,95,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
+    '<div style="background:rgba(239,246,255,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid rgba(59,130,246,0.12);box-shadow:0 2px 8px rgba(30,58,95,0.06);padding:14px 16px;display:flex;align-items:center;gap:14px;flex-shrink:0;">' +
+      '<button onclick="officeCloseFolder()" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.7);border:0.5px solid rgba(59,130,246,0.18);color:#1e3a5f;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(30,58,95,0.1);">&#8592;</button>' +
+      '<div style="flex:1;">' +
+        '<div style="font-size:19px;font-weight:700;color:#1e3a5f;letter-spacing:-0.3px;">' + icon + ' ' + label + '</div>' +
+        '<div style="font-size:12px;color:#60a5fa;margin-top:2px;">' + desc + '</div>' +
+      '</div>' +
+      '<div style="width:5px;height:40px;border-radius:4px;background:' + ribbon + ';box-shadow:0 0 10px rgba(0,0,0,0.1);"></div>' +
+    '</div>' +
+    '<div id="officeFolderList" style="flex:1;overflow-y:auto;padding:14px 0 60px;-webkit-overflow-scrolling:touch;"></div>';
+
+  // Aggiungo card via DOM per evitare problemi con apostrofi nel testo
+  var listEl = el.querySelector('#officeFolderList');
+  if (sorted.length === 0) {
+    listEl.innerHTML = '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:12px;">✅</div><div style="font-size:15px;color:rgba(30,58,95,0.4);">Nessun messaggio in questo cassetto</div></div>';
+  } else {
+    sorted.forEach(function(item) {
+      var tmp = document.createElement('div');
+      tmp.innerHTML = officeRenderCard(item);
+      var card = tmp.firstElementChild;
+      if (card) listEl.appendChild(card);
+    });
+  }
+
+  document.body.appendChild(el);
+
+  // Slide up
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      el.style.transform = 'translateX(-50%) translateY(0)';
+    });
+  });
+
+  // Swipe down to close
+  officeAddSwipeDown(el);
+};
+
+window.officeCloseFolder = function() {
+  var el = document.getElementById('officeFolder');
+  if (!el) return;
+  el.style.transition = 'transform 0.35s cubic-bezier(0.4,0,0.2,1)';
+  el.style.transform = 'translateX(-50%) translateY(100%)';
+  setTimeout(function(){ el.remove(); }, 360);
+};
+
+function officeAddSwipeDown(el) {
+  var startY = 0, startScroll = 0, active = false;
+  var list = el.querySelector('#officeFolderList');
+
+  el.addEventListener('touchstart', function(e) {
+    startY = e.touches[0].clientY;
+    startScroll = list ? list.scrollTop : 0;
+    active = false;
+  }, { passive: true });
+
+  el.addEventListener('touchmove', function(e) {
+    var dy = e.touches[0].clientY - startY;
+    if ((list && list.scrollTop > 6) || dy <= 0) return;
+    active = true;
+    el.style.transition = 'none';
+    el.style.transform = 'translateX(-50%) translateY(' + dy + 'px)';
+    el.style.opacity = String(Math.max(0.4, 1 - dy/380));
+    e.preventDefault();
+  }, { passive: false });
+
+  el.addEventListener('touchend', function(e) {
+    if (!active) return;
+    var dy = e.changedTouches[0].clientY - startY;
+    if (dy > 110) {
+      el.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1),opacity 0.3s';
+      el.style.transform = 'translateX(-50%) translateY(100%)';
+      el.style.opacity = '0';
+      setTimeout(function(){ el.remove(); }, 320);
+    } else {
+      el.style.transition = 'transform 0.38s cubic-bezier(0.34,1.4,0.64,1),opacity 0.25s';
+      el.style.transform = 'translateX(-50%) translateY(0)';
+      el.style.opacity = '1';
+    }
+    active = false;
+  }, { passive: true });
+}
+
+
+// ── ANALIZZA ORA (on demand) ──
+window.officeAnalyzeNow = async function(btn) {
+  if (btn) { btn.textContent = '...'; btn.disabled = true; }
+  try {
+    const res = await fetch(window.SUPABASE_URL + '/functions/v1/office-ai', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + window.SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({}),
+    });
+    const d = await res.json();
+    if (typeof showScToast === 'function') {
+      showScToast(d.processed > 0 ? '✓ Analizzati ' + d.processed + ' item' : '✓ Tutto già analizzato');
+    }
+    officeLoad();
+  } catch(e) {
+    console.warn('[Office] office-ai call failed:', e.message);
+    if (typeof showScToast === 'function') showScToast('❌ Errore analisi');
+  } finally {
+    if (btn) { btn.textContent = 'Analizza'; btn.disabled = false; }
+  }
+};
+
+// ── REALTIME — aggiorna lista quando arriva un nuovo item ──
+var _officeRealtimeSub = null;
+
+function officeStartRealtime() {
+  var sb = window.supa;
+  if (!sb) return;
+  // Cancella subscription precedente se esiste
+  if (_officeRealtimeSub) {
+    sb.removeChannel(_officeRealtimeSub);
+    _officeRealtimeSub = null;
+  }
+  // Nome univoco per evitare conflitti con sessioni precedenti
+  var channelName = 'office-items-' + Date.now();
+  _officeRealtimeSub = sb.channel(channelName)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'office_items',
+    }, function(payload) {
+      officeLoadHome();
+      officeBadgeUpdate();
+    })
+    .subscribe(function(status) {
+      console.log('[Office] Realtime status:', status);
+    });
+}
+
+// Cancella realtime quando si chiude L'Ufficio
+var _origOfficeClose = null;
+function officeStopRealtime() {
+  var sb = window.supa;
+  if (sb && _officeRealtimeSub) {
+    sb.removeChannel(_officeRealtimeSub);
+    _officeRealtimeSub = null;
+  }
+}
+
+// ── SMART FOCUS — ora e appuntamenti imminenti ──
+function officeRenderSmartFocus() {
+  var el = document.getElementById('officeSmartFocus');
+  if (!el) return;
+
+  var now = (typeof getNowDallas === 'function') ? getNowDallas() : new Date();
+  var h = now.getHours();
+  var m = now.getMinutes();
+  var dow = now.getDay(); // 0=dom, 2=mar, 3=mer
+
+  var focus = null;
+
+  // Martedi pomeriggio (13:30-16:00) → meeting Monica
+  if (dow === 2 && h >= 13 && h < 16) {
+    var minutesLeft = (15 * 60) - (h * 60 + m - 13 * 60);
+    if (minutesLeft > 0 && minutesLeft <= 90) {
+      focus = {
+        label: 'Meeting Monica — tra ' + minutesLeft + ' minuti',
+        sub: 'Catering questa settimana · TripleSeat · Menu eventi',
+      };
+    }
+  }
+  // Mercoledi mattina (10:00-12:00) → meeting Zeno e Bo
+  if (dow === 3 && h >= 10 && h < 12) {
+    focus = {
+      label: 'Meeting Zeno & Bo — oggi',
+      sub: 'Front of house · Coordinamento sala/cucina',
+    };
+  }
+
+  if (!focus) {
+    el.style.display = 'none';
+    return;
+  }
+
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px 7px;border-bottom:0.5px solid rgba(59,130,246,0.08);">' +
+      '<span style="font-size:13px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Smart focus</span>' +
+    '</div>' +
+    '<div style="padding:10px 14px 5px;font-size:22px;font-weight:700;color:#1e3a5f;">' + focus.label + '</div>' +
+    '<div style="padding:0 14px 14px;font-size:17px;color:#60a5fa;">' + focus.sub + '</div>';
+}
+
+// ── CARICA ITEMS DAL DB ──
+async function officeLoad() {
+  var list = document.getElementById('officeList');
+  if (!list) return;
+  var sb = window.supa;
+  if (!sb) return;
+
+  try {
+    var res = await sb.from('office_items')
+      .select('*')
+      .eq('status', 'open')
+      .order('priority', { ascending: true }) // red first (alphabetical: blue, orange, red — fix below)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    var items = res.data || [];
+
+    // Sort: red → orange → blue
+    var order = { red: 0, orange: 1, blue: 2 };
+    items.sort(function(a, b) {
+      return (order[a.priority] || 2) - (order[b.priority] || 2);
+    });
+
+    // Badge
+    var badge = document.getElementById('officeBadge');
+    var urgent = items.filter(function(i) { return i.priority === 'red'; }).length;
+    if (badge) {
+      if (urgent > 0) {
+        badge.style.display = 'block';
+        badge.textContent = urgent + ' urgenti';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    if (!items.length) {
+      list.innerHTML = '<div style="text-align:center;padding:60px 20px;">' +
+        '<div style="font-size:36px;margin-bottom:12px;">✅</div>' +
+        '<div style="font-size:15px;font-weight:600;color:#1e3a5f;margin-bottom:6px;">Tutto a posto, Chef</div>' +
+        '<div style="font-size:13px;color:#94a3b8;">Nessuna decisione in sospeso.</div>' +
+        '</div>';
+      return;
+    }
+
+    var html = '';
+    var lastPriority = null;
+
+    var priorityLabels = { red: 'Urgente', orange: 'Da decidere', blue: 'Info' };
+
+    items.forEach(function(item) {
+      if (item.priority !== lastPriority) {
+        html += '<div style="font-size:12px;font-weight:700;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;padding:14px 16px 6px;">' +
+          (priorityLabels[item.priority] || 'Info') + '</div>';
+        lastPriority = item.priority;
+      }
+      html += officeRenderCard(item);
+    });
+
+    list.innerHTML = html;
+
+  } catch(e) {
+    list.innerHTML = '<div style="text-align:center;color:#ef4444;padding:40px;font-size:14px;">Errore caricamento: ' + e.message + '</div>';
+  }
+}
+
+// ── RENDER SINGOLA CARD ──
+function officeRenderCard(item) {
+  var dotColor = { red: '#ef4444', orange: '#f97316', blue: '#3b82f6' }[item.priority] || '#3b82f6';
+  var borderLeft = { red: '3px solid #ef4444', orange: '3px solid #f97316', blue: '3px solid #3b82f6' }[item.priority] || '3px solid #3b82f6';
+  var sourceLabels = { tell_chef: 'Tell Chef', operation_note: 'Op. note', ai_scan: 'AI scan', sous_chef_chat: 'Chat AI' };
+  var sourceLabel = sourceLabels[item.source] || item.source;
+
+  var ts = '';
+  try {
+    var d = new Date(item.created_at);
+    ts = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' }) +
+         ' · ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Chicago' });
+  } catch(e) {}
+
+  // Parse ai_options
+  var options = [];
+  try {
+    options = Array.isArray(item.ai_options) ? item.ai_options : JSON.parse(item.ai_options || '[]');
+  } catch(e) { options = []; }
+
+  var aiBlock = '';
+  if (item.ai_analysis) {
+    aiBlock =
+      '<div data-role="ai" style="margin:0 14px 8px;padding:8px 11px;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:10px;border-left:2px solid #3b82f6;">' +
+        '<div style="font-size:11px;color:#3b82f6;font-weight:700;letter-spacing:.04em;margin-bottom:4px;">Chef AI</div>' +
+        '<div style="font-size:17px;color:#1e3a5f;line-height:1.5;">' + item.ai_analysis + '</div>' +
+      '</div>';
+  }
+
+  var actionsHtml = '';
+  if (options.length > 0) {
+    actionsHtml = '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">';
+    options.forEach(function(opt, idx) {
+      var isPrimary = idx === options.length - 1;
+      actionsHtml +=
+        '<button onclick="officeResolve(\'' + item.id + '\',\'' + escOpt(opt.label) + '\')" ' +
+        'style="flex:1;padding:8px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid ' +
+        (isPrimary ? '#1e3a5f;background:#1e3a5f;color:white;' : 'rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;') +
+        '">' + opt.label + '</button>';
+    });
+    actionsHtml += '</div>';
+  } else {
+    // Bottoni differenziati per fonte
+    var src = item.source;
+    var styleGhost = 'flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;';
+    var styleSolid = 'flex:1;padding:11px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid #1e3a5f;background:#1e3a5f;color:white;';
+    var btnLeft = '', btnRight = '';
+
+    if (src === 'tell_chef') {
+      btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
+      btnRight = '<button onclick="officeResolve(\'' + item.id + '\',\'risolto\')" style="' + styleSolid + '">Risolto</button>';
+    } else if (src === 'operation_note') {
+      btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
+      btnRight = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleSolid + '">Archivia</button>';
+    } else if (src === 'ai_scan') {
+      btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleGhost + '">Ignora</button>';
+      btnRight = '<button onclick="officeInvestiga(\'' + item.id + '\')" style="' + styleSolid + '">Investiga</button>';
+    } else {
+      // sous_chef_chat — solo Letto
+      btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
+    }
+
+    actionsHtml =
+      '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">' +
+        btnLeft + btnRight +
+      '</div>';
+  }
+
+  return '<div data-item-id="' + item.id + '" style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-left:' + borderLeft + ';border-radius:16px;margin:0 12px 8px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 6px 16px rgba(30,58,95,0.04);">' +
+    '<div style="display:flex;align-items:flex-start;gap:8px;padding:11px 14px 6px;">' +
+      '<div data-role="dot" style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;margin-top:4px;"></div>' +
+      '<div style="font-size:20px;font-weight:700;color:#1e3a5f;flex:1;line-height:1.3;">' + (item.title || '') + '</div>' +
+      '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(59,130,246,0.07);color:#60a5fa;font-weight:600;white-space:nowrap;flex-shrink:0;">' + sourceLabel + '</span>' +
+    '</div>' +
+    (item.body ? '<div data-role="body" style="font-size:17px;color:#475569;padding:0 14px 12px;line-height:1.5;">' + item.body + '</div>' : '') +
+    aiBlock +
+    actionsHtml +
+    '<div data-role="meta" style="padding:0 14px 10px;font-size:12px;color:#94a3b8;font-weight:500;">' + (item.from_user && item.from_user !== 'system' ? item.from_user + ' · ' : '') + ts + '</div>' +
+  '</div>';
+}
+
+function escOpt(s) {
+  return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+// ── RISOLVI ITEM ──
+window.officeResolve = async function(id, resolution) {
+  var sb = window.supa;
+  if (!sb) return;
+  try {
+    var isLetto = (resolution === 'letto');
+    await sb.from('office_items').update({
+      status: isLetto ? 'open' : 'resolved',
+      resolved_by: window.user?.name || 'Max',
+      resolved_at: isLetto ? null : new Date().toISOString(),
+      resolution: isLetto ? null : resolution,
+      priority: isLetto ? 'blue' : undefined,
+    }).eq('id', id);
+
+    var card = document.querySelector('[data-item-id="' + id + '"]');
+
+    if (isLetto) {
+      // Comprimi — non sparisce, si minimizza
+      if (card) {
+        card.style.transition = 'all 0.3s ease';
+        card.style.opacity = '0.5';
+        card.style.borderLeft = '3px solid #cbd5e1';
+        var body = card.querySelector('[data-role="body"]');
+        var aiBlock = card.querySelector('[data-role="ai"]');
+        var actions = card.querySelector('[data-role="actions"]');
+        var meta = card.querySelector('[data-role="meta"]');
+        var dot = card.querySelector('[data-role="dot"]');
+        if (body) body.style.display = 'none';
+        if (aiBlock) aiBlock.style.display = 'none';
+        if (meta) meta.style.display = 'none';
+        if (dot) dot.style.background = '#cbd5e1';
+        if (actions) actions.innerHTML =
+          '<div style="padding:0 14px 10px;">' +
+            '<button onclick="officeReopen(\'' + id + '\')" ' +
+              'style="width:100%;padding:8px;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#94a3b8;">↩ Riapri</button>' +
+          '</div>';
+      }
+      if (typeof showScToast === 'function') showScToast('📌 Letto — ci torni dopo');
+    } else {
+      // Risolto — slide out e ricarica
+      if (card) {
+        card.style.transition = 'all 0.25s ease';
+        card.style.opacity = '0';
+        card.style.transform = 'translateX(40px)';
+        setTimeout(function() { officeLoad(); if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate(); }, 270);
+      } else {
+        officeLoad();
+        if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
+      }
+      if (typeof showScToast === 'function') showScToast('✓ Risolto');
+    }
+
+  } catch(e) {
+    if (typeof showScToast === 'function') showScToast('❌ Errore: ' + e.message);
+  }
+};
+
+// ── RIAPRI item da stato letto ──
+window.officeReopen = async function(id) {
+  var sb = window.supa;
+  if (!sb) return;
+  try {
+    await sb.from('office_items').update({ priority: 'orange', resolution: null }).eq('id', id);
+    officeLoad();
+  } catch(e) {
+    if (typeof showScToast === 'function') showScToast('❌ ' + e.message);
+  }
+};
+
+// ── BADGE NEI TRE PUNTINI — mostra numero items aperti ──
+window.officeBadgeUpdate = async function() {
+  var sb = window.supa;
+  if (!sb) return;
+  try {
+    var res = await sb.from('office_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'open');
+    var count = res.count || 0;
+    var badge = document.getElementById('officeMenuBadge');
+    if (!badge) return;
+    if (count > 0) {
+      badge.style.display = 'inline-flex';
+      badge.textContent = count;
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch(e) {}
+};
+
+// ── INVESTIGA — apre Sous Chef con testo item precaricato ──
+window.officeInvestiga = function(id) {
+  var card = document.querySelector('[data-item-id="' + id + '"]');
+  var title = card ? (card.querySelector('[data-role="body"]')?.textContent || card.querySelector('div[style*="font-size:20px"]')?.textContent || '') : '';
+  // Chiudi L'Ufficio
+  if (typeof officeStopRealtime === 'function') officeStopRealtime();
+  document.getElementById('officeOverlay')?.remove();
+  document.getElementById('officeModal')?.remove();
+  // Apri Sous Chef con testo precaricato
+  if (typeof window.openSousChef === 'function') {
+    window.openSousChef(title.trim());
+  }
+};

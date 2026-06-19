@@ -1,4 +1,4 @@
-// ── TELL CHEF ──
+// ── TELL CHEF v2 ── fix: user_name da window.user
 // Canale unidirezionale: cuoco → chef_reports DB → visibile solo a Max + Sous Chef
 // Nessun user puo leggere i report altrui
 
@@ -32,11 +32,41 @@ function openTellChef() {
           'style="flex:0 0 48px;height:48px;border:2px solid #e2e8f0;border-radius:14px;background:#f8fafc;font-size:20px;cursor:pointer;">✕</button>' +
       '</div>' +
       '<div id="tellChefStatus" style="margin-top:10px;text-align:center;font-size:13px;color:#94a3b8;min-height:20px;"></div>' +
+      '<div id="tellChefHistory" style="margin-top:16px;"></div>' +
     '</div>';
 
   document.body.appendChild(modal);
   modal.addEventListener('click', function(e) { if (e.target === modal) closeTellChef(); });
-  setTimeout(function() { var t = document.getElementById('tellChefText'); if (t) t.focus(); }, 100);
+  setTimeout(function() { var t = document.getElementById('tellChefText'); if (t) { t.focus(); t.click(); } }, 300);
+  loadTellChefHistory();
+}
+
+
+// ── TELL CHEF HISTORY (user) ──
+async function loadTellChefHistory() {
+  var el = document.getElementById('tellChefHistory');
+  if (!el) return;
+  var u = window.user || {};
+  if (!u.name) return;
+  try {
+    var res = await window.supa.from('chef_reports')
+      .select('message,created_at')
+      .eq('user_name', u.name)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    var rows = res.data || [];
+    if (!rows.length) return;
+    el.innerHTML =
+      '<div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.06em;margin-bottom:8px;">YOUR PREVIOUS MESSAGES</div>' +
+      rows.map(function(r) {
+        var d = new Date(r.created_at);
+        var dateStr = d.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Chicago'});
+        return '<div style="padding:10px 12px;background:#f8fafc;border-radius:10px;margin-bottom:6px;">' +
+          '<div style="font-size:10px;color:#94a3b8;margin-bottom:3px;">' + dateStr + '</div>' +
+          '<div style="font-size:13px;color:#475569;line-height:1.4;">' + r.message + '</div>' +
+          '</div>';
+      }).join('');
+  } catch(e) {}
 }
 
 function closeTellChef() {
@@ -58,16 +88,25 @@ async function tellChefSend() {
   if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
 
   try {
-    var user = window.currentUser || {};
+    var user = window.user || {};
     var payload = {
-      user_name: user.name || 'Unknown',
-      station: user.default_station || user.station || null,
+      user_name: (window.user || user || {}).name || 'Unknown',
+      station: (window.user || user || {}).default_station || (window.user || user || {}).station || null,
       message: text,
       status: 'new'
     };
 
-    var res = await window.supa.from('chef_reports').insert([payload]);
+    var res = await window.supa.from('chef_reports').insert([payload]).select().single();
     if (res.error) throw res.error;
+
+    // Scrivi in office_items per L'Ufficio
+    if (typeof officeWriteItem === 'function') {
+      var reportId = res.data ? res.data.id : null;
+      var userName = payload.user_name && payload.user_name !== 'Unknown' ? payload.user_name : (window.user?.name || 'Staff');
+      var stationLabel = payload.station ? payload.station.replace(' Station','') : '';
+      var titleLabel = userName + (stationLabel ? ' (' + stationLabel + ')' : '') + ': ' + text.slice(0, 80) + (text.length > 80 ? '...' : '');
+      officeWriteItem('tell_chef', reportId, userName, titleLabel, text);
+    }
 
     // Success
     var sheet = document.getElementById('tellChefSheet');
@@ -193,5 +232,6 @@ async function tcSetStatus(id, status, btn) {
     await tcAdminLoad();
   } catch(e) {}
 }
+
 
 

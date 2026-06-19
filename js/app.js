@@ -300,6 +300,14 @@ function doLogin(profile){
   startHomeTimeCheck();
   if(!admin) setInterval(updateStaffTabs, 60000);
 
+  // ── FOCUS MODE header — solo staff ──
+  if (!admin) {
+    var fName = document.getElementById('focusUserName');
+    var fStation = document.getElementById('focusStation');
+    if (fName) fName.textContent = user.name;
+    if (fStation) fStation.textContent = user.default_station || '';
+  }
+
   // check primo accesso e compleanni
   setTimeout(()=>{checkBirthdays(); initSousChef();}, 1000);
 }
@@ -400,6 +408,9 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   if(t==='h') renderHomeStations();
   if(t==='r') loadReport('today');
   if(t==='i') loadIngredientsTab();
+  // Nascondi mic Sous Chef nella tab Chat — evita sovrapposizione col send button
+  var scBtn = document.getElementById('scBtn');
+  if (scBtn) scBtn.style.display = (t === 'm') ? 'none' : '';
 });
 
 // ── Vendor Documents pending badge ──

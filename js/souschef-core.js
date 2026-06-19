@@ -48,7 +48,6 @@ OUTPUT FORMAT (sempre JSON, niente altro):
   "attention_type": "price | quantity | vendor | general — null se è un task"
 }`;
 
-let scTasks = [];
 
 // ── INIT SOUS CHEF ──
 async function initSousChef(){
@@ -67,7 +66,6 @@ async function initSousChef(){
     </svg>
     <span id="scPulse" class="hidden absolute inset-0 rounded-full border-2 border-blue-400 animate-ping"></span>`;
   document.body.appendChild(btn);
-  loadScTasks();
   setTimeout(scAttachGestures, 100);
 
   // Scan automatica — orari Texas CDT (UTC-5)
@@ -305,98 +303,11 @@ function showScToast(msg, duration=3000){
   setTimeout(()=>toast.remove(), duration);
 }
 
-// ── BADGE URGENTI ──
-function updateScBadge(){
-  const btn = document.getElementById('scBtn');
-  if(!btn) return;
-  const alta = scTasks.filter(t=>t.urgency==='alta').length;
-  let badge = btn.querySelector('.sc-badge');
-  if(alta>0){
-    if(!badge){
-      badge = document.createElement('span');
-      badge.className='sc-badge absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold';
-      btn.appendChild(badge);
-    }
-    badge.textContent=alta;
-  } else if(badge){
-    badge.remove();
-  }
-}
+// Badge urgenti → ora gestito da office_items
 
-// ── TASKS ──
-async function loadScTasks(){
-  const sb = window.supabaseClient;
-  if(!sb) return;
-  const{data} = await sb.from('sous_chef_tasks')
-    .select('*').eq('done', false)
-    .order('created_at', {ascending:false}).limit(50);
-  scTasks = data||[];
-  updateScBadge();
-}
+// loadScTasks + markScDone → rimossi, ora tutto va in office_items
 
-async function markScDone(id, btn){
-  btn.classList.add('bg-green-500','border-green-500');
-  btn.innerHTML='<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
-  const sb = window.supabaseClient;
-  await sb.from('sous_chef_tasks').update({done:true}).eq('id',id);
-  setTimeout(()=>{
-    btn.closest('.flex').style.opacity='0.3';
-    btn.closest('.flex').style.transition='opacity 0.3s';
-    setTimeout(()=>{btn.closest('.flex').remove(); loadScTasks();},300);
-  },400);
-}
-
-// ── PANNELLO TASKS ──
-function openSousChef(){
-  const urgencyColors = {alta:'bg-red-100 text-red-700', media:'bg-amber-100 text-amber-700', bassa:'bg-green-100 text-green-700'};
-  const catIcons = {Acquisti:'🛒', Task:'✅', HR:'👥', Manutenzione:'🔧', 'Food Cost':'💰', Reminder:'🔔'};
-  const grouped = {};
-  scTasks.forEach(t=>{ if(!grouped[t.category]) grouped[t.category]=[]; grouped[t.category].push(t); });
-  const modal = document.createElement('div');
-  modal.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end';
-  modal.innerHTML = `
-    <div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] max-h-[85vh] flex flex-col" style="animation:slideUp .25s ease">
-      <div class="p-4 border-b flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <span class="text-xl">🤖</span>
-          <h3 class="font-bold">Sous Chef</h3>
-          ${scTasks.filter(t=>t.urgency==='alta').length>0?`<span class="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">${scTasks.filter(t=>t.urgency==='alta').length} urgenti</span>`:''}
-        </div>
-        <button onclick="this.closest('.fixed').remove()" class="text-slate-400 text-xl">✕</button>
-      </div>
-      <div class="overflow-auto flex-1 p-4 space-y-4">
-        ${Object.keys(grouped).length===0?'<p class="text-slate-400 text-sm text-center py-8">Nessun task. Tieni premuto il microfono per aggiungerne uno.</p>':''}
-        ${Object.entries(grouped).map(([cat, tasks])=>`
-          <div>
-            <div class="flex items-center gap-2 mb-2">
-              <span class="text-lg">${catIcons[cat]||'📌'}</span>
-              <span class="font-semibold text-sm">${cat}</span>
-              <span class="text-xs text-slate-400">${tasks.length}</span>
-            </div>
-            <div class="space-y-2">
-              ${tasks.sort((a,b)=>a.urgency==='alta'?-1:1).map(t=>`
-              <div class="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl">
-                <button onclick="markScDone(${t.id},this)" class="w-5 h-5 rounded-full border-2 border-slate-300 flex-shrink-0 mt-0.5 active:scale-90 transition"></button>
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium leading-snug">${t.summary}</p>
-                  ${t.due_date?`<p class="text-[11px] text-blue-600 mt-0.5">📅 ${new Date(t.due_date).toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</p>`:''}
-                  <p class="text-[10px] text-slate-400 mt-0.5">${new Date(t.created_at).toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</p>
-                </div>
-                <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${urgencyColors[t.urgency]||'bg-slate-100 text-slate-500'}">${t.urgency}</span>
-              </div>`).join('')}
-            </div>
-          </div>`).join('')}
-      </div>
-      <div class="p-4 border-t">
-        <button onclick="this.closest('.fixed').remove();setTimeout(()=>startRecording(),100)" class="w-full py-3 bg-blue-500 text-white rounded-2xl font-semibold flex items-center justify-center gap-2">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
-          Nuovo task vocale
-        </button>
-      </div>
-    </div>`;
-  modal.onclick=e=>{if(e.target===modal)modal.remove()};
-  document.body.appendChild(modal);
-}
+// openSousChef panel → rimosso, sostituito da L'Ufficio
 
 // ── RISPOSTA DOMANDA (sheet) ──
 function showScAnswer(result){
@@ -435,3 +346,4 @@ function showScAnswer(result){
   sheet.addEventListener('click', e => { if(e.target === sheet) sheet.remove(); });
   document.body.appendChild(sheet);
 }
+

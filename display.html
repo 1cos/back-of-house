@@ -426,7 +426,7 @@ async function loadSales() {
   });
   const expected = Object.entries(dowMap)
     .map(([n,qs])=>({n, avg:Math.round(qs.reduce((a,b)=>a+b,0)/qs.length), days:qs.length}))
-    .filter(x=>x.avg>=1 && x.days>=2)
+    .filter(x=>x.avg>=1 && x.days>=1)
     .sort((a,b)=>b.avg-a.avg).slice(0,8);
 
   // Best by category last week
@@ -587,8 +587,11 @@ async function loadChat() {
   const {data} = await supa.from('messages')
     .select('user_name,text,created_at,pinned,channel')
     .order('created_at',{ascending:false})
-    .limit(5);
-  const raw = (data||[]).reverse();
+    .limit(20);
+  const raw = (data||[])
+    .filter(m => !['sistema','system','Sistema','SISTEMA'].includes(m.user_name))
+    .slice(0,5)
+    .reverse();
   // Translate all messages to English
   chatMessages = await Promise.all(raw.map(async m => ({
     ...m,
@@ -598,7 +601,7 @@ async function loadChat() {
 }
 
 // ── RENDER SALES ──
-const SALES_TITLES = ['Yesterday', 'This Week', 'Expected Tonight', 'Best by Category'];
+const SALES_TITLES = ['Yesterday', 'Last Week', 'Expected Tonight', 'Best by Category'];
 function renderSales() {
   const tabs = document.querySelectorAll('.stab');
   tabs.forEach((t,i) => t.classList.toggle('active', i===salesScreen));
@@ -621,7 +624,7 @@ function renderYesterday(el) {
     <div>
       <div class="big-label">${day}</div>
       <div class="big-num">${s.bill_count} <span style="font-size:16px;color:#a0aec0;font-weight:500">bills</span></div>
-      <div class="sales-meta"><span>net $${Number(s.net_sales).toLocaleString('en-US',{maximumFractionDigits:0})}</span></div>
+
     </div>
     <div class="sdivider"></div>
     <div class="section-label">Top Food</div>
@@ -666,13 +669,13 @@ function renderBestByCat(el) {
   if (bestCatScrollTimer) { clearInterval(bestCatScrollTimer); bestCatScrollTimer = null; }
 
   const CAT_LABELS = {
-    'Antipasti/appetizer': 'Antipasti',
-    'Pasta': 'Pasta & Risotto',
-    'Secondi/entrees': 'Secondi',
-    'Insalate/salad': 'Insalate',
-    'Dolcezze/dessert': 'Dolci',
-    'Sides': 'Contorni',
-    'Proteins': 'Proteine Add-on',
+    'Antipasti/appetizer': 'Appetizers',
+    'Pasta': 'Pasta',
+    'Secondi/entrees': 'Entrees',
+    'Insalate/salad': 'Salad',
+    'Dolcezze/dessert': 'Desserts',
+    'Sides': 'Sides',
+    'Proteins': 'Proteins Add-on',
   };
 
   const html = salesData.bestByCat.map(function({cat,top2}){
@@ -781,6 +784,19 @@ function renderStaff() {
   }).join('');
 }
 
+// ── APPEND SINGOLO MESSAGGIO CHAT (realtime) ──
+async function appendChatMessage(msg) {
+  // Salta messaggi di sistema
+  if (['sistema','system','Sistema','SISTEMA'].includes(msg.user_name)) return;
+  // Traduci solo questo messaggio
+  const translated = await translateToEn(msg.text || '');
+  const newMsg = { ...msg, text: translated };
+  // Aggiungi in fondo, rimuovi il più vecchio se > 5
+  chatMessages.push(newMsg);
+  if (chatMessages.length > 5) chatMessages.shift();
+  renderChat();
+}
+
 // ── RENDER CHAT ──
 function renderChat() {
   const body = document.getElementById('chat-body');
@@ -814,26 +830,74 @@ function renderFooter() {
 }
 
 // ── BOOT ──
+async function checkDisplayActive() {
+  try {
+    const {data} = await supa.from('settings').select('value').eq('key','display_active').maybeSingle();
+    const active = !data || data.value === 'true';
+    const root = document.getElementById('root');
+    const disabled = document.getElementById('display-disabled');
+    if (!active) {
+      if (root) root.style.display = 'none';
+      if (!disabled) {
+        const el = document.createElement('div');
+        el.id = 'display-disabled';
+        el.style.cssText = 'position:fixed;inset:0;background:#0a0e14;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#2d3748;font-family:Inter,sans-serif;';
+        el.innerHTML = '<div style="font-size:48px;margin-bottom:16px;">📺</div><div style="font-size:18px;font-weight:700;">Display disabled by Chef</div>';
+        document.body.appendChild(el);
+      }
+    } else {
+      if (root) root.style.display = 'flex';
+      if (disabled) disabled.remove();
+    }
+  } catch(e) {}
+}
+
+// ── Settings realtime con riconnessione automatica ──
+var _settingsChannel = null;
+function startSettingsRealtime() {
+  if (_settingsChannel) { try { supa.removeChannel(_settingsChannel); } catch(e){} }
+  _settingsChannel = supa.channel('settings-rt-' + Date.now())
+    .on('postgres_changes', {event:'*', schema:'public', table:'settings'}, async function() {
+      await checkDisplayActive();
+    })
+    .subscribe(function(status) {
+      if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        setTimeout(startSettingsRealtime, 5000);
+      }
+    });
+}
+
 async function boot() {
+  await checkDisplayActive();
   await loadAll();
   setInterval(loadAll, 5*60*1000);
-  // Realtime presence — staff chips update instantly
+  // Polling fallback — controlla display_active ogni 30s indipendentemente dal realtime
+  setInterval(checkDisplayActive, 30000);
+  // Realtime presence
   supa.channel('presence-rt')
     .on('postgres_changes',{event:'*',schema:'public',table:'user_presence'}, loadPresence)
     .subscribe();
-  // Realtime chat — new messages appear instantly
+  // Realtime chat — solo il messaggio nuovo, niente reload completo
   supa.channel('chat-rt')
-    .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'}, async ()=>{ await loadChat(); })
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'}, async function(payload){
+      if (payload.new) await appendChatMessage(payload.new);
+    })
     .subscribe();
-  // Realtime alerts — new/updated alerts appear instantly (with translation)
+  // Realtime alerts
   supa.channel('alerts-rt')
-    .on('postgres_changes',{event:'*',schema:'public',table:'alerts'}, async ()=>{ await loadAlerts(); })
+    .on('postgres_changes',{event:'*',schema:'public',table:'alerts'}, async function(){ await loadAlerts(); })
     .subscribe();
+  // Realtime settings — TV on/off con riconnessione automatica
+  startSettingsRealtime();
 }
 boot();
 </script>
 </body>
 </html>
+
+
+
+
 
 
 

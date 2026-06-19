@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-16 — v195*
+*Aggiornato: 2026-06-19 — v276*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -8,346 +8,368 @@
 
 - App: BRIGADE (non BOH OS)
 - Branch: brigade-main (MAI main)
-- **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto in inglese. Mai italiano sul TV. Regola permanente.
+- **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v195**
-- Versione souschef-chat: v15 (Supabase Edge Function)
-- Supabase project: ydqmumpytgrlceuinoqt
-- Leggi file da GitHub brigade-main, NON da /mnt/project/ (snapshot vecchio)
+- Versione frontend: **v276**
+- Versione souschef-chat: v23
+- ai-translate: **v28** (Google Translate attivo)
+- Supabase: ydqmumpytgrlceuinoqt
+- Leggi sempre da GitHub brigade-main, MAI da /mnt/project/
 - Bump boh-vNN in sw.js ad ogni commit
 
 ---
 
-## Edge Functions attive (Supabase ydqmumpytgrlceuinoqt)
+## Edge Functions attive
 
-| Function | Versione | Scopo |
+| Function | Ver | Scopo |
 |---|---|---|
-| souschef-chat | v15 | Chat AI — accesso completo DB |
+| souschef-chat | v23 | Chat AI — accesso completo DB + SQL query detection |
 | souschef-classify | v17 | Scan anomalie |
 | souschef-scan | v4 | Scan automatica oraria lun-sab |
-| sc-nightly-brief | v5 | Briefing notturno 5:00 AM CDT |
-| process-invoice | v27 | Parser fatture universale OpenRouter |
+| sc-nightly-brief | v12 | Briefing notturno 5:00 AM CDT + traduzioni EN/ES — solo admin |
+| process-invoice | v29 | Parser fatture OpenRouter + chiama bot-price-guard e bot-food-cost-guard |
 | gmail-hardies-import | v9 | Import PDF Hardie's |
-| gmail-touchbistro-import | v3 | Import 4 CSV TouchBistro ogni notte |
-| gmail-vendor-import | v3 | Import fatture fornitori via Gmail |
-| transcribe-audio | v22 | Whisper voce->testo |
-| ai-translate | v23 | Traduzioni brigata — supporta literal:true |
+| hardies-order-check | v2 | Controllo articoli bloccati in conferme ordine Chef's Warehouse |
+| gmail-touchbistro-import | v3 | Import 4 CSV TouchBistro nightly |
+| gmail-vendor-import | v3 | Import fatture fornitori Gmail |
+| transcribe-audio | v22 | Whisper voce→testo |
+| ai-translate | v28 | Google Translate primario + Groq 70b fallback — literal:true supportato |
+| office-ai | v1 | Analisi AI office_items |
+| bot-price-guard | v1 | 🤖 Guardiano Prezzi — confronta prezzi fattura vs media storica |
+| bot-chat-analyst | v2 | 🤖 Analista Chat — analisi notturna AI chat brigata |
+| bot-preplist-builder | v1 | 🤖 Costruttore Preplist — suggested_qty automatiche ogni notte |
+| bot-tell-chef-reader | v1 | 🤖 Lettore Tell Chef — classifica e genera suggestion AI ogni ora |
+| bot-food-cost-guard | v1 | 🤖 Guardiano Food Cost — impatto $ ingredienti su ricette vendute |
 
 ---
 
-## Tabelle DB — stato completo
+## BOT SYSTEM — ✅ COSTRUITO (sessione 2026-06-18)
 
-| Tabella | Scopo | Note |
+### Architettura
+Bot specializzati che girano in background via pg_cron / Edge Functions.
+Alimentano L'Ufficio mentre Max dorme. Non rispondono — osservano e preparano.
+
+| Bot | Trigger | Stato | Note |
+|---|---|---|---|
+| Bot 1 — Guardiano Prezzi | Dopo ogni import fattura | ✅ v1 attivo | Soglia 10%, min 3 storici |
+| Bot 2 — Analista Chat | Cron 3AM CDT lun-sab + domenica recap | ✅ v2 attivo | AI legge contesto, non keyword |
+| Bot 3 — Costruttore Preplist | Cron 4AM CDT ogni notte | ✅ v1 attivo | 3 sett. storia, +10% buffer |
+| Bot 4 — Lettore Tell Chef | Cron ogni ora | ✅ v1 attivo | Fase 1: classificazione + suggestion |
+| Bot 5 — Guardiano Food Cost | Dopo ogni import fattura | ✅ v1 attivo (versione A) | Impatto $ — upgrade a % quando selling_price popolato |
+| Bot 6 — Guardiano Accuratezza Prep | Cron 17:30 CDT ogni giorno | ✅ v1 attivo | No Need + prep log pomeridiano = identifica chi ha sbagliato |
+
+### Dettagli Bot
+
+**Bot 1 — Guardiano Prezzi**
+- Soglia: variazione >10% vs media storica
+- Minimo 3 acquisti storici per generare warning
+- Output: 🟠 in office_items con opzioni "Accetta nuovo prezzo" / "Indaga con fornitore"
+
+**Bot 2 — Analista Chat**
+- Giornaliero: legge ultime 24h, analisi libera AI (non keyword)
+- Domenicale: recap 7 giorni — pattern ricorrenti, dinamiche, chi ha brillato
+- Salta solo se chat completamente vuota (0 messaggi)
+- Output: 🔵 in office_items con analisi in italiano
+
+**Bot 3 — Costruttore Preplist**
+- Legge pos_production_daily + prep_log ultimi 3 stessi DOW
+- Scrive suggested_qty (separata da qty reale — mai sovrascrive)
+- +10% buffer sicurezza, arrotonda al mezzo superiore
+- Nuove colonne: prep_tasks.suggested_qty, suggested_by, suggested_at
+
+**Bot 4 — Lettore Tell Chef**
+- Classifica ogni report in: CONTRIBUTO_RICETTA / GAP_CHECKLIST / PROBLEMA_OPERATIVO / FEEDBACK_RICETTA / SEGNALE_PERSONALE
+- Scrive souschef_suggestion + report_type su chef_reports
+- Output in office_items con priorità automatica (🔴/🟠/🔵)
+- Nuova colonna: chef_reports.report_type
+- **FASE 2 (sessione futura):** esecuzione automatica — aggiungi a ricetta, aggiungi a prep_tasks
+
+**Bot 5 — Guardiano Food Cost (versione A)**
+- Versione A: calcola impatto $ sul venduto (non richiede selling_price)
+- Soglia: $20/settimana di impatto
+- Versione B (futura): food cost % reale quando selling_price popolato nelle ricette
+- Output: 🟠/🔴 in office_items con impatto settimanale e mensile
+
+**Bot 6 — Guardiano Accuratezza Prep**
+- Gira ogni giorno alle 17:30 CDT (dopo la finestra 14:00-17:00)
+- Legge tutti i No Need del giorno (prep_log.unit=no_need)
+- Per ogni No Need: cerca se lo stesso item appare in prep_log tra 14:00-17:00
+- Se SI: colpevole morning — No Need errato, andava fatto → output orange in office_items
+- Se NO: colpevole evening — closing impreciso, non serviva → output blue in office_items
+- Zero AI — puro SQL
+
+### Cron jobs attivi
+| Job | Schedule | Bot |
 |---|---|---|
-| pos_daily_summary | Totali giornalieri (scontrini, fatturato) | 305 righe |
-| pos_sales_by_item | Piatti venduti per giorno | 3.924 righe |
-| pos_modifiers | Modifier totali per giorno (TextModifier) | 712 righe |
-| pos_modifier_by_item | Modifier collegato al piatto padre | 1.167 righe |
-| modifier_config | Whitelist modifier cucina classificati | 86 righe |
-| pos_item_aliases | Mapping alias→canonical per stats produzione | 40 regole |
-| ingredients | Ingredienti con categorie | 400 righe |
-| ingredient_vendors | Prezzi per fornitore | 30+ righe |
-| ingredient_links | Link descrizione fattura -> ingrediente | attivo |
-| recipes | Ricette | 182 righe |
-| recipes_with_cost | View ricette con costo calcolato | 181 righe |
-| recipe_bom | Grafo dipendenze ricette (parent/sub-recipe) | attivo |
-| chef_attention | Topic frequenti — ask_count + last_asked | attivo |
-| briefing | Snapshot AI giornaliero JSONB | attivo — prompt da migliorare |
-| operation_notes | Note servizio serale brigata | attivo — sentiment/tags da popolare |
-| sous_chef_tasks | Task assegnati dall'AI | attivo |
-| invoice_lines | Storico prezzi fatture | 33+ righe |
-| invoice_warnings | Warning fatture | 3 open |
-| ingredient_monthly_spend | Storico spesa mensile per ingrediente | attivo — non ancora usato dall'AI |
-| v_prep_daily | Vista prep giornaliera | attivo |
-| v_prep_weekly | Vista prep settimanale | attivo |
-| user_presence | Presenza real-time brigata | attivo |
-| messages | Chat brigata | attivo |
-| alerts | Alert attivi | attivo |
-
-**NOTA DATI:** Tutti i dati nel DB sono dati di TEST inseriti da Max. L'app non è ancora stata distribuita alla brigata. Nessun dato è produzione reale.
+| bot-chat-analyst-daily | 0 8 * * 1-6 (3AM CDT lun-sab) | Bot 2 giornaliero |
+| bot-chat-analyst-weekly | 0 8 * * 0 (3AM CDT domenica) | Bot 2 settimanale |
+| bot-preplist-builder-nightly | 0 9 * * * (4AM CDT) | Bot 3 |
+| bot-tell-chef-reader-hourly | 0 * * * * (ogni ora) | Bot 4 |
+| bot-prep-accuracy-daily | 30 22 * * * (17:30 CDT) | Bot 6 |
 
 ---
 
-## pos_item_aliases — regole produzione Zenos
+## Sistema traduzioni — stato (aggiornato 2026-06-17)
 
-Tabella creata 2026-06-16. 40 regole. Usata per:
-- Sommare modifier ai piatti canonici nelle statistiche
-- Calcolare porzioni reali (portion_factor)
-- Futura produzione: quanti nidi pasta, quante scallops, ecc.
+### Come funziona
+- Ogni messaggio chat → al momento dell'invio: detect lingua → salva `lang` in messages.lang
+- Al momento della ricezione: se `m.lang !== user.lang` → ai-translate → mostra traduzione sotto bubble
+- Kitchen Display: translateToEn con literal:true → tutto in inglese
 
-Categorie: protein / side / pasta / appetizer
-Sources: modifier / item / both
+### Motore
+- **GOOGLE_TRANSLATE_API_KEY** impostata nei Supabase secrets ✅ (creata 2026-06-17)
+- ai-translate v28: Google Translate (primario) → Groq llama-3.3-70b-versatile (fallback)
+- Ottimizzazione: se testo già nella lingua target → nessuna chiamata translate
 
-Regole chiave:
-- Add chicken / Blackened chicken → Chicken, factor 1.0 (porzione intera)
-- Add shrimp / Shrimp crispy → Shrimp, factor 1.0
-- Salmon filet / Add salmon whole → Salmon fillet, factor 1.0
-- Scallops add on → Scallops, 3 pezzi; Scallops (menu) → 4 pezzi
-- Lobsters → Lobster tail, factor 1.0 (1 coda intera)
-- Burrata → Burrata, 1 pezzo 2oz
-- Brussels modifier → Brussel Sprouts, factor 1.0; side → factor 0.5
-- Sauteed Spinach modifier → factor 1.0; side → factor 2.0
-- Rosemary potato modifier → factor 0.5; side → factor 1.0
-- Asparagus / Green Beans modifier → factor 0.5; side → factor 1.0
-- Tutti i Kids menu pasta → factor 0.5 (1 nest)
-- Add spaghetti half / Add half spaghetti / Add half fettuccine → factor 0.5
+### Bug UI annotati (sessione grafica)
+- ✅ RISOLTO v276: mic Chef AI nascosto quando chat e aperta — showChat() setta scBtn.style.display='none'
+- BUG UI 2: Long press su messaggio chat non funziona — impossibile copiare testo
+
+### Ancora da verificare
+- [ ] Antonella (lang=it) riceve traduzione italiana sotto bubble messaggi inglesi
+- [ ] TV realtime — si blocca dopo molti messaggi ravvicinati (loadChat() troppo frequente)
+
+---
+
+## Tabelle DB — stato
+
+| Tabella | Scopo | Chi vede |
+|---|---|---|
+| briefing | Briefing AI mattutino | Solo admin |
+| chef_reports | Tell Chef — segnalazioni brigata→Max | Solo admin + Sous Chef |
+| operation_notes | Feedback serale post-closing (22:30 CDT) | Solo admin + Sous Chef |
+| office_items | Inbox unificato L'Ufficio | Solo admin |
+| messages | Chat brigata | Tutti |
+| alerts | Alert/news banner | Tutti |
+| user_presence | Presenza realtime | Tutti |
+| pos_daily_summary | Totali giornalieri | Solo admin |
+| pos_sales_by_item | Piatti venduti | Solo admin |
+| pos_modifiers | Modifier giornalieri | Solo admin |
+| pos_item_aliases | Mapping alias→canonical produzione | Admin + display |
+| prep_tasks/log | Prep | Tutti |
+| users | Profili | Ognuno il proprio |
+| ingredients/recipes | Ricette e ingredienti | Tutti |
+
+### Colonne aggiunte (sessione 2026-06-18)
+- `prep_tasks.suggested_qty` — quantità suggerita da Bot 3 (non sovrascrive qty reale)
+- `prep_tasks.suggested_by` — fonte della suggestion (default: 'bot-preplist-builder')
+- `prep_tasks.suggested_at` — timestamp ultimo aggiornamento suggestion
+- `chef_reports.report_type` — classificazione AI: CONTRIBUTO_RICETTA / GAP_CHECKLIST / PROBLEMA_OPERATIVO / FEEDBACK_RICETTA / SEGNALE_PERSONALE
 
 ---
 
 ## Regole produzione pasta Zenos
 
 - Porzione completa = 2 nest (spaghetti O fettuccine)
-- Mezza porzione = 1 nest
-- Ogni nest = 60-65g dry pasta
-- Penne Midnight sauce = Arrabbiata
-- Add spaghetti half con Chicken Parm → usa arrabbiata
-- Add spaghetti half con Chicken Piccata → usa piccata sauce (solo pasta, niente extra)
-- Happy Hour items → sommare alle categorie principali (non mostrare come categoria separata)
+- Mezza porzione = 1 nest — ogni nest = 60-65g dry
+- Penne Midnight = Arrabbiata sauce
+- Add spaghetti half con Chicken Parm → arrabbiata
+- Add spaghetti half con Chicken Piccata → solo pasta, niente extra sauce
+- Happy Hour items → sommare alle categorie principali
 - Kids menu → sommare alle categorie principali
 
 ---
 
 ## bill_count vs guest count
 
-- bill_count in pos_daily_summary = SCONTRINI CHIUSI, non coperti
-- Dire sempre "bills" in app e Sous Chef, mai "tavoli" o "coperti"
-- I 4 CSV TouchBistro non contengono guest count
-- Max ha richiesto report separato a TouchBistro
+- bill_count = scontrini chiusi (NON coperti)
+- Dire sempre "bills" mai "tavoli" o "coperti"
+- Guest count: Max ha richiesto report separato a TouchBistro
 - Quando arriva: aggiungere guest_count INTEGER a pos_daily_summary
 
 ---
 
-## KITCHEN DISPLAY — stato v195
+## KITCHEN DISPLAY — v202
 
-File: display.html in brigade-main root
 URL: https://1cos.github.io/back-of-house/display.html
-Schermo: Insignia Fire TV (Silk Browser), kiosk mode
+Schermo: Insignia Fire TV Silk Browser kiosk
 
 ### Layout
 - Header: orologio CDT · staff chips online · service timer · alert pill
-- Sinistra (270px): sales — 4 schermate rotating ogni 20s
-- Centro (flex): Today's Prep — 3 colonne per stazione, prime 3 voci + N more
-- Destra (250px): Kitchen Chat — ultimi 5 messaggi realtime tradotti EN
-- Footer: Alert ticker 24px + realtime
+- Sinistra (270px): sales 4 schermate × 20s
+- Centro: Today's Prep — 3 colonne, prime 3 voci + N more
+- Destra: Kitchen Chat — ultimi 5 messaggi realtime EN
+- Footer: Alert ticker 24px realtime
 
 ### Sales screens
-- A: Yesterday Sales — bills + top food (no bevande)
-- B: This Week Top — 7 giorni food only
-- C: Expected Tonight — media storica stesso DOW, date sporche escluse (>5000 qty)
-- D: Best by Category — Antipasti · Pasta · Secondi · Insalate · Dolci · Contorni · Proteine Add-on
+- A: Yesterday — bills + top food
+- B: This Week — 7 giorni food only
+- C: Expected Tonight — media storica stesso DOW, date sporche escluse
+- D: Best by Category — Antipasti · Pasta · Secondi · Insalate · Dolci · Contorni · Proteine
 
-### Realtime channels attivi
-- presence-rt → user_presence
-- chat-rt → messages (INSERT)
-- alerts-rt → alerts (ALL)
-
-### Traduzioni
-- Chat e Alert tradotti in inglese via ai-translate (literal:true) prima di mostrare
-- Google Translate primario (letterale), Groq fallback con literal prompt
-
-### Categorie escluse dalle stats
-- NA Beverages, Mocktail, Lunch, Soup → skip
-- Happy Hours → merge in Antipasti/appetizer
-- Kids menu → merge in Pasta
-- Tea, Water, Coffee, Pepsi, Sprite ecc. → skip per nome
-
-### Contorni — logica
-- pos_sales_by_item (Sides) + pos_modifiers filtrati via pos_item_aliases
-- Brussels: modifier(1.0) + side(0.5); Spinach: modifier(1.0) + side(2.0); ecc.
+### Realtime: presence-rt · chat-rt · alerts-rt
+### Traduzioni: chat e alert → inglese via ai-translate v28 literal:true
 
 ### TODO display
-- [ ] Foto slideshow via Supabase Storage (upload da Brigade admin)
-- [ ] Pasta halves sommati al piatto principale nelle stats
+- [ ] Fix realtime TV — aggiungere solo nuovo messaggio via payload.new invece di loadChat() completo
+- [ ] Foto slideshow Supabase Storage
+- [ ] Pasta halves sommati nelle stats
 
 ---
 
-## SOUS CHEF AI — visione e stato (sessione 2026-06-16)
+## TELL CHEF — v202 ✅ IMPLEMENTATO
 
-### Cosa esiste già nel DB (pronto per il Sous Chef)
-- `briefing` — snapshot giornaliero, già attivo ma **prompt vago** (da migliorare)
-- `operation_notes` — tabella pronta, zero righe reali, campi sentiment/tags mai popolati
-- `chef_attention` — memoria topic frequenti, aggiorna ask_count ad ogni domanda
-- `sous_chef_tasks` — task AI con urgency, category, done
-- `recipe_bom` — **grafo dipendenze ricette già strutturato** (Gemini voleva costruirlo, esiste già)
-- `recipes_with_cost` — view con costo già calcolato
-- `v_prep_daily`, `v_prep_weekly` — viste prep già pronte
-- `ingredient_monthly_spend` — storico spesa ingredienti (non ancora interrogato dall'AI)
+### Cos'è
+Canale personale brigata → Max. Non è solo segnalazioni — è contributi ricette, gap checklist, idee, feedback, segnali personali.
+Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 
-### Architettura concordata
-- **Pipeline asincrona** — snapshot JSON pre-calcolato ogni notte, l'AI legge quello non le tabelle grezze
-- **Tre livelli di memoria:** episodica (note servizio in operation_notes), semantica (regole operative), contestuale (cosa succede adesso)
-- **Lingua come segnale di profondità** — Max vuole analisi, Cole vuole "cosa faccio adesso" — stesso DB, risposta diversa per role + lang
-- **`chef_attention` come auto-calibrazione briefing** — se "uova" chiesto 7 volte, appare sempre nel briefing
+### Implementato
+- Bottone "Tell Chef" nella bottom nav (solo staff, non admin)
+- Modal: textarea + "Send to Chef →" + tip dettatura iOS nativa
+- Tabella: chef_reports (id, user_name, station, message, status, souschef_suggestion, souschef_at, report_type)
+- Status: new → read → in_progress → done → ignored
+- Admin inbox: nei tre puntini → "Tell Chef" → lista chat-style con status buttons
+- **Bot 4** classifica ogni report automaticamente ogni ora
 
-### Le 10 funzionalità (Livelli)
-1. Assistente operativo — ricette, fornitori, prep, personale
-2. Analista food cost — prezzi, trend, anomalie fornitori
-3. Produzione intelligente — suggerisce batch del giorno basato su storico + eventi
-4. Controllo prep — cosa è in ritardo, cosa manca
-5. Gestione personale — chi sa fare cosa, coperture (richiede skills JSONB su users)
-6. Event readiness — cosa manca per il catering di giovedì
-7. Attenzione automatica — ti cerca lui, non aspetta che chiedi (scan già attiva)
-8. Fatture intelligenti — parla da sous chef non da sistema
-9. TouchBistro brain — top seller, trend, analisi giorno settimana
-10. Memoria del ristorante — ricorda decisioni, note, eventi passati
-
-### Le Perle
-- **Perla #1 Morning Briefing** — struttura ok (tabella briefing + sc-nightly-brief v5 alle 5AM CDT), **prompt da migliorare urgente** — contenuto attualmente vago
-- **Perla #2 Night Recap** — UI scritta in operation-notes.js (v192+), manca **parsing AI post-salvataggio** per estrarre sentiment e tags automaticamente
-- **Perla #3 Chef's Radar** — schermata che mostra solo anomalie, non tutto — da costruire
-- **Perla #4 Prep Coach** — priorità su tempo rimasto + storico vendite + recipe_bom — da costruire
-
-### Priorità ingegneristica Sous Chef (in ordine)
-1. **Migliorare prompt sc-nightly-brief** — ROI massimo, zero nuova infrastruttura
-2. **AI parsing post-salvataggio su operation_notes** — dopo salvataggio nota, Groq estrae sentiment + tags (~50 token)
-3. **Aggiungere skills JSONB su users** — una riga SQL, sblocca Livello 5 completo
-4. **Connettere souschef-chat a recipe_bom e ingredient_monthly_spend** — tabelle esistenti mai usate dall'AI
-5. Solo dopo — nuove tabelle o Edge Functions
+### TODO Tell Chef
+- [ ] Fase 2 Bot 4: esecuzione automatica (aggiungi a ricetta, aggiungi a prep_tasks)
+- [ ] Badge notifica sui tre puntini quando arrivano nuovi report
 
 ---
 
-## NIGHT RECAP — stato (sessione 2026-06-16)
+## L'UFFICIO — v235 ✅ IMPLEMENTATO
 
-### Implementato (v192-v195)
-- Push reale via send-push Edge Function alle 22:30 CDT
-- Messaggio motivazionale in 3 lingue IT/EN/ES — invoglia a scrivere per crescere professionalmente
-- Privacy badge nello sheet — "Solo Max lo vede, usato in forma anonima"
-- Quick replies tradotte nelle 3 lingue
-- Trigger automatico post-chiusura turno — 800ms dopo doCloseTurn() appare il prompt
-- Fix data CDT in updateCloseTurnBtn() — usava UTC, ora usa CDT corretta
+### Costruito
+- office_items tabella DB
+- js/office.js — scrivania operativa: Smart Focus, lista red/orange/blue, realtime, badge, Analizza, Letto/Risolto
+- Flusso: Tell Chef / Operation Note → office_items → Max analizza → AI suggestion
+- office-ai v1 — analisi AI manuale (bottone Analizza)
+- **5 Bot attivi** alimentano L'Ufficio automaticamente
 
-### CORS error send-push
-- Edge Function send-push blocca richieste da 1cos.github.io per CORS
-- Non blocca la chiusura (catch silenzioso) ma genera errore in console
-- Da fixare: aggiungere header CORS alla Edge Function send-push
-
----
-
-## CLOSING — stato e bug (sessione 2026-06-16)
-
-### Comportamento corretto
-- Chiunque può chiudere qualsiasi stazione
-- La UI suggerisce la stazione di default ma non blocca
-- Non si può chiudere il turno senza aver risposto a TUTTI gli item della stazione selezionata
-- Closing appare dalle 20:00 alle 02:00 CDT (h >= 20 || h < 2)
-
-### Bug attivo — chiusura stazioni errata
-- **_closingStationLock** implementato in v195 — blocca station2 durante il flow
-- **Causa identificata:** goCheckStation() sovrascriveva station2 globalmente, rompendo i controlli nel popup forgotten
-- **Stato:** fix applicata ma comportamento ancora da verificare con test pulito
-- **CORS send-push:** errore in console ma non blocca la chiusura
-
-### Da investigare
-- renderS() post-chiusura — se mostra UI sbagliata dopo doCloseTurn()
-- Test pulito: rispondere a tutti gli item di una sola stazione e verificare nel DB
+### TODO L'Ufficio
+- ✅ Realtime L'Ufficio — RISOLTO (2026-06-18)
+- [ ] 🔴 Bottoni non collegati ad azioni reali — sessione dedicata
+- [ ] office-ai → pg_cron orario (analisi automatica ogni ora)
+- [ ] Smart Office — calendario meeting interni Brigade
+- [ ] Spostare L'Ufficio nella bottom bar invece dei tre puntini
+- [ ] Pulizia menu admin: verificare se Parser Test, Similarity, Vendor Match, Ingredient Cleanup, Bootstrap sono ancora usati e rimuovere quelli obsoleti
 
 ---
 
-## FOCUS MODE — spec (v195+)
+## PRIORITÀ ALTA — PROSSIME SESSIONI
 
-Nuova modalità per la brigata — accesso con swipe destra dalla home.
-Mockup completato 2026-06-16.
-
-### Concept
-"Il Tabellone Digitale" — ispirazione al foglio plastificato con pennarello.
-Zero rumore. Solo la tua stazione. Gesti naturali.
-
-### Layout (portrait)
-- Swipe destra da home → Focus Mode (slide animation)
-- Swipe sinistra → torna Brigade
-- 3 sezioni collassabili verticali:
-  - To Do — in cima, bordo rosso
-  - In Progress — mezzo
-  - Done — collassata di default, opaca
-- Ogni card: swipe destra = Done, swipe sinistra = In Progress
-- Soglia 60% per conferma (mani bagnate)
-- Solo item stazione del cuoco loggato
-- Aggiornamento realtime
-
-### Landscape mode — da esplorare
-- Quando il telefono è orizzontale, layout cambia automaticamente
-- Possibilità: 3 colonne side-by-side invece di sezioni verticali
-
-### In Service view — da esplorare
-- Focus Mode ha due stati: Prep (mattina) e Service (11 AM)
-- In Service: comunicazioni rapide, modifiche dal pass, timer piatti
-- Transizione automatica alle 11 AM CDT
+1. **🔴 Bottoni L'Ufficio** — sessione dedicata urgente
+2. ✅ **Realtime L'Ufficio** — RISOLTO
+3. **Fix realtime TV** — loadChat() troppo pesante
+4. **Bug UI chat** — send button sovrapposto al mic, long press copia
+5. **Audit menu tre puntini** — molte voci non collegate
+6. **office-ai cron orario**
+7. **Bot 4 Fase 2** — esecuzione automatica Tell Chef
+8. **Bot 5 versione B** — food cost % quando selling_price popolato
 
 ---
 
-## PRIORITA' ALTA — PROSSIMA SESSIONE
+## PRIORITÀ MEDIA
 
-- [ ] **Fix CORS send-push** — aggiungere headers CORS alla Edge Function
-- [ ] **Fix closing bug** — verificare _closingStationLock con test pulito, debug renderS() post-chiusura
-- [ ] **Migliorare prompt sc-nightly-brief** — dati strutturati reali invece di frasi vaghe
-- [ ] **Focus Mode** — costruire in js/prep.js o modulo separato
-
----
-
-## PRIORITA' MEDIA
-
-- [ ] AI parsing post-salvataggio su operation_notes (sentiment + tags automatici)
-- [ ] skills JSONB su users — sblocca Livello 5 Sous Chef
-- [ ] Connettere souschef-chat a recipe_bom e ingredient_monthly_spend
-- [ ] Foto display TV — upload da Brigade admin → Supabase Storage bucket app/display/
-- [ ] Pasta halves sommati nelle statistiche TV usando pos_item_aliases
-- [ ] Auto-approve fatture senza warning e ingredienti già linkati
-- [ ] Edit Vendor semplificato (5 campi)
-- [ ] Ben E. Keith: testare import dopo fix Apps Script
-- [ ] Sales staff — modal porzioni su tap piatto
-- [ ] Guest count: aggiungere a pos_daily_summary quando arriva report TouchBistro
+- [ ] Foto display TV — upload da admin → Supabase Storage
+- [ ] Pasta halves sommati nelle stats TV
+- [ ] Auto-approve fatture senza warning
+- [ ] Guest count da nuovo report TouchBistro
+- [ ] Badge sui tre puntini per nuovi Tell Chef
+- [ ] Verifica traduzioni Antonella (lang=it)
+- [ ] Ben E. Keith: testare import
+- [ ] Briefing AI fix — 2-3 punti concreti + View all + chef_reports + operation_notes
+- [ ] selling_price su ricette (prerequisito Bot 5 versione B)
 
 ---
 
-## BACKLOG ESISTENTE
+## BACKLOG
 
-- [ ] TripleSeat API (credenziali in attesa da Monica)
-- [ ] Digital whiteboard (prep handoffs brigata)
-- [ ] Sales anomaly detection (calo/picco >30% vs settimana scorsa)
-- [ ] Yes Chef modal (sostituire toast con modal celebrativo)
+- [ ] TripleSeat API (credenziali Monica — Authorize pending)
 - [ ] SevenShift API
-- [ ] Apple Watch / Wear OS
-- [ ] Apple Intelligence / new Siri integration
+- [ ] Apple Watch
+- [ ] Apple Intelligence / Siri
+- [ ] Sales anomaly detection
+- [ ] Yes Chef modal
+- [ ] Sistema foto centralizzato — album unico usato da ricette, TV, Kitchen Display; Kitchen Display multi-schermata con rotazione contenuti
+- [ ] Skill progression brigata
+- [ ] Chef Inbox unificato (Tell Chef + Operation Notes + Chef AI)
 
 ---
 
-## IDEE NUOVE — sessione 2026-06-16
+## Log sessioni
 
-### Chef Rover 🔄
-Antonella (o altra figura senior) ruota nelle stazioni settimanalmente come affiancamento professionale — non ispezione.
-- Max assegna la stazione della settimana da admin
-- La stazione riceve notifica: "Questa settimana [nome] è con te"
-- Il Rover lavora con il ragazzo, dimostra come si fa — non giudica, insegna
-- Dopo l'affiancamento, il Rover lascia una nota breve visibile solo a Max
-- Il ragazzo non vede il giudizio — vede solo il suo progresso nel tempo
-- Contesto: Antonella ha professionalità europea alta, la brigata è livello medio-basso difficile da formare. Il sistema deve sembrare un privilegio, non una punizione.
 
-### Backlist per stazione 📋
-Lista di task secondari per ogni stazione — visibile automaticamente quando il ragazzo ha finito la preplist.
-- Max o Antonella la compilano una volta per stazione (5-8 voci)
-- Esempi: pulire equipment, organizzare frigo, controllare etichette/date, pulire griglie, riordinare spezie
-- Si attiva automaticamente quando la preplist è completata al 100%
-- Il ragazzo spunta quello che fa → entra nel log
-- Max vede chi ha fatto cosa e quando
-- Il Chef Rover durante l'affiancamento può aggiornare/migliorare la backlist di quella stazione
 
-### TelChef 📢
-Inbox unidirezionale brigata → Max — aperto a tutti i turni, sempre disponibile.
-- Qualsiasi membro della brigata può mandare note, suggerimenti, reclami, osservazioni in qualsiasi momento
-- Non è una chat — è una segnalazione strutturata (un messaggio, una foto, un commento)
-- Esempi: "Manca il procedimento sulla ricetta X", "Gli spelucchini sono da comprare", "L'arrabbiata finisce sempre prima"
-- Tutto passa da Max prima di qualsiasi azione
-- Collegato al modulo "Contributi della brigata" già spec'd in BRIGADE_VISION.md
 
----
 
-## Fornitori attivi
+### Sessione 2026-06-19 (e) — Fix mic sovrapposto send button (v276)
+- `chat.js`: `showChat()` nasconde `scBtn` all'apertura chat
+- Ripristino automatico al cambio tab gia gestito da `app.js`
+- Tutti i bug pre-lancio beta risolti
 
-| Fornitore | Email import | Label Gmail | Stato |
-|---|---|---|---|
-| Hardie's | Gmail automatico | hardies-import | attivo |
-| Fruge Seafood | system@netyield.com | fruge-import | attivo → gmail-vendor-import |
-| Ben E. Keith | iCloud->Gmail forward | bek-import | attivo → gmail-vendor-import |
-| Freshpoint | body email | freshpoint-import | attivo |
-| Global Gourmet | manuale | — | scan manuale |
-| Sysco | manuale | — | scan manuale |
+### Sessione 2026-06-19 (d) — Fix TV toggle realtime (v275)
+- `settings` aggiunta a `supabase_realtime` publication (era assente — causa root)
+- `display.html`: `startSettingsRealtime()` con riconnessione automatica CLOSED/CHANNEL_ERROR
+- `display.html`: polling fallback `checkDisplayActive` ogni 30s
+- Toggle TV ON/OFF ora agisce in tempo reale anche dopo ore di uptime
+
+### Sessione 2026-06-19 (c) — Fix ai-translate storm (v269-v271)
+- **Problema**: ai-translate chiamato ~360 volte/ora da news.js + 5 volte per apertura home da briefing.js
+- **Fix news.js**: nuova colonna `alerts.translations JSONB` — traduzione generata una volta alla creazione, letta dal DB
+- **Fix briefing.js + sc-nightly-brief v12**: 4 nuove colonne `briefing.points_en/es/staff_en/staff_es` — tradotte alla generazione notturna
+- **DB**: `ALTER TABLE alerts ADD COLUMN translations JSONB` + 4 colonne su `briefing`
+- Realtime alerts preservato intatto
+- chat.js e recipes.js: invariati (chiamate corrette e on-demand)
+
+### Sessione 2026-06-19 — Fruge Parser (v267-v273)
+- Fruge parser riscritto da zero (v1->v5) in vendor-parser-ui.js
+- Logica: regex riga singola + lookahead per righe spezzate da PDF.js
+- 3 tipi pack: LB catchweight, BG/GA peso da descrizione, CA moltiplicazione NxN
+- pack_description = peso totale LB per compatibilita con UI Hardies
+- Fix vendor-documents-review.js: legge _cost_per_100g, cost_per_lb, total_weight_lb
+- **BUG APERTO**: calcoli $/100g nel flusso reale (email->Storage) non sempre corretti
+- Priorita: DOPO lancio beta lunedi
+
+### ✅ RISOLTO 2026-06-19 — ai-translate storm
+- alerts.translations JSONB: traduzioni salvate al momento creazione alert
+- briefing: 4 nuove colonne tradotte (points_en/es, points_staff_en/es)
+- sc-nightly-brief v12: traduce in EN+ES alla generazione
+- loadNews() e loadBriefing(): zero chiamate ai-translate in lettura
+
+### Sessione 2026-06-19 — No Need + Bot 6 (v266)
+- Bottone No Need su prep tasks urgenti (unit=no_need in prep_log)
+- Bot 6 — Guardiano Accuratezza Prep (bot-prep-accuracy v1): identifica chi ha sbagliato tra morning e evening crew
+- Cron: 17:30 CDT ogni giorno
+
+### Sessione 2026-06-18 — Bot System completo (v249)
+- **Bot 1 — Guardiano Prezzi** (bot-price-guard v1): confronta prezzi fattura vs storico, soglia 10%, min 3 acquisti
+- **Bot 2 — Analista Chat** (bot-chat-analyst v2): AI legge chat ogni notte, recap settimanale domenica
+- **Bot 3 — Costruttore Preplist** (bot-preplist-builder v1): suggested_qty automatiche da POS + prep_log, 3 settimane storia
+- **Bot 4 — Lettore Tell Chef** (bot-tell-chef-reader v1): classifica tell chef in 5 tipi, suggestion AI ogni ora
+- **Bot 5 — Guardiano Food Cost** (bot-food-cost-guard v1): impatto $ su venduto, versione A senza selling_price
+- process-invoice aggiornato a v29: chiama bot-price-guard + bot-food-cost-guard dopo ogni import
+- Nuove colonne DB: prep_tasks.suggested_qty/suggested_by/suggested_at, chef_reports.report_type
+- 4 cron jobs creati: chat analyst daily/weekly, preplist nightly, tell chef hourly
+
+### Sessione 2026-06-17 — Audit Traduzioni + Google Translate
+- Fix bug Groq traduceva EN→ES erroneamente
+- ai-translate v28: Google Translate primario, Groq fallback
+- Bug UI annotati: send button sovrapposto mic, long press copia
+
+### Sessione 2026-06-17 — L'Ufficio (v229→v237)
+- office_items tabella, office.js, office-ai v1
+- sous_chef_tasks eliminata
+- Sous Chef SQL v21 — query reali al DB
+
+### Sessione 2026-06-17 — Prep List PDF + Checklist Chiusura
+- PDF statico Brigade_PrepList.pdf generato
+
+### Sessione 2026-06-16 — TellChef + Display + pos_item_aliases
+- chef_reports tabella + js/tell-chef.js
+- Kitchen Display: 4 schermate sales, chat realtime EN, staff chips
+- pos_item_aliases: 40 regole mapping
+
+### Sessione 2026-06-16 — TripleSeat Calendar
+- OAuth 2.0 app "MAX" creata
+- tripleseat-sync v4, js/calendar.js
+- PENDING: Monica deve fare Authorize
+
+## BACKLOG — Walmart Wishlist
+
+I ragazzi scrivono da Brigade cosa serve da Walmart (come la lavagna magnetica sul frigo).
+Max vede la lista e fa l'ordine sul sito Walmart.
+- Spazio dedicato da costruire (posizione UI da decidere)
+- Solo staff cucina puo aggiungere voci
+- Max vede tutto e spunta quello che ha ordinato
+

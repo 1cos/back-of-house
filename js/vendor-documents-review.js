@@ -197,11 +197,13 @@ window.vdrProcessAllPdf = async function() {
         const rawText = pages.join('\n');
 
         if (!rawText || rawText.trim().length < 30) throw new Error('No text extracted');
+        console.log('[VDR] rawText preview:', rawText.slice(0, 500));
 
         // Parse with Hardie's parser
         const parsed = parsers.parse(rawText);
+        console.log('[VDR] parsed vendor:', parsed.vendor, 'items:', parsed.items?.length, 'warnings:', parsed.warnings?.length);
 
-        let docNumber = parsed.order_number || parsed.credit_number || null;
+        let docNumber = parsed.invoice_number || parsed.order_number || parsed.credit_number || null;
         // Fallback: extract from email subject, e.g. "INVOICE - #06997941"
         if (!docNumber && doc.source_email_subject) {
           const sm = doc.source_email_subject.match(/#?\s*(\d{6,10})/);
@@ -257,12 +259,10 @@ window.vdrProcessAllPdf = async function() {
             }));
           if (warnRows.length > 0) {
             // upsert: same document + code + item → don't duplicate on re-process
-            await sb.from('invoice_warnings').upsert(warnRows, {
-              onConflict: 'document_id,code,item_description',
-              ignoreDuplicates: false,
-            }).then(({ error: wErr }) => {
-              if (wErr) console.warn('[VDR] invoice_warnings insert error:', wErr.message);
-            });
+            await sb.from('invoice_warnings').insert(warnRows)
+              .then(({ error: wErr }) => {
+                if (wErr) console.warn('[VDR] invoice_warnings insert error:', wErr.message);
+              });
           }
         }
 
@@ -612,8 +612,9 @@ window.vdrRecalcRow = function(docId, idx, btn) {
   var ingrName = nameEl ? nameEl.getAttribute('data-ingr-name') : null;
   var packCalc = window.vdrCalcPack(pack, false, null, ingrName);
   var totalG   = window.vdrPackToGrams(pack, false, null, ingrName);
-  var price    = (unitPrice != null && !isNaN(unitPrice)) ? unitPrice
-               : (ext && qty && !isNaN(ext) && !isNaN(qty) ? ext / qty : null);
+  // $/100g usa ext/qty (prezzo reale per pack) come priorità, unitPrice come fallback
+  var price    = (ext && qty && !isNaN(ext) && !isNaN(qty) && qty > 0) ? ext / qty
+               : (unitPrice != null && !isNaN(unitPrice) ? unitPrice : null);
   var per100g  = (totalG && price) ? (price / totalG * 100).toFixed(2) : null;
 
   var parts = [];
@@ -678,10 +679,12 @@ function vdrDetailHTML(doc) {
       var unitVal   = edits.unitPrice!= null ? edits.unitPrice: (item.unit_price != null ? parseFloat(item.unit_price).toFixed(2) : (item.price_per_lb != null ? parseFloat(item.price_per_lb).toFixed(2) : ''));
       var extVal    = edits.ext      != null ? edits.ext      : (item.amount != null ? Math.abs(item.amount).toFixed(2) : '');
 
-      // Calcolo Sous Chef iniziale
+      // Calcolo Sous Chef iniziale — usa ext/qty come prezzo reale per pack
       var packCalc  = window.vdrCalcPack(packVal, item.catchweight, item.actual_weight_lb, name);
       var totalG    = window.vdrPackToGrams(packVal, item.catchweight, item.actual_weight_lb, name);
-      var price     = parseFloat(unitVal) || null;
+      var extNum    = parseFloat(extVal) || null;
+      var qtyNum2   = parseFloat(qtyVal) || null;
+      var price     = (extNum && qtyNum2 && qtyNum2 > 0) ? extNum / qtyNum2 : (parseFloat(unitVal) || null);
       var per100g   = (totalG && price) ? (price / totalG * 100).toFixed(2) : null;
       var scParts   = [];
       if (packCalc) scParts.push(packCalc);
@@ -1548,18 +1551,27 @@ window.vdrApprove = async function(docId, btn) {
       const effectiveQty   = (edits.qty        != null && !isNaN(edits.qty))       ? edits.qty                         : (item.qty_ordered || 1);
 
       // Calcola totalG dal pack effettivo
-      const totalG  = item.catchweight && item.actual_weight_lb
-        ? item.actual_weight_lb * 453.592
-        : (window.vdrPackToGrams ? window.vdrPackToGrams(effectivePack, false, null, desc)
-          : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null));
+      // Use total_weight_lb from Fruge parser if available
+      const totalG  = item.total_weight_lb
+        ? item.total_weight_lb * 453.592
+        : item.catchweight && item.actual_weight_lb
+          ? item.actual_weight_lb * 453.592
+          : (window.vdrPackToGrams ? window.vdrPackToGrams(effectivePack, false, null, desc)
+            : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null));
 
-      // Prezzo: usa unit price se disponibile, altrimenti ext/qty
-      const price   = effectivePrice != null ? effectivePrice
+      // Prezzo: Fruge parser -> cost_per_lb, altrimenti unit price, altrimenti ext/qty
+      const price   = item.cost_per_lb != null ? item.cost_per_lb
+                    : effectivePrice != null ? effectivePrice
                     : (effectiveExt && effectiveQty ? effectiveExt / effectiveQty : null);
 
-      const per100g = item.catchweight && item.price_per_lb
-        ? (item.price_per_lb / 453.592) * 100
-        : ((totalG && price) ? (price / totalG * 100) : null);
+      // Fruge parser produces _cost_per_100g and cost_per_lb directly — use them
+      const per100g = item._cost_per_100g
+        ? parseFloat(item._cost_per_100g)
+        : (item.catchweight && item.price_per_lb)
+          ? (item.price_per_lb / 453.592) * 100
+          : (item.cost_per_lb)
+            ? (item.cost_per_lb / 453.592) * 100
+            : ((totalG && price) ? (price / totalG * 100) : null);
 
       const priceType = item.price_type || (item.catchweight ? 'per_lb' : 'per_case');
       const convBase  = priceType === 'per_lb' ? null : (item.conversion_to_base || totalG || null);
@@ -1653,16 +1665,16 @@ window.vdrApprove = async function(docId, btn) {
       <div style="
         background:white;width:100%;max-width:480px;
         border-radius:28px 28px 0 0;
-        padding:0 0 40px;
-        max-height:85vh;overflow-y:auto;
+        max-height:85vh;
+        display:flex;flex-direction:column;
         animation:slideUp .3s cubic-bezier(.34,1.56,.64,1);
         box-shadow:0 -8px 40px rgba(0,0,0,0.25);
       ">
         <!-- Handle -->
-        <div style="width:40px;height:4px;background:#e2e8f0;border-radius:2px;margin:14px auto 0;"></div>
+        <div style="width:40px;height:4px;background:#e2e8f0;border-radius:2px;margin:14px auto 0;flex-shrink:0;"></div>
 
         <!-- Header celebrativo -->
-        <div style="text-align:center;padding:24px 20px 16px;">
+        <div style="text-align:center;padding:24px 20px 16px;flex-shrink:0;">
           <div style="font-size:52px;margin-bottom:8px;">👨‍🍳</div>
           <div style="font-size:28px;font-weight:800;color:#1e293b;letter-spacing:-.5px;">Yes, Chef!</div>
           <div style="font-size:15px;color:#64748b;margin-top:6px;">${vendorLabel} · ${docLabel}</div>
@@ -1674,15 +1686,15 @@ window.vdrApprove = async function(docId, btn) {
           ">✅ ${statsLine}</div>
         </div>
 
-        <!-- Lista articoli -->
-        <div style="padding:0 20px;">
+        <!-- Lista articoli — scrollabile -->
+        <div style="padding:0 20px;overflow-y:auto;flex:1;">
           <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;">Articoli importati</div>
           ${itemLines}
           ${moreCount}
         </div>
 
-        <!-- Bottone chiudi -->
-        <div style="padding:20px 20px 0;">
+        <!-- Bottone chiudi — fisso in fondo, fuori dallo scroll -->
+        <div style="padding:16px 20px 40px;flex-shrink:0;">
           <button onclick="document.getElementById('_yesChefOverlay').remove()"
             style="
               width:100%;height:56px;border-radius:18px;
@@ -1916,3 +1928,4 @@ function vdrItemEmoji(name) {
   if (/SHRIMP|PRAWN/.test(n)) return '🍤';
   return '📦';
 }
+
