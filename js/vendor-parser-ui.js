@@ -986,40 +986,33 @@ function buildVendorParsers() {
   //         "8 LB   BRAFW8001000 - BRANZINI FR WHOLE 800-1000 1lb   8 LB  $11.25 LB  $90.00"
   // Total:  "Pay: $490.00"
   function parseFrugeInvoice(rawText) {
-    // FRUGE PARSER v3 — single-line regex
-    // PDF.js produce ogni item su una riga sola con spazi multipli:
-    // "8 LB   BRAFW8001000 - BRANZINI FR WHOLE 800-1000 1lb   7.85 LB   $11.25 LB   $88.31"
-    //
-    // 3 tipi di pack:
-    // TIPO 1 — LB: catchweight -> amount / shipped_lbs
-    // TIPO 2 — BG/GA: peso nel nome -> amount / (qty * lbs_each)
-    // TIPO 3 — CA: moltiplicazione -> amount / (qty * N1 * N2)
+    // FRUGE PARSER v4 — lookahead per righe spezzate
+    // PDF.js nel flusso reale spezza la descrizione su piu righe.
+    // Strategia: regex sulla riga item, poi lookahead sulle righe successive
+    // per trovare il peso lb se non e nella descrizione (BG/GA).
 
     var invoiceNumber = null, invoiceDate = null, total = null;
     var invM = rawText.match(/INVOICE\s+(\d+)/i);           if (invM) invoiceNumber = invM[1];
     var takM = rawText.match(/Taken\s+([\d\/]+)/i);          if (takM) invoiceDate = parseDate(takM[1]);
     var payM = rawText.match(/Pay:\s*\$?([\d,]+\.\d{2})/i);  if (payM) total = parseFloat(payM[1].replace(/,/g, ''));
 
-    var lines = rawText.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+    var lines = rawText.split('\n').map(function(l) { return l.trim(); });
     var items = [];
     var warnings = [];
 
-    // Single-line regex — tutto su una riga con spazi multipli come separatori
-    // Format: ORDERED_QTY UNIT  SKU - DESCRIPTION  SHIPPED_QTY SHIPPED_UNIT  $PRICE PRICE_UNIT  $AMOUNT
-    var LINE_RE = /^(\d+(?:\.\d+)?)\s+(LB|BG|GA|GAL|CA|CS|EA)\s+([A-Z0-9]{6,16})\s*[-\u2013]\s*(.+?)\s+(\d+(?:\.\d+)?)\s+(LB|BG|GA|GAL|CA|CS|EA)\s+\$?([\d,]+\.\d{2})\s+(?:LB|BG|GA|GAL|CA|CS|EA)\s+\$?([\d,]+\.\d{2})\s*$/i;
+    // Regex: ORDERED_QTY UNIT  SKU - DESCRIPTION  SHIPPED_QTY SHIPPED_UNIT  $PRICE UNIT  $AMOUNT
+    var LINE_RE = /^\s*\d+(?:\.\d+)?\s+(LB|BG|GA|GAL|CA|CS|EA)\s+([A-Z0-9]{6,16})\s*[-\u2013]\s*(.+?)\s+(\d+(?:\.\d+)?)\s+(LB|BG|GA|GAL|CA|CS|EA)\s+\$?([\d,]+\.\d{2})\s+(?:LB|BG|GA|GAL|CA|CS|EA)\s+\$?([\d,]+\.\d{2})/i;
 
     for (var i = 0; i < lines.length; i++) {
       var m = lines[i].match(LINE_RE);
       if (!m) continue;
 
-      var ordQty  = parseFloat(m[1]);
-      var ordUnit = m[2].toUpperCase();
-      var sku     = m[3];
-      var descRaw = m[4].trim();
-      var shpQty  = parseFloat(m[5]);
-      var shpUnit = m[6].toUpperCase();
-      var unitPrice = parseFloat(m[7].replace(/,/g, ''));
-      var amount    = parseFloat(m[8].replace(/,/g, ''));
+      var sku      = m[2];
+      var descRaw  = m[3].trim();
+      var shpQty   = parseFloat(m[4]);
+      var shpUnit  = m[5].toUpperCase();
+      var unitPrice = parseFloat(m[6].replace(/,/g, ''));
+      var amount    = parseFloat(m[7].replace(/,/g, ''));
 
       var costPerLb = null;
       var totalLb = null;
@@ -1031,32 +1024,52 @@ function buildVendorParsers() {
         costPerLb = amount / shpQty;
 
       } else if (shpUnit === 'BG' || shpUnit === 'GA' || shpUnit === 'GAL') {
-        // TIPO 2: peso nel nome (es. "10lb", "8 LB")
+        // TIPO 2: peso lb nella descrizione o nelle righe successive
+        var lbsEach = null;
         var wm = descRaw.match(/(\d+(?:\.\d+)?)\s*lb\b/i);
         if (wm) {
-          var lbsEach = parseFloat(wm[1]);
+          lbsEach = parseFloat(wm[1]);
+        } else {
+          // Guarda le prossime 3 righe
+          for (var j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+            var nxt = lines[j].trim();
+            if (LINE_RE.test(nxt)) break; // inizia il prossimo item
+            var wm2 = nxt.match(/(\d+(?:\.\d+)?)\s*lb\b/i);
+            if (wm2) { lbsEach = parseFloat(wm2[1]); break; }
+          }
+        }
+        if (lbsEach) {
           totalLb = shpQty * lbsEach;
           costPerLb = amount / totalLb;
           packDesc = shpQty + ' ' + shpUnit + ' x ' + lbsEach + ' LB';
         } else {
           costPerLb = unitPrice;
+          packDesc = shpQty + ' ' + shpUnit;
         }
 
       } else if (shpUnit === 'CA' || shpUnit === 'CS') {
-        // TIPO 3: moltiplicazione (es. "5 X 2 LBS")
+        // TIPO 3: moltiplicazione NxN nella descrizione o righe successive
         var mxm = descRaw.match(/(\d+)\s*[xX]\s*(\d+(?:\.\d+)?)\s*(?:LBS?|lb)/i);
+        if (!mxm) {
+          for (var k = i + 1; k < Math.min(i + 4, lines.length); k++) {
+            var nxt2 = lines[k].trim();
+            if (LINE_RE.test(nxt2)) break;
+            mxm = nxt2.match(/(\d+)\s*[xX]\s*(\d+(?:\.\d+)?)\s*(?:LBS?|lb)/i);
+            if (mxm) break;
+          }
+        }
         if (mxm) {
           totalLb = shpQty * parseFloat(mxm[1]) * parseFloat(mxm[2]);
           costPerLb = amount / totalLb;
           packDesc = shpQty + ' CA (' + mxm[1] + 'x' + mxm[2] + ' LB)';
         } else {
           costPerLb = unitPrice;
+          packDesc = shpQty + ' CA';
         }
       }
 
       var costPer100g = costPerLb ? parseFloat(((costPerLb / 453.592) * 100).toFixed(4)) : null;
 
-      // Pulisci descrizione
       var desc = descRaw
         .replace(/\d+(?:\.\d+)?\s*lb\b/gi, '')
         .replace(/GALLON/gi, '')
@@ -1067,7 +1080,7 @@ function buildVendorParsers() {
         vendor_sku:       sku,
         description:      desc,
         raw_description:  descRaw,
-        qty_ordered:      ordQty,
+        qty_ordered:      null,
         qty_received:     shpQty,
         received_unit:    shpUnit,
         pack_description: packDesc,
@@ -1082,10 +1095,10 @@ function buildVendorParsers() {
     }
 
     if (items.length === 0) {
-      console.log('[FRUGE v3] NO ITEMS. Lines:', lines.slice(0, 20).join(' || '));
+      console.log('[FRUGE v4] NO ITEMS. Lines:', lines.slice(0, 20).join(' || '));
       warnings.push({ code: 'NO_ITEMS', message: 'No line items parsed from Fruge invoice' });
     } else {
-      console.log('[FRUGE v3] OK -', items.length, 'items');
+      console.log('[FRUGE v4] OK -', items.length, 'items');
     }
 
     return {
