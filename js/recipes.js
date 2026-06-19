@@ -551,7 +551,14 @@ function openRecipeEditor(rec=null){
   // Populate existing ingredients
   (rec?.ingredients||[{},{},{}]).forEach(i=>{
     if(i.type === 'section') addSectionRow(i);
-    else addIngRow(i);
+    else addIngRow({
+      qty:           i.qty,
+      unit:          i.unit,
+      name:          i.name,
+      comment:       i.comment,
+      ingredient_id: i.ingredient_id || null,
+      sub_recipe_id: i.sub_recipe_id  || null
+    });
   });
 
   modal.querySelector('#addIng').onclick     = ()=>addIngRow();
@@ -569,14 +576,19 @@ function openRecipeEditor(rec=null){
     const sp       = parseFloat(modal.querySelector('#rPrice')?.value)||null;
 
     // Collect ingredients — both section headers and ingredient rows
+    // Retrocompatibile: righe vecchie non hanno .ing-name-input — fallback su tutti gli input testo
     const ingredients = [...ingList.children].map(row=>{
       if(row.dataset.type === 'section'){
         return { type:'section', name: row.querySelector('input').value.trim() };
       }
-      const qtyEl     = row.querySelector('input[type="number"]');
-      const unitEl    = row.querySelector('select');
-      const nameEl    = row.querySelector('.ing-name-input');
-      const commentEl = row.querySelector('input:not([type="number"]):not(.ing-name-input)');
+      const qtyEl  = row.querySelector('input[type="number"]');
+      const unitEl = row.querySelector('select');
+      // Nome: preferisce .ing-name-input (righe nuove), fallback primo input testo (righe vecchie)
+      const nameEl = row.querySelector('.ing-name-input') ||
+                     [...row.querySelectorAll('input')].find(el => el.type !== 'number');
+      // Note: ultimo input testo che non è il nome
+      const allTextInputs = [...row.querySelectorAll('input')].filter(el => el.type !== 'number' && el !== nameEl);
+      const commentEl = allTextInputs[allTextInputs.length - 1] || null;
       return {
         qty:           parseFloat(qtyEl?.value)||qtyEl?.value||'',
         unit:          unitEl?.value||'g',
