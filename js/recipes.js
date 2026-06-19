@@ -200,7 +200,7 @@ async function showRecipeSheet(rec){
       <h3 class="text-3xl font-bold mb-2">${rec.title||rec.name||''}</h3>
       <p class="text-base text-slate-500 mb-3">${headerMeta}</p>
       ${rec.pos_name ? '<div id="recipeSalesStats" style="margin-bottom:12px;"></div>' : ''}
-      ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">🔄 Ogni '+rec.prep_frequency_days+(rec.prep_frequency_days===1?' giorno':' giorni')+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">📦 Dura '+rec.shelf_life_days+(rec.shelf_life_days===1?' giorno':' giorni')+'</span>' : ''}</div>` : ''}
+      ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">🔄 Every '+rec.prep_frequency_days+(rec.prep_frequency_days===1?' day':' days')+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">📦 Lasts '+rec.shelf_life_days+(rec.shelf_life_days===1?' day':' days')+'</span>' : ''}</div>` : ''}
       ${rec.image_url ? `<img src="${rec.image_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${rec.photo_url ? `<img src="${rec.photo_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${scalingUI}
@@ -896,25 +896,25 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     const hasVariants = posNames.length > 1;
     const withBuffer = v => v > 0 ? Math.ceil(v * 1.15) : 0;
     const fmt1 = v => v > 0 ? Math.ceil(v) + ' pz' : '—';
-    const fmtPrep = v => v > 0 ? v + ' porzioni' : '—';
+    const fmtPrep = v => v > 0 ? v + ' portions' : '—';
 
     el.innerHTML =
-      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Sett. scorsa · media/giorno' + (hasVariants ? ' · porz. equiv.' : '') + '</div>' +
+      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Last week · avg/day' + (hasVariants ? ' · equiv. portions' : '') + '</div>' +
       '<div style="display:flex;gap:8px;">' +
 
       '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
-        '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Lun→Gio</div>' +
+        '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Mon→Thu</div>' +
         '<div style="font-size:16px;font-weight:900;color:#6366f1;line-height:1;">' + fmt1(ferAvg) + '</div>' +
       '</div>' +
 
       '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
-        '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Ven+Sab</div>' +
+        '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Fri+Sat</div>' +
         '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + fmt1(wkAvg) + '</div>' +
       '</div>' +
 
       (prepToday > 0 ?
       '<div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:8px 10px;text-align:center;">' +
-        '<div style="font-size:9px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Prep oggi</div>' +
+        '<div style="font-size:9px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Prep today</div>' +
         '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + fmtPrep(withBuffer(isWeekendToday ? wkAvg : ferAvg)) + '</div>' +
         '<div style="font-size:8px;color:#059669;margin-top:2px;">+15% buffer</div>' +
       '</div>' : '') +
