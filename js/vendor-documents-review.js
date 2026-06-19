@@ -259,12 +259,10 @@ window.vdrProcessAllPdf = async function() {
             }));
           if (warnRows.length > 0) {
             // upsert: same document + code + item → don't duplicate on re-process
-            await sb.from('invoice_warnings').upsert(warnRows, {
-              onConflict: 'document_id,code,item_description',
-              ignoreDuplicates: false,
-            }).then(({ error: wErr }) => {
-              if (wErr) console.warn('[VDR] invoice_warnings insert error:', wErr.message);
-            });
+            await sb.from('invoice_warnings').insert(warnRows)
+              .then(({ error: wErr }) => {
+                if (wErr) console.warn('[VDR] invoice_warnings insert error:', wErr.message);
+              });
           }
         }
 
