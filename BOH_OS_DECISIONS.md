@@ -1,6 +1,6 @@
 # BRIGADE — DECISIONS
 *Perche abbiamo scelto certe cose. Non ridiscutere senza motivo.*
-*Aggiornato: 2026-06-18 — v257*
+*Aggiornato: 2026-06-19 — v271*
 
 ---
 
@@ -11,8 +11,8 @@
 | App HTML/PWA attuale | **BRIGADE** |
 | App Flutter futura con Siri | **BOH OS** (separata, non ancora costruita) |
 | Branch deploy | **brigade-main** (MAI main) |
-| Versione attuale frontend | **v257** |
-| Versione souschef-chat | **v21** |
+| Versione attuale frontend | **v271** |
+| Versione souschef-chat | **v23** |
 | Supabase project attivo | ydqmumpytgrlceuinoqt |
 | AI in-app | **Chef AI** — MAI "Sous Chef AI" o "Sous Chef" |
 
@@ -214,7 +214,7 @@ Spices & Herbs, Beverages & Spirits, Prepared, Bakery, Frozen, Supply
 ## Nightly Brief
 
 - Cron: 0 10 * * * = 10:00 UTC = 5:00 AM CDT
-- Edge Function: sc-nightly-brief v5
+- Edge Function: sc-nightly-brief v12 (+ traduzioni EN/ES)
 - Domenica: recap settimana
 
 ---
@@ -228,6 +228,26 @@ Spices & Herbs, Beverages & Spirits, Prepared, Bakery, Frozen, Supply
 - PENDING: Monica deve fare Authorize
 
 ---
+
+## Sistema Traduzioni — decisioni aggiornate (2026-06-19)
+
+### Architettura (dopo fix ai-translate storm)
+
+**Alerts:**
+- Traduzione generata UNA VOLTA alla creazione in `sendNews()`
+- Salvata in `alerts.translations = { "it": "...", "en": "...", "es": "..." }`
+- `loadNews()` legge dal DB — zero chiamate AI in lettura
+
+**Briefing:**
+- `sc-nightly-brief` genera punti in italiano, poi traduce in EN+ES, salva in 4 colonne
+- `loadBriefing()` legge colonna giusta per `user.lang` e ruolo — zero chiamate AI in lettura
+
+**Chat messaggi:**
+- Invio: detect lingua → salva `lang` — 1 chiamata (corretta)
+- Ricezione: se `m.lang !== user.lang` → traduce — 1 chiamata per messaggio (corretta)
+
+**Kitchen Display:**
+- `translateToEn` con `literal:true` — chiamata per ogni messaggio nuovo (corretta)
 
 ## Sistema Traduzioni — decisioni (2026-06-17)
 
