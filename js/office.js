@@ -214,10 +214,7 @@ window.officeOpenFolder = async function(folderId) {
     return (o[a.priority]||2)-(o[b.priority]||2);
   });
 
-  var cardsHtml = sorted.length > 0
-    ? sorted.map(function(item){ return officeRenderCard(item); }).join('')
-    : '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:12px;">✅</div><div style="font-size:15px;color:rgba(30,58,95,0.4);">Nessun messaggio in questo cassetto</div></div>';
-
+  // Header del cassetto
   el.innerHTML =
     '<div style="width:40px;height:5px;background:rgba(30,58,95,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
     '<div style="background:rgba(239,246,255,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid rgba(59,130,246,0.12);box-shadow:0 2px 8px rgba(30,58,95,0.06);padding:14px 16px;display:flex;align-items:center;gap:14px;flex-shrink:0;">' +
@@ -228,9 +225,20 @@ window.officeOpenFolder = async function(folderId) {
       '</div>' +
       '<div style="width:5px;height:40px;border-radius:4px;background:' + ribbon + ';box-shadow:0 0 10px rgba(0,0,0,0.1);"></div>' +
     '</div>' +
-    '<div id="officeFolderList" style="flex:1;overflow-y:auto;padding:14px 0 60px;-webkit-overflow-scrolling:touch;">' +
-      cardsHtml +
-    '</div>';
+    '<div id="officeFolderList" style="flex:1;overflow-y:auto;padding:14px 0 60px;-webkit-overflow-scrolling:touch;"></div>';
+
+  // Aggiungo card via DOM per evitare problemi con apostrofi nel testo
+  var listEl = el.querySelector('#officeFolderList');
+  if (sorted.length === 0) {
+    listEl.innerHTML = '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:12px;">✅</div><div style="font-size:15px;color:rgba(30,58,95,0.4);">Nessun messaggio in questo cassetto</div></div>';
+  } else {
+    sorted.forEach(function(item) {
+      var tmp = document.createElement('div');
+      tmp.innerHTML = officeRenderCard(item);
+      var card = tmp.firstElementChild;
+      if (card) listEl.appendChild(card);
+    });
+  }
 
   document.body.appendChild(el);
 
