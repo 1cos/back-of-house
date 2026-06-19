@@ -11,7 +11,8 @@
 - Deploy: https://1cos.github.io/back-of-house
 - Branch: brigade-main
 - Versione: **v265**
-- souschef-chat: v21
+- souschef-chat: v23
+- hardies-order-check: v2 (NUOVO)
 - process-invoice: v29
 - souschef-scan: v10
 
@@ -41,6 +42,24 @@ Flusso comando: Max → Rover (Anto) → Sous Chef → Chef de partie
 - Output: Briefing AI (Max only, tutto), L'Ufficio (Max only, tutto), Highlights (brigata+Max, MAI soldi)
 
 ---
+
+## SESSIONE 2026-06-19 (b) - Do Not Order + Order Check
+
+### Cosa e stato fatto
+- **Do Not Order system** su ingredient_vendors
+  - 4 nuove colonne: do_not_order, do_not_order_reason, do_not_order_set_at, do_not_order_set_by
+  - Chef AI v23 capisce: blocca singolo, blocca da tutti, blocca fornitore, sblocca
+  - Alert arancione in L'Ufficio quando articolo bloccato in conferma ordine
+- **Edge Function hardies-order-check v2**
+  - Parser email HTML Chef's Warehouse (= Hardie's)
+  - Mittente: orders@info.chefswarehouse.com, subject: Your Order is Processing
+  - Estrae articoli, controlla do_not_order, scrive office_items
+- **Apps Script checkHardiesOrderConfirmations** aggiunto a HardiesImport.gs
+  - Label: hardies-order-processed
+  - Usa sendToEdge da Utils.gs
+  - Gira con trigger orario gia esistente
+- **souschef-chat v23** - 6 nuove azioni blocco/sblocco
+- **Walmart wishlist** - annotato in backlog
 
 ## SESSIONE 2026-06-19 — Recipe BOM completo (v265)
 
