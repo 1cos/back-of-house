@@ -197,11 +197,13 @@ window.vdrProcessAllPdf = async function() {
         const rawText = pages.join('\n');
 
         if (!rawText || rawText.trim().length < 30) throw new Error('No text extracted');
+        console.log('[VDR] rawText preview:', rawText.slice(0, 500));
 
         // Parse with Hardie's parser
         const parsed = parsers.parse(rawText);
+        console.log('[VDR] parsed vendor:', parsed.vendor, 'items:', parsed.items?.length, 'warnings:', parsed.warnings?.length);
 
-        let docNumber = parsed.order_number || parsed.credit_number || null;
+        let docNumber = parsed.invoice_number || parsed.order_number || parsed.credit_number || null;
         // Fallback: extract from email subject, e.g. "INVOICE - #06997941"
         if (!docNumber && doc.source_email_subject) {
           const sm = doc.source_email_subject.match(/#?\s*(\d{6,10})/);
