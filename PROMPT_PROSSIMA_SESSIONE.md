@@ -1,4 +1,4 @@
-# PROMPT PROSSIMA SESSIONE — Brigade v273
+# PROMPT PROSSIMA SESSIONE — Brigade v274
 
 ## PRIMA DI TUTTO
 1. Carica x_claude_GIthub.txt dal progetto
@@ -10,7 +10,7 @@
 - Supabase: ydqmumpytgrlceuinoqt
 - Deploy: https://1cos.github.io/back-of-house
 - Branch: brigade-main
-- Versione: **v271** (sw.js attuale)
+- Versione: **v274** (sw.js attuale)
 - souschef-chat: v23
 - sc-nightly-brief: v12
 - process-invoice: v29
@@ -32,6 +32,28 @@
 | Chef de partie | Cole, Rachel, Sofia, altri |
 
 ---
+
+
+## SESSIONE 2026-06-19 (d) — L'Ufficio Cassetti (v253-v258)
+
+### Fatto
+- v253 — Bottoni L'Ufficio differenziati per fonte (tell_chef/operation_note/ai_scan/sous_chef_chat)
+- v254-v255 — Fix realtime L'Ufficio: office_items aggiunta a supabase_realtime publication (era la causa root)
+- v255 — Demo Bot: frequenza dinamica (cambio freq mentre bot in corsa riavvia timer)
+- v256-v258 — L'Ufficio redesign: home con cassetti colorati + folder navigation fullscreen + swipe down to close
+  - 7 cassetti: Da leggere / La Brigata / Chef AI / Prep & Check / Incongruenze / Miglioramenti / Fornitori / Dati
+  - Routing fonte→cassetto: tell_chef+operation_note→brigata, ai_scan+sous_chef_chat→chefai, ecc.
+  - Fix apostrofi: card costruite via DOM per evitare SyntaxError con testi contenenti apostrofi
+
+### Bug aperti emersi
+- BUG: Kitchen Display realtime si blocca aprendo/chiudendo L'Ufficio
+- BUG: Bottone "Gest" news bar — dopo primo "Chiudi" item, modal sparisce invece di aggiornarsi
+
+### Backlog annotato
+- Sistema foto centralizzato: album unico per ricette + TV + Kitchen Display
+- Kitchen Display multi-schermata con rotazione contenuti
+- L'Ufficio → spostare in bottom bar
+- Pulizia menu admin: verificare se Parser Test, Similarity, Vendor Match, Ingredient Cleanup, Bootstrap sono ancora usati
 
 ## SESSIONE 2026-06-19 (c) — Fix ai-translate storm (v269-v271)
 
@@ -86,7 +108,7 @@ ai-translate veniva chiamato decine di volte per pagina — esauriva i limiti AP
 - [x] BUG: ai-translate chiamato decine di volte — RISOLTO 2026-06-19
 - [x] BUG: L'Ufficio realtime non si aggiorna — RISOLTO 2026-06-19
 - [ ] BUG: Kitchen Display si blocca quando si apre/chiude L'Ufficio
-- [ ] BUG: send button sovrapposto al microfono in chat (iPhone)
+- [x] BUG: send button sovrapposto al microfono in chat (iPhone) — RISOLTO v274
 
 ### NON priorita per il lancio
 - Fruge parser calcoli $/100g
