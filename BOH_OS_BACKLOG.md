@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-19 — v266*
+*Aggiornato: 2026-06-19 — v273*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -285,6 +285,21 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 ---
 
 ## Log sessioni
+
+
+### Sessione 2026-06-19 — Fruge Parser (v267-v273)
+- Fruge parser riscritto da zero (v1->v5) in vendor-parser-ui.js
+- Logica: regex riga singola + lookahead per righe spezzate da PDF.js
+- 3 tipi pack: LB catchweight, BG/GA peso da descrizione, CA moltiplicazione NxN
+- pack_description = peso totale LB per compatibilita con UI Hardies
+- Fix vendor-documents-review.js: legge _cost_per_100g, cost_per_lb, total_weight_lb
+- **BUG APERTO**: calcoli $/100g nel flusso reale (email->Storage) non sempre corretti
+- Priorita: DOPO lancio beta lunedi
+
+### BUG URGENTE — ai-translate
+- ai-translate viene chiamato decine di volte per ogni pagina caricata
+- Indagare chi lo chiama, se serve davvero, se sta esaurendo i limiti API
+- Priorita ALTA prima del lancio
 
 ### Sessione 2026-06-19 — No Need + Bot 6 (v266)
 - Bottone No Need su prep tasks urgenti (unit=no_need in prep_log)
