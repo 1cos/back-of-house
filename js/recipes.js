@@ -938,7 +938,7 @@ async function saveRecipeBOM(recipeId, ingredientRows){
     .filter(i => i.type !== 'section' && (i.ingredient_id || i.sub_recipe_id))
     .map(i => ({
       parent_recipe_id: recipeId,
-      component_type:   i.sub_recipe_id ? 'sub_recipe' : 'ingredient',
+      component_type:   i.sub_recipe_id ? 'RECIPE' : 'ITEM',
       item_id:          i.ingredient_id || null,
       sub_recipe_id:    i.sub_recipe_id || null,
       quantity:         parseFloat(i.qty) || null,
