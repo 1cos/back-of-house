@@ -2,14 +2,19 @@
 const REACTIONS = ['👍','✅','👀','🔥','❤️','😂','🙏'];
 
 
+// Traccia se Focus Mode era attiva prima di aprire la chat
+var _chatOpenedFromFocus = false;
+
 function showChat(){
   const fm = document.getElementById('focusMode');
   const focusActive = fm && fm.style.display !== 'none';
 
   if (focusActive) {
-    // Focus Mode attiva — apri chat come overlay sopra, non uscire dalla Focus Mode
-    _showChatOverlay();
-    return;
+    // Nascondi Focus Mode temporaneamente — ricorda di tornare
+    _chatOpenedFromFocus = true;
+    fm.style.display = 'none';
+  } else {
+    _chatOpenedFromFocus = false;
   }
 
   // Nascondi mic Chef AI — sovrappone il bottone invio su iPhone
@@ -28,10 +33,32 @@ function showChat(){
   loadChat();
   startChatRealtime();
   loadPinnedMessages();
-  // Azzera badge quando apri la chat
-  const badge=document.getElementById('badge');
+  // Azzera badge chat e badge Focus Mode
+  var badge = document.getElementById('badge');
   if(badge){badge.style.display='none';badge.textContent='0';}
+  var focusBadge = document.getElementById('focusChatBadge');
+  if(focusBadge){focusBadge.style.display='none';focusBadge.textContent='0';}
+  // Mostra/nascondi bottone ← in base alla provenienza
+  var backBtn = document.getElementById('chatBackBtn');
+  if(backBtn) backBtn.style.display = _chatOpenedFromFocus ? 'flex' : 'none';
 }
+
+// Chiudi chat e torna dove si era
+window.closeChat = function() {
+  if (_chatOpenedFromFocus) {
+    // Torna in Focus Mode
+    _chatOpenedFromFocus = false;
+    ['vh','vm','vs','vr','vp','vi','vc'].forEach(id=>{
+      var el=document.getElementById(id);if(el)el.classList.add('hidden');
+    });
+    var fm = document.getElementById('focusMode');
+    if (fm) fm.style.display = 'flex';
+    // Ripristina mic Chef AI
+    var scBtn = document.getElementById('scBtn');
+    if (scBtn) scBtn.style.display = '';
+  }
+  // Se non era Focus Mode, il bottone ← normale gestisce il ritorno alla home
+};
 
 function _showChatOverlay(){
   // Rimuovi overlay esistente se c'e'
@@ -226,6 +253,13 @@ function addMsg(m,init){
       const count=(parseInt(badge.textContent||'0')+1);
       badge.textContent=count;
       badge.style.display='flex';
+    }
+    // Badge anche sul bottone Chat in Focus Mode
+    var focusBadge = document.getElementById('focusChatBadge');
+    if(focusBadge){
+      var fc=(parseInt(focusBadge.textContent||'0')+1);
+      focusBadge.textContent=fc;
+      focusBadge.style.display='flex';
     }
   }
 }
