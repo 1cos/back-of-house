@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-18 — v249*
+*Aggiornato: 2026-06-18 — v257*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,7 +10,7 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v249**
+- Versione frontend: **v257**
 - Versione souschef-chat: v21
 - ai-translate: **v28** (Google Translate attivo)
 - Supabase: ydqmumpytgrlceuinoqt
@@ -226,7 +226,7 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 - **5 Bot attivi** alimentano L'Ufficio automaticamente
 
 ### TODO L'Ufficio
-- [ ] 🔴 Realtime non funziona — richiede chiudi/riapri (bug aperto)
+- ✅ Realtime L'Ufficio — RISOLTO (2026-06-18)
 - [ ] 🔴 Bottoni non collegati ad azioni reali — sessione dedicata
 - [ ] office-ai → pg_cron orario (analisi automatica ogni ora)
 - [ ] Smart Office — calendario meeting interni Brigade
@@ -236,7 +236,7 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 ## PRIORITÀ ALTA — PROSSIME SESSIONI
 
 1. **🔴 Bottoni L'Ufficio** — sessione dedicata urgente
-2. **🔴 Realtime L'Ufficio** — subscription Supabase non funziona
+2. ✅ **Realtime L'Ufficio** — RISOLTO
 3. **Fix realtime TV** — loadChat() troppo pesante
 4. **Bug UI chat** — send button sovrapposto al mic, long press copia
 5. **Audit menu tre puntini** — molte voci non collegate
@@ -307,3 +307,4 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 - OAuth 2.0 app "MAX" creata
 - tripleseat-sync v4, js/calendar.js
 - PENDING: Monica deve fare Authorize
+
