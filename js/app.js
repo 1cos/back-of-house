@@ -407,6 +407,8 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   document.getElementById('vi').classList.toggle('hidden',t!=='i');
   const vx = document.getElementById('vx');
   if (vx) { vx.classList.toggle('hidden', t!=='x'); if (t==='x') loadPOS(); }
+  const vsched = document.getElementById('vsched');
+  if (vsched) { vsched.classList.toggle('hidden', t!=='sched'); if (t==='sched') schedLoadData(); }
   if(t==='c') renderRecipes();
   if(t==='s'){ renderS(); if(typeof updateCloseTurnBtn==='function') updateCloseTurnBtn(); }
   if(t==='h') renderHomeStations();
