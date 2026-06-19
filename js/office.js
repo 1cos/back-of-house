@@ -25,47 +25,253 @@ window.officeWriteItem = async function(source, sourceId, fromUser, title, body)
   }
 };
 
-// ── APRI L'UFFICIO ──
+
+var _officeFolderMap = {
+  tell_chef:      'brigata',
+  operation_note: 'brigata',
+  ai_scan:        'chefai',
+  sous_chef_chat: 'chefai',
+  prep_timing:    'prep',
+  price_guard:    'incongruenze',
+  food_cost_guard:'incongruenze',
+  suggestion:     'miglioramenti',
+  vendor_warning: 'fornitori'
+};
+
+var _officeFolders = [
+  { id:'brigata',       icon:'👨‍🍳', label:'La Brigata',    desc:'Tell Chef · Note serali',          ribbon:'#3b82f6', badge:'rgba(59,130,246,0.12)', badgeTxt:'#2563eb' },
+  { id:'chefai',        icon:'🤖',        label:'Chef AI',       desc:'AI scan · Sous Chef chat',         ribbon:'#8b5cf6', badge:'rgba(139,92,246,0.12)',  badgeTxt:'#7c3aed' },
+  { id:'prep',          icon:'📋',        label:'Prep & Check',  desc:'Alert timing · Task mancanti',     ribbon:'#f59e0b', badge:'rgba(245,158,11,0.12)',  badgeTxt:'#d97706' },
+  { id:'incongruenze',  icon:'⚠️',        label:'Incongruenze',  desc:'Prezzi · Pesi · Catchweight',      ribbon:'#f97316', badge:'rgba(249,115,22,0.12)',  badgeTxt:'#ea580c' },
+  { id:'miglioramenti', icon:'💡',        label:'Miglioramenti', desc:'Suggerimenti AI · Menu · Processi', ribbon:'#14b8a6', badge:'rgba(20,184,166,0.12)',  badgeTxt:'#0f766e' },
+  { id:'fornitori',     icon:'📦',        label:'Fornitori',     desc:'Warning prezzi · Fatture',         ribbon:'#10b981', badge:'rgba(16,185,129,0.12)',  badgeTxt:'#059669' },
+  { id:'dati',          icon:'📊',        label:'Dati',          desc:'Report vendite · Food cost',       ribbon:'#ec4899', badge:'rgba(236,72,153,0.12)',  badgeTxt:'#db2777' }
+];
+
 window.openOffice = function() {
   if (typeof hideAdminMenu === 'function') hideAdminMenu();
-
   var existing = document.getElementById('officeModal');
   if (existing) existing.remove();
+  var existingOv = document.getElementById('officeOverlay');
+  if (existingOv) existingOv.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'officeOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:299;background:rgba(0,0,0,0.3);';
+  overlay.onclick = function() { officeStopRealtime(); overlay.remove(); document.getElementById('officeModal')?.remove(); };
+  document.body.appendChild(overlay);
 
   var modal = document.createElement('div');
   modal.id = 'officeModal';
-  // Overlay scuro dietro
-  var overlay = document.createElement('div');
-  overlay.id = 'officeOverlay';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:299;background:rgba(0,0,0,0.5);';
-  overlay.onclick = function() { officeStopRealtime(); overlay.remove(); modal.remove(); };
-  document.body.appendChild(overlay);
-
   modal.style.cssText = [
     'position:fixed;top:0;bottom:0;z-index:300;',
     'background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);',
-    'display:flex;flex-direction:column;',
+    'display:flex;flex-direction:column;overflow:hidden;',
     'font-family:Inter,system-ui,sans-serif;',
-    'width:100%;max-width:480px;',
-    'left:50%;transform:translateX(-50%);',
+    'width:100%;max-width:480px;left:50%;transform:translateX(-50%);',
   ].join('');
 
   modal.innerHTML =
     '<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:0.5px solid rgba(59,130,246,0.12);box-shadow:0 2px 8px rgba(30,58,95,0.06);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;">' +
-      '<button onclick="officeStopRealtime();document.getElementById(\'officeOverlay\')?.remove();document.getElementById(\'officeModal\').remove()" style="color:#60a5fa;background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1;">&#8592;</button>' +
-      '<div style="font-size:16px;font-weight:600;color:#1e3a5f;flex:1;">L\'Ufficio</div>' +
+      '<button onclick="officeStopRealtime();document.getElementById(\'officeOverlay\')?.remove();document.getElementById(\'officeModal\')?.remove();" style="color:#60a5fa;background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1;">&#8592;</button>' +
+      '<div style="font-size:16px;font-weight:700;color:#1e3a5f;flex:1;">L\'Ufficio</div>' +
       '<div id="officeBadge" style="display:none;background:#ef4444;color:white;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;"></div>' +
     '</div>' +
-    '<div id="officeSmartFocus" style="display:none;background:white;border:0.5px solid rgba(59,130,246,0.1);border-radius:16px;margin:10px 12px 0;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07);"></div>' +
-    '<div id="officeList" style="flex:1;overflow-y:auto;padding:0 0 24px;-webkit-overflow-scrolling:touch;">' +
-      '<div style="text-align:center;padding:60px 20px;font-size:14px;color:#94a3b8;">Caricamento...</div>' +
+    '<div id="officeHomeContent" style="flex:1;overflow-y:auto;padding:16px 16px 60px;-webkit-overflow-scrolling:touch;">' +
+      '<div style="text-align:center;padding:40px;color:#94a3b8;">Caricamento...</div>' +
     '</div>';
 
   document.body.appendChild(modal);
-  officeRenderSmartFocus();
-  officeLoad();
+  officeLoadHome();
   officeStartRealtime();
 };
+
+// ── CARICA HOME CON CASSETTI ──
+async function officeLoadHome() {
+  var sb = window.supa;
+  if (!sb) return;
+  var container = document.getElementById('officeHomeContent');
+  if (!container) return;
+
+  try {
+    var res = await sb.from('office_items').select('*').eq('status','open').order('created_at',{ascending:false}).limit(200);
+    var items = res.data || [];
+
+    // Conta per folder
+    var counts = {};
+    var previews = {};
+    _officeFolders.forEach(function(f) { counts[f.id] = 0; previews[f.id] = ''; });
+
+    items.forEach(function(item) {
+      var folder = _officeFolderMap[item.source] || 'chefai';
+      counts[folder] = (counts[folder] || 0) + 1;
+      if (!previews[folder]) previews[folder] = item.title || '';
+    });
+
+    var totalUnread = items.length;
+
+    // Badge header
+    var badge = document.getElementById('officeBadge');
+    if (badge) {
+      if (totalUnread > 0) { badge.style.display='block'; badge.textContent=totalUnread+' nuovi'; }
+      else badge.style.display='none';
+    }
+
+    var html = '';
+
+    // ── DA LEGGERE (strip) ──
+    html +=
+      '<div onclick="officeOpenFolder(\'nonletti\','+JSON.stringify(items)+')" style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:18px;padding:16px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;box-shadow:0 4px 16px rgba(30,58,95,0.25),0 8px 32px rgba(37,99,235,0.15);-webkit-tap-highlight-color:transparent;">' +
+        '<div style="display:flex;align-items:center;gap:12px;">' +
+          '<span style="font-size:26px;">📬</span>' +
+          '<div>' +
+            '<div style="color:white;font-size:17px;font-weight:700;">Da leggere</div>' +
+            '<div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:2px;">Tutti i messaggi in attesa</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="background:white;color:#1e3a5f;font-size:22px;font-weight:800;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(30,58,95,0.2);">' + totalUnread + '</div>' +
+      '</div>';
+
+    html += '<div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;padding-left:4px;">Cassetti</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:10px;">';
+
+    _officeFolders.forEach(function(f) {
+      var count = counts[f.id] || 0;
+      var preview = previews[f.id] || (count === 0 ? 'Nessun messaggio' : '');
+      var itemsForFolder = items.filter(function(i){ return (_officeFolderMap[i.source]||'chefai')===f.id; });
+
+      html +=
+        '<div onclick="officeOpenFolder(\'' + f.id + '\',' + JSON.stringify(itemsForFolder) + ')" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;cursor:pointer;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 6px 20px rgba(30,58,95,0.04);-webkit-tap-highlight-color:transparent;">' +
+          '<div style="display:flex;align-items:center;padding:14px 16px;gap:12px;">' +
+            '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:46px;flex-shrink:0;background:' + f.ribbon + ';"></div>' +
+            '<div style="font-size:26px;width:32px;text-align:center;">' + f.icon + '</div>' +
+            '<div style="flex:1;">' +
+              '<div style="color:#1e3a5f;font-size:16px;font-weight:600;">' + f.label + '</div>' +
+              '<div style="color:#60a5fa;font-size:12px;margin-top:3px;">' + f.desc + '</div>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:8px;">' +
+              '<span style="font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px;background:' + f.badge + ';color:' + f.badgeTxt + ';">' + count + '</span>' +
+              '<span style="color:rgba(30,58,95,0.25);font-size:18px;">&#x203A;</span>' +
+            '</div>' +
+          '</div>' +
+          (preview ? '<div style="border-top:0.5px solid rgba(59,130,246,0.1);padding:9px 16px 11px 65px;color:rgba(30,58,95,0.4);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + preview + '</div>' : '') +
+        '</div>';
+    });
+
+    html += '</div>';
+    container.innerHTML = html;
+
+  } catch(e) {
+    container.innerHTML = '<div style="color:#ef4444;padding:40px;text-align:center;">Errore: ' + e.message + '</div>';
+  }
+}
+
+// ── APRI CASSETTO FULLSCREEN ──
+window.officeOpenFolder = function(folderId, items) {
+  var existing = document.getElementById('officeFolder');
+  if (existing) existing.remove();
+
+  // Dati cassetto
+  var folderData = _officeFolders.find(function(f){ return f.id===folderId; });
+  var isNonLetti = folderId === 'nonletti';
+  var icon   = isNonLetti ? '📬' : (folderData ? folderData.icon : '📁');
+  var label  = isNonLetti ? 'Da leggere' : (folderData ? folderData.label : folderId);
+  var desc   = isNonLetti ? 'Tutti i messaggi in attesa' : (folderData ? folderData.desc : '');
+  var ribbon = isNonLetti ? '#1e3a5f' : (folderData ? folderData.ribbon : '#3b82f6');
+
+  var el = document.createElement('div');
+  el.id = 'officeFolder';
+  el.style.cssText = [
+    'position:fixed;top:0;left:50%;transform:translateX(-50%) translateY(100%);',
+    'width:100%;max-width:480px;height:100vh;z-index:400;',
+    'background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);',
+    'display:flex;flex-direction:column;overflow:hidden;',
+    'font-family:Inter,system-ui,sans-serif;',
+    'transition:transform 0.4s cubic-bezier(0.4,0,0.2,1);',
+  ].join('');
+
+  // Sort items: red → orange → blue
+  var sorted = (items || []).slice().sort(function(a,b){
+    var o={red:0,orange:1,blue:2};
+    return (o[a.priority]||2)-(o[b.priority]||2);
+  });
+
+  var cardsHtml = sorted.length > 0
+    ? sorted.map(function(item){ return officeRenderCard(item); }).join('')
+    : '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:12px;">✅</div><div style="font-size:15px;color:rgba(30,58,95,0.4);">Nessun messaggio in questo cassetto</div></div>';
+
+  el.innerHTML =
+    '<div style="width:40px;height:5px;background:rgba(30,58,95,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
+    '<div style="background:rgba(239,246,255,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid rgba(59,130,246,0.12);box-shadow:0 2px 8px rgba(30,58,95,0.06);padding:14px 16px;display:flex;align-items:center;gap:14px;flex-shrink:0;">' +
+      '<button onclick="officeCloseFolder()" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.7);border:0.5px solid rgba(59,130,246,0.18);color:#1e3a5f;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(30,58,95,0.1);">&#8592;</button>' +
+      '<div style="flex:1;">' +
+        '<div style="font-size:19px;font-weight:700;color:#1e3a5f;letter-spacing:-0.3px;">' + icon + ' ' + label + '</div>' +
+        '<div style="font-size:12px;color:#60a5fa;margin-top:2px;">' + desc + '</div>' +
+      '</div>' +
+      '<div style="width:5px;height:40px;border-radius:4px;background:' + ribbon + ';box-shadow:0 0 10px rgba(0,0,0,0.1);"></div>' +
+    '</div>' +
+    '<div id="officeFolderList" style="flex:1;overflow-y:auto;padding:14px 0 60px;-webkit-overflow-scrolling:touch;">' +
+      cardsHtml +
+    '</div>';
+
+  document.body.appendChild(el);
+
+  // Slide up
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      el.style.transform = 'translateX(-50%) translateY(0)';
+    });
+  });
+
+  // Swipe down to close
+  officeAddSwipeDown(el);
+};
+
+window.officeCloseFolder = function() {
+  var el = document.getElementById('officeFolder');
+  if (!el) return;
+  el.style.transition = 'transform 0.35s cubic-bezier(0.4,0,0.2,1)';
+  el.style.transform = 'translateX(-50%) translateY(100%)';
+  setTimeout(function(){ el.remove(); }, 360);
+};
+
+function officeAddSwipeDown(el) {
+  var startY = 0, startScroll = 0, active = false;
+  var list = el.querySelector('#officeFolderList');
+
+  el.addEventListener('touchstart', function(e) {
+    startY = e.touches[0].clientY;
+    startScroll = list ? list.scrollTop : 0;
+    active = false;
+  }, { passive: true });
+
+  el.addEventListener('touchmove', function(e) {
+    var dy = e.touches[0].clientY - startY;
+    if ((list && list.scrollTop > 6) || dy <= 0) return;
+    active = true;
+    el.style.transition = 'none';
+    el.style.transform = 'translateX(-50%) translateY(' + dy + 'px)';
+    el.style.opacity = String(Math.max(0.4, 1 - dy/380));
+    e.preventDefault();
+  }, { passive: false });
+
+  el.addEventListener('touchend', function(e) {
+    if (!active) return;
+    var dy = e.changedTouches[0].clientY - startY;
+    if (dy > 110) {
+      el.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1),opacity 0.3s';
+      el.style.transform = 'translateX(-50%) translateY(100%)';
+      el.style.opacity = '0';
+      setTimeout(function(){ el.remove(); }, 320);
+    } else {
+      el.style.transition = 'transform 0.38s cubic-bezier(0.34,1.4,0.64,1),opacity 0.25s';
+      el.style.transform = 'translateX(-50%) translateY(0)';
+      el.style.opacity = '1';
+    }
+    active = false;
+  }, { passive: true });
+}
+
 
 // ── ANALIZZA ORA (on demand) ──
 window.officeAnalyzeNow = async function(btn) {
@@ -111,7 +317,7 @@ function officeStartRealtime() {
       schema: 'public',
       table: 'office_items',
     }, function(payload) {
-      officeLoad();
+      officeLoadHome();
       officeBadgeUpdate();
     })
     .subscribe(function(status) {
