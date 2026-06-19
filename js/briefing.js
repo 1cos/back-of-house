@@ -5,38 +5,32 @@ async function loadBriefing(){
   el.innerHTML='<div class="animate-pulse h-4 bg-slate-100 rounded w-3/4"></div><div class="animate-pulse h-4 bg-slate-100 rounded w-full mt-2"></div><div class="animate-pulse h-4 bg-slate-100 rounded w-2/3 mt-2"></div>';
   try{
     const today=getNowDallas().toLocaleDateString('en-CA');
-    let{data:briefing}=await supa.from('briefing').select('*').eq('date',today).maybeSingle();
-    if(!briefing){
-      const res=await fetch(`${SUPABASE_URL}/functions/v1/generate-briefing`,{
-        method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`}
-      });
-      const json=await res.json();
-      if(json.points) briefing={points:json.points};
-    }
+    const{data:briefing}=await supa.from('briefing').select('*').eq('date',today).maybeSingle();
     if(!briefing||!briefing.points||!briefing.points.length){
       el.innerHTML='<p class="text-sm text-slate-400">'+tr('briefingEmpty')+'</p>';
       return;
     }
     const icons=['🔴','🟡','🔵'];
-    let points=briefing.points;
-    if(user?.lang&&user.lang!=='it'){
-      try{
-        points=await Promise.all(points.map(p=>
-          fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
-            method:'POST',
-            headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
-            body:JSON.stringify({text:p,targetLang:user.lang})
-          }).then(r=>r.json()).then(j=>j.translated||p).catch(()=>p)
-        ));
-      }catch(e){}
+    const lang=user&&user.lang?user.lang:'it';
+    const isAdmin_flag=typeof isAdmin==='function'&&isAdmin();
+    // Legge colonna gia tradotta dal DB --- zero chiamate ai-translate
+    var points;
+    if(isAdmin_flag){
+      if(lang==='en'&&briefing.points_en&&briefing.points_en.length) points=briefing.points_en;
+      else if(lang==='es'&&briefing.points_es&&briefing.points_es.length) points=briefing.points_es;
+      else points=briefing.points;
+    } else {
+      const staffPts=briefing.points_staff&&briefing.points_staff.length?briefing.points_staff:briefing.points;
+      if(lang==='en'&&briefing.points_staff_en&&briefing.points_staff_en.length) points=briefing.points_staff_en;
+      else if(lang==='es'&&briefing.points_staff_es&&briefing.points_staff_es.length) points=briefing.points_staff_es;
+      else points=staffPts;
     }
-    el.innerHTML=points.map((p,i)=>
-      '<div class="flex gap-2 items-start py-1">'+
+    el.innerHTML=(points||[]).map(function(p,i){
+      return '<div class="flex gap-2 items-start py-1">'+
       '<span class="text-sm mt-0.5 flex-shrink-0">'+(icons[i]||'•')+'</span>'+
       '<p class="text-sm text-slate-700 leading-snug">'+p+'</p>'+
-      '</div>'
-    ).join('');
+      '</div>';
+    }).join('');
   }catch(e){
     el.innerHTML='<p class="text-sm text-red-500">'+tr('briefingError')+'</p>';
   }
