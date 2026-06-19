@@ -937,7 +937,7 @@ async function saveRecipeBOM(recipeId, ingredientRows){
     .map(i => ({
       parent_recipe_id: recipeId,
       component_type:   i.sub_recipe_id ? 'sub_recipe' : 'ingredient',
-      item_id:          i.ingredient_id ? parseInt(i.ingredient_id) : null,
+      item_id:          i.ingredient_id || null,
       sub_recipe_id:    i.sub_recipe_id || null,
       quantity:         parseFloat(i.qty) || null,
       unit:             i.unit || null,
