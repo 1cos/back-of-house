@@ -117,49 +117,53 @@ async function officeLoadHome() {
       else badge.style.display='none';
     }
 
-    var html = '';
+    // Costruisco con DOM invece di innerHTML per evitare problemi di escape
+    container.innerHTML = '';
 
-    // ── DA LEGGERE (strip) ──
-    html +=
-      '<div onclick="officeOpenFolder(\'nonletti\','+JSON.stringify(items)+')" style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:18px;padding:16px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;box-shadow:0 4px 16px rgba(30,58,95,0.25),0 8px 32px rgba(37,99,235,0.15);-webkit-tap-highlight-color:transparent;">' +
-        '<div style="display:flex;align-items:center;gap:12px;">' +
-          '<span style="font-size:26px;">📬</span>' +
-          '<div>' +
-            '<div style="color:white;font-size:17px;font-weight:700;">Da leggere</div>' +
-            '<div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:2px;">Tutti i messaggi in attesa</div>' +
-          '</div>' +
-        '</div>' +
-        '<div style="background:white;color:#1e3a5f;font-size:22px;font-weight:800;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(30,58,95,0.2);">' + totalUnread + '</div>' +
-      '</div>';
+    // ── DA LEGGERE ──
+    var strip = document.createElement('div');
+    strip.style.cssText = 'background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:18px;padding:16px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;box-shadow:0 4px 16px rgba(30,58,95,0.25),0 8px 32px rgba(37,99,235,0.15);-webkit-tap-highlight-color:transparent;';
+    strip.innerHTML = '<div style="display:flex;align-items:center;gap:12px;"><span style="font-size:26px;">📬</span><div><div style="color:white;font-size:17px;font-weight:700;">Da leggere</div><div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:2px;">Tutti i messaggi in attesa</div></div></div><div style="background:white;color:#1e3a5f;font-size:22px;font-weight:800;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(30,58,95,0.2);">' + totalUnread + '</div>';
+    strip.addEventListener('click', function() { officeOpenFolder('nonletti'); });
+    container.appendChild(strip);
 
-    html += '<div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;padding-left:4px;">Cassetti</div>';
-    html += '<div style="display:flex;flex-direction:column;gap:10px;">';
+    // Label
+    var lbl = document.createElement('div');
+    lbl.style.cssText = 'font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;padding-left:4px;';
+    lbl.textContent = 'Cassetti';
+    container.appendChild(lbl);
+
+    // Lista cassetti
+    var list = document.createElement('div');
+    list.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
 
     _officeFolders.forEach(function(f) {
       var count = counts[f.id] || 0;
-      var preview = previews[f.id] || (count === 0 ? 'Nessun messaggio' : '');
-      var itemsForFolder = items.filter(function(i){ return (_officeFolderMap[i.source]||'chefai')===f.id; });
+      var preview = previews[f.id] || 'Nessun messaggio';
 
-      html +=
-        '<div onclick="officeOpenFolder(\'' + f.id + '\',' + JSON.stringify(itemsForFolder) + ')" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;cursor:pointer;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 6px 20px rgba(30,58,95,0.04);-webkit-tap-highlight-color:transparent;">' +
-          '<div style="display:flex;align-items:center;padding:14px 16px;gap:12px;">' +
-            '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:46px;flex-shrink:0;background:' + f.ribbon + ';"></div>' +
-            '<div style="font-size:26px;width:32px;text-align:center;">' + f.icon + '</div>' +
-            '<div style="flex:1;">' +
-              '<div style="color:#1e3a5f;font-size:16px;font-weight:600;">' + f.label + '</div>' +
-              '<div style="color:#60a5fa;font-size:12px;margin-top:3px;">' + f.desc + '</div>' +
-            '</div>' +
-            '<div style="display:flex;align-items:center;gap:8px;">' +
-              '<span style="font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px;background:' + f.badge + ';color:' + f.badgeTxt + ';">' + count + '</span>' +
-              '<span style="color:rgba(30,58,95,0.25);font-size:18px;">&#x203A;</span>' +
-            '</div>' +
+      var row = document.createElement('div');
+      row.style.cssText = 'background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;cursor:pointer;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 6px 20px rgba(30,58,95,0.04);-webkit-tap-highlight-color:transparent;';
+      row.innerHTML =
+        '<div style="display:flex;align-items:center;padding:14px 16px;gap:12px;">' +
+          '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:46px;flex-shrink:0;background:' + f.ribbon + ';"></div>' +
+          '<div style="font-size:26px;width:32px;text-align:center;">' + f.icon + '</div>' +
+          '<div style="flex:1;">' +
+            '<div style="color:#1e3a5f;font-size:16px;font-weight:600;">' + f.label + '</div>' +
+            '<div style="color:#60a5fa;font-size:12px;margin-top:3px;">' + f.desc + '</div>' +
           '</div>' +
-          (preview ? '<div style="border-top:0.5px solid rgba(59,130,246,0.1);padding:9px 16px 11px 65px;color:rgba(30,58,95,0.4);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + preview + '</div>' : '') +
-        '</div>';
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<span style="font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px;background:' + f.badge + ';color:' + f.badgeTxt + ';">' + count + '</span>' +
+            '<span style="color:rgba(30,58,95,0.25);font-size:18px;">&#x203A;</span>' +
+          '</div>' +
+        '</div>' +
+        '<div style="border-top:0.5px solid rgba(59,130,246,0.1);padding:9px 16px 11px 65px;color:rgba(30,58,95,0.4);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + preview + '</div>';
+
+      var fid = f.id;
+      row.addEventListener('click', function() { officeOpenFolder(fid); });
+      list.appendChild(row);
     });
 
-    html += '</div>';
-    container.innerHTML = html;
+    container.appendChild(list);
 
   } catch(e) {
     container.innerHTML = '<div style="color:#ef4444;padding:40px;text-align:center;">Errore: ' + e.message + '</div>';
@@ -167,7 +171,21 @@ async function officeLoadHome() {
 }
 
 // ── APRI CASSETTO FULLSCREEN ──
-window.officeOpenFolder = function(folderId, items) {
+window.officeOpenFolder = async function(folderId) {
+  // Carica items dal DB invece di passarli inline
+  var sb = window.supa;
+  var items = [];
+  if (sb) {
+    try {
+      var res = await sb.from('office_items').select('*').eq('status','open').order('created_at',{ascending:false}).limit(200);
+      var all = res.data || [];
+      if (folderId === 'nonletti') {
+        items = all;
+      } else {
+        items = all.filter(function(i){ return (_officeFolderMap[i.source]||'chefai') === folderId; });
+      }
+    } catch(e) { console.warn('[Office] folder load error:', e.message); }
+  }
   var existing = document.getElementById('officeFolder');
   if (existing) existing.remove();
 
@@ -631,4 +649,3 @@ window.officeInvestiga = function(id) {
     window.openSousChef(title.trim());
   }
 };
-
