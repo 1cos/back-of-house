@@ -55,6 +55,23 @@
 - L'Ufficio → spostare in bottom bar
 - Pulizia menu admin: verificare se Parser Test, Similarity, Vendor Match, Ingredient Cleanup, Bootstrap sono ancora usati
 
+
+## SESSIONE 2026-06-19 (d) — Fix TV toggle realtime (v275)
+
+### Problema
+Il toggle TV ON/OFF nei tre puntini agiva solo su fresh reload del TV, poi smetteva.
+
+### Causa
+- `settings` non era nella pubblicazione Realtime di Supabase — channel silenzioso
+- Nessuna gestione riconnessione su `settings-rt` — si disconnetteva e non tornava
+
+### Fix
+- `ALTER PUBLICATION supabase_realtime ADD TABLE settings` — DB fix
+- `display.html`: `startSettingsRealtime()` con channel timestamp univoco + riconnessione automatica su CLOSED/CHANNEL_ERROR (5s)
+- `display.html`: `setInterval(checkDisplayActive, 30000)` — polling fallback ogni 30s
+
+---
+
 ## SESSIONE 2026-06-19 (c) — Fix ai-translate storm (v269-v271)
 
 ### Problema risolto
