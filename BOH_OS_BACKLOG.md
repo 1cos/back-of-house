@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-19 — v271*
+*Aggiornato: 2026-06-19 — v275*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,7 +10,7 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v271**
+- Versione frontend: **v275**
 - Versione souschef-chat: v23
 - ai-translate: **v28** (Google Translate attivo)
 - Supabase: ydqmumpytgrlceuinoqt
@@ -287,6 +287,13 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 ## Log sessioni
 
 
+
+
+### Sessione 2026-06-19 (d) — Fix TV toggle realtime (v275)
+- `settings` aggiunta a `supabase_realtime` publication (era assente — causa root)
+- `display.html`: `startSettingsRealtime()` con riconnessione automatica CLOSED/CHANNEL_ERROR
+- `display.html`: polling fallback `checkDisplayActive` ogni 30s
+- Toggle TV ON/OFF ora agisce in tempo reale anche dopo ore di uptime
 
 ### Sessione 2026-06-19 (c) — Fix ai-translate storm (v269-v271)
 - **Problema**: ai-translate chiamato ~360 volte/ora da news.js + 5 volte per apertura home da briefing.js
