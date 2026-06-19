@@ -1,6 +1,6 @@
 # BRIGADE — DECISIONS
 *Perche abbiamo scelto certe cose. Non ridiscutere senza motivo.*
-*Aggiornato: 2026-06-18 — v255*
+*Aggiornato: 2026-06-18 — v257*
 
 ---
 
@@ -11,7 +11,7 @@
 | App HTML/PWA attuale | **BRIGADE** |
 | App Flutter futura con Siri | **BOH OS** (separata, non ancora costruita) |
 | Branch deploy | **brigade-main** (MAI main) |
-| Versione attuale frontend | **v255** |
+| Versione attuale frontend | **v257** |
 | Versione souschef-chat | **v21** |
 | Supabase project attivo | ydqmumpytgrlceuinoqt |
 | AI in-app | **Chef AI** — MAI "Sous Chef AI" o "Sous Chef" |
@@ -258,3 +258,4 @@ Tab dedicata visibile a brigata + Max con highlights operativi.
 ### Stato
 - Dati disponibili nel DB (pos_production_daily, messages, prep_log)
 - UI da costruire — sessione dedicata
+
