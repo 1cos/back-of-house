@@ -241,6 +241,8 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 - [ ] 🔴 Bottoni non collegati ad azioni reali — sessione dedicata
 - [ ] office-ai → pg_cron orario (analisi automatica ogni ora)
 - [ ] Smart Office — calendario meeting interni Brigade
+- [ ] Spostare L'Ufficio nella bottom bar invece dei tre puntini
+- [ ] Pulizia menu admin: verificare se Parser Test, Similarity, Vendor Match, Ingredient Cleanup, Bootstrap sono ancora usati e rimuovere quelli obsoleti
 
 ---
 
@@ -279,6 +281,7 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 - [ ] Apple Intelligence / Siri
 - [ ] Sales anomaly detection
 - [ ] Yes Chef modal
+- [ ] Sistema foto centralizzato — album unico usato da ricette, TV, Kitchen Display; Kitchen Display multi-schermata con rotazione contenuti
 - [ ] Skill progression brigata
 - [ ] Chef Inbox unificato (Tell Chef + Operation Notes + Chef AI)
 
