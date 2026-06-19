@@ -3,9 +3,15 @@ const REACTIONS = ['👍','✅','👀','🔥','❤️','😂','🙏'];
 
 
 function showChat(){
-  // Chiudi Focus Mode se aperto
   const fm = document.getElementById('focusMode');
-  if (fm) fm.style.display = 'none';
+  const focusActive = fm && fm.style.display !== 'none';
+
+  if (focusActive) {
+    // Focus Mode attiva — apri chat come overlay sopra, non uscire dalla Focus Mode
+    _showChatOverlay();
+    return;
+  }
+
   // Nascondi mic Chef AI — sovrappone il bottone invio su iPhone
   var scBtn = document.getElementById('scBtn');
   if (scBtn) scBtn.style.display = 'none';
@@ -25,6 +31,85 @@ function showChat(){
   // Azzera badge quando apri la chat
   const badge=document.getElementById('badge');
   if(badge){badge.style.display='none';badge.textContent='0';}
+}
+
+function _showChatOverlay(){
+  // Rimuovi overlay esistente se c'e'
+  const existing = document.getElementById('_focusChatOverlay');
+  if (existing) { existing.remove(); return; }
+
+  const overlay = document.createElement('div');
+  overlay.id = '_focusChatOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:200;background:#f1f5f9;display:flex;flex-direction:column;';
+  overlay.innerHTML =
+    '<div style="display:flex;align-items:center;padding:14px 16px 10px;background:white;border-bottom:1px solid #e2e8f0;gap:12px;flex-shrink:0;">' +
+      '<button onclick="_closeFocusChatOverlay()" style="width:36px;height:36px;border-radius:50%;background:#f1f5f9;border:none;font-size:18px;cursor:pointer;">&#8592;</button>' +
+      '<div style="font-size:16px;font-weight:700;color:#1e3a5f;">💬 Chat Brigata</div>' +
+    '</div>' +
+    '<div id="_focusChatBody" style="flex:1;overflow-y:auto;padding:12px;"></div>' +
+    '<div style="padding:12px;background:white;border-top:1px solid #e2e8f0;display:flex;gap:8px;flex-shrink:0;">' +
+      '<input id="_focusChatInput" type="text" placeholder="Scrivi un messaggio..." style="flex:1;height:44px;border-radius:12px;border:1px solid #e2e8f0;padding:0 14px;font-size:15px;outline:none;" />' +
+      '<button onclick="_focusChatSend()" style="height:44px;padding:0 18px;border-radius:12px;background:#1e3a5f;color:white;font-size:15px;font-weight:600;border:none;cursor:pointer;">Invia</button>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+
+  // Azzera badge
+  const badge = document.getElementById('badge');
+  if(badge){badge.style.display='none';badge.textContent='0';}
+
+  // Carica messaggi nel body dell'overlay
+  _loadFocusChatMessages();
+  _focusChatRealtime();
+
+  // Invio con Enter
+  overlay.querySelector('#_focusChatInput').addEventListener('keydown', function(e){
+    if(e.key === 'Enter') _focusChatSend();
+  });
+}
+
+function _closeFocusChatOverlay(){
+  const el = document.getElementById('_focusChatOverlay');
+  if (el) el.remove();
+  if (_focusChatChannel) { supa.removeChannel(_focusChatChannel); _focusChatChannel = null; }
+}
+
+async function _loadFocusChatMessages(){
+  const body = document.getElementById('_focusChatBody');
+  if (!body) return;
+  const { data } = await supa.from('messages').select('*').order('created_at', {ascending: true}).limit(80);
+  if (!data) return;
+  body.innerHTML = data.map(function(m){
+    const mine = m.user_name === user.name;
+    return '<div style="display:flex;justify-content:' + (mine?'flex-end':'flex-start') + ';margin-bottom:10px;">' +
+      '<div style="max-width:75%;padding:10px 14px;border-radius:' + (mine?'18px 18px 4px 18px':'18px 18px 18px 4px') + ';background:' + (mine?'#1e3a5f':'white') + ';color:' + (mine?'white':'#1e293b') + ';font-size:14px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">' +
+        (mine?'':'<div style="font-size:11px;font-weight:700;color:#94a3b8;margin-bottom:2px;">' + m.user_name + '</div>') +
+        m.text +
+      '</div></div>';
+  }).join('');
+  body.scrollTop = body.scrollHeight;
+}
+
+var _focusChatChannel = null;
+function _focusChatRealtime(){
+  if (_focusChatChannel) supa.removeChannel(_focusChatChannel);
+  _focusChatChannel = supa.channel('focus-chat-overlay')
+    .on('postgres_changes', {event:'INSERT', schema:'public', table:'messages'}, function(){
+      _loadFocusChatMessages();
+    }).subscribe();
+}
+
+async function _focusChatSend(){
+  const input = document.getElementById('_focusChatInput');
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  await supa.from('messages').insert({
+    text: text,
+    user_name: user.name,
+    station: user.station || ''
+  });
 }
 
 async function loadChat(){
@@ -290,4 +375,5 @@ function exportPDF(){
   doc.autoTable({html:'#reportOut table',startY:20});
   doc.save('report.pdf');
 }
+
 
