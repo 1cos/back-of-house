@@ -852,28 +852,43 @@ async function checkDisplayActive() {
   } catch(e) {}
 }
 
+// ── Settings realtime con riconnessione automatica ──
+var _settingsChannel = null;
+function startSettingsRealtime() {
+  if (_settingsChannel) { try { supa.removeChannel(_settingsChannel); } catch(e){} }
+  _settingsChannel = supa.channel('settings-rt-' + Date.now())
+    .on('postgres_changes', {event:'*', schema:'public', table:'settings'}, async function() {
+      await checkDisplayActive();
+    })
+    .subscribe(function(status) {
+      if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        setTimeout(startSettingsRealtime, 5000);
+      }
+    });
+}
+
 async function boot() {
   await checkDisplayActive();
   await loadAll();
   setInterval(loadAll, 5*60*1000);
-  // Realtime presence — staff chips update instantly
+  // Polling fallback — controlla display_active ogni 30s indipendentemente dal realtime
+  setInterval(checkDisplayActive, 30000);
+  // Realtime presence
   supa.channel('presence-rt')
     .on('postgres_changes',{event:'*',schema:'public',table:'user_presence'}, loadPresence)
     .subscribe();
   // Realtime chat — solo il messaggio nuovo, niente reload completo
   supa.channel('chat-rt')
-    .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'}, async (payload)=>{
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'}, async function(payload){
       if (payload.new) await appendChatMessage(payload.new);
     })
     .subscribe();
-  // Realtime alerts — new/updated alerts appear instantly (with translation)
+  // Realtime alerts
   supa.channel('alerts-rt')
-    .on('postgres_changes',{event:'*',schema:'public',table:'alerts'}, async ()=>{ await loadAlerts(); })
+    .on('postgres_changes',{event:'*',schema:'public',table:'alerts'}, async function(){ await loadAlerts(); })
     .subscribe();
-  // Realtime settings — TV on/off istantaneo
-  supa.channel('settings-rt')
-    .on('postgres_changes',{event:'*',schema:'public',table:'settings'}, async ()=>{ await checkDisplayActive(); })
-    .subscribe();
+  // Realtime settings — TV on/off con riconnessione automatica
+  startSettingsRealtime();
 }
 boot();
 </script>
