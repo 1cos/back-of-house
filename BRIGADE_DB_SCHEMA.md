@@ -216,6 +216,10 @@ Stessa struttura di recipes + colonne calcolate:
 | conversion_to_base | numeric | Grammi totali per unità acquisto |
 | last_invoice_date | date | |
 | active | boolean | |
+| do_not_order | boolean | DEFAULT false — blocco ordine per questo fornitore |
+| do_not_order_reason | text | Motivo blocco (es. "Max: non voglio piu farina da Hardies") |
+| do_not_order_set_at | timestamptz | Quando impostato il blocco |
+| do_not_order_set_by | text | Chi ha impostato (sempre Max via Chef AI) |
 
 **Formula $/100g:** per_case=(unit_price/conversion_to_base)*100 · per_lb=(unit_price/453.592)*100
 
