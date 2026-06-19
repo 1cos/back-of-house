@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-19 — v273*
+*Aggiornato: 2026-06-19 — v271*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,8 +10,8 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v266**
-- Versione souschef-chat: v21
+- Versione frontend: **v271**
+- Versione souschef-chat: v23
 - ai-translate: **v28** (Google Translate attivo)
 - Supabase: ydqmumpytgrlceuinoqt
 - Leggi sempre da GitHub brigade-main, MAI da /mnt/project/
@@ -26,7 +26,7 @@
 | souschef-chat | v23 | Chat AI — accesso completo DB + SQL query detection |
 | souschef-classify | v17 | Scan anomalie |
 | souschef-scan | v4 | Scan automatica oraria lun-sab |
-| sc-nightly-brief | v5 | Briefing notturno 5:00 AM CDT — solo admin |
+| sc-nightly-brief | v12 | Briefing notturno 5:00 AM CDT + traduzioni EN/ES — solo admin |
 | process-invoice | v29 | Parser fatture OpenRouter + chiama bot-price-guard e bot-food-cost-guard |
 | gmail-hardies-import | v9 | Import PDF Hardie's |
 | hardies-order-check | v2 | Controllo articoli bloccati in conferme ordine Chef's Warehouse |
@@ -287,6 +287,15 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 ## Log sessioni
 
 
+
+### Sessione 2026-06-19 (c) — Fix ai-translate storm (v269-v271)
+- **Problema**: ai-translate chiamato ~360 volte/ora da news.js + 5 volte per apertura home da briefing.js
+- **Fix news.js**: nuova colonna `alerts.translations JSONB` — traduzione generata una volta alla creazione, letta dal DB
+- **Fix briefing.js + sc-nightly-brief v12**: 4 nuove colonne `briefing.points_en/es/staff_en/staff_es` — tradotte alla generazione notturna
+- **DB**: `ALTER TABLE alerts ADD COLUMN translations JSONB` + 4 colonne su `briefing`
+- Realtime alerts preservato intatto
+- chat.js e recipes.js: invariati (chiamate corrette e on-demand)
+
 ### Sessione 2026-06-19 — Fruge Parser (v267-v273)
 - Fruge parser riscritto da zero (v1->v5) in vendor-parser-ui.js
 - Logica: regex riga singola + lookahead per righe spezzate da PDF.js
@@ -296,10 +305,11 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 - **BUG APERTO**: calcoli $/100g nel flusso reale (email->Storage) non sempre corretti
 - Priorita: DOPO lancio beta lunedi
 
-### BUG URGENTE — ai-translate
-- ai-translate viene chiamato decine di volte per ogni pagina caricata
-- Indagare chi lo chiama, se serve davvero, se sta esaurendo i limiti API
-- Priorita ALTA prima del lancio
+### ✅ RISOLTO 2026-06-19 — ai-translate storm
+- alerts.translations JSONB: traduzioni salvate al momento creazione alert
+- briefing: 4 nuove colonne tradotte (points_en/es, points_staff_en/es)
+- sc-nightly-brief v12: traduce in EN+ES alla generazione
+- loadNews() e loadBriefing(): zero chiamate ai-translate in lettura
 
 ### Sessione 2026-06-19 — No Need + Bot 6 (v266)
 - Bottone No Need su prep tasks urgenti (unit=no_need in prep_log)
