@@ -929,8 +929,6 @@ async function loadRecipeSalesStats(rec, sheetEl) {
 
 // ── RECIPE BOM — save structured links ───────────────────────
 async function saveRecipeBOM(recipeId, ingredientRows){
-  console.log('[BOM] recipeId:', recipeId);
-  console.log('[BOM] ingredientRows:', JSON.stringify(ingredientRows));
   // Delete existing BOM rows for this recipe
   await supa.from('recipe_bom').delete().eq('parent_recipe_id', recipeId);
 
@@ -946,10 +944,8 @@ async function saveRecipeBOM(recipeId, ingredientRows){
       notes:            i.comment || null
     }));
 
-  console.log('[BOM] rows to insert:', JSON.stringify(rows));
-  if(!rows.length){ console.log('[BOM] no linked rows — skip insert'); return; }
+  if(!rows.length) return;
   const {error} = await supa.from('recipe_bom').insert(rows);
   if(error) console.error('[BOM] insert error:', error);
-  else console.log('[BOM] inserted', rows.length, 'rows');
 }
 
