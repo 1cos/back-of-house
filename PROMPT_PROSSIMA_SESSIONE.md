@@ -10,7 +10,7 @@
 - Supabase: ydqmumpytgrlceuinoqt
 - Deploy: https://1cos.github.io/back-of-house
 - Branch: brigade-main
-- Versione: **v255**
+- Versione: **v257**
 - souschef-chat: v21
 - process-invoice: v29
 - souschef-scan: v10
@@ -55,7 +55,7 @@ Flusso comando: Max → Rover (Anto) → Sous Chef → Chef de partie
 ### Stato connessioni verificato (18 giugno 2026)
 - ✅ 5 cron job attivi
 - ✅ Briefing AI funzionante (14 generati)
-- ✅ L'Ufficio: 26 item presenti, realtime funziona
+- ✅ L'Ufficio: 26 item presenti, realtime CONFERMATO FUNZIONANTE
 - ✅ 107 messaggi chat → Bot 2 gira stanotte
 - ✅ 21 Tell Chef → Bot 4 classifica ogni ora
 - ⏳ suggested_qty → Bot 3 gira stanotte (prima volta)
@@ -100,3 +100,4 @@ Flusso comando: Max → Rover (Anto) → Sous Chef → Chef de partie
 8. MAI mostrare soldi/prezzi negli Highlights della brigata
 9. Max = Executive Chef, MAI owner/proprietario
 10. Tela = Kitchen Manager, MAI sous chef
+
