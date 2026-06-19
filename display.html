@@ -784,6 +784,19 @@ function renderStaff() {
   }).join('');
 }
 
+// ── APPEND SINGOLO MESSAGGIO CHAT (realtime) ──
+async function appendChatMessage(msg) {
+  // Salta messaggi di sistema
+  if (['sistema','system','Sistema','SISTEMA'].includes(msg.user_name)) return;
+  // Traduci solo questo messaggio
+  const translated = await translateToEn(msg.text || '');
+  const newMsg = { ...msg, text: translated };
+  // Aggiungi in fondo, rimuovi il più vecchio se > 5
+  chatMessages.push(newMsg);
+  if (chatMessages.length > 5) chatMessages.shift();
+  renderChat();
+}
+
 // ── RENDER CHAT ──
 function renderChat() {
   const body = document.getElementById('chat-body');
@@ -847,9 +860,11 @@ async function boot() {
   supa.channel('presence-rt')
     .on('postgres_changes',{event:'*',schema:'public',table:'user_presence'}, loadPresence)
     .subscribe();
-  // Realtime chat — new messages appear instantly
+  // Realtime chat — solo il messaggio nuovo, niente reload completo
   supa.channel('chat-rt')
-    .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'}, async ()=>{ await loadChat(); })
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'}, async (payload)=>{
+      if (payload.new) await appendChatMessage(payload.new);
+    })
     .subscribe();
   // Realtime alerts — new/updated alerts appear instantly (with translation)
   supa.channel('alerts-rt')
@@ -864,6 +879,7 @@ boot();
 </script>
 </body>
 </html>
+
 
 
 
