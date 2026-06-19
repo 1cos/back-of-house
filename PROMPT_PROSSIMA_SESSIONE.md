@@ -56,6 +56,20 @@
 - Pulizia menu admin: verificare se Parser Test, Similarity, Vendor Match, Ingredient Cleanup, Bootstrap sono ancora usati
 
 
+
+## SESSIONE 2026-06-19 (e) — Fix mic sovrapposto al send button (v276)
+
+### Problema
+Su iPhone il microfono Chef AI (scBtn, position:fixed bottom-right) si sovrapponeva
+al bottone invio del form chat — impossibile toccare il send button.
+
+### Fix
+- `chat.js showChat()`: aggiunto `scBtn.style.display = 'none'` all'apertura chat
+- Ripristino automatico: `app.js` riga 413 gia ripristinava `scBtn.style.display = ''`
+  al cambio tab — nessuna modifica necessaria
+
+---
+
 ## SESSIONE 2026-06-19 (d) — Fix TV toggle realtime (v275)
 
 ### Problema
