@@ -164,8 +164,11 @@ async function showRecipeSheet(rec){
   const dispCat = (CAT_MAP[lang]||CAT_MAP.en)[rawCat] || rawCat;
   // Translate yield text (e.g. "1 porzione" → "1 serving")
   const YIELD_MAP = { it:'porzione', en:'serving', es:'porción' };
+  const YIELD_MAP_PL = { it:'porzioni', en:'portions', es:'porciones' };
   const yieldRaw = rec.yield_text || rec.yield || '';
-  const yieldTr = yieldRaw.replace(/porzione|serving|porción/gi, YIELD_MAP[lang]||'serving');
+  const yieldTr = yieldRaw
+    .replace(/porzioni|portions|porciones/gi, YIELD_MAP_PL[lang]||'portions')
+    .replace(/porzione|serving|porción/gi, YIELD_MAP[lang]||'serving');
   const headerMeta  = [
     dispCat,
     yieldTr,
@@ -298,7 +301,7 @@ function renderRecipes(){
     ].filter(Boolean).join('');
     return `<div class="bg-white p-3 rounded-2xl border shadow-sm cursor-pointer active:scale-[0.98] transition" onclick="openRecipeByData(${realIdx})">
       <div class="font-semibold text-[15px] leading-tight mb-1">${r.title}</div>
-      <div class="text-xs text-slate-500">${dispCat} · ${r.yield_text||r.yield||'1 serving'}${(r.prep_time_minutes||r.prep_time)?' · '+(r.prep_time_minutes||r.prep_time)+'m':''}</div>
+      <div class="text-xs text-slate-500">${dispCat} · ${(r.yield_text||r.yield||'1 serving').replace(/porzioni|portions|porciones/gi,{'it':'porzioni','en':'portions','es':'porciones'}[user?.lang||'en']||'portions').replace(/porzione|serving|porción/gi,{'it':'porzione','en':'serving','es':'porción'}[user?.lang||'en']||'serving')}${(r.prep_time_minutes||r.prep_time)?' · '+(r.prep_time_minutes||r.prep_time)+'m':''}</div>
       ${badges?`<div class="flex gap-2 mt-1">${badges}</div>`:''}
       ${isAdmin()?`<div class="flex gap-1 mt-2" onclick="event.stopPropagation()"><button onclick="openRecipeEditor(SHOP_RECIPES[${realIdx}])" class="px-2 py-1 bg-amber-500 text-white rounded-lg text-[10px]">Edit</button><button onclick="linkRecipeToItem('${r.title.replace(/'/g,"\\'")}') " class="px-2 py-1 bg-emerald-600 text-white rounded-lg text-[10px]">Link</button></div>`:''}</div>`;
   }).join('');
