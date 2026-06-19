@@ -1,4 +1,4 @@
-# PROMPT PROSSIMA SESSIONE — Brigade v265
+# PROMPT PROSSIMA SESSIONE — Brigade v273
 
 ## PRIMA DI TUTTO
 1. Carica x_claude_GIthub.txt dal progetto
@@ -10,9 +10,8 @@
 - Supabase: ydqmumpytgrlceuinoqt
 - Deploy: https://1cos.github.io/back-of-house
 - Branch: brigade-main
-- Versione: **v265**
+- Versione: **v273**
 - souschef-chat: v23
-- hardies-order-check: v2 (NUOVO)
 - process-invoice: v29
 - souschef-scan: v10
 
@@ -30,113 +29,72 @@
 | Kitchen Manager (NON sous chef) | Tela |
 | Chef de partie | Cole, Rachel, Sofia, altri |
 
-Flusso comando: Max → Rover (Anto) → Sous Chef → Chef de partie
-
 ---
 
-## CHEF AI — REGOLE
-
-- Si chiama **Chef AI** — mai "Sous Chef AI"
-- È il segretario digitale di Max — legge tutto, non modifica mai
-- Il sous chef umano è David (sera) e Colton (mattina)
-- Output: Briefing AI (Max only, tutto), L'Ufficio (Max only, tutto), Highlights (brigata+Max, MAI soldi)
-
----
-
-## SESSIONE 2026-06-19 (b) - Do Not Order + Order Check
+## SESSIONE 2026-06-19 — Fruge Parser (v267-v273)
 
 ### Cosa e stato fatto
-- **Do Not Order system** su ingredient_vendors
-  - 4 nuove colonne: do_not_order, do_not_order_reason, do_not_order_set_at, do_not_order_set_by
-  - Chef AI v23 capisce: blocca singolo, blocca da tutti, blocca fornitore, sblocca
-  - Alert arancione in L'Ufficio quando articolo bloccato in conferma ordine
-- **Edge Function hardies-order-check v2**
-  - Parser email HTML Chef's Warehouse (= Hardie's)
-  - Mittente: orders@info.chefswarehouse.com, subject: Your Order is Processing
-  - Estrae articoli, controlla do_not_order, scrive office_items
-- **Apps Script checkHardiesOrderConfirmations** aggiunto a HardiesImport.gs
-  - Label: hardies-order-processed
-  - Usa sendToEdge da Utils.gs
-  - Gira con trigger orario gia esistente
-- **souschef-chat v23** - 6 nuove azioni blocco/sblocco
-- **Walmart wishlist** - annotato in backlog
+- **Fruge parser v5** in `vendor-parser-ui.js` — riscrittura completa da zero
+- Logica: regex su riga singola, lookahead righe successive per peso lb
+- 3 tipi di pack:
+  - TIPO 1: LB dirette (catchweight) -> shipped_qty LB
+  - TIPO 2: BG/GA -> cerca peso lb nella descrizione o righe successive
+  - TIPO 3: CA -> moltiplicazione NxN nella descrizione o righe successive
+- `pack_description` = peso totale in LB (es. "10 LB", "8 LB") — cosi la UI calcola $/100g identico a Hardies
+- `_cost_per_100g` e `cost_per_lb` calcolati nel parser
+- Fix UI `vendor-documents-review.js`: legge `_cost_per_100g`, `cost_per_lb`, `total_weight_lb` dal parser Fruge
 
-## SESSIONE 2026-06-19 — Recipe BOM completo (v265)
+### Problema aperto — Fruge parser
+- **Parser funziona nel tester** (vendor-parser-ui.js) — tutti gli item corretti
+- **Nel flusso reale** (email -> Gmail -> Supabase Storage -> Processa tutti) i calcoli $/100g non escono sempre corretti
+- Causa probabile: PDF.js nel flusso reale produce raw_text con spaziatura diversa dal tester
+- **Lunedi lancio beta** — parser Fruge non e priorita, si riprende dopo il lancio
+- Il flusso email->Storage->pdf_received funziona correttamente
+- Le fatture Fruge arrivano nell'app, vengono processate, ma i calcoli $/100g sono da verificare
 
-### Cosa è stato fatto
-- **Editor ricetta:** autocomplete ingredienti/sub-ricette nel campo nome
-  - Verde = ingrediente da tabella `ingredients`
-  - Blu = sub-ricetta da tabella `recipes`
-  - Al salvataggio → scrive `recipe_bom` (DELETE + INSERT)
-  - Retrocompatibile: righe vecchie senza autocomplete non perdono dati
-- **recipe_bom.item_id** migrato da `integer` a `uuid` (FK → ingredients.id)
-- **JSONB pulito:** sostituite ~170 varianti sporche con nomi canonici
-  - Italiano → inglese: burro→Butter, farina→Flour, sale→Salt, ecc.
-  - Typo: anchovie→Anchovy, gnocchi flower→Gnocchi Flour, ecc.
-  - Varianti: vanilla essence/extract→Vanilla Bean, sage cutted→Sage, ecc.
-- **14 ingredienti aggiunti** alla tabella `ingredients`:
-  Parsley, Garlic, Black Pepper Whole, Black Pepper Ground, Sage,
-  Bread Crumbs, Cornstarch, Bay Leaves, Sun Dried Tomatoes, Blackberries,
-  Diced Tomato, Shallot, Vanilla Bean, Gelatine, Parmesan Cheese
-- **recipe_bom popolata automaticamente:** 1.063 righe (1.050 ITEM + 13 RECIPE), 177 ricette
-- **110 ingredienti irrecuperabili** rimasti fuori dal BOM (frasi, placeholder, SKU)
-
-### Stato connessione POS → Ricette
-- Campo `recipes.pos_name` → matcha `pos_production_daily.canonical_name`
-- **8 ricette già collegate** al POS e funzionanti
-- **15 canonical_name POS senza ricetta collegata:**
-
-| canonical_name POS | category |
-|---|---|
-| Fried Calamari | appetizer |
-| Fettuccine | pasta |
-| Penne Midnight | pasta |
-| Spaghetti | pasta |
-| Spaghetti Al Ragu | pasta |
-| Burrata | protein |
-| Chicken | protein |
-| Lobster tail | protein |
-| Salmon fillet | protein |
-| Scallops | protein |
-| Shrimp | protein |
-| Brussel Sprouts | side |
-| Green Beans | side |
-| Rosemary Potatoes | side |
-| Sauteed Spinach | side |
+### Fix UI applicate (NON toccare Hardies)
+- `vendor-documents-review.js`: per100g usa `_cost_per_100g` se presente (solo Fruge lo produce)
+- `vendor-documents-review.js`: totalG usa `total_weight_lb` se presente
+- `vendor-documents-review.js`: price usa `cost_per_lb` se presente
+- Hardies non e toccata — questi campi non esistono nel parser Hardies
 
 ---
 
-## PROSSIMO TASK — Match pos_name
+## PRIORITA LANCIO BETA LUNEDI
 
-**Obiettivo:** collegare i 15 piatti POS alle ricette esistenti nel DB.
+### Cosa serve per il lancio
+- App deve funzionare per la brigata: Chat, Prep, Closing, Tell Chef
+- Kitchen Display (display.html) deve funzionare
+- Bug UI noti da risolvere prima del lancio:
+  - [ ] BUG: ai-translate chiamato decine di volte per pagina — indagare urgente
+  - [ ] BUG: L'Ufficio realtime non si aggiorna (richiede close/reopen)
+  - [ ] BUG: Kitchen Display si blocca quando si apre/chiude L'Ufficio
+  - [ ] BUG: send button sovrapposto al microfono in chat (iPhone)
 
-**Come fare:**
-1. Per ogni canonical_name POS, trovare la ricetta corrispondente nel DB
-2. Aggiornare `recipes.pos_name` con il canonical_name esatto del POS
-3. Verificare che `pos_production_daily` abbia dati per quei piatti
-4. Test: query che mostra porzioni vendute × BOM = ingredienti da produrre
-
-**Poi:**
-- Costruire la vista "cosa produrre domani" basata su vendite ieri × recipe_bom
-- Collegare al Prep Coach / preplist
+### NON priorita per il lancio
+- Fruge parser calcoli $/100g — riprende dopo lancio
+- Bottoni L'Ufficio (Archivia/Risolto/Investiga)
+- Yesterday/Weekly Highlights UI
+- Bot 4 Fase 2
+- Bot 5 versione B
 
 ---
 
-## PRIORITÀ SESSIONI FUTURE
+## PRIORITA POST-LANCIO
 
-### 1. 🔴 Match pos_name — PROSSIMA SESSIONE
-- Collegare 15 piatti POS alle ricette DB
-- Test calcolo produzione da vendite
+### 1. Fruge parser — fix calcoli
+- Riprocessare le fatture Fruge dopo fix
+- Verificare $/100g su tutti i tipi di pack
 
-### 2. 🔴 Bottoni L'Ufficio — sessione dedicata urgente
+### 2. Bottoni L'Ufficio — sessione dedicata urgente
 - Archivia / Risolto / Investiga non eseguono ancora
 
-### 3. 🟠 Yesterday / Weekly Highlights
+### 3. Yesterday / Weekly Highlights
 - Tab da costruire completamente
 
-### 4. 🟠 Bot 4 Fase 2 — esecuzione automatica Tell Chef
+### 4. Bot 4 Fase 2 — esecuzione automatica Tell Chef
 
-### 5. 🔵 Bot 5 versione B — food cost %
+### 5. Bot 5 versione B — food cost %
 
 ---
 
@@ -151,3 +109,4 @@ Flusso comando: Max → Rover (Anto) → Sous Chef → Chef de partie
 8. MAI mostrare soldi/prezzi negli Highlights della brigata
 9. Max = Executive Chef, MAI owner/proprietario
 10. Tela = Kitchen Manager, MAI sous chef
+11. NON toccare Hardies parser — funziona, non si tocca
