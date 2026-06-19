@@ -986,10 +986,12 @@ function buildVendorParsers() {
   //         "8 LB   BRAFW8001000 - BRANZINI FR WHOLE 800-1000 1lb   8 LB  $11.25 LB  $90.00"
   // Total:  "Pay: $490.00"
   function parseFrugeInvoice(rawText) {
-    // FRUGE PARSER v4 — lookahead per righe spezzate
-    // PDF.js nel flusso reale spezza la descrizione su piu righe.
-    // Strategia: regex sulla riga item, poi lookahead sulle righe successive
-    // per trovare il peso lb se non e nella descrizione (BG/GA).
+    // FRUGE PARSER v5
+    // pack_description = peso reale in LB — cosi la UI calcola $/100g come Hardies
+    // Es: "1 BG x 10 LB" -> pack_description = "10 LB"
+    //     "1 GA x 8 LB"  -> pack_description = "8 LB"
+    //     "7.85 LB"       -> pack_description = "7.85 LB"  (catchweight)
+    //     "1 CA 5x2 LB"  -> pack_description = "10 LB"
 
     var invoiceNumber = null, invoiceDate = null, total = null;
     var invM = rawText.match(/INVOICE\s+(\d+)/i);           if (invM) invoiceNumber = invM[1];
@@ -1000,55 +1002,41 @@ function buildVendorParsers() {
     var items = [];
     var warnings = [];
 
-    // Regex: ORDERED_QTY UNIT  SKU - DESCRIPTION  SHIPPED_QTY SHIPPED_UNIT  $PRICE UNIT  $AMOUNT
     var LINE_RE = /^\s*\d+(?:\.\d+)?\s+(LB|BG|GA|GAL|CA|CS|EA)\s+([A-Z0-9]{6,16})\s*[-\u2013]\s*(.+?)\s+(\d+(?:\.\d+)?)\s+(LB|BG|GA|GAL|CA|CS|EA)\s+\$?([\d,]+\.\d{2})\s+(?:LB|BG|GA|GAL|CA|CS|EA)\s+\$?([\d,]+\.\d{2})/i;
 
     for (var i = 0; i < lines.length; i++) {
       var m = lines[i].match(LINE_RE);
       if (!m) continue;
 
-      var sku      = m[2];
-      var descRaw  = m[3].trim();
-      var shpQty   = parseFloat(m[4]);
-      var shpUnit  = m[5].toUpperCase();
+      var sku       = m[2];
+      var descRaw   = m[3].trim();
+      var shpQty    = parseFloat(m[4]);
+      var shpUnit   = m[5].toUpperCase();
       var unitPrice = parseFloat(m[6].replace(/,/g, ''));
       var amount    = parseFloat(m[7].replace(/,/g, ''));
 
-      var costPerLb = null;
       var totalLb = null;
-      var packDesc = shpQty + ' ' + shpUnit;
 
       if (shpUnit === 'LB') {
-        // TIPO 1: catchweight diretta
+        // TIPO 1: catchweight — shipped e gia in LB
         totalLb = shpQty;
-        costPerLb = amount / shpQty;
 
       } else if (shpUnit === 'BG' || shpUnit === 'GA' || shpUnit === 'GAL') {
-        // TIPO 2: peso lb nella descrizione o nelle righe successive
-        var lbsEach = null;
+        // TIPO 2: cerca peso lb nella descrizione o righe successive
         var wm = descRaw.match(/(\d+(?:\.\d+)?)\s*lb\b/i);
         if (wm) {
-          lbsEach = parseFloat(wm[1]);
+          totalLb = shpQty * parseFloat(wm[1]);
         } else {
-          // Guarda le prossime 3 righe
           for (var j = i + 1; j < Math.min(i + 4, lines.length); j++) {
             var nxt = lines[j].trim();
-            if (LINE_RE.test(nxt)) break; // inizia il prossimo item
+            if (LINE_RE.test(nxt)) break;
             var wm2 = nxt.match(/(\d+(?:\.\d+)?)\s*lb\b/i);
-            if (wm2) { lbsEach = parseFloat(wm2[1]); break; }
+            if (wm2) { totalLb = shpQty * parseFloat(wm2[1]); break; }
           }
-        }
-        if (lbsEach) {
-          totalLb = shpQty * lbsEach;
-          costPerLb = amount / totalLb;
-          packDesc = shpQty + ' ' + shpUnit + ' x ' + lbsEach + ' LB';
-        } else {
-          costPerLb = unitPrice;
-          packDesc = shpQty + ' ' + shpUnit;
         }
 
       } else if (shpUnit === 'CA' || shpUnit === 'CS') {
-        // TIPO 3: moltiplicazione NxN nella descrizione o righe successive
+        // TIPO 3: moltiplicazione NxN
         var mxm = descRaw.match(/(\d+)\s*[xX]\s*(\d+(?:\.\d+)?)\s*(?:LBS?|lb)/i);
         if (!mxm) {
           for (var k = i + 1; k < Math.min(i + 4, lines.length); k++) {
@@ -1060,15 +1048,14 @@ function buildVendorParsers() {
         }
         if (mxm) {
           totalLb = shpQty * parseFloat(mxm[1]) * parseFloat(mxm[2]);
-          costPerLb = amount / totalLb;
-          packDesc = shpQty + ' CA (' + mxm[1] + 'x' + mxm[2] + ' LB)';
-        } else {
-          costPerLb = unitPrice;
-          packDesc = shpQty + ' CA';
         }
       }
 
-      var costPer100g = costPerLb ? parseFloat(((costPerLb / 453.592) * 100).toFixed(4)) : null;
+      // pack_description = peso totale in LB — la UI lo usa per calcolare $/100g
+      var packDesc = totalLb ? (parseFloat(totalLb.toFixed(2)) + ' LB') : (shpQty + ' ' + shpUnit);
+
+      var costPerLb  = totalLb ? (amount / totalLb) : null;
+      var cost100g   = costPerLb ? parseFloat(((costPerLb / 453.592) * 100).toFixed(4)) : null;
 
       var desc = descRaw
         .replace(/\d+(?:\.\d+)?\s*lb\b/gi, '')
@@ -1084,21 +1071,22 @@ function buildVendorParsers() {
         qty_received:     shpQty,
         received_unit:    shpUnit,
         pack_description: packDesc,
-        total_weight_lb:  totalLb,
+        total_weight_lb:  totalLb ? parseFloat(totalLb.toFixed(4)) : null,
         unit_price:       unitPrice,
         amount:           amount,
         cost_per_lb:      costPerLb ? parseFloat(costPerLb.toFixed(4)) : null,
-        _cost_per_100g:   costPer100g,
+        _cost_per_100g:   cost100g,
         price_type:       'per_lb',
+        catchweight:      shpUnit === 'LB',
         warnings:         [],
       });
     }
 
     if (items.length === 0) {
-      console.log('[FRUGE v4] NO ITEMS. Lines:', lines.slice(0, 20).join(' || '));
+      console.log('[FRUGE v5] NO ITEMS. Lines:', lines.slice(0, 20).join(' || '));
       warnings.push({ code: 'NO_ITEMS', message: 'No line items parsed from Fruge invoice' });
     } else {
-      console.log('[FRUGE v4] OK -', items.length, 'items');
+      console.log('[FRUGE v5] OK -', items.length, 'items');
     }
 
     return {
