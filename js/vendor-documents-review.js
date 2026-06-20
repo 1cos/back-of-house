@@ -11,7 +11,7 @@ window.openVendorDocumentsReview = function() {
   modal.className = 'fixed inset-0 z-[65] flex flex-col';
   modal.style.cssText = 'background:white;overflow-y:auto;';
   modal.innerHTML = `
-    <div style="position:sticky;top:0;z-index:10;background:white;border-bottom:1px solid #f1f5f9;">
+    <div style="position:sticky;top:0;z-index:10;background:white;border-bottom:1px solid #f1f5f9;padding-top:env(safe-area-inset-top,0px);">
       <div style="padding:14px 16px;display:flex;align-items:center;gap:10px;">
         <button onclick="this.closest('#vdrModal').remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
         <div style="flex:1;">
