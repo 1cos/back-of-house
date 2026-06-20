@@ -95,6 +95,7 @@ function openAddUser(){
         </select>
         <select id="nu_role" class="w-full px-3 py-2.5 border rounded-xl text-sm bg-white">
           <option value="staff">Staff</option>
+          <option value="supervisor">Supervisor</option>
           <option value="admin">Admin</option>
         </select>
         <select id="nu_station" class="w-full px-3 py-2.5 border rounded-xl text-sm bg-white">
@@ -152,6 +153,7 @@ async function openEditUser(userId){
         </select>
         <select id="eu_role" class="w-full px-3 py-2.5 border rounded-xl text-sm bg-white">
           <option value="staff" ${u.role==='staff'?'selected':''}>Staff</option>
+          <option value="supervisor" ${u.role==='supervisor'?'selected':''}>Supervisor</option>
           <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
         </select>
         <select id="eu_station" class="w-full px-3 py-2.5 border rounded-xl text-sm bg-white">
