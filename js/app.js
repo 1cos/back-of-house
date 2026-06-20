@@ -286,7 +286,7 @@ function doLogin(profile){
 
   // Tell Chef — solo staff (non admin)
   const tabTellChef = document.getElementById('tabTellChef');
-  if(tabTellChef) tabTellChef.style.display = admin ? 'none' : 'flex';
+  if(tabTellChef) tabTellChef.style.display = (admin||isSupervisor()) ? 'none' : 'flex';
 
   // Prep — solo staff
   const tabPrep = document.getElementById('tabPrep');
