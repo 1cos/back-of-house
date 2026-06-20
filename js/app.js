@@ -317,6 +317,76 @@ function doLogin(profile){
 document.getElementById('out').onclick=()=>{user=null;location.reload()};
 
 // ── ADMIN MENU ──────────────────────────────────────────────
+// ── ANNOUNCEMENTS ──
+async function openAnnouncements() {
+  var existing = document.getElementById('announcementsModal');
+  if (existing) existing.remove();
+
+  var now = new Date();
+  var localStr = now.toLocaleString('en-US', {timeZone:'America/Chicago'});
+  var local = new Date(localStr);
+  var hh = String(local.getHours()).padStart(2,'0');
+  var mm = String(local.getMinutes()).padStart(2,'0');
+  var nowTime = hh + ':' + mm;
+
+  var res = await supa.from('announcements').select('*').eq('active', true).order('created_at', {ascending: false});
+  var list = res.data || [];
+
+  var listHtml = list.length === 0
+    ? '<div style="font-size:13px;color:#94a3b8;padding:12px 0;">No active announcements</div>'
+    : list.map(function(a) {
+        return '<div style="background:#f8fafc;border-radius:12px;padding:12px 14px;margin-bottom:10px;border:1px solid #e2e8f0;">' +
+          '<div style="font-size:15px;font-weight:600;color:#0f172a;margin-bottom:6px;">' + a.text + '</div>' +
+          '<div style="font-size:12px;color:#64748b;">' + a.starts_at.slice(0,5) + ' - ' + a.ends_at.slice(0,5) + '</div>' +
+          '<button onclick="deleteAnnouncement(' + JSON.stringify(a.id) + ')" style="margin-top:8px;font-size:12px;color:#ef4444;background:none;border:none;padding:0;cursor:pointer;">Remove</button>' +
+        '</div>';
+      }).join('');
+
+  var modal = document.createElement('div');
+  modal.id = 'announcementsModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(15,23,42,0.5);display:flex;align-items:flex-end;';
+  modal.innerHTML = '<div style="background:white;border-radius:24px 24px 0 0;padding:20px 16px 40px;width:100%;max-width:448px;margin:0 auto;">' +
+    '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;"></div>' +
+    '<div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:16px;">TV Announcement</div>' +
+    '<div style="margin-bottom:16px;">' +
+      '<textarea id="ann-text" placeholder="Message for the kitchen TV..." style="width:100%;height:80px;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 12px;font-size:14px;color:#0f172a;resize:none;box-sizing:border-box;"></textarea>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;">' +
+      '<div>' +
+        '<div style="font-size:11px;font-weight:600;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">From</div>' +
+        '<input id="ann-start" type="time" value="' + nowTime + '" style="width:100%;border:1.5px solid #e2e8f0;border-radius:10px;padding:8px 10px;font-size:14px;box-sizing:border-box;">' +
+      '</div>' +
+      '<div>' +
+        '<div style="font-size:11px;font-weight:600;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Until</div>' +
+        '<input id="ann-end" type="time" value="14:00" style="width:100%;border:1.5px solid #e2e8f0;border-radius:10px;padding:8px 10px;font-size:14px;box-sizing:border-box;">' +
+      '</div>' +
+    '</div>' +
+    '<button onclick="saveAnnouncement()" style="width:100%;height:48px;border-radius:14px;background:#2563eb;color:white;font-size:15px;font-weight:700;border:none;margin-bottom:12px;">Post to TV</button>' +
+    '<div style="font-size:13px;font-weight:600;color:#0f172a;margin-bottom:10px;margin-top:4px;">Active</div>' +
+    listHtml +
+    '<button onclick="var m=document.getElementById(\'announcementsModal\');if(m)m.remove();" style="width:100%;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-size:14px;font-weight:600;border:none;margin-top:8px;">Close</button>' +
+  '</div>';
+  modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+  document.body.appendChild(modal);
+}
+
+async function saveAnnouncement() {
+  var text = document.getElementById('ann-text').value.trim();
+  var start = document.getElementById('ann-start').value;
+  var end = document.getElementById('ann-end').value;
+  if (!text || !start || !end) return;
+  await supa.from('announcements').insert({text: text, starts_at: start + ':00', ends_at: end + ':00', active: true, created_by: user ? user.name : 'Admin'});
+  document.getElementById('announcementsModal').remove();
+  openAnnouncements();
+}
+
+async function deleteAnnouncement(id) {
+  await supa.from('announcements').update({active: false}).eq('id', id);
+  document.getElementById('announcementsModal').remove();
+  openAnnouncements();
+}
+
+
 function showAdminMenu(){
   const sheet = document.getElementById('adminMenuSheet');
   const content = document.getElementById('adminMenuContent');
