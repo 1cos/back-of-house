@@ -253,10 +253,14 @@ html, body {
     <!-- CENTRE: PREP -->
     <div class="card" id="panel-centre">
       <div class="card-head">
-        <div class="card-title">Today's Prep</div>
+        <div class="card-title" id="centre-title">Today's Prep</div>
         <div class="card-sub" id="prep-sub">loading…</div>
       </div>
       <div id="prep-grid"></div>
+      <div id="announcement-card" style="display:none;flex:1;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);">
+        <div style="font-size:11px;font-weight:800;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:.12em;margin-bottom:16px;" id="announcement-time"></div>
+        <div style="font-size:36px;font-weight:900;color:white;text-align:center;line-height:1.25;letter-spacing:-.01em;" id="announcement-text"></div>
+      </div>
     </div>
 
     <!-- RIGHT: KITCHEN CHAT -->
@@ -867,6 +871,61 @@ function startSettingsRealtime() {
     });
 }
 
+// ── ANNOUNCEMENTS ──
+var announcementVisible = false;
+var announcementTimer = null;
+
+function padT(n){ return String(n).padStart(2,'0'); }
+
+async function checkAnnouncement() {
+  var now = new Date();
+  var tz = now.toLocaleString('en-US', {timeZone:'America/Chicago'});
+  var local = new Date(tz);
+  var hhmm = padT(local.getHours()) + ':' + padT(local.getMinutes()) + ':00';
+
+  var res = await supa.from('announcements')
+    .select('id,text,starts_at,ends_at')
+    .eq('active', true)
+    .lte('starts_at', hhmm)
+    .gte('ends_at', hhmm)
+    .limit(1)
+    .maybeSingle();
+
+  var card = document.getElementById('announcement-card');
+  var grid = document.getElementById('prep-grid');
+  var title = document.getElementById('centre-title');
+  var atext = document.getElementById('announcement-text');
+  var atime = document.getElementById('announcement-time');
+
+  if (res && res.data) {
+    var a = res.data;
+    var s = a.starts_at.slice(0,5);
+    var e = a.ends_at.slice(0,5);
+    atext.textContent = a.text;
+    atime.textContent = s + ' - ' + e;
+    // Alternate: show announcement for 20s, prep for 20s
+    if (!announcementVisible) {
+      announcementVisible = true;
+      card.style.display = 'flex';
+      grid.style.display = 'none';
+      title.textContent = 'Announcement';
+      clearTimeout(announcementTimer);
+      announcementTimer = setTimeout(function() {
+        card.style.display = 'none';
+        grid.style.display = '';
+        title.textContent = "Today's Prep";
+        announcementVisible = false;
+        setTimeout(checkAnnouncement, 20000);
+      }, 20000);
+    }
+  } else {
+    card.style.display = 'none';
+    grid.style.display = '';
+    title.textContent = "Today's Prep";
+    announcementVisible = false;
+  }
+}
+
 async function boot() {
   await checkDisplayActive();
   await loadAll();
@@ -887,6 +946,13 @@ async function boot() {
   supa.channel('alerts-rt')
     .on('postgres_changes',{event:'*',schema:'public',table:'alerts'}, async function(){ await loadAlerts(); })
     .subscribe();
+  // Realtime announcements
+  supa.channel('announcements-rt')
+    .on('postgres_changes',{event:'*',schema:'public',table:'announcements'}, async function(){ await checkAnnouncement(); })
+    .subscribe();
+  // Check announcements every 30s
+  checkAnnouncement();
+  setInterval(checkAnnouncement, 30000);
   // Realtime settings — TV on/off con riconnessione automatica
   startSettingsRealtime();
 }
