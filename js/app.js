@@ -291,9 +291,7 @@ function doLogin(profile){
   // Prep — solo staff
   const tabPrep = document.getElementById('tabPrep');
   if(tabPrep) tabPrep.style.display = admin ? 'none' : 'flex';
-  // Other Stations tab — solo staff
-  const tabOther = document.getElementById('tabOtherStations');
-  if(tabOther) tabOther.style.display = admin ? 'none' : 'flex';
+
   // tabChiusura gestita da updateStaffTabs() in base all'orario
   if(!admin) updateStaffTabs();
 
