@@ -169,7 +169,8 @@ async function loadServiceUpdates(){
     const{data:items}=await supa.from('pos_sales_by_item')
       .select('menu_item,quantity')
       .eq('sale_date',yStr)
-      .not('menu_group','in','("NA Beverages","Beverages","Mocktail","Beer","Common Cocktails","House Cocktails","Gin","Rum","Scotch","Tequila","Liqueurs")')
+      .not('menu_group','in','("NA Beverages","Beverages","Mocktail","Beer","Common Cocktails","House Cocktails","Gin","Rum","Scotch","Tequila","Liqueurs","The Bar","Sparkling Wine BOTTLE","Sparkling Wine GLASS")')
+      .not('sales_category','in','("Alcohol","Beer","Wine")')
       .lt('quantity',1000)
       .order('quantity',{ascending:false})
       .limit(3);
