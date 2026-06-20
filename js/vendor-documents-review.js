@@ -24,7 +24,7 @@ window.openVendorDocumentsReview = function() {
         <button onclick="vdrSetVendor('all')" id="vdrTab-all" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:#1e3a5f;color:white;">All</button>
       </div>
     </div>
-    <div style="padding:16px;max-width:640px;width:100%;margin:0 auto;">
+    <div style="padding:16px;max-width:640px;width:100%;margin:0 auto;padding-bottom:100px;">
       <div id="vdrList">
         <div style="text-align:center;padding:40px 0;color:#94a3b8;font-size:13px;">Loading…</div>
       </div>
@@ -408,7 +408,12 @@ window.vdrToggle = function(id) {
       </div>
       <!-- Scrollable content -->
       <div style="overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;">
-        ${vdrDetailHTML(doc)}
+        ${vdrDetailHTMLNoApprove(doc)}
+      </div>
+      <!-- Sticky Approve footer -->
+      <div style="flex-shrink:0;padding:12px 16px;border-top:1px solid #f1f5f9;background:white;">
+        <div id="vdrActionStatus-${doc.id}" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>
+        <button onclick="vdrApprove('${doc.id}',this)" style="width:100%;height:48px;border-radius:14px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;">Approve Document</button>
       </div>
       <!-- Bottom safe area -->
       <div style="height:env(safe-area-inset-bottom,0px);background:white;flex-shrink:0;"></div>
@@ -748,6 +753,31 @@ function vdrDetailHTML(doc) {
   '</div>';
 
   return headerHTML + questionsHTML + itemsHTML + approveHTML;
+}
+
+// Same as vdrDetailHTML but without the approve button (used when approve is a sticky footer)
+function vdrDetailHTMLNoApprove(doc) {
+  var docId = doc.id;
+  var pj = doc.parsed_json || {};
+  var items = Array.isArray(pj.items) ? pj.items : [];
+  var questions = vdrBuildQuestions(doc);
+  var headerFields = [
+    ['Vendor', doc.vendor || '—'],
+    ['Date', vdrFmtDate(doc.document_date)],
+    ['Invoice #', doc.document_number || '—'],
+    ['Total', pj.total != null ? '$' + Math.abs(pj.total).toFixed(2) : '—']
+  ];
+  var headerHTML = '<div style="padding:12px 14px;background:#f8fafc;display:flex;flex-wrap:wrap;gap:6px 20px;">' +
+    headerFields.map(function(pair) {
+      return '<div><span style="font-size:10px;color:#94a3b8;">' + pair[0] + '</span> <span style="font-size:12px;font-weight:600;color:#1e293b;">' + pair[1] + '</span></div>';
+    }).join('') +
+    '</div>';
+  // Get questions and items HTML by calling the full function and stripping the approve part
+  var full = vdrDetailHTML(doc);
+  // Strip the approve div from the end
+  var approveStart = full.lastIndexOf('<div style="padding:12px 14px 14px;">');
+  if (approveStart >= 0) return full.slice(0, approveStart);
+  return full;
 }
 
 // ── Build question objects from a document ────────────────────
