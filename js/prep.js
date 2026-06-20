@@ -172,34 +172,35 @@ function renderM(){
   const stationKey = station==='All'?null:station;
   const stNote = stationKey && stationNotes[stationKey] ? stationNotes[stationKey] : null;
 
-  grid.innerHTML=(stNote?`<div class="col-span-2 mb-2 px-3 py-2 rounded-xl text-[11px] text-amber-800" style="background:rgba(251,191,36,0.15);border:0.5px solid rgba(251,191,36,0.3);">${stNote}</div>`:'')+
+  grid.innerHTML=(stNote?`<div class="col-span-2 mb-2 px-3 py-2 rounded-xl text-[11px]" style="background:rgba(251,191,36,0.15);border-left:4px solid #f59e0b;color:#92400e;">${stNote}</div>`:'')+
     list.map(i=>{
       const isUrgent=i.need_tomorrow;
       const isWip=i.in_progress&&!i.need_tomorrow;
-      let borderColor=isUrgent?'#ef4444':isWip?'#3B82F6':'rgba(59,130,246,0.15)';
-      let nameColor=isUrgent?'#b91c1c':isWip?'#1d4ed8':'#1e3a5f';
-      let hint=isUrgent?'<div style="font-size:10px;color:#ef4444;margin-top:2px;">'+tr('toDo').split('—')[0].trim()+'</div>':
-                isWip?'<div style="font-size:10px;color:#3B82F6;margin-top:2px;">in progress</div>':'';
-      return `<div class="col-span-2 rounded-2xl p-3 mb-1 cursor-pointer active:scale-[0.98] transition" 
-        style="background:rgba(255,255,255,0.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1.5px solid ${borderColor};">
-        <div class="flex items-center justify-between">
-          <div style="flex:1;min-width:0;" onclick="openRecipeForItem('${i.id}')">
-            <div style="font-size:15px;font-weight:500;color:${nameColor};cursor:pointer;">${i.name}</div>
-            ${hint}
-            ${i.recipe_id?'<span style="font-size:10px;color:#059669;">📖 ricetta</span>':i.note?'<span style="font-size:10px;color:#d97706;">📝 nota</span>':isAdmin()?'<span style="font-size:10px;color:#94a3b8;">⚪ no ricetta</span>':''}
-          </div>
-          <div style="display:flex;gap:5px;flex-shrink:0;margin-left:8px;">
-            ${isUrgent||!isWip?`<button onpointerdown="startWipPress('${i.id}',this)" onpointerup="endWipPress()" onpointerleave="endWipPress()" 
-              style="height:30px;padding:0 10px;border-radius:9px;font-size:11px;font-weight:500;background:rgba(59,130,246,0.1);color:#1d4ed8;border:0.5px solid rgba(59,130,246,0.3);white-space:nowrap;">
-              Da finire</button>`:''}
-            <button onpointerdown="startDonePress('${i.id}',this)" onpointerup="endDonePress('${i.id}')" onpointerleave="endDonePress('${i.id}')"
-              style="height:30px;padding:0 10px;border-radius:9px;font-size:11px;font-weight:500;background:#1e3a5f;color:white;white-space:nowrap;">
-              Fatta</button>
-            ${isUrgent?`<button onclick="noNeed('${i.id}')" style="height:30px;padding:0 10px;border-radius:9px;font-size:11px;font-weight:500;background:rgba(234,179,8,0.12);color:#854d0e;border:0.5px solid rgba(234,179,8,0.4);white-space:nowrap;">No Need</button>`:''}
-            ${isAdmin()?`<span style="display:flex;gap:4px;"><button onclick="adminRename('${i.id}')" style="font-size:13px;color:#94a3b8;">✏</button><button onclick="adminDel('${i.id}')" style="font-size:13px;color:#94a3b8;">🗑</button></span>`:''}
-          </div>
-        </div>
-      </div>`;
+      const accentColor=isUrgent?'#ef4444':isWip?'#3b82f6':'#334155';
+      const bgColor=isUrgent?'rgba(254,242,242,0.95)':isWip?'rgba(239,246,255,0.95)':'rgba(255,255,255,0.95)';
+      const nameColor=isUrgent?'#991b1b':isWip?'#1e40af':'#0f172a';
+      const badge=isUrgent?'<span style="font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;">URGENTE</span>':
+                   isWip?'<span style="font-size:10px;font-weight:600;color:#3b82f6;background:rgba(59,130,246,0.1);padding:2px 6px;border-radius:6px;">in progress</span>':'';
+      const iid = i.id;
+      return '<div class="col-span-2 mb-2 cursor-pointer active:scale-[0.98] transition-transform" style="background:' + bgColor + ';border-radius:16px;border-left:4px solid ' + accentColor + ';box-shadow:0 1px 4px rgba(15,23,42,0.08);">' +
+        '<div style="padding:12px 12px 12px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+          '<div style="flex:1;min-width:0;" onclick="openRecipeForItem(' + JSON.stringify(iid) + ')">' +
+            '<div style="font-size:15px;font-weight:600;color:' + nameColor + ';line-height:1.3;">' + i.name + '</div>' +
+            (badge ? '<div style="margin-top:4px;">' + badge + '</div>' : '') +
+            '<div style="margin-top:3px;">' +
+              (i.recipe_id ? '<span style="font-size:11px;color:#059669;font-weight:500;">📖 ricetta</span>' :
+               i.note ? '<span style="font-size:11px;color:#d97706;">📝 nota</span>' :
+               isAdmin() ? '<span style="font-size:11px;color:#94a3b8;">no ricetta</span>' : '') +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px;flex-shrink:0;">' +
+            (isUrgent||!isWip ? '<button onpointerdown="startWipPress(' + JSON.stringify(iid) + ',this)" onpointerup="endWipPress()" onpointerleave="endWipPress()" style="height:36px;padding:0 14px;border-radius:10px;font-size:12px;font-weight:600;background:white;color:#1d4ed8;border:1.5px solid #3b82f6;white-space:nowrap;">Later</button>' : '') +
+            '<button onpointerdown="startDonePress(' + JSON.stringify(iid) + ',this)" onpointerup="endDonePress(' + JSON.stringify(iid) + ')" onpointerleave="endDonePress(' + JSON.stringify(iid) + ')" style="height:36px;padding:0 16px;border-radius:10px;font-size:12px;font-weight:700;background:#059669;color:white;border:none;white-space:nowrap;box-shadow:0 2px 6px rgba(5,150,105,0.35);">Done</button>' +
+            (isUrgent ? '<button onclick="noNeed(' + JSON.stringify(iid) + ')" style="height:36px;padding:0 12px;border-radius:10px;font-size:12px;font-weight:600;background:rgba(234,179,8,0.15);color:#92400e;border:1.5px solid rgba(234,179,8,0.5);white-space:nowrap;">No Need</button>' : '') +
+            (isAdmin() ? '<span style="display:flex;gap:4px;align-items:center;"><button onclick="adminRename(' + JSON.stringify(iid) + ')" style="font-size:14px;color:#94a3b8;background:none;border:none;padding:4px;">✏</button><button onclick="adminDel(' + JSON.stringify(iid) + ')" style="font-size:14px;color:#94a3b8;background:none;border:none;padding:4px;">🗑</button></span>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>';
     }).join('');
 }
 
