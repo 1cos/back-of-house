@@ -25,8 +25,8 @@ async function init(){
   }
   const stationsEl=document.getElementById('stations');
   const stations2El=document.getElementById('stations2');
-  stationsEl.innerHTML=stationList.map(s=>`<button onclick="station='${s}';document.querySelectorAll('#stations button').forEach(b=>b.classList.remove('bg-slate-900','text-white'));this.classList.add('bg-slate-900','text-white');feedMode?renderFeed():renderM()" class="px-3 py-1 rounded-full border text-sm ${station===s?'bg-slate-900 text-white':''}">${s}</button>`).join('');
-  stations2El.innerHTML=stationList.map(s=>`<button onclick="station2='${s}';document.querySelectorAll('#stations2 button').forEach(b=>b.classList.remove('bg-slate-900','text-white'));this.classList.add('bg-slate-900','text-white');renderS()" class="px-3 py-1 rounded-full border text-sm ${station2===s?'bg-slate-900 text-white':''}">${s}</button>`).join('');
+  stationsEl.innerHTML=stationList.map(s=>`<button onclick="station='${s}';document.querySelectorAll('#stations button').forEach(b=>b.classList.remove('bg-slate-900','text-white'));this.classList.add('bg-slate-900','text-white');feedMode?renderFeed():renderM()" class="px-3 py-1 rounded-full border text-sm ${station===s?'bg-slate-900 text-white':''}">${s.replace(" Station","")}</button>`).join('');
+  stations2El.innerHTML=stationList.map(s=>`<button onclick="station2='${s}';document.querySelectorAll('#stations2 button').forEach(b=>b.classList.remove('bg-slate-900','text-white'));this.classList.add('bg-slate-900','text-white');renderS()" class="px-3 py-1 rounded-full border text-sm ${station2===s?'bg-slate-900 text-white':''}">${s.replace(" Station","")}</button>`).join('');
   if(isAdmin()) stationsEl.insertAdjacentHTML('beforeend',`<button onclick="adminAdd()" class="ml-2 px-2 py-1 rounded-full bg-green-600 text-white text-sm">+ Nuovo</button><button onclick="showArchivedPreps()" class="ml-1 px-2 py-1 rounded-full bg-slate-200 text-slate-700 text-sm">📦</button>`);
   await loadItemAlerts();
   await ensureChiusuraStation();
