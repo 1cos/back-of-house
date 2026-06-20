@@ -459,11 +459,6 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <span class="text-[10px] tab-label">Prep</span>
       </button>
 
-      <!-- OTHER STATIONS — staff only, terza tab -->
-      <button id="tabOtherStations" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" onclick="document.getElementById('tabPrep').click()">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-        <span class="text-[10px] tab-label" id="otherStationsLabel">Stations</span>
-      </button>
 
       <!-- CHIUSURA — staff only, nascosta fino alle 20:00 CDT -->
       <button id="tabChiusura" data-t="s" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
