@@ -292,6 +292,7 @@ async function openServiceUpdates(){
   const{data:items}=await supa.from('pos_sales_by_item')
     .select('menu_item,quantity,menu_group')
     .eq('sale_date',yStr)
+    .eq('sales_category','Food')
     .not('menu_group','in','("'+EXCLUDED_GROUPS.join('","')+'")')
     .lt('quantity',1000)
     .order('quantity',{ascending:false})
