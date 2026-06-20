@@ -97,6 +97,7 @@ function applyLang(){
 }
 
 const isAdmin=()=>user&&(user.is_admin===true||user.role==='admin');
+const isSupervisor=()=>user&&user.role==='supervisor';
 
 // ── TIMEZONE DALLAS (America/Chicago) ──
 // Weatherford TX usa CDT (UTC-5) estate, CST (UTC-6) inverno
