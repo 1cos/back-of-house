@@ -15,6 +15,8 @@ function isFocusHour() {
 
 function shouldShowFocusMode() {
   if (typeof isAdmin === 'function' && isAdmin()) return false;
+  var day = new Date().toLocaleString('en-US', {timeZone:'America/Chicago', weekday:'long'});
+  if (day === 'Sunday') return false;
   return isFocusHour();
 }
 
@@ -232,4 +234,5 @@ window.focusLoadStation = function(station) {
   buildFocusList();
   renderFocusFeed();
 };
+
 
