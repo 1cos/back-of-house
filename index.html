@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Back of House</title>
+<title>Brigade</title>
 <meta name="theme-color" content="#059669">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Back of House">
+<meta name="apple-mobile-web-app-title" content="Brigade">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <link rel="manifest" href="./manifest.json">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -39,7 +39,7 @@
     /* ── TYPOGRAPHY & COLOR OVERRIDES ── */
     /* Top bar */
     #app .text-sm { font-size: 14px !important; }
-    /* Back of House title */
+    /* Brigade title */
     .app-title { font-size: 17px !important; font-weight: 600 !important; }
     /* Username nel top bar */
     #who { font-size: 14px !important; font-weight: 500 !important; }
@@ -89,7 +89,7 @@
 <div id="login" class="min-h-screen flex items-center justify-center p-4" style="background:linear-gradient(160deg,#1e3a5f 0%,#1e40af 100%);">
   <div style="width:100%;max-width:340px;">
     <div style="text-align:center;margin-bottom:32px;">
-      <div style="font-size:22px;font-weight:500;color:white;margin-bottom:4px;">Back of House</div>
+      <div style="font-size:22px;font-weight:500;color:white;margin-bottom:4px;">Brigade</div>
       <div style="font-size:13px;color:rgba(255,255,255,0.5);">Zenos on the Square</div>
     </div>
 
@@ -710,7 +710,7 @@ fetch('sw.js?nocache=' + Date.now())
     const v = 'v' + m[1];
     const el = document.getElementById('appVersion');
     if (el) el.textContent = v;
-    document.title = 'Back of House — ' + v;
+    document.title = 'Brigade — ' + v;
   })
   .catch(() => {});
 </script>
@@ -743,6 +743,7 @@ function updateTVButtonState(active) {
 }
 </script>
 </html>
+
 
 
 
