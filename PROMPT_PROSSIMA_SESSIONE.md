@@ -1,4 +1,4 @@
-# PROMPT PROSSIMA SESSIONE — Brigade v302
+# PROMPT PROSSIMA SESSIONE — Brigade v304
 
 ## PRIMA DI TUTTO
 1. Carica x_claude_GIthub.txt dal progetto
@@ -7,241 +7,123 @@
 
 ---
 
-## STATO ATTUALE — 2026-06-21
+## STATO ATTUALE — 2026-06-21 (fine sessione)
 
-### Versione frontend: v302
-- sw.js: boh-v302
-- gmail-touchbistro-import: v10
-- bot-preplist-builder: v1 (da riscrivere — vedi sotto)
+### Versione frontend: v304
+- sw.js: boh-v304
+- Focus Mode disabilitato la domenica (fix v303)
+- Bot Guardiano Ricette deployato (bot-recipe-guardian v1) — cron 6AM CDT
+- office.js v304: bottone "Apri Ricetta" per avvisi bot-recipe-guardian
 
 ---
 
-## SESSIONE ODIERNA — cosa abbiamo fatto
+## LAVORO FATTO IN QUESTA SESSIONE
 
-### 1. Pipeline POS — audit e fix completo
+### BOM — completato per tutti i piatti attivi nel POS
 
-**Dati CSV TouchBistro che importiamo:**
-- `SalesByMenuItem` → `pos_sales_by_item` (quantity, void_quantity, voids, gross_sales, ecc.)
-- `Daily_HourlySales` → `pos_daily_summary` (bill_count, net_sales, ecc.)
-- `TextModifier` → `pos_modifiers`
-- `ModifierPreferenceByMenuItem` → `pos_modifier_by_item`
-- `TakeoutTypes_Summary` → NON importato (solo totale aggregato, no dettaglio piatti)
+**Ricette con BOM completato oggi:**
+- Mini Caesar Salad (aggiunto 15g Croutons)
+- Truffle Fettuccine (compilata da Max in Brigade — 2 nests, truffle butter, heavy cream, cacio e pepe sauce, fresh truffle)
+- Coccoli Toscani (aggiunto 100g Gnocco Fritto Dough sub-ricetta)
+- Caprese (aggiunto 2g Basil, 10g Basil Oil, 150g Beef Steak Tomatoes)
+- Chicken Parmesan (300g chicken breast, 20g eggs, 30g breadcrumbs, 50g arrabbiata, 30g shredded mozzarella)
+- Penne Midnight (120g penne, 200g arrabbiata, 6g calabrian chili oil, 60g parmigiano garnish, 4g calabrian chili garnish)
+- Penne Midnight Half (creata — tutto dimezzato)
+- Spaghetti Al Ragu (2 nests, 200g ragù, 50g pomodoro, 2g rosemary garnish)
+- Chef Max Risotto (punta a Risotto Base sub-ricetta)
+- Artichoke (2 artichoke, 30g red onion, 50g tempura batter, 20g artichoke sauce, 10g parmigiano garnish, 3g parsley garnish)
+- Tuscany Road Trip (sliced mozzarella, beef steak tomatoes, french bread, basil oil, balsamic glaze, parma ham, cantaloupe, parmesan flakes garnish, grapes, kalamata olive, 90g tomato x bruschetta)
+- Branzino Chef Style (900g whole branzino, 1000g sea salt, 30g egg whites, 5g parsley, 5g lemon, 5g garlic, 5g tarragon, 10g basil, 40g salmoriglio)
+- Wagyu Tomahawk (aggiunto 2oz bourbon, 8g ribeye salt)
+- Tomato And Basil Soup (250g pomodoro sauce, 50ml heavy cream garnish, 30g croutons garnish, 10g basil oil garnish, 1g black pepper)
+- Spaghetti al Pomodoro Half (creata — tutto dimezzato tranne garnish: 10g basil oil, 2g basil)
 
-**Cosa NON abbiamo:** coperti/guest count — TouchBistro non lo esporta in questi report. Max ha richiesto report separato a TB.
+**Nuove ricette base create:**
+- Risotto Base (28 porzioni: 2L water, 70g chicken bouillon, 2000g carnaroli rice)
+- Tempura Batter (12 porzioni: 500ml soda water, 300g flour, 3 ice cubes)
+- Artichoke Sauce (300g cacio e pepe sauce, 30g heavy cream — procedura salvata)
+- Penne Midnight Half
 
-**DoorDash:** POS separato, non connesso a TouchBistro. Da affrontare in sessione dedicata dopo che il pipeline TB è stabile.
+**Nuovi ingredienti creati:**
+- Calabrian Chili Oil
+- Soda Water
+- Ice Cubes
+- French Bread
 
-**Void:** già importate in `void_quantity` su `pos_sales_by_item`. Ora usate nel calcolo produzione.
+**Ricette rinominate per allinearsi al POS:**
+- SHRIMP GNOCCHI → Shrimp Gnocchi
+- TAGLIATA CON RUCOLA E GRANA → Tagliata Alla Griglia Ny Strip
+- MIMOSA CAKE → Limoncello Cake
+- CREMINO PISTACIOS CAKE → Italian Marble Cake
+- MM TOMATO AND BASIL SOUP → Tomato And Basil Soup
+- Ribeye Salt rinominato da Concia-ribeye Salt
 
-### 2. pos_item_aliases — fix e audit
+**Ricette vuote create (BOM da fare):**
+- Chicken Parmesan, Truffle Fettuccine, Texana Soup (skip — no ricetta), Penne Midnight, Chef Max Risotto, Artichoke, Tuscany Road Trip, Spaghetti Al Ragu, Branzino Chef Style
+- Scallops Asparagus Gnocchi (esce dal menu)
+- Spaghetti al Pomodoro Half
 
-**Correzioni fatte:**
-- `Cacio e Pepe` source=item: `portion_factor` corretto da 0.5 a 1.0
-- `Wheel Pasta` aggiunto: canonical_name=`Spaghetti`, portion_factor=1.0, source=item
+**Cancellata:** BRUSCHETTA TOMATOES (duplicato — rimane TOMATO X BRUSCHETTA)
 
-**Struttura aliases:**
-- `portion_factor` = 1.0 (porzione intera), 0.5 (mezza), 4.0 (scallops interi), 3.0 (scallops add-on), 2.0 (spinach item), ecc.
-- `source` = item / modifier / both
+### BOM rimasti incompleti (non prioritari — zero vendite 30gg)
+- Texana Soup (skip — no ricetta)
+- Asparagus (6 fired — da fare)
+- Lasagna Meal (1 fired — da fare)
+- Maccheroni Arrabbiata, Maccheroni Al Ragu, Ravioli Limone, Pappardelle Wildboar, Branzino Table Side, Zeno's Spaghetti, Scaloppina Ai Funghi — tutti zero vendite 30gg, skip per ora
 
-### 3. recalcProductionDaily — riscritta v3 (gmail-touchbistro-import v10)
+---
 
-**Nuova logica:**
-- Legge `recipes.pos_name` (splittato per `|`) per il mapping POS → ricetta
-- Legge `pos_item_aliases` SOLO per i `portion_factor` (mezze porzioni, add-on speciali)
-- Calcola: `(quantity + void_quantity) × portion_factor × serving_qty` = unità fisiche
-- Salva in `pos_production_daily` con `canonical_name = recipes.title`
+## PROSSIMA SESSIONE — FASE 5 e 6 (prerequisiti Bot 3)
 
-**Colonne aggiunte a `recipes`:**
-- `serving_unit` (text) — es. "nests", "pezzi", "grammi"
-- `serving_qty` (numeric) — quante unità fisiche per porzione (es. 2 nests per spaghetti)
+### FASE 5 — prep_tasks: compilare unit e expected_duration_days
+**Stato attuale:** 118 prep_tasks attivi, NESSUNO ha `unit` o `expected_duration_days`.
+Senza questi il Bot 3 non può calcolare suggested_qty.
 
-**Compilate finora:**
-- SPAGHETTI FRESH PASTA, FETTUCCINE FRESH PASTA, CHEESE WHEEL PASTA, SPAGHETTI CACIO E PEPE, SPAGHETTI N°4, SPAGHETTI al POMODORO, SPAGHETTI ALLO SCOGLIO, SPAGHETTI MARCELLO, SHRIMP GNOCCHI, LOBSTER FETTUCINE → serving_unit=nests, serving_qty=2
-- SPAGHETTI CACIO E PEPE HALF → serving_unit=nests, serving_qty=1
-- SCALLOP CHEF WAY → serving_unit=pezzi, serving_qty=4
+**Lavoro da fare:**
+Per ogni prep_task attivo Max deve dire:
+- `unit` — in cosa si misura (nests / kg / lt / porzioni / pezzi / batch)
+- `expected_duration_days` — ogni quanti giorni si prepara (1=daily, 2=ogni 2 giorni, 7=weekly)
 
-### 4. recipes.pos_name — cleanup doppi
+Stazioni da coprire: Oven Station (23 items), Pasta Station (32), Fresh Pasta Station, Plating Station (28), Salad Station (53), Saucier Station, Sauté Station, Pastry Station, Freezer (6), Table Side.
 
-**Problema risolto:** alcune ricette base (FETTUCCINE FRESH PASTA, SPAGHETTI FRESH PASTA, ecc.) avevano pos_name che causava doppio conteggio con le ricette piatto.
+### FASE 6 — Aggiungere prep_task_id a recipe_bom
+**Lavoro da fare:**
+1. `ALTER TABLE recipe_bom ADD COLUMN prep_task_id bigint REFERENCES prep_tasks(id)`
+2. Per ogni riga BOM che rappresenta un prep_task, collegare il link
 
-**Regola decisa:** `pos_name` sulle ricette base/prep = NULL. Solo le ricette piatto hanno pos_name identico al nome nel POS.
-
-**Cleanup eseguito — pos_name rimosso da:**
-- FETTUCCINE FRESH PASTA
-- SPAGHETTI FRESH PASTA
-- CACIO E PEPE SAUCE
-- SAUTED ASPARAGUS
-- SPAGHETTI ALLO SCOGLIO
-- SPAGHETTI MARCELLO
-- FETTUCCINE AL SAMONE
-- TIMBERLAND FETTUCCINE
-
-**SPAGHETTI CACIO E PEPE** → pos_name corretto a solo `"Cacio e Pepe"` (rimossi Half e Kids che appartengono a SPAGHETTI CACIO E PEPE HALF)
-
-### 5. Staff View (pos.js v302) — fix Kids menu
-
-**Problema:** la staff view mostrava Fettuccine Alla Vodka 7x invece di 13x perché il Kids menu era aggregato separatamente.
-
-**Fix:** `STAFF_GROUP_LABELS` — Kids menu ora mappa a "Pasta" invece di "Kids". Tutti i piatti kids vengono sommati automaticamente al gruppo pasta.
-
-### 6. BOM — audit completo
-
-**Stato attuale:**
-- Ricette con BOM completo (6+ righe): ~32 ricette
-- Ricette con BOM parziale (1-5 righe): ~25 ricette
-- Ricette con BOM vuoto: LASAGNA MEAL, MACCHERONI AL RAGU, ASPARAGUS
-
-**Piatti venduti ieri con BOM incompleto (priorità):**
-| Ricetta | Venduti ieri | Problema |
-|---|---|---|
-| FETTUCCINE SALMON ALLA VODKA | 13 | BOM 3 righe — manca fettuccine, salmon, basil oil |
-| LOBSTER FETTUCINE | 12 | BOM 4 righe — manca fettuccine (pasta) |
-| BEEF TENDERLOIN RAVIOLI | 10 | BOM 4 righe — manca ravioli (pasta) |
-| SPAGHETTI CACIO E PEPE | 8+kids | BOM 4 righe — quasi completo |
-| CHEESE WHEEL PASTA | 23 | BOM 4 righe — manca spaghetti |
-
-**Nota su LOBSTER FETTUCINE:** ha 130g Fettuccine-Fettuccine nel BOM in Brigade app (visto da screenshot) ma query DB restituiva 0. Da verificare — potrebbe essere campo `ingredients` JSONB non strutturato invece di `recipe_bom`.
-
-### 7. Architettura Bot 3 — decisione presa
-
-**Logica corretta (non ancora implementata):**
+### FASE 7 — Riscrivere Bot 3 (bot-preplist-builder)
+Nuova logica:
 ```
 pos_production_daily (piatti venduti × porzioni)
-    ↓ recipe_id su prep_tasks
-recipes (pos_name → which recipe)
-    ↓ recipe_bom
-ingredienti/sub-ricette (quantity × unità)
-    ↓ prep_task_id (DA AGGIUNGERE)
+    ↓ via recipe.pos_name
+recipe_bom (ingredienti × quantità)
+    ↓ via prep_task_id
 prep_tasks (suggested_qty per stazione)
 ```
 
-**Campi esistenti già utili:**
-- `prep_tasks.recipe_id` → già punta alla ricetta
-- `prep_tasks.expected_duration_days` → frequenza prep (NULL su tutti — da compilare)
-- `prep_tasks.unit` → unità misura (NULL su tutti — da compilare)
-
-**Cosa manca:**
-1. `expected_duration_days` e `unit` da compilare su ogni task
-2. Collegamento `recipe_bom` → `prep_task` (non esiste — da aggiungere colonna `prep_task_id` a `recipe_bom`)
-3. BOM da completare sulle ricette principali
-4. Bot 3 da riscrivere con nuova logica
-
-**Nuovi bot da creare:**
-- **Bot Guardiano Ricette** — gira dopo ogni salvataggio ricetta; controlla BOM completo, ogni ingrediente ha prep task collegato; scrive in L'Ufficio cosa manca
-- **Bot Guardiano Prep** — nightly; legge ricette con BOM completo, moltiplica per vendite, calcola suggested_qty; se BOM incompleto → segnala in L'Ufficio invece di saltare silenziosamente
-- **Bot Guardiano Allineamento** — post-modifica ricette/ingredienti/prep; verifica catena ricetta→BOM→ingredienti→prep_tasks→stazioni; avviso in L'Ufficio se catena rotta
-
 ---
 
-## ARGOMENTI LASCIATI A METÀ — da finire in sessioni dedicate
+## ARCHITETTURA DECISIONALE — punti fermi
 
-### A. BOM — completamento (PRIORITÀ ALTA)
-Completare recipe_bom per i 5 piatti più venduti:
-1. LOBSTER FETTUCINE — aggiungere fettuccine (2 nests / 130g), basil oil
-2. FETTUCCINE SALMON ALLA VODKA — aggiungere fettuccine, salmon fillet, basil oil, parsley
-3. BEEF TENDERLOIN RAVIOLI — aggiungere ravioli pasta
-4. CHEESE WHEEL PASTA — aggiungere spaghetti (2 nests), parmigiano 100g
-5. Tutte le ricette con BOM parziale — sessione dedicata
+### BOM
+- `base_servings = 1` = 1 piatto venduto al POS
+- Ingredienti nel BOM = quantità per 1 porzione
+- Sub-ricette puntano alle ricette base (Risotto Base, Salmoriglio, Arrabbiata, ecc.)
+- `notes = 'garnish'` per ingredienti decorativi
 
-### B. prep_tasks — compilare campi mancanti (PRIORITÀ ALTA)
-Per ogni task attivo compilare:
-- `expected_duration_days` (1=daily, 7=weekly, ecc.)
-- `unit` (nests, portions, kg, lt, ecc.)
-Senza questi il Bot 3 non può calcolare correttamente.
+### serving_unit / serving_qty
+- NON servono — decisione definitiva
+- Il BOM con `2 each · Fettuccine nests` è già sufficiente per il Bot 3
 
-### C. recipe_bom — aggiungere prep_task_id
-Aggiungere colonna `prep_task_id` (FK → prep_tasks.id) a `recipe_bom`.
-Così ogni riga BOM sa a quale prep task appartiene.
-Poi compilare i link per le ricette principali.
+### Chef AI — scrittura ricette (sessione futura)
+- Dare a Chef AI accesso in scrittura SOLO per ricette
+- Flusso: Max detta a voce → Chef AI mostra riepilogo → Max conferma → salva su DB
+- Tocca souschef-chat Edge Function v23 e UI chat
 
-### D. Bot 3 — riscrittura completa
-Prerequisiti: A + B + C completati.
-Nuova logica: recipe_id su prep_tasks → recipe_bom → ingredienti → suggested_qty.
-Gestione frequenza: daily vs weekly (expected_duration_days).
-Conversione unità: grammi → nests (65g = 1 nest).
-
-### E. Nuovi Bot — Guardiano Ricette + Prep + Allineamento
-Da costruire dopo Bot 3 riscritto. Sessione dedicata.
-
-### F. pos_name — ricette senza match (PRIORITÀ MEDIA)
-Piatti venduti ieri senza ricetta corrispondente (pos_name mancante o diverso):
-- Chicken Parmesan × 13
-- Truffle Fettuccine × 11
-- Chicken Lemon Piccata × 11
-- Penne Midnight × 9
-- Texana Soup × 9
-- Chef Max Risotto × 8
-- Artichoke × 7
-- Shrimp Gnocchi × 7 (ricetta SHRIMP GNOCCHI ha pos_name "Gnocchi With Shrimp" — diverso)
-- Tuscany Road Trip × 6
-- Bruschetta Board × 5
-- Italian Marble Cake × 5
-- Limoncello Cake × 4
-- Ribeye Prime Green Peppers Corn × 3
-- Tagliata Alla Griglia Ny Strip × 4 (ricetta TAGLIATA CON RUCOLA E GRANA ha "Piemontese Alla Griglia Nystrip" — diverso)
-- Branzino Chef Style × 2
-- Siciliana × 2
-Per ognuno: verificare se esiste ricetta con nome diverso (aggiornare pos_name) o creare ricetta nuova.
-
-### G. serving_unit e serving_qty — completare su tutte le ricette
-Finora solo pasta e scallops. Mancano: antipasti, secondi, dessert, sides, salad.
-Necessario per Bot 3.
-
-### H. DoorDash — integrazione POS
-POS separato, dati non in TouchBistro.
-Opzione A: API DoorDash Drive (automatica)
-Opzione B: Export manuale CSV da Merchant Portal
-Da affrontare dopo pipeline TouchBistro stabile.
-
-### I. SALES tab — backlog
-- Rimuovere tab "Oggi" (impossibile avere dati real-time da TB)
-- Aggiungere campo query data arbitraria
-- Aggiungere campo query manuale vendite
-- Sous Chef DB querying (sessione dedicata)
-
-### J. 7shifts — bloccato
-UUID token incompatibile con API v2 (richiede JWT). API v1 è 410 Gone.
-Email supporto già draft a support@7shifts.com. Attendere risposta.
-Schedule tab nascosta (`tabSchedule.style.display = 'none'`).
-
-### K. TripleSeat — bloccato
-OAuth app "MAX" creata. Edge Function `tripleseat-sync` v4 deployata.
-Bloccato: Monica deve autorizzare l'app e condividere redirect URL con `?code=`.
-
-### L. L'Ufficio — bottoni azione
-Bottoni Archivia/Risolto/Investiga non collegati ad azioni reali. Sessione dedicata urgente.
-
-### M. Focus Mode Closing — stazioni
-Stazioni da includere: Oven, Fresh Pasta, Pasta, Sauté, Saucier, Plating, Salad, Pastry, Freezer, Tableside.
-NON includere Coordinator/Tela.
-Rinominare "Manager" → "Coordinator" in tutta l'app (prep_tasks, focus-mode.js, closing.js, DB).
-
-### N. L'Ufficio → bottom bar
-Spostare da menu tre puntini a bottom bar.
-Rimuovere voci obsolete dal menu admin: Parser Test, Similarity, Vendor Match, Ingredient Cleanup, Bootstrap.
-
-### O. Sistema foto centralizzato
-Album unico per ricette, TV, Kitchen Display con rotazione contenuti.
-Kitchen Display multi-schermata con rotazione.
-
-### P. Bug aperti
-1. L'Ufficio "Riapri" button nella chat non funziona
-2. Focus Mode ha alcune stringhe ancora in italiano (audit necessario)
-3. Kitchen Display realtime si blocca quando L'Ufficio viene aperto/chiuso
-4. Tell Chef salva "Staff" invece del nome utente reale per alcune submissions
-
----
-
-## REGOLE PRODUZIONE PASTA ZENOS (aggiornate)
-
-- Porzione completa = 2 nests (spaghetti O fettuccine) = 130g
-- Mezza porzione = 1 nest = 65g
-- Wheel Pasta = 2 nests spaghetti + 10g burro + 100g Parmigiano Reggiano per porzione
-- Add-on proteine (chicken, shrimp, salmon, scallops, lobster) = HALF portions per produzione
-- Scallops: piatto intero = 4 pz, add-on = 3 pz
-- Sauteed Spinach: item = 2 porzioni, modifier = 1 porzione
-- Kids menu → sommato a Pasta nella staff view (fix v302)
-- Void quantity → inclusa nel calcolo produzione (fix v10 Edge Function)
+### Risotto del giorno
+- Risotto Base = ricetta fissa (water, bouillon, carnaroli)
+- Chef Max Risotto = Risotto Base + garnish variabile (leftover: gamberi, lobster, pollo, salmone)
+- Gestione garnish variabile = sessione dedicata futura
 
 ---
 
@@ -257,3 +139,5 @@ Kitchen Display multi-schermata con rotazione.
 8. Tutto su brigade-main, MAI main
 9. `pos_production_daily.total_portions` è colonna generata — non fare UPDATE manuale
 10. Conflict target upsert: `(sale_date, canonical_name)`
+11. Nomi ricette = identici al POS — mai cambiare pos_name, cambiare il title della ricetta
+12. domenica niente Focus Mode (fix v303 già deployato)
