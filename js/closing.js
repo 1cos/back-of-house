@@ -37,7 +37,7 @@ function renderS(){
       var badge = ans===true
         ? '<span style="font-size:10px;font-weight:700;color:#16a34a;background:rgba(22,163,74,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;">OK</span>'
         : ans===false
-        ? '<span style="font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;">MANCA</span>'
+        ? '<span style="font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;"'+tr('missing2')+'</span>'
         : '';
 
       // Bottone "C'e'" 
