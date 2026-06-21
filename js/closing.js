@@ -29,7 +29,7 @@ function renderS(){
       }
 
       // Stato visivo card normale
-      var accentColor = ans===true ? '#16a34a' : ans===false ? '#ef4444' : '#334155';
+      var accentColor = ans===true ? '#16a34a' : ans===false ? '#ef4444' : '#e2e8f0';
       var bgColor = ans===true ? 'rgba(240,253,244,0.95)' : ans===false ? 'rgba(254,242,242,0.95)' : 'rgba(255,255,255,0.95)';
       var nameColor = ans===true ? '#14532d' : ans===false ? '#991b1b' : '#0f172a';
 
@@ -37,7 +37,7 @@ function renderS(){
       var badge = ans===true
         ? '<span style="font-size:10px;font-weight:700;color:#16a34a;background:rgba(22,163,74,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;">OK</span>'
         : ans===false
-        ? '<span style="font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;"'+tr('missing2')+'</span>'
+        ? '<span style="font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;">'+tr('missing2')+'</span>'
         : '';
 
       // Bottone "C'e'" 
