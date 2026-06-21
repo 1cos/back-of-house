@@ -27,15 +27,16 @@ window.officeWriteItem = async function(source, sourceId, fromUser, title, body)
 
 
 var _officeFolderMap = {
-  tell_chef:      'brigata',
-  operation_note: 'brigata',
-  ai_scan:        'chefai',
-  sous_chef_chat: 'chefai',
-  prep_timing:    'prep',
-  price_guard:    'incongruenze',
-  food_cost_guard:'incongruenze',
-  suggestion:     'miglioramenti',
-  vendor_warning: 'fornitori'
+  tell_chef:           'brigata',
+  operation_note:      'brigata',
+  ai_scan:             'chefai',
+  sous_chef_chat:      'chefai',
+  prep_timing:         'prep',
+  price_guard:         'incongruenze',
+  food_cost_guard:     'incongruenze',
+  suggestion:          'miglioramenti',
+  'bot-recipe-guardian': 'miglioramenti',
+  vendor_warning:      'fornitori'
 };
 
 var _officeFolders = [
@@ -527,6 +528,9 @@ function officeRenderCard(item) {
     } else if (src === 'ai_scan') {
       btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleGhost + '">Ignora</button>';
       btnRight = '<button onclick="officeInvestiga(\'' + item.id + '\')" style="' + styleSolid + '">Investiga</button>';
+    } else if (src === 'bot-recipe-guardian') {
+      btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleGhost + '">Ignora</button>';
+      btnRight = '<button onclick="officeOpenRecipe(\'' + item.id + '\',\'' + (item.source_id || '') + '\')" style="' + styleSolid + '">Apri Ricetta</button>';
     } else {
       // sous_chef_chat — solo Letto
       btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
@@ -656,4 +660,33 @@ window.officeInvestiga = function(id) {
   if (typeof window.openSousChef === 'function') {
     window.openSousChef(title.trim());
   }
+};
+
+
+window.officeOpenRecipe = async function(itemId, recipeId) {
+  // Chiudi L'Ufficio
+  if (typeof officeStopRealtime === 'function') officeStopRealtime();
+  document.getElementById('officeOverlay')?.remove();
+  document.getElementById('officeModal')?.remove();
+
+  if (!recipeId) return;
+
+  // Vai al tab Ricette
+  if (typeof showTab === 'function') showTab('recipes');
+
+  // Piccola attesa per il render del tab, poi apri editor
+  setTimeout(async function() {
+    try {
+      var { data: recipe } = await supa
+        .from('recipes')
+        .select('*')
+        .eq('id', recipeId)
+        .maybeSingle();
+      if (recipe && typeof openRecipeEditor === 'function') {
+        openRecipeEditor(recipe);
+      }
+    } catch(e) {
+      console.error('[officeOpenRecipe]', e);
+    }
+  }, 400);
 };
