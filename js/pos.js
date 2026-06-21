@@ -2070,7 +2070,7 @@ async function daExecuteQuery(sb, q, from, to) {
 var staffDateMode = 'ieri';
 
 var STAFF_FOOD_GROUPS = ['Pasta','Secondi/entrees','Secondi','Antipasti/appetizer','Antipasti','Insalate/salad','Dolcezze/dessert','Dolcezze','Kids menu','Soup','Sides','Lunch'];
-var STAFF_GROUP_LABELS = {'Pasta':'Pasta','Secondi/entrees':'Secondi','Secondi':'Secondi','Antipasti/appetizer':'Antipasti','Antipasti':'Antipasti','Insalate/salad':'Insalate','Dolcezze/dessert':'Dolcezze','Dolcezze':'Dolcezze','Kids menu':'Kids','Soup':'Zuppe','Sides':'Contorni','Lunch':'Pranzo'};
+var STAFF_GROUP_LABELS = {'Pasta':'Pasta','Secondi/entrees':'Secondi','Secondi':'Secondi','Antipasti/appetizer':'Antipasti','Antipasti':'Antipasti','Insalate/salad':'Insalate','Dolcezze/dessert':'Dolcezze','Dolcezze':'Dolcezze','Kids menu':'Pasta','Soup':'Zuppe','Sides':'Contorni','Lunch':'Pranzo'};
 var STAFF_EXCL = ['NA Beverages','The Bar','Mocktail','Happy hours','Wine dinner','Testing menu','Catering','Peach Festival','Resturant week'];
 var STAFF_GROUP_EMOJI = {'Pasta':'🍝','Secondi':'🥩','Antipasti':'🫙','Insalate':'🥗','Dolcezze':'🍮','Kids':'👶','Zuppe':'🍲','Contorni':'🥦','Pranzo':'🌞'};
 
@@ -2388,5 +2388,6 @@ async function staffOpenModifier(modName, from, to) {
   if (old) old.remove();
   await staffOpenDishModal(modName, from, to);
 }
+
 
 
