@@ -7,7 +7,7 @@
 
 ---
 
-## STATO ATTUALE — 2026-06-21 (fine sessione pomeriggio)
+## STATO ATTUALE — 2026-06-21 (fine sessione)
 
 ### Versione frontend: v304
 - sw.js: boh-v304
@@ -17,92 +17,86 @@
 
 ---
 
-## LAVORO FATTO IN QUESTA SESSIONE (Fase 5)
+## LAVORO FATTO IN QUESTA SESSIONE
 
 ### FASE 5 — COMPLETATA ✅
-Tutti i 118+ prep_tasks attivi ora hanno `unit` e `expected_duration_days`.
+Tutti i prep_tasks attivi hanno `unit` e `expected_duration_days`.
 
-### Modifiche strutturali ai prep_tasks:
-- **Gnocco** → rinominato **Gnocco Dough** (pasta per Coccoli Toscani)
-- **Gnocchi** → nuovo task aggiunto (Fresh Pasta Station, porzioni, 7gg)
-- **Butter** → archiviato (sostituito da Diced Butter)
-- **Chicken** → rinominato **Cube Grilled Chicken**
-- **Diced Chicken** → archiviato (stesso di Cube Grilled Chicken)
-- **Pistachio crumble** → archiviato
-- **Avocado** → archiviato (salmon salad esce dal menu)
-- **Dressing** → archiviato, sostituito da 8 task specifici:
-  - Make Citronnette / Make Ranch / Make Caesar / Make Balsamic Dressing (batch, 7gg)
-  - Check Citronnette / Check Ranch / Check Caesar / Check Balsamic Dressing (squeezer, 1gg)
-- **Cacio cream (Sauté Station)** → archiviato, sostituito da Artichoke Sauce
-- **Lobster sauce** → archiviata
-- **Peppercorns Demi** → archiviato
-- **Pesto** → archiviato
-- **Lobster Prepared** → nuovo task (Saucier Station, buste, 30gg) — soffritto in busta congelata
-- **Artichoke Sauce** → nuovo task (Sauté Station, batch, 3gg)
-- **Blue cheese** → rinominato **Check Blue Cheese** (porzioni, 7gg)
+**Modifiche strutturali:**
+- Gnocco → Gnocco Dough; Gnocchi aggiunto (Fresh Pasta)
+- Butter archiviato → Diced Butter rimane
+- Chicken → Cube Grilled Chicken; Diced Chicken archiviato
+- Pistachio crumble, Avocado, Dressing, Cacio cream (Sauté), Lobster sauce, Peppercorns Demi, Pesto → archiviati
+- Nuovi task: Gnocchi, Lobster Prepared, Artichoke Sauce, Risotto Base (Sauté, batch, 4gg), Bechamel (Saucier, batch, 3gg)
+- 8 task dressing: Make + Check per Citronnette/Ranch/Caesar/Balsamic Dressing
+- Check Blue Cheese (Salad)
 
-### Note operative importanti per Fase 7 (Bot 3):
-- **Fettuccine freezer:** max 9 contenitori (40 nests ciascuno). Consumo settimana scorsa: 278 nests = 7 contenitori. Produzione: 1 giornata intera = min 7 impasti = 7 contenitori. Frequenza: 1 volta/settimana.
-- **Spaghetti freezer:** max 14 contenitori (40 nests ciascuno). Consumo settimana scorsa: 365 nests = 10 contenitori. Produzione: 1 giornata intera. Frequenza: 1 volta/settimana.
-- **Regola produzione pasta:** Bot 3 deve considerare capacità freezer come tetto massimo, non solo consumo.
-- **Dressing:** batch = 1 gallone (3.785 lt) — il contenitore è da 1 gallone. Bot 3 arrotonda sempre al gallone intero superiore (mai 1.5 galloni).
-- **Spinach:** unità = porzioni (coppettine alluminio da 80g). Es: 22 coppettine = 22 porzioni.
-- **Wheel Pasta** = 2 nests spaghetti. È il piatto con più consumo: 76 porzioni = 152 nests in una settimana (42% del totale spaghetti).
+**Note operative per Fase 7 (Bot 3):**
+- Fettuccine freezer: max 9 contenitori (40 nests). Consumo settimana: 278 nests = 7 contenitori. 1 giornata produzione = min 7 contenitori.
+- Spaghetti freezer: max 14 contenitori (40 nests). Consumo settimana: 365 nests = 10 contenitori.
+- Pasta: Bot 3 usa capacità freezer come tetto, non solo consumo
+- Dressing: batch = 1 gallone (3.785 lt). Arrotonda sempre al gallone intero superiore.
+- Spinach: unità = porzioni (coppettine alluminio 80g)
+- Wheel Pasta = 2 nests spaghetti (76 porzioni = 152 nests in una settimana)
 
-### Verifica nests settimana 15-20 giugno:
-- Fettuccine totale: **278 nests** (~40/giorno)
-- Spaghetti totale: **365 nests** (~61/giorno) — include Wheel Pasta, Cacio e Pepe, Ragù, Pomodoro, tutti i kids e half
+### FASE 6 — COMPLETATA ✅
+`recipe_bom.prep_task_id` aggiunto e collegato.
+
+**Link attivi:**
+| Sub-ricetta | prep_task_id | Task | Stazione |
+|---|---|---|---|
+| ARRABBIATA | 233 | Arrabbiata sauce | Saucier |
+| Artichoke Sauce | 398 | Artichoke Sauce | Sauté |
+| BASIL OIL | 236 | Basil oil | Fresh Pasta |
+| Bechamel | 400 | Bechamel | Saucier |
+| CACIO E PEPE SAUCE | 288 | Cacio e pepe | Saucier |
+| GNOCCO FRITTO DOUGH | 271 | Gnocco Dough | Fresh Pasta |
+| MK-RAGU | 305 | Ragu | Saucier |
+| POMODORO SAUCE | 304 | Pomodoro | Saucier |
+| Risotto Base | 399 | Risotto Base | Sauté |
+| SALMORIGLIO | 256 | Salmoriglio | Sauté |
+| SLICED MUSHROOM | 298 | Mushrooms | Pasta |
+| SPAGHETTI FRESH PASTA | 314 | Spaghetti | Fresh Pasta |
+| Tempura Batter | 283 | Tempura | Oven |
+| TOMATO X BRUSCHETTA | 332 | Bruschetta | Salad |
+
+**Senza link (fuori menu / zero vendite):**
+- WILDBOAR RAGU — fuori menu, skip
+- Zeno's Spaghetti — eliminata dal DB
+
+**Basil Oil Salad Station (id 326)** = solo check operativo, NON nel BOM
 
 ---
 
-## PROSSIMA SESSIONE — FASE 6
-
-### FASE 6 — Aggiungere prep_task_id a recipe_bom
-**Lavoro da fare:**
-1. `ALTER TABLE recipe_bom ADD COLUMN prep_task_id bigint REFERENCES prep_tasks(id)`
-2. Per ogni riga BOM che rappresenta un prep_task (es. Arrabbiata, Ragù, Pomodoro, Fettuccine nests, Spaghetti nests, ecc.), collegare il link
+## PROSSIMA SESSIONE — FASE 7
 
 ### FASE 7 — Riscrivere Bot 3 (bot-preplist-builder)
-Nuova logica:
+
+**Nuova logica:**
 ```
-pos_production_daily (piatti venduti × porzioni)
-    ↓ via recipe.pos_name
-recipe_bom (ingredienti × quantità)
-    ↓ via prep_task_id
+pos_production_daily (piatti venduti × porzioni fired)
+    ↓ via recipes.pos_name
+recipe_bom (componenti × quantità per porzione)
+    ↓ via recipe_bom.prep_task_id
 prep_tasks (suggested_qty per stazione)
 ```
 
-Regole speciali Bot 3 da implementare:
+**Regole speciali da implementare:**
 - Pasta fresca: tetto = capacità freezer (non solo consumo)
-- Dressing: arrotonda al gallone superiore (mai frazioni)
-- Spinach: calcola in porzioni (coppettine 80g), non in kg
+  - Fettuccine: max 9 contenitori, 40 nests/contenitore
+  - Spaghetti: max 14 contenitori, 40 nests/contenitore
+  - 1 giornata produzione = min 7 contenitori
+- Dressing: arrotonda al gallone intero superiore (mai frazioni di gallone)
+- Spinach: calcola in porzioni (coppettine 80g)
+- Buffer +10% come prima, arrotonda al mezzo superiore
+- Non sovrascrivere mai qty reale — solo suggested_qty
 
 ---
 
-## ALTRI TASK APERTI (da sessioni precedenti)
+## TASK APERTI
 
-### Da fare ancora in Fase 5:
 - Rinominare "Manager Station" → "Coordinator Station" in prep_tasks, focus-mode.js, closing.js, DB
-
-### BOM rimasti incompleti (zero vendite 30gg — bassa priorità):
-- Texana Soup (skip — no ricetta)
-- Asparagus (6 fired — da fare)
-- Lasagna Meal (1 fired — da fare)
-- Maccheroni Arrabbiata, Maccheroni Al Ragu, Ravioli Limone, Pappardelle Wildboar, Branzino Table Side, Zeno's Spaghetti, Scaloppina Ai Funghi
-
----
-
-## ARCHITETTURA DECISIONALE — punti fermi
-
-### BOM
-- `base_servings = 1` = 1 piatto venduto al POS
-- Ingredienti nel BOM = quantità per 1 porzione
-- Sub-ricette puntano alle ricette base (Risotto Base, Salmoriglio, Arrabbiata, ecc.)
-- `notes = 'garnish'` per ingredienti decorativi
-
-### Chef AI — scrittura ricette (sessione futura)
-- Dare a Chef AI accesso in scrittura SOLO per ricette
-- Flusso: Max detta a voce → Chef AI mostra riepilogo → Max conferma → salva su DB
+- BOM da completare (zero vendite, bassa priorità): Asparagus, Lasagna Meal, Maccheroni Arrabbiata/Ragu, Ravioli Limone, Pappardelle Wildboar, Branzino Table Side, Scaloppina Ai Funghi
 
 ---
 
@@ -118,5 +112,4 @@ Regole speciali Bot 3 da implementare:
 8. Tutto su brigade-main, MAI main
 9. `pos_production_daily.total_portions` è colonna generata — non fare UPDATE manuale
 10. Conflict target upsert: `(sale_date, canonical_name)`
-11. Nomi ricette = identici al POS — mai cambiare pos_name, cambiare il title della ricetta
-12. Domenica niente Focus Mode (fix v303 già deployato)
+11. Domenica niente Focus Mode (fix v303 già deployato)
