@@ -7,7 +7,7 @@
 
 ---
 
-## STATO ATTUALE — 2026-06-21 (fine sessione)
+## STATO ATTUALE — 2026-06-21 (fine sessione pomeriggio)
 
 ### Versione frontend: v304
 - sw.js: boh-v304
@@ -17,79 +17,50 @@
 
 ---
 
-## LAVORO FATTO IN QUESTA SESSIONE
+## LAVORO FATTO IN QUESTA SESSIONE (Fase 5)
 
-### BOM — completato per tutti i piatti attivi nel POS
+### FASE 5 — COMPLETATA ✅
+Tutti i 118+ prep_tasks attivi ora hanno `unit` e `expected_duration_days`.
 
-**Ricette con BOM completato oggi:**
-- Mini Caesar Salad (aggiunto 15g Croutons)
-- Truffle Fettuccine (compilata da Max in Brigade — 2 nests, truffle butter, heavy cream, cacio e pepe sauce, fresh truffle)
-- Coccoli Toscani (aggiunto 100g Gnocco Fritto Dough sub-ricetta)
-- Caprese (aggiunto 2g Basil, 10g Basil Oil, 150g Beef Steak Tomatoes)
-- Chicken Parmesan (300g chicken breast, 20g eggs, 30g breadcrumbs, 50g arrabbiata, 30g shredded mozzarella)
-- Penne Midnight (120g penne, 200g arrabbiata, 6g calabrian chili oil, 60g parmigiano garnish, 4g calabrian chili garnish)
-- Penne Midnight Half (creata — tutto dimezzato)
-- Spaghetti Al Ragu (2 nests, 200g ragù, 50g pomodoro, 2g rosemary garnish)
-- Chef Max Risotto (punta a Risotto Base sub-ricetta)
-- Artichoke (2 artichoke, 30g red onion, 50g tempura batter, 20g artichoke sauce, 10g parmigiano garnish, 3g parsley garnish)
-- Tuscany Road Trip (sliced mozzarella, beef steak tomatoes, french bread, basil oil, balsamic glaze, parma ham, cantaloupe, parmesan flakes garnish, grapes, kalamata olive, 90g tomato x bruschetta)
-- Branzino Chef Style (900g whole branzino, 1000g sea salt, 30g egg whites, 5g parsley, 5g lemon, 5g garlic, 5g tarragon, 10g basil, 40g salmoriglio)
-- Wagyu Tomahawk (aggiunto 2oz bourbon, 8g ribeye salt)
-- Tomato And Basil Soup (250g pomodoro sauce, 50ml heavy cream garnish, 30g croutons garnish, 10g basil oil garnish, 1g black pepper)
-- Spaghetti al Pomodoro Half (creata — tutto dimezzato tranne garnish: 10g basil oil, 2g basil)
+### Modifiche strutturali ai prep_tasks:
+- **Gnocco** → rinominato **Gnocco Dough** (pasta per Coccoli Toscani)
+- **Gnocchi** → nuovo task aggiunto (Fresh Pasta Station, porzioni, 7gg)
+- **Butter** → archiviato (sostituito da Diced Butter)
+- **Chicken** → rinominato **Cube Grilled Chicken**
+- **Diced Chicken** → archiviato (stesso di Cube Grilled Chicken)
+- **Pistachio crumble** → archiviato
+- **Avocado** → archiviato (salmon salad esce dal menu)
+- **Dressing** → archiviato, sostituito da 8 task specifici:
+  - Make Citronnette / Make Ranch / Make Caesar / Make Balsamic Dressing (batch, 7gg)
+  - Check Citronnette / Check Ranch / Check Caesar / Check Balsamic Dressing (squeezer, 1gg)
+- **Cacio cream (Sauté Station)** → archiviato, sostituito da Artichoke Sauce
+- **Lobster sauce** → archiviata
+- **Peppercorns Demi** → archiviato
+- **Pesto** → archiviato
+- **Lobster Prepared** → nuovo task (Saucier Station, buste, 30gg) — soffritto in busta congelata
+- **Artichoke Sauce** → nuovo task (Sauté Station, batch, 3gg)
+- **Blue cheese** → rinominato **Check Blue Cheese** (porzioni, 7gg)
 
-**Nuove ricette base create:**
-- Risotto Base (28 porzioni: 2L water, 70g chicken bouillon, 2000g carnaroli rice)
-- Tempura Batter (12 porzioni: 500ml soda water, 300g flour, 3 ice cubes)
-- Artichoke Sauce (300g cacio e pepe sauce, 30g heavy cream — procedura salvata)
-- Penne Midnight Half
+### Note operative importanti per Fase 7 (Bot 3):
+- **Fettuccine freezer:** max 9 contenitori (40 nests ciascuno). Consumo settimana scorsa: 278 nests = 7 contenitori. Produzione: 1 giornata intera = min 7 impasti = 7 contenitori. Frequenza: 1 volta/settimana.
+- **Spaghetti freezer:** max 14 contenitori (40 nests ciascuno). Consumo settimana scorsa: 365 nests = 10 contenitori. Produzione: 1 giornata intera. Frequenza: 1 volta/settimana.
+- **Regola produzione pasta:** Bot 3 deve considerare capacità freezer come tetto massimo, non solo consumo.
+- **Dressing:** batch = 1 gallone (3.785 lt) — il contenitore è da 1 gallone. Bot 3 arrotonda sempre al gallone intero superiore (mai 1.5 galloni).
+- **Spinach:** unità = porzioni (coppettine alluminio da 80g). Es: 22 coppettine = 22 porzioni.
+- **Wheel Pasta** = 2 nests spaghetti. È il piatto con più consumo: 76 porzioni = 152 nests in una settimana (42% del totale spaghetti).
 
-**Nuovi ingredienti creati:**
-- Calabrian Chili Oil
-- Soda Water
-- Ice Cubes
-- French Bread
-
-**Ricette rinominate per allinearsi al POS:**
-- SHRIMP GNOCCHI → Shrimp Gnocchi
-- TAGLIATA CON RUCOLA E GRANA → Tagliata Alla Griglia Ny Strip
-- MIMOSA CAKE → Limoncello Cake
-- CREMINO PISTACIOS CAKE → Italian Marble Cake
-- MM TOMATO AND BASIL SOUP → Tomato And Basil Soup
-- Ribeye Salt rinominato da Concia-ribeye Salt
-
-**Ricette vuote create (BOM da fare):**
-- Chicken Parmesan, Truffle Fettuccine, Texana Soup (skip — no ricetta), Penne Midnight, Chef Max Risotto, Artichoke, Tuscany Road Trip, Spaghetti Al Ragu, Branzino Chef Style
-- Scallops Asparagus Gnocchi (esce dal menu)
-- Spaghetti al Pomodoro Half
-
-**Cancellata:** BRUSCHETTA TOMATOES (duplicato — rimane TOMATO X BRUSCHETTA)
-
-### BOM rimasti incompleti (non prioritari — zero vendite 30gg)
-- Texana Soup (skip — no ricetta)
-- Asparagus (6 fired — da fare)
-- Lasagna Meal (1 fired — da fare)
-- Maccheroni Arrabbiata, Maccheroni Al Ragu, Ravioli Limone, Pappardelle Wildboar, Branzino Table Side, Zeno's Spaghetti, Scaloppina Ai Funghi — tutti zero vendite 30gg, skip per ora
+### Verifica nests settimana 15-20 giugno:
+- Fettuccine totale: **278 nests** (~40/giorno)
+- Spaghetti totale: **365 nests** (~61/giorno) — include Wheel Pasta, Cacio e Pepe, Ragù, Pomodoro, tutti i kids e half
 
 ---
 
-## PROSSIMA SESSIONE — FASE 5 e 6 (prerequisiti Bot 3)
-
-### FASE 5 — prep_tasks: compilare unit e expected_duration_days
-**Stato attuale:** 118 prep_tasks attivi, NESSUNO ha `unit` o `expected_duration_days`.
-Senza questi il Bot 3 non può calcolare suggested_qty.
-
-**Lavoro da fare:**
-Per ogni prep_task attivo Max deve dire:
-- `unit` — in cosa si misura (nests / kg / lt / porzioni / pezzi / batch)
-- `expected_duration_days` — ogni quanti giorni si prepara (1=daily, 2=ogni 2 giorni, 7=weekly)
-
-Stazioni da coprire: Oven Station (23 items), Pasta Station (32), Fresh Pasta Station, Plating Station (28), Salad Station (53), Saucier Station, Sauté Station, Pastry Station, Freezer (6), Table Side.
+## PROSSIMA SESSIONE — FASE 6
 
 ### FASE 6 — Aggiungere prep_task_id a recipe_bom
 **Lavoro da fare:**
 1. `ALTER TABLE recipe_bom ADD COLUMN prep_task_id bigint REFERENCES prep_tasks(id)`
-2. Per ogni riga BOM che rappresenta un prep_task, collegare il link
+2. Per ogni riga BOM che rappresenta un prep_task (es. Arrabbiata, Ragù, Pomodoro, Fettuccine nests, Spaghetti nests, ecc.), collegare il link
 
 ### FASE 7 — Riscrivere Bot 3 (bot-preplist-builder)
 Nuova logica:
@@ -101,6 +72,24 @@ recipe_bom (ingredienti × quantità)
 prep_tasks (suggested_qty per stazione)
 ```
 
+Regole speciali Bot 3 da implementare:
+- Pasta fresca: tetto = capacità freezer (non solo consumo)
+- Dressing: arrotonda al gallone superiore (mai frazioni)
+- Spinach: calcola in porzioni (coppettine 80g), non in kg
+
+---
+
+## ALTRI TASK APERTI (da sessioni precedenti)
+
+### Da fare ancora in Fase 5:
+- Rinominare "Manager Station" → "Coordinator Station" in prep_tasks, focus-mode.js, closing.js, DB
+
+### BOM rimasti incompleti (zero vendite 30gg — bassa priorità):
+- Texana Soup (skip — no ricetta)
+- Asparagus (6 fired — da fare)
+- Lasagna Meal (1 fired — da fare)
+- Maccheroni Arrabbiata, Maccheroni Al Ragu, Ravioli Limone, Pappardelle Wildboar, Branzino Table Side, Zeno's Spaghetti, Scaloppina Ai Funghi
+
 ---
 
 ## ARCHITETTURA DECISIONALE — punti fermi
@@ -111,19 +100,9 @@ prep_tasks (suggested_qty per stazione)
 - Sub-ricette puntano alle ricette base (Risotto Base, Salmoriglio, Arrabbiata, ecc.)
 - `notes = 'garnish'` per ingredienti decorativi
 
-### serving_unit / serving_qty
-- NON servono — decisione definitiva
-- Il BOM con `2 each · Fettuccine nests` è già sufficiente per il Bot 3
-
 ### Chef AI — scrittura ricette (sessione futura)
 - Dare a Chef AI accesso in scrittura SOLO per ricette
 - Flusso: Max detta a voce → Chef AI mostra riepilogo → Max conferma → salva su DB
-- Tocca souschef-chat Edge Function v23 e UI chat
-
-### Risotto del giorno
-- Risotto Base = ricetta fissa (water, bouillon, carnaroli)
-- Chef Max Risotto = Risotto Base + garnish variabile (leftover: gamberi, lobster, pollo, salmone)
-- Gestione garnish variabile = sessione dedicata futura
 
 ---
 
@@ -140,4 +119,4 @@ prep_tasks (suggested_qty per stazione)
 9. `pos_production_daily.total_portions` è colonna generata — non fare UPDATE manuale
 10. Conflict target upsert: `(sale_date, canonical_name)`
 11. Nomi ricette = identici al POS — mai cambiare pos_name, cambiare il title della ricetta
-12. domenica niente Focus Mode (fix v303 già deployato)
+12. Domenica niente Focus Mode (fix v303 già deployato)
