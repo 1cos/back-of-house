@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-19 — v276*
+*Aggiornato: 2026-06-21 — v302*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,7 +10,7 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v276**
+- Versione frontend: **v302**
 - Versione souschef-chat: v23
 - ai-translate: **v28** (Google Translate attivo)
 - Supabase: ydqmumpytgrlceuinoqt
@@ -30,7 +30,7 @@
 | process-invoice | v29 | Parser fatture OpenRouter + chiama bot-price-guard e bot-food-cost-guard |
 | gmail-hardies-import | v9 | Import PDF Hardie's |
 | hardies-order-check | v2 | Controllo articoli bloccati in conferme ordine Chef's Warehouse |
-| gmail-touchbistro-import | v3 | Import 4 CSV TouchBistro nightly |
+| gmail-touchbistro-import | v10 | Import 4 CSV TouchBistro nightly + recalcProductionDaily v3 (recipe-based) |
 | gmail-vendor-import | v3 | Import fatture fornitori Gmail |
 | transcribe-audio | v22 | Whisper voce→testo |
 | ai-translate | v28 | Google Translate primario + Groq 70b fallback — literal:true supportato |
@@ -292,6 +292,18 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 
 
 
+
+### Sessione 2026-06-21 — POS Pipeline + Produzione + BOM Audit (v302)
+- gmail-touchbistro-import v10: recalcProductionDaily v3 — usa recipes.pos_name per mapping; void_quantity inclusa nel calcolo fired
+- pos.js v302: Kids menu sommato a Pasta nella staff view (fix numeri errati)
+- recipes: aggiunte colonne serving_unit e serving_qty; compilate per pasta e scallops
+- pos_item_aliases: Cacio e Pepe item portion_factor corretto 0.5->1.0; Wheel Pasta alias aggiunto
+- recipes.pos_name: cleanup doppi — rimosso da ricette base (FETTUCCINE FRESH PASTA, SPAGHETTI FRESH PASTA, ecc.)
+- SPAGHETTI CACIO E PEPE: pos_name corretto a solo "Cacio e Pepe"
+- Audit BOM completo: 32 ricette OK, 25 parziali, 3 vuote — piatti venduti prioritari identificati
+- Decisione architettura Bot 3: riscrivere con logica recipe_id -> BOM -> prep_task
+- Decisione 3 nuovi bot: Guardiano Ricette, Guardiano Prep (upgrade Bot 3), Guardiano Allineamento
+- 14 argomenti aperti documentati in PROMPT_PROSSIMA_SESSIONE.md
 
 ### Sessione 2026-06-19 (e) — Fix mic sovrapposto send button (v276)
 - `chat.js`: `showChat()` nasconde `scBtn` all'apertura chat
