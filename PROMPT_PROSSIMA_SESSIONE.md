@@ -1,147 +1,71 @@
-# PROMPT PROSSIMA SESSIONE — Brigade v305
+# PROMPT PROSSIMA SESSIONE — Brigade — INGREDIENTI/FOOD COST (CRITICO)
 
-## ⚠️ REGOLA FONDAMENTALE — INGREDIENTI (leggere PRIMA di tutto)
-
-**NON esiste il "BOM" per Max. Si chiamano SEMPRE e SOLO "ingredienti".**
-Mai usare le parole "BOM", "JSON", "cassetto", "campo database" parlando con Max. Lui è un cuoco: apre la ricetta, vede gli ingredienti, li modifica. Punto.
-
-**NON chiedere mai a Max di rifare gli ingredienti/BOM — li ha già.** Le 176+ ricette esistenti hanno già gli ingredienti completi. Prima di chiedere QUALSIASI cosa sugli ingredienti, LEGGI il database e verifica cosa c'è già.
-
-**Verità tecnica (per Claude, non per Max):** gli ingredienti vivono in DUE posti che devono restare SEMPRE sincronizzati:
-1. `recipes.ingredients` — campo JSON, formato `[{qty,name,unit,comment}]` — QUESTO è ciò che il form di Brigade legge e mostra
-2. `recipe_bom` — tabella relazionale (parent_recipe_id, component_type ITEM/RECIPE, item_id, sub_recipe_id, quantity, unit, notes)
-
-Il form di Brigade (`saveRecipeBOM` in recipes.js) scrive in ENTRAMBI automaticamente quando Max salva.
-**Se modifichi ingredienti via SQL diretto, DEVI aggiornare ENTRAMBI i posti, mai uno solo.** Altrimenti il form non mostra le modifiche (bug accaduto il 21/6, poi risolto).
-
-`notes`/`comment` = 'garnish' per ingredienti decorativi.
-Le quantità si mostrano pulite (300 non 300.0000) — fix v305 in renderIngLine.
+## CARICA SUBITO
+1. Token GitHub da file `x_claude_GIthub.txt` nel progetto
+2. Repo `1cos/back-of-house`, branch `brigade-main` SEMPRE
+3. Leggi i file da GitHub LIVE, mai da memoria
+4. Supabase project: ydqmumpytgrlceuinoqt
 
 ---
 
-# (segue contenuto sessione)
-
-## PRIMA DI TUTTO
-1. Carica x_claude_GIthub.txt dal progetto
-2. Leggi tutti i file MD da brigade-main (BACKLOG, DECISIONS, DB_SCHEMA, VISION, WARNINGS, SPEC)
-3. Leggi SEMPRE i file da GitHub — mai da memoria o /mnt/project/
+## ⚠️ REGOLA D'ORO (non violare mai)
+- Per Max si chiamano SEMPRE "ingredienti", MAI "BOM"/"JSON"/"cassetto". Max è un cuoco: apre la ricetta, vede ingredienti, modifica, salva.
+- NON chiedere mai a Max di ricreare gli ingredienti — LI HA GIÀ. Leggi il database prima di chiedere.
 
 ---
 
-## STATO ATTUALE — 2026-06-21 (fine sessione serale)
-
-### Versione frontend: v304
-### Bot 3: v3 deployato (bot-preplist-builder v3)
-
----
-
-## LAVORO FATTO OGGI
-
-### FASE 5 ✅ — tutti i prep_tasks hanno unit e expected_duration_days
-### FASE 6 ✅ — recipe_bom.prep_task_id collegato (14 sub-ricette)
-### FASE 7 ✅ — Bot 3 v3 deployato con logica shelf life
-
-### Ricette sistemate oggi:
-- Fettuccine Allo Scoglio — rinominata (era SPAGHETTI ALLO SCOGLIO), pos_name aggiunto, fettuccine nel BOM
-- Mediterranean Salad — pos_name aggiunto (era SUMMER SALADE)
-- Siciliana — pos_name aggiunto (era Orata Sicilian Way → "Siciliana"), SICILIAN MIX 50g aggiunto al BOM
-- Ribeye Prime Green Peppers Corn — ricetta e BOM creati (340g Ribeye + 5g Ribeye Salt)
-- Bresaola — ricetta e BOM creati (40g Bresaola + 50g Arugula + 10g Parmesan Flakes + 10g Balsamic Glaze + 10g Citronnette + 30g Bruschetta)
-- Fried Calamari — pos_production_daily ricalcolata per 15-20 giugno (era mancante per alias sbagliato)
-- Fettuccine Arrabbiata Half — nuova ricetta (side della Chicken Parmesan): 1 nest fettuccine + 100g Arrabbiata
-- Chicken Parmesan BOM — aggiunta Fettuccine Arrabbiata Half come side (i 50g Arrabbiata sulla cotoletta restano)
-- Calamari BOM — sostituito ITEM Arrabbiata Sauce 5000g con RECIPE ARRABBIATA 50g per porzione
-
-### Fuori menu (da ignorare nel BOM):
-- Chicken Lemon Piccata, Bruschetta Board, Shrimp Cocktail, Scallops Asparagus Gnocchi
-
----
-
-## PRIMA COSA DA FARE NELLA PROSSIMA SESSIONE
-
-### OBIETTIVO: verificare che Bot 3 v3 calcoli correttamente quanta Arrabbiata fare
-
-**La domanda di Max:** "Quanta Arrabbiata devo fare domani?"
-**La risposta attesa:** Bot 3 v3 guarda shelf life (7gg), calcola i prossimi 6 giorni di servizio (Lun-Sab), per ogni giorno prende la media storica dello stesso DOW, moltiplica per grammi BOM, somma tutto + 10%.
-
-**Problema da verificare nella prossima sessione:**
-Nella simulazione finale di questa sessione, lunedì/martedì/venerdì mostravano 0 dati storici in pos_production_daily. Questo è strano perché abbiamo già i dati della settimana 15-20 giugno completi. Il problema è probabilmente nella query del bot che usa day_of_week ma pos_production_daily ha il campo day_of_week con spazi (es. "Monday   " invece di "Monday") — VERIFICA questo prima di tutto.
-
-**Passi da fare:**
-1. Leggi i file MD da GitHub
-2. Controlla pos_production_daily: `SELECT DISTINCT day_of_week, COUNT(*) FROM pos_production_daily WHERE sale_date >= '2026-06-15' GROUP BY day_of_week`
-3. Se ci sono spazi nel campo day_of_week → il bot v3 non matcha → fixare con TRIM() nella query del bot
-4. Redeploya bot-preplist-builder con TRIM(day_of_week) nel confronto
-5. Simula il calcolo Arrabbiata manualmente per confermare il risultato
-6. Poi chiedi a Max: "La risposta è X kg — ti torna?"
-
----
-
-## LOGICA BOT 3 v3 (già deployato)
-
+## COME FUNZIONA DAVVERO IL FOOD COST (verità tecnica verificata 21/6)
+Catena del food cost:
 ```
-Per ogni prep_task:
-  shelfLife = expected_duration_days (es. Arrabbiata = 7gg)
-  serviceDays = prossimi shelfLife giorni esclusa domenica
-  
-  Per ogni giorno in serviceDays:
-    dow = giorno della settimana
-    Per ogni ricetta nel BOM di questo task:
-      avg = media storica porzioni vendute stesso DOW (ultimi 90gg)
-      dayTotal += avg × quantity_bom
-  
-  suggested = sum(dayTotal) × 1.1 (buffer)
-  arrotonda al mezzo superiore
+recipe_bom.item_id → ingredients.id → ingredient_vendors (price_per_100g / price_per_each)
+recipe_bom.sub_recipe_id → recipes (sub-ricetta, food cost ricorsivo)
 ```
+**Il food cost VERO si calcola dal recipe_bom**, NON dal campo JSON `recipes.ingredients`.
 
-**Regole speciali già nel bot:**
-- Pasta: tetto freezer (Spaghetti max 14 contenitori, Fettuccine max 9, min 7)
-- Dressing: arrotonda al gallone intero superiore
-- Domenica = giorno chiuso, non contare
+Esistono DUE posti dove vivono gli ingredienti:
+1. `recipes.ingredients` (JSON `[{qty,name,unit,comment}]`) → quello che il FORM di Brigade legge/mostra/scrive
+2. `recipe_bom` (tabella con item_id/sub_recipe_id/quantity/unit/notes/prep_task_id) → quello che fa FOOD COST + PRODUZIONE + collega prep_tasks
 
----
-
-## LINK BOM → PREP_TASK attivi (Fase 6)
-
-| Sub-ricetta | prep_task_id | Task | Stazione |
-|---|---|---|---|
-| ARRABBIATA | 233 | Arrabbiata sauce | Saucier |
-| Artichoke Sauce | 398 | Artichoke Sauce | Sauté |
-| BASIL OIL | 236 | Basil oil | Fresh Pasta |
-| Bechamel | 400 | Bechamel | Saucier |
-| CACIO E PEPE SAUCE | 288 | Cacio e pepe | Saucier |
-| GNOCCO FRITTO DOUGH | 271 | Gnocco Dough | Fresh Pasta |
-| MK-RAGU | 305 | Ragu | Saucier |
-| POMODORO SAUCE | 304 | Pomodoro | Saucier |
-| Risotto Base | 399 | Risotto Base | Sauté |
-| SALMORIGLIO | 256 | Salmoriglio | Sauté |
-| SLICED MUSHROOM | 298 | Mushrooms | Pasta |
-| SPAGHETTI FRESH PASTA | 314 | Spaghetti | Fresh Pasta |
-| Tempura Batter | 283 | Tempura | Oven |
-| TOMATO X BRUSCHETTA | 332 | Bruschetta | Salad |
+Il form (`saveRecipeBOM` in js/recipes.js) quando Max salva scrive in ENTRAMBI.
 
 ---
 
-## TASK APERTI
+## IL PROBLEMA DA RISOLVERE (priorità #1)
 
-- Rinominare "Manager Station" → "Coordinator Station" in prep_tasks, focus-mode.js, closing.js, DB
-- pos_production_daily: rigenerare dati storici per tutti i piatti (pipeline corretto ma dati vecchi mancanti)
-- BOM da completare (zero vendite): Asparagus, Lasagna Meal, Maccheroni Arrabbiata/Ragu, Ravioli Limone, Pappardelle Wildboar, Branzino Table Side, Scaloppina Ai Funghi
-- Dressing: ricette Make Citronnette/Ranch/Caesar/Balsamic da creare con BOM (base = 1 gallone)
+**Bug architetturale:** il JSON `recipes.ingredients` e il `recipe_bom` sono due fonti separate che possono divergere. Il food cost dipende dal BOM (con item_id), ma il form mostra il JSON. Se il JSON non ha i collegamenti (item_id/sub_recipe_id), salvare dal form CANCELLA il BOM buono e lo riscrive senza collegamenti → SI PERDE IL FOOD COST.
+
+**Errore commesso il 21/6 (da sistemare):** durante la sessione BOM, le ricette nuove sono state scritte nel JSON SENZA ingredient_id/sub_recipe_id (solo nome testuale). Queste ricette hanno il BOM corretto (con collegamenti) ma il JSON "scollegato". RISCHIO: se Max salva una di queste dal form, perde i collegamenti food cost.
+
+Ricette a rischio (JSON senza link, BOM ok) — toccate il 21/6:
+Mini Caesar Salad, Truffle Fettuccine, COCCOLI TOSCANI, CAPRESE, Chicken Parmesan, Penne Midnight, Penne Midnight Half, Spaghetti Al Ragu, Chef Max Risotto, Artichoke, Tuscany Road Trip, Branzino Chef Style, WAGYU TOMAHAWK, Tomato And Basil Soup, Spaghetti al Pomodoro Half, Risotto Base, Tempura Batter, Artichoke Sauce, Bresaola, Fettuccine Arrabbiata Half, Ribeye Prime Green Peppers Corn, Asparagus, Lasagna Pan, MACCHERONI AL RAGU.
+
+**NOTA:** verificato che ANCHE le ricette vecchie verdi (es. Lobster Fettucine) NON hanno ingredient_id nel JSON — eppure sono verdi e hanno food cost. Quindi il collegamento verde nella VISTA ricetta avviene per MATCH PER NOME a runtime, NON dal JSON. Va capito ESATTAMENTE come js/recipes.js (riga ~462 linkedColor, ~482 autocomplete, riga ~934 saveRecipeBOM) determina item_id quando Max salva: se fa match per nome al salvataggio, allora il rischio è minore; se si basa su dataset.ingredientId già presente, allora le ricette del 21/6 sono a rischio. DA VERIFICARE NEL CODICE PRIMA DI TOCCARE.
 
 ---
 
-## REGOLE OPERATIVE SESSIONE
+## DECISIONE ARCHITETTURALE DA PRENDERE CON MAX
+Max vuole UNA COSA SOLA: modifica un ingrediente nella ricetta → si aggiorna food cost + produzione. Senza sapere di BOM/JSON.
 
-1. Leggi SEMPRE i file da GitHub live prima di modificare
-2. Fetch SHA fresco immediatamente prima di ogni PUT
-3. Dichiara tutte le modifiche prima di scrivere codice — aspetta approvazione Max
-4. Bumpa boh-vN in sw.js ad ogni push
-5. node --check file.js prima di ogni push
-6. Tocca solo i file esplicitamente discussi
-7. Commit message: "vN filename — descrizione"
-8. Tutto su brigade-main, MAI main
-9. pos_production_daily.total_portions è colonna generata — non fare UPDATE manuale
-10. Conflict target upsert: (sale_date, canonical_name)
-11. Domenica niente Focus Mode (fix v303 già deployato)
-12. day_of_week in pos_production_daily può avere spazi extra — usare TRIM() nei confronti
+Opzione consigliata: rendere recipe_bom l'UNICA fonte di verità. Il form legge gli ingredienti dal BOM (join con ingredients per i nomi) e scrive solo nel BOM. Il JSON o diventa una copia auto-generata o viene eliminato. Così: niente più divergenza, food cost sempre corretto.
+
+Lavoro su js/recipes.js: funzione caricamento ingredienti nel form + saveRecipeBOM. Testare bene su una ricetta prima di applicare a tutte.
+
+---
+
+## STATO TECNICO
+- Frontend: v305 (sw.js boh-v305)
+- recipe_bom: ha colonna prep_task_id (FK a prep_tasks) — già esiste
+- recipes: ha serving_unit/serving_qty (decidemmo NON servono, il BOM con base_servings=1 basta)
+- prep_tasks: 162 righe, FK recipe_id → recipes
+- Tabelle food cost: ingredients (428), ingredient_vendors (69, prezzi), ingredient_links (77, match fattura→ingrediente), items (94, vecchia tabella prezzi legacy?)
+- VERIFICARE se `items` (94 righe, price_per_gram_usd) è una tabella prezzi alternativa/legacy o se è usata
+
+## REGOLE OPERATIVE
+- SHA fresco prima di ogni PUT; bump boh-vN in sw.js ad ogni push; node --check prima di push
+- Commit: "vN file — descrizione"; solo brigade-main
+- pos_production_daily.total_portions è GENERATA, mai UPDATE manuale
+- Nomi ricette = identici al POS (cambiare title, mai pos_name)
+- Domenica niente Focus Mode (già fatto v303)
+
+## SICUREZZA (segnalato da Supabase, NON urgente, decidere con calma)
+42 tabelle hanno RLS disabilitato — chiunque con anon key può leggere/scrivere. NON abilitare RLS senza prima creare le policy (bloccherebbe tutto). Valutare in sessione dedicata sicurezza.
