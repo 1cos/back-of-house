@@ -192,6 +192,7 @@ function renderM(){
                i.note ? '<span style="font-size:11px;color:#d97706;">📝 nota</span>' :
                isAdmin() ? '<span style="font-size:11px;color:#94a3b8;">no ricetta</span>' : '') +
             '</div>' +
+            (i.suggested_qty ? '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 ' + (parseFloat(i.suggested_qty)/1000).toFixed(2).replace(/\.?0+$/,'') + ' kg consigliati</span></div>' : '') +
           '</div>' +
           '<div style="display:flex;gap:6px;flex-shrink:0;">' +
             (isUrgent||!isWip ? '<button onpointerdown="startWipPress(' + JSON.stringify(iid) + ',this)" onpointerup="endWipPress()" onpointerleave="endWipPress()" style="height:36px;padding:0 14px;border-radius:10px;font-size:12px;font-weight:600;background:white;color:#1d4ed8;border:1.5px solid #3b82f6;white-space:nowrap;">Later</button>' : '') +
