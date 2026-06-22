@@ -563,18 +563,47 @@ function openRecipeEditor(rec=null){
     ingList.appendChild(row);
   }
 
-  // Populate existing ingredients
-  (rec?.ingredients||[{},{},{}]).forEach(i=>{
-    if(i.type === 'section') addSectionRow(i);
-    else addIngRow({
-      qty:           i.qty,
-      unit:          i.unit,
-      name:          i.name,
-      comment:       i.comment,
-      ingredient_id: i.ingredient_id || null,
-      sub_recipe_id: i.sub_recipe_id  || null
+  // Populate existing ingredients — legge dal BOM se ricetta esistente
+  async function populateIngredients(){
+    if(rec?.id){
+      // Ricetta esistente: legge dal BOM (ha UUID reali → bordo verde → BOM al salvataggio)
+      const {data: bomRows} = await supa
+        .from('recipe_bom')
+        .select('item_id, sub_recipe_id, quantity, unit, notes, component_type, ingredients(name), recipes!recipe_bom_sub_recipe_id_fkey(title)')
+        .eq('parent_recipe_id', rec.id)
+        .order('bom_id');
+
+      if(bomRows && bomRows.length > 0){
+        bomRows.forEach(b => {
+          const isSubRecipe = b.component_type === 'RECIPE';
+          addIngRow({
+            qty:           b.quantity,
+            unit:          b.unit || 'g',
+            name:          isSubRecipe ? (b.recipes?.title || '') : (b.ingredients?.name || ''),
+            comment:       b.notes || '',
+            ingredient_id: isSubRecipe ? null : (b.item_id || null),
+            sub_recipe_id: isSubRecipe ? (b.sub_recipe_id || null) : null
+          });
+        });
+        return;
+      }
+      // BOM vuoto — fallback al JSON (ricetta nuova o senza BOM ancora)
+    }
+    // Nuova ricetta: 3 righe vuote
+    const fallback = rec?.ingredients || [{},{},{}];
+    fallback.forEach(i=>{
+      if(i.type === 'section') addSectionRow(i);
+      else addIngRow({
+        qty:           i.qty,
+        unit:          i.unit,
+        name:          i.name,
+        comment:       i.comment,
+        ingredient_id: i.ingredient_id || null,
+        sub_recipe_id: i.sub_recipe_id  || null
+      });
     });
-  });
+  }
+  populateIngredients();
 
   modal.querySelector('#addIng').onclick     = ()=>addIngRow();
   modal.querySelector('#addSection').onclick = ()=>addSectionRow();
@@ -1044,3 +1073,4 @@ function openCreateIngredientModal(prefillName, onCreated){
     if(onCreated) onCreated(data);
   };
 }
+
