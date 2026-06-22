@@ -146,87 +146,179 @@ function renderHomeStationItems(){
   }).join('');
 }
 
-// ── SERVICE UPDATES — Yesterday's Highlights ──
-// Admin: bills + net sales + top 3 piatti
-// Staff: solo top 3 piatti (zero dati finanziari — regola ferrea)
+// ── Helpers comuni per filtro bevande ──
+const _EXCL_GROUPS='("NA Beverages","Beverages","Mocktail","Beer","Common Cocktails","House Cocktails","Gin","Rum","Scotch","Tequila","Liqueurs","The Bar","Sparkling Wine BOTTLE","Sparkling Wine GLASS")';
+const _EXCL_SALES_CAT='("Alcohol","Beer","Wine")';
+const _EXCL_KEYWORDS=['tea','water','coffee','pepsi','coke','soda','beer','wine','liquor','spirit','cocktail','margarita','michelob','modelo','corona','seltzr','seltzer','lemonade','juice','milk','espresso','cappuccino'];
+
+function _filterDrinks(itemsArr){
+  return (itemsArr||[]).filter(i=>{
+    const name=(i.menu_item||'').toLowerCase();
+    return !_EXCL_KEYWORDS.some(k=>name.includes(k));
+  });
+}
+
+// ── SERVICE UPDATES — Yesterday's Highlights (lun-sab) / Weekly Highlights (lunedì) ──
+// Admin: bills + net sales (solo yesterday) + top piatti
+// Staff: solo top piatti — zero dati finanziari — regola ferrea
+// Lunedì: dati aggregati 7 giorni (lun precedente → dom)
 async function loadServiceUpdates(){
   const el=document.getElementById('serviceUpdatesList');
   if(!el) return;
   try{
-    // Trova la data di ieri CDT
     const now=getNowDallas();
-    const yesterday=new Date(now);
-    yesterday.setDate(yesterday.getDate()-1);
-    const yStr=yesterday.toLocaleDateString('en-CA');
+    const dow=now.toLocaleString('en-US',{timeZone:'America/Chicago',weekday:'long'});
+    const isMonday=dow==='Monday';
 
-    // Query 1: summary di ieri
-    const{data:summary}=await supa.from('pos_daily_summary')
-      .select('sale_date,bill_count,net_sales')
-      .eq('sale_date',yStr)
-      .maybeSingle();
-
-    // Query 2: top 3 piatti di ieri (escludi bevande e dati corrotti)
-    const{data:items}=await supa.from('pos_sales_by_item')
-      .select('menu_item,quantity')
-      .eq('sale_date',yStr)
-      .not('menu_group','in','("NA Beverages","Beverages","Mocktail","Beer","Common Cocktails","House Cocktails","Gin","Rum","Scotch","Tequila","Liqueurs","The Bar","Sparkling Wine BOTTLE","Sparkling Wine GLASS")')
-      .not('sales_category','in','("Alcohol","Beer","Wine")')
-      .lt('quantity',1000)
-      .order('quantity',{ascending:false})
-      .limit(3);
-
-    // Se nessun dato POS: fallback su service_updates
-    if(!summary&&(!items||!items.length)){
-      const{data:updates}=await supa.from('service_updates')
-        .select('*').order('created_at',{ascending:false}).limit(3);
-      if(!updates||!updates.length){
-        el.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
-        return;
-      }
-      el.innerHTML=updates.map(u=>{
-        const color=u.level==='urgent'?'#ef4444':u.level==='warning'?'#f59e0b':'#3B82F6';
-        return '<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;">'+
-          '<div style="width:7px;height:7px;border-radius:50%;background:'+color+';flex-shrink:0;margin-top:4px;"></div>'+
-          '<span style="font-size:13px;color:#1e3a5f;flex:1;line-height:1.4;">'+u.message+'</span>'+
-          '</div>';
-      }).join('');
-      return;
+    if(isMonday){
+      await _loadWeeklyHighlights(el);
+    } else {
+      await _loadYesterdayHighlights(el);
     }
-
-    const rows=[];
-    const medals=['🥇','🥈','🥉'];
-
-    // Admin: mostra dati finanziari
-    if(typeof isAdmin==='function'&&isAdmin()&&summary){
-      const sales=parseFloat(summary.net_sales||0).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
-      rows.push(
-        '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
-        '<span style="font-size:15px;">💰</span>'+
-        '<span style="font-size:13px;color:#1e3a5f;font-weight:600;">'+sales+'</span>'+
-        '<span style="font-size:12px;color:#64748b;">·</span>'+
-        '<span style="font-size:13px;color:#64748b;">'+summary.bill_count+' bills</span>'+
-        '</div>'
-      );
-    }
-
-    // Tutti: top 3 piatti
-    if(items&&items.length){
-      items.forEach(function(item,i){
-        rows.push(
-          '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
-          '<span style="font-size:15px;">'+medals[i]+'</span>'+
-          '<span style="font-size:13px;color:#1e3a5f;font-weight:500;">'+item.menu_item+'</span>'+
-          '<span style="margin-left:auto;font-size:12px;color:#60a5fa;font-weight:600;">'+item.quantity+' pcs</span>'+
-          '</div>'
-        );
-      });
-    }
-
-    el.innerHTML=rows.length?rows.join(''):'<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
-
   }catch(e){
     el.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
   }
+}
+
+// ── YESTERDAY highlights (martedì–sabato) ──
+async function _loadYesterdayHighlights(el){
+  const now=getNowDallas();
+  const yesterday=new Date(now);
+  yesterday.setDate(yesterday.getDate()-1);
+  const yStr=yesterday.toLocaleDateString('en-CA');
+
+  const{data:summary}=await supa.from('pos_daily_summary')
+    .select('sale_date,bill_count,net_sales')
+    .eq('sale_date',yStr)
+    .maybeSingle();
+
+  const{data:posItems}=await supa.from('pos_sales_by_item')
+    .select('menu_item,quantity')
+    .eq('sale_date',yStr)
+    .not('menu_group','in',_EXCL_GROUPS)
+    .not('sales_category','in',_EXCL_SALES_CAT)
+    .lt('quantity',1000)
+    .order('quantity',{ascending:false})
+    .limit(3);
+
+  // Fallback su service_updates se nessun dato POS
+  if(!summary&&(!posItems||!posItems.length)){
+    const{data:updates}=await supa.from('service_updates')
+      .select('*').order('created_at',{ascending:false}).limit(3);
+    if(!updates||!updates.length){
+      el.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
+      return;
+    }
+    el.innerHTML=updates.map(u=>{
+      const color=u.level==='urgent'?'#ef4444':u.level==='warning'?'#f59e0b':'#3B82F6';
+      return '<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;">'+
+        '<div style="width:7px;height:7px;border-radius:50%;background:'+color+';flex-shrink:0;margin-top:4px;"></div>'+
+        '<span style="font-size:13px;color:#1e3a5f;flex:1;line-height:1.4;">'+u.message+'</span>'+
+        '</div>';
+    }).join('');
+    return;
+  }
+
+  const rows=[];
+  const medals=['🥇','🥈','🥉'];
+
+  // Admin: finanziari ieri
+  if(typeof isAdmin==='function'&&isAdmin()&&summary){
+    const sales=parseFloat(summary.net_sales||0).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
+    rows.push(
+      '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+      '<span style="font-size:15px;">💰</span>'+
+      '<span style="font-size:13px;color:#1e3a5f;font-weight:600;">'+sales+'</span>'+
+      '<span style="font-size:12px;color:#64748b;">·</span>'+
+      '<span style="font-size:13px;color:#64748b;">'+summary.bill_count+' bills</span>'+
+      '</div>'
+    );
+  }
+
+  // Tutti: top 3 piatti
+  if(posItems&&posItems.length){
+    posItems.forEach(function(item,i){
+      rows.push(
+        '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+        '<span style="font-size:15px;">'+medals[i]+'</span>'+
+        '<span style="font-size:13px;color:#1e3a5f;font-weight:500;">'+item.menu_item+'</span>'+
+        '<span style="margin-left:auto;font-size:12px;color:#60a5fa;font-weight:600;">'+item.quantity+' pcs</span>'+
+        '</div>'
+      );
+    });
+  }
+
+  el.innerHTML=rows.length?rows.join(''):'<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
+}
+
+// ── WEEKLY highlights (lunedì) — ultimi 7 giorni aggregati ──
+async function _loadWeeklyHighlights(el){
+  const now=getNowDallas();
+  // Domenica scorsa (ieri) → lunedì scorso (7 giorni fa)
+  const endDate=new Date(now);
+  endDate.setDate(endDate.getDate()-1); // ieri = domenica
+  const startDate=new Date(endDate);
+  startDate.setDate(startDate.getDate()-6); // 7 giorni totali lun–dom
+  const startStr=startDate.toLocaleDateString('en-CA');
+  const endStr=endDate.toLocaleDateString('en-CA');
+
+  // Admin: totale bills settimana (no net_sales — troppo finanziario per il widget)
+  // Tutti: top 3 piatti aggregati
+  const[summaryRes, posRes]=await Promise.all([
+    supa.from('pos_daily_summary')
+      .select('bill_count')
+      .gte('sale_date',startStr)
+      .lte('sale_date',endStr),
+    supa.from('pos_sales_by_item')
+      .select('menu_item,quantity')
+      .gte('sale_date',startStr)
+      .lte('sale_date',endStr)
+      .not('menu_group','in',_EXCL_GROUPS)
+      .not('sales_category','in',_EXCL_SALES_CAT)
+      .lt('quantity',1000)
+  ]);
+
+  const summaryRows=summaryRes.data||[];
+  const posItems=_filterDrinks(posRes.data||[]);
+
+  // Aggrega quantità per piatto
+  const totals={};
+  posItems.forEach(function(r){
+    totals[r.menu_item]=(totals[r.menu_item]||0)+Number(r.quantity||0);
+  });
+  const sorted=Object.entries(totals)
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,3);
+
+  const rows=[];
+  const medals=['🥇','🥈','🥉'];
+
+  // Admin: totale bills settimana
+  if(typeof isAdmin==='function'&&isAdmin()&&summaryRows.length){
+    const totalBills=summaryRows.reduce((s,r)=>s+(r.bill_count||0),0);
+    rows.push(
+      '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+      '<span style="font-size:15px;">🧾</span>'+
+      '<span style="font-size:13px;color:#1e3a5f;font-weight:600;">'+totalBills+' bills</span>'+
+      '<span style="font-size:12px;color:#64748b;">this week</span>'+
+      '</div>'
+    );
+  }
+
+  // Tutti: top 3 piatti settimana
+  if(sorted.length){
+    sorted.forEach(function([name,qty],i){
+      rows.push(
+        '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+        '<span style="font-size:15px;">'+medals[i]+'</span>'+
+        '<span style="font-size:13px;color:#1e3a5f;font-weight:500;">'+name+'</span>'+
+        '<span style="margin-left:auto;font-size:12px;color:#60a5fa;font-weight:600;">'+qty+' pcs</span>'+
+        '</div>'
+      );
+    });
+  }
+
+  el.innerHTML=rows.length?rows.join(''):'<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No data this week</div>';
 }
 
 // ── UPCOMING DEMAND — legge tabella events (TripleSeat) ──
@@ -278,53 +370,97 @@ async function loadUpcomingDemand(){
   }
 }
 
-// ── SERVICE UPDATES MODAL ──
+// ── SERVICE UPDATES MODAL (View all) ──
+// Lunedì: top 10 piatti della settimana; altri giorni: top 10 di ieri
 async function openServiceUpdates(){
-  // Top food di ieri — no drink, no alcol, no dati finanziari
   const now=getNowDallas();
-  const yesterday=new Date(now);
-  yesterday.setDate(yesterday.getDate()-1);
-  const yStr=yesterday.toLocaleDateString('en-CA');
-
-  const EXCLUDED_GROUPS=['NA Beverages','Beverages','Mocktail','Lunch','Soup'];
-  const EXCLUDED_KEYWORDS=['tea','water','coffee','pepsi','coke','soda','beer','wine','liquor','spirit','cocktail','margarita','michelob','modelo','corona','seltzr','seltzer','lemonade','juice','milk','espresso','cappuccino'];
-
-  const{data:items}=await supa.from('pos_sales_by_item')
-    .select('menu_item,quantity,menu_group')
-    .eq('sale_date',yStr)
-    .eq('sales_category','Food')
-    .not('menu_group','in','("'+EXCLUDED_GROUPS.join('","')+'")')
-    .lt('quantity',1000)
-    .order('quantity',{ascending:false})
-    .limit(20);
-
-  // Filtra per keyword bevande
-  const filtered=(items||[]).filter(i=>{
-    const name=(i.menu_item||'').toLowerCase();
-    return !EXCLUDED_KEYWORDS.some(k=>name.includes(k));
-  }).slice(0,10);
+  const dow=now.toLocaleString('en-US',{timeZone:'America/Chicago',weekday:'long'});
+  const isMonday=dow==='Monday';
 
   const medals=['🥇','🥈','🥉'];
-  const dayLabel=yesterday.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'});
+  let rows=[];
+  let headerLabel='';
+  let headerTitle='';
 
-  const rows=filtered.length
-    ? filtered.map((item,i)=>
-        '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
-        '<span style="font-size:18px;min-width:28px;">'+(medals[i]||'·')+'</span>'+
-        '<span style="font-size:14px;color:#1e3a5f;font-weight:500;flex:1;">'+item.menu_item+'</span>'+
-        '<span style="font-size:13px;color:#60a5fa;font-weight:600;">'+item.quantity+' pcs</span>'+
-        '</div>'
-      ).join('')
-    : '<div style="font-size:13px;color:#93c5fd;padding:8px 0;">No food data for yesterday</div>';
+  if(isMonday){
+    // ── Weekly modal ──
+    const endDate=new Date(now);
+    endDate.setDate(endDate.getDate()-1);
+    const startDate=new Date(endDate);
+    startDate.setDate(startDate.getDate()-6);
+    const startStr=startDate.toLocaleDateString('en-CA');
+    const endStr=endDate.toLocaleDateString('en-CA');
+
+    const{data:posData}=await supa.from('pos_sales_by_item')
+      .select('menu_item,quantity')
+      .gte('sale_date',startStr)
+      .lte('sale_date',endStr)
+      .not('menu_group','in',_EXCL_GROUPS)
+      .not('sales_category','in',_EXCL_SALES_CAT)
+      .lt('quantity',1000);
+
+    const filtered=_filterDrinks(posData||[]);
+    const totals={};
+    filtered.forEach(function(r){
+      totals[r.menu_item]=(totals[r.menu_item]||0)+Number(r.quantity||0);
+    });
+    const sorted=Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+    headerTitle='Weekly Highlights';
+    const wStart=startDate.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const wEnd=endDate.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    headerLabel=wStart+' – '+wEnd;
+
+    rows=sorted.length
+      ? sorted.map(([name,qty],i)=>
+          '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+          '<span style="font-size:18px;min-width:28px;">'+(medals[i]||'·')+'</span>'+
+          '<span style="font-size:14px;color:#1e3a5f;font-weight:500;flex:1;">'+name+'</span>'+
+          '<span style="font-size:13px;color:#60a5fa;font-weight:600;">'+qty+' pcs</span>'+
+          '</div>'
+        )
+      : ['<div style="font-size:13px;color:#93c5fd;padding:8px 0;">No food data this week</div>'];
+
+  } else {
+    // ── Yesterday modal ──
+    const yesterday=new Date(now);
+    yesterday.setDate(yesterday.getDate()-1);
+    const yStr=yesterday.toLocaleDateString('en-CA');
+
+    const EXCLUDED_GROUPS_ARR=['NA Beverages','Beverages','Mocktail','Lunch','Soup'];
+    const{data:posData}=await supa.from('pos_sales_by_item')
+      .select('menu_item,quantity,menu_group')
+      .eq('sale_date',yStr)
+      .eq('sales_category','Food')
+      .not('menu_group','in','("'+EXCLUDED_GROUPS_ARR.join('","')+'")')
+      .lt('quantity',1000)
+      .order('quantity',{ascending:false})
+      .limit(20);
+
+    const filtered=_filterDrinks(posData||[]).slice(0,10);
+
+    headerTitle="Yesterday's Highlights";
+    headerLabel=yesterday.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'});
+
+    rows=filtered.length
+      ? filtered.map((item,i)=>
+          '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+          '<span style="font-size:18px;min-width:28px;">'+(medals[i]||'·')+'</span>'+
+          '<span style="font-size:14px;color:#1e3a5f;font-weight:500;flex:1;">'+item.menu_item+'</span>'+
+          '<span style="font-size:13px;color:#60a5fa;font-weight:600;">'+item.quantity+' pcs</span>'+
+          '</div>'
+        )
+      : ['<div style="font-size:13px;color:#93c5fd;padding:8px 0;">No food data for yesterday</div>'];
+  }
 
   const modal=document.createElement('div');
   modal.className='fixed inset-0 z-50 flex items-end';
   modal.style.background='rgba(0,0,0,0.3)';
   modal.innerHTML='<div style="background:rgba(255,255,255,0.97);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:75vh;overflow-y:auto;animation:slideUp .25s ease">'+
     '<div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>'+
-    '<div style="font-size:14px;font-weight:600;color:#1e3a5f;margin-bottom:4px;">Yesterday\'s Highlights</div>'+
-    '<div style="font-size:11px;color:#93c5fd;margin-bottom:14px;">'+dayLabel+'</div>'+
-    '<div>'+rows+'</div>'+
+    '<div style="font-size:14px;font-weight:600;color:#1e3a5f;margin-bottom:4px;">'+headerTitle+'</div>'+
+    '<div style="font-size:11px;color:#93c5fd;margin-bottom:14px;">'+headerLabel+'</div>'+
+    '<div>'+rows.join('')+'</div>'+
     '<button onclick="this.closest(\'.fixed\').remove()" style="width:100%;height:44px;border-radius:14px;background:#1e3a5f;color:white;font-size:14px;font-weight:600;margin-top:16px;border:none;">Close</button>'+
     '</div>';
   modal.onclick=e=>{if(e.target===modal)modal.remove()};
@@ -339,4 +475,3 @@ async function addServiceUpdate(){
   loadServiceUpdates();
   document.querySelector('.fixed')?.remove();
 }
-
