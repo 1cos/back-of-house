@@ -510,7 +510,6 @@ function openRecipeEditor(rec=null){
           supa.from('recipes').select('id,title,menu_group').ilike('title',`%${q}%`).order('title').limit(4)
         ]);
         const ings = ri.data||[], recs = rr.data||[];
-        if(!ings.length && !recs.length){ drop.style.display='none'; return; }
         drop.innerHTML = [
           ...ings.map(i=>`<div class="ac-opt" data-iid="${i.id}" data-name="${i.name.replace(/"/g,'&quot;')}"
             style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f8fafc;">
@@ -521,13 +520,26 @@ function openRecipeEditor(rec=null){
             style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f8fafc;">
             <span><b>${r.title}</b> <span style="color:#94a3b8;font-size:10px;">${r.menu_group||''}</span></span>
             <span style="font-size:9px;background:#eff6ff;color:#3b82f6;padding:1px 6px;border-radius:4px;flex-shrink:0;">sub-recipe</span>
-          </div>`)
+          </div>`),
+          `<div class="ac-create" data-q="${q.replace(/"/g,'&quot;')}"
+            style="padding:8px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;border-top:1px solid #e2e8f0;color:#6366f1;font-weight:600;">
+            <span style="font-size:14px;">＋</span> Create &ldquo;${q}&rdquo;
+          </div>`
         ].join('');
         drop.style.display = 'block';
         drop.querySelectorAll('.ac-opt').forEach(el=>{
           el.addEventListener('mousedown', e=>{
             e.preventDefault();
             selectItem(el.dataset.name, el.dataset.iid||'', el.dataset.rid||'');
+          });
+        });
+        drop.querySelectorAll('.ac-create').forEach(el=>{
+          el.addEventListener('mousedown', e=>{
+            e.preventDefault();
+            drop.style.display = 'none';
+            openCreateIngredientModal(el.dataset.q, (newIng)=>{
+              selectItem(newIng.name, newIng.id, '');
+            });
           });
         });
       }, 220);
@@ -953,3 +965,82 @@ async function saveRecipeBOM(recipeId, ingredientRows){
 }
 
 
+
+
+// ── CREA NUOVO INGREDIENTE DA RICETTA ────────────────────────
+function openCreateIngredientModal(prefillName, onCreated){
+  const CATEGORIES = ['Produce','Dairy','Meat','Seafood','Dry Goods','Oil & Vinegar','Spices & Herbs','Beverages & Spirits','Prepared','Bakery','Frozen','Supply'];
+  const UNITS = [{v:'g',l:'g — grams (weight)'},{v:'ml',l:'ml — milliliters (volume)'},{v:'each',l:'each — count'}];
+
+  const modal = document.createElement('div');
+  modal.className = 'fixed inset-0 z-[300] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
+  modal.innerHTML = `
+    <div style="background:white;border-radius:20px;padding:20px;width:100%;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.18);">
+      <div style="font-size:16px;font-weight:700;color:#1e293b;margin-bottom:16px;">✨ New Ingredient</div>
+
+      <div style="margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Name</div>
+        <input id="ciName" value="${(prefillName||'').replace(/"/g,'&quot;')}"
+          style="width:100%;border:1.5px solid #e2e8f0;border-radius:10px;padding:9px 12px;font-size:14px;box-sizing:border-box;">
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Category</div>
+        <select id="ciCat" style="width:100%;border:1.5px solid #e2e8f0;border-radius:10px;padding:9px 12px;font-size:14px;background:white;box-sizing:border-box;">
+          <option value="">— select —</option>
+          ${CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('')}
+        </select>
+      </div>
+
+      <div style="margin-bottom:20px;">
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Base Unit</div>
+        <select id="ciUnit" style="width:100%;border:1.5px solid #e2e8f0;border-radius:10px;padding:9px 12px;font-size:14px;background:white;box-sizing:border-box;">
+          <option value="">— select —</option>
+          ${UNITS.map(u=>`<option value="${u.v}">${u.l}</option>`).join('')}
+        </select>
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        <button id="ciCancel" style="flex:1;padding:11px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:14px;font-weight:600;color:#64748b;background:white;cursor:pointer;">Cancel</button>
+        <button id="ciSave" style="flex:2;padding:11px;background:#6366f1;border:none;border-radius:12px;font-size:14px;font-weight:700;color:white;cursor:pointer;">Create Ingredient</button>
+      </div>
+      <div id="ciError" style="color:#ef4444;font-size:12px;margin-top:8px;display:none;"></div>
+    </div>`;
+
+  document.body.appendChild(modal);
+
+  modal.querySelector('#ciCancel').onclick = ()=>modal.remove();
+
+  modal.querySelector('#ciSave').onclick = async()=>{
+    const name = modal.querySelector('#ciName').value.trim();
+    const cat  = modal.querySelector('#ciCat').value;
+    const unit = modal.querySelector('#ciUnit').value;
+    const errEl = modal.querySelector('#ciError');
+
+    if(!name){ errEl.textContent='Name is required'; errEl.style.display='block'; return; }
+    if(!cat){  errEl.textContent='Select a category'; errEl.style.display='block'; return; }
+    if(!unit){ errEl.textContent='Select a base unit'; errEl.style.display='block'; return; }
+
+    const measureType = unit==='g' ? 'weight' : unit==='ml' ? 'volume' : 'count';
+
+    const btn = modal.querySelector('#ciSave');
+    btn.textContent = 'Creating...';
+    btn.disabled = true;
+
+    const {data, error} = await supa.from('ingredients')
+      .insert({name, category:cat, base_unit:unit, measure_type:measureType, active:true})
+      .select('id,name')
+      .single();
+
+    if(error){
+      errEl.textContent = 'Error: '+error.message;
+      errEl.style.display='block';
+      btn.textContent='Create Ingredient';
+      btn.disabled=false;
+      return;
+    }
+
+    modal.remove();
+    if(onCreated) onCreated(data);
+  };
+}
