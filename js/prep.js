@@ -91,7 +91,7 @@ async function checkBeforeMissing(id, itemName){
         <div class="bg-slate-50 rounded-2xl p-3 mb-4 space-y-2">
           <div class="flex items-center gap-2 text-sm">
             <span>🧑‍🍳</span>
-            <span><b>${a.last_made_by||'Qualcuno'}</b> l'ha fatto stamani alle <b>${madeAt}</b></span>
+            <span><b>${a.last_made_by||'Qualcuno'}</b> '+tr('madeThisMorning')+' <b>${madeAt}</b></span>
           </div>
           ${madeQty?`<div class="flex items-center gap-2 text-sm"><span>⚖️</span><span>Quantità: <b>${madeQty}</b></span></div>`:''}
           ${a.missing_count_week>1?`<div class="flex items-center gap-2 text-sm text-amber-700"><span>⚠️</span><span>Segnalato mancante <b>${a.missing_count_week}x</b> questa settimana</span></div>`:''}
@@ -101,8 +101,8 @@ async function checkBeforeMissing(id, itemName){
           </div>
         </div>
         <div class="grid grid-cols-2 gap-2">
-          <button id="alertCancel" class="py-3 rounded-xl bg-slate-100 font-semibold text-sm">Ricontrolla</button>
-          <button id="alertConfirm" class="py-3 rounded-xl bg-red-500 text-white font-semibold text-sm">Sì, manca</button>
+          <button id="alertCancel" class="py-3 rounded-xl bg-slate-100 font-semibold text-sm">'+tr('checkAgain')+'</button>
+          <button id="alertConfirm" class="py-3 rounded-xl bg-red-500 text-white font-semibold text-sm">'+tr('yesMissing')+'</button>
         </div>
       </div>`;
     document.body.appendChild(popup);
@@ -154,10 +154,10 @@ function renderM(){
         if(diffMs>0){
           const h=Math.floor(diffMs/3600000);
           const m=Math.floor((diffMs%3600000)/60000);
-          timeEl.textContent=h>0?`${h}h ${m}m al limite`:`${m}m al limite`;
+          timeEl.textContent=h>0?`${h}h ${m}m `+tr('timeLimit'):`${m}m `+tr('timeLimit');
           timeEl.className=diffMs<3600000?'text-xs text-red-500 font-semibold':'text-xs text-slate-400';
         } else {
-          timeEl.textContent='⚠️ Tempo scaduto';
+          timeEl.textContent=tr('timeExpired');
           timeEl.className='text-xs text-red-600 font-bold';
         }
       }
@@ -179,8 +179,8 @@ function renderM(){
       const accentColor=isUrgent?'#ef4444':isWip?'#3b82f6':'#334155';
       const bgColor=isUrgent?'rgba(254,242,242,0.95)':isWip?'rgba(239,246,255,0.95)':'rgba(255,255,255,0.95)';
       const nameColor=isUrgent?'#991b1b':isWip?'#1e40af':'#0f172a';
-      const badge=isUrgent?'<span style="font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;">URGENTE</span>':
-                   isWip?'<span style="font-size:10px;font-weight:600;color:#3b82f6;background:rgba(59,130,246,0.1);padding:2px 6px;border-radius:6px;">in progress</span>':'';
+      const badge=isUrgent?'<span style="font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;">'+tr('urgent')+'</span>':
+                   isWip?'<span style="font-size:10px;font-weight:600;color:#3b82f6;background:rgba(59,130,246,0.1);padding:2px 6px;border-radius:6px;">'+tr('inProgress')+'</span>':'';
       const iid = i.id;
       return '<div class="col-span-2 mb-2 cursor-pointer active:scale-[0.98] transition-transform" style="background:' + bgColor + ';border-radius:16px;border-left:4px solid ' + accentColor + ';box-shadow:0 1px 4px rgba(15,23,42,0.08);">' +
         '<div style="padding:12px 12px 12px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
@@ -188,11 +188,11 @@ function renderM(){
             '<div style="font-size:15px;font-weight:600;color:' + nameColor + ';line-height:1.3;">' + i.name + '</div>' +
             (badge ? '<div style="margin-top:4px;">' + badge + '</div>' : '') +
             '<div style="margin-top:3px;">' +
-              (i.recipe_id ? '<span style="font-size:11px;color:#059669;font-weight:500;">📖 ricetta</span>' :
-               i.note ? '<span style="font-size:11px;color:#d97706;">📝 nota</span>' :
-               isAdmin() ? '<span style="font-size:11px;color:#94a3b8;">no ricetta</span>' : '') +
+              (i.recipe_id ? '<span style="font-size:11px;color:#059669;font-weight:500;">'+tr('recipe')+'</span>' :
+               i.note ? '<span style="font-size:11px;color:#d97706;">'+tr('note')+'</span>' :
+               isAdmin() ? '<span style="font-size:11px;color:#94a3b8;">'+tr('noRecipeLink')+'</span>' : '') +
             '</div>' +
-            (i.suggested_qty ? '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 ' + (parseFloat(i.suggested_qty)/1000).toFixed(2).replace(/\.?0+$/,'') + ' kg consigliati</span></div>' : '') +
+            (i.suggested_qty ? '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 ' + (parseFloat(i.suggested_qty)/1000).toFixed(2).replace(/\.?0+$/,'') + ' '+tr('recommended')+'</span></div>' : '') +
           '</div>' +
           '<div style="display:flex;gap:6px;flex-shrink:0;">' +
             (isUrgent||!isWip ? '<button onpointerdown="startWipPress(' + JSON.stringify(iid) + ',this)" onpointerup="endWipPress()" onpointerleave="endWipPress()" style="height:36px;padding:0 14px;border-radius:10px;font-size:12px;font-weight:600;background:white;color:#1d4ed8;border:1.5px solid #3b82f6;white-space:nowrap;">Later</button>' : '') +
@@ -311,8 +311,8 @@ function openDoneSheet(id){
     </div>
     <textarea class="ds-note" placeholder="Nota rapida..." style="width:100%;font-size:12px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:10px;padding:7px 10px;margin-bottom:10px;resize:none;height:38px;"></textarea>
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
-      <button onclick="this.closest('.fixed').remove()" style="height:40px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:0.5px solid rgba(59,130,246,0.2);">Annulla</button>
-      <button onclick="detailSave('${id}',this)" style="height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;">Conferma</button>
+      <button onclick="this.closest('.fixed').remove()" style="height:40px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:0.5px solid rgba(59,130,246,0.2);">'+tr('cancel')+'</button>
+      <button onclick="detailSave('${id}',this)" style="height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;">'+tr('confirm')+'</button>
     </div>
   </div>`;
   sheet.onclick=e=>{if(e.target===sheet)sheet.remove()};
@@ -326,10 +326,10 @@ function openWipNoteSheet(id){
   sheet.style.background='rgba(0,0,0,0.3)';
   sheet.innerHTML=`<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;border-top:0.5px solid rgba(59,130,246,0.2);padding:16px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
     <div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>
-    <div style="font-size:14px;font-weight:500;color:#1e3a5f;margin-bottom:10px;">${it.name} — Da finire</div>
+    <div style="font-size:14px;font-weight:500;color:#1e3a5f;margin-bottom:10px;">${it.name} — '+tr('laterBtn')+'</div>
     <textarea id="wipNote" placeholder="es. manca solo il basilico..." style="width:100%;font-size:13px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:12px;padding:10px 12px;resize:none;height:70px;margin-bottom:10px;"></textarea>
     <button onclick="saveWip('${id}',document.getElementById('wipNote').value);this.closest('.fixed').remove()" 
-      style="width:100%;height:40px;border-radius:14px;background:#3B82F6;color:white;font-size:13px;font-weight:500;">Segna Da finire</button>
+      style="width:100%;height:40px;border-radius:14px;background:#3B82F6;color:white;font-size:13px;font-weight:500;">'+tr('markInProgress')+'</button>
   </div>`;
   sheet.onclick=e=>{if(e.target===sheet)sheet.remove()};
   document.body.appendChild(sheet);
@@ -340,7 +340,7 @@ function openWipNoteSheet(id){
 window.noNeed = async function(id) {
   const it = tasks[id];
   if (!it) return;
-  const msg = it.name + ' — No Need: hai controllato e ce ne e abbastanza?';
+  const msg = it.name + ' — No Need: '+tr('noNeedConfirm');
   if (!confirm(msg)) return;
   await supa.from('prep_log').insert({
     item: it.name,
@@ -425,7 +425,7 @@ function renderFeed(){
   feed.innerHTML=list.map((i,idx)=>`
     <div class="snap-start h-[calc(100vh-170px)] flex flex-col justify-center px-6">
       <div class="text-center mb-4">
-        <div class="text-[11px] font-bold ${i.need_tomorrow?'text-red-600':'text-slate-400'}">${i.need_tomorrow?'🔴 DA FARE':''}</div>
+        <div class="text-[11px] font-bold ${i.need_tomorrow?'text-red-600':'text-slate-400'}">${i.need_tomorrow?'🔴 '+tr('urgent'):''}</div>
         <div class="text-[12px] text-slate-500 mt-1">${idx+1} / ${list.length}</div>
       </div>
       <div class="bg-white rounded-[28px] shadow-xl border border-slate-100 p-6">
@@ -435,7 +435,7 @@ function renderFeed(){
           ${['1','2','2.5'].map(q=>`<button onclick="feedSave('${i.id}','${q}',this)" class="h-[70px] rounded-2xl border-2 border-slate-200 bg-slate-50 font-semibold text-lg active:scale-95 transition">${q}</button>`).join('')}
         </div>
         <div class="flex items-center justify-between mt-4 pt-4 border-t">
-          <button onclick="openRecipeForItem('${i.id}')" class="text-[13px] text-slate-600 flex items-center gap-1.5">📖 Ricetta</button>
+          <button onclick="openRecipeForItem('${i.id}')" class="text-[13px] text-slate-600 flex items-center gap-1.5">📖 '+tr('recipe')+'</button>
         </div>
       </div>
     </div>`).join('');
@@ -450,5 +450,6 @@ async function feedSave(id,qty,btn){
   tasks[id].need_tomorrow=false;
   setTimeout(()=>{document.getElementById('feed').scrollBy({top:window.innerHeight*0.8,behavior:'smooth'});renderM();renderS();renderHomeStations()},600);
 }
+
 
 
