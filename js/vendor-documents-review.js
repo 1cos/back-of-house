@@ -13,7 +13,7 @@ window.openVendorDocumentsReview = function() {
   modal.innerHTML = `
     <div style="position:sticky;top:0;z-index:10;background:white;border-bottom:1px solid #f1f5f9;padding-top:env(safe-area-inset-top,0px);">
       <div style="padding:14px 16px;display:flex;align-items:center;gap:10px;">
-        <button onclick="this.closest('#vdrModal').remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
+        <button onclick="const _tb=document.getElementById('appTopbar');if(_tb)_tb.style.display='';this.closest('#vdrModal').remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
         <div style="flex:1;">
           <div style="font-size:15px;font-weight:600;color:#1e293b;">📋 Vendor Documents</div>
           <div style="font-size:11px;color:#94a3b8;">Pending review</div>
@@ -30,6 +30,9 @@ window.openVendorDocumentsReview = function() {
       </div>
     </div>`;
 
+  // Nascondi topbar app per evitare stacking context iOS Safari
+  const _topbar = document.getElementById('appTopbar');
+  if(_topbar) _topbar.style.display='none';
   document.body.appendChild(modal);
   vdrLoad();
 };
