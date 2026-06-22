@@ -203,6 +203,7 @@ async function showRecipeSheet(rec){
       <h3 class="text-3xl font-bold mb-2">${rec.title||rec.name||''}</h3>
       <p class="text-base text-slate-500 mb-3">${headerMeta}</p>
       ${rec.pos_name ? '<div id="recipeSalesStats" style="margin-bottom:12px;"></div>' : ''}
+      ${!rec.pos_name && rec.base_weight_g ? '<div id="recipePrepStats" style="margin-bottom:12px;"></div>' : ''}
       ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">🔄 Every '+rec.prep_frequency_days+(rec.prep_frequency_days===1?' day':' days')+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">📦 Lasts '+rec.shelf_life_days+(rec.shelf_life_days===1?' day':' days')+'</span>' : ''}</div>` : ''}
       ${rec.image_url ? `<img src="${rec.image_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${rec.photo_url ? `<img src="${rec.photo_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
@@ -225,6 +226,7 @@ async function showRecipeSheet(rec){
   }
 
   if(rec.pos_name) loadRecipeSalesStats(rec, sheet);
+  if(!rec.pos_name && rec.base_weight_g) loadRecipePrepStats(rec, sheet);
 
   // Scaling logic
   if(canScale){
@@ -968,6 +970,75 @@ async function loadRecipeSalesStats(rec, sheetEl) {
   } catch(e) {
     // Silenzioso — non mostrare errori nella preview
     console.warn('recipeSalesStats error:', e.message);
+  }
+}
+
+
+// ── RECIPE PREP STATS (pill suggested_qty per ricette prep senza pos_name) ──
+async function loadRecipePrepStats(rec, sheetEl) {
+  const el = sheetEl.querySelector('#recipePrepStats');
+  if (!el) return;
+
+  try {
+    const sb = supa;
+
+    // Cerca prep_task collegata direttamente (prep_tasks.recipe_id = rec.id)
+    let ptDirect = null;
+    const { data: ptRows } = await sb.from('prep_tasks')
+      .select('id, name, suggested_qty, suggested_by, suggested_at')
+      .eq('recipe_id', rec.id)
+      .not('suggested_qty', 'is', null)
+      .limit(1);
+    if (ptRows && ptRows.length) ptDirect = ptRows[0];
+
+    // Se non trovata, cerca tramite recipe_bom (questa ricetta è sub_recipe_id di qualcuno,
+    // e quel bom_id ha prep_task_id con suggested_qty)
+    // Oppure: recipe_bom.sub_recipe_id = rec.id AND prep_task_id IS NOT NULL
+    let ptVia = null;
+    if (!ptDirect) {
+      const { data: bomRows } = await sb.from('recipe_bom')
+        .select('prep_task_id, prep_tasks(id, name, suggested_qty, suggested_by, suggested_at)')
+        .eq('sub_recipe_id', rec.id)
+        .not('prep_task_id', 'is', null)
+        .limit(1);
+      if (bomRows && bomRows.length && bomRows[0].prep_tasks?.suggested_qty) {
+        ptVia = bomRows[0].prep_tasks;
+      }
+    }
+
+    const pt = ptDirect || ptVia;
+    if (!pt || !pt.suggested_qty) { el.innerHTML = ''; return; }
+
+    const sugG = parseFloat(pt.suggested_qty);   // grammi
+    const baseG = parseFloat(rec.base_weight_g);  // grammi per batch
+    const sugKg = (sugG / 1000).toFixed(2).replace(/\.?0+$/, '');
+    const batches = baseG ? (sugG / baseG).toFixed(2).replace(/\.?0+$/, '') : null;
+    const batchLabel = batches && baseG ? ` (≈ ${batches} batch da ${(baseG/1000).toFixed(1).replace(/\.?0+$/,'')}kg)` : '';
+
+    // Aggiorna lo scaler per partire da suggested_qty
+    const inputWeight = sheetEl.querySelector('#scaleWeight');
+    const inputServ   = sheetEl.querySelector('#scaleServings');
+    const scaleNote   = sheetEl.querySelector('#scaleNote');
+    if (inputWeight && sugKg) {
+      inputWeight.value = sugKg;
+      // Triggera il cambio peso per scalare gli ingredienti
+      inputWeight.dispatchEvent(new Event('input'));
+    }
+
+    el.innerHTML =
+      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Bot suggestion · questa settimana</div>' +
+      '<div style="display:flex;gap:8px;">' +
+        '<div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:8px;">' +
+          '<span style="font-size:18px;">🤖</span>' +
+          '<div>' +
+            '<div style="font-size:17px;font-weight:900;color:#059669;line-height:1;">' + sugKg + ' kg</div>' +
+            '<div style="font-size:10px;color:#6b7280;margin-top:2px;">consigliati' + batchLabel + '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+  } catch(e) {
+    console.warn('recipePrepStats error:', e.message);
   }
 }
 
