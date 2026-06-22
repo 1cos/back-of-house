@@ -1,4 +1,25 @@
-# PROMPT PROSSIMA SESSIONE — Brigade v304
+# PROMPT PROSSIMA SESSIONE — Brigade v305
+
+## ⚠️ REGOLA FONDAMENTALE — INGREDIENTI (leggere PRIMA di tutto)
+
+**NON esiste il "BOM" per Max. Si chiamano SEMPRE e SOLO "ingredienti".**
+Mai usare le parole "BOM", "JSON", "cassetto", "campo database" parlando con Max. Lui è un cuoco: apre la ricetta, vede gli ingredienti, li modifica. Punto.
+
+**NON chiedere mai a Max di rifare gli ingredienti/BOM — li ha già.** Le 176+ ricette esistenti hanno già gli ingredienti completi. Prima di chiedere QUALSIASI cosa sugli ingredienti, LEGGI il database e verifica cosa c'è già.
+
+**Verità tecnica (per Claude, non per Max):** gli ingredienti vivono in DUE posti che devono restare SEMPRE sincronizzati:
+1. `recipes.ingredients` — campo JSON, formato `[{qty,name,unit,comment}]` — QUESTO è ciò che il form di Brigade legge e mostra
+2. `recipe_bom` — tabella relazionale (parent_recipe_id, component_type ITEM/RECIPE, item_id, sub_recipe_id, quantity, unit, notes)
+
+Il form di Brigade (`saveRecipeBOM` in recipes.js) scrive in ENTRAMBI automaticamente quando Max salva.
+**Se modifichi ingredienti via SQL diretto, DEVI aggiornare ENTRAMBI i posti, mai uno solo.** Altrimenti il form non mostra le modifiche (bug accaduto il 21/6, poi risolto).
+
+`notes`/`comment` = 'garnish' per ingredienti decorativi.
+Le quantità si mostrano pulite (300 non 300.0000) — fix v305 in renderIngLine.
+
+---
+
+# (segue contenuto sessione)
 
 ## PRIMA DI TUTTO
 1. Carica x_claude_GIthub.txt dal progetto
