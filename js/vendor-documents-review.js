@@ -8,7 +8,7 @@ window.openVendorDocumentsReview = function() {
 
   const modal = document.createElement('div');
   modal.id = 'vdrModal';
-  modal.className = 'fixed inset-0 z-[65] flex flex-col';
+  modal.className = 'fixed inset-0 z-[80] flex flex-col';
   modal.style.cssText = 'background:white;overflow-y:auto;';
   modal.innerHTML = `
     <div style="position:sticky;top:0;z-index:10;background:white;border-bottom:1px solid #f1f5f9;padding-top:env(safe-area-inset-top,0px);">
@@ -383,7 +383,7 @@ window.vdrToggle = function(id) {
   // Create bottom sheet
   const sheet = document.createElement('div');
   sheet.id = 'vdrSheet';
-  sheet.style.cssText = 'position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;justify-content:flex-end;';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:85;display:flex;flex-direction:column;justify-content:flex-end;';
 
   const pj = doc.parsed_json || {};
   const questions = vdrBuildQuestions(doc);
