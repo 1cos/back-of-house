@@ -101,8 +101,8 @@ function renderIngLine(i, scaleFactor, trMap, uLang){
   }
   const rawQty = parseFloat(i.qty);
   let qtyDisplay = i.qty || '';
-  if(!isNaN(rawQty) && scaleFactor && scaleFactor !== 1){
-    const scaled = rawQty * scaleFactor;
+  if(!isNaN(rawQty)){
+    const scaled = rawQty * (scaleFactor || 1);
     // Smart rounding: keep decimals only when meaningful
     qtyDisplay = scaled >= 100 ? Math.round(scaled).toString()
                : scaled >= 10  ? (Math.round(scaled * 10) / 10).toFixed(1).replace(/\.0$/,'')
@@ -951,4 +951,5 @@ async function saveRecipeBOM(recipeId, ingredientRows){
   const {error} = await supa.from('recipe_bom').insert(rows);
   if(error) console.error('[BOM] insert error:', error);
 }
+
 
