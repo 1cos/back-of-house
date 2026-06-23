@@ -307,7 +307,7 @@ function schedRender() {
   var container = document.getElementById('schedContent');
   if (!container) return;
   if (schedAllShifts.length === 0) {
-    container.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:40px 0;font-size:14px;">' + tr('sched_no_data') + '</div>';
+    container.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:40px 0;font-size:17px;">' + tr('sched_no_data') + '</div>';
     return;
   }
   if (schedCurrentView === 'oggi') { schedRenderOggi(container); }
@@ -347,9 +347,9 @@ function schedRenderOggi(container) {
 
     dayStripHtml += '<div onclick="schedSelectDay(' + idx + ')" style="display:flex;flex-direction:column;align-items:center;padding:8px 10px;border-radius:14px;min-width:46px;cursor:pointer;flex-shrink:0;' +
       (isSelected ? 'background:white;border:0.5px solid rgba(5,150,105,0.4);box-shadow:0 2px 8px rgba(30,58,95,0.1);' : 'background:rgba(255,255,255,0.5);border:0.5px solid rgba(59,130,246,0.1);') + '">' +
-      '<span style="font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + (isSelected ? '#059669' : '#94a3b8') + ';">' +
+      '<span style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + (isSelected ? '#059669' : '#94a3b8') + ';">' +
         (function(){var days=tr('sched_days');var di=d.getDay();return Array.isArray(days)?days[di===0?6:di-1]:d.toLocaleDateString('en-US',{weekday:'short'});})() + '</span>' +
-      '<span style="font-size:18px;font-weight:700;color:#1e3a5f;line-height:1.1;">' + d.getDate() + '</span>' +
+      '<span style="font-size:21px;font-weight:700;color:#1e3a5f;line-height:1.1;">' + d.getDate() + '</span>' +
       '<div style="display:flex;gap:3px;margin-top:2px;">' +
         (hasMorning ? '<div style="width:4px;height:4px;border-radius:50%;background:#2563eb;"></div>' : '') +
         (hasEvening ? '<div style="width:4px;height:4px;border-radius:50%;background:#059669;"></div>' : '') +
@@ -373,9 +373,9 @@ function schedRenderOggi(container) {
   var stationHtml = schedBuildStationCards(dayShifts);
 
   container.innerHTML = dayStripHtml + statsHtml +
-    '<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin-bottom:8px;">' + tr('sched_timeline') + '<div style="flex:1;height:0.5px;background:rgba(59,130,246,0.15);"></div></div>' +
+    '<div style="font-size:16px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin-bottom:8px;">' + tr('sched_timeline') + '<div style="flex:1;height:0.5px;background:rgba(59,130,246,0.15);"></div></div>' +
     timelineHtml +
-    '<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin:18px 0 8px;">' + tr('sched_by_station') + '<div style="flex:1;height:0.5px;background:rgba(59,130,246,0.15);"></div></div>' +
+    '<div style="font-size:16px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin:18px 0 8px;">' + tr('sched_by_station') + '<div style="flex:1;height:0.5px;background:rgba(59,130,246,0.15);"></div></div>' +
     stationHtml;
 }
 
@@ -393,20 +393,20 @@ function schedGetWeekDates() {
 
 function schedStatCard(val, lbl, color) {
   return '<div style="flex:1;background:rgba(255,255,255,0.6);backdrop-filter:blur(12px);border:0.5px solid rgba(59,130,246,0.15);border-radius:14px;padding:10px 12px;text-align:center;">' +
-    '<div style="font-size:24px;font-weight:800;color:' + color + ';line-height:1;">' + val + '</div>' +
-    '<div style="font-size:9px;font-weight:700;color:#94a3b8;letter-spacing:0.08em;text-transform:uppercase;margin-top:3px;">' + escHtml(lbl) + '</div>' +
+    '<div style="font-size:27px;font-weight:800;color:' + color + ';line-height:1;">' + val + '</div>' +
+    '<div style="font-size:12px;font-weight:700;color:#94a3b8;letter-spacing:0.08em;text-transform:uppercase;margin-top:3px;">' + escHtml(lbl) + '</div>' +
   '</div>';
 }
 
 // Timeline: 8am–midnight = 16h
 function schedBuildTimeline(dayShifts) {
-  if (dayShifts.length === 0) return '<div style="color:#94a3b8;font-size:13px;padding:16px 0;">' + tr('sched_no_shifts') + '</div>';
+  if (dayShifts.length === 0) return '<div style="color:#94a3b8;font-size:16px;padding:16px 0;">' + tr('sched_no_shifts') + '</div>';
 
   var START_H = 8, TOTAL_H = 16;
   var ticks = ['8a','10','12p','2p','4p','6p','8p','CL'];
 
   var axisHtml = '<div style="display:flex;padding-left:76px;margin-bottom:6px;">' +
-    ticks.map(function(t) { return '<div style="flex:1;font-size:8px;font-weight:600;color:#94a3b8;letter-spacing:0.04em;">' + t + '</div>'; }).join('') +
+    ticks.map(function(t) { return '<div style="flex:1;font-size:17px;font-weight:600;color:#94a3b8;letter-spacing:0.04em;">' + t + '</div>'; }).join('') +
   '</div>';
 
   // Unique employees preserving order
@@ -448,15 +448,15 @@ function schedBuildTimeline(dayShifts) {
           : 'background:rgba(239,68,68,0.12);border:0.5px solid rgba(239,68,68,0.3);';
         lblColor = isMorning ? '#d97706' : '#dc2626';
       }
-      return '<div style="position:absolute;top:3px;height:18px;border-radius:5px;left:' + left + '%;width:' + width + '%;' + barColor + 'display:flex;align-items:center;padding:0 5px;overflow:hidden;">' +
-        '<span style="font-size:8px;font-weight:700;letter-spacing:0.04em;white-space:nowrap;color:' + lblColor + ';">' + escHtml(lbl) + '</span>' +
+      return '<div style="position:absolute;top:4px;height:20px;border-radius:5px;left:' + left + '%;width:' + width + '%;' + barColor + 'display:flex;align-items:center;padding:0 5px;overflow:hidden;">' +
+        '<span style="font-size:17px;font-weight:700;letter-spacing:0.04em;white-space:nowrap;color:' + lblColor + ';">' + escHtml(lbl) + '</span>' +
       '</div>';
     }).join('');
 
     var firstName = name.split(' ')[0];
     return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
-      '<span style="width:70px;font-size:11px;font-weight:600;color:#1e3a5f;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;">' + escHtml(firstName) + '</span>' +
-      '<div style="flex:1;height:24px;background:rgba(59,130,246,0.04);border-radius:6px;border:0.5px solid rgba(59,130,246,0.08);position:relative;overflow:hidden;">' + bars + '</div>' +
+      '<span style="width:70px;font-size:17px;font-weight:600;color:#1e3a5f;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;">' + escHtml(firstName) + '</span>' +
+      '<div style="flex:1;height:28px;background:rgba(59,130,246,0.04);border-radius:6px;border:0.5px solid rgba(59,130,246,0.08);position:relative;overflow:hidden;">' + bars + '</div>' +
     '</div>';
   }).join('');
 
@@ -534,20 +534,20 @@ function schedBuildStationCards(dayShifts) {
         '<div style="display:flex;align-items:center;gap:10px;">' +
           '<div style="width:7px;height:7px;border-radius:50%;background:' + grp.dotColor + ';flex-shrink:0;"></div>' +
           '<div>' +
-            '<div style="font-size:14px;font-weight:600;color:#1e3a5f;">' + escHtml(s.employee_name) + '</div>' +
+            '<div style="font-size:17px;font-weight:600;color:#1e3a5f;">' + escHtml(s.employee_name) + '</div>' +
             (station && !/^(morning prep|evening)$/i.test(station)
-              ? '<div style="font-size:10px;font-weight:600;letter-spacing:0.04em;color:' + grp.color + ';text-transform:uppercase;">' + escHtml(station) + '</div>'
+              ? '<div style="font-size:16px;font-weight:600;letter-spacing:0.04em;color:' + grp.color + ';text-transform:uppercase;">' + escHtml(station) + '</div>'
               : '') +
           '</div>' +
         '</div>' +
-        '<span style="font-size:11px;color:#94a3b8;font-weight:500;white-space:nowrap;">' + escHtml(shiftStr) + '</span>' +
+        '<span style="font-size:17px;color:#94a3b8;font-weight:500;white-space:nowrap;">' + escHtml(shiftStr) + '</span>' +
       '</div>';
     }).join('');
 
     return '<div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(12px);border:0.5px solid ' + grp.border + ';border-radius:16px;overflow:hidden;margin-bottom:10px;">' +
       '<div style="padding:9px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:0.5px solid ' + grp.border + ';background:' + grp.bg + ';">' +
-        '<span style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:' + grp.color + ';">' + grp.label + '</span>' +
-        '<span style="font-size:10px;font-weight:700;color:' + grp.color + ';background:' + grp.bg + ';padding:2px 8px;border-radius:20px;border:0.5px solid ' + grp.border + ';">' + people.length + '</span>' +
+        '<span style="font-size:16px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:' + grp.color + ';">' + grp.label + '</span>' +
+        '<span style="font-size:16px;font-weight:700;color:' + grp.color + ';background:' + grp.bg + ';padding:2px 8px;border-radius:20px;border:0.5px solid ' + grp.border + ';">' + people.length + '</span>' +
       '</div>' +
       '<div style="padding:4px 14px;">' + rowsHtml + '</div>' +
     '</div>';
@@ -574,17 +574,17 @@ function schedRenderSettimana(container) {
 
   // Legend
   var legendHtml = '<div style="display:flex;gap:14px;padding:0 0 10px;align-items:center;">' +
-    '<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#94a3b8;font-weight:600;"><div style="width:8px;height:8px;border-radius:3px;background:rgba(37,99,235,0.3);"></div>M = Morning</div>' +
-    '<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#94a3b8;font-weight:600;"><div style="width:8px;height:8px;border-radius:3px;background:rgba(5,150,105,0.3);"></div>E = Evening</div>' +
-    '<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#94a3b8;font-weight:600;"><div style="width:8px;height:8px;border-radius:3px;background:rgba(30,58,95,0.2);"></div>D = Double</div>' +
+    '<div style="display:flex;align-items:center;gap:5px;font-size:16px;color:#94a3b8;font-weight:600;"><div style="width:8px;height:8px;border-radius:3px;background:rgba(37,99,235,0.3);"></div>M = Morning</div>' +
+    '<div style="display:flex;align-items:center;gap:5px;font-size:16px;color:#94a3b8;font-weight:600;"><div style="width:8px;height:8px;border-radius:3px;background:rgba(5,150,105,0.3);"></div>E = Evening</div>' +
+    '<div style="display:flex;align-items:center;gap:5px;font-size:16px;color:#94a3b8;font-weight:600;"><div style="width:8px;height:8px;border-radius:3px;background:rgba(30,58,95,0.2);"></div>D = Double</div>' +
   '</div>';
 
   // Build grid
-  var thCells = '<th style="text-align:left;min-width:88px;font-size:9px;font-weight:700;letter-spacing:0.1em;color:#94a3b8;padding:6px 6px;border-bottom:0.5px solid rgba(59,130,246,0.12);">Name</th>' +
+  var thCells = '<th style="text-align:left;min-width:88px;font-size:12px;font-weight:700;letter-spacing:0.1em;color:#94a3b8;padding:6px 6px;border-bottom:0.5px solid rgba(59,130,246,0.12);">Name</th>' +
     dayAbbrs.map(function(d) {
-      return '<th style="text-align:center;font-size:9px;font-weight:700;letter-spacing:0.1em;color:#94a3b8;padding:6px 6px;border-bottom:0.5px solid rgba(59,130,246,0.12);">' + d + '</th>';
+      return '<th style="text-align:center;font-size:12px;font-weight:700;letter-spacing:0.1em;color:#94a3b8;padding:6px 6px;border-bottom:0.5px solid rgba(59,130,246,0.12);">' + d + '</th>';
     }).join('') +
-    '<th style="text-align:right;font-size:9px;font-weight:700;letter-spacing:0.1em;color:#94a3b8;padding:6px 6px;border-bottom:0.5px solid rgba(59,130,246,0.12);">HRS</th>';
+    '<th style="text-align:right;font-size:12px;font-weight:700;letter-spacing:0.1em;color:#94a3b8;padding:6px 6px;border-bottom:0.5px solid rgba(59,130,246,0.12);">HRS</th>';
 
   var rowsHtml = employees.map(function(emp) {
     var empShifts = schedAllShifts.filter(function(s) { return s.employee_name === emp; });
@@ -592,7 +592,7 @@ function schedRenderSettimana(container) {
 
     var cells = weekDates.map(function(d) {
       var dayS = empShifts.filter(function(s) { return s.date === d; });
-      if (dayS.length === 0) return '<td style="text-align:center;padding:4px;border-bottom:0.5px solid rgba(59,130,246,0.05);"><span style="color:rgba(148,163,184,0.4);font-size:10px;font-weight:700;">—</span></td>';
+      if (dayS.length === 0) return '<td style="text-align:center;padding:4px;border-bottom:0.5px solid rgba(59,130,246,0.05);"><span style="color:rgba(148,163,184,0.4);font-size:16px;font-weight:700;">—</span></td>';
       var types = dayS.map(function(s) { return s.shift_type; });
       var isDouble = types.indexOf('double') >= 0 || (types.indexOf('morning') >= 0 && types.indexOf('evening') >= 0);
       var isEvening = !isDouble && types.indexOf('evening') >= 0;
@@ -603,14 +603,14 @@ function schedRenderSettimana(container) {
           ? 'background:rgba(5,150,105,0.1);color:#059669;border:0.5px solid rgba(5,150,105,0.2);'
           : 'background:rgba(37,99,235,0.1);color:#2563eb;border:0.5px solid rgba(37,99,235,0.2);');
       return '<td style="text-align:center;padding:4px;border-bottom:0.5px solid rgba(59,130,246,0.05);">' +
-        '<span style="display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;padding:3px 6px;border-radius:6px;min-width:26px;' + chipStyle + '">' + label + '</span>' +
+        '<span style="display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;padding:3px 6px;border-radius:6px;min-width:26px;' + chipStyle + '">' + label + '</span>' +
       '</td>';
     }).join('');
 
     return '<tr>' +
-      '<td style="text-align:left;font-size:13px;font-weight:600;color:#1e3a5f;white-space:nowrap;padding:4px 6px;border-bottom:0.5px solid rgba(59,130,246,0.05);">' + escHtml(emp) + '</td>' +
+      '<td style="text-align:left;font-size:16px;font-weight:600;color:#1e3a5f;white-space:nowrap;padding:4px 6px;border-bottom:0.5px solid rgba(59,130,246,0.05);">' + escHtml(emp) + '</td>' +
       cells +
-      '<td style="text-align:right;font-size:10px;font-weight:700;color:#94a3b8;padding:4px 6px;border-bottom:0.5px solid rgba(59,130,246,0.05);">' + (payHrs || '') + '</td>' +
+      '<td style="text-align:right;font-size:16px;font-weight:700;color:#94a3b8;padding:4px 6px;border-bottom:0.5px solid rgba(59,130,246,0.05);">' + (payHrs || '') + '</td>' +
     '</tr>';
   }).join('');
 
