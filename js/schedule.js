@@ -64,7 +64,7 @@ function schedUpdateLastSync() {
   });
   if (latest.synced_at) {
     var d = new Date(latest.synced_at);
-    el.textContent = 'Updated: ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+    el.textContent = tr('sched_updated') + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
       ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   }
 }
@@ -86,12 +86,12 @@ function schedOpenCsvImport() {
 
 function schedParseCsv(text, filename) {
   var btn = document.getElementById('schedSyncBtn');
-  if (btn) { btn.textContent = 'Importing...'; btn.disabled = true; }
+  if (btn) { btn.textContent = tr('sched_importing'); btn.disabled = true; }
 
   var lines = text.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
   if (lines.length < 2) {
     alert('CSV vuoto o non valido');
-    if (btn) { btn.textContent = 'Import CSV'; btn.disabled = false; }
+    if (btn) { btn.textContent = tr('sched_import'); btn.disabled = false; }
     return;
   }
 
@@ -171,7 +171,7 @@ function schedParseCsv(text, filename) {
         start_time: dc.date + 'T' + parsed.startStr + ':00',
         end_time: parsed.endStr ? (dc.date + 'T' + parsed.endStr + ':00') : null,
         start_label: schedFmtTime(parsed.startStr),
-        end_label: parsed.isClosing ? 'Close' : schedFmtTime(parsed.endStr),
+        end_label: parsed.isClosing ? tr('sched_close') : schedFmtTime(parsed.endStr),
         start_hour: parsed.startHour,
         is_closing: parsed.isClosing,
         shift_type: shiftType,
@@ -202,8 +202,8 @@ function schedParseCsv(text, filename) {
   }
 
   if (shifts.length === 0) {
-    alert('Nessun turno trovato nel CSV. Verifica il formato.');
-    if (btn) { btn.textContent = 'Import CSV'; btn.disabled = false; }
+    alert(tr('sched_no_shifts_csv'));
+    if (btn) { btn.textContent = tr('sched_import'); btn.disabled = false; }
     return;
   }
 
@@ -216,11 +216,11 @@ function schedParseCsv(text, filename) {
     window.supa.from('shifts_schedule').insert(shifts).then(function(res) {
       if (res.error) {
         console.error('[SCHED] Insert error:', res.error);
-        alert('Errore salvataggio: ' + res.error.message);
+        alert(tr('sched_save_error') + res.error.message);
       } else {
         schedLoadData();
-        if (btn) { btn.textContent = 'Importati ' + shifts.length + ' turni'; }
-        setTimeout(function() { if (btn) { btn.textContent = 'Import CSV'; btn.disabled = false; } }, 3000);
+        if (btn) { btn.textContent = tr('sched_imported').replace('{n}', shifts.length); }
+        setTimeout(function() { if (btn) { btn.textContent = tr('sched_import'); btn.disabled = false; } }, 3000);
       }
     });
   });
@@ -307,7 +307,7 @@ function schedRender() {
   var container = document.getElementById('schedContent');
   if (!container) return;
   if (schedAllShifts.length === 0) {
-    container.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:40px 0;font-size:14px;">Nessun dato. Importa il CSV da 7shifts.</div>';
+    container.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:40px 0;font-size:14px;">' + tr('sched_no_data') + '</div>';
     return;
   }
   if (schedCurrentView === 'oggi') { schedRenderOggi(container); }
@@ -348,7 +348,7 @@ function schedRenderOggi(container) {
     dayStripHtml += '<div onclick="schedSelectDay(' + idx + ')" style="display:flex;flex-direction:column;align-items:center;padding:8px 10px;border-radius:14px;min-width:46px;cursor:pointer;flex-shrink:0;' +
       (isSelected ? 'background:white;border:0.5px solid rgba(5,150,105,0.4);box-shadow:0 2px 8px rgba(30,58,95,0.1);' : 'background:rgba(255,255,255,0.5);border:0.5px solid rgba(59,130,246,0.1);') + '">' +
       '<span style="font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + (isSelected ? '#059669' : '#94a3b8') + ';">' +
-        d.toLocaleDateString('en-US', { weekday: 'short' }) + '</span>' +
+        (function(){var days=tr('sched_days');var di=d.getDay();return Array.isArray(days)?days[di===0?6:di-1]:d.toLocaleDateString('en-US',{weekday:'short'});})() + '</span>' +
       '<span style="font-size:18px;font-weight:700;color:#1e3a5f;line-height:1.1;">' + d.getDate() + '</span>' +
       '<div style="display:flex;gap:3px;margin-top:2px;">' +
         (hasMorning ? '<div style="width:4px;height:4px;border-radius:50%;background:#2563eb;"></div>' : '') +
@@ -361,9 +361,9 @@ function schedRenderOggi(container) {
 
   // Stats
   var statsHtml = '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
-    schedStatCard(morning.filter(function(s,i,a){ return a.findIndex(function(x){ return x.employee_name===s.employee_name; })===i; }).length, 'Morning', '#2563eb') +
-    schedStatCard(evening.filter(function(s,i,a){ return a.findIndex(function(x){ return x.employee_name===s.employee_name; })===i; }).length, 'Evening', '#059669') +
-    schedStatCard(totalPeople, 'On today', '#1e3a5f') +
+    schedStatCard(morning.filter(function(s,i,a){ return a.findIndex(function(x){ return x.employee_name===s.employee_name; })===i; }).length, tr('sched_morning'), '#2563eb') +
+    schedStatCard(evening.filter(function(s,i,a){ return a.findIndex(function(x){ return x.employee_name===s.employee_name; })===i; }).length, tr('sched_evening'), '#059669') +
+    schedStatCard(totalPeople, tr('sched_on_today'), '#1e3a5f') +
   '</div>';
 
   // Timeline
@@ -373,9 +373,9 @@ function schedRenderOggi(container) {
   var stationHtml = schedBuildStationCards(dayShifts);
 
   container.innerHTML = dayStripHtml + statsHtml +
-    '<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin-bottom:8px;">Timeline<div style="flex:1;height:0.5px;background:rgba(59,130,246,0.15);"></div></div>' +
+    '<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin-bottom:8px;">' + tr('sched_timeline') + '<div style="flex:1;height:0.5px;background:rgba(59,130,246,0.15);"></div></div>' +
     timelineHtml +
-    '<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin:18px 0 8px;">By Station<div style="flex:1;height:0.5px;background:rgba(59,130,246,0.15);"></div></div>' +
+    '<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin:18px 0 8px;">' + tr('sched_by_station') + '<div style="flex:1;height:0.5px;background:rgba(59,130,246,0.15);"></div></div>' +
     stationHtml;
 }
 
@@ -400,7 +400,7 @@ function schedStatCard(val, lbl, color) {
 
 // Timeline: 8am–midnight = 16h
 function schedBuildTimeline(dayShifts) {
-  if (dayShifts.length === 0) return '<div style="color:#94a3b8;font-size:13px;padding:16px 0;">Nessun turno</div>';
+  if (dayShifts.length === 0) return '<div style="color:#94a3b8;font-size:13px;padding:16px 0;">' + tr('sched_no_shifts') + '</div>';
 
   var START_H = 8, TOTAL_H = 16;
   var ticks = ['8a','10','12p','2p','4p','6p','8p','CL'];
@@ -422,7 +422,7 @@ function schedBuildTimeline(dayShifts) {
       if (sh === null) return '';
       // parse end hour from end_label: "4:30 PM" → 16.5
       var eh = sh + 6;
-      if (s.end_label && s.end_label !== 'Close') {
+      if (s.end_label && s.end_label !== tr('sched_close')) {
         var em = s.end_label.match(/(\d+)(?::(\d+))?\s*(AM|PM)/i);
         if (em) {
           var eh2 = parseInt(em[1], 10);
@@ -439,7 +439,7 @@ function schedBuildTimeline(dayShifts) {
         ? 'background:rgba(37,99,235,0.12);border:0.5px solid rgba(37,99,235,0.25);'
         : 'background:rgba(5,150,105,0.12);border:0.5px solid rgba(5,150,105,0.3);';
       var lblColor = isMorning ? '#2563eb' : '#059669';
-      var lbl = s.role_name || (isMorning ? 'Morning' : 'Evening');
+      var lbl = s.role_name || (isMorning ? tr('sched_morning') : tr('sched_evening'));
       // Color by station
       var isDish = /dish/i.test(lbl);
       if (isDish) {
@@ -482,7 +482,7 @@ function schedBuildStationCards(dayShifts) {
   var GROUPS = [
     {
       key: 'morning',
-      label: 'Morning',
+      label: tr('sched_morning'),
       color: '#2563eb',
       bg: 'rgba(37,99,235,0.06)',
       border: 'rgba(37,99,235,0.2)',
@@ -491,7 +491,7 @@ function schedBuildStationCards(dayShifts) {
     },
     {
       key: 'morning-dish',
-      label: 'Morning Dish',
+      label: tr('sched_morning_dish'),
       color: '#d97706',
       bg: 'rgba(245,158,11,0.06)',
       border: 'rgba(245,158,11,0.2)',
@@ -500,7 +500,7 @@ function schedBuildStationCards(dayShifts) {
     },
     {
       key: 'evening',
-      label: 'Evening',
+      label: tr('sched_evening'),
       color: '#059669',
       bg: 'rgba(5,150,105,0.06)',
       border: 'rgba(5,150,105,0.2)',
@@ -509,7 +509,7 @@ function schedBuildStationCards(dayShifts) {
     },
     {
       key: 'evening-dish',
-      label: 'Evening Dish',
+      label: tr('sched_evening_dish'),
       color: '#dc2626',
       bg: 'rgba(239,68,68,0.06)',
       border: 'rgba(239,68,68,0.2)',
@@ -558,7 +558,7 @@ function schedBuildStationCards(dayShifts) {
 function schedRenderSettimana(container) {
   var weekDates = schedGetWeekDates();
   if (weekDates.length === 0) {
-    container.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:40px 0;">Nessun dato</div>';
+    container.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:40px 0;">' + tr('sched_no_data') + '</div>';
     return;
   }
 
@@ -662,5 +662,5 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Update sync button label
   var btn = document.getElementById('schedSyncBtn');
-  if (btn) btn.textContent = 'Import CSV';
+  if (btn) btn.textContent = tr('sched_import');
 });
