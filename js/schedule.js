@@ -99,13 +99,19 @@ function schedParseCsv(text, filename) {
   var headers = schedCsvSplit(lines[0]);
 
   // Find column indexes
-  var iName = schedColIdx(headers, ['Employee Name', 'employee_name', 'Name']);
+  var iName = schedColIdx(headers, ['Name', 'Employee Name', 'employee_name', 'Full Name']);
   var iRole = schedColIdx(headers, ['Role', 'role_name', 'Position', 'Job']);
   var iDept = schedColIdx(headers, ['Department', 'department_name', 'Station']);
-  var iHrs  = schedColIdx(headers, ['Total Hours', 'Hours', 'payable_hours', 'Paid Hours']);
+  var iHrs  = schedColIdx(headers, ['Payable Hours', 'Total Hours', 'Hours', 'payable_hours', 'Paid Hours']);
 
-  // Day columns: Mon 6/23, Tue 6/24, etc.
+  // Day columns: supports both "Mon 6/23" and full "Monday"/"Tuesday" formats
+  var DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var DAY_ABBR  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  // Find the week start: look for a date header or use current Monday
   var dayCols = [];
+
+  // Try format: "Mon 6/23" or "Mon, 6/23"
   headers.forEach(function(h, idx) {
     var m = h.match(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[,\s]+(\d{1,2})\/(\d{1,2})/i);
     if (m) {
@@ -113,12 +119,34 @@ function schedParseCsv(text, filename) {
       var month = parseInt(m[2], 10);
       var day = parseInt(m[3], 10);
       var dateObj = new Date(year, month - 1, day);
-      dayCols.push({ idx: idx, date: dateObj.toISOString().split('T')[0] });
+      dayCols.push({ idx: idx, date: dateObj.toISOString().split('T')[0], dow: dateObj.getDay() });
     }
   });
 
+  // If no date headers found, try full day names: Monday, Tuesday...
+  if (dayCols.length === 0) {
+    // Find the Monday of the current week as anchor
+    var now = new Date();
+    var anchor = new Date(now);
+    var dayOfWeek = now.getDay(); // 0=Sun, 1=Mon...
+    var diffToMon = (dayOfWeek === 0) ? -6 : 1 - dayOfWeek;
+    anchor.setDate(now.getDate() + diffToMon);
+
+    headers.forEach(function(h, idx) {
+      var hClean = h.trim();
+      var fullIdx = DAY_NAMES.findIndex(function(d) { return d.toLowerCase() === hClean.toLowerCase(); });
+      if (fullIdx >= 0) {
+        var d = new Date(anchor);
+        // fullIdx: 0=Sun, 1=Mon... anchor is Monday (1)
+        var offset = fullIdx === 0 ? 6 : fullIdx - 1; // Mon=0 offset, Tue=1, ... Sun=6
+        d.setDate(anchor.getDate() + offset);
+        dayCols.push({ idx: idx, date: d.toISOString().split('T')[0], dow: fullIdx });
+      }
+    });
+  }
+
   // Derive week_start
-  var weekStart = dayCols.length > 0 ? dayCols[0].date : null;
+  var weekStart = dayCols.length > 0 ? dayCols.reduce(function(a,b){ return a.date < b.date ? a : b; }).date : null;
 
   var shifts = [];
   for (var r = 1; r < lines.length; r++) {
@@ -222,7 +250,11 @@ function schedParseShiftCell(cell) {
 
 function schedParseSingleShift(str) {
   str = str.trim();
-  // Match patterns: "8:00 AM - 2:30 PM", "8am-2:30pm", "8:00am-2:30pm"
+  // Extract role from parentheses: "8am - 2:30pm (Morning Prep)" → role = "Morning Prep"
+  var roleMatch = str.match(/\(([^)]+)\)/);
+  var role = roleMatch ? roleMatch[1].trim() : '';
+  str = str.replace(/\([^)]*\)/g, '').trim(); // remove parentheses
+  // Match patterns: "8:00 AM - 2:30 PM", "8am-2:30pm", "8am - 2:30pm"
   var m = str.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[-–to]+\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|close|cl)?/i);
   if (!m) return null;
 
@@ -248,7 +280,7 @@ function schedParseSingleShift(str) {
   var startStr = String(sh).padStart(2,'0') + ':' + String(sm).padStart(2,'0');
   var endStr = isClosing ? '23:59' : (String(eh).padStart(2,'0') + ':' + String(em).padStart(2,'0'));
 
-  return { startHour: sh, startStr: startStr, endStr: endStr, isClosing: isClosing, role: '' };
+  return { startHour: sh, startStr: startStr, endStr: endStr, isClosing: isClosing, role: role };
 }
 
 function schedColIdx(headers, names) {
