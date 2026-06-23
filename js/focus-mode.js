@@ -1,7 +1,7 @@
-// ── FOCUS MODE v5 ──
-// Staff only, 8AM-8PM CDT
-// Fix: _focusCurrentStation persiste tra START/DONE/realtime
-// Fix: no re-query su realtime — aggiorna solo il task cambiato in memoria
+// ── FOCUS MODE v6 ──
+// Staff only. Si attiva SOLO se l'utente è schedulato oggi in shifts_schedule
+// (match esatto su users.schedule_name), dentro la finestra esatta del turno.
+// is_closing → fine a mezzanotte. Niente fallback 8-20.
 
 var _focusStartTimes = {};
 var _focusChannel = null;
@@ -9,32 +9,56 @@ var _focusList = [];
 var _focusCurrentStation = null; // stazione attualmente visualizzata
 
 // Cache turni utente oggi
-var _focusShiftWindow = null; // {start: h, end: h} o null
+var _focusShiftWindow = null; // {start: h(float), end: h(float)} o null
 
 async function loadFocusShiftWindow() {
-  if (!user || !user.full_name) { _focusShiftWindow = null; return; }
+  _focusShiftWindow = null;
+  if (!user || !user.schedule_name) return;
   var todayStr = new Date().toLocaleString('en-CA', {timeZone:'America/Chicago'}).split(',')[0];
   var res = await supa.from('shifts_schedule')
-    .select('start_hour, end_time, is_closing')
+    .select('start_time, end_time, start_hour, is_closing')
     .eq('date', todayStr)
-    .ilike('employee_name', '%' + user.full_name.split(' ')[0] + '%');
-  if (res.error || !res.data || res.data.length === 0) { _focusShiftWindow = null; return; }
-  var startH = Math.min.apply(null, res.data.map(function(s){ return parseFloat(s.start_hour) || 8; }));
-  var endH = 20;
+    .eq('employee_name', user.schedule_name);
+  if (res.error || !res.data || res.data.length === 0) return;
+
+  // helper: estrae ora frazionaria CDT da un timestamp ISO
+  function hourFromTs(ts) {
+    if (!ts) return null;
+    var s = new Date(ts).toLocaleString('en-US', {timeZone:'America/Chicago', hour12:false, hour:'2-digit', minute:'2-digit'});
+    // s formato "HH:MM" o "HH:MM:SS"
+    var parts = s.split(':');
+    var hh = parseInt(parts[0], 10);
+    var mm = parseInt(parts[1], 10) || 0;
+    if (isNaN(hh)) return null;
+    return hh + (mm / 60);
+  }
+
+  var startH = null;
+  var endH = null;
   res.data.forEach(function(s) {
-    if (s.is_closing) { endH = 24; return; }
-    if (s.end_time) {
-      var h = new Date(s.end_time).toLocaleString('en-US', {timeZone:'America/Chicago', hour:'numeric', hour12:false});
-      endH = Math.max(endH, parseInt(h) || 20);
+    var sh = hourFromTs(s.start_time);
+    if (sh === null && s.start_hour != null) sh = parseFloat(s.start_hour);
+    if (sh !== null) startH = (startH === null) ? sh : Math.min(startH, sh);
+
+    var eh;
+    if (s.is_closing) {
+      eh = 24;
+    } else {
+      eh = hourFromTs(s.end_time);
     }
+    if (eh !== null && eh !== undefined) endH = (endH === null) ? eh : Math.max(endH, eh);
   });
+
+  if (startH === null || endH === null) return;
   _focusShiftWindow = { start: startH, end: endH };
 }
 
 function isFocusHour() {
-  var h = parseInt(new Date().toLocaleString('en-US', {timeZone:'America/Chicago', hour:'numeric', hour12:false}));
-  if (_focusShiftWindow) return h >= _focusShiftWindow.start && h < _focusShiftWindow.end;
-  return h >= 8 && h < 20; // fallback se nessun turno caricato
+  if (!_focusShiftWindow) return false; // niente turno = niente Focus Mode
+  var now = new Date().toLocaleString('en-US', {timeZone:'America/Chicago', hour12:false, hour:'2-digit', minute:'2-digit'});
+  var p = now.split(':');
+  var h = parseInt(p[0], 10) + (parseInt(p[1], 10) || 0) / 60;
+  return h >= _focusShiftWindow.start && h < _focusShiftWindow.end;
 }
 
 function shouldShowFocusMode() {
