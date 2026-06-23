@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Brigade — Prep & Focus Mode</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f2f4f8;
+    --surface: #ffffff;
+    --surface2: #f7f8fa;
+    --border: rgba(0,0,0,0.08);
+    --shadow: 0 2px 12px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.05);
+    --purple: #6b4fd8;
+    --purple-bg: rgba(107,79,216,0.08);
+    --purple-border: rgba(107,79,216,0.18);
+    --green: #2a9d5c;
+    --green-bg: rgba(42,157,92,0.09);
+    --green-border: rgba(42,157,92,0.2);
+    --orange: #e07b2a;
+    --orange-bg: rgba(224,123,42,0.09);
+    --text: #0f1117;
+    --text2: #3c4048;
+    --muted: #7a8190;
+    --es: #6b4fd8;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, sans-serif; overflow: hidden; -webkit-font-smoothing: antialiased; }
+  .deck { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  .progress-track { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: rgba(0,0,0,0.08); z-index: 10; }
+  .progress-fill { height: 100%; background: var(--purple); width: 0%; transition: width 0.5s cubic-bezier(.4,0,.2,1); }
+  .timer-track { position: absolute; top: 3px; left: 0; right: 0; height: 2px; z-index: 10; }
+  .timer-fill { height: 100%; background: rgba(107,79,216,0.22); width: 0%; }
+  .timer-fill.running { transition: width linear; }
+  .counter { position: absolute; top: 14px; right: 18px; font-size: 11px; font-weight: 600; color: var(--muted); z-index: 10; }
+  .pause-indicator { position: absolute; top: 14px; left: 18px; font-size: 11px; font-weight: 600; color: var(--muted); z-index: 10; opacity: 0; transition: opacity 0.3s; }
+  .pause-indicator.visible { opacity: 1; }
+  .slides { flex: 1; position: relative; overflow: hidden; }
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    padding: 52px 24px 88px;
+    opacity: 0; transform: translateX(32px);
+    transition: opacity 0.5s cubic-bezier(.4,0,.2,1), transform 0.5s cubic-bezier(.4,0,.2,1);
+    pointer-events: none; text-align: center;
+  }
+  .slide.active { opacity: 1; transform: translateX(0); pointer-events: all; }
+  .slide.exit { opacity: 0; transform: translateX(-32px); transition: opacity 0.35s ease, transform 0.35s ease; pointer-events: none; }
+  .slide.active > * { animation: fadeUp 0.5s cubic-bezier(.4,0,.2,1) both; }
+  .slide.active > *:nth-child(1) { animation-delay: 0.05s; }
+  .slide.active > *:nth-child(2) { animation-delay: 0.12s; }
+  .slide.active > *:nth-child(3) { animation-delay: 0.19s; }
+  .slide.active > *:nth-child(4) { animation-delay: 0.26s; }
+  .slide.active > *:nth-child(5) { animation-delay: 0.33s; }
+  .slide.active > *:nth-child(6) { animation-delay: 0.40s; }
+  .slide.active > *:nth-child(7) { animation-delay: 0.47s; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+
+  .eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--purple); margin-bottom: 14px; }
+  .headline { font-size: clamp(24px, 6.5vw, 38px); font-weight: 700; line-height: 1.15; color: var(--text); margin-bottom: 10px; letter-spacing: -0.02em; }
+  .headline em { color: var(--purple); font-style: normal; }
+  .headline.green em { color: var(--green); }
+  .subline-en { font-size: clamp(13px, 3.5vw, 15px); color: var(--text2); line-height: 1.6; max-width: 340px; }
+  .subline-es { font-size: clamp(12px, 3vw, 13px); color: var(--es); line-height: 1.6; max-width: 340px; opacity: 0.85; }
+  .lang-divider { width: 28px; height: 1px; background: var(--border); margin: 11px auto; }
+
+  .slide-icon { font-size: 48px; margin-bottom: 20px; line-height: 1; }
+
+  /* mock phone UI elements */
+  .mock-station {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    padding: 16px 18px;
+    width: 100%; max-width: 340px;
+    margin-top: 18px;
+    text-align: left;
+  }
+  .mock-station-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--purple); margin-bottom: 12px;
+  }
+  .mock-task {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .mock-task:last-child { border-bottom: none; padding-bottom: 0; }
+  .mock-check {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 2px solid #c8ccd4;
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+  }
+  .mock-check.done { background: var(--green); border-color: var(--green); color: #fff; }
+  .mock-check.progress { border-color: var(--orange); }
+  .mock-task-name { font-size: 13px; font-weight: 500; color: var(--text); flex: 1; }
+  .mock-task-qty { font-size: 12px; color: var(--muted); }
+  .mock-task-qty.highlight { color: var(--green); font-weight: 600; }
+
+  /* focus mode mock */
+  .focus-mock {
+    background: #1a1a2e;
+    border-radius: 18px;
+    padding: 20px 20px 16px;
+    width: 100%; max-width: 340px;
+    margin-top: 18px;
+    text-align: left;
+    position: relative;
+    overflow: hidden;
+  }
+  .focus-mock::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--purple), #a07ee0);
+  }
+  .focus-label { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #a07ee0; margin-bottom: 14px; }
+  .focus-task {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 10px;
+    margin-bottom: 8px;
+  }
+  .focus-task-icon { font-size: 18px; }
+  .focus-task-name { font-size: 13px; font-weight: 600; color: #f0ede8; flex: 1; }
+  .focus-task-time { font-size: 11px; color: #a07ee0; }
+  .focus-timer {
+    margin-top: 12px;
+    background: rgba(107,79,216,0.25);
+    border-radius: 6px;
+    height: 6px;
+    overflow: hidden;
+  }
+  .focus-timer-fill {
+    height: 100%;
+    width: 60%;
+    background: #a07ee0;
+    border-radius: 6px;
+  }
+  .focus-timer-label {
+    font-size: 10px; color: #888; margin-top: 6px; text-align: right;
+  }
+
+  .pill-grid { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 360px; margin-top: 18px; }
+  .pill {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; box-shadow: var(--shadow);
+    padding: 13px 16px; display: flex; align-items: flex-start; gap: 12px; text-align: left;
+  }
+  .pill-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+  .pill-en { font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.45; }
+  .pill-es { font-size: 12px; color: var(--es); margin-top: 3px; line-height: 1.45; }
+
+  .hbox {
+    background: var(--purple-bg); border: 1px solid var(--purple-border);
+    border-radius: 14px; padding: 15px 18px;
+    max-width: 360px; width: 100%; margin-top: 16px; text-align: left;
+  }
+  .hbox .en { font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.5; }
+  .hbox .es { font-size: 12px; color: var(--es); margin-top: 5px; line-height: 1.5; }
+
+  .hbox.green { background: var(--green-bg); border-color: var(--green-border); }
+  .hbox.green .en { color: var(--green); }
+
+  .tag {
+    display: inline-block;
+    background: var(--purple-bg); border: 1px solid var(--purple-border);
+    border-radius: 100px; padding: 4px 12px;
+    font-size: 11px; font-weight: 600; color: var(--purple);
+    margin-bottom: 16px;
+  }
+
+  /* nav */
+  .nav {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 80px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px;
+    background: linear-gradient(to top, var(--bg) 65%, transparent);
+    z-index: 10;
+  }
+  .nav-btn {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); font-family: inherit; font-size: 14px; font-weight: 600;
+    padding: 11px 22px; border-radius: 100px; cursor: pointer;
+    box-shadow: var(--shadow); -webkit-tap-highlight-color: transparent; white-space: nowrap;
+  }
+  .nav-btn:disabled { opacity: 0.25; cursor: default; box-shadow: none; }
+  .nav-btn:active:not(:disabled) { opacity: 0.7; }
+  .nav-btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; box-shadow: 0 4px 14px rgba(107,79,216,0.35); padding: 11px 24px; }
+  .dots { display: flex; gap: 5px; align-items: center; flex: 1; justify-content: center; padding: 0 8px; }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: #c8ccd4; transition: all 0.3s cubic-bezier(.4,0,.2,1); flex-shrink: 0; }
+  .dot.active { background: var(--purple); width: 16px; border-radius: 3px; }
+  .tap-zone-left, .tap-zone-right { position: absolute; top: 0; bottom: 80px; width: 40%; z-index: 5; cursor: pointer; }
+  .tap-zone-left { left: 0; } .tap-zone-right { right: 0; }
+</style>
+</head>
+<body>
+<div class="deck">
+  <div class="progress-track"><div class="progress-fill" id="pf"></div></div>
+  <div class="timer-track"><div class="timer-fill" id="tf"></div></div>
+  <div class="counter" id="ctr"></div>
+  <div class="pause-indicator" id="pauseInd">⏸ Paused — tap to resume</div>
+
+  <div class="slides">
+
+    <!-- 1 Cover -->
+    <div class="slide active">
+      <div class="slide-icon">📋</div>
+      <div class="tag">Chapter 2 / Capítulo 2</div>
+      <h1 class="headline">Prep &<br><em>Focus Mode</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">How to use your station every morning — and what happens when your shift starts.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Cómo usar tu estación cada mañana — y qué pasa cuando empieza tu turno.</p>
+    </div>
+
+    <!-- 2 Your station -->
+    <div class="slide">
+      <div class="eyebrow">Morning / Mañana</div>
+      <h1 class="headline">Open Brigade.<br><em>Your station is ready.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">Brigade knows your station. When you log in, you see exactly what needs to be done — no searching, no asking.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Brigade conoce tu estación. Cuando entras, ves exactamente lo que hay que hacer — sin buscar, sin preguntar.</p>
+      <div class="mock-station">
+        <div class="mock-station-label">🍝 Pasta Station</div>
+        <div class="mock-task">
+          <div class="mock-check done">✓</div>
+          <div class="mock-task-name">Bolognese</div>
+          <div class="mock-task-qty highlight">12 qt done</div>
+        </div>
+        <div class="mock-task">
+          <div class="mock-check progress"></div>
+          <div class="mock-task-name">Arrabbiata</div>
+          <div class="mock-task-qty">8 qt needed</div>
+        </div>
+        <div class="mock-task">
+          <div class="mock-check"></div>
+          <div class="mock-task-name">Fresh Pasta — Fettuccine</div>
+          <div class="mock-task-qty">9 containers</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 Tap to start -->
+    <div class="slide">
+      <div class="eyebrow">Starting a task / Iniciar una tarea</div>
+      <h1 class="headline">Tap the task.<br><em>Press Start.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">Brigade starts a timer the moment you begin. When you're done, enter the quantity you made and tap Done.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Brigade inicia un temporizador en el momento en que comienzas. Cuando terminas, ingresa la cantidad que hiciste y toca Listo.</p>
+      <div class="pill-grid">
+        <div class="pill">
+          <div class="pill-icon">▶️</div>
+          <div>
+            <div class="pill-en"><strong>Start</strong> — timer begins. The system knows you're working on it.</div>
+            <div class="pill-es"><strong>Inicio</strong> — empieza el temporizador. El sistema sabe que estás trabajando.</div>
+          </div>
+        </div>
+        <div class="pill">
+          <div class="pill-icon">✅</div>
+          <div>
+            <div class="pill-en"><strong>Done</strong> — enter qty made. Your production is logged automatically.</div>
+            <div class="pill-es"><strong>Listo</strong> — ingresa la cantidad. Tu producción queda registrada automáticamente.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 Quantity matters -->
+    <div class="slide">
+      <div class="eyebrow">Why it matters / Por qué importa</div>
+      <h1 class="headline">Your numbers<br><em>feed the system.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">Every quantity you log teaches Brigade. Over time, it learns how much your station needs on a Monday vs a Friday — and starts suggesting the right amounts automatically.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Cada cantidad que registras enseña a Brigade. Con el tiempo, aprende cuánto necesita tu estación un lunes vs un viernes — y empieza a sugerir las cantidades correctas automáticamente.</p>
+      <div class="hbox green">
+        <div class="en">✓ More logs = smarter suggestions = less waste, less running out.</div>
+        <div class="es">✓ Más registros = sugerencias más inteligentes = menos desperdicio, menos faltantes.</div>
+      </div>
+    </div>
+
+    <!-- 5 Focus Mode intro -->
+    <div class="slide">
+      <div class="slide-icon">🎯</div>
+      <div class="eyebrow">Focus Mode</div>
+      <h1 class="headline">Your shift starts.<br><em>Brigade locks in.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">When you're scheduled to work, Brigade enters Focus Mode. The app shows only what you need right now — your station, your tasks, nothing else.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Cuando estás programado para trabajar, Brigade entra en Modo Focus. La app muestra solo lo que necesitas ahora — tu estación, tus tareas, nada más.</p>
+    </div>
+
+    <!-- 6 Focus Mode visual -->
+    <div class="slide">
+      <div class="eyebrow">Focus Mode — what you see / Lo que ves</div>
+      <h1 class="headline">Clean.<br><em>No distractions.</em></h1>
+      <div class="focus-mock">
+        <div class="focus-label">🎯 Focus Mode — Pasta Station</div>
+        <div class="focus-task">
+          <div class="focus-task-icon">🍝</div>
+          <div class="focus-task-name">Arrabbiata — 8 qt</div>
+          <div class="focus-task-time">▶ 14 min</div>
+        </div>
+        <div class="focus-task" style="opacity:0.5;">
+          <div class="focus-task-icon">🍝</div>
+          <div class="focus-task-name">Fresh Pasta — 9 containers</div>
+          <div class="focus-task-time">Next</div>
+        </div>
+        <div class="focus-timer"><div class="focus-timer-fill"></div></div>
+        <div class="focus-timer-label">In progress · 14 min elapsed</div>
+      </div>
+      <div class="hbox" style="margin-top:14px;">
+        <div class="en">Your schedule drives it. No schedule = no Focus Mode.</div>
+        <div class="es">Tu horario lo activa. Sin horario = sin Modo Focus.</div>
+      </div>
+    </div>
+
+    <!-- 7 Recipes -->
+    <div class="slide">
+      <div class="eyebrow">Recipes / Recetas</div>
+      <h1 class="headline">Not sure<br><em>how to make it?</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">Every prep task links directly to its recipe. Tap the task — tap the recipe — follow the steps. Procedure, quantities, shelf life. All there.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Cada tarea de prep enlaza directamente con su receta. Toca la tarea — toca la receta — sigue los pasos. Procedimiento, cantidades, vida útil. Todo ahí.</p>
+      <div class="pill-grid">
+        <div class="pill">
+          <div class="pill-icon">📖</div>
+          <div>
+            <div class="pill-en">Recipes are always up to date — Chef Max updates them directly in Brigade.</div>
+            <div class="pill-es">Las recetas siempre están actualizadas — el Chef Max las actualiza directamente en Brigade.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8 No Need -->
+    <div class="slide">
+      <div class="slide-icon">👍</div>
+      <div class="eyebrow">Already stocked / Ya hay suficiente</div>
+      <h1 class="headline">Already enough?<br><em>Mark No Need.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">If something is already stocked from yesterday, don't make more — tap "No Need" and move on. This keeps the system honest.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Si algo ya tiene stock de ayer, no hagas más — toca "No Need" y sigue adelante. Esto mantiene el sistema preciso.</p>
+      <div class="hbox">
+        <div class="en">⚠️ Only mark No Need if it's truly stocked. The closing crew marked it yesterday — if they were wrong, the system will catch it.</div>
+        <div class="es">⚠️ Solo marca No Need si realmente hay stock. El cierre lo marcó ayer — si estaban equivocados, el sistema lo detectará.</div>
+      </div>
+    </div>
+
+    <!-- 9 Summary -->
+    <div class="slide">
+      <div class="eyebrow">Summary / Resumen</div>
+      <h1 class="headline">Prep in<br><em>four steps.</em></h1>
+      <div class="pill-grid">
+        <div class="pill">
+          <div class="pill-icon">1️⃣</div>
+          <div>
+            <div class="pill-en">Open Brigade → see your station tasks</div>
+            <div class="pill-es">Abre Brigade → ve las tareas de tu estación</div>
+          </div>
+        </div>
+        <div class="pill">
+          <div class="pill-icon">2️⃣</div>
+          <div>
+            <div class="pill-en">Tap task → Start → cook</div>
+            <div class="pill-es">Toca la tarea → Inicio → cocina</div>
+          </div>
+        </div>
+        <div class="pill">
+          <div class="pill-icon">3️⃣</div>
+          <div>
+            <div class="pill-en">Done → enter quantity made</div>
+            <div class="pill-es">Listo → ingresa la cantidad producida</div>
+          </div>
+        </div>
+        <div class="pill">
+          <div class="pill-icon">4️⃣</div>
+          <div>
+            <div class="pill-en">Already stocked? → No Need → next task</div>
+            <div class="pill-es">¿Ya hay? → No Need → siguiente tarea</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 10 Closing -->
+    <div class="slide">
+      <div class="slide-icon">🍳</div>
+      <h1 class="headline">Your prep.<br><em>Your station.<br>Your record.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">Every task you complete builds the history that makes the whole kitchen smarter. It starts with you.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Cada tarea que completas construye el historial que hace más inteligente a toda la cocina. Empieza contigo.</p>
+      <div class="hbox" style="margin-top:18px;">
+        <div class="en">Next: Chat — how to talk to the whole team in any language.</div>
+        <div class="es">Siguiente: Chat — cómo hablar con todo el equipo en cualquier idioma.</div>
+      </div>
+    </div>
+
+  </div><!-- /slides -->
+
+  <div class="tap-zone-left" id="tzl"></div>
+  <div class="tap-zone-right" id="tzr"></div>
+
+  <nav class="nav">
+    <button class="nav-btn" id="prevBtn" disabled>← Back</button>
+    <div class="dots" id="dots"></div>
+    <button class="nav-btn primary" id="nextBtn">Next →</button>
+  </nav>
+</div>
+
+<script>
+(function() {
+  var SLIDE_DURATION = 6000;
+  var slides = document.querySelectorAll('.slide');
+  var total = slides.length;
+  var current = 0;
+  var paused = false;
+  var timer = null;
+  var timerStart = null;
+  var timerRemaining = SLIDE_DURATION;
+
+  var pf = document.getElementById('pf');
+  var tf = document.getElementById('tf');
+  var ctr = document.getElementById('ctr');
+  var prevBtn = document.getElementById('prevBtn');
+  var nextBtn = document.getElementById('nextBtn');
+  var dotsEl = document.getElementById('dots');
+  var pauseInd = document.getElementById('pauseInd');
+
+  for (var i = 0; i < total; i++) {
+    var d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    dotsEl.appendChild(d);
+  }
+
+  function goTo(idx) {
+    if (idx < 0 || idx >= total) return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add('exit');
+    var leaving = slides[current];
+    setTimeout(function() { leaving.classList.remove('exit'); }, 450);
+    current = idx;
+    slides[current].classList.add('active');
+    update();
+    resetTimer();
+  }
+
+  function update() {
+    pf.style.width = ((current + 1) / total * 100) + '%';
+    ctr.textContent = (current + 1) + ' / ' + total;
+    var allDots = document.querySelectorAll('.dot');
+    for (var i = 0; i < allDots.length; i++) { allDots[i].classList.toggle('active', i === current); }
+    prevBtn.disabled = current === 0;
+    nextBtn.textContent = current === total - 1 ? '↺ Restart' : 'Next →';
+  }
+
+  function startTimer(duration) {
+    clearTimeout(timer);
+    timerRemaining = duration || SLIDE_DURATION;
+    timerStart = Date.now();
+    tf.classList.remove('running');
+    tf.style.width = '0%';
+    tf.style.transition = 'none';
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        tf.style.transition = 'width ' + (timerRemaining / 1000) + 's linear';
+        tf.style.width = '100%';
+        tf.classList.add('running');
+      });
+    });
+    timer = setTimeout(function() {
+      if (current < total - 1) { goTo(current + 1); } else { tf.style.width = '0%'; }
+    }, timerRemaining);
+  }
+
+  function resetTimer() { if (!paused) startTimer(SLIDE_DURATION); }
+
+  function pauseTimer() {
+    paused = true;
+    clearTimeout(timer);
+    var elapsed = Date.now() - timerStart;
+    timerRemaining = Math.max(0, timerRemaining - elapsed);
+    tf.style.transition = 'none';
+    pauseInd.classList.add('visible');
+  }
+
+  function resumeTimer() {
+    paused = false;
+    pauseInd.classList.remove('visible');
+    startTimer(timerRemaining);
+  }
+
+  document.getElementById('tzl').addEventListener('click', function() { paused ? resumeTimer() : pauseTimer(); });
+  document.getElementById('tzr').addEventListener('click', function() { paused ? resumeTimer() : pauseTimer(); });
+
+  prevBtn.addEventListener('click', function() { paused = false; pauseInd.classList.remove('visible'); goTo(current - 1); });
+  nextBtn.addEventListener('click', function() { paused = false; pauseInd.classList.remove('visible'); if (current === total - 1) { goTo(0); } else { goTo(current + 1); } });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowRight' || e.key === ' ') { paused = false; goTo(current + 1); }
+    if (e.key === 'ArrowLeft') { paused = false; goTo(current - 1); }
+  });
+
+  var tsx = 0;
+  document.addEventListener('touchstart', function(e) { tsx = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', function(e) {
+    var dx = e.changedTouches[0].clientX - tsx;
+    if (Math.abs(dx) > 60) { paused = false; pauseInd.classList.remove('visible'); if (dx < 0) goTo(current + 1); else goTo(current - 1); }
+  }, { passive: true });
+
+  update();
+  startTimer(SLIDE_DURATION);
+})();
+</script>
+</body>
+</html>
