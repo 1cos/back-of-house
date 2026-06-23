@@ -185,13 +185,13 @@ function schedParseCsv(text, filename) {
           date: dc.date,
           week_start: weekStart,
           employee_name: empName,
-          role_name: roleName || parsed.role || '',
+          role_name: roleName || parsed.role2 || parsed.role || '',
           department_name: deptName,
           start_time: dc.date + 'T' + parsed.start2Str + ':00',
           end_time: parsed.end2Str ? (dc.date + 'T' + parsed.end2Str + ':00') : null,
           start_label: schedFmtTime(parsed.start2Str),
           end_label: schedFmtTime(parsed.end2Str),
-          start_hour: parsed.start2Hour || (parsed.startHour + 9),
+          start_hour: parsed.start2Str ? parseInt(parsed.start2Str.split(':')[0], 10) : (parsed.startHour + 9),
           is_closing: false,
           shift_type: 'double',
           payable_hours: null,
@@ -236,7 +236,8 @@ function schedParseShiftCell(cell) {
     return {
       startHour: p1.startHour, startStr: p1.startStr, endStr: p1.endStr,
       isClosing: p1.isClosing, isDouble: true, role: p1.role,
-      start2Str: p2 ? p2.startStr : null, end2Str: p2 ? p2.endStr : null
+      start2Str: p2 ? p2.startStr : null, end2Str: p2 ? p2.endStr : null,
+      role2: p2 ? p2.role : ''
     };
   }
   var s = schedParseSingleShift(cell);
@@ -253,16 +254,16 @@ function schedParseSingleShift(str) {
   var role = roleMatch ? roleMatch[1].trim() : '';
   str = str.replace(/\([^)]*\)/g, '').trim(); // remove parentheses
   // Match patterns: "8:00 AM - 2:30 PM", "8am-2:30pm", "8am - 2:30pm"
-  var m = str.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[-–to]+\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|close|cl)?/i);
+  var m = str.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[-–to]+\s*(?:(\d{1,2})(?::(\d{2}))?\s*(am|pm)?|(close|cl))/i);
   if (!m) return null;
 
   var sh = parseInt(m[1], 10);
   var sm = parseInt(m[2] || '0', 10);
   var sAmPm = (m[3] || '').toLowerCase();
-  var eh = parseInt(m[4], 10);
+  var eh = m[4] ? parseInt(m[4], 10) : 0;
   var em = parseInt(m[5] || '0', 10);
   var eAmPm = (m[6] || '').toLowerCase();
-  var isClosing = /close|cl/i.test(m[6] || '');
+  var isClosing = /close|cl/i.test(m[7] || m[6] || '');
 
   // Resolve AM/PM
   if (sAmPm === 'pm' && sh < 12) sh += 12;
