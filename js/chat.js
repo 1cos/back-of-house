@@ -1,6 +1,53 @@
 // ── CHAT — Glass Effect Apple ──
 const REACTIONS = ['👍','✅','👀','🔥','❤️','😂','🙏'];
 
+// ── FOTO IN CHAT ─────────────────────────────────────────────
+var _chatPendingImageFile = null;  // file selezionato, in attesa di invio
+
+window.onChatImgSelected = function(input) {
+  const file = input.files[0];
+  if (!file) return;
+  _chatPendingImageFile = file;
+  // Mostra thumbnail preview
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const thumb = document.getElementById('chatImgThumb');
+    const preview = document.getElementById('chatImgPreview');
+    if (thumb) thumb.src = e.target.result;
+    if (preview) preview.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+};
+
+window.clearChatImg = function() {
+  _chatPendingImageFile = null;
+  const preview = document.getElementById('chatImgPreview');
+  const input = document.getElementById('chatImgInput');
+  if (preview) preview.style.display = 'none';
+  if (input) input.value = '';
+};
+
+async function uploadChatImage(file) {
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = 'chat/' + Date.now() + '_' + Math.random().toString(36).slice(2,7) + '.' + ext;
+  const { data, error } = await supa.storage.from('chat-images').upload(path, file, {
+    cacheControl: '3600',
+    upsert: false,
+    contentType: file.type
+  });
+  if (error) throw error;
+  const { data: urlData } = supa.storage.from('chat-images').getPublicUrl(path);
+  return urlData.publicUrl;
+}
+
+function _renderChatImg(imageUrl, hasText) {
+  if (!imageUrl) return '';
+  var mt = hasText ? '8px' : '0';
+  return '<img src="' + imageUrl + '" onclick="openChatImg(this.src)" style="max-width:200px;max-height:200px;border-radius:10px;display:block;margin-top:' + mt + ';cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.15);" />';
+}
+
+
+
 
 // Traccia se Focus Mode era attiva prima di aprire la chat
 var _chatOpenedFromFocus = false;
@@ -188,7 +235,7 @@ function addMsg(m,init){
           font-size:14px;line-height:1.45;
           box-shadow:0 4px 20px rgba(3,105,161,0.25),inset 0 1px 0 rgba(255,255,255,0.15);
           border:0.5px solid rgba(255,255,255,0.15);
-        ">${m.text}</div>
+        ">${m.text||''}${_renderChatImg(m.image_url, !!(m.text))}</div>
         <div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:4px;padding-right:4px;">
           ${formatTimeDallas(m.created_at)}
         </div>
@@ -218,7 +265,7 @@ function addMsg(m,init){
           padding:11px 15px;border-radius:20px 20px 20px 5px;
           font-size:14px;line-height:1.45;color:#1e293b;
           box-shadow:0 4px 20px rgba(0,0,0,0.06),inset 0 1px 0 rgba(255,255,255,0.8);
-        ">${m.text}</div>
+        ">${m.text||''}${_renderChatImg(m.image_url, !!(m.text))}</div>
         ${needs?`<div style="font-size:11px;color:#94a3b8;font-style:italic;margin-top:4px;padding-left:4px;" data-tr>⏳ traduzione...</div>`:''}
         <div style="font-size:10px;color:#94a3b8;margin-top:4px;padding-left:4px;">${formatTimeDallas(m.created_at)}</div>
         <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">
@@ -342,20 +389,45 @@ document.getElementById('f').onsubmit=async e=>{
   e.preventDefault();
   const input=document.getElementById('txt');
   const v=input.value.trim();
-  if(!v) return;
+  const hasImg = !!_chatPendingImageFile;
+  if(!v && !hasImg) return;
   input.value='';
+  // Upload immagine se presente
+  let imageUrl = null;
+  if(hasImg){
+    try{
+      imageUrl = await uploadChatImage(_chatPendingImageFile);
+    }catch(err){
+      console.error('Upload foto fallito:', err);
+    }
+    clearChatImg();
+  }
   // Detect lingua PRIMA di inserire — await garantisce che lang sia corretto
   let detectedLang = normalizeLang(user.lang);
-  try{
-    const r = await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
-      body:JSON.stringify({text:v, targetLang:'__detect__'})
-    });
-    const j = await r.json();
-    if(j.detected) detectedLang = normalizeLang(j.detected);
-  }catch(e){ console.warn('detect failed, using profile lang:', e.message); }
-  await supa.from('messages').insert({text:v, user_name:user.name, lang:detectedLang});
+  if(v){
+    try{
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+        body:JSON.stringify({text:v, targetLang:'__detect__'})
+      });
+      const j = await r.json();
+      if(j.detected) detectedLang = normalizeLang(j.detected);
+    }catch(e){ console.warn('detect failed, using profile lang:', e.message); }
+  }
+  const payload = {text:v||'', user_name:user.name, lang:detectedLang};
+  if(imageUrl) payload.image_url = imageUrl;
+  await supa.from('messages').insert(payload);
+};
+
+// Fullscreen viewer immagine chat
+window.openChatImg = function(urlOrEl){
+  const url = (typeof urlOrEl === 'string') ? urlOrEl : urlOrEl;
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.92);display:flex;align-items:center;justify-content:center;';
+  overlay.onclick = function(){ overlay.remove(); };
+  overlay.innerHTML = '<img src="'+url+'" style="max-width:95vw;max-height:90vh;border-radius:12px;object-fit:contain;" />';
+  document.body.appendChild(overlay);
 };
 
 // ── REPORT ───────────────────────────────────────────────────
