@@ -15,13 +15,21 @@ async function init(){
     const{data:recs}=await supa.from('recipes').select('*').order('title');
     if(recs) SHOP_RECIPES=recs.map(r=>({...r,ingredients:typeof r.ingredients==='string'?JSON.parse(r.ingredients):(r.ingredients||[]),yield:r.yield_text,prep_time:r.prep_time_minutes}));
   }catch(e){}
-  const ALL_STATIONS = ['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Table Side','Freezer'];
+  const KITCHEN_STATIONS = ['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Table Side','Freezer'];
+  const DISH_STATION = 'Dish Crew';
+  const isDishCrew = !isAdmin() && user && user.default_station === DISH_STATION;
+  // Admin: tutte (cucina + Dish Crew + Chiusura). Dish Crew: solo Dish Crew. Cucina: solo cucina + Chiusura.
   const stationList = isAdmin()
-    ? ['All', ...ALL_STATIONS, 'Chiusura']
-    : [...ALL_STATIONS, 'Chiusura'];
+    ? ['All', ...KITCHEN_STATIONS, DISH_STATION, 'Chiusura']
+    : (isDishCrew ? [DISH_STATION] : [...KITCHEN_STATIONS, 'Chiusura']);
   if(!isAdmin()){
-    if(station==='All') station='Oven Station';
-    if(station2==='All') station2='Oven Station';
+    if(isDishCrew){
+      if(station!==DISH_STATION) station=DISH_STATION;
+      if(station2!==DISH_STATION) station2=DISH_STATION;
+    } else {
+      if(station==='All' || station===DISH_STATION) station='Oven Station';
+      if(station2==='All' || station2===DISH_STATION) station2='Oven Station';
+    }
   }
   const stationsEl=document.getElementById('stations');
   const stations2El=document.getElementById('stations2');
