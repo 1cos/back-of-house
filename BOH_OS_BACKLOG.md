@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-21 — v302*
+*Aggiornato: 2026-06-23 — v332*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,12 +10,12 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v302**
+- Versione frontend: **v332**
 - Versione souschef-chat: v23
 - ai-translate: **v28** (Google Translate attivo)
 - Supabase: ydqmumpytgrlceuinoqt
 - Leggi sempre da GitHub brigade-main, MAI da /mnt/project/
-- Bump boh-vNN in sw.js ad ogni commit
+- Bump boh-vNN in sw.js ad ogni commit — **ATTENZIONE sessioni parallele**: verifica versione live prima di bumpare, NON da memoria
 
 ---
 
@@ -248,14 +248,16 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 
 ## PRIORITÀ ALTA — PROSSIME SESSIONI
 
-1. **🔴 Bottoni L'Ufficio** — sessione dedicata urgente
-2. ✅ **Realtime L'Ufficio** — RISOLTO
-3. **Fix realtime TV** — loadChat() troppo pesante
-4. **Bug UI chat** — send button sovrapposto al mic, long press copia
-5. **Audit menu tre puntini** — molte voci non collegate
-6. **office-ai cron orario**
-7. **Bot 4 Fase 2** — esecuzione automatica Tell Chef
-8. **Bot 5 versione B** — food cost % quando selling_price popolato
+1. **🔴 Home dedicata Dish Crew (Fase 2)** — i dishwasher devono avere Home semplificata: top bar standard + alerts + stazione Dish Crew + birthdays + bottom bar (Home/Chat/Schedule/Tell Chef). Nascondere Recipes, Closing, Operation Notes prompt. Detect dishwasher: `user.default_station === 'Dish Crew'`. Niente Focus Mode per loro (decisione esplicita Max). Fase 1 (Foundation) chiusa in v332.
+2. **🔴 PIN nuovi utenti** — assegnare PIN dal pannello team a: Diana, Chris, Austin, Jaxon, Arianna, Kelly, Herminia, Jose, Luis, Ronaldo. Senza PIN non possono fare login.
+3. **🔴 Smart UI prep con suggested_qty** — preview ricetta + prep card mostrano quantità Bot 3 con scaler (lavoro parallelo altra chat ricette).
+4. **🔴 Bottoni L'Ufficio** — sessione dedicata urgente
+5. **Fix realtime TV** — loadChat() troppo pesante
+6. **Bug UI chat** — long press copia
+7. **Audit menu tre puntini** — molte voci non collegate
+8. **office-ai cron orario**
+9. **Bot 4 Fase 2** — esecuzione automatica Tell Chef
+10. **Bot 5 versione B** — food cost % quando selling_price popolato
 
 ---
 
@@ -288,6 +290,15 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 ---
 
 ## Log sessioni
+
+### Sessione 2026-06-23 — Focus Mode definitiva + Dish Crew Foundation (v329→v332)
+- **v329 focus-mode.js + index.html**: fix bug bypass Focus Mode via Schedule. Nuovo `focusOpenSchedule()` apre overlay z-index:70 sopra Focus Mode (60), riusa `schedLoadData`/`schedShowView`. Niente bottone Sincronizza per staff. "← Back" chiude overlay senza spegnere Focus Mode.
+- **v330 focus-mode.js**: regole turno definitive. Match esatto `users.schedule_name` = `shifts_schedule.employee_name`. Finestra esatta (start_time / end_time del turno). `is_closing=true` → fine mezzanotte. RIMOSSO fallback 8–20. Admin esclusi, domenica esclusa.
+- **DB**: aggiunta colonna `users.schedule_name`. Popolata per 15 utenti esistenti (Sofia rinominata Sophia). Eliminata "Maddison" duplicata. Aggiunti 11 nuovi utenti staff inattivi senza PIN (Austin, Jaxon, Arianna, Chris, Kelly, Diana, Herminia, Jose, Maddie, Luis, Ronaldo).
+- **DB Dish Crew**: attivati 10 utenti (Diana → Oven, Chris → Pasta, 8 dishwasher → Dish Crew). PIN da assegnare in pannello team.
+- **v332 init.js**: nuova stazione "Dish Crew". Visibilità separata: admin vede tutto, staff cucina non vede Dish Crew, staff Dish Crew vede SOLO Dish Crew (station forzata).
+- ⚠️ TODO: Home dedicata Dish Crew (Fase 2 — nascondere tab cucina/recipes/closing per dishwasher, layout Home semplificato).
+- ⚠️ Sessioni parallele in corso (recipes foto v331, drag&drop BOM v330) — verificare sempre versione live sw.js prima di bumpare.
 
 
 
