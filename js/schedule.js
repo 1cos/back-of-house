@@ -140,7 +140,11 @@ function schedParseCsv(text, filename) {
         // fullIdx: 0=Sun, 1=Mon... anchor is Monday (1)
         var offset = fullIdx === 0 ? 6 : fullIdx - 1; // Mon=0 offset, Tue=1, ... Sun=6
         d.setDate(anchor.getDate() + offset);
-        dayCols.push({ idx: idx, date: d.toISOString().split('T')[0], dow: fullIdx });
+        // Use local date string to avoid UTC conversion issues
+        var yr = d.getFullYear();
+        var mo = String(d.getMonth()+1).padStart(2,'0');
+        var dy = String(d.getDate()).padStart(2,'0');
+        dayCols.push({ idx: idx, date: yr+'-'+mo+'-'+dy, dow: fullIdx });
       }
     });
   }
@@ -324,7 +328,7 @@ function schedRender() {
 // ── TODAY VIEW ────────────────────────────────────────────
 function schedRenderOggi(container) {
   var today = new Date();
-  var todayStr = today.toISOString().split('T')[0];
+  var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
 
   // Get week dates for day strip
   var weekDates = schedGetWeekDates();
