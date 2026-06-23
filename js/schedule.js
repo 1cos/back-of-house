@@ -176,8 +176,8 @@ function schedParseCsv(text, filename) {
         employee_name: empName,
         role_name: roleName || parsed.role || '',
         department_name: deptName,
-        start_time: dc.date + 'T' + parsed.startStr + ':00',
-        end_time: parsed.endStr ? (dc.date + 'T' + parsed.endStr + ':00') : null,
+        start_time: dc.date + 'T' + parsed.startStr + ':00-05:00',
+        end_time: parsed.endStr ? (dc.date + 'T' + parsed.endStr + ':00-05:00') : null,
         is_closing: parsed.isClosing,
         shift_type: shiftType,
         payable_hours: payHrs,
@@ -192,8 +192,8 @@ function schedParseCsv(text, filename) {
           employee_name: empName,
           role_name: roleName || '',
           department_name: deptName,
-          start_time: dc.date + 'T' + parsed.start2Str + ':00',
-          end_time: parsed.end2Str ? (dc.date + 'T' + parsed.end2Str + ':00') : null,
+          start_time: dc.date + 'T' + parsed.start2Str + ':00-05:00',
+          end_time: parsed.end2Str ? (dc.date + 'T' + parsed.end2Str + ':00-05:00') : null,
           is_closing: false,
           shift_type: 'double',
           payable_hours: null,
@@ -418,8 +418,8 @@ function schedBuildTimeline(dayShifts) {
       var st = s.start_time ? new Date(s.start_time) : null;
       var et = s.end_time ? new Date(s.end_time) : null;
       if (!st) return '';
-      var sh = st.getUTCHours() + st.getUTCMinutes() / 60;
-      var eh = et ? (et.getUTCHours() + et.getUTCMinutes() / 60) : (sh + 6);
+      var sh = st.getHours() + st.getMinutes() / 60;
+      var eh = et ? (et.getHours() + et.getMinutes() / 60) : (sh + 6);
       if (s.is_closing) eh = START_H + TOTAL_H;
       var left = Math.max(0, (sh - START_H) / TOTAL_H * 100);
       var width = Math.min(100 - left, (eh - sh) / TOTAL_H * 100);
@@ -465,7 +465,7 @@ function schedBuildStationCards(dayShifts) {
       var et = s.end_time ? new Date(s.end_time) : null;
       var shiftStr = st ? st.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '--';
       if (et) shiftStr += ' – ' + (s.is_closing ? 'Close' : et.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }));
-      var isMorning = st && (new Date(s.start_time)).getUTCHours() < 13;
+      var isMorning = st && st.getHours() < 13;
       var dotColor = isMorning ? '#2563eb' : '#059669';
       return '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:0.5px solid rgba(59,130,246,0.06);">' +
         '<div style="display:flex;align-items:center;gap:8px;">' +
