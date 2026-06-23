@@ -1654,6 +1654,62 @@ window.vdrApprove = async function(docId, btn) {
       }
     }
 
+
+    // ── Populate invoice_lines (invoices only) ────────────────────
+    if (pj.document_type === 'invoice') {
+      const invoiceLineRows = items.map((item, itemIdx) => {
+        const edits       = docEdits[itemIdx] || {};
+        const desc        = item.description || item.raw_description || null;
+        const sku         = item.vendor_sku || item.item_code || null;
+        const qty         = (edits.qty != null && !isNaN(edits.qty)) ? edits.qty : (item.qty_ordered || item.qty_received || null);
+        const pack        = (edits.pack != null && edits.pack !== '') ? edits.pack : (item.pack_description || null);
+        const unitPrice   = (edits.unitPrice != null && !isNaN(edits.unitPrice)) ? edits.unitPrice : (item.unit_price != null ? parseFloat(item.unit_price) : null);
+        const lineTotal   = (edits.ext != null && !isNaN(edits.ext)) ? edits.ext : (item.amount != null ? Math.abs(item.amount) : null);
+
+        // Weight
+        const totalG = item.total_weight_lb
+          ? item.total_weight_lb * 453.592
+          : item.catchweight && item.actual_weight_lb
+            ? item.actual_weight_lb * 453.592
+            : (window.vdrPackToGrams ? window.vdrPackToGrams(pack, false, null, desc) : null);
+
+        // Cost per 100g
+        const per100g = item._cost_per_100g
+          ? parseFloat(item._cost_per_100g)
+          : item.cost_per_lb
+            ? (item.cost_per_lb / 453.592) * 100
+            : (totalG && unitPrice && qty && qty > 0) ? ((unitPrice / totalG) * 100) : null;
+
+        // ingredient_id — look up from skuMap or linkMap built earlier
+        const matchedId = (sku && skuMap[sku]) ? skuMap[sku].ingredient_id
+          : (desc && linkMap[desc]) ? linkMap[desc]
+          : null;
+
+        return {
+          import_id:          docId,
+          invoice_date:       invoiceDate,
+          invoice_number:     pj.invoice_number || pj.document_number || null,
+          vendor:             vendor,
+          raw_description:    desc,
+          vendor_sku:         sku,
+          ingredient_id:      matchedId,
+          match_status:       matchedId ? 'matched' : 'unmatched',
+          qty:                qty,
+          purchase_unit:      'case',
+          pack_description:   pack,
+          unit_price:         unitPrice,
+          line_total:         lineTotal,
+          estimated_total_g:  totalG ? Math.round(totalG) : null,
+          cost_per_100g:      per100g ? parseFloat(per100g.toFixed(4)) : null,
+        };
+      }).filter(r => r.raw_description);
+
+      if (invoiceLineRows.length) {
+        const { error: ilErr } = await sb.from('invoice_lines').insert(invoiceLineRows);
+        if (ilErr) console.warn('invoice_lines insert warning:', ilErr.message);
+      }
+    }
+
     // Mark imported
     const { error: updErr } = await sb.from('vendor_documents')
       .update({ status: 'imported', updated_at: new Date().toISOString() }).eq('id', docId);
