@@ -8,9 +8,33 @@ var _focusChannel = null;
 var _focusList = [];
 var _focusCurrentStation = null; // stazione attualmente visualizzata
 
+// Cache turni utente oggi
+var _focusShiftWindow = null; // {start: h, end: h} o null
+
+async function loadFocusShiftWindow() {
+  if (!user || !user.full_name) { _focusShiftWindow = null; return; }
+  var todayStr = new Date().toLocaleString('en-CA', {timeZone:'America/Chicago'}).split(',')[0];
+  var res = await supa.from('shifts_schedule')
+    .select('start_hour, end_time, is_closing')
+    .eq('date', todayStr)
+    .ilike('employee_name', '%' + user.full_name.split(' ')[0] + '%');
+  if (res.error || !res.data || res.data.length === 0) { _focusShiftWindow = null; return; }
+  var startH = Math.min.apply(null, res.data.map(function(s){ return parseFloat(s.start_hour) || 8; }));
+  var endH = 20;
+  res.data.forEach(function(s) {
+    if (s.is_closing) { endH = 24; return; }
+    if (s.end_time) {
+      var h = new Date(s.end_time).toLocaleString('en-US', {timeZone:'America/Chicago', hour:'numeric', hour12:false});
+      endH = Math.max(endH, parseInt(h) || 20);
+    }
+  });
+  _focusShiftWindow = { start: startH, end: endH };
+}
+
 function isFocusHour() {
   var h = parseInt(new Date().toLocaleString('en-US', {timeZone:'America/Chicago', hour:'numeric', hour12:false}));
-  return h >= 8 && h < 20;
+  if (_focusShiftWindow) return h >= _focusShiftWindow.start && h < _focusShiftWindow.end;
+  return h >= 8 && h < 20; // fallback se nessun turno caricato
 }
 
 function shouldShowFocusMode() {
@@ -20,7 +44,8 @@ function shouldShowFocusMode() {
   return isFocusHour();
 }
 
-window.initFocusMode = function() {
+window.initFocusMode = async function() {
+  await loadFocusShiftWindow();
   if (!shouldShowFocusMode()) return;
   var el = document.getElementById('focusMode');
   if (!el) return;
