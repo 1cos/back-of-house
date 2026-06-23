@@ -176,8 +176,11 @@ function schedParseCsv(text, filename) {
         employee_name: empName,
         role_name: roleName || parsed.role || '',
         department_name: deptName,
-        start_time: dc.date + 'T' + parsed.startStr + ':00-05:00',
-        end_time: parsed.endStr ? (dc.date + 'T' + parsed.endStr + ':00-05:00') : null,
+        start_time: dc.date + 'T' + parsed.startStr + ':00',
+        end_time: parsed.endStr ? (dc.date + 'T' + parsed.endStr + ':00') : null,
+        start_label: schedFmtTime(parsed.startStr),
+        end_label: parsed.isClosing ? 'Close' : schedFmtTime(parsed.endStr),
+        start_hour: parsed.startHour,
         is_closing: parsed.isClosing,
         shift_type: shiftType,
         payable_hours: payHrs,
@@ -192,8 +195,11 @@ function schedParseCsv(text, filename) {
           employee_name: empName,
           role_name: roleName || '',
           department_name: deptName,
-          start_time: dc.date + 'T' + parsed.start2Str + ':00-05:00',
-          end_time: parsed.end2Str ? (dc.date + 'T' + parsed.end2Str + ':00-05:00') : null,
+          start_time: dc.date + 'T' + parsed.start2Str + ':00',
+          end_time: parsed.end2Str ? (dc.date + 'T' + parsed.end2Str + ':00') : null,
+          start_label: schedFmtTime(parsed.start2Str),
+          end_label: schedFmtTime(parsed.end2Str),
+          start_hour: parsed.start2Hour || (parsed.startHour + 9),
           is_closing: false,
           shift_type: 'double',
           payable_hours: null,
@@ -415,11 +421,19 @@ function schedBuildTimeline(dayShifts) {
   var rowsHtml = rows.map(function(name) {
     var personShifts = dayShifts.filter(function(s) { return s.employee_name === name; });
     var bars = personShifts.map(function(s) {
-      var st = s.start_time ? new Date(s.start_time) : null;
-      var et = s.end_time ? new Date(s.end_time) : null;
-      if (!st) return '';
-      var sh = st.getHours() + st.getMinutes() / 60;
-      var eh = et ? (et.getHours() + et.getMinutes() / 60) : (sh + 6);
+      var sh = s.start_hour != null ? parseFloat(s.start_hour) : null;
+      if (sh === null) return '';
+      // parse end hour from end_label: "4:30 PM" → 16.5
+      var eh = sh + 6;
+      if (s.end_label && s.end_label !== 'Close') {
+        var em = s.end_label.match(/(\d+)(?::(\d+))?\s*(AM|PM)/i);
+        if (em) {
+          var eh2 = parseInt(em[1], 10);
+          var em2 = parseInt(em[2] || '0', 10);
+          if (/pm/i.test(em[3]) && eh2 < 12) eh2 += 12;
+          eh = eh2 + em2 / 60;
+        }
+      }
       if (s.is_closing) eh = START_H + TOTAL_H;
       var left = Math.max(0, (sh - START_H) / TOTAL_H * 100);
       var width = Math.min(100 - left, (eh - sh) / TOTAL_H * 100);
@@ -461,12 +475,10 @@ function schedBuildStationCards(dayShifts) {
   return Object.keys(groups).map(function(grp) {
     var people = groups[grp];
     var rowsHtml = people.map(function(s) {
-      var st = s.start_time ? new Date(s.start_time) : null;
-      var et = s.end_time ? new Date(s.end_time) : null;
-      var shiftStr = st ? st.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '--';
-      if (et) shiftStr += ' – ' + (s.is_closing ? 'Close' : et.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }));
-      var isMorning = st && st.getHours() < 13;
-      var dotColor = isMorning ? '#2563eb' : '#059669';
+      var shiftStr = (s.start_label || '--');
+      if (s.end_label) shiftStr += ' – ' + s.end_label;
+      var isMorning = (s.start_hour != null) ? s.start_hour < 13 : true;
+      var dotColor = (s.shift_type === 'double') ? '#7c3aed' : (isMorning ? '#2563eb' : '#059669');
       return '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:0.5px solid rgba(59,130,246,0.06);">' +
         '<div style="display:flex;align-items:center;gap:8px;">' +
           '<div style="width:7px;height:7px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;"></div>' +
@@ -555,6 +567,16 @@ function schedRenderSettimana(container) {
 }
 
 // ── UTILITIES ─────────────────────────────────────────────
+function schedFmtTime(hhmm) {
+  if (!hhmm) return '';
+  var parts = hhmm.split(':');
+  var h = parseInt(parts[0], 10);
+  var m = parseInt(parts[1] || '0', 10);
+  var ampm = h >= 12 ? 'PM' : 'AM';
+  var h12 = h % 12 || 12;
+  return h12 + (m > 0 ? ':' + String(m).padStart(2,'0') : '') + ' ' + ampm;
+}
+
 function escHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
