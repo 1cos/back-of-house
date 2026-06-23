@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Brigade — Welcome</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=SF+Pro+Display:wght@700;900&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f2f4f8;
+    --surface: #ffffff;
+    --surface2: #f7f8fa;
+    --border: rgba(0,0,0,0.08);
+    --shadow: 0 2px 12px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.05);
+    --shadow-lg: 0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06);
+    --purple: #6b4fd8;
+    --purple-light: #8b6fe8;
+    --purple-bg: rgba(107,79,216,0.08);
+    --purple-border: rgba(107,79,216,0.18);
+    --blue: #3a7bd5;
+    --blue-bg: rgba(58,123,213,0.08);
+    --text: #0f1117;
+    --text2: #3c4048;
+    --muted: #7a8190;
+    --es: #6b4fd8;
+    --green: #2a9d5c;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .deck {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* progress bar */
+  .progress-track {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--border);
+    z-index: 10;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--purple);
+    transition: width 0.4s cubic-bezier(.4,0,.2,1);
+    border-radius: 0 2px 2px 0;
+  }
+
+  .counter {
+    position: absolute;
+    top: 14px; right: 18px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    z-index: 10;
+  }
+
+  .slides {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 52px 24px 88px;
+    opacity: 0;
+    transform: translateX(32px);
+    transition: opacity 0.38s cubic-bezier(.4,0,.2,1), transform 0.38s cubic-bezier(.4,0,.2,1);
+    pointer-events: none;
+    text-align: center;
+  }
+  .slide.active {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: all;
+  }
+  .slide.exit {
+    opacity: 0;
+    transform: translateX(-32px);
+    transition: opacity 0.28s ease, transform 0.28s ease;
+  }
+
+  /* typography */
+  .eyebrow {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--purple);
+    margin-bottom: 14px;
+  }
+
+  .headline {
+    font-size: clamp(26px, 7vw, 40px);
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--text);
+    margin-bottom: 10px;
+    letter-spacing: -0.02em;
+  }
+  .headline em {
+    color: var(--purple);
+    font-style: normal;
+  }
+
+  .subline-en {
+    font-size: clamp(14px, 3.8vw, 16px);
+    font-weight: 400;
+    color: var(--text2);
+    line-height: 1.6;
+    margin-bottom: 0;
+    max-width: 340px;
+  }
+  .subline-es {
+    font-size: clamp(13px, 3.3vw, 14px);
+    font-weight: 400;
+    color: var(--es);
+    line-height: 1.6;
+    max-width: 340px;
+  }
+
+  .lang-divider {
+    width: 28px;
+    height: 1px;
+    background: var(--border);
+    margin: 12px auto;
+  }
+
+  /* logo */
+  .brigade-logo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 28px;
+  }
+  .b-mark {
+    width: 68px;
+    height: 68px;
+    border-radius: 18px;
+    background: var(--purple);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 34px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 10px;
+    box-shadow: 0 4px 20px rgba(107,79,216,0.35);
+    letter-spacing: -0.02em;
+  }
+  .b-name {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* card */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    padding: 18px 20px;
+    width: 100%;
+    max-width: 360px;
+    text-align: left;
+  }
+
+  .pill-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    max-width: 360px;
+    margin-top: 20px;
+  }
+  .pill {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 14px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    text-align: left;
+  }
+  .pill-icon { font-size: 22px; flex-shrink: 0; margin-top: 1px; }
+  .pill-en { font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.45; }
+  .pill-es { font-size: 12px; color: var(--es); margin-top: 4px; line-height: 1.45; }
+
+  /* highlight box */
+  .hbox {
+    background: var(--purple-bg);
+    border: 1px solid var(--purple-border);
+    border-radius: 14px;
+    padding: 16px 20px;
+    max-width: 360px;
+    width: 100%;
+    margin-top: 18px;
+    text-align: left;
+  }
+  .hbox .en { font-size: 14px; font-weight: 500; color: var(--text); line-height: 1.5; }
+  .hbox .es { font-size: 12px; color: var(--es); margin-top: 6px; line-height: 1.5; }
+
+  /* stat row */
+  .stat-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 24px;
+    justify-content: center;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 16px 18px;
+    min-width: 88px;
+    text-align: center;
+    flex: 1;
+    max-width: 110px;
+  }
+  .stat-num {
+    font-size: 34px;
+    font-weight: 700;
+    color: var(--purple);
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .stat-label-en { font-size: 11px; color: var(--muted); margin-top: 5px; }
+  .stat-label-es { font-size: 10px; color: var(--es); margin-top: 2px; opacity: 0.8; }
+
+  /* icon */
+  .slide-icon { font-size: 48px; margin-bottom: 20px; line-height: 1; }
+
+  /* url box */
+  .url-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-top: 16px;
+    max-width: 360px;
+    width: 100%;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--blue);
+    text-align: center;
+    letter-spacing: 0.01em;
+    word-break: break-all;
+  }
+
+  .url-label-en { font-size: 11px; color: var(--muted); margin-top: 5px; text-align: center; }
+  .url-label-es { font-size: 11px; color: var(--es); margin-top: 2px; text-align: center; opacity: 0.8; }
+
+  .closing-line {
+    width: 48px; height: 3px;
+    background: var(--purple);
+    border-radius: 2px;
+    margin: 20px auto 0;
+  }
+
+  /* nav */
+  .nav {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    background: linear-gradient(to top, var(--bg) 65%, transparent);
+    z-index: 10;
+  }
+
+  .nav-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 11px 22px;
+    border-radius: 100px;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+    transition: opacity 0.2s;
+    -webkit-tap-highlight-color: transparent;
+    white-space: nowrap;
+  }
+  .nav-btn:disabled { opacity: 0.25; cursor: default; box-shadow: none; }
+  .nav-btn:active:not(:disabled) { opacity: 0.7; }
+
+  .nav-btn.primary {
+    background: var(--purple);
+    border-color: var(--purple);
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(107,79,216,0.35);
+    padding: 11px 28px;
+  }
+  .nav-btn.primary:active:not(:disabled) { opacity: 0.85; }
+
+  .dots {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    flex: 1;
+    justify-content: center;
+    padding: 0 8px;
+  }
+  .dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #c8ccd4;
+    transition: all 0.3s cubic-bezier(.4,0,.2,1);
+    flex-shrink: 0;
+  }
+  .dot.active {
+    background: var(--purple);
+    width: 16px;
+    border-radius: 3px;
+  }
+
+  /* tap zones */
+  .tap-zone-left, .tap-zone-right {
+    position: absolute;
+    top: 0; bottom: 80px;
+    width: 40%;
+    z-index: 5;
+    cursor: pointer;
+  }
+  .tap-zone-left { left: 0; }
+  .tap-zone-right { right: 0; }
+</style>
+</head>
+<body>
+<div class="deck">
+  <div class="progress-track"><div class="progress-fill" id="pf"></div></div>
+  <div class="counter" id="ctr"></div>
+
+  <div class="slides" id="slides">
+
+    <!-- 1 Cover -->
+    <div class="slide active">
+      <div class="brigade-logo">
+        <div class="b-mark">B</div>
+        <div class="b-name">Brigade</div>
+      </div>
+      <div class="eyebrow">Zenos on the Square — Weatherford, TX</div>
+      <h1 class="headline">Your kitchen.<br><em>Connected.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">Welcome to Brigade — the operating system of our kitchen.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Bienvenido a Brigade — el sistema operativo de nuestra cocina.</p>
+    </div>
+
+    <!-- 2 The problem -->
+    <div class="slide">
+      <div class="slide-icon">🗣️</div>
+      <div class="eyebrow">Why Brigade / Por qué Brigade</div>
+      <h1 class="headline">Things get said.<br>Then they <em>disappear.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">Two shifts. 20 people. Three languages. A recipe change, a process update, a message from Chef — if you weren't there, you missed it. Until now.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Dos turnos. 20 personas. Tres idiomas. Un cambio de receta, una actualización, un mensaje del Chef — si no estabas, te lo perdiste. Hasta ahora.</p>
+    </div>
+
+    <!-- 3 Two pillars -->
+    <div class="slide">
+      <div class="eyebrow">What it does / Qué hace</div>
+      <h1 class="headline">Two things.<br><em>That's it.</em></h1>
+      <div class="pill-grid">
+        <div class="pill">
+          <div class="pill-icon">📡</div>
+          <div>
+            <div class="pill-en">Everyone gets the same information, in their language, at the right moment.</div>
+            <div class="pill-es">Todos reciben la misma información, en su idioma, en el momento correcto.</div>
+          </div>
+        </div>
+        <div class="pill">
+          <div class="pill-icon">🤝</div>
+          <div>
+            <div class="pill-en">Every person on this team can help build the knowledge that keeps the kitchen running.</div>
+            <div class="pill-es">Cada persona puede ayudar a construir el conocimiento que mantiene la cocina funcionando.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 Communication -->
+    <div class="slide">
+      <div class="slide-icon">📢</div>
+      <div class="eyebrow">Communication / Comunicación</div>
+      <h1 class="headline">Max tells you.<br><em>You don't miss it.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">Recipe updates. Procedure changes. Alerts before service. They come directly to your screen — in English or Spanish, depending on who you are.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Actualizaciones de recetas. Cambios de procedimiento. Alertas antes del servicio. Llegan a tu pantalla — en inglés o español, según quién seas.</p>
+      <div class="hbox">
+        <div class="en">✓ No more "I didn't know" — if it's in Brigade, you saw it.</div>
+        <div class="es">✓ No más "no sabía" — si está en Brigade, lo viste.</div>
+      </div>
+    </div>
+
+    <!-- 5 Your voice -->
+    <div class="slide">
+      <div class="slide-icon">💡</div>
+      <div class="eyebrow">Your contribution / Tu contribución</div>
+      <h1 class="headline">You know things<br>Chef <em>hasn't written yet.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">How a dish is really plated. A step that's missing. A prep that always runs short on Friday. You know this — now you can tell Chef directly.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Cómo se emplata realmente un plato. Un paso que falta. Una prep que siempre se acaba el viernes. Lo sabes — ahora puedes decírselo al Chef directamente.</p>
+    </div>
+
+    <!-- 6 Tell Chef -->
+    <div class="slide">
+      <div class="slide-icon">✉️</div>
+      <div class="eyebrow">Tell Chef</div>
+      <h1 class="headline">One tap.<br><em>Chef reads it.</em></h1>
+      <div class="pill-grid">
+        <div class="pill">
+          <div class="pill-icon">🔒</div>
+          <div>
+            <div class="pill-en">Private — only Chef Max sees it.</div>
+            <div class="pill-es">Privado — solo el Chef Max lo ve.</div>
+          </div>
+        </div>
+        <div class="pill">
+          <div class="pill-icon">🌐</div>
+          <div>
+            <div class="pill-en">Write in any language. Brigade handles the translation.</div>
+            <div class="pill-es">Escribe en cualquier idioma. Brigade traduce automáticamente.</div>
+          </div>
+        </div>
+        <div class="pill">
+          <div class="pill-icon">🎤</div>
+          <div>
+            <div class="pill-en">Dictate with your voice — no typing needed.</div>
+            <div class="pill-es">Dicta con tu voz — sin necesidad de escribir.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7 Daily tools -->
+    <div class="slide">
+      <div class="eyebrow">Every day / Cada día</div>
+      <h1 class="headline">Your tools<br>in <em>Brigade.</em></h1>
+      <div class="pill-grid">
+        <div class="pill">
+          <div class="pill-icon">📋</div>
+          <div>
+            <div class="pill-en"><strong>Prep</strong> — your station, your tasks, your quantities</div>
+            <div class="pill-es"><strong>Prep</strong> — tu estación, tus tareas, tus cantidades</div>
+          </div>
+        </div>
+        <div class="pill">
+          <div class="pill-icon">💬</div>
+          <div>
+            <div class="pill-en"><strong>Chat</strong> — talk to the whole team, any language</div>
+            <div class="pill-es"><strong>Chat</strong> — habla con todo el equipo, cualquier idioma</div>
+          </div>
+        </div>
+        <div class="pill">
+          <div class="pill-icon">✅</div>
+          <div>
+            <div class="pill-en"><strong>Closing</strong> — close your station correctly, every night</div>
+            <div class="pill-es"><strong>Cierre</strong> — cierra tu estación correctamente, cada noche</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8 Numbers -->
+    <div class="slide">
+      <div class="eyebrow">The team / El equipo</div>
+      <h1 class="headline">One kitchen.<br><em>One system.</em></h1>
+      <div class="stat-row">
+        <div class="stat-card">
+          <div class="stat-num">20+</div>
+          <div class="stat-label-en">team members</div>
+          <div class="stat-label-es">personas</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">3</div>
+          <div class="stat-label-en">languages</div>
+          <div class="stat-label-es">idiomas</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">2</div>
+          <div class="stat-label-en">shifts</div>
+          <div class="stat-label-es">turnos</div>
+        </div>
+      </div>
+      <div class="hbox">
+        <div class="en">Brigade connects all of them. Same information, every time.</div>
+        <div class="es">Brigade los conecta a todos. La misma información, siempre.</div>
+      </div>
+    </div>
+
+    <!-- 9 Login -->
+    <div class="slide">
+      <div class="slide-icon">🔑</div>
+      <div class="eyebrow">Getting started / Cómo empezar</div>
+      <h1 class="headline">Open the app.<br>Enter your <em>PIN.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">That's your login. No username, no password — just your personal PIN. Chef Max gives it to you.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Ese es tu acceso. Sin usuario, sin contraseña — solo tu PIN personal. El Chef Max te lo da.</p>
+      <div class="url-box">https://1cos.github.io/back-of-house</div>
+      <div class="url-label-en">Open this link → tap "Add to Home Screen"</div>
+      <div class="url-label-es">Abre este enlace → toca "Agregar a pantalla de inicio"</div>
+    </div>
+
+    <!-- 10 Closing -->
+    <div class="slide">
+      <div class="brigade-logo">
+        <div class="b-mark">B</div>
+        <div class="b-name">Brigade</div>
+      </div>
+      <h1 class="headline">This is <em>your</em><br>kitchen too.</h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">Brigade works because the whole team uses it. Your prep, your closes, your ideas — they all matter.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Brigade funciona porque todo el equipo lo usa. Tu prep, tus cierres, tus ideas — todo importa.</p>
+      <div class="closing-line"></div>
+    </div>
+
+  </div><!-- /slides -->
+
+  <div class="tap-zone-left" id="tzl"></div>
+  <div class="tap-zone-right" id="tzr"></div>
+
+  <nav class="nav">
+    <button class="nav-btn" id="prevBtn" disabled>← Back</button>
+    <div class="dots" id="dots"></div>
+    <button class="nav-btn primary" id="nextBtn">Next →</button>
+  </nav>
+</div>
+
+<script>
+(function() {
+  var slides = document.querySelectorAll('.slide');
+  var total = slides.length;
+  var current = 0;
+
+  var pf = document.getElementById('pf');
+  var ctr = document.getElementById('ctr');
+  var prevBtn = document.getElementById('prevBtn');
+  var nextBtn = document.getElementById('nextBtn');
+  var dotsEl = document.getElementById('dots');
+
+  // build dots
+  for (var i = 0; i < total; i++) {
+    var d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    dotsEl.appendChild(d);
+  }
+
+  function goTo(idx) {
+    if (idx < 0 || idx >= total) return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add('exit');
+    var leaving = current;
+    setTimeout(function() {
+      slides[leaving].classList.remove('exit');
+    }, 400);
+    current = idx;
+    slides[current].classList.add('active');
+    update();
+  }
+
+  function update() {
+    pf.style.width = ((current + 1) / total * 100) + '%';
+    ctr.textContent = (current + 1) + ' / ' + total;
+    var allDots = document.querySelectorAll('.dot');
+    for (var i = 0; i < allDots.length; i++) {
+      allDots[i].classList.toggle('active', i === current);
+    }
+    prevBtn.disabled = current === 0;
+    nextBtn.textContent = current === total - 1 ? '✓ Done' : 'Next →';
+  }
+
+  prevBtn.addEventListener('click', function() { goTo(current - 1); });
+  nextBtn.addEventListener('click', function() { if (current < total - 1) goTo(current + 1); });
+
+  document.getElementById('tzl').addEventListener('click', function() { goTo(current - 1); });
+  document.getElementById('tzr').addEventListener('click', function() { goTo(current + 1); });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowRight' || e.key === ' ') goTo(current + 1);
+    if (e.key === 'ArrowLeft') goTo(current - 1);
+  });
+
+  var tsx = 0;
+  document.addEventListener('touchstart', function(e) { tsx = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', function(e) {
+    var dx = e.changedTouches[0].clientX - tsx;
+    if (Math.abs(dx) > 50) { if (dx < 0) goTo(current + 1); else goTo(current - 1); }
+  }, { passive: true });
+
+  update();
+})();
+</script>
+</body>
+</html>
