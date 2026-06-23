@@ -276,9 +276,9 @@ function doLogin(profile){
   const tabSales = document.getElementById('tabSales');
   if(tabSales) tabSales.style.display = 'flex';
 
-  // Schedule 7shifts — PARCHEGGIATO (7shifts API v2 richiede OAuth partnership)
+  // Schedule — visibile a tutti (popolato via CSV import)
   const tabSchedule = document.getElementById('tabSchedule');
-  if(tabSchedule) tabSchedule.style.display = 'none';
+  if(tabSchedule) tabSchedule.style.display = 'flex';
 
   // Menu ••• — solo admin
   const tabMenu = document.getElementById('tabMenu');
