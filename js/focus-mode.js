@@ -209,6 +209,49 @@ function startFocusRealtime() {
     .subscribe();
 }
 
+// ── SCHEDULE OVERLAY (sopra la Focus Mode, non la spegne mai) ──
+window.focusOpenSchedule = function() {
+  var existing = document.getElementById('focusSchedOverlay');
+  if (existing) existing.remove();
+
+  var ov = document.createElement('div');
+  ov.id = 'focusSchedOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:70;background:linear-gradient(160deg,#f0f4ff 0%,#f8fafc 60%);display:flex;flex-direction:column;overflow:hidden;';
+  ov.innerHTML =
+    '<div style="display:flex;align-items:center;gap:12px;padding:16px 16px 10px;flex-shrink:0;">' +
+      '<button onclick="focusCloseSchedule()" style="height:40px;padding:0 16px;border-radius:14px;background:white;border:1px solid #e2e8f0;color:#1e3a5f;font-size:15px;font-weight:700;cursor:pointer;">← Back</button>' +
+      '<div style="font-size:18px;font-weight:800;color:#1e3a5f;">Schedule</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;padding:0 16px 14px;flex-shrink:0;">' +
+      '<button id="schedBtnOggi" onclick="schedShowView(\'oggi\')" style="flex:1;padding:8px;border-radius:12px;border:none;background:#1e3a5f;color:white;font-size:13px;font-weight:600;cursor:pointer;">Oggi</button>' +
+      '<button id="schedBtnSettimana" onclick="schedShowView(\'settimana\')" style="flex:1;padding:8px;border-radius:12px;border:1.5px solid #1e3a5f;background:white;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;">Settimana</button>' +
+    '</div>' +
+    '<div id="schedContent" style="flex:1;overflow-y:auto;padding:0 16px 24px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch;">' +
+      '<div style="text-align:center;color:#94a3b8;padding:40px 0;font-size:14px;">Loading…</div>' +
+    '</div>';
+  // Evita collisione di ID con la section #vsched nascosta.
+  // L'overlay non è ancora nel DOM, quindi questi sono solo i gemelli di #vsched.
+  ['schedContent','schedBtnOggi','schedBtnSettimana'].forEach(function(idn){
+    var el = document.getElementById(idn);
+    if (el) el.id = '_hidden_'+idn;
+  });
+  document.body.appendChild(ov);
+
+  if (typeof schedShowView === 'function') schedShowView('oggi');
+  if (typeof schedLoadData === 'function') schedLoadData();
+};
+
+window.focusCloseSchedule = function() {
+  var ov = document.getElementById('focusSchedOverlay');
+  if (ov) ov.remove();
+  // Ripristina gli ID originali della section #vsched.
+  ['schedContent','schedBtnOggi','schedBtnSettimana'].forEach(function(idn){
+    var el = document.getElementById('_hidden_'+idn);
+    if (el) el.id = idn;
+  });
+  // Focus Mode è sempre rimasta attiva sotto — niente da riattivare.
+};
+
 window.focusMyStation = function() {
   _focusCurrentStation = user && user.default_station ? user.default_station : null;
   updateFocusHeader();
