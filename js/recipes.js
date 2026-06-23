@@ -456,16 +456,19 @@ function openRecipeEditor(rec=null){
     row.dataset.type = 'ingredient';
     row.dataset.ingredientId = d.ingredient_id || '';
     row.dataset.subRecipeId  = d.sub_recipe_id  || '';
+    row.draggable = true;
     row.style.display = 'grid';
-    row.style.gridTemplateColumns = '56px 66px 1fr 80px auto';
+    row.style.gridTemplateColumns = '20px 56px 66px 1fr 80px auto';
     row.style.gap = '4px';
     row.style.alignItems = 'center';
+    row.style.cursor = 'default';
 
     const linkedColor = d.ingredient_id ? '#10b981' : d.sub_recipe_id ? '#3b82f6' : '';
     const linkedBg    = d.ingredient_id ? '#f0fdf4' : d.sub_recipe_id ? '#eff6ff' : '';
     const safeName    = (d.name||'').replace(/"/g,'&quot;');
 
     row.innerHTML = `
+      <div class="drag-handle" style="display:flex;align-items:center;justify-content:center;height:100%;cursor:grab;color:#cbd5e1;font-size:14px;user-select:none;-webkit-user-select:none;touch-action:none;">⠿</div>
       <input placeholder="200" class="px-2 py-1.5 border rounded text-xs" value="${d.qty||''}" type="number" min="0" step="any">
       <select class="px-1 py-1.5 border rounded text-xs bg-white">
         ${UNITS.map(u=>`<option ${(d.unit||'g')===u?'selected':''}>${u}</option>`).join('')}
@@ -554,11 +557,13 @@ function openRecipeEditor(rec=null){
   function addSectionRow(d={name:''}){
     const row = document.createElement('div');
     row.dataset.type = 'section';
+    row.draggable = true;
     row.style.display = 'grid';
-    row.style.gridTemplateColumns = '1fr auto';
+    row.style.gridTemplateColumns = '20px 1fr auto';
     row.style.gap = '4px';
     row.style.alignItems = 'center';
     row.innerHTML = `
+      <div class="drag-handle" style="display:flex;align-items:center;justify-content:center;height:100%;cursor:grab;color:#cbd5e1;font-size:14px;user-select:none;-webkit-user-select:none;touch-action:none;">⠿</div>
       <input placeholder="Section label (e.g. For the sauce)" class="px-2 py-1.5 border-2 border-dashed border-slate-200 rounded text-xs font-semibold text-slate-500 bg-slate-50" value="${d.name||''}">
       <button class="text-red-400 text-base" style="min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>`;
     row.querySelector('button').onclick = ()=>row.remove();
@@ -571,8 +576,9 @@ function openRecipeEditor(rec=null){
       // Ricetta esistente: legge dal BOM (ha UUID reali → bordo verde → BOM al salvataggio)
       const {data: bomRows} = await supa
         .from('recipe_bom')
-        .select('item_id, sub_recipe_id, quantity, unit, notes, component_type, ingredients(name), recipes!recipe_bom_sub_recipe_id_fkey(title)')
+        .select('bom_id, item_id, sub_recipe_id, quantity, unit, notes, component_type, sort_order, ingredients(name), recipes!recipe_bom_sub_recipe_id_fkey(title)')
         .eq('parent_recipe_id', rec.id)
+        .order('sort_order', {nullsFirst: false})
         .order('bom_id');
 
       if(bomRows && bomRows.length > 0){
@@ -606,6 +612,93 @@ function openRecipeEditor(rec=null){
     });
   }
   populateIngredients();
+
+  // ── Drag & drop riordinamento ingredienti ──
+  (function initIngDragDrop(){
+    let _dragging = null;
+    let _touchDrag = null;
+
+    function getDragAfterElement(container, y){
+      const els = [...container.querySelectorAll('[draggable="true"]:not(.dragging-ghost)')];
+      return els.reduce((closest, el)=>{
+        const box = el.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if(offset < 0 && offset > closest.offset) return {offset, element: el};
+        return closest;
+      }, {offset: Number.NEGATIVE_INFINITY}).element;
+    }
+
+    // Mouse / pointer drag (desktop)
+    ingList.addEventListener('dragstart', e=>{
+      const handle = e.target.closest('.drag-handle');
+      const row = e.target.closest('[draggable="true"]');
+      if(!handle || !row){ e.preventDefault(); return; }
+      _dragging = row;
+      row.classList.add('dragging-ghost');
+      row.style.opacity = '0.4';
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    ingList.addEventListener('dragend', e=>{
+      if(_dragging){ _dragging.style.opacity = ''; _dragging.classList.remove('dragging-ghost'); }
+      _dragging = null;
+      ingList.querySelectorAll('.drag-over-indicator').forEach(el=>el.remove());
+    });
+    ingList.addEventListener('dragover', e=>{
+      e.preventDefault();
+      if(!_dragging) return;
+      const after = getDragAfterElement(ingList, e.clientY);
+      ingList.querySelectorAll('.drag-over-indicator').forEach(el=>el.remove());
+      const ind = document.createElement('div');
+      ind.className = 'drag-over-indicator';
+      ind.style.cssText = 'height:2px;background:#6366f1;border-radius:2px;margin:1px 0;';
+      if(after) ingList.insertBefore(ind, after);
+      else ingList.appendChild(ind);
+    });
+    ingList.addEventListener('drop', e=>{
+      e.preventDefault();
+      if(!_dragging) return;
+      const after = getDragAfterElement(ingList, e.clientY);
+      if(after) ingList.insertBefore(_dragging, after);
+      else ingList.appendChild(_dragging);
+      ingList.querySelectorAll('.drag-over-indicator').forEach(el=>el.remove());
+    });
+
+    // Touch drag (iPhone)
+    ingList.addEventListener('touchstart', e=>{
+      const handle = e.target.closest('.drag-handle');
+      if(!handle) return;
+      const row = handle.closest('[draggable="true"]');
+      if(!row) return;
+      _touchDrag = {row, startY: e.touches[0].clientY};
+      row.style.opacity = '0.5';
+      e.stopPropagation();
+    }, {passive: true});
+
+    ingList.addEventListener('touchmove', e=>{
+      if(!_touchDrag) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const y = e.touches[0].clientY;
+      const after = getDragAfterElement(ingList, y);
+      ingList.querySelectorAll('.drag-over-indicator').forEach(el=>el.remove());
+      const ind = document.createElement('div');
+      ind.className = 'drag-over-indicator';
+      ind.style.cssText = 'height:2px;background:#6366f1;border-radius:2px;margin:1px 0;';
+      if(after) ingList.insertBefore(ind, after);
+      else ingList.appendChild(ind);
+    }, {passive: false});
+
+    ingList.addEventListener('touchend', e=>{
+      if(!_touchDrag) return;
+      const y = e.changedTouches[0].clientY;
+      const after = getDragAfterElement(ingList, y);
+      if(after) ingList.insertBefore(_touchDrag.row, after);
+      else ingList.appendChild(_touchDrag.row);
+      _touchDrag.row.style.opacity = '';
+      ingList.querySelectorAll('.drag-over-indicator').forEach(el=>el.remove());
+      _touchDrag = null;
+    }, {passive: true});
+  })();
 
   modal.querySelector('#addIng').onclick     = ()=>addIngRow();
   modal.querySelector('#addSection').onclick = ()=>addSectionRow();
@@ -1049,14 +1142,15 @@ async function saveRecipeBOM(recipeId, ingredientRows){
 
   const rows = ingredientRows
     .filter(i => i.type !== 'section' && (i.ingredient_id || i.sub_recipe_id))
-    .map(i => ({
+    .map((i, idx) => ({
       parent_recipe_id: recipeId,
       component_type:   i.sub_recipe_id ? 'RECIPE' : 'ITEM',
       item_id:          i.ingredient_id || null,
       sub_recipe_id:    i.sub_recipe_id || null,
       quantity:         parseFloat(i.qty) || null,
       unit:             i.unit || null,
-      notes:            i.comment || null
+      notes:            i.comment || null,
+      sort_order:       idx + 1
     }));
 
   if(!rows.length) return;
