@@ -185,7 +185,7 @@ function schedParseCsv(text, filename) {
           date: dc.date,
           week_start: weekStart,
           employee_name: empName,
-          role_name: roleName || '',
+          role_name: roleName || parsed.role || '',
           department_name: deptName,
           start_time: dc.date + 'T' + parsed.start2Str + ':00',
           end_time: parsed.end2Str ? (dc.date + 'T' + parsed.end2Str + ':00') : null,
