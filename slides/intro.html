@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
 <title>Brigade — Welcome</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=SF+Pro+Display:wght@700;900&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -15,18 +15,15 @@
     --surface2: #f7f8fa;
     --border: rgba(0,0,0,0.08);
     --shadow: 0 2px 12px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.05);
-    --shadow-lg: 0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06);
     --purple: #6b4fd8;
     --purple-light: #8b6fe8;
     --purple-bg: rgba(107,79,216,0.08);
     --purple-border: rgba(107,79,216,0.18);
     --blue: #3a7bd5;
-    --blue-bg: rgba(58,123,213,0.08);
     --text: #0f1117;
     --text2: #3c4048;
     --muted: #7a8190;
     --es: #6b4fd8;
-    --green: #2a9d5c;
   }
 
   html, body {
@@ -38,26 +35,38 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  .deck {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-  }
+  .deck { position: fixed; inset: 0; display: flex; flex-direction: column; }
 
-  /* progress bar */
+  /* progress bar — animata per ogni slide */
   .progress-track {
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 3px;
-    background: var(--border);
+    background: rgba(0,0,0,0.08);
     z-index: 10;
   }
   .progress-fill {
     height: 100%;
     background: var(--purple);
-    transition: width 0.4s cubic-bezier(.4,0,.2,1);
-    border-radius: 0 2px 2px 0;
+    width: 0%;
+    transition: width 0.5s cubic-bezier(.4,0,.2,1);
+  }
+
+  /* timer bar — mostra quanto manca prima della prossima slide */
+  .timer-track {
+    position: absolute;
+    top: 3px; left: 0; right: 0;
+    height: 2px;
+    background: transparent;
+    z-index: 10;
+  }
+  .timer-fill {
+    height: 100%;
+    background: rgba(107,79,216,0.25);
+    width: 0%;
+  }
+  .timer-fill.running {
+    transition: width linear;
   }
 
   .counter {
@@ -70,11 +79,20 @@
     z-index: 10;
   }
 
-  .slides {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
+  /* pause indicator */
+  .pause-indicator {
+    position: absolute;
+    top: 14px; left: 18px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.3s;
   }
+  .pause-indicator.visible { opacity: 1; }
+
+  .slides { flex: 1; position: relative; overflow: hidden; }
 
   .slide {
     position: absolute;
@@ -86,7 +104,7 @@
     padding: 52px 24px 88px;
     opacity: 0;
     transform: translateX(32px);
-    transition: opacity 0.38s cubic-bezier(.4,0,.2,1), transform 0.38s cubic-bezier(.4,0,.2,1);
+    transition: opacity 0.5s cubic-bezier(.4,0,.2,1), transform 0.5s cubic-bezier(.4,0,.2,1);
     pointer-events: none;
     text-align: center;
   }
@@ -98,10 +116,26 @@
   .slide.exit {
     opacity: 0;
     transform: translateX(-32px);
-    transition: opacity 0.28s ease, transform 0.28s ease;
+    transition: opacity 0.35s ease, transform 0.35s ease;
+    pointer-events: none;
   }
 
-  /* typography */
+  /* staggered children animation */
+  .slide.active > * {
+    animation: fadeUp 0.5s cubic-bezier(.4,0,.2,1) both;
+  }
+  .slide.active > *:nth-child(1) { animation-delay: 0.05s; }
+  .slide.active > *:nth-child(2) { animation-delay: 0.12s; }
+  .slide.active > *:nth-child(3) { animation-delay: 0.19s; }
+  .slide.active > *:nth-child(4) { animation-delay: 0.26s; }
+  .slide.active > *:nth-child(5) { animation-delay: 0.33s; }
+  .slide.active > *:nth-child(6) { animation-delay: 0.40s; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
   .eyebrow {
     font-size: 10px;
     font-weight: 700;
@@ -119,179 +153,100 @@
     margin-bottom: 10px;
     letter-spacing: -0.02em;
   }
-  .headline em {
-    color: var(--purple);
-    font-style: normal;
-  }
+  .headline em { color: var(--purple); font-style: normal; }
 
   .subline-en {
     font-size: clamp(14px, 3.8vw, 16px);
-    font-weight: 400;
     color: var(--text2);
     line-height: 1.6;
-    margin-bottom: 0;
     max-width: 340px;
   }
   .subline-es {
     font-size: clamp(13px, 3.3vw, 14px);
-    font-weight: 400;
     color: var(--es);
     line-height: 1.6;
     max-width: 340px;
+    opacity: 0.85;
   }
 
   .lang-divider {
-    width: 28px;
-    height: 1px;
+    width: 28px; height: 1px;
     background: var(--border);
     margin: 12px auto;
   }
 
-  /* logo */
-  .brigade-logo {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin-bottom: 28px;
-  }
+  .brigade-logo { display: flex; flex-direction: column; align-items: center; margin-bottom: 28px; }
   .b-mark {
-    width: 68px;
-    height: 68px;
+    width: 68px; height: 68px;
     border-radius: 18px;
     background: var(--purple);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 34px;
-    font-weight: 700;
-    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 34px; font-weight: 700; color: #fff;
     margin-bottom: 10px;
     box-shadow: 0 4px 20px rgba(107,79,216,0.35);
-    letter-spacing: -0.02em;
   }
-  .b-name {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
+  .b-name { font-size: 10px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
 
-  /* card */
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    box-shadow: var(--shadow);
-    padding: 18px 20px;
-    width: 100%;
-    max-width: 360px;
-    text-align: left;
-  }
-
-  .pill-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    width: 100%;
-    max-width: 360px;
-    margin-top: 20px;
-  }
+  .pill-grid { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 360px; margin-top: 20px; }
   .pill {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 14px;
     box-shadow: var(--shadow);
     padding: 14px 16px;
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
+    display: flex; align-items: flex-start; gap: 12px;
     text-align: left;
   }
   .pill-icon { font-size: 22px; flex-shrink: 0; margin-top: 1px; }
   .pill-en { font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.45; }
   .pill-es { font-size: 12px; color: var(--es); margin-top: 4px; line-height: 1.45; }
 
-  /* highlight box */
   .hbox {
     background: var(--purple-bg);
     border: 1px solid var(--purple-border);
     border-radius: 14px;
     padding: 16px 20px;
-    max-width: 360px;
-    width: 100%;
-    margin-top: 18px;
-    text-align: left;
+    max-width: 360px; width: 100%;
+    margin-top: 18px; text-align: left;
   }
   .hbox .en { font-size: 14px; font-weight: 500; color: var(--text); line-height: 1.5; }
   .hbox .es { font-size: 12px; color: var(--es); margin-top: 6px; line-height: 1.5; }
 
-  /* stat row */
-  .stat-row {
-    display: flex;
-    gap: 10px;
-    margin-top: 24px;
-    justify-content: center;
-  }
+  .stat-row { display: flex; gap: 10px; margin-top: 24px; justify-content: center; }
   .stat-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 14px;
     box-shadow: var(--shadow);
     padding: 16px 18px;
-    min-width: 88px;
-    text-align: center;
-    flex: 1;
-    max-width: 110px;
+    text-align: center; flex: 1; max-width: 110px;
   }
-  .stat-num {
-    font-size: 34px;
-    font-weight: 700;
-    color: var(--purple);
-    line-height: 1;
-    letter-spacing: -0.02em;
-  }
+  .stat-num { font-size: 34px; font-weight: 700; color: var(--purple); line-height: 1; letter-spacing: -0.02em; }
   .stat-label-en { font-size: 11px; color: var(--muted); margin-top: 5px; }
   .stat-label-es { font-size: 10px; color: var(--es); margin-top: 2px; opacity: 0.8; }
 
-  /* icon */
   .slide-icon { font-size: 48px; margin-bottom: 20px; line-height: 1; }
 
-  /* url box */
   .url-box {
     background: var(--surface2);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 12px 16px;
-    margin-top: 16px;
-    max-width: 360px;
-    width: 100%;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--blue);
-    text-align: center;
-    letter-spacing: 0.01em;
-    word-break: break-all;
+    margin-top: 16px; max-width: 360px; width: 100%;
+    font-size: 12px; font-weight: 600; color: var(--blue);
+    text-align: center; word-break: break-all;
   }
-
   .url-label-en { font-size: 11px; color: var(--muted); margin-top: 5px; text-align: center; }
   .url-label-es { font-size: 11px; color: var(--es); margin-top: 2px; text-align: center; opacity: 0.8; }
 
-  .closing-line {
-    width: 48px; height: 3px;
-    background: var(--purple);
-    border-radius: 2px;
-    margin: 20px auto 0;
-  }
+  .closing-line { width: 48px; height: 3px; background: var(--purple); border-radius: 2px; margin: 20px auto 0; }
 
   /* nav */
   .nav {
     position: absolute;
     bottom: 0; left: 0; right: 0;
     height: 80px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between;
     padding: 0 20px;
     background: linear-gradient(to top, var(--bg) 65%, transparent);
     z-index: 10;
@@ -302,13 +257,11 @@
     border: 1px solid var(--border);
     color: var(--text);
     font-family: inherit;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 14px; font-weight: 600;
     padding: 11px 22px;
     border-radius: 100px;
     cursor: pointer;
     box-shadow: var(--shadow);
-    transition: opacity 0.2s;
     -webkit-tap-highlight-color: transparent;
     white-space: nowrap;
   }
@@ -320,38 +273,22 @@
     border-color: var(--purple);
     color: #fff;
     box-shadow: 0 4px 14px rgba(107,79,216,0.35);
-    padding: 11px 28px;
+    padding: 11px 24px;
   }
-  .nav-btn.primary:active:not(:disabled) { opacity: 0.85; }
 
-  .dots {
-    display: flex;
-    gap: 5px;
-    align-items: center;
-    flex: 1;
-    justify-content: center;
-    padding: 0 8px;
-  }
+  .dots { display: flex; gap: 5px; align-items: center; flex: 1; justify-content: center; padding: 0 8px; }
   .dot {
-    width: 5px; height: 5px;
-    border-radius: 50%;
+    width: 5px; height: 5px; border-radius: 50%;
     background: #c8ccd4;
     transition: all 0.3s cubic-bezier(.4,0,.2,1);
     flex-shrink: 0;
   }
-  .dot.active {
-    background: var(--purple);
-    width: 16px;
-    border-radius: 3px;
-  }
+  .dot.active { background: var(--purple); width: 16px; border-radius: 3px; }
 
   /* tap zones */
   .tap-zone-left, .tap-zone-right {
-    position: absolute;
-    top: 0; bottom: 80px;
-    width: 40%;
-    z-index: 5;
-    cursor: pointer;
+    position: absolute; top: 0; bottom: 80px;
+    width: 40%; z-index: 5; cursor: pointer;
   }
   .tap-zone-left { left: 0; }
   .tap-zone-right { right: 0; }
@@ -360,9 +297,11 @@
 <body>
 <div class="deck">
   <div class="progress-track"><div class="progress-fill" id="pf"></div></div>
+  <div class="timer-track"><div class="timer-fill" id="tf"></div></div>
   <div class="counter" id="ctr"></div>
+  <div class="pause-indicator" id="pauseInd">⏸ Paused — tap to resume</div>
 
-  <div class="slides" id="slides">
+  <div class="slides">
 
     <!-- 1 Cover -->
     <div class="slide active">
@@ -386,7 +325,7 @@
       <div class="lang-divider"></div>
       <p class="subline-en">Two shifts. 20 people. Three languages. A recipe change, a process update, a message from Chef — if you weren't there, you missed it. Until now.</p>
       <div class="lang-divider"></div>
-      <p class="subline-es">Dos turnos. 20 personas. Tres idiomas. Un cambio de receta, una actualización, un mensaje del Chef — si no estabas, te lo perdiste. Hasta ahora.</p>
+      <p class="subline-es">Dos turnos. 20 personas. Tres idiomas. Un cambio, una actualización, un mensaje del Chef — si no estabas, te lo perdiste. Hasta ahora.</p>
     </div>
 
     <!-- 3 Two pillars -->
@@ -419,7 +358,7 @@
       <div class="lang-divider"></div>
       <p class="subline-en">Recipe updates. Procedure changes. Alerts before service. They come directly to your screen — in English or Spanish, depending on who you are.</p>
       <div class="lang-divider"></div>
-      <p class="subline-es">Actualizaciones de recetas. Cambios de procedimiento. Alertas antes del servicio. Llegan a tu pantalla — en inglés o español, según quién seas.</p>
+      <p class="subline-es">Actualizaciones de recetas. Cambios de procedimiento. Alertas antes del servicio. Llegan a tu pantalla en tu idioma.</p>
       <div class="hbox">
         <div class="en">✓ No more "I didn't know" — if it's in Brigade, you saw it.</div>
         <div class="es">✓ No más "no sabía" — si está en Brigade, lo viste.</div>
@@ -434,7 +373,7 @@
       <div class="lang-divider"></div>
       <p class="subline-en">How a dish is really plated. A step that's missing. A prep that always runs short on Friday. You know this — now you can tell Chef directly.</p>
       <div class="lang-divider"></div>
-      <p class="subline-es">Cómo se emplata realmente un plato. Un paso que falta. Una prep que siempre se acaba el viernes. Lo sabes — ahora puedes decírselo al Chef directamente.</p>
+      <p class="subline-es">Cómo se emplata un plato. Un paso que falta. Una prep que siempre se acaba el viernes. Lo sabes — ahora puedes decírselo al Chef.</p>
     </div>
 
     <!-- 6 Tell Chef -->
@@ -453,7 +392,7 @@
         <div class="pill">
           <div class="pill-icon">🌐</div>
           <div>
-            <div class="pill-en">Write in any language. Brigade handles the translation.</div>
+            <div class="pill-en">Write in any language. Brigade translates automatically.</div>
             <div class="pill-es">Escribe en cualquier idioma. Brigade traduce automáticamente.</div>
           </div>
         </div>
@@ -529,9 +468,9 @@
       <div class="eyebrow">Getting started / Cómo empezar</div>
       <h1 class="headline">Open the app.<br>Enter your <em>PIN.</em></h1>
       <div class="lang-divider"></div>
-      <p class="subline-en">That's your login. No username, no password — just your personal PIN. Chef Max gives it to you.</p>
+      <p class="subline-en">No username, no password — just your personal PIN. Chef Max gives it to you.</p>
       <div class="lang-divider"></div>
-      <p class="subline-es">Ese es tu acceso. Sin usuario, sin contraseña — solo tu PIN personal. El Chef Max te lo da.</p>
+      <p class="subline-es">Sin usuario, sin contraseña — solo tu PIN personal. El Chef Max te lo da.</p>
       <div class="url-box">https://1cos.github.io/back-of-house</div>
       <div class="url-label-en">Open this link → tap "Add to Home Screen"</div>
       <div class="url-label-es">Abre este enlace → toca "Agregar a pantalla de inicio"</div>
@@ -565,15 +504,22 @@
 
 <script>
 (function() {
+  var SLIDE_DURATION = 6000; // ms per slide
   var slides = document.querySelectorAll('.slide');
   var total = slides.length;
   var current = 0;
+  var paused = false;
+  var timer = null;
+  var timerStart = null;
+  var timerRemaining = SLIDE_DURATION;
 
   var pf = document.getElementById('pf');
+  var tf = document.getElementById('tf');
   var ctr = document.getElementById('ctr');
   var prevBtn = document.getElementById('prevBtn');
   var nextBtn = document.getElementById('nextBtn');
   var dotsEl = document.getElementById('dots');
+  var pauseInd = document.getElementById('pauseInd');
 
   // build dots
   for (var i = 0; i < total; i++) {
@@ -586,13 +532,12 @@
     if (idx < 0 || idx >= total) return;
     slides[current].classList.remove('active');
     slides[current].classList.add('exit');
-    var leaving = current;
-    setTimeout(function() {
-      slides[leaving].classList.remove('exit');
-    }, 400);
+    var leaving = slides[current];
+    setTimeout(function() { leaving.classList.remove('exit'); }, 450);
     current = idx;
     slides[current].classList.add('active');
     update();
+    resetTimer();
   }
 
   function update() {
@@ -603,28 +548,105 @@
       allDots[i].classList.toggle('active', i === current);
     }
     prevBtn.disabled = current === 0;
-    nextBtn.textContent = current === total - 1 ? '✓ Done' : 'Next →';
+    if (current === total - 1) {
+      nextBtn.textContent = '↺ Restart';
+    } else {
+      nextBtn.textContent = 'Next →';
+    }
   }
 
-  prevBtn.addEventListener('click', function() { goTo(current - 1); });
-  nextBtn.addEventListener('click', function() { if (current < total - 1) goTo(current + 1); });
+  function startTimer(duration) {
+    clearTimeout(timer);
+    timerRemaining = duration || SLIDE_DURATION;
+    timerStart = Date.now();
 
-  document.getElementById('tzl').addEventListener('click', function() { goTo(current - 1); });
-  document.getElementById('tzr').addEventListener('click', function() { goTo(current + 1); });
+    // animate timer bar
+    tf.classList.remove('running');
+    tf.style.width = '0%';
+    tf.style.transition = 'none';
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        tf.style.transition = 'width ' + (timerRemaining / 1000) + 's linear';
+        tf.style.width = '100%';
+        tf.classList.add('running');
+      });
+    });
+
+    timer = setTimeout(function() {
+      if (current < total - 1) {
+        goTo(current + 1);
+      } else {
+        // end — stop autoplay
+        tf.style.width = '0%';
+      }
+    }, timerRemaining);
+  }
+
+  function resetTimer() {
+    if (!paused) startTimer(SLIDE_DURATION);
+  }
+
+  function pauseTimer() {
+    paused = true;
+    clearTimeout(timer);
+    timerRemaining = timerRemaining - (Date.now() - timerStart);
+    tf.style.transition = 'none';
+    tf.style.width = tf.getBoundingClientRect().width / tf.parentElement.getBoundingClientRect().width * 100 + '%';
+    pauseInd.classList.add('visible');
+  }
+
+  function resumeTimer() {
+    paused = false;
+    pauseInd.classList.remove('visible');
+    startTimer(timerRemaining);
+  }
+
+  // tap zones — tap to pause/resume, or navigate
+  var tapTimeout = null;
+  function handleTap(dir) {
+    if (paused) {
+      resumeTimer();
+      return;
+    }
+    // single tap on right = pause, double tap = advance
+    // simpler: tap pauses, nav buttons move
+    pauseTimer();
+  }
+
+  document.getElementById('tzl').addEventListener('click', function() { handleTap('left'); });
+  document.getElementById('tzr').addEventListener('click', function() { handleTap('right'); });
+
+  prevBtn.addEventListener('click', function() {
+    paused = false;
+    pauseInd.classList.remove('visible');
+    goTo(current - 1);
+  });
+  nextBtn.addEventListener('click', function() {
+    paused = false;
+    pauseInd.classList.remove('visible');
+    if (current === total - 1) { goTo(0); } else { goTo(current + 1); }
+  });
 
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'ArrowRight' || e.key === ' ') goTo(current + 1);
-    if (e.key === 'ArrowLeft') goTo(current - 1);
+    if (e.key === 'ArrowRight' || e.key === ' ') { paused = false; goTo(current + 1); }
+    if (e.key === 'ArrowLeft') { paused = false; goTo(current - 1); }
+    if (e.key === 'p' || e.key === 'P') { paused ? resumeTimer() : pauseTimer(); }
   });
 
   var tsx = 0;
   document.addEventListener('touchstart', function(e) { tsx = e.touches[0].clientX; }, { passive: true });
   document.addEventListener('touchend', function(e) {
     var dx = e.changedTouches[0].clientX - tsx;
-    if (Math.abs(dx) > 50) { if (dx < 0) goTo(current + 1); else goTo(current - 1); }
+    if (Math.abs(dx) > 60) {
+      paused = false;
+      pauseInd.classList.remove('visible');
+      if (dx < 0) goTo(current + 1); else goTo(current - 1);
+    }
   }, { passive: true });
 
+  // start
   update();
+  startTimer(SLIDE_DURATION);
 })();
 </script>
 </body>
