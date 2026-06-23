@@ -204,7 +204,7 @@ async function showRecipeSheet(rec){
       <p class="text-base text-slate-500 mb-3">${headerMeta}</p>
       ${rec.pos_name ? '<div id="recipeSalesStats" style="margin-bottom:12px;"></div>' : ''}
       ${!rec.pos_name && rec.base_weight_g ? '<div id="recipePrepStats" style="margin-bottom:12px;"></div>' : ''}
-      ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">🔄 Every '+rec.prep_frequency_days+(rec.prep_frequency_days===1?' day':' days')+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">📦 Lasts '+rec.shelf_life_days+(rec.shelf_life_days===1?' day':' days')+'</span>' : ''}</div>` : ''}
+      ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">'+tr('prepEvery').replace('(giorni)','').replace('(days)','').replace('(días)','')+' '+rec.prep_frequency_days+' '+(rec.prep_frequency_days===1?tr('dayS'):tr('daysS'))+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">'+tr('lastsWord')+' '+rec.shelf_life_days+' '+(rec.shelf_life_days===1?tr('dayS'):tr('daysS'))+'</span>' : ''}</div>` : ''}
       ${rec.image_url ? `<img src="${rec.image_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${rec.photo_url ? `<img src="${rec.photo_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${scalingUI}
@@ -242,7 +242,7 @@ async function showRecipeSheet(rec){
     function applyScale(factor, servings, weightKg){
       if(!ingDisplay) return;
       ingDisplay.innerHTML = renderIngs(factor);
-      scaleNote.textContent = `${servings} serving${servings!==1?'s':''}${weightKg ? ' · '+weightKg+'kg' : ''}`;
+      scaleNote.textContent = `${servings} ${servings!==1?tr('servingPlural'):tr('servingSingle')}${weightKg ? ' · '+weightKg+'kg' : ''}`;
     }
 
     function onServingsChange(){
@@ -316,9 +316,9 @@ function openRecipeManager(){
   modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[85vh] flex flex-col">
     <div class="p-4 border-b flex items-center justify-between"><h3 class="font-bold text-lg">Link Recipes</h3><button onclick="this.closest('.fixed').remove()" class="text-slate-400">✕</button></div>
     <div class="p-4 overflow-auto flex-1">
-      <p class="text-xs text-slate-500 mb-3">Link each prep item to a recipe.</p>
+      <p class="text-xs text-slate-500 mb-3">${tr('linkEachPrep')}</p>
       <div id="linkList" class="space-y-2"></div>
-      <button id="newRecipeBtn" class="mt-4 w-full py-2.5 bg-emerald-600 text-white rounded-xl font-semibold text-sm">+ New Recipe</button>
+      <button id="newRecipeBtn" class="mt-4 w-full py-2.5 bg-emerald-600 text-white rounded-xl font-semibold text-sm">${tr('newRecipeBtn')}</button>
     </div>
   </div>`;
   document.body.appendChild(modal);
@@ -338,12 +338,12 @@ function openRecipeEditor(rec=null){
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col">
-    <div class="p-4 border-b"><h3 class="font-bold">${rec?'Edit':'New'} Recipe</h3></div>
+    <div class="p-4 border-b"><h3 class="font-bold">${rec?tr('editRecipe'):tr('newRecipe')}</h3></div>
     <div class="p-4 overflow-auto space-y-3 text-sm">
 
       <input id="rTitle" placeholder="Title" class="w-full px-3 py-2 border rounded-xl" value="${rec?.title||''}">
       <div>
-        <div class="text-xs text-slate-500 mb-1">Photo</div>
+        <div class="text-xs text-slate-500 mb-1">${tr('photo')}</div>
         <div style="display:flex;gap:8px;align-items:center;">
           <div id="rImgPreview" style="width:56px;height:56px;border-radius:10px;border:1.5px solid #e2e8f0;overflow:hidden;flex-shrink:0;background:#f8fafc;display:flex;align-items:center;justify-content:center;">
             ${rec?.image_url ? `<img src="${rec.image_url}" style="width:100%;height:100%;object-fit:cover;">` : `<span style="font-size:22px;">📷</span>`}
@@ -351,7 +351,7 @@ function openRecipeEditor(rec=null){
           <div style="flex:1;">
             <input type="file" id="rImgFile" accept="image/*" style="display:none;">
             <button id="rImgBtn" type="button" class="w-full px-3 py-2 border rounded-xl text-sm text-slate-600 text-left" style="background:#f8fafc;">
-              ${rec?.image_url ? '📷 Change photo' : '📷 Choose from library'}
+              ${rec?.image_url ? tr('changePhoto') : tr('choosePhoto')}
             </button>
             <input id="rImg" type="hidden" value="${rec?.image_url||''}">
           </div>
@@ -361,25 +361,25 @@ function openRecipeEditor(rec=null){
 
       <div class="grid grid-cols-2 gap-2">
         <div>
-          <div class="text-xs text-slate-500 mb-1">Menu group</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('menuGroup')}</div>
           <select id="rMenuGroup" class="w-full px-3 py-2 border rounded-xl bg-white text-sm">
             <option value="">— select —</option>
             ${MENU_GROUPS.map(g=>`<option value="${g}" ${(rec?.menu_group||'')===g?'selected':''}>${g}</option>`).join('')}
           </select>
         </div>
         <div>
-          <div class="text-xs text-slate-500 mb-1">POS name (TouchBistro)</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('posName')}</div>
           <input id="rPosName" placeholder="e.g. Lobster Fettucine" class="w-full px-3 py-2 border rounded-xl" value="${rec?.pos_name||''}">
         </div>
       </div>
 
       <div class="grid grid-cols-2 gap-2">
         <div>
-          <div class="text-xs text-slate-500 mb-1">Base servings</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('baseServings')}</div>
           <input id="rServings" type="number" min="1" placeholder="e.g. 20" class="w-full px-3 py-2 border rounded-xl" value="${rec?.base_servings||''}">
         </div>
         <div>
-          <div class="text-xs text-slate-500 mb-1">Total weight (kg)</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('totalWeight')}</div>
           <input id="rWeightKg" type="number" min="0" step="0.01" placeholder="e.g. 5.5" class="w-full px-3 py-2 border rounded-xl" value="${rec?.base_weight_g ? (rec.base_weight_g/1000).toFixed(3).replace(/\.?0+$/,'') : ''}">
         </div>
       </div>
@@ -387,26 +387,26 @@ function openRecipeEditor(rec=null){
 
       <div class="grid grid-cols-3 gap-2">
         <div>
-          <div class="text-xs text-slate-500 mb-1">Prep time (min)</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('prepTime')}</div>
           <input id="rTime" type="number" placeholder="60" class="w-full px-3 py-2 border rounded-xl" value="${rec?.prep_time_minutes||rec?.prep_time||''}">
         </div>
         <div>
-          <div class="text-xs text-slate-500 mb-1">Selling price $</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('sellingPrice')}</div>
           <input id="rPrice" type="number" step="0.01" placeholder="0.00" class="w-full px-3 py-2 border rounded-xl" value="${rec?.selling_price||''}">
         </div>
         <div>
-          <div class="text-xs text-slate-500 mb-1">Yield text</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('yieldText')}</div>
           <input id="rYield" placeholder="e.g. 5.5 kg" class="w-full px-3 py-2 border rounded-xl" value="${rec?.yield_text||rec?.yield||''}">
         </div>
       </div>
 
       <div class="grid grid-cols-2 gap-2">
         <div>
-          <div class="text-xs text-slate-500 mb-1">🔄 Prep ogni (giorni)</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('prepEvery')}</div>
           <input id="rPrepFreq" type="number" min="1" placeholder="es. 7" class="w-full px-3 py-2 border rounded-xl" value="${rec?.prep_frequency_days||''}">
         </div>
         <div>
-          <div class="text-xs text-slate-500 mb-1">📦 Shelf life (giorni)</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('shelfLife')}</div>
           <input id="rShelfLife" type="number" min="1" placeholder="es. 7" class="w-full px-3 py-2 border rounded-xl" value="${rec?.shelf_life_days||''}">
         </div>
       </div>
@@ -422,15 +422,15 @@ function openRecipeEditor(rec=null){
         <div id="ingList" class="space-y-1"></div>
       </div>
 
-      <div><div class="font-semibold mb-1">Equipment</div><textarea id="rEquip" class="w-full px-3 py-2 border rounded-xl h-16">${rec?.equipment||''}</textarea></div>
-      <div><div class="font-semibold mb-1">Procedure</div><textarea id="rProc" class="w-full px-3 py-2 border rounded-xl h-32">${rec?.procedure||''}</textarea></div>
+      <div><div class="font-semibold mb-1">${tr('equipment')}</div><textarea id="rEquip" class="w-full px-3 py-2 border rounded-xl h-16">${rec?.equipment||''}</textarea></div>
+      <div><div class="font-semibold mb-1">${tr('procedure')}</div><textarea id="rProc" class="w-full px-3 py-2 border rounded-xl h-32">${rec?.procedure||''}</textarea></div>
     </div>
     <div class="p-3 border-t">
       <div style="display:flex;gap:8px;margin-bottom:8px;">
         <button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl">${tr("cancel")}</button>
         <button id="saveR" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold">${tr("save")}</button>
       </div>
-      ${rec?.id ? `<button id="deleteR" class="w-full py-2.5 text-red-500 border border-red-200 rounded-xl text-sm font-medium" style="background:#fff5f5;">🗑️ Delete Recipe</button>` : ''}
+      ${rec?.id ? `<button id="deleteR" class="w-full py-2.5 text-red-500 border border-red-200 rounded-xl text-sm font-medium" style="background:#fff5f5;">${tr('deleteRecipe')}</button>` : ''}
     </div>
   </div>`;
   document.body.appendChild(modal);
@@ -482,9 +482,9 @@ function openRecipeEditor(rec=null){
         const publicUrl = urlData.publicUrl;
         hiddenUrl.value = publicUrl;
         preview.innerHTML = `<img src="${publicUrl}" style="width:100%;height:100%;object-fit:cover;">`;
-        imgBtn.textContent = '📷 Change photo';
+        imgBtn.textContent = tr('changePhoto');
       } catch(e) {
-        alert('Upload failed: ' + e.message);
+        alert(tr('uploadFailed') + ': ' + e.message);
       } finally {
         progress.style.display = 'none';
         imgBtn.disabled = false;
@@ -501,7 +501,7 @@ function openRecipeEditor(rec=null){
     const w = parseFloat(weightInput.value)||0;
     if(s > 0 && w > 0){
       const gPerServing = (w * 1000 / s);
-      swNote.textContent = `= ${gPerServing >= 1000 ? (gPerServing/1000).toFixed(2).replace(/\.?0+$/,'')+'kg' : Math.round(gPerServing)+'g'} per serving`;
+      swNote.textContent = `= ${gPerServing >= 1000 ? (gPerServing/1000).toFixed(2).replace(/\.?0+$/,'')+'kg' : Math.round(gPerServing)+'g'} ${tr('perServing')}`;
     } else { swNote.textContent = ''; }
   }
   servInput.oninput  = updateSwNote;
@@ -535,7 +535,7 @@ function openRecipeEditor(rec=null){
         ${UNITS.map(u=>`<option ${(d.unit||'g')===u?'selected':''}>${u}</option>`).join('')}
       </select>
       <div style="position:relative;">
-        <input placeholder="ingredient / sub-recipe" class="ing-name-input w-full px-2 py-1.5 border rounded text-xs"
+        <input placeholder="${tr('ingOrSubRecipe')}" class="ing-name-input w-full px-2 py-1.5 border rounded text-xs"
           value="${safeName}"
           style="border-color:${linkedColor};background:${linkedBg};">
         <div class="ing-ac-drop" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);max-height:200px;overflow-y:auto;"></div>
@@ -625,7 +625,7 @@ function openRecipeEditor(rec=null){
     row.style.alignItems = 'center';
     row.innerHTML = `
       <div class="drag-handle" style="display:flex;align-items:center;justify-content:center;height:100%;cursor:grab;color:#cbd5e1;font-size:14px;user-select:none;-webkit-user-select:none;touch-action:none;">⠿</div>
-      <input placeholder="Section label (e.g. For the sauce)" class="px-2 py-1.5 border-2 border-dashed border-slate-200 rounded text-xs font-semibold text-slate-500 bg-slate-50" value="${d.name||''}">
+      <input placeholder="${tr('sectionLabel')}" class="px-2 py-1.5 border-2 border-dashed border-slate-200 rounded text-xs font-semibold text-slate-500 bg-slate-50" value="${d.name||''}">
       <button class="text-red-400 text-base" style="min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>`;
     row.querySelector('button').onclick = ()=>row.remove();
     ingList.appendChild(row);
@@ -767,7 +767,7 @@ function openRecipeEditor(rec=null){
   // Save
   modal.querySelector('#saveR').onclick = async()=>{
     const t = modal.querySelector('#rTitle').value.trim();
-    if(!t){ alert('Title is required'); return; }
+    if(!t){ alert(tr('titleRequired')); return; }
 
     const bs       = parseInt(servInput.value)||null;
     const wkg      = parseFloat(weightInput.value)||null;
@@ -1000,20 +1000,20 @@ async function calcRecipeFoodCost(rec){
       ${costed.length>0 ? `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;">
         <div>
-          <div style="font-size:13px;font-weight:600;color:#1e293b;">Cost / serving</div>
+          <div style="font-size:13px;font-weight:600;color:#1e293b;">${tr('costPerServing')}</div>
           ${servings>1?`<div style="font-size:10px;color:#94a3b8;">${servings} servings · total $${totalCost.toFixed(2)}</div>`:''}
         </div>
         <div style="text-align:right;">
           <div style="font-size:16px;font-weight:700;color:#1e293b;">$${costPerServing.toFixed(2)}</div>
           ${fcPct!=null
             ? `<div style="font-size:12px;font-weight:600;color:${fcColor};">${fcPct.toFixed(1)}% FC</div>`
-            : `<div style="font-size:10px;color:#94a3b8;">Set selling price to see %</div>`}
+            : `<div style="font-size:10px;color:#94a3b8;">${tr('setSellingPrice')}</div>`}
         </div>
       </div>` : ''}
 
       ${issues.length ? `
       <div style="margin-top:8px;padding-top:8px;border-top:0.5px dashed #e2e8f0;">
-        <div style="font-size:10px;font-weight:600;color:#94a3b8;margin-bottom:4px;">WHY SOME COSTS ARE MISSING</div>
+        <div style="font-size:10px;font-weight:600;color:#94a3b8;margin-bottom:4px;">${tr('whyCostsMissing')}</div>
         ${issues.map(r=>`<div style="font-size:10px;color:#f59e0b;margin-bottom:2px;">· <b>${r.name}</b>: ${r.issue}</div>`).join('')}
       </div>` : ''}
     </div>`;
