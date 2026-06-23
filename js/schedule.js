@@ -447,6 +447,14 @@ function schedBuildTimeline(dayShifts) {
         : 'background:rgba(5,150,105,0.12);border:0.5px solid rgba(5,150,105,0.3);';
       var lblColor = isMorning ? '#2563eb' : '#059669';
       var lbl = s.role_name || (isMorning ? 'Morning' : 'Evening');
+      // Color by station
+      var isDish = /dish/i.test(lbl);
+      if (isDish) {
+        barColor = isMorning
+          ? 'background:rgba(245,158,11,0.12);border:0.5px solid rgba(245,158,11,0.3);'
+          : 'background:rgba(239,68,68,0.12);border:0.5px solid rgba(239,68,68,0.3);';
+        lblColor = isMorning ? '#d97706' : '#dc2626';
+      }
       return '<div style="position:absolute;top:3px;height:18px;border-radius:5px;left:' + left + '%;width:' + width + '%;' + barColor + 'display:flex;align-items:center;padding:0 5px;overflow:hidden;">' +
         '<span style="font-size:8px;font-weight:700;letter-spacing:0.04em;white-space:nowrap;color:' + lblColor + ';">' + escHtml(lbl) + '</span>' +
       '</div>';
@@ -462,40 +470,91 @@ function schedBuildTimeline(dayShifts) {
   return axisHtml + rowsHtml;
 }
 
-// Station cards: group by role_name / department_name
+// Station cards — 4 fixed groups: Morning / Morning Dish / Evening / Evening Dish
 function schedBuildStationCards(dayShifts) {
   if (dayShifts.length === 0) return '';
 
-  var groups = {};
-  dayShifts.forEach(function(s) {
-    var key = s.role_name || s.department_name || 'Other';
-    if (!groups[key]) groups[key] = [];
-    // Avoid duplicate names in same group
-    if (!groups[key].find(function(x) { return x.employee_name === s.employee_name && x.start_time === s.start_time; })) {
-      groups[key].push(s);
-    }
+  function isDish(s) { return /dish/i.test(s.role_name || ''); }
+  function isMorn(s) { return (s.start_hour != null) ? parseFloat(s.start_hour) < 13 : true; }
+
+  // Deduplicate by employee + start_time
+  var seen = {};
+  var shifts = dayShifts.filter(function(s) {
+    var k = s.employee_name + '|' + s.start_time;
+    if (seen[k]) return false;
+    seen[k] = true;
+    return true;
   });
 
-  return Object.keys(groups).map(function(grp) {
-    var people = groups[grp];
+  var GROUPS = [
+    {
+      key: 'morning',
+      label: 'Morning',
+      color: '#2563eb',
+      bg: 'rgba(37,99,235,0.06)',
+      border: 'rgba(37,99,235,0.2)',
+      dotColor: '#2563eb',
+      filter: function(s) { return isMorn(s) && !isDish(s); }
+    },
+    {
+      key: 'morning-dish',
+      label: 'Morning Dish',
+      color: '#d97706',
+      bg: 'rgba(245,158,11,0.06)',
+      border: 'rgba(245,158,11,0.2)',
+      dotColor: '#d97706',
+      filter: function(s) { return isMorn(s) && isDish(s); }
+    },
+    {
+      key: 'evening',
+      label: 'Evening',
+      color: '#059669',
+      bg: 'rgba(5,150,105,0.06)',
+      border: 'rgba(5,150,105,0.2)',
+      dotColor: '#059669',
+      filter: function(s) { return !isMorn(s) && !isDish(s); }
+    },
+    {
+      key: 'evening-dish',
+      label: 'Evening Dish',
+      color: '#dc2626',
+      bg: 'rgba(239,68,68,0.06)',
+      border: 'rgba(239,68,68,0.2)',
+      dotColor: '#dc2626',
+      filter: function(s) { return !isMorn(s) && isDish(s); }
+    }
+  ];
+
+  return GROUPS.map(function(grp) {
+    var people = shifts.filter(grp.filter);
+    if (people.length === 0) return '';
+
+    // Sort by start_hour
+    people.sort(function(a,b) { return (a.start_hour||0) - (b.start_hour||0); });
+
     var rowsHtml = people.map(function(s) {
+      var station = s.role_name || '';
       var shiftStr = (s.start_label || '--');
       if (s.end_label) shiftStr += ' – ' + s.end_label;
-      var isMorning = (s.start_hour != null) ? s.start_hour < 13 : true;
-      var dotColor = (s.shift_type === 'double') ? '#7c3aed' : (isMorning ? '#2563eb' : '#059669');
-      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:0.5px solid rgba(59,130,246,0.06);">' +
-        '<div style="display:flex;align-items:center;gap:8px;">' +
-          '<div style="width:7px;height:7px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;"></div>' +
-          '<span style="font-size:14px;font-weight:600;color:#1e3a5f;">' + escHtml(s.employee_name) + '</span>' +
+
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.06);">' +
+        '<div style="display:flex;align-items:center;gap:10px;">' +
+          '<div style="width:7px;height:7px;border-radius:50%;background:' + grp.dotColor + ';flex-shrink:0;"></div>' +
+          '<div>' +
+            '<div style="font-size:14px;font-weight:600;color:#1e3a5f;">' + escHtml(s.employee_name) + '</div>' +
+            (station && !/^(morning prep|evening)$/i.test(station)
+              ? '<div style="font-size:10px;font-weight:600;letter-spacing:0.04em;color:' + grp.color + ';text-transform:uppercase;">' + escHtml(station) + '</div>'
+              : '') +
+          '</div>' +
         '</div>' +
-        '<span style="font-size:11px;color:#94a3b8;font-weight:500;">' + escHtml(shiftStr) + '</span>' +
+        '<span style="font-size:11px;color:#94a3b8;font-weight:500;white-space:nowrap;">' + escHtml(shiftStr) + '</span>' +
       '</div>';
     }).join('');
 
-    return '<div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(12px);border:0.5px solid rgba(59,130,246,0.15);border-radius:16px;overflow:hidden;margin-bottom:8px;">' +
-      '<div style="padding:9px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:0.5px solid rgba(59,130,246,0.08);background:rgba(255,255,255,0.4);">' +
-        '<span style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#1e3a5f;">' + escHtml(grp) + '</span>' +
-        '<span style="font-size:10px;font-weight:700;color:#60a5fa;background:rgba(59,130,246,0.08);padding:2px 8px;border-radius:20px;">' + people.length + '</span>' +
+    return '<div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(12px);border:0.5px solid ' + grp.border + ';border-radius:16px;overflow:hidden;margin-bottom:10px;">' +
+      '<div style="padding:9px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:0.5px solid ' + grp.border + ';background:' + grp.bg + ';">' +
+        '<span style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:' + grp.color + ';">' + grp.label + '</span>' +
+        '<span style="font-size:10px;font-weight:700;color:' + grp.color + ';background:' + grp.bg + ';padding:2px 8px;border-radius:20px;border:0.5px solid ' + grp.border + ';">' + people.length + '</span>' +
       '</div>' +
       '<div style="padding:4px 14px;">' + rowsHtml + '</div>' +
     '</div>';
