@@ -104,24 +104,33 @@ function schedParseCsv(text, filename) {
   var iDept = schedColIdx(headers, ['Department', 'department_name', 'Station']);
   var iHrs  = schedColIdx(headers, ['Payable Hours', 'Total Hours', 'Hours', 'payable_hours', 'Paid Hours']);
 
-  // 7shifts CSV exports Mon-Sun in order. Map directly Mon=+0...Sat=+5.
-  // SUNDAY EXCLUDED — Zenos is closed Sunday.
+  // Get Monday anchor from filename: "Zenos_On_The_Square_Schedule_2026-06-22.csv"
+  // → anchor = 2026-06-22. If not found, fallback to current Monday.
+  var _anchorDate = null;
+  var _fnMatch = (filename || '').match(/(\d{4}-\d{2}-\d{2})/);
+  if (_fnMatch) {
+    // Parse YYYY-MM-DD directly — no UTC conversion
+    var _fp = _fnMatch[1].split('-');
+    _anchorDate = new Date(parseInt(_fp[0]),parseInt(_fp[1])-1,parseInt(_fp[2]));
+  } else {
+    // Fallback: Monday of current week
+    var _now = new Date();
+    var _dow = _now.getDay();
+    _anchorDate = new Date(_now);
+    _anchorDate.setDate(_now.getDate() + (_dow === 0 ? -6 : 1 - _dow));
+  }
+
+  // Map day name → offset from Monday. Sunday excluded (Zenos closed).
   var WEEKDAY_OFFSET = {
     'monday':0,'tuesday':1,'wednesday':2,'thursday':3,'friday':4,'saturday':5
   };
+
   var dayCols = [];
-
-  // Anchor = Monday of current week (local date)
-  var _now = new Date();
-  var _dow = _now.getDay();
-  var _anchor = new Date(_now);
-  _anchor.setDate(_now.getDate() + (_dow === 0 ? -6 : 1 - _dow));
-
   headers.forEach(function(h, idx) {
     var hKey = h.trim().toLowerCase();
     if (WEEKDAY_OFFSET[hKey] !== undefined) {
-      var _d = new Date(_anchor);
-      _d.setDate(_anchor.getDate() + WEEKDAY_OFFSET[hKey]);
+      var _d = new Date(_anchorDate);
+      _d.setDate(_anchorDate.getDate() + WEEKDAY_OFFSET[hKey]);
       var yr = _d.getFullYear();
       var mo = String(_d.getMonth()+1).padStart(2,'0');
       var dy = String(_d.getDate()).padStart(2,'0');
@@ -129,7 +138,6 @@ function schedParseCsv(text, filename) {
     }
   });
 
-  // week_start = first date (Monday)
   var weekStart = dayCols.length > 0 ? dayCols[0].date : null;
 
   var shifts = [];
@@ -378,13 +386,7 @@ function schedSelectDay(idx) {
 function schedGetWeekDates() {
   if (schedAllShifts.length === 0) return [];
   var dates = {};
-  schedAllShifts.forEach(function(s) {
-    if (s.date) {
-      // Exclude Sunday (Zenos is closed)
-      var d = new Date(s.date + 'T12:00:00');
-      if (d.getDay() !== 0) dates[s.date] = true;
-    }
-  });
+  schedAllShifts.forEach(function(s) { if (s.date) dates[s.date] = true; });
   return Object.keys(dates).sort();
 }
 
