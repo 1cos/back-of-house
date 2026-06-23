@@ -204,7 +204,7 @@ async function showRecipeSheet(rec){
       <p class="text-base text-slate-500 mb-3">${headerMeta}</p>
       ${rec.pos_name ? '<div id="recipeSalesStats" style="margin-bottom:12px;"></div>' : ''}
       ${!rec.pos_name && rec.base_weight_g ? '<div id="recipePrepStats" style="margin-bottom:12px;"></div>' : ''}
-      ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">'+tr('prepEvery').replace('(giorni)','').replace('(days)','').replace('(días)','')+' '+rec.prep_frequency_days+' '+(rec.prep_frequency_days===1?tr('dayS'):tr('daysS'))+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">'+tr('lastsWord')+' '+rec.shelf_life_days+' '+(rec.shelf_life_days===1?tr('dayS'):tr('daysS'))+'</span>' : ''}</div>` : ''}
+      ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">'+tr('every')+' '+rec.prep_frequency_days+' '+(rec.prep_frequency_days===1?tr('dayS'):tr('daysS'))+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">'+tr('lastsWord')+' '+rec.shelf_life_days+' '+(rec.shelf_life_days===1?tr('dayS'):tr('daysS'))+'</span>' : ''}</div>` : ''}
       ${rec.image_url ? `<img src="${rec.image_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${rec.photo_url ? `<img src="${rec.photo_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${scalingUI}
@@ -1184,7 +1184,7 @@ async function loadRecipePrepStats(rec, sheetEl) {
     const baseG = parseFloat(rec.base_weight_g);  // grammi per batch
     const sugKg = (sugG / 1000).toFixed(2).replace(/\.?0+$/, '');
     const batches = baseG ? (sugG / baseG).toFixed(2).replace(/\.?0+$/, '') : null;
-    const batchLabel = batches && baseG ? ` (≈ ${batches} batch da ${(baseG/1000).toFixed(1).replace(/\.?0+$/,'')}kg)` : '';
+    const batchLabel = batches && baseG ? ` (≈ ${batches} ${tr('batchOf')} ${(baseG/1000).toFixed(1).replace(/\.?0+$/,'')}kg)` : '';
 
     // Aggiorna lo scaler per partire da suggested_qty
     const inputWeight = sheetEl.querySelector('#scaleWeight');
@@ -1197,13 +1197,13 @@ async function loadRecipePrepStats(rec, sheetEl) {
     }
 
     el.innerHTML =
-      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Bot suggestion · questa settimana</div>' +
+      `<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">${tr('botSuggestion')} · ${tr('thisWeek')}</div>` +
       '<div style="display:flex;gap:8px;">' +
         '<div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:8px;">' +
           '<span style="font-size:18px;">🤖</span>' +
           '<div>' +
             '<div style="font-size:17px;font-weight:900;color:#059669;line-height:1;">' + sugKg + ' kg</div>' +
-            '<div style="font-size:10px;color:#6b7280;margin-top:2px;">consigliati' + batchLabel + '</div>' +
+            `<div style="font-size:10px;color:#6b7280;margin-top:2px;">${tr('recommended')}</div>` +
           '</div>' +
         '</div>' +
       '</div>';
