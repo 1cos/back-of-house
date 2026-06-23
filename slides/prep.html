@@ -10,17 +10,22 @@
   :root {
     --bg: #f2f4f8;
     --surface: #ffffff;
-    --surface2: #f7f8fa;
     --border: rgba(0,0,0,0.08);
     --shadow: 0 2px 12px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.05);
     --purple: #6b4fd8;
     --purple-bg: rgba(107,79,216,0.08);
     --purple-border: rgba(107,79,216,0.18);
+    --blue: #3a7bd5;
+    --cyan: #4ab8d8;
+    --cyan-bg: #e8f6fb;
+    --cyan-border: #a8dff0;
+    --red: #d94f4f;
+    --red-bg: #fef0f0;
     --green: #2a9d5c;
-    --green-bg: rgba(42,157,92,0.09);
-    --green-border: rgba(42,157,92,0.2);
-    --orange: #e07b2a;
-    --orange-bg: rgba(224,123,42,0.09);
+    --green-bg: #e8f8f0;
+    --green-border: rgba(42,157,92,0.25);
+    --amber: #b8860b;
+    --amber-bg: #fdf6e3;
     --text: #0f1117;
     --text2: #3c4048;
     --muted: #7a8190;
@@ -40,7 +45,7 @@
   .slide {
     position: absolute; inset: 0;
     display: flex; flex-direction: column; justify-content: center; align-items: center;
-    padding: 52px 24px 88px;
+    padding: 52px 20px 88px;
     opacity: 0; transform: translateX(32px);
     transition: opacity 0.5s cubic-bezier(.4,0,.2,1), transform 0.5s cubic-bezier(.4,0,.2,1);
     pointer-events: none; text-align: center;
@@ -54,144 +59,168 @@
   .slide.active > *:nth-child(4) { animation-delay: 0.26s; }
   .slide.active > *:nth-child(5) { animation-delay: 0.33s; }
   .slide.active > *:nth-child(6) { animation-delay: 0.40s; }
-  .slide.active > *:nth-child(7) { animation-delay: 0.47s; }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
 
-  .eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--purple); margin-bottom: 14px; }
-  .headline { font-size: clamp(24px, 6.5vw, 38px); font-weight: 700; line-height: 1.15; color: var(--text); margin-bottom: 10px; letter-spacing: -0.02em; }
+  .eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--purple); margin-bottom: 12px; }
+  .headline { font-size: clamp(24px, 6.5vw, 36px); font-weight: 700; line-height: 1.15; color: var(--text); margin-bottom: 10px; letter-spacing: -0.02em; }
   .headline em { color: var(--purple); font-style: normal; }
-  .headline.green em { color: var(--green); }
-  .subline-en { font-size: clamp(13px, 3.5vw, 15px); color: var(--text2); line-height: 1.6; max-width: 340px; }
-  .subline-es { font-size: clamp(12px, 3vw, 13px); color: var(--es); line-height: 1.6; max-width: 340px; opacity: 0.85; }
-  .lang-divider { width: 28px; height: 1px; background: var(--border); margin: 11px auto; }
+  .subline-en { font-size: clamp(13px, 3.5vw, 15px); color: var(--text2); line-height: 1.6; max-width: 320px; }
+  .subline-es { font-size: clamp(12px, 3vw, 13px); color: var(--es); line-height: 1.6; max-width: 320px; opacity: 0.85; }
+  .lang-divider { width: 28px; height: 1px; background: var(--border); margin: 10px auto; }
+  .slide-icon { font-size: 44px; margin-bottom: 16px; line-height: 1; }
+  .tag { display: inline-block; background: var(--purple-bg); border: 1px solid var(--purple-border); border-radius: 100px; padding: 4px 12px; font-size: 11px; font-weight: 600; color: var(--purple); margin-bottom: 14px; }
 
-  .slide-icon { font-size: 48px; margin-bottom: 20px; line-height: 1; }
+  /* ── PHONE MOCK SHELL ── */
+  .phone-mock {
+    width: 100%;
+    max-width: 320px;
+    background: #f2f6fb;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.13), 0 2px 8px rgba(0,0,0,0.08);
+    margin-top: 14px;
+    border: 1px solid rgba(0,0,0,0.06);
+  }
 
-  /* mock phone UI elements */
-  .mock-station {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    box-shadow: var(--shadow);
-    padding: 16px 18px;
-    width: 100%; max-width: 340px;
-    margin-top: 18px;
-    text-align: left;
+  /* topbar inside mock */
+  .mock-topbar {
+    background: #fff;
+    padding: 10px 14px 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
   }
-  .mock-station-label {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
-    color: var(--purple); margin-bottom: 12px;
+  .mock-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0;
   }
-  .mock-task {
-    display: flex; align-items: center; gap: 12px;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .mock-task:last-child { border-bottom: none; padding-bottom: 0; }
-  .mock-check {
+  .mock-greeting { flex: 1; }
+  .mock-greeting-sub { font-size: 9px; color: var(--muted); }
+  .mock-greeting-name { font-size: 12px; font-weight: 700; color: var(--text); }
+  .mock-avatars-right { display: flex; gap: 4px; }
+  .mock-avatar-sm {
     width: 22px; height: 22px; border-radius: 50%;
-    border: 2px solid #c8ccd4;
-    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-    font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 8px; font-weight: 700; color: #fff;
   }
-  .mock-check.done { background: var(--green); border-color: var(--green); color: #fff; }
-  .mock-check.progress { border-color: var(--orange); }
-  .mock-task-name { font-size: 13px; font-weight: 500; color: var(--text); flex: 1; }
-  .mock-task-qty { font-size: 12px; color: var(--muted); }
-  .mock-task-qty.highlight { color: var(--green); font-weight: 600; }
 
-  /* focus mode mock */
-  .focus-mock {
-    background: #1a1a2e;
-    border-radius: 18px;
-    padding: 20px 20px 16px;
-    width: 100%; max-width: 340px;
-    margin-top: 18px;
+  /* station tabs inside mock */
+  .mock-tabs {
+    background: #fff;
+    padding: 6px 10px 8px;
+    display: flex; gap: 6px; overflow-x: auto;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+    scrollbar-width: none;
+  }
+  .mock-tabs::-webkit-scrollbar { display: none; }
+  .mock-tab {
+    background: #f0f2f5; border-radius: 100px;
+    padding: 5px 10px; font-size: 10px; font-weight: 500; color: var(--text2);
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .mock-tab.active { background: #1a1a1a; color: #fff; }
+
+  /* prep area */
+  .mock-prep-area {
+    padding: 8px;
+    display: flex; flex-direction: column; gap: 6px;
+    background: #f2f6fb;
+  }
+
+  /* prep card */
+  .mock-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
     text-align: left;
     position: relative;
     overflow: hidden;
   }
-  .focus-mock::before {
-    content: '';
-    position: absolute; top: 0; left: 0; right: 0; height: 3px;
-    background: linear-gradient(90deg, var(--purple), #a07ee0);
+  .mock-card.urgent { background: #fef0f0; border-left: 3px solid var(--red); }
+  .mock-card.done-card { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+
+  .mock-card-urgent-tag {
+    display: inline-block;
+    background: rgba(217,79,79,0.1);
+    color: var(--red);
+    font-size: 8px; font-weight: 700; letter-spacing: 0.08em;
+    padding: 2px 6px; border-radius: 4px;
+    margin-bottom: 4px;
   }
-  .focus-label { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #a07ee0; margin-bottom: 14px; }
-  .focus-task {
-    display: flex; align-items: center; gap: 12px;
-    padding: 10px 12px;
-    background: rgba(255,255,255,0.05);
-    border-radius: 10px;
-    margin-bottom: 8px;
+  .mock-card-done-tag {
+    display: inline-block;
+    color: var(--blue);
+    font-size: 8px; font-weight: 700; letter-spacing: 0.08em;
+    margin-bottom: 2px;
   }
-  .focus-task-icon { font-size: 18px; }
-  .focus-task-name { font-size: 13px; font-weight: 600; color: #f0ede8; flex: 1; }
-  .focus-task-time { font-size: 11px; color: #a07ee0; }
-  .focus-timer {
-    margin-top: 12px;
-    background: rgba(107,79,216,0.25);
-    border-radius: 6px;
-    height: 6px;
-    overflow: hidden;
+  .mock-card-name { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+  .mock-card-name.urgent { color: var(--red); }
+  .mock-card-name.done { color: var(--text); }
+  .mock-card-station { font-size: 10px; color: var(--muted); margin-bottom: 6px; }
+  .mock-card-recipe { font-size: 10px; color: var(--green); margin-bottom: 6px; }
+
+  .mock-btn-row { display: flex; gap: 6px; margin-top: 6px; }
+  .mock-btn {
+    flex: 1; padding: 6px 4px; border-radius: 8px;
+    font-size: 10px; font-weight: 600; text-align: center;
+    border: 1.5px solid;
   }
-  .focus-timer-fill {
-    height: 100%;
-    width: 60%;
-    background: #a07ee0;
-    border-radius: 6px;
-  }
-  .focus-timer-label {
-    font-size: 10px; color: #888; margin-top: 6px; text-align: right;
+  .mock-btn.later { border-color: var(--blue); color: var(--blue); background: transparent; }
+  .mock-btn.done-btn { background: var(--green); border-color: var(--green); color: #fff; }
+  .mock-btn.noneed { border-color: var(--amber); color: var(--amber); background: transparent; }
+  .mock-btn.riapri { background: #e8eaed; border-color: #e8eaed; color: var(--text2); flex: 1; }
+
+  .mock-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--green-bg); border: 1px solid var(--green-border);
+    border-radius: 100px; padding: 3px 8px;
+    font-size: 9px; font-weight: 600; color: var(--green);
+    margin-top: 5px;
   }
 
-  .pill-grid { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 360px; margin-top: 18px; }
-  .pill {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 14px; box-shadow: var(--shadow);
-    padding: 13px 16px; display: flex; align-items: flex-start; gap: 12px; text-align: left;
+  /* bottom bar inside mock */
+  .mock-bottombar {
+    background: #fff;
+    border-top: 1px solid rgba(0,0,0,0.08);
+    padding: 6px 4px 4px;
+    display: flex; justify-content: space-around;
   }
-  .pill-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
-  .pill-en { font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.45; }
-  .pill-es { font-size: 12px; color: var(--es); margin-top: 3px; line-height: 1.45; }
+  .mock-tab-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .mock-tab-icon { font-size: 14px; }
+  .mock-tab-label { font-size: 8px; color: var(--muted); }
+  .mock-tab-label.active { color: var(--green); font-weight: 600; }
 
+  /* focus bottombar */
+  .mock-focus-bottombar {
+    background: #fff;
+    border-top: 1px solid rgba(0,0,0,0.08);
+    padding: 6px 4px 4px;
+    display: flex; justify-content: space-around;
+  }
+
+  /* hbox */
   .hbox {
     background: var(--purple-bg); border: 1px solid var(--purple-border);
-    border-radius: 14px; padding: 15px 18px;
-    max-width: 360px; width: 100%; margin-top: 16px; text-align: left;
+    border-radius: 14px; padding: 14px 16px;
+    max-width: 340px; width: 100%; margin-top: 14px; text-align: left;
   }
   .hbox .en { font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.5; }
   .hbox .es { font-size: 12px; color: var(--es); margin-top: 5px; line-height: 1.5; }
-
   .hbox.green { background: var(--green-bg); border-color: var(--green-border); }
   .hbox.green .en { color: var(--green); }
 
-  .tag {
-    display: inline-block;
-    background: var(--purple-bg); border: 1px solid var(--purple-border);
-    border-radius: 100px; padding: 4px 12px;
-    font-size: 11px; font-weight: 600; color: var(--purple);
-    margin-bottom: 16px;
-  }
-
   /* nav */
-  .nav {
-    position: absolute; bottom: 0; left: 0; right: 0; height: 80px;
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 20px;
-    background: linear-gradient(to top, var(--bg) 65%, transparent);
-    z-index: 10;
-  }
-  .nav-btn {
-    background: var(--surface); border: 1px solid var(--border);
-    color: var(--text); font-family: inherit; font-size: 14px; font-weight: 600;
-    padding: 11px 22px; border-radius: 100px; cursor: pointer;
-    box-shadow: var(--shadow); -webkit-tap-highlight-color: transparent; white-space: nowrap;
-  }
+  .nav { position: absolute; bottom: 0; left: 0; right: 0; height: 80px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: linear-gradient(to top, var(--bg) 65%, transparent); z-index: 10; }
+  .nav-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); font-family: inherit; font-size: 14px; font-weight: 600; padding: 11px 22px; border-radius: 100px; cursor: pointer; box-shadow: var(--shadow); -webkit-tap-highlight-color: transparent; white-space: nowrap; }
   .nav-btn:disabled { opacity: 0.25; cursor: default; box-shadow: none; }
   .nav-btn:active:not(:disabled) { opacity: 0.7; }
   .nav-btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; box-shadow: 0 4px 14px rgba(107,79,216,0.35); padding: 11px 24px; }
   .dots { display: flex; gap: 5px; align-items: center; flex: 1; justify-content: center; padding: 0 8px; }
-  .dot { width: 5px; height: 5px; border-radius: 50%; background: #c8ccd4; transition: all 0.3s cubic-bezier(.4,0,.2,1); flex-shrink: 0; }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: #c8ccd4; transition: all 0.3s; flex-shrink: 0; }
   .dot.active { background: var(--purple); width: 16px; border-radius: 3px; }
   .tap-zone-left, .tap-zone-right { position: absolute; top: 0; bottom: 80px; width: 40%; z-index: 5; cursor: pointer; }
   .tap-zone-left { left: 0; } .tap-zone-right { right: 0; }
@@ -217,175 +246,251 @@
       <p class="subline-es">Cómo usar tu estación cada mañana — y qué pasa cuando empieza tu turno.</p>
     </div>
 
-    <!-- 2 Your station -->
+    <!-- 2 Open Prep tab — mock app -->
     <div class="slide">
-      <div class="eyebrow">Morning / Mañana</div>
-      <h1 class="headline">Open Brigade.<br><em>Your station is ready.</em></h1>
-      <div class="lang-divider"></div>
-      <p class="subline-en">Brigade knows your station. When you log in, you see exactly what needs to be done — no searching, no asking.</p>
-      <div class="lang-divider"></div>
-      <p class="subline-es">Brigade conoce tu estación. Cuando entras, ves exactamente lo que hay que hacer — sin buscar, sin preguntar.</p>
-      <div class="mock-station">
-        <div class="mock-station-label">🍝 Pasta Station</div>
-        <div class="mock-task">
-          <div class="mock-check done">✓</div>
-          <div class="mock-task-name">Bolognese</div>
-          <div class="mock-task-qty highlight">12 qt done</div>
-        </div>
-        <div class="mock-task">
-          <div class="mock-check progress"></div>
-          <div class="mock-task-name">Arrabbiata</div>
-          <div class="mock-task-qty">8 qt needed</div>
-        </div>
-        <div class="mock-task">
-          <div class="mock-check"></div>
-          <div class="mock-task-name">Fresh Pasta — Fettuccine</div>
-          <div class="mock-task-qty">9 containers</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 3 Tap to start -->
-    <div class="slide">
-      <div class="eyebrow">Starting a task / Iniciar una tarea</div>
-      <h1 class="headline">Tap the task.<br><em>Press Start.</em></h1>
-      <div class="lang-divider"></div>
-      <p class="subline-en">Brigade starts a timer the moment you begin. When you're done, enter the quantity you made and tap Done.</p>
-      <div class="lang-divider"></div>
-      <p class="subline-es">Brigade inicia un temporizador en el momento en que comienzas. Cuando terminas, ingresa la cantidad que hiciste y toca Listo.</p>
-      <div class="pill-grid">
-        <div class="pill">
-          <div class="pill-icon">▶️</div>
-          <div>
-            <div class="pill-en"><strong>Start</strong> — timer begins. The system knows you're working on it.</div>
-            <div class="pill-es"><strong>Inicio</strong> — empieza el temporizador. El sistema sabe que estás trabajando.</div>
+      <div class="eyebrow">Step 1 / Paso 1</div>
+      <h1 class="headline">Tap <em>Prep.</em><br>Your tasks appear.</h1>
+      <div class="phone-mock">
+        <div class="mock-topbar">
+          <div class="mock-avatar" style="background:#5b8de8;">CO</div>
+          <div class="mock-greeting">
+            <div class="mock-greeting-sub">Good morning,</div>
+            <div class="mock-greeting-name">Cole</div>
+          </div>
+          <div class="mock-avatars-right">
+            <div class="mock-avatar-sm" style="background:#2a9d5c;">TE</div>
+            <div class="mock-avatar-sm" style="background:#6b4fd8;">PR</div>
           </div>
         </div>
-        <div class="pill">
-          <div class="pill-icon">✅</div>
-          <div>
-            <div class="pill-en"><strong>Done</strong> — enter qty made. Your production is logged automatically.</div>
-            <div class="pill-es"><strong>Listo</strong> — ingresa la cantidad. Tu producción queda registrada automáticamente.</div>
+        <div class="mock-tabs">
+          <div class="mock-tab">Oven</div>
+          <div class="mock-tab">Fresh Pasta</div>
+          <div class="mock-tab active">Saucier</div>
+          <div class="mock-tab">Pasta</div>
+          <div class="mock-tab">Sauté</div>
+        </div>
+        <div class="mock-prep-area">
+          <div class="mock-card urgent">
+            <div class="mock-card-urgent-tag">URGENT</div>
+            <div class="mock-card-name urgent">Arrabbiata sauce</div>
+            <div class="mock-card-recipe">📖 Recipe</div>
+            <div class="mock-pill">🤖 9.07 kg recommended</div>
+            <div class="mock-btn-row">
+              <div class="mock-btn later">Later</div>
+              <div class="mock-btn done-btn">Done</div>
+              <div class="mock-btn noneed">No Need</div>
+            </div>
+          </div>
+          <div class="mock-card urgent">
+            <div class="mock-card-urgent-tag">URGENT</div>
+            <div class="mock-card-name urgent">Pomodoro</div>
+            <div class="mock-card-recipe">📖 Recipe</div>
+            <div class="mock-pill">🤖 13.69 kg recommended</div>
+            <div class="mock-btn-row">
+              <div class="mock-btn later">Later</div>
+              <div class="mock-btn done-btn">Done</div>
+              <div class="mock-btn noneed">No Need</div>
+            </div>
+          </div>
+          <div class="mock-card">
+            <div class="mock-card-name">Bechamel</div>
+            <div class="mock-card-recipe">📖 Recipe</div>
+            <div class="mock-pill">🤖 0.83 kg recommended</div>
+            <div class="mock-btn-row">
+              <div class="mock-btn later">Later</div>
+              <div class="mock-btn done-btn">Done</div>
+            </div>
+          </div>
+        </div>
+        <div class="mock-bottombar">
+          <div class="mock-tab-item"><div class="mock-tab-icon">🏠</div><div class="mock-tab-label">Home</div></div>
+          <div class="mock-tab-item"><div class="mock-tab-icon">📋</div><div class="mock-tab-label active">Prep</div></div>
+          <div class="mock-tab-item"><div class="mock-tab-icon">📖</div><div class="mock-tab-label">Recipes</div></div>
+          <div class="mock-tab-item"><div class="mock-tab-icon">📅</div><div class="mock-tab-label">Schedule</div></div>
+          <div class="mock-tab-item"><div class="mock-tab-icon">💬</div><div class="mock-tab-label">Chat</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 URGENT explained -->
+    <div class="slide">
+      <div class="eyebrow">Red = urgent / Rojo = urgente</div>
+      <h1 class="headline">Red cards<br><em>go first.</em></h1>
+      <div class="phone-mock">
+        <div class="mock-prep-area" style="padding:10px;">
+          <div class="mock-card urgent">
+            <div class="mock-card-urgent-tag">URGENT</div>
+            <div class="mock-card-name urgent">Arrabbiata sauce</div>
+            <div class="mock-card-recipe">📖 Recipe</div>
+            <div class="mock-pill">🤖 9.07 kg recommended</div>
+            <div class="mock-btn-row">
+              <div class="mock-btn later">Later</div>
+              <div class="mock-btn done-btn">Done</div>
+              <div class="mock-btn noneed">No Need</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="hbox" style="margin-top:14px; background:#fef0f0; border-color:rgba(217,79,79,0.2);">
+        <div class="en" style="color:#d94f4f;">🔴 URGENT = this needs to be done before service. Start here.</div>
+        <div class="es" style="color:#d94f4f;">🔴 URGENT = esto debe hacerse antes del servicio. Empieza aquí.</div>
+      </div>
+      <div class="hbox" style="margin-top:8px;">
+        <div class="en">🤖 The green pill = quantity suggested by Brigade AI based on last week's sales.</div>
+        <div class="es">🤖 La píldora verde = cantidad sugerida por Brigade AI basada en ventas de la semana pasada.</div>
+      </div>
+    </div>
+
+    <!-- 4 Done button -->
+    <div class="slide">
+      <div class="eyebrow">Finishing a task / Terminar una tarea</div>
+      <h1 class="headline">Made it?<br><em>Tap Done.</em></h1>
+      <div class="lang-divider"></div>
+      <p class="subline-en">When you finish a prep, tap Done. Brigade will ask how much you made — enter the quantity and confirm. That's it. Your production is logged.</p>
+      <div class="lang-divider"></div>
+      <p class="subline-es">Cuando terminas una prep, toca Done. Brigade te preguntará cuánto hiciste — ingresa la cantidad y confirma. Listo. Tu producción queda registrada.</p>
+      <div class="phone-mock">
+        <div class="mock-prep-area" style="padding:10px;">
+          <div class="mock-card" style="background:var(--green-bg); border-color:var(--green-border);">
+            <div style="font-size:9px; font-weight:700; color:var(--green); margin-bottom:4px;">✓ COMPLETED</div>
+            <div class="mock-card-name">Arrabbiata sauce</div>
+            <div style="font-size:11px; color:var(--green); font-weight:600; margin-top:4px;">9.2 kg logged ✓</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 4 Quantity matters -->
+    <!-- 5 No Need -->
     <div class="slide">
-      <div class="eyebrow">Why it matters / Por qué importa</div>
-      <h1 class="headline">Your numbers<br><em>feed the system.</em></h1>
+      <div class="eyebrow">Already stocked / Ya hay suficiente</div>
+      <h1 class="headline">Already enough?<br><em>No Need.</em></h1>
       <div class="lang-divider"></div>
-      <p class="subline-en">Every quantity you log teaches Brigade. Over time, it learns how much your station needs on a Monday vs a Friday — and starts suggesting the right amounts automatically.</p>
+      <p class="subline-en">If something is already stocked from yesterday, don't make more — tap No Need and move on.</p>
       <div class="lang-divider"></div>
-      <p class="subline-es">Cada cantidad que registras enseña a Brigade. Con el tiempo, aprende cuánto necesita tu estación un lunes vs un viernes — y empieza a sugerir las cantidades correctas automáticamente.</p>
-      <div class="hbox green">
-        <div class="en">✓ More logs = smarter suggestions = less waste, less running out.</div>
-        <div class="es">✓ Más registros = sugerencias más inteligentes = menos desperdicio, menos faltantes.</div>
+      <p class="subline-es">Si algo ya tiene stock de ayer, no hagas más — toca No Need y sigue.</p>
+      <div class="phone-mock">
+        <div class="mock-prep-area" style="padding:10px;">
+          <div class="mock-card">
+            <div class="mock-card-name">Bechamel</div>
+            <div class="mock-card-recipe">📖 Recipe</div>
+            <div class="mock-pill">🤖 0.83 kg recommended</div>
+            <div class="mock-btn-row">
+              <div class="mock-btn later">Later</div>
+              <div class="mock-btn done-btn">Done</div>
+              <div class="mock-btn noneed" style="background:rgba(184,134,11,0.1);">No Need</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="hbox" style="margin-top:12px; background:#fdf6e3; border-color:rgba(184,134,11,0.2);">
+        <div class="en" style="color:#b8860b;">⚠️ Only tap No Need if it's truly stocked. The system tracks this.</div>
+        <div class="es" style="color:#b8860b;">⚠️ Solo toca No Need si realmente hay stock. El sistema lo rastrea.</div>
       </div>
     </div>
 
-    <!-- 5 Focus Mode intro -->
+    <!-- 6 Focus Mode intro -->
     <div class="slide">
       <div class="slide-icon">🎯</div>
       <div class="eyebrow">Focus Mode</div>
-      <h1 class="headline">Your shift starts.<br><em>Brigade locks in.</em></h1>
+      <h1 class="headline">Shift starts.<br><em>Brigade locks in.</em></h1>
       <div class="lang-divider"></div>
-      <p class="subline-en">When you're scheduled to work, Brigade enters Focus Mode. The app shows only what you need right now — your station, your tasks, nothing else.</p>
+      <p class="subline-en">When you're scheduled to work, Brigade enters Focus Mode automatically. The app shows only your station — nothing else to click, nothing to get distracted by.</p>
       <div class="lang-divider"></div>
-      <p class="subline-es">Cuando estás programado para trabajar, Brigade entra en Modo Focus. La app muestra solo lo que necesitas ahora — tu estación, tus tareas, nada más.</p>
+      <p class="subline-es">Cuando estás programado para trabajar, Brigade entra en Modo Focus automáticamente. La app muestra solo tu estación — nada más en qué hacer clic.</p>
     </div>
 
-    <!-- 6 Focus Mode visual -->
+    <!-- 7 Focus Mode visual — real app look -->
     <div class="slide">
       <div class="eyebrow">Focus Mode — what you see / Lo que ves</div>
-      <h1 class="headline">Clean.<br><em>No distractions.</em></h1>
-      <div class="focus-mock">
-        <div class="focus-label">🎯 Focus Mode — Pasta Station</div>
-        <div class="focus-task">
-          <div class="focus-task-icon">🍝</div>
-          <div class="focus-task-name">Arrabbiata — 8 qt</div>
-          <div class="focus-task-time">▶ 14 min</div>
+      <h1 class="headline">Tasks done?<br><em>Tap Riapri to reopen.</em></h1>
+      <div class="phone-mock">
+        <div class="mock-topbar">
+          <div class="mock-avatar" style="background:#2a9d5c;">TE</div>
+          <div class="mock-greeting">
+            <div class="mock-greeting-sub">Good afternoon,</div>
+            <div class="mock-greeting-name">Tela</div>
+          </div>
+          <div class="mock-avatars-right">
+            <div class="mock-avatar-sm" style="background:#6b4fd8;">PR</div>
+          </div>
         </div>
-        <div class="focus-task" style="opacity:0.5;">
-          <div class="focus-task-icon">🍝</div>
-          <div class="focus-task-name">Fresh Pasta — 9 containers</div>
-          <div class="focus-task-time">Next</div>
+        <div class="mock-prep-area" style="background:#e8f4fb; padding:8px; gap:6px;">
+          <div class="mock-card done-card">
+            <div class="mock-card-done-tag">DONE</div>
+            <div class="mock-card-name done">Artichoke</div>
+            <div class="mock-card-station">Oven Station</div>
+            <div class="mock-btn-row"><div class="mock-btn riapri">Reopen</div></div>
+          </div>
+          <div class="mock-card done-card">
+            <div class="mock-card-done-tag">DONE</div>
+            <div class="mock-card-name done">Brussels sprouts</div>
+            <div class="mock-card-station">Oven Station</div>
+            <div class="mock-btn-row"><div class="mock-btn riapri">Reopen</div></div>
+            <div class="mock-card-recipe">📖 Recipe</div>
+          </div>
+          <div class="mock-card done-card">
+            <div class="mock-card-done-tag">DONE</div>
+            <div class="mock-card-name done">Calamari</div>
+            <div class="mock-card-station">Oven Station</div>
+            <div class="mock-btn-row"><div class="mock-btn riapri">Reopen</div></div>
+          </div>
         </div>
-        <div class="focus-timer"><div class="focus-timer-fill"></div></div>
-        <div class="focus-timer-label">In progress · 14 min elapsed</div>
-      </div>
-      <div class="hbox" style="margin-top:14px;">
-        <div class="en">Your schedule drives it. No schedule = no Focus Mode.</div>
-        <div class="es">Tu horario lo activa. Sin horario = sin Modo Focus.</div>
+        <div class="mock-focus-bottombar">
+          <div class="mock-tab-item"><div class="mock-tab-icon">💬</div><div class="mock-tab-label">Chat</div></div>
+          <div class="mock-tab-item"><div class="mock-tab-icon">📍</div><div class="mock-tab-label">My Station</div></div>
+          <div class="mock-tab-item"><div class="mock-tab-icon">📋</div><div class="mock-tab-label">Stations</div></div>
+          <div class="mock-tab-item"><div class="mock-tab-icon">📣</div><div class="mock-tab-label">Chef</div></div>
+          <div class="mock-tab-item"><div class="mock-tab-icon">📅</div><div class="mock-tab-label">Schedule</div></div>
+        </div>
       </div>
     </div>
 
-    <!-- 7 Recipes -->
+    <!-- 8 Recipe link -->
     <div class="slide">
       <div class="eyebrow">Recipes / Recetas</div>
       <h1 class="headline">Not sure<br><em>how to make it?</em></h1>
       <div class="lang-divider"></div>
-      <p class="subline-en">Every prep task links directly to its recipe. Tap the task — tap the recipe — follow the steps. Procedure, quantities, shelf life. All there.</p>
+      <p class="subline-en">Every prep task has a Recipe link. Tap it — see the full procedure, ingredients, and quantities. Always up to date. Chef Max updates them directly in Brigade.</p>
       <div class="lang-divider"></div>
-      <p class="subline-es">Cada tarea de prep enlaza directamente con su receta. Toca la tarea — toca la receta — sigue los pasos. Procedimiento, cantidades, vida útil. Todo ahí.</p>
-      <div class="pill-grid">
-        <div class="pill">
-          <div class="pill-icon">📖</div>
-          <div>
-            <div class="pill-en">Recipes are always up to date — Chef Max updates them directly in Brigade.</div>
-            <div class="pill-es">Las recetas siempre están actualizadas — el Chef Max las actualiza directamente en Brigade.</div>
+      <p class="subline-es">Cada tarea de prep tiene un enlace de Receta. Tócalo — ve el procedimiento completo, ingredientes y cantidades. Siempre actualizadas por el Chef Max.</p>
+      <div class="phone-mock">
+        <div class="mock-prep-area" style="padding:10px;">
+          <div class="mock-card urgent">
+            <div class="mock-card-urgent-tag">URGENT</div>
+            <div class="mock-card-name urgent">Arrabbiata sauce</div>
+            <div class="mock-card-recipe" style="font-size:12px; font-weight:600;">👉 📖 Recipe — tap here</div>
+            <div class="mock-pill">🤖 9.07 kg recommended</div>
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- 8 No Need -->
-    <div class="slide">
-      <div class="slide-icon">👍</div>
-      <div class="eyebrow">Already stocked / Ya hay suficiente</div>
-      <h1 class="headline">Already enough?<br><em>Mark No Need.</em></h1>
-      <div class="lang-divider"></div>
-      <p class="subline-en">If something is already stocked from yesterday, don't make more — tap "No Need" and move on. This keeps the system honest.</p>
-      <div class="lang-divider"></div>
-      <p class="subline-es">Si algo ya tiene stock de ayer, no hagas más — toca "No Need" y sigue adelante. Esto mantiene el sistema preciso.</p>
-      <div class="hbox">
-        <div class="en">⚠️ Only mark No Need if it's truly stocked. The closing crew marked it yesterday — if they were wrong, the system will catch it.</div>
-        <div class="es">⚠️ Solo marca No Need si realmente hay stock. El cierre lo marcó ayer — si estaban equivocados, el sistema lo detectará.</div>
       </div>
     </div>
 
     <!-- 9 Summary -->
     <div class="slide">
-      <div class="eyebrow">Summary / Resumen</div>
-      <h1 class="headline">Prep in<br><em>four steps.</em></h1>
-      <div class="pill-grid">
-        <div class="pill">
-          <div class="pill-icon">1️⃣</div>
-          <div>
-            <div class="pill-en">Open Brigade → see your station tasks</div>
-            <div class="pill-es">Abre Brigade → ve las tareas de tu estación</div>
+      <div class="eyebrow">In short / En resumen</div>
+      <h1 class="headline">Prep in<br><em>3 taps.</em></h1>
+      <div class="phone-mock">
+        <div class="mock-prep-area" style="padding:10px; gap:8px;">
+          <div class="mock-card" style="display:flex; align-items:center; gap:10px; padding:10px 12px;">
+            <div style="font-size:20px;">1️⃣</div>
+            <div>
+              <div style="font-size:12px; font-weight:600; color:var(--text);">Tap Prep → see your tasks</div>
+              <div style="font-size:10px; color:var(--es); margin-top:2px;">Toca Prep → ve tus tareas</div>
+            </div>
           </div>
-        </div>
-        <div class="pill">
-          <div class="pill-icon">2️⃣</div>
-          <div>
-            <div class="pill-en">Tap task → Start → cook</div>
-            <div class="pill-es">Toca la tarea → Inicio → cocina</div>
+          <div class="mock-card" style="display:flex; align-items:center; gap:10px; padding:10px 12px;">
+            <div style="font-size:20px;">2️⃣</div>
+            <div>
+              <div style="font-size:12px; font-weight:600; color:var(--text);">Cook → tap Done → enter qty</div>
+              <div style="font-size:10px; color:var(--es); margin-top:2px;">Cocina → Done → ingresa cantidad</div>
+            </div>
           </div>
-        </div>
-        <div class="pill">
-          <div class="pill-icon">3️⃣</div>
-          <div>
-            <div class="pill-en">Done → enter quantity made</div>
-            <div class="pill-es">Listo → ingresa la cantidad producida</div>
-          </div>
-        </div>
-        <div class="pill">
-          <div class="pill-icon">4️⃣</div>
-          <div>
-            <div class="pill-en">Already stocked? → No Need → next task</div>
-            <div class="pill-es">¿Ya hay? → No Need → siguiente tarea</div>
+          <div class="mock-card" style="display:flex; align-items:center; gap:10px; padding:10px 12px;">
+            <div style="font-size:20px;">3️⃣</div>
+            <div>
+              <div style="font-size:12px; font-weight:600; color:var(--text);">Already stocked? → No Need</div>
+              <div style="font-size:10px; color:var(--es); margin-top:2px;">¿Ya hay? → No Need</div>
+            </div>
           </div>
         </div>
       </div>
@@ -394,18 +499,18 @@
     <!-- 10 Closing -->
     <div class="slide">
       <div class="slide-icon">🍳</div>
-      <h1 class="headline">Your prep.<br><em>Your station.<br>Your record.</em></h1>
+      <h1 class="headline">Your prep.<br><em>Your record.<br>Every day.</em></h1>
       <div class="lang-divider"></div>
-      <p class="subline-en">Every task you complete builds the history that makes the whole kitchen smarter. It starts with you.</p>
+      <p class="subline-en">Every task you complete teaches Brigade. Over time it learns your station — and starts suggesting exactly what you need before you ask.</p>
       <div class="lang-divider"></div>
-      <p class="subline-es">Cada tarea que completas construye el historial que hace más inteligente a toda la cocina. Empieza contigo.</p>
-      <div class="hbox" style="margin-top:18px;">
+      <p class="subline-es">Cada tarea que completas enseña a Brigade. Con el tiempo aprende tu estación — y empieza a sugerir exactamente lo que necesitas antes de que preguntes.</p>
+      <div class="hbox" style="margin-top:14px;">
         <div class="en">Next: Chat — how to talk to the whole team in any language.</div>
         <div class="es">Siguiente: Chat — cómo hablar con todo el equipo en cualquier idioma.</div>
       </div>
     </div>
 
-  </div><!-- /slides -->
+  </div>
 
   <div class="tap-zone-left" id="tzl"></div>
   <div class="tap-zone-right" id="tzr"></div>
@@ -419,7 +524,7 @@
 
 <script>
 (function() {
-  var SLIDE_DURATION = 6000;
+  var SLIDE_DURATION = 7000;
   var slides = document.querySelectorAll('.slide');
   var total = slides.length;
   var current = 0;
@@ -427,7 +532,6 @@
   var timer = null;
   var timerStart = null;
   var timerRemaining = SLIDE_DURATION;
-
   var pf = document.getElementById('pf');
   var tf = document.getElementById('tf');
   var ctr = document.getElementById('ctr');
@@ -435,13 +539,11 @@
   var nextBtn = document.getElementById('nextBtn');
   var dotsEl = document.getElementById('dots');
   var pauseInd = document.getElementById('pauseInd');
-
   for (var i = 0; i < total; i++) {
     var d = document.createElement('div');
     d.className = 'dot' + (i === 0 ? ' active' : '');
     dotsEl.appendChild(d);
   }
-
   function goTo(idx) {
     if (idx < 0 || idx >= total) return;
     slides[current].classList.remove('active');
@@ -450,10 +552,8 @@
     setTimeout(function() { leaving.classList.remove('exit'); }, 450);
     current = idx;
     slides[current].classList.add('active');
-    update();
-    resetTimer();
+    update(); resetTimer();
   }
-
   function update() {
     pf.style.width = ((current + 1) / total * 100) + '%';
     ctr.textContent = (current + 1) + ' / ' + total;
@@ -462,63 +562,43 @@
     prevBtn.disabled = current === 0;
     nextBtn.textContent = current === total - 1 ? '↺ Restart' : 'Next →';
   }
-
   function startTimer(duration) {
     clearTimeout(timer);
     timerRemaining = duration || SLIDE_DURATION;
     timerStart = Date.now();
-    tf.classList.remove('running');
-    tf.style.width = '0%';
-    tf.style.transition = 'none';
-    requestAnimationFrame(function() {
-      requestAnimationFrame(function() {
-        tf.style.transition = 'width ' + (timerRemaining / 1000) + 's linear';
-        tf.style.width = '100%';
-        tf.classList.add('running');
-      });
-    });
+    tf.classList.remove('running'); tf.style.width = '0%'; tf.style.transition = 'none';
+    requestAnimationFrame(function() { requestAnimationFrame(function() {
+      tf.style.transition = 'width ' + (timerRemaining / 1000) + 's linear';
+      tf.style.width = '100%'; tf.classList.add('running');
+    }); });
     timer = setTimeout(function() {
       if (current < total - 1) { goTo(current + 1); } else { tf.style.width = '0%'; }
     }, timerRemaining);
   }
-
   function resetTimer() { if (!paused) startTimer(SLIDE_DURATION); }
-
   function pauseTimer() {
-    paused = true;
-    clearTimeout(timer);
+    paused = true; clearTimeout(timer);
     var elapsed = Date.now() - timerStart;
     timerRemaining = Math.max(0, timerRemaining - elapsed);
     tf.style.transition = 'none';
     pauseInd.classList.add('visible');
   }
-
-  function resumeTimer() {
-    paused = false;
-    pauseInd.classList.remove('visible');
-    startTimer(timerRemaining);
-  }
-
+  function resumeTimer() { paused = false; pauseInd.classList.remove('visible'); startTimer(timerRemaining); }
   document.getElementById('tzl').addEventListener('click', function() { paused ? resumeTimer() : pauseTimer(); });
   document.getElementById('tzr').addEventListener('click', function() { paused ? resumeTimer() : pauseTimer(); });
-
   prevBtn.addEventListener('click', function() { paused = false; pauseInd.classList.remove('visible'); goTo(current - 1); });
   nextBtn.addEventListener('click', function() { paused = false; pauseInd.classList.remove('visible'); if (current === total - 1) { goTo(0); } else { goTo(current + 1); } });
-
   document.addEventListener('keydown', function(e) {
     if (e.key === 'ArrowRight' || e.key === ' ') { paused = false; goTo(current + 1); }
     if (e.key === 'ArrowLeft') { paused = false; goTo(current - 1); }
   });
-
   var tsx = 0;
   document.addEventListener('touchstart', function(e) { tsx = e.touches[0].clientX; }, { passive: true });
   document.addEventListener('touchend', function(e) {
     var dx = e.changedTouches[0].clientX - tsx;
     if (Math.abs(dx) > 60) { paused = false; pauseInd.classList.remove('visible'); if (dx < 0) goTo(current + 1); else goTo(current - 1); }
   }, { passive: true });
-
-  update();
-  startTimer(SLIDE_DURATION);
+  update(); startTimer(SLIDE_DURATION);
 })();
 </script>
 </body>
