@@ -342,7 +342,22 @@ function openRecipeEditor(rec=null){
     <div class="p-4 overflow-auto space-y-3 text-sm">
 
       <input id="rTitle" placeholder="Title" class="w-full px-3 py-2 border rounded-xl" value="${rec?.title||''}">
-      <input id="rImg" placeholder="Photo URL" class="w-full px-3 py-2 border rounded-xl" value="${rec?.image_url||''}">
+      <div>
+        <div class="text-xs text-slate-500 mb-1">Photo</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div id="rImgPreview" style="width:56px;height:56px;border-radius:10px;border:1.5px solid #e2e8f0;overflow:hidden;flex-shrink:0;background:#f8fafc;display:flex;align-items:center;justify-content:center;">
+            ${rec?.image_url ? `<img src="${rec.image_url}" style="width:100%;height:100%;object-fit:cover;">` : `<span style="font-size:22px;">📷</span>`}
+          </div>
+          <div style="flex:1;">
+            <input type="file" id="rImgFile" accept="image/*" style="display:none;">
+            <button id="rImgBtn" type="button" class="w-full px-3 py-2 border rounded-xl text-sm text-slate-600 text-left" style="background:#f8fafc;">
+              ${rec?.image_url ? '📷 Change photo' : '📷 Choose from library'}
+            </button>
+            <input id="rImg" type="hidden" value="${rec?.image_url||''}">
+          </div>
+        </div>
+        <div id="rImgProgress" style="display:none;font-size:11px;color:#6366f1;margin-top:4px;">Uploading…</div>
+      </div>
 
       <div class="grid grid-cols-2 gap-2">
         <div>
@@ -410,9 +425,12 @@ function openRecipeEditor(rec=null){
       <div><div class="font-semibold mb-1">Equipment</div><textarea id="rEquip" class="w-full px-3 py-2 border rounded-xl h-16">${rec?.equipment||''}</textarea></div>
       <div><div class="font-semibold mb-1">Procedure</div><textarea id="rProc" class="w-full px-3 py-2 border rounded-xl h-32">${rec?.procedure||''}</textarea></div>
     </div>
-    <div class="p-3 border-t flex gap-2">
-      <button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl">${tr("cancel")}</button>
-      <button id="saveR" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold">${tr("save")}</button>
+    <div class="p-3 border-t">
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl">${tr("cancel")}</button>
+        <button id="saveR" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold">${tr("save")}</button>
+      </div>
+      ${rec?.id ? `<button id="deleteR" class="w-full py-2.5 text-red-500 border border-red-200 rounded-xl text-sm font-medium" style="background:#fff5f5;">🗑️ Delete Recipe</button>` : ''}
     </div>
   </div>`;
   document.body.appendChild(modal);
@@ -430,6 +448,49 @@ function openRecipeEditor(rec=null){
   }, {passive:true});
   // Tap backdrop to close
   modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+
+  // ── Photo upload logic ──
+  (function initPhotoUpload(){
+    const fileInput = modal.querySelector('#rImgFile');
+    const imgBtn    = modal.querySelector('#rImgBtn');
+    const hiddenUrl = modal.querySelector('#rImg');
+    const preview   = modal.querySelector('#rImgPreview');
+    const progress  = modal.querySelector('#rImgProgress');
+    if(!fileInput || !imgBtn) return;
+
+    imgBtn.onclick = ()=> fileInput.click();
+
+    fileInput.addEventListener('change', async()=>{
+      const file = fileInput.files[0];
+      if(!file) return;
+
+      // Comprimi a max 800px
+      const compressed = await compressImage(file, 800);
+
+      progress.style.display = 'block';
+      imgBtn.disabled = true;
+
+      try {
+        const ext  = file.name.split('.').pop().toLowerCase() || 'jpg';
+        const path = `recipes/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const { data, error } = await supa.storage.from('app').upload(path, compressed, {
+          contentType: compressed.type,
+          upsert: false
+        });
+        if(error) throw error;
+        const { data: urlData } = supa.storage.from('app').getPublicUrl(path);
+        const publicUrl = urlData.publicUrl;
+        hiddenUrl.value = publicUrl;
+        preview.innerHTML = `<img src="${publicUrl}" style="width:100%;height:100%;object-fit:cover;">`;
+        imgBtn.textContent = '📷 Change photo';
+      } catch(e) {
+        alert('Upload failed: ' + e.message);
+      } finally {
+        progress.style.display = 'none';
+        imgBtn.disabled = false;
+      }
+    });
+  })();
 
   // Serving weight hint
   const servInput  = modal.querySelector('#rServings');
@@ -771,6 +832,23 @@ function openRecipeEditor(rec=null){
       renderRecipes();
     }catch(e){ alert('Error: '+e.message); }
   };
+
+  // ── Delete recipe button ──
+  const deleteBtn = modal.querySelector('#deleteR');
+  if(deleteBtn && rec?.id){
+    deleteBtn.onclick = async()=>{
+      const confirmed = confirm(`Delete "${rec.title}"?\nThis cannot be undone.`);
+      if(!confirmed) return;
+      try {
+        await supa.from('recipe_bom').delete().eq('parent_recipe_id', rec.id);
+        await supa.from('recipe_translations').delete().eq('recipe_id', rec.id);
+        await supa.from('recipes').delete().eq('id', rec.id);
+        modal.remove();
+        await init();
+        renderRecipes();
+      } catch(e){ alert('Error deleting: ' + e.message); }
+    };
+  }
 }
 
 function linkRecipeToItem(title){
@@ -1136,6 +1214,28 @@ async function loadRecipePrepStats(rec, sheetEl) {
 }
 
 // ── RECIPE BOM — save structured links ───────────────────────
+// ── Comprimi immagine prima upload (max maxPx lato lungo) ──
+function compressImage(file, maxPx = 800){
+  return new Promise((resolve)=>{
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = ()=>{
+      URL.revokeObjectURL(url);
+      let {width: w, height: h} = img;
+      if(w > maxPx || h > maxPx){
+        if(w >= h){ h = Math.round(h * maxPx / w); w = maxPx; }
+        else       { w = Math.round(w * maxPx / h); h = maxPx; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.82);
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 async function saveRecipeBOM(recipeId, ingredientRows){
   // Delete existing BOM rows for this recipe
   await supa.from('recipe_bom').delete().eq('parent_recipe_id', recipeId);
