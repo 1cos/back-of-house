@@ -213,7 +213,7 @@ window.vdrProcessAllPdf = async function() {
 
         // Duplicate check by doc number
         if (docNumber) {
-          const { data: byNum } = await sb.from('vendor_documents').select('id').eq('vendor', parsed.vendor).eq('document_number', docNumber).neq('id', doc.id).limit(1);
+          const { data: byNum } = await sb.from('vendor_documents').select('id').eq('vendor', parsed.vendor).eq('document_number', docNumber).eq('document_type', parsed.document_type).neq('id', doc.id).limit(1);
           if (byNum && byNum.length > 0) {
             await sb.from('vendor_documents').update({ status: 'error', warnings: [{ code: 'DUPLICATE', message: `Document #${docNumber} already exists` }] }).eq('id', doc.id);
             await sb.storage.from('app').remove([storagePath]);
