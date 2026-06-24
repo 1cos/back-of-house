@@ -107,8 +107,6 @@ function startFocusClock() {
 
 function buildFocusList() {
   var all = items.filter(function(i) {
-    // Solo task urgenti (need_tomorrow) o in corso (in_progress) — non mostrare task inattivi
-    if (!i.need_tomorrow && !i.in_progress) return false;
     if (!_focusCurrentStation) return true;
     return i.category && i.category.includes(_focusCurrentStation);
   });
