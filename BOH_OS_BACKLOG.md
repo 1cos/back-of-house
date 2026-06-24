@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-24 — v340*
+*Aggiornato: 2026-06-24 — v342*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,7 +10,7 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v340** — 🟢 **APP IN PRODUZIONE** (brigata attiva)
+- Versione frontend: **v342** — 🟢 **APP IN PRODUZIONE** (brigata attiva)
 - souschef-chat: **v24** (confirmation gate "Sì Chef")
 
 - ai-translate: **v28** (Google Translate attivo)
@@ -39,7 +39,7 @@
 | bot-price-guard | v1 | 🤖 Guardiano Prezzi — confronta prezzi fattura vs media storica |
 | bot-chat-analyst | v2 | 🤖 Analista Chat — analisi notturna AI chat brigata |
 | bot-preplist-builder | v1 | 🤖 Costruttore Preplist — suggested_qty automatiche ogni notte |
-| bot-tell-chef-reader | v1 | 🤖 Lettore Tell Chef — classifica e genera suggestion AI ogni ora |
+| bot-tell-chef-reader | v5 | 🤖 Lettore Tell Chef — classifica, smista per folder, ciclo vita 7gg, chef_action→chef_reports |
 | bot-food-cost-guard | v1 | 🤖 Guardiano Food Cost — impatto $ ingredienti su ricette vendute |
 
 ---
@@ -116,10 +116,12 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 ## L'UFFICIO — ✅ IMPLEMENTATO
 
 ### TODO L'Ufficio
-- [ ] 🔴 Bottoni non collegati ad azioni reali — sessione dedicata urgente
+- [x] ~~Bottoni non collegati ad azioni reali~~ → Working on it / Done / Ignore implementati (v339)
+- [x] ~~Pulizia menu admin~~ → 5 voci dev rimosse, Invoice+Purchases deduplicati (v337)
+- [ ] ai_options come azioni eseguibili (add_prep_task, open_prep_station, ecc.) — PRIORITÀ #1
 - [ ] office-ai → pg_cron orario (analisi automatica ogni ora)
 - [ ] Spostare L'Ufficio nella bottom bar invece dei tre puntini
-- [ ] Pulizia menu admin: Parser Test, Similarity, Vendor Match, Ingredient Cleanup, Bootstrap → verificare e rimuovere obsoleti
+- [ ] Valutare rimozione bottone Tell Chef dai tre puntini (ora tutto in L'Ufficio)
 
 ---
 
@@ -170,6 +172,17 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 ---
 
 ## Log sessioni
+
+### Sessione 2026-06-24 — L'Ufficio pulizia e riordino (v337→v342)
+- v337→v342: pulizia menu admin, Purchase History unificata, fix Focus Mode, fix Report, fix Riapri
+- Tell Chef: bottoni Working/Done/Ignore + salva chef_action nel DB
+- office_items: +chef_action, +chef_action_at, +chef_action_by, +report_type, +updated_at
+- chef_reports: +chef_action, +chef_action_at, +chef_action_by
+- bot-tell-chef-reader v5: from_user=Chef AI, report_type, smistamento folder, ciclo vita 7gg
+- getFolderForItem(): PROBLEMA_OPERATIVO+GAP_CHECKLIST→prep, CONTRIBUTO_RICETTA+FEEDBACK_RICETTA→miglioramenti
+- Ciclo vita: done>7gg sparisce, working_on_it>7gg→alert rosso, ignored→sparisce subito
+- Fix opt.label undefined nei bottoni AI options
+- Pianificato: ai_options come azioni eseguibili (prossima sessione)
 
 ### Sessione 2026-06-24 — Bug fix post-lancio + Cleaning Checklist (teoria) (v336→v340)
 - **App in produzione** — brigata attiva dal 2026-06-24 🟢
