@@ -26,8 +26,9 @@ window.officeWriteItem = async function(source, sourceId, fromUser, title, body)
 };
 
 
+// Mappa source → folder. Per tell_chef il folder dipende dal report_type (vedi getFolderForItem)
 var _officeFolderMap = {
-  tell_chef:           'brigata',
+  tell_chef:           'brigata',   // default — override da getFolderForItem
   operation_note:      'brigata',
   ai_scan:             'chefai',
   sous_chef_chat:      'chefai',
@@ -38,6 +39,19 @@ var _officeFolderMap = {
   'bot-recipe-guardian': 'miglioramenti',
   vendor_warning:      'fornitori'
 };
+
+// Ritorna la folder corretta per un item — per tell_chef usa report_type
+function getFolderForItem(item) {
+  if (item.source === 'tell_chef' || item.source === 'bot-tell-chef-reader') {
+    var t = item.report_type || '';
+    if (t === 'PROBLEMA_OPERATIVO' || t === 'GAP_CHECKLIST') return 'prep';
+    if (t === 'CONTRIBUTO_RICETTA' || t === 'FEEDBACK_RICETTA') return 'miglioramenti';
+    if (t === 'SEGNALE_PERSONALE') return 'brigata';
+    // tell_chef senza classificazione ancora → brigata
+    return 'brigata';
+  }
+  return _officeFolderMap[item.source] || 'chefai';
+}
 
 var _officeFolders = [
   { id:'brigata',       icon:'👨‍🍳', label:'La Brigata',    desc:'Tell Chef · Note serali',          ribbon:'#3b82f6', badge:'rgba(59,130,246,0.12)', badgeTxt:'#2563eb' },
@@ -110,7 +124,7 @@ async function officeLoadHome() {
     _officeFolders.forEach(function(f) { counts[f.id] = 0; previews[f.id] = ''; });
 
     items.forEach(function(item) {
-      var folder = _officeFolderMap[item.source] || 'chefai';
+      var folder = getFolderForItem(item);
       counts[folder] = (counts[folder] || 0) + 1;
       if (!previews[folder]) previews[folder] = item.title || '';
     });
@@ -200,7 +214,7 @@ window.officeOpenFolder = async function(folderId) {
       if (folderId === 'nonletti') {
         items = all;
       } else {
-        items = all.filter(function(i){ return (_officeFolderMap[i.source]||'chefai') === folderId; });
+        items = all.filter(function(i){ return getFolderForItem(i) === folderId; });
       }
     } catch(e) { console.warn('[Office] folder load error:', e.message); }
   }
@@ -522,11 +536,12 @@ function officeRenderCard(item) {
     actionsHtml = '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">';
     options.forEach(function(opt, idx) {
       var isPrimary = idx === options.length - 1;
+      var label = typeof opt === 'string' ? opt : (opt.label || String(opt));
       actionsHtml +=
-        '<button onclick="officeResolve(\'' + item.id + '\',\'' + escOpt(opt.label) + '\')" ' +
+        '<button onclick="officeResolve(\'' + item.id + '\',\'' + escOpt(label) + '\')" ' +
         'style="flex:1;padding:8px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid ' +
         (isPrimary ? '#1e3a5f;background:#1e3a5f;color:white;' : 'rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;') +
-        '">' + opt.label + '</button>';
+        '">' + label + '</button>';
     });
     actionsHtml += '</div>';
   } else {
