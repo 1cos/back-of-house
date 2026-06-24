@@ -91,6 +91,7 @@
     <div style="text-align:center;margin-bottom:32px;">
       <div style="font-size:22px;font-weight:500;color:white;margin-bottom:4px;">Brigade</div>
       <div style="font-size:13px;color:rgba(255,255,255,0.5);">Zenos on the Square</div>
+      <div id="appVersionPin" style="font-size:10px;color:rgba(255,255,255,0.25);margin-top:4px;letter-spacing:0.05em;"></div>
     </div>
 
     <!-- PIN dots -->
@@ -697,6 +698,8 @@ fetch('sw.js?nocache=' + Date.now())
     const v = 'v' + m[1];
     const el = document.getElementById('appVersion');
     if (el) el.textContent = v;
+    const elPin = document.getElementById('appVersionPin');
+    if (elPin) elPin.textContent = v;
     document.title = 'Brigade — ' + v;
   })
   .catch(() => {});
@@ -730,6 +733,7 @@ function updateTVButtonState(active) {
 }
 </script>
 </html>
+
 
 
 
