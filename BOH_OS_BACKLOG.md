@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-24 — v335*
+*Aggiornato: 2026-06-24 — v340*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,8 +10,9 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v335**
-- Versione souschef-chat: v23
+- Versione frontend: **v340** — 🟢 **APP IN PRODUZIONE** (brigata attiva)
+- souschef-chat: **v24** (confirmation gate "Sì Chef")
+
 - ai-translate: **v28** (Google Translate attivo)
 - Supabase: ydqmumpytgrlceuinoqt
 - Leggi sempre da GitHub brigade-main, MAI da /mnt/project/
@@ -124,16 +125,18 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 
 ## PRIORITÀ ALTA — PROSSIME SESSIONI
 
-1. **🔴 Home dedicata Dish Crew (Fase 2)** — layout semplificato per dishwasher. Detect: `user.default_station === 'Dish Crew'`. Nascondere Recipes, Closing, Sales, Ingredienti, Focus Mode. Bottom bar: Home/Chat/Schedule/Tell Chef. Fase 1 (visibilità stazioni) chiusa in v332.
-2. **🔴 Smart UI prep con suggested_qty** — preview ricetta + prep card con quantità Bot 3 e scaler.
-3. **🔴 Bottoni L'Ufficio** — sessione dedicata urgente
-4. **🟠 Focus Mode test reale** — importare CSV 7shifts e verificare match schedule_name in produzione
-5. **🟠 Foto in chat (v335)** — da testare su iPhone (non ancora verificate da Max)
-6. **Fix realtime TV** — loadChat() troppo pesante
-7. **Bug UI chat** — long press copia
-8. **office-ai cron orario**
-9. **Bot 4 Fase 2** — esecuzione automatica Tell Chef
-10. **Bot 5 versione B** — food cost % quando selling_price popolato
+1. **🔴 Cleaning Checklist (nuovo modulo)** — pulizie fine shift, separato da closing prep tasks. Tabelle: `cleaning_tasks`, `cleaning_log`. Flusso: dopo operation note → cleaning → chiudi shift → notifica. Riallineare stazioni prima.
+2. **🔴 Riallineamento stazioni** — Expo Line e Grill non esistono nel DB. Manager → Coordinator. Allineare con realtà cucina prima di Cleaning Checklist.
+3. **🔴 Home dedicata Dish Crew (Fase 2)** — layout semplificato per dishwasher. Detect: `user.default_station === 'Dish Crew'`. Nascondere Recipes, Closing, Sales, Ingredienti, Focus Mode. Bottom bar: Home/Chat/Schedule/Tell Chef. Fase 1 (visibilità stazioni) chiusa in v332.
+4. **🟠 Smart UI prep con suggested_qty** — preview ricetta + prep card con quantità Bot 3 e scaler.
+5. **🟠 Bottoni L'Ufficio** — sessione dedicata urgente
+6. **🟠 Focus Mode test reale** — importare CSV 7shifts e verificare match schedule_name in produzione
+7. **🟠 Foto in chat (v340)** — da testare su iPhone (non ancora verificate da Max)
+8. **Fix realtime TV** — loadChat() troppo pesante
+9. **Bug UI chat** — long press copia
+10. **office-ai cron orario**
+11. **Bot 4 Fase 2** — esecuzione automatica Tell Chef
+12. **Bot 5 versione B** — food cost % quando selling_price popolato
 
 ---
 
@@ -167,6 +170,15 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 ---
 
 ## Log sessioni
+
+### Sessione 2026-06-24 — Bug fix post-lancio + Cleaning Checklist (teoria) (v336→v340)
+- **App in produzione** — brigata attiva dal 2026-06-24 🟢
+- v336→v340: bug fix post-lancio segnalati dai ragazzi (bottoni L'Ufficio, bottoni Tell Chef, fix PIN/login)
+- **Backup:** brigade-main → main mergiato (v340)
+- **Pianificato nuovo modulo:** Cleaning Checklist (pulizie fine shift) — architettura definita, non ancora implementato
+- Flusso: Closing Prep → Operation Note → Cleaning Checklist → Chiudi Shift → notifica Max+David
+- Tabelle necessarie: `cleaning_tasks`, `cleaning_log`
+- Stazioni da allineare prima dell'implementazione
 
 ### Sessione 2026-06-24 — Aggiornamento MD (v335)
 - Aggiornati tutti i file MD per allineare a v335
@@ -213,3 +225,4 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 - chef_reports tabella + js/tell-chef.js
 - Kitchen Display: 4 schermate sales, chat realtime EN
 - TripleSeat OAuth app "MAX" creata — PENDING Monica
+
