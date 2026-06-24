@@ -507,6 +507,31 @@ async function officeLoad() {
 
 // ── RENDER SINGOLA CARD ──
 function officeRenderCard(item) {
+  // Se già actionato da Max → render stato finale direttamente dal DB
+  if (item.chef_action === 'done') {
+    var byDone = item.chef_action_by || 'Max';
+    return '<div data-item-id="' + item.id + '" style="background:#f0fdf4;border:0.5px solid rgba(34,197,94,0.2);border-left:3px solid #22c55e;border-radius:16px;margin:0 12px 8px;overflow:hidden;opacity:0.7;">' +
+      '<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;">' +
+        '<div style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>' +
+        '<div style="font-size:14px;font-weight:500;color:#1e3a5f;flex:1;">' + (item.title||'') + '</div>' +
+      '</div>' +
+      '<div style="padding:0 14px 10px;font-size:12px;color:#22c55e;font-weight:700;">✓ Done — ' + byDone + '</div>' +
+    '</div>';
+  }
+  if (item.chef_action === 'working_on_it') {
+    var byWip = item.chef_action_by || 'Max';
+    return '<div data-item-id="' + item.id + '" style="background:#fffbeb;border:0.5px solid rgba(245,158,11,0.3);border-left:3px solid #f59e0b;border-radius:16px;margin:0 12px 8px;overflow:hidden;">' +
+      '<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;">' +
+        '<div style="width:8px;height:8px;border-radius:50%;background:#f59e0b;flex-shrink:0;"></div>' +
+        '<div style="font-size:14px;font-weight:500;color:#1e3a5f;flex:1;">' + (item.title||'') + '</div>' +
+      '</div>' +
+      '<div style="padding:0 14px 6px;font-size:12px;color:#f59e0b;font-weight:700;margin-bottom:4px;">⚙️ Working on it — ' + byWip + '</div>' +
+      '<div style="padding:0 14px 10px;">' +
+        '<button onclick="officeChefAction(this.dataset.id,\'done\')" data-id="' + item.id + '"" style="width:100%;padding:8px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:0.5px solid #22c55e;background:#f0fdf4;color:#15803d;">✓ Mark Done</button>' +
+      '</div>' +
+    '</div>';
+  }
+
   var dotColor = { red: '#ef4444', orange: '#f97316', blue: '#3b82f6' }[item.priority] || '#3b82f6';
   var borderLeft = { red: '3px solid #ef4444', orange: '3px solid #f97316', blue: '3px solid #3b82f6' }[item.priority] || '3px solid #3b82f6';
   var sourceLabels = { tell_chef: 'Tell Chef', operation_note: 'Op. note', ai_scan: 'AI scan', sous_chef_chat: 'Chat AI' };
