@@ -16,10 +16,15 @@ Max lavora in più chat contemporanee. PRIMA di bumpare sw.js:
 - Per Max si chiamano SEMPRE "ingredienti", MAI "BOM/JSON". Max è un cuoco.
 - NON chiedere mai a Max di ricreare gli ingredienti — LI HA GIÀ. Leggi il DB prima.
 
+## 🟢 APP IN PRODUZIONE
+**Brigade è live. I ragazzi stanno usando l'app.** Ogni modifica al codice deve essere
+chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di pushare.
+
 ---
 
 ## STATO TECNICO (aggiornato 2026-06-24)
-- Frontend: **v335** (sw.js boh-v335)
+- Frontend: **v340** (sw.js boh-v340)
+- **App in produzione dal 2026-06-24** — brigata attiva
 - Ultime sessioni hanno toccato:
   - v329: fix bypass Schedule in Focus Mode (overlay z-index:70)
   - v330: Focus Mode match esatto schedule_name + drag&drop BOM ingredienti
@@ -28,9 +33,12 @@ Max lavora in più chat contemporanee. PRIMA di bumpare sw.js:
   - v333: traduzioni ricette TR() IT/EN/ES (fix hardcoded strings)
   - v334: tab Schedule visibile a tutti (era nascosto)
   - v335: foto in chat (upload rullino, preview, fullscreen, image_url) + slideshow onboarding EN/ES (liquid glass, 13 slide)
+  - v336→v340: bug fix post-lancio (bottoni L'Ufficio, bottoni Tell Chef, fix PIN/login, fix vari segnalati dai ragazzi in produzione)
+- souschef-chat: v24 (confirmation gate "Sì Chef")
 - Bot 3: v4 (bot-preplist-builder)
 - recipe_bom: ~1.125 righe, ~194 ricette con BOM
 - `users.schedule_name` colonna creata e popolata (matching con `shifts_schedule.employee_name`)
+- **Backup:** brigade-main → main mergiato il 2026-06-24 (v340)
 
 ---
 
@@ -51,7 +59,45 @@ Max lavora in più chat contemporanee. PRIMA di bumpare sw.js:
 
 ---
 
-## 🔴 PRIORITÀ #1 PROSSIMA SESSIONE — Home dedicata Dish Crew (Fase 2)
+## 🔴 PRIORITÀ #1 PROSSIMA SESSIONE — Cleaning Checklist (nuovo modulo)
+
+Modulo separato dalle closing prep tasks esistenti. Flusso serale:
+```
+Closing Prep Tasks → completate
+        ↓
+"Com'è andato il servizio?" (operation note)
+        ↓
+Cleaning Checklist della stazione  ← NUOVO
+        ↓
+✓ Ultima voce spuntata → "Buona serata [Nome]! Great job tonight 🙌"
+        ↓
+Notifica a Max + David (se schedulato)
+```
+
+**Regole:**
+- Voci tutte obbligatorie — bottone "Chiudi Shift" grigio finché non sono tutte spuntate
+- Se una voce manca → notifica a Max e David con cosa è stato saltato
+- Gestione admin: stessa UI delle prep tasks (aggiungi/rimuovi/riordina voci per stazione)
+- Stazioni da David: Expo Line, Salad, Pasta, Oven, Sautee, Grill
+- DB: nuova tabella `cleaning_tasks` (id, station, task_text, sort_order, active)
+- DB: nuova tabella `cleaning_log` (id, date, user_name, station, task_id, checked_at)
+
+**⚠️ Prima di implementare:** riallineare stazioni DB con realtà cucina (vedi sotto)
+
+---
+
+## 🔴 PRIORITÀ #2 — Riallineamento stazioni
+
+Stazioni attuali in DB (prep_tasks.category):
+Fresh Pasta Station, Manager Station, Oven Station, Pasta Station, Pastry Station,
+Plating Station, Salad Station, Saucier Station, Sauté Station, Table Side, Dish Crew
+
+Stazioni reali cucina da allineare con Max prima di costruire Cleaning Checklist.
+Expo Line e Grill non esistono nel DB. Manager → Coordinator rinominare.
+
+---
+
+## 🟠 PRIORITÀ #3 — Home dedicata Dish Crew (Fase 2)
 
 I dishwasher non devono vedere la Home cucina. Serve una Home dedicata, semplice:
 
@@ -80,7 +126,7 @@ I dishwasher non devono vedere la Home cucina. Serve una Home dedicata, semplice
 
 ---
 
-## 🟠 PRIORITÀ #2 — Smart UI prep con suggested_qty
+## 🟠 PRIORITÀ #4 — Smart UI prep con suggested_qty
 - Preview ricetta: pill suggested_qty se ricetta ha prep_task collegata
 - Prep task card: pill verde "🤖 10.5 kg consigliati questa settimana"
 - Bot 3 salva suggested_qty in grammi, UI converte: 10500g / 6000g = 1.75 batch
@@ -88,30 +134,16 @@ I dishwasher non devono vedere la Home cucina. Serve una Home dedicata, semplice
 
 ---
 
-## 🟠 PRIORITÀ #3 — Focus Mode test reale
-- Nessun CSV 7shifts importato dopo sessione 2026-06-23
-- Il match `schedule_name` → `shifts_schedule.employee_name` è solo teoria
-- Importare CSV reale e verificare che Focus Mode si attivi/disattivi correttamente
-
----
-
-## 🟠 PRIORITÀ #4 — Foto in chat (v335) da verificare
-- Upload foto da rullino implementato ma non ancora testato da Max su iPhone
-- Verificare: upload, preview, fullscreen, invio
-
----
-
 ## TODO BACKLOG ALTO PRIORITÀ
 
-- Bottoni L'Ufficio — sessione dedicata urgente (non collegati ad azioni reali)
 - Fix realtime TV — loadChat() troppo pesante, aggiungere solo payload.new
 - Bug UI chat — long press copia non funziona
 - office-ai cron orario (analisi automatica ogni ora)
 - Bot 4 Fase 2 — esecuzione automatica Tell Chef
 - Bot 5 versione B — food cost % quando selling_price popolato
 - Spostare L'Ufficio nella bottom bar (ora nei tre puntini)
-- Audit menu tre puntini — rimuovere voci obsolete (Parser Test, Similarity, Vendor Match, Ingredient Cleanup, Bootstrap)
-- "Riapri" button in Focus Mode non funziona — fix pending
+- Focus Mode test reale — importare CSV 7shifts e verificare match schedule_name
+- Foto in chat (v335) — da testare su iPhone (non ancora verificate da Max)
 - TripleSeat — Monica deve fare Authorize (ancora in attesa)
 
 ---
@@ -161,3 +193,4 @@ Calcolo: media_giornaliera × shelf_life_giorni × quantità_BOM × 1.10
 - Financial data mai allo staff
 - Kitchen Display SOLO inglese
 - Domenica chiuso (esclusa da calcoli Bot 3 e da Focus Mode)
+- **App in produzione — modifiche chirurgiche, zero rischi**
