@@ -15,6 +15,7 @@ Max lavora in più chat contemporanee. PRIMA di bumpare sw.js:
 ## ⚠️ REGOLA D'ORO
 - Per Max si chiamano SEMPRE "ingredienti", MAI "BOM/JSON". Max è un cuoco.
 - NON chiedere mai a Max di ricreare gli ingredienti — LI HA GIÀ. Leggi il DB prima.
+- MAI assumere — confermare SEMPRE prima di scrivere codice
 
 ## 🟢 APP IN PRODUZIONE
 **Brigade è live. I ragazzi stanno usando l'app.** Ogni modifica al codice deve essere
@@ -23,43 +24,73 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 ---
 
 ## STATO TECNICO (aggiornato 2026-06-24)
-- Frontend: **v340** (sw.js boh-v340)
+- Frontend: **v342** (sw.js boh-v342)
 - **App in produzione dal 2026-06-24** — brigata attiva
-- Ultime sessioni hanno toccato:
-  - v329: fix bypass Schedule in Focus Mode (overlay z-index:70)
-  - v330: Focus Mode match esatto schedule_name + drag&drop BOM ingredienti
-  - v331: upload foto libreria ricette + tasto elimina ricetta
-  - v332: nuova stazione Dish Crew (Foundation) + traduzioni ricette TR()
-  - v333: traduzioni ricette TR() IT/EN/ES (fix hardcoded strings)
-  - v334: tab Schedule visibile a tutti (era nascosto)
-  - v335: foto in chat (upload rullino, preview, fullscreen, image_url) + slideshow onboarding EN/ES (liquid glass, 13 slide)
-  - v336→v340: bug fix post-lancio (bottoni L'Ufficio, bottoni Tell Chef, fix PIN/login, fix vari segnalati dai ragazzi in produzione)
-- souschef-chat: v24 (confirmation gate "Sì Chef")
-- Bot 3: v4 (bot-preplist-builder)
-- recipe_bom: ~1.125 righe, ~194 ricette con BOM
-- `users.schedule_name` colonna creata e popolata (matching con `shifts_schedule.employee_name`)
-- **Backup:** brigade-main → main mergiato il 2026-06-24 (v340)
+- bot-tell-chef-reader: **v5**
+- souschef-chat: **v24** (confirmation gate "Sì Chef")
+
+### Sessione 2026-06-24 — L'Ufficio pulizia e riordino (v337→v342)
+- v337: menu admin ripulito (5 voci dev rimosse), Invoice+Purchases rimossi dal menu (duplicati homepage)
+- v337: Purchase History legge da entrambi: `purchases` + `vendor_documents`
+- v337: mittente messaggi L'Ufficio in grassetto
+- v337: Fix Focus Mode — noNeed aggiorna anche Focus Mode; DA FARE→TO DO; Riapri→Reopen
+- v337: Fix bottone Report nel menu (era link morto, data-t=r non esisteva)
+- v337: Fix Riapri in L'Ufficio (ricaricava lista sbagliata — ora ricarica folder corrente)
+- v338: Tell Chef from_user usa window.currentUser (era sempre null → scriveva "Staff")
+- v338: office.js — mittente in grassetto scuro
+- v339: Tell Chef bottoni Working on it / Done / Ignore + salva chef_action nel DB
+- v339: bot-tell-chef-reader v2 — Fase 2 sync chef_action→chef_reports + Fase 3 analisi pattern
+- v340: office.js — ciclo vita messaggi: done >7gg sparisce dalla vista
+- v340: bot-tell-chef-reader v3 — working_on_it >7gg → alert rosso in cima
+- v341: office.js — fix opt.label undefined (bottoni AI options mostravano "undefined")
+- v341: office.js — smistamento tell_chef per tipo in folder corrette (getFolderForItem)
+- v341: DB migration — report_type e updated_at aggiunti a office_items
+- v342: bot-tell-chef-reader v4 → scrive report_type in office_items
+- v342: bot-tell-chef-reader v5 → from_user = 'Chef AI' per card elaborate dal bot
+
+### DB modifiche sessione odierna
+- `office_items`: +chef_action (text), +chef_action_at (timestamptz), +chef_action_by (text)
+- `office_items`: +report_type (text), +updated_at (timestamptz)
+- `chef_reports`: +chef_action (text), +chef_action_at (timestamptz), +chef_action_by (text)
 
 ---
 
-## STATO UTENTI (aggiornato 2026-06-24)
+## 🔴 PRIORITÀ #1 PROSSIMA SESSIONE — ai_options come azioni eseguibili
 
-**Utenti attivi cucina (15):**
-- Anto = Antonella Aiello | Chance = Rogers Chance | Cole = Colton Stewart
-- David = David Davis | Genova = Kristel Dizon Genova | Haley = Haley Robbins
-- Max = Massimiliano Zubboli (admin) | Preston = Dunagan Preston
-- Rachael = Carolina Baquero | Samantha = Samantha Traweek | Sophia = Sophia Gutierrez
-- Tela = Otela Leveling | Todd = Todd Spangler | Zuu = Maria Rosa Razo
-- Maddie = Madison Ostendorf
+### Problema
+Le ai_options nel sistema Tell Chef sono ora stringhe (es. "Aggiungi focaccia alla lista").
+Quando Max le preme, usano `officeResolve` che archivia il messaggio come `resolved` —
+ma non esegue nessuna azione reale nel DB.
 
-**Nuovi utenti attivati (10) — PIN ASSEGNATI ✅:**
-- Diana → Oven Station
-- Chris → Pasta Station
-- Austin, Jaxon, Arianna, Kelly, Herminia, Jose, Luis, Ronaldo → Dish Crew
+### Visione di Max
+Il bot deve generare opzioni strutturate con azione codificata. Esempio:
+```json
+[
+  { "label": "Aggiungi focaccia alla lista Oven", "action": "add_prep_task", "params": {"name": "Focaccia", "station": "Oven Station"} },
+  { "label": "Verifica lista preparazioni Oven", "action": "open_prep_station", "params": {"station": "Oven Station"} },
+  { "label": "Ignora", "action": "ignore", "params": {} }
+]
+```
+Quando Max preme "Aggiungi focaccia alla lista":
+1. Bot la aggiunge fisicamente in `prep_tasks` per quella stazione
+2. Card mostra "✓ Focaccia aggiunta — vai a controllare →" con link diretto
+3. `chef_action = 'done'` salvato automaticamente
+
+### Piano 3 sessioni
+**Sessione 1:** Definire catalogo completo azioni possibili (add_prep_task, open_prep_station, mark_order, open_recipe, ignore, ecc.) con parametri esatti
+**Sessione 2:** Aggiornare bot v6 per generare ai_options strutturate + frontend per eseguirle
+**Sessione 3:** Test reale con messaggi brigata, correzioni
+
+### Stato attuale tell_chef flow
+- Raw Tell Chef → `office_items` con `source='tell_chef'`, `from_user=nome_reale`
+- Elaborato dal bot → `office_items` con `source='tell_chef'`, `from_user='Chef AI'`, `report_type` popolato
+- Smistamento per folder: PROBLEMA_OPERATIVO+GAP_CHECKLIST→prep, CONTRIBUTO_RICETTA+FEEDBACK_RICETTA→miglioramenti, SEGNALE_PERSONALE→brigata
+- Ciclo vita: done >7gg sparisce dalla vista, working_on_it >7gg → alert rosso, ignored → sparisce subito
+- Bot gira ogni ora (cron bot-tell-chef-reader-hourly)
 
 ---
 
-## 🔴 PRIORITÀ #1 PROSSIMA SESSIONE — Cleaning Checklist (nuovo modulo)
+## 🔴 PRIORITÀ #2 — Cleaning Checklist (nuovo modulo)
 
 Modulo separato dalle closing prep tasks esistenti. Flusso serale:
 ```
@@ -86,7 +117,7 @@ Notifica a Max + David (se schedulato)
 
 ---
 
-## 🔴 PRIORITÀ #2 — Riallineamento stazioni
+## 🔴 PRIORITÀ #3 — Riallineamento stazioni
 
 Stazioni attuali in DB (prep_tasks.category):
 Fresh Pasta Station, Manager Station, Oven Station, Pasta Station, Pastry Station,
@@ -97,40 +128,12 @@ Expo Line e Grill non esistono nel DB. Manager → Coordinator rinominare.
 
 ---
 
-## 🟠 PRIORITÀ #3 — Home dedicata Dish Crew (Fase 2)
+## 🟠 PRIORITÀ #4 — Home dedicata Dish Crew (Fase 2)
 
-I dishwasher non devono vedere la Home cucina. Serve una Home dedicata, semplice:
-
-**Cosa vedono:**
-- Top bar standard (avatar, news ticker, alerts banner)
-- Alerts attivi
-- La loro stazione "Dish Crew" con i task del giorno/settimana
-- Birthdays/shoutouts
-- Bottom bar: Home / Chat / Schedule / Tell Chef
-
-**Cosa NON vedono:**
-- Recipes (nascondere tab)
-- Closing (mai)
-- Sales / Ingredienti / Fatture / L'Ufficio / Sous Chef AI
-- Operation Notes prompt serale (no)
-- Stazioni di cucina nei selettori (già fatto Fase 1)
-- Focus Mode (decisione esplicita: niente Focus Mode per Dish Crew, sempre Home dedicata)
-
-**Approccio implementativo:**
-- Detect dishwasher: `user.default_station === 'Dish Crew'` (no nuova colonna)
-- In `app.js` doLogin: se isDishCrew → nascondere tab Recipes, Closing, ecc.
-- Modificare la Home (renderHomeStations / renderHomeStationItems in init.js) per layout dedicato
-- Verificare che tab Schedule, Chat, Tell Chef restino accessibili
-- `checkOperationNotePrompt()` deve uscire subito se isDishCrew
-- Focus Mode: `initFocusMode()` non si chiama se isDishCrew
-
----
-
-## 🟠 PRIORITÀ #4 — Smart UI prep con suggested_qty
-- Preview ricetta: pill suggested_qty se ricetta ha prep_task collegata
-- Prep task card: pill verde "🤖 10.5 kg consigliati questa settimana"
-- Bot 3 salva suggested_qty in grammi, UI converte: 10500g / 6000g = 1.75 batch
-- Scaler modificabile parte da suggested_qty invece che da base_servings
+I dishwasher non devono vedere la Home cucina. Serve una Home dedicata, semplice.
+Detect: `user.default_station === 'Dish Crew'`
+Nascondere: Recipes, Closing, Sales, Ingredienti, Focus Mode, Operation Notes prompt
+Bottom bar: Home / Chat / Schedule / Tell Chef
 
 ---
 
@@ -139,50 +142,15 @@ I dishwasher non devono vedere la Home cucina. Serve una Home dedicata, semplice
 - Fix realtime TV — loadChat() troppo pesante, aggiungere solo payload.new
 - Bug UI chat — long press copia non funziona
 - office-ai cron orario (analisi automatica ogni ora)
-- Bot 4 Fase 2 — esecuzione automatica Tell Chef
 - Bot 5 versione B — food cost % quando selling_price popolato
 - Spostare L'Ufficio nella bottom bar (ora nei tre puntini)
 - Focus Mode test reale — importare CSV 7shifts e verificare match schedule_name
 - Foto in chat (v335) — da testare su iPhone (non ancora verificate da Max)
 - TripleSeat — Monica deve fare Authorize (ancora in attesa)
+- Cron job bot-tell-chef-reader verificare sia attivo
+- Tell Chef button rimosso dai tre puntini? (valutare — ora tutto in L'Ufficio)
 
 ---
-
-## PROBLEMA APERTO — UI PREP SMART (eredità sessione 2026-06-21)
-
-### Il concetto
-Nella preview di una ricetta prep (es. CACIO E PEPE SAUCE che fa 6kg base):
-- Il bot calcola 10.500g per la settimana basandosi su vendite reali
-- La UI deve mostrare:
-  - Pillole: Mon→Thu avg / Fri+Sat avg (porzioni vendute)
-  - "Suggested quantity for 7 days: 10.5 kg" (calcolato dal bot)
-  - Scaler modificabile che parte da suggested_qty invece che da base_servings
-  - Ingredienti scalati di conseguenza
-
-### Come collegare
-recipes.id → prep_tasks.recipe_id, oppure recipe_bom.prep_task_id → prep_tasks.id
-
-### Problema bot — unità
-Il bot salva suggested_qty in grammi (10500) ma la prep_task ha unit="batch".
-UI converte: 10500g / 6000g = 1.75 batch → mostra "10.5 kg (≈ 1.75 batch da 6kg)"
-
----
-
-## COME FUNZIONA IL FOOD COST (catena verificata)
-```
-recipe_bom.item_id → ingredients.id → ingredient_vendors.ingredient_id → price_per_100g
-recipe_bom.sub_recipe_id → recipes (sub-ricetta, food cost ricorsivo)
-recipe_bom.prep_task_id → prep_tasks (collegamento prep → bot suggerimenti)
-```
-
-## COME FUNZIONA BOT 3 v4
-```
-Percorso A: prep_task.id → recipe_bom.prep_task_id → parent_recipe_id → recipes.pos_name → pos_production_daily
-Percorso C: prep_task.name → recipes.title (match) → recipe_bom.sub_recipe_id → chi la usa → pos_name → vendite
-            + modifier da pos_modifiers (keyword match, peso 0.5)
-Percorso B: fallback prep_log storico
-Calcolo: media_giornaliera × shelf_life_giorni × quantità_BOM × 1.10
-```
 
 ## REGOLE OPERATIVE INVIOLABILI
 - SHA fresco prima di ogni PUT; bump boh-vN in sw.js ad ogni push (verifica live prima — sessioni parallele)
@@ -194,3 +162,4 @@ Calcolo: media_giornaliera × shelf_life_giorni × quantità_BOM × 1.10
 - Kitchen Display SOLO inglese
 - Domenica chiuso (esclusa da calcoli Bot 3 e da Focus Mode)
 - **App in produzione — modifiche chirurgiche, zero rischi**
+- **MAI assumere — confermare SEMPRE con Max prima di agire**
