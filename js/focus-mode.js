@@ -107,6 +107,8 @@ function startFocusClock() {
 
 function buildFocusList() {
   var all = items.filter(function(i) {
+    // Solo task urgenti (need_tomorrow) o in corso (in_progress) — non mostrare task inattivi
+    if (!i.need_tomorrow && !i.in_progress) return false;
     if (!_focusCurrentStation) return true;
     return i.category && i.category.includes(_focusCurrentStation);
   });
@@ -140,7 +142,7 @@ function renderOneFocusCard(i) {
   var statusColor = isWip ? '#d97706' : (isDone ? '#0369a1' : '#dc2626');
   var statusLabel = isWip
     ? 'IN PROGRESS' + (_focusStartTimes[i.id] ? ' · ' + Math.round((Date.now()-_focusStartTimes[i.id])/60000) + ' min ⏱' : '')
-    : (isDone ? 'DONE' : 'DA FARE');
+    : (isDone ? 'DONE' : 'TO DO');
 
   var hasRecipe = i.recipe_id || (typeof recipeLinks !== 'undefined' && recipeLinks[i.id]) || i.note;
   var recipeLink = hasRecipe
@@ -157,7 +159,7 @@ function renderOneFocusCard(i) {
   } else if (isWip) {
     btn = '<button onclick="focusDone(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:#1e3a5f;color:white;font-size:17px;font-weight:700;border:none;cursor:pointer;margin-top:14px;">DONE</button>';
   } else {
-    btn = '<button onclick="focusReopen(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:rgba(30,58,95,0.08);color:#1e3a5f;font-size:16px;font-weight:600;border:none;cursor:pointer;margin-top:14px;">Riapri</button>';
+    btn = '<button onclick="focusReopen(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:rgba(30,58,95,0.08);color:#1e3a5f;font-size:16px;font-weight:600;border:none;cursor:pointer;margin-top:14px;">Reopen</button>';
   }
 
   return '<div style="background:' + bgColor + ';border-radius:24px;border:1.5px solid ' + borderColor + ';padding:22px 20px;margin-bottom:12px;">' +
