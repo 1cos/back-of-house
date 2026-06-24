@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-23 — v332*
+*Aggiornato: 2026-06-24 — v335*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,7 +10,7 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v332**
+- Versione frontend: **v335**
 - Versione souschef-chat: v23
 - ai-translate: **v28** (Google Translate attivo)
 - Supabase: ydqmumpytgrlceuinoqt
@@ -58,46 +58,6 @@ Alimentano L'Ufficio mentre Max dorme. Non rispondono — osservano e preparano.
 | Bot 5 — Guardiano Food Cost | Dopo ogni import fattura | ✅ v1 attivo (versione A) | Impatto $ — upgrade a % quando selling_price popolato |
 | Bot 6 — Guardiano Accuratezza Prep | Cron 17:30 CDT ogni giorno | ✅ v1 attivo | No Need + prep log pomeridiano = identifica chi ha sbagliato |
 
-### Dettagli Bot
-
-**Bot 1 — Guardiano Prezzi**
-- Soglia: variazione >10% vs media storica
-- Minimo 3 acquisti storici per generare warning
-- Output: 🟠 in office_items con opzioni "Accetta nuovo prezzo" / "Indaga con fornitore"
-
-**Bot 2 — Analista Chat**
-- Giornaliero: legge ultime 24h, analisi libera AI (non keyword)
-- Domenicale: recap 7 giorni — pattern ricorrenti, dinamiche, chi ha brillato
-- Salta solo se chat completamente vuota (0 messaggi)
-- Output: 🔵 in office_items con analisi in italiano
-
-**Bot 3 — Costruttore Preplist**
-- Legge pos_production_daily + prep_log ultimi 3 stessi DOW
-- Scrive suggested_qty (separata da qty reale — mai sovrascrive)
-- +10% buffer sicurezza, arrotonda al mezzo superiore
-- Nuove colonne: prep_tasks.suggested_qty, suggested_by, suggested_at
-
-**Bot 4 — Lettore Tell Chef**
-- Classifica ogni report in: CONTRIBUTO_RICETTA / GAP_CHECKLIST / PROBLEMA_OPERATIVO / FEEDBACK_RICETTA / SEGNALE_PERSONALE
-- Scrive souschef_suggestion + report_type su chef_reports
-- Output in office_items con priorità automatica (🔴/🟠/🔵)
-- Nuova colonna: chef_reports.report_type
-- **FASE 2 (sessione futura):** esecuzione automatica — aggiungi a ricetta, aggiungi a prep_tasks
-
-**Bot 5 — Guardiano Food Cost (versione A)**
-- Versione A: calcola impatto $ sul venduto (non richiede selling_price)
-- Soglia: $20/settimana di impatto
-- Versione B (futura): food cost % reale quando selling_price popolato nelle ricette
-- Output: 🟠/🔴 in office_items con impatto settimanale e mensile
-
-**Bot 6 — Guardiano Accuratezza Prep**
-- Gira ogni giorno alle 17:30 CDT (dopo la finestra 14:00-17:00)
-- Legge tutti i No Need del giorno (prep_log.unit=no_need)
-- Per ogni No Need: cerca se lo stesso item appare in prep_log tra 14:00-17:00
-- Se SI: colpevole morning — No Need errato, andava fatto → output orange in office_items
-- Se NO: colpevole evening — closing impreciso, non serviva → output blue in office_items
-- Zero AI — puro SQL
-
 ### Cron jobs attivi
 | Job | Schedule | Bot |
 |---|---|---|
@@ -111,71 +71,17 @@ Alimentano L'Ufficio mentre Max dorme. Non rispondono — osservano e preparano.
 
 ## Sistema traduzioni — stato (aggiornato 2026-06-17)
 
-### Come funziona
-- Ogni messaggio chat → al momento dell'invio: detect lingua → salva `lang` in messages.lang
-- Al momento della ricezione: se `m.lang !== user.lang` → ai-translate → mostra traduzione sotto bubble
-- Kitchen Display: translateToEn con literal:true → tutto in inglese
-
 ### Motore
-- **GOOGLE_TRANSLATE_API_KEY** impostata nei Supabase secrets ✅ (creata 2026-06-17)
+- **GOOGLE_TRANSLATE_API_KEY** impostata nei Supabase secrets ✅
 - ai-translate v28: Google Translate (primario) → Groq llama-3.3-70b-versatile (fallback)
 - Ottimizzazione: se testo già nella lingua target → nessuna chiamata translate
 
-### Bug UI annotati (sessione grafica)
-- ✅ RISOLTO v276: mic Chef AI nascosto quando chat e aperta — showChat() setta scBtn.style.display='none'
-- BUG UI 2: Long press su messaggio chat non funziona — impossibile copiare testo
+### Bug UI annotati
+- BUG UI: Long press su messaggio chat non funziona — impossibile copiare testo
 
 ### Ancora da verificare
 - [ ] Antonella (lang=it) riceve traduzione italiana sotto bubble messaggi inglesi
 - [ ] TV realtime — si blocca dopo molti messaggi ravvicinati (loadChat() troppo frequente)
-
----
-
-## Tabelle DB — stato
-
-| Tabella | Scopo | Chi vede |
-|---|---|---|
-| briefing | Briefing AI mattutino | Solo admin |
-| chef_reports | Tell Chef — segnalazioni brigata→Max | Solo admin + Sous Chef |
-| operation_notes | Feedback serale post-closing (22:30 CDT) | Solo admin + Sous Chef |
-| office_items | Inbox unificato L'Ufficio | Solo admin |
-| messages | Chat brigata | Tutti |
-| alerts | Alert/news banner | Tutti |
-| user_presence | Presenza realtime | Tutti |
-| pos_daily_summary | Totali giornalieri | Solo admin |
-| pos_sales_by_item | Piatti venduti | Solo admin |
-| pos_modifiers | Modifier giornalieri | Solo admin |
-| pos_item_aliases | Mapping alias→canonical produzione | Admin + display |
-| prep_tasks/log | Prep | Tutti |
-| users | Profili | Ognuno il proprio |
-| ingredients/recipes | Ricette e ingredienti | Tutti |
-
-### Colonne aggiunte (sessione 2026-06-18)
-- `prep_tasks.suggested_qty` — quantità suggerita da Bot 3 (non sovrascrive qty reale)
-- `prep_tasks.suggested_by` — fonte della suggestion (default: 'bot-preplist-builder')
-- `prep_tasks.suggested_at` — timestamp ultimo aggiornamento suggestion
-- `chef_reports.report_type` — classificazione AI: CONTRIBUTO_RICETTA / GAP_CHECKLIST / PROBLEMA_OPERATIVO / FEEDBACK_RICETTA / SEGNALE_PERSONALE
-
----
-
-## Regole produzione pasta Zenos
-
-- Porzione completa = 2 nest (spaghetti O fettuccine)
-- Mezza porzione = 1 nest — ogni nest = 60-65g dry
-- Penne Midnight = Arrabbiata sauce
-- Add spaghetti half con Chicken Parm → arrabbiata
-- Add spaghetti half con Chicken Piccata → solo pasta, niente extra sauce
-- Happy Hour items → sommare alle categorie principali
-- Kids menu → sommare alle categorie principali
-
----
-
-## bill_count vs guest count
-
-- bill_count = scontrini chiusi (NON coperti)
-- Dire sempre "bills" mai "tavoli" o "coperti"
-- Guest count: Max ha richiesto report separato a TouchBistro
-- Quando arriva: aggiungere guest_count INTEGER a pos_daily_summary
 
 ---
 
@@ -191,15 +97,6 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 - Destra: Kitchen Chat — ultimi 5 messaggi realtime EN
 - Footer: Alert ticker 24px realtime
 
-### Sales screens
-- A: Yesterday — bills + top food
-- B: This Week — 7 giorni food only
-- C: Expected Tonight — media storica stesso DOW, date sporche escluse
-- D: Best by Category — Antipasti · Pasta · Secondi · Insalate · Dolci · Contorni · Proteine
-
-### Realtime: presence-rt · chat-rt · alerts-rt
-### Traduzioni: chat e alert → inglese via ai-translate v28 literal:true
-
 ### TODO display
 - [ ] Fix realtime TV — aggiungere solo nuovo messaggio via payload.new invece di loadChat() completo
 - [ ] Foto slideshow Supabase Storage
@@ -207,19 +104,7 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 
 ---
 
-## TELL CHEF — v202 ✅ IMPLEMENTATO
-
-### Cos'è
-Canale personale brigata → Max. Non è solo segnalazioni — è contributi ricette, gap checklist, idee, feedback, segnali personali.
-Nessun collega lo vede. Non è conversazione — è input diretto a Max.
-
-### Implementato
-- Bottone "Tell Chef" nella bottom nav (solo staff, non admin)
-- Modal: textarea + "Send to Chef →" + tip dettatura iOS nativa
-- Tabella: chef_reports (id, user_name, station, message, status, souschef_suggestion, souschef_at, report_type)
-- Status: new → read → in_progress → done → ignored
-- Admin inbox: nei tre puntini → "Tell Chef" → lista chat-style con status buttons
-- **Bot 4** classifica ogni report automaticamente ogni ora
+## TELL CHEF — ✅ IMPLEMENTATO
 
 ### TODO Tell Chef
 - [ ] Fase 2 Bot 4: esecuzione automatica (aggiungi a ricetta, aggiungi a prep_tasks)
@@ -227,34 +112,25 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 
 ---
 
-## L'UFFICIO — v235 ✅ IMPLEMENTATO
-
-### Costruito
-- office_items tabella DB
-- js/office.js — scrivania operativa: Smart Focus, lista red/orange/blue, realtime, badge, Analizza, Letto/Risolto
-- Flusso: Tell Chef / Operation Note → office_items → Max analizza → AI suggestion
-- office-ai v1 — analisi AI manuale (bottone Analizza)
-- **5 Bot attivi** alimentano L'Ufficio automaticamente
+## L'UFFICIO — ✅ IMPLEMENTATO
 
 ### TODO L'Ufficio
-- ✅ Realtime L'Ufficio — RISOLTO (2026-06-18)
-- [ ] 🔴 Bottoni non collegati ad azioni reali — sessione dedicata
+- [ ] 🔴 Bottoni non collegati ad azioni reali — sessione dedicata urgente
 - [ ] office-ai → pg_cron orario (analisi automatica ogni ora)
-- [ ] Smart Office — calendario meeting interni Brigade
 - [ ] Spostare L'Ufficio nella bottom bar invece dei tre puntini
-- [ ] Pulizia menu admin: verificare se Parser Test, Similarity, Vendor Match, Ingredient Cleanup, Bootstrap sono ancora usati e rimuovere quelli obsoleti
+- [ ] Pulizia menu admin: Parser Test, Similarity, Vendor Match, Ingredient Cleanup, Bootstrap → verificare e rimuovere obsoleti
 
 ---
 
 ## PRIORITÀ ALTA — PROSSIME SESSIONI
 
-1. **🔴 Home dedicata Dish Crew (Fase 2)** — i dishwasher devono avere Home semplificata: top bar standard + alerts + stazione Dish Crew + birthdays + bottom bar (Home/Chat/Schedule/Tell Chef). Nascondere Recipes, Closing, Operation Notes prompt. Detect dishwasher: `user.default_station === 'Dish Crew'`. Niente Focus Mode per loro (decisione esplicita Max). Fase 1 (Foundation) chiusa in v332.
-2. **🔴 PIN nuovi utenti** — assegnare PIN dal pannello team a: Diana, Chris, Austin, Jaxon, Arianna, Kelly, Herminia, Jose, Luis, Ronaldo. Senza PIN non possono fare login.
-3. **🔴 Smart UI prep con suggested_qty** — preview ricetta + prep card mostrano quantità Bot 3 con scaler (lavoro parallelo altra chat ricette).
-4. **🔴 Bottoni L'Ufficio** — sessione dedicata urgente
-5. **Fix realtime TV** — loadChat() troppo pesante
-6. **Bug UI chat** — long press copia
-7. **Audit menu tre puntini** — molte voci non collegate
+1. **🔴 Home dedicata Dish Crew (Fase 2)** — layout semplificato per dishwasher. Detect: `user.default_station === 'Dish Crew'`. Nascondere Recipes, Closing, Sales, Ingredienti, Focus Mode. Bottom bar: Home/Chat/Schedule/Tell Chef. Fase 1 (visibilità stazioni) chiusa in v332.
+2. **🔴 Smart UI prep con suggested_qty** — preview ricetta + prep card con quantità Bot 3 e scaler.
+3. **🔴 Bottoni L'Ufficio** — sessione dedicata urgente
+4. **🟠 Focus Mode test reale** — importare CSV 7shifts e verificare match schedule_name in produzione
+5. **🟠 Foto in chat (v335)** — da testare su iPhone (non ancora verificate da Max)
+6. **Fix realtime TV** — loadChat() troppo pesante
+7. **Bug UI chat** — long press copia
 8. **office-ai cron orario**
 9. **Bot 4 Fase 2** — esecuzione automatica Tell Chef
 10. **Bot 5 versione B** — food cost % quando selling_price popolato
@@ -277,122 +153,63 @@ Nessun collega lo vede. Non è conversazione — è input diretto a Max.
 
 ## BACKLOG
 
-- [ ] TripleSeat API (credenziali Monica — Authorize pending)
-- [ ] SevenShift API
+- [ ] TripleSeat API (credenziali Monica — Authorize ancora in attesa)
+- [ ] SevenShift API (JWT token bloccato)
 - [ ] Apple Watch
 - [ ] Apple Intelligence / Siri
 - [ ] Sales anomaly detection
-- [ ] Yes Chef modal
-- [ ] Sistema foto centralizzato — album unico usato da ricette, TV, Kitchen Display; Kitchen Display multi-schermata con rotazione contenuti
+- [ ] Yes Chef modal — sostituire toast con modal grande e celebrativo
+- [ ] Sistema foto centralizzato — album unico usato da ricette, TV, Kitchen Display
 - [ ] Skill progression brigata
 - [ ] Chef Inbox unificato (Tell Chef + Operation Notes + Chef AI)
+- [ ] Walmart Wishlist — i ragazzi scrivono da Brigade cosa serve, Max vede e spunta
 
 ---
 
 ## Log sessioni
 
-### Sessione 2026-06-23 — Focus Mode definitiva + Dish Crew Foundation (v329→v332)
-- **v329 focus-mode.js + index.html**: fix bug bypass Focus Mode via Schedule. Nuovo `focusOpenSchedule()` apre overlay z-index:70 sopra Focus Mode (60), riusa `schedLoadData`/`schedShowView`. Niente bottone Sincronizza per staff. "← Back" chiude overlay senza spegnere Focus Mode.
-- **v330 focus-mode.js**: regole turno definitive. Match esatto `users.schedule_name` = `shifts_schedule.employee_name`. Finestra esatta (start_time / end_time del turno). `is_closing=true` → fine mezzanotte. RIMOSSO fallback 8–20. Admin esclusi, domenica esclusa.
-- **DB**: aggiunta colonna `users.schedule_name`. Popolata per 15 utenti esistenti (Sofia rinominata Sophia). Eliminata "Maddison" duplicata. Aggiunti 11 nuovi utenti staff inattivi senza PIN (Austin, Jaxon, Arianna, Chris, Kelly, Diana, Herminia, Jose, Maddie, Luis, Ronaldo).
-- **DB Dish Crew**: attivati 10 utenti (Diana → Oven, Chris → Pasta, 8 dishwasher → Dish Crew). PIN da assegnare in pannello team.
-- **v332 init.js**: nuova stazione "Dish Crew". Visibilità separata: admin vede tutto, staff cucina non vede Dish Crew, staff Dish Crew vede SOLO Dish Crew (station forzata).
-- ⚠️ TODO: Home dedicata Dish Crew (Fase 2 — nascondere tab cucina/recipes/closing per dishwasher, layout Home semplificato).
-- ⚠️ Sessioni parallele in corso (recipes foto v331, drag&drop BOM v330) — verificare sempre versione live sw.js prima di bumpare.
+### Sessione 2026-06-24 — Aggiornamento MD (v335)
+- Aggiornati tutti i file MD per allineare a v335
+- Verificato stato utenti: PIN assegnati a tutti i 10 nuovi utenti ✅
+- Foto in chat (v335) non ancora testate da Max su iPhone
+- TripleSeat ancora in attesa Monica
+- Focus Mode match schedule_name ancora solo teoria (nessun CSV reale importato post-23-giugno)
 
-
-
-
+### Sessione 2026-06-23 — Focus Mode definitiva + Dish Crew Foundation + Traduzioni + Onboarding (v329→v335)
+- **v329**: fix bug bypass Focus Mode via Schedule. Nuovo `focusOpenSchedule()` overlay z-index:70
+- **v330**: Focus Mode regole turno definitive. Match esatto `users.schedule_name`. Finestra esatta turno. is_closing=true → mezzanotte. NO fallback 8-20. + drag&drop sort_order ingredienti BOM
+- **v331**: upload foto libreria ricette + tasto elimina ricetta
+- **v332**: nuova stazione "Dish Crew" in init.js. Visibilità: admin tutto, staff cucina no Dish Crew, Dish Crew solo Dish Crew. + traduzioni ricette TR() IT/EN/ES
+- **v333**: fix stringhe hardcoded UI ricette (prepEvery, botSuggestion, ecc.)
+- **v334**: tab Schedule visibile a tutti (era nascosto per staff)
+- **v335**: foto in chat (upload rullino, preview fullscreen, image_url in DB) + slideshow onboarding EN/ES liquid glass 13 slide
+- **DB**: colonna `users.schedule_name` creata e popolata per tutti. 10 nuovi utenti attivati con PIN.
 
 ### Sessione 2026-06-21 — POS Pipeline + Produzione + BOM Audit (v302)
-- gmail-touchbistro-import v10: recalcProductionDaily v3 — usa recipes.pos_name per mapping; void_quantity inclusa nel calcolo fired
-- pos.js v302: Kids menu sommato a Pasta nella staff view (fix numeri errati)
-- recipes: aggiunte colonne serving_unit e serving_qty; compilate per pasta e scallops
-- pos_item_aliases: Cacio e Pepe item portion_factor corretto 0.5->1.0; Wheel Pasta alias aggiunto
-- recipes.pos_name: cleanup doppi — rimosso da ricette base (FETTUCCINE FRESH PASTA, SPAGHETTI FRESH PASTA, ecc.)
-- SPAGHETTI CACIO E PEPE: pos_name corretto a solo "Cacio e Pepe"
-- Audit BOM completo: 32 ricette OK, 25 parziali, 3 vuote — piatti venduti prioritari identificati
-- Decisione architettura Bot 3: riscrivere con logica recipe_id -> BOM -> prep_task
-- Decisione 3 nuovi bot: Guardiano Ricette, Guardiano Prep (upgrade Bot 3), Guardiano Allineamento
-- 14 argomenti aperti documentati in PROMPT_PROSSIMA_SESSIONE.md
+- gmail-touchbistro-import v10: recalcProductionDaily v3
+- pos.js v302: Kids menu sommato a Pasta nella staff view
+- recipes: aggiunte colonne serving_unit e serving_qty
+- Audit BOM completo: 32 ricette OK, 25 parziali, 3 vuote
 
-### Sessione 2026-06-19 (e) — Fix mic sovrapposto send button (v276)
-- `chat.js`: `showChat()` nasconde `scBtn` all'apertura chat
-- Ripristino automatico al cambio tab gia gestito da `app.js`
-- Tutti i bug pre-lancio beta risolti
-
-### Sessione 2026-06-19 (d) — Fix TV toggle realtime (v275)
-- `settings` aggiunta a `supabase_realtime` publication (era assente — causa root)
-- `display.html`: `startSettingsRealtime()` con riconnessione automatica CLOSED/CHANNEL_ERROR
-- `display.html`: polling fallback `checkDisplayActive` ogni 30s
-- Toggle TV ON/OFF ora agisce in tempo reale anche dopo ore di uptime
-
-### Sessione 2026-06-19 (c) — Fix ai-translate storm (v269-v271)
-- **Problema**: ai-translate chiamato ~360 volte/ora da news.js + 5 volte per apertura home da briefing.js
-- **Fix news.js**: nuova colonna `alerts.translations JSONB` — traduzione generata una volta alla creazione, letta dal DB
-- **Fix briefing.js + sc-nightly-brief v12**: 4 nuove colonne `briefing.points_en/es/staff_en/staff_es` — tradotte alla generazione notturna
-- **DB**: `ALTER TABLE alerts ADD COLUMN translations JSONB` + 4 colonne su `briefing`
-- Realtime alerts preservato intatto
-- chat.js e recipes.js: invariati (chiamate corrette e on-demand)
-
-### Sessione 2026-06-19 — Fruge Parser (v267-v273)
-- Fruge parser riscritto da zero (v1->v5) in vendor-parser-ui.js
-- Logica: regex riga singola + lookahead per righe spezzate da PDF.js
-- 3 tipi pack: LB catchweight, BG/GA peso da descrizione, CA moltiplicazione NxN
-- pack_description = peso totale LB per compatibilita con UI Hardies
-- Fix vendor-documents-review.js: legge _cost_per_100g, cost_per_lb, total_weight_lb
-- **BUG APERTO**: calcoli $/100g nel flusso reale (email->Storage) non sempre corretti
-- Priorita: DOPO lancio beta lunedi
-
-### ✅ RISOLTO 2026-06-19 — ai-translate storm
-- alerts.translations JSONB: traduzioni salvate al momento creazione alert
-- briefing: 4 nuove colonne tradotte (points_en/es, points_staff_en/es)
-- sc-nightly-brief v12: traduce in EN+ES alla generazione
-- loadNews() e loadBriefing(): zero chiamate ai-translate in lettura
-
-### Sessione 2026-06-19 — No Need + Bot 6 (v266)
-- Bottone No Need su prep tasks urgenti (unit=no_need in prep_log)
-- Bot 6 — Guardiano Accuratezza Prep (bot-prep-accuracy v1): identifica chi ha sbagliato tra morning e evening crew
-- Cron: 17:30 CDT ogni giorno
+### Sessione 2026-06-19 — Fix ai-translate storm + Fruge Parser + No Need + Bot 6 (v266-v276)
+- alerts.translations JSONB: traduzioni salvate alla creazione
+- briefing: 4 colonne tradotte (points_en/es, points_staff_en/es)
+- Fruge parser riscritto v1→v5
+- Bottone No Need su prep tasks urgenti
+- Bot 6 — Guardiano Accuratezza Prep attivo
+- Fix TV toggle realtime (settings aggiunta a supabase_realtime publication)
+- Fix mic sovrapposto send button
 
 ### Sessione 2026-06-18 — Bot System completo (v249)
-- **Bot 1 — Guardiano Prezzi** (bot-price-guard v1): confronta prezzi fattura vs storico, soglia 10%, min 3 acquisti
-- **Bot 2 — Analista Chat** (bot-chat-analyst v2): AI legge chat ogni notte, recap settimanale domenica
-- **Bot 3 — Costruttore Preplist** (bot-preplist-builder v1): suggested_qty automatiche da POS + prep_log, 3 settimane storia
-- **Bot 4 — Lettore Tell Chef** (bot-tell-chef-reader v1): classifica tell chef in 5 tipi, suggestion AI ogni ora
-- **Bot 5 — Guardiano Food Cost** (bot-food-cost-guard v1): impatto $ su venduto, versione A senza selling_price
-- process-invoice aggiornato a v29: chiama bot-price-guard + bot-food-cost-guard dopo ogni import
+- Bot 1→6 costruiti e attivi
 - Nuove colonne DB: prep_tasks.suggested_qty/suggested_by/suggested_at, chef_reports.report_type
-- 4 cron jobs creati: chat analyst daily/weekly, preplist nightly, tell chef hourly
+- 4 cron jobs creati
 
-### Sessione 2026-06-17 — Audit Traduzioni + Google Translate
-- Fix bug Groq traduceva EN→ES erroneamente
-- ai-translate v28: Google Translate primario, Groq fallback
-- Bug UI annotati: send button sovrapposto mic, long press copia
-
-### Sessione 2026-06-17 — L'Ufficio (v229→v237)
+### Sessione 2026-06-17 — L'Ufficio + Traduzioni Google (v229→v237)
 - office_items tabella, office.js, office-ai v1
-- sous_chef_tasks eliminata
-- Sous Chef SQL v21 — query reali al DB
+- Google Translate primario attivo
 
-### Sessione 2026-06-17 — Prep List PDF + Checklist Chiusura
-- PDF statico Brigade_PrepList.pdf generato
-
-### Sessione 2026-06-16 — TellChef + Display + pos_item_aliases
+### Sessione 2026-06-16 — TellChef + Display + TripleSeat
 - chef_reports tabella + js/tell-chef.js
-- Kitchen Display: 4 schermate sales, chat realtime EN, staff chips
-- pos_item_aliases: 40 regole mapping
-
-### Sessione 2026-06-16 — TripleSeat Calendar
-- OAuth 2.0 app "MAX" creata
-- tripleseat-sync v4, js/calendar.js
-- PENDING: Monica deve fare Authorize
-
-## BACKLOG — Walmart Wishlist
-
-I ragazzi scrivono da Brigade cosa serve da Walmart (come la lavagna magnetica sul frigo).
-Max vede la lista e fa l'ordine sul sito Walmart.
-- Spazio dedicato da costruire (posizione UI da decidere)
-- Solo staff cucina puo aggiungere voci
-- Max vede tutto e spunta quello che ha ordinato
-
+- Kitchen Display: 4 schermate sales, chat realtime EN
+- TripleSeat OAuth app "MAX" creata — PENDING Monica
