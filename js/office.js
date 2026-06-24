@@ -96,7 +96,13 @@ async function officeLoadHome() {
 
   try {
     var res = await sb.from('office_items').select('*').eq('status','open').order('created_at',{ascending:false}).limit(200);
-    var items = res.data || [];
+    var sevenDaysAgo7 = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    var items = (res.data || []).filter(function(i) {
+      if (i.chef_action === 'done' && i.chef_action_at) {
+        return new Date(i.chef_action_at).getTime() > sevenDaysAgo7;
+      }
+      return true;
+    });
 
     // Conta per folder
     var counts = {};
@@ -181,6 +187,16 @@ window.officeOpenFolder = async function(folderId) {
     try {
       var res = await sb.from('office_items').select('*').eq('status','open').order('created_at',{ascending:false}).limit(200);
       var all = res.data || [];
+
+      // Regola ciclo di vita: done > 7 giorni sparisce dalla vista
+      var sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      all = all.filter(function(i) {
+        if (i.chef_action === 'done' && i.chef_action_at) {
+          return new Date(i.chef_action_at).getTime() > sevenDaysAgo;
+        }
+        return true;
+      });
+
       if (folderId === 'nonletti') {
         items = all;
       } else {
