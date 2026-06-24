@@ -827,6 +827,7 @@ function openRecipeEditor(rec=null){
         savedId = inserted?.id;
       }
       if(savedId) await saveRecipeBOM(savedId, ingredients);
+      if(savedId) translateAndSaveRecipe(savedId, newRec); // fire-and-forget — non blocca il save
       modal.remove();
       await init();
       renderRecipes();
@@ -1234,6 +1235,29 @@ function compressImage(file, maxPx = 800){
     img.onerror = ()=>{ URL.revokeObjectURL(url); resolve(file); };
     img.src = url;
   });
+}
+
+// ── PRE-TRANSLATE recipe on save (EN + ES) ───────────────────
+// Called after every insert/update so translations are ready in DB
+// before any cook opens the recipe. Zero on-demand AI calls needed.
+async function translateAndSaveRecipe(recipeId, rec){
+  if(!recipeId) return;
+  const langs = ['en','es'];
+  for(const lang of langs){
+    try{
+      const translatedProcedure = rec.procedure ? await groqTranslate(rec.procedure, lang) : '';
+      const translatedEquipment = rec.equipment ? await groqTranslate(rec.equipment, lang) : '';
+      await supa.from('recipe_translations').upsert({
+        recipe_id: recipeId,
+        lang,
+        title:     rec.title,   // titolo non si traduce — nome proprio
+        procedure: translatedProcedure,
+        equipment: translatedEquipment,
+      });
+    }catch(e){
+      console.warn('translateAndSaveRecipe failed for lang='+lang, e);
+    }
+  }
 }
 
 async function saveRecipeBOM(recipeId, ingredientRows){
