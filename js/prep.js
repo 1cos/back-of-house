@@ -357,6 +357,9 @@ window.noNeed = async function(id) {
   renderM();
   renderS();
   renderHomeStations();
+  // Aggiorna anche Focus Mode se attiva
+  if (typeof buildFocusList === 'function') buildFocusList();
+  if (typeof window.renderFocusFeed === 'function') window.renderFocusFeed();
 };
 
 async function saveWip(id, note){
