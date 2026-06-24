@@ -173,6 +173,7 @@ async function officeLoadHome() {
 
 // ── APRI CASSETTO FULLSCREEN ──
 window.officeOpenFolder = async function(folderId) {
+  window._officeCurrentFolder = folderId; // traccia folder aperta per Riapri
   // Carica items dal DB invece di passarli inline
   var sb = window.supa;
   var items = [];
@@ -621,8 +622,15 @@ window.officeReopen = async function(id) {
   var sb = window.supa;
   if (!sb) return;
   try {
-    await sb.from('office_items').update({ priority: 'orange', resolution: null }).eq('id', id);
-    officeLoad();
+    await sb.from('office_items').update({ priority: 'orange', resolution: null, status: 'open' }).eq('id', id);
+    if (window._officeCurrentFolder && document.getElementById('officeFolder')) {
+      // Siamo dentro una folder — ricarica quella
+      window.officeOpenFolder(window._officeCurrentFolder);
+    } else {
+      officeLoad();
+    }
+    if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
+    if (typeof showScToast === 'function') showScToast('↩ Riaperto');
   } catch(e) {
     if (typeof showScToast === 'function') showScToast('❌ ' + e.message);
   }
