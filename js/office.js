@@ -551,7 +551,7 @@ function officeRenderCard(item) {
     (item.body ? '<div data-role="body" style="font-size:17px;color:#475569;padding:0 14px 12px;line-height:1.5;">' + item.body + '</div>' : '') +
     aiBlock +
     actionsHtml +
-    '<div data-role="meta" style="padding:0 14px 10px;font-size:12px;color:#94a3b8;font-weight:500;">' + (item.from_user && item.from_user !== 'system' ? item.from_user + ' · ' : '') + ts + '</div>' +
+    '<div data-role="meta" style="padding:0 14px 10px;font-size:12px;color:#94a3b8;font-weight:500;">' + (item.from_user && item.from_user !== 'system' ? '<span style="color:#1e3a5f;font-weight:700;">' + item.from_user + '</span> · ' : '') + ts + '</div>' +
   '</div>';
 }
 
