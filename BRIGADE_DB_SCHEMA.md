@@ -1,6 +1,6 @@
 # BRIGADE — DATABASE SCHEMA COMPLETO
 *Supabase project: ydqmumpytgrlceuinoqt*
-*Aggiornato: 2026-06-16 — v217*
+*Aggiornato: 2026-06-24 — v335*
 *Leggi questo file all'inizio di ogni sessione. Contiene le colonne reali del DB.*
 
 ---
@@ -25,9 +25,12 @@
 | pin | char | PIN accesso app |
 | active | boolean | Utente attivo |
 | first_login | boolean | |
+| schedule_name | text | Nome esatto in shifts_schedule per match Focus Mode |
 
-**Staff attivi:** Max (admin), Tela (Oven Station, en), Anto (staff, en), Cole (staff), Samantha (staff), Sofia (staff)
-**MANCA:** colonna `skills JSONB` — da aggiungere per Livello 5 Sous Chef
+**Staff attivi cucina (15):** Max (admin), Anto, Cole, David, Genova, Haley, Maddie, Preston, Rachael, Samantha, Sophia, Tela, Todd, Zuu, Chance
+**Nuovi utenti attivi con PIN (10):** Diana (Oven Station), Chris (Pasta Station), Austin/Jaxon/Arianna/Kelly/Herminia/Jose/Luis/Ronaldo (Dish Crew)
+**Colonna aggiunta:**  — nome esatto in shifts_schedule per match Focus Mode
+**MANCA:** colonna  — da aggiungere per Livello 5 Sous Chef
 
 ### user_presence
 | Colonna | Tipo | Note |
@@ -59,6 +62,9 @@
 | note | text | Note operative |
 | expected_duration_days | integer | Shelf life attesa |
 | average_qty | numeric | Media storica produzione |
+| suggested_qty | numeric | Quantità suggerita da Bot 3 — NON sovrascrive qty reale |
+| suggested_by | text | Fonte suggestion — default: bot-preplist-builder |
+| suggested_at | timestamptz | Timestamp ultimo aggiornamento suggestion |
 
 **Stazioni:** Oven Station (23 items), Pasta Station (32), Plating Station (28), Salad Station (53), Freezer (6) — totale 142
 **NOTA:** need_tomorrow=true = da fare, need_tomorrow=false = segnato "c'è" in closing
@@ -102,6 +108,8 @@
 | menu_group | text | Gruppo menu POS |
 | selling_price | numeric | Prezzo vendita |
 | food_cost_pct | numeric | % food cost |
+| serving_unit | text | Unità fisica per porzione — es. nests, pezzi, grammi (aggiunto 2026-06-21) |
+| serving_qty | numeric | Quante unità fisiche per porzione — es. 2 nests per spaghetti (aggiunto 2026-06-21) |
 
 **Stato:** 182 ricette — **ATTENZIONE: ingredients è JSONB non relazionale**, non è linkato a tabella ingredients. Usa recipe_bom per le dipendenze strutturate.
 
@@ -156,6 +164,12 @@ Stessa struttura di recipes + colonne calcolate:
 | quantity | numeric | Porzioni vendute — **filtra quantity < 1000** (dati storici corrotti) |
 | gross_sales | numeric | **ADMIN ONLY** |
 | net_sales | numeric | **ADMIN ONLY** |
+| void_quantity | numeric | Quantità voided — usata nel calcolo produzione (quantity + void_quantity = fired) |
+| voids | numeric | Valore $ voidato — ADMIN ONLY |
+| refund_quantity | numeric | Quantità rimborsata |
+| refund_amount | numeric | Importo rimborso |
+| total_tax | numeric | Tasse |
+| sales_pct | numeric | % sul totale vendite |
 | is_historical | boolean | Dati storici pre-import |
 
 **Stato:** 3.924 righe. Escludi menu_group IN ('NA Beverages','Beverages','Mocktail') per stats cucina.
@@ -477,3 +491,4 @@ Colonne aggiunte per TripleSeat:
 
 source='tripleseat' per eventi importati, source='manual' per eventi manuali
 tripleseat_id UNIQUE — evita duplicati al sync
+

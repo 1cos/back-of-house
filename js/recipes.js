@@ -101,8 +101,8 @@ function renderIngLine(i, scaleFactor, trMap, uLang){
   }
   const rawQty = parseFloat(i.qty);
   let qtyDisplay = i.qty || '';
-  if(!isNaN(rawQty) && scaleFactor && scaleFactor !== 1){
-    const scaled = rawQty * scaleFactor;
+  if(!isNaN(rawQty)){
+    const scaled = rawQty * (scaleFactor || 1);
     // Smart rounding: keep decimals only when meaningful
     qtyDisplay = scaled >= 100 ? Math.round(scaled).toString()
                : scaled >= 10  ? (Math.round(scaled * 10) / 10).toFixed(1).replace(/\.0$/,'')
@@ -164,8 +164,11 @@ async function showRecipeSheet(rec){
   const dispCat = (CAT_MAP[lang]||CAT_MAP.en)[rawCat] || rawCat;
   // Translate yield text (e.g. "1 porzione" → "1 serving")
   const YIELD_MAP = { it:'porzione', en:'serving', es:'porción' };
+  const YIELD_MAP_PL = { it:'porzioni', en:'portions', es:'porciones' };
   const yieldRaw = rec.yield_text || rec.yield || '';
-  const yieldTr = yieldRaw.replace(/porzione|serving|porción/gi, YIELD_MAP[lang]||'serving');
+  const yieldTr = yieldRaw
+    .replace(/porzioni|portions|porciones/gi, YIELD_MAP_PL[lang]||'portions')
+    .replace(/porzione|serving|porción/gi, YIELD_MAP[lang]||'serving');
   const headerMeta  = [
     dispCat,
     yieldTr,
@@ -200,7 +203,8 @@ async function showRecipeSheet(rec){
       <h3 class="text-3xl font-bold mb-2">${rec.title||rec.name||''}</h3>
       <p class="text-base text-slate-500 mb-3">${headerMeta}</p>
       ${rec.pos_name ? '<div id="recipeSalesStats" style="margin-bottom:12px;"></div>' : ''}
-      ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">🔄 Ogni '+rec.prep_frequency_days+(rec.prep_frequency_days===1?' giorno':' giorni')+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">📦 Dura '+rec.shelf_life_days+(rec.shelf_life_days===1?' giorno':' giorni')+'</span>' : ''}</div>` : ''}
+      ${!rec.pos_name && rec.base_weight_g ? '<div id="recipePrepStats" style="margin-bottom:12px;"></div>' : ''}
+      ${(rec.prep_frequency_days || rec.shelf_life_days) ? `<div style="display:flex;gap:8px;margin-bottom:12px;">${rec.prep_frequency_days ? '<span style="font-size:11px;background:#f0f4ff;color:#6366f1;border:1px solid #e0e7ff;border-radius:8px;padding:4px 10px;font-weight:600;">'+tr('every')+' '+rec.prep_frequency_days+' '+(rec.prep_frequency_days===1?tr('dayS'):tr('daysS'))+'</span>' : ''}${rec.shelf_life_days ? '<span style="font-size:11px;background:#f0fdf4;color:#059669;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-weight:600;">'+tr('lastsWord')+' '+rec.shelf_life_days+' '+(rec.shelf_life_days===1?tr('dayS'):tr('daysS'))+'</span>' : ''}</div>` : ''}
       ${rec.image_url ? `<img src="${rec.image_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${rec.photo_url ? `<img src="${rec.photo_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${scalingUI}
@@ -222,6 +226,7 @@ async function showRecipeSheet(rec){
   }
 
   if(rec.pos_name) loadRecipeSalesStats(rec, sheet);
+  if(!rec.pos_name && rec.base_weight_g) loadRecipePrepStats(rec, sheet);
 
   // Scaling logic
   if(canScale){
@@ -237,7 +242,7 @@ async function showRecipeSheet(rec){
     function applyScale(factor, servings, weightKg){
       if(!ingDisplay) return;
       ingDisplay.innerHTML = renderIngs(factor);
-      scaleNote.textContent = `${servings} serving${servings!==1?'s':''}${weightKg ? ' · '+weightKg+'kg' : ''}`;
+      scaleNote.textContent = `${servings} ${servings!==1?tr('servingPlural'):tr('servingSingle')}${weightKg ? ' · '+weightKg+'kg' : ''}`;
     }
 
     function onServingsChange(){
@@ -298,7 +303,7 @@ function renderRecipes(){
     ].filter(Boolean).join('');
     return `<div class="bg-white p-3 rounded-2xl border shadow-sm cursor-pointer active:scale-[0.98] transition" onclick="openRecipeByData(${realIdx})">
       <div class="font-semibold text-[15px] leading-tight mb-1">${r.title}</div>
-      <div class="text-xs text-slate-500">${dispCat} · ${r.yield_text||r.yield||'1 serving'}${(r.prep_time_minutes||r.prep_time)?' · '+(r.prep_time_minutes||r.prep_time)+'m':''}</div>
+      <div class="text-xs text-slate-500">${dispCat} · ${(r.yield_text||r.yield||'1 serving').replace(/porzioni|portions|porciones/gi,{'it':'porzioni','en':'portions','es':'porciones'}[user?.lang||'en']||'portions').replace(/porzione|serving|porción/gi,{'it':'porzione','en':'serving','es':'porción'}[user?.lang||'en']||'serving')}${(r.prep_time_minutes||r.prep_time)?' · '+(r.prep_time_minutes||r.prep_time)+'m':''}</div>
       ${badges?`<div class="flex gap-2 mt-1">${badges}</div>`:''}
       ${isAdmin()?`<div class="flex gap-1 mt-2" onclick="event.stopPropagation()"><button onclick="openRecipeEditor(SHOP_RECIPES[${realIdx}])" class="px-2 py-1 bg-amber-500 text-white rounded-lg text-[10px]">Edit</button><button onclick="linkRecipeToItem('${r.title.replace(/'/g,"\\'")}') " class="px-2 py-1 bg-emerald-600 text-white rounded-lg text-[10px]">Link</button></div>`:''}</div>`;
   }).join('');
@@ -311,9 +316,9 @@ function openRecipeManager(){
   modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[85vh] flex flex-col">
     <div class="p-4 border-b flex items-center justify-between"><h3 class="font-bold text-lg">Link Recipes</h3><button onclick="this.closest('.fixed').remove()" class="text-slate-400">✕</button></div>
     <div class="p-4 overflow-auto flex-1">
-      <p class="text-xs text-slate-500 mb-3">Link each prep item to a recipe.</p>
+      <p class="text-xs text-slate-500 mb-3">${tr('linkEachPrep')}</p>
       <div id="linkList" class="space-y-2"></div>
-      <button id="newRecipeBtn" class="mt-4 w-full py-2.5 bg-emerald-600 text-white rounded-xl font-semibold text-sm">+ New Recipe</button>
+      <button id="newRecipeBtn" class="mt-4 w-full py-2.5 bg-emerald-600 text-white rounded-xl font-semibold text-sm">${tr('newRecipeBtn')}</button>
     </div>
   </div>`;
   document.body.appendChild(modal);
@@ -333,33 +338,48 @@ function openRecipeEditor(rec=null){
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col">
-    <div class="p-4 border-b"><h3 class="font-bold">${rec?'Edit':'New'} Recipe</h3></div>
+    <div class="p-4 border-b"><h3 class="font-bold">${rec?tr('editRecipe'):tr('newRecipe')}</h3></div>
     <div class="p-4 overflow-auto space-y-3 text-sm">
 
       <input id="rTitle" placeholder="Title" class="w-full px-3 py-2 border rounded-xl" value="${rec?.title||''}">
-      <input id="rImg" placeholder="Photo URL" class="w-full px-3 py-2 border rounded-xl" value="${rec?.image_url||''}">
+      <div>
+        <div class="text-xs text-slate-500 mb-1">${tr('photo')}</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div id="rImgPreview" style="width:56px;height:56px;border-radius:10px;border:1.5px solid #e2e8f0;overflow:hidden;flex-shrink:0;background:#f8fafc;display:flex;align-items:center;justify-content:center;">
+            ${rec?.image_url ? `<img src="${rec.image_url}" style="width:100%;height:100%;object-fit:cover;">` : `<span style="font-size:22px;">📷</span>`}
+          </div>
+          <div style="flex:1;">
+            <input type="file" id="rImgFile" accept="image/*" style="display:none;">
+            <button id="rImgBtn" type="button" class="w-full px-3 py-2 border rounded-xl text-sm text-slate-600 text-left" style="background:#f8fafc;">
+              ${rec?.image_url ? tr('changePhoto') : tr('choosePhoto')}
+            </button>
+            <input id="rImg" type="hidden" value="${rec?.image_url||''}">
+          </div>
+        </div>
+        <div id="rImgProgress" style="display:none;font-size:11px;color:#6366f1;margin-top:4px;">Uploading…</div>
+      </div>
 
       <div class="grid grid-cols-2 gap-2">
         <div>
-          <div class="text-xs text-slate-500 mb-1">Menu group</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('menuGroup')}</div>
           <select id="rMenuGroup" class="w-full px-3 py-2 border rounded-xl bg-white text-sm">
             <option value="">— select —</option>
             ${MENU_GROUPS.map(g=>`<option value="${g}" ${(rec?.menu_group||'')===g?'selected':''}>${g}</option>`).join('')}
           </select>
         </div>
         <div>
-          <div class="text-xs text-slate-500 mb-1">POS name (TouchBistro)</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('posName')}</div>
           <input id="rPosName" placeholder="e.g. Lobster Fettucine" class="w-full px-3 py-2 border rounded-xl" value="${rec?.pos_name||''}">
         </div>
       </div>
 
       <div class="grid grid-cols-2 gap-2">
         <div>
-          <div class="text-xs text-slate-500 mb-1">Base servings</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('baseServings')}</div>
           <input id="rServings" type="number" min="1" placeholder="e.g. 20" class="w-full px-3 py-2 border rounded-xl" value="${rec?.base_servings||''}">
         </div>
         <div>
-          <div class="text-xs text-slate-500 mb-1">Total weight (kg)</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('totalWeight')}</div>
           <input id="rWeightKg" type="number" min="0" step="0.01" placeholder="e.g. 5.5" class="w-full px-3 py-2 border rounded-xl" value="${rec?.base_weight_g ? (rec.base_weight_g/1000).toFixed(3).replace(/\.?0+$/,'') : ''}">
         </div>
       </div>
@@ -367,26 +387,26 @@ function openRecipeEditor(rec=null){
 
       <div class="grid grid-cols-3 gap-2">
         <div>
-          <div class="text-xs text-slate-500 mb-1">Prep time (min)</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('prepTime')}</div>
           <input id="rTime" type="number" placeholder="60" class="w-full px-3 py-2 border rounded-xl" value="${rec?.prep_time_minutes||rec?.prep_time||''}">
         </div>
         <div>
-          <div class="text-xs text-slate-500 mb-1">Selling price $</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('sellingPrice')}</div>
           <input id="rPrice" type="number" step="0.01" placeholder="0.00" class="w-full px-3 py-2 border rounded-xl" value="${rec?.selling_price||''}">
         </div>
         <div>
-          <div class="text-xs text-slate-500 mb-1">Yield text</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('yieldText')}</div>
           <input id="rYield" placeholder="e.g. 5.5 kg" class="w-full px-3 py-2 border rounded-xl" value="${rec?.yield_text||rec?.yield||''}">
         </div>
       </div>
 
       <div class="grid grid-cols-2 gap-2">
         <div>
-          <div class="text-xs text-slate-500 mb-1">🔄 Prep ogni (giorni)</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('prepEvery')}</div>
           <input id="rPrepFreq" type="number" min="1" placeholder="es. 7" class="w-full px-3 py-2 border rounded-xl" value="${rec?.prep_frequency_days||''}">
         </div>
         <div>
-          <div class="text-xs text-slate-500 mb-1">📦 Shelf life (giorni)</div>
+          <div class="text-xs text-slate-500 mb-1">${tr('shelfLife')}</div>
           <input id="rShelfLife" type="number" min="1" placeholder="es. 7" class="w-full px-3 py-2 border rounded-xl" value="${rec?.shelf_life_days||''}">
         </div>
       </div>
@@ -402,12 +422,15 @@ function openRecipeEditor(rec=null){
         <div id="ingList" class="space-y-1"></div>
       </div>
 
-      <div><div class="font-semibold mb-1">Equipment</div><textarea id="rEquip" class="w-full px-3 py-2 border rounded-xl h-16">${rec?.equipment||''}</textarea></div>
-      <div><div class="font-semibold mb-1">Procedure</div><textarea id="rProc" class="w-full px-3 py-2 border rounded-xl h-32">${rec?.procedure||''}</textarea></div>
+      <div><div class="font-semibold mb-1">${tr('equipment')}</div><textarea id="rEquip" class="w-full px-3 py-2 border rounded-xl h-16">${rec?.equipment||''}</textarea></div>
+      <div><div class="font-semibold mb-1">${tr('procedure')}</div><textarea id="rProc" class="w-full px-3 py-2 border rounded-xl h-32">${rec?.procedure||''}</textarea></div>
     </div>
-    <div class="p-3 border-t flex gap-2">
-      <button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl">${tr("cancel")}</button>
-      <button id="saveR" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold">${tr("save")}</button>
+    <div class="p-3 border-t">
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl">${tr("cancel")}</button>
+        <button id="saveR" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold">${tr("save")}</button>
+      </div>
+      ${rec?.id ? `<button id="deleteR" class="w-full py-2.5 text-red-500 border border-red-200 rounded-xl text-sm font-medium" style="background:#fff5f5;">${tr('deleteRecipe')}</button>` : ''}
     </div>
   </div>`;
   document.body.appendChild(modal);
@@ -426,6 +449,49 @@ function openRecipeEditor(rec=null){
   // Tap backdrop to close
   modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
 
+  // ── Photo upload logic ──
+  (function initPhotoUpload(){
+    const fileInput = modal.querySelector('#rImgFile');
+    const imgBtn    = modal.querySelector('#rImgBtn');
+    const hiddenUrl = modal.querySelector('#rImg');
+    const preview   = modal.querySelector('#rImgPreview');
+    const progress  = modal.querySelector('#rImgProgress');
+    if(!fileInput || !imgBtn) return;
+
+    imgBtn.onclick = ()=> fileInput.click();
+
+    fileInput.addEventListener('change', async()=>{
+      const file = fileInput.files[0];
+      if(!file) return;
+
+      // Comprimi a max 800px
+      const compressed = await compressImage(file, 800);
+
+      progress.style.display = 'block';
+      imgBtn.disabled = true;
+
+      try {
+        const ext  = file.name.split('.').pop().toLowerCase() || 'jpg';
+        const path = `recipes/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const { data, error } = await supa.storage.from('app').upload(path, compressed, {
+          contentType: compressed.type,
+          upsert: false
+        });
+        if(error) throw error;
+        const { data: urlData } = supa.storage.from('app').getPublicUrl(path);
+        const publicUrl = urlData.publicUrl;
+        hiddenUrl.value = publicUrl;
+        preview.innerHTML = `<img src="${publicUrl}" style="width:100%;height:100%;object-fit:cover;">`;
+        imgBtn.textContent = tr('changePhoto');
+      } catch(e) {
+        alert(tr('uploadFailed') + ': ' + e.message);
+      } finally {
+        progress.style.display = 'none';
+        imgBtn.disabled = false;
+      }
+    });
+  })();
+
   // Serving weight hint
   const servInput  = modal.querySelector('#rServings');
   const weightInput = modal.querySelector('#rWeightKg');
@@ -435,7 +501,7 @@ function openRecipeEditor(rec=null){
     const w = parseFloat(weightInput.value)||0;
     if(s > 0 && w > 0){
       const gPerServing = (w * 1000 / s);
-      swNote.textContent = `= ${gPerServing >= 1000 ? (gPerServing/1000).toFixed(2).replace(/\.?0+$/,'')+'kg' : Math.round(gPerServing)+'g'} per serving`;
+      swNote.textContent = `= ${gPerServing >= 1000 ? (gPerServing/1000).toFixed(2).replace(/\.?0+$/,'')+'kg' : Math.round(gPerServing)+'g'} ${tr('perServing')}`;
     } else { swNote.textContent = ''; }
   }
   servInput.oninput  = updateSwNote;
@@ -451,22 +517,25 @@ function openRecipeEditor(rec=null){
     row.dataset.type = 'ingredient';
     row.dataset.ingredientId = d.ingredient_id || '';
     row.dataset.subRecipeId  = d.sub_recipe_id  || '';
+    row.draggable = true;
     row.style.display = 'grid';
-    row.style.gridTemplateColumns = '56px 66px 1fr 80px auto';
+    row.style.gridTemplateColumns = '20px 56px 66px 1fr 80px auto';
     row.style.gap = '4px';
     row.style.alignItems = 'center';
+    row.style.cursor = 'default';
 
     const linkedColor = d.ingredient_id ? '#10b981' : d.sub_recipe_id ? '#3b82f6' : '';
     const linkedBg    = d.ingredient_id ? '#f0fdf4' : d.sub_recipe_id ? '#eff6ff' : '';
     const safeName    = (d.name||'').replace(/"/g,'&quot;');
 
     row.innerHTML = `
+      <div class="drag-handle" style="display:flex;align-items:center;justify-content:center;height:100%;cursor:grab;color:#cbd5e1;font-size:14px;user-select:none;-webkit-user-select:none;touch-action:none;">⠿</div>
       <input placeholder="200" class="px-2 py-1.5 border rounded text-xs" value="${d.qty||''}" type="number" min="0" step="any">
       <select class="px-1 py-1.5 border rounded text-xs bg-white">
         ${UNITS.map(u=>`<option ${(d.unit||'g')===u?'selected':''}>${u}</option>`).join('')}
       </select>
       <div style="position:relative;">
-        <input placeholder="ingredient / sub-recipe" class="ing-name-input w-full px-2 py-1.5 border rounded text-xs"
+        <input placeholder="${tr('ingOrSubRecipe')}" class="ing-name-input w-full px-2 py-1.5 border rounded text-xs"
           value="${safeName}"
           style="border-color:${linkedColor};background:${linkedBg};">
         <div class="ing-ac-drop" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);max-height:200px;overflow-y:auto;"></div>
@@ -507,7 +576,6 @@ function openRecipeEditor(rec=null){
           supa.from('recipes').select('id,title,menu_group').ilike('title',`%${q}%`).order('title').limit(4)
         ]);
         const ings = ri.data||[], recs = rr.data||[];
-        if(!ings.length && !recs.length){ drop.style.display='none'; return; }
         drop.innerHTML = [
           ...ings.map(i=>`<div class="ac-opt" data-iid="${i.id}" data-name="${i.name.replace(/"/g,'&quot;')}"
             style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f8fafc;">
@@ -518,13 +586,26 @@ function openRecipeEditor(rec=null){
             style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f8fafc;">
             <span><b>${r.title}</b> <span style="color:#94a3b8;font-size:10px;">${r.menu_group||''}</span></span>
             <span style="font-size:9px;background:#eff6ff;color:#3b82f6;padding:1px 6px;border-radius:4px;flex-shrink:0;">sub-recipe</span>
-          </div>`)
+          </div>`),
+          `<div class="ac-create" data-q="${q.replace(/"/g,'&quot;')}"
+            style="padding:8px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;border-top:1px solid #e2e8f0;color:#6366f1;font-weight:600;">
+            <span style="font-size:14px;">＋</span> Create &ldquo;${q}&rdquo;
+          </div>`
         ].join('');
         drop.style.display = 'block';
         drop.querySelectorAll('.ac-opt').forEach(el=>{
           el.addEventListener('mousedown', e=>{
             e.preventDefault();
             selectItem(el.dataset.name, el.dataset.iid||'', el.dataset.rid||'');
+          });
+        });
+        drop.querySelectorAll('.ac-create').forEach(el=>{
+          el.addEventListener('mousedown', e=>{
+            e.preventDefault();
+            drop.style.display = 'none';
+            openCreateIngredientModal(el.dataset.q, (newIng)=>{
+              selectItem(newIng.name, newIng.id, '');
+            });
           });
         });
       }, 220);
@@ -537,29 +618,148 @@ function openRecipeEditor(rec=null){
   function addSectionRow(d={name:''}){
     const row = document.createElement('div');
     row.dataset.type = 'section';
+    row.draggable = true;
     row.style.display = 'grid';
-    row.style.gridTemplateColumns = '1fr auto';
+    row.style.gridTemplateColumns = '20px 1fr auto';
     row.style.gap = '4px';
     row.style.alignItems = 'center';
     row.innerHTML = `
-      <input placeholder="Section label (e.g. For the sauce)" class="px-2 py-1.5 border-2 border-dashed border-slate-200 rounded text-xs font-semibold text-slate-500 bg-slate-50" value="${d.name||''}">
+      <div class="drag-handle" style="display:flex;align-items:center;justify-content:center;height:100%;cursor:grab;color:#cbd5e1;font-size:14px;user-select:none;-webkit-user-select:none;touch-action:none;">⠿</div>
+      <input placeholder="${tr('sectionLabel')}" class="px-2 py-1.5 border-2 border-dashed border-slate-200 rounded text-xs font-semibold text-slate-500 bg-slate-50" value="${d.name||''}">
       <button class="text-red-400 text-base" style="min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>`;
     row.querySelector('button').onclick = ()=>row.remove();
     ingList.appendChild(row);
   }
 
-  // Populate existing ingredients
-  (rec?.ingredients||[{},{},{}]).forEach(i=>{
-    if(i.type === 'section') addSectionRow(i);
-    else addIngRow({
-      qty:           i.qty,
-      unit:          i.unit,
-      name:          i.name,
-      comment:       i.comment,
-      ingredient_id: i.ingredient_id || null,
-      sub_recipe_id: i.sub_recipe_id  || null
+  // Populate existing ingredients — legge dal BOM se ricetta esistente
+  async function populateIngredients(){
+    if(rec?.id){
+      // Ricetta esistente: legge dal BOM (ha UUID reali → bordo verde → BOM al salvataggio)
+      const {data: bomRows} = await supa
+        .from('recipe_bom')
+        .select('bom_id, item_id, sub_recipe_id, quantity, unit, notes, component_type, sort_order, ingredients(name), recipes!recipe_bom_sub_recipe_id_fkey(title)')
+        .eq('parent_recipe_id', rec.id)
+        .order('sort_order', {nullsFirst: false})
+        .order('bom_id');
+
+      if(bomRows && bomRows.length > 0){
+        bomRows.forEach(b => {
+          const isSubRecipe = b.component_type === 'RECIPE';
+          addIngRow({
+            qty:           b.quantity,
+            unit:          b.unit || 'g',
+            name:          isSubRecipe ? (b.recipes?.title || '') : (b.ingredients?.name || ''),
+            comment:       b.notes || '',
+            ingredient_id: isSubRecipe ? null : (b.item_id || null),
+            sub_recipe_id: isSubRecipe ? (b.sub_recipe_id || null) : null
+          });
+        });
+        return;
+      }
+      // BOM vuoto — fallback al JSON (ricetta nuova o senza BOM ancora)
+    }
+    // Nuova ricetta: 3 righe vuote
+    const fallback = rec?.ingredients || [{},{},{}];
+    fallback.forEach(i=>{
+      if(i.type === 'section') addSectionRow(i);
+      else addIngRow({
+        qty:           i.qty,
+        unit:          i.unit,
+        name:          i.name,
+        comment:       i.comment,
+        ingredient_id: i.ingredient_id || null,
+        sub_recipe_id: i.sub_recipe_id  || null
+      });
     });
-  });
+  }
+  populateIngredients();
+
+  // ── Drag & drop riordinamento ingredienti ──
+  (function initIngDragDrop(){
+    let _dragging = null;
+    let _touchDrag = null;
+
+    function getDragAfterElement(container, y){
+      const els = [...container.querySelectorAll('[draggable="true"]:not(.dragging-ghost)')];
+      return els.reduce((closest, el)=>{
+        const box = el.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if(offset < 0 && offset > closest.offset) return {offset, element: el};
+        return closest;
+      }, {offset: Number.NEGATIVE_INFINITY}).element;
+    }
+
+    // Mouse / pointer drag (desktop)
+    ingList.addEventListener('dragstart', e=>{
+      const handle = e.target.closest('.drag-handle');
+      const row = e.target.closest('[draggable="true"]');
+      if(!handle || !row){ e.preventDefault(); return; }
+      _dragging = row;
+      row.classList.add('dragging-ghost');
+      row.style.opacity = '0.4';
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    ingList.addEventListener('dragend', e=>{
+      if(_dragging){ _dragging.style.opacity = ''; _dragging.classList.remove('dragging-ghost'); }
+      _dragging = null;
+      ingList.querySelectorAll('.drag-over-indicator').forEach(el=>el.remove());
+    });
+    ingList.addEventListener('dragover', e=>{
+      e.preventDefault();
+      if(!_dragging) return;
+      const after = getDragAfterElement(ingList, e.clientY);
+      ingList.querySelectorAll('.drag-over-indicator').forEach(el=>el.remove());
+      const ind = document.createElement('div');
+      ind.className = 'drag-over-indicator';
+      ind.style.cssText = 'height:2px;background:#6366f1;border-radius:2px;margin:1px 0;';
+      if(after) ingList.insertBefore(ind, after);
+      else ingList.appendChild(ind);
+    });
+    ingList.addEventListener('drop', e=>{
+      e.preventDefault();
+      if(!_dragging) return;
+      const after = getDragAfterElement(ingList, e.clientY);
+      if(after) ingList.insertBefore(_dragging, after);
+      else ingList.appendChild(_dragging);
+      ingList.querySelectorAll('.drag-over-indicator').forEach(el=>el.remove());
+    });
+
+    // Touch drag (iPhone)
+    ingList.addEventListener('touchstart', e=>{
+      const handle = e.target.closest('.drag-handle');
+      if(!handle) return;
+      const row = handle.closest('[draggable="true"]');
+      if(!row) return;
+      _touchDrag = {row, startY: e.touches[0].clientY};
+      row.style.opacity = '0.5';
+      e.stopPropagation();
+    }, {passive: true});
+
+    ingList.addEventListener('touchmove', e=>{
+      if(!_touchDrag) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const y = e.touches[0].clientY;
+      const after = getDragAfterElement(ingList, y);
+      ingList.querySelectorAll('.drag-over-indicator').forEach(el=>el.remove());
+      const ind = document.createElement('div');
+      ind.className = 'drag-over-indicator';
+      ind.style.cssText = 'height:2px;background:#6366f1;border-radius:2px;margin:1px 0;';
+      if(after) ingList.insertBefore(ind, after);
+      else ingList.appendChild(ind);
+    }, {passive: false});
+
+    ingList.addEventListener('touchend', e=>{
+      if(!_touchDrag) return;
+      const y = e.changedTouches[0].clientY;
+      const after = getDragAfterElement(ingList, y);
+      if(after) ingList.insertBefore(_touchDrag.row, after);
+      else ingList.appendChild(_touchDrag.row);
+      _touchDrag.row.style.opacity = '';
+      ingList.querySelectorAll('.drag-over-indicator').forEach(el=>el.remove());
+      _touchDrag = null;
+    }, {passive: true});
+  })();
 
   modal.querySelector('#addIng').onclick     = ()=>addIngRow();
   modal.querySelector('#addSection').onclick = ()=>addSectionRow();
@@ -567,7 +767,7 @@ function openRecipeEditor(rec=null){
   // Save
   modal.querySelector('#saveR').onclick = async()=>{
     const t = modal.querySelector('#rTitle').value.trim();
-    if(!t){ alert('Title is required'); return; }
+    if(!t){ alert(tr('titleRequired')); return; }
 
     const bs       = parseInt(servInput.value)||null;
     const wkg      = parseFloat(weightInput.value)||null;
@@ -632,6 +832,23 @@ function openRecipeEditor(rec=null){
       renderRecipes();
     }catch(e){ alert('Error: '+e.message); }
   };
+
+  // ── Delete recipe button ──
+  const deleteBtn = modal.querySelector('#deleteR');
+  if(deleteBtn && rec?.id){
+    deleteBtn.onclick = async()=>{
+      const confirmed = confirm(`Delete "${rec.title}"?\nThis cannot be undone.`);
+      if(!confirmed) return;
+      try {
+        await supa.from('recipe_bom').delete().eq('parent_recipe_id', rec.id);
+        await supa.from('recipe_translations').delete().eq('recipe_id', rec.id);
+        await supa.from('recipes').delete().eq('id', rec.id);
+        modal.remove();
+        await init();
+        renderRecipes();
+      } catch(e){ alert('Error deleting: ' + e.message); }
+    };
+  }
 }
 
 function linkRecipeToItem(title){
@@ -783,20 +1000,20 @@ async function calcRecipeFoodCost(rec){
       ${costed.length>0 ? `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;">
         <div>
-          <div style="font-size:13px;font-weight:600;color:#1e293b;">Cost / serving</div>
+          <div style="font-size:13px;font-weight:600;color:#1e293b;">${tr('costPerServing')}</div>
           ${servings>1?`<div style="font-size:10px;color:#94a3b8;">${servings} servings · total $${totalCost.toFixed(2)}</div>`:''}
         </div>
         <div style="text-align:right;">
           <div style="font-size:16px;font-weight:700;color:#1e293b;">$${costPerServing.toFixed(2)}</div>
           ${fcPct!=null
             ? `<div style="font-size:12px;font-weight:600;color:${fcColor};">${fcPct.toFixed(1)}% FC</div>`
-            : `<div style="font-size:10px;color:#94a3b8;">Set selling price to see %</div>`}
+            : `<div style="font-size:10px;color:#94a3b8;">${tr('setSellingPrice')}</div>`}
         </div>
       </div>` : ''}
 
       ${issues.length ? `
       <div style="margin-top:8px;padding-top:8px;border-top:0.5px dashed #e2e8f0;">
-        <div style="font-size:10px;font-weight:600;color:#94a3b8;margin-bottom:4px;">WHY SOME COSTS ARE MISSING</div>
+        <div style="font-size:10px;font-weight:600;color:#94a3b8;margin-bottom:4px;">${tr('whyCostsMissing')}</div>
         ${issues.map(r=>`<div style="font-size:10px;color:#f59e0b;margin-bottom:2px;">· <b>${r.name}</b>: ${r.issue}</div>`).join('')}
       </div>` : ''}
     </div>`;
@@ -896,25 +1113,25 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     const hasVariants = posNames.length > 1;
     const withBuffer = v => v > 0 ? Math.ceil(v * 1.15) : 0;
     const fmt1 = v => v > 0 ? Math.ceil(v) + ' pz' : '—';
-    const fmtPrep = v => v > 0 ? v + ' porzioni' : '—';
+    const fmtPrep = v => v > 0 ? v + ' portions' : '—';
 
     el.innerHTML =
-      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Sett. scorsa · media/giorno' + (hasVariants ? ' · porz. equiv.' : '') + '</div>' +
+      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Last week · avg/day' + (hasVariants ? ' · equiv. portions' : '') + '</div>' +
       '<div style="display:flex;gap:8px;">' +
 
       '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
-        '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Lun→Gio</div>' +
+        '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Mon→Thu</div>' +
         '<div style="font-size:16px;font-weight:900;color:#6366f1;line-height:1;">' + fmt1(ferAvg) + '</div>' +
       '</div>' +
 
       '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
-        '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Ven+Sab</div>' +
+        '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Fri+Sat</div>' +
         '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + fmt1(wkAvg) + '</div>' +
       '</div>' +
 
       (prepToday > 0 ?
       '<div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:8px 10px;text-align:center;">' +
-        '<div style="font-size:9px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Prep oggi</div>' +
+        '<div style="font-size:9px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Prep today</div>' +
         '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + fmtPrep(withBuffer(isWeekendToday ? wkAvg : ferAvg)) + '</div>' +
         '<div style="font-size:8px;color:#059669;margin-top:2px;">+15% buffer</div>' +
       '</div>' : '') +
@@ -927,25 +1144,198 @@ async function loadRecipeSalesStats(rec, sheetEl) {
   }
 }
 
+
+// ── RECIPE PREP STATS (pill suggested_qty per ricette prep senza pos_name) ──
+async function loadRecipePrepStats(rec, sheetEl) {
+  const el = sheetEl.querySelector('#recipePrepStats');
+  if (!el) return;
+
+  try {
+    const sb = supa;
+
+    // Cerca prep_task collegata direttamente (prep_tasks.recipe_id = rec.id)
+    let ptDirect = null;
+    const { data: ptRows } = await sb.from('prep_tasks')
+      .select('id, name, suggested_qty, suggested_by, suggested_at')
+      .eq('recipe_id', rec.id)
+      .not('suggested_qty', 'is', null)
+      .limit(1);
+    if (ptRows && ptRows.length) ptDirect = ptRows[0];
+
+    // Se non trovata, cerca tramite recipe_bom (questa ricetta è sub_recipe_id di qualcuno,
+    // e quel bom_id ha prep_task_id con suggested_qty)
+    // Oppure: recipe_bom.sub_recipe_id = rec.id AND prep_task_id IS NOT NULL
+    let ptVia = null;
+    if (!ptDirect) {
+      const { data: bomRows } = await sb.from('recipe_bom')
+        .select('prep_task_id, prep_tasks(id, name, suggested_qty, suggested_by, suggested_at)')
+        .eq('sub_recipe_id', rec.id)
+        .not('prep_task_id', 'is', null)
+        .limit(1);
+      if (bomRows && bomRows.length && bomRows[0].prep_tasks?.suggested_qty) {
+        ptVia = bomRows[0].prep_tasks;
+      }
+    }
+
+    const pt = ptDirect || ptVia;
+    if (!pt || !pt.suggested_qty) { el.innerHTML = ''; return; }
+
+    const sugG = parseFloat(pt.suggested_qty);   // grammi
+    const baseG = parseFloat(rec.base_weight_g);  // grammi per batch
+    const sugKg = (sugG / 1000).toFixed(2).replace(/\.?0+$/, '');
+    const batches = baseG ? (sugG / baseG).toFixed(2).replace(/\.?0+$/, '') : null;
+    const batchLabel = batches && baseG ? ` (≈ ${batches} ${tr('batchOf')} ${(baseG/1000).toFixed(1).replace(/\.?0+$/,'')}kg)` : '';
+
+    // Aggiorna lo scaler per partire da suggested_qty
+    const inputWeight = sheetEl.querySelector('#scaleWeight');
+    const inputServ   = sheetEl.querySelector('#scaleServings');
+    const scaleNote   = sheetEl.querySelector('#scaleNote');
+    if (inputWeight && sugKg) {
+      inputWeight.value = sugKg;
+      // Triggera il cambio peso per scalare gli ingredienti
+      inputWeight.dispatchEvent(new Event('input'));
+    }
+
+    el.innerHTML =
+      `<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">${tr('botSuggestion')} · ${tr('thisWeek')}</div>` +
+      '<div style="display:flex;gap:8px;">' +
+        '<div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:8px;">' +
+          '<span style="font-size:18px;">🤖</span>' +
+          '<div>' +
+            '<div style="font-size:17px;font-weight:900;color:#059669;line-height:1;">' + sugKg + ' kg</div>' +
+            `<div style="font-size:10px;color:#6b7280;margin-top:2px;">${tr('recommended')}</div>` +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+  } catch(e) {
+    console.warn('recipePrepStats error:', e.message);
+  }
+}
+
 // ── RECIPE BOM — save structured links ───────────────────────
+// ── Comprimi immagine prima upload (max maxPx lato lungo) ──
+function compressImage(file, maxPx = 800){
+  return new Promise((resolve)=>{
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = ()=>{
+      URL.revokeObjectURL(url);
+      let {width: w, height: h} = img;
+      if(w > maxPx || h > maxPx){
+        if(w >= h){ h = Math.round(h * maxPx / w); w = maxPx; }
+        else       { w = Math.round(w * maxPx / h); h = maxPx; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.82);
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 async function saveRecipeBOM(recipeId, ingredientRows){
   // Delete existing BOM rows for this recipe
   await supa.from('recipe_bom').delete().eq('parent_recipe_id', recipeId);
 
   const rows = ingredientRows
     .filter(i => i.type !== 'section' && (i.ingredient_id || i.sub_recipe_id))
-    .map(i => ({
+    .map((i, idx) => ({
       parent_recipe_id: recipeId,
       component_type:   i.sub_recipe_id ? 'RECIPE' : 'ITEM',
       item_id:          i.ingredient_id || null,
       sub_recipe_id:    i.sub_recipe_id || null,
       quantity:         parseFloat(i.qty) || null,
       unit:             i.unit || null,
-      notes:            i.comment || null
+      notes:            i.comment || null,
+      sort_order:       idx + 1
     }));
 
   if(!rows.length) return;
   const {error} = await supa.from('recipe_bom').insert(rows);
   if(error) console.error('[BOM] insert error:', error);
+}
+
+
+
+
+// ── CREA NUOVO INGREDIENTE DA RICETTA ────────────────────────
+function openCreateIngredientModal(prefillName, onCreated){
+  const CATEGORIES = ['Produce','Dairy','Meat','Seafood','Dry Goods','Oil & Vinegar','Spices & Herbs','Beverages & Spirits','Prepared','Bakery','Frozen','Supply'];
+  const UNITS = [{v:'g',l:'g — grams (weight)'},{v:'ml',l:'ml — milliliters (volume)'},{v:'each',l:'each — count'}];
+
+  const modal = document.createElement('div');
+  modal.className = 'fixed inset-0 z-[300] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
+  modal.innerHTML = `
+    <div style="background:white;border-radius:20px;padding:20px;width:100%;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.18);">
+      <div style="font-size:16px;font-weight:700;color:#1e293b;margin-bottom:16px;">✨ New Ingredient</div>
+
+      <div style="margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Name</div>
+        <input id="ciName" value="${(prefillName||'').replace(/"/g,'&quot;')}"
+          style="width:100%;border:1.5px solid #e2e8f0;border-radius:10px;padding:9px 12px;font-size:14px;box-sizing:border-box;">
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Category</div>
+        <select id="ciCat" style="width:100%;border:1.5px solid #e2e8f0;border-radius:10px;padding:9px 12px;font-size:14px;background:white;box-sizing:border-box;">
+          <option value="">— select —</option>
+          ${CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('')}
+        </select>
+      </div>
+
+      <div style="margin-bottom:20px;">
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Base Unit</div>
+        <select id="ciUnit" style="width:100%;border:1.5px solid #e2e8f0;border-radius:10px;padding:9px 12px;font-size:14px;background:white;box-sizing:border-box;">
+          <option value="">— select —</option>
+          ${UNITS.map(u=>`<option value="${u.v}">${u.l}</option>`).join('')}
+        </select>
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        <button id="ciCancel" style="flex:1;padding:11px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:14px;font-weight:600;color:#64748b;background:white;cursor:pointer;">Cancel</button>
+        <button id="ciSave" style="flex:2;padding:11px;background:#6366f1;border:none;border-radius:12px;font-size:14px;font-weight:700;color:white;cursor:pointer;">Create Ingredient</button>
+      </div>
+      <div id="ciError" style="color:#ef4444;font-size:12px;margin-top:8px;display:none;"></div>
+    </div>`;
+
+  document.body.appendChild(modal);
+
+  modal.querySelector('#ciCancel').onclick = ()=>modal.remove();
+
+  modal.querySelector('#ciSave').onclick = async()=>{
+    const name = modal.querySelector('#ciName').value.trim();
+    const cat  = modal.querySelector('#ciCat').value;
+    const unit = modal.querySelector('#ciUnit').value;
+    const errEl = modal.querySelector('#ciError');
+
+    if(!name){ errEl.textContent='Name is required'; errEl.style.display='block'; return; }
+    if(!cat){  errEl.textContent='Select a category'; errEl.style.display='block'; return; }
+    if(!unit){ errEl.textContent='Select a base unit'; errEl.style.display='block'; return; }
+
+    const measureType = unit==='g' ? 'weight' : unit==='ml' ? 'volume' : 'count';
+
+    const btn = modal.querySelector('#ciSave');
+    btn.textContent = 'Creating...';
+    btn.disabled = true;
+
+    const {data, error} = await supa.from('ingredients')
+      .insert({name, category:cat, base_unit:unit, measure_type:measureType, active:true})
+      .select('id,name')
+      .single();
+
+    if(error){
+      errEl.textContent = 'Error: '+error.message;
+      errEl.style.display='block';
+      btn.textContent='Create Ingredient';
+      btn.disabled=false;
+      return;
+    }
+
+    modal.remove();
+    if(onCreated) onCreated(data);
+  };
 }
 

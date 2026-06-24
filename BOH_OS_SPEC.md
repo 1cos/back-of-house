@@ -61,7 +61,7 @@ A digital sous chef for a real working kitchen.
 
 ### Flutter (in progress / future)
 - Flutter + Dart, iPhone-first
-- Same Supabase project ID: `hykjompnvajjhggrnned`
+- Same Supabase project ID: `ydqmumpytgrlceuinoqt`
 - Localization: English (primary), Italian, Spanish
 - Target: App Store, Siri AI integration (iOS 27+)
 

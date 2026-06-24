@@ -27,15 +27,16 @@ window.officeWriteItem = async function(source, sourceId, fromUser, title, body)
 
 
 var _officeFolderMap = {
-  tell_chef:      'brigata',
-  operation_note: 'brigata',
-  ai_scan:        'chefai',
-  sous_chef_chat: 'chefai',
-  prep_timing:    'prep',
-  price_guard:    'incongruenze',
-  food_cost_guard:'incongruenze',
-  suggestion:     'miglioramenti',
-  vendor_warning: 'fornitori'
+  tell_chef:           'brigata',
+  operation_note:      'brigata',
+  ai_scan:             'chefai',
+  sous_chef_chat:      'chefai',
+  prep_timing:         'prep',
+  price_guard:         'incongruenze',
+  food_cost_guard:     'incongruenze',
+  suggestion:          'miglioramenti',
+  'bot-recipe-guardian': 'miglioramenti',
+  vendor_warning:      'fornitori'
 };
 
 var _officeFolders = [
@@ -172,6 +173,7 @@ async function officeLoadHome() {
 
 // ── APRI CASSETTO FULLSCREEN ──
 window.officeOpenFolder = async function(folderId) {
+  window._officeCurrentFolder = folderId; // traccia folder aperta per Riapri
   // Carica items dal DB invece di passarli inline
   var sb = window.supa;
   var items = [];
@@ -519,23 +521,37 @@ function officeRenderCard(item) {
     var btnLeft = '', btnRight = '';
 
     if (src === 'tell_chef') {
-      btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
-      btnRight = '<button onclick="officeResolve(\'' + item.id + '\',\'risolto\')" style="' + styleSolid + '">Risolto</button>';
+      var styleWip     = 'flex:1;padding:11px 0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;border:0.5px solid #f59e0b;background:#fffbeb;color:#92400e;';
+      var styleDone    = 'flex:1;padding:11px 0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;border:0.5px solid #22c55e;background:#f0fdf4;color:#15803d;';
+      var styleIgnore  = 'flex:1;padding:11px 0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;border:0.5px solid rgba(148,163,184,0.4);background:rgba(148,163,184,0.06);color:#94a3b8;';
+      btnLeft  = '<button onclick="officeChefAction(\'' + item.id + '\',\'working_on_it\')" style="' + styleWip    + '">⚙️ Working on it</button>';
+      btnRight = '<button onclick="officeChefAction(\'' + item.id + '\',\'done\')"         style="' + styleDone   + '">✓ Done</button>';
+      var btnIgnore = '<button onclick="officeChefAction(\'' + item.id + '\',\'ignored\')"  style="' + styleIgnore + '">Ignore</button>';
+      actionsHtml =
+        '<div data-role="actions" style="display:flex;flex-direction:column;gap:6px;padding:0 14px 12px;">' +
+          '<div style="display:flex;gap:6px;">' + btnLeft + btnRight + '</div>' +
+          btnIgnore +
+        '</div>';
     } else if (src === 'operation_note') {
       btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
       btnRight = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleSolid + '">Archivia</button>';
     } else if (src === 'ai_scan') {
       btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleGhost + '">Ignora</button>';
       btnRight = '<button onclick="officeInvestiga(\'' + item.id + '\')" style="' + styleSolid + '">Investiga</button>';
+    } else if (src === 'bot-recipe-guardian') {
+      btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleGhost + '">Ignora</button>';
+      btnRight = '<button onclick="officeOpenRecipe(\'' + item.id + '\',\'' + (item.source_id || '') + '\')" style="' + styleSolid + '">Apri Ricetta</button>';
     } else {
       // sous_chef_chat — solo Letto
       btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
     }
 
-    actionsHtml =
-      '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">' +
-        btnLeft + btnRight +
-      '</div>';
+    if (src !== 'tell_chef') {
+      actionsHtml =
+        '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">' +
+          btnLeft + btnRight +
+        '</div>';
+    }
   }
 
   return '<div data-item-id="' + item.id + '" style="background:white;border:0.5px solid rgba(59,130,246,0.1);border-left:' + borderLeft + ';border-radius:16px;margin:0 12px 8px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 6px 16px rgba(30,58,95,0.04);">' +
@@ -547,7 +563,7 @@ function officeRenderCard(item) {
     (item.body ? '<div data-role="body" style="font-size:17px;color:#475569;padding:0 14px 12px;line-height:1.5;">' + item.body + '</div>' : '') +
     aiBlock +
     actionsHtml +
-    '<div data-role="meta" style="padding:0 14px 10px;font-size:12px;color:#94a3b8;font-weight:500;">' + (item.from_user && item.from_user !== 'system' ? item.from_user + ' · ' : '') + ts + '</div>' +
+    '<div data-role="meta" style="padding:0 14px 10px;font-size:12px;color:#94a3b8;font-weight:500;">' + (item.from_user && item.from_user !== 'system' ? '<span style="color:#1e3a5f;font-weight:700;">' + item.from_user + '</span> · ' : '') + ts + '</div>' +
   '</div>';
 }
 
@@ -617,8 +633,95 @@ window.officeReopen = async function(id) {
   var sb = window.supa;
   if (!sb) return;
   try {
-    await sb.from('office_items').update({ priority: 'orange', resolution: null }).eq('id', id);
-    officeLoad();
+    await sb.from('office_items').update({ priority: 'orange', resolution: null, status: 'open' }).eq('id', id);
+    if (window._officeCurrentFolder && document.getElementById('officeFolder')) {
+      // Siamo dentro una folder — ricarica quella
+      window.officeOpenFolder(window._officeCurrentFolder);
+    } else {
+      officeLoad();
+    }
+    if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
+    if (typeof showScToast === 'function') showScToast('↩ Riaperto');
+  } catch(e) {
+    if (typeof showScToast === 'function') showScToast('❌ ' + e.message);
+  }
+};
+
+
+// ── AZIONE CHEF SU TELL CHEF ──
+window.officeChefAction = async function(id, action) {
+  var sb = window.supa;
+  if (!sb) return;
+  try {
+    var now = new Date().toISOString();
+    var byName = (window.currentUser || window.user || {}).name || 'Max';
+
+    // Salva nel DB — sempre, per i bot
+    await sb.from('office_items').update({
+      chef_action:    action,
+      chef_action_at: now,
+      chef_action_by: byName,
+      status:   action === 'ignored' ? 'resolved' : 'open',
+      resolution: action === 'ignored' ? 'ignored' : null,
+      priority: action === 'working_on_it' ? 'orange' : (action === 'done' ? 'blue' : undefined),
+      resolved_by: byName,
+      resolved_at: action === 'ignored' ? now : null,
+    }).eq('id', id);
+
+    // Effetto visivo sulla card
+    var card = document.querySelector('[data-item-id="' + id + '"]');
+    if (!card) { officeLoad(); return; }
+
+    if (action === 'ignored') {
+      // Sparisce con animazione
+      card.style.transition = 'all 0.25s ease';
+      card.style.opacity = '0';
+      card.style.transform = 'translateX(40px)';
+      setTimeout(function() {
+        if (window._officeCurrentFolder && document.getElementById('officeFolder')) {
+          window.officeOpenFolder(window._officeCurrentFolder);
+        } else {
+          officeLoad();
+        }
+        if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
+      }, 270);
+      if (typeof showScToast === 'function') showScToast('🚫 Ignorato');
+
+    } else if (action === 'working_on_it') {
+      // Bordino arancione, body rimane visibile
+      card.style.borderLeft = '3px solid #f59e0b';
+      card.style.background = '#fffbeb';
+      var dot = card.querySelector('[data-role="dot"]');
+      if (dot) dot.style.background = '#f59e0b';
+      var actions = card.querySelector('[data-role="actions"]');
+      if (actions) actions.innerHTML =
+        '<div style="padding:0 14px 12px;">' +
+          '<div style="font-size:12px;color:#f59e0b;font-weight:700;margin-bottom:6px;">⚙️ Working on it</div>' +
+          '<button onclick="officeChefAction(this.dataset.id,\'done\')" data-id="' + id + '"" ' +
+            'style="width:100%;padding:10px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid #22c55e;background:#f0fdf4;color:#15803d;">✓ Mark Done</button>' +
+        '</div>';
+      if (typeof showScToast === 'function') showScToast('⚙️ Working on it');
+
+    } else if (action === 'done') {
+      // Verde, va in fondo visivamente, rimane in lista
+      card.style.borderLeft = '3px solid #22c55e';
+      card.style.background = '#f0fdf4';
+      card.style.opacity = '0.7';
+      var dot2 = card.querySelector('[data-role="dot"]');
+      if (dot2) dot2.style.background = '#22c55e';
+      var body2 = card.querySelector('[data-role="body"]');
+      var ai2   = card.querySelector('[data-role="ai"]');
+      if (body2) body2.style.display = 'none';
+      if (ai2)   ai2.style.display   = 'none';
+      var actions2 = card.querySelector('[data-role="actions"]');
+      if (actions2) actions2.innerHTML =
+        '<div style="padding:0 14px 12px;font-size:12px;color:#22c55e;font-weight:700;">✓ Done — ' + byName + '</div>';
+      // Sposta in fondo
+      var parent = card.parentNode;
+      if (parent) { parent.removeChild(card); parent.appendChild(card); }
+      if (typeof showScToast === 'function') showScToast('✓ Done');
+    }
+
   } catch(e) {
     if (typeof showScToast === 'function') showScToast('❌ ' + e.message);
   }
@@ -656,4 +759,33 @@ window.officeInvestiga = function(id) {
   if (typeof window.openSousChef === 'function') {
     window.openSousChef(title.trim());
   }
+};
+
+
+window.officeOpenRecipe = async function(itemId, recipeId) {
+  // Chiudi L'Ufficio
+  if (typeof officeStopRealtime === 'function') officeStopRealtime();
+  document.getElementById('officeOverlay')?.remove();
+  document.getElementById('officeModal')?.remove();
+
+  if (!recipeId) return;
+
+  // Vai al tab Ricette
+  if (typeof showTab === 'function') showTab('recipes');
+
+  // Piccola attesa per il render del tab, poi apri editor
+  setTimeout(async function() {
+    try {
+      var { data: recipe } = await supa
+        .from('recipes')
+        .select('*')
+        .eq('id', recipeId)
+        .maybeSingle();
+      if (recipe && typeof openRecipeEditor === 'function') {
+        openRecipeEditor(recipe);
+      }
+    } catch(e) {
+      console.error('[officeOpenRecipe]', e);
+    }
+  }, 400);
 };

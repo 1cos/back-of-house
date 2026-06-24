@@ -11,7 +11,7 @@ window.openVendorDocumentsReview = function() {
   modal.className = 'fixed inset-0 z-[65] flex flex-col';
   modal.style.cssText = 'background:white;overflow-y:auto;';
   modal.innerHTML = `
-    <div style="position:sticky;top:0;z-index:10;background:white;border-bottom:1px solid #f1f5f9;">
+    <div style="position:sticky;top:0;z-index:10;background:white;border-bottom:1px solid #f1f5f9;padding-top:env(safe-area-inset-top,0px);">
       <div style="padding:14px 16px;display:flex;align-items:center;gap:10px;">
         <button onclick="this.closest('#vdrModal').remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
         <div style="flex:1;">
@@ -24,7 +24,7 @@ window.openVendorDocumentsReview = function() {
         <button onclick="vdrSetVendor('all')" id="vdrTab-all" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:#1e3a5f;color:white;">All</button>
       </div>
     </div>
-    <div style="padding:16px;max-width:640px;width:100%;margin:0 auto;">
+    <div style="padding:16px;max-width:640px;width:100%;margin:0 auto;padding-bottom:100px;">
       <div id="vdrList">
         <div style="text-align:center;padding:40px 0;color:#94a3b8;font-size:13px;">Loading…</div>
       </div>
@@ -213,7 +213,7 @@ window.vdrProcessAllPdf = async function() {
 
         // Duplicate check by doc number
         if (docNumber) {
-          const { data: byNum } = await sb.from('vendor_documents').select('id').eq('vendor', parsed.vendor).eq('document_number', docNumber).neq('id', doc.id).limit(1);
+          const { data: byNum } = await sb.from('vendor_documents').select('id').eq('vendor', parsed.vendor).eq('document_number', docNumber).eq('document_type', parsed.document_type).neq('id', doc.id).limit(1);
           if (byNum && byNum.length > 0) {
             await sb.from('vendor_documents').update({ status: 'error', warnings: [{ code: 'DUPLICATE', message: `Document #${docNumber} already exists` }] }).eq('id', doc.id);
             await sb.storage.from('app').remove([storagePath]);
@@ -408,7 +408,12 @@ window.vdrToggle = function(id) {
       </div>
       <!-- Scrollable content -->
       <div style="overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;">
-        ${vdrDetailHTML(doc)}
+        ${vdrDetailHTMLNoApprove(doc)}
+      </div>
+      <!-- Sticky Approve footer -->
+      <div style="flex-shrink:0;padding:12px 16px;border-top:1px solid #f1f5f9;background:white;">
+        <div id="vdrActionStatus-${doc.id}" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>
+        <button onclick="vdrApprove('${doc.id}',this)" style="width:100%;height:48px;border-radius:14px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;">Approve Document</button>
       </div>
       <!-- Bottom safe area -->
       <div style="height:env(safe-area-inset-bottom,0px);background:white;flex-shrink:0;"></div>
@@ -748,6 +753,31 @@ function vdrDetailHTML(doc) {
   '</div>';
 
   return headerHTML + questionsHTML + itemsHTML + approveHTML;
+}
+
+// Same as vdrDetailHTML but without the approve button (used when approve is a sticky footer)
+function vdrDetailHTMLNoApprove(doc) {
+  var docId = doc.id;
+  var pj = doc.parsed_json || {};
+  var items = Array.isArray(pj.items) ? pj.items : [];
+  var questions = vdrBuildQuestions(doc);
+  var headerFields = [
+    ['Vendor', doc.vendor || '—'],
+    ['Date', vdrFmtDate(doc.document_date)],
+    ['Invoice #', doc.document_number || '—'],
+    ['Total', pj.total != null ? '$' + Math.abs(pj.total).toFixed(2) : '—']
+  ];
+  var headerHTML = '<div style="padding:12px 14px;background:#f8fafc;display:flex;flex-wrap:wrap;gap:6px 20px;">' +
+    headerFields.map(function(pair) {
+      return '<div><span style="font-size:10px;color:#94a3b8;">' + pair[0] + '</span> <span style="font-size:12px;font-weight:600;color:#1e293b;">' + pair[1] + '</span></div>';
+    }).join('') +
+    '</div>';
+  // Get questions and items HTML by calling the full function and stripping the approve part
+  var full = vdrDetailHTML(doc);
+  // Strip the approve div from the end
+  var approveStart = full.lastIndexOf('<div style="padding:12px 14px 14px;">');
+  if (approveStart >= 0) return full.slice(0, approveStart);
+  return full;
 }
 
 // ── Build question objects from a document ────────────────────
@@ -1621,6 +1651,62 @@ window.vdrApprove = async function(docId, btn) {
       const { error: insErr } = await sb.from('ingredient_vendors').insert(row);
       if (insErr && insErr.code !== '23505') {
         throw new Error('Insert failed for ' + (row.ingredient_id || '?') + ': ' + insErr.message);
+      }
+    }
+
+
+    // ── Populate invoice_lines (invoices only) ────────────────────
+    if (pj.document_type === 'invoice') {
+      const invoiceLineRows = items.map((item, itemIdx) => {
+        const edits       = docEdits[itemIdx] || {};
+        const desc        = item.description || item.raw_description || null;
+        const sku         = item.vendor_sku || item.item_code || null;
+        const qty         = (edits.qty != null && !isNaN(edits.qty)) ? edits.qty : (item.qty_ordered || item.qty_received || null);
+        const pack        = (edits.pack != null && edits.pack !== '') ? edits.pack : (item.pack_description || null);
+        const unitPrice   = (edits.unitPrice != null && !isNaN(edits.unitPrice)) ? edits.unitPrice : (item.unit_price != null ? parseFloat(item.unit_price) : null);
+        const lineTotal   = (edits.ext != null && !isNaN(edits.ext)) ? edits.ext : (item.amount != null ? Math.abs(item.amount) : null);
+
+        // Weight
+        const totalG = item.total_weight_lb
+          ? item.total_weight_lb * 453.592
+          : item.catchweight && item.actual_weight_lb
+            ? item.actual_weight_lb * 453.592
+            : (window.vdrPackToGrams ? window.vdrPackToGrams(pack, false, null, desc) : null);
+
+        // Cost per 100g
+        const per100g = item._cost_per_100g
+          ? parseFloat(item._cost_per_100g)
+          : item.cost_per_lb
+            ? (item.cost_per_lb / 453.592) * 100
+            : (totalG && unitPrice && qty && qty > 0) ? ((unitPrice / totalG) * 100) : null;
+
+        // ingredient_id — look up from skuMap or linkMap built earlier
+        const matchedId = (sku && skuMap[sku]) ? skuMap[sku].ingredient_id
+          : (desc && linkMap[desc]) ? linkMap[desc]
+          : null;
+
+        return {
+          import_id:          docId,
+          invoice_date:       invoiceDate,
+          invoice_number:     pj.invoice_number || pj.document_number || null,
+          vendor:             vendor,
+          raw_description:    desc,
+          vendor_sku:         sku,
+          ingredient_id:      matchedId,
+          match_status:       matchedId ? 'matched' : 'unmatched',
+          qty:                qty,
+          purchase_unit:      'case',
+          pack_description:   pack,
+          unit_price:         unitPrice,
+          line_total:         lineTotal,
+          estimated_total_g:  totalG ? Math.round(totalG) : null,
+          cost_per_100g:      per100g ? parseFloat(per100g.toFixed(4)) : null,
+        };
+      }).filter(r => r.raw_description);
+
+      if (invoiceLineRows.length) {
+        const { error: ilErr } = await sb.from('invoice_lines').insert(invoiceLineRows);
+        if (ilErr) console.warn('invoice_lines insert warning:', ilErr.message);
       }
     }
 

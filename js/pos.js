@@ -298,7 +298,7 @@ async function loadPOS() {
           (nDays>1?'<p style="font-size:10px;color:#94a3b8;">avg/gg '+fmt(totalRevenue/nDays)+'</p>':'') +
         '</div>' +
         '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">' +
-          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Tavoli</p>' +
+          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Bills</p>' +
           '<p style="font-size:22px;font-weight:700;color:#1e293b;">'+totalCovers+'</p>' +
           '<p style="font-size:10px;color:#94a3b8;">check '+fmtD(avgCheck)+'</p>' +
         '</div>' +
@@ -923,7 +923,7 @@ async function daExecuteQuery(sb, q, from, to) {
       var ca=(a.net_sales||0)/(a.bill_count||1); var cb=(b.net_sales||0)/(b.bill_count||1); return cb-ca;
     }).map(function(x){
       var chk=(x.net_sales||0)/(x.bill_count||1);
-      return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date.slice(5), fmtD(chk), x.bill_count+' coperti');
+      return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date.slice(5), fmtD(chk), x.bill_count+' bills');
     }).join('');
     return resultBlock('Check medio nel periodo',
       '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:36px;font-weight:800;color:#6366f1;">'+fmtD(avg)+'</span></div>'+rows);
@@ -943,7 +943,7 @@ async function daExecuteQuery(sb, q, from, to) {
   if (qtype === 'best_day_revenue') {
     var r = await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',from).lte('sale_date',to);
     var data = (r.data||[]).sort(function(a,b){return (b.net_sales||0)-(a.net_sales||0);});
-    var rows = data.slice(0,10).map(function(x){ return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date.slice(5), fmt(x.net_sales||0), x.bill_count+' coperti'); }).join('');
+    var rows = data.slice(0,10).map(function(x){ return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date.slice(5), fmt(x.net_sales||0), x.bill_count+' bills'); }).join('');
     return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
   }
 
@@ -977,7 +977,7 @@ async function daExecuteQuery(sb, q, from, to) {
   // ── QUERY: record_revenue ──────────────────────────────────────────
   if (qtype === 'record_revenue') {
     var r = await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').order('net_sales',{ascending:false}).limit(10);
-    var rows = (r.data||[]).map(function(x,i){ return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date, fmt(x.net_sales||0), x.bill_count+' coperti'); }).join('');
+    var rows = (r.data||[]).map(function(x,i){ return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date, fmt(x.net_sales||0), x.bill_count+' bills'); }).join('');
     return resultBlock('Record assoluti di fatturato', rows);
   }
 
@@ -1118,8 +1118,8 @@ async function daExecuteQuery(sb, q, from, to) {
     var r = await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales,discounts').order('sale_date',{ascending:false});
     var data = (r.data||[]).filter(function(x){ return (Number(x[field])||0) > thresh; });
     var rows = data.slice(0,20).map(function(x){
-      var val = field==='bill_count' ? x.bill_count+' coperti' : fmt(x.net_sales||0);
-      var sub = field==='bill_count' ? fmt(x.net_sales||0) : x.bill_count+' coperti';
+      var val = field==='bill_count' ? x.bill_count+' bills' : fmt(x.net_sales||0);
+      var sub = field==='bill_count' ? fmt(x.net_sales||0) : x.bill_count+' bills';
       return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date, val, sub);
     }).join('');
     return resultBlock(q.label,
@@ -1133,7 +1133,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var r = await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').order('sale_date',{ascending:false});
     var data = (r.data||[]).filter(function(x){ return (Number(x[field])||0) > 0 && (Number(x[field])||0) < thresh; });
     var rows = data.slice(0,20).map(function(x){
-      return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date, x.bill_count+' coperti', fmt(x.net_sales||0));
+      return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date, x.bill_count+' bills', fmt(x.net_sales||0));
     }).join('');
     return resultBlock(q.label,
       '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:36px;font-weight:800;color:#6366f1;">'+data.length+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">giorni sotto soglia</span></div>'+
@@ -1173,7 +1173,7 @@ async function daExecuteQuery(sb, q, from, to) {
       return dow2>=1 && dow2<=4 && (Number(x.net_sales)||0) > thresh;
     });
     var rows = data.slice(0,15).map(function(x){
-      return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date, fmt(x.net_sales||0), x.bill_count+' coperti');
+      return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date, fmt(x.net_sales||0), x.bill_count+' bills');
     }).join('');
     return resultBlock(q.label,
       '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:36px;font-weight:800;color:#6366f1;">'+data.length+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">volte</span></div>'+
@@ -1352,7 +1352,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var dowNames=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
     var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').order('bill_count',{ascending:false});
     var data=(r.data||[]).filter(function(x){return new Date(x.sale_date+'T12:00:00').getDay()===dow;}).slice(0,5);
-    var rows=data.map(function(x,i){return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date,x.bill_count+' coperti',fmt(x.net_sales||0));}).join('');
+    var rows=data.map(function(x,i){return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date,x.bill_count+' bills',fmt(x.net_sales||0));}).join('');
     return resultBlock('Top 5 '+dowNames[dow]+' per coperti di sempre', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
   }
 
@@ -1362,7 +1362,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var dowNames=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
     var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').order('net_sales',{ascending:false});
     var data=(r.data||[]).filter(function(x){return new Date(x.sale_date+'T12:00:00').getDay()===dow;}).slice(0,5);
-    var rows=data.map(function(x,i){return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date,fmt(x.net_sales||0),x.bill_count+' coperti');}).join('');
+    var rows=data.map(function(x,i){return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date,fmt(x.net_sales||0),x.bill_count+' bills');}).join('');
     return resultBlock('Top 5 '+dowNames[dow]+' per fatturato di sempre', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
   }
 
@@ -1879,7 +1879,7 @@ async function daExecuteQuery(sb, q, from, to) {
   if (qtype === 'trend_check_avg') {
     var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',from).lte('sale_date',to).order('sale_date',{ascending:true});
     var data=(r.data||[]).filter(function(x){return x.bill_count>0;});
-    var rows=data.map(function(x){var chk=(x.net_sales||0)/x.bill_count;return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date.slice(5),fmtD(chk),x.bill_count+' coperti');}).join('');
+    var rows=data.map(function(x){var chk=(x.net_sales||0)/x.bill_count;return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date.slice(5),fmtD(chk),x.bill_count+' bills');}).join('');
     return resultBlock('Check medio — trend nel periodo', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
   }
 
@@ -1904,7 +1904,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var dowNames=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
     var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',from).lte('sale_date',to).order('sale_date',{ascending:true});
     var data=(r.data||[]).filter(function(x){return new Date(x.sale_date+'T12:00:00').getDay()===dow9;});
-    var rows=data.map(function(x){return rowItem(x.sale_date,x.bill_count+' coperti',fmt(x.net_sales||0));}).join('');
+    var rows=data.map(function(x){return rowItem(x.sale_date,x.bill_count+' bills',fmt(x.net_sales||0));}).join('');
     var avgC=data.length>0?Math.round(data.reduce(function(s,x){return s+(x.bill_count||0);},0)/data.length):0;
     return resultBlock(dowNames[dow9]+' — storico nel periodo',
       '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:24px;font-weight:800;color:#6366f1;">'+avgC+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">coperti medi il '+dowNames[dow9]+'</span></div>'+
@@ -1980,7 +1980,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var dowNames=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
     var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').order('net_sales',{ascending:false});
     var data=(r.data||[]).filter(function(x){return new Date(x.sale_date+'T12:00:00').getDay()===dow8;}).slice(0,5);
-    var rows=data.map(function(x,i){return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date,fmt(x.net_sales||0),x.bill_count+' coperti');}).join('');
+    var rows=data.map(function(x,i){return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date,fmt(x.net_sales||0),x.bill_count+' bills');}).join('');
     return resultBlock('Migliori '+dowNames[dow8]+' di sempre', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
   }
 
@@ -2070,7 +2070,7 @@ async function daExecuteQuery(sb, q, from, to) {
 var staffDateMode = 'ieri';
 
 var STAFF_FOOD_GROUPS = ['Pasta','Secondi/entrees','Secondi','Antipasti/appetizer','Antipasti','Insalate/salad','Dolcezze/dessert','Dolcezze','Kids menu','Soup','Sides','Lunch'];
-var STAFF_GROUP_LABELS = {'Pasta':'Pasta','Secondi/entrees':'Secondi','Secondi':'Secondi','Antipasti/appetizer':'Antipasti','Antipasti':'Antipasti','Insalate/salad':'Insalate','Dolcezze/dessert':'Dolcezze','Dolcezze':'Dolcezze','Kids menu':'Kids','Soup':'Zuppe','Sides':'Contorni','Lunch':'Pranzo'};
+var STAFF_GROUP_LABELS = {'Pasta':'Pasta','Secondi/entrees':'Secondi','Secondi':'Secondi','Antipasti/appetizer':'Antipasti','Antipasti':'Antipasti','Insalate/salad':'Insalate','Dolcezze/dessert':'Dolcezze','Dolcezze':'Dolcezze','Kids menu':'Pasta','Soup':'Zuppe','Sides':'Contorni','Lunch':'Pranzo'};
 var STAFF_EXCL = ['NA Beverages','The Bar','Mocktail','Happy hours','Wine dinner','Testing menu','Catering','Peach Festival','Resturant week'];
 var STAFF_GROUP_EMOJI = {'Pasta':'🍝','Secondi':'🥩','Antipasti':'🫙','Insalate':'🥗','Dolcezze':'🍮','Kids':'👶','Zuppe':'🍲','Contorni':'🥦','Pranzo':'🌞'};
 
@@ -2388,5 +2388,6 @@ async function staffOpenModifier(modName, from, to) {
   if (old) old.remove();
   await staffOpenDishModal(modName, from, to);
 }
+
 
 

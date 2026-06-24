@@ -88,10 +88,10 @@ async function tellChefSend() {
   if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
 
   try {
-    var user = window.user || {};
+    var user = window.currentUser || window.user || {};
     var payload = {
-      user_name: (window.user || user || {}).name || 'Unknown',
-      station: (window.user || user || {}).default_station || (window.user || user || {}).station || null,
+      user_name: user.name || 'Unknown',
+      station: user.default_station || user.station || null,
       message: text,
       status: 'new'
     };
@@ -102,7 +102,7 @@ async function tellChefSend() {
     // Scrivi in office_items per L'Ufficio
     if (typeof officeWriteItem === 'function') {
       var reportId = res.data ? res.data.id : null;
-      var userName = payload.user_name && payload.user_name !== 'Unknown' ? payload.user_name : (window.user?.name || 'Staff');
+      var userName = user.name || 'Unknown';
       var stationLabel = payload.station ? payload.station.replace(' Station','') : '';
       var titleLabel = userName + (stationLabel ? ' (' + stationLabel + ')' : '') + ': ' + text.slice(0, 80) + (text.length > 80 ? '...' : '');
       officeWriteItem('tell_chef', reportId, userName, titleLabel, text);

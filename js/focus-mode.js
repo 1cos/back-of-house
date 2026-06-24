@@ -1,24 +1,75 @@
-// ── FOCUS MODE v5 ──
-// Staff only, 8AM-8PM CDT
-// Fix: _focusCurrentStation persiste tra START/DONE/realtime
-// Fix: no re-query su realtime — aggiorna solo il task cambiato in memoria
+// ── FOCUS MODE v6 ──
+// Staff only. Si attiva SOLO se l'utente è schedulato oggi in shifts_schedule
+// (match esatto su users.schedule_name), dentro la finestra esatta del turno.
+// is_closing → fine a mezzanotte. Niente fallback 8-20.
 
 var _focusStartTimes = {};
 var _focusChannel = null;
 var _focusList = [];
 var _focusCurrentStation = null; // stazione attualmente visualizzata
 
+// Cache turni utente oggi
+var _focusShiftWindow = null; // {start: h(float), end: h(float)} o null
+
+async function loadFocusShiftWindow() {
+  _focusShiftWindow = null;
+  if (!user || !user.schedule_name) return;
+  var todayStr = new Date().toLocaleString('en-CA', {timeZone:'America/Chicago'}).split(',')[0];
+  var res = await supa.from('shifts_schedule')
+    .select('start_time, end_time, start_hour, is_closing')
+    .eq('date', todayStr)
+    .eq('employee_name', user.schedule_name);
+  if (res.error || !res.data || res.data.length === 0) return;
+
+  // helper: estrae ora frazionaria CDT da un timestamp ISO
+  function hourFromTs(ts) {
+    if (!ts) return null;
+    var s = new Date(ts).toLocaleString('en-US', {timeZone:'America/Chicago', hour12:false, hour:'2-digit', minute:'2-digit'});
+    // s formato "HH:MM" o "HH:MM:SS"
+    var parts = s.split(':');
+    var hh = parseInt(parts[0], 10);
+    var mm = parseInt(parts[1], 10) || 0;
+    if (isNaN(hh)) return null;
+    return hh + (mm / 60);
+  }
+
+  var startH = null;
+  var endH = null;
+  res.data.forEach(function(s) {
+    var sh = hourFromTs(s.start_time);
+    if (sh === null && s.start_hour != null) sh = parseFloat(s.start_hour);
+    if (sh !== null) startH = (startH === null) ? sh : Math.min(startH, sh);
+
+    var eh;
+    if (s.is_closing) {
+      eh = 24;
+    } else {
+      eh = hourFromTs(s.end_time);
+    }
+    if (eh !== null && eh !== undefined) endH = (endH === null) ? eh : Math.max(endH, eh);
+  });
+
+  if (startH === null || endH === null) return;
+  _focusShiftWindow = { start: startH, end: endH };
+}
+
 function isFocusHour() {
-  var h = parseInt(new Date().toLocaleString('en-US', {timeZone:'America/Chicago', hour:'numeric', hour12:false}));
-  return h >= 8 && h < 20;
+  if (!_focusShiftWindow) return false; // niente turno = niente Focus Mode
+  var now = new Date().toLocaleString('en-US', {timeZone:'America/Chicago', hour12:false, hour:'2-digit', minute:'2-digit'});
+  var p = now.split(':');
+  var h = parseInt(p[0], 10) + (parseInt(p[1], 10) || 0) / 60;
+  return h >= _focusShiftWindow.start && h < _focusShiftWindow.end;
 }
 
 function shouldShowFocusMode() {
   if (typeof isAdmin === 'function' && isAdmin()) return false;
+  var day = new Date().toLocaleString('en-US', {timeZone:'America/Chicago', weekday:'long'});
+  if (day === 'Sunday') return false;
   return isFocusHour();
 }
 
-window.initFocusMode = function() {
+window.initFocusMode = async function() {
+  await loadFocusShiftWindow();
   if (!shouldShowFocusMode()) return;
   var el = document.getElementById('focusMode');
   if (!el) return;
@@ -89,7 +140,7 @@ function renderOneFocusCard(i) {
   var statusColor = isWip ? '#d97706' : (isDone ? '#0369a1' : '#dc2626');
   var statusLabel = isWip
     ? 'IN PROGRESS' + (_focusStartTimes[i.id] ? ' · ' + Math.round((Date.now()-_focusStartTimes[i.id])/60000) + ' min ⏱' : '')
-    : (isDone ? 'DONE' : 'DA FARE');
+    : (isDone ? 'DONE' : 'TO DO');
 
   var hasRecipe = i.recipe_id || (typeof recipeLinks !== 'undefined' && recipeLinks[i.id]) || i.note;
   var recipeLink = hasRecipe
@@ -106,7 +157,7 @@ function renderOneFocusCard(i) {
   } else if (isWip) {
     btn = '<button onclick="focusDone(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:#1e3a5f;color:white;font-size:17px;font-weight:700;border:none;cursor:pointer;margin-top:14px;">DONE</button>';
   } else {
-    btn = '<button onclick="focusReopen(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:rgba(30,58,95,0.08);color:#1e3a5f;font-size:16px;font-weight:600;border:none;cursor:pointer;margin-top:14px;">Riapri</button>';
+    btn = '<button onclick="focusReopen(\'' + i.id + '\')" style="width:100%;height:54px;border-radius:16px;background:rgba(30,58,95,0.08);color:#1e3a5f;font-size:16px;font-weight:600;border:none;cursor:pointer;margin-top:14px;">Reopen</button>';
   }
 
   return '<div style="background:' + bgColor + ';border-radius:24px;border:1.5px solid ' + borderColor + ';padding:22px 20px;margin-bottom:12px;">' +
@@ -182,6 +233,49 @@ function startFocusRealtime() {
     .subscribe();
 }
 
+// ── SCHEDULE OVERLAY (sopra la Focus Mode, non la spegne mai) ──
+window.focusOpenSchedule = function() {
+  var existing = document.getElementById('focusSchedOverlay');
+  if (existing) existing.remove();
+
+  var ov = document.createElement('div');
+  ov.id = 'focusSchedOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:70;background:linear-gradient(160deg,#f0f4ff 0%,#f8fafc 60%);display:flex;flex-direction:column;overflow:hidden;';
+  ov.innerHTML =
+    '<div style="display:flex;align-items:center;gap:12px;padding:16px 16px 10px;flex-shrink:0;">' +
+      '<button onclick="focusCloseSchedule()" style="height:40px;padding:0 16px;border-radius:14px;background:white;border:1px solid #e2e8f0;color:#1e3a5f;font-size:15px;font-weight:700;cursor:pointer;">← Back</button>' +
+      '<div style="font-size:18px;font-weight:800;color:#1e3a5f;">Schedule</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;padding:0 16px 14px;flex-shrink:0;">' +
+      '<button id="schedBtnOggi" onclick="schedShowView(\'oggi\')" style="flex:1;padding:8px;border-radius:12px;border:none;background:#1e3a5f;color:white;font-size:13px;font-weight:600;cursor:pointer;">Oggi</button>' +
+      '<button id="schedBtnSettimana" onclick="schedShowView(\'settimana\')" style="flex:1;padding:8px;border-radius:12px;border:1.5px solid #1e3a5f;background:white;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;">Settimana</button>' +
+    '</div>' +
+    '<div id="schedContent" style="flex:1;overflow-y:auto;padding:0 16px 24px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch;">' +
+      '<div style="text-align:center;color:#94a3b8;padding:40px 0;font-size:14px;">Loading…</div>' +
+    '</div>';
+  // Evita collisione di ID con la section #vsched nascosta.
+  // L'overlay non è ancora nel DOM, quindi questi sono solo i gemelli di #vsched.
+  ['schedContent','schedBtnOggi','schedBtnSettimana'].forEach(function(idn){
+    var el = document.getElementById(idn);
+    if (el) el.id = '_hidden_'+idn;
+  });
+  document.body.appendChild(ov);
+
+  if (typeof schedShowView === 'function') schedShowView('oggi');
+  if (typeof schedLoadData === 'function') schedLoadData();
+};
+
+window.focusCloseSchedule = function() {
+  var ov = document.getElementById('focusSchedOverlay');
+  if (ov) ov.remove();
+  // Ripristina gli ID originali della section #vsched.
+  ['schedContent','schedBtnOggi','schedBtnSettimana'].forEach(function(idn){
+    var el = document.getElementById('_hidden_'+idn);
+    if (el) el.id = idn;
+  });
+  // Focus Mode è sempre rimasta attiva sotto — niente da riattivare.
+};
+
 window.focusMyStation = function() {
   _focusCurrentStation = user && user.default_station ? user.default_station : null;
   updateFocusHeader();
@@ -232,4 +326,5 @@ window.focusLoadStation = function(station) {
   buildFocusList();
   renderFocusFeed();
 };
+
 

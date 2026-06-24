@@ -5,6 +5,9 @@
 
 let _scChatHistory = [];
 
+// Azione in attesa di conferma Max
+let _scPendingAction = null;
+
 window.openSousChefChat = function() {
   if (document.getElementById('_scChatSheet')) return;
 
@@ -48,7 +51,7 @@ window.openSousChefChat = function() {
             <div style="font-size:13px;line-height:1.5;">Chiedimi qualsiasi cosa — prezzi, fornitori, vendite, ricette.<br>Posso anche aggiornare il database.</div>
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:0 8px;">
-            ${['Quanto costa la burrata?','Stew Meat: 12 lb a cassa, $3.29/lb','Cosa ho venduto ieri?','Warning aperti'].map(s => `
+            ${['Quanto costa la burrata?','Cosa ho venduto ieri?','Warning aperti','Modifica la ricetta X'].map(s => `
               <button onclick="scChatSend('${s}')"
                 style="padding:8px 14px;border-radius:20px;border:1.5px solid #e2e8f0;background:#f8fafc;font-size:13px;color:#475569;cursor:pointer;">
                 ${s}
@@ -90,7 +93,77 @@ function scChatRenderMsg(m) {
         ${m.isError ? 'background:#fef2f2;color:#dc2626;border:1px solid #fecaca;' : ''}
       ">
         ${m.content}
-        ${m.dbAction ? `<div style="font-size:12px;margin-top:6px;opacity:0.7;">✅ ${m.dbAction}</div>` : ''}
+      </div>
+    </div>`;
+}
+
+// ── CARD CONFERMA AZIONE ──
+function scChatRenderConfirmCard(action, replyText) {
+  // Descrizione leggibile dell'azione
+  let desc = '';
+  switch (action.type) {
+    case 'update_recipe_ingredient':
+      desc = `Modifico <b>${action.ingredient_name}</b> nella ricetta <b>${action.recipe_title}</b>`;
+      if (action.updates) {
+        const changes = Object.entries(action.updates).map(([k,v]) => `${k}: <b>${v}</b>`).join(', ');
+        desc += `<br><span style="font-size:13px;color:#64748b;">${changes}</span>`;
+      }
+      break;
+    case 'update_ingredient_vendor':
+      desc = `Aggiorno <b>${action.ingredient_name}</b> da <b>${action.vendor}</b>`;
+      if (action.updates) {
+        const changes = Object.entries(action.updates).map(([k,v]) => `${k}: <b>${v}</b>`).join(', ');
+        desc += `<br><span style="font-size:13px;color:#64748b;">${changes}</span>`;
+      }
+      break;
+    case 'block_ingredient_vendor':
+      desc = `Blocco <b>${action.ingredient_name}</b> da <b>${action.vendor}</b>`;
+      if (action.reason) desc += `<br><span style="font-size:13px;color:#64748b;">${action.reason}</span>`;
+      break;
+    case 'block_ingredient_all_vendors':
+      desc = `Blocco <b>${action.ingredient_name}</b> da <b>tutti i fornitori</b>`;
+      break;
+    case 'block_all_from_vendor':
+      desc = `Blocco <b>tutto</b> da <b>${action.vendor}</b>`;
+      break;
+    case 'unblock_ingredient_vendor':
+      desc = `Sblocco <b>${action.ingredient_name}</b> da <b>${action.vendor}</b>`;
+      break;
+    case 'unblock_ingredient_all_vendors':
+      desc = `Sblocco <b>${action.ingredient_name}</b> da tutti i fornitori`;
+      break;
+    case 'unblock_all_from_vendor':
+      desc = `Sblocco tutto da <b>${action.vendor}</b>`;
+      break;
+    case 'resolve_warning':
+      desc = `Chiudo il warning <b>${action.warning_id}</b>`;
+      break;
+    case 'add_prep_log':
+      desc = `Registro prep: <b>${action.qty} ${action.unit}</b> di <b>${action.item}</b>`;
+      break;
+    case 'create_office_item':
+      desc = `Creo nota in L'Ufficio: <b>${action.title}</b>`;
+      break;
+    default:
+      desc = `Azione: <b>${action.type}</b>`;
+  }
+
+  return `
+    <div style="display:flex;justify-content:flex-start;">
+      <div style="max-width:92%;width:100%;">
+        <!-- Risposta AI -->
+        <div style="background:#f1f5f9;color:#1e293b;padding:11px 14px;border-radius:18px 18px 4px 18px;font-size:15px;line-height:1.5;margin-bottom:10px;">
+          ${replyText}
+        </div>
+        <!-- Card conferma -->
+        <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:16px;padding:14px 16px;">
+          <div style="font-size:12px;font-weight:700;color:#c2410c;letter-spacing:.05em;margin-bottom:8px;">⚠️ AZIONE DB — CONFERMA RICHIESTA</div>
+          <div style="font-size:15px;color:#1e293b;margin-bottom:14px;line-height:1.5;">${desc}</div>
+          <div style="display:flex;gap:10px;">
+            <button onclick="scChatConfirm()" style="flex:1;height:48px;border-radius:14px;background:#16a34a;color:white;font-size:16px;font-weight:700;border:none;cursor:pointer;">✅ Sì Chef</button>
+            <button onclick="scChatCancel()" style="flex:1;height:48px;border-radius:14px;background:#f8fafc;color:#64748b;font-size:16px;font-weight:600;border:1px solid #e2e8f0;cursor:pointer;">❌ No</button>
+          </div>
+        </div>
       </div>
     </div>`;
 }
@@ -108,6 +181,79 @@ function scChatAddMsg(role, content, extra = {}) {
   container.appendChild(el.firstElementChild);
   container.scrollTop = container.scrollHeight;
 }
+
+// ── MOSTRA CARD CONFERMA ──
+function scChatShowConfirm(action, replyText) {
+  _scPendingAction = action;
+  const container = document.getElementById('_scChatMsgs');
+  if (!container) return;
+  const empty = container.querySelector('[style*="text-align:center"]');
+  if (empty) empty.closest('div')?.remove();
+  // Rimuovi eventuale card precedente
+  const old = document.getElementById('_scConfirmCard');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.id = '_scConfirmCard';
+  el.innerHTML = scChatRenderConfirmCard(action, replyText);
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
+// ── CONFERMA ──
+window.scChatConfirm = async function() {
+  if (!_scPendingAction) return;
+  const action = _scPendingAction;
+  _scPendingAction = null;
+
+  // Rimuovi card conferma
+  document.getElementById('_scConfirmCard')?.remove();
+
+  // Aggiungi "Sì Chef" come messaggio utente
+  scChatAddMsg('user', '✅ Sì Chef');
+
+  // Typing indicator
+  const typingId = '_scTyping_' + Date.now();
+  const container = document.getElementById('_scChatMsgs');
+  if (container) {
+    const typing = document.createElement('div');
+    typing.id = typingId;
+    typing.style.cssText = 'display:flex;justify-content:flex-start;';
+    typing.innerHTML = `<div style="padding:12px 16px;background:#f1f5f9;border-radius:18px 18px 18px 4px;color:#94a3b8;font-size:15px;">⏳ eseguo...</div>`;
+    container.appendChild(typing);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/souschef-chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+      body: JSON.stringify({
+        message: '__execute_confirmed__',
+        confirmed_action: action,
+        history: [],
+      }),
+    });
+    const data = await res.json();
+    document.getElementById(typingId)?.remove();
+
+    if (data.error) {
+      scChatAddMsg('assistant', '❌ ' + data.error, { isError: true });
+      return;
+    }
+    scChatAddMsg('assistant', data.reply);
+    if (typeof loadWarningsBanner === 'function') loadWarningsBanner();
+  } catch(e) {
+    document.getElementById(typingId)?.remove();
+    scChatAddMsg('assistant', '❌ Errore: ' + e.message, { isError: true });
+  }
+};
+
+// ── ANNULLA ──
+window.scChatCancel = function() {
+  _scPendingAction = null;
+  document.getElementById('_scConfirmCard')?.remove();
+  scChatAddMsg('assistant', 'Ok Chef, non faccio niente.');
+};
 
 // ── INVIA MESSAGGIO ──
 window.scChatSend = async function(prefill) {
@@ -170,8 +316,6 @@ window.scChatVoice = async function() {
 
 // ── PROCESSA MESSAGGIO ──
 async function scChatProcess(userText) {
-  const sb = window.supabaseClient;
-
   // Typing indicator
   const typingId = '_scTyping_' + Date.now();
   const container = document.getElementById('_scChatMsgs');
@@ -199,14 +343,15 @@ async function scChatProcess(userText) {
 
     if (data.error) { scChatAddMsg('assistant', '❌ ' + data.error, { isError: true }); return; }
 
-    // La Edge Function v15 esegue già le azioni — il risultato è in data.reply
-    scChatAddMsg('assistant', data.reply, {
-      dbAction: data.action ? `Azione: ${data.action.type}` : null
-    });
-
-    // Aggiorna banner se c'è stata un'azione DB
-    if (data.action && typeof loadWarningsBanner === 'function') {
-      loadWarningsBanner();
+    // Se c'è un'azione proposta → mostra card conferma, NON eseguire
+    if (data.action && data.pending) {
+      scChatShowConfirm(data.action, data.reply);
+    } else {
+      // Solo risposta testuale, nessuna azione
+      scChatAddMsg('assistant', data.reply);
+      if (data.action && typeof loadWarningsBanner === 'function') {
+        loadWarningsBanner();
+      }
     }
 
   } catch(e) {

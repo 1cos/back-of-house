@@ -752,10 +752,77 @@ function showImportSummary({vendor,total,linesCreated,linesError}){
 
 // ── STORICO FATTURE ───────────────────────────────────────────
 async function openPurchaseHistory(){
-  const{data}=await supa.from('purchases').select('*').order('created_at',{ascending:false}).limit(30);
+  // Fetch both sources in parallel
+  const [resP, resV] = await Promise.all([
+    supa.from('purchases').select('*').order('created_at',{ascending:false}).limit(30),
+    supa.from('vendor_documents')
+      .select('id,vendor,document_type,document_number,document_date,parsed_json,status,created_at')
+      .in('status',['imported','approved','pending'])
+      .order('created_at',{ascending:false}).limit(30)
+  ]);
+
+  // Normalize purchases rows
+  const fromPurchases = (resP.data||[]).map(p=>({
+    _src:'purchases',
+    _id: String(p.id),
+    vendor: p.vendor||'Unknown',
+    date: p.invoice_date||'',
+    number: p.invoice_number||'',
+    total: p.total||0,
+    itemCount: (p.items||[]).length,
+    status: 'imported',
+    createdAt: p.created_at,
+  }));
+
+  // Normalize vendor_documents rows
+  const fromVDR = (resV.data||[]).map(v=>{
+    const pj = v.parsed_json||{};
+    const items = pj.items||pj.line_items||[];
+    const total = pj.total||pj.invoice_total||0;
+    return {
+      _src:'vendor_documents',
+      _id: String(v.id),
+      vendor: v.vendor||pj.vendor||'Unknown',
+      date: v.document_date||pj.invoice_date||'',
+      number: v.document_number||pj.invoice_number||'',
+      total: parseFloat(total)||0,
+      itemCount: items.length,
+      status: v.status,
+      createdAt: v.created_at,
+    };
+  });
+
+  // Merge and sort by date desc — deduplicate by vendor+number
+  const seen = new Set();
+  const all = [...fromVDR, ...fromPurchases].filter(r=>{
+    const key = (r.vendor+'|'+r.number).toLowerCase();
+    if(r.number && seen.has(key)) return false;
+    if(r.number) seen.add(key);
+    return true;
+  }).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,50);
+
+  const statusLabel = {imported:'✓',approved:'✓',pending:'⏳'};
+
   const modal=document.createElement('div');
   modal.className='fixed inset-0 z-50 flex items-end';
   modal.style.background='rgba(0,0,0,0.3)';
+
+  const rows = all.length===0
+    ? '<p style="font-size:13px;color:#93c5fd;text-align:center;padding:20px;">No invoices yet</p>'
+    : all.map(p=>`
+      <div onclick="showPurchaseDetail('${p._id}','${p._src}')" style="padding:10px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);cursor:pointer;">
+        <div style="display:flex;justify-content:space-between;align-items:start;">
+          <div>
+            <div style="font-size:14px;font-weight:500;color:#1e3a5f;">${p.vendor}</div>
+            <div style="font-size:11px;color:#93c5fd;margin-top:2px;">${p.date}${p.number?' · #'+p.number:''} · ${p.itemCount} items</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+            <div style="font-size:15px;font-weight:500;color:#1e3a5f;">$${p.total.toFixed(2)}</div>
+            <div style="font-size:10px;color:${p.status==='pending'?'#f59e0b':'#22c55e'};">${statusLabel[p.status]||''} ${p.status}</div>
+          </div>
+        </div>
+      </div>`).join('');
+
   modal.innerHTML=`
     <div style="background:rgba(255,255,255,0.95);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:80vh;overflow-y:auto;animation:slideUp .25s ease">
       <div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>
@@ -763,18 +830,7 @@ async function openPurchaseHistory(){
         <div style="font-size:15px;font-weight:500;color:#1e3a5f;">Purchase History</div>
         <button onclick="openInvoiceImport()" style="font-size:12px;color:#3B82F6;background:rgba(59,130,246,0.1);border:none;padding:5px 12px;border-radius:8px;cursor:pointer;">+ New</button>
       </div>
-      ${(data||[]).length===0?'<p style="font-size:13px;color:#93c5fd;text-align:center;padding:20px;">No invoices yet</p>':
-        (data||[]).map(p=>`
-        <div onclick="showPurchaseDetail('${p.id}')" style="padding:10px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);cursor:pointer;">
-          <div style="display:flex;justify-content:space-between;align-items:start;">
-            <div>
-              <div style="font-size:14px;font-weight:500;color:#1e3a5f;">${p.vendor||'Unknown'}</div>
-              <div style="font-size:11px;color:#93c5fd;margin-top:2px;">${p.invoice_date||''} ${p.invoice_number?'· #'+p.invoice_number:''}</div>
-              <div style="font-size:11px;color:#93c5fd;">${(p.items||[]).length} items</div>
-            </div>
-            <div style="font-size:15px;font-weight:500;color:#1e3a5f;">$${(p.total||0).toFixed(2)}</div>
-          </div>
-        </div>`).join('')}
+      ${rows}
       <button onclick="this.closest('.fixed').remove()" style="width:100%;height:40px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:none;cursor:pointer;margin-top:12px;">Close</button>
     </div>`;
   modal.onclick=e=>{if(e.target===modal)modal.remove();};
@@ -782,10 +838,15 @@ async function openPurchaseHistory(){
   addSwipeToClose(modal, ()=>modal.remove());
 }
 
-async function showPurchaseDetail(id){
+async function showPurchaseDetail(id, src){
+  document.querySelector('.fixed')?.remove();
+  if(src==='vendor_documents'){
+    // Open via vendor documents review sheet
+    if(typeof window.openVendorDocumentsReview==='function') window.openVendorDocumentsReview();
+    return;
+  }
   const{data}=await supa.from('purchases').select('*').eq('id',id).single();
   if(!data) return;
-  document.querySelector('.fixed')?.remove();
   enrichInvoiceItems(data);
   showInvoicePreview(data);
 }

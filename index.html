@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Back of House</title>
+<title>Brigade</title>
 <meta name="theme-color" content="#059669">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Back of House">
+<meta name="apple-mobile-web-app-title" content="Brigade">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <link rel="manifest" href="./manifest.json">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -39,7 +39,7 @@
     /* ── TYPOGRAPHY & COLOR OVERRIDES ── */
     /* Top bar */
     #app .text-sm { font-size: 14px !important; }
-    /* Back of House title */
+    /* Brigade title */
     .app-title { font-size: 17px !important; font-weight: 600 !important; }
     /* Username nel top bar */
     #who { font-size: 14px !important; font-weight: 500 !important; }
@@ -89,7 +89,7 @@
 <div id="login" class="min-h-screen flex items-center justify-center p-4" style="background:linear-gradient(160deg,#1e3a5f 0%,#1e40af 100%);">
   <div style="width:100%;max-width:340px;">
     <div style="text-align:center;margin-bottom:32px;">
-      <div style="font-size:22px;font-weight:500;color:white;margin-bottom:4px;">Back of House</div>
+      <div style="font-size:22px;font-weight:500;color:white;margin-bottom:4px;">Brigade</div>
       <div style="font-size:13px;color:rgba(255,255,255,0.5);">Zenos on the Square</div>
     </div>
 
@@ -156,6 +156,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       <button onclick="focusMyStation()" style="flex:1;height:52px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;">📍 My Station</button>
       <button onclick="focusShowStations()" style="flex:1;height:52px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;">🗂 Stations</button>
       <button onclick="openTellChef()" style="flex:1;height:52px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;">📢 Chef</button>
+      <button onclick="focusOpenSchedule();" style="flex:1;height:52px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;">📅 Schedule</button>
     </div>
   </div>
   <!-- Top bar -->
@@ -349,7 +350,20 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       <div id="msgs" style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:4px;"></div>
 
       <!-- Input glass -->
+      <!-- Preview foto selezionata -->
+      <div id="chatImgPreview" style="display:none;padding:8px 12px;background:rgba(255,255,255,0.9);border-top:0.5px solid rgba(0,0,0,0.06);">
+        <div style="position:relative;display:inline-block;">
+          <img id="chatImgThumb" style="height:60px;border-radius:10px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.12);" />
+          <button onclick="clearChatImg()" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#ef4444;border:none;color:white;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">✕</button>
+        </div>
+      </div>
       <form id="f" style="padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:rgba(255,255,255,0.75);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:0.5px solid rgba(255,255,255,0.8);display:flex;gap:8px;align-items:center;box-shadow:0 -4px 20px rgba(0,0,0,0.04);">
+        <!-- Hidden file input — punta a rullino/foto iPhone -->
+        <input id="chatImgInput" type="file" accept="image/*" style="display:none;" onchange="onChatImgSelected(this)">
+        <!-- Bottone foto -->
+        <button type="button" onclick="document.getElementById('chatImgInput').click()" style="width:40px;height:40px;border-radius:50%;background:rgba(241,245,249,0.9);border:0.5px solid rgba(148,163,184,0.3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
         <input id="txt" autocomplete="off"
           style="flex:1;padding:11px 16px;background:rgba(241,245,249,0.8);backdrop-filter:blur(10px);border:0.5px solid rgba(255,255,255,0.8);border-radius:24px;font-size:14px;color:#1e293b;outline:none;box-shadow:inset 0 1px 3px rgba(0,0,0,0.05);"
           placeholder="Scrivi un messaggio...">
@@ -423,6 +437,24 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 
     <section id="vkal" class="hidden px-0 pb-24" style="background:linear-gradient(160deg,#f0f6ff 0%,#f8fafc 100%);min-height:100vh;"></section>
 
+
+    <!-- SCHEDULE 7shifts -->
+    <section id="vsched" class="hidden px-3 pt-3 pb-24" style="background:linear-gradient(160deg,#f0f4ff 0%,#f8fafc 60%);min-height:100vh;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:18px;font-weight:700;color:#1e3a5f;">Schedule</div>
+        <button onclick="syncSevenShift()" id="schedSyncBtn" style="font-size:12px;background:#1e3a5f;color:white;border:none;border-radius:20px;padding:6px 14px;cursor:pointer;">Sincronizza</button>
+      </div>
+      <!-- Toggle Oggi / Settimana -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button id="schedBtnOggi" onclick="schedShowView('oggi')" style="flex:1;padding:8px;border-radius:12px;border:none;background:#1e3a5f;color:white;font-size:13px;font-weight:600;cursor:pointer;">Oggi</button>
+        <button id="schedBtnSettimana" onclick="schedShowView('settimana')" style="flex:1;padding:8px;border-radius:12px;border:1.5px solid #1e3a5f;background:white;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;">Settimana</button>
+      </div>
+      <div id="schedLastSync" style="font-size:11px;color:#94a3b8;margin-bottom:12px;text-align:right;"></div>
+      <div id="schedContent" style="display:flex;flex-direction:column;gap:10px;">
+        <div style="text-align:center;color:#94a3b8;padding:40px 0;font-size:14px;">Premi Sincronizza per caricare la schedule</div>
+      </div>
+    </section>
+
   </main>
 
   <!-- Bottom Nav -->
@@ -441,11 +473,6 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <span class="text-[10px] tab-label">Prep</span>
       </button>
 
-      <!-- OTHER STATIONS — staff only, terza tab -->
-      <button id="tabOtherStations" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" onclick="document.getElementById('tabPrep').click()">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-        <span class="text-[10px] tab-label" id="otherStationsLabel">Stations</span>
-      </button>
 
       <!-- CHIUSURA — staff only, nascosta fino alle 20:00 CDT -->
       <button id="tabChiusura" data-t="s" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
@@ -469,6 +496,12 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       <button id="tabSales" data-t="x" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         <span class="text-[10px] tab-label">Sales</span>
+      </button>
+
+      <!-- SCHEDULE — solo admin -->
+      <button id="tabSchedule" data-t="sched" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span class="text-[10px] tab-label">Schedule</span>
       </button>
 
       <!-- CHAT — tutti -->
@@ -511,17 +544,9 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span>Closing</span>
         </button>
 
-        <button onclick="hideAdminMenu();openInvoiceImport()" class="amenu-btn">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-          <span>Invoice</span>
-        </button>
 
-        <button onclick="hideAdminMenu();openPurchaseHistory()" class="amenu-btn">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          <span>Purchases</span>
-        </button>
 
-        <button onclick="hideAdminMenu();document.querySelector('[data-t=r]').click()" class="amenu-btn">
+        <button onclick="hideAdminMenu();document.querySelectorAll('.tab').forEach(x=>{x.classList.remove('tab-active');x.classList.add('text-slate-500')});['vh','vm','vs','vc','vr','vp','vi','vx','vsched'].forEach(id=>{var el=document.getElementById(id);if(el)el.classList.add('hidden')});document.getElementById('vr').classList.remove('hidden');loadReport('today')" class="amenu-btn">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           <span>Report</span>
         </button>
@@ -539,6 +564,11 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <button onclick="hideAdminMenu();openChangePIN()" class="amenu-btn">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           <span>PIN</span>
+        </button>
+
+        <button onclick="hideAdminMenu();showSchedule()" class="amenu-btn" style="border:2px solid #dbeafe;background:#eff6ff;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1e3a5f" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span style="color:#1e3a5f;font-weight:700;">Schedule</span>
         </button>
 
         <button onclick="openOffice()" class="amenu-btn" style="border:2px solid #dbeafe;background:#eff6ff;position:relative;">
@@ -568,35 +598,17 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span style="color:#f59e0b;">Tell Chef</span>
         </button>
 
+        <button onclick="hideAdminMenu();openAnnouncements()" class="amenu-btn" style="border:2px solid #fde68a;background:#fffbeb;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="1.8" stroke-linecap="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6.002 6.002 0 0 0-4-5.659V5a2 2 0 1 0-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 1 1-6 0v-1m6 0H9"/></svg>
+          <span style="color:#d97706;font-weight:700;">Announce</span>
+        </button>
+
         <button onclick="toggleKitchenDisplay()" id="tvToggleBtn" class="amenu-btn" style="border:2px solid #e0f2fe;background:#f0f9ff;">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
           <span id="tvToggleLabel" style="color:#0ea5e9;">TV ●</span>
         </button>
 
-        <button onclick="hideAdminMenu();openVendorParserTest()" class="amenu-btn amenu-dev">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-          <span>Parser Test</span>
-        </button>
 
-        <button onclick="hideAdminMenu();openSimilarityCleanup()" class="amenu-btn amenu-dev">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <span>Similarity</span>
-        </button>
-
-        <button onclick="hideAdminMenu();openVendorMatch()" class="amenu-btn amenu-dev">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          <span>Vendor Match</span>
-        </button>
-
-        <button onclick="hideAdminMenu();openIngredientCleanup()" class="amenu-btn amenu-dev">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-          <span>Ingr. Cleanup</span>
-        </button>
-
-        <button onclick="hideAdminMenu();bootstrapIngredients()" class="amenu-btn amenu-dev">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"><path d="M12 2a10 10 0 0 1 10 10"/><path d="M12 6v6l4 2"/><path d="M2 12a10 10 0 0 0 10 10"/></svg>
-          <span>Bootstrap</span>
-        </button>
 
         <button onclick="showCalendar()" class="amenu-btn" style="border:1.5px solid #dbeafe;background:#eff6ff;">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -623,7 +635,6 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       transition:transform .12s;-webkit-tap-highlight-color:transparent;
     }
     .amenu-btn:active { transform:scale(0.95); }
-    .amenu-dev { color:#94a3b8; background:#f8fafc; box-shadow:none; border-color:rgba(148,163,184,0.15); }
     .amenu-logout { color:#ef4444; background:#fff5f5; border-color:rgba(239,68,68,0.15); }
   </style>
 
@@ -673,6 +684,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/calendar.js"></script>
 <script src="js/office.js"></script>
 <script src="js/demo-bot.js"></script>
+<script src="js/schedule.js"></script>
 <script>if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js')}</script>
 <script>
 // App version — single source of truth: CACHE_NAME in sw.js (boh-vNN).
@@ -685,7 +697,7 @@ fetch('sw.js?nocache=' + Date.now())
     const v = 'v' + m[1];
     const el = document.getElementById('appVersion');
     if (el) el.textContent = v;
-    document.title = 'Back of House — ' + v;
+    document.title = 'Brigade — ' + v;
   })
   .catch(() => {});
 </script>
@@ -718,6 +730,7 @@ function updateTVButtonState(active) {
 }
 </script>
 </html>
+
 
 
 

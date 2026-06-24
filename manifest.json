@@ -1,6 +1,6 @@
 {
-  "name": "Back of House",
-  "short_name": "BOH",
+  "name": "Brigade",
+  "short_name": "Brigade",
   "description": "Kitchen management app for Zenos on the Square",
   "start_url": "/back-of-house/",
   "display": "standalone",
@@ -20,3 +20,4 @@
     }
   ]
 }
+
