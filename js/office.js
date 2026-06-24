@@ -112,11 +112,14 @@ async function officeLoadHome() {
     var res = await sb.from('office_items').select('*').eq('status','open').order('created_at',{ascending:false}).limit(200);
     var sevenDaysAgo7 = Date.now() - 7 * 24 * 60 * 60 * 1000;
     var items = (res.data || []).filter(function(i) {
+      // done >7gg sparisce dalla vista
       if (i.chef_action === 'done' && i.chef_action_at) {
         return new Date(i.chef_action_at).getTime() > sevenDaysAgo7;
       }
       return true;
     });
+    // Il badge conta solo quelli senza chef_action (non ancora actionati)
+    var unactioned = items.filter(function(i) { return !i.chef_action; });
 
     // Conta per folder
     var counts = {};
@@ -732,6 +735,7 @@ window.officeChefAction = async function(id, action) {
             'style="width:100%;padding:10px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid #22c55e;background:#f0fdf4;color:#15803d;">✓ Mark Done</button>' +
         '</div>';
       if (typeof showScToast === 'function') showScToast('⚙️ Working on it');
+      if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
 
     } else if (action === 'done') {
       // Verde, va in fondo visivamente, rimane in lista
@@ -751,6 +755,7 @@ window.officeChefAction = async function(id, action) {
       var parent = card.parentNode;
       if (parent) { parent.removeChild(card); parent.appendChild(card); }
       if (typeof showScToast === 'function') showScToast('✓ Done');
+      if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
     }
 
   } catch(e) {
@@ -765,7 +770,8 @@ window.officeBadgeUpdate = async function() {
   try {
     var res = await sb.from('office_items')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'open');
+      .eq('status', 'open')
+      .is('chef_action', null);
     var count = res.count || 0;
     var badge = document.getElementById('officeMenuBadge');
     if (!badge) return;
