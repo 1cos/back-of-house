@@ -546,7 +546,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 
 
 
-        <button onclick="hideAdminMenu();document.querySelector('[data-t=r]').click()" class="amenu-btn">
+        <button onclick="hideAdminMenu();document.querySelectorAll('.tab').forEach(x=>{x.classList.remove('tab-active');x.classList.add('text-slate-500')});['vh','vm','vs','vc','vr','vp','vi','vx','vsched'].forEach(id=>{var el=document.getElementById(id);if(el)el.classList.add('hidden')});document.getElementById('vr').classList.remove('hidden');loadReport('today')" class="amenu-btn">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           <span>Report</span>
         </button>
