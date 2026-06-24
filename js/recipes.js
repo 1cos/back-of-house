@@ -185,7 +185,7 @@ async function showRecipeSheet(rec){
       <span style="font-size:13px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;">${tr('scaleRecipe')}</span>
       <div style="display:flex;align-items:center;gap:6px;">
         <button id="scaleMinus" style="width:32px;height:32px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">−</button>
-        <input id="scaleServings" type="number" min="1" value="${baseServings||1}" style="width:52px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:5px 6px;font-size:18px;font-weight:700;">
+        <input id="scaleServings" type="number" min="1" value="${baseServings||1}" style="width:68px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:5px 6px;font-size:18px;font-weight:700;">
         <button id="scalePlus" style="width:32px;height:32px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">+</button>
       </div>
       ${servingWeightG ? `
