@@ -1,6 +1,6 @@
 # BRIGADE — DATABASE SCHEMA COMPLETO
 *Supabase project: ydqmumpytgrlceuinoqt*
-*Aggiornato: 2026-06-21 — v302*
+*Aggiornato: 2026-06-24 — v335*
 *Leggi questo file all'inizio di ogni sessione. Contiene le colonne reali del DB.*
 
 ---
@@ -25,9 +25,12 @@
 | pin | char | PIN accesso app |
 | active | boolean | Utente attivo |
 | first_login | boolean | |
+| schedule_name | text | Nome esatto in shifts_schedule per match Focus Mode |
 
-**Staff attivi:** Max (admin), Tela (Oven Station, en), Anto (staff, en), Cole (staff), Samantha (staff), Sofia (staff)
-**MANCA:** colonna `skills JSONB` — da aggiungere per Livello 5 Sous Chef
+**Staff attivi cucina (15):** Max (admin), Anto, Cole, David, Genova, Haley, Maddie, Preston, Rachael, Samantha, Sophia, Tela, Todd, Zuu, Chance
+**Nuovi utenti attivi con PIN (10):** Diana (Oven Station), Chris (Pasta Station), Austin/Jaxon/Arianna/Kelly/Herminia/Jose/Luis/Ronaldo (Dish Crew)
+**Colonna aggiunta:**  — nome esatto in shifts_schedule per match Focus Mode
+**MANCA:** colonna  — da aggiungere per Livello 5 Sous Chef
 
 ### user_presence
 | Colonna | Tipo | Note |
