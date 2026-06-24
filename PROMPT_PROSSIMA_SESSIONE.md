@@ -24,115 +24,78 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 ---
 
 ## STATO TECNICO (aggiornato 2026-06-24)
-- Frontend: **v342** (sw.js boh-v342)
+- Frontend: **v343** (sw.js boh-v343)
 - **App in produzione dal 2026-06-24** — brigata attiva
+- souschef-chat: **v25** — 6 azioni nuove aggiunte (add/remove/update_prep_task, add/remove_closing_check, send_brigade_message)
 - bot-tell-chef-reader: **v5**
-- souschef-chat: **v24** (confirmation gate "Sì Chef")
 
-### Sessione 2026-06-24 — L'Ufficio pulizia e riordino (v337→v342)
-- v337: menu admin ripulito (5 voci dev rimosse), Invoice+Purchases rimossi dal menu (duplicati homepage)
-- v337: Purchase History legge da entrambi: `purchases` + `vendor_documents`
-- v337: mittente messaggi L'Ufficio in grassetto
-- v337: Fix Focus Mode — noNeed aggiorna anche Focus Mode; DA FARE→TO DO; Riapri→Reopen
-- v337: Fix bottone Report nel menu (era link morto, data-t=r non esisteva)
-- v337: Fix Riapri in L'Ufficio (ricaricava lista sbagliata — ora ricarica folder corrente)
-- v338: Tell Chef from_user usa window.currentUser (era sempre null → scriveva "Staff")
-- v338: office.js — mittente in grassetto scuro
-- v339: Tell Chef bottoni Working on it / Done / Ignore + salva chef_action nel DB
-- v339: bot-tell-chef-reader v2 — Fase 2 sync chef_action→chef_reports + Fase 3 analisi pattern
-- v340: office.js — ciclo vita messaggi: done >7gg sparisce dalla vista
-- v340: bot-tell-chef-reader v3 — working_on_it >7gg → alert rosso in cima
-- v341: office.js — fix opt.label undefined (bottoni AI options mostravano "undefined")
-- v341: office.js — smistamento tell_chef per tipo in folder corrette (getFolderForItem)
-- v341: DB migration — report_type e updated_at aggiunti a office_items
-- v342: bot-tell-chef-reader v4 → scrive report_type in office_items
-- v342: bot-tell-chef-reader v5 → from_user = 'Chef AI' per card elaborate dal bot
+### Sessione 2026-06-24 — souschef-chat v25: azioni prep e closing
+- Aggiunto `add_prep_task`: aggiunge voce a prep_tasks con need_tomorrow=true di default
+- Aggiunto `remove_prep_task`: archivia prep task (archived=true, non cancella)
+- Aggiunto `update_prep_task`: modifica qty/unit/note/need_tomorrow (campi safe list)
+- Aggiunto `add_closing_check`: aggiunge voce in tabella `checks`
+- Aggiunto `remove_closing_check`: cancella voce da `checks` (delete fisico)
+- Aggiunto `send_brigade_message`: scrive in `messages` a nome di Max
+- fetchContext() ora include PREP TASKS ATTIVE e CLOSING CHECKS con ID
+- SYSTEM_PROMPT aggiornato: stazioni valide + 18 azioni documentate
+- 100 scenari futuri catalogati in BOH_OS_BACKLOG.md
 
-### DB modifiche sessione odierna
-- `office_items`: +chef_action (text), +chef_action_at (timestamptz), +chef_action_by (text)
-- `office_items`: +report_type (text), +updated_at (timestamptz)
-- `chef_reports`: +chef_action (text), +chef_action_at (timestamptz), +chef_action_by (text)
+### DB modifiche sessione 2026-06-24 (mattina — L'Ufficio)
+- `office_items`: +chef_action, +chef_action_at, +chef_action_by, +report_type, +updated_at
+- `chef_reports`: +chef_action, +chef_action_at, +chef_action_by
 
 ---
 
-## 🔴 PRIORITÀ #1 PROSSIMA SESSIONE — ai_options come azioni eseguibili
+## 🔴 PRIORITÀ #1 PROSSIMA SESSIONE — ai_options come azioni eseguibili in L'Ufficio
 
 ### Problema
 Le ai_options nel sistema Tell Chef sono ora stringhe (es. "Aggiungi focaccia alla lista").
-Quando Max le preme, usano `officeResolve` che archivia il messaggio come `resolved` —
-ma non esegue nessuna azione reale nel DB.
+Quando Max le preme, chiamano `officeResolve` che archivia il messaggio ma NON esegue nulla nel DB.
 
-### Visione di Max
-Il bot deve generare opzioni strutturate con azione codificata. Esempio:
+### Visione
+Il bot genera opzioni strutturate con azione codificata:
 ```json
 [
   { "label": "Aggiungi focaccia alla lista Oven", "action": "add_prep_task", "params": {"name": "Focaccia", "station": "Oven Station"} },
-  { "label": "Verifica lista preparazioni Oven", "action": "open_prep_station", "params": {"station": "Oven Station"} },
   { "label": "Ignora", "action": "ignore", "params": {} }
 ]
 ```
-Quando Max preme "Aggiungi focaccia alla lista":
-1. Bot la aggiunge fisicamente in `prep_tasks` per quella stazione
-2. Card mostra "✓ Focaccia aggiunta — vai a controllare →" con link diretto
-3. `chef_action = 'done'` salvato automaticamente
+Quando Max preme il bottone:
+1. Frontend chiama `souschef-chat` con `confirmed_action` costruito da action+params
+2. Chef AI esegue nel DB
+3. Card mostra "✓ Focaccia aggiunta — Oven Station" e si chiude
 
-### Piano 3 sessioni
-**Sessione 1:** Definire catalogo completo azioni possibili (add_prep_task, open_prep_station, mark_order, open_recipe, ignore, ecc.) con parametri esatti
-**Sessione 2:** Aggiornare bot v6 per generare ai_options strutturate + frontend per eseguirle
-**Sessione 3:** Test reale con messaggi brigata, correzioni
+### Piano
+**Sessione 1 (prossima):**
+- `office.js`: `officeExecuteOption(item, opt)` — se opt.action presente, chiama souschef-chat confirmed_action; altrimenti fallback officeResolve
+- `bot-tell-chef-reader v6`: aggiorna prompt per generare ai_options strutturate {label, action, params}
 
-### Stato attuale tell_chef flow
-- Raw Tell Chef → `office_items` con `source='tell_chef'`, `from_user=nome_reale`
-- Elaborato dal bot → `office_items` con `source='tell_chef'`, `from_user='Chef AI'`, `report_type` popolato
-- Smistamento per folder: PROBLEMA_OPERATIVO+GAP_CHECKLIST→prep, CONTRIBUTO_RICETTA+FEEDBACK_RICETTA→miglioramenti, SEGNALE_PERSONALE→brigata
-- Ciclo vita: done >7gg sparisce dalla vista, working_on_it >7gg → alert rosso, ignored → sparisce subito
-- Bot gira ogni ora (cron bot-tell-chef-reader-hourly)
+### Azioni già eseguibili via souschef-chat (v25)
+add_prep_task, remove_prep_task, update_prep_task, add_closing_check, remove_closing_check,
+send_brigade_message, update_ingredient_vendor, block/unblock_*, create_office_item, resolve_warning
 
 ---
 
 ## 🔴 PRIORITÀ #2 — Cleaning Checklist (nuovo modulo)
 
-Modulo separato dalle closing prep tasks esistenti. Flusso serale:
-```
-Closing Prep Tasks → completate
-        ↓
-"Com'è andato il servizio?" (operation note)
-        ↓
-Cleaning Checklist della stazione  ← NUOVO
-        ↓
-✓ Ultima voce spuntata → "Buona serata [Nome]! Great job tonight 🙌"
-        ↓
-Notifica a Max + David (se schedulato)
-```
-
-**Regole:**
-- Voci tutte obbligatorie — bottone "Chiudi Shift" grigio finché non sono tutte spuntate
-- Se una voce manca → notifica a Max e David con cosa è stato saltato
-- Gestione admin: stessa UI delle prep tasks (aggiungi/rimuovi/riordina voci per stazione)
-- Stazioni da David: Expo Line, Salad, Pasta, Oven, Sautee, Grill
-- DB: nuova tabella `cleaning_tasks` (id, station, task_text, sort_order, active)
-- DB: nuova tabella `cleaning_log` (id, date, user_name, station, task_id, checked_at)
-
-**⚠️ Prima di implementare:** riallineare stazioni DB con realtà cucina (vedi sotto)
+Flusso serale: Closing Prep → Operation Note → Cleaning Checklist → Chiudi Shift → notifica Max+David
+- DB: nuove tabelle `cleaning_tasks` e `cleaning_log` (non ancora create)
+- ⚠️ Prima: riallineare stazioni DB con realtà cucina
 
 ---
 
 ## 🔴 PRIORITÀ #3 — Riallineamento stazioni
 
-Stazioni attuali in DB (prep_tasks.category):
-Fresh Pasta Station, Manager Station, Oven Station, Pasta Station, Pastry Station,
-Plating Station, Salad Station, Saucier Station, Sauté Station, Table Side, Dish Crew
-
-Stazioni reali cucina da allineare con Max prima di costruire Cleaning Checklist.
-Expo Line e Grill non esistono nel DB. Manager → Coordinator rinominare.
+Stazioni attuali in DB: Fresh Pasta Station, Manager Station, Oven Station, Pasta Station,
+Pastry Station, Plating Station, Salad Station, Saucier Station, Sauté Station, Table Side, Dish Crew
+Da allineare con Max. Manager → Coordinator. Expo Line e Grill da valutare.
 
 ---
 
 ## 🟠 PRIORITÀ #4 — Home dedicata Dish Crew (Fase 2)
 
-I dishwasher non devono vedere la Home cucina. Serve una Home dedicata, semplice.
 Detect: `user.default_station === 'Dish Crew'`
-Nascondere: Recipes, Closing, Sales, Ingredienti, Focus Mode, Operation Notes prompt
+Nascondere: Recipes, Closing, Sales, Ingredienti, Focus Mode, Operation Notes
 Bottom bar: Home / Chat / Schedule / Tell Chef
 
 ---
@@ -142,24 +105,22 @@ Bottom bar: Home / Chat / Schedule / Tell Chef
 - Fix realtime TV — loadChat() troppo pesante, aggiungere solo payload.new
 - Bug UI chat — long press copia non funziona
 - office-ai cron orario (analisi automatica ogni ora)
-- Bot 5 versione B — food cost % quando selling_price popolato
 - Spostare L'Ufficio nella bottom bar (ora nei tre puntini)
-- Focus Mode test reale — importare CSV 7shifts e verificare match schedule_name
-- Foto in chat (v335) — da testare su iPhone (non ancora verificate da Max)
-- TripleSeat — Monica deve fare Authorize (ancora in attesa)
-- Cron job bot-tell-chef-reader verificare sia attivo
-- Tell Chef button rimosso dai tre puntini? (valutare — ora tutto in L'Ufficio)
+- Focus Mode test reale — importare CSV 7shifts
+- Foto in chat (v335) — da testare su iPhone
+- TripleSeat — Monica deve fare Authorize
+- Bot 5 versione B — food cost % quando selling_price popolato
 
 ---
 
 ## REGOLE OPERATIVE INVIOLABILI
-- SHA fresco prima di ogni PUT; bump boh-vN in sw.js ad ogni push (verifica live prima — sessioni parallele)
+- SHA fresco prima di ogni PUT; bump boh-vN in sw.js ad ogni push (verifica live prima)
 - node --check prima di push
 - Commit: "vN file — descrizione"; solo brigade-main
 - Leggi SEMPRE da GitHub live, mai da memoria o /mnt/project/
 - Conferma piano prima di scrivere codice; una cosa alla volta
 - Financial data mai allo staff
 - Kitchen Display SOLO inglese
-- Domenica chiuso (esclusa da calcoli Bot 3 e da Focus Mode)
+- Domenica chiuso
 - **App in produzione — modifiche chirurgiche, zero rischi**
 - **MAI assumere — confermare SEMPRE con Max prima di agire**
