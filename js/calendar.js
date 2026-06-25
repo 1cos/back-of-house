@@ -222,312 +222,327 @@ function _calCard(e) {
 
 // ── EVENT EDITOR ─────────────────────────────────────────────
 function openEventEditor(ev = null) {
-  // ev può essere un oggetto evento (modifica) o null (nuovo)
   const isEdit = ev && ev.id;
+  const isAdm  = typeof isAdmin === 'function' && isAdmin();
 
-  const modal = document.createElement('div');
-  modal.className = 'fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
-
+  // ── Opzioni select ──
   const locationOpts = CAL_LOCATIONS.map(l =>
     `<option value="${l}" ${(ev?.location || ev?.room_name) === l ? 'selected' : ''}>${l}</option>`
   ).join('');
   const isCustomLoc = ev && (ev.location || ev.room_name) && !CAL_LOCATIONS.includes(ev.location || ev.room_name);
   const customLocVal = isCustomLoc ? (ev.location || ev.room_name) : '';
-
   const serviceOpts = CAL_SERVICE_STYLES.map(s =>
     `<option value="${s}" ${ev?.service_style === s ? 'selected' : ''}>${s}</option>`
   ).join('');
-
   const statusOpts = CAL_STATUSES.map(s =>
     `<option value="${s}" ${(ev?.status || 'confirmed') === s ? 'selected' : ''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`
   ).join('');
 
-  modal.innerHTML = `
-<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col" style="animation:slideUp .2s ease;">
-  <div class="p-4 border-b" style="flex-shrink:0;">
-    <div style="display:flex;align-items:center;justify-content:space-between;">
-      <h3 class="font-bold text-base" style="color:#1e3a5f;">${isEdit ? '✏️ Edit Event' : '📅 New Event'}</h3>
-      <button onclick="this.closest('.fixed').remove()" style="width:30px;height:30px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+  // ── CSS inline condiviso (tutti 16px per evitare zoom Safari) ──
+  const I = `width:100%;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#1e3a5f;background:white;border:1.5px solid #e2e8f0;border-radius:12px;padding:12px 14px;outline:none;-webkit-appearance:none;box-sizing:border-box;`;
+  const LBL = `font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px;`;
+
+  // ── Overlay backdrop ──
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(15,23,42,0.45);';
+  overlay.addEventListener('click', e => { if (e.target === overlay) _closeEditor(); });
+
+  // ── Sheet ──
+  const sheet = document.createElement('div');
+  sheet.style.cssText = `
+    position:fixed;left:0;right:0;bottom:0;z-index:201;
+    background:white;border-radius:22px 22px 0 0;
+    box-shadow:0 -8px 32px rgba(30,58,95,0.2);
+    display:flex;flex-direction:column;
+    height:88vh;
+    overflow:hidden;
+  `;
+
+  sheet.innerHTML = `
+    <!-- Grip -->
+    <div style="display:flex;justify-content:center;padding:10px 0 4px;flex-shrink:0;">
+      <div style="width:38px;height:4px;border-radius:2px;background:#e2e8f0;"></div>
     </div>
-  </div>
-
-  <div class="overflow-auto p-4 space-y-3 text-sm" style="flex:1;">
-
-    <!-- Nome evento -->
-    <div>
-      <div class="text-xs text-slate-500 mb-1 font-medium">Event Name</div>
-      <input id="evName" placeholder="e.g. Smith Wedding Rehearsal" value="${ev?.name || ''}"
-        class="w-full px-3 py-2.5 border rounded-xl text-sm" style="border-color:#e2e8f0;">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 16px 13px;border-bottom:1px solid #f1f5f9;flex-shrink:0;">
+      <div style="font-size:18px;font-weight:700;color:#1e3a5f;">${isEdit ? '✏️ Edit Event' : '📅 New Event'}</div>
+      <button id="evCloseBtn" style="width:30px;height:30px;border-radius:50%;background:#f1f5f9;border:none;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#64748b;">✕</button>
     </div>
-
-    <!-- Data + Ora -->
-    <div class="grid grid-cols-2 gap-2">
-      <div>
-        <div class="text-xs text-slate-500 mb-1 font-medium">Date</div>
-        <input id="evDate" type="date" value="${ev?.event_date || ''}"
-          class="w-full px-3 py-2.5 border rounded-xl text-sm" style="border-color:#e2e8f0;">
+    <!-- Scroll body -->
+    <div id="evBody" style="flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;padding:16px 16px 20px;">
+      <!-- Event Name -->
+      <div style="margin-bottom:14px;">
+        <div style="${LBL}">Event Name</div>
+        <input id="evName" type="text" placeholder="e.g. Smith Wedding Rehearsal" value="${(ev?.name||'').replace(/"/g,'&quot;')}" style="${I}">
       </div>
-      <div>
-        <div class="text-xs text-slate-500 mb-1 font-medium">Time</div>
-        <input id="evTime" type="time" value="${ev?.event_time ? ev.event_time.slice(0,5) : ''}"
-          class="w-full px-3 py-2.5 border rounded-xl text-sm" style="border-color:#e2e8f0;">
-      </div>
-    </div>
-
-    <!-- Location -->
-    <div>
-      <div class="text-xs text-slate-500 mb-1 font-medium">Location</div>
-      <select id="evLocation" onchange="_calLocationChange(this)"
-        class="w-full px-3 py-2.5 border rounded-xl text-sm bg-white" style="border-color:#e2e8f0;">
-        <option value="">— Select —</option>
-        ${locationOpts}
-        <option value="__custom__" ${isCustomLoc ? 'selected' : ''}>+ Add New…</option>
-      </select>
-      <input id="evLocationCustom" placeholder="Enter location name…"
-        class="w-full px-3 py-2.5 border rounded-xl text-sm mt-1"
-        style="border-color:#6366f1;display:${isCustomLoc ? 'block' : 'none'};"
-        value="${customLocVal}">
-    </div>
-
-    <!-- Ospiti + Servizio -->
-    <div class="grid grid-cols-2 gap-2">
-      <div>
-        <div class="text-xs text-slate-500 mb-1 font-medium">Guests</div>
-        <input id="evGuests" type="number" min="1" placeholder="e.g. 80" value="${ev?.guest_count || ''}"
-          class="w-full px-3 py-2.5 border rounded-xl text-sm" style="border-color:#e2e8f0;">
-      </div>
-      <div>
-        <div class="text-xs text-slate-500 mb-1 font-medium">Service Style</div>
-        <select id="evService" class="w-full px-3 py-2.5 border rounded-xl text-sm bg-white" style="border-color:#e2e8f0;">
-          <option value="">— Select —</option>
-          ${serviceOpts}
-        </select>
-      </div>
-    </div>
-
-    <!-- Status -->
-    <div>
-      <div class="text-xs text-slate-500 mb-1 font-medium">Status</div>
-      <select id="evStatus" class="w-full px-3 py-2.5 border rounded-xl text-sm bg-white" style="border-color:#e2e8f0;">
-        ${statusOpts}
-      </select>
-    </div>
-
-    <!-- Note -->
-    <div>
-      <div class="text-xs text-slate-500 mb-1 font-medium">Notes</div>
-      <textarea id="evNotes" placeholder="Any details for the brigade…" rows="2"
-        class="w-full px-3 py-2.5 border rounded-xl text-sm resize-none" style="border-color:#e2e8f0;">${ev?.notes || ''}</textarea>
-    </div>
-
-    <!-- Ricette -->
-    <div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-        <div class="font-semibold" style="color:#1e3a5f;">
-          Recipes
-          <span class="text-xs text-slate-400 font-normal ml-1">title · qty · unit · note</span>
+      <!-- Date + Time -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+        <div>
+          <div style="${LBL}">Date</div>
+          <input id="evDate" type="date" value="${ev?.event_date||''}" style="${I}">
         </div>
-        <button id="evAddRecipe"
-          class="text-xs border border-emerald-200 rounded-lg px-2 py-1"
-          style="color:#059669;cursor:pointer;background:white;">
-          + Add Recipe
-        </button>
+        <div>
+          <div style="${LBL}">Time</div>
+          <input id="evTime" type="time" value="${ev?.event_time ? ev.event_time.slice(0,5) : ''}" style="${I}">
+        </div>
       </div>
-      <div id="evRecipeList" class="space-y-1"></div>
-      <div id="evFoodCost" style="display:none;margin-top:8px;padding:8px 12px;background:#f0fdf4;border-radius:10px;font-size:12px;font-weight:600;color:#059669;"></div>
+      <!-- Location -->
+      <div style="margin-bottom:14px;">
+        <div style="${LBL}">Location</div>
+        <select id="evLocation" onchange="_calLocationChange(this)" style="${I}">
+          <option value="">— Select —</option>
+          ${locationOpts}
+          <option value="__custom__" ${isCustomLoc ? 'selected' : ''}>+ Add New…</option>
+        </select>
+        <input id="evLocationCustom" type="text" placeholder="Enter location name…"
+          style="${I}margin-top:6px;border-color:#6366f1;display:${isCustomLoc ? 'block' : 'none'};"
+          value="${customLocVal.replace(/"/g,'&quot;')}">
+      </div>
+      <!-- Guests + Service -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+        <div>
+          <div style="${LBL}">Guests</div>
+          <input id="evGuests" type="number" min="1" placeholder="80" value="${ev?.guest_count||''}" style="${I}">
+        </div>
+        <div>
+          <div style="${LBL}">Service Style</div>
+          <select id="evService" style="${I}">
+            <option value="">— Select —</option>
+            ${serviceOpts}
+          </select>
+        </div>
+      </div>
+      <!-- Status -->
+      <div style="margin-bottom:14px;">
+        <div style="${LBL}">Status</div>
+        <select id="evStatus" style="${I}">${statusOpts}</select>
+      </div>
+      <!-- Notes -->
+      <div style="margin-bottom:18px;">
+        <div style="${LBL}">Notes</div>
+        <textarea id="evNotes" rows="2" placeholder="Any details for the brigade…"
+          style="${I}resize:none;">${ev?.notes||''}</textarea>
+      </div>
+
+      <!-- ── RECIPES ── -->
+      <div style="border-top:1.5px solid #f1f5f9;padding-top:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div style="font-size:15px;font-weight:700;color:#1e3a5f;">🍽 Menu / Recipes</div>
+          <div style="display:flex;gap:6px;">
+            <button id="evAddSection"
+              style="font-size:13px;font-weight:600;color:#6366f1;background:#eef2ff;border:1px solid #c7d2fe;border-radius:9px;padding:6px 12px;cursor:pointer;">
+              + Section
+            </button>
+            <button id="evAddRecipe"
+              style="font-size:13px;font-weight:600;color:#059669;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;padding:6px 12px;cursor:pointer;">
+              + Recipe
+            </button>
+          </div>
+        </div>
+        <!-- Header colonne -->
+        <div style="display:grid;grid-template-columns:1fr 64px 34px;gap:6px;padding:0 0 4px;margin-bottom:2px;">
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;">Recipe</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;text-align:center;">Pax</div>
+          <div></div>
+        </div>
+        <div id="evRecipeList"></div>
+        <div id="evFoodCost" style="display:none;margin-top:8px;padding:9px 12px;background:#f0fdf4;border-radius:10px;font-size:13px;font-weight:600;color:#059669;"></div>
+      </div>
+
+      <!-- ── CHEF NOTES (testo libero) ── -->
+      <div style="margin-top:18px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:14px;padding:13px;">
+        <div style="${LBL}color:#92400e;">📝 Chef Notes</div>
+        <textarea id="evChefNotes" rows="3" placeholder="Note libere: setup, timing, allergeni, speech, istruzioni speciali…"
+          style="${I}background:white;border-color:#fde68a;border-radius:10px;resize:none;">${ev?.chef_notes||''}</textarea>
+      </div>
+
+      <!-- Delete (solo edit) -->
+      ${isEdit ? `<button id="evDeleteBtn" style="width:100%;margin-top:16px;padding:13px;border:1px solid #fecdd3;border-radius:13px;background:#fff5f5;color:#ef4444;font-size:16px;font-weight:600;cursor:pointer;">🗑 Delete Event</button>` : ''}
     </div>
-
-  </div>
-
-  <!-- Footer -->
-  <div class="p-3 border-t" style="flex-shrink:0;">
-    <div style="display:flex;gap:8px;margin-bottom:${isEdit ? '8px' : '0'};">
-      <button onclick="this.closest('.fixed').remove()"
-        class="flex-1 py-2.5 border rounded-xl text-sm font-medium" style="border-color:#e2e8f0;color:#64748b;">
-        Cancel
-      </button>
-      <button id="evSaveBtn"
-        class="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white"
-        style="background:linear-gradient(135deg,#1e3a5f,#2563eb);">
-        ${isEdit ? 'Save Changes' : 'Create Event'}
-      </button>
+    <!-- Footer fisso -->
+    <div style="flex-shrink:0;background:white;border-top:1px solid #f1f5f9;padding:12px 16px 28px;display:flex;gap:10px;">
+      <button id="evCancelBtn" style="flex:1;padding:14px;border:1.5px solid #e2e8f0;border-radius:13px;background:white;color:#64748b;font-size:16px;font-weight:600;cursor:pointer;">Cancel</button>
+      <button id="evSaveBtn" style="flex:2;padding:14px;border:none;border-radius:13px;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;font-size:16px;font-weight:700;cursor:pointer;">${isEdit ? 'Save Changes' : 'Create Event'}</button>
     </div>
-    ${isEdit ? `<button id="evDeleteBtn"
-      class="w-full py-2.5 rounded-xl text-sm font-medium"
-      style="color:#ef4444;background:#fff5f5;border:1px solid #fecdd3;">
-      🗑 Delete Event
-    </button>` : ''}
-  </div>
-</div>`;
+  `;
 
-  document.body.appendChild(modal);
+  document.body.appendChild(overlay);
+  document.body.appendChild(sheet);
 
-  // Tap backdrop chiude
-  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  function _closeEditor() {
+    overlay.remove();
+    sheet.remove();
+  }
 
-  // Blocca swipe orizzontale su iOS
-  modal.addEventListener('touchmove', e => {
-    if (e.touches.length === 1) {
-      const dx = Math.abs(e.touches[0].clientX - (modal._tx || e.touches[0].clientX));
-      const dy = Math.abs(e.touches[0].clientY - (modal._ty || e.touches[0].clientY));
-      if (dx > dy) e.preventDefault();
-    }
-  }, { passive: false });
-  modal.addEventListener('touchstart', e => {
-    if (e.touches.length === 1) { modal._tx = e.touches[0].clientX; modal._ty = e.touches[0].clientY; }
-  }, { passive: true });
+  sheet.querySelector('#evCloseBtn').onclick  = _closeEditor;
+  sheet.querySelector('#evCancelBtn').onclick = _closeEditor;
 
-  // ── Recipe rows ──
-  const recipeList = modal.querySelector('#evRecipeList');
-  const fcDiv = modal.querySelector('#evFoodCost');
+  // ── Recipe / Section list ──
+  const recipeList = sheet.querySelector('#evRecipeList');
+  const fcDiv      = sheet.querySelector('#evFoodCost');
 
-  function addRecipeRow(d = {}) {
+  function _addSection(title = '') {
+    const sec = document.createElement('div');
+    sec.dataset.type = 'section';
+    sec.style.cssText = 'display:flex;align-items:center;gap:8px;margin:10px 0 6px;';
+    sec.innerHTML = `
+      <input type="text" placeholder="Section title… (e.g. Antipasti, Speech, Dessert)"
+        value="${title.replace(/"/g,'&quot;')}"
+        style="flex:1;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#6366f1;font-weight:700;background:#eef2ff;border:1.5px solid #c7d2fe;border-radius:10px;padding:9px 12px;outline:none;-webkit-appearance:none;box-sizing:border-box;">
+      <button style="width:30px;height:30px;flex-shrink:0;border:none;background:#fff0f0;border-radius:8px;color:#f87171;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>`;
+    sec.querySelector('button').onclick = () => sec.remove();
+    recipeList.appendChild(sec);
+  }
+
+  function _addRecipeRow(d = {}) {
     const row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:1fr 70px 90px 32px;gap:4px;align-items:center;margin-bottom:4px;';
-    const dlId = 'ev-dl-' + Math.random().toString(36).slice(2,7);
+    row.dataset.type = 'recipe';
+    row.style.cssText = 'margin-bottom:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:10px 11px;';
+
+    const RI = `width:100%;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#1e3a5f;background:white;border:1.5px solid #e2e8f0;border-radius:9px;padding:10px 11px;outline:none;-webkit-appearance:none;box-sizing:border-box;`;
+
     row.innerHTML = `
-      <div style="position:relative;">
-        <input placeholder="Recipe name…" class="ev-rec-name w-full px-2 py-2 border rounded-lg text-sm"
-          value="${(d.recipe_title || d.name || '').replace(/"/g,'&quot;')}"
-          style="border-color:#e2e8f0;" autocomplete="off" list="${dlId}">
-        <datalist id="${dlId}"></datalist>
+      <div style="display:grid;grid-template-columns:1fr 64px 30px;gap:7px;align-items:center;margin-bottom:7px;">
+        <input type="text" placeholder="Recipe name…" class="ev-rec-name"
+          value="${(d.recipe_title||d.name||'').replace(/"/g,'&quot;')}"
+          style="${RI}" autocomplete="off">
+        <input type="number" placeholder="Pax" class="ev-rec-portions" min="0"
+          value="${d.portions||d.qty||''}"
+          style="${RI}text-align:center;">
+        <button class="ev-rec-del" style="width:30px;height:30px;border:none;background:#fff0f0;border-radius:8px;color:#f87171;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>
       </div>
-      <input placeholder="Portions" type="number" min="0" step="1" class="ev-rec-portions px-2 py-2 border rounded-lg text-sm text-center" value="${d.portions || d.qty || ''}" style="border-color:#e2e8f0;">
-      <input placeholder="Note" class="ev-rec-note px-2 py-2 border rounded-lg text-sm" value="${(d.note || '').replace(/"/g,'&quot;')}" style="border-color:#e2e8f0;">
-      <button class="text-red-400" style="min-width:32px;min-height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;background:none;border:none;">✕</button>`;
+      <div>
+        <input type="text" placeholder="Note (e.g. plated, salsare in busta, servire freddo…)" class="ev-rec-note"
+          value="${(d.note||'').replace(/"/g,'&quot;')}"
+          style="${RI}color:#64748b;">
+      </div>`;
 
-    row.querySelector('button').onclick = () => { row.remove(); _calcFoodCost(); };
+    row.querySelector('.ev-rec-del').onclick = () => { row.remove(); _calcFoodCost(); };
 
-    // Autocomplete ricette via datalist nativo + mappa per recuperare FC%
+    // Autocomplete ricette — custom dropdown iOS-safe
     const nameInput = row.querySelector('.ev-rec-name');
-    const datalist  = row.querySelector('datalist');
+    const dropdown  = document.createElement('div');
+    dropdown.style.cssText = 'position:absolute;left:0;right:0;top:calc(100% + 2px);z-index:9999;background:white;border:1.5px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(30,58,95,0.13);max-height:180px;overflow-y:auto;display:none;';
+    nameInput.parentNode.style.position = 'relative';
+    nameInput.parentNode.appendChild(dropdown);
 
     let _ac = null;
     let _recipeId = d.recipe_id || null;
-    let _recipeFc = d.food_cost || null;
-    // Mappa title → {id, food_cost_pct} per recuperare dati quando utente sceglie
-    const _recipeMap = {};
+    let _recipeFc = d.food_cost  || null;
     row._getRecipeId = () => _recipeId;
     row._getFoodCost = () => _recipeFc;
 
+    function _selectRecipe(title, id, fc) {
+      nameInput.value = title;
+      _recipeId = id; _recipeFc = fc;
+      nameInput.style.borderColor = '#10b981';
+      nameInput.style.background  = '#f0fdf4';
+      dropdown.style.display = 'none';
+      _calcFoodCost();
+    }
+
     nameInput.addEventListener('input', () => {
       _recipeId = null; _recipeFc = null;
-      clearTimeout(_ac);
-      const q = nameInput.value.trim();
-      // Controlla se l'utente ha selezionato un'opzione esatta dalla datalist
-      if (_recipeMap[q]) {
-        _recipeId  = _recipeMap[q].id;
-        _recipeFc  = _recipeMap[q].food_cost_pct;
-        nameInput.style.borderColor = '#10b981';
-        nameInput.style.background  = '#f0fdf4';
-        _calcFoodCost();
-        return;
-      }
       nameInput.style.borderColor = '#e2e8f0';
       nameInput.style.background  = '';
-      if (q.length < 2) return;
+      clearTimeout(_ac);
+      const q = nameInput.value.trim();
+      if (q.length < 2) { dropdown.style.display = 'none'; return; }
       _ac = setTimeout(async () => {
         const client = window.supa || window.supabaseClient;
-        const { data } = await client
-          .from('recipes')
-          .select('id,title,menu_group,food_cost_pct')
-          .ilike('title', `%${q}%`)
-          .order('title')
-          .limit(10);
-        if (!data || !data.length) return;
-        // Popola datalist nativo
-        datalist.innerHTML = data.map(r => {
-          _recipeMap[r.title] = { id: r.id, food_cost_pct: r.food_cost_pct || null };
-          return `<option value="${r.title.replace(/"/g,'&quot;')}">`;
-        }).join('');
-      }, 250);
+        const { data } = await client.from('recipes').select('id,title,menu_group,food_cost_pct').ilike('title',`%${q}%`).order('title').limit(10);
+        if (!data || !data.length) { dropdown.style.display = 'none'; return; }
+        dropdown.innerHTML = data.map((r,i) => `
+          <div class="ev-ac-item" data-i="${i}"
+            style="padding:10px 13px;font-size:15px;color:#1e3a5f;cursor:pointer;border-bottom:0.5px solid #f1f5f9;-webkit-user-select:none;user-select:none;">
+            <span style="font-weight:600;">${r.title}</span>
+            ${r.menu_group ? `<span style="font-size:12px;color:#94a3b8;margin-left:6px;">${r.menu_group}</span>` : ''}
+          </div>`).join('');
+        dropdown.style.display = 'block';
+        dropdown.querySelectorAll('.ev-ac-item').forEach((item, i) => {
+          const r = data[i];
+          item.addEventListener('mousedown', e => { e.preventDefault(); _selectRecipe(r.title, r.id, r.food_cost_pct||null); });
+          item.addEventListener('touchend',  e => { e.preventDefault(); _selectRecipe(r.title, r.id, r.food_cost_pct||null); });
+          item.addEventListener('touchstart', () => { item.style.background = '#f0f9ff'; }, { passive: true });
+        });
+      }, 220);
     });
-
-    // Quando l'utente lascia il campo, verifica se ha scritto un titolo esatto
-    nameInput.addEventListener('change', () => {
-      const v = nameInput.value.trim();
-      if (_recipeMap[v]) {
-        _recipeId  = _recipeMap[v].id;
-        _recipeFc  = _recipeMap[v].food_cost_pct;
-        nameInput.style.borderColor = '#10b981';
-        nameInput.style.background  = '#f0fdf4';
-        _calcFoodCost();
-      }
-    });
+    nameInput.addEventListener('blur', () => { setTimeout(() => { dropdown.style.display = 'none'; }, 200); });
 
     recipeList.appendChild(row);
   }
 
   function _calcFoodCost() {
-    const rows = [...recipeList.querySelectorAll('div[style*="grid"]')];
-    let hasAny = false;
-    let totalCost = 0;
-    rows.forEach(row => {
-      const fc = row._getFoodCost ? row._getFoodCost() : null;
-      const portions = parseFloat(row.querySelector('.ev-rec-portions')?.value) || 0;
-      if (fc && portions) {
-        totalCost += (fc / 100) * portions;
-        hasAny = true;
-      }
+    let total = 0; let hasAny = false;
+    recipeList.querySelectorAll('[data-type="recipe"]').forEach(row => {
+      const fc  = row._getFoodCost ? row._getFoodCost() : null;
+      const pax = parseFloat(row.querySelector('.ev-rec-portions')?.value) || 0;
+      if (fc && pax) { total += (fc / 100) * pax; hasAny = true; }
     });
-    if (hasAny) {
-      fcDiv.style.display = 'block';
-      fcDiv.textContent = `Estimated Food Cost: $${totalCost.toFixed(2)}`;
-    } else {
-      fcDiv.style.display = 'none';
-    }
+    fcDiv.style.display = hasAny ? 'block' : 'none';
+    if (hasAny) fcDiv.textContent = `Estimated Food Cost: $${total.toFixed(2)}`;
   }
 
-  // Popola ricette esistenti
+  // Popola ricette esistenti (supporta sezioni e ricette miste)
   const existing = Array.isArray(ev?.event_recipes) ? ev.event_recipes : [];
-  existing.forEach(r => addRecipeRow(r));
-  if (!existing.length) addRecipeRow(); // una riga vuota di default
+  existing.forEach(item => {
+    if (item.type === 'section') _addSection(item.title || '');
+    else _addRecipeRow(item);
+  });
+  if (!existing.length) _addRecipeRow();
 
-  modal.querySelector('#evAddRecipe').onclick = () => addRecipeRow();
+  sheet.querySelector('#evAddRecipe').onclick  = () => _addRecipeRow();
+  sheet.querySelector('#evAddSection').onclick = () => _addSection();
 
   // ── Save ──
-  modal.querySelector('#evSaveBtn').onclick = async () => {
-    const name = modal.querySelector('#evName').value.trim();
+  sheet.querySelector('#evSaveBtn').onclick = async () => {
+    const name = sheet.querySelector('#evName').value.trim();
     if (!name) { alert('Event name required'); return; }
-    const date = modal.querySelector('#evDate').value;
+    const date = sheet.querySelector('#evDate').value;
     if (!date) { alert('Date required'); return; }
 
-    // Location
-    const locSel = modal.querySelector('#evLocation').value;
-    const locCustom = modal.querySelector('#evLocationCustom').value.trim();
-    const location = locSel === '__custom__' ? locCustom : locSel;
+    const locSel    = sheet.querySelector('#evLocation').value;
+    const locCustom = sheet.querySelector('#evLocationCustom').value.trim();
+    const location  = locSel === '__custom__' ? locCustom : locSel;
 
-    // Raccoglie le ricette
-    const recipeRows = [...recipeList.querySelectorAll('div[style*="grid"]')];
-    const event_recipes = recipeRows
-      .map(row => ({
-        recipe_id: row._getRecipeId ? row._getRecipeId() : null,
-        recipe_title: row.querySelector('.ev-rec-name')?.value.trim() || '',
-        portions: parseInt(row.querySelector('.ev-rec-portions')?.value) || null,
-        note: row.querySelector('.ev-rec-note')?.value.trim() || '',
-        food_cost: row._getFoodCost ? row._getFoodCost() : null
-      }))
-      .filter(r => r.recipe_title);
+    // Raccoglie ricette E sezioni in ordine
+    const event_recipes = [];
+    recipeList.childNodes.forEach(node => {
+      if (!node.dataset) return;
+      if (node.dataset.type === 'section') {
+        const t = node.querySelector('input')?.value.trim() || '';
+        if (t) event_recipes.push({ type: 'section', title: t });
+      } else if (node.dataset.type === 'recipe') {
+        const title = node.querySelector('.ev-rec-name')?.value.trim() || '';
+        if (title) event_recipes.push({
+          type: 'recipe',
+          recipe_id:    node._getRecipeId ? node._getRecipeId() : null,
+          recipe_title: title,
+          portions:     parseInt(node.querySelector('.ev-rec-portions')?.value) || null,
+          note:         node.querySelector('.ev-rec-note')?.value.trim() || '',
+          food_cost:    node._getFoodCost ? node._getFoodCost() : null
+        });
+      }
+    });
 
     const payload = {
       name,
-      event_date: date,
-      event_time: modal.querySelector('#evTime').value || null,
+      event_date:    date,
+      event_time:    sheet.querySelector('#evTime').value || null,
       location,
-      room_name: location,
-      guest_count: parseInt(modal.querySelector('#evGuests').value) || null,
-      service_style: modal.querySelector('#evService').value || null,
-      status: modal.querySelector('#evStatus').value || 'confirmed',
-      notes: modal.querySelector('#evNotes').value.trim() || null,
+      room_name:     location,
+      guest_count:   parseInt(sheet.querySelector('#evGuests').value) || null,
+      service_style: sheet.querySelector('#evService').value || null,
+      status:        sheet.querySelector('#evStatus').value || 'confirmed',
+      notes:         sheet.querySelector('#evNotes').value.trim() || null,
+      chef_notes:    sheet.querySelector('#evChefNotes').value.trim() || null,
       event_recipes,
-      source: 'manual',
-      updated_at: new Date().toISOString()
+      source:        'manual',
+      updated_at:    new Date().toISOString()
     };
 
-    const btn = modal.querySelector('#evSaveBtn');
-    btn.textContent = 'Saving…';
-    btn.disabled = true;
-
+    const btn = sheet.querySelector('#evSaveBtn');
+    btn.textContent = 'Saving…'; btn.disabled = true;
     try {
       const client = window.supa || window.supabaseClient;
       let err;
@@ -538,8 +553,7 @@ function openEventEditor(ev = null) {
         ({ error: err } = await client.from('events').insert(payload));
       }
       if (err) throw err;
-      modal.remove();
-      // Aggiorna calendario e home
+      _closeEditor();
       await _calLoad();
       if (typeof loadUpcomingDemand === 'function') loadUpcomingDemand();
       if (typeof showToast === 'function') showToast(isEdit ? 'Event updated ✓' : 'Event created ✓');
@@ -551,7 +565,7 @@ function openEventEditor(ev = null) {
   };
 
   // ── Delete ──
-  const deleteBtn = modal.querySelector('#evDeleteBtn');
+  const deleteBtn = sheet.querySelector('#evDeleteBtn');
   if (deleteBtn) {
     deleteBtn.onclick = async () => {
       if (!confirm(`Delete "${ev.name}"?`)) return;
@@ -559,13 +573,11 @@ function openEventEditor(ev = null) {
         const client = window.supa || window.supabaseClient;
         const { error } = await client.from('events').delete().eq('id', ev.id);
         if (error) throw error;
-        modal.remove();
+        _closeEditor();
         await _calLoad();
         if (typeof loadUpcomingDemand === 'function') loadUpcomingDemand();
         if (typeof showToast === 'function') showToast('Event deleted');
-      } catch(e) {
-        alert('Error: ' + e.message);
-      }
+      } catch(e) { alert('Error: ' + e.message); }
     };
   }
 }
