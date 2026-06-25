@@ -389,7 +389,7 @@ function openEventEditor(ev = null) {
         <input placeholder="Recipe name…" class="ev-rec-name w-full px-2 py-2 border rounded-lg text-sm"
           value="${(d.recipe_title || d.name || '').replace(/"/g,'&quot;')}"
           style="border-color:#e2e8f0;">
-        <div class="ev-rec-drop" style="display:none;position:fixed;z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;min-width:220px;"></div>
+
       </div>
       <input placeholder="Portions" type="number" min="0" step="1" class="ev-rec-portions px-2 py-2 border rounded-lg text-sm text-center" value="${d.portions || d.qty || ''}" style="border-color:#e2e8f0;">
       <input placeholder="Note" class="ev-rec-note px-2 py-2 border rounded-lg text-sm" value="${(d.note || '').replace(/"/g,'&quot;')}" style="border-color:#e2e8f0;">
@@ -399,12 +399,36 @@ function openEventEditor(ev = null) {
 
     // Autocomplete ricette
     const nameInput = row.querySelector('.ev-rec-name');
-    const drop = row.querySelector('.ev-rec-drop');
+
+    // Drop attaccato al body, position:fixed, sempre visibile
+    const drop = document.createElement('div');
+    drop.style.cssText = [
+      'display:none',
+      'position:fixed',
+      'z-index:99999',
+      'background:#fff',
+      'border:1px solid #e2e8f0',
+      'border-radius:12px',
+      'box-shadow:0 4px 24px rgba(0,0,0,.18)',
+      'max-height:180px',
+      'overflow-y:auto',
+      'min-width:180px'
+    ].join(';');
+    document.body.appendChild(drop);
+
     let _ac = null;
     let _recipeId = d.recipe_id || null;
     let _recipeFc = d.food_cost || null;
     row._getRecipeId = () => _recipeId;
     row._getFoodCost = () => _recipeFc;
+
+    function _placeDrop() {
+      const r = nameInput.getBoundingClientRect();
+      // Sempre sotto il campo — su iOS con tastiera aperta rect.bottom è corretto
+      drop.style.top  = (r.bottom + 4) + 'px';
+      drop.style.left = r.left + 'px';
+      drop.style.width = r.width + 'px';
+    }
 
     nameInput.addEventListener('input', () => {
       _recipeId = null; _recipeFc = null;
@@ -425,16 +449,15 @@ function openEventEditor(ev = null) {
             data-id="${r.id}"
             data-title="${r.title.replace(/"/g,'&quot;')}"
             data-fc="${r.food_cost_pct || ''}"
-            data-price="${r.selling_price || ''}"
-            style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;justify-content:space-between;border-bottom:1px solid #f8fafc;">
-            <span><b>${r.title}</b> <span style="color:#94a3b8;font-size:10px;">${r.menu_group || ''}</span></span>
-            ${r.food_cost_pct ? `<span style="font-size:9px;background:#f0fdf4;color:#059669;padding:1px 5px;border-radius:4px;">${parseFloat(r.food_cost_pct).toFixed(1)}% FC</span>` : ''}
+            style="padding:10px 12px;cursor:pointer;font-size:13px;
+                   display:flex;justify-content:space-between;align-items:center;
+                   border-bottom:1px solid #f8fafc;">
+            <span><b>${r.title}</b>
+              <span style="color:#94a3b8;font-size:11px;margin-left:4px;">${r.menu_group || ''}</span>
+            </span>
+            ${r.food_cost_pct ? `<span style="font-size:10px;background:#f0fdf4;color:#059669;padding:2px 6px;border-radius:5px;flex-shrink:0;">${parseFloat(r.food_cost_pct).toFixed(1)}%</span>` : ''}
           </div>`).join('');
-        // Posiziona il dropdown in fixed rispetto al nameInput
-        const rect = nameInput.getBoundingClientRect();
-        drop.style.top = (rect.bottom + 2) + 'px';
-        drop.style.left = rect.left + 'px';
-        drop.style.width = rect.width + 'px';
+        _placeDrop();
         drop.style.display = 'block';
         drop.querySelectorAll('.ev-ac-opt').forEach(el => {
           el.addEventListener('mousedown', e => {
@@ -450,7 +473,11 @@ function openEventEditor(ev = null) {
         });
       }, 200);
     });
-    nameInput.addEventListener('blur', () => { setTimeout(() => { drop.style.display = 'none'; }, 160); });
+    nameInput.addEventListener('blur', () => { setTimeout(() => { drop.style.display = 'none'; }, 200); });
+
+    // Cleanup quando riga rimossa
+    const _origRemove = row.remove.bind(row);
+    row.remove = () => { drop.remove(); _origRemove(); };
 
     recipeList.appendChild(row);
   }
