@@ -473,6 +473,7 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   document.getElementById('vr').classList.toggle('hidden',t!=='r');
   document.getElementById('vp').classList.toggle('hidden',t!=='c');
   document.getElementById('vi').classList.toggle('hidden',t!=='i');
+  var vvdr = document.getElementById('vvdr'); if(vvdr) vvdr.classList.add('hidden');
   const vx = document.getElementById('vx');
   if (vx) { vx.classList.toggle('hidden', t!=='x'); if (t==='x') loadPOS(); }
   const vsched = document.getElementById('vsched');
@@ -486,6 +487,34 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   var scBtn = document.getElementById('scBtn');
   if (scBtn) scBtn.style.display = (t === 'm') ? 'none' : '';
 });
+
+// ── Vendor Documents page navigation ──
+window.showVdrSection = function() {
+  // Hide all sections
+  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.classList.add('hidden');
+  });
+  // Deactivate all tabs
+  document.querySelectorAll('.tab').forEach(function(x){
+    x.classList.remove('tab-active');
+    x.classList.add('text-slate-500');
+    var svg=x.querySelector('svg'); if(svg) svg.style.stroke='';
+    var sp=x.querySelector('.tab-label'); if(sp) sp.style.color='';
+  });
+  var el = document.getElementById('vvdr');
+  if(el) el.classList.remove('hidden');
+  window.scrollTo(0,0);
+};
+
+window.vdrBack = function() {
+  var el = document.getElementById('vvdr');
+  if(el) el.classList.add('hidden');
+  // Go back to home
+  document.getElementById('vh').classList.remove('hidden');
+  var homeTab = document.querySelector('.tab[data-t="h"]');
+  if(homeTab) homeTab.click();
+};
 
 // ── Vendor Documents pending badge ──
 async function vdrLoadBadge() {
@@ -508,6 +537,7 @@ async function vdrLoadBadge() {
     }
   } catch(e) {}
 }
+
 
 
 
