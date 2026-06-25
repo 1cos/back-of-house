@@ -1,6 +1,12 @@
 // ── CHAT — Glass Effect Apple ──
 const REACTIONS = ['👍','✅','👀','🔥','❤️','😂','🙏'];
 
+// Pulizia automatica overlay Focus Chat (Focus Mode disabilitato)
+document.addEventListener('DOMContentLoaded', function() {
+  var ov = document.getElementById('_focusChatOverlay');
+  if (ov) ov.remove();
+});
+
 // ── FOTO IN CHAT ─────────────────────────────────────────────
 var _chatPendingImageFile = null;  // file selezionato, in attesa di invio
 
@@ -53,6 +59,10 @@ function _renderChatImg(imageUrl, hasText) {
 var _chatOpenedFromFocus = false;
 
 function showChat(){
+  // Rimuovi sempre l'overlay Focus Chat se esiste (Focus Mode disabilitato)
+  var _existingOverlay = document.getElementById('_focusChatOverlay');
+  if (_existingOverlay) { _existingOverlay.remove(); }
+
   const fm = document.getElementById('focusMode');
   const focusActive = fm && fm.style.display !== 'none';
 
@@ -481,5 +491,6 @@ function exportPDF(){
   doc.autoTable({html:'#reportOut table',startY:20});
   doc.save('report.pdf');
 }
+
 
 
