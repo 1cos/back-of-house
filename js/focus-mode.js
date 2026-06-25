@@ -62,6 +62,7 @@ function isFocusHour() {
 }
 
 function shouldShowFocusMode() {
+  return false; // DISABILITATO TEMPORANEAMENTE — schedule da riallineare
   if (typeof isAdmin === 'function' && isAdmin()) return false;
   var day = new Date().toLocaleString('en-US', {timeZone:'America/Chicago', weekday:'long'});
   if (day === 'Sunday') return false;
@@ -326,5 +327,6 @@ window.focusLoadStation = function(station) {
   buildFocusList();
   renderFocusFeed();
 };
+
 
 
