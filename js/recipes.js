@@ -275,28 +275,36 @@ async function showRecipeSheet(rec){
       return;
     }
 
+    // Scala ingredienti via applyScale passando il fattore rispetto a base_weight_g
+    function scaleToKg(targetKg){
+      const baseG = parseFloat(rec.base_weight_g) || 0;
+      if(!baseG) return;
+      const factor = (targetKg * 1000) / baseG;
+      const ingDisplay = sheet.querySelector('#ingDisplay');
+      const scaleNote  = sheet.querySelector('#scaleNote');
+      if(ingDisplay) ingDisplay.innerHTML = renderIngs(factor);
+      if(scaleNote)  scaleNote.textContent = targetKg + ' kg';
+      if(inputWeight) inputWeight.value = targetKg.toFixed ? targetKg.toFixed(2).replace(/\.?0+$/,'') : targetKg;
+      if(inputServ && servingWeightG){
+        inputServ.value = Math.max(1, Math.round((targetKg*1000)/servingWeightG));
+      }
+    }
+
     function applyMode(mode){
       if(mode === 'original'){
         btnOrig.style.background = '#1e293b';
         btnOrig.style.color = 'white';
         btnSmart.style.background = 'transparent';
         btnSmart.style.color = '#94a3b8';
-        if(inputWeight && baseKg){
-          inputWeight.value = baseKg;
-          inputWeight.dispatchEvent(new Event('input'));
-        } else if(inputServ){
-          inputServ.value = baseServings || 1;
-          inputServ.dispatchEvent(new Event('input'));
-        }
+        const bkg = parseFloat(baseKg) || parseFloat(rec.base_weight_g)/1000;
+        if(bkg) scaleToKg(bkg);
+        else if(inputServ){ inputServ.value = baseServings||1; inputServ.dispatchEvent(new Event('input')); }
       } else {
         btnSmart.style.background = '#059669';
         btnSmart.style.color = 'white';
         btnOrig.style.background = 'transparent';
         btnOrig.style.color = '#94a3b8';
-        if(inputWeight){
-          inputWeight.value = smartKg;
-          inputWeight.dispatchEvent(new Event('input'));
-        }
+        scaleToKg(parseFloat(smartKg));
       }
     }
 
