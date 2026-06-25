@@ -31,6 +31,21 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 
 ## Sessione 2026-06-25 — cosa è stato fatto
 
+### Calendario eventi — nuovo modulo (v350→v355)
+- DB: aggiunte colonne `service_style` (text) e `event_recipes` (jsonb []) alla tabella `events`
+- `calendar.js` riscritta completa:
+  - Pagina con **sticky header** `top:64px` (pattern vvdr) — titolo, ‹ back, + New Event, ↻ TripleSeat
+  - Filtri Upcoming / Past / All fissi sotto l'header, lista che scrolla normalmente
+  - **Editor eventi** stile recipe editor (modale rounded-3xl):
+    - Campi: nome, data+ora, location (Zenos/La Scuderia/Private Home/+ Add New), ospiti, service style (Al Piatto/Buffet/Family Style/Cocktail), status, note
+    - Sezione Ricette: nome (autocomplete DB) + Portions + Note per ogni ricetta
+    - Food cost stimato solo per admin
+    - Edit / Delete eventi manuali
+    - Bottone ↻ TripleSeat pronto per quando Monica autorizza (source='manual' vs 'tripleseat')
+  - Card evento: giorno + data, nome, status badge colorato, ora/ospiti/location/service style, menu ricette
+- `briefing.js`: upcoming demand in home mostra ricette, cliccabile → apre calendario, "View all →"
+- **BUG APERTO v355**: autocomplete ricette nell'editor usa `<datalist>` nativo ma non funziona correttamente su iOS — da rivedere nella prossima sessione
+
 ### Focus Mode — disabilitata globalmente (v350)
 - `focus-mode.js`: `shouldShowFocusMode()` ritorna `false` immediatamente
 - Motivo: orari 7shifts non allineati con la realtà — i ragazzi erano bloccati sulla prep list e non potevano fare la closing checklist
@@ -89,9 +104,11 @@ send_brigade_message, update_ingredient_vendor, block/unblock_*, create_office_i
 
 ---
 
-## 🔴 PRIORITÀ #2 — Dropdown autocomplete chat (BUG APERTO)
-- Il dropdown autocomplete nella chat non funziona correttamente
-- Da sistemare nella prossima sessione
+## 🔴 PRIORITÀ #2 — Autocomplete ricette nel Calendar editor (BUG APERTO v355)
+- `<datalist>` nativo HTML non funziona correttamente su iOS nel modale editor eventi
+- Tentativi fatti: dropdown body-attached position:fixed (coordinate sbagliate con tastiera), position:absolute (tagliato da overflow:auto), datalist nativo (non riconosce selezione)
+- Prossima sessione: valutare approccio alternativo — es. sheet separato di ricerca ricette (tap su campo → apre lista ricette fullscreen, selezione → torna all'editor)
+- Chat autocomplete: verificare separatamente
 
 ---
 
