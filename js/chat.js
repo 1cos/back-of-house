@@ -588,6 +588,11 @@ window.saveEditMsg = async function(msgId) {
 
 // Aggiungi long press a un elemento messaggio
 function attachLongPress(el, msgId, msgText, isMine) {
+  // Previeni selezione testo iOS durante long press
+  el.style.webkitUserSelect = 'none';
+  el.style.userSelect = 'none';
+  el.style.webkitTouchCallout = 'none';
+
   var pressTimer = null;
   var moved = false;
 
@@ -614,3 +619,4 @@ function attachLongPress(el, msgId, msgText, isMine) {
     clearTimeout(pressTimer);
   }, { passive: true });
 }
+
