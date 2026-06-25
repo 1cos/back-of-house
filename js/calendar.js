@@ -384,77 +384,48 @@ function openEventEditor(ev = null) {
   function addRecipeRow(d = {}) {
     const row = document.createElement('div');
     row.style.cssText = 'display:grid;grid-template-columns:1fr 70px 90px 32px;gap:4px;align-items:center;margin-bottom:4px;';
+    const dlId = 'ev-dl-' + Math.random().toString(36).slice(2,7);
     row.innerHTML = `
       <div style="position:relative;">
         <input placeholder="Recipe name…" class="ev-rec-name w-full px-2 py-2 border rounded-lg text-sm"
           value="${(d.recipe_title || d.name || '').replace(/"/g,'&quot;')}"
-          style="border-color:#e2e8f0;" autocomplete="off">
-        <div class="ev-ac-dropdown" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:9999;
-          background:white;border:1.5px solid #e2e8f0;border-radius:10px;
-          box-shadow:0 8px 24px rgba(30,58,95,0.13);max-height:200px;overflow-y:auto;margin-top:2px;"></div>
+          style="border-color:#e2e8f0;" autocomplete="off" list="${dlId}">
+        <datalist id="${dlId}"></datalist>
       </div>
       <input placeholder="Portions" type="number" min="0" step="1" class="ev-rec-portions px-2 py-2 border rounded-lg text-sm text-center" value="${d.portions || d.qty || ''}" style="border-color:#e2e8f0;">
       <input placeholder="Note" class="ev-rec-note px-2 py-2 border rounded-lg text-sm" value="${(d.note || '').replace(/"/g,'&quot;')}" style="border-color:#e2e8f0;">
-      <button class="ev-rec-del text-red-400" style="min-width:32px;min-height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;background:none;border:none;">✕</button>`;
+      <button class="text-red-400" style="min-width:32px;min-height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;background:none;border:none;">✕</button>`;
 
-    row.querySelector('.ev-rec-del').onclick = () => { row.remove(); _calcFoodCost(); };
+    row.querySelector('button').onclick = () => { row.remove(); _calcFoodCost(); };
 
+    // Autocomplete ricette via datalist nativo + mappa per recuperare FC%
     const nameInput = row.querySelector('.ev-rec-name');
-    const dropdown  = row.querySelector('.ev-ac-dropdown');
+    const datalist  = row.querySelector('datalist');
 
-    let _ac       = null;
+    let _ac = null;
     let _recipeId = d.recipe_id || null;
-    let _recipeFc = d.food_cost  || null;
-
+    let _recipeFc = d.food_cost || null;
+    // Mappa title → {id, food_cost_pct} per recuperare dati quando utente sceglie
+    const _recipeMap = {};
     row._getRecipeId = () => _recipeId;
     row._getFoodCost = () => _recipeFc;
 
-    function _selectRecipe(title, id, fc) {
-      nameInput.value = title;
-      _recipeId = id;
-      _recipeFc = fc;
-      nameInput.style.borderColor = '#10b981';
-      nameInput.style.background  = '#f0fdf4';
-      dropdown.style.display = 'none';
-      _calcFoodCost();
-    }
-
-    function _hideDropdown() { dropdown.style.display = 'none'; }
-
-    function _showResults(results) {
-      if (!results || !results.length) { _hideDropdown(); return; }
-      dropdown.innerHTML = results.map((r, i) => `
-        <div class="ev-ac-item" data-idx="${i}"
-          style="padding:9px 12px;font-size:13px;color:#1e3a5f;cursor:pointer;
-                 border-bottom:0.5px solid #f1f5f9;
-                 -webkit-user-select:none;user-select:none;">
-          <span style="font-weight:600;">${r.title}</span>
-          ${r.menu_group ? `<span style="font-size:11px;color:#94a3b8;margin-left:6px;">${r.menu_group}</span>` : ''}
-        </div>`).join('');
-      dropdown.style.display = 'block';
-      dropdown.querySelectorAll('.ev-ac-item').forEach((item, i) => {
-        const r = results[i];
-        item.addEventListener('mousedown', e => {
-          e.preventDefault();
-          _selectRecipe(r.title, r.id, r.food_cost_pct || null);
-        });
-        item.addEventListener('touchend', e => {
-          e.preventDefault();
-          _selectRecipe(r.title, r.id, r.food_cost_pct || null);
-        });
-        item.addEventListener('touchstart', () => {
-          item.style.background = '#f0f9ff';
-        }, { passive: true });
-      });
-    }
-
     nameInput.addEventListener('input', () => {
       _recipeId = null; _recipeFc = null;
-      nameInput.style.borderColor = '#e2e8f0';
-      nameInput.style.background  = '';
       clearTimeout(_ac);
       const q = nameInput.value.trim();
-      if (q.length < 2) { _hideDropdown(); return; }
+      // Controlla se l'utente ha selezionato un'opzione esatta dalla datalist
+      if (_recipeMap[q]) {
+        _recipeId  = _recipeMap[q].id;
+        _recipeFc  = _recipeMap[q].food_cost_pct;
+        nameInput.style.borderColor = '#10b981';
+        nameInput.style.background  = '#f0fdf4';
+        _calcFoodCost();
+        return;
+      }
+      nameInput.style.borderColor = '#e2e8f0';
+      nameInput.style.background  = '';
+      if (q.length < 2) return;
       _ac = setTimeout(async () => {
         const client = window.supa || window.supabaseClient;
         const { data } = await client
@@ -463,12 +434,26 @@ function openEventEditor(ev = null) {
           .ilike('title', `%${q}%`)
           .order('title')
           .limit(10);
-        _showResults(data || []);
-      }, 220);
+        if (!data || !data.length) return;
+        // Popola datalist nativo
+        datalist.innerHTML = data.map(r => {
+          _recipeMap[r.title] = { id: r.id, food_cost_pct: r.food_cost_pct || null };
+          return `<option value="${r.title.replace(/"/g,'&quot;')}">`;
+        }).join('');
+      }, 250);
     });
 
-    // blur con delay 200ms: permette a touchend/mousedown sul dropdown di scattare prima
-    nameInput.addEventListener('blur', () => { setTimeout(_hideDropdown, 200); });
+    // Quando l'utente lascia il campo, verifica se ha scritto un titolo esatto
+    nameInput.addEventListener('change', () => {
+      const v = nameInput.value.trim();
+      if (_recipeMap[v]) {
+        _recipeId  = _recipeMap[v].id;
+        _recipeFc  = _recipeMap[v].food_cost_pct;
+        nameInput.style.borderColor = '#10b981';
+        nameInput.style.background  = '#f0fdf4';
+        _calcFoodCost();
+      }
+    });
 
     recipeList.appendChild(row);
   }
