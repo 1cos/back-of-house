@@ -210,7 +210,7 @@ async function showRecipeSheet(rec){
       ${scalingUI}
       ${(rec.ingredients||[]).length ? `
       <div id="recipeModeToggle" style="display:flex;gap:0;margin-bottom:12px;border-radius:12px;overflow:hidden;border:1.5px solid #e2e8f0;background:#f8fafc;">
-        <button id="modeOriginal" onclick="setRecipeMode('original')" style="flex:1;padding:9px 0;font-size:13px;font-weight:700;background:#1e293b;color:white;border:none;cursor:pointer;transition:all .2s;">${tr('modeOriginal')||'Original'}</button>
+        <button id="modeOriginal" onclick="setRecipeMode('original')" style="flex:1;padding:9px 0;font-size:13px;font-weight:700;background:#1e293b;color:white;border:none;cursor:pointer;transition:all .2s;">Original</button>
         <button id="modeSmart" onclick="setRecipeMode('smart')" style="flex:1;padding:9px 0;font-size:13px;font-weight:700;background:transparent;color:#94a3b8;border:none;cursor:pointer;transition:all .2s;">🤖 Smart</button>
       </div>
       <p class="text-lg font-semibold mb-2">${tr("ingredients")}</p><ul id="ingDisplay" class="mb-4" style="padding:0;">${renderIngs(1)}</ul>` : ''}
@@ -234,32 +234,48 @@ async function showRecipeSheet(rec){
   if(!rec.pos_name && rec.base_weight_g) loadRecipePrepStats(rec, sheet);
 
   // ── ORIGINALE / SMART TOGGLE ──
-  (function initModeToggle(){
+  (async function initModeToggle(){
     const inputWeight = sheet.querySelector('#scaleWeight');
     const inputServ   = sheet.querySelector('#scaleServings');
     const btnOrig     = sheet.querySelector('#modeOriginal');
     const btnSmart    = sheet.querySelector('#modeSmart');
     if(!btnOrig || !btnSmart) return;
 
-    // baseKg = valore originale della ricetta
+    // baseKg = peso base della ricetta
     const baseKg = baseWeightG ? (baseWeightG / 1000).toFixed(2).replace(/\.?0+$/, '') : null;
 
-    // smartKg viene impostato da loadRecipePrepStats via dispatchEvent
-    // Lo intercettiamo leggendo il valore dopo che la funzione l'ha scritto
+    // Leggi suggested_qty direttamente dal DB — nessun timing issue
     let smartKg = null;
-
-    // Osserva cambiamenti su inputWeight (loadRecipePrepStats lo imposta dopo ~100ms)
-    if(inputWeight){
-      const observer = new MutationObserver(()=>{});
-      // Polling leggero: dopo 600ms leggiamo il valore impostato dal bot
-      setTimeout(()=>{
-        if(inputWeight.value && inputWeight.value !== (baseKg||'')) {
-          smartKg = inputWeight.value;
+    if(rec?.id){
+      try{
+        const {data: ptRows} = await supa.from('prep_tasks')
+          .select('suggested_qty')
+          .eq('recipe_id', rec.id)
+          .not('suggested_qty','is',null)
+          .limit(1);
+        if(ptRows && ptRows.length){
+          const sugG = parseFloat(ptRows[0].suggested_qty);
+          const bwg  = parseFloat(rec.base_weight_g);
+          if(sugG && bwg){
+            // Converti grammi → kg di prodotto finito considerando yield
+            const yieldPct = rec.yield_pct ? parseFloat(rec.yield_pct)/100 : 1;
+            const finishedKg = (sugG / 1000) * yieldPct;
+            smartKg = finishedKg.toFixed(2).replace(/\.?0+$/,'');
+          } else if(sugG){
+            smartKg = (sugG/1000).toFixed(2).replace(/\.?0+$/,'');
+          }
         }
-      }, 800);
+      }catch(e){ /* silenzioso */ }
     }
 
-    window.setRecipeMode = function(mode){
+    // Se non c'è suggested_qty nascondi il toggle
+    if(!smartKg){
+      const toggleEl = sheet.querySelector('#recipeModeToggle');
+      if(toggleEl) toggleEl.style.display = 'none';
+      return;
+    }
+
+    function applyMode(mode){
       if(mode === 'original'){
         btnOrig.style.background = '#1e293b';
         btnOrig.style.color = 'white';
@@ -277,14 +293,14 @@ async function showRecipeSheet(rec){
         btnSmart.style.color = 'white';
         btnOrig.style.background = 'transparent';
         btnOrig.style.color = '#94a3b8';
-        // Usa smartKg se disponibile, altrimenti rileggi da inputWeight
-        const val = smartKg || inputWeight?.value;
-        if(inputWeight && val){
-          inputWeight.value = val;
+        if(inputWeight){
+          inputWeight.value = smartKg;
           inputWeight.dispatchEvent(new Event('input'));
         }
       }
-    };
+    }
+
+    window.setRecipeMode = (mode) => applyMode(mode);
   })();
 
   // Scaling logic
