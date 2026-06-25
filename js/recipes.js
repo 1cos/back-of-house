@@ -36,20 +36,6 @@ function showNoteSheet(name, note){
   document.body.appendChild(sheet);
   addSwipeToClose(sheet.querySelector('div'), ()=>sheet.remove());
 
-  // Fix scroll iOS: impedisce al touch sull'overlay di bloccare lo scroll interno
-  (function fixIOSScroll(){
-    const inner = sheet.querySelector('.overflow-auto');
-    if(!inner) return;
-    let _startY = 0;
-    inner.addEventListener('touchstart', e=>{ _startY = e.touches[0].clientY; }, {passive:true});
-    sheet.addEventListener('touchmove', e=>{
-      if(!inner.contains(e.target)) { e.preventDefault(); return; }
-      const dy      = e.touches[0].clientY - _startY;
-      const atTop   = inner.scrollTop <= 0;
-      const atBot   = inner.scrollTop + inner.clientHeight >= inner.scrollHeight - 1;
-      if((dy > 0 && atTop) || (dy < 0 && atBot)) { e.preventDefault(); }
-    }, {passive:false});
-  })();
 }
 window.openRecipeForItem = openRecipeForItem;
 
