@@ -31,6 +31,14 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 
 ## Sessione 2026-06-25 — cosa è stato fatto
 
+### Toggle Originale / Smart nella sheet ricetta (v351→v355)
+- `recipes.js`: aggiunto toggle **Original / Smart** sopra gli ingredienti nella sheet ricetta
+- In modalità **Smart**: legge `suggested_qty` dal DB (`prep_tasks.suggested_qty`), calcola fattore kg rispetto a `base_weight_g`, scala ingredienti via `scaleToKg()` — funziona anche per ricette senza `servingWeightG` (es. salse in kg)
+- In modalità **Original**: ripristina `base_weight_g` originale e riscala
+- Toggle visibile solo se esiste `suggested_qty` nel DB per quella ricetta
+- Fix scroll iOS sheet ricetta: `overscroll-behavior:contain`, `-webkit-overflow-scrolling:touch`, `mb-6` su close button
+- **BUG APERTO v355**: scroll iOS — una volta arrivati in fondo alla sheet, non si riesce a tornare in cima (non risolto definitivamente)
+
 ### Calendario eventi — nuovo modulo (v350→v355)
 - DB: aggiunte colonne `service_style` (text) e `event_recipes` (jsonb []) alla tabella `events`
 - `calendar.js` riscritta completa:
