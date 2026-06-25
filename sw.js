@@ -38,3 +38,4 @@ self.addEventListener('notificationclick', e => {
     clients.openWindow(e.notification.data?.url || '/back-of-house/')
   );
 });
+
