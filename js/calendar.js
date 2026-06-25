@@ -8,15 +8,57 @@ const CAL_STATUSES = ['confirmed', 'tentative', 'cancelled'];
 let _calEvents = [];
 let _calFilter = 'upcoming';
 
-// ── SHOW CALENDAR (entry point) ──────────────────────────────
-async function showCalendar() {
-  hideAdminMenu();
-  document.querySelectorAll('section[id^="v"]').forEach(s => s.classList.add('hidden'));
-  const sec = document.getElementById('vkal');
-  if (!sec) return;
-  sec.classList.remove('hidden');
-  sec.innerHTML = _calShell();
-  await _calLoad();
+// ── SHOW CALENDAR (entry point) — modale fullscreen ─────────
+function showCalendar() {
+  if (typeof hideAdminMenu === 'function') hideAdminMenu();
+  // Rimuovi eventuale istanza precedente
+  const existing = document.getElementById('calModal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'calModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:150;background:#f0f6ff;display:flex;flex-direction:column;';
+
+  modal.innerHTML = `
+    <!-- Header fisso -->
+    <div id="calHeader" style="flex-shrink:0;background:white;border-bottom:1px solid #e2e8f0;
+         padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top));
+         display:flex;align-items:center;gap:10px;">
+      <button onclick="document.getElementById('calModal').remove()"
+        style="width:34px;height:34px;border-radius:50%;background:#f1f5f9;border:none;
+               font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">←</button>
+      <div style="font-size:17px;font-weight:700;color:#1e3a5f;flex:1;">📅 Events</div>
+      <div style="display:flex;gap:6px;">
+        ${typeof isAdmin === 'function' && isAdmin() ? `
+        <button onclick="openEventEditor()"
+          style="font-size:12px;font-weight:700;color:white;background:#059669;border:none;
+                 border-radius:10px;padding:7px 14px;cursor:pointer;">+ New Event</button>
+        <button onclick="_calSync()"
+          style="font-size:12px;font-weight:600;color:#059669;background:#f0fdf4;
+                 border:1px solid #bbf7d0;border-radius:10px;padding:7px 10px;cursor:pointer;">↻</button>
+        ` : ''}
+      </div>
+    </div>
+    <!-- Filtri fissi -->
+    <div style="flex-shrink:0;background:white;padding:8px 14px 10px;border-bottom:1px solid #f1f5f9;
+                display:flex;gap:6px;">
+      <button onclick="_calSetFilter('upcoming')" id="calF_upcoming"
+        style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:20px;cursor:pointer;
+               border:1.5px solid #059669;background:#059669;color:white;">Upcoming</button>
+      <button onclick="_calSetFilter('past')" id="calF_past"
+        style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:20px;cursor:pointer;
+               border:1.5px solid #e2e8f0;background:white;color:#64748b;">Past</button>
+      <button onclick="_calSetFilter('all')" id="calF_all"
+        style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:20px;cursor:pointer;
+               border:1.5px solid #e2e8f0;background:white;color:#64748b;">All</button>
+    </div>
+    <!-- Lista scrollabile -->
+    <div id="calList" style="flex:1;overflow-y:auto;padding:12px 14px;
+         padding-bottom:calc(24px + env(safe-area-inset-bottom));"></div>
+  `;
+
+  document.body.appendChild(modal);
+  _calLoad();
 }
 
 // ── SHELL HTML ───────────────────────────────────────────────
@@ -322,7 +364,7 @@ function openEventEditor(ev = null) {
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
         <div class="font-semibold" style="color:#1e3a5f;">
           Recipes
-          <span class="text-xs text-slate-400 font-normal ml-1">title · qty · unit · note</span>
+          <span class="text-xs text-slate-400 font-normal ml-1">name · portions · note</span>
         </div>
         <button id="evAddRecipe"
           class="text-xs border border-emerald-200 rounded-lg px-2 py-1"
@@ -386,7 +428,7 @@ function openEventEditor(ev = null) {
         <input placeholder="Recipe name…" class="ev-rec-name w-full px-2 py-2 border rounded-lg text-sm"
           value="${(d.recipe_title || d.name || '').replace(/"/g,'&quot;')}"
           style="border-color:#e2e8f0;">
-        <div class="ev-rec-drop" style="display:none;position:fixed;z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;min-width:220px;"></div>
+        <div class="ev-rec-drop-anchor"></div>
       </div>
       <input placeholder="Portions" type="number" min="0" step="1" class="ev-rec-portions px-2 py-2 border rounded-lg text-sm text-center" value="${d.portions || d.qty || ''}" style="border-color:#e2e8f0;">
       <input placeholder="Note" class="ev-rec-note px-2 py-2 border rounded-lg text-sm" value="${(d.note || '').replace(/"/g,'&quot;')}" style="border-color:#e2e8f0;">
@@ -396,12 +438,33 @@ function openEventEditor(ev = null) {
 
     // Autocomplete ricette
     const nameInput = row.querySelector('.ev-rec-name');
-    const drop = row.querySelector('.ev-rec-drop');
     let _ac = null;
     let _recipeId = d.recipe_id || null;
     let _recipeFc = d.food_cost || null;
     row._getRecipeId = () => _recipeId;
     row._getFoodCost = () => _recipeFc;
+
+    // Dropdown attaccato al body — non viene mai tagliato da overflow
+    const drop = document.createElement('div');
+    drop.className = 'ev-rec-drop-global';
+    drop.style.cssText = 'display:none;position:fixed;z-index:99999;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.18);max-height:220px;overflow-y:auto;min-width:200px;';
+    document.body.appendChild(drop);
+
+    function _positionDrop() {
+      const rect = nameInput.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const dropH = Math.min(220, drop.scrollHeight || 220);
+      if (spaceBelow >= dropH || spaceBelow >= spaceAbove) {
+        drop.style.top = (rect.bottom + 2) + 'px';
+        drop.style.bottom = 'auto';
+      } else {
+        drop.style.top = 'auto';
+        drop.style.bottom = (window.innerHeight - rect.top + 2) + 'px';
+      }
+      drop.style.left = rect.left + 'px';
+      drop.style.width = rect.width + 'px';
+    }
 
     nameInput.addEventListener('input', () => {
       _recipeId = null; _recipeFc = null;
@@ -423,16 +486,12 @@ function openEventEditor(ev = null) {
             data-title="${r.title.replace(/"/g,'&quot;')}"
             data-fc="${r.food_cost_pct || ''}"
             data-price="${r.selling_price || ''}"
-            style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;justify-content:space-between;border-bottom:1px solid #f8fafc;">
-            <span><b>${r.title}</b> <span style="color:#94a3b8;font-size:10px;">${r.menu_group || ''}</span></span>
-            ${r.food_cost_pct ? `<span style="font-size:9px;background:#f0fdf4;color:#059669;padding:1px 5px;border-radius:4px;">${parseFloat(r.food_cost_pct).toFixed(1)}% FC</span>` : ''}
+            style="padding:10px 12px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f8fafc;">
+            <span><b>${r.title}</b> <span style="color:#94a3b8;font-size:11px;">${r.menu_group || ''}</span></span>
+            ${r.food_cost_pct ? `<span style="font-size:10px;background:#f0fdf4;color:#059669;padding:2px 6px;border-radius:5px;">${parseFloat(r.food_cost_pct).toFixed(1)}%</span>` : ''}
           </div>`).join('');
-        // Posiziona il dropdown in fixed rispetto al nameInput
-        const rect = nameInput.getBoundingClientRect();
-        drop.style.top = (rect.bottom + 2) + 'px';
-        drop.style.left = rect.left + 'px';
-        drop.style.width = rect.width + 'px';
         drop.style.display = 'block';
+        _positionDrop();
         drop.querySelectorAll('.ev-ac-opt').forEach(el => {
           el.addEventListener('mousedown', e => {
             e.preventDefault();
@@ -447,7 +506,13 @@ function openEventEditor(ev = null) {
         });
       }, 200);
     });
-    nameInput.addEventListener('blur', () => { setTimeout(() => { drop.style.display = 'none'; }, 160); });
+
+    nameInput.addEventListener('focus', () => { if (drop.innerHTML) { drop.style.display = 'block'; _positionDrop(); } });
+    nameInput.addEventListener('blur', () => { setTimeout(() => { drop.style.display = 'none'; }, 200); });
+
+    // Pulisci dropdown quando la riga viene rimossa
+    const origRemove = row.remove.bind(row);
+    row.remove = () => { drop.remove(); origRemove(); };
 
     recipeList.appendChild(row);
   }
