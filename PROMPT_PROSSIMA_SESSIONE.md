@@ -23,40 +23,39 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 
 ---
 
-## STATO TECNICO (aggiornato 2026-06-24)
-- Frontend: **v350** (sw.js boh-v350)
-- **App in produzione dal 2026-06-24** — brigata attiva
-- souschef-chat: **v25** — 6 azioni nuove aggiunte (add/remove/update_prep_task, add/remove_closing_check, send_brigade_message)
-- bot-tell-chef-reader: **v5**
+## STATO TECNICO (aggiornato 2026-06-25)
+- Frontend: **v355** (sw.js boh-v355)
+- **App in produzione** — brigata attiva
 
-### Sessione 2026-06-24 (pomeriggio) — Calendar manual events v350
-- **`events` table**: aggiunte colonne `service_style` (text) e `event_recipes` (jsonb [])
-- **`calendar.js` v350**: editor eventi stile recipe editor
-  - Campi: nome, data, ora, location (Zenos/La Scuderia/Private Home/+ Add New), ospiti, service style (Al Piatto/Buffet/Family Style/Cocktail), stato, note
-  - Sezione Ricette con autocomplete dal DB, qty + unit + note per ricetta
-  - Food cost stimato (solo admin) calcolato dalle ricette selezionate
-  - Edit/Delete eventi manuali; TripleSeat sync button pronto per quando Monica autorizza
-- **`briefing.js` v350**: upcoming demand in home
-  - Mostra menu (ricette) degli eventi direttamente nella home
-  - Header "Upcoming Demand" cliccabile → apre calendario
-  - Bottone "View all →" in fondo alla lista
-  - Pulsante "+ Add event" visibile solo ad admin
-  - Status badge colored su ogni evento
+---
 
-### Sessione 2026-06-24 — souschef-chat v25: azioni prep e closing
-- Aggiunto `add_prep_task`: aggiunge voce a prep_tasks con need_tomorrow=true di default
-- Aggiunto `remove_prep_task`: archivia prep task (archived=true, non cancella)
-- Aggiunto `update_prep_task`: modifica qty/unit/note/need_tomorrow (campi safe list)
-- Aggiunto `add_closing_check`: aggiunge voce in tabella `checks`
-- Aggiunto `remove_closing_check`: cancella voce da `checks` (delete fisico)
-- Aggiunto `send_brigade_message`: scrive in `messages` a nome di Max
-- fetchContext() ora include PREP TASKS ATTIVE e CLOSING CHECKS con ID
-- SYSTEM_PROMPT aggiornato: stazioni valide + 18 azioni documentate
-- 100 scenari futuri catalogati in BOH_OS_BACKLOG.md
+## Sessione 2026-06-25 — cosa è stato fatto
 
-### DB modifiche sessione 2026-06-24 (mattina — L'Ufficio)
-- `office_items`: +chef_action, +chef_action_at, +chef_action_by, +report_type, +updated_at
-- `chef_reports`: +chef_action, +chef_action_at, +chef_action_by
+### Focus Mode — disabilitata globalmente (v350)
+- `focus-mode.js`: `shouldShowFocusMode()` ritorna `false` immediatamente
+- Motivo: orari 7shifts non allineati con la realtà — i ragazzi erano bloccati sulla prep list e non potevano fare la closing checklist
+- Da riabilitare quando gli orari sono corretti (basta rimuovere `return false`)
+
+### Closing checklist — voci aggiunte al DB
+- **Pasta Station** (8 voci): Pomodoro sauce, Arrabbiata sauce, Preparato per Livornese, Texana soup, Pesto, Cacio e pepe sauce, Demi, Ragù
+- **Salad Station** (2 voci): Shrimp for cocktail, Big bruschetta
+
+### Vendor Documents — da modal a pagina (v351)
+- Rimosso il modal `fixed inset-0 z-[65]` che copriva la topbar
+- Aggiunta sezione `vvdr` nel flusso normale dell'app (topbar + bottom bar sempre visibili)
+- `showVdrSection()` e `vdrBack()` in `app.js`
+- `openVendorDocumentsReview()` ora chiama `showVdrSection()` invece di creare modal
+
+### Chat — fix overlay Focus Mode (v352)
+- `chat.js`: rimozione automatica `_focusChatOverlay` all'avvio e in `showChat()`
+- Risolveva: "Send to team" + doppio bottone send visibili nella chat
+
+### Chat — long press: Modifica + Reaction (v353-354)
+- Long press 500ms su bubble messaggio → menu contestuale iOS-style
+- Propri messaggi: ✏️ Modifica + 😊 Reaction
+- Messaggi altrui: solo 😊 Reaction
+- Modifica: sheet con textarea pre-popolata → UPDATE su `messages` dove `user_name = user.name`
+- `user-select:none` + `webkit-touch-callout:none` sui bubble → no selettori iOS
 
 ---
 
@@ -90,7 +89,13 @@ send_brigade_message, update_ingredient_vendor, block/unblock_*, create_office_i
 
 ---
 
-## 🔴 PRIORITÀ #2 — Cleaning Checklist (nuovo modulo)
+## 🔴 PRIORITÀ #2 — Dropdown autocomplete chat (BUG APERTO)
+- Il dropdown autocomplete nella chat non funziona correttamente
+- Da sistemare nella prossima sessione
+
+---
+
+## 🔴 PRIORITÀ #3 — Cleaning Checklist (nuovo modulo)
 
 Flusso serale: Closing Prep → Operation Note → Cleaning Checklist → Chiudi Shift → notifica Max+David
 - DB: nuove tabelle `cleaning_tasks` e `cleaning_log` (non ancora create)
@@ -98,7 +103,7 @@ Flusso serale: Closing Prep → Operation Note → Cleaning Checklist → Chiudi
 
 ---
 
-## 🔴 PRIORITÀ #3 — Riallineamento stazioni
+## 🔴 PRIORITÀ #4 — Riallineamento stazioni
 
 Stazioni attuali in DB: Fresh Pasta Station, Manager Station, Oven Station, Pasta Station,
 Pastry Station, Plating Station, Salad Station, Saucier Station, Sauté Station, Table Side, Dish Crew
@@ -106,7 +111,7 @@ Da allineare con Max. Manager → Coordinator. Expo Line e Grill da valutare.
 
 ---
 
-## 🟠 PRIORITÀ #4 — Home dedicata Dish Crew (Fase 2)
+## 🟠 PRIORITÀ #5 — Home dedicata Dish Crew (Fase 2)
 
 Detect: `user.default_station === 'Dish Crew'`
 Nascondere: Recipes, Closing, Sales, Ingredienti, Focus Mode, Operation Notes
@@ -117,11 +122,10 @@ Bottom bar: Home / Chat / Schedule / Tell Chef
 ## TODO BACKLOG ALTO PRIORITÀ
 
 - Fix realtime TV — loadChat() troppo pesante, aggiungere solo payload.new
-- Bug UI chat — long press copia non funziona
 - office-ai cron orario (analisi automatica ogni ora)
 - Spostare L'Ufficio nella bottom bar (ora nei tre puntini)
-- Focus Mode test reale — importare CSV 7shifts
-- Foto in chat (v335) — da testare su iPhone
+- Focus Mode — riabilitare quando orari 7shifts allineati
+- Foto in chat — bottone camera presente ma upload da verificare su iPhone
 - TripleSeat — Monica deve fare Authorize
 - Bot 5 versione B — food cost % quando selling_price popolato
 
