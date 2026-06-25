@@ -188,6 +188,7 @@ window.saveEveningNote = async function(){
 
 function doLogin(profile){
   user=profile;
+  window.user=profile; // esposto per tell-chef.js e altri moduli
   if(user.default_station){
     station=user.default_station;
     station2=user.default_station;
