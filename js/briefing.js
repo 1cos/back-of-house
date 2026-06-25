@@ -362,7 +362,7 @@ async function loadUpcomingDemand(){
           recipes.slice(0,3).map(r=>
             '<div style="font-size:11px;color:#475569;padding:1px 0;">• '+
             (r.recipe_title||r.name||'')+
-            (r.qty?' <span style="color:#94a3b8;">'+r.qty+(r.unit?' '+r.unit:'')+'</span>':'')+
+            (r.portions?' <span style="color:#94a3b8;">'+r.portions+' portions</span>':'')+
             '</div>'
           ).join('')+
           (recipes.length>3?'<div style="font-size:10px;color:#94a3b8;">+'+( recipes.length-3)+' more…</div>':'')+
