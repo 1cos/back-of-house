@@ -237,7 +237,7 @@ async function showRecipeSheet(rec){
 
   sheet.onclick = e=>{ if(e.target===sheet) sheet.remove(); };
   document.body.appendChild(sheet);
-  addSwipeToClose(sheet.querySelector('div'), ()=>sheet.remove());
+  addSwipeToClose(sheet.querySelector('div'), ()=>sheet.remove(), 280);
 
   // Edit button — needs rec in closure
   const editBtn = sheet.querySelector('#recipeEditBtn');
