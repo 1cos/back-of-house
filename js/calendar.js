@@ -384,12 +384,13 @@ function openEventEditor(ev = null) {
   function addRecipeRow(d = {}) {
     const row = document.createElement('div');
     row.style.cssText = 'display:grid;grid-template-columns:1fr 70px 90px 32px;gap:4px;align-items:center;margin-bottom:4px;';
+    const dlId = 'ev-dl-' + Math.random().toString(36).slice(2,7);
     row.innerHTML = `
       <div style="position:relative;">
         <input placeholder="Recipe name…" class="ev-rec-name w-full px-2 py-2 border rounded-lg text-sm"
           value="${(d.recipe_title || d.name || '').replace(/"/g,'&quot;')}"
-          style="border-color:#e2e8f0;">
-
+          style="border-color:#e2e8f0;" autocomplete="off" list="${dlId}">
+        <datalist id="${dlId}"></datalist>
       </div>
       <input placeholder="Portions" type="number" min="0" step="1" class="ev-rec-portions px-2 py-2 border rounded-lg text-sm text-center" value="${d.portions || d.qty || ''}" style="border-color:#e2e8f0;">
       <input placeholder="Note" class="ev-rec-note px-2 py-2 border rounded-lg text-sm" value="${(d.note || '').replace(/"/g,'&quot;')}" style="border-color:#e2e8f0;">
@@ -397,87 +398,62 @@ function openEventEditor(ev = null) {
 
     row.querySelector('button').onclick = () => { row.remove(); _calcFoodCost(); };
 
-    // Autocomplete ricette
+    // Autocomplete ricette via datalist nativo + mappa per recuperare FC%
     const nameInput = row.querySelector('.ev-rec-name');
-
-    // Drop attaccato al body, position:fixed, sempre visibile
-    const drop = document.createElement('div');
-    drop.style.cssText = [
-      'display:none',
-      'position:fixed',
-      'z-index:99999',
-      'background:#fff',
-      'border:1px solid #e2e8f0',
-      'border-radius:12px',
-      'box-shadow:0 4px 24px rgba(0,0,0,.18)',
-      'max-height:180px',
-      'overflow-y:auto',
-      'min-width:180px'
-    ].join(';');
-    document.body.appendChild(drop);
+    const datalist  = row.querySelector('datalist');
 
     let _ac = null;
     let _recipeId = d.recipe_id || null;
     let _recipeFc = d.food_cost || null;
+    // Mappa title → {id, food_cost_pct} per recuperare dati quando utente sceglie
+    const _recipeMap = {};
     row._getRecipeId = () => _recipeId;
     row._getFoodCost = () => _recipeFc;
-
-    function _placeDrop() {
-      const r = nameInput.getBoundingClientRect();
-      // Sempre sotto il campo — su iOS con tastiera aperta rect.bottom è corretto
-      drop.style.top  = (r.bottom + 4) + 'px';
-      drop.style.left = r.left + 'px';
-      drop.style.width = r.width + 'px';
-    }
 
     nameInput.addEventListener('input', () => {
       _recipeId = null; _recipeFc = null;
       clearTimeout(_ac);
       const q = nameInput.value.trim();
-      if (q.length < 2) { drop.style.display = 'none'; return; }
+      // Controlla se l'utente ha selezionato un'opzione esatta dalla datalist
+      if (_recipeMap[q]) {
+        _recipeId  = _recipeMap[q].id;
+        _recipeFc  = _recipeMap[q].food_cost_pct;
+        nameInput.style.borderColor = '#10b981';
+        nameInput.style.background  = '#f0fdf4';
+        _calcFoodCost();
+        return;
+      }
+      nameInput.style.borderColor = '#e2e8f0';
+      nameInput.style.background  = '';
+      if (q.length < 2) return;
       _ac = setTimeout(async () => {
         const client = window.supa || window.supabaseClient;
         const { data } = await client
           .from('recipes')
-          .select('id,title,menu_group,food_cost_pct,selling_price')
+          .select('id,title,menu_group,food_cost_pct')
           .ilike('title', `%${q}%`)
           .order('title')
-          .limit(8);
-        if (!data || !data.length) { drop.style.display = 'none'; return; }
-        drop.innerHTML = data.map(r => `
-          <div class="ev-ac-opt"
-            data-id="${r.id}"
-            data-title="${r.title.replace(/"/g,'&quot;')}"
-            data-fc="${r.food_cost_pct || ''}"
-            style="padding:10px 12px;cursor:pointer;font-size:13px;
-                   display:flex;justify-content:space-between;align-items:center;
-                   border-bottom:1px solid #f8fafc;">
-            <span><b>${r.title}</b>
-              <span style="color:#94a3b8;font-size:11px;margin-left:4px;">${r.menu_group || ''}</span>
-            </span>
-            ${r.food_cost_pct ? `<span style="font-size:10px;background:#f0fdf4;color:#059669;padding:2px 6px;border-radius:5px;flex-shrink:0;">${parseFloat(r.food_cost_pct).toFixed(1)}%</span>` : ''}
-          </div>`).join('');
-        _placeDrop();
-        drop.style.display = 'block';
-        drop.querySelectorAll('.ev-ac-opt').forEach(el => {
-          el.addEventListener('mousedown', e => {
-            e.preventDefault();
-            nameInput.value = el.dataset.title;
-            nameInput.style.borderColor = '#10b981';
-            nameInput.style.background = '#f0fdf4';
-            _recipeId = el.dataset.id;
-            _recipeFc = el.dataset.fc ? parseFloat(el.dataset.fc) : null;
-            drop.style.display = 'none';
-            _calcFoodCost();
-          });
-        });
-      }, 200);
+          .limit(10);
+        if (!data || !data.length) return;
+        // Popola datalist nativo
+        datalist.innerHTML = data.map(r => {
+          _recipeMap[r.title] = { id: r.id, food_cost_pct: r.food_cost_pct || null };
+          return `<option value="${r.title.replace(/"/g,'&quot;')}">`;
+        }).join('');
+      }, 250);
     });
-    nameInput.addEventListener('blur', () => { setTimeout(() => { drop.style.display = 'none'; }, 200); });
 
-    // Cleanup quando riga rimossa
-    const _origRemove = row.remove.bind(row);
-    row.remove = () => { drop.remove(); _origRemove(); };
+    // Quando l'utente lascia il campo, verifica se ha scritto un titolo esatto
+    nameInput.addEventListener('change', () => {
+      const v = nameInput.value.trim();
+      if (_recipeMap[v]) {
+        _recipeId  = _recipeMap[v].id;
+        _recipeFc  = _recipeMap[v].food_cost_pct;
+        nameInput.style.borderColor = '#10b981';
+        nameInput.style.background  = '#f0fdf4';
+        _calcFoodCost();
+      }
+    });
 
     recipeList.appendChild(row);
   }
