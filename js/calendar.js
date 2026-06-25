@@ -156,7 +156,7 @@ function _calCard(e) {
         <div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;color:#1e3a5f;">
           <span style="color:#94a3b8;">•</span>
           <span>${r.recipe_title || r.name || ''}</span>
-          ${r.qty ? `<span style="color:#94a3b8;font-size:11px;">— ${r.qty}${r.unit ? ' ' + r.unit : ''}</span>` : ''}
+          ${r.portions ? `<span style="color:#94a3b8;font-size:11px;">— ${r.portions} portions</span>` : ''}
           ${r.note ? `<span style="color:#cbd5e1;font-size:10px;"> (${r.note})</span>` : ''}
         </div>`).join('')}
     </div>`;
@@ -380,18 +380,17 @@ function openEventEditor(ev = null) {
 
   function addRecipeRow(d = {}) {
     const row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:1fr 56px 56px 80px auto;gap:4px;align-items:center;';
+    row.style.cssText = 'display:grid;grid-template-columns:1fr 70px 90px 32px;gap:4px;align-items:center;margin-bottom:4px;';
     row.innerHTML = `
       <div style="position:relative;">
-        <input placeholder="Recipe name…" class="ev-rec-name w-full px-2 py-1.5 border rounded text-xs"
+        <input placeholder="Recipe name…" class="ev-rec-name w-full px-2 py-2 border rounded-lg text-sm"
           value="${(d.recipe_title || d.name || '').replace(/"/g,'&quot;')}"
           style="border-color:#e2e8f0;">
-        <div class="ev-rec-drop" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);max-height:180px;overflow-y:auto;"></div>
+        <div class="ev-rec-drop" style="display:none;position:fixed;z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;min-width:220px;"></div>
       </div>
-      <input placeholder="Qty" type="number" min="0" step="any" class="ev-rec-qty px-2 py-1.5 border rounded text-xs" value="${d.qty || ''}" style="border-color:#e2e8f0;">
-      <input placeholder="Unit" class="ev-rec-unit px-2 py-1.5 border rounded text-xs" value="${d.unit || ''}" style="border-color:#e2e8f0;">
-      <input placeholder="Note" class="ev-rec-note px-2 py-1.5 border rounded text-xs" value="${(d.note || '').replace(/"/g,'&quot;')}" style="border-color:#e2e8f0;">
-      <button class="text-red-400 text-base" style="min-width:32px;min-height:32px;display:flex;align-items:center;justify-content:center;">✕</button>`;
+      <input placeholder="Portions" type="number" min="0" step="1" class="ev-rec-portions px-2 py-2 border rounded-lg text-sm text-center" value="${d.portions || d.qty || ''}" style="border-color:#e2e8f0;">
+      <input placeholder="Note" class="ev-rec-note px-2 py-2 border rounded-lg text-sm" value="${(d.note || '').replace(/"/g,'&quot;')}" style="border-color:#e2e8f0;">
+      <button class="text-red-400" style="min-width:32px;min-height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;background:none;border:none;">✕</button>`;
 
     row.querySelector('button').onclick = () => { row.remove(); _calcFoodCost(); };
 
@@ -428,6 +427,11 @@ function openEventEditor(ev = null) {
             <span><b>${r.title}</b> <span style="color:#94a3b8;font-size:10px;">${r.menu_group || ''}</span></span>
             ${r.food_cost_pct ? `<span style="font-size:9px;background:#f0fdf4;color:#059669;padding:1px 5px;border-radius:4px;">${parseFloat(r.food_cost_pct).toFixed(1)}% FC</span>` : ''}
           </div>`).join('');
+        // Posiziona il dropdown in fixed rispetto al nameInput
+        const rect = nameInput.getBoundingClientRect();
+        drop.style.top = (rect.bottom + 2) + 'px';
+        drop.style.left = rect.left + 'px';
+        drop.style.width = rect.width + 'px';
         drop.style.display = 'block';
         drop.querySelectorAll('.ev-ac-opt').forEach(el => {
           el.addEventListener('mousedown', e => {
@@ -454,10 +458,9 @@ function openEventEditor(ev = null) {
     let totalCost = 0;
     rows.forEach(row => {
       const fc = row._getFoodCost ? row._getFoodCost() : null;
-      const qty = parseFloat(row.querySelector('.ev-rec-qty')?.value) || 0;
-      if (fc && qty) {
-        // FC% applicato alla quantità — stima
-        totalCost += (fc / 100) * qty;
+      const portions = parseFloat(row.querySelector('.ev-rec-portions')?.value) || 0;
+      if (fc && portions) {
+        totalCost += (fc / 100) * portions;
         hasAny = true;
       }
     });
@@ -494,8 +497,7 @@ function openEventEditor(ev = null) {
       .map(row => ({
         recipe_id: row._getRecipeId ? row._getRecipeId() : null,
         recipe_title: row.querySelector('.ev-rec-name')?.value.trim() || '',
-        qty: parseFloat(row.querySelector('.ev-rec-qty')?.value) || null,
-        unit: row.querySelector('.ev-rec-unit')?.value.trim() || '',
+        portions: parseInt(row.querySelector('.ev-rec-portions')?.value) || null,
         note: row.querySelector('.ev-rec-note')?.value.trim() || '',
         food_cost: row._getFoodCost ? row._getFoodCost() : null
       }))
