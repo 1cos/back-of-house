@@ -176,17 +176,33 @@ window.addSwipeToClose = function(panelEl, closeFn, threshold=120){
 
   let startY=0, currentY=0, dragging=false;
 
+  // Traccia se il touch è partito da dentro un elemento scrollabile
+  let _touchInScroll = false;
+
   function onStart(e){
     if(e.touches.length !== 1) return;
     startY = e.touches[0].clientY;
     currentY = 0;
     dragging = true;
     panelEl.style.transition = 'none';
+    // Controlla se il touch è partito dentro un elemento con overflow scroll
+    let el = e.target;
+    _touchInScroll = false;
+    while(el && el !== panelEl){
+      const st = window.getComputedStyle(el);
+      if((st.overflowY === 'auto' || st.overflowY === 'scroll') && el.scrollHeight > el.clientHeight){
+        _touchInScroll = true;
+        break;
+      }
+      el = el.parentElement;
+    }
   }
 
   function onMove(e){
     if(!dragging) return;
     currentY = e.touches[0].clientY - startY;
+    // Se il touch è partito dentro uno scroll, non interferire
+    if(_touchInScroll){ currentY = 0; return; }
     if(currentY < 0){ currentY = 0; return; }
     e.preventDefault(); // blocca scroll background solo quando swipe verso il basso
     panelEl.style.transform = `translateY(${currentY}px)`;
