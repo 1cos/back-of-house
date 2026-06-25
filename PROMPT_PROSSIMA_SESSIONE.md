@@ -24,10 +24,24 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 ---
 
 ## STATO TECNICO (aggiornato 2026-06-24)
-- Frontend: **v343** (sw.js boh-v343)
+- Frontend: **v350** (sw.js boh-v350)
 - **App in produzione dal 2026-06-24** — brigata attiva
 - souschef-chat: **v25** — 6 azioni nuove aggiunte (add/remove/update_prep_task, add/remove_closing_check, send_brigade_message)
 - bot-tell-chef-reader: **v5**
+
+### Sessione 2026-06-24 (pomeriggio) — Calendar manual events v350
+- **`events` table**: aggiunte colonne `service_style` (text) e `event_recipes` (jsonb [])
+- **`calendar.js` v350**: editor eventi stile recipe editor
+  - Campi: nome, data, ora, location (Zenos/La Scuderia/Private Home/+ Add New), ospiti, service style (Al Piatto/Buffet/Family Style/Cocktail), stato, note
+  - Sezione Ricette con autocomplete dal DB, qty + unit + note per ricetta
+  - Food cost stimato (solo admin) calcolato dalle ricette selezionate
+  - Edit/Delete eventi manuali; TripleSeat sync button pronto per quando Monica autorizza
+- **`briefing.js` v350**: upcoming demand in home
+  - Mostra menu (ricette) degli eventi direttamente nella home
+  - Header "Upcoming Demand" cliccabile → apre calendario
+  - Bottone "View all →" in fondo alla lista
+  - Pulsante "+ Add event" visibile solo ad admin
+  - Status badge colored su ogni evento
 
 ### Sessione 2026-06-24 — souschef-chat v25: azioni prep e closing
 - Aggiunto `add_prep_task`: aggiunge voce a prep_tasks con need_tomorrow=true di default
