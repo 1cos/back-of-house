@@ -88,7 +88,7 @@ async function tellChefSend() {
   if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
 
   try {
-    var user = window.currentUser || window.user || {};
+    var user = window.user || {};
     var payload = {
       user_name: user.name || 'Unknown',
       station: user.default_station || user.station || null,
