@@ -198,7 +198,7 @@ async function showRecipeSheet(rec){
     </div>` : '';
 
   sheet.innerHTML = `
-    <div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5 max-h-[85vh] overflow-auto" style="animation:slideUp .25s ease">
+    <div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5 max-h-[85vh] overflow-auto" style="animation:slideUp .25s ease;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:env(safe-area-inset-bottom,24px);">
       <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4"></div>
       <h3 class="text-3xl font-bold mb-2">${rec.title||rec.name||''}</h3>
       <p class="text-base text-slate-500 mb-3">${headerMeta}</p>
@@ -217,7 +217,7 @@ async function showRecipeSheet(rec){
       ${rec.equipment ? `<p class="text-lg font-semibold mb-2">Equipment</p><p class="text-base text-slate-600 mb-4 whitespace-pre-wrap">${rec.equipment}</p>` : ''}
       ${rec.procedure ? `<p class="text-lg font-semibold mb-2">Procedure</p><p class="text-lg text-slate-700 whitespace-pre-wrap mb-5 leading-relaxed">${rec.procedure}</p>` : ''}
       ${isAdmin() ? `<button id="recipeEditBtn" class="w-full mt-2 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm">✏️ Edit Recipe</button>` : ''}
-      <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
+      <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 mb-6 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
     </div>`;
 
   sheet.onclick = e=>{ if(e.target===sheet) sheet.remove(); };
