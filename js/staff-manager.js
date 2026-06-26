@@ -53,7 +53,7 @@ function _staffManagerShell() {
 }
 
 async function _loadStaffList() {
-  const { supabase } = window;
+  const supabase = window.supa;
   const container = document.getElementById('staffList');
   if (!container) return;
 
@@ -117,7 +117,7 @@ async function _openStaffEditor(name) {
   content.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;">'+tr('loading')+'...</div>';
   modal.style.display = 'block';
 
-  const { supabase } = window;
+  const supabase = window.supa;
   const { data: profile } = await supabase.from('staff_profiles').select('*').eq('name', name).single();
   const { data: stations } = await supabase.from('staff_stations').select('*').eq('staff_name', name).order('priority');
 
@@ -251,7 +251,7 @@ function _showAddStationForm(name) {
 }
 
 async function _saveNewStation(name) {
-  const { supabase } = window;
+  const supabase = window.supa;
   const station = document.getElementById(`newStation_${name}`)?.value;
   const shift = document.getElementById(`newShift_${name}`)?.value;
   const priority = parseInt(document.getElementById(`newPriority_${name}`)?.value);
@@ -268,18 +268,18 @@ async function _saveNewStation(name) {
 
 async function _removeStation(id, name) {
   if (!confirm(tr('adminRemoveStation'))) return;
-  const { supabase } = window;
+  const supabase = window.supa;
   await supabase.from('staff_stations').delete().eq('id', id);
   _openStaffEditor(name);
 }
 
 async function _updateStationPriority(id, priority) {
-  const { supabase } = window;
+  const supabase = window.supa;
   await supabase.from('staff_stations').update({ priority: parseInt(priority) }).eq('id', id);
 }
 
 async function _updateStationDefault(id, isDefault, name, shift) {
-  const { supabase } = window;
+  const supabase = window.supa;
   if (isDefault) {
     await supabase.from('staff_stations').update({ is_default: false }).eq('staff_name', name).eq('shift', shift);
   }
@@ -287,7 +287,7 @@ async function _updateStationDefault(id, isDefault, name, shift) {
 }
 
 async function _updateDayConstraint(name, day) {
-  const { supabase } = window;
+  const supabase = window.supa;
   const profile = (await supabase.from('staff_profiles').select('off_days,no_evening_days,only_days').eq('name', name).single()).data;
   if (!profile) return;
 
@@ -307,28 +307,28 @@ async function _updateDayConstraint(name, day) {
 }
 
 async function _updateShiftPref(name, val) {
-  const { supabase } = window;
+  const supabase = window.supa;
   await supabase.from('staff_profiles').update({ shift_preference: val }).eq('name', name);
 }
 
 async function _updateMaxDays(name, val) {
-  const { supabase } = window;
+  const supabase = window.supa;
   await supabase.from('staff_profiles').update({ max_days_per_week: parseInt(val) }).eq('name', name);
 }
 
 async function _updateDoubleShift(name, val) {
-  const { supabase } = window;
+  const supabase = window.supa;
   await supabase.from('staff_profiles').update({ is_double_shift: val }).eq('name', name);
 }
 
 async function _updateNotes(name, val) {
-  const { supabase } = window;
+  const supabase = window.supa;
   await supabase.from('staff_profiles').update({ notes: val }).eq('name', name);
 }
 
 async function _deactivateStaff(name) {
   if (!confirm(`Disattivare ${name}? Il profilo verrà nascosto ma non eliminato.`)) return;
-  const { supabase } = window;
+  const supabase = window.supa;
   await supabase.from('staff_profiles').update({ active: false }).eq('name', name);
   _closeStaffEditor();
 }
@@ -359,7 +359,7 @@ function _showAddStaffModal() {
 }
 
 async function _saveNewStaff() {
-  const { supabase } = window;
+  const supabase = window.supa;
   const name = document.getElementById('newStaffName')?.value?.trim();
   const shift = document.getElementById('newStaffShift')?.value;
   const days = parseInt(document.getElementById('newStaffDays')?.value);
