@@ -275,20 +275,22 @@ window.endWipPress=function(){
 
 async function quickSave(id){
   const it=tasks[id];
-  // usa average_qty o 1 come default
   const qty=it.average_qty||1;
   const unit='kg';
   const container='1/4 pan';
-  const card=document.querySelector(`[onpointerup*="endDonePress('${id}')"]`);
-  if(card){ const parent=card.closest('[style*="border"]'); if(parent) parent.style.opacity='0.5'; }
-  await supa.from('prep_log').insert({item:it.name,station:it.category||'Generale',qty,unit,container,user_name:user.name});
-  await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false}).eq('id',id);
+  // ── Optimistic update: aggiorna UI subito, DB in background ──
   tasks[id].need_tomorrow=false;
   tasks[id].in_progress=false;
-  await loadItemAlerts();
-  await loadStepsMap();
   showConfetti();
-  setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
+  renderM();renderS();renderHomeStations();
+  // DB in background — non blocca la UI
+  Promise.all([
+    supa.from('prep_log').insert({item:it.name,station:it.category||'Generale',qty,unit,container,user_name:user.name}),
+    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false}).eq('id',id)
+  ]).then(()=>{
+    loadItemAlerts();
+    loadStepsMap();
+  }).catch(e=>console.error('quickSave DB error:',e));
 }
 
 function openDoneSheet(id){
