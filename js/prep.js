@@ -287,6 +287,8 @@ async function quickSave(id){
   tasks[id].in_progress=false;
   await loadItemAlerts();
   await loadStepsMap();
+  showConfetti();
+  setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
 }
 
 function openDoneSheet(id){
