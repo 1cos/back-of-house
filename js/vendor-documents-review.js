@@ -5,32 +5,7 @@
 
 window.openVendorDocumentsReview = function() {
   if (!isAdmin()) return;
-
-  const modal = document.createElement('div');
-  modal.id = 'vdrModal';
-  modal.className = 'fixed inset-0 z-[65] flex flex-col';
-  modal.style.cssText = 'background:white;overflow-y:auto;';
-  modal.innerHTML = `
-    <div style="position:sticky;top:0;z-index:10;background:white;border-bottom:1px solid #f1f5f9;padding-top:env(safe-area-inset-top,0px);">
-      <div style="padding:14px 16px;display:flex;align-items:center;gap:10px;">
-        <button onclick="this.closest('#vdrModal').remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
-        <div style="flex:1;">
-          <div style="font-size:15px;font-weight:600;color:#1e293b;">📋 Vendor Documents</div>
-          <div style="font-size:11px;color:#94a3b8;">Pending review</div>
-        </div>
-        <button onclick="vdrLoad()" style="font-size:11px;color:#3B82F6;background:rgba(59,130,246,0.08);border:none;padding:5px 10px;border-radius:8px;cursor:pointer;">↻ Refresh</button>
-      </div>
-      <div id="vdrVendorTabs" style="display:flex;gap:6px;padding:0 16px 12px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;">
-        <button onclick="vdrSetVendor('all')" id="vdrTab-all" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:#1e3a5f;color:white;">All</button>
-      </div>
-    </div>
-    <div style="padding:16px;max-width:640px;width:100%;margin:0 auto;padding-bottom:100px;">
-      <div id="vdrList">
-        <div style="text-align:center;padding:40px 0;color:#94a3b8;font-size:13px;">Loading…</div>
-      </div>
-    </div>`;
-
-  document.body.appendChild(modal);
+  if (typeof showVdrSection === 'function') showVdrSection();
   vdrLoad();
 };
 
@@ -2014,4 +1989,5 @@ function vdrItemEmoji(name) {
   if (/SHRIMP|PRAWN/.test(n)) return '🍤';
   return '📦';
 }
+
 

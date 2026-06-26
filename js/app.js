@@ -188,6 +188,7 @@ window.saveEveningNote = async function(){
 
 function doLogin(profile){
   user=profile;
+  window.user=profile; // esposto per tell-chef.js e altri moduli
   if(user.default_station){
     station=user.default_station;
     station2=user.default_station;
@@ -473,6 +474,8 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   document.getElementById('vr').classList.toggle('hidden',t!=='r');
   document.getElementById('vp').classList.toggle('hidden',t!=='c');
   document.getElementById('vi').classList.toggle('hidden',t!=='i');
+  var vvdr = document.getElementById('vvdr'); if(vvdr) vvdr.classList.add('hidden');
+  var vkal = document.getElementById('vkal'); if(vkal) vkal.classList.add('hidden');
   const vx = document.getElementById('vx');
   if (vx) { vx.classList.toggle('hidden', t!=='x'); if (t==='x') loadPOS(); }
   const vsched = document.getElementById('vsched');
@@ -487,6 +490,60 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   if (scBtn) scBtn.style.display = (t === 'm') ? 'none' : '';
 });
 
+// ── Vendor Documents page navigation ──
+window.showVdrSection = function() {
+  // Hide all sections
+  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.classList.add('hidden');
+  });
+  // Deactivate all tabs
+  document.querySelectorAll('.tab').forEach(function(x){
+    x.classList.remove('tab-active');
+    x.classList.add('text-slate-500');
+    var svg=x.querySelector('svg'); if(svg) svg.style.stroke='';
+    var sp=x.querySelector('.tab-label'); if(sp) sp.style.color='';
+  });
+  var el = document.getElementById('vvdr');
+  if(el) el.classList.remove('hidden');
+  window.scrollTo(0,0);
+};
+
+window.showSection = function(id) {
+  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr'].forEach(function(sid){
+    var el = document.getElementById(sid);
+    if(el) el.classList.add('hidden');
+  });
+  var target = document.getElementById(id);
+  if(target) target.classList.remove('hidden');
+  // Sync bottom bar active state
+  var map = {vh:'h',vm:'m',vs:'s',vp:'c',vi:'i',vx:'x',vsched:'sched'};
+  var t = map[id];
+  if(t){
+    document.querySelectorAll('.tab').forEach(function(x){
+      x.classList.remove('tab-active'); x.classList.add('text-slate-500');
+      var svg=x.querySelector('svg'); if(svg) svg.style.stroke='';
+      var sp=x.querySelector('.tab-label'); if(sp) sp.style.color='';
+    });
+    var activeTab = document.querySelector('.tab[data-t="'+t+'"]');
+    if(activeTab){
+      activeTab.classList.add('tab-active'); activeTab.classList.remove('text-slate-500');
+      var svg=activeTab.querySelector('svg'); if(svg) svg.style.stroke='#059669';
+      var sp=activeTab.querySelector('.tab-label'); if(sp) sp.style.color='#059669';
+    }
+  }
+  window.scrollTo(0,0);
+};
+
+window.vdrBack = function() {
+  var el = document.getElementById('vvdr');
+  if(el) el.classList.add('hidden');
+  // Go back to home
+  document.getElementById('vh').classList.remove('hidden');
+  var homeTab = document.querySelector('.tab[data-t="h"]');
+  if(homeTab) homeTab.click();
+};
+
 // ── Vendor Documents pending badge ──
 async function vdrLoadBadge() {
   const el = document.getElementById('vdrPendingBadge');
@@ -497,17 +554,19 @@ async function vdrLoadBadge() {
     const { count, error } = await sb
       .from('vendor_documents')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'pending');
+      .in('status', ['pending', 'pdf_received']);
     if (error) return;
     if (count === 0) {
       el.textContent = 'Clear';
       el.style.color = '#10b981';
     } else {
-      el.textContent = count + ' Pending';
+      el.textContent = count + ' to review';
       el.style.color = '#f59e0b';
     }
   } catch(e) {}
 }
+
+
 
 
 

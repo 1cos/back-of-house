@@ -49,17 +49,17 @@ function showPushBanner(){
   `;
   banner.innerHTML = `
     <div style="font-size:13px;color:white;line-height:1.4;">
-      🔔 <span style="font-weight:500;">Abilita notifiche</span><br>
-      <span style="opacity:.75;font-size:11px;">Ricevi messaggi anche con app chiusa</span>
+      🔔 <span style="font-weight:500;">${tr('pushTitle')}</span><br>
+      <span style="opacity:.75;font-size:11px;">${tr('pushSub')}</span>
     </div>
     <div style="display:flex;gap:8px;flex-shrink:0;">
       <button onclick="document.getElementById('pushBanner').remove()" 
         style="padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.15);color:white;font-size:12px;border:none;cursor:pointer;">
-        No
+        ${tr('pushNo')}
       </button>
       <button onclick="enablePushFromBanner()" 
         style="padding:6px 12px;border-radius:8px;background:white;color:#1e3a5f;font-size:12px;font-weight:600;border:none;cursor:pointer;">
-        Sì
+        ${tr('pushYes')}
       </button>
     </div>
   `;

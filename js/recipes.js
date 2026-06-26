@@ -4,6 +4,15 @@ const MENU_GROUPS = ['Antipasti','Primi','Secondi','Table Side','Salads','Sides'
 
 async function openRecipeForItem(itemId){
   const task = tasks[itemId];
+
+  // ── STEPS: se la prep ha step sequenziali, espandi inline invece di aprire sheet ──
+  const {data: steps} = await supa.from('prep_steps')
+    .select('*').eq('prep_task_id', itemId).order('sort_order');
+  if(steps && steps.length > 0){
+    togglePrepStepsExpand(itemId, steps);
+    return;
+  }
+
   if(task?.recipe_id){
     const{data:recipe} = await supa.from('recipes').select('*').eq('id',task.recipe_id).maybeSingle();
     if(recipe){ showRecipeSheet(recipe); return; }
@@ -35,6 +44,7 @@ function showNoteSheet(name, note){
   sheet.onclick = e=>{ if(e.target===sheet) sheet.remove(); };
   document.body.appendChild(sheet);
   addSwipeToClose(sheet.querySelector('div'), ()=>sheet.remove());
+
 }
 window.openRecipeForItem = openRecipeForItem;
 
@@ -185,7 +195,7 @@ async function showRecipeSheet(rec){
       <span style="font-size:13px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;">${tr('scaleRecipe')}</span>
       <div style="display:flex;align-items:center;gap:6px;">
         <button id="scaleMinus" style="width:32px;height:32px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">−</button>
-        <input id="scaleServings" type="number" min="1" value="${baseServings||1}" style="width:52px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:5px 6px;font-size:18px;font-weight:700;">
+        <input id="scaleServings" type="number" min="1" value="${baseServings||1}" style="width:68px;text-align:center;border:1px solid #e2e8f0;border-radius:8px;padding:5px 6px;font-size:18px;font-weight:700;">
         <button id="scalePlus" style="width:32px;height:32px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">+</button>
       </div>
       ${servingWeightG ? `
@@ -198,7 +208,7 @@ async function showRecipeSheet(rec){
     </div>` : '';
 
   sheet.innerHTML = `
-    <div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5 max-h-[85vh] overflow-auto" style="animation:slideUp .25s ease">
+    <div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5 max-h-[85vh] overflow-auto" style="animation:slideUp .25s ease;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:env(safe-area-inset-bottom,24px);">
       <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4"></div>
       <h3 class="text-3xl font-bold mb-2">${rec.title||rec.name||''}</h3>
       <p class="text-base text-slate-500 mb-3">${headerMeta}</p>
@@ -208,16 +218,21 @@ async function showRecipeSheet(rec){
       ${rec.image_url ? `<img src="${rec.image_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${rec.photo_url ? `<img src="${rec.photo_url}" class="w-full h-40 object-cover rounded-xl mb-3">` : ''}
       ${scalingUI}
-      ${(rec.ingredients||[]).length ? `<p class="text-lg font-semibold mb-2">${tr("ingredients")}</p><ul id="ingDisplay" class="mb-4" style="padding:0;">${renderIngs(1)}</ul>` : ''}
+      ${(rec.ingredients||[]).length ? `
+      <div id="recipeModeToggle" style="display:flex;gap:0;margin-bottom:12px;border-radius:12px;overflow:hidden;border:1.5px solid #e2e8f0;background:#f8fafc;">
+        <button id="modeOriginal" onclick="setRecipeMode('original')" style="flex:1;padding:9px 0;font-size:13px;font-weight:700;background:#1e293b;color:white;border:none;cursor:pointer;transition:all .2s;">Original</button>
+        <button id="modeSmart" onclick="setRecipeMode('smart')" style="flex:1;padding:9px 0;font-size:13px;font-weight:700;background:transparent;color:#94a3b8;border:none;cursor:pointer;transition:all .2s;">🤖 Smart</button>
+      </div>
+      <p class="text-lg font-semibold mb-2">${tr("ingredients")}</p><ul id="ingDisplay" class="mb-4" style="padding:0;">${renderIngs(1)}</ul>` : ''}
       ${rec.equipment ? `<p class="text-lg font-semibold mb-2">Equipment</p><p class="text-base text-slate-600 mb-4 whitespace-pre-wrap">${rec.equipment}</p>` : ''}
       ${rec.procedure ? `<p class="text-lg font-semibold mb-2">Procedure</p><p class="text-lg text-slate-700 whitespace-pre-wrap mb-5 leading-relaxed">${rec.procedure}</p>` : ''}
       ${isAdmin() ? `<button id="recipeEditBtn" class="w-full mt-2 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm">✏️ Edit Recipe</button>` : ''}
-      <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
+      <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 mb-6 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
     </div>`;
 
   sheet.onclick = e=>{ if(e.target===sheet) sheet.remove(); };
   document.body.appendChild(sheet);
-  addSwipeToClose(sheet.querySelector('div'), ()=>sheet.remove());
+  addSwipeToClose(sheet.querySelector('div'), ()=>sheet.remove(), 280);
 
   // Edit button — needs rec in closure
   const editBtn = sheet.querySelector('#recipeEditBtn');
@@ -227,6 +242,84 @@ async function showRecipeSheet(rec){
 
   if(rec.pos_name) loadRecipeSalesStats(rec, sheet);
   if(!rec.pos_name && rec.base_weight_g) loadRecipePrepStats(rec, sheet);
+
+  // ── ORIGINALE / SMART TOGGLE ──
+  (async function initModeToggle(){
+    const inputWeight = sheet.querySelector('#scaleWeight');
+    const inputServ   = sheet.querySelector('#scaleServings');
+    const btnOrig     = sheet.querySelector('#modeOriginal');
+    const btnSmart    = sheet.querySelector('#modeSmart');
+    if(!btnOrig || !btnSmart) return;
+
+    // baseKg = peso base della ricetta
+    const baseKg = baseWeightG ? (baseWeightG / 1000).toFixed(2).replace(/\.?0+$/, '') : null;
+
+    // Leggi suggested_qty direttamente dal DB — nessun timing issue
+    let smartKg = null;
+    if(rec?.id){
+      try{
+        const {data: ptRows} = await supa.from('prep_tasks')
+          .select('suggested_qty')
+          .eq('recipe_id', rec.id)
+          .not('suggested_qty','is',null)
+          .limit(1);
+        if(ptRows && ptRows.length){
+          const sugG = parseFloat(ptRows[0].suggested_qty);
+          const bwg  = parseFloat(rec.base_weight_g);
+          if(sugG && bwg){
+            // Converti grammi → kg di prodotto finito considerando yield
+            const yieldPct = rec.yield_pct ? parseFloat(rec.yield_pct)/100 : 1;
+            const finishedKg = (sugG / 1000) * yieldPct;
+            smartKg = finishedKg.toFixed(2).replace(/\.?0+$/,'');
+          } else if(sugG){
+            smartKg = (sugG/1000).toFixed(2).replace(/\.?0+$/,'');
+          }
+        }
+      }catch(e){ /* silenzioso */ }
+    }
+
+    // Se non c'è suggested_qty nascondi il toggle
+    if(!smartKg){
+      const toggleEl = sheet.querySelector('#recipeModeToggle');
+      if(toggleEl) toggleEl.style.display = 'none';
+      return;
+    }
+
+    // Scala ingredienti via applyScale passando il fattore rispetto a base_weight_g
+    function scaleToKg(targetKg){
+      const baseG = parseFloat(rec.base_weight_g) || 0;
+      if(!baseG) return;
+      const factor = (targetKg * 1000) / baseG;
+      const ingDisplay = sheet.querySelector('#ingDisplay');
+      const scaleNote  = sheet.querySelector('#scaleNote');
+      if(ingDisplay) ingDisplay.innerHTML = renderIngs(factor);
+      if(scaleNote)  scaleNote.textContent = targetKg + ' kg';
+      if(inputWeight) inputWeight.value = targetKg.toFixed ? targetKg.toFixed(2).replace(/\.?0+$/,'') : targetKg;
+      if(inputServ && servingWeightG){
+        inputServ.value = Math.max(1, Math.round((targetKg*1000)/servingWeightG));
+      }
+    }
+
+    function applyMode(mode){
+      if(mode === 'original'){
+        btnOrig.style.background = '#1e293b';
+        btnOrig.style.color = 'white';
+        btnSmart.style.background = 'transparent';
+        btnSmart.style.color = '#94a3b8';
+        const bkg = parseFloat(baseKg) || parseFloat(rec.base_weight_g)/1000;
+        if(bkg) scaleToKg(bkg);
+        else if(inputServ){ inputServ.value = baseServings||1; inputServ.dispatchEvent(new Event('input')); }
+      } else {
+        btnSmart.style.background = '#059669';
+        btnSmart.style.color = 'white';
+        btnOrig.style.background = 'transparent';
+        btnOrig.style.color = '#94a3b8';
+        scaleToKg(parseFloat(smartKg));
+      }
+    }
+
+    window.setRecipeMode = (mode) => applyMode(mode);
+  })();
 
   // Scaling logic
   if(canScale){
@@ -827,6 +920,7 @@ function openRecipeEditor(rec=null){
         savedId = inserted?.id;
       }
       if(savedId) await saveRecipeBOM(savedId, ingredients);
+      if(savedId) translateAndSaveRecipe(savedId, newRec); // fire-and-forget — non blocca il save
       modal.remove();
       await init();
       renderRecipes();
@@ -1236,6 +1330,29 @@ function compressImage(file, maxPx = 800){
   });
 }
 
+// ── PRE-TRANSLATE recipe on save (EN + ES) ───────────────────
+// Called after every insert/update so translations are ready in DB
+// before any cook opens the recipe. Zero on-demand AI calls needed.
+async function translateAndSaveRecipe(recipeId, rec){
+  if(!recipeId) return;
+  const langs = ['en','es'];
+  for(const lang of langs){
+    try{
+      const translatedProcedure = rec.procedure ? await groqTranslate(rec.procedure, lang) : '';
+      const translatedEquipment = rec.equipment ? await groqTranslate(rec.equipment, lang) : '';
+      await supa.from('recipe_translations').upsert({
+        recipe_id: recipeId,
+        lang,
+        title:     rec.title,   // titolo non si traduce — nome proprio
+        procedure: translatedProcedure,
+        equipment: translatedEquipment,
+      });
+    }catch(e){
+      console.warn('translateAndSaveRecipe failed for lang='+lang, e);
+    }
+  }
+}
+
 async function saveRecipeBOM(recipeId, ingredientRows){
   // Delete existing BOM rows for this recipe
   await supa.from('recipe_bom').delete().eq('parent_recipe_id', recipeId);
@@ -1339,3 +1456,208 @@ function openCreateIngredientModal(prefillName, onCreated){
   };
 }
 
+
+// ── PREP STEPS — espansione inline nella card ──────────────────────────
+
+// Timers attivi: { taskId: { intervalId, endTime, stepId } }
+window._prepStepTimers = window._prepStepTimers || {};
+
+async function togglePrepStepsExpand(taskId, steps){
+  const expandId = 'prep-steps-expand-' + taskId;
+  const existing = document.getElementById(expandId);
+
+  // Se già aperto — chiudi
+  if(existing){ existing.remove(); return; }
+
+  // Chiudi eventuali altri step espansi
+  document.querySelectorAll('[id^="prep-steps-expand-"]').forEach(el=>el.remove());
+
+  // Trova la card della prep task nel DOM
+  const cardSelector = `[onclick*="openRecipeForItem(${JSON.stringify(taskId)})"], [onclick*='openRecipeForItem(${JSON.stringify(taskId)})']`;
+  let card = document.querySelector(cardSelector);
+  if(!card) card = document.querySelector(`[onclick*="${taskId}"]`);
+  const parentCard = card ? card.closest('[style*="border-radius:16px"]') : null;
+  if(!parentCard){ return; }
+
+  // Carica log step di oggi
+  const today = new Date().toISOString().slice(0,10);
+  const {data: logs} = await supa.from('prep_step_log')
+    .select('*').eq('prep_task_id', taskId).eq('log_date', today);
+  const logMap = {}; // stepId → log row
+  (logs||[]).forEach(l=>{ logMap[l.step_id] = l; });
+
+  // Determina step attivo (primo non completato)
+  const activeIdx = steps.findIndex(s => !logMap[s.id]?.completed_at);
+
+  // Crea il pannello espanso
+  const panel = document.createElement('div');
+  panel.id = expandId;
+  panel.style.cssText = 'overflow:hidden;transition:max-height .3s ease;max-height:0;';
+
+  const inner = document.createElement('div');
+  inner.style.cssText = 'padding:8px 14px 12px 14px;border-top:1px solid rgba(0,0,0,0.06);';
+
+  inner.innerHTML = steps.map((s, idx)=>{
+    const log = logMap[s.id];
+    const isDone = !!log?.completed_at;
+    const isActive = idx === activeIdx;
+    const isLocked = !isDone && idx > activeIdx;
+    const timer = window._prepStepTimers[taskId + '_' + s.id];
+
+    let timerHtml = '';
+    if(s.timer_minutes && !isLocked){
+      if(isDone){
+        timerHtml = `<span style="font-size:10px;color:#059669;font-weight:600;">⏱ ${s.timer_minutes}min — completato</span>`;
+      } else if(timer){
+        timerHtml = `<span id="step-timer-${s.id}" style="font-size:11px;color:#f59e0b;font-weight:700;">⏱ --:--</span>`;
+      } else {
+        timerHtml = `<span style="font-size:10px;color:#94a3b8;">⏱ ${s.timer_minutes} min</span>`;
+      }
+    }
+
+    const statusColor = isDone ? '#059669' : isActive ? '#7c3aed' : '#cbd5e1';
+    const bgColor = isDone ? 'rgba(5,150,105,0.06)' : isActive ? 'rgba(124,58,237,0.06)' : 'rgba(0,0,0,0.02)';
+    const opacity = isLocked ? '0.4' : '1';
+    const cursor = isLocked ? 'default' : 'pointer';
+    const isLast = idx === steps.length - 1;
+
+    return `<div data-step-id="${s.id}" data-step-idx="${idx}" data-task-id="${taskId}" data-is-last="${isLast}"
+      style="display:flex;align-items:flex-start;gap:10px;padding:10px 10px;margin-bottom:6px;
+             background:${bgColor};border-radius:12px;border:1.5px solid ${statusColor}22;
+             opacity:${opacity};cursor:${cursor};"
+      onclick="${isLocked ? '' : `handleStepTap(${taskId}, ${s.id}, ${idx}, ${isLast}, ${activeIdx})`}">
+      <div style="width:24px;height:24px;border-radius:50%;border:2px solid ${statusColor};
+                  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+                  background:${isDone?statusColor:'transparent'};font-size:12px;color:${isDone?'#fff':statusColor};font-weight:700;">
+        ${isDone ? '✓' : idx+1}
+      </div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;color:${isDone?'#059669':isActive?'#1e0a3c':'#94a3b8'};
+                    ${isDone?'text-decoration:line-through;text-decoration-color:#05996944;':''}">
+          ${s.title}
+        </div>
+        ${s.note ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px;line-height:1.4;">${s.note}</div>` : ''}
+        ${timerHtml ? `<div style="margin-top:4px;">${timerHtml}</div>` : ''}
+        ${isDone && isLast ? `<button onclick="event.stopPropagation();completePrepWithSteps(${taskId})" 
+          style="margin-top:8px;width:100%;padding:10px;background:#059669;color:#fff;border:none;
+                 border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">
+          ✓ Done — Segna come fatto
+        </button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  panel.appendChild(inner);
+  parentCard.appendChild(panel);
+
+  // Animazione apertura
+  requestAnimationFrame(()=>{
+    panel.style.maxHeight = inner.scrollHeight + 40 + 'px';
+  });
+
+  // Aggiorna timer attivi sul pannello
+  updateStepTimerDisplays(taskId, steps);
+}
+
+window.handleStepTap = async function(taskId, stepId, stepIdx, isLast, activeIdx){
+  if(stepIdx !== activeIdx) return; // solo step attivo è cliccabile
+  const today = new Date().toISOString().slice(0,10);
+
+  // Segna step come completato
+  const {data: existingLog} = await supa.from('prep_step_log')
+    .select('*').eq('step_id', stepId).eq('log_date', today).maybeSingle();
+
+  if(existingLog){
+    await supa.from('prep_step_log').update({
+      completed_by: user?.name,
+      completed_at: new Date().toISOString()
+    }).eq('id', existingLog.id);
+  } else {
+    await supa.from('prep_step_log').insert({
+      prep_task_id: taskId,
+      step_id: stepId,
+      log_date: today,
+      started_by: user?.name,
+      started_at: new Date().toISOString(),
+      completed_by: user?.name,
+      completed_at: new Date().toISOString()
+    });
+  }
+
+  // Avvia timer se configurato
+  const {data: step} = await supa.from('prep_steps').select('*').eq('id', stepId).maybeSingle();
+  if(step?.timer_minutes){
+    startPrepStepTimer(taskId, stepId, step.timer_minutes, step.title);
+  }
+
+  // Ricarica step e riapri pannello aggiornato
+  const {data: steps} = await supa.from('prep_steps')
+    .select('*').eq('prep_task_id', taskId).order('sort_order');
+
+  const expandId = 'prep-steps-expand-' + taskId;
+  const existing = document.getElementById(expandId);
+  if(existing) existing.remove();
+
+  // Se non è l'ultimo step — riapri subito aggiornato; se è l'ultimo mostra Done
+  togglePrepStepsExpand(taskId, steps);
+};
+
+function startPrepStepTimer(taskId, stepId, minutes, stepTitle){
+  const key = taskId + '_' + stepId;
+  if(window._prepStepTimers[key]) return; // già avviato
+
+  const endTime = Date.now() + minutes * 60 * 1000;
+  const intervalId = setInterval(async()=>{
+    const remaining = endTime - Date.now();
+    // Aggiorna display countdown nel pannello
+    const el = document.getElementById('step-timer-' + stepId);
+    if(el){
+      if(remaining > 0){
+        const m = Math.floor(remaining/60000);
+        const s = Math.floor((remaining%60000)/1000);
+        el.textContent = `⏱ ${m}:${s.toString().padStart(2,'0')}`;
+      } else {
+        el.textContent = '⏱ Scaduto!';
+        el.style.color = '#ef4444';
+      }
+    }
+    // Timer scaduto → manda notifica push a tutta la brigata
+    if(remaining <= 0){
+      clearInterval(intervalId);
+      delete window._prepStepTimers[key];
+      await supa.from('prep_step_log').update({timer_fired: true})
+        .eq('step_id', stepId).eq('log_date', new Date().toISOString().slice(0,10));
+      // Push notification globale
+      try{
+        await fetch(`${SUPABASE_URL}/functions/v1/notifications`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+          body: JSON.stringify({
+            title: `⏱ ${stepTitle}`,
+            body: `Timer scaduto — step pronto per il prossimo passaggio`,
+            target: 'all'
+          })
+        });
+      } catch(e){}
+    }
+  }, 1000);
+
+  window._prepStepTimers[key] = { intervalId, endTime, stepId };
+}
+
+function updateStepTimerDisplays(taskId, steps){
+  steps.forEach(s=>{
+    const key = taskId + '_' + s.id;
+    const timer = window._prepStepTimers[key];
+    if(!timer) return;
+    // Il setInterval aggiorna già il display ogni secondo — ok
+  });
+}
+
+window.completePrepWithSteps = async function(taskId){
+  // Apre il Done sheet normale
+  openDoneSheet(taskId);
+  // Chiudi pannello step
+  const panel = document.getElementById('prep-steps-expand-' + taskId);
+  if(panel) panel.remove();
+};

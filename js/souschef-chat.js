@@ -78,6 +78,31 @@ window.openSousChefChat = function() {
   sheet.addEventListener('click', e => { if (e.target === sheet) sheet.remove(); });
   document.body.appendChild(sheet);
   setTimeout(() => document.getElementById('_scChatInput')?.focus(), 300);
+
+  // ── KEYBOARD FIX per Android (Visual Viewport API) ──
+  // Quando la tastiera appare su Android, vh non cambia → input finisce sotto la tastiera.
+  // Visual Viewport API è l'unica soluzione affidabile su Chrome Android.
+  const _scVPHandler = () => {
+    const inner = document.getElementById('_scChatInner');
+    if (!inner) { window.visualViewport?.removeEventListener('resize', _scVPHandler); return; }
+    const vvHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    // Limita il modal all'altezza visibile, con un massimo dell'80% dello schermo fisico
+    inner.style.height = Math.min(vvHeight - 8, window.innerHeight * 0.92) + 'px';
+    // Scrolla ai messaggi più recenti
+    const msgs = document.getElementById('_scChatMsgs');
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  };
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', _scVPHandler);
+    // Cleanup quando il modal viene rimosso
+    const _scObserver = new MutationObserver(() => {
+      if (!document.getElementById('_scChatSheet')) {
+        window.visualViewport.removeEventListener('resize', _scVPHandler);
+        _scObserver.disconnect();
+      }
+    });
+    _scObserver.observe(document.body, { childList: true });
+  }
 };
 
 // ── RENDER MESSAGGIO ──
@@ -143,6 +168,34 @@ function scChatRenderConfirmCard(action, replyText) {
       break;
     case 'create_office_item':
       desc = `Creo nota in L'Ufficio: <b>${action.title}</b>`;
+      break;
+    case 'create_recipe':
+      desc = `Salvo ricetta <b>${action.title}</b>`;
+      if (action.category) desc += `<br><span style="font-size:13px;color:#64748b;">Categoria: ${action.category}</span>`;
+      if (action.base_weight_g) desc += `<br><span style="font-size:13px;color:#64748b;">Yield: ${action.base_weight_g}g</span>`;
+      if (action.ingredients?.length) desc += `<br><span style="font-size:13px;color:#64748b;">${action.ingredients.length} ingredienti</span>`;
+      break;
+    case 'add_prep_task':
+      desc = `Aggiungo <b>${action.name}</b> alla preplist di <b>${action.station}</b>`;
+      if (action.qty) desc += `<br><span style="font-size:13px;color:#64748b;">${action.qty} ${action.unit||''}</span>`;
+      break;
+    case 'remove_prep_task':
+      desc = `Rimuovo prep task ID <b>${action.task_id}</b>`;
+      break;
+    case 'update_prep_task':
+      desc = `Aggiorno prep task ID <b>${action.task_id}</b>`;
+      break;
+    case 'add_closing_check':
+      desc = `Aggiungo alla closing checklist: <b>${action.name}</b>`;
+      break;
+    case 'remove_closing_check':
+      desc = `Rimuovo dalla closing checklist ID <b>${action.check_id}</b>`;
+      break;
+    case 'send_brigade_message':
+      desc = `Mando messaggio in chat: <b>${action.text?.slice(0,60)}${action.text?.length>60?'...':''}</b>`;
+      break;
+    case 'update_ingredient':
+      desc = `Aggiorno ingrediente <b>${action.ingredient_name||action.ingredient_id}</b>`;
       break;
     default:
       desc = `Azione: <b>${action.type}</b>`;
@@ -359,3 +412,4 @@ async function scChatProcess(userText) {
     scChatAddMsg('assistant', '❌ Errore: ' + e.message, { isError: true });
   }
 }
+

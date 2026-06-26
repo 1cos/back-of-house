@@ -1,6 +1,12 @@
 // ── CHAT — Glass Effect Apple ──
 const REACTIONS = ['👍','✅','👀','🔥','❤️','😂','🙏'];
 
+// Pulizia automatica overlay Focus Chat (Focus Mode disabilitato)
+document.addEventListener('DOMContentLoaded', function() {
+  var ov = document.getElementById('_focusChatOverlay');
+  if (ov) ov.remove();
+});
+
 // ── FOTO IN CHAT ─────────────────────────────────────────────
 var _chatPendingImageFile = null;  // file selezionato, in attesa di invio
 
@@ -53,6 +59,10 @@ function _renderChatImg(imageUrl, hasText) {
 var _chatOpenedFromFocus = false;
 
 function showChat(){
+  // Rimuovi sempre l'overlay Focus Chat se esiste (Focus Mode disabilitato)
+  var _existingOverlay = document.getElementById('_focusChatOverlay');
+  if (_existingOverlay) { _existingOverlay.remove(); }
+
   const fm = document.getElementById('focusMode');
   const focusActive = fm && fm.style.display !== 'none';
 
@@ -279,6 +289,12 @@ function addMsg(m,init){
   msgs.appendChild(d);
   msgs.scrollTop=99999;
 
+  // Long press su bubble messaggio
+  if (!isSystem) {
+    var bubble = d.querySelector('div[style*="border-radius"]');
+    if (bubble) attachLongPress(bubble, m.id, m.text || '', me);
+  }
+
   // Traduzione
   if(needs){
     const targetLang=normalizeLang(user?.lang);
@@ -482,4 +498,125 @@ function exportPDF(){
   doc.save('report.pdf');
 }
 
+
+
+
+
+// ── LONG PRESS + EDIT MESSAGGIO ──────────────────────────────
+
+// Menu contestuale su long press
+window.showMsgMenu = function(msgId, msgText, isMine) {
+  var existing = document.getElementById('_msgMenu');
+  if (existing) existing.remove();
+
+  var menu = document.createElement('div');
+  menu.id = '_msgMenu';
+  menu.style.cssText = 'position:fixed;inset:0;z-index:9000;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.3);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);';
+
+  var editBtn = isMine ? `
+    <button onclick="openEditMsg('${msgId}',decodeURIComponent('${encodeURIComponent(msgText)}'));document.getElementById('_msgMenu').remove();"
+      style="width:100%;padding:16px;background:none;border:none;border-bottom:0.5px solid rgba(0,0,0,0.08);font-size:16px;color:#1e293b;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:20px;">✏️</span> Modifica
+    </button>` : '';
+
+  menu.innerHTML = `
+    <div style="background:rgba(255,255,255,0.95);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);border-radius:24px 24px 0 0;width:100%;max-width:480px;padding-bottom:max(16px,env(safe-area-inset-bottom));box-shadow:0 -8px 40px rgba(0,0,0,0.15);">
+      <div style="width:36px;height:4px;background:rgba(0,0,0,0.1);border-radius:2px;margin:12px auto 4px;"></div>
+      ${editBtn}
+      <button onclick="addReaction('${msgId}');document.getElementById('_msgMenu').remove();"
+        style="width:100%;padding:16px;background:none;border:none;font-size:16px;color:#1e293b;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;">
+        <span style="font-size:20px;">😊</span> Reaction
+      </button>
+      <button onclick="document.getElementById('_msgMenu').remove();"
+        style="width:100%;padding:14px;background:none;border:none;border-top:0.5px solid rgba(0,0,0,0.08);font-size:15px;color:#94a3b8;cursor:pointer;">
+        Annulla
+      </button>
+    </div>`;
+
+  menu.onclick = function(e) { if (e.target === menu) menu.remove(); };
+  document.body.appendChild(menu);
+};
+
+// Apri editor inline per modificare messaggio
+window.openEditMsg = function(msgId, currentText) {
+  var existing = document.getElementById('_editMsgSheet');
+  if (existing) existing.remove();
+
+  var sheet = document.createElement('div');
+  sheet.id = '_editMsgSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:9100;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.4);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);';
+  sheet.innerHTML = `
+    <div style="background:rgba(255,255,255,0.97);border-radius:24px 24px 0 0;width:100%;max-width:480px;padding:16px 16px max(24px,env(safe-area-inset-bottom));box-shadow:0 -8px 40px rgba(0,0,0,0.15);">
+      <div style="width:36px;height:4px;background:rgba(0,0,0,0.1);border-radius:2px;margin:0 auto 16px;"></div>
+      <div style="font-size:14px;font-weight:600;color:#64748b;margin-bottom:10px;">✏️ Modifica messaggio</div>
+      <textarea id="_editMsgTxt"
+        style="width:100%;min-height:80px;padding:12px 14px;border-radius:16px;border:1.5px solid #e2e8f0;font-size:15px;line-height:1.5;color:#1e293b;outline:none;resize:none;box-sizing:border-box;font-family:inherit;">${currentText}</textarea>
+      <div style="display:flex;gap:10px;margin-top:12px;">
+        <button onclick="document.getElementById('_editMsgSheet').remove();"
+          style="flex:1;height:48px;border-radius:14px;background:#f1f5f9;border:none;font-size:15px;font-weight:600;color:#64748b;cursor:pointer;">Annulla</button>
+        <button onclick="saveEditMsg('${msgId}')"
+          style="flex:1;height:48px;border-radius:14px;background:#1e3a5f;border:none;font-size:15px;font-weight:600;color:white;cursor:pointer;">Salva</button>
+      </div>
+    </div>`;
+  sheet.onclick = function(e) { if (e.target === sheet) sheet.remove(); };
+  document.body.appendChild(sheet);
+  // Focus e cursore alla fine
+  setTimeout(function() {
+    var ta = document.getElementById('_editMsgTxt');
+    if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = ta.value.length; }
+  }, 100);
+};
+
+// Salva modifica nel DB
+window.saveEditMsg = async function(msgId) {
+  var ta = document.getElementById('_editMsgTxt');
+  if (!ta) return;
+  var newText = ta.value.trim();
+  if (!newText) return;
+  var btn = ta.closest('div').querySelector('button:last-child');
+  if (btn) { btn.textContent = '...'; btn.disabled = true; }
+  try {
+    await supa.from('messages').update({ text: newText }).eq('id', msgId).eq('user_name', user.name);
+    var sheet = document.getElementById('_editMsgSheet');
+    if (sheet) sheet.remove();
+    // Ricarica chat per mostrare il messaggio aggiornato
+    loadChat();
+  } catch(e) {
+    if (btn) { btn.textContent = 'Salva'; btn.disabled = false; }
+  }
+};
+
+// Aggiungi long press a un elemento messaggio
+function attachLongPress(el, msgId, msgText, isMine) {
+  // Previeni selezione testo iOS durante long press
+  el.style.webkitUserSelect = 'none';
+  el.style.userSelect = 'none';
+  el.style.webkitTouchCallout = 'none';
+
+  var pressTimer = null;
+  var moved = false;
+
+  el.addEventListener('touchstart', function(e) {
+    moved = false;
+    pressTimer = setTimeout(function() {
+      if (!moved) {
+        e.preventDefault();
+        showMsgMenu(msgId, msgText, isMine);
+      }
+    }, 500);
+  }, { passive: true });
+
+  el.addEventListener('touchmove', function() {
+    moved = true;
+    clearTimeout(pressTimer);
+  }, { passive: true });
+
+  el.addEventListener('touchend', function() {
+    clearTimeout(pressTimer);
+  }, { passive: true });
+
+  el.addEventListener('touchcancel', function() {
+    clearTimeout(pressTimer);
+  }, { passive: true });
+}
 

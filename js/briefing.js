@@ -324,47 +324,82 @@ async function _loadWeeklyHighlights(el){
 // ── UPCOMING DEMAND — legge tabella events (TripleSeat) ──
 async function loadUpcomingDemand(){
   const el=document.getElementById('upcomingDemand');
-  const widget=el?el.closest('[id]'):null;
-  // Trova il widget padre (homeHighlightsWidget contiene anche questa sezione)
   const section=document.getElementById('upcomingDemandSection');
+  const headerEl=document.getElementById('homeUpcomingLabel');
   if(!el) return;
   try{
     const today=getNowDallas().toLocaleDateString('en-CA');
     const{data}=await supa.from('events')
-      .select('name,event_date,event_time,guest_count,menu_type,location')
+      .select('id,name,event_date,event_time,guest_count,service_style,location,room_name,event_recipes,status')
       .gte('event_date',today)
       .order('event_date',{ascending:true})
       .limit(5);
-    // Se nessun evento: nascondi tutta la sezione
     if(!data||!data.length){
-      // Nascondi il widget padre se esiste come sezione separata
       if(section) section.style.display='none';
       else el.closest('div[style]') && (el.style.display='none');
       return;
     }
-    // Mostra sezione e popola
     if(section) section.style.display='';
     el.style.display='';
+    // Header cliccabile — apre il calendario completo
+    if(headerEl){
+      headerEl.style.cursor='pointer';
+      headerEl.title='View all events';
+      headerEl.onclick=()=>{ if(typeof showCalendar==='function') showCalendar(); };
+    }
+    const isAdm=typeof isAdmin==='function'&&isAdmin();
     el.innerHTML=data.map(e=>{
       const d=new Date(e.event_date+'T12:00:00');
       const dayStr=d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
       const timeStr=e.event_time?e.event_time.slice(0,5):'';
-      return '<div style="display:flex;align-items:flex-start;gap:10px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
-        '<div style="flex-shrink:0;text-align:center;min-width:38px;">'+
+      const loc=e.location||e.room_name||'';
+      const svc=e.service_style||'';
+      const recipes=Array.isArray(e.event_recipes)?e.event_recipes:[];
+      const statusColor={confirmed:'#059669',tentative:'#f59e0b',cancelled:'#ef4444'}[e.status]||'#94a3b8';
+      let recHtml='';
+      if(recipes.length){
+        recHtml='<div style="margin-top:4px;padding-top:4px;border-top:0.5px solid rgba(59,130,246,0.06);">'+
+          recipes.slice(0,3).map(r=>
+            '<div style="font-size:11px;color:#475569;padding:1px 0;">• '+
+            (r.recipe_title||r.name||'')+
+            (r.portions?' <span style="color:#94a3b8;">'+r.portions+' portions</span>':'')+
+            '</div>'
+          ).join('')+
+          (recipes.length>3?'<div style="font-size:10px;color:#94a3b8;">+'+( recipes.length-3)+' more…</div>':'')+
+        '</div>';
+      }
+      return '<div style="padding:6px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);display:flex;gap:10px;">'+
+        '<div style="flex-shrink:0;text-align:center;min-width:34px;">'+
           '<div style="font-size:10px;color:#60a5fa;font-weight:600;">'+dayStr.split(',')[0]+'</div>'+
-          '<div style="font-size:13px;color:#1e3a5f;font-weight:700;">'+d.getDate()+'</div>'+
+          '<div style="font-size:14px;color:#1e3a5f;font-weight:800;">'+d.getDate()+'</div>'+
         '</div>'+
         '<div style="flex:1;">'+
-          '<div style="font-size:13px;color:#1e3a5f;font-weight:500;">'+e.name+'</div>'+
+          '<div style="font-size:13px;color:#1e3a5f;font-weight:600;display:flex;align-items:center;gap:6px;">'+
+            e.name+
+            '<span style="font-size:9px;font-weight:700;color:'+statusColor+';background:'+
+              (e.status==='confirmed'?'#f0fdf4':e.status==='tentative'?'#fffbeb':'#fff5f5')+
+              ';border-radius:4px;padding:1px 5px;">'+
+              (e.status||'').charAt(0).toUpperCase()+(e.status||'').slice(1)+
+            '</span>'+
+          '</div>'+
           '<div style="font-size:11px;color:#93c5fd;margin-top:1px;">'+
             (e.guest_count?e.guest_count+' guests':'')+
-            (e.guest_count&&e.menu_type?' · ':'')+
-            (e.menu_type||'')+
-            (timeStr?' · '+timeStr:'') +
+            (e.guest_count&&(loc||svc||timeStr)?' · ':'')+
+            (loc?loc:'')+(loc&&(svc||timeStr)?' · ':'')+
+            (svc?svc:'')+(svc&&timeStr?' · ':'')+
+            (timeStr?timeStr:'')+
           '</div>'+
+          recHtml+
+          (isAdm?'<div style="margin-top:4px;"><button onclick="openEventEditor()" style="font-size:10px;color:#3b82f6;background:none;border:none;padding:0;cursor:pointer;">+ Add event</button></div>':'')+
         '</div>'+
       '</div>';
-    }).join('');
+    }).join('')+
+    '<div style="text-align:right;padding-top:6px;">'+
+      '<button onclick="showCalendar()" '+
+        'style="font-size:11px;color:#3b82f6;background:none;border:none;cursor:pointer;font-weight:600;">'+
+        'View all →'+
+      '</button>'+
+    '</div>';
   }catch(e){
     el.style.display='none';
   }

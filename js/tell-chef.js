@@ -1,3 +1,5 @@
+SHA: e64fa281d9021edb12c986638f79ac6d1890dbe7
+LINES: 238
 // ── TELL CHEF v2 ── fix: user_name da window.user
 // Canale unidirezionale: cuoco → chef_reports DB → visibile solo a Max + Sous Chef
 // Nessun user puo leggere i report altrui
@@ -39,6 +41,25 @@ function openTellChef() {
   modal.addEventListener('click', function(e) { if (e.target === modal) closeTellChef(); });
   setTimeout(function() { var t = document.getElementById('tellChefText'); if (t) { t.focus(); t.click(); } }, 300);
   loadTellChefHistory();
+
+  // ── KEYBOARD FIX per Android (Visual Viewport API) ──
+  var _tcVPHandler = function() {
+    var sheet = document.getElementById('tellChefSheet');
+    if (!sheet) { window.visualViewport && window.visualViewport.removeEventListener('resize', _tcVPHandler); return; }
+    var vvH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    sheet.style.maxHeight = Math.min(vvH - 8, window.innerHeight * 0.92) + 'px';
+    sheet.style.overflowY = 'auto';
+  };
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', _tcVPHandler);
+    var _tcObs = new MutationObserver(function() {
+      if (!document.getElementById('tellChefModal')) {
+        window.visualViewport.removeEventListener('resize', _tcVPHandler);
+        _tcObs.disconnect();
+      }
+    });
+    _tcObs.observe(document.body, { childList: true });
+  }
 }
 
 
@@ -88,7 +109,7 @@ async function tellChefSend() {
   if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
 
   try {
-    var user = window.currentUser || window.user || {};
+    var user = window.user || {};
     var payload = {
       user_name: user.name || 'Unknown',
       station: user.default_station || user.station || null,
@@ -232,6 +253,7 @@ async function tcSetStatus(id, status, btn) {
     await tcAdminLoad();
   } catch(e) {}
 }
+
 
 
 

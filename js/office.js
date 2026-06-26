@@ -26,8 +26,9 @@ window.officeWriteItem = async function(source, sourceId, fromUser, title, body)
 };
 
 
+// Mappa source → folder. Per tell_chef il folder dipende dal report_type (vedi getFolderForItem)
 var _officeFolderMap = {
-  tell_chef:           'brigata',
+  tell_chef:           'brigata',   // default — override da getFolderForItem
   operation_note:      'brigata',
   ai_scan:             'chefai',
   sous_chef_chat:      'chefai',
@@ -38,6 +39,19 @@ var _officeFolderMap = {
   'bot-recipe-guardian': 'miglioramenti',
   vendor_warning:      'fornitori'
 };
+
+// Ritorna la folder corretta per un item — per tell_chef usa report_type
+function getFolderForItem(item) {
+  if (item.source === 'tell_chef' || item.source === 'bot-tell-chef-reader') {
+    var t = item.report_type || '';
+    if (t === 'PROBLEMA_OPERATIVO' || t === 'GAP_CHECKLIST') return 'prep';
+    if (t === 'CONTRIBUTO_RICETTA' || t === 'FEEDBACK_RICETTA') return 'miglioramenti';
+    if (t === 'SEGNALE_PERSONALE') return 'brigata';
+    // tell_chef senza classificazione ancora → brigata
+    return 'brigata';
+  }
+  return _officeFolderMap[item.source] || 'chefai';
+}
 
 var _officeFolders = [
   { id:'brigata',       icon:'👨‍🍳', label:'La Brigata',    desc:'Tell Chef · Note serali',          ribbon:'#3b82f6', badge:'rgba(59,130,246,0.12)', badgeTxt:'#2563eb' },
@@ -96,7 +110,16 @@ async function officeLoadHome() {
 
   try {
     var res = await sb.from('office_items').select('*').eq('status','open').order('created_at',{ascending:false}).limit(200);
-    var items = res.data || [];
+    var sevenDaysAgo7 = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    var items = (res.data || []).filter(function(i) {
+      // done >7gg sparisce dalla vista
+      if (i.chef_action === 'done' && i.chef_action_at) {
+        return new Date(i.chef_action_at).getTime() > sevenDaysAgo7;
+      }
+      return true;
+    });
+    // Il badge conta solo quelli senza chef_action (non ancora actionati)
+    var unactioned = items.filter(function(i) { return !i.chef_action; });
 
     // Conta per folder
     var counts = {};
@@ -104,7 +127,7 @@ async function officeLoadHome() {
     _officeFolders.forEach(function(f) { counts[f.id] = 0; previews[f.id] = ''; });
 
     items.forEach(function(item) {
-      var folder = _officeFolderMap[item.source] || 'chefai';
+      var folder = getFolderForItem(item);
       counts[folder] = (counts[folder] || 0) + 1;
       if (!previews[folder]) previews[folder] = item.title || '';
     });
@@ -181,10 +204,20 @@ window.officeOpenFolder = async function(folderId) {
     try {
       var res = await sb.from('office_items').select('*').eq('status','open').order('created_at',{ascending:false}).limit(200);
       var all = res.data || [];
+
+      // Regola ciclo di vita: done > 7 giorni sparisce dalla vista
+      var sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      all = all.filter(function(i) {
+        if (i.chef_action === 'done' && i.chef_action_at) {
+          return new Date(i.chef_action_at).getTime() > sevenDaysAgo;
+        }
+        return true;
+      });
+
       if (folderId === 'nonletti') {
         items = all;
       } else {
-        items = all.filter(function(i){ return (_officeFolderMap[i.source]||'chefai') === folderId; });
+        items = all.filter(function(i){ return getFolderForItem(i) === folderId; });
       }
     } catch(e) { console.warn('[Office] folder load error:', e.message); }
   }
@@ -474,6 +507,31 @@ async function officeLoad() {
 
 // ── RENDER SINGOLA CARD ──
 function officeRenderCard(item) {
+  // Se già actionato da Max → render stato finale direttamente dal DB
+  if (item.chef_action === 'done') {
+    var byDone = item.chef_action_by || 'Max';
+    return '<div data-item-id="' + item.id + '" style="background:#f0fdf4;border:0.5px solid rgba(34,197,94,0.2);border-left:3px solid #22c55e;border-radius:16px;margin:0 12px 8px;overflow:hidden;opacity:0.7;">' +
+      '<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;">' +
+        '<div style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>' +
+        '<div style="font-size:14px;font-weight:500;color:#1e3a5f;flex:1;">' + (item.title||'') + '</div>' +
+      '</div>' +
+      '<div style="padding:0 14px 10px;font-size:12px;color:#22c55e;font-weight:700;">✓ Done — ' + byDone + '</div>' +
+    '</div>';
+  }
+  if (item.chef_action === 'working_on_it') {
+    var byWip = item.chef_action_by || 'Max';
+    return '<div data-item-id="' + item.id + '" style="background:#fffbeb;border:0.5px solid rgba(245,158,11,0.3);border-left:3px solid #f59e0b;border-radius:16px;margin:0 12px 8px;overflow:hidden;">' +
+      '<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;">' +
+        '<div style="width:8px;height:8px;border-radius:50%;background:#f59e0b;flex-shrink:0;"></div>' +
+        '<div style="font-size:14px;font-weight:500;color:#1e3a5f;flex:1;">' + (item.title||'') + '</div>' +
+      '</div>' +
+      '<div style="padding:0 14px 6px;font-size:12px;color:#f59e0b;font-weight:700;margin-bottom:4px;">⚙️ Working on it — ' + byWip + '</div>' +
+      '<div style="padding:0 14px 10px;">' +
+        '<button onclick="officeChefAction(this.dataset.id,\'done\')" data-id="' + item.id + '"" style="width:100%;padding:8px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:0.5px solid #22c55e;background:#f0fdf4;color:#15803d;">✓ Mark Done</button>' +
+      '</div>' +
+    '</div>';
+  }
+
   var dotColor = { red: '#ef4444', orange: '#f97316', blue: '#3b82f6' }[item.priority] || '#3b82f6';
   var borderLeft = { red: '3px solid #ef4444', orange: '3px solid #f97316', blue: '3px solid #3b82f6' }[item.priority] || '3px solid #3b82f6';
   var sourceLabels = { tell_chef: 'Tell Chef', operation_note: 'Op. note', ai_scan: 'AI scan', sous_chef_chat: 'Chat AI' };
@@ -506,11 +564,12 @@ function officeRenderCard(item) {
     actionsHtml = '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">';
     options.forEach(function(opt, idx) {
       var isPrimary = idx === options.length - 1;
+      var label = typeof opt === 'string' ? opt : (opt.label || String(opt));
       actionsHtml +=
-        '<button onclick="officeResolve(\'' + item.id + '\',\'' + escOpt(opt.label) + '\')" ' +
+        '<button onclick="officeResolve(\'' + item.id + '\',\'' + escOpt(label) + '\')" ' +
         'style="flex:1;padding:8px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid ' +
         (isPrimary ? '#1e3a5f;background:#1e3a5f;color:white;' : 'rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;') +
-        '">' + opt.label + '</button>';
+        '">' + label + '</button>';
     });
     actionsHtml += '</div>';
   } else {
@@ -701,6 +760,7 @@ window.officeChefAction = async function(id, action) {
             'style="width:100%;padding:10px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid #22c55e;background:#f0fdf4;color:#15803d;">✓ Mark Done</button>' +
         '</div>';
       if (typeof showScToast === 'function') showScToast('⚙️ Working on it');
+      if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
 
     } else if (action === 'done') {
       // Verde, va in fondo visivamente, rimane in lista
@@ -720,6 +780,7 @@ window.officeChefAction = async function(id, action) {
       var parent = card.parentNode;
       if (parent) { parent.removeChild(card); parent.appendChild(card); }
       if (typeof showScToast === 'function') showScToast('✓ Done');
+      if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
     }
 
   } catch(e) {
@@ -734,7 +795,8 @@ window.officeBadgeUpdate = async function() {
   try {
     var res = await sb.from('office_items')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'open');
+      .eq('status', 'open')
+      .is('chef_action', null);
     var count = res.count || 0;
     var badge = document.getElementById('officeMenuBadge');
     if (!badge) return;
