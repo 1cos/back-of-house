@@ -4,7 +4,7 @@
 async function adminAdd(){ openPrepEditor(null); }
 async function adminRename(id){ openPrepEditor(tasks[id]); }
 async function adminDel(id){
-  const choice = confirm('Archivia questa prep? (OK=Archivia, Annulla=Elimina definitivamente)');
+  const choice = confirm(tr('adminArchiveConfirm'));
   if(choice===null) return;
   if(choice){
     await supa.from('prep_tasks').update({archived:true,need_tomorrow:false}).eq('id',id);
@@ -20,7 +20,7 @@ async function adminDel(id){
 
 async function showArchivedPreps(){
   const{data}=await supa.from('prep_tasks').select('*').eq('archived',true).order('name');
-  if(!data||!data.length){alert('Nessuna prep archiviata');return}
+  if(!data||!data.length){alert(tr('adminNoArchived'));return}
   const modal=document.createElement('div');
   modal.className='fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML=`<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[80vh] flex flex-col">
@@ -77,7 +77,7 @@ async function openPrepEditor(prep=null){
   modal.innerHTML = `
     <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col">
       <div class="p-4 border-b flex items-center justify-between">
-        <h3 class="font-bold">${isNew?'Nuova Prep':'Modifica Prep'}</h3>
+        <h3 class="font-bold">${isNew?tr('adminNewPrep'):tr('adminEditPrep')}</h3>
         <button onclick="this.closest('.fixed').remove()" class="text-slate-400 text-xl">✕</button>
       </div>
       <div class="p-4 overflow-auto space-y-3 text-sm flex-1">
@@ -108,7 +108,7 @@ async function openPrepEditor(prep=null){
         </div>
         <div>
           <label class="text-xs font-semibold text-slate-500 mb-1 block">Nota / Procedimento rapido</label>
-          <textarea id="pepNote" class="w-full px-3 py-2.5 border rounded-xl h-24 resize-none" placeholder="Scrivi un procedimento rapido se non hai una ricetta collegata...">${prep?.note||''}</textarea>
+          <textarea id="pepNote" class="w-full px-3 py-2.5 border rounded-xl h-24 resize-none" placeholder="${tr('adminProcedurePlaceholder')}">${prep?.note||''}</textarea>
           <p class="text-[10px] text-slate-400 mt-1">Se colleghi una ricetta, questa nota viene ignorata al tap.</p>
         </div>
         ${!isNew?`<div>
@@ -148,7 +148,7 @@ async function openPrepEditor(prep=null){
     const list = modal.querySelector('#pepStepsList');
     if(!list) return;
     if(!pepSteps.length){
-      list.innerHTML = '<div class="text-xs text-slate-400 text-center py-2">Nessuno step — usa ricetta o nota.</div>';
+      list.innerHTML = '<div class="text-xs text-slate-400 text-center py-2">'+tr('adminNoSteps')+'</div>';
       return;
     }
     list.innerHTML = pepSteps.map((s,idx)=>`
@@ -158,7 +158,7 @@ async function openPrepEditor(prep=null){
           <input class="step-title flex-1 px-2 py-1.5 border rounded-lg text-sm" placeholder="es. Scongela i calamari" value="${s.title||''}">
           <button type="button" class="step-del text-slate-300 text-lg font-bold leading-none">×</button>
         </div>
-        <textarea class="step-note w-full px-2 py-1.5 border rounded-lg text-xs resize-none h-14" placeholder="Nota/spiegazione (opzionale — es. In acqua fredda, pitcher da 5L)">${s.note||''}</textarea>
+        <textarea class="step-note w-full px-2 py-1.5 border rounded-lg text-xs resize-none h-14" placeholder="${tr('adminStepNotePlaceholder')}">${s.note||''}</textarea>
         <div class="flex items-center gap-2">
           <span class="text-xs text-slate-400">⏱ Timer:</span>
           <input class="step-timer w-20 px-2 py-1 border rounded-lg text-sm text-center" type="number" min="1" max="240" placeholder="min" value="${s.timer_minutes||''}">
@@ -210,7 +210,7 @@ async function openPrepEditor(prep=null){
         await supa.from('prep_steps').delete().eq('prep_task_id', prep.id);
         if(pepSteps.length > 0){
           const invalid = pepSteps.find(s=>!s.title.trim());
-          if(invalid){ alert('Ogni step deve avere un titolo.'); btn.disabled=false; btn.textContent='Salva'; return; }
+          if(invalid){ alert('Ogni step deve avere un titolo.'); btn.disabled=false; btn.textContent=tr('saveBtn'); return; }
           const toInsert = pepSteps.map((s,i)=>({
             prep_task_id: prep.id,
             sort_order: i,
@@ -253,8 +253,8 @@ async function openPrepEditor(prep=null){
       await init();
       if(typeof renderRecipes === 'function') renderRecipes();
     }catch(e){
-      alert('Errore: '+e.message);
-      btn.disabled=false; btn.textContent='Salva';
+      alert(tr('errorPrefix') +e.message);
+      btn.disabled=false; btn.textContent=tr('saveBtn');
     }
   };
 }
