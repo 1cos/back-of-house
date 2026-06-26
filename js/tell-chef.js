@@ -2,47 +2,50 @@
 // Canale unidirezionale: cuoco → chef_reports DB → visibile solo a Max + Sous Chef
 // Nessun user puo leggere i report altrui
 
-// ── OPEN MODAL (user) — design chat ──
+// ── OPEN MODAL (user) — design chat, colori app ──
 function openTellChef() {
   var existing = document.getElementById('tellChefModal');
   if (existing) existing.remove();
 
   var modal = document.createElement('div');
   modal.id = 'tellChefModal';
-  modal.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(15,23,42,0.6);display:flex;align-items:flex-end;justify-content:center;';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(15,23,42,0.5);display:flex;align-items:flex-end;justify-content:center;';
 
   var sheet = document.createElement('div');
   sheet.id = 'tellChefSheet';
-  sheet.style.cssText = 'width:100%;max-width:448px;background:#f8fafc;border-radius:24px 24px 0 0;box-shadow:0 -8px 40px rgba(0,0,0,0.2);display:flex;flex-direction:column;height:72vh;';
+  // Colori in linea con la home: sfondo #f0f4f8, card bianche, navy #1e3a5f, blue #3b82f6
+  sheet.style.cssText = 'width:100%;max-width:448px;background:#f0f4f8;border-radius:24px 24px 0 0;box-shadow:0 -8px 40px rgba(30,58,95,0.15);display:flex;flex-direction:column;height:72vh;';
 
-  // HEADER
+  // HEADER — celeste/navy stile topbar app
   var header = document.createElement('div');
-  header.style.cssText = 'flex-shrink:0;padding:14px 16px 10px;background:#1a202c;border-radius:24px 24px 0 0;display:flex;align-items:center;gap:10px;';
+  header.style.cssText = 'flex-shrink:0;padding:14px 16px 12px;background:linear-gradient(135deg,#1e3a5f,#2563eb);border-radius:24px 24px 0 0;display:flex;align-items:center;gap:10px;';
   header.innerHTML =
-    '<div style="width:36px;height:36px;background:#fef3c7;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;">📢</div>' +
-    '<div style="flex:1;"><div style="font-size:15px;font-weight:800;color:#fff;">Tell Chef</div>' +
-    '<div style="font-size:11px;color:#94a3b8;">Solo Chef Max vedrà questo</div></div>' +
-    '<button onclick="closeTellChef()" style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.1);border:none;color:#fff;font-size:16px;cursor:pointer;">✕</button>';
+    '<div style="width:38px;height:38px;background:rgba(255,255,255,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;">📢</div>' +
+    '<div style="flex:1;">' +
+      '<div style="font-size:15px;font-weight:800;color:#fff;">Tell Chef</div>' +
+      '<div id="tcSubtitle" style="font-size:11px;color:#93c5fd;margin-top:1px;"></div>' +
+    '</div>' +
+    '<button onclick="closeTellChef()" style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">✕</button>';
 
-  // MESSAGGI
+  // MESSAGGI scrollabili
   var hist = document.createElement('div');
   hist.id = 'tellChefHistory';
-  hist.style.cssText = 'flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:8px;';
+  hist.style.cssText = 'flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:8px;';
 
-  // INPUT
+  // AREA INPUT fissa in fondo — sfondo bianco, bordi leggeri
   var inputArea = document.createElement('div');
-  inputArea.style.cssText = 'flex-shrink:0;padding:10px 12px 28px;background:#fff;border-top:1px solid #e2e8f0;';
+  inputArea.style.cssText = 'flex-shrink:0;padding:10px 12px 28px;background:#fff;border-top:1px solid #e2e8f0;border-radius:0;';
   inputArea.innerHTML =
-    '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">💡 Tip: use the mic on your keyboard to dictate</div>' +
+    '<div id="tcTip" style="font-size:11px;color:#60a5fa;margin-bottom:8px;"></div>' +
     '<div style="display:flex;gap:8px;align-items:flex-end;">' +
-      '<textarea id="tellChefText" placeholder="Write your note..." ' +
-        'style="flex:1;min-height:44px;max-height:100px;border:2px solid #e2e8f0;border-radius:14px;padding:10px 12px;font-size:15px;font-family:inherit;resize:none;outline:none;color:#1a202c;line-height:1.4;" ' +
-        'onfocus="this.style.borderColor=\'#f59e0b\'" onblur="this.style.borderColor=\'#e2e8f0\'" ' +
+      '<textarea id="tellChefText" ' +
+        'style="flex:1;min-height:44px;max-height:100px;border:2px solid #e2e8f0;border-radius:14px;padding:10px 12px;font-size:15px;font-family:inherit;resize:none;outline:none;color:#1e3a5f;line-height:1.4;background:#f8fafc;" ' +
+        'onfocus="this.style.borderColor=\'#3b82f6\'" onblur="this.style.borderColor=\'#e2e8f0\'" ' +
         'oninput="this.style.height=\'auto\';this.style.height=Math.min(this.scrollHeight,100)+\'px\';"></textarea>' +
       '<button onclick="tellChefSend()" id="tellChefSendBtn" ' +
-        'style="flex-shrink:0;width:48px;height:48px;background:#1a202c;color:#fff;border:none;border-radius:14px;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;">→</button>' +
+        'style="flex-shrink:0;width:48px;height:48px;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;border:none;border-radius:14px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(30,58,95,0.3);">→</button>' +
     '</div>' +
-    '<div id="tellChefStatus" style="margin-top:6px;text-align:center;font-size:12px;color:#94a3b8;min-height:16px;"></div>';
+    '<div id="tellChefStatus" style="margin-top:6px;text-align:center;font-size:12px;color:#60a5fa;min-height:16px;"></div>';
 
   sheet.appendChild(header);
   sheet.appendChild(hist);
@@ -51,7 +54,17 @@ function openTellChef() {
 
   document.body.appendChild(modal);
   modal.addEventListener('click', function(e) { if (e.target === modal) closeTellChef(); });
-  setTimeout(function() { var t = document.getElementById('tellChefText'); if (t) t.focus(); }, 300);
+
+  // Applica traduzioni dopo mount
+  setTimeout(function() {
+    var sub = document.getElementById('tcSubtitle');
+    var tip = document.getElementById('tcTip');
+    var ta  = document.getElementById('tellChefText');
+    if (sub) sub.textContent = tr('tcOnlyMax');
+    if (tip) tip.textContent = tr('tcTipMic');
+    if (ta)  { ta.placeholder = tr('tcWriteNote'); ta.focus(); }
+  }, 50);
+
   loadTellChefHistory();
 
   // ── KEYBOARD FIX per Android (Visual Viewport API) ──
@@ -74,8 +87,6 @@ function openTellChef() {
     _tcObs.observe(document.body, { childList: true });
   }
 }
-
-
 // ── TELL CHEF HISTORY (user) — bolle chat ──
 async function loadTellChefHistory() {
   var el = document.getElementById('tellChefHistory');
@@ -100,7 +111,7 @@ async function loadTellChefHistory() {
     });
 
     if (!rows.length) {
-      el.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:13px;padding:20px 0;">No messages yet — be the first! 👨‍🍳</div>';
+      el.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:13px;padding:20px 0;">' + tr('tcNoMsg') + '</div>';
       return;
     }
 
@@ -110,7 +121,7 @@ async function loadTellChefHistory() {
         d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'America/Chicago'});
       var statusIcon = r.status === 'done' ? ' ✅' : r.status === 'in_progress' ? ' 🔄' : r.status === 'ignored' ? ' —' : '';
       return '<div style="display:flex;justify-content:flex-end;">' +
-        '<div style="max-width:82%;background:#1a202c;color:#fff;border-radius:18px 18px 4px 18px;padding:10px 14px;">' +
+        '<div style="max-width:82%;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;border-radius:18px 18px 4px 18px;padding:10px 14px;">' +
           '<div style="font-size:14px;line-height:1.45;">' + r.message + '</div>' +
           '<div style="font-size:10px;color:#94a3b8;margin-top:5px;text-align:right;">' + timeStr + statusIcon + '</div>' +
         '</div>' +
@@ -168,7 +179,7 @@ async function tellChefSend() {
     if (textEl) { textEl.value = ''; textEl.style.height = 'auto'; }
     var btn2 = document.getElementById('tellChefSendBtn');
     if (btn2) { btn2.disabled = false; btn2.textContent = '→'; }
-    tellChefSetStatus('✅ Sent to Chef!', '#22c55e');
+    tellChefSetStatus(tr('tcSent'), '#22c55e');
     setTimeout(function(){ tellChefSetStatus('', '#94a3b8'); }, 3000);
     // Ricarica la history per mostrare il nuovo messaggio
     await loadTellChefHistory();
