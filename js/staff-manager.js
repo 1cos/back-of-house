@@ -40,7 +40,7 @@ function _staffManagerShell() {
 
       <!-- Lista -->
       <div id="staffList" style="padding:12px 12px 0;">
-        <div style="text-align:center;padding:40px;color:#94a3b8;font-size:13px;">Caricamento...</div>
+        <div style="text-align:center;padding:40px;color:#94a3b8;font-size:13px;">${tr('loading')}...</div>
       </div>
     </div>
 
@@ -77,7 +77,7 @@ async function _loadStaffList() {
     });
 
     if (!profiles || profiles.length === 0) {
-      container.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;font-size:13px;">Nessun profilo trovato</div>';
+      container.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;font-size:13px;">'+tr('adminNoProfile')+'</div>';
       return;
     }
 
@@ -99,13 +99,13 @@ async function _loadStaffList() {
             </div>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
           </div>
-          <div style="margin-top:8px;">${stationPills || '<span style="font-size:10px;color:#94a3b8;">Nessuna stazione</span>'}</div>
+          <div style="margin-top:8px;">${stationPills || '<span style="font-size:10px;color:#94a3b8;">'+tr('adminNoStation')+'</span>'}</div>
         </div>
       `;
     }).join('');
 
   } catch(e) {
-    container.innerHTML = `<div style="padding:20px;color:#ef4444;font-size:13px;">Errore: ${e.message}</div>`;
+    container.innerHTML = `<div style="padding:20px;color:#ef4444;font-size:13px;">${tr('errorPrefix')}${e.message}</div>`;
   }
 }
 
@@ -114,7 +114,7 @@ async function _openStaffEditor(name) {
   const content = document.getElementById('staffEditorContent');
   if (!modal || !content) return;
 
-  content.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;">Caricamento...</div>';
+  content.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;">'+tr('loading')+'...</div>';
   modal.style.display = 'block';
 
   const { supabase } = window;
@@ -201,7 +201,7 @@ async function _openStaffEditor(name) {
       <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.08em;text-transform:uppercase;">Stazioni</div>
       <button onclick="_showAddStationForm('${name}')" style="padding:5px 12px;border-radius:14px;border:none;background:#1e3a5f;color:white;font-size:11px;font-weight:600;cursor:pointer;">+ Aggiungi</button>
     </div>
-    <div id="stationList_${name}">${stationRows || '<div style="font-size:12px;color:#94a3b8;padding:8px;">Nessuna stazione assegnata</div>'}</div>
+    <div id="stationList_${name}">${stationRows || '<div style="font-size:12px;color:#94a3b8;padding:8px;">'+tr('adminNoStationAssigned')+'</div>'}</div>
 
     <!-- Aggiungi stazione form (nascosto) -->
     <div id="addStationForm_${name}" style="display:none;background:#f8fafc;border-radius:10px;padding:12px;margin-top:8px;border:0.5px dashed #cbd5e1;">
@@ -261,13 +261,13 @@ async function _saveNewStation(name) {
     staff_name: name, station, shift, priority, is_default: false
   });
   if (error && !error.message.includes('unique')) {
-    alert('Errore: ' + error.message); return;
+    alert(tr('errorPrefix') + error.message); return;
   }
   _openStaffEditor(name);
 }
 
 async function _removeStation(id, name) {
-  if (!confirm('Rimuovere questa stazione?')) return;
+  if (!confirm(tr('adminRemoveStation'))) return;
   const { supabase } = window;
   await supabase.from('staff_stations').delete().eq('id', id);
   _openStaffEditor(name);
@@ -369,6 +369,6 @@ async function _saveNewStaff() {
     name, shift_preference: shift, max_days_per_week: days,
     off_days: [], no_evening_days: [], only_days: [], is_double_shift: false, active: true
   });
-  if (error) { alert('Errore: ' + error.message); return; }
+  if (error) { alert(tr('errorPrefix') + error.message); return; }
   _openStaffEditor(name);
 }
