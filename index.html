@@ -37,18 +37,20 @@
 </style>
   <style>
     /* ── TYPOGRAPHY & COLOR OVERRIDES ── */
+    /* Base font +1px su tutto il body — richiesta Zuu/staff */
+    body { font-size: 15px; }
     /* Top bar */
-    #app .text-sm { font-size: 14px !important; }
+    #app .text-sm { font-size: 15px !important; }
     /* Brigade title */
-    .app-title { font-size: 17px !important; font-weight: 600 !important; }
+    .app-title { font-size: 18px !important; font-weight: 600 !important; }
     /* Username nel top bar */
-    #who { font-size: 14px !important; font-weight: 500 !important; }
+    #who { font-size: 15px !important; font-weight: 500 !important; }
     /* News bar */
-    #newsBar { font-size: 13px !important; }
-    #newsScroll { font-size: 13px !important; }
+    #newsBar { font-size: 14px !important; }
+    #newsScroll { font-size: 14px !important; }
     /* Widget titles (SERVICE UPDATES, YOUR STATION, etc) */
-    .text-\[11px\] { font-size: 12px !important; }
-    .text-\[10px\] { font-size: 11px !important; }
+    .text-\[11px\] { font-size: 13px !important; }
+    .text-\[10px\] { font-size: 12px !important; }
     /* Tono celeste più scuro — sostituzione variabili colore */
     :root {
       --color-blue-light: #bfdbfe;   /* era #93c5fd */
@@ -60,7 +62,7 @@
     [style*="color:#93c5fd"] { color: #60a5fa !important; }
     [style*="color: #93c5fd"] { color: #60a5fa !important; }
     /* Tab labels */
-    .tab-label { font-size: 11px !important; }
+    .tab-label { font-size: 12px !important; }
     /* Avatar utenti online nel top bar — più grandi */
     #online .online-dot,
     #online img,
@@ -68,7 +70,7 @@
       width: 36px !important;
       height: 36px !important;
       min-width: 36px !important;
-      font-size: 13px !important;
+      font-size: 14px !important;
       border: 2px solid white !important;
     }
     /* Section headers (UPCOMING DEMAND, SERVICE UPDATES...) */
@@ -168,9 +170,9 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       <div onclick="openProfile()" style="display:flex;align-items:center;gap:10px;cursor:pointer;flex-shrink:0;-webkit-tap-highlight-color:transparent;">
         <div id="topbarAvatar" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#1e3a5f,#2563eb);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:white;overflow:hidden;flex-shrink:0;box-shadow:0 3px 8px rgba(30,58,95,0.3);"></div>
         <div style="line-height:1.2;">
-          <div id="topbarGreeting" style="font-size:11px;color:#60a5fa;line-height:1;"></div>
+          <div id="topbarGreeting" style="font-size:12px;color:#60a5fa;line-height:1;"></div>
           <div style="display:flex;align-items:baseline;gap:5px;">
-            <div id="who" style="font-size:16px;font-weight:600;color:#1e3a5f;line-height:1.3;"></div>
+            <div id="who" style="font-size:17px;font-weight:600;color:#1e3a5f;line-height:1.3;"></div>
             <div id="appVersion" style="display:none;"></div>
           </div>
         </div>
@@ -771,6 +773,7 @@ function updateTVButtonState(active) {
 }
 </script>
 </html>
+
 
 
 
