@@ -1199,40 +1199,56 @@ async function loadRecipeSalesStats(rec, sheetEl) {
     // Nessun dato
     if (ferC === 0 && wkC === 0) { el.innerHTML = ''; return; }
 
-    // Media giornaliera e prep consigliata (arrotonda per eccesso)
+    // Media giornaliera (per stima prep today) e totali del periodo
     const ferAvg = ferDays > 0 ? ferC / ferDays : 0;
     const wkAvg  = wkDays  > 0 ? wkC  / wkDays  : 0;
+    const ferTotal = Math.ceil(ferC);
+    const wkTotal  = Math.ceil(wkC);
 
     // Oggi è feriale o weekend?
     const todayDow = today.getDay();
     const isWeekendToday = todayDow === 5 || todayDow === 6;
-    const prepToday = Math.ceil(isWeekendToday ? wkAvg : ferAvg);
+    const baseAvg = isWeekendToday ? wkAvg : ferAvg;
+    const prepSuggested = Math.ceil(baseAvg * 1.15);
 
-    // Render pillole stile Opzione B
+    // Testi localizzati
+    const lang = window.user?.lang || 'en';
+    const portionWord = { it: 'porzioni', en: 'portions', es: 'porciones' }[lang] || 'portions';
+    const fmtTotal = v => v > 0 ? v + ' ' + portionWord : '—';
+
+    // Frase contestuale Chef AI sotto il prep today
+    const refTotal = isWeekendToday ? wkTotal : ferTotal;
+    const refPeriod = isWeekendToday
+      ? { it: 'ven+sab scorsi', en: 'last Fri+Sat', es: 'vie+sáb pasados' }[lang]
+      : { it: 'lun→gio scorsi', en: 'last Mon→Thu', es: 'lun→jue pasados' }[lang];
+    const aiHint = refTotal > 0
+      ? { it: refPeriod + ' ne hai vendute ' + refTotal + ' — tieniti pronto.',
+          en: refPeriod + ' you sold ' + refTotal + ' — stay ready.',
+          es: refPeriod + ' vendiste ' + refTotal + ' — estate listo.' }[lang]
+      : '';
+
+    // Render pillole
     const hasVariants = posNames.length > 1;
-    const withBuffer = v => v > 0 ? Math.ceil(v * 1.15) : 0;
-    const fmt1 = v => v > 0 ? Math.ceil(v) + ' pz' : '—';
-    const fmtPrep = v => v > 0 ? v + ' portions' : '—';
 
     el.innerHTML =
-      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Last week · avg/day' + (hasVariants ? ' · equiv. portions' : '') + '</div>' +
+      '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Last week · total' + (hasVariants ? ' · equiv. portions' : '') + '</div>' +
       '<div style="display:flex;gap:8px;">' +
 
       '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
         '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Mon→Thu</div>' +
-        '<div style="font-size:16px;font-weight:900;color:#6366f1;line-height:1;">' + fmt1(ferAvg) + '</div>' +
+        '<div style="font-size:16px;font-weight:900;color:#6366f1;line-height:1;">' + fmtTotal(ferTotal) + '</div>' +
       '</div>' +
 
       '<div style="flex:1;background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:8px 10px;text-align:center;">' +
         '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Fri+Sat</div>' +
-        '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + fmt1(wkAvg) + '</div>' +
+        '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + fmtTotal(wkTotal) + '</div>' +
       '</div>' +
 
-      (prepToday > 0 ?
+      (prepSuggested > 0 ?
       '<div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:8px 10px;text-align:center;">' +
         '<div style="font-size:9px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Prep today</div>' +
-        '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + fmtPrep(withBuffer(isWeekendToday ? wkAvg : ferAvg)) + '</div>' +
-        '<div style="font-size:8px;color:#059669;margin-top:2px;">+15% buffer</div>' +
+        '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + prepSuggested + ' ' + portionWord + '</div>' +
+        (aiHint ? '<div style="font-size:8px;color:#059669;margin-top:4px;line-height:1.3;">' + aiHint + '</div>' : '') +
       '</div>' : '') +
 
       '</div>';
@@ -1607,3 +1623,4 @@ window.completePrepWithSteps = async function(taskId){
   if(panel) panel.remove();
   openDoneSheet(taskId);
 };
+
