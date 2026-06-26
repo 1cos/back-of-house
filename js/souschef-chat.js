@@ -62,7 +62,7 @@ window.openSousChefChat = function() {
       <!-- Input -->
       <div style="padding:10px 12px 20px;border-top:1px solid #f1f5f9;flex-shrink:0;">
         <div style="display:flex;gap:8px;align-items:flex-end;">
-          <textarea id="_scChatInput" placeholder="Chiedi al Sous Chef..."
+          <textarea id="_scChatInput" placeholder="${tr('askChefPlaceholder')}"
             rows="1"
             style="flex:1;padding:12px 14px;border:2px solid #e2e8f0;border-radius:16px;font-size:16px;line-height:1.4;resize:none;outline:none;max-height:100px;overflow-y:auto;background:#f8fafc;"
             oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px';this.style.borderColor='#3b82f6';"
@@ -188,7 +188,7 @@ function scChatRenderConfirmCard(action, replyText) {
           <div style="font-size:12px;font-weight:700;color:#c2410c;letter-spacing:.05em;margin-bottom:8px;">⚠️ AZIONE DB — CONFERMA RICHIESTA</div>
           <div style="font-size:15px;color:#1e293b;margin-bottom:14px;line-height:1.5;">${desc}</div>
           <div style="display:flex;gap:10px;">
-            <button onclick="scChatConfirm()" style="flex:1;height:48px;border-radius:14px;background:#16a34a;color:white;font-size:16px;font-weight:700;border:none;cursor:pointer;">✅ Sì Chef</button>
+            <button onclick="scChatConfirm()" style="flex:1;height:48px;border-radius:14px;background:#16a34a;color:white;font-size:16px;font-weight:700;border:none;cursor:pointer;">${tr('confirmAction')}</button>
             <button onclick="scChatCancel()" style="flex:1;height:48px;border-radius:14px;background:#f8fafc;color:#64748b;font-size:16px;font-weight:600;border:1px solid #e2e8f0;cursor:pointer;">❌ No</button>
           </div>
         </div>
@@ -237,7 +237,7 @@ window.scChatConfirm = async function() {
   document.getElementById('_scConfirmCard')?.remove();
 
   // Aggiungi "Sì Chef" come messaggio utente
-  scChatAddMsg('user', '✅ Sì Chef');
+  scChatAddMsg('user', '✅ ' + tr('confirmAction'));
 
   // Typing indicator
   const typingId = '_scTyping_' + Date.now();
@@ -280,7 +280,7 @@ window.scChatConfirm = async function() {
 window.scChatCancel = function() {
   _scPendingAction = null;
   document.getElementById('_scConfirmCard')?.remove();
-  scChatAddMsg('assistant', 'Ok Chef, non faccio niente.');
+  scChatAddMsg('assistant', tr('cancelAction') + '.');
 };
 
 // ── INVIA MESSAGGIO ──
