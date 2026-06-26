@@ -32,13 +32,12 @@ function schedShowView(view) {
   schedCurrentView = view;
   var btnOggi = document.getElementById('schedBtnOggi');
   var btnSett = document.getElementById('schedBtnSettimana');
-  if (view === 'oggi') {
-    btnOggi.style.background = '#1e3a5f'; btnOggi.style.color = 'white'; btnOggi.style.border = 'none';
-    btnSett.style.background = 'white'; btnSett.style.color = '#1e3a5f'; btnSett.style.border = '1.5px solid #1e3a5f';
-  } else {
-    btnSett.style.background = '#1e3a5f'; btnSett.style.color = 'white'; btnSett.style.border = 'none';
-    btnOggi.style.background = 'white'; btnOggi.style.color = '#1e3a5f'; btnOggi.style.border = '1.5px solid #1e3a5f';
-  }
+  var btnGen  = document.getElementById('schedBtnGenera');
+  var inactive = 'background:white;color:#1e3a5f;border:1.5px solid #1e3a5f;';
+  var active   = 'background:#1e3a5f;color:white;border:none;';
+  if (btnOggi) btnOggi.style.cssText += (view==='oggi' ? active : inactive);
+  if (btnSett) btnSett.style.cssText += (view==='settimana' ? active : inactive);
+  if (btnGen)  btnGen.style.cssText  += (view==='genera' ? active : inactive);
   schedRender();
 }
 
@@ -306,6 +305,7 @@ function schedCsvSplit(line) {
 function schedRender() {
   var container = document.getElementById('schedContent');
   if (!container) return;
+  if (schedCurrentView === 'genera') { schedRenderGeneratore(container); return; }
   if (schedAllShifts.length === 0) {
     container.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:40px 0;font-size:17px;">' + tr('sched_no_data') + '</div>';
     return;
@@ -664,3 +664,367 @@ document.addEventListener('DOMContentLoaded', function() {
   var btn = document.getElementById('schedSyncBtn');
   if (btn) btn.textContent = tr('sched_import');
 });
+
+// ══════════════════════════════════════════════════════════════
+// SCHEDULE GENERATOR — Brigade auto-schedule da staff_profiles/stations
+// ══════════════════════════════════════════════════════════════
+
+var schedGenExceptions = []; // [{name, from, to}]
+var schedGenResult = null;   // schedule generato
+var schedGenView = 'day';    // 'day' | 'week'
+var schedGenDayIdx = 0;
+
+var SGEN_DAYS_FULL = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+var SGEN_DAYS_IT   = ['Lun','Mar','Mer','Gio','Ven','Sab'];
+
+var SGEN_AM_STATIONS = ['Oven Station','Sauté Station','Pasta Station','Salad Station','Fresh Pasta Station','Saucier Station','Coordinator Station','Dish Crew'];
+var SGEN_PM_STATIONS = ['Oven Station','Pasta Station','Salad Station','Sauté Station','Plating Station','Table Side','Grill & Features','Dish Crew'];
+
+// Candidati ordinati per priorità (aggiornati da DB staff_stations)
+var SGEN_CANDIDATES = {
+  morning: {
+    'Oven Station':          ['Rachel','Genova','Anto','Samantha'],
+    'Sauté Station':         ['Genova','Rachel','Colton','Anto'],
+    'Pasta Station':         ['Chris','Anto','Colton'],
+    'Salad Station':         ['Zuu','Anto','Samantha','Colton'],
+    'Fresh Pasta Station':   ['Todd','Anto','Samantha'],
+    'Saucier Station':       ['Chris','Colton','Anto'],
+    'Coordinator Station':   ['Tela'],
+    'Pastry Station':        ['Todd','Samantha','Anto'],
+    'Dish Crew':             ['__DISH__'],
+  },
+  evening: {
+    'Oven Station':          ['Haley','Genova','Chance'],
+    'Pasta Station':         ['Maddie','Max','Colton','David'],
+    'Salad Station':         ['Preston','Haley','Samantha','David','Colton'],
+    'Sauté Station':         ['Chance','Colton','Genova'],
+    'Plating Station':       ['Sofia','Samantha','Tela','Preston','Genova'],
+    'Table Side':            ['David','Colton'],
+    'Grill & Features':      ['Rachel','Max','Colton','Chance','David'],
+    'Dish Crew':             ['__DISH__'],
+  }
+};
+
+var SGEN_CONSTRAINTS = {
+  Max:      { off:['Monday'],                       noEve:[], only:[], double:false },
+  Anto:     { off:['Monday'],                       noEve:[], only:[], double:false },
+  Colton:   { off:[],                               noEve:['Wednesday'], only:[], double:false },
+  Tela:     { off:[],                               noEve:['Wednesday'], only:[], double:false },
+  Samantha: { off:[],                               noEve:['Wednesday'], only:[], double:false },
+  Rachel:   { off:['Friday','Saturday'],            noEve:[], only:['Monday','Tuesday','Wednesday','Thursday'], double:true },
+  Todd:     { off:['Thursday','Friday','Saturday'], noEve:[], only:['Monday','Tuesday','Wednesday'], double:false },
+  Zuu:      { off:[],                               noEve:[], only:[], double:false },
+  Chris:    { off:[],                               noEve:['Wednesday'], only:[], double:false },
+  Genova:   { off:['Saturday'],                     noEve:[], only:[], double:false },
+  David:    { off:['Tuesday'],                      noEve:[], only:[], double:false },
+  Sofia:    { off:[],                               noEve:[], only:[], double:false },
+  Maddie:   { off:[],                               noEve:['Wednesday'], only:[], double:false },
+  Preston:  { off:[],                               noEve:[], only:[], double:false },
+  Haley:    { off:[],                               noEve:[], only:[], double:false },
+  Chance:   { off:['Tuesday'],                      noEve:[], only:[], double:false },
+};
+
+var SGEN_FIXED = {
+  morning: {
+    'Coordinator Station': 'Tela',
+    'Salad Station':       'Zuu',
+  },
+  evening: {
+    'Table Side':       { Monday:'David', Wednesday:'David', Thursday:'David', Friday:'David', Saturday:'David', Tuesday:'Colton' },
+    'Grill & Features': { Monday:'Rachel', Tuesday:'Rachel', Wednesday:'Rachel', Thursday:'Max', Friday:'Max', Saturday:'Max' },
+    'Pasta Station':    { Wednesday:'Max' },
+  }
+};
+
+// Controlla se persona è disponibile quel giorno/turno (vincoli fissi + eccezioni temporanee)
+function sgenIsAvailable(name, day, shift, weekDates, exceptions) {
+  if (name === '__DISH__') return true;
+  var c = SGEN_CONSTRAINTS[name];
+  if (!c) return true;
+  if (c.off.indexOf(day) >= 0) return false;
+  if (shift === 'evening' && c.noEve.indexOf(day) >= 0) return false;
+  if (c.only.length > 0 && c.only.indexOf(day) < 0) return false;
+  // Eccezioni temporanee settimana
+  var dateStr = weekDates[SGEN_DAYS_FULL.indexOf(day)];
+  if (dateStr) {
+    for (var i = 0; i < exceptions.length; i++) {
+      var ex = exceptions[i];
+      if (ex.name === name && dateStr >= ex.from && dateStr <= ex.to) return false;
+    }
+  }
+  return true;
+}
+
+function sgenResolveFixed(st, shift, day) {
+  var rule = SGEN_FIXED[shift] && SGEN_FIXED[shift][st];
+  if (!rule) return null;
+  if (typeof rule === 'string') return rule;
+  return rule[day] || null;
+}
+
+function sgenGenerate(weekDates, exceptions) {
+  var sched = {};
+  SGEN_DAYS_FULL.forEach(function(day) {
+    var usedAm = {}, usedPm = {}, am = {}, pm = {}, warnings = [];
+
+    // MATTINA
+    var amList = SGEN_AM_STATIONS.slice();
+    if (['Monday','Wednesday','Friday'].indexOf(day) >= 0) amList.push('Pastry Station');
+
+    amList.forEach(function(st) {
+      var fixed = sgenResolveFixed(st, 'morning', day);
+      if (fixed) {
+        if (sgenIsAvailable(fixed, day, 'morning', weekDates, exceptions) && !usedAm[fixed]) {
+          am[st] = { name: fixed }; usedAm[fixed] = true; return;
+        }
+      }
+      var cands = SGEN_CANDIDATES.morning[st] || [];
+      for (var i = 0; i < cands.length; i++) {
+        var name = cands[i];
+        if (name === '__DISH__') { am[st] = { name:'Dish Crew', dish:true }; return; }
+        if (sgenIsAvailable(name, day, 'morning', weekDates, exceptions) && !usedAm[name]) {
+          am[st] = { name: name }; usedAm[name] = true; return;
+        }
+      }
+      am[st] = null;
+      if (st !== 'Pastry Station') warnings.push(st.replace(' Station','') + ' mattina');
+    });
+
+    // SERA
+    SGEN_PM_STATIONS.forEach(function(st) {
+      var fixed = sgenResolveFixed(st, 'evening', day);
+      if (fixed) {
+        if (sgenIsAvailable(fixed, day, 'evening', weekDates, exceptions) && !usedPm[fixed]) {
+          var isDouble = SGEN_CONSTRAINTS[fixed] && SGEN_CONSTRAINTS[fixed].double && usedAm[fixed];
+          pm[st] = { name: fixed, double: !!isDouble }; usedPm[fixed] = true; return;
+        }
+      }
+      var cands = SGEN_CANDIDATES.evening[st] || [];
+      for (var i = 0; i < cands.length; i++) {
+        var name = cands[i];
+        if (name === '__DISH__') { pm[st] = { name:'Dish Crew', dish:true }; return; }
+        if (sgenIsAvailable(name, day, 'evening', weekDates, exceptions) && !usedPm[name]) {
+          var isDouble = SGEN_CONSTRAINTS[name] && SGEN_CONSTRAINTS[name].double && usedAm[name];
+          pm[st] = { name: name, double: !!isDouble }; usedPm[name] = true; return;
+        }
+      }
+      pm[st] = null;
+      warnings.push(st.replace(' Station','') + ' sera');
+    });
+
+    sched[day] = { am: am, pm: pm, warnings: warnings };
+  });
+  return sched;
+}
+
+// ── RENDER PANNELLO ECCEZIONI ─────────────────────────────
+function schedRenderGeneratore(container) {
+  var staffNames = Object.keys(SGEN_CONSTRAINTS).sort();
+
+  // Calcola settimana corrente (lunedì → sabato)
+  var now = new Date();
+  var dow = now.getDay();
+  var monday = new Date(now);
+  monday.setDate(now.getDate() + (dow === 0 ? -6 : 1 - dow));
+  var weekDates = [];
+  for (var i = 0; i < 6; i++) {
+    var d = new Date(monday); d.setDate(monday.getDate() + i);
+    weekDates.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'));
+  }
+  window._sgenWeekDates = weekDates;
+  var weekLabel = monday.toLocaleDateString('it-IT', { day:'numeric', month:'long' });
+
+  var exRows = schedGenExceptions.map(function(ex, idx) {
+    return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;" id="exrow_'+idx+'">' +
+      '<span style="flex:1;font-size:13px;font-weight:600;color:#1e3a5f;">'+escHtml(ex.name)+'</span>' +
+      '<span style="font-size:12px;color:#64748b;">'+ex.from+' → '+ex.to+'</span>' +
+      '<button onclick="sgenRemoveException('+idx+')" style="width:24px;height:24px;border-radius:50%;border:none;background:#fee2e2;color:#ef4444;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">×</button>' +
+    '</div>';
+  }).join('');
+
+  container.innerHTML =
+    '<div style="background:white;border-radius:14px;padding:14px;margin-bottom:12px;border:0.5px solid #e2e8f0;">' +
+      '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:2px;">📅 Genera Schedule</div>' +
+      '<div style="font-size:11px;color:#94a3b8;margin-bottom:12px;">Settimana del '+escHtml(weekLabel)+'</div>' +
+
+      // Eccezioni inserite
+      (exRows ? '<div style="margin-bottom:10px;">'+exRows+'</div>' : '') +
+
+      // Form nuova eccezione
+      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
+        '<select id="sgenName" style="flex:1;min-width:100px;font-size:13px;border:0.5px solid #e2e8f0;border-radius:8px;padding:7px 8px;background:white;color:#1e3a5f;">' +
+          '<option value="">— Persona —</option>' +
+          staffNames.map(function(n){ return '<option>'+escHtml(n)+'</option>'; }).join('') +
+        '</select>' +
+        '<input type="date" id="sgenFrom" value="'+weekDates[0]+'" style="font-size:12px;border:0.5px solid #e2e8f0;border-radius:8px;padding:7px 6px;color:#1e3a5f;width:130px;">' +
+        '<input type="date" id="sgenTo" value="'+weekDates[5]+'" style="font-size:12px;border:0.5px solid #e2e8f0;border-radius:8px;padding:7px 6px;color:#1e3a5f;width:130px;">' +
+        '<button onclick="sgenAddException()" style="padding:7px 12px;border-radius:8px;border:none;background:#f1f5f9;color:#1e3a5f;font-size:12px;font-weight:600;cursor:pointer;">+ Aggiungi</button>' +
+      '</div>' +
+
+      '<button onclick="sgenRunGenerate()" style="width:100%;margin-top:12px;padding:11px;border-radius:10px;border:none;background:#1e3a5f;color:white;font-size:14px;font-weight:700;cursor:pointer;">✦ Genera Schedule</button>' +
+    '</div>' +
+
+    // Risultato
+    '<div id="sgenResult"></div>';
+
+  // Se c'è già un risultato, mostralo subito
+  if (schedGenResult) { sgenRenderResult(); }
+}
+
+function sgenAddException() {
+  var name = document.getElementById('sgenName') && document.getElementById('sgenName').value;
+  var from = document.getElementById('sgenFrom') && document.getElementById('sgenFrom').value;
+  var to   = document.getElementById('sgenTo')   && document.getElementById('sgenTo').value;
+  if (!name || !from || !to) { alert('Seleziona persona e date'); return; }
+  if (from > to) { alert('Data inizio > data fine'); return; }
+  schedGenExceptions.push({ name: name, from: from, to: to });
+  schedRender();
+}
+
+function sgenRemoveException(idx) {
+  schedGenExceptions.splice(idx, 1);
+  schedRender();
+}
+
+function sgenRunGenerate() {
+  var weekDates = window._sgenWeekDates || [];
+  schedGenResult = sgenGenerate(weekDates, schedGenExceptions);
+  schedGenDayIdx = 0;
+  schedGenView = 'day';
+  sgenRenderResult();
+}
+
+function sgenRenderResult() {
+  var container = document.getElementById('sgenResult');
+  if (!container || !schedGenResult) return;
+
+  var weekDates = window._sgenWeekDates || [];
+
+  // Tab day/week
+  container.innerHTML =
+    '<div style="display:flex;gap:6px;margin-bottom:10px;">' +
+      '<button onclick="schedGenView=\'day\';sgenRenderResult()" style="flex:1;padding:7px;border-radius:8px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:'+(schedGenView==='day'?'#1e3a5f':'#f1f5f9')+';color:'+(schedGenView==='day'?'white':'#64748b')+';"> 📆 Giornaliero</button>' +
+      '<button onclick="schedGenView=\'week\';sgenRenderResult()" style="flex:1;padding:7px;border-radius:8px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:'+(schedGenView==='week'?'#1e3a5f':'#f1f5f9')+';color:'+(schedGenView==='week'?'white':'#64748b')+';"> 📊 Settimanale</button>' +
+    '</div>';
+
+  if (schedGenView === 'day') { sgenRenderDay(container, weekDates); }
+  else { sgenRenderWeek(container, weekDates); }
+}
+
+function sgenRenderDay(container, weekDates) {
+  // Day strip
+  var strip = '<div style="display:flex;gap:5px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none;margin-bottom:10px;">';
+  SGEN_DAYS_IT.forEach(function(d, i) {
+    var active = i === schedGenDayIdx;
+    var dateStr = weekDates[i] || '';
+    var dayNum = dateStr ? parseInt(dateStr.split('-')[2], 10) : '';
+    strip += '<div onclick="schedGenDayIdx='+i+';sgenRenderResult()" style="display:flex;flex-direction:column;align-items:center;padding:6px 10px;border-radius:10px;min-width:42px;cursor:pointer;flex-shrink:0;border:0.5px solid '+(active?'#1e3a5f':'#e2e8f0')+';background:'+(active?'#1e3a5f':'white')+';"><span style="font-size:9px;font-weight:700;text-transform:uppercase;color:'+(active?'rgba(255,255,255,0.7)':'#94a3b8')+';">'+d+'</span><span style="font-size:17px;font-weight:700;color:'+(active?'white':'#1e3a5f')+';">'+dayNum+'</span></div>';
+  });
+  strip += '</div>';
+  container.innerHTML += strip;
+
+  var day = SGEN_DAYS_FULL[schedGenDayIdx];
+  var data = schedGenResult[day];
+  if (!data) return;
+
+  var amCount = 0, pmCount = 0;
+  Object.values(data.am).forEach(function(v){ if(v && !v.dish) amCount++; });
+  Object.values(data.pm).forEach(function(v){ if(v && !v.dish) pmCount++; });
+
+  var html = '<div style="display:flex;gap:6px;margin-bottom:10px;">' +
+    '<div style="flex:1;background:white;border:0.5px solid #e2e8f0;border-radius:10px;padding:7px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#3b82f6;">'+amCount+'</div><div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;">Mattina</div></div>' +
+    '<div style="flex:1;background:white;border:0.5px solid #e2e8f0;border-radius:10px;padding:7px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#059669;">'+pmCount+'</div><div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;">Sera</div></div>' +
+    '<div style="flex:1;background:white;border:0.5px solid #e2e8f0;border-radius:10px;padding:7px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#1e3a5f;">'+(amCount+pmCount)+'</div><div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;">Totale</div></div>' +
+  '</div>';
+
+  data.warnings.forEach(function(w){ html += '<div style="background:#fef9c3;border:0.5px solid #fde68a;border-radius:9px;padding:7px 11px;margin-bottom:6px;font-size:11px;color:#92400e;">⚠️ '+escHtml(w)+' — non coperta</div>'; });
+
+  // Mattina
+  html += '<div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin:10px 0 7px;"><span>🌅 Mattina</span><div style="flex:1;height:0.5px;background:#e2e8f0;"></div><span style="font-size:9px;">8:00–14:00</span></div>';
+  Object.entries(data.am).forEach(function(kv) {
+    var st = kv[0], v = kv[1];
+    var stName = st.replace(' Station','');
+    if (!v) {
+      html += '<div style="background:white;border-radius:11px;padding:9px 12px;margin-bottom:5px;display:flex;align-items:center;gap:10px;border:0.5px solid #fecaca;"><div style="width:7px;height:7px;border-radius:50%;background:#ef4444;flex-shrink:0;"></div><div><div style="font-size:13px;font-weight:600;color:#1e3a5f;">'+escHtml(stName)+'</div><div style="font-size:12px;color:#ef4444;font-style:italic;margin-top:1px;">Non coperta</div></div></div>';
+    } else {
+      html += '<div style="background:white;border-radius:11px;padding:9px 12px;margin-bottom:5px;display:flex;align-items:center;gap:10px;border:0.5px solid #e2e8f0;"><div style="width:7px;height:7px;border-radius:50%;background:'+(v.dish?'#94a3b8':'#3b82f6')+';flex-shrink:0;"></div><div><div style="font-size:13px;font-weight:600;color:#1e3a5f;">'+escHtml(stName)+'</div><div style="font-size:12px;color:'+(v.dish?'#94a3b8':'#059669')+';font-weight:500;margin-top:1px;">'+escHtml(v.name)+'</div></div></div>';
+    }
+  });
+
+  // Sera
+  var isWeekend = ['Friday','Saturday'].indexOf(day) >= 0;
+  html += '<div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin:10px 0 7px;"><span>🌆 Sera</span><div style="flex:1;height:0.5px;background:#e2e8f0;"></div><span style="font-size:9px;">'+(isWeekend?'14:00–22:30':'14:00–21:30')+'</span></div>';
+  Object.entries(data.pm).forEach(function(kv) {
+    var st = kv[0], v = kv[1];
+    var stName = st.replace(' Station','');
+    if (!v) {
+      html += '<div style="background:white;border-radius:11px;padding:9px 12px;margin-bottom:5px;display:flex;align-items:center;gap:10px;border:0.5px solid #fecaca;"><div style="width:7px;height:7px;border-radius:50%;background:#ef4444;flex-shrink:0;"></div><div><div style="font-size:13px;font-weight:600;color:#1e3a5f;">'+escHtml(stName)+'</div><div style="font-size:12px;color:#ef4444;font-style:italic;margin-top:1px;">Non coperta</div></div></div>';
+    } else {
+      html += '<div style="background:white;border-radius:11px;padding:9px 12px;margin-bottom:5px;display:flex;align-items:center;gap:10px;border:0.5px solid #e2e8f0;"><div style="width:7px;height:7px;border-radius:50%;background:'+(v.dish?'#94a3b8':'#059669')+';flex-shrink:0;"></div><div><div style="font-size:13px;font-weight:600;color:#1e3a5f;">'+escHtml(stName)+'</div><div style="font-size:12px;color:'+(v.dish?'#94a3b8':'#059669')+';font-weight:500;margin-top:1px;">'+escHtml(v.name)+(v.double?' <span style="font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:5px;padding:1px 4px;margin-left:3px;">2x</span>':'')+'</div></div></div>';
+    }
+  });
+
+  container.innerHTML += html;
+}
+
+function sgenRenderWeek(container, weekDates) {
+  var sched = schedGenResult;
+  var allStations = { morning: [...SGEN_AM_STATIONS, 'Pastry Station'], evening: SGEN_PM_STATIONS };
+  var dayNums = weekDates.map(function(d){ return d ? parseInt(d.split('-')[2],10) : ''; });
+
+  var html = '<div style="overflow-x:auto;scrollbar-width:none;">';
+  html += '<div style="min-width:480px;">';
+
+  // Header
+  html += '<div style="display:grid;grid-template-columns:90px repeat(6,1fr);gap:3px;margin-bottom:4px;">';
+  html += '<div></div>';
+  SGEN_DAYS_IT.forEach(function(d,i){
+    html += '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-align:center;text-transform:uppercase;letter-spacing:0.05em;">'+d+'<br><span style="font-size:9px;color:#cbd5e1;">'+dayNums[i]+'</span></div>';
+  });
+  html += '</div>';
+
+  // Mattina
+  html += '<div style="margin:6px 0 4px;"><span style="font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:white;background:#3b82f6;padding:3px 8px;border-radius:5px;">🌅 MATTINA</span></div>';
+  allStations.morning.forEach(function(st) {
+    var stName = st.replace(' Station','');
+    html += '<div style="display:grid;grid-template-columns:90px repeat(6,1fr);gap:3px;margin-bottom:3px;">';
+    html += '<div style="font-size:10px;font-weight:600;color:#1e3a5f;display:flex;align-items:center;padding:0 3px;line-height:1.2;">'+escHtml(stName)+'</div>';
+    SGEN_DAYS_FULL.forEach(function(day) {
+      if (st === 'Pastry Station' && ['Monday','Wednesday','Friday'].indexOf(day) < 0) {
+        html += '<div style="background:#f8fafc;border-radius:5px;padding:3px 2px;text-align:center;font-size:9px;color:#cbd5e1;border:0.5px solid #f1f5f9;min-height:24px;display:flex;align-items:center;justify-content:center;">—</div>';
+        return;
+      }
+      var v = sched[day] && sched[day].am[st];
+      if (!v) {
+        html += '<div style="background:#fef2f2;border-radius:5px;padding:3px 2px;text-align:center;font-size:9px;color:#ef4444;border:0.5px solid #fecaca;min-height:24px;display:flex;align-items:center;justify-content:center;">?</div>';
+      } else if (v.dish) {
+        html += '<div style="background:#f0f9ff;border-radius:5px;padding:3px 2px;text-align:center;font-size:9px;color:#0ea5e9;border:0.5px solid #e0f2fe;min-height:24px;display:flex;align-items:center;justify-content:center;">Dish</div>';
+      } else {
+        html += '<div style="background:white;border-radius:5px;padding:3px 2px;text-align:center;font-size:10px;font-weight:600;color:#1e3a5f;border:0.5px solid #e2e8f0;min-height:24px;display:flex;align-items:center;justify-content:center;">'+escHtml(v.name)+'</div>';
+      }
+    });
+    html += '</div>';
+  });
+
+  // Sera
+  html += '<div style="margin:10px 0 4px;"><span style="font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:white;background:#059669;padding:3px 8px;border-radius:5px;">🌆 SERA</span></div>';
+  allStations.evening.forEach(function(st) {
+    var stName = st.replace(' Station','');
+    html += '<div style="display:grid;grid-template-columns:90px repeat(6,1fr);gap:3px;margin-bottom:3px;">';
+    html += '<div style="font-size:10px;font-weight:600;color:#1e3a5f;display:flex;align-items:center;padding:0 3px;line-height:1.2;">'+escHtml(stName)+'</div>';
+    SGEN_DAYS_FULL.forEach(function(day) {
+      var v = sched[day] && sched[day].pm[st];
+      if (!v) {
+        html += '<div style="background:#fef2f2;border-radius:5px;padding:3px 2px;text-align:center;font-size:9px;color:#ef4444;border:0.5px solid #fecaca;min-height:24px;display:flex;align-items:center;justify-content:center;">?</div>';
+      } else if (v.dish) {
+        html += '<div style="background:#f0f9ff;border-radius:5px;padding:3px 2px;text-align:center;font-size:9px;color:#0ea5e9;border:0.5px solid #e0f2fe;min-height:24px;display:flex;align-items:center;justify-content:center;">Dish</div>';
+      } else {
+        html += '<div style="background:'+(v.double?'#fefce8':'white')+';border-radius:5px;padding:3px 2px;text-align:center;font-size:10px;font-weight:600;color:'+(v.double?'#92400e':'#1e3a5f')+';border:0.5px solid '+(v.double?'#fde68a':'#e2e8f0')+';min-height:24px;display:flex;align-items:center;justify-content:center;">'+escHtml(v.name)+(v.double?' 🔄':'')+'</div>';
+      }
+    });
+    html += '</div>';
+  });
+
+  html += '</div></div>';
+  container.innerHTML += html;
+}
