@@ -2,7 +2,7 @@
 // Canale unidirezionale: cuoco → chef_reports DB → visibile solo a Max + Sous Chef
 // Nessun user puo leggere i report altrui
 
-// ── OPEN MODAL (user) ──
+// ── OPEN MODAL (user) — design chat ──
 function openTellChef() {
   var existing = document.getElementById('tellChefModal');
   if (existing) existing.remove();
@@ -11,38 +11,72 @@ function openTellChef() {
   modal.id = 'tellChefModal';
   modal.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(15,23,42,0.6);display:flex;align-items:flex-end;justify-content:center;';
 
-  modal.innerHTML =
-    '<div id="tellChefSheet" style="width:100%;max-width:448px;background:#fff;border-radius:24px 24px 0 0;padding:20px 16px 40px;box-shadow:0 -8px 40px rgba(0,0,0,0.2);">' +
-      '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;"></div>' +
-      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">' +
-        '<div style="width:40px;height:40px;background:#fef3c7;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;">📢</div>' +
-        '<div>' +
-          '<div style="font-size:16px;font-weight:800;color:#1a202c;">Tell Chef</div>' +
-          '<div style="font-size:12px;color:#94a3b8;">Only Chef Max will see this</div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">💡 Tip: use the mic on your keyboard to dictate</div>' +
-      '<textarea id="tellChefText" placeholder="Write your note, suggestion or report..." ' +
-        'style="width:100%;min-height:120px;border:2px solid #e2e8f0;border-radius:14px;padding:12px 14px;font-size:15px;font-family:inherit;resize:none;outline:none;color:#1a202c;line-height:1.5;" ' +
-        'onfocus="this.style.borderColor=\'#f59e0b\'" onblur="this.style.borderColor=\'#e2e8f0\'"></textarea>' +
-      '<div style="display:flex;gap:10px;margin-top:12px;">' +
-        '<button onclick="tellChefSend()" ' +
-          'style="flex:1;height:48px;background:#1a202c;color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:800;cursor:pointer;letter-spacing:0.02em;">Send to Chef →</button>' +
-        '<button onclick="closeTellChef()" ' +
-          'style="flex:0 0 48px;height:48px;border:2px solid #e2e8f0;border-radius:14px;background:#f8fafc;font-size:20px;cursor:pointer;">✕</button>' +
-      '</div>' +
-      '<div id="tellChefStatus" style="margin-top:10px;text-align:center;font-size:13px;color:#94a3b8;min-height:20px;"></div>' +
-      '<div id="tellChefHistory" style="margin-top:16px;"></div>' +
-    '</div>';
+  var sheet = document.createElement('div');
+  sheet.id = 'tellChefSheet';
+  sheet.style.cssText = 'width:100%;max-width:448px;background:#f8fafc;border-radius:24px 24px 0 0;box-shadow:0 -8px 40px rgba(0,0,0,0.2);display:flex;flex-direction:column;height:72vh;';
+
+  // HEADER
+  var header = document.createElement('div');
+  header.style.cssText = 'flex-shrink:0;padding:14px 16px 10px;background:#1a202c;border-radius:24px 24px 0 0;display:flex;align-items:center;gap:10px;';
+  header.innerHTML =
+    '<div style="width:36px;height:36px;background:#fef3c7;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;">📢</div>' +
+    '<div style="flex:1;"><div style="font-size:15px;font-weight:800;color:#fff;">Tell Chef</div>' +
+    '<div style="font-size:11px;color:#94a3b8;">Solo Chef Max vedrà questo</div></div>' +
+    '<button onclick="closeTellChef()" style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.1);border:none;color:#fff;font-size:16px;cursor:pointer;">✕</button>';
+
+  // MESSAGGI
+  var hist = document.createElement('div');
+  hist.id = 'tellChefHistory';
+  hist.style.cssText = 'flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:8px;';
+
+  // INPUT
+  var inputArea = document.createElement('div');
+  inputArea.style.cssText = 'flex-shrink:0;padding:10px 12px 28px;background:#fff;border-top:1px solid #e2e8f0;';
+  inputArea.innerHTML =
+    '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">💡 Tip: use the mic on your keyboard to dictate</div>' +
+    '<div style="display:flex;gap:8px;align-items:flex-end;">' +
+      '<textarea id="tellChefText" placeholder="Write your note..." ' +
+        'style="flex:1;min-height:44px;max-height:100px;border:2px solid #e2e8f0;border-radius:14px;padding:10px 12px;font-size:15px;font-family:inherit;resize:none;outline:none;color:#1a202c;line-height:1.4;" ' +
+        'onfocus="this.style.borderColor=\'#f59e0b\'" onblur="this.style.borderColor=\'#e2e8f0\'" ' +
+        'oninput="this.style.height=\'auto\';this.style.height=Math.min(this.scrollHeight,100)+\'px\';"></textarea>' +
+      '<button onclick="tellChefSend()" id="tellChefSendBtn" ' +
+        'style="flex-shrink:0;width:48px;height:48px;background:#1a202c;color:#fff;border:none;border-radius:14px;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;">→</button>' +
+    '</div>' +
+    '<div id="tellChefStatus" style="margin-top:6px;text-align:center;font-size:12px;color:#94a3b8;min-height:16px;"></div>';
+
+  sheet.appendChild(header);
+  sheet.appendChild(hist);
+  sheet.appendChild(inputArea);
+  modal.appendChild(sheet);
 
   document.body.appendChild(modal);
   modal.addEventListener('click', function(e) { if (e.target === modal) closeTellChef(); });
-  setTimeout(function() { var t = document.getElementById('tellChefText'); if (t) { t.focus(); t.click(); } }, 300);
+  setTimeout(function() { var t = document.getElementById('tellChefText'); if (t) t.focus(); }, 300);
   loadTellChefHistory();
+
+  // ── KEYBOARD FIX per Android (Visual Viewport API) ──
+  var _tcVPHandler = function() {
+    var s = document.getElementById('tellChefSheet');
+    if (!s) { window.visualViewport && window.visualViewport.removeEventListener('resize', _tcVPHandler); return; }
+    var vvH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    s.style.height = Math.min(vvH - 8, window.innerHeight * 0.92) + 'px';
+    var h = document.getElementById('tellChefHistory');
+    if (h) h.scrollTop = h.scrollHeight;
+  };
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', _tcVPHandler);
+    var _tcObs = new MutationObserver(function() {
+      if (!document.getElementById('tellChefModal')) {
+        window.visualViewport.removeEventListener('resize', _tcVPHandler);
+        _tcObs.disconnect();
+      }
+    });
+    _tcObs.observe(document.body, { childList: true });
+  }
 }
 
 
-// ── TELL CHEF HISTORY (user) ──
+// ── TELL CHEF HISTORY (user) — bolle chat ──
 async function loadTellChefHistory() {
   var el = document.getElementById('tellChefHistory');
   if (!el) return;
@@ -50,13 +84,13 @@ async function loadTellChefHistory() {
   if (!u.name) return;
   try {
     var res = await window.supa.from('chef_reports')
-      .select('message,created_at')
+      .select('message,created_at,status')
       .eq('user_name', u.name)
-      .order('created_at', { ascending: false })
-      .limit(20);
+      .order('created_at', { ascending: true })
+      .limit(30);
     var rows = res.data || [];
-    if (!rows.length) return;
-    // Deduplica per messaggio + data (protezione anti-duplicati DB)
+
+    // Deduplica
     var seen = {};
     rows = rows.filter(function(r) {
       var key = r.message + '|' + r.created_at;
@@ -64,19 +98,29 @@ async function loadTellChefHistory() {
       seen[key] = true;
       return true;
     });
-    el.innerHTML =
-      '<div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.06em;margin-bottom:8px;">YOUR PREVIOUS MESSAGES</div>' +
-      rows.map(function(r) {
-        var d = new Date(r.created_at);
-        var dateStr = d.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Chicago'});
-        return '<div style="padding:10px 12px;background:#f8fafc;border-radius:10px;margin-bottom:6px;">' +
-          '<div style="font-size:10px;color:#94a3b8;margin-bottom:3px;">' + dateStr + '</div>' +
-          '<div style="font-size:13px;color:#475569;line-height:1.4;">' + r.message + '</div>' +
-          '</div>';
-      }).join('');
+
+    if (!rows.length) {
+      el.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:13px;padding:20px 0;">No messages yet — be the first! 👨‍🍳</div>';
+      return;
+    }
+
+    el.innerHTML = rows.map(function(r) {
+      var d = new Date(r.created_at);
+      var timeStr = d.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Chicago'}) + ' ' +
+        d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'America/Chicago'});
+      var statusIcon = r.status === 'done' ? ' ✅' : r.status === 'in_progress' ? ' 🔄' : r.status === 'ignored' ? ' —' : '';
+      return '<div style="display:flex;justify-content:flex-end;">' +
+        '<div style="max-width:82%;background:#1a202c;color:#fff;border-radius:18px 18px 4px 18px;padding:10px 14px;">' +
+          '<div style="font-size:14px;line-height:1.45;">' + r.message + '</div>' +
+          '<div style="font-size:10px;color:#94a3b8;margin-top:5px;text-align:right;">' + timeStr + statusIcon + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    // Scrolla in fondo
+    el.scrollTop = el.scrollHeight;
   } catch(e) {}
 }
-
 function closeTellChef() {
   var m = document.getElementById('tellChefModal');
   if (m) m.remove();
@@ -95,8 +139,8 @@ async function tellChefSend() {
   }
 
   _tcSending = true;
-  var btn = document.querySelector('#tellChefSheet button[onclick="tellChefSend()"]');
-  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  var btn = document.getElementById('tellChefSendBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
 
   try {
     var user = window.user || {};
@@ -119,21 +163,20 @@ async function tellChefSend() {
       officeWriteItem('tell_chef', reportId, userName, titleLabel, text);
     }
 
-    // Success
-    var sheet = document.getElementById('tellChefSheet');
-    if (sheet) {
-      sheet.innerHTML =
-        '<div style="text-align:center;padding:40px 20px;">' +
-          '<div style="font-size:48px;margin-bottom:12px;">✅</div>' +
-          '<div style="font-size:18px;font-weight:800;color:#1a202c;margin-bottom:6px;">Sent to Chef</div>' +
-          '<div style="font-size:13px;color:#94a3b8;">Chef Max will see your message</div>' +
-        '</div>';
-    }
-    setTimeout(function(){ _tcSending = false; closeTellChef(); }, 2000);
+    // Success — aggiungi bolla in chat e resetta input (non chiudere il modal)
+    var textEl = document.getElementById('tellChefText');
+    if (textEl) { textEl.value = ''; textEl.style.height = 'auto'; }
+    var btn2 = document.getElementById('tellChefSendBtn');
+    if (btn2) { btn2.disabled = false; btn2.textContent = '→'; }
+    tellChefSetStatus('✅ Sent to Chef!', '#22c55e');
+    setTimeout(function(){ tellChefSetStatus('', '#94a3b8'); }, 3000);
+    // Ricarica la history per mostrare il nuovo messaggio
+    await loadTellChefHistory();
+    _tcSending = false;
 
   } catch(e) {
     _tcSending = false;
-    if (btn) { btn.disabled = false; btn.textContent = 'Send to Chef →'; }
+    if (btn) { btn.disabled = false; btn.textContent = '→'; }
     tellChefSetStatus('Error sending. Try again.', '#ef4444');
   }
 }
@@ -244,6 +287,7 @@ async function tcSetStatus(id, status, btn) {
     await tcAdminLoad();
   } catch(e) {}
 }
+
 
 
 
