@@ -51,7 +51,7 @@ function teamRender(users) {
 
   function userCard(u) {
     const stationColor = u.default_station ? '#1e3a5f' : '#94a3b8';
-    const stationText  = u.default_station || 'Nessuna stazione';
+    const stationText  = u.default_station || tr('adminNoStation');
     const roleTag = u.is_admin
       ? `<span style="font-size:10px;background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:20px;font-weight:600;">Admin</span>`
       : `<span style="font-size:10px;background:#f1f5f9;color:#64748b;padding:2px 7px;border-radius:20px;">Staff</span>`;
@@ -84,7 +84,7 @@ function teamRender(users) {
     html += `<div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin:16px 0 8px;">Inattivi</div>`;
     html += inactive.map(userCard).join('');
   }
-  list.innerHTML = html || '<div style="text-align:center;padding:32px 0;color:#94a3b8;font-size:13px;">Nessun utente</div>';
+  list.innerHTML = html || '<div style="text-align:center;padding:32px 0;color:#94a3b8;font-size:13px;">'+tr('adminNoUser')+'</div>';
 }
 
 window.openUserEditor = async function(userId) {
@@ -105,7 +105,7 @@ window.openUserEditor = async function(userId) {
     <div style="background:white;border-radius:24px 24px 0 0;padding:20px;width:100%;max-width:480px;margin:0 auto;max-height:88vh;overflow-y:auto;">
       <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;"></div>
       <div style="font-size:16px;font-weight:700;color:#1e293b;margin-bottom:16px;">
-        ${isNew ? '➕ Nuovo cuoco' : '✏️ Modifica ' + escHtml(user.name||'')}
+        ${isNew ? '➕ Nuovo cuoco' : '✏️ '+tr('adminEdit')+' ' + escHtml(user.name||'')}
       </div>
 
       <!-- Nome -->
@@ -172,7 +172,7 @@ window.openUserEditor = async function(userId) {
         </button>
         <button id="tuSaveBtn" onclick="teamSaveUser(${userId||'null'})"
           style="flex:2;height:48px;border-radius:16px;background:#1e293b;color:white;border:none;font-size:14px;font-weight:600;cursor:pointer;">
-          ${isNew ? 'Crea cuoco' : 'Salva modifiche'}
+          ${isNew ? 'Crea cuoco' : tr('adminSaveChanges')}
         </button>
       </div>
 
@@ -254,8 +254,8 @@ window.teamSaveUser = async function(userId) {
     showScToast('✓ ' + (userId ? 'Modifiche salvate' : 'Cuoco creato'));
     await teamLoad();
   } catch(e) {
-    showScToast('Errore: ' + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = userId ? 'Salva modifiche' : 'Crea cuoco'; }
+    showScToast(tr('errorPrefix') + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = userId ? tr('adminSaveChanges') : 'Crea cuoco'; }
   }
 };
 
@@ -269,6 +269,6 @@ window.teamToggleActive = async function(userId, currentlyActive) {
     showScToast(newState ? '✓ Cuoco riattivato' : '✓ Cuoco disattivato');
     await teamLoad();
   } catch(e) {
-    showScToast('Errore: ' + e.message);
+    showScToast(tr('errorPrefix') + e.message);
   }
 };
