@@ -21,8 +21,8 @@ function startUrgencyCheck(){
           method:'POST',
           headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
           body:JSON.stringify({
-            title:'⚠️ Prep urgenti non completate',
-            body:`${urgent.length} prep non ancora fatte: ${urgent.slice(0,3).map(i=>i.name).join(', ')}`,
+            title:tr('urgentPrepTitle'),
+            body:`${tr('urgentPrepBody').replace('{n}',urgent.length)}: ${urgent.slice(0,3).map(i=>i.name).join(', ')}`,
             target_user: user?.name
           })
         }).catch(()=>{});
@@ -100,7 +100,7 @@ async function checkBeforeMissing(id, itemName){
         <div class="bg-slate-50 rounded-2xl p-3 mb-4 space-y-2">
           <div class="flex items-center gap-2 text-sm">
             <span>🧑‍🍳</span>
-            <span><b>${a.last_made_by||'Qualcuno'}</b> ${tr('madeThisMorning')} <b>${madeAt}</b></span>
+            <span><b>${a.last_made_by||tr('somebodyMade')}</b> ${tr('madeThisMorning')} <b>${madeAt}</b></span>
           </div>
           ${madeQty?`<div class="flex items-center gap-2 text-sm"><span>⚖️</span><span>${tr('qty')}: <b>${madeQty}</b></span></div>`:''}
           ${a.missing_count_week>1?`<div class="flex items-center gap-2 text-sm text-amber-700"><span>⚠️</span><span>${tr('reportedMissingWeek').replace('{n}', a.missing_count_week)}</span></div>`:''}
@@ -285,7 +285,7 @@ async function quickSave(id){
   renderM();renderS();renderHomeStations();
   // DB in background — non blocca la UI
   Promise.all([
-    supa.from('prep_log').insert({item:it.name,station:it.category||'Generale',qty,unit,container,user_name:user.name}),
+    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container,user_name:user.name}),
     supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false}).eq('id',id)
   ]).then(()=>{
     loadItemAlerts();
@@ -321,7 +321,7 @@ function openDoneSheet(id){
         </select>
       </div>
     </div>
-    <textarea class="ds-note" placeholder="Nota rapida..." style="width:100%;font-size:12px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:10px;padding:7px 10px;margin-bottom:10px;resize:none;height:38px;"></textarea>
+    <textarea class="ds-note" placeholder="${tr('quickNotePlaceholder')}" style="width:100%;font-size:12px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:10px;padding:7px 10px;margin-bottom:10px;resize:none;height:38px;"></textarea>
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
       <button onclick="this.closest('.fixed').remove()" style="height:40px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:0.5px solid rgba(59,130,246,0.2);">'+tr('cancel')+'</button>
       <button onclick="detailSave('${id}',this)" style="height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;">'+tr('confirm')+'</button>
@@ -356,7 +356,7 @@ window.noNeed = async function(id) {
   if (!confirm(msg)) return;
   await supa.from('prep_log').insert({
     item: it.name,
-    station: it.category || 'Generale',
+    station: it.category || tr('generale'),
     qty: 0,
     unit: 'no_need',
     container: '',
@@ -389,7 +389,7 @@ async function detailSave(id, btn){
   const note=sheet.querySelector('.ds-note').value;
   btn.textContent='...'; btn.disabled=true;
   const it=tasks[id];
-  await supa.from('prep_log').insert({item:it.name,station:it.category||'Generale',qty,unit,container:cont,user_name:user.name});
+  await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name});
   await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false}).eq('id',id);
   tasks[id].need_tomorrow=false;
   tasks[id].in_progress=false;
@@ -422,7 +422,7 @@ function askQuickComment(){
       <div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5" style="animation:slideUp .2s ease">
         <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-3"></div>
         <p class="text-sm font-semibold mb-2">💬 Commento rapido <span class="text-slate-400 font-normal">(opzionale)</span></p>
-        <input id="quickComment" placeholder="es. fatto con meno burro oggi..." class="w-full px-3 py-2.5 border rounded-xl text-sm mb-3">
+        <input id="quickComment" placeholder="${tr('quickCommentPlaceholder')}" class="w-full px-3 py-2.5 border rounded-xl text-sm mb-3">
         <div class="grid grid-cols-2 gap-2">
           <button onclick="this.closest('.fixed').remove();document.dispatchEvent(new CustomEvent('quickCommentDone',{detail:''}))" class="py-2.5 border rounded-xl text-sm">Salta</button>
           <button onclick="const v=document.getElementById('quickComment').value;this.closest('.fixed').remove();document.dispatchEvent(new CustomEvent('quickCommentDone',{detail:v}))" class="py-2.5 bg-slate-900 text-white rounded-xl text-sm font-semibold">Salva</button>
@@ -446,7 +446,7 @@ function renderFeed(){
       </div>
       <div class="bg-white rounded-[28px] shadow-xl border border-slate-100 p-6">
         <h2 class="text-[32px] font-bold text-center leading-tight mb-1">${i.name}</h2>
-        <p class="text-center text-sm text-slate-500 mb-5">${i.category||'Generale'}</p>
+        <p class="text-center text-sm text-slate-500 mb-5">${i.category||tr('generale')}</p>
         <div class="grid grid-cols-3 gap-2 mb-4">
           ${['1','2','2.5'].map(q=>`<button onclick="feedSave('${i.id}','${q}',this)" class="h-[70px] rounded-2xl border-2 border-slate-200 bg-slate-50 font-semibold text-lg active:scale-95 transition">${q}</button>`).join('')}
         </div>
@@ -461,7 +461,7 @@ async function feedSave(id,qty,btn){
   const it=tasks[id];
   btn.disabled=true; btn.innerHTML='✓ Salvato';
   btn.classList.add('bg-emerald-600','text-white','border-emerald-600');
-  await supa.from('prep_log').insert({item:it.name,station:it.category||'Generale',qty:parseFloat(qty),unit:'kg',container:'1/4 pan',user_name:user.name});
+  await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty:parseFloat(qty),unit:'kg',container:'1/4 pan',user_name:user.name});
   await supa.from('prep_tasks').update({need_tomorrow:false}).eq('id',id);
   tasks[id].need_tomorrow=false;
   setTimeout(()=>{document.getElementById('feed').scrollBy({top:window.innerHeight*0.8,behavior:'smooth'});renderM();renderS();renderHomeStations()},600);
