@@ -1,5 +1,5 @@
 # BRIGADE — BACKLOG
-*Aggiornato: 2026-06-24 — v342*
+*Aggiornato: 2026-06-26 — v389*
 *Leggi dopo SPEC e DECISIONS.*
 
 ---
@@ -10,7 +10,7 @@
 - Branch: brigade-main (MAI main)
 - **KITCHEN DISPLAY (display.html): SOLO INGLESE** — UI, alert, chat, prep, stazioni, tutto. Mai italiano sul TV. Regola permanente.
 - **BRIGADE APP: inglese UI, spagnolo/inglese per la brigata** — traduzione multilingua attiva
-- Versione frontend: **v342** — 🟢 **APP IN PRODUZIONE** (brigata attiva)
+- Versione frontend: **v389** — 🟢 **APP IN PRODUZIONE** (brigata attiva)
 - souschef-chat: **v24** (confirmation gate "Sì Chef")
 
 - ai-translate: **v28** (Google Translate attivo)
@@ -172,6 +172,18 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 ---
 
 ## Log sessioni
+
+### Sessione 2026-06-26 — Fix brigata attiva (v380→v389)
+- **v380**: traduzioni Zuu — greeting, "Tu estación", "Otras estaciones" ora in spagnolo. `app.js` usava stringhe hardcoded inglese invece di `tr()`.
+- **v381**: fix Contorni — card mostrava 17 porzioni (solo items diretti), realtà ~57. Aggiunto merge modifier ×0.5 da `modifier_config`. Weekend 06-19/20 verificato.
+- **v382**: font globale +1px (body 14→15px). Richiesta staff.
+- **v383**: testo traduzione 🌐 in chat 11→13px (+2px).
+- **v384/v385**: Tell Chef — guard `_tcSending` anti-doppio invio + dedup history.
+- **v386**: Tell Chef redesign come mini-chat — header fisso, bolle messaggi, input fisso in fondo.
+- **v387**: Tell Chef colori app (gradiente navy/blue) + chiavi `tr()` IT/EN/ES su tutte le stringhe.
+- **v388/v389**: fix bottone fotocamera chat — `applyLang()` sovrascriveva SVG con "Send to team".
+- **Android keyboard fix**: Visual Viewport API su `souschef-chat.js` e `tell-chef.js`.
+- **DB cleanup**: 160 `chef_reports` del demobot eliminati (prima del 23-06-2026). Rimasti 5 reali.
 
 ### Sessione 2026-06-24 — L'Ufficio pulizia e riordino (v337→v342)
 - v337→v342: pulizia menu admin, Purchase History unificata, fix Focus Mode, fix Report, fix Riapri
