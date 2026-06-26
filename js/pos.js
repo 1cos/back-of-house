@@ -2118,7 +2118,7 @@ async function loadPOSStaff() {
     // Selettori
     var modes = [
       {mode:'ieri',label:tr('yesterday')},
-      {mode:'weekend',label:'Weekend'},
+      {mode:'weekend',label:tr('weekend')},
       {mode:'settimana',label:tr('weekShort')}
     ];
     var selHtml = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">' +
