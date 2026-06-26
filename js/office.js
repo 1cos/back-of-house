@@ -55,7 +55,7 @@ function getFolderForItem(item) {
 
 var _officeFolders = [
   { id:'brigata',       icon:'👨‍🍳', label:'La Brigata',    desc:'Tell Chef · Note serali',          ribbon:'#3b82f6', badge:'rgba(59,130,246,0.12)', badgeTxt:'#2563eb' },
-  { id:'chefai',        icon:'🤖',        label:'Chef AI',       desc:'AI scan · Sous Chef chat',         ribbon:'#8b5cf6', badge:'rgba(139,92,246,0.12)',  badgeTxt:'#7c3aed' },
+  { id:'chefai',        icon:'🤖',        label:tr('chefAI'),       desc:'AI scan · Sous Chef chat',         ribbon:'#8b5cf6', badge:'rgba(139,92,246,0.12)',  badgeTxt:'#7c3aed' },
   { id:'prep',          icon:'📋',        label:'Prep & Check',  desc:'Alert timing · Task mancanti',     ribbon:'#f59e0b', badge:'rgba(245,158,11,0.12)',  badgeTxt:'#d97706' },
   { id:'incongruenze',  icon:'⚠️',        label:'Incongruenze',  desc:'Prezzi · Pesi · Catchweight',      ribbon:'#f97316', badge:'rgba(249,115,22,0.12)',  badgeTxt:'#ea580c' },
   { id:'miglioramenti', icon:'💡',        label:'Miglioramenti', desc:'Suggerimenti AI · Menu · Processi', ribbon:'#14b8a6', badge:'rgba(20,184,166,0.12)',  badgeTxt:'#0f766e' },
@@ -93,7 +93,7 @@ window.openOffice = function() {
       '<div id="officeBadge" style="display:none;background:#ef4444;color:white;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;"></div>' +
     '</div>' +
     '<div id="officeHomeContent" style="flex:1;overflow-y:auto;padding:16px 16px 60px;-webkit-overflow-scrolling:touch;">' +
-      '<div style="text-align:center;padding:40px;color:#94a3b8;">Caricamento...</div>' +
+      '<div style="text-align:center;padding:40px;color:#94a3b8;">'+tr('loading')+'...</div>' +
     '</div>';
 
   document.body.appendChild(modal);
@@ -163,7 +163,7 @@ async function officeLoadHome() {
 
     _officeFolders.forEach(function(f) {
       var count = counts[f.id] || 0;
-      var preview = previews[f.id] || 'Nessun messaggio';
+      var preview = previews[f.id] || tr('officeNoMsg');
 
       var row = document.createElement('div');
       row.style.cssText = 'background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;cursor:pointer;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 6px 20px rgba(30,58,95,0.04);-webkit-tap-highlight-color:transparent;';
@@ -265,7 +265,7 @@ window.officeOpenFolder = async function(folderId) {
   // Aggiungo card via DOM per evitare problemi con apostrofi nel testo
   var listEl = el.querySelector('#officeFolderList');
   if (sorted.length === 0) {
-    listEl.innerHTML = '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:12px;">✅</div><div style="font-size:15px;color:rgba(30,58,95,0.4);">Nessun messaggio in questo cassetto</div></div>';
+    listEl.innerHTML = '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:12px;">✅</div><div style="font-size:15px;color:rgba(30,58,95,0.4);">'+tr('officeNoDrawer')+'</div></div>';
   } else {
     sorted.forEach(function(item) {
       var tmp = document.createElement('div');
@@ -353,7 +353,7 @@ window.officeAnalyzeNow = async function(btn) {
     officeLoad();
   } catch(e) {
     console.warn('[Office] office-ai call failed:', e.message);
-    if (typeof showScToast === 'function') showScToast('❌ Errore analisi');
+    if (typeof showScToast === 'function') showScToast('❌ ' + tr('errorAnalysis'));
   } finally {
     if (btn) { btn.textContent = 'Analizza'; btn.disabled = false; }
   }
@@ -478,8 +478,8 @@ async function officeLoad() {
     if (!items.length) {
       list.innerHTML = '<div style="text-align:center;padding:60px 20px;">' +
         '<div style="font-size:36px;margin-bottom:12px;">✅</div>' +
-        '<div style="font-size:15px;font-weight:600;color:#1e3a5f;margin-bottom:6px;">Tutto a posto, Chef</div>' +
-        '<div style="font-size:13px;color:#94a3b8;">Nessuna decisione in sospeso.</div>' +
+        '<div style="font-size:15px;font-weight:600;color:#1e3a5f;margin-bottom:6px;">'+tr('officeAllGood')+'</div>' +
+        '<div style="font-size:13px;color:#94a3b8;">'+tr('officeNoPending')+'</div>' +
         '</div>';
       return;
     }
@@ -599,7 +599,7 @@ function officeRenderCard(item) {
       btnRight = '<button onclick="officeInvestiga(\'' + item.id + '\')" style="' + styleSolid + '">Investiga</button>';
     } else if (src === 'bot-recipe-guardian') {
       btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleGhost + '">Ignora</button>';
-      btnRight = '<button onclick="officeOpenRecipe(\'' + item.id + '\',\'' + (item.source_id || '') + '\')" style="' + styleSolid + '">Apri Ricetta</button>';
+      btnRight = '<button onclick="officeOpenRecipe(\'' + item.id + '\',\'' + (item.source_id || '') + '\')" style="' + styleSolid + '">'+tr('openRecipe')+'</button>';
     } else {
       // sous_chef_chat — solo Letto
       btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
@@ -683,7 +683,7 @@ window.officeResolve = async function(id, resolution) {
     }
 
   } catch(e) {
-    if (typeof showScToast === 'function') showScToast('❌ Errore: ' + e.message);
+    if (typeof showScToast === 'function') showScToast('❌ ' + tr('errorPrefix') + e.message);
   }
 };
 
