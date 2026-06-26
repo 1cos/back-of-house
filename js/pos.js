@@ -2070,23 +2070,9 @@ async function daExecuteQuery(sb, q, from, to) {
 var staffDateMode = 'ieri';
 
 var STAFF_FOOD_GROUPS = ['Pasta','Secondi/entrees','Secondi','Antipasti/appetizer','Antipasti','Insalate/salad','Dolcezze/dessert','Dolcezze','Kids menu','Soup','Sides','Lunch'];
-var STAFF_GROUP_LABELS = (function(){
-  var l = {
-    Secondi:   tr('catSecondi'),
-    Antipasti: tr('catAntipasti'),
-    Insalate:  tr('catInsalate'),
-    Dolcezze:  tr('catDolcezze'),
-    Zuppe:     tr('catZuppe'),
-    Contorni:  tr('catContorni'),
-    Pranzo:    tr('catPranzo'),
-  };
-  return {
-    'Pasta':'Pasta','Secondi/entrees':l.Secondi,'Secondi':l.Secondi,
-    'Antipasti/appetizer':l.Antipasti,'Antipasti':l.Antipasti,
-    'Insalate/salad':l.Insalate,'Dolcezze/dessert':l.Dolcezze,'Dolcezze':l.Dolcezze,
-    'Kids menu':'Kids','Soup':l.Zuppe,'Sides':l.Contorni,'Lunch':l.Pranzo
-  };
-})();
+var STAFF_GROUP_LABELS = {'Pasta':'Pasta','Secondi/entrees':'Secondi','Secondi':'Secondi','Antipasti/appetizer':'Antipasti','Antipasti':'Antipasti','Insalate/salad':'Insalate','Dolcezze/dessert':'Dolcezze','Dolcezze':'Dolcezze','Kids menu':'Kids','Soup':'Zuppe','Sides':'Contorni','Lunch':'Pranzo'};
+// Traduzione display — separata dalle chiavi interne IT usate in groupMap/groupOrder
+var STAFF_GROUP_DISPLAY = {'Pasta':'Pasta','Secondi':tr('catSecondi'),'Antipasti':tr('catAntipasti'),'Insalate':tr('catInsalate'),'Dolcezze':tr('catDolcezze'),'Kids':'Kids','Zuppe':tr('catZuppe'),'Contorni':tr('catContorni'),'Pranzo':tr('catPranzo')};
 var STAFF_EXCL = ['NA Beverages','The Bar','Mocktail','Happy hours','Wine dinner','Testing menu','Catering','Peach Festival','Resturant week'];
 var STAFF_GROUP_EMOJI = {'Pasta':'🍝','Secondi':'🥩','Antipasti':'🫙','Insalate':'🥗','Dolcezze':'🍮','Kids':'👶','Zuppe':'🍲','Contorni':'🥦','Pranzo':'🌞'};
 
@@ -2198,7 +2184,7 @@ async function loadPOSStaff() {
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
         '<div style="display:flex;align-items:center;gap:8px;">' +
         '<span style="font-size:20px;">'+emoji+'</span>' +
-        '<span style="font-size:15px;font-weight:700;color:#1e293b;">'+g+'</span>' +
+        '<span style="font-size:15px;font-weight:700;color:#1e293b;">'+(STAFF_GROUP_DISPLAY[g]||g)+'</span>' +
         '</div>' +
         '<span style="font-size:18px;font-weight:800;color:#6366f1;">'+data.qty+'<span style="font-size:11px;font-weight:500;color:#94a3b8;">x</span></span>' +
         '</div>' +
