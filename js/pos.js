@@ -137,7 +137,7 @@ async function loadPOS() {
   if (!isAdmin()) { loadPOSStaff(); return; }
   const sec = document.getElementById('vx');
   if (!sec || sec.classList.contains('hidden')) return;
-  sec.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px;">Caricamento\u2026</div>';
+  sec.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px;">'+tr('loading')+'</div>';
 
   try {
     const sb = window.supabaseClient;
@@ -161,17 +161,17 @@ async function loadPOS() {
 
     if (d.length === 0) {
       const msgs = {
-        today:    '\uD83D\uDCED Nessun dato per oggi.<br><small style="color:#94a3b8">I CSV arrivano via email la mattina seguente.</small>',
-        yesterday:'\uD83D\uDCED Nessun dato per ieri.<br><small style="color:#94a3b8">Possibile giorno di chiusura o CSV non ancora arrivato.</small>',
-        weekend:  '\uD83D\uDCED Nessun dato per il weekend scorso.<br><small style="color:#94a3b8">I CSV arrivano il lunedì mattina.</small>',
-        week:     '\uD83D\uDCED Nessun dato per gli ultimi 7 giorni.',
-        month:    '\uD83D\uDCED Nessun dato per gli ultimi 30 giorni.',
+        today:    tr('posNoDataToday'),
+        yesterday:tr('posNoDataYesterday'),
+        weekend:  tr('posNoDataWeekend'),
+        week:     tr('posNoDataWeek'),
+        month:    tr('posNoDataMonth'),
       };
       sec.innerHTML = '<div style="padding:12px;">' +
         posSelectors(period) +
         '<p style="font-size:11px;color:#64748b;font-weight:500;margin-bottom:16px;">' + period.label + '</p>' +
         '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:40px 20px;text-align:center;font-size:13px;color:#475569;line-height:1.6;">' +
-        (msgs[posDateMode]||'Nessun dato per questo periodo.') +
+        (msgs[posDateMode]||tr('posNoDataPeriod')) +
         '</div></div>';
       return;
     }
@@ -222,7 +222,7 @@ async function loadPOS() {
       const sorted = [...d].sort((a,b)=>a.sale_date.localeCompare(b.sale_date));
       const maxR = Math.max(...sorted.map(x=>x.net_sales||0));
       trendHtml = '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;">' +
-        '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Andamento Revenue</p>' +
+        '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">'+tr('posRevenuetrend')+'</p>' +
         '<div style="display:flex;align-items:flex-end;gap:3px;height:64px;">' +
         sorted.map(x => {
           const h=maxR>0?Math.round(((x.net_sales||0)/maxR)*60):3;
@@ -324,7 +324,7 @@ async function loadPOS() {
 
   } catch(err) {
     console.error('POS error:',err);
-    document.getElementById('vx').innerHTML = '<div style="padding:16px;color:#dc2626;font-size:13px;">Errore: '+err.message+'</div>';
+    document.getElementById('vx').innerHTML = '<div style="padding:16px;color:#dc2626;font-size:13px;">'+tr('errorPrefix')+err.message+'</div>';
   }
 }
 
@@ -622,7 +622,7 @@ function openDeepAnalysis() {
     '</div>' +
     '</div>' +
     '<div style="display:flex;gap:6px;">' +
-    '<button onclick="daSetPeriod(\'ieri\')" style="flex:1;padding:7px 4px;border-radius:8px;border:1px solid #e2e8f0;background:white;font-size:11px;font-weight:600;color:#475569;cursor:pointer;">Ieri</button>' +
+    '<button onclick="daSetPeriod(\'ieri\')" style="flex:1;padding:7px 4px;border-radius:8px;border:1px solid #e2e8f0;background:white;font-size:11px;font-weight:600;color:#475569;cursor:pointer;">'+tr('yesterday')+'</button>' +
     '<button onclick="daSetPeriod(\'weekend\')" style="flex:1;padding:7px 4px;border-radius:8px;border:1px solid #e2e8f0;background:white;font-size:11px;font-weight:600;color:#475569;cursor:pointer;">Weekend</button>' +
     '<button onclick="daSetPeriod(\'settimana\')" style="flex:1;padding:7px 4px;border-radius:8px;border:1px solid #e2e8f0;background:white;font-size:11px;font-weight:600;color:#475569;cursor:pointer;">Sett.</button>' +
     '<button onclick="daSetPeriod(\'mese\')" style="flex:1;padding:7px 4px;border-radius:8px;border:1px solid #e2e8f0;background:white;font-size:11px;font-weight:600;color:#475569;cursor:pointer;">Mese</button>' +
@@ -753,7 +753,7 @@ async function daExecuteQuery(sb, q, from, to) {
   }
 
   function barList(items, labelKey, valKey, maxVal) {
-    if (!items || items.length === 0) return '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:16px;">Nessun dato nel periodo selezionato.</div>';
+    if (!items || items.length === 0) return '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:16px;">'+tr('posNoDataPeriod')+'</div>';
     var max = maxVal || Math.max.apply(null, items.map(function(x){return Number(x[valKey])||0;}));
     return items.map(function(x,i) {
       var v = Number(x[valKey])||0;
@@ -790,7 +790,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var sorted = Object.entries(agg).sort(function(a,b){return b[1]-a[1];});
     var total = sorted.reduce(function(s,e){return s+e[1];},0);
     var rows = sorted.map(function(e){ return rowItem(e[0], e[1]+'x'); }).join('');
-    if (!rows) rows = '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:16px;">Nessun dato nel periodo.</div>';
+    if (!rows) rows = '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:16px;">'+tr('posNoDataPeriod')+'</div>';
     return resultBlock(q.label, '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:28px;font-weight:800;color:#6366f1;">'+total+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">porzioni totali</span></div>'+rows);
   }
 
@@ -829,7 +829,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var agg = {}; data.forEach(function(x){ agg[x.modifier]=(agg[x.modifier]||0)+Number(x.quantity_sold); });
     var total = Object.values(agg).reduce(function(s,v){return s+v;},0);
     var rows = Object.entries(agg).sort(function(a,b){return b[1]-a[1];}).map(function(e){ return rowItem(e[0], e[1]+'x'); }).join('');
-    if (!rows) rows = '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:16px;">Nessun dato nel periodo.</div>';
+    if (!rows) rows = '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:16px;">'+tr('posNoDataPeriod')+'</div>';
     return resultBlock(q.label, '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:28px;font-weight:800;color:#6366f1;">'+total+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">volte</span></div>'+rows);
   }
 
@@ -889,7 +889,7 @@ async function daExecuteQuery(sb, q, from, to) {
       var pct = total>0?((agg[c]/total)*100).toFixed(0):0;
       return rowItem(c, agg[c]+'x', pct+'% delle richieste');
     }).join('');
-    if (!rows) rows = '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:16px;">Nessuna cottura specificata nel periodo.</div>';
+    if (!rows) rows = '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:16px;">'+tr('posNoCooking')+'</div>';
     return resultBlock('Cotture richieste — '+name3, rows);
   }
 
@@ -936,7 +936,7 @@ async function daExecuteQuery(sb, q, from, to) {
       return qtype==='best_day_covers' ? b.bill_count-a.bill_count : a.bill_count-b.bill_count;
     });
     var rows = data.slice(0,10).map(function(x){ return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date.slice(5), x.bill_count+'', fmt(x.net_sales||0)); }).join('');
-    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: best_day_revenue ────────────────────────────────────────
@@ -944,7 +944,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var r = await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',from).lte('sale_date',to);
     var data = (r.data||[]).sort(function(a,b){return (b.net_sales||0)-(a.net_sales||0);});
     var rows = data.slice(0,10).map(function(x){ return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date.slice(5), fmt(x.net_sales||0), x.bill_count+' bills'); }).join('');
-    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: yoy_same_day ────────────────────────────────────────────
@@ -989,7 +989,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var sorted = Object.entries(byDate).sort(function(a,b){return a[0].localeCompare(b[0]);});
     var rows = sorted.map(function(e){ return rowItem(dayNameIT(e[0])+' '+e[0].slice(5), e[1]+'x'); }).join('');
     var total = sorted.reduce(function(s,e){return s+e[1];},0);
-    if (!rows) rows = '<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato nel periodo.</div>';
+    if (!rows) rows = '<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoDataPeriod')+'</div>';
     return resultBlock('Trend: '+name4,
       '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:28px;font-weight:800;color:#6366f1;">'+total+'x</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">totale nel periodo</span></div>'+rows);
   }
@@ -1002,7 +1002,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var sorted = Object.entries(byDate).sort(function(a,b){return a[0].localeCompare(b[0]);});
     var rows = sorted.map(function(e){ return rowItem(dayNameIT(e[0])+' '+e[0].slice(5), e[1]+'x'); }).join('');
     var total = sorted.reduce(function(s,e){return s+e[1];},0);
-    if (!rows) rows = '<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato nel periodo.</div>';
+    if (!rows) rows = '<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoDataPeriod')+'</div>';
     return resultBlock('Trend: '+mod3, '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:28px;font-weight:800;color:#6366f1;">'+total+'x</span></div>'+rows);
   }
 
@@ -1079,7 +1079,7 @@ async function daExecuteQuery(sb, q, from, to) {
       var avg2 = byDow[d].cnt>0 ? byDow[d].sum/byDow[d].cnt : 0;
       return rowItem(dow_names[d], qtype==='avg_by_dow_covers' ? Math.round(avg2)+'' : fmt(avg2), byDow[d].cnt+' giorni');
     }).join('');
-    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: top_10_all_time ────────────────────────────────────────
@@ -1137,7 +1137,7 @@ async function daExecuteQuery(sb, q, from, to) {
     }).join('');
     return resultBlock(q.label,
       '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:36px;font-weight:800;color:#6366f1;">'+data.length+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">giorni sotto soglia</span></div>'+
-      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun giorno sotto la soglia.</div>'));
+      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoDaysBelow')+'</div>'));
   }
 
   // ── QUERY: vs_recent_avg ───────────────────────────────────────────
@@ -1246,7 +1246,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var rows = sorted.map(function(e,i){
       return rowItem((i+1)+'. Weekend '+e[0].slice(5), fmt(e[1].rev), e[1].cov+' coperti totali');
     }).join('');
-    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: high_discount_days ──────────────────────────────────────
@@ -1269,7 +1269,7 @@ async function daExecuteQuery(sb, q, from, to) {
     }).join('');
     return resultBlock(q.label,
       '<div style="background:#fef3c7;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:28px;font-weight:800;color:#d97706;">'+data.length+'</span><span style="font-size:12px;color:#d97706;margin-left:6px;">giorni con sconto anomalo (>10%)</span></div>'+
-      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun giorno con sconti anomali.</div>'));
+      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoDiscounts')+'</div>'));
   }
 
   // ── QUERY: dish_consistency_dow ────────────────────────────────────
@@ -1325,7 +1325,7 @@ async function daExecuteQuery(sb, q, from, to) {
       var avg=(byDow[d].sum/byDow[d].cnt).toFixed(1);
       return rowItem((i+1)+'. '+dowNames[d],avg+'x avg',byDow[d].cnt+' date · '+byDow[d].sum+'x totale');
     }).join('');
-    return resultBlock(name6+' — giorno migliore', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock(name6+' — giorno migliore', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: dish_seasonal ───────────────────────────────────────────
@@ -1353,7 +1353,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').order('bill_count',{ascending:false});
     var data=(r.data||[]).filter(function(x){return new Date(x.sale_date+'T12:00:00').getDay()===dow;}).slice(0,5);
     var rows=data.map(function(x,i){return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date,x.bill_count+' bills',fmt(x.net_sales||0));}).join('');
-    return resultBlock('Top 5 '+dowNames[dow]+' per coperti di sempre', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock('Top 5 '+dowNames[dow]+' per coperti di sempre', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: best_ever_dow_revenue ──────────────────────────────────
@@ -1363,7 +1363,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').order('net_sales',{ascending:false});
     var data=(r.data||[]).filter(function(x){return new Date(x.sale_date+'T12:00:00').getDay()===dow;}).slice(0,5);
     var rows=data.map(function(x,i){return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date,fmt(x.net_sales||0),x.bill_count+' bills');}).join('');
-    return resultBlock('Top 5 '+dowNames[dow]+' per fatturato di sempre', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock('Top 5 '+dowNames[dow]+' per fatturato di sempre', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: top_modifier_all_time ───────────────────────────────────
@@ -1453,7 +1453,7 @@ async function daExecuteQuery(sb, q, from, to) {
       return '<div style="margin-bottom:10px;"><div style="font-size:11px;font-weight:700;color:#6366f1;margin-bottom:4px;">'+dowNames[d]+'</div>'+
         sorted.map(function(e,i){return rowItem((i+1)+'. '+e[0],e[1]+'x');}).join('')+'</div>';
     }).join('');
-    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: top_item_dow ───────────────────────────────────────────
@@ -1495,7 +1495,7 @@ async function daExecuteQuery(sb, q, from, to) {
         '<span style="font-size:12px;color:#94a3b8;">Feriali: <strong>'+x.week+'x</strong></span>' +
         '</div></div>';
     }).join('');
-    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: top_modifier_dow ───────────────────────────────────────
@@ -1548,7 +1548,7 @@ async function daExecuteQuery(sb, q, from, to) {
     });
     var sorted=Object.entries(agg).map(function(e){return{item:e[0],n:e[1].size};}).sort(function(a,b){return b.n-a.n;}).slice(0,10);
     var rows=sorted.map(function(x,i){return rowItem((i+1)+'. '+x.item,x.n+' varianti');}).join('');
-    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock(q.label, rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: half_portions ──────────────────────────────────────────
@@ -1565,7 +1565,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var rows=sorted.map(function(e){return rowItem(e[0],e[1]+'x','mezza porzione');}).join('');
     return resultBlock(q.label,
       '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:28px;font-weight:800;color:#6366f1;">'+total+'x</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">mezze porzioni totali</span></div>'+
-      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>'));
+      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>'));
   }
 
   // ── QUERY: kids_vs_adult_pasta ────────────────────────────────────
@@ -1872,7 +1872,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var total=sorted.reduce(function(s,e){return s+e[1];},0);
     return resultBlock(groups9.join('+')+' — trend nel periodo',
       '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:28px;font-weight:800;color:#6366f1;">'+total+'x</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">totale</span></div>'+
-      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>'));
+      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>'));
   }
 
   // ── QUERY: trend_check_avg ────────────────────────────────────────
@@ -1880,7 +1880,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').gte('sale_date',from).lte('sale_date',to).order('sale_date',{ascending:true});
     var data=(r.data||[]).filter(function(x){return x.bill_count>0;});
     var rows=data.map(function(x){var chk=(x.net_sales||0)/x.bill_count;return rowItem(dayNameIT(x.sale_date)+' '+x.sale_date.slice(5),fmtD(chk),x.bill_count+' bills');}).join('');
-    return resultBlock('Check medio — trend nel periodo', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock('Check medio — trend nel periodo', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: trend_covers_mom ───────────────────────────────────────
@@ -1908,7 +1908,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var avgC=data.length>0?Math.round(data.reduce(function(s,x){return s+(x.bill_count||0);},0)/data.length):0;
     return resultBlock(dowNames[dow9]+' — storico nel periodo',
       '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:24px;font-weight:800;color:#6366f1;">'+avgC+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">coperti medi il '+dowNames[dow9]+'</span></div>'+
-      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>'));
+      (rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>'));
   }
 
   // ── QUERY: contorno_totale_combinato ──────────────────────────────
@@ -1925,7 +1925,7 @@ async function daExecuteQuery(sb, q, from, to) {
     });
     results.sort(function(a,b){return b.total-a.total;});
     var rows=results.map(function(x){return rowItem(x.name,x.total+' porzioni equiv.',x.side+'x side + '+x.mod+'x modifier');}).join('');
-    return resultBlock('Contorni — classifica combinata (side + modifier)', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock('Contorni — classifica combinata (side + modifier)', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: top_item_all ───────────────────────────────────────────
@@ -1947,7 +1947,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var agg={};data.forEach(function(x){agg[x.menu_item]=(agg[x.menu_item]||0)+Number(x.quantity);});
     var sorted=Object.entries(agg).sort(function(a,b){return a[1]-b[1];}).slice(0,10);
     var rows=sorted.map(function(e,i){return rowItem((i+1)+'. '+e[0],e[1]+'x');}).join('');
-    return resultBlock('Piatti meno venduti nel periodo', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock('Piatti meno venduti nel periodo', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: fastest_growing_dish / fastest_declining_dish ──────────
@@ -1981,7 +1981,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var r=await sb.from('pos_daily_summary').select('sale_date,bill_count,net_sales').order('net_sales',{ascending:false});
     var data=(r.data||[]).filter(function(x){return new Date(x.sale_date+'T12:00:00').getDay()===dow8;}).slice(0,5);
     var rows=data.map(function(x,i){return rowItem((i+1)+'. '+dayNameIT(x.sale_date)+' '+x.sale_date,fmt(x.net_sales||0),x.bill_count+' bills');}).join('');
-    return resultBlock('Migliori '+dowNames[dow8]+' di sempre', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">Nessun dato.</div>');
+    return resultBlock('Migliori '+dowNames[dow8]+' di sempre', rows||'<div style="color:#94a3b8;text-align:center;padding:16px;">'+tr('posNoData')+'</div>');
   }
 
   // ── QUERY: best_ever_month ────────────────────────────────────────
@@ -2109,7 +2109,7 @@ function staffSetMode(m) {
 async function loadPOSStaff() {
   var sec = document.getElementById('vx');
   if (!sec || sec.classList.contains('hidden')) return;
-  sec.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px;">Caricamento\u2026</div>';
+  sec.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px;">'+tr('loading')+'</div>';
 
   try {
     var sb = window.supabaseClient;
@@ -2148,7 +2148,7 @@ async function loadPOSStaff() {
     var newsOffset = (newsBar && !newsBar.classList.contains('hidden')) ? (newsBar.offsetHeight + 4) : 0;
 
     sec.innerHTML = '<div style="padding:'+(12+newsOffset)+'px 12px 100px;">'+selHtml+coverHtml+
-        '<div style="background:white;border-radius:16px;padding:40px 20px;text-align:center;color:#94a3b8;font-size:13px;">Nessun dato per questo periodo.</div></div>';
+        '<div style="background:white;border-radius:16px;padding:40px 20px;text-align:center;color:#94a3b8;font-size:13px;">'+tr('posNoDataPeriod')+'</div></div>';
       return;
     }
 
@@ -2243,7 +2243,7 @@ async function loadPOSStaff() {
 
   } catch(err) {
     console.error('POS Staff error:',err);
-    document.getElementById('vx').innerHTML = '<div style="padding:16px;color:#dc2626;font-size:13px;">Errore: '+err.message+'</div>';
+    document.getElementById('vx').innerHTML = '<div style="padding:16px;color:#dc2626;font-size:13px;">'+tr('errorPrefix')+err.message+'</div>';
   }
 }
 
@@ -2296,7 +2296,7 @@ async function staffOpenDishModal(dishName, from, to) {
 
   // Mostra loading
   var loadHtml = '<div id="sd-modal" style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:flex-end;">' +
-    '<div style="background:#f8faff;border-radius:24px 24px 0 0;width:100%;padding:24px 16px 40px;text-align:center;color:#94a3b8;font-size:13px;">Caricamento\u2026</div></div>';
+    '<div style="background:#f8faff;border-radius:24px 24px 0 0;width:100%;padding:24px 16px 40px;text-align:center;color:#94a3b8;font-size:13px;">'+tr('loading')+'</div></div>';
   document.body.insertAdjacentHTML('beforeend', loadHtml);
 
   try {
