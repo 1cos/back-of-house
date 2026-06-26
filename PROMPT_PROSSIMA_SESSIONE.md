@@ -2,13 +2,13 @@
 
 ## CARICA SUBITO
 1. Token GitHub da file `x_claude_GIthub.txt` nel progetto
-2. Repo `1cos/back-of-house`, branch `brigade-main` SEMPRE
+2. Repo **`1cos/back-of-house`**, branch `brigade-main` SEMPRE — **NON usare `1cos/brigade-dev`** (fermo a v375, abbandonato)
 3. Leggi i file da GitHub LIVE, mai da memoria, mai da `/mnt/project/`
 4. Supabase project: ydqmumpytgrlceuinoqt
 
 ## ⚠️ ATTENZIONE — SESSIONI PARALLELE
 Max lavora in più chat contemporanee. PRIMA di bumpare sw.js:
-- Leggi live `boh-v???` da sw.js
+- Leggi live `boh-v???` da sw.js su `1cos/back-of-house`
 - Verifica gli ultimi commit su `brigade-main` (`/commits?sha=brigade-main`)
 - Incrementa SOLO di +1 rispetto alla versione live (non da memoria)
 
@@ -23,111 +23,83 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 
 ---
 
-## STATO TECNICO (aggiornato 2026-06-25)
-- Frontend: **v368** (sw.js boh-v368) — repo: `1cos/brigade-dev`
-- **App dev** — `https://1cos.github.io/brigade-dev/`
+## STATO TECNICO (aggiornato 2026-06-26)
+- Frontend: **v386** (sw.js boh-v386) — repo: `1cos/back-of-house`, branch `brigade-main`
+- **App live** — `https://1cos.github.io/back-of-house/`
+- **`1cos/brigade-dev` — ABBANDONATO, non usare più**
 
 ---
 
-## Sessione 2026-06-25 — Prep & Closing cleanup (v366→v368)
+## Sessione 2026-06-26 — Schedule Generator + Staff & Stazioni (v384→v386)
 
-### DB — prep_tasks
-- Oven: Mozzarella→Mozzarella shredded; Scallops/Sicilian mix/Siciliana in bag→Sauté; Chicken Parmesan aggiunto
-- Fresh Pasta: Maccheroni aggiunto; Grated Pecorino + Parmesan Grated aggiunti; 7 item archiviati (Focaccia dough, Gnocchi, Gnocco Dough, Ravioli Lemon, Ravioli Meat, Fettuccine, Spaghetti)
-- Pasta: Clams→Rinse Clams, Mussels→Rinse Mussels, Lobster→Thaw Lobster, Shrimp→Thaw Shrimp; Rosemary Oil aggiunto; 10 item archiviati (Ragù, Arrabbiata, Cacio e pepe, Confit tomatoes, Demi, Mushrooms, Pesto, Pomodoro, Preparato Livornese, Texana)
-- Sauté: Scallops/Sicilian mix/Siciliana in bag arrivati da Oven; 10 item aggiunti (Thaw Salmon, Thaw Branzino, Asparagus, Butter Spinach, Setup Sous Vide Sauces, Setup Sous Vide Meatballs, Season Focaccia, Cook Focaccia, Heating Lamp, Warmers for Plates)
-- Saucier: Lobster Prepared→Soffritto Livornese; Cacio e pepe→Cacio e pepe sauce; Demi glacé→Demi; Pomodoro→Pomodoro sauce; Mash Potato + Texana Soup + Mushrooms + Preparato per Livornese aggiunti
-- Plating: Check Basil Oil, Check Balsamic Glaze, Check Rosemary Oil, Check Parmesan Grated, Check Pecorino Grated, Clean Plating Station, Parsley, Organized Plates, Turn On Warm Air for Plates, Refill Nutmeg/Pepper/White Pepper, Lemon Zest, Orange supreme (da Table Side)
-- Salad: Make→nomi puliti; Watermelon Cubes, Check Goat Cheese, Check Burrata, Check Croutons aggiunti
-- Pastry: Caesar Dressing, Ranch, Balsamic Dressing, Citronnette aggiunti/spostati
-- Manager: Basil leaves→Basil flowers; Arugola/Basil/Flowers/Rosemary/Sage/Tarragon/Thyme/Refill Capers/Confit tomatoes/Porterhouse aggiunti
-- Table Side: Clean Branzino + Filet Branzino aggiunti; Orange supreme→Plating; Scallops archiviato
-- Basil oil→Check Basil Oil→Plating Station
+### Nuove tabelle DB (Supabase)
+- **`staff_profiles`** — profili brigata: name, shift_preference, max_days_per_week, off_days[], no_evening_days[], only_days[], is_double_shift, notes, active
+- **`staff_stations`** — assegnazioni stazione per persona: staff_name, station, shift, priority (1=preferita/2=sa fare/3=emergenza), is_default, notes
+- Popolate con tutti i 16 membri della brigata attiva e 55 assegnazioni stazione
 
-### DB — closing_checks
-- Stazioni archiviate (nessun check serale): Fresh Pasta, Pastry, Saucier, Manager, Table Side, Plating
-- Grill & Features creata: Ribeye, Filets, Porterhouse, Wagyu Ribeye, Tomahawk
-- Sauté: Refill Capers, Arrabbiata sauce, Chicken Parmesan, Spinach, Flowers, Basil, Thyme, Sage, Tarragon, Arugola, Rosemary aggiunti
-- Salad: allineata ai nomi prep tasks; Make→archiviati
-- Nomi allineati tra closing e prep: Thaw Lobster, Thaw Shrimp, Arrabbiata sauce, Cacio e pepe sauce, ecc.
+### Staff & Stazioni — modulo admin (v384)
+- Nuovo file `js/staff-manager.js`
+- Accessibile dai tre puntini → bottone **Staff** (verde)
+- Lista tutti i profili con turno, giorni off, stazioni e priorità
+- Tap su nome → editor completo: turno, giorni off, no-sera, doppio turno, note
+- Aggiungi/rimuovi stazioni con priorità e flag default
+- Aggiungi nuovi membri, disattiva profili senza eliminarli
+- Fix: usava `window.supabase` invece di `window.supa` — corretto in v384
 
-### DB — prep_tasks.daily_reset
-- Nuova colonna `daily_reset` boolean aggiunta
-- Cron `daily-reset-prep-tasks`: ogni notte 00:00 CDT resetta done=false per task daily_reset=true
-- Task automatici: Rinse Clams, Rinse Mussels, Thaw Scallops (Sauté), Season Focaccia, Cook Focaccia, Tempura
+### Schedule Generator — tab Genera in Schedule (v385→v386)
+- Nuovo tab **✦ Genera** nella sezione Schedule (accanto a Oggi / Settimana)
+- Solo admin
+- **Pannello eccezioni**: dropdown nome → date da/a → + Aggiungi → lista eccezioni rimuovibili con ×
+- **✦ Genera Schedule**: genera la schedula della **prossima settimana** (lunedì → sabato)
+- Rispetta vincoli fissi DB (off_days, no_evening_days, only_days, is_double_shift)
+- Rispetta eccezioni temporanee inserite (persona off da data a data)
+- Anti-conflitto: ogni persona assegnata una sola volta per turno per giorno
+- Risultato in due sub-tab: **Giornaliero** (day strip + stazioni) e **Settimanale** (griglia)
+- Stazioni non coperte evidenziate in rosso con warning
+- Rachel doppio turno (2x badge), Max fisso Mer→Pasta / Gio/Ven/Sab→Grill & Features
+- Non salva nel DB, non tocca la schedula 7shifts — solo visualizzazione/pianificazione
 
-### Codice (v367-v368)
-- `init.js` v367: tab closing dinamiche dal DB (solo stazioni con item attivi) — Grill & Features appare automaticamente
-- `closing.js` v367: allStations dinamico dal closingItems
-- `souschef-core.js` v368: scScheduleAutoScan() DISABILITATA — andava in timeout ogni ora consumando token OpenRouter
+### Dati brigata consolidati
+**Stazioni per turno:**
+- Mattina: Oven, Sauté, Pasta, Salad, Fresh Pasta, Saucier, Coordinator, Dish Crew + Pastry (solo Lun/Mer/Ven)
+- Sera: Oven, Pasta, Salad, Sauté, Plating, Table Side, Grill & Features, Dish Crew
 
-### ✅ Collegamento closing_checks → prep_tasks COMPLETATO
-- 83 closing checks collegate via `prep_task_id` — zero senza collegamento
-- Quando la sera si segna "manca" → prep task si attiva automaticamente la mattina
+**Orari:** Mattina 8:00–14:00 / Sera 14:00–21:30 (22:30 Ven-Sab)
 
-### 🔴 DA FARE — souschef-scan
-- `souschef-scan` Edge Function manda 400+ ingredienti a OpenRouter → timeout 500 ogni ora
-- **Fix:** riscrivere con SQL diretto (GHOST e NOLINK si trovano con query SQL, AI serve solo per testo)
-- Attualmente: scan automatica disabilitata in `souschef-core.js`
-
-
-
----
-
-## Sessione 2026-06-25 — cosa è stato fatto
-
-### Toggle Originale / Smart nella sheet ricetta (v351→v355)
-- `recipes.js`: aggiunto toggle **Original / Smart** sopra gli ingredienti nella sheet ricetta
-- In modalità **Smart**: legge `suggested_qty` dal DB (`prep_tasks.suggested_qty`), calcola fattore kg rispetto a `base_weight_g`, scala ingredienti via `scaleToKg()` — funziona anche per ricette senza `servingWeightG` (es. salse in kg)
-- In modalità **Original**: ripristina `base_weight_g` originale e riscala
-- Toggle visibile solo se esiste `suggested_qty` nel DB per quella ricetta
-- Fix scroll iOS sheet ricetta: `overscroll-behavior:contain`, `-webkit-overflow-scrolling:touch`, `mb-6` su close button
-- **BUG APERTO v355**: scroll iOS — una volta arrivati in fondo alla sheet, non si riesce a tornare in cima (non risolto definitivamente)
-
-### Calendario eventi — nuovo modulo (v350→v355)
-- DB: aggiunte colonne `service_style` (text) e `event_recipes` (jsonb []) alla tabella `events`
-- `calendar.js` riscritta completa:
-  - Pagina con **sticky header** `top:64px` (pattern vvdr) — titolo, ‹ back, + New Event, ↻ TripleSeat
-  - Filtri Upcoming / Past / All fissi sotto l'header, lista che scrolla normalmente
-  - **Editor eventi** stile recipe editor (modale rounded-3xl):
-    - Campi: nome, data+ora, location (Zenos/La Scuderia/Private Home/+ Add New), ospiti, service style (Al Piatto/Buffet/Family Style/Cocktail), status, note
-    - Sezione Ricette: nome (autocomplete DB) + Portions + Note per ogni ricetta
-    - Food cost stimato solo per admin
-    - Edit / Delete eventi manuali
-    - Bottone ↻ TripleSeat pronto per quando Monica autorizza (source='manual' vs 'tripleseat')
-  - Card evento: giorno + data, nome, status badge colorato, ora/ospiti/location/service style, menu ricette
-- `briefing.js`: upcoming demand in home mostra ricette, cliccabile → apre calendario, "View all →"
-- **BUG APERTO v355**: autocomplete ricette nell'editor usa `<datalist>` nativo ma non funziona correttamente su iOS — da rivedere nella prossima sessione
-
-### Focus Mode — disabilitata globalmente (v350)
-- `focus-mode.js`: `shouldShowFocusMode()` ritorna `false` immediatamente
-- Motivo: orari 7shifts non allineati con la realtà — i ragazzi erano bloccati sulla prep list e non potevano fare la closing checklist
-- Da riabilitare quando gli orari sono corretti (basta rimuovere `return false`)
-
-### Closing checklist — voci aggiunte al DB
-- **Pasta Station** (8 voci): Pomodoro sauce, Arrabbiata sauce, Preparato per Livornese, Texana soup, Pesto, Cacio e pepe sauce, Demi, Ragù
-- **Salad Station** (2 voci): Shrimp for cocktail, Big bruschetta
-
-### Vendor Documents — da modal a pagina (v351)
-- Rimosso il modal `fixed inset-0 z-[65]` che copriva la topbar
-- Aggiunta sezione `vvdr` nel flusso normale dell'app (topbar + bottom bar sempre visibili)
-- `showVdrSection()` e `vdrBack()` in `app.js`
-- `openVendorDocumentsReview()` ora chiama `showVdrSection()` invece di creare modal
-
-### Chat — fix overlay Focus Mode (v352)
-- `chat.js`: rimozione automatica `_focusChatOverlay` all'avvio e in `showChat()`
-- Risolveva: "Send to team" + doppio bottone send visibili nella chat
-
-### Chat — long press: Modifica + Reaction (v353-354)
-- Long press 500ms su bubble messaggio → menu contestuale iOS-style
-- Propri messaggi: ✏️ Modifica + 😊 Reaction
-- Messaggi altrui: solo 😊 Reaction
-- Modifica: sheet con textarea pre-popolata → UPDATE su `messages` dove `user_name = user.name`
-- `user-select:none` + `webkit-touch-callout:none` sui bubble → no selettori iOS
+**Vincoli personale chiave:**
+- Rachel: doppio turno Lun/Mar/Mer (Oven AM + Grill PM), Gio solo AM, off Ven/Sab
+- Max: off Lun, 12:00→close, Mer→Pasta, Gio/Ven/Sab→Grill & Features
+- David: off Martedì (Colton copre Table Side)
+- Chance: off Martedì, default Sauté sera
+- Todd: solo Lun/Mar/Mer, Fresh Pasta + Pastry (NON Pasta Station)
+- Colton/Tela/Samantha/Chris: no mercoledì sera
+- Genova: off Sabato, default Sauté mattina
+- Zuu: solo Salad mattina, 6 giorni/sett
 
 ---
 
-## 🔴 PRIORITÀ #1 PROSSIMA SESSIONE — ai_options come azioni eseguibili in L'Ufficio
+## 🔴 BACKLOG SCHEDULE GENERATOR — prossime aggiunte
+
+### Vincoli di stazione (non ancora implementati)
+Da aggiungere in una tabella `station_rules` con colonna `active_days`:
+- **Pastry Station** — solo Lun / Mer / Ven (già parzialmente implementato nel generatore)
+- **Pasta Station** (prep salse) — solo Lun / Mer / Ven / Sab
+- **Saucier Station** — solo Lun / Mar / Mer / Gio
+- Altri da definire con Max
+- Il Bot deve conoscere questi vincoli per le produzioni
+
+### Salvataggio schedule generata nel DB
+- Tabella `schedule_assignments` da creare: week_start, day_of_week, shift, station, assigned_to, created_by
+- Bottone "Salva schedule" nel generatore
+- Visualizzazione schedule salvata vs generata
+
+### Candidati da DB
+- Il generatore ora usa candidati hardcodati in JS
+- Futuro: leggerli da `staff_stations` in tempo reale
+
+---
+
+## 🔴 PRIORITÀ #1 — ai_options come azioni eseguibili in L'Ufficio
 
 ### Problema
 Le ai_options nel sistema Tell Chef sono ora stringhe (es. "Aggiungi focaccia alla lista").
@@ -141,14 +113,9 @@ Il bot genera opzioni strutturate con azione codificata:
   { "label": "Ignora", "action": "ignore", "params": {} }
 ]
 ```
-Quando Max preme il bottone:
-1. Frontend chiama `souschef-chat` con `confirmed_action` costruito da action+params
-2. Chef AI esegue nel DB
-3. Card mostra "✓ Focaccia aggiunta — Oven Station" e si chiude
 
 ### Piano
-**Sessione 1 (prossima):**
-- `office.js`: `officeExecuteOption(item, opt)` — se opt.action presente, chiama souschef-chat confirmed_action; altrimenti fallback officeResolve
+- `office.js`: `officeExecuteOption(item, opt)` — se opt.action presente, chiama souschef-chat confirmed_action
 - `bot-tell-chef-reader v6`: aggiorna prompt per generare ai_options strutturate {label, action, params}
 
 ### Azioni già eseguibili via souschef-chat (v25)
@@ -158,53 +125,48 @@ send_brigade_message, update_ingredient_vendor, block/unblock_*, create_office_i
 ---
 
 ## 🔴 PRIORITÀ #2 — Autocomplete ricette nel Calendar editor (BUG APERTO v355)
-- `<datalist>` nativo HTML non funziona correttamente su iOS nel modale editor eventi
-- Tentativi fatti: dropdown body-attached position:fixed (coordinate sbagliate con tastiera), position:absolute (tagliato da overflow:auto), datalist nativo (non riconosce selezione)
-- Prossima sessione: valutare approccio alternativo — es. sheet separato di ricerca ricette (tap su campo → apre lista ricette fullscreen, selezione → torna all'editor)
-- Chat autocomplete: verificare separatamente
+- `<datalist>` nativo HTML non funziona su iOS nel modale editor eventi
+- Valutare: sheet separato di ricerca ricette (tap → lista fullscreen → selezione → torna editor)
 
 ---
 
-## 🔴 PRIORITÀ #3 — Cleaning Checklist (nuovo modulo)
-
-Flusso serale: Closing Prep → Operation Note → Cleaning Checklist → Chiudi Shift → notifica Max+David
-- DB: nuove tabelle `cleaning_tasks` e `cleaning_log` (non ancora create)
-- ⚠️ Prima: riallineare stazioni DB con realtà cucina
-
----
-
-## 🔴 PRIORITÀ #4 — Riallineamento stazioni
-
-Stazioni attuali in DB: Fresh Pasta Station, Manager Station, Oven Station, Pasta Station,
-Pastry Station, Plating Station, Salad Station, Saucier Station, Sauté Station, Table Side, Dish Crew
-Da allineare con Max. Manager → Coordinator. Expo Line e Grill da valutare.
-
----
-
-## 🟠 PRIORITÀ #5 — Home dedicata Dish Crew (Fase 2)
-
+## 🔴 PRIORITÀ #3 — Home dedicata Dish Crew (Fase 2)
 Detect: `user.default_station === 'Dish Crew'`
 Nascondere: Recipes, Closing, Sales, Ingredienti, Focus Mode, Operation Notes
 Bottom bar: Home / Chat / Schedule / Tell Chef
 
 ---
 
-## TODO BACKLOG ALTO PRIORITÀ
+## 🔴 PRIORITÀ #4 — Cleaning Checklist (nuovo modulo)
+Flusso serale: Closing Prep → Operation Note → Cleaning Checklist → Chiudi Shift → notifica Max+David
+- DB: nuove tabelle `cleaning_tasks` e `cleaning_log` (non ancora create)
+
+---
+
+## 🔴 PRIORITÀ #5 — souschef-scan
+- Manda 400+ ingredienti a OpenRouter → timeout 500 ogni ora
+- Fix: riscrivere con SQL diretto (GHOST e NOLINK si trovano con query SQL, AI serve solo per testo)
+- Scan automatica attualmente disabilitata in `souschef-core.js`
+
+---
+
+## TODO BACKLOG
 
 - Fix realtime TV — loadChat() troppo pesante, aggiungere solo payload.new
-- office-ai cron orario (analisi automatica ogni ora)
 - Spostare L'Ufficio nella bottom bar (ora nei tre puntini)
-- Focus Mode — riabilitare quando orari 7shifts allineati
-- Foto in chat — bottone camera presente ma upload da verificare su iPhone
+- Focus Mode — riabilitare quando orari 7shifts allineati (basta rimuovere `return false` in focus-mode.js)
+- Rinominare "Manager Station" → "Coordinator Station" ovunque nel sistema
 - TripleSeat — Monica deve fare Authorize
 - Bot 5 versione B — food cost % quando selling_price popolato
+- office-ai cron orario (analisi automatica ogni ora)
+- Foto in chat — bottone camera presente ma upload da verificare su iPhone
 
 ---
 
 ## REGOLE OPERATIVE INVIOLABILI
 - SHA fresco prima di ogni PUT; bump boh-vN in sw.js ad ogni push (verifica live prima)
 - node --check prima di push
-- Commit: "vN file — descrizione"; solo brigade-main
+- Commit: "vN file — descrizione"; solo brigade-main su `1cos/back-of-house`
 - Leggi SEMPRE da GitHub live, mai da memoria o /mnt/project/
 - Conferma piano prima di scrivere codice; una cosa alla volta
 - Financial data mai allo staff
@@ -212,5 +174,3 @@ Bottom bar: Home / Chat / Schedule / Tell Chef
 - Domenica chiuso
 - **App in produzione — modifiche chirurgiche, zero rischi**
 - **MAI assumere — confermare SEMPRE con Max prima di agire**
-
-
