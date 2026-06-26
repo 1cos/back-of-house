@@ -58,7 +58,7 @@ function applyLang(){
   });
   const _out=document.getElementById('out'); if(_out)_out.textContent=tr('logout');
   const _txt=document.getElementById('txt'); if(_txt)_txt.placeholder=tr('write');
-  const _fBtn=document.querySelector('#f button'); if(_fBtn)_fBtn.textContent=tr('send');
+  // Nota: bottone submit #f ha SVG freccia — non sovrascrivere con textContent
   const _btnToday=document.getElementById('btnToday'); if(_btnToday)_btnToday.textContent=tr('today');
   const _btnWeek=document.getElementById('btnWeek'); if(_btnWeek)_btnWeek.textContent=tr('week');
   const _btnPDF=document.getElementById('btnPDF'); if(_btnPDF)_btnPDF.textContent=tr('pdf');
