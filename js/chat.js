@@ -276,7 +276,7 @@ function addMsg(m,init){
           font-size:14px;line-height:1.45;color:#1e293b;
           box-shadow:0 4px 20px rgba(0,0,0,0.06),inset 0 1px 0 rgba(255,255,255,0.8);
         ">${m.text||''}${_renderChatImg(m.image_url, !!(m.text))}</div>
-        ${needs?`<div style="font-size:11px;color:#94a3b8;font-style:italic;margin-top:4px;padding-left:4px;" data-tr>⏳ traduzione...</div>`:''}
+        ${needs?`<div style="font-size:13px;color:#94a3b8;font-style:italic;margin-top:4px;padding-left:4px;" data-tr>⏳ traduzione...</div>`:''}
         <div style="font-size:10px;color:#94a3b8;margin-top:4px;padding-left:4px;">${formatTimeDallas(m.created_at)}</div>
         <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">
           ${(m.reactions||[]).map(r=>`<span style="font-size:12px;background:rgba(255,255,255,0.8);backdrop-filter:blur(8px);border:0.5px solid rgba(0,0,0,0.08);border-radius:20px;padding:2px 8px;">${r.emoji} ${r.count}</span>`).join('')}
@@ -619,4 +619,5 @@ function attachLongPress(el, msgId, msgText, isMine) {
     clearTimeout(pressTimer);
   }, { passive: true });
 }
+
 
