@@ -2205,6 +2205,27 @@ async function loadPOSStaff() {
         modAgg[x.modifier] = (modAgg[x.modifier]||0) + (Number(x.quantity_sold)||0);
       }
     });
+
+    // ── Aggiungi modifier Contorni al groupMap (×0.5 porzione) ──
+    // I modifiers come "Brussels", "Rosemary potato" ecc. sono metà porzione
+    // e devono essere sommati alla card Contorni, non mostrati solo sotto
+    var contorniModCfg = (rModCfg.data||[]).filter(function(x){ return x.kitchen_cat === 'Contorni'; });
+    var contorniModNames = contorniModCfg.map(function(x){ return x.modifier.toLowerCase(); });
+    if (!groupMap['Contorni']) groupMap['Contorni'] = {qty:0, items:{}};
+    (rModSales.data||[]).forEach(function(x) {
+      if (!x.modifier) return;
+      var low = x.modifier.toLowerCase();
+      var match = contorniModNames.some(function(m){ return low === m || low.indexOf(m) >= 0 || m.indexOf(low) >= 0; });
+      if (match) {
+        var halfQty = (Number(x.quantity_sold)||0) * 0.5;
+        groupMap['Contorni'].qty += halfQty;
+        // Label con indicatore ½ per distinguerli dagli items diretti
+        var key = x.modifier + ' (mod)';
+        groupMap['Contorni'].items[key] = (groupMap['Contorni'].items[key]||0) + halfQty;
+      }
+    });
+    // Arrotonda qty totale Contorni
+    if (groupMap['Contorni']) groupMap['Contorni'].qty = Math.round(groupMap['Contorni'].qty * 10) / 10;
     var modSorted = Object.entries(modAgg).sort(function(a,b){return b[1]-a[1];});
     var maxMod = modSorted.length>0 ? modSorted[0][1] : 1;
 
@@ -2271,16 +2292,22 @@ function staffOpenGroup(groupName) {
     '</div>' +
     items.map(function(e,i) {
       var pct = Math.round((e[1]/max)*100);
-      var isHalf = e[0].toLowerCase().indexOf('half')>=0 || e[0].toLowerCase().indexOf('child')>=0;
-      return '<div onclick="staffOpenDishModal(\''+e[0].replace(/'/g,"\\'")+'\',\''+period.from+'\',\''+period.to+'\')" style="background:white;border-radius:12px;padding:11px 14px;margin-bottom:7px;cursor:pointer;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
-        '<span style="font-size:13px;font-weight:600;color:#1e293b;max-width:75%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(i+1)+'. '+e[0]+'</span>' +
-        '<span style="font-size:15px;font-weight:800;color:#6366f1;">'+e[1]+'<span style="font-size:10px;color:#94a3b8;">x</span>'+(isHalf?' <span style="font-size:9px;color:#d97706;">½</span>':'')+'</span>' +
+      var isMod = e[0].indexOf(' (mod)') >= 0;
+      var displayName = isMod ? e[0].replace(' (mod)','') : e[0];
+      var isHalf = isMod || e[0].toLowerCase().indexOf('half')>=0 || e[0].toLowerCase().indexOf('child')>=0;
+      var clickable = !isMod;
+      var tagHtml = isMod ? '<span style="font-size:9px;background:#dcfce7;color:#059669;border-radius:4px;padding:1px 5px;margin-left:4px;">+side ½</span>' : '';
+      var inner = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+        '<span style="font-size:13px;font-weight:600;color:#1e293b;max-width:75%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(i+1)+'. '+displayName+tagHtml+'</span>' +
+        '<span style="font-size:15px;font-weight:800;color:#6366f1;">'+e[1]+'<span style="font-size:10px;color:#94a3b8;">x</span>'+(isHalf?' <span style="font-size:9px;color:#d97706;">½p</span>':'')+'</span>' +
         '</div>' +
         '<div style="height:3px;background:#f1f5f9;border-radius:2px;overflow:hidden;">' +
-        '<div style="width:'+pct+'%;height:100%;background:#6366f1;border-radius:2px;"></div>' +
-        '</div>' +
+        '<div style="width:'+pct+'%;height:100%;background:'+(isMod?'#059669':'#6366f1')+';border-radius:2px;"></div>' +
         '</div>';
+      if (clickable) {
+        return '<div onclick="staffOpenDishModal(\''+displayName.replace(/'/g,"\\'")+'\',\''+period.from+'\',\''+period.to+'\')" style="background:white;border-radius:12px;padding:11px 14px;margin-bottom:7px;cursor:pointer;">'+inner+'</div>';
+      }
+      return '<div style="background:white;border-radius:12px;padding:11px 14px;margin-bottom:7px;">'+inner+'</div>';
     }).join('') +
     '</div></div>';
 
@@ -2388,6 +2415,7 @@ async function staffOpenModifier(modName, from, to) {
   if (old) old.remove();
   await staffOpenDishModal(modName, from, to);
 }
+
 
 
 
