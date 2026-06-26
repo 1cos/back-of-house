@@ -86,7 +86,7 @@ async function checkBeforeMissing(id, itemName){
   const missingNote = a.missing_count_week>1 ? `\n⚠️ Segnalato mancante ${a.missing_count_week} volte questa settimana.` : '';
   
   const colors = {high:'🟢', medium:'🟡', low:'🔴'};
-  const confidenceText = {high:'Alta confidenza che ci sia', medium:'Potrebbe essere finito', low:'Probabile che sia finito'};
+  const confidenceText = {high:tr('confidenceHigh'), medium:tr('confidenceMedium'), low:tr('confidenceLow')};
   
   return new Promise(resolve=>{
     const popup=document.createElement('div');
@@ -95,23 +95,23 @@ async function checkBeforeMissing(id, itemName){
       <div class="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl" style="animation:slideUp .2s ease">
         <div class="text-center mb-4">
           <div class="text-4xl mb-2">🤔</div>
-          <h3 class="font-bold text-lg">Sicuro che manca?</h3>
+          <h3 class="font-bold text-lg">${tr('sureItsMissing')}</h3>
         </div>
         <div class="bg-slate-50 rounded-2xl p-3 mb-4 space-y-2">
           <div class="flex items-center gap-2 text-sm">
             <span>🧑‍🍳</span>
-            <span><b>${a.last_made_by||'Qualcuno'}</b> '+tr('madeThisMorning')+' <b>${madeAt}</b></span>
+            <span><b>${a.last_made_by||'Qualcuno'}</b> ${tr('madeThisMorning')} <b>${madeAt}</b></span>
           </div>
-          ${madeQty?`<div class="flex items-center gap-2 text-sm"><span>⚖️</span><span>Quantità: <b>${madeQty}</b></span></div>`:''}
-          ${a.missing_count_week>1?`<div class="flex items-center gap-2 text-sm text-amber-700"><span>⚠️</span><span>Segnalato mancante <b>${a.missing_count_week}x</b> questa settimana</span></div>`:''}
+          ${madeQty?`<div class="flex items-center gap-2 text-sm"><span>⚖️</span><span>${tr('qty')}: <b>${madeQty}</b></span></div>`:''}
+          ${a.missing_count_week>1?`<div class="flex items-center gap-2 text-sm text-amber-700"><span>⚠️</span><span>${tr('reportedMissingWeek').replace('{n}', a.missing_count_week)}</span></div>`:''}
           <div class="flex items-center gap-2 text-xs text-slate-500 pt-1 border-t">
             <span>${colors[alert.level]}</span>
             <span>${confidenceText[alert.level]}</span>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-2">
-          <button id="alertCancel" class="py-3 rounded-xl bg-slate-100 font-semibold text-sm">'+tr('checkAgain')+'</button>
-          <button id="alertConfirm" class="py-3 rounded-xl bg-red-500 text-white font-semibold text-sm">'+tr('yesMissing')+'</button>
+          <button id="alertCancel" class="py-3 rounded-xl bg-slate-100 font-semibold text-sm">${tr('checkAgain')}</button>
+          <button id="alertConfirm" class="py-3 rounded-xl bg-red-500 text-white font-semibold text-sm">${tr('yesMissing')}</button>
         </div>
       </div>`;
     document.body.appendChild(popup);
