@@ -69,7 +69,7 @@ function updateStaffTabs() {
   var tabChiusura = document.getElementById('tabChiusura');
   var otherLabel = document.getElementById('otherStationsLabel');
   if (tabChiusura) tabChiusura.style.display = isEvening ? 'flex' : 'none';
-  if (otherLabel) otherLabel.textContent = 'Stations';
+  if (otherLabel) otherLabel.textContent = tr('stations');
 }
 
 window.showOtherStationsTab = function() {
@@ -200,10 +200,10 @@ function doLogin(profile){
   const greetEl = document.getElementById('topbarGreeting');
   if(greetEl){
     const h = parseInt(new Date().toLocaleString('en-US',{timeZone:'America/Chicago',hour:'numeric',hour12:false}));
-    if(h>=5&&h<12) greetEl.textContent='Good morning,';
-    else if(h>=12&&h<17) greetEl.textContent='Good afternoon,';
-    else if(h>=17&&h<21) greetEl.textContent='Good evening,';
-    else greetEl.textContent='Good night,';
+    if(h>=5&&h<12) greetEl.textContent=tr('goodMorning');
+    else if(h>=12&&h<17) greetEl.textContent=tr('goodAfternoon');
+    else if(h>=17&&h<21) greetEl.textContent=tr('goodEvening');
+    else greetEl.textContent=tr('goodNight');
   }
   // Ricarica photo_url dal DB
   supa.from('users').select('photo_url').eq('id', user.id).single().then(({data})=>{
@@ -238,7 +238,7 @@ function doLogin(profile){
 
     // Stations widget — admin: titolo "Stations", mostra pill tutte, nascondi your station e other
     const stTitle = document.getElementById('homeStationsTitle');
-    if(stTitle) stTitle.textContent = 'Stations';
+    if(stTitle) stTitle.textContent = tr('stations');
     const goBtn = document.getElementById('homeStationsGoBtn');
     if(goBtn) goBtn.style.display = 'none'; // admin non ha "Go to prep"
     const stItems = document.getElementById('homeStationItems');
@@ -259,7 +259,7 @@ function doLogin(profile){
 
     // Stations widget — staff: titolo "Your Station", nascondi pill admin, mostra your station + altre
     const stTitle = document.getElementById('homeStationsTitle');
-    if(stTitle) stTitle.textContent = 'Your Station';
+    if(stTitle) stTitle.textContent = tr('yourStation');
     const adminPills = document.getElementById('homeStations');
     if(adminPills) adminPills.style.display = 'none';
     const stItems = document.getElementById('homeStationItems');
@@ -565,6 +565,7 @@ async function vdrLoadBadge() {
     }
   } catch(e) {}
 }
+
 
 
 
