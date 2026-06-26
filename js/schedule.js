@@ -825,7 +825,9 @@ function schedRenderGeneratore(container) {
   var now = new Date();
   var dow = now.getDay();
   var monday = new Date(now);
-  monday.setDate(now.getDate() + (dow === 0 ? -6 : 1 - dow));
+  // Prossima settimana: lunedì della settimana prossima
+  var daysToNextMonday = dow === 0 ? 1 : (8 - dow);
+  monday.setDate(now.getDate() + daysToNextMonday);
   var weekDates = [];
   for (var i = 0; i < 6; i++) {
     var d = new Date(monday); d.setDate(monday.getDate() + i);
