@@ -269,7 +269,7 @@ async function checkBirthdays(){
     const names=bday.map(u=>u.name).join(', ');
     const bar=document.getElementById('newsBar');
     const scroll=document.getElementById('newsScroll');
-    if(scroll) scroll.textContent=`🎂 Oggi è il compleanno di ${names}! Auguri! 🎉`;
+    if(scroll) scroll.textContent=tr('birthdayMsg').replace('{names}',names);
     if(bar) bar.classList.remove('hidden');
   }
 }
