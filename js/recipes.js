@@ -56,7 +56,12 @@ async function openRecipeByData(idx){
   const rec = fresh || stale;
 
   // Translation: procedure and equipment only — NEVER ingredient names
-  if(user?.lang && user.lang!=='it' && rec.id){
+  // Fast path: use pre-translated columns if available (procedure_en / procedure_es)
+  if(user?.lang === 'en' && rec.procedure_en) rec.procedure = rec.procedure_en;
+  if(user?.lang === 'es' && rec.procedure_es) rec.procedure = rec.procedure_es;
+  // Slow path: use recipe_translations cache or Groq (only if no pre-translated column)
+  const _hasPretranslated = (user?.lang === 'en' && rec.procedure_en) || (user?.lang === 'es' && rec.procedure_es);
+  if(user?.lang && user.lang!=='it' && rec.id && !_hasPretranslated){
     let {data:translation} = await supa
       .from('recipe_translations')
       .select('title,procedure,equipment')
