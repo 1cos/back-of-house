@@ -72,7 +72,7 @@ async function initSousChef(){
   // 06:30 → scan mattina speciale
   // 06:30-17:30 → ogni ora
   // 17:30-06:30 → nessuna scan
-  scScheduleAutoScan();
+  // scScheduleAutoScan(); // ⛔ PAUSED — souschef-scan va in timeout (500), da riscrivere con SQL diretto
 }
 
 function scGetTexasHour() {
@@ -346,4 +346,5 @@ function showScAnswer(result){
   sheet.addEventListener('click', e => { if(e.target === sheet) sheet.remove(); });
   document.body.appendChild(sheet);
 }
+
 

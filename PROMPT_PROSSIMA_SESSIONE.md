@@ -24,8 +24,53 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 ---
 
 ## STATO TECNICO (aggiornato 2026-06-25)
-- Frontend: **v355** (sw.js boh-v355)
-- **App in produzione** — brigata attiva
+- Frontend: **v368** (sw.js boh-v368) — repo: `1cos/brigade-dev`
+- **App dev** — `https://1cos.github.io/brigade-dev/`
+
+---
+
+## Sessione 2026-06-25 — Prep & Closing cleanup (v366→v368)
+
+### DB — prep_tasks
+- Oven: Mozzarella→Mozzarella shredded; Scallops/Sicilian mix/Siciliana in bag→Sauté; Chicken Parmesan aggiunto
+- Fresh Pasta: Maccheroni aggiunto; Grated Pecorino + Parmesan Grated aggiunti; 7 item archiviati (Focaccia dough, Gnocchi, Gnocco Dough, Ravioli Lemon, Ravioli Meat, Fettuccine, Spaghetti)
+- Pasta: Clams→Rinse Clams, Mussels→Rinse Mussels, Lobster→Thaw Lobster, Shrimp→Thaw Shrimp; Rosemary Oil aggiunto; 10 item archiviati (Ragù, Arrabbiata, Cacio e pepe, Confit tomatoes, Demi, Mushrooms, Pesto, Pomodoro, Preparato Livornese, Texana)
+- Sauté: Scallops/Sicilian mix/Siciliana in bag arrivati da Oven; 10 item aggiunti (Thaw Salmon, Thaw Branzino, Asparagus, Butter Spinach, Setup Sous Vide Sauces, Setup Sous Vide Meatballs, Season Focaccia, Cook Focaccia, Heating Lamp, Warmers for Plates)
+- Saucier: Lobster Prepared→Soffritto Livornese; Cacio e pepe→Cacio e pepe sauce; Demi glacé→Demi; Pomodoro→Pomodoro sauce; Mash Potato + Texana Soup + Mushrooms + Preparato per Livornese aggiunti
+- Plating: Check Basil Oil, Check Balsamic Glaze, Check Rosemary Oil, Check Parmesan Grated, Check Pecorino Grated, Clean Plating Station, Parsley, Organized Plates, Turn On Warm Air for Plates, Refill Nutmeg/Pepper/White Pepper, Lemon Zest, Orange supreme (da Table Side)
+- Salad: Make→nomi puliti; Watermelon Cubes, Check Goat Cheese, Check Burrata, Check Croutons aggiunti
+- Pastry: Caesar Dressing, Ranch, Balsamic Dressing, Citronnette aggiunti/spostati
+- Manager: Basil leaves→Basil flowers; Arugola/Basil/Flowers/Rosemary/Sage/Tarragon/Thyme/Refill Capers/Confit tomatoes/Porterhouse aggiunti
+- Table Side: Clean Branzino + Filet Branzino aggiunti; Orange supreme→Plating; Scallops archiviato
+- Basil oil→Check Basil Oil→Plating Station
+
+### DB — closing_checks
+- Stazioni archiviate (nessun check serale): Fresh Pasta, Pastry, Saucier, Manager, Table Side, Plating
+- Grill & Features creata: Ribeye, Filets, Porterhouse, Wagyu Ribeye, Tomahawk
+- Sauté: Refill Capers, Arrabbiata sauce, Chicken Parmesan, Spinach, Flowers, Basil, Thyme, Sage, Tarragon, Arugola, Rosemary aggiunti
+- Salad: allineata ai nomi prep tasks; Make→archiviati
+- Nomi allineati tra closing e prep: Thaw Lobster, Thaw Shrimp, Arrabbiata sauce, Cacio e pepe sauce, ecc.
+
+### DB — prep_tasks.daily_reset
+- Nuova colonna `daily_reset` boolean aggiunta
+- Cron `daily-reset-prep-tasks`: ogni notte 00:00 CDT resetta done=false per task daily_reset=true
+- Task automatici: Rinse Clams, Rinse Mussels, Thaw Scallops (Sauté), Season Focaccia, Cook Focaccia, Tempura
+
+### Codice (v367-v368)
+- `init.js` v367: tab closing dinamiche dal DB (solo stazioni con item attivi) — Grill & Features appare automaticamente
+- `closing.js` v367: allStations dinamico dal closingItems
+- `souschef-core.js` v368: scScheduleAutoScan() DISABILITATA — andava in timeout ogni ora consumando token OpenRouter
+
+### ✅ Collegamento closing_checks → prep_tasks COMPLETATO
+- 83 closing checks collegate via `prep_task_id` — zero senza collegamento
+- Quando la sera si segna "manca" → prep task si attiva automaticamente la mattina
+
+### 🔴 DA FARE — souschef-scan
+- `souschef-scan` Edge Function manda 400+ ingredienti a OpenRouter → timeout 500 ogni ora
+- **Fix:** riscrivere con SQL diretto (GHOST e NOLINK si trovano con query SQL, AI serve solo per testo)
+- Attualmente: scan automatica disabilitata in `souschef-core.js`
+
+
 
 ---
 
@@ -167,3 +212,5 @@ Bottom bar: Home / Chat / Schedule / Tell Chef
 - Domenica chiuso
 - **App in produzione — modifiche chirurgiche, zero rischi**
 - **MAI assumere — confermare SEMPRE con Max prima di agire**
+
+

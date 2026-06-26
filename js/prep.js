@@ -51,6 +51,15 @@ async function loadItemAlerts(){
   }catch(e){}
 }
 
+// Set di prep_task_id che hanno almeno uno step
+window.prepTasksWithSteps = new Set();
+async function loadStepsMap(){
+  try{
+    const{data}=await supa.from('prep_steps').select('prep_task_id');
+    window.prepTasksWithSteps = new Set((data||[]).map(r=>String(r.prep_task_id)));
+  }catch(e){}
+}
+
 function getAlertLevel(itemName){
   const a=itemAlerts[itemName];
   if(!a) return null;
@@ -176,19 +185,19 @@ function renderM(){
     list.map(i=>{
       const isUrgent=i.need_tomorrow;
       const isWip=i.in_progress&&!i.need_tomorrow;
-      const accentColor=isUrgent?'#ef4444':isWip?'#3b82f6':'#334155';
-      const bgColor=isUrgent?'rgba(254,242,242,0.95)':isWip?'rgba(239,246,255,0.95)':'rgba(255,255,255,0.95)';
+      const accentColor=isUrgent?'#ef4444':isWip?'#3b82f6':'#94a3b8';
       const nameColor=isUrgent?'#991b1b':isWip?'#1e40af':'#0f172a';
       const badge=isUrgent?'<span style="font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;">'+tr('urgent')+'</span>':
                    isWip?'<span style="font-size:10px;font-weight:600;color:#3b82f6;background:rgba(59,130,246,0.1);padding:2px 6px;border-radius:6px;">'+tr('inProgress')+'</span>':'';
       const iid = i.id;
-      return '<div class="col-span-2 mb-2 cursor-pointer active:scale-[0.98] transition-transform" style="background:' + bgColor + ';border-radius:16px;border-left:4px solid ' + accentColor + ';box-shadow:0 1px 4px rgba(15,23,42,0.08);">' +
+      return '<div class="col-span-2 mb-2 cursor-pointer active:scale-[0.98] transition-transform" style="background:rgba(255,255,255,0.60);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:16px;border-left:4px solid ' + accentColor + ';box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04),inset 0 1px 0 rgba(255,255,255,0.9);">' +
         '<div style="padding:12px 12px 12px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
           '<div style="flex:1;min-width:0;" onclick="openRecipeForItem(' + JSON.stringify(iid) + ')">' +
             '<div style="font-size:15px;font-weight:600;color:' + nameColor + ';line-height:1.3;">' + i.name + '</div>' +
             (badge ? '<div style="margin-top:4px;">' + badge + '</div>' : '') +
             '<div style="margin-top:3px;">' +
               (i.recipe_id ? '<span style="font-size:11px;color:#059669;font-weight:500;">'+tr('recipe')+'</span>' :
+               window.prepTasksWithSteps?.has(String(iid)) ? '<span style="font-size:11px;color:#7c3aed;font-weight:500;">▶ steps</span>' :
                i.note ? '<span style="font-size:11px;color:#d97706;">'+tr('note')+'</span>' :
                isAdmin() ? '<span style="font-size:11px;color:#94a3b8;">'+tr('noRecipeLink')+'</span>' : '') +
             '</div>' +
@@ -277,8 +286,7 @@ async function quickSave(id){
   tasks[id].need_tomorrow=false;
   tasks[id].in_progress=false;
   await loadItemAlerts();
-  showConfetti();
-  setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},400);
+  await loadStepsMap();
 }
 
 function openDoneSheet(id){
@@ -382,6 +390,7 @@ async function detailSave(id, btn){
   tasks[id].need_tomorrow=false;
   tasks[id].in_progress=false;
   await loadItemAlerts();
+  await loadStepsMap();
   sheet.remove();
   showConfetti();
   setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
@@ -456,3 +465,6 @@ async function feedSave(id,qty,btn){
 
 
 
+
+// Carica steps map all'avvio
+loadStepsMap();

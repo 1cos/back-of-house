@@ -78,31 +78,6 @@ window.openSousChefChat = function() {
   sheet.addEventListener('click', e => { if (e.target === sheet) sheet.remove(); });
   document.body.appendChild(sheet);
   setTimeout(() => document.getElementById('_scChatInput')?.focus(), 300);
-
-  // ── KEYBOARD FIX per Android (Visual Viewport API) ──
-  // Quando la tastiera appare su Android, vh non cambia → input finisce sotto la tastiera.
-  // Visual Viewport API è l'unica soluzione affidabile su Chrome Android.
-  const _scVPHandler = () => {
-    const inner = document.getElementById('_scChatInner');
-    if (!inner) { window.visualViewport?.removeEventListener('resize', _scVPHandler); return; }
-    const vvHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    // Limita il modal all'altezza visibile, con un massimo dell'80% dello schermo fisico
-    inner.style.height = Math.min(vvHeight - 8, window.innerHeight * 0.92) + 'px';
-    // Scrolla ai messaggi più recenti
-    const msgs = document.getElementById('_scChatMsgs');
-    if (msgs) msgs.scrollTop = msgs.scrollHeight;
-  };
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', _scVPHandler);
-    // Cleanup quando il modal viene rimosso
-    const _scObserver = new MutationObserver(() => {
-      if (!document.getElementById('_scChatSheet')) {
-        window.visualViewport.removeEventListener('resize', _scVPHandler);
-        _scObserver.disconnect();
-      }
-    });
-    _scObserver.observe(document.body, { childList: true });
-  }
 };
 
 // ── RENDER MESSAGGIO ──
@@ -412,4 +387,3 @@ async function scChatProcess(userText) {
     scChatAddMsg('assistant', '❌ Errore: ' + e.message, { isError: true });
   }
 }
-

@@ -5,7 +5,7 @@ const MENU_GROUPS = ['Antipasti','Primi','Secondi','Table Side','Salads','Sides'
 async function openRecipeForItem(itemId){
   const task = tasks[itemId];
 
-  // ── STEPS: se la prep ha step sequenziali, espandi inline invece di aprire sheet ──
+  // ── STEPS: se la prep ha step sequenziali, espandi inline ──
   const {data: steps} = await supa.from('prep_steps')
     .select('*').eq('prep_task_id', itemId).order('sort_order');
   if(steps && steps.length > 0){
@@ -1458,38 +1458,32 @@ function openCreateIngredientModal(prefillName, onCreated){
 
 
 // ── PREP STEPS — espansione inline nella card ──────────────────────────
-
-// Timers attivi: { taskId: { intervalId, endTime, stepId } }
 window._prepStepTimers = window._prepStepTimers || {};
 
 async function togglePrepStepsExpand(taskId, steps){
   const expandId = 'prep-steps-expand-' + taskId;
   const existing = document.getElementById(expandId);
-
-  // Se già aperto — chiudi
   if(existing){ existing.remove(); return; }
 
-  // Chiudi eventuali altri step espansi
+  // Chiudi altri pannelli aperti
   document.querySelectorAll('[id^="prep-steps-expand-"]').forEach(el=>el.remove());
 
-  // Trova la card della prep task nel DOM
-  const cardSelector = `[onclick*="openRecipeForItem(${JSON.stringify(taskId)})"], [onclick*='openRecipeForItem(${JSON.stringify(taskId)})']`;
-  let card = document.querySelector(cardSelector);
-  if(!card) card = document.querySelector(`[onclick*="${taskId}"]`);
-  const parentCard = card ? card.closest('[style*="border-radius:16px"]') : null;
-  if(!parentCard){ return; }
+  // Trova la card nel DOM
+  let parentCard = null;
+  document.querySelectorAll('[style*="border-radius:16px"]').forEach(el=>{
+    if(el.innerHTML.includes(`openRecipeForItem(${JSON.stringify(taskId)})`)) parentCard = el;
+  });
+  if(!parentCard) return;
 
   // Carica log step di oggi
   const today = new Date().toISOString().slice(0,10);
   const {data: logs} = await supa.from('prep_step_log')
     .select('*').eq('prep_task_id', taskId).eq('log_date', today);
-  const logMap = {}; // stepId → log row
+  const logMap = {};
   (logs||[]).forEach(l=>{ logMap[l.step_id] = l; });
 
-  // Determina step attivo (primo non completato)
   const activeIdx = steps.findIndex(s => !logMap[s.id]?.completed_at);
 
-  // Crea il pannello espanso
   const panel = document.createElement('div');
   panel.id = expandId;
   panel.style.cssText = 'overflow:hidden;transition:max-height .3s ease;max-height:0;';
@@ -1497,120 +1491,85 @@ async function togglePrepStepsExpand(taskId, steps){
   const inner = document.createElement('div');
   inner.style.cssText = 'padding:8px 14px 12px 14px;border-top:1px solid rgba(0,0,0,0.06);';
 
-  inner.innerHTML = steps.map((s, idx)=>{
+  inner.innerHTML = steps.map((s,idx)=>{
     const log = logMap[s.id];
     const isDone = !!log?.completed_at;
     const isActive = idx === activeIdx;
     const isLocked = !isDone && idx > activeIdx;
-    const timer = window._prepStepTimers[taskId + '_' + s.id];
+    const timer = window._prepStepTimers[taskId+'_'+s.id];
 
     let timerHtml = '';
     if(s.timer_minutes && !isLocked){
-      if(isDone){
-        timerHtml = `<span style="font-size:10px;color:#059669;font-weight:600;">⏱ ${s.timer_minutes}min — completato</span>`;
-      } else if(timer){
-        timerHtml = `<span id="step-timer-${s.id}" style="font-size:11px;color:#f59e0b;font-weight:700;">⏱ --:--</span>`;
-      } else {
-        timerHtml = `<span style="font-size:10px;color:#94a3b8;">⏱ ${s.timer_minutes} min</span>`;
-      }
+      if(isDone) timerHtml = `<span style="font-size:10px;color:#059669;font-weight:600;">⏱ ${s.timer_minutes}min — completato</span>`;
+      else if(timer) timerHtml = `<span id="step-timer-${s.id}" style="font-size:11px;color:#f59e0b;font-weight:700;">⏱ --:--</span>`;
+      else timerHtml = `<span style="font-size:10px;color:#94a3b8;">⏱ ${s.timer_minutes} min</span>`;
     }
 
-    const statusColor = isDone ? '#059669' : isActive ? '#7c3aed' : '#cbd5e1';
-    const bgColor = isDone ? 'rgba(5,150,105,0.06)' : isActive ? 'rgba(124,58,237,0.06)' : 'rgba(0,0,0,0.02)';
-    const opacity = isLocked ? '0.4' : '1';
-    const cursor = isLocked ? 'default' : 'pointer';
-    const isLast = idx === steps.length - 1;
+    const statusColor = isDone?'#059669':isActive?'#7c3aed':'#cbd5e1';
+    const bgColor = isDone?'rgba(5,150,105,0.06)':isActive?'rgba(124,58,237,0.06)':'rgba(0,0,0,0.02)';
+    const isLast = idx === steps.length-1;
 
-    return `<div data-step-id="${s.id}" data-step-idx="${idx}" data-task-id="${taskId}" data-is-last="${isLast}"
-      style="display:flex;align-items:flex-start;gap:10px;padding:10px 10px;margin-bottom:6px;
-             background:${bgColor};border-radius:12px;border:1.5px solid ${statusColor}22;
-             opacity:${opacity};cursor:${cursor};"
-      onclick="${isLocked ? '' : `handleStepTap(${taskId}, ${s.id}, ${idx}, ${isLast}, ${activeIdx})`}">
+    return `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px;margin-bottom:6px;
+      background:${bgColor};border-radius:12px;border:1.5px solid ${statusColor}22;
+      opacity:${isLocked?'0.4':'1'};cursor:${isLocked?'default':'pointer'};"
+      onclick="${isLocked?'':` handleStepTap(${taskId},${s.id},${idx},${isLast},${activeIdx})`}">
       <div style="width:24px;height:24px;border-radius:50%;border:2px solid ${statusColor};
-                  display:flex;align-items:center;justify-content:center;flex-shrink:0;
-                  background:${isDone?statusColor:'transparent'};font-size:12px;color:${isDone?'#fff':statusColor};font-weight:700;">
-        ${isDone ? '✓' : idx+1}
+        display:flex;align-items:center;justify-content:center;flex-shrink:0;
+        background:${isDone?statusColor:'transparent'};font-size:12px;color:${isDone?'#fff':statusColor};font-weight:700;">
+        ${isDone?'✓':idx+1}
       </div>
       <div style="flex:1;min-width:0;">
         <div style="font-size:13px;font-weight:600;color:${isDone?'#059669':isActive?'#1e0a3c':'#94a3b8'};
-                    ${isDone?'text-decoration:line-through;text-decoration-color:#05996944;':''}">
+          ${isDone?'text-decoration:line-through;text-decoration-color:#05996944;':''}">
           ${s.title}
         </div>
-        ${s.note ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px;line-height:1.4;">${s.note}</div>` : ''}
-        ${timerHtml ? `<div style="margin-top:4px;">${timerHtml}</div>` : ''}
-        ${isDone && isLast ? `<button onclick="event.stopPropagation();completePrepWithSteps(${taskId})" 
+        ${s.note?`<div style="font-size:11px;color:#94a3b8;margin-top:2px;line-height:1.4;">${s.note}</div>`:''}
+        ${timerHtml?`<div style="margin-top:4px;">${timerHtml}</div>`:''}
+        ${isDone&&isLast?`<button onclick="event.stopPropagation();completePrepWithSteps(${taskId})"
           style="margin-top:8px;width:100%;padding:10px;background:#059669;color:#fff;border:none;
-                 border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">
-          ✓ Done — Segna come fatto
-        </button>` : ''}
+          border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">✓ Done — Segna come fatto</button>`:''}
       </div>
     </div>`;
   }).join('');
 
   panel.appendChild(inner);
   parentCard.appendChild(panel);
-
-  // Animazione apertura
-  requestAnimationFrame(()=>{
-    panel.style.maxHeight = inner.scrollHeight + 40 + 'px';
-  });
-
-  // Aggiorna timer attivi sul pannello
-  updateStepTimerDisplays(taskId, steps);
+  requestAnimationFrame(()=>{ panel.style.maxHeight = inner.scrollHeight+40+'px'; });
 }
 
 window.handleStepTap = async function(taskId, stepId, stepIdx, isLast, activeIdx){
-  if(stepIdx !== activeIdx) return; // solo step attivo è cliccabile
+  if(stepIdx !== activeIdx) return;
   const today = new Date().toISOString().slice(0,10);
-
-  // Segna step come completato
   const {data: existingLog} = await supa.from('prep_step_log')
     .select('*').eq('step_id', stepId).eq('log_date', today).maybeSingle();
-
   if(existingLog){
     await supa.from('prep_step_log').update({
-      completed_by: user?.name,
-      completed_at: new Date().toISOString()
+      completed_by: user?.name, completed_at: new Date().toISOString()
     }).eq('id', existingLog.id);
   } else {
     await supa.from('prep_step_log').insert({
-      prep_task_id: taskId,
-      step_id: stepId,
-      log_date: today,
-      started_by: user?.name,
-      started_at: new Date().toISOString(),
-      completed_by: user?.name,
-      completed_at: new Date().toISOString()
+      prep_task_id: taskId, step_id: stepId, log_date: today,
+      started_by: user?.name, started_at: new Date().toISOString(),
+      completed_by: user?.name, completed_at: new Date().toISOString()
     });
   }
-
-  // Avvia timer se configurato
   const {data: step} = await supa.from('prep_steps').select('*').eq('id', stepId).maybeSingle();
-  if(step?.timer_minutes){
-    startPrepStepTimer(taskId, stepId, step.timer_minutes, step.title);
-  }
+  if(step?.timer_minutes) startPrepStepTimer(taskId, stepId, step.timer_minutes, step.title);
 
-  // Ricarica step e riapri pannello aggiornato
   const {data: steps} = await supa.from('prep_steps')
     .select('*').eq('prep_task_id', taskId).order('sort_order');
-
-  const expandId = 'prep-steps-expand-' + taskId;
-  const existing = document.getElementById(expandId);
-  if(existing) existing.remove();
-
-  // Se non è l'ultimo step — riapri subito aggiornato; se è l'ultimo mostra Done
+  const panel = document.getElementById('prep-steps-expand-'+taskId);
+  if(panel) panel.remove();
   togglePrepStepsExpand(taskId, steps);
 };
 
 function startPrepStepTimer(taskId, stepId, minutes, stepTitle){
-  const key = taskId + '_' + stepId;
-  if(window._prepStepTimers[key]) return; // già avviato
-
-  const endTime = Date.now() + minutes * 60 * 1000;
+  const key = taskId+'_'+stepId;
+  if(window._prepStepTimers[key]) return;
+  const endTime = Date.now() + minutes*60*1000;
   const intervalId = setInterval(async()=>{
     const remaining = endTime - Date.now();
-    // Aggiorna display countdown nel pannello
-    const el = document.getElementById('step-timer-' + stepId);
+    const el = document.getElementById('step-timer-'+stepId);
     if(el){
       if(remaining > 0){
         const m = Math.floor(remaining/60000);
@@ -1621,43 +1580,25 @@ function startPrepStepTimer(taskId, stepId, minutes, stepTitle){
         el.style.color = '#ef4444';
       }
     }
-    // Timer scaduto → manda notifica push a tutta la brigata
     if(remaining <= 0){
       clearInterval(intervalId);
       delete window._prepStepTimers[key];
-      await supa.from('prep_step_log').update({timer_fired: true})
+      await supa.from('prep_step_log').update({timer_fired:true})
         .eq('step_id', stepId).eq('log_date', new Date().toISOString().slice(0,10));
-      // Push notification globale
       try{
-        await fetch(`${SUPABASE_URL}/functions/v1/notifications`, {
-          method: 'POST',
-          headers: {'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
-          body: JSON.stringify({
-            title: `⏱ ${stepTitle}`,
-            body: `Timer scaduto — step pronto per il prossimo passaggio`,
-            target: 'all'
-          })
+        await fetch(`${SUPABASE_URL}/functions/v1/notifications`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_ANON_KEY}`},
+          body: JSON.stringify({title:`⏱ ${stepTitle}`, body:`Timer scaduto — prossimo step pronto`, target:'all'})
         });
-      } catch(e){}
+      }catch(e){}
     }
   }, 1000);
-
-  window._prepStepTimers[key] = { intervalId, endTime, stepId };
-}
-
-function updateStepTimerDisplays(taskId, steps){
-  steps.forEach(s=>{
-    const key = taskId + '_' + s.id;
-    const timer = window._prepStepTimers[key];
-    if(!timer) return;
-    // Il setInterval aggiorna già il display ogni secondo — ok
-  });
+  window._prepStepTimers[key] = {intervalId, endTime, stepId};
 }
 
 window.completePrepWithSteps = async function(taskId){
-  // Apre il Done sheet normale
-  openDoneSheet(taskId);
-  // Chiudi pannello step
-  const panel = document.getElementById('prep-steps-expand-' + taskId);
+  const panel = document.getElementById('prep-steps-expand-'+taskId);
   if(panel) panel.remove();
+  openDoneSheet(taskId);
 };
