@@ -100,6 +100,36 @@ window.vdrLoad = async function() {
     window._vdrAllDocs = data || [];
     window._vdrPdfQueue = pdfQueue || [];
 
+    // ── Pre-load known conversions (BIOS-001: first time ask, second time learn) ──
+    // Collect all SKUs from pending docs and fetch their conversion_to_base from DB.
+    // vdrWarningToQuestion will skip OQR-006 if conversion already known.
+    try {
+      const allSkus = [];
+      for (const doc of (data || [])) {
+        for (const item of ((doc.parsed_json || {}).items || [])) {
+          if (item.vendor_sku) allSkus.push(item.vendor_sku);
+        }
+      }
+      if (allSkus.length > 0) {
+        const { data: ivRows } = await sb
+          .from('ingredient_vendors')
+          .select('vendor_sku, conversion_to_base, pack_description')
+          .in('vendor_sku', [...new Set(allSkus)])
+          .not('conversion_to_base', 'is', null);
+        window._vdrKnownConversions = {};
+        for (const row of (ivRows || [])) {
+          window._vdrKnownConversions[row.vendor_sku] = {
+            conversion_to_base: row.conversion_to_base,
+            pack_description: row.pack_description,
+          };
+        }
+      } else {
+        window._vdrKnownConversions = {};
+      }
+    } catch(_) {
+      window._vdrKnownConversions = {};
+    }
+
     list.innerHTML = html;
     vdrRenderList();
     if (data) for (const doc of data) vdrRegisterQuestions(doc);
@@ -793,6 +823,12 @@ function vdrWarningToQuestion(w, item, docId, idx) {
   // "I found a count-based pack. Is this correct?"
   if (w.code === 'OQR-006') {
     const pack = item ? (item.pack_description || '') : '';
+    // BIOS-001: "First time ask, second time learn."
+    // If we already have conversion_to_base for this SKU in the DB → silent, no question.
+    if (item && item.vendor_sku) {
+      const known = window._vdrKnownConversions && window._vdrKnownConversions[item.vendor_sku];
+      if (known && known.conversion_to_base) return null;
+    }
     // Skip OQR-006 for pure count packs — no ambiguity
     // e.g. "50 CT", "4/20 CT", "95 CT", "110 CT"
     const isPureCount = /^\d+\s*(\/\s*\d+\s*)?CT$/i.test(pack.trim());
