@@ -24,9 +24,66 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 ---
 
 ## STATO TECNICO (aggiornato 2026-06-26)
-- Frontend: **v386** (sw.js boh-v386) — repo: `1cos/back-of-house`, branch `brigade-main`
+- Frontend: **v389** (sw.js boh-v389) — repo: `1cos/back-of-house`, branch `brigade-main`
 - **App live** — `https://1cos.github.io/back-of-house/`
 - **`1cos/brigade-dev` — ABBANDONATO, non usare più**
+
+---
+
+## Sessione 2026-06-26 — Fix per i ragazzi (v380→v389)
+
+### Fix completati
+
+**v380 — Traduzioni Zuu (spagnolo)**
+- `app.js`: greeting "Good morning/afternoon/evening/night" → `tr()` (erano hardcoded inglese)
+- `app.js`: "Your Station" → `tr('yourStation')`, "Stations" → `tr('stations')`
+- `utils.js`: aggiunte chiavi `goodMorning/goodAfternoon/goodEvening/goodNight` IT/EN/ES
+- Zuu (lang=`es`) ora vede tutto in spagnolo: "Buenos días", "Tu estación", "Otras estaciones", ecc.
+
+**v381 — Fix Contorni: dati reali includono modifiers**
+- `pos.js`: la card Contorni mostrava solo items diretti (17) — ignorava i modifiers ×½
+- Fix: dopo build `groupMap`, aggiungi anche modifier Contorni da `modifier_config` (×0.5 porzione)
+- Nel dettaglio sheet: label verde "+side ½" per distinguere modifier da items diretti
+- Dati reali weekend 06-19/20: ~57 porzioni (vs 17 mostrate prima)
+
+**v382 — Font +1px globale staff**
+- `index.html`: `body { font-size: 15px }`, tutte le classi Tailwind scalano automaticamente
+- Titolo app: 17→18px, username topbar: 14→15px, news bar: 13→14px, tab labels: 11→12px
+
+**v383 — Font testo traduzione chat +2px**
+- `chat.js`: testo traduzione 🌐 sotto i messaggi: 11px → 13px
+
+**v384/v385 — Tell Chef: fix doppio invio + dedup history**
+- `tell-chef.js`: guard `_tcSending = true` blocca qualsiasi doppio tap
+- `tell-chef.js`: deduplicazione history (message+created_at) prima del render
+- Anto vedeva 14+ messaggi identici perché toccava più volte il bottone su connessione lenta
+
+**v386 — Tell Chef redesign come chat**
+- `tell-chef.js`: completamente ridisegnato — non più textarea statica con history sotto
+- Header fisso in cima, messaggi come bolle scorrevoli, input fisso in fondo
+- Dopo invio: bolla aggiunta in chat, campo svuotato — modal non si chiude più
+
+**v387 — Tell Chef colori app + traduzioni IT/EN/ES**
+- `tell-chef.js`: via nero `#1a202c` — gradiente navy/blue `#1e3a5f → #2563eb` in linea con home
+- `utils.js`: aggiunte chiavi `tcOnlyMax`, `tcWriteNote`, `tcTipMic`, `tcSendBtn`, `tcSent`, `tcNoMsg`
+- IT: "Solo Chef Max vedrà questo" / "Scrivi la tua nota..." / "💡 Suggerimento: usa il microfono..."
+- ES: "Solo Chef Max verá esto" / "Escribe tu nota..." / "💡 Tip: usa el micrófono..."
+- EN: "Only Chef Max will see this" / "Write your note..." / "💡 Tip: use the mic..."
+
+**v388 — Fix bottone fotocamera chat**
+- `utils.js`: `applyLang()` prendeva il primo bottone `#f button` (= fotocamera) e ci scriveva "Send to team" / "Invia al team" sopra, sovrascrivendo l'SVG
+- Fix: rimossa quella riga — bottone fotocamera mantiene SVG, bottone submit mantiene freccia blu
+
+**v389 — (bump sw dopo push parallelo)**
+
+### DB cleanup
+- Cancellati **160 chef_reports** precedenti al 23-06-2026 (messaggi del demobot)
+- Rimasti 5 record reali (dal 23 giugno in poi)
+- Chat brigata (messages) lasciata intatta
+
+### Fix Android keyboard (Visual Viewport API)
+- `souschef-chat.js`: keyboard fix Android — `visualViewport.resize` listener ridimensiona modal
+- `tell-chef.js`: stesso fix applicato al Tell Chef
 
 ---
 
@@ -41,112 +98,34 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 - Nuovo file `js/staff-manager.js`
 - Accessibile dai tre puntini → bottone **Staff** (verde)
 - Lista tutti i profili con turno, giorni off, stazioni e priorità
-- Tap su nome → editor completo: turno, giorni off, no-sera, doppio turno, note
-- Aggiungi/rimuovi stazioni con priorità e flag default
-- Aggiungi nuovi membri, disattiva profili senza eliminarli
-- Fix: usava `window.supabase` invece di `window.supa` — corretto in v384
 
 ### Schedule Generator — tab Genera in Schedule (v385→v386)
-- Nuovo tab **✦ Genera** nella sezione Schedule (accanto a Oggi / Settimana)
-- Solo admin
-- **Pannello eccezioni**: dropdown nome → date da/a → + Aggiungi → lista eccezioni rimuovibili con ×
-- **✦ Genera Schedule**: genera la schedula della **prossima settimana** (lunedì → sabato)
-- Rispetta vincoli fissi DB (off_days, no_evening_days, only_days, is_double_shift)
-- Rispetta eccezioni temporanee inserite (persona off da data a data)
-- Anti-conflitto: ogni persona assegnata una sola volta per turno per giorno
-- Risultato in due sub-tab: **Giornaliero** (day strip + stazioni) e **Settimanale** (griglia)
-- Stazioni non coperte evidenziate in rosso con warning
-- Rachel doppio turno (2x badge), Max fisso Mer→Pasta / Gio/Ven/Sab→Grill & Features
-- Non salva nel DB, non tocca la schedula 7shifts — solo visualizzazione/pianificazione
-
-### Dati brigata consolidati
-**Stazioni per turno:**
-- Mattina: Oven, Sauté, Pasta, Salad, Fresh Pasta, Saucier, Coordinator, Dish Crew + Pastry (solo Lun/Mer/Ven)
-- Sera: Oven, Pasta, Salad, Sauté, Plating, Table Side, Grill & Features, Dish Crew
-
-**Orari:** Mattina 8:00–14:00 / Sera 14:00–21:30 (22:30 Ven-Sab)
-
-**Vincoli personale chiave:**
-- Rachel: doppio turno Lun/Mar/Mer (Oven AM + Grill PM), Gio solo AM, off Ven/Sab
-- Max: off Lun, 12:00→close, Mer→Pasta, Gio/Ven/Sab→Grill & Features
-- David: off Martedì (Colton copre Table Side)
-- Chance: off Martedì, default Sauté sera
-- Todd: solo Lun/Mar/Mer, Fresh Pasta + Pastry (NON Pasta Station)
-- Colton/Tela/Samantha/Chris: no mercoledì sera
-- Genova: off Sabato, default Sauté mattina
-- Zuu: solo Salad mattina, 6 giorni/sett
-
----
-
-## 🔴 BACKLOG SCHEDULE GENERATOR — prossime aggiunte
-
-### Vincoli di stazione (non ancora implementati)
-Da aggiungere in una tabella `station_rules` con colonna `active_days`:
-- **Pastry Station** — solo Lun / Mer / Ven (già parzialmente implementato nel generatore)
-- **Pasta Station** (prep salse) — solo Lun / Mer / Ven / Sab
-- **Saucier Station** — solo Lun / Mar / Mer / Gio
-- Altri da definire con Max
-- Il Bot deve conoscere questi vincoli per le produzioni
-
-### Salvataggio schedule generata nel DB
-- Tabella `schedule_assignments` da creare: week_start, day_of_week, shift, station, assigned_to, created_by
-- Bottone "Salva schedule" nel generatore
-- Visualizzazione schedule salvata vs generata
-
-### Candidati da DB
-- Il generatore ora usa candidati hardcodati in JS
-- Futuro: leggerli da `staff_stations` in tempo reale
+- Nuovo tab **✦ Genera** nella sezione Schedule
+- Solo admin — genera schedule prossima settimana (lunedì → sabato)
 
 ---
 
 ## 🔴 PRIORITÀ #1 — ai_options come azioni eseguibili in L'Ufficio
+Le ai_options sono ora stringhe — quando Max le preme, archiviano ma NON eseguono nel DB.
+Visione: opzioni strutturate `{label, action, params}` che chiamano `officeExecuteOption()`.
 
-### Problema
-Le ai_options nel sistema Tell Chef sono ora stringhe (es. "Aggiungi focaccia alla lista").
-Quando Max le preme, chiamano `officeResolve` che archivia il messaggio ma NON esegue nulla nel DB.
-
-### Visione
-Il bot genera opzioni strutturate con azione codificata:
-```json
-[
-  { "label": "Aggiungi focaccia alla lista Oven", "action": "add_prep_task", "params": {"name": "Focaccia", "station": "Oven Station"} },
-  { "label": "Ignora", "action": "ignore", "params": {} }
-]
-```
-
-### Piano
-- `office.js`: `officeExecuteOption(item, opt)` — se opt.action presente, chiama souschef-chat confirmed_action
-- `bot-tell-chef-reader v6`: aggiorna prompt per generare ai_options strutturate {label, action, params}
-
-### Azioni già eseguibili via souschef-chat (v25)
-add_prep_task, remove_prep_task, update_prep_task, add_closing_check, remove_closing_check,
-send_brigade_message, update_ingredient_vendor, block/unblock_*, create_office_item, resolve_warning
-
----
-
-## 🔴 PRIORITÀ #2 — Autocomplete ricette nel Calendar editor (BUG APERTO v355)
-- `<datalist>` nativo HTML non funziona su iOS nel modale editor eventi
-- Valutare: sheet separato di ricerca ricette (tap → lista fullscreen → selezione → torna editor)
-
----
+## 🔴 PRIORITÀ #2 — Autocomplete ricette nel Calendar editor (BUG APERTO)
+`<datalist>` nativo HTML non funziona su iOS nel modale editor eventi.
+Soluzione: sheet separato fullscreen di ricerca ricette.
 
 ## 🔴 PRIORITÀ #3 — Home dedicata Dish Crew (Fase 2)
 Detect: `user.default_station === 'Dish Crew'`
 Nascondere: Recipes, Closing, Sales, Ingredienti, Focus Mode, Operation Notes
 Bottom bar: Home / Chat / Schedule / Tell Chef
 
----
-
 ## 🔴 PRIORITÀ #4 — Cleaning Checklist (nuovo modulo)
 Flusso serale: Closing Prep → Operation Note → Cleaning Checklist → Chiudi Shift → notifica Max+David
-- DB: nuove tabelle `cleaning_tasks` e `cleaning_log` (non ancora create)
-
----
+DB: nuove tabelle `cleaning_tasks` e `cleaning_log` (non ancora create)
 
 ## 🔴 PRIORITÀ #5 — souschef-scan
-- Manda 400+ ingredienti a OpenRouter → timeout 500 ogni ora
-- Fix: riscrivere con SQL diretto (GHOST e NOLINK si trovano con query SQL, AI serve solo per testo)
-- Scan automatica attualmente disabilitata in `souschef-core.js`
+Manda 400+ ingredienti a OpenRouter → timeout 500 ogni ora
+Fix: riscrivere con SQL diretto (GHOST e NOLINK si trovano con query SQL)
+Scan automatica attualmente disabilitata in `souschef-core.js`
 
 ---
 
@@ -159,7 +138,8 @@ Flusso serale: Closing Prep → Operation Note → Cleaning Checklist → Chiudi
 - TripleSeat — Monica deve fare Authorize
 - Bot 5 versione B — food cost % quando selling_price popolato
 - office-ai cron orario (analisi automatica ogni ora)
-- Foto in chat — bottone camera presente ma upload da verificare su iPhone
+- Hardie's NULL conversions: fix manuale `conversion_to_base` per Eggs 15 DZ (SKU 01115) e Beefsteak Tomato 19/22 (SKU 15909)
+- Foto in chat — upload da testare su iPhone reale
 
 ---
 
