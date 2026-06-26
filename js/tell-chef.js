@@ -56,6 +56,14 @@ async function loadTellChefHistory() {
       .limit(20);
     var rows = res.data || [];
     if (!rows.length) return;
+    // Deduplica per messaggio + data (protezione anti-duplicati DB)
+    var seen = {};
+    rows = rows.filter(function(r) {
+      var key = r.message + '|' + r.created_at;
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
+    });
     el.innerHTML =
       '<div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.06em;margin-bottom:8px;">YOUR PREVIOUS MESSAGES</div>' +
       rows.map(function(r) {
@@ -76,7 +84,9 @@ function closeTellChef() {
 }
 
 // ── SEND ──
+var _tcSending = false; // guard anti-doppio invio
 async function tellChefSend() {
+  if (_tcSending) return; // blocca doppio tap
   var text = (document.getElementById('tellChefText') || {}).value || '';
   text = text.trim();
   if (!text) {
@@ -84,6 +94,7 @@ async function tellChefSend() {
     return;
   }
 
+  _tcSending = true;
   var btn = document.querySelector('#tellChefSheet button[onclick="tellChefSend()"]');
   if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
 
@@ -118,9 +129,10 @@ async function tellChefSend() {
           '<div style="font-size:13px;color:#94a3b8;">Chef Max will see your message</div>' +
         '</div>';
     }
-    setTimeout(closeTellChef, 2000);
+    setTimeout(function(){ _tcSending = false; closeTellChef(); }, 2000);
 
   } catch(e) {
+    _tcSending = false;
     if (btn) { btn.disabled = false; btn.textContent = 'Send to Chef →'; }
     tellChefSetStatus('Error sending. Try again.', '#ef4444');
   }
@@ -232,6 +244,7 @@ async function tcSetStatus(id, status, btn) {
     await tcAdminLoad();
   } catch(e) {}
 }
+
 
 
 
