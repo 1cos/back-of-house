@@ -1642,7 +1642,7 @@ async function daExecuteQuery(sb, q, from, to) {
   // ── QUERY: cat_ranking ────────────────────────────────────────────
   if (qtype === 'cat_ranking') {
     var r=await sb.from('pos_sales_by_item').select('menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).eq('sales_category','Food');
-    var GROUP_LABEL={'Pasta':'Pasta','Secondi/entrees':'Secondi','Secondi':'Secondi','Antipasti/appetizer':'Antipasti','Antipasti':'Antipasti','Insalate/salad':'Insalate','Dolcezze/dessert':'Dolcezze','Dolcezze':'Dolcezze','Kids menu':'Kids','Soup':'Zuppe','Sides':'Contorni','Lunch':'Pranzo'};
+    var GROUP_LABEL={'Pasta':'Pasta','Secondi/entrees':tr('catSecondi'),'Secondi':tr('catSecondi'),'Antipasti/appetizer':tr('catAntipasti'),'Antipasti':tr('catAntipasti'),'Insalate/salad':tr('catInsalate'),'Dolcezze/dessert':tr('catDolcezze'),'Dolcezze':tr('catDolcezze'),'Kids menu':'Kids','Soup':tr('catZuppe'),'Sides':tr('catContorni'),'Lunch':tr('catPranzo')};
     var EXCL=['NA Beverages','The Bar','Mocktail','Happy hours','Wine dinner','Testing menu','Catering','Peach Festival','Resturant week'];
     var agg={};
     (r.data||[]).forEach(function(x){
@@ -2070,7 +2070,23 @@ async function daExecuteQuery(sb, q, from, to) {
 var staffDateMode = 'ieri';
 
 var STAFF_FOOD_GROUPS = ['Pasta','Secondi/entrees','Secondi','Antipasti/appetizer','Antipasti','Insalate/salad','Dolcezze/dessert','Dolcezze','Kids menu','Soup','Sides','Lunch'];
-var STAFF_GROUP_LABELS = {'Pasta':'Pasta','Secondi/entrees':'Secondi','Secondi':'Secondi','Antipasti/appetizer':'Antipasti','Antipasti':'Antipasti','Insalate/salad':'Insalate','Dolcezze/dessert':'Dolcezze','Dolcezze':'Dolcezze','Kids menu':'Pasta','Soup':'Zuppe','Sides':'Contorni','Lunch':'Pranzo'};
+var STAFF_GROUP_LABELS = (function(){
+  var l = {
+    Secondi:   tr('catSecondi'),
+    Antipasti: tr('catAntipasti'),
+    Insalate:  tr('catInsalate'),
+    Dolcezze:  tr('catDolcezze'),
+    Zuppe:     tr('catZuppe'),
+    Contorni:  tr('catContorni'),
+    Pranzo:    tr('catPranzo'),
+  };
+  return {
+    'Pasta':'Pasta','Secondi/entrees':l.Secondi,'Secondi':l.Secondi,
+    'Antipasti/appetizer':l.Antipasti,'Antipasti':l.Antipasti,
+    'Insalate/salad':l.Insalate,'Dolcezze/dessert':l.Dolcezze,'Dolcezze':l.Dolcezze,
+    'Kids menu':'Kids','Soup':l.Zuppe,'Sides':l.Contorni,'Lunch':l.Pranzo
+  };
+})();
 var STAFF_EXCL = ['NA Beverages','The Bar','Mocktail','Happy hours','Wine dinner','Testing menu','Catering','Peach Festival','Resturant week'];
 var STAFF_GROUP_EMOJI = {'Pasta':'🍝','Secondi':'🥩','Antipasti':'🫙','Insalate':'🥗','Dolcezze':'🍮','Kids':'👶','Zuppe':'🍲','Contorni':'🥦','Pranzo':'🌞'};
 
