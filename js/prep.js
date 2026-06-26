@@ -201,7 +201,31 @@ function renderM(){
                i.note ? '<span style="font-size:11px;color:#d97706;">'+tr('note')+'</span>' :
                isAdmin() ? '<span style="font-size:11px;color:#94a3b8;">'+tr('noRecipeLink')+'</span>' : '') +
             '</div>' +
-            (i.suggested_qty ? (()=>{ const sqv=parseFloat(i.suggested_qty); const sqKg=(sqv/1000).toFixed(2).replace(/\.?0+$/,''); return '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 '+sqKg+' kg '+tr('recommended')+'</span></div>'; })() : '') +
+            (i.suggested_qty ? (()=>{
+              const sqv = parseFloat(i.suggested_qty);
+              // Trova la ricetta collegata per capire se va a peso o a porzioni
+              const rec = i.recipe_id ? (SHOP_RECIPES||[]).find(r=>r.id===i.recipe_id) : null;
+              const yt = (rec?.yield_text||rec?.yield||'').toLowerCase();
+              const isByWeight = !yt || /\bkg\b|\bg\b|\bgramm|\bpeso|\bweight/.test(yt);
+              let dispQty;
+              if (isByWeight) {
+                // Salse, batch, prep a peso → kg
+                dispQty = (sqv/1000).toFixed(2).replace(/\.?0+$/,'') + ' kg';
+              } else {
+                // Piatti a porzioni → dividi per base_weight_g
+                const baseG = parseFloat(rec?.base_weight_g||0);
+                if (baseG > 0) {
+                  const portions = Math.ceil(sqv / baseG);
+                  const lang = window.user?.lang||'en';
+                  const word = {it:'porzioni',en:'portions',es:'porciones'}[lang]||'portions';
+                  dispQty = portions + ' ' + word;
+                } else {
+                  // fallback kg se manca base_weight_g
+                  dispQty = (sqv/1000).toFixed(2).replace(/\.?0+$/,'') + ' kg';
+                }
+              }
+              return '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 '+dispQty+' '+tr('recommended')+'</span></div>';
+            })() : '') +
           '</div>' +
           '<div style="display:flex;gap:6px;flex-shrink:0;">' +
             (isUrgent||!isWip ? '<button onpointerdown="startWipPress(' + JSON.stringify(iid) + ',this)" onpointerup="endWipPress()" onpointerleave="endWipPress()" style="height:36px;padding:0 14px;border-radius:10px;font-size:12px;font-weight:600;background:white;color:#1d4ed8;border:1.5px solid #3b82f6;white-space:nowrap;">'+tr('laterBtn')+'</button>' : '') +
