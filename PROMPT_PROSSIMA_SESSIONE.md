@@ -30,7 +30,7 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 
 ---
 
-## Sessione 2026-06-27 — Prep List intelligente + fix vari (v327→v331)
+## Sessione 2026-06-27 — Prep List intelligente + fix vari (v327→v391)
 
 ### Fix completati
 
@@ -56,7 +56,7 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 - Fix: flag `window._opNoteScheduled = true` — chiamata solo una volta per sessione
 - `operation-notes.js`: logica oraria più robusta — finestra corretta 22:30-03:00 CDT
 
-**v331 — Fix recipe detail sheet non si aggiornava dopo save**
+**v331→v391 — Fix recipe detail sheet non si aggiornava dopo save + ripristino numerazione**
 - `recipes.js`: dopo save, la detail sheet rimaneva aperta con BOM vecchi (cache)
 - Fix: aggiunto `id='_recipeDetailSheet'` alla sheet, dopo save la richiude e riapre con dati freschi da `SHOP_RECIPES`
 
