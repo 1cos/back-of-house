@@ -87,6 +87,15 @@ Alimentano L'Ufficio mentre Max dorme. Non rispondono — osservano e preparano.
 
 ---
 
+### Sessione 2026-06-27 — Inventario prep automatico (visione definita)
+**PRIORITÀ #1 ASSOLUTA** — Sistema inventario prep basato su POS:
+- Carico: done button → modal dose consigliata vs custom → prep_log
+- Scarico: nightly POS import sottrae venduto da current_stock
+- Stato card automatico: 🟢 prepara oggi / 🟡 non serve / 🔵 anticipa / 🔴 scaduto
+- Formato nota: "Prepara oggi X porzioni · prossima prep giovedì" (no elenco giorni)
+- DB: aggiungere `current_stock` a prep_tasks, `is_suggested_qty` a prep_log
+- Bot v17 già deployato — next step: aggiungere stato card + formato nota intelligente
+
 ### Sessione 2026-06-27 — Dati ricette allineati
 - `prep_frequency_days` impostato su 28 ricette collegate a prep tasks
 - `base_weight_g` corretto su: MK-RAGU (200g→13700g), DEMI FOR RAVIOLI (null→2000g), Brownies (null→560g)
