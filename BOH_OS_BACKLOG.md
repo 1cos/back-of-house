@@ -79,10 +79,20 @@ Alimentano L'Ufficio mentre Max dorme. Non rispondono — osservano e preparano.
 
 ### Bug UI annotati
 - BUG UI: Long press su messaggio chat non funziona — impossibile copiare testo
+- BUG UI: Recipe preview sheet — swipe down per chiudere troppo aggressivo, non permette di scrollare verso l'alto dentro la sheet. Va ammorbidito il threshold o disabilitato il dismiss-on-scroll quando si è a metà ricetta.
 
 ### Ancora da verificare
 - [ ] Antonella (lang=it) riceve traduzione italiana sotto bubble messaggi inglesi
 - [ ] TV realtime — si blocca dopo molti messaggi ravvicinati (loadChat() troppo frequente)
+
+---
+
+### Sessione 2026-06-27 — Dati ricette allineati
+- `prep_frequency_days` impostato su 28 ricette collegate a prep tasks
+- `base_weight_g` corretto su: MK-RAGU (200g→13700g), DEMI FOR RAVIOLI (null→2000g), Brownies (null→560g)
+- Ragu yield calcolato: 10lb macinato + 15kg pomodoro - 30% = ~13.7kg
+- `base_servings` aggiunto su: BRANZINO TABLE SIDE, CROUTONS, TOMATO X BRUSCHETTA, Wagyu Tomahawk
+- Frequenze per categoria: daily=0, ogni2g=Calamari, ogni3g=Artichoke/Branzino/BrussSprt/RsmryPot/ArtSauce/SicilianMix/Bruschetta, ogni4g=GarlicOil/Risotto/Salmoriglio, ogni7g=Arrabbiata/Pomodoro/CacioePepe/DemiRavioli/SalmonCakes/PannaCotta/Wagyu, ogni15g=Croutons/MintBavarese/Ragu, ogni30g=Brownies/BasilOil
 
 ---
 
