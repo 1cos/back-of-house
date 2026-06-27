@@ -1,6 +1,6 @@
 # BRIGADE — DATABASE SCHEMA COMPLETO
 *Supabase project: ydqmumpytgrlceuinoqt*
-*Aggiornato: 2026-06-24 — v335*
+*Aggiornato: 2026-06-27 — v391*
 *Leggi questo file all'inizio di ogni sessione. Contiene le colonne reali del DB.*
 
 ---
@@ -83,7 +83,7 @@
 | started_at | timestamptz | Quando il cuoco ha premuto START (Focus Mode) |
 | duration_minutes | integer | Durata calcolata al DONE: (created_at - started_at) / 60 |
 
-**Stato:** 22 righe — tutti dati di test. App non ancora in uso reale.
+**Stato:** dati reali — App in produzione dal 2026-06-24. Brigata attiva.
 **Timing:** started_at + duration_minutes aggiunti per Focus Mode — storico per persona per prep (Cole vs Antonella).
 
 ---
@@ -478,7 +478,7 @@ Stessa struttura di recipes + colonne calcolate:
 5. **ingredients filtrare Supply:** usare `WHERE category != 'Supply'` ma attenzione — `.neq()` in PostgREST esclude anche i NULL. Meglio filtrare in JS
 6. **recipes.ingredients** = JSONB non strutturato. Per dipendenze strutturate usare `recipe_bom`
 7. **Dati finanziari** = mai allo staff: net_sales, gross_sales, food_cost, labor_cost, margin, total_spend, avg_unit_price
-8. **App non in produzione** — tutti i dati nel DB sono test di Max. Non fare considerazioni su volumi o comportamenti utente
+8. **App IN PRODUZIONE dal 2026-06-24** — brigata attiva. Dati reali. Modifiche chirurgiche obbligatorie.
 
 
 ### events (aggiornata v217)
