@@ -911,14 +911,15 @@ function openRecipeEditor(rec=null){
       selling_price:     sp,
       base_servings:     bs,
       base_weight_g:     bwg,
-      serving_weight_g:  swg,
-      ingredients
+      serving_weight_g:  swg
+      // NOTE: ingredients NON va nel payload recipes — stanno in recipe_bom
     };
 
     try{
       let savedId = rec?.id;
       if(rec?.id){
-        await supa.from('recipes').update(newRec).eq('id',rec.id);
+        const {error: updErr} = await supa.from('recipes').update(newRec).eq('id',rec.id);
+        if(updErr) throw updErr;
         await supa.from('recipe_translations').delete().eq('recipe_id',rec.id);
       } else {
         const {data:inserted} = await supa.from('recipes').insert(newRec).select('id').single();
