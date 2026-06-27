@@ -731,25 +731,40 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
 
   // Live preview
   function evUpdatePreview(){
-    const up  = parseFloat(document.getElementById('evUnitPrice')?.value)||0;
-    const conv= parseFloat(document.getElementById('evConversion')?.value)||0;
-    const pt  = document.getElementById('evPriceType')?.value||'per_case';
-    const el  = document.getElementById('evCalcPreview');
+    const up     = parseFloat(document.getElementById('evUnitPrice')?.value)||0;
+    const conv   = parseFloat(document.getElementById('evConversion')?.value)||0;
+    const pt     = document.getElementById('evPriceType')?.value||'per_case';
+    const wgEach = parseFloat(document.getElementById('evAvgUnitWg')?.value)||0;
+    const packDesc = (document.getElementById('evPackDesc')?.value||'').trim().toUpperCase();
+    const el     = document.getElementById('evCalcPreview');
     if(!up){ el.textContent='→ Inserisci Unit Price'; el.style.color='#92400e'; el.style.background='#fff7ed'; return; }
-    let p100 = null;
+    let p100 = null, note = '';
     if(pt === 'per_lb')      p100 = (up / 453.592) * 100;
     else if(pt === 'per_kg') p100 = (up / 1000) * 100;
     else if(conv > 0)        p100 = (up / conv) * 100;
+    else if(wgEach > 0) {
+      // Count-based: parse DZ → ×12, CT/EA → ×1
+      const dzM = packDesc.match(/^(\d+(?:\.\d+)?)\s*DZ/);
+      const ctM = packDesc.match(/^(\d+(?:\.\d+)?)\s*(?:CT|EA|EACH|PC|PCS)/);
+      let totalPcs = 0;
+      if(dzM)      totalPcs = parseFloat(dzM[1]) * 12;
+      else if(ctM) totalPcs = parseFloat(ctM[1]);
+      if(totalPcs > 0){
+        const totalG = totalPcs * wgEach;
+        p100 = (up / totalG) * 100;
+        note = ` (${totalPcs} pz × ${wgEach}g = ${Math.round(totalG)}g)`;
+      }
+    }
     if(p100){
-      el.textContent = `→ $${p100.toFixed(4)}/100g`;
+      el.innerHTML = `→ <strong>$${p100.toFixed(4)}/100g</strong>${note}`;
       el.style.color = '#166534'; el.style.background='#f0fdf4';
     } else {
-      el.textContent = '→ Inserisci peso pack per calcolare $/100g';
+      el.textContent = '→ Inserisci peso pack o peso per pezzo per calcolare $/100g';
       el.style.color = '#92400e'; el.style.background='#fff7ed';
     }
   }
   window.evUpdatePreview = evUpdatePreview;
-  ['evUnitPrice','evPriceType','evConversion'].forEach(id=>{
+  ['evUnitPrice','evPriceType','evConversion','evAvgUnitWg','evPackDesc'].forEach(id=>{
     document.getElementById(id)?.addEventListener('input', evUpdatePreview);
   });
   evUpdatePreview();
@@ -762,13 +777,23 @@ window.saveEditVendorRow = async function(vendorId, ingredientId, btn){
   const conv         = parseFloat(document.getElementById('evConversion')?.value)||null;
   const priceTypeVal = document.getElementById('evPriceType')?.value||'per_case';
   const pricePerEach = parseFloat(document.getElementById('evPricePerEach')?.value)||null;
+  const avgUnitWgNew = parseFloat(document.getElementById('evAvgUnitWg')?.value)||null;
 
-  // Calcola price_per_100g
+  // Calcola price_per_100g — include count-based (DZ/CT) via avg_unit_weight_g
   let p100 = null;
   if(up){
     if(priceTypeVal === 'per_lb')      p100 = parseFloat(((up / 453.592) * 100).toFixed(4));
     else if(priceTypeVal === 'per_kg') p100 = parseFloat(((up / 1000) * 100).toFixed(4));
     else if(conv > 0)                  p100 = parseFloat(((up / conv) * 100).toFixed(4));
+    else if(avgUnitWgNew > 0) {
+      const packDesc = (document.getElementById('evPackDesc')?.value||'').trim().toUpperCase();
+      const dzM = packDesc.match(/^(\d+(?:\.\d+)?)\s*DZ/);
+      const ctM = packDesc.match(/^(\d+(?:\.\d+)?)\s*(?:CT|EA|EACH|PC|PCS)/);
+      let totalPcs = 0;
+      if(dzM)      totalPcs = parseFloat(dzM[1]) * 12;
+      else if(ctM) totalPcs = parseFloat(ctM[1]);
+      if(totalPcs > 0) p100 = parseFloat(((up / (totalPcs * avgUnitWgNew)) * 100).toFixed(4));
+    }
   }
 
   const updates = {
@@ -787,6 +812,10 @@ window.saveEditVendorRow = async function(vendorId, ingredientId, btn){
 
   const {error} = await supa.from('ingredient_vendors').update(updates).eq('id',vendorId);
   if(error){ btn.textContent='Error: '+error.message; btn.disabled=false; return; }
+  // Save avg_unit_weight_g on the ingredient itself (shared across all vendors)
+  if(avgUnitWgNew !== null){
+    await supa.from('ingredients').update({ avg_unit_weight_g: avgUnitWgNew }).eq('id', ingredientId);
+  }
   btn.closest('.fixed').remove();
   document.querySelectorAll('.fixed.inset-0').forEach(m=>m.remove());
   openIngredientCard(ingredientId);
