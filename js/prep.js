@@ -306,15 +306,18 @@ async function quickSave(id){
   const qty=it.average_qty||1;
   const unit='kg';
   const container='1/4 pan';
+  // Usa suggested_qty come current_stock se disponibile
+  const newStock = it.suggested_qty ? parseFloat(it.suggested_qty) : qty;
   // ── Optimistic update: aggiorna UI subito, DB in background ──
   tasks[id].need_tomorrow=false;
   tasks[id].in_progress=false;
+  tasks[id].current_stock=newStock;
   showConfetti();
   renderM();renderS();renderHomeStations();
   // DB in background — non blocca la UI
   Promise.all([
-    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container,user_name:user.name}),
-    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false}).eq('id',id)
+    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container,user_name:user.name,is_suggested_qty:false}),
+    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:newStock}).eq('id',id)
   ]).then(()=>{
     loadItemAlerts();
     loadStepsMap();
@@ -322,6 +325,34 @@ async function quickSave(id){
 }
 
 function openDoneSheet(id){
+  const it=tasks[id];
+  // Se c'è una dose consigliata dal bot, mostra prima il mini-modal di scelta
+  if(it.suggested_qty && parseFloat(it.suggested_qty) > 0){
+    const sqRaw = parseFloat(it.suggested_qty);
+    const sqUnit = it.unit||'porzioni';
+    const sqLabel = sqRaw + ' ' + sqUnit;
+    const modal=document.createElement('div');
+    modal.className='fixed inset-0 z-50 flex items-end';
+    modal.style.background='rgba(0,0,0,0.35)';
+    modal.innerHTML=`<div style="background:rgba(255,255,255,0.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:24px 24px 0 0;border-top:0.5px solid rgba(5,150,105,0.3);padding:20px 16px 28px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
+      <div style="width:36px;height:4px;background:rgba(5,150,105,0.2);border-radius:2px;margin:0 auto 16px;"></div>
+      <div style="font-size:15px;font-weight:600;color:#1e3a5f;margin-bottom:4px;">${it.name}</div>
+      <div style="font-size:12px;color:#6b7280;margin-bottom:18px;">Quanto hai preparato?</div>
+      <button onclick="suggestedSave('${it.id}',this.closest('.fixed'))" style="width:100%;height:52px;border-radius:16px;background:#059669;color:white;font-size:14px;font-weight:600;border:none;margin-bottom:10px;">
+        ✅ ${sqLabel} — dose suggerita
+      </button>
+      <button onclick="this.closest('.fixed').remove();openDoneSheetCustom('${it.id}')" style="width:100%;height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:0.5px solid rgba(59,130,246,0.2);">
+        ✏️ Quantità diversa
+      </button>
+    </div>`;
+    modal.onclick=e=>{if(e.target===modal)modal.remove();};
+    document.body.appendChild(modal);
+  } else {
+    openDoneSheetCustom(id);
+  }
+}
+
+function openDoneSheetCustom(id){
   const it=tasks[id];
   const sheet=document.createElement('div');
   sheet.className='fixed inset-0 z-50 flex items-end';
@@ -351,12 +382,30 @@ function openDoneSheet(id){
     </div>
     <textarea class="ds-note" placeholder="${tr('quickNotePlaceholder')}" style="width:100%;font-size:12px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:10px;padding:7px 10px;margin-bottom:10px;resize:none;height:38px;"></textarea>
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
-      <button onclick="this.closest('.fixed').remove()" style="height:40px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:0.5px solid rgba(59,130,246,0.2);">'+tr('cancel')+'</button>
-      <button onclick="detailSave('${id}',this)" style="height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;">'+tr('confirm')+'</button>
+      <button onclick="this.closest('.fixed').remove()" style="height:40px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:0.5px solid rgba(59,130,246,0.2);">${tr('cancel')}</button>
+      <button onclick="detailSave('${it.id}',this,false)" style="height:40px;border-radius:14px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;">${tr('confirm')}</button>
     </div>
   </div>`;
-  sheet.onclick=e=>{if(e.target===sheet)sheet.remove()};
+  sheet.onclick=e=>{if(e.target===sheet)sheet.remove();};
   document.body.appendChild(sheet);
+}
+
+// Salva con la dose suggerita dal bot
+async function suggestedSave(id, modal){
+  const it=tasks[id];
+  const qty=parseFloat(it.suggested_qty)||1;
+  const unit=it.unit||'porzioni';
+  modal.remove();
+  tasks[id].need_tomorrow=false;
+  tasks[id].in_progress=false;
+  tasks[id].current_stock=qty;
+  showConfetti();
+  renderM();renderS();renderHomeStations();
+  Promise.all([
+    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:'',user_name:user.name,is_suggested_qty:true}),
+    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:qty}).eq('id',id)
+  ]).then(()=>{loadItemAlerts();loadStepsMap();})
+  .catch(e=>console.error('suggestedSave error:',e));
 }
 
 function openWipNoteSheet(id){
@@ -409,7 +458,7 @@ async function saveWip(id, note){
   renderM();
 }
 
-async function detailSave(id, btn){
+async function detailSave(id, btn, isSuggested){
   const sheet=btn.closest('.fixed');
   const qty=parseFloat(sheet.querySelector('.ds-qty').value);
   const unit=sheet.querySelector('.ds-unit').value;
@@ -417,10 +466,11 @@ async function detailSave(id, btn){
   const note=sheet.querySelector('.ds-note').value;
   btn.textContent='...'; btn.disabled=true;
   const it=tasks[id];
-  await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name});
-  await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false}).eq('id',id);
+  await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name,is_suggested_qty:!!isSuggested});
+  await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:qty}).eq('id',id);
   tasks[id].need_tomorrow=false;
   tasks[id].in_progress=false;
+  tasks[id].current_stock=qty;
   await loadItemAlerts();
   await loadStepsMap();
   sheet.remove();
@@ -500,3 +550,4 @@ async function feedSave(id,qty,btn){
 
 // Carica steps map all'avvio
 loadStepsMap();
+
