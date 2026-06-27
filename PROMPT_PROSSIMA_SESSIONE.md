@@ -109,24 +109,55 @@ Questo richiede:
 - File: `js/prep.js` — blocco badge 🤖 (riga ~204)
 - File: `bot-preplist-builder` (Edge Function) — aggiornare `suggested_note` con nuovo formato
 
-### 4. Done button → inventario prep (PROGETTO NUOVO — 3 sessioni)
-Quando il cuoco preme "Done" sulla prep task, invece di segnare subito come fatto:
-- Appare bottom sheet: "Hai preparato la dose consigliata?"
-- Pillola YES → salva `suggested_qty` in `prep_log` come `qty`
-- Pillola NO / ALTRO → input numerico → salva quantità reale
-- Questo crea un **carico inventario prep** reale nel DB
-- Il POS fa lo scarico (vendite → consumo ricetta via BOM)
-- Risultato: inventario prep live senza conteggio manuale
-- File: `js/prep.js` funzione `startDonePress()` / `openDoneSheet()`
-- DB: `prep_log` (già esiste) — aggiungere colonna `is_suggested_qty boolean` se non esiste
+### 4. Done button → inventario prep (vedi PRIORITÀ #1 sotto)
 
 ---
 
-## 🔴 PRIORITÀ #1 — ai_options come azioni eseguibili in L'Ufficio
+## 🔴 PRIORITÀ #1 — INVENTARIO PREP AUTOMATICO (sistema completo)
+**Visione (2026-06-27):** Le checklist prep servono il giusto come checklist. Il POS scarica il venduto → calcoliamo il consumato → il software sa già se bisogna preparare o no. Non serve un ragazzo la sera per dirlo.
+
+### Logica core
+- **CARICO:** cuoco preme "Fatto" → modal "Hai preparato la dose consigliata (X porzioni) o una quantità diversa?" → `[✅ Dose consigliata]` `[✏️ Quantità diversa]` → salva in `prep_log`
+- **SCARICO:** ogni notte il nightly import TouchBistro sottrae il venduto dalla colonna `current_stock` in `prep_tasks` (via BOM: porzioni vendute × grammi/porzione o × 1 se base_servings=1)
+- **STATO AUTOMATICO:** il bot confronta `current_stock` vs soglia minima (`shelf_life_days` × venduto medio giornaliero) e assegna uno stato alla prep card:
+  - 🟢 **"Prepara oggi"** — stock sotto soglia, tocca oggi
+  - 🟡 **"Non serve oggi"** — stock ok, mostra quando tocca la prossima
+  - 🔵 **"Puoi anticipare"** — stock ok ma vicino a scadenza
+  - 🔴 **"Scaduto — prepara subito"** — shelf life superata
+
+### Formato nota prep card (per il cuoco)
+- freq=1 (daily): `Prepara ogni giorno · oggi 15 focacce`
+- freq=2: `Prepara oggi 31 porzioni · prossima prep dopodomani`
+- freq=3: `Prepara oggi 16 porzioni · prossima prep giovedì`
+- freq=7: `Prepara questa settimana 22 kg · prossima prep lunedì prossimo`
+- freq=15: `Prepara oggi 14 kg · prossima prep tra 15 giorni`
+- freq=30: `Prepara questo mese 2.2 kg · prossima prep il mese prossimo`
+
+### Bottone "Voglio prepararlo ora"
+Appare sulle card in stato 🟡 o 🔵 — il cuoco forza la prep e il bot ricalcola sul momento.
+
+### DB changes necessari
+- `prep_tasks.current_stock` (numeric) — giacenza stimata aggiornata in tempo reale
+- `prep_log.is_suggested_qty` (boolean) — se ha usato la dose consigliata o una custom
+- Nightly import: aggiungere step scarico `current_stock` dopo import POS
+
+### File da toccare
+- `js/prep.js` — `startDonePress()` → `openDoneSheet()` con modal dose/custom
+- `bot-preplist-builder` — già aggiornato a v17, aggiungere logica stato card
+- Nightly import edge function — aggiungere scarico `current_stock`
+
+### Note operative
+- Margine buffer: parte dal 10%, configurabile fino al 15%+ da settings
+- Daily automatiche (focaccia, basilico): reset ogni mattina senza calcolo
+- Prep senza ricetta collegata: solo carico manuale, nessuno scarico automatico
+
+---
+
+## 🔴 PRIORITÀ #2 — ai_options come azioni eseguibili in L'Ufficio
 Le ai_options sono ora stringhe — quando Max le preme, archiviano ma NON eseguono nel DB.
 Visione: opzioni strutturate `{label, action, params}` che chiamano `officeExecuteOption()`.
 
-## 🔴 PRIORITÀ #2 — Autocomplete ricette nel Calendar editor (BUG APERTO)
+## 🔴 PRIORITÀ #3 — Autocomplete ricette nel Calendar editor (BUG APERTO)
 `<datalist>` nativo HTML non funziona su iOS nel modale editor eventi.
 Soluzione: sheet separato fullscreen di ricerca ricette.
 
