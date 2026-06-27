@@ -153,6 +153,7 @@ async function loadIngTranslations(){
 // ── RECIPE PREVIEW SHEET ─────────────────────────────────────
 async function showRecipeSheet(rec){
   const sheet = document.createElement('div');
+  sheet.id = '_recipeDetailSheet';
   sheet.className = 'fixed inset-0 z-[150] bg-black/40 backdrop-blur-sm flex items-end';
 
   // Load ingredient translations for current user language
@@ -930,6 +931,15 @@ function openRecipeEditor(rec=null){
       modal.remove();
       await init();
       renderRecipes();
+      // Riapri la detail sheet con dati freschi se era aperta
+      if(savedId) {
+        const oldSheet = document.getElementById('_recipeDetailSheet');
+        if(oldSheet) {
+          oldSheet.remove();
+          const freshRec = SHOP_RECIPES.find(r=>r.id===savedId);
+          if(freshRec) showRecipeSheet(freshRec);
+        }
+      }
     }catch(e){ alert('Error: '+e.message); }
   };
 
