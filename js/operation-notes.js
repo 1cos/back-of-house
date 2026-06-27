@@ -77,15 +77,18 @@ window.checkOperationNotePrompt = async function(forceShow) {
 
   // Se chiamata da chiusura turno (forceShow=true) salta il controllo orario
   if (!forceShow) {
-    // Troppo presto — aspetta e ricontrolla
-    if (h < ON_PROMPT_HOUR_CDT || (h === ON_PROMPT_HOUR_CDT && m < ON_PROMPT_MIN_CDT)) {
+    // Fuori dalla finestra notturna (22:30–03:00 CDT) — non mostrare
+    const afterMidnight = h >= 0 && h < 3;
+    const beforePrompt  = h < ON_PROMPT_HOUR_CDT || (h === ON_PROMPT_HOUR_CDT && m < ON_PROMPT_MIN_CDT);
+    if (beforePrompt) {
+      // Troppo presto — schedula per quando sarà l'ora
       const msUntil = msUntilPrompt(now);
       clearTimeout(_onCheckTimer);
       _onCheckTimer = setTimeout(() => window.checkOperationNotePrompt(), msUntil);
       return;
     }
-    // Dopo le 3 di notte — non mostrare più
-    if (h >= 3 && h < 12) return;
+    // Dopo le 3:00 CDT — finestra chiusa, non mostrare più fino a stasera
+    if (!afterMidnight) return;
   }
 
   // Controlla se ha già risposto oggi
