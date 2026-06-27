@@ -202,6 +202,10 @@ function renderM(){
                isAdmin() ? '<span style="font-size:11px;color:#94a3b8;">'+tr('noRecipeLink')+'</span>' : '') +
             '</div>' +
             (i.suggested_qty ? (()=>{
+              // Bot v15: se la nota contiene "portions sold", mostrala direttamente
+              if (i.suggested_note && i.suggested_note.includes('portions sold')) {
+                return '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 '+i.suggested_note+'</span></div>';
+              }
               const sqv = parseFloat(i.suggested_qty);
               // Trova la ricetta collegata per capire se va a peso o a porzioni
               const rec = i.recipe_id ? (SHOP_RECIPES||[]).find(r=>r.id===i.recipe_id) : null;
