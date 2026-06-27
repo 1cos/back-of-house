@@ -24,7 +24,7 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 ---
 
 ## STATO TECNICO (aggiornato 2026-06-27)
-- Frontend: **v331** (sw.js boh-v331) — repo: `1cos/back-of-house`, branch `brigade-main`
+- Frontend: **v391** (sw.js boh-v391) — repo: `1cos/back-of-house`, branch `brigade-main`
 - **App live** — `https://1cos.github.io/back-of-house/`
 - **`1cos/brigade-dev` — ABBANDONATO, non usare più**
 
