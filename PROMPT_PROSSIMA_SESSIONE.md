@@ -23,85 +23,102 @@ chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di 
 
 ---
 
-## STATO TECNICO (aggiornato 2026-06-26)
-- Frontend: **v389** (sw.js boh-v389) — repo: `1cos/back-of-house`, branch `brigade-main`
+## STATO TECNICO (aggiornato 2026-06-27)
+- Frontend: **v331** (sw.js boh-v331) — repo: `1cos/back-of-house`, branch `brigade-main`
 - **App live** — `https://1cos.github.io/back-of-house/`
 - **`1cos/brigade-dev` — ABBANDONATO, non usare più**
 
 ---
 
-## Sessione 2026-06-26 — Fix per i ragazzi (v380→v389)
+## Sessione 2026-06-27 — Prep List intelligente + fix vari (v327→v331)
 
 ### Fix completati
 
-**v380 — Traduzioni Zuu (spagnolo)**
-- `app.js`: greeting "Good morning/afternoon/evening/night" → `tr()` (erano hardcoded inglese)
-- `app.js`: "Your Station" → `tr('yourStation')`, "Stations" → `tr('stations')`
-- `utils.js`: aggiunte chiavi `goodMorning/goodAfternoon/goodEvening/goodNight` IT/EN/ES
-- Zuu (lang=`es`) ora vede tutto in spagnolo: "Buenos días", "Tu estación", "Otras estaciones", ecc.
+**v328 — Bot preplist v15 + fix prep card display**
+- `bot-preplist-builder` deployato come v33 su Supabase (codice v15)
+- Quando ricetta ha `base_servings` presente → calcola in **porzioni** (non grammi)
+- Finestra dinamica da `expected_duration_days` della prep task (non hardcoded)
+- Divide settimana lun-sab in finestre consecutive di N giorni (no domenica)
+- Es. freq=3 → [Lun,Mar,Mer] [Gio,Ven,Sab]
+- Nota formato: `"Mon→Wed usually 8 portions sold → prep 10 portions"`
+- `prep.js`: badge 🤖 ora mostra `suggested_note` direttamente se contiene "portions sold"
+  invece di dividere per 1000 (bug che mostrava "0.001 kg")
+- Artichoke prep task: `recipe_id` collegato manualmente, `suggested_note` aggiornata nel DB
 
-**v381 — Fix Contorni: dati reali includono modifiers**
-- `pos.js`: la card Contorni mostrava solo items diretti (17) — ignorava i modifiers ×½
-- Fix: dopo build `groupMap`, aggiungi anche modifier Contorni da `modifier_config` (×0.5 porzione)
-- Nel dettaglio sheet: label verde "+side ½" per distinguere modifier da items diretti
-- Dati reali weekend 06-19/20: ~57 porzioni (vs 17 mostrate prima)
+**v329 — Fix save ricette silenzioso (BUG CRITICO)**
+- `recipes.js`: `ingredients` era nel payload `newRec` ma la colonna non esiste in `recipes`
+- PostgREST silenziosamente ignorava l'intero update senza errore
+- Fix: rimosso `ingredients` dal payload, aggiunto `{ error: updErr }` check con throw
+- Ora ogni salvataggio ricetta funziona correttamente
 
-**v382 — Font +1px globale staff**
-- `index.html`: `body { font-size: 15px }`, tutte le classi Tailwind scalano automaticamente
-- Titolo app: 17→18px, username topbar: 14→15px, news bar: 13→14px, tab labels: 11→12px
+**v330 — Fix "Good Night" modal appare ad ogni save ricetta**
+- `init.js`: `checkOperationNotePrompt()` veniva chiamata ad ogni `init()` (anche dopo save ricette)
+- Fix: flag `window._opNoteScheduled = true` — chiamata solo una volta per sessione
+- `operation-notes.js`: logica oraria più robusta — finestra corretta 22:30-03:00 CDT
 
-**v383 — Font testo traduzione chat +2px**
-- `chat.js`: testo traduzione 🌐 sotto i messaggi: 11px → 13px
-
-**v384/v385 — Tell Chef: fix doppio invio + dedup history**
-- `tell-chef.js`: guard `_tcSending = true` blocca qualsiasi doppio tap
-- `tell-chef.js`: deduplicazione history (message+created_at) prima del render
-- Anto vedeva 14+ messaggi identici perché toccava più volte il bottone su connessione lenta
-
-**v386 — Tell Chef redesign come chat**
-- `tell-chef.js`: completamente ridisegnato — non più textarea statica con history sotto
-- Header fisso in cima, messaggi come bolle scorrevoli, input fisso in fondo
-- Dopo invio: bolla aggiunta in chat, campo svuotato — modal non si chiude più
-
-**v387 — Tell Chef colori app + traduzioni IT/EN/ES**
-- `tell-chef.js`: via nero `#1a202c` — gradiente navy/blue `#1e3a5f → #2563eb` in linea con home
-- `utils.js`: aggiunte chiavi `tcOnlyMax`, `tcWriteNote`, `tcTipMic`, `tcSendBtn`, `tcSent`, `tcNoMsg`
-- IT: "Solo Chef Max vedrà questo" / "Scrivi la tua nota..." / "💡 Suggerimento: usa il microfono..."
-- ES: "Solo Chef Max verá esto" / "Escribe tu nota..." / "💡 Tip: usa el micrófono..."
-- EN: "Only Chef Max will see this" / "Write your note..." / "💡 Tip: use the mic..."
-
-**v388 — Fix bottone fotocamera chat**
-- `utils.js`: `applyLang()` prendeva il primo bottone `#f button` (= fotocamera) e ci scriveva "Send to team" / "Invia al team" sopra, sovrascrivendo l'SVG
-- Fix: rimossa quella riga — bottone fotocamera mantiene SVG, bottone submit mantiene freccia blu
-
-**v389 — (bump sw dopo push parallelo)**
+**v331 — Fix recipe detail sheet non si aggiornava dopo save**
+- `recipes.js`: dopo save, la detail sheet rimaneva aperta con BOM vecchi (cache)
+- Fix: aggiunto `id='_recipeDetailSheet'` alla sheet, dopo save la richiude e riapre con dati freschi da `SHOP_RECIPES`
 
 ### DB cleanup
-- Cancellati **160 chef_reports** precedenti al 23-06-2026 (messaggi del demobot)
-- Rimasti 5 record reali (dal 23 giugno in poi)
-- Chat brigata (messages) lasciata intatta
-
-### Fix Android keyboard (Visual Viewport API)
-- `souschef-chat.js`: keyboard fix Android — `visualViewport.resize` listener ridimensiona modal
-- `tell-chef.js`: stesso fix applicato al Tell Chef
+- Ingrediente `Fettuccine` (secca) → sostituito con sub-recipe `FETTUCCINE FRESH PASTA` in 3 BOM, poi cancellato
+- Ingrediente `Spaghetti` (secco) → sostituito con sub-recipe `SPAGHETTI FRESH PASTA` in 6 BOM, poi cancellato
+- BOM unità aggiornate: tutte le fresh pasta ora `1 each` (porzione intera) o `0.5 each` (half)
+- Fettuccine Arrabbiata Half → 0.5 each ✅
+- La N.4 Half → 0.5 each ✅
+- Spaghetti al Pomodoro Half → 0.5 each ✅
+- SPAGHETTI MARCELLO → 10 each (base_servings=10) ✅
+- Artichoke `recipe_id` collegato alla prep task (era NULL) ✅
+- BOM Artichoke verificati: tutti 6 ingredienti matchano per item_id ✅
 
 ---
 
-## Sessione 2026-06-26 — Schedule Generator + Staff & Stazioni (v384→v386)
+## 🔴 PRIORITÀ SESSIONE PROSSIMA — PREP CARD REDESIGN
 
-### Nuove tabelle DB (Supabase)
-- **`staff_profiles`** — profili brigata: name, shift_preference, max_days_per_week, off_days[], no_evening_days[], only_days[], is_double_shift, notes, active
-- **`staff_stations`** — assegnazioni stazione per persona: staff_name, station, shift, priority (1=preferita/2=sa fare/3=emergenza), is_default, notes
-- Popolate con tutti i 16 membri della brigata attiva e 55 assegnazioni stazione
+### Contesto
+La prep card di Artichoke funziona (bot v15 scrive la nota giusta nel DB) ma la UX
+non è ancora quella definitiva. Max vuole:
 
-### Staff & Stazioni — modulo admin (v384)
-- Nuovo file `js/staff-manager.js`
-- Accessibile dai tre puntini → bottone **Staff** (verde)
-- Lista tutti i profili con turno, giorni off, stazioni e priorità
+### 1. Smart scale sulla recipe sheet (BUG APERTO)
+Nella recipe detail sheet, tab "Smart" dovrebbe scalare tutti gli ingredienti
+×N dove N = porzioni suggerite per oggi (dal bot).
+- Oggi Artichoke: `suggested_qty = 18` porzioni → Smart deve moltiplicare tutto ×18
+- Artichokes: 2 each × 18 = 36 each
+- Red Onions: 30g × 18 = 540g
+- ecc.
+- **Attualmente**: Smart non cambia nulla (bug — non legge suggested_qty)
+- File: `js/recipes.js` funzione `showRecipeSheet()` — blocco scale Smart
 
-### Schedule Generator — tab Genera in Schedule (v385→v386)
-- Nuovo tab **✦ Genera** nella sezione Schedule
-- Solo admin — genera schedule prossima settimana (lunedì → sabato)
+### 2. Testo "PREP TODAY 7 portions" — rendere leggibile la motivazione
+Nella detail sheet, il box verde "PREP TODAY" mostra "last Fri+Sat you sold 11 — stay ready."
+ma è troppo piccolo (font-size ~10px). Portare a 13px almeno.
+- File: `js/recipes.js` funzione `loadRecipePrepStats()` — cerca il testo "stay ready"
+
+### 3. Formato prep card nella Prep List (NUOVO)
+Attualmente il badge verde mostra: `🤖 Thu→Sat usually 16 portions sold → prep 18 portions`
+Max vuole un formato più operativo e diretto per il cuoco sulla prep card:
+```
+Prepara lunedì → 10 porzioni  (20 carciofi)
+Prepara giovedì → 18 porzioni (36 carciofi)
+```
+Cioè: giorno di prep + porzioni da fare + traduzione in unità fisiche (es. N carciofi)
+Questo richiede:
+- Sapere quale giorno inizia ogni finestra (Lun per finestra 1, Gio per finestra 2)
+- Moltiplicare per `base_servings` e unità principale del BOM
+- Mostrare nella prep card (NON nella recipe sheet)
+- File: `js/prep.js` — blocco badge 🤖 (riga ~204)
+- File: `bot-preplist-builder` (Edge Function) — aggiornare `suggested_note` con nuovo formato
+
+### 4. Done button → inventario prep (PROGETTO NUOVO — 3 sessioni)
+Quando il cuoco preme "Done" sulla prep task, invece di segnare subito come fatto:
+- Appare bottom sheet: "Hai preparato la dose consigliata?"
+- Pillola YES → salva `suggested_qty` in `prep_log` come `qty`
+- Pillola NO / ALTRO → input numerico → salva quantità reale
+- Questo crea un **carico inventario prep** reale nel DB
+- Il POS fa lo scarico (vendite → consumo ricetta via BOM)
+- Risultato: inventario prep live senza conteggio manuale
+- File: `js/prep.js` funzione `startDonePress()` / `openDoneSheet()`
+- DB: `prep_log` (già esiste) — aggiungere colonna `is_suggested_qty boolean` se non esiste
 
 ---
 
@@ -140,6 +157,7 @@ Scan automatica attualmente disabilitata in `souschef-core.js`
 - office-ai cron orario (analisi automatica ogni ora)
 - Hardie's NULL conversions: fix manuale `conversion_to_base` per Eggs 15 DZ (SKU 01115) e Beefsteak Tomato 19/22 (SKU 15909)
 - Foto in chat — upload da testare su iPhone reale
+- BOM audit completo: verificare tutti i tipi di pasta fresca (Pappardelle, Rigatoni, Penne, ecc.) come fatto per Fettuccine e Spaghetti
 
 ---
 
