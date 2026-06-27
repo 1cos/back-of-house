@@ -1,6 +1,6 @@
 # BRIGADE — DECISIONS
 *Perche abbiamo scelto certe cose. Non ridiscutere senza motivo.*
-*Aggiornato: 2026-06-24 — v335*
+*Aggiornato: 2026-06-27 — v391*
 
 ---
 
@@ -11,7 +11,7 @@
 | App HTML/PWA attuale | **BRIGADE** |
 | App Flutter futura con Siri | **BOH OS** (separata, non ancora costruita) |
 | Branch deploy | **brigade-main** (MAI main) |
-| Versione attuale frontend | **v335** |
+| Versione attuale frontend | **v391** |
 | Versione souschef-chat | **v23** |
 | Supabase project attivo | ydqmumpytgrlceuinoqt |
 | AI in-app | **Chef AI** — MAI "Sous Chef AI" o "Sous Chef" |
