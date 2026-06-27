@@ -49,7 +49,11 @@ async function init(){
   // Load warnings banner
   if (typeof loadWarningsBanner === 'function') loadWarningsBanner();
   // Check se mostrare il prompt note serale (dopo le 22:30)
-  if (typeof checkOperationNotePrompt === 'function') checkOperationNotePrompt();
+  // Guard: lo chiama solo una volta per sessione, non ad ogni reload/save
+  if (typeof checkOperationNotePrompt === 'function' && !window._opNoteScheduled) {
+    window._opNoteScheduled = true;
+    checkOperationNotePrompt();
+  }
   const rb=document.getElementById('recipeAdminBtns');
   if(rb) rb.style.display=isAdmin()?'flex':'none';
   // Focus Mode — attiva dopo che items è caricato
