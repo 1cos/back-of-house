@@ -148,6 +148,12 @@ Scan automatica attualmente disabilitata in `souschef-core.js`
 
 ## TODO BACKLOG
 
+### 🔴 Ricette — da completare (sessione 2026-06-27)
+- **Texana Soup** — in menù (ha pos_name) ma BOM vuoto. Max scriverà la ricetta quando ha tempo.
+- **Sub-ricette nel BOM** — nessuna ricetta POS usa sub-ricette come componente. Il food cost non è calcolato a cascata (es. Pasta Arrabbiata non punta a ARRABBIATA sauce). Da mappare quando si fa audit food cost completo.
+- **Bug recipe preview sheet** — swipe down troppo aggressivo, non permette di scrollare verso l'alto dentro la sheet. Ammorbidire threshold o disabilitare dismiss-on-scroll quando si è a metà ricetta.
+
+
 - Fix realtime TV — loadChat() troppo pesante, aggiungere solo payload.new
 - Spostare L'Ufficio nella bottom bar (ora nei tre puntini)
 - Focus Mode — riabilitare quando orari 7shifts allineati (basta rimuovere `return false` in focus-mode.js)
