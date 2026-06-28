@@ -1,9 +1,9 @@
 // schedule.js - Brigade Schedule v2 — CSV import + UI mockup
-// v311 → v313
+// v311 → v394
 
 var schedCurrentView = 'oggi';
 var schedAllShifts = [];
-var schedCurrentDayIndex = 0; // index into week days array
+var schedCurrentDayIndex = -1; // index into week days array (-1 = not yet auto-selected)
 
 // ── SHOW TAB ──────────────────────────────────────────────
 function showSchedule() {
@@ -24,6 +24,7 @@ function showSchedule() {
     var label = tab.querySelector('.tab-label');
     if (label) label.style.color = '#059669';
   }
+  schedCurrentDayIndex = -1; // reset so today is re-selected on open
   schedLoadData();
 }
 
@@ -322,8 +323,9 @@ function schedRenderOggi(container) {
   // Get week dates for day strip
   var weekDates = schedGetWeekDates();
   // Auto-select today if not yet selected
-  if (schedCurrentDayIndex === 0 && weekDates.indexOf(todayStr) >= 0) {
-    schedCurrentDayIndex = weekDates.indexOf(todayStr);
+  if (schedCurrentDayIndex < 0) {
+    var todayIdx = weekDates.indexOf(todayStr);
+    schedCurrentDayIndex = todayIdx >= 0 ? todayIdx : 0;
   }
   var selectedDate = weekDates[schedCurrentDayIndex] || weekDates[0] || todayStr;
   var dayShifts = schedAllShifts.filter(function(s) { return s.date === selectedDate; });
