@@ -2,210 +2,113 @@
 
 ## CARICA SUBITO
 1. Token GitHub da file `x_claude_GIthub.txt` nel progetto
-2. Repo **`1cos/back-of-house`**, branch `brigade-main` SEMPRE — **NON usare `1cos/brigade-dev`** (fermo a v375, abbandonato)
-3. Leggi i file da GitHub LIVE, mai da memoria, mai da `/mnt/project/`
-4. Supabase project: ydqmumpytgrlceuinoqt
-
-## ⚠️ ATTENZIONE — SESSIONI PARALLELE
-Max lavora in più chat contemporanee. PRIMA di bumpare sw.js:
-- Leggi live `boh-v???` da sw.js su `1cos/back-of-house`
-- Verifica gli ultimi commit su `brigade-main` (`/commits?sha=brigade-main`)
-- Incrementa SOLO di +1 rispetto alla versione live (non da memoria)
-
-## ⚠️ REGOLA D'ORO
-- Per Max si chiamano SEMPRE "ingredienti", MAI "BOM/JSON". Max è un cuoco.
-- NON chiedere mai a Max di ricreare gli ingredienti — LI HA GIÀ. Leggi il DB prima.
-- MAI assumere — confermare SEMPRE prima di scrivere codice
-
-## 🟢 APP IN PRODUZIONE
-**Brigade è live. I ragazzi stanno usando l'app.** Ogni modifica al codice deve essere
-chirurgica — zero rischi di rompere funzionalità esistenti. Testare prima di pushare.
+2. Leggi TUTTI i file .md da brigade-main prima di fare qualsiasi cosa
+3. Controlla versione live sw.js prima di qualsiasi push
+4. Repo: `1cos/back-of-house`, branch `brigade-main` — MAI `brigade-dev`
 
 ---
 
-## STATO TECNICO (aggiornato 2026-06-27)
-- Frontend: **v391** (sw.js boh-v391) — repo: `1cos/back-of-house`, branch `brigade-main`
-- **App live** — `https://1cos.github.io/back-of-house/`
-- **`1cos/brigade-dev` — ABBANDONATO, non usare più**
+## SESSIONE 28 GIUGNO 2026 — COSA ABBIAMO FATTO
+
+### v392-v393 — Sistema inventario prep (carico/scarico)
+- DB: aggiunto `prep_tasks.current_stock` (numeric) e `prep_log.is_suggested_qty` (boolean)
+- Frontend prep.js v393: nuovo flusso "Fatto" — modal dose suggerita (verde) vs quantità diversa
+- `suggestedSave()` → salva `is_suggested_qty=true` + aggiorna `current_stock`
+- `detailSave()` → aggiorna `current_stock` con qty custom
+- Card prep: pill stato stock 🟢 Prepara oggi / 🟡 Stock ok · X / 🔴 Quasi finito · X
+- Edge Function `gmail-touchbistro-import` v22: aggiunta `depleteStock()` — scarico notturno automatico da POS (solo task con recipe_id + current_stock non null + base_servings presente)
+
+### Inventario fisico
+- PDF inventario prep stampabile generato (due colonne per stazione, campo QTY vuoto)
+- Logica: current_stock si popola solo dal conteggio fisico reale, mai da seed artificiale
+
+### DB prep_tasks — cleanup e categorizzazione
+- Aggiunto campo `prep_type` con check constraint: 'finale' | 'supporto' | 'checklist'
+- 5 duplicati archiviati (Rinse Clams, Rinse Mussels, Tempura, Cook Focaccia, Season Focaccia — tutti creati lo stesso secondo il 25 giugno da import batch)
+- Categorizzazione automatica applicata:
+  - checklist: 41 task (Check X, Refill X, Thaw X, Rinse X, Pull X...)
+  - finale: 12 task (recipe_id + pos_name presenti)
+  - supporto: 109 task (resto)
+
+### Nuove ricette create e collegate
+| Ricetta | pos_name | Note |
+|---|---|---|
+| Amalfi Salmon | Amalfi Salmon | collegata a Pull Salmon filets |
+| Grilled Chicken | Add chicken\|Add Chicken\|Add chicken for number 4\|Blackened chicken | a monte di Cube Grilled Chicken |
+| Nutella mix | Nutella | BOM: 500g Nutella + 50g Sunflower Oil, 13 porzioni da 40g, shelf 30gg |
+| Berry coulis | Berry Coulis\|Berried and coulis on side\|Raspberry\|Choc raspberry | BOM: 2250g Mix Berries + 1225g Sugar, 56 porzioni da 40g, shelf 7gg, batch fisso |
+| Ranch Dressing | ranch\|Ranch | BOM: 3785g Mayo + 3900g Buttermilk + 226g Ranch Powder, 106 porzioni da 74g, shelf 7gg |
+
+### Prep task modificate
+- Siciliana in bag → rinominata "Siciliana cartoccio", finale, collegata a ricetta Siciliana, 3 step aggiunti
+- Pull Branzino, Sicilian Mix, Thaw Branzino → archiviati
+- Pull Salmon filets → supporto, collegato ad Amalfi Salmon
+- Cube Grilled Chicken → checklist (dipende da Grilled Chicken a monte)
+- Pastori e onions, Shrimp for cocktail, Thaw Shrimp → archiviati
+- Chicken Parmesan → finale, collegato a ricetta POS
+- Rinse Clams, Rinse Mussels → checklist (reminder operativo, non misurabile)
+- Tiramisu → finale, collegato a ricetta POS
+- Cheese cake → finale, collegato a ricetta POS
+- Balsamic Dressing (id 392) → supporto, collegato a BALSAMIC VINAIGRETTE
+- Citronnette (id 389) → supporto, collegata a CITRONETTE
+- Caesar Dressing → checklist (si compra già pronto da Ardis/Ben E. Keith)
+
+### pos_item_aliases aggiunti
+- Add salmon → portion_factor 1.0 (era 0.5 di default)
+- Both / Both on side → 1 Nutella mix + 1 Berry coulis (4 righe)
+
+### Principio chiave stabilito oggi
+- `prep_frequency_days` = NULL → decide il bot in base a venduto + shelf life
+- `prep_frequency_days` = N → solo se vuoi FORZARE cadenza fissa indipendentemente dal bot
+- `shelf_life_days` → il bot non supera mai questa soglia
+- Porzione dressing standard = 2.5oz = 74g per tutti
 
 ---
 
-## Sessione 2026-06-27 — Prep List intelligente + fix vari (v327→v391)
+## DA FARE NELLA PROSSIMA SESSIONE (PRIORITÀ)
 
-### Fix completati
-
-**v328 — Bot preplist v15 + fix prep card display**
-- `bot-preplist-builder` deployato come v33 su Supabase (codice v15)
-- Quando ricetta ha `base_servings` presente → calcola in **porzioni** (non grammi)
-- Finestra dinamica da `expected_duration_days` della prep task (non hardcoded)
-- Divide settimana lun-sab in finestre consecutive di N giorni (no domenica)
-- Es. freq=3 → [Lun,Mar,Mer] [Gio,Ven,Sab]
-- Nota formato: `"Mon→Wed usually 8 portions sold → prep 10 portions"`
-- `prep.js`: badge 🤖 ora mostra `suggested_note` direttamente se contiene "portions sold"
-  invece di dividere per 1000 (bug che mostrava "0.001 kg")
-- Artichoke prep task: `recipe_id` collegato manualmente, `suggested_note` aggiornata nel DB
-
-**v329 — Fix save ricette silenzioso (BUG CRITICO)**
-- `recipes.js`: `ingredients` era nel payload `newRec` ma la colonna non esiste in `recipes`
-- PostgREST silenziosamente ignorava l'intero update senza errore
-- Fix: rimosso `ingredients` dal payload, aggiunto `{ error: updErr }` check con throw
-- Ora ogni salvataggio ricetta funziona correttamente
-
-**v330 — Fix "Good Night" modal appare ad ogni save ricetta**
-- `init.js`: `checkOperationNotePrompt()` veniva chiamata ad ogni `init()` (anche dopo save ricette)
-- Fix: flag `window._opNoteScheduled = true` — chiamata solo una volta per sessione
-- `operation-notes.js`: logica oraria più robusta — finestra corretta 22:30-03:00 CDT
-
-**v331→v391 — Fix recipe detail sheet non si aggiornava dopo save + ripristino numerazione**
-- `recipes.js`: dopo save, la detail sheet rimaneva aperta con BOM vecchi (cache)
-- Fix: aggiunto `id='_recipeDetailSheet'` alla sheet, dopo save la richiude e riapre con dati freschi da `SHOP_RECIPES`
-
-### DB cleanup
-- Ingrediente `Fettuccine` (secca) → sostituito con sub-recipe `FETTUCCINE FRESH PASTA` in 3 BOM, poi cancellato
-- Ingrediente `Spaghetti` (secco) → sostituito con sub-recipe `SPAGHETTI FRESH PASTA` in 6 BOM, poi cancellato
-- BOM unità aggiornate: tutte le fresh pasta ora `1 each` (porzione intera) o `0.5 each` (half)
-- Fettuccine Arrabbiata Half → 0.5 each ✅
-- La N.4 Half → 0.5 each ✅
-- Spaghetti al Pomodoro Half → 0.5 each ✅
-- SPAGHETTI MARCELLO → 10 each (base_servings=10) ✅
-- Artichoke `recipe_id` collegato alla prep task (era NULL) ✅
-- BOM Artichoke verificati: tutti 6 ingredienti matchano per item_id ✅
-
----
-
-## 🔴 PRIORITÀ SESSIONE PROSSIMA — PREP CARD REDESIGN
-
-### Contesto
-La prep card di Artichoke funziona (bot v15 scrive la nota giusta nel DB) ma la UX
-non è ancora quella definitiva. Max vuole:
-
-### 1. Smart scale sulla recipe sheet (BUG APERTO)
-Nella recipe detail sheet, tab "Smart" dovrebbe scalare tutti gli ingredienti
-×N dove N = porzioni suggerite per oggi (dal bot).
-- Oggi Artichoke: `suggested_qty = 18` porzioni → Smart deve moltiplicare tutto ×18
-- Artichokes: 2 each × 18 = 36 each
-- Red Onions: 30g × 18 = 540g
-- ecc.
-- **Attualmente**: Smart non cambia nulla (bug — non legge suggested_qty)
-- File: `js/recipes.js` funzione `showRecipeSheet()` — blocco scale Smart
-
-### 2. Testo "PREP TODAY 7 portions" — rendere leggibile la motivazione
-Nella detail sheet, il box verde "PREP TODAY" mostra "last Fri+Sat you sold 11 — stay ready."
-ma è troppo piccolo (font-size ~10px). Portare a 13px almeno.
-- File: `js/recipes.js` funzione `loadRecipePrepStats()` — cerca il testo "stay ready"
-
-### 3. Formato prep card nella Prep List (NUOVO)
-Attualmente il badge verde mostra: `🤖 Thu→Sat usually 16 portions sold → prep 18 portions`
-Max vuole un formato più operativo e diretto per il cuoco sulla prep card:
+### 1. CLEANUP prep_frequency_days
+Eseguire questa query e decidere uno per uno quali tenere e quali azzerare:
+```sql
+SELECT id, name, category, prep_frequency_days 
+FROM prep_tasks 
+WHERE prep_frequency_days IS NOT NULL AND archived = false
+ORDER BY category, name;
 ```
-Prepara lunedì → 10 porzioni  (20 carciofi)
-Prepara giovedì → 18 porzioni (36 carciofi)
-```
-Cioè: giorno di prep + porzioni da fare + traduzione in unità fisiche (es. N carciofi)
-Questo richiede:
-- Sapere quale giorno inizia ogni finestra (Lun per finestra 1, Gio per finestra 2)
-- Moltiplicare per `base_servings` e unità principale del BOM
-- Mostrare nella prep card (NON nella recipe sheet)
-- File: `js/prep.js` — blocco badge 🤖 (riga ~204)
-- File: `bot-preplist-builder` (Edge Function) — aggiornare `suggested_note` con nuovo formato
+Regola: metti NULL su tutto tranne dove c'è una ragione operativa specifica per forzare la cadenza.
 
-### 4. Done button → inventario prep (vedi PRIORITÀ #1 sotto)
+### 2. CONTINUARE categorizzazione prep — stazioni da completare
+Abbiamo finito: Fresh Pasta, Manager parziale, Oven, Pasta, Pastry, Salad (dressing)
+Da fare ancora:
+- **Salad Station** — Bruschetta, Caprese seasoning, Pecorino wedge, Roasted Almonds, Shaved Parm, Sliced Mozzarella, Sliced Tomatoes, Spring mix, Romaine, Cantaloupe, Blue Cheese, Goat cheese, Walnuts, Watermelon, Seed mix
+- **Saucier Station** — Arrabbiata, Bechamel, Brisket, Cacio e pepe, Demi, Mash Potato, Mushrooms, Pomodoro, Ragu, Soffritto Livornese, Texana Soup, Truffle butter
+- **Saute Station** — Artichoke Sauce, Asparagus, Butter Spinach, Lemon cream, Lemon sliced, Risotto Base, Salmon aioli, Salmoriglio, Scallops, Sicilian mix (archiviata)
+- **Table Side** — Filets, NY Strip, Ribeye, Tomahawk, Wagyu ribeye
+- **Manager Station** — Arugola, Basil, Basil flowers, Confit tomatoes, Beef salt, Rosemary, Sage, Spinach, Tarragon, Thyme
+- **Fresh Pasta** — Grated Pecorino, Maccheroni, Parmesan Grated
 
----
+### 3. OBIETTIVO FINALE prep
+Per ogni prep task attiva (162 totali):
+- `prep_type` assegnato (finale/supporto/checklist) ✅ già fatto
+- `recipe_id` collegato dove applicabile
+- Ricetta con `base_servings` + `serving_weight_g` corretto
+- BOM con ingredienti reali
+- `shelf_life_days` impostato
+- `pos_name` su tutte le ricette finale/supporto per il calcolo bot
 
-## 🔴 PRIORITÀ #1 — INVENTARIO PREP AUTOMATICO (sistema completo)
-**Visione (2026-06-27):** Le checklist prep servono il giusto come checklist. Il POS scarica il venduto → calcoliamo il consumato → il software sa già se bisogna preparare o no. Non serve un ragazzo la sera per dirlo.
+### 4. Caesar dressing
+Verificare quale fornitore (Ardis o Ben E. Keith) e aggiungere come ingrediente in ingredient_vendors
 
-### Logica core
-- **CARICO:** cuoco preme "Fatto" → modal "Hai preparato la dose consigliata (X porzioni) o una quantità diversa?" → `[✅ Dose consigliata]` `[✏️ Quantità diversa]` → salva in `prep_log`
-- **SCARICO:** ogni notte il nightly import TouchBistro sottrae il venduto dalla colonna `current_stock` in `prep_tasks` (via BOM: porzioni vendute × grammi/porzione o × 1 se base_servings=1)
-- **STATO AUTOMATICO:** il bot confronta `current_stock` vs soglia minima (`shelf_life_days` × venduto medio giornaliero) e assegna uno stato alla prep card:
-  - 🟢 **"Prepara oggi"** — stock sotto soglia, tocca oggi
-  - 🟡 **"Non serve oggi"** — stock ok, mostra quando tocca la prossima
-  - 🔵 **"Puoi anticipare"** — stock ok ma vicino a scadenza
-  - 🔴 **"Scaduto — prepara subito"** — shelf life superata
-
-### Formato nota prep card (per il cuoco)
-- freq=1 (daily): `Prepara ogni giorno · oggi 15 focacce`
-- freq=2: `Prepara oggi 31 porzioni · prossima prep dopodomani`
-- freq=3: `Prepara oggi 16 porzioni · prossima prep giovedì`
-- freq=7: `Prepara questa settimana 22 kg · prossima prep lunedì prossimo`
-- freq=15: `Prepara oggi 14 kg · prossima prep tra 15 giorni`
-- freq=30: `Prepara questo mese 2.2 kg · prossima prep il mese prossimo`
-
-### Bottone "Voglio prepararlo ora"
-Appare sulle card in stato 🟡 o 🔵 — il cuoco forza la prep e il bot ricalcola sul momento.
-
-### DB changes necessari
-- `prep_tasks.current_stock` (numeric) — giacenza stimata aggiornata in tempo reale
-- `prep_log.is_suggested_qty` (boolean) — se ha usato la dose consigliata o una custom
-- Nightly import: aggiungere step scarico `current_stock` dopo import POS
-
-### File da toccare
-- `js/prep.js` — `startDonePress()` → `openDoneSheet()` con modal dose/custom
-- `bot-preplist-builder` — già aggiornato a v17, aggiungere logica stato card
-- Nightly import edge function — aggiungere scarico `current_stock`
-
-### Note operative
-- Margine buffer: parte dal 10%, configurabile fino al 15%+ da settings
-- Daily automatiche (focaccia, basilico): reset ogni mattina senza calcolo
-- Prep senza ricetta collegata: solo carico manuale, nessuno scarico automatico
+### 5. Aggiornare PROMPT_SUGGESTED_QTY.md
+Il bot-preplist-builder deve essere riscritto per usare il nuovo paradigma:
+- Legge `current_stock` invece di `need_tomorrow`
+- Considera `shelf_life_days` per capire quando rifarlo
+- Usa `prep_type` per trattare diversamente finale/supporto/checklist
+- Output: "prepara X oggi (stock esaurito)" vs "prepara tra N giorni (stock ancora ok)"
 
 ---
 
-## 🔴 PRIORITÀ #2 — ai_options come azioni eseguibili in L'Ufficio
-Le ai_options sono ora stringhe — quando Max le preme, archiviano ma NON eseguono nel DB.
-Visione: opzioni strutturate `{label, action, params}` che chiamano `officeExecuteOption()`.
-
-## 🔴 PRIORITÀ #3 — Autocomplete ricette nel Calendar editor (BUG APERTO)
-`<datalist>` nativo HTML non funziona su iOS nel modale editor eventi.
-Soluzione: sheet separato fullscreen di ricerca ricette.
-
-## 🔴 PRIORITÀ #3 — Home dedicata Dish Crew (Fase 2)
-Detect: `user.default_station === 'Dish Crew'`
-Nascondere: Recipes, Closing, Sales, Ingredienti, Focus Mode, Operation Notes
-Bottom bar: Home / Chat / Schedule / Tell Chef
-
-## 🔴 PRIORITÀ #4 — Cleaning Checklist (nuovo modulo)
-Flusso serale: Closing Prep → Operation Note → Cleaning Checklist → Chiudi Shift → notifica Max+David
-DB: nuove tabelle `cleaning_tasks` e `cleaning_log` (non ancora create)
-
-## 🔴 PRIORITÀ #5 — souschef-scan
-Manda 400+ ingredienti a OpenRouter → timeout 500 ogni ora
-Fix: riscrivere con SQL diretto (GHOST e NOLINK si trovano con query SQL)
-Scan automatica attualmente disabilitata in `souschef-core.js`
-
----
-
-## TODO BACKLOG
-
-### 🔴 Ricette — da completare (sessione 2026-06-27)
-- **Texana Soup** — in menù (ha pos_name) ma BOM vuoto. Max scriverà la ricetta quando ha tempo.
-- **Sub-ricette nel BOM** — nessuna ricetta POS usa sub-ricette come componente. Il food cost non è calcolato a cascata (es. Pasta Arrabbiata non punta a ARRABBIATA sauce). Da mappare quando si fa audit food cost completo.
-- **Bug recipe preview sheet** — swipe down troppo aggressivo, non permette di scrollare verso l'alto dentro la sheet. Ammorbidire threshold o disabilitare dismiss-on-scroll quando si è a metà ricetta.
-
-
-- Fix realtime TV — loadChat() troppo pesante, aggiungere solo payload.new
-- Spostare L'Ufficio nella bottom bar (ora nei tre puntini)
-- Focus Mode — riabilitare quando orari 7shifts allineati (basta rimuovere `return false` in focus-mode.js)
-- Rinominare "Manager Station" → "Coordinator Station" ovunque nel sistema
-- TripleSeat — Monica deve fare Authorize
-- Bot 5 versione B — food cost % quando selling_price popolato
-- office-ai cron orario (analisi automatica ogni ora)
-- Hardie's NULL conversions: fix manuale `conversion_to_base` per Eggs 15 DZ (SKU 01115) e Beefsteak Tomato 19/22 (SKU 15909)
-- Foto in chat — upload da testare su iPhone reale
-- BOM audit completo: verificare tutti i tipi di pasta fresca (Pappardelle, Rigatoni, Penne, ecc.) come fatto per Fettuccine e Spaghetti
-
----
-
-## REGOLE OPERATIVE INVIOLABILI
-- SHA fresco prima di ogni PUT; bump boh-vN in sw.js ad ogni push (verifica live prima)
-- node --check prima di push
-- Commit: "vN file — descrizione"; solo brigade-main su `1cos/back-of-house`
-- Leggi SEMPRE da GitHub live, mai da memoria o /mnt/project/
-- Conferma piano prima di scrivere codice; una cosa alla volta
-- Financial data mai allo staff
-- Kitchen Display SOLO inglese
-- Domenica chiuso
-- **App in produzione — modifiche chirurgiche, zero rischi**
-- **MAI assumere — confermare SEMPRE con Max prima di agire**
+## STATO VERSIONI
+- Brigade: **v393**
+- Edge Function gmail-touchbistro-import: **v22**
+- Supabase project: `ydqmumpytgrlceuinoqt`
