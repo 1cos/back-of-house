@@ -8,107 +8,149 @@
 
 ---
 
-## SESSIONE 28 GIUGNO 2026 — COSA ABBIAMO FATTO
+## SESSIONE 28 GIUGNO 2026 (mattina) — v392-v393 — Sistema inventario prep
 
-### v392-v393 — Sistema inventario prep (carico/scarico)
+### Sistema inventario prep (carico/scarico)
 - DB: aggiunto `prep_tasks.current_stock` (numeric) e `prep_log.is_suggested_qty` (boolean)
 - Frontend prep.js v393: nuovo flusso "Fatto" — modal dose suggerita (verde) vs quantità diversa
 - `suggestedSave()` → salva `is_suggested_qty=true` + aggiorna `current_stock`
 - `detailSave()` → aggiorna `current_stock` con qty custom
 - Card prep: pill stato stock 🟢 Prepara oggi / 🟡 Stock ok · X / 🔴 Quasi finito · X
-- Edge Function `gmail-touchbistro-import` v22: aggiunta `depleteStock()` — scarico notturno automatico da POS (solo task con recipe_id + current_stock non null + base_servings presente)
+- Edge Function `gmail-touchbistro-import` v22: aggiunta `depleteStock()` — scarico notturno automatico da POS
 
-### Inventario fisico
-- PDF inventario prep stampabile generato (due colonne per stazione, campo QTY vuoto)
-- Logica: current_stock si popola solo dal conteggio fisico reale, mai da seed artificiale
-
-### DB prep_tasks — cleanup e categorizzazione
+### DB prep_tasks — cleanup e categorizzazione iniziale
 - Aggiunto campo `prep_type` con check constraint: 'finale' | 'supporto' | 'checklist'
-- 5 duplicati archiviati (Rinse Clams, Rinse Mussels, Tempura, Cook Focaccia, Season Focaccia — tutti creati lo stesso secondo il 25 giugno da import batch)
-- Categorizzazione automatica applicata:
-  - checklist: 41 task (Check X, Refill X, Thaw X, Rinse X, Pull X...)
-  - finale: 12 task (recipe_id + pos_name presenti)
-  - supporto: 109 task (resto)
+- 5 duplicati archiviati
+- Categorizzazione automatica: 41 checklist, 12 finale, 109 supporto
 
-### Nuove ricette create e collegate
-| Ricetta | pos_name | Note |
+---
+
+## SESSIONE 28 GIUGNO 2026 (pomeriggio) — Categorizzazione prep + Menu audit
+
+### Stazioni completate oggi
+**Manager Station:**
+- Beef salt, Confit salt, Fish salt, Potato salt, Ribeye salt → checklist (controllo stock, non prep)
+- Arugola, Basil, Flowers, Rosemary, Sage, Tarragon, Thyme → checklist (si comprano)
+- Basil flowers, Confit tomatoes, Spinach → supporto (da gestire separatamente)
+- Salmon filets (id 317), Branzino filets (id 316) → spostati a Table Side
+
+**Saucier Station:**
+- Mushrooms (id 449) → supporto, collegato a SLICED MUSHROOM
+- Brisket → supporto, collegato a Beef Ravioli
+- Mash Potato → supporto (ricetta da creare)
+- Preparato per Livornese + Soffritto Livornese → supporto, collegati a Lobster Fettucine
+- Texana Soup → finale, collegato a ricetta POS
+- Truffle butter → supporto, collegato a Truffle Fettuccine
+
+**Saute Station:**
+- Artichoke Sauce → supporto, collegato a ricetta Artichoke Sauce
+- Asparagus → finale, collegato a ricetta Asparagus POS
+- Butter Spinach → supporto, collegato a BUTTER SPINACH
+- Lemon cream → supporto (rimossa dal menu — ricette LEMON CREAM e Lemon cream cold 2020 archiviate)
+- Lemon sliced → checklist (taglio limoni giornaliero)
+- Risotto Base → supporto, collegato a Risotto Base
+- Salmon aioli → supporto (ricetta da inserire prossima sessione)
+- Salmoriglio → supporto, collegato a SALMORIGLIO
+- Scallops → finale
+- Thaw Scallops → checklist
+
+**Table Side:**
+- Filet Branzino, Filets, Ny strip, Ribeye, Porterhouse → supporto (trigger fattura/scontrino)
+- Tomahawk, Wagyu ribeye → supporto (trigger fattura Hardie's)
+- Clean Branzino → checklist ✅
+
+**Nuove ricette create:**
+- `Timberland Maccheroni` — pos_name match POS, BOM: 120g Maccheroni fresh pasta + 150g MK-RAGU + 50g SLICED MUSHROOM + 50g Heavy Cream
+- `MACCHERONI FRESH PASTA` — 3.5kg impasto, 23 porzioni da 150g, stesso BOM Fettuccine/Spaghetti
+- `Porterhouse alla Fiorentina` — pos_name: Chef's Feature|Porterhouse Alla Fiorentina (15 vendite storiche recuperate)
+- `48 Hour Texas Wagyu Dino Rib` — piatto nuovo, statistiche da zero
+- `TIMBERLAND FETTUCCINE` → archiviata (sostituita da Timberland Maccheroni)
+
+**Prep task Maccheroni (id 412)** collegata a MACCHERONI FRESH PASTA
+
+### Trigger da fattura — architettura decisa
+| Fornitore | Prodotto | Prep attivata |
 |---|---|---|
-| Amalfi Salmon | Amalfi Salmon | collegata a Pull Salmon filets |
-| Grilled Chicken | Add chicken\|Add Chicken\|Add chicken for number 4\|Blackened chicken | a monte di Cube Grilled Chicken |
-| Nutella mix | Nutella | BOM: 500g Nutella + 50g Sunflower Oil, 13 porzioni da 40g, shelf 30gg |
-| Berry coulis | Berry Coulis\|Berried and coulis on side\|Raspberry\|Choc raspberry | BOM: 2250g Mix Berries + 1225g Sugar, 56 porzioni da 40g, shelf 7gg, batch fisso |
-| Ranch Dressing | ranch\|Ranch | BOM: 3785g Mayo + 3900g Buttermilk + 226g Ranch Powder, 106 porzioni da 74g, shelf 7gg |
+| Frugé | Branzino (lb) | Filet Branzino — bordo rosso, in cima |
+| Frugé | Salmone (lb) | Salmon filets — bordo rosso, in cima |
+| Hardie's | 103 Rib | Portion Tomahawk + Portion Wagyu Ribeye |
+| HEB (scontrino manuale) | Filetti / Ribeye / Porterhouse | Portion Filets / Ribeye / Porterhouse |
 
-### Prep task modificate
-- Siciliana in bag → rinominata "Siciliana cartoccio", finale, collegata a ricetta Siciliana, 3 step aggiunti
-- Pull Branzino, Sicilian Mix, Thaw Branzino → archiviati
-- Pull Salmon filets → supporto, collegato ad Amalfi Salmon
-- Cube Grilled Chicken → checklist (dipende da Grilled Chicken a monte)
-- Pastori e onions, Shrimp for cocktail, Thaw Shrimp → archiviati
-- Chicken Parmesan → finale, collegato a ricetta POS
-- Rinse Clams, Rinse Mussels → checklist (reminder operativo, non misurabile)
-- Tiramisu → finale, collegato a ricetta POS
-- Cheese cake → finale, collegato a ricetta POS
-- Balsamic Dressing (id 392) → supporto, collegato a BALSAMIC VINAIGRETTE
-- Citronnette (id 389) → supporto, collegata a CITRONETTE
-- Caesar Dressing → checklist (si compra già pronto da Ardis/Ben E. Keith)
+Logica: il cuoco preme Done → dichiara pezzi → current_stock popolato → POS scarica
 
-### pos_item_aliases aggiunti
-- Add salmon → portion_factor 1.0 (era 0.5 di default)
-- Both / Both on side → 1 Nutella mix + 1 Berry coulis (4 righe)
+### BOM Edible Flower + Arugola — regola definitiva
+- Solo su: **Griglia + Mediterranean + Table Side** (carni, pesci, secondi)
+- NON su antipasti, pasta, zuppe, insalate
+- Edible Flower = `f3d353e4` (Hardie's SKU 05840 — marigold) — unico ingrediente flower nel DB
+- `Flower` e `flowers` (duplicati vuoti) → eliminati dal DB, BOM migrati a Edible Flower
+- 19 ricette esistenti migrate + nuove aggiunte: totale ~26 ricette con 30g Arugola + 1 Edible Flower
 
-### Principio chiave stabilito oggi
-- `prep_frequency_days` = NULL → decide il bot in base a venduto + shelf life
-- `prep_frequency_days` = N → solo se vuoi FORZARE cadenza fissa indipendentemente dal bot
-- `shelf_life_days` → il bot non supera mai questa soglia
-- Porzione dressing standard = 2.5oz = 74g per tutti
+### Menu audit — luglio 2026
+**Alias aggiunti (no modifica storico POS):**
+- Costata della Casa → `Costata Della Casa|Ribeye Prime Green Peppers Corn`
+- Filetto Toscano → aggiunto a pos_name Filetto di manzo al merlot
+- Porterhouse alla Fiorentina → collegata a `Chef's Feature`
+
+**Ricette archiviate (fuori menu luglio 2026):**
+- Ravioli Al Pesto · Scallops Asparagus Gnocchi · Salmon Salad · Saltimbocca Alla Romana · Chicken Piccata Buffet · Veal Saltimbocca family style
+
+**Non toccate (hanno storico POS):**
+- Lemon Ravioli (Beef Tenderloin Ravioli nel menu = Beef Ravioli nel POS — non toccare)
+- Veal Piccata · Chicken Lemon Piccata
+
+**Principio stabilito:** MAI modificare pos_name con storico — solo aggiungere alias con pipe `|`
 
 ---
 
 ## DA FARE NELLA PROSSIMA SESSIONE (PRIORITÀ)
 
-### 1. CLEANUP prep_frequency_days
-Eseguire questa query e decidere uno per uno quali tenere e quali azzerare:
+### 1. Salad Station — da completare
+Task senza recipe_id ancora da collegare:
+- Cantaloupe, Caprese seasoning, Goat cheese, halved tomatoes, Honey, Olives, Pears, Pecorino fresh wedge, Roasted Almonds, Romaine, Seed mix, Shaved Parm, Shredded Carrots, Sliced Mozzarella, Sliced Tomatoes, Spring mix, Walnuts, Watermelon Cubes
+- Check Balsamic Glaze, Check Blue Cheese, Check Burrata, Check Crostini, Check Croutons, Check Goat Cheese, Check Raspberry → tutti checklist, verificare recipe_id dove applicabile
+
+### 2. Fresh Pasta Station — da completare
+- Grated Pecorino (id 438) → supporto, collegare a ricette che usano pecorino grattugiato
+- Parmesan Grated (id 439) → supporto, collegare a ricette che usano parmigiano grattugiato
+
+### 3. Ricette da creare (decise oggi, non ancora fatte)
+- Mash Potato (Saucier) — supporto per Scallops Chefs Way e altri
+- Salmon aioli (Saute) — supporto per Amalfi Salmon
+- Costata della Casa — ricetta completa con BOM
+- Porterhouse alla Fiorentina — BOM: arugola, parmigiano, riduzione balsamica
+- 48 Hour Texas Wagyu Dino Rib — BOM da definire con Max
+
+### 4. Spinach — gestione separata
+- Ha due task in due stazioni (Manager e Saute/Butter Spinach)
+- Butter Spinach già collegata a ricetta BUTTER SPINACH ✅
+- Spinach (Manager Station id 318) → da decidere: è la stessa ricetta o prep separata?
+- Regola Zenos: mezza porzione spinach = 80g aluminum cup
+
+### 5. Basil flowers — BOM da collegare
+- Collegare Basil flowers a tutte le ricette che le usano
+- Attualmente nessun BOM collegato — il bot non sa quante prepararne
+
+### 6. Confit tomatoes — ricetta da creare
+- Usata in: Shrimp Gnocchi + Mediterranean Salad (confermato da Max)
+- Aggiungere BOM su entrambe le ricette dopo creazione ricetta
+
+### 7. CLEANUP prep_frequency_days
 ```sql
 SELECT id, name, category, prep_frequency_days 
 FROM prep_tasks 
 WHERE prep_frequency_days IS NOT NULL AND archived = false
 ORDER BY category, name;
 ```
-Regola: metti NULL su tutto tranne dove c'è una ragione operativa specifica per forzare la cadenza.
+Regola: NULL su tutto tranne cadenza fissa per ragione operativa specifica.
 
-### 2. CONTINUARE categorizzazione prep — stazioni da completare
-Abbiamo finito: Fresh Pasta, Manager parziale, Oven, Pasta, Pastry, Salad (dressing)
-Da fare ancora:
-- **Salad Station** — Bruschetta, Caprese seasoning, Pecorino wedge, Roasted Almonds, Shaved Parm, Sliced Mozzarella, Sliced Tomatoes, Spring mix, Romaine, Cantaloupe, Blue Cheese, Goat cheese, Walnuts, Watermelon, Seed mix
-- **Saucier Station** — Arrabbiata, Bechamel, Brisket, Cacio e pepe, Demi, Mash Potato, Mushrooms, Pomodoro, Ragu, Soffritto Livornese, Texana Soup, Truffle butter
-- **Saute Station** — Artichoke Sauce, Asparagus, Butter Spinach, Lemon cream, Lemon sliced, Risotto Base, Salmon aioli, Salmoriglio, Scallops, Sicilian mix (archiviata)
-- **Table Side** — Filets, NY Strip, Ribeye, Tomahawk, Wagyu ribeye
-- **Manager Station** — Arugola, Basil, Basil flowers, Confit tomatoes, Beef salt, Rosemary, Sage, Spinach, Tarragon, Thyme
-- **Fresh Pasta** — Grated Pecorino, Maccheroni, Parmesan Grated
-
-### 3. OBIETTIVO FINALE prep
-Per ogni prep task attiva (162 totali):
-- `prep_type` assegnato (finale/supporto/checklist) ✅ già fatto
-- `recipe_id` collegato dove applicabile
-- Ricetta con `base_servings` + `serving_weight_g` corretto
-- BOM con ingredienti reali
-- `shelf_life_days` impostato
-- `pos_name` su tutte le ricette finale/supporto per il calcolo bot
-
-### 4. Caesar dressing
-Verificare quale fornitore (Ardis o Ben E. Keith) e aggiungere come ingrediente in ingredient_vendors
-
-### 5. Aggiornare PROMPT_SUGGESTED_QTY.md
-Il bot-preplist-builder deve essere riscritto per usare il nuovo paradigma:
+### 8. Riscrivere bot-preplist-builder
 - Legge `current_stock` invece di `need_tomorrow`
-- Considera `shelf_life_days` per capire quando rifarlo
+- Usa `shelf_life_days` per calcolare quando rifare
 - Usa `prep_type` per trattare diversamente finale/supporto/checklist
-- Output: "prepara X oggi (stock esaurito)" vs "prepara tra N giorni (stock ancora ok)"
 
 ---
 
 ## STATO VERSIONI
-- Brigade: **v393**
+- Brigade frontend: **v393**
 - Edge Function gmail-touchbistro-import: **v22**
 - Supabase project: `ydqmumpytgrlceuinoqt`
