@@ -150,6 +150,18 @@ Regola: NULL su tutto tranne cadenza fissa per ragione operativa specifica.
 
 ---
 
+
+### 9. Prep card UI — due valori da mostrare (da fare dopo completamento categorizzazione)
+**Decisione presa 28 giugno 2026:**
+- Nella **prep card** al cuoco: mostrare solo il peso NETTO (es. "300g Romaine pulita")
+- Nella **recipe preview**: mostrare entrambi i valori (es. "300g pulita → parti da 400g sporca")
+- Nella **prep list / acquisti**: convertire in unità di acquisto (es. "2.5 buste")
+- Logica: `qty_netta = current_stock_target`, `qty_lorda = qty_netta / yield_factor`, `unità_acquisto = qty_lorda / avg_unit_weight_g`
+- `yield_factor` su `ingredients` (colonna dormiente, aggiunta 28 giugno — DEFAULT 1.0)
+- `avg_unit_weight_g` su `ingredients` (già esistente — da popolare per Romaine e altri)
+- Valori yield stabiliti: Romaine Hearts 0.75 · Pera 0.82 · Watermelon 0.85 · Cherry Tomatoes halved 0.95 · Spring mix 1.0
+- **NON toccare food cost o riacquisti ancora** — questa è solo UI prep card
+
 ## STATO VERSIONI
 - Brigade frontend: **v393**
 - Edge Function gmail-touchbistro-import: **v22**
