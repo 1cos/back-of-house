@@ -1,5 +1,5 @@
 // schedule.js - Brigade Schedule v2 — CSV import + UI mockup
-// v311 → v394
+// v311 → v397
 
 var schedCurrentView = 'oggi';
 var schedAllShifts = [];
@@ -319,13 +319,18 @@ function schedRender() {
 function schedRenderOggi(container) {
   var today = new Date();
   var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+  var isSundayToday = today.getDay() === 0;
 
   // Get week dates for day strip
   var weekDates = schedGetWeekDates();
-  // Auto-select today if not yet selected
+  // Auto-select: domenica → primo giorno disponibile (lunedì prossimo); altrimenti oggi
   if (schedCurrentDayIndex < 0) {
-    var todayIdx = weekDates.indexOf(todayStr);
-    schedCurrentDayIndex = todayIdx >= 0 ? todayIdx : 0;
+    if (isSundayToday) {
+      schedCurrentDayIndex = 0; // primo giorno = lunedì prossimo (filtrato da schedGetWeekDates)
+    } else {
+      var todayIdx = weekDates.indexOf(todayStr);
+      schedCurrentDayIndex = todayIdx >= 0 ? todayIdx : 0;
+    }
   }
   var selectedDate = weekDates[schedCurrentDayIndex] || weekDates[0] || todayStr;
   var dayShifts = schedAllShifts.filter(function(s) { return s.date === selectedDate; });
@@ -361,6 +366,21 @@ function schedRenderOggi(container) {
   });
   dayStripHtml += '</div>';
 
+  // Banner domenica (siamo chiusi)
+  var sundayBannerHtml = '';
+  if (isSundayToday) {
+    var nextMonday = weekDates[0] ? new Date(weekDates[0] + 'T12:00:00') : null;
+    var nextLabel = nextMonday
+      ? nextMonday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+      : 'Monday';
+    sundayBannerHtml = '<div style="background:linear-gradient(135deg,rgba(30,58,95,0.08),rgba(5,150,105,0.08));border:0.5px solid rgba(5,150,105,0.2);border-radius:16px;padding:18px 16px;text-align:center;margin-bottom:14px;">' +
+      '<div style="font-size:32px;margin-bottom:6px;">🌙</div>' +
+      '<div style="font-size:17px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">Zenos è chiuso oggi</div>' +
+      '<div style="font-size:13px;color:#64748b;">Buon riposo a tutta la brigata.</div>' +
+      (nextMonday ? '<div style="font-size:13px;color:#059669;font-weight:600;margin-top:8px;">Prossimo turno: ' + nextLabel + '</div>' : '') +
+    '</div>';
+  }
+
   // Stats
   var statsHtml = '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
     schedStatCard(morning.filter(function(s,i,a){ return a.findIndex(function(x){ return x.employee_name===s.employee_name; })===i; }).length, tr('sched_morning'), '#2563eb') +
@@ -374,7 +394,7 @@ function schedRenderOggi(container) {
   // Station cards
   var stationHtml = schedBuildStationCards(dayShifts);
 
-  container.innerHTML = dayStripHtml + statsHtml +
+  container.innerHTML = dayStripHtml + sundayBannerHtml + statsHtml +
     '<div style="font-size:16px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin-bottom:8px;">' + tr('sched_timeline') + '<div style="flex:1;height:0.5px;background:rgba(59,130,246,0.15);"></div></div>' +
     timelineHtml +
     '<div style="font-size:16px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin:18px 0 8px;">' + tr('sched_by_station') + '<div style="flex:1;height:0.5px;background:rgba(59,130,246,0.15);"></div></div>' +
@@ -388,8 +408,18 @@ function schedSelectDay(idx) {
 
 function schedGetWeekDates() {
   if (schedAllShifts.length === 0) return [];
+  var now = new Date();
+  var dow = now.getDay(); // 0=Sun
+  // Calcola lunedì della settimana corrente
+  var monday = new Date(now);
+  monday.setDate(now.getDate() + (dow === 0 ? 1 : 1 - dow)); // se domenica → lunedì prossimo; altrimenti lunedì di questa settimana
+  var cutoff = monday.getFullYear() + '-' + String(monday.getMonth()+1).padStart(2,'0') + '-' + String(monday.getDate()).padStart(2,'0');
   var dates = {};
-  schedAllShifts.forEach(function(s) { if (s.date) dates[s.date] = true; });
+  schedAllShifts.forEach(function(s) { if (s.date && s.date >= cutoff) dates[s.date] = true; });
+  // Se non ci sono date future, mostra tutto (fallback)
+  if (Object.keys(dates).length === 0) {
+    schedAllShifts.forEach(function(s) { if (s.date) dates[s.date] = true; });
+  }
   return Object.keys(dates).sort();
 }
 
