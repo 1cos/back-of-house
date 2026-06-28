@@ -488,9 +488,13 @@ window.openIngredientCard = async function(ingredientId){
     </div>`).join('')
     : '<div style="font-size:12px;color:#94a3b8;padding:4px 0;">Not used in any recipe yet</div>';
 
+  // Calcola offset top bar (top bar h-16=64px + newsBar se visibile)
+  const _newsBar = document.getElementById('newsBar');
+  const _topOffset = 64 + (_newsBar && !_newsBar.classList.contains('hidden') ? (_newsBar.offsetHeight||36) : 0);
+
   const modal = document.createElement('div');
-  modal.className = 'fixed inset-0 z-[60] flex flex-col';
-  modal.style.cssText = 'background:white;overflow-y:auto;';
+  modal.className = 'fixed z-[60] flex flex-col';
+  modal.style.cssText = 'background:white;overflow-y:auto;left:0;right:0;bottom:0;top:'+_topOffset+'px;';
   modal.innerHTML = `
     <div style="position:sticky;top:0;z-index:10;background:white;border-bottom:1px solid #f1f5f9;padding:14px 16px;">
       <div style="display:flex;align-items:center;gap:10px;">
