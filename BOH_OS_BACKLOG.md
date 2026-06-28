@@ -441,3 +441,6 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 - **Media:** scenari 61-65 (eventi), 76-80 (users), 81-85 (alerts/annunci)
 - **Bassa (richiede integrazioni):** 56-60 (7shifts), 86-90 (ordini completi)
 
+
+## VENDOR PARSER DA FARE
+- **Global Gourmet Food** — fornitore Bresaola (e probabilmente altri salumi). Parser invoice da costruire. Stessa architettura degli altri vendor parser.
