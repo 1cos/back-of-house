@@ -219,14 +219,11 @@ Regola: NULL su tutto tranne cadenza fissa per ragione operativa specifica.
 
 ## DA FARE NELLA PROSSIMA SESSIONE (PRIORITÀ)
 
-### 1. BOM ricette ancora da completare
-- **Siciliana** — BOM da verificare/completare
-- **Scallops Chef's Way** — BOM da verificare (usa Mash Potato)
-- **Shrimp Gnocchi** — BOM da verificare (usa Confit Tomatoes)
-- **Chicken Parmesan** — BOM da verificare
-- **Lobster Fettucine** — BOM da verificare
-- **La N° 4 (Carbonara)** — BOM da verificare
-- **Fettuccine Allo Scoglio** — BOM da verificare
+### 1. BOM ricette — TUTTE COMPLETATE ✅
+- Siciliana ✅ · Scallops Chef's Way ✅ (Mash Potato placeholder collegato) · Shrimp Gnocchi ✅
+- Chicken Parmesan ✅ · Lobster Fettucine ✅ (ARRABBIATA + Soffritto Livornese 5g) · La N° 4 ✅ · Fettuccine Allo Scoglio ✅
+- Prep task Preparato per Livornese (Pasta Station, id 404) → archiviato (duplicato)
+- Ricetta Soffritto Livornese creata e collegata al prep task id 397
 
 ### 2. Ricette da creare (ancora aperte)
 - **Mash Potato** (Saucier) — supporto per Scallops Chef's Way
