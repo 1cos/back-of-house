@@ -384,7 +384,7 @@ window.openIngredientCard = async function(ingredientId){
     {data:invoiceHistory}
   ] = await Promise.all([
     supa.from('ingredients')
-      .select('id,name,category,base_unit,measure_type,notes,active')
+      .select('id,name,category,base_unit,measure_type,notes,active,yield_factor')
       .eq('id', ingredientId).single(),
     supa.from('ingredient_vendors')
       .select('id,vendor,vendor_sku,pack_description,unit_price,price_type,conversion_to_base,price_per_100g,price_per_each,last_invoice_date,active')
@@ -547,6 +547,15 @@ window.openIngredientCard = async function(ingredientId){
         <div style="font-size:13px;color:#475569;background:#f8fafc;border-radius:10px;padding:10px 12px;line-height:1.5;">${ingr.notes}</div>
       </div>`:''}
 
+      <div style="margin-bottom:20px;">
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px;">Yield / Scarto</div>
+        <div style="font-size:13px;color:#475569;background:#f8fafc;border-radius:10px;padding:10px 12px;">
+          ${ingr.yield_factor && ingr.yield_factor < 1
+            ? `<span style="font-weight:600;color:#f59e0b;">${Math.round(ingr.yield_factor*100)}% usabile</span> &nbsp;·&nbsp; scarto ${Math.round((1-ingr.yield_factor)*100)}%`
+            : '<span style="color:#10b981;font-weight:600;">100% usabile</span> — nessuno scarto'}
+        </div>
+      </div>
+
       ${false?`
       <div style="margin-bottom:20px;">
         <div style="font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px;">Unit Info</div>
@@ -565,7 +574,7 @@ window.openIngredientCard = async function(ingredientId){
 // ── EDIT INGREDIENTE — solo campi master ingredients ──────────
 window.openEditIngredient = async function(ingredientId){
   const {data:ingr} = await supa.from('ingredients')
-    .select('id,name,category,base_unit,measure_type,notes')
+    .select('id,name,category,base_unit,measure_type,notes,yield_factor')
     .eq('id',ingredientId).single();
   if(!ingr) return;
 
@@ -612,6 +621,16 @@ window.openEditIngredient = async function(ingredientId){
         </div>
       </div>
 
+      <div style="margin-bottom:12px;">
+        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">YIELD % (scarto)</label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input id="editIngrYield" type="number" min="1" max="100" step="1"
+            value="${Math.round((ingr.yield_factor||1)*100)}"
+            style="width:80px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;text-align:center;">
+          <span style="font-size:13px;color:#64748b;">% usabile &nbsp;(100 = nessuno scarto)</span>
+        </div>
+      </div>
+
       <div style="margin-bottom:16px;">
         <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">NOTES</label>
         <textarea id="editIngrNotes" rows="2" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;resize:none;box-sizing:border-box;">${ingr.notes||''}</textarea>
@@ -630,11 +649,13 @@ window.openEditIngredient = async function(ingredientId){
 window.saveEditIngredient = async function(ingredientId, btn){
   btn.textContent='Saving...'; btn.disabled=true;
   // Only update columns that exist in ingredients table
+  const yieldVal = parseFloat(document.getElementById('editIngrYield')?.value);
   const updates = {
-    name:      document.getElementById('editIngrName')?.value?.trim(),
-    category:  document.getElementById('editIngrCat')?.value||null,
-    base_unit: document.getElementById('editIngrUnit')?.value||'g',
-    notes:     document.getElementById('editIngrNotes')?.value||null,
+    name:         document.getElementById('editIngrName')?.value?.trim(),
+    category:     document.getElementById('editIngrCat')?.value||null,
+    base_unit:    document.getElementById('editIngrUnit')?.value||'g',
+    notes:        document.getElementById('editIngrNotes')?.value||null,
+    yield_factor: (!isNaN(yieldVal) && yieldVal > 0 && yieldVal <= 100) ? yieldVal/100 : 1.0,
   };
   const w = parseFloat(document.getElementById('editIngrWeight')?.value);
   const v = parseFloat(document.getElementById('editIngrVol')?.value);
@@ -1000,3 +1021,4 @@ window.openRecipeFromCard = function(rec){
     },10);
   }
 };
+
