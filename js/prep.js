@@ -230,6 +230,19 @@ function renderM(){
               }
               return '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 '+dispQty+' '+tr('recommended')+'</span></div>';
             })() : '') +
+            (i.current_stock !== null && i.current_stock !== undefined ? (()=>{
+              const stock = parseFloat(i.current_stock);
+              const sq = parseFloat(i.suggested_qty||0);
+              const unit = i.unit||'';
+              const stockLabel = stock + (unit?' '+unit:'');
+              if (stock === 0) {
+                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.1);border-radius:6px;padding:2px 7px;">🟢 Prepara oggi</span></div>';
+              } else if (sq > 0 && stock <= sq * 0.5) {
+                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#dc2626;background:rgba(220,38,38,0.1);border-radius:6px;padding:2px 7px;">🔴 Quasi finito · '+stockLabel+' rimaste</span></div>';
+              } else {
+                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:600;color:#d97706;background:rgba(217,119,6,0.1);border-radius:6px;padding:2px 7px;">🟡 Stock ok · '+stockLabel+'</span></div>';
+              }
+            })() : '') +
           '</div>' +
           '<div style="display:flex;gap:6px;flex-shrink:0;">' +
             (isUrgent||!isWip ? '<button onpointerdown="startWipPress(' + JSON.stringify(iid) + ',this)" onpointerup="endWipPress()" onpointerleave="endWipPress()" style="height:36px;padding:0 14px;border-radius:10px;font-size:12px;font-weight:600;background:white;color:#1d4ed8;border:1.5px solid #3b82f6;white-space:nowrap;">'+tr('laterBtn')+'</button>' : '') +
