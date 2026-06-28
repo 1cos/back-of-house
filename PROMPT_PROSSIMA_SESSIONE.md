@@ -162,7 +162,97 @@ Regola: NULL su tutto tranne cadenza fissa per ragione operativa specifica.
 - Valori yield stabiliti: Romaine Hearts 0.75 · Pera 0.82 · Watermelon 0.85 · Cherry Tomatoes halved 0.95 · Spring mix 1.0
 - **NON toccare food cost o riacquisti ancora** — questa è solo UI prep card
 
+
+---
+
+## SESSIONE 28 GIUGNO 2026 (sera) — v394-v395 — BOM ricette + Salad/Pasta Station
+
+### Completato in questa sessione
+
+**BOM Arugola + Edible Flower (punto 3):**
+- Porterhouse alla Fiorentina → +30g Arugula +1pz Edible Flower ✅
+- 48 Hour Texas Wagyu Dino Rib → +30g Arugula +1pz Edible Flower ✅
+- BRANZINO TABLE SIDE → +30g Arugula (flower già c'era, corretto da 2g→1pz) ✅
+- Lobster Catalana → esclusa (non nel POS)
+
+**yield_factor aggiunto a ingredients (colonna dormiente):**
+- Romaine 0.75 · Pears 0.82 · Watermelon 0.85 · Cherry Tomatoes 0.95 · Cherry Tomatoes Datterini 0.95
+- Pecorino Toscano 0.90 · Fennel 0.75 · Orange 0.65
+- UI: scheda ingrediente mostra yield % + campo editabile in Edit modal ✅ (v394-v395)
+
+**Salad Station — completata:**
+- Pear & Pecorino Salad → ricetta creata, BOM completo, pos_name "Pere E Pecorino Salad" ✅
+- Caesar → usa Mini Caesar Salad (già esistente + BOM) ✅
+- Bresaola → BOM riscritto corretto: Bresaola 50g · Arugula 50g · Parmesan Flakes 30g · Balsamic Glaze 15g · Cherry Tomatoes 30g ✅
+- Ingrediente Bresaola creato (fornitore: Global Gourmet Food)
+- Ingrediente Dried Cranberries creato ✅
+- Prep task collegati: Pears→Pear & Pecorino · Romaine→Mini Caesar · Spring mix→House Salad · Watermelon→Mediterranean Salad ✅
+
+**Pasta Station — prep task categorizzati:**
+- Big bruschetta → archiviata ✅
+- GF Pasta → checklist ✅
+- Parsley → checklist, note: 2 mazzi/giorno, foglie tenere per plating, foglie+gambi per pasta station ✅
+- Pancetta → finale, collegata a La N° 4 ✅
+- Thaw Lobster → finale, collegata a Lobster Fettucine ✅
+- Rosemary Oil → supporto, ricetta creata (1L EVOO + 50g Rosemary, 80°C 30min, 2 squeeze), BOM su tutte e 4 le ricette Griglia (10g) ✅
+
+**BOM ricette completati/corretti:**
+- Truffle Fettuccine → FETTUCCINE FRESH PASTA 1pz · Heavy Cream 30g · Truffle Butter 20g · Black Truffle 4g ✅
+- Fettuccine alla Vodka → FETTUCCINE FRESH PASTA 1pz · POMODORO SAUCE 250g · Heavy Cream 30g ✅
+- Beef Ravioli (= Beef Tenderloin Ravioli) → Beef Ravioli ingrediente 200g · DEMI FOR RAVIOLI 100g · Butter 20g · Black Truffle 10g · Pulled Beef 40g ✅
+  - NOTE: i ravioli li fanno loro — esiste una ricetta ma non trovata. Da collegare come sub-recipe quando Max trova il nome nell'app.
+- Amalfi Salmon → Salmon 1pz · Fennel 60g · Orange 5pz · Citronette 15g · Kalamata Olive 15g · SALMORIGLIO · Arugula 30g · Edible Flower 1pz ✅
+- Costata della Casa → Ribeye 1pz · Ribeye Salt 4g · Arugula 30g · Edible Flower 1pz · Rosemary Oil 10g ✅
+- Filetto Toscano → Beef Filet 1pz · Ribeye Salt 4g · Arugula 30g · Edible Flower 1pz · Rosemary Oil 10g (rimossi Bacon e Merlot Reduction) ✅
+- Porterhouse alla Fiorentina → Porterhouse 1pz · Ribeye Salt 5g · Arugula 30g · Edible Flower 1pz · Rosemary Oil 10g ✅
+- 48 Hour Texas Wagyu Dino Rib → Wagyu Dino Rib 1pz · Ribeye Salt 5g · Grape 30g · Rosemary Oil 10g · Arugula 30g · Edible Flower 1pz ✅
+
+**Nuovi ingredienti creati oggi:**
+- Bresaola (Global Gourmet Food — parser da fare, nel backlog)
+- Dried Cranberries
+- Truffle Butter
+- Black Truffle
+- Wagyu Dino Rib
+- Porterhouse
+
+---
+
+## DA FARE NELLA PROSSIMA SESSIONE (PRIORITÀ)
+
+### 1. BOM ricette ancora da completare
+- **Siciliana** — BOM da verificare/completare
+- **Scallops Chef's Way** — BOM da verificare (usa Mash Potato)
+- **Shrimp Gnocchi** — BOM da verificare (usa Confit Tomatoes)
+- **Chicken Parmesan** — BOM da verificare
+- **Lobster Fettucine** — BOM da verificare
+- **La N° 4 (Carbonara)** — BOM da verificare
+- **Fettuccine Allo Scoglio** — BOM da verificare
+
+### 2. Ricette da creare (ancora aperte)
+- **Mash Potato** (Saucier) — supporto per Scallops Chef's Way
+- **Confit Tomatoes** — supporto per Shrimp Gnocchi + Mediterranean Salad
+- **Truffle Butter** — ricetta interna (usata in Truffle Fettuccine)
+- **Brisket/Pulled Beef** — ricetta interna (usata in Beef Ravioli) — Max deve trovare il nome nell'app
+- **Bacon Crumbs** — ricetta interna (Pasta Station, usata in Scallops Chef's Way + Carbonara)
+
+### 3. Stazioni da categorizzare
+- **Finishing Oven** — non ancora toccata
+- **Plating Station** — non ancora toccata
+
+### 4. Salad Station — supporto senza recipe_id (ingredienti puri, ok così)
+Cantaloupe, Caprese seasoning, Goat cheese, halved tomatoes, Honey, Olives, Pecorino fresh wedge,
+Roasted Almonds, Seed mix, Shaved Parm, Shredded Carrots, Sliced Mozzarella, Sliced Tomatoes, Walnuts
+→ sono ingredienti puri usati in più ricette — nessun recipe_id necessario per questi
+
+### 5. Manager Station — ancora aperti
+- Basil flowers → BOM da collegare alle ricette che le usano
+- Confit tomatoes → ricetta da creare + BOM
+- Porterhouse (prep task id 461) → da collegare a ricetta Porterhouse alla Fiorentina
+- Spinach (id 318) → da decidere: stessa ricetta di Butter Spinach o separata?
+
+### 6. Global Gourmet Food — parser da fare (nel BOH_OS_BACKLOG.md)
+
 ## STATO VERSIONI
-- Brigade frontend: **v393**
+- Brigade frontend: **v395**
 - Edge Function gmail-touchbistro-import: **v22**
 - Supabase project: `ydqmumpytgrlceuinoqt`
