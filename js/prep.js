@@ -81,8 +81,10 @@ async function checkBeforeMissing(id, itemName){
   const alert = getAlertLevel(itemName);
   if(!alert) return true; // nessun avviso, procedi
   const a = alert.a;
-  const madeAt = new Date(a.last_made_at).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
-  const madeQty = a.last_made_qty ? `${a.last_made_qty} ${a.last_made_by?'da '+a.last_made_by:''}` : '';
+  const _locale = {it:'it-IT',en:'en-US',es:'es-MX'}[window.user?.lang||'en']||'en-US';
+  const madeAt = new Date(a.last_made_at).toLocaleTimeString(_locale,{hour:'2-digit',minute:'2-digit'});
+  const _byWord = {it:'da',en:'by',es:'por'}[window.user?.lang||'en']||'by';
+  const madeQty = a.last_made_qty ? `${a.last_made_qty} ${a.last_made_by?_byWord+' '+a.last_made_by:''}` : '';
   const missingNote = a.missing_count_week>1 ? `\n⚠️ Segnalato mancante ${a.missing_count_week} volte questa settimana.` : '';
   
   const colors = {high:'🟢', medium:'🟡', low:'🔴'};
