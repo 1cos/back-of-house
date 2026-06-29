@@ -326,17 +326,17 @@ window.prepStart = async function(id){
   tasks[id].in_progress = true;
   supa.from('prep_tasks').update({in_progress:true, started_at: new Date().toISOString()}).eq('id',id).then(()=>{}).catch(()=>{});
   renderM();
-  // Apre il recipe modal con tracking dello step
-  if(it.recipe_id && typeof recipeModal!=='undefined'){
-    recipeModal.open(it.recipe_id, id);
+  // Apre il recipe modal con tracking dello step (funziona anche senza recipe_id)
+  if(typeof recipeModal!=='undefined'){
+    recipeModal.open(it.recipe_id||null, id);
   }
 };
 
 // SEE STEPS — riapre la ricetta allo step dove eri
 window.prepSeeSteps = function(id){
   const it = tasks[id];
-  if(!it || !it.recipe_id) return;
-  recipeModal.open(it.recipe_id, id);
+  if(!it) return;
+  recipeModal.open(it.recipe_id||null, id);
 };
 
 // DONE — apre modal quantità
