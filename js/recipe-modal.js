@@ -441,9 +441,13 @@ window.recipeModal={
         ${noteText?`<div class="rm-bare-note">${noteText}</div>`:`<div class="rm-empty"><div class="rm-empty-icon">✅</div></div>`}
         <button class="rm-bare-done" id="rmBareDoneBtn">${t('doneBtn')}</button>
       </div>`;
-    // Bind DONE button con event listener (non inline onclick — la IIFE non vede prepDone)
+    // Bind DONE button — prima apre done sheet, poi chiude modal
     document.getElementById('rmBareDoneBtn')?.addEventListener('click', ()=>{
-      closeFn();
+      // Chiudi overlay immediatamente senza aspettare animazione
+      const o=document.getElementById('rmOverlay');
+      if(o) o.remove();
+      Object.keys(timers).forEach(k=>stopTimer(k));
+      // Poi apri done sheet
       if(prepTaskId && typeof window.prepDone==='function') window.prepDone(prepTaskId);
     });
   },
