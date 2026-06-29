@@ -517,3 +517,40 @@ Questo richiede:
 - Gestione steps da admin
 
 **Versione live:** Brigade v410
+
+---
+
+## SESSIONE 29 GIUGNO 2026 (parallela) — v410→v423
+
+### Completato
+- **Font prep card** → nome item +2px (17px), badge 12px, pill/tag 13px, bottoni 15px (v420)
+- **START→DONE tracking** → prep.js ora salva `started_at` + `duration_minutes` nel prep_log via `_startTimes` map (v423)
+- **Recipe steps** → fix varie ricette + aggiornamenti steps
+- **Chat brigata in L'Ufficio** → aggiustamenti UI
+
+### Versione live
+- Brigade frontend: **v423**
+- bot-preplist-builder: **v18** (version 36)
+- sw.js: `boh-v423`
+
+---
+
+## PROSSIMA SESSIONE — bot-preplist-builder testo 3 lingue
+
+### Obiettivo
+Il bot-preplist-builder deve scrivere testi da sous chef, non da foglio Excel.
+Il campo `suggested_note` resta nel formato `color|testo` ma il testo deve essere in 3 lingue.
+
+**Formato nuovo:** `color|testo_it|testo_en|testo_es`
+
+I tre casi:
+- 🔴 red: `red|Prepara oggi · con X kg arrivi a venerdì|Prep today · X kg takes you to Friday|Prepara hoy · con X kg llegas al viernes`
+- 🟡 yellow: `yellow|Hai X kg · arrivi fino a sabato · non serve oggi|You have X kg · good through Saturday · skip today|Tienes X kg · llegas al sábado · no hace falta hoy`
+- 🟢 green: `green|Prepara domani · controlla ingredienti|Prep tomorrow · check ingredients|Prepara mañana · revisa ingredientes`
+
+**Frontend prep.js** deve leggere il testo nella lingua dell'utente (split su `|`, indice 1=IT, 2=EN, 3=ES).
+
+### Da fare
+1. Riscrivere bot-preplist-builder (Edge Function) per nuovo formato 3 lingue
+2. Aggiornare prep.js per leggere indice lingua corretto dal suggested_note
+
