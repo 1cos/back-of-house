@@ -224,11 +224,11 @@ function renderM(){
               const unit = i.unit||'';
               const stockLabel = stock + (unit?' '+unit:'');
               if (stock === 0) {
-                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.1);border-radius:6px;padding:2px 7px;">🟢 Prepara oggi</span></div>';
+                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.1);border-radius:6px;padding:2px 7px;">' + tr('prep_stock_green') + '</span></div>';
               } else if (sq > 0 && stock <= sq * 0.5) {
-                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#dc2626;background:rgba(220,38,38,0.1);border-radius:6px;padding:2px 7px;">🔴 Quasi finito · '+stockLabel+' rimaste</span></div>';
+                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#dc2626;background:rgba(220,38,38,0.1);border-radius:6px;padding:2px 7px;">' + tr('prep_stock_red').replace('{stock}',stockLabel) + '</span></div>';
               } else {
-                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:600;color:#d97706;background:rgba(217,119,6,0.1);border-radius:6px;padding:2px 7px;">🟡 Stock ok · '+stockLabel+'</span></div>';
+                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:600;color:#d97706;background:rgba(217,119,6,0.1);border-radius:6px;padding:2px 7px;">' + tr('prep_stock_yellow').replace('{stock}',stockLabel) + '</span></div>';
               }
             })() : '') +
           '</div>' +
@@ -330,7 +330,7 @@ function openDoneSheet(id){
   // Se c'è una dose consigliata dal bot, mostra prima il mini-modal di scelta
   if(it.suggested_qty && parseFloat(it.suggested_qty) > 0){
     const sqRaw = parseFloat(it.suggested_qty);
-    const sqUnit = it.unit||'porzioni';
+    const sqUnit = it.unit||tr('prep_portions');
     const sqLabel = sqRaw + ' ' + sqUnit;
     const modal=document.createElement('div');
     modal.className='fixed inset-0 z-50 flex items-end';
@@ -338,12 +338,12 @@ function openDoneSheet(id){
     modal.innerHTML=`<div style="background:rgba(255,255,255,0.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:24px 24px 0 0;border-top:0.5px solid rgba(5,150,105,0.3);padding:20px 16px 28px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
       <div style="width:36px;height:4px;background:rgba(5,150,105,0.2);border-radius:2px;margin:0 auto 16px;"></div>
       <div style="font-size:15px;font-weight:600;color:#1e3a5f;margin-bottom:4px;">${it.name}</div>
-      <div style="font-size:12px;color:#6b7280;margin-bottom:18px;">Quanto hai preparato?</div>
+      <div style="font-size:12px;color:#6b7280;margin-bottom:18px;">${tr('prep_how_much')}</div>
       <button onclick="suggestedSave('${it.id}',this.closest('.fixed'))" style="width:100%;height:52px;border-radius:16px;background:#059669;color:white;font-size:14px;font-weight:600;border:none;margin-bottom:10px;">
-        ✅ ${sqLabel} — dose suggerita
+        ✅ ${sqLabel} — ${tr('prep_suggested_label')}
       </button>
       <button onclick="this.closest('.fixed').remove();openDoneSheetCustom('${it.id}')" style="width:100%;height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:0.5px solid rgba(59,130,246,0.2);">
-        ✏️ Quantità diversa
+        ${tr('prep_custom_qty')}
       </button>
     </div>`;
     modal.onclick=e=>{if(e.target===modal)modal.remove();};
@@ -363,19 +363,19 @@ function openDoneSheetCustom(id){
     <div style="font-size:14px;font-weight:500;color:#1e3a5f;margin-bottom:12px;">${it.name}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">
       <div>
-        <div style="font-size:9px;color:#93c5fd;font-weight:500;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;">Qty</div>
+        <div style="font-size:9px;color:#93c5fd;font-weight:500;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;">${tr('prep_qty_label')}</div>
         <select class="ds-qty" style="width:100%;font-size:11px;color:#1e3a5f;background:rgba(59,130,246,0.06);border:0.5px solid rgba(59,130,246,0.2);border-radius:8px;padding:4px 5px;">
           ${QTYS.map(o=>`<option ${o===(it.average_qty||1).toString()?'selected':''}>${o}</option>`).join('')}
         </select>
       </div>
       <div>
-        <div style="font-size:9px;color:#93c5fd;font-weight:500;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;">Unità</div>
+        <div style="font-size:9px;color:#93c5fd;font-weight:500;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;">${tr('prep_unit_label')}</div>
         <select class="ds-unit" style="width:100%;font-size:11px;color:#1e3a5f;background:rgba(59,130,246,0.06);border:0.5px solid rgba(59,130,246,0.2);border-radius:8px;padding:4px 5px;">
           ${UNITS.map(o=>`<option>${o}</option>`).join('')}
         </select>
       </div>
       <div>
-        <div style="font-size:9px;color:#93c5fd;font-weight:500;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;">Contenitore</div>
+        <div style="font-size:9px;color:#93c5fd;font-weight:500;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;">${tr('prep_container_label')}</div>
         <select class="ds-cont" style="width:100%;font-size:11px;color:#1e3a5f;background:rgba(59,130,246,0.06);border:0.5px solid rgba(59,130,246,0.2);border-radius:8px;padding:4px 5px;">
           ${CONTAINERS.map(o=>`<option>${o}</option>`).join('')}
         </select>
@@ -395,7 +395,7 @@ function openDoneSheetCustom(id){
 async function suggestedSave(id, modal){
   const it=tasks[id];
   const qty=parseFloat(it.suggested_qty)||1;
-  const unit=it.unit||'porzioni';
+  const unit=it.unit||tr('prep_portions');
   modal.remove();
   tasks[id].need_tomorrow=false;
   tasks[id].in_progress=false;
@@ -417,7 +417,7 @@ function openWipNoteSheet(id){
   sheet.innerHTML=`<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;border-top:0.5px solid rgba(59,130,246,0.2);padding:16px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
     <div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>
     <div style="font-size:14px;font-weight:500;color:#1e3a5f;margin-bottom:10px;">${it.name} — '+tr('laterBtn')+'</div>
-    <textarea id="wipNote" placeholder="es. manca solo il basilico..." style="width:100%;font-size:13px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:12px;padding:10px 12px;resize:none;height:70px;margin-bottom:10px;"></textarea>
+    <textarea id="wipNote" placeholder="${tr('prep_wip_placeholder')}" style="width:100%;font-size:13px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:12px;padding:10px 12px;resize:none;height:70px;margin-bottom:10px;"></textarea>
     <button onclick="saveWip('${id}',document.getElementById('wipNote').value);this.closest('.fixed').remove()" 
       style="width:100%;height:40px;border-radius:14px;background:#3B82F6;color:white;font-size:13px;font-weight:500;">'+tr('markInProgress')+'</button>
   </div>`;
@@ -500,11 +500,11 @@ function askQuickComment(){
     popup.innerHTML=`
       <div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5" style="animation:slideUp .2s ease">
         <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-3"></div>
-        <p class="text-sm font-semibold mb-2">💬 Commento rapido <span class="text-slate-400 font-normal">(opzionale)</span></p>
+        <p class="text-sm font-semibold mb-2">${tr('prep_quick_comment')} <span class="text-slate-400 font-normal">${tr('prep_optional')}</span></p>
         <input id="quickComment" placeholder="${tr('quickCommentPlaceholder')}" class="w-full px-3 py-2.5 border rounded-xl text-sm mb-3">
         <div class="grid grid-cols-2 gap-2">
-          <button onclick="this.closest('.fixed').remove();document.dispatchEvent(new CustomEvent('quickCommentDone',{detail:''}))" class="py-2.5 border rounded-xl text-sm">Salta</button>
-          <button onclick="const v=document.getElementById('quickComment').value;this.closest('.fixed').remove();document.dispatchEvent(new CustomEvent('quickCommentDone',{detail:v}))" class="py-2.5 bg-slate-900 text-white rounded-xl text-sm font-semibold">Salva</button>
+          <button onclick="this.closest('.fixed').remove();document.dispatchEvent(new CustomEvent('quickCommentDone',{detail:''}))" class="py-2.5 border rounded-xl text-sm">${tr('prep_skip')}</button>
+          <button onclick="const v=document.getElementById('quickComment').value;this.closest('.fixed').remove();document.dispatchEvent(new CustomEvent('quickCommentDone',{detail:v}))" class="py-2.5 bg-slate-900 text-white rounded-xl text-sm font-semibold">${tr('saveBtn')}</button>
         </div>
       </div>`;
     document.body.appendChild(popup);
@@ -538,7 +538,7 @@ function renderFeed(){
 
 async function feedSave(id,qty,btn){
   const it=tasks[id];
-  btn.disabled=true; btn.innerHTML='✓ Salvato';
+  btn.disabled=true; btn.innerHTML=tr('prep_saved');
   btn.classList.add('bg-emerald-600','text-white','border-emerald-600');
   await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty:parseFloat(qty),unit:'kg',container:'1/4 pan',user_name:user.name});
   await supa.from('prep_tasks').update({need_tomorrow:false}).eq('id',id);
