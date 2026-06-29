@@ -119,19 +119,23 @@ function fmtQty(qty,factor){if(qty===null||qty===undefined||qty==='')return '';c
 // ── SCALE TEXT QUANTITIES ────────────────────────────────
 // Trova tutti i pattern "numero + unità" nel testo dello step e li scala.
 // Ignora numeri senza unità (temperature, numeri di step, ecc.)
-// Unità supportate: g, kg, ml, l, oz, lb, latte, barattoli, buste,
-//   cucchiai, cucchiaino/i, cucchiaini, pz, pezzi, mazzi, spicchi, fette
+// oz → galloni automatico quando risultato ≥ 128oz (1 gallon = 128oz)
 var _SCALE_UNITS = [
-  'kg','ml','cl','dl','l','oz','lb',
+  'kg','ml','cl','dl','l',
+  'galloni','gallone','gallon','gallons','galón','galones',
+  'lb','lbs',
   'latte','barattoli','barattolo','buste','busta',
   'cucchiai','cucchiaio','cucchiaini','cucchiaino',
   'mazzi','mazzo','spicchi','spicchio','fette','fetta',
-  'pezzi','pezzo','pz','g'  // 'g' last — più corto, meno falsi positivi
+  'pezzi','pezzo','pz','oz','g'
 ];
+function _fmtNum(n) {
+  if (n >= 100) return Math.round(n).toString();
+  if (n >= 10)  return (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, '');
+  return (Math.round(n * 100) / 100).toFixed(2).replace(/\.?0+$/, '');
+}
 function scaleTextQty(text, factor) {
   if (!text || !factor || factor === 1) return text;
-  // Regex: numero (intero o decimale) seguito da spazio opzionale + unità nota
-  // Es: "250g", "3 latte", "1.5 kg", "2 cucchiai"
   var unitPattern = _SCALE_UNITS.map(function(u) {
     return u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }).join('|');
@@ -140,12 +144,27 @@ function scaleTextQty(text, factor) {
     var n = parseFloat(num.replace(',', '.'));
     if (isNaN(n)) return match;
     var scaled = n * factor;
-    // Formatta: intero se possibile, altrimenti 1 decimale
-    var fmt;
-    if (scaled >= 100) fmt = Math.round(scaled).toString();
-    else if (scaled >= 10) fmt = (Math.round(scaled * 10) / 10).toFixed(1).replace(/\.0$/, '');
-    else fmt = (Math.round(scaled * 100) / 100).toFixed(2).replace(/\.?0+$/, '');
-    return '<strong style="color:#2563eb">' + fmt + unit + '</strong>';
+    var displayUnit = unit;
+    var displayVal = scaled;
+    // oz → galloni se il risultato è multiplo netto di 128
+    var unitLow = unit.toLowerCase();
+    if (unitLow === 'oz') {
+      var gallons = scaled / 128;
+      if (gallons >= 1 && Math.abs(gallons - Math.round(gallons)) < 0.05) {
+        displayVal = Math.round(gallons);
+        // preserva il plurale nella lingua originale
+        var isIt = unitLow === 'gallone' || unitLow === 'galloni';
+        var isEs = unitLow === 'galón' || unitLow === 'galones';
+        if (isIt) displayUnit = displayVal === 1 ? 'gallone' : 'galloni';
+        else if (isEs) displayUnit = displayVal === 1 ? 'galón' : 'galones';
+        else displayUnit = displayVal === 1 ? 'gallon' : 'gallons';
+      } else if (gallons >= 0.5 && Math.abs(gallons * 2 - Math.round(gallons * 2)) < 0.05) {
+        // mezzo gallone
+        displayVal = Math.round(gallons * 2) / 2;
+        displayUnit = 'gallon';
+      }
+    }
+    return '<strong style="color:#2563eb">' + _fmtNum(displayVal) + ' ' + displayUnit + '</strong>';
   });
 }
 
