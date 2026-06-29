@@ -37,7 +37,7 @@ async function attemptPinLogin(){
     .eq('active', true)
     .single();
   if(error || !profile){
-    err.textContent = 'PIN non valido';
+    err.textContent = tr('pin_invalid');
     err.classList.remove('hidden');
     const dots = document.getElementById('pinDots');
     dots.style.animation = 'shake .3s ease';
