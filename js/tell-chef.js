@@ -135,7 +135,7 @@ async function loadTellChefHistory() {
 function closeTellChef() {
   var m = document.getElementById('tellChefModal');
   if (m) m.remove();
-  tellChefStopVoice();
+  // tellChefStopVoice rimosso — dettatura gestita da iOS nativo
 }
 
 // ── SEND ──
