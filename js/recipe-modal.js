@@ -4,7 +4,7 @@
 // v4: modal adattivo — ricetta completa / prep_steps / nota / bare
 //     prep_steps usa timer_minutes (non timer_seconds)
 //     BOM mai toccato
-// v5: placeholder {bom_id} negli steps — quantità scalabili con porzioni
+// v5: scaleTextQty — scala automaticamente numeri+unità nel testo degli steps
 // ─────────────────────────────────────────────────────────
 
 (function(){
@@ -116,27 +116,36 @@ function ingIcon(name){if(!name)return '🥄';const n=name.toLowerCase();for(con
 
 function fmtQty(qty,factor){if(qty===null||qty===undefined||qty==='')return '';const raw=parseFloat(qty)*(factor||1);if(isNaN(raw))return qty;if(raw>=100)return Math.round(raw).toString();if(raw>=10)return(Math.round(raw*10)/10).toFixed(1).replace(/\.0$/,'');return(Math.round(raw*100)/100).toFixed(2).replace(/\.?0+$/,'');}
 
-// ── PLACEHOLDER RESOLVER ─────────────────────────────────
-// Sostituisce {item_id} o {uuid} nel testo degli steps con la quantità
-// scalata dal BOM. Esempio: "Heat {abc123} EVOO" → "Heat 250g EVOO"
-// Format placeholder: {bom_item_id} dove bom_item_id è item_id o sub_recipe_id
-// della riga BOM corrispondente (stringa esatta, case-insensitive)
-function resolvePlaceholders(text, bomRows, factor) {
-  if (!text || !bomRows || bomRows.length === 0) return text;
-  return text.replace(/\{([^}]+)\}/g, function(match, key) {
-    // Cerca nel BOM per item_id o sub_recipe_id (entrambi come stringa)
-    var row = bomRows.find(function(b) {
-      return (b.item_id && String(b.item_id) === key) ||
-             (b.sub_recipe_id && String(b.sub_recipe_id) === key);
-    });
-    if (!row) return match; // placeholder non trovato — lascia invariato
-    var qty = fmtQty(row.quantity, factor || 1);
-    var unit = row.unit || '';
-    var name = row.component_type === 'RECIPE'
-      ? (row.recipes && row.recipes.title ? row.recipes.title : '')
-      : (row.ingredients && row.ingredients.name ? row.ingredients.name : '');
-    // Restituisce "250g" oppure "250g Butter" se il nome è nel placeholder
-    return '<strong style="color:#2563eb">' + qty + (unit ? unit : '') + '</strong>';
+// ── SCALE TEXT QUANTITIES ────────────────────────────────
+// Trova tutti i pattern "numero + unità" nel testo dello step e li scala.
+// Ignora numeri senza unità (temperature, numeri di step, ecc.)
+// Unità supportate: g, kg, ml, l, oz, lb, latte, barattoli, buste,
+//   cucchiai, cucchiaino/i, cucchiaini, pz, pezzi, mazzi, spicchi, fette
+var _SCALE_UNITS = [
+  'kg','ml','cl','dl','l','oz','lb',
+  'latte','barattoli','barattolo','buste','busta',
+  'cucchiai','cucchiaio','cucchiaini','cucchiaino',
+  'mazzi','mazzo','spicchi','spicchio','fette','fetta',
+  'pezzi','pezzo','pz','g'  // 'g' last — più corto, meno falsi positivi
+];
+function scaleTextQty(text, factor) {
+  if (!text || !factor || factor === 1) return text;
+  // Regex: numero (intero o decimale) seguito da spazio opzionale + unità nota
+  // Es: "250g", "3 latte", "1.5 kg", "2 cucchiai"
+  var unitPattern = _SCALE_UNITS.map(function(u) {
+    return u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }).join('|');
+  var re = new RegExp('(\\d+(?:[.,]\\d+)?)\\s*(' + unitPattern + ')\\b', 'gi');
+  return text.replace(re, function(match, num, unit) {
+    var n = parseFloat(num.replace(',', '.'));
+    if (isNaN(n)) return match;
+    var scaled = n * factor;
+    // Formatta: intero se possibile, altrimenti 1 decimale
+    var fmt;
+    if (scaled >= 100) fmt = Math.round(scaled).toString();
+    else if (scaled >= 10) fmt = (Math.round(scaled * 10) / 10).toFixed(1).replace(/\.0$/, '');
+    else fmt = (Math.round(scaled * 100) / 100).toFixed(2).replace(/\.?0+$/, '');
+    return '<strong style="color:#2563eb">' + fmt + unit + '</strong>';
   });
 }
 
@@ -188,7 +197,7 @@ function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal, 
   var rawInstruction=(lang==='it'&&step.instruction_it)?step.instruction_it
     :(lang==='es'&&step.instruction_es)?step.instruction_es
     :(step.instruction_en||step.instruction_it||step.note||'');
-  const instruction=resolvePlaceholders(rawInstruction, bomRows||[], scaleFactor||1);
+  const instruction=scaleTextQty(rawInstruction, scaleFactor||1);
   // Timer: recipe_steps usa timer_seconds, prep_steps usa timer_minutes
   const timerSecs = step.timer_seconds || (step.timer_minutes ? step.timer_minutes*60 : 0);
   const dots=steps.map((_,i)=>`<div class="rm-dot ${i===currentStep?'active':i<currentStep?'done':''}"></div>`).join('');
