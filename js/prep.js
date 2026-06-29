@@ -300,7 +300,7 @@ window.endWipPress=function(){
   if(wipPressTimer){
     clearTimeout(wipPressTimer);
     wipPressTimer=null;
-    setWip(doneTarget);
+    openWipNoteSheet(doneTarget); // tap veloce → apre modal (non setta in_progress direttamente)
   }
 };
 
