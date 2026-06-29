@@ -226,13 +226,13 @@ async function showRecipeSheet(rec){
       ${scalingUI}
       ${(rec.ingredients||[]).length ? `
       <div id="recipeModeToggle" style="display:flex;gap:0;margin-bottom:12px;border-radius:12px;overflow:hidden;border:1.5px solid #e2e8f0;background:#f8fafc;">
-        <button id="modeOriginal" onclick="setRecipeMode('original')" style="flex:1;padding:9px 0;font-size:13px;font-weight:700;background:#1e293b;color:white;border:none;cursor:pointer;transition:all .2s;">Original</button>
+        <button id="modeOriginal" onclick="setRecipeMode('original')" style="flex:1;padding:9px 0;font-size:13px;font-weight:700;background:#1e293b;color:white;border:none;cursor:pointer;transition:all .2s;">${tr('recipe_original')}</button>
         <button id="modeSmart" onclick="setRecipeMode('smart')" style="flex:1;padding:9px 0;font-size:13px;font-weight:700;background:transparent;color:#94a3b8;border:none;cursor:pointer;transition:all .2s;">🤖 Smart</button>
       </div>
       <p class="text-lg font-semibold mb-2">${tr("ingredients")}</p><ul id="ingDisplay" class="mb-4" style="padding:0;">${renderIngs(1)}</ul>` : ''}
-      ${rec.equipment ? `<p class="text-lg font-semibold mb-2">Equipment</p><p class="text-base text-slate-600 mb-4 whitespace-pre-wrap">${rec.equipment}</p>` : ''}
-      ${rec.procedure ? `<p class="text-lg font-semibold mb-2">Procedure</p><p class="text-lg text-slate-700 whitespace-pre-wrap mb-5 leading-relaxed">${rec.procedure}</p>` : ''}
-      ${isAdmin() ? `<button id="recipeEditBtn" class="w-full mt-2 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm">✏️ Edit Recipe</button>` : ''}
+      ${rec.equipment ? `<p class="text-lg font-semibold mb-2">${tr('recipe_equipment')}</p><p class="text-base text-slate-600 mb-4 whitespace-pre-wrap">${rec.equipment}</p>` : ''}
+      ${rec.procedure ? `<p class="text-lg font-semibold mb-2">${tr('recipe_procedure')}</p><p class="text-lg text-slate-700 whitespace-pre-wrap mb-5 leading-relaxed">${rec.procedure}</p>` : ''}
+      ${isAdmin() ? `<button id="recipeEditBtn" class="w-full mt-2 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm">${tr('recipe_edit_btn')}</button>` : ''}
       <button onclick="this.closest('.fixed').remove()" class="w-full mt-2 mb-6 py-3 bg-slate-900 text-white rounded-xl">${tr("close")}</button>
     </div>`;
 
@@ -413,7 +413,7 @@ function openRecipeManager(){
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[85vh] flex flex-col">
-    <div class="p-4 border-b flex items-center justify-between"><h3 class="font-bold text-lg">Link Recipes</h3><button onclick="this.closest('.fixed').remove()" class="text-slate-400">✕</button></div>
+    <div class="p-4 border-b flex items-center justify-between"><h3 class="font-bold text-lg">${tr('recipe_link_recipes')}</h3><button onclick="this.closest('.fixed').remove()" class="text-slate-400">✕</button></div>
     <div class="p-4 overflow-auto flex-1">
       <p class="text-xs text-slate-500 mb-3">${tr('linkEachPrep')}</p>
       <div id="linkList" class="space-y-2"></div>
@@ -1092,7 +1092,7 @@ async function calcRecipeFoodCost(rec){
 
   el.innerHTML = `
     <div style="background:#f8fafc;border-radius:14px;padding:12px;margin-bottom:8px;">
-      <div style="font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;">Food Cost</div>
+      <div style="font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;">${tr('recipe_food_cost')}</div>
 
       ${resolved.map(r=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:0.5px solid #f1f5f9;">
@@ -1257,7 +1257,7 @@ async function loadRecipeSalesStats(rec, sheetEl) {
 
       (prepSuggested > 0 ?
       '<div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:8px 10px;text-align:center;">' +
-        '<div style="font-size:9px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Prep today</div>' +
+        '<div style="font-size:9px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">'+tr('recipe_prep_today')+'</div>' +
         '<div style="font-size:16px;font-weight:900;color:#059669;line-height:1;">' + prepSuggested + ' ' + portionWord + '</div>' +
         (aiHint ? '<div style="font-size:8px;color:#059669;margin-top:4px;line-height:1.3;">' + aiHint + '</div>' : '') +
       '</div>' : '') +
