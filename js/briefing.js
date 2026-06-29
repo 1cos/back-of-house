@@ -344,7 +344,7 @@ async function loadUpcomingDemand(){
     // Header cliccabile — apre il calendario completo
     if(headerEl){
       headerEl.style.cursor='pointer';
-      headerEl.title='View all events';
+      headerEl.title=tr('view_all_arrow');
       headerEl.onclick=()=>{ if(typeof showCalendar==='function') showCalendar(); };
     }
     const isAdm=typeof isAdmin==='function'&&isAdmin();
@@ -390,14 +390,14 @@ async function loadUpcomingDemand(){
             (timeStr?timeStr:'')+
           '</div>'+
           recHtml+
-          (isAdm?'<div style="margin-top:4px;"><button onclick="openEventEditor()" style="font-size:10px;color:#3b82f6;background:none;border:none;padding:0;cursor:pointer;">+ Add event</button></div>':'')+
+          (isAdm?'<div style="margin-top:4px;"><button onclick="openEventEditor()" style="font-size:10px;color:#3b82f6;background:none;border:none;padding:0;cursor:pointer;">'+tr('add_event')+'</button></div>':'')+
         '</div>'+
       '</div>';
     }).join('')+
     '<div style="text-align:right;padding-top:6px;">'+
       '<button onclick="showCalendar()" '+
         'style="font-size:11px;color:#3b82f6;background:none;border:none;cursor:pointer;font-weight:600;">'+
-        'View all →'+
+        tr('view_all_arrow')+
       '</button>'+
     '</div>';
   }catch(e){
@@ -441,7 +441,7 @@ async function openServiceUpdates(){
     });
     const sorted=Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,10);
 
-    headerTitle='Weekly Highlights';
+    headerTitle=tr('weekly_highlights');
     const wStart=startDate.toLocaleDateString('en-US',{month:'short',day:'numeric'});
     const wEnd=endDate.toLocaleDateString('en-US',{month:'short',day:'numeric'});
     headerLabel=wStart+' – '+wEnd;
@@ -451,10 +451,10 @@ async function openServiceUpdates(){
           '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
           '<span style="font-size:18px;min-width:28px;">'+(medals[i]||'·')+'</span>'+
           '<span style="font-size:14px;color:#1e3a5f;font-weight:500;flex:1;">'+name+'</span>'+
-          '<span style="font-size:13px;color:#60a5fa;font-weight:600;">'+qty+' pcs</span>'+
+          '<span style="font-size:13px;color:#60a5fa;font-weight:600;">'+qty+' '+tr('pcs')+'</span>'+
           '</div>'
         )
-      : ['<div style="font-size:13px;color:#93c5fd;padding:8px 0;">No food data this week</div>'];
+      : ['<div style="font-size:13px;color:#93c5fd;padding:8px 0;">'+tr('no_food_week')+'</div>'];
 
   } else {
     // ── Yesterday modal ──
@@ -474,7 +474,7 @@ async function openServiceUpdates(){
 
     const filtered=_filterDrinks(posData||[]).slice(0,10);
 
-    headerTitle="Yesterday's Highlights";
+    headerTitle=tr('yesterday_highlights');
     headerLabel=yesterday.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'});
 
     rows=filtered.length
@@ -482,10 +482,10 @@ async function openServiceUpdates(){
           '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
           '<span style="font-size:18px;min-width:28px;">'+(medals[i]||'·')+'</span>'+
           '<span style="font-size:14px;color:#1e3a5f;font-weight:500;flex:1;">'+item.menu_item+'</span>'+
-          '<span style="font-size:13px;color:#60a5fa;font-weight:600;">'+item.quantity+' pcs</span>'+
+          '<span style="font-size:13px;color:#60a5fa;font-weight:600;">'+item.quantity+' '+tr('pcs')+'</span>'+
           '</div>'
         )
-      : ['<div style="font-size:13px;color:#93c5fd;padding:8px 0;">No food data for yesterday</div>'];
+      : ['<div style="font-size:13px;color:#93c5fd;padding:8px 0;">'+tr('no_food_yesterday')+'</div>'];
   }
 
   const modal=document.createElement('div');
