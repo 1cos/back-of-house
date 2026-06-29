@@ -439,8 +439,13 @@ window.recipeModal={
     document.getElementById('rmBody').innerHTML=`
       <div class="rm-bare-body">
         ${noteText?`<div class="rm-bare-note">${noteText}</div>`:`<div class="rm-empty"><div class="rm-empty-icon">✅</div></div>`}
-        <button class="rm-bare-done" onclick="prepDone(${JSON.stringify(prepTaskId||recipeId)})">${t('doneBtn')}</button>
+        <button class="rm-bare-done" id="rmBareDoneBtn">${t('doneBtn')}</button>
       </div>`;
+    // Bind DONE button con event listener (non inline onclick — la IIFE non vede prepDone)
+    document.getElementById('rmBareDoneBtn')?.addEventListener('click', ()=>{
+      closeFn();
+      if(prepTaskId && typeof window.prepDone==='function') window.prepDone(prepTaskId);
+    });
   },
   close: function(prepTaskId){ closeModal(prepTaskId); }
 };
