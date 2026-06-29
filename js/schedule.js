@@ -25,6 +25,11 @@ function showSchedule() {
     if (label) label.style.color = '#059669';
   }
   schedCurrentDayIndex = -1; // reset so today is re-selected on open
+
+  // Mostra bottone Genera solo per admin
+  var btnGen = document.getElementById('schedBtnGenera');
+  if (btnGen) btnGen.style.display = (typeof isAdmin === 'function' && isAdmin()) ? '' : 'none';
+
   schedLoadData();
 }
 
