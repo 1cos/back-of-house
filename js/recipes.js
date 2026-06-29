@@ -28,7 +28,7 @@ async function openRecipeForItem(itemId){
   }
   if(task?.note){ showNoteSheet(task.name,task.note); return; }
   if(isAdmin()){
-    if(confirm('Nessuna ricetta o nota. Vuoi aggiungere una nota adesso?')) openPrepEditor(task);
+    if(confirm(tr('prep_no_recipe_note'))) openPrepEditor(task);
   }
 }
 
@@ -940,14 +940,14 @@ function openRecipeEditor(rec=null){
           if(freshRec) showRecipeSheet(freshRec);
         }
       }
-    }catch(e){ alert('Error: '+e.message); }
+    }catch(e){ alert(tr('error_prefix2')+e.message); }
   };
 
   // ── Delete recipe button ──
   const deleteBtn = modal.querySelector('#deleteR');
   if(deleteBtn && rec?.id){
     deleteBtn.onclick = async()=>{
-      const confirmed = confirm(`Delete "${rec.title}"?\nThis cannot be undone.`);
+      const confirmed = confirm(`${tr('deleteRecipe')} "${rec.title}"?`);
       if(!confirmed) return;
       try {
         await supa.from('recipe_bom').delete().eq('parent_recipe_id', rec.id);
@@ -956,7 +956,7 @@ function openRecipeEditor(rec=null){
         modal.remove();
         await init();
         renderRecipes();
-      } catch(e){ alert('Error deleting: ' + e.message); }
+      } catch(e){ alert(tr('error_deleting') + e.message); }
     };
   }
 }
@@ -965,8 +965,8 @@ function linkRecipeToItem(title){
   const name = prompt('Link "'+title+'" to which prep item?\n'+items.map(i=>i.name).join(', '));
   if(!name) return;
   const it = items.find(i=>i.name.toLowerCase()===name.toLowerCase());
-  if(it){ recipeLinks[it.id]=title; alert('Linked to '+it.name); }
-  else alert('Item not found');
+  if(it){ recipeLinks[it.id]=title; alert(tr('linked_to')+it.name); }
+  else alert(tr('item_not_found'));
 }
 
 async function showTranslation(name, el){
