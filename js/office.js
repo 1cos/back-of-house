@@ -189,6 +189,29 @@ async function officeLoadHome() {
 
     container.appendChild(list);
 
+    // ── INVENTORY SETUP (solo admin) ──
+    if (typeof isAdmin === 'function' && isAdmin()) {
+      var adminSep = document.createElement('div');
+      adminSep.style.cssText = 'font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin:20px 0 10px 4px;';
+      adminSep.textContent = 'Admin';
+      container.appendChild(adminSep);
+
+      var invBtn = document.createElement('div');
+      invBtn.style.cssText = 'background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;cursor:pointer;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06);-webkit-tap-highlight-color:transparent;';
+      invBtn.innerHTML =
+        '<div style="display:flex;align-items:center;padding:14px 16px;gap:12px;">' +
+          '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:46px;flex-shrink:0;background:#6366f1;"></div>' +
+          '<div style="font-size:26px;width:32px;text-align:center;">📦</div>' +
+          '<div style="flex:1;">' +
+            '<div style="color:#1e3a5f;font-size:16px;font-weight:600;">Inventory Setup</div>' +
+            '<div style="color:#60a5fa;font-size:12px;margin-top:3px;">Stock iniziale · Recipe Health</div>' +
+          '</div>' +
+          '<span style="color:rgba(30,58,95,0.25);font-size:18px;">&#x203A;</span>' +
+        '</div>';
+      invBtn.addEventListener('click', function() { officeOpenInventorySetup(); });
+      container.appendChild(invBtn);
+    }
+
   } catch(e) {
     container.innerHTML = '<div style="color:#ef4444;padding:40px;text-align:center;">Errore: ' + e.message + '</div>';
   }
@@ -850,4 +873,331 @@ window.officeOpenRecipe = async function(itemId, recipeId) {
       console.error('[officeOpenRecipe]', e);
     }
   }, 400);
+};
+
+
+// ══════════════════════════════════════════════════════════════
+// INVENTORY SETUP — pagina admin per stock iniziale e recipe health
+// ══════════════════════════════════════════════════════════════
+
+window.officeOpenInventorySetup = function() {
+  var sb = window.supa;
+  if (!sb) return;
+
+  // Crea overlay + panel
+  var overlay = document.createElement('div');
+  overlay.id = 'invSetupOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:399;background:rgba(0,0,0,0.3);';
+  overlay.onclick = function(e) {
+    if (e.target === overlay) {
+      overlay.remove();
+      document.getElementById('invSetupPanel')?.remove();
+    }
+  };
+  document.body.appendChild(overlay);
+
+  var panel = document.createElement('div');
+  panel.id = 'invSetupPanel';
+  panel.style.cssText = [
+    'position:fixed;top:0;bottom:0;z-index:400;',
+    'background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);',
+    'display:flex;flex-direction:column;overflow:hidden;',
+    'font-family:Inter,system-ui,sans-serif;',
+    'width:100%;max-width:480px;left:50%;transform:translateX(-50%);',
+  ].join('');
+
+  panel.innerHTML =
+    // Header
+    '<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:0.5px solid rgba(99,102,241,0.15);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;">' +
+      '<button onclick="document.getElementById(\'invSetupOverlay\')?.remove();document.getElementById(\'invSetupPanel\')?.remove();" style="color:#6366f1;background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1;">&#8592;</button>' +
+      '<div style="font-size:16px;font-weight:700;color:#1e3a5f;flex:1;">📦 Inventory Setup</div>' +
+    '</div>' +
+    // Tab bar
+    '<div id="invSetupTabs" style="display:flex;border-bottom:0.5px solid rgba(99,102,241,0.15);background:rgba(255,255,255,0.7);flex-shrink:0;">' +
+      '<button id="invTabA" onclick="invShowSection(\'A\')" style="flex:1;padding:12px;font-size:13px;font-weight:700;color:#6366f1;background:none;border:none;border-bottom:2px solid #6366f1;">A · Stock iniziale</button>' +
+      '<button id="invTabB" onclick="invShowSection(\'B\')" style="flex:1;padding:12px;font-size:13px;font-weight:600;color:#94a3b8;background:none;border:none;border-bottom:2px solid transparent;">B · Recipe Health</button>' +
+    '</div>' +
+    // Contenuto
+    '<div id="invSetupContent" style="flex:1;overflow-y:auto;padding:16px 16px 80px;-webkit-overflow-scrolling:touch;">' +
+      '<div style="text-align:center;padding:40px;color:#94a3b8;">Caricamento...</div>' +
+    '</div>';
+
+  document.body.appendChild(panel);
+  invShowSection('A');
+};
+
+// ── Tab switch ──
+window.invShowSection = function(section) {
+  // Stile tab attiva/inattiva
+  var tA = document.getElementById('invTabA');
+  var tB = document.getElementById('invTabB');
+  if (tA && tB) {
+    if (section === 'A') {
+      tA.style.color = '#6366f1'; tA.style.borderBottom = '2px solid #6366f1'; tA.style.fontWeight = '700';
+      tB.style.color = '#94a3b8'; tB.style.borderBottom = '2px solid transparent'; tB.style.fontWeight = '600';
+    } else {
+      tB.style.color = '#6366f1'; tB.style.borderBottom = '2px solid #6366f1'; tB.style.fontWeight = '700';
+      tA.style.color = '#94a3b8'; tA.style.borderBottom = '2px solid transparent'; tA.style.fontWeight = '600';
+    }
+  }
+  var container = document.getElementById('invSetupContent');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;">Caricamento...</div>';
+  if (section === 'A') invLoadSectionA(container);
+  else invLoadSectionB(container);
+};
+
+// ── SEZIONE A: Stock iniziale ──
+window.invLoadSectionA = async function(container) {
+  var sb = window.supa;
+  try {
+    var res = await sb.from('prep_tasks')
+      .select('id,name,category,unit,current_stock,recipe_id,prep_type')
+      .is('current_stock', null)
+      .eq('archived', false)
+      .order('category')
+      .order('name');
+    var tasks = res.data || [];
+
+    if (tasks.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:60px 20px;">' +
+        '<div style="font-size:48px;margin-bottom:12px;">✅</div>' +
+        '<div style="font-size:16px;font-weight:600;color:#059669;">Tutti i task hanno stock!</div>' +
+        '<div style="font-size:13px;color:#94a3b8;margin-top:6px;">Il conteggio fisico è completo.</div>' +
+      '</div>';
+      return;
+    }
+
+    // Raggruppa per stazione
+    var byStation = {};
+    tasks.forEach(function(t) {
+      var st = t.category || 'Altro';
+      if (!byStation[st]) byStation[st] = [];
+      byStation[st].push(t);
+    });
+
+    var html = '<div style="margin-bottom:12px;font-size:13px;color:#64748b;padding:4px 0;">' +
+      '<span style="font-weight:700;color:#dc2626;">' + tasks.length + '</span> prep tasks senza stock · inserisci il conteggio fisico</div>';
+
+    Object.keys(byStation).sort().forEach(function(station) {
+      html += '<div style="margin-bottom:20px;">' +
+        '<div style="font-size:11px;font-weight:700;color:#6366f1;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;padding-left:2px;">' + station + '</div>';
+
+      byStation[station].forEach(function(t) {
+        var unit = t.unit || '';
+        var typeChip = '';
+        if (t.prep_type === 'finale') typeChip = '<span style="font-size:10px;background:rgba(5,150,105,0.12);color:#059669;border-radius:4px;padding:1px 5px;margin-left:6px;">finale</span>';
+        else if (t.prep_type === 'supporto') typeChip = '<span style="font-size:10px;background:rgba(99,102,241,0.12);color:#6366f1;border-radius:4px;padding:1px 5px;margin-left:6px;">supporto</span>';
+        else if (t.prep_type === 'checklist') typeChip = '<span style="font-size:10px;background:rgba(148,163,184,0.15);color:#64748b;border-radius:4px;padding:1px 5px;margin-left:6px;">check</span>';
+
+        html +=
+          '<div style="background:rgba(255,255,255,0.75);border:0.5px solid rgba(99,102,241,0.15);border-radius:14px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;">' +
+            '<div style="flex:1;">' +
+              '<div style="font-size:14px;font-weight:600;color:#1e3a5f;">' + t.name + typeChip + '</div>' +
+              (unit ? '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + unit + '</div>' : '') +
+            '</div>' +
+            '<input id="invA_' + t.id + '" type="number" min="0" step="any" placeholder="0" ' +
+              'style="width:70px;padding:8px 10px;border:1.5px solid rgba(99,102,241,0.3);border-radius:10px;font-size:14px;font-weight:600;color:#1e3a5f;background:white;text-align:right;" ' +
+              'onkeydown="if(event.key===\'Enter\') invSaveStock(' + t.id + ')">' +
+            '<button onclick="invSaveStock(' + t.id + ')" ' +
+              'style="height:36px;padding:0 14px;background:#6366f1;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">' +
+              'Salva' +
+            '</button>' +
+          '</div>';
+      });
+
+      html += '</div>';
+    });
+
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = '<div style="color:#ef4444;padding:20px;">Errore: ' + e.message + '</div>';
+  }
+};
+
+// ── Salva singolo stock ──
+window.invSaveStock = async function(taskId) {
+  var sb = window.supa;
+  var input = document.getElementById('invA_' + taskId);
+  if (!input) return;
+  var val = parseFloat(input.value);
+  if (isNaN(val) || val < 0) {
+    input.style.borderColor = '#ef4444';
+    return;
+  }
+  input.disabled = true;
+  try {
+    var { error } = await sb.from('prep_tasks')
+      .update({ current_stock: val })
+      .eq('id', taskId);
+    if (error) throw error;
+    // Visual feedback: sostituisci riga con pill verde
+    var row = input.closest('div[style*="border-radius:14px"]');
+    if (row) {
+      var name = row.querySelector('div[style*="font-weight:600"]')?.textContent || '';
+      row.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;">' +
+        '<span style="font-size:16px;">✅</span>' +
+        '<span style="font-size:13px;color:#059669;font-weight:600;">' + (name.split('<')[0]) + '</span>' +
+        '<span style="font-size:12px;color:#059669;margin-left:4px;">→ ' + val + '</span>' +
+      '</div>';
+      row.style.background = 'rgba(5,150,105,0.07)';
+      row.style.borderColor = 'rgba(5,150,105,0.3)';
+    }
+  } catch(e) {
+    input.disabled = false;
+    input.style.borderColor = '#ef4444';
+    alert('Errore salvataggio: ' + e.message);
+  }
+};
+
+// ── SEZIONE B: Recipe Health ──
+window.invLoadSectionB = async function(container) {
+  var sb = window.supa;
+  try {
+    // Ricette collegate a prep_tasks attivi con dati mancanti
+    var ptRes = await sb.from('prep_tasks')
+      .select('id,name,category,recipe_id')
+      .eq('archived', false)
+      .not('recipe_id', 'is', null);
+    var ptData = ptRes.data || [];
+
+    // Recipe IDs unici
+    var recipeIds = [...new Set(ptData.map(function(t){ return t.recipe_id; }))];
+
+    if (recipeIds.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;">Nessuna prep task collegata a ricette.</div>';
+      return;
+    }
+
+    // Leggi ricette in batch (max 100 IDs)
+    var recRes = await sb.from('recipes')
+      .select('id,title,base_weight_g,shelf_life_days,base_servings')
+      .in('id', recipeIds);
+    var recipes = recRes.data || [];
+
+    // Filtra solo quelle con dati mancanti
+    var missing = recipes.filter(function(r) {
+      return !r.base_weight_g || !r.shelf_life_days;
+    });
+
+    // Mappa recipe_id → prep tasks
+    var tasksByRecipe = {};
+    ptData.forEach(function(t) {
+      if (!tasksByRecipe[t.recipe_id]) tasksByRecipe[t.recipe_id] = [];
+      tasksByRecipe[t.recipe_id].push(t.name);
+    });
+
+    if (missing.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:60px 20px;">' +
+        '<div style="font-size:48px;margin-bottom:12px;">✅</div>' +
+        '<div style="font-size:16px;font-weight:600;color:#059669;">Tutte le ricette sono complete!</div>' +
+        '<div style="font-size:13px;color:#94a3b8;margin-top:6px;">base_weight_g e shelf_life_days presenti su tutte le ricette attive.</div>' +
+      '</div>';
+      return;
+    }
+
+    var html = '<div style="margin-bottom:12px;font-size:13px;color:#64748b;padding:4px 0;">' +
+      '<span style="font-weight:700;color:#f59e0b;">' + missing.length + '</span> ricette con dati mancanti · ogni correzione sblocca il bot</div>';
+
+    missing.forEach(function(r) {
+      var linkedTasks = tasksByRecipe[r.id] || [];
+      var taskHtml = linkedTasks.length > 0
+        ? '<div style="font-size:11px;color:#60a5fa;margin-top:3px;">↳ ' + linkedTasks.join(' · ') + '</div>'
+        : '';
+
+      html +=
+        '<div style="background:rgba(255,255,255,0.75);border:0.5px solid rgba(245,158,11,0.2);border-radius:14px;padding:14px;margin-bottom:10px;" id="invBRow_' + r.id + '">' +
+          '<div style="font-size:14px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">' + r.title + '</div>' +
+          taskHtml +
+          '<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">';
+
+      // Campo base_weight_g
+      if (!r.base_weight_g) {
+        html +=
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<div style="font-size:12px;color:#d97706;font-weight:600;width:110px;flex-shrink:0;">⚖️ Peso batch (g)</div>' +
+            '<input id="invBw_' + r.id + '" type="number" min="0" step="1" placeholder="es. 5500" ' +
+              'style="flex:1;padding:7px 10px;border:1.5px solid rgba(245,158,11,0.35);border-radius:9px;font-size:13px;font-weight:600;color:#1e3a5f;background:white;">' +
+          '</div>';
+      }
+
+      // Campo shelf_life_days
+      if (!r.shelf_life_days) {
+        html +=
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<div style="font-size:12px;color:#d97706;font-weight:600;width:110px;flex-shrink:0;">📅 Shelf life (gg)</div>' +
+            '<input id="invBs_' + r.id + '" type="number" min="1" step="1" placeholder="es. 5" ' +
+              'style="flex:1;padding:7px 10px;border:1.5px solid rgba(245,158,11,0.35);border-radius:9px;font-size:13px;font-weight:600;color:#1e3a5f;background:white;">' +
+          '</div>';
+      }
+
+      html +=
+          '</div>' +
+          '<div style="margin-top:10px;text-align:right;">' +
+            '<button class="invBSaveBtn" data-rid="' + r.id + '" data-bw="' + (!r.base_weight_g ? '1' : '0') + '" data-sl="' + (!r.shelf_life_days ? '1' : '0') + '" ' +
+              'style="height:34px;padding:0 16px;background:#f59e0b;color:white;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;">' +
+              'Salva' +
+            '</button>' +
+          '</div>' +
+        '</div>';
+    });
+
+    container.innerHTML = html;
+
+    // Attacca listener ai bottoni Salva (evita inline onclick con parametri complessi)
+    container.querySelectorAll('.invBSaveBtn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        invSaveRecipeHealth(btn.dataset.rid, btn.dataset.bw === '1', btn.dataset.sl === '1');
+      });
+    });
+  } catch(e) {
+    container.innerHTML = '<div style="color:#ef4444;padding:20px;">Errore: ' + e.message + '</div>';
+  }
+};
+
+// ── Salva recipe health ──
+window.invSaveRecipeHealth = async function(recipeId, hasBw, hasSl) {
+  var sb = window.supa;
+  var update = {};
+
+  if (hasBw) {
+    var bwInput = document.getElementById('invBw_' + recipeId);
+    if (bwInput) {
+      var bw = parseFloat(bwInput.value);
+      if (!isNaN(bw) && bw > 0) update.base_weight_g = bw;
+    }
+  }
+  if (hasSl) {
+    var slInput = document.getElementById('invBs_' + recipeId);
+    if (slInput) {
+      var sl = parseInt(slInput.value);
+      if (!isNaN(sl) && sl > 0) update.shelf_life_days = sl;
+    }
+  }
+
+  if (Object.keys(update).length === 0) return;
+
+  try {
+    var { error } = await sb.from('recipes').update(update).eq('id', recipeId);
+    if (error) throw error;
+    // Visual feedback
+    var row = document.getElementById('invBRow_' + recipeId);
+    if (row) {
+      var savedFields = [];
+      if (update.base_weight_g) savedFields.push('⚖️ ' + update.base_weight_g + 'g');
+      if (update.shelf_life_days) savedFields.push('📅 ' + update.shelf_life_days + 'gg');
+      row.innerHTML =
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<span style="font-size:16px;">✅</span>' +
+          '<div>' +
+            '<div style="font-size:13px;font-weight:600;color:#059669;">' + recipeId + '</div>' +
+            '<div style="font-size:12px;color:#059669;">' + savedFields.join(' · ') + ' salvati</div>' +
+          '</div>' +
+        '</div>';
+      row.style.background = 'rgba(5,150,105,0.07)';
+      row.style.borderColor = 'rgba(5,150,105,0.3)';
+    }
+  } catch(e) {
+    alert('Errore: ' + e.message);
+  }
 };
