@@ -212,6 +212,10 @@ function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal, 
   const total=steps.length;
   const pct=Math.round(((currentStep+1)/total)*100);
   const lang=window.user?.lang||'en';
+  // Titolo localizzato
+  const stepTitle=(lang==='it'&&step.title_it)?step.title_it
+    :(lang==='es'&&step.title_es)?step.title_es
+    :(step.title||'');
   // Supporta sia recipe_steps (instruction_en/it/es) che prep_steps (note)
   var rawInstruction=(lang==='it'&&step.instruction_it)?step.instruction_it
     :(lang==='es'&&step.instruction_es)?step.instruction_es
@@ -239,7 +243,7 @@ function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal, 
     <div class="rm-step-card">
       <div class="rm-step-num-row">
         <div class="rm-step-num">${currentStep+1}</div>
-        <div class="rm-step-title">${step.title||''}</div>
+        <div class="rm-step-title">${stepTitle}</div>
       </div>
       ${instruction?`<div class="rm-step-text">${instruction}</div>`:''}
       ${timerHtml}
