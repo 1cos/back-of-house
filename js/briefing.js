@@ -362,10 +362,10 @@ async function loadUpcomingDemand(){
           recipes.slice(0,3).map(r=>
             '<div style="font-size:11px;color:#475569;padding:1px 0;">• '+
             (r.recipe_title||r.name||'')+
-            (r.portions?' <span style="color:#94a3b8;">'+r.portions+' portions</span>':'')+
+            (r.portions?' <span style="color:#94a3b8;">'+r.portions+' '+tr('event_portions')+'</span>':'')+
             '</div>'
           ).join('')+
-          (recipes.length>3?'<div style="font-size:10px;color:#94a3b8;">+'+( recipes.length-3)+' more…</div>':'')+
+          (recipes.length>3?'<div style="font-size:10px;color:#94a3b8;">+'+(recipes.length-3)+' '+tr('event_more')+'</div>':'')+
         '</div>';
       }
       return '<div style="padding:6px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);display:flex;gap:10px;">'+
@@ -379,11 +379,11 @@ async function loadUpcomingDemand(){
             '<span style="font-size:9px;font-weight:700;color:'+statusColor+';background:'+
               (e.status==='confirmed'?'#f0fdf4':e.status==='tentative'?'#fffbeb':'#fff5f5')+
               ';border-radius:4px;padding:1px 5px;">'+
-              (e.status||'').charAt(0).toUpperCase()+(e.status||'').slice(1)+
+              ({confirmed:tr('event_confirmed'),tentative:tr('event_tentative'),cancelled:tr('event_cancelled')}[e.status]||(e.status||'').charAt(0).toUpperCase()+(e.status||'').slice(1))+
             '</span>'+
           '</div>'+
           '<div style="font-size:11px;color:#93c5fd;margin-top:1px;">'+
-            (e.guest_count?e.guest_count+' guests':'')+
+            (e.guest_count?e.guest_count+' '+tr('event_guests'):'')+
             (e.guest_count&&(loc||svc||timeStr)?' · ':'')+
             (loc?loc:'')+(loc&&(svc||timeStr)?' · ':'')+
             (svc?svc:'')+(svc&&timeStr?' · ':'')+
