@@ -346,7 +346,10 @@ window.prepDone = function(id){
 
 // ── DONE SHEET ──
 function openDoneSheet(id){
-  const it=tasks[id];
+  // Normalizza id — può arrivare come int o stringa
+  const key = Object.keys(tasks).find(k=>String(k)===String(id));
+  const it = key ? tasks[key] : null;
+  if(!it){ console.error('openDoneSheet: task non trovato per id', id, 'keys:', Object.keys(tasks).slice(0,5)); return; }
   if(it.suggested_qty && parseFloat(it.suggested_qty)>0){
     const sqRaw = parseFloat(it.suggested_qty);
     const sqUnit = it.unit||tr('prep_portions');
@@ -373,7 +376,9 @@ function openDoneSheet(id){
 }
 
 function openDoneSheetCustom(id){
-  const it=tasks[id];
+  const key = Object.keys(tasks).find(k=>String(k)===String(id));
+  const it = key ? tasks[key] : null;
+  if(!it){ console.error('openDoneSheetCustom: task non trovato per id', id); return; }
   const sheet=document.createElement('div');
   sheet.className='fixed inset-0 z-50 flex items-end';
   sheet.style.background='rgba(0,0,0,0.3)';
