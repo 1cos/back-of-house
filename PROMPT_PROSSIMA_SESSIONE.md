@@ -311,3 +311,44 @@ Roasted Almonds, Seed mix, Shaved Parm, Shredded Carrots, Sliced Mozzarella, Sli
 
 
 - **bot-preplist-builder: v18** deployato (version 36) — nuovo paradigma current_stock + shelf_life_days + prep_type. Guard: salta se current_stock IS NULL. Pill: green/yellow/red salvato in suggested_note come 'color|testo'.
+
+
+---
+
+## PROSSIMA SESSIONE — DA FARE (priorità)
+
+### 1. Pagina admin "Inventory Setup" in Brigade
+Due sezioni in una pagina accessibile da L'Ufficio (solo admin):
+
+**Sezione A — Stock iniziale (per martedì)**
+- Lista tutte le prep tasks con `current_stock = NULL`
+- Campo input inline per inserire il valore
+- Salva con un tap — nessun modal
+- Ordinate per stazione
+
+**Sezione B — Recipe Health (dati mancanti)**
+- Lista ricette con `base_weight_g` o `shelf_life_days` mancanti
+- Campo input inline per ogni dato mancante
+- Solo le ricette collegate a prep tasks attivi (no ricette orfane)
+- Mostra quante prep task sblocca ogni correzione
+
+### 2. bot-preplist-builder v18 — già deployato
+- Version 36, attivo
+- Guard: salta se current_stock IS NULL
+- Pill salvata in suggested_note come 'green|testo' / 'yellow|testo' / 'red|testo'
+- Il frontend prep.js deve leggere suggested_note e mostrare la pill colorata
+- DA FARE: aggiornare prep.js per leggere il nuovo formato suggested_note
+
+### 3. Martedì mattina — procedura conteggio
+1. Max apre Brigade → Inventory Setup → Sezione A
+2. Conta fisicamente ogni item con il PDF stampato
+3. Inserisce i numeri direttamente nell'app
+4. Il bot della notte seguente calcola già tutto
+
+### 4. Dati ricette ancora mancanti da completare
+- Brisket — base_weight_g (Max deve verificare in cucina)
+- Truffle butter — base_weight_g
+- Mash Potato — base_weight_g
+- THYME BUTTER — base_weight_g = 5g sembra sbagliato (placeholder)
+- Varie Pastry senza shelf_life_days
+
