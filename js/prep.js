@@ -201,34 +201,22 @@ function renderM(){
                i.note ? '<span style="font-size:11px;color:#d97706;">'+tr('note')+'</span>' :
                isAdmin() ? '<span style="font-size:11px;color:#94a3b8;">'+tr('noRecipeLink')+'</span>' : '') +
             '</div>' +
-            (i.suggested_qty ? (()=>{
-              // Bot v15: se la nota contiene "portions sold", mostrala direttamente
-              if (i.suggested_note && i.suggested_note.includes('portions sold')) {
-                return '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 '+i.suggested_note+'</span></div>';
+            (i.suggested_note ? (()=>{
+              // Bot v18: formato "color|testo" — green/yellow/red
+              const note = i.suggested_note;
+              if (note && note.includes('|')) {
+                const [col, ...rest] = note.split('|');
+                const txt = rest.join('|');
+                const styles = {
+                  green:  {bg:'rgba(5,150,105,0.1)',  border:'#bbf7d0', color:'#059669'},
+                  yellow: {bg:'rgba(217,119,6,0.1)',   border:'#fde68a', color:'#d97706'},
+                  red:    {bg:'rgba(220,38,38,0.1)',   border:'#fca5a5', color:'#dc2626'}
+                };
+                const s = styles[col] || styles.yellow;
+                return '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:'+s.color+';background:'+s.bg+';border:1px solid '+s.border+';border-radius:6px;padding:2px 7px;">🤖 '+txt+'</span></div>';
               }
-              const sqv = parseFloat(i.suggested_qty);
-              // Trova la ricetta collegata per capire se va a peso o a porzioni
-              const rec = i.recipe_id ? (SHOP_RECIPES||[]).find(r=>r.id===i.recipe_id) : null;
-              const yt = (rec?.yield_text||rec?.yield||'').toLowerCase();
-              const isByWeight = !yt || /\bkg\b|\bg\b|\bgramm|\bpeso|\bweight/.test(yt);
-              let dispQty;
-              if (isByWeight) {
-                // Salse, batch, prep a peso → kg
-                dispQty = (sqv/1000).toFixed(2).replace(/\.?0+$/,'') + ' kg';
-              } else {
-                // Piatti a porzioni → dividi per base_weight_g
-                const baseG = parseFloat(rec?.base_weight_g||0);
-                if (baseG > 0) {
-                  const portions = Math.ceil(sqv / baseG);
-                  const lang = window.user?.lang||'en';
-                  const word = {it:'porzioni',en:'portions',es:'porciones'}[lang]||'portions';
-                  dispQty = portions + ' ' + word;
-                } else {
-                  // fallback kg se manca base_weight_g
-                  dispQty = (sqv/1000).toFixed(2).replace(/\.?0+$/,'') + ' kg';
-                }
-              }
-              return '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 '+dispQty+' '+tr('recommended')+'</span></div>';
+              // Fallback: nota senza formato color| — mostrala come verde
+              return '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.1);border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 '+note+'</span></div>';
             })() : '') +
             (i.current_stock !== null && i.current_stock !== undefined ? (()=>{
               const stock = parseFloat(i.current_stock);
