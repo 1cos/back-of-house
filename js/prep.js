@@ -418,10 +418,15 @@ function openWipNoteSheet(id){
   sheet.style.background='rgba(0,0,0,0.3)';
   sheet.innerHTML=`<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;border-top:0.5px solid rgba(59,130,246,0.2);padding:16px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
     <div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>
-    <div style="font-size:14px;font-weight:500;color:#1e3a5f;margin-bottom:10px;">${it.name} — '+tr('laterBtn')+'</div>
-    <textarea id="wipNote" placeholder="${tr('prep_wip_placeholder')}" style="width:100%;font-size:13px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:12px;padding:10px 12px;resize:none;height:70px;margin-bottom:10px;"></textarea>
-    <button onclick="saveWip('${id}',document.getElementById('wipNote').value);this.closest('.fixed').remove()" 
-      style="width:100%;height:40px;border-radius:14px;background:#3B82F6;color:white;font-size:13px;font-weight:500;">'+tr('markInProgress')+'</button>
+    <div style="font-size:15px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">${it.name}</div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:10px;">'+tr('laterBtn')+'</div>
+    <textarea id="wipNote" placeholder="${tr('prep_wip_placeholder')}" style="width:100%;font-size:13px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:12px;padding:10px 12px;resize:none;height:60px;margin-bottom:10px;"></textarea>
+    <div style="display:flex;gap:8px;">
+      <button onclick="this.closest('.fixed').remove()" 
+        style="flex:1;height:40px;border-radius:14px;background:white;color:#64748b;border:1px solid #e2e8f0;font-size:13px;font-weight:500;">'+tr('laterBtn')+'</button>
+      <button onclick="saveWip('${id}',document.getElementById('wipNote').value);this.closest('.fixed').remove()" 
+        style="flex:1;height:40px;border-radius:14px;background:#3B82F6;color:white;font-size:13px;font-weight:500;">'+tr('markInProgress')+'</button>
+    </div>
   </div>`;
   sheet.onclick=e=>{if(e.target===sheet)sheet.remove()};
   document.body.appendChild(sheet);
