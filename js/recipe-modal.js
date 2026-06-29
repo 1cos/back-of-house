@@ -88,6 +88,11 @@ const STYLE = `
   background:rgba(255,255,255,0.12);border-radius:20px;
   padding:4px 12px;
 }
+.rm-bot-pill{
+  background:rgba(5,150,105,0.85);color:white;
+  border:1.5px solid rgba(255,255,255,0.3);
+  cursor:pointer;active:opacity:.8;
+}
 
 /* Tabs */
 .rm-tabs{display:flex;border-top:1px solid rgba(255,255,255,0.1);}
@@ -312,7 +317,7 @@ function fmtTime(s){return `${String(Math.floor(s/60)).padStart(2,'0')}:${String
 
 // ── MAIN ─────────────────────────────────────────────────
 window.recipeModal = {
-  open: async function(recipeId){
+  open: async function(recipeId, prepTaskId){
     document.getElementById('rmOverlay')?.remove();
     if(!document.getElementById('rmStyle')) document.head.insertAdjacentHTML('beforeend',STYLE);
     Object.keys(timers).forEach(k=>stopTimer(k));
@@ -321,6 +326,26 @@ window.recipeModal = {
     if(!rec) return;
 
     // BOM — usa parent_recipe_id
+    // Leggi suggested_qty dalla prep task se disponibile
+    let suggestedPortions = null;
+    if(prepTaskId){
+      const {data:pt} = await supa.from('prep_tasks')
+        .select('suggested_qty,unit')
+        .eq('id', prepTaskId)
+        .maybeSingle();
+      if(pt?.suggested_qty && rec.serving_weight_g){
+        const sqG = parseFloat(pt.suggested_qty);
+        const swG = parseFloat(rec.serving_weight_g);
+        if(sqG > 0 && swG > 0) suggestedPortions = Math.round(sqG / swG);
+      } else if(pt?.suggested_qty && rec.base_weight_g && rec.base_servings){
+        // fallback: proporzione su base_weight_g
+        const sqG = parseFloat(pt.suggested_qty);
+        const bwG = parseFloat(rec.base_weight_g);
+        const bs  = parseFloat(rec.base_servings);
+        if(sqG > 0 && bwG > 0) suggestedPortions = Math.round((sqG / bwG) * bs);
+      }
+    }
+
     const {data:bomRows} = await supa
       .from('recipe_bom')
       .select('quantity,unit,component_type,item_id,sub_recipe_id,ingredients(name),recipes!recipe_bom_sub_recipe_id_fkey(title)')
@@ -335,9 +360,24 @@ window.recipeModal = {
 
     const overlay = document.createElement('div');
     overlay.id='rmOverlay';
-    overlay.innerHTML=buildShell(rec);
+    overlay.innerHTML=buildShell(rec, suggestedPortions);
     document.body.appendChild(overlay);
     overlay.addEventListener('click',e=>{if(e.target===overlay)closeModal();});
+
+    // Bot pill click — porta stepper a suggested portions
+    overlay.addEventListener('click',e=>{
+      if(e.target.id==='rmBotPill'){
+        const sp = parseInt(e.target.dataset.portions);
+        if(!isNaN(sp)){
+          // forza tab ingredients e applica porzioni suggerite
+          activeTab='ingredients';
+          overlay.querySelectorAll('.rm-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab==='ingredients'));
+          scaleFactor = sp / baseServings;
+          document.getElementById('rmBody').innerHTML = buildIngredients(bomRows, scaleFactor, baseServings);
+          bindIngredients(sp);
+        }
+      }
+    });
 
     let activeTab='ingredients', currentStep=0, scaleFactor=1;
     const baseServings = rec.base_servings||1;
@@ -385,15 +425,15 @@ window.recipeModal = {
           <span class="rm-servings-label">${t('servings')}</span>
           <div class="rm-stepper">
             <button class="rm-step-btn" id="rmMinus">−</button>
-            <span class="rm-servings-val" id="rmServVal">${base}</span>
+            <span class="rm-servings-val" id="rmServVal">${Math.round(factor*base)||base}</span>
             <button class="rm-step-btn" id="rmPlus">+</button>
           </div>
         </div>
         <div class="rm-ing-list" id="rmIngList">${renderIngList(bom,factor)}</div>`;
     }
 
-    function bindIngredients(){
-      let servings=baseServings;
+    function bindIngredients(startServings){
+      let servings=startServings||baseServings;
       const val=document.getElementById('rmServVal');
       const list=document.getElementById('rmIngList');
       function update(s){
@@ -518,12 +558,15 @@ window.recipeModal = {
 };
 
 // ── SHELL ─────────────────────────────────────────────────
-function buildShell(rec){
+function buildShell(rec, suggestedPortions){
   const lang=window.user?.lang||'en';
   const category=rec.menu_group||rec.category||'';
   const pills=[];
-  if(rec.shelf_life_days) pills.push(`📅 ${t('shelf')} ${rec.shelf_life_days}${rec.shelf_life_days===1?t('day')[0]:t('days')[0]}`);
-  if(rec.base_weight_g)   pills.push(`⚖️ ${rec.base_weight_g}g`);
+  if(rec.base_servings)   pills.push(`🍽️ ${rec.base_servings} ${t('servings').toLowerCase()}`);
+  if(rec.shelf_life_days) pills.push(`📅 ${rec.shelf_life_days} ${rec.shelf_life_days===1?t('day'):t('days')}`);
+  const botPill = suggestedPortions
+    ? `<span class="rm-sub-pill rm-bot-pill" id="rmBotPill" data-portions="${suggestedPortions}">🤖 ${suggestedPortions} ${t('servings').toLowerCase()} today</span>`
+    : '';
 
   return `<div id="rmSheet">
     <div id="rmHeader">
@@ -533,7 +576,7 @@ function buildShell(rec){
         <button class="rm-close">×</button>
       </div>
       <div class="rm-title">${rec.title||''}</div>
-      <div class="rm-sub">${pills.map(p=>`<span class="rm-sub-pill">${p}</span>`).join('')}</div>
+      <div class="rm-sub">${pills.map(p=>`<span class="rm-sub-pill">${p}</span>`).join('')}${botPill}</div>
       <div class="rm-tabs">
         <button class="rm-tab active" data-tab="ingredients">${t('ingredients')}</button>
         <button class="rm-tab" data-tab="steps">${t('steps')}</button>
