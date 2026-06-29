@@ -282,7 +282,9 @@ function renderM(){
       let botPill = '';
       if(i.suggested_note && i.suggested_note.includes('|')){
         const [col,...rest] = i.suggested_note.split('|');
-        const txt = rest.join('|');
+        // Tronca il testo a 60 char per evitare pill lunghissime (bug bot)
+        const rawTxt = rest.join('|');
+        const txt = rawTxt.length>60 ? rawTxt.slice(0,57)+'…' : rawTxt;
         const s = {green:{bg:'rgba(5,150,105,0.1)',border:'#bbf7d0',color:'#059669'},yellow:{bg:'rgba(217,119,6,0.1)',border:'#fde68a',color:'#d97706'},red:{bg:'rgba(220,38,38,0.1)',border:'#fca5a5',color:'#dc2626'}}[col]||{bg:'rgba(217,119,6,0.1)',border:'#fde68a',color:'#d97706'};
         botPill = '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:'+s.color+';background:'+s.bg+';border:1px solid '+s.border+';border-radius:6px;padding:2px 7px;">🤖 '+txt+'</span></div>';
       } else if(i.suggested_note){
@@ -346,10 +348,7 @@ window.prepDone = function(id){
 
 // ── DONE SHEET ──
 function openDoneSheet(id){
-  // Normalizza id — può arrivare come int o stringa
-  const key = Object.keys(tasks).find(k=>String(k)===String(id));
-  const it = key ? tasks[key] : null;
-  if(!it){ console.error('openDoneSheet: task non trovato per id', id, 'keys:', Object.keys(tasks).slice(0,5)); return; }
+  const it=tasks[id];
   if(it.suggested_qty && parseFloat(it.suggested_qty)>0){
     const sqRaw = parseFloat(it.suggested_qty);
     const sqUnit = it.unit||tr('prep_portions');
@@ -376,9 +375,7 @@ function openDoneSheet(id){
 }
 
 function openDoneSheetCustom(id){
-  const key = Object.keys(tasks).find(k=>String(k)===String(id));
-  const it = key ? tasks[key] : null;
-  if(!it){ console.error('openDoneSheetCustom: task non trovato per id', id); return; }
+  const it=tasks[id];
   const sheet=document.createElement('div');
   sheet.className='fixed inset-0 z-50 flex items-end';
   sheet.style.background='rgba(0,0,0,0.3)';
