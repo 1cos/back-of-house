@@ -692,15 +692,24 @@ window.officeResolve = async function(id, resolution) {
       }
       if (typeof showScToast === 'function') showScToast('📌 Letto — ci torni dopo');
     } else {
-      // Risolto — slide out e ricarica
+      // Risolto — slide out, rimuovi dal DOM (no officeLoad che cerca #officeList non presente nel folder)
       if (card) {
         card.style.transition = 'all 0.25s ease';
         card.style.opacity = '0';
         card.style.transform = 'translateX(40px)';
-        setTimeout(function() { officeLoad(); if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate(); }, 270);
+        setTimeout(function() {
+          card.remove();
+          if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
+          // Se siamo nel folder e la lista è vuota, mostra stato vuoto
+          var list = document.getElementById('officeFolderList');
+          if (list && list.children.length === 0) {
+            list.innerHTML = '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:12px;">✅</div><div style="font-size:15px;color:rgba(30,58,95,0.4);">'+tr('officeNoDrawer')+'</div></div>';
+          }
+          officeLoadHome();
+        }, 270);
       } else {
-        officeLoad();
         if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
+        officeLoadHome();
       }
       if (typeof showScToast === 'function') showScToast('✓ Risolto');
     }
