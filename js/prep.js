@@ -39,6 +39,7 @@ window._prepTimerStopped = function(){
 // _taskStepTotal[prepTaskId] = numero totale step della ricetta
 window._taskStep = {};
 window._taskStepTotal = {};
+var _startTimes = {}; // traccia quando il cuoco ha premuto START per ogni task
 
 // Chiamato da recipe-modal.js quando l'utente naviga tra gli step
 window.prepOnStepChange = function(prepTaskId, currentStep, totalSteps){
@@ -324,8 +325,9 @@ window.prepStart = async function(id){
   if(!it) return;
   // Se già in progress → SEE STEPS
   if(it.in_progress){ prepSeeSteps(id); return; }
-  // Segna in_progress nel DB (optimistic)
+  // Segna in_progress nel DB (optimistic) + traccia orario start
   tasks[id].in_progress = true;
+  _startTimes[id] = new Date();
   supa.from('prep_tasks').update({in_progress:true}).eq('id',id).then(()=>{}).catch(()=>{});
   renderM();
   // Apre il recipe modal con tracking dello step (funziona anche senza recipe_id)
@@ -418,8 +420,12 @@ async function suggestedSave(id, modal){
   const unit=it.unit||tr('prep_portions');
   modal.remove();
   _finishTask(id, qty);
+  var _sNow = new Date();
+  var _sSt = _startTimes[id] || _sNow;
+  var _sDur = Math.round((_sNow - _sSt) / 60000);
+  delete _startTimes[id];
   Promise.all([
-    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:'',user_name:user.name,is_suggested_qty:true}),
+    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:'',user_name:user.name,is_suggested_qty:true,started_at:_sSt.toISOString(),duration_minutes:_sDur}),
     supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:qty}).eq('id',id)
   ]).then(()=>{loadItemAlerts();loadStepsMap();})
   .catch(e=>console.error('suggestedSave error:',e));
@@ -433,7 +439,11 @@ async function detailSave(id, btn, isSuggested){
   const note=sheet.querySelector('.ds-note').value;
   btn.textContent='...'; btn.disabled=true;
   const it=tasks[id];
-  await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name,is_suggested_qty:!!isSuggested});
+  var _dNow = new Date();
+  var _dSt = _startTimes[id] || _dNow;
+  var _dDur = Math.round((_dNow - _dSt) / 60000);
+  delete _startTimes[id];
+  await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name,is_suggested_qty:!!isSuggested,started_at:_dSt.toISOString(),duration_minutes:_dDur});
   await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:qty}).eq('id',id);
   sheet.remove();
   _finishTask(id, qty);
@@ -460,12 +470,17 @@ window.noNeed = async function(id) {
   if (!it) return;
   const msg = it.name + ' — No Need: '+tr('noNeedConfirm');
   if (!confirm(msg)) return;
+  var _nNow = new Date();
+  var _nSt = _startTimes[id] || _nNow;
+  var _nDur = Math.round((_nNow - _nSt) / 60000);
+  delete _startTimes[id];
   await supa.from('prep_log').insert({
     item: it.name,
     station: it.category || tr('generale'),
     qty: 0, unit: 'no_need', container: '',
     user_name: user.name,
-    started_at: new Date().toISOString()
+    started_at: _nSt.toISOString(),
+    duration_minutes: _nDur
   });
   await supa.from('prep_tasks').update({need_tomorrow: false, in_progress: false}).eq('id', id);
   tasks[id].need_tomorrow = false;
