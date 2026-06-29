@@ -9,10 +9,54 @@ function showConfetti(){
   }
 }
 
+// ── WAKE LOCK ──
+let _wakeLock = null;
+async function requestWakeLock(){
+  if(!('wakeLock' in navigator)) return;
+  try{ _wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+}
+function releaseWakeLock(){
+  if(_wakeLock){ _wakeLock.release().catch(()=>{}); _wakeLock=null; }
+}
+// Se il wake lock viene rilasciato dal sistema (es. tab in background), lo annulliamo
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible' && _activeTimerCount>0) requestWakeLock();
+});
+
+// Contatore timer attivi — gestisce wake lock automaticamente
+let _activeTimerCount = 0;
+window._prepTimerStarted = function(){
+  _activeTimerCount++;
+  requestWakeLock();
+};
+window._prepTimerStopped = function(){
+  _activeTimerCount = Math.max(0, _activeTimerCount-1);
+  if(_activeTimerCount===0) releaseWakeLock();
+};
+
+// ── STEP TRACKING (memoria locale per sessione) ──
+// _taskStep[prepTaskId] = indice step corrente
+// _taskStepTotal[prepTaskId] = numero totale step della ricetta
+window._taskStep = {};
+window._taskStepTotal = {};
+
+// Chiamato da recipe-modal.js quando l'utente naviga tra gli step
+window.prepOnStepChange = function(prepTaskId, currentStep, totalSteps){
+  if(!prepTaskId) return;
+  _taskStep[prepTaskId] = currentStep;
+  _taskStepTotal[prepTaskId] = totalSteps;
+  renderM();
+  if(typeof renderFocusFeed==='function') renderFocusFeed();
+};
+
+// Chiamato da recipe-modal.js quando il modal viene chiuso
+window.prepOnModalClose = function(prepTaskId){
+  // non resettiamo lo step — vogliamo ricordarlo per SEE STEPS
+};
+
 // ── CHECK URGENTI SCADUTE (14:30) ──
 function startUrgencyCheck(){
   setInterval(()=>{
-    const now=new Date();
     const dn=getNowDallas();
     if(dn.getHours()===14&&dn.getMinutes()===30){
       const urgent=items.filter(i=>i.need_tomorrow);
@@ -31,15 +75,10 @@ function startUrgencyCheck(){
   }, 60000);
 }
 
-
 // ── STAZIONE CHIUSURA ──
 async function ensureChiusuraStation(){
-  // verifica se esiste già almeno un item con category 'Chiusura'
   const exists = items.some(i=>i.category==='Chiusura');
-  if(!exists && isAdmin()){
-    // non creare item automaticamente, ma aggiungi Chiusura alla lista stazioni
-  }
-  // la stazione Chiusura appare nella lista anche se vuota
+  if(!exists && isAdmin()){}
 }
 
 // ── AVVISO INTELLIGENTE ──
@@ -66,12 +105,9 @@ function getAlertLevel(itemName){
   const today=new Date().toISOString().slice(0,10);
   const madeToday = a.last_made_at && a.last_made_at.slice(0,10)===today;
   if(!madeToday) return null;
-  // calcola confidenza
   const qty = a.last_made_qty||0;
   const avgQty = a.average_qty||qty;
   const duration = a.expected_duration_days||1;
-  const missingWeek = a.missing_count_week||0;
-  // se prodotto oggi con quantità normale e durata attesa > 1 giorno → alta confidenza che ci sia
   if(qty >= avgQty*0.8 && duration > 1) return {level:'high', a};
   if(qty >= avgQty*0.5) return {level:'medium', a};
   return {level:'low', a};
@@ -79,17 +115,14 @@ function getAlertLevel(itemName){
 
 async function checkBeforeMissing(id, itemName){
   const alert = getAlertLevel(itemName);
-  if(!alert) return true; // nessun avviso, procedi
+  if(!alert) return true;
   const a = alert.a;
   const _locale = {it:'it-IT',en:'en-US',es:'es-MX'}[window.user?.lang||'en']||'en-US';
   const madeAt = new Date(a.last_made_at).toLocaleTimeString(_locale,{hour:'2-digit',minute:'2-digit'});
   const _byWord = {it:'da',en:'by',es:'por'}[window.user?.lang||'en']||'by';
   const madeQty = a.last_made_qty ? `${a.last_made_qty} ${a.last_made_by?_byWord+' '+a.last_made_by:''}` : '';
-  const missingNote = a.missing_count_week>1 ? `\n⚠️ Segnalato mancante ${a.missing_count_week} volte questa settimana.` : '';
-  
   const colors = {high:'🟢', medium:'🟡', low:'🔴'};
   const confidenceText = {high:tr('confidenceHigh'), medium:tr('confidenceMedium'), low:tr('confidenceLow')};
-  
   return new Promise(resolve=>{
     const popup=document.createElement('div');
     popup.className='fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4';
@@ -119,30 +152,78 @@ async function checkBeforeMissing(id, itemName){
     document.body.appendChild(popup);
     popup.querySelector('#alertCancel').onclick=()=>{
       popup.remove();
-      // log falso allarme
       supa.from('alerts_log').insert({item:itemName,user_name:user?.name,was_really_missing:false,qty_made_that_day:a.last_made_qty,made_by:a.last_made_by,made_at:a.last_made_at});
       resolve(false);
     };
     popup.querySelector('#alertConfirm').onclick=()=>{
       popup.remove();
-      // log conferma
       supa.from('alerts_log').insert({item:itemName,user_name:user?.name,was_really_missing:true,qty_made_that_day:a.last_made_qty,made_by:a.last_made_by,made_at:a.last_made_at});
       resolve(true);
     };
   });
 }
 
+// ── PILL STOCK — testo human-readable ──
+function buildStockPill(i){
+  if(i.current_stock===null||i.current_stock===undefined) return '';
+  const stock = parseFloat(i.current_stock);
+  const sq = parseFloat(i.suggested_qty||0);
+  const unit = i.unit||'';
+  const stockLabel = stock + (unit?' '+unit:'');
+  const lang = window.user?.lang||'en';
+  const inHouse = {it:'hai '+stockLabel+' in casa', en:'you have '+stockLabel+' in stock', es:'tienes '+stockLabel+' en casa'}[lang]||'you have '+stockLabel+' in stock';
+  if(stock===0){
+    return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#a32d2d;background:#fcebeb;border:0.5px solid #f7c1c1;border-radius:6px;padding:2px 7px;">🤖 '+({it:'Prepara oggi · hai 0 in casa',en:'Prep today · nothing in stock',es:'Prepara hoy · nada en casa'}[lang]||'Prep today · nothing in stock')+'</span></div>';
+  } else if(sq>0 && stock<=sq*0.5){
+    return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#854f0b;background:#faeeda;border:0.5px solid #fac775;border-radius:6px;padding:2px 7px;">🤖 '+({it:'Quasi finito · ',en:'Running low · ',es:'Casi agotado · '}[lang]||'Running low · ')+inHouse+'</span></div>';
+  } else {
+    return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:600;color:#3b6d11;background:#eaf3de;border:0.5px solid #c0dd97;border-radius:6px;padding:2px 7px;">🤖 '+({it:'Stock ok · ',en:'Stock ok · ',es:'Stock ok · '}[lang]||'Stock ok · ')+inHouse+'</span></div>';
+  }
+}
+
+// ── COLORE BORDO card ──
+function cardBorderColor(i){
+  if(i.in_progress) return '#378add'; // blu
+  if(i.need_tomorrow){
+    // rosso se stock=0 o non noto, giallo se quasi finito
+    const stock = parseFloat(i.current_stock);
+    const sq = parseFloat(i.suggested_qty||0);
+    if(!isNaN(stock) && stock>0 && sq>0 && stock<=sq*0.5) return '#ef9f27'; // giallo
+    return '#e24b4a'; // rosso
+  }
+  return '#94a3b8'; // grigio
+}
+
+// ── BOTTONE card ──
+function cardButton(i){
+  const iid = i.id;
+  const lang = window.user?.lang||'en';
+  if(i.in_progress){
+    const currentStep = _taskStep[iid]||0;
+    const totalSteps = _taskStepTotal[iid]||0;
+    const isLastStep = totalSteps>0 && currentStep>=totalSteps-1;
+    if(isLastStep){
+      return `<button onclick="prepDone(${JSON.stringify(iid)})" style="height:40px;padding:0 18px;border-radius:10px;font-size:13px;font-weight:600;background:#059669;color:white;border:none;white-space:nowrap;flex-shrink:0;">DONE</button>`;
+    }
+    const seeLabel = {it:'VEDI STEPS',en:'SEE STEPS',es:'VER PASOS'}[lang]||'SEE STEPS';
+    return `<button onclick="prepSeeSteps(${JSON.stringify(iid)})" style="height:40px;padding:0 18px;border-radius:10px;font-size:13px;font-weight:600;background:#378add;color:white;border:none;white-space:nowrap;flex-shrink:0;">${seeLabel}</button>`;
+  }
+  if(i.need_tomorrow){
+    return `<button onclick="prepStart(${JSON.stringify(iid)})" style="height:40px;padding:0 20px;border-radius:10px;font-size:13px;font-weight:600;background:#1e3a5f;color:white;border:none;white-space:nowrap;flex-shrink:0;">START</button>`;
+  }
+  return ''; // grigio — nessun bottone
+}
+
 // ── PREP ──
 function renderM(){
   const base=items.filter(i=>station==='All'||i.category?.includes(station));
-  // ordinamento: rossi (need_tomorrow) > blu (in_progress) > normali
+  // ordinamento: in_progress > urgenti > gialli > normali
   const list=base.sort((a,b)=>{
-    const aScore=(a.need_tomorrow?2:0)+(a.in_progress?1:0);
-    const bScore=(b.need_tomorrow?2:0)+(b.in_progress?1:0);
-    if(bScore!==aScore) return bScore-aScore;
+    const score=i=>(i.in_progress?3:0)+(i.need_tomorrow?2:0);
+    if(score(b)!==score(a)) return score(b)-score(a);
     return a.name.localeCompare(b.name);
   });
-  const pc=base.filter(i=>i.need_tomorrow).length;
+  const pc=base.filter(i=>i.need_tomorrow&&!i.in_progress).length;
   const total=base.length;
 
   // barra progresso urgenti
@@ -185,155 +266,91 @@ function renderM(){
 
   grid.innerHTML=(stNote?`<div class="col-span-2 mb-2 px-3 py-2 rounded-xl text-[11px]" style="background:rgba(251,191,36,0.15);border-left:4px solid #f59e0b;color:#92400e;">${stNote}</div>`:'')+
     list.map(i=>{
-      const isUrgent=i.need_tomorrow;
-      const isWip=i.in_progress&&!i.need_tomorrow;
-      const accentColor=isUrgent?'#ef4444':isWip?'#3b82f6':'#94a3b8';
-      const nameColor=isUrgent?'#991b1b':isWip?'#1e40af':'#0f172a';
-      const badge=isUrgent?'<span style="font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;">'+tr('urgent')+'</span>':
-                   isWip?'<span style="font-size:10px;font-weight:600;color:#3b82f6;background:rgba(59,130,246,0.1);padding:2px 6px;border-radius:6px;">'+tr('inProgress')+'</span>':'';
       const iid = i.id;
-      return '<div class="col-span-2 mb-2 cursor-pointer active:scale-[0.98] transition-transform" style="background:rgba(255,255,255,0.60);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:16px;border-left:4px solid ' + accentColor + ';box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04),inset 0 1px 0 rgba(255,255,255,0.9);">' +
-        '<div style="padding:12px 12px 12px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
-          '<div style="flex:1;min-width:0;" onclick="openRecipeForItem(' + JSON.stringify(iid) + ')">' +
-            '<div style="font-size:15px;font-weight:600;color:' + nameColor + ';line-height:1.3;">' + i.name + '</div>' +
-            (badge ? '<div style="margin-top:4px;">' + badge + '</div>' : '') +
-            '<div style="margin-top:3px;">' +
-              (i.recipe_id ? '<span style="font-size:11px;color:#059669;font-weight:500;">'+tr('recipe')+'</span>' :
-               window.prepTasksWithSteps?.has(String(iid)) ? '<span style="font-size:11px;color:#7c3aed;font-weight:500;">▶ steps</span>' :
-               i.note ? '<span style="font-size:11px;color:#d97706;">'+tr('note')+'</span>' :
-               isAdmin() ? '<span style="font-size:11px;color:#94a3b8;">'+tr('noRecipeLink')+'</span>' : '') +
-            '</div>' +
-            (i.suggested_note ? (()=>{
-              // Bot v18: formato "color|testo" — green/yellow/red
-              const note = i.suggested_note;
-              if (note && note.includes('|')) {
-                const [col, ...rest] = note.split('|');
-                const txt = rest.join('|');
-                const styles = {
-                  green:  {bg:'rgba(5,150,105,0.1)',  border:'#bbf7d0', color:'#059669'},
-                  yellow: {bg:'rgba(217,119,6,0.1)',   border:'#fde68a', color:'#d97706'},
-                  red:    {bg:'rgba(220,38,38,0.1)',   border:'#fca5a5', color:'#dc2626'}
-                };
-                const s = styles[col] || styles.yellow;
-                return '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:'+s.color+';background:'+s.bg+';border:1px solid '+s.border+';border-radius:6px;padding:2px 7px;">🤖 '+txt+'</span></div>';
-              }
-              // Fallback: nota senza formato color| — mostrala come verde
-              return '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.1);border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 '+note+'</span></div>';
-            })() : '') +
-            (i.current_stock !== null && i.current_stock !== undefined ? (()=>{
-              const stock = parseFloat(i.current_stock);
-              const sq = parseFloat(i.suggested_qty||0);
-              const unit = i.unit||'';
-              const stockLabel = stock + (unit?' '+unit:'');
-              if (stock === 0) {
-                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.1);border-radius:6px;padding:2px 7px;">' + tr('prep_stock_green') + '</span></div>';
-              } else if (sq > 0 && stock <= sq * 0.5) {
-                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#dc2626;background:rgba(220,38,38,0.1);border-radius:6px;padding:2px 7px;">' + tr('prep_stock_red').replace('{stock}',stockLabel) + '</span></div>';
-              } else {
-                return '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:600;color:#d97706;background:rgba(217,119,6,0.1);border-radius:6px;padding:2px 7px;">' + tr('prep_stock_yellow').replace('{stock}',stockLabel) + '</span></div>';
-              }
-            })() : '') +
-          '</div>' +
-          '<div style="display:flex;gap:6px;flex-shrink:0;">' +
-            (isUrgent||!isWip ? '<button onpointerdown="startWipPress(' + JSON.stringify(iid) + ',this)" onpointerup="endWipPress()" onpointerleave="endWipPress()" style="height:36px;padding:0 14px;border-radius:10px;font-size:12px;font-weight:600;background:white;color:#1d4ed8;border:1.5px solid #3b82f6;white-space:nowrap;">'+tr('laterBtn')+'</button>' : '') +
-            '<button onpointerdown="startDonePress(' + JSON.stringify(iid) + ',this)" onpointerup="endDonePress(' + JSON.stringify(iid) + ')" onpointerleave="endDonePress(' + JSON.stringify(iid) + ')" style="height:36px;padding:0 16px;border-radius:10px;font-size:12px;font-weight:700;background:#059669;color:white;border:none;white-space:nowrap;box-shadow:0 2px 6px rgba(5,150,105,0.35);">'+tr('doneBtn')+'</button>' +
-            (isUrgent ? '<button onclick="noNeed(' + JSON.stringify(iid) + ')" style="height:36px;padding:0 12px;border-radius:10px;font-size:12px;font-weight:600;background:rgba(234,179,8,0.15);color:#92400e;border:1.5px solid rgba(234,179,8,0.5);white-space:nowrap;">'+tr('noNeedBtn')+'</button>' : '') +
-            (isAdmin() ? '<span style="display:flex;gap:4px;align-items:center;"><button onclick="adminRename(' + JSON.stringify(iid) + ')" style="font-size:14px;color:#94a3b8;background:none;border:none;padding:4px;">✏</button><button onclick="adminDel(' + JSON.stringify(iid) + ')" style="font-size:14px;color:#94a3b8;background:none;border:none;padding:4px;">🗑</button></span>' : '') +
-          '</div>' +
-        '</div>' +
-      '</div>';
+      const borderColor = cardBorderColor(i);
+      const isWip = i.in_progress;
+      const isUrgent = i.need_tomorrow && !i.in_progress;
+      const nameColor = isWip?'#1e40af':isUrgent?'#991b1b':'#0f172a';
+
+      const badge = isWip
+        ? '<span style="font-size:10px;font-weight:600;color:#185fa5;background:rgba(55,138,221,0.12);padding:2px 6px;border-radius:6px;">'+tr('inProgress')+'</span>'
+        : isUrgent
+          ? '<span style="font-size:10px;font-weight:700;color:#a32d2d;background:rgba(226,75,74,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;">'+tr('urgent')+'</span>'
+          : '';
+
+      // pill bot suggested_note (formato color|testo)
+      let botPill = '';
+      if(i.suggested_note && i.suggested_note.includes('|')){
+        const [col,...rest] = i.suggested_note.split('|');
+        const txt = rest.join('|');
+        const s = {green:{bg:'rgba(5,150,105,0.1)',border:'#bbf7d0',color:'#059669'},yellow:{bg:'rgba(217,119,6,0.1)',border:'#fde68a',color:'#d97706'},red:{bg:'rgba(220,38,38,0.1)',border:'#fca5a5',color:'#dc2626'}}[col]||{bg:'rgba(217,119,6,0.1)',border:'#fde68a',color:'#d97706'};
+        botPill = '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:'+s.color+';background:'+s.bg+';border:1px solid '+s.border+';border-radius:6px;padding:2px 7px;">🤖 '+txt+'</span></div>';
+      } else if(i.suggested_note){
+        botPill = '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.1);border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 '+i.suggested_note+'</span></div>';
+      }
+
+      const stockPill = buildStockPill(i);
+      const btn = cardButton(i);
+      const recipeTag = i.recipe_id ? '<span style="font-size:11px;color:#059669;font-weight:500;">'+tr('recipe')+'</span>'
+        : window.prepTasksWithSteps?.has(String(iid)) ? '<span style="font-size:11px;color:#7c3aed;font-weight:500;">▶ steps</span>'
+        : i.note ? '<span style="font-size:11px;color:#d97706;">'+tr('note')+'</span>'
+        : isAdmin() ? '<span style="font-size:11px;color:#94a3b8;">'+tr('noRecipeLink')+'</span>' : '';
+
+      return '<div class="col-span-2 mb-2 active:scale-[0.98] transition-transform" style="background:rgba(255,255,255,0.60);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:16px;border-left:4px solid '+borderColor+';box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04),inset 0 1px 0 rgba(255,255,255,0.9);">'
+        +'<div style="padding:12px 12px 12px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;">'
+          +'<div style="flex:1;min-width:0;cursor:pointer;" onclick="prepStart('+JSON.stringify(iid)+')">'
+            +'<div style="font-size:15px;font-weight:600;color:'+nameColor+';line-height:1.3;">'+i.name+'</div>'
+            +(badge?'<div style="margin-top:4px;">'+badge+'</div>':'')
+            +'<div style="margin-top:3px;">'+recipeTag+'</div>'
+            +botPill
+            +stockPill
+          +'</div>'
+          +'<div style="display:flex;gap:6px;flex-shrink:0;align-items:center;">'
+            +btn
+            +(isAdmin()?'<span style="display:flex;gap:4px;align-items:center;"><button onclick="adminRename('+JSON.stringify(iid)+')" style="font-size:14px;color:#94a3b8;background:none;border:none;padding:4px;">✏</button><button onclick="adminDel('+JSON.stringify(iid)+')" style="font-size:14px;color:#94a3b8;background:none;border:none;padding:4px;">🗑</button></span>':'')
+          +'</div>'
+        +'</div>'
+      +'</div>';
     }).join('');
 }
 
-// ── NUOVI HANDLER FATTA / DA FINIRE ──
+// ── AZIONI CARD ──
 
-// Tap veloce Fatta → salva con default
-// Tap lungo Fatta → apre bottom sheet dettagli
-function startDonePress(id, btn){
-  doneTarget=id;
-  donePressTimer=setTimeout(()=>{
-    donePressTimer=null;
-    openDoneSheet(id);
-  }, 600);
-}
-function endDonePress(id){
-  if(donePressTimer){
-    clearTimeout(donePressTimer);
-    donePressTimer=null;
-    // tap veloce — salva con default
-    quickSave(id);
-  }
-}
-
-// Tap veloce Da finire → segna WIP
-// Tap lungo Da finire → apre note
-function startWipPress(id, btn){
-  wipPressTimer=setTimeout(()=>{
-    wipPressTimer=null;
-    openWipNoteSheet(id);
-  }, 600);
-}
-function endWipPress(){
-  if(wipPressTimer){
-    clearTimeout(wipPressTimer);
-    wipPressTimer=null;
-    // tap veloce — segna in progress
-    const id=doneTarget; // usa last target
-  }
-}
-
-window.setWip=async(id)=>{
-  tasks[id].in_progress=true;
-  await supa.from('prep_tasks').update({in_progress:true}).eq('id',id);
+// START — primo avvio: apre ricetta, segna in_progress
+window.prepStart = async function(id){
+  const it = tasks[id];
+  if(!it) return;
+  // Se già in progress → SEE STEPS
+  if(it.in_progress){ prepSeeSteps(id); return; }
+  // Segna in_progress nel DB (optimistic)
+  tasks[id].in_progress = true;
+  supa.from('prep_tasks').update({in_progress:true, started_at: new Date().toISOString()}).eq('id',id).then(()=>{}).catch(()=>{});
   renderM();
-};
-
-// Override startWipPress to capture id
-window.startWipPress=function(id,btn){
-  doneTarget=id;
-  wipPressTimer=setTimeout(()=>{
-    wipPressTimer=null;
-    openWipNoteSheet(id);
-  },600);
-};
-window.endWipPress=function(){
-  if(wipPressTimer){
-    clearTimeout(wipPressTimer);
-    wipPressTimer=null;
-    openWipNoteSheet(doneTarget); // tap veloce → apre modal (non setta in_progress direttamente)
+  // Apre il recipe modal con tracking dello step
+  if(it.recipe_id && typeof recipeModal!=='undefined'){
+    recipeModal.open(it.recipe_id, id);
   }
 };
 
-async function quickSave(id){
-  const it=tasks[id];
-  const qty=it.average_qty||1;
-  const unit='kg';
-  const container='1/4 pan';
-  // Usa suggested_qty come current_stock se disponibile
-  const newStock = it.suggested_qty ? parseFloat(it.suggested_qty) : qty;
-  // ── Optimistic update: aggiorna UI subito, DB in background ──
-  tasks[id].need_tomorrow=false;
-  tasks[id].in_progress=false;
-  tasks[id].current_stock=newStock;
-  showConfetti();
-  renderM();renderS();renderHomeStations();
-  // DB in background — non blocca la UI
-  Promise.all([
-    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container,user_name:user.name,is_suggested_qty:false}),
-    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:newStock}).eq('id',id)
-  ]).then(()=>{
-    loadItemAlerts();
-    loadStepsMap();
-  }).catch(e=>console.error('quickSave DB error:',e));
-}
+// SEE STEPS — riapre la ricetta allo step dove eri
+window.prepSeeSteps = function(id){
+  const it = tasks[id];
+  if(!it || !it.recipe_id) return;
+  recipeModal.open(it.recipe_id, id);
+};
 
+// DONE — apre modal quantità
+window.prepDone = function(id){
+  openDoneSheet(id);
+};
+
+// ── DONE SHEET ──
 function openDoneSheet(id){
   const it=tasks[id];
-  // Se c'è una dose consigliata dal bot, mostra prima il mini-modal di scelta
-  if(it.suggested_qty && parseFloat(it.suggested_qty) > 0){
+  if(it.suggested_qty && parseFloat(it.suggested_qty)>0){
     const sqRaw = parseFloat(it.suggested_qty);
     const sqUnit = it.unit||tr('prep_portions');
-    const sqLabel = sqRaw + ' ' + sqUnit;
+    const sqLabel = sqRaw+' '+sqUnit;
     const modal=document.createElement('div');
     modal.className='fixed inset-0 z-50 flex items-end';
     modal.style.background='rgba(0,0,0,0.35)';
@@ -393,77 +410,17 @@ function openDoneSheetCustom(id){
   document.body.appendChild(sheet);
 }
 
-// Salva con la dose suggerita dal bot
 async function suggestedSave(id, modal){
   const it=tasks[id];
   const qty=parseFloat(it.suggested_qty)||1;
   const unit=it.unit||tr('prep_portions');
   modal.remove();
-  tasks[id].need_tomorrow=false;
-  tasks[id].in_progress=false;
-  tasks[id].current_stock=qty;
-  showConfetti();
-  renderM();renderS();renderHomeStations();
+  _finishTask(id, qty);
   Promise.all([
     supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:'',user_name:user.name,is_suggested_qty:true}),
     supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:qty}).eq('id',id)
   ]).then(()=>{loadItemAlerts();loadStepsMap();})
   .catch(e=>console.error('suggestedSave error:',e));
-}
-
-function openWipNoteSheet(id){
-  const it=tasks[id];
-  const sheet=document.createElement('div');
-  sheet.className='fixed inset-0 z-50 flex items-end';
-  sheet.style.background='rgba(0,0,0,0.3)';
-  sheet.innerHTML=`<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;border-top:0.5px solid rgba(59,130,246,0.2);padding:16px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
-    <div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>
-    <div style="font-size:15px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">${it.name}</div>
-    <div style="font-size:12px;color:#64748b;margin-bottom:10px;">'+tr('laterBtn')+'</div>
-    <textarea id="wipNote" placeholder="${tr('prep_wip_placeholder')}" style="width:100%;font-size:13px;color:#1e3a5f;background:rgba(59,130,246,0.04);border:0.5px solid rgba(59,130,246,0.15);border-radius:12px;padding:10px 12px;resize:none;height:60px;margin-bottom:10px;"></textarea>
-    <div style="display:flex;gap:8px;">
-      <button onclick="this.closest('.fixed').remove()" 
-        style="flex:1;height:40px;border-radius:14px;background:white;color:#64748b;border:1px solid #e2e8f0;font-size:13px;font-weight:500;">'+tr('laterBtn')+'</button>
-      <button onclick="saveWip('${id}',document.getElementById('wipNote').value);this.closest('.fixed').remove()" 
-        style="flex:1;height:40px;border-radius:14px;background:#3B82F6;color:white;font-size:13px;font-weight:500;">'+tr('markInProgress')+'</button>
-    </div>
-  </div>`;
-  sheet.onclick=e=>{if(e.target===sheet)sheet.remove()};
-  document.body.appendChild(sheet);
-}
-
-
-// -- NO NEED --
-window.noNeed = async function(id) {
-  const it = tasks[id];
-  if (!it) return;
-  const msg = it.name + ' — No Need: '+tr('noNeedConfirm');
-  if (!confirm(msg)) return;
-  await supa.from('prep_log').insert({
-    item: it.name,
-    station: it.category || tr('generale'),
-    qty: 0,
-    unit: 'no_need',
-    container: '',
-    user_name: user.name,
-    started_at: new Date().toISOString()
-  });
-  await supa.from('prep_tasks').update({need_tomorrow: false, in_progress: false}).eq('id', id);
-  tasks[id].need_tomorrow = false;
-  tasks[id].in_progress = false;
-  renderM();
-  renderS();
-  renderHomeStations();
-  // Aggiorna anche Focus Mode se attiva
-  if (typeof buildFocusList === 'function') buildFocusList();
-  if (typeof window.renderFocusFeed === 'function') window.renderFocusFeed();
-};
-
-async function saveWip(id, note){
-  tasks[id].in_progress=true;
-  await supa.from('prep_tasks').update({in_progress:true}).eq('id',id);
-  if(note) await supa.from('prep_tasks').update({note}).eq('id',id);
-  renderM();
 }
 
 async function detailSave(id, btn, isSuggested){
@@ -476,14 +433,64 @@ async function detailSave(id, btn, isSuggested){
   const it=tasks[id];
   await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name,is_suggested_qty:!!isSuggested});
   await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:qty}).eq('id',id);
+  sheet.remove();
+  _finishTask(id, qty);
+  await loadItemAlerts();
+  await loadStepsMap();
+  setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
+}
+
+// Shared cleanup dopo DONE
+function _finishTask(id, qty){
   tasks[id].need_tomorrow=false;
   tasks[id].in_progress=false;
   tasks[id].current_stock=qty;
-  await loadItemAlerts();
-  await loadStepsMap();
-  sheet.remove();
+  delete _taskStep[id];
+  delete _taskStepTotal[id];
+  releaseWakeLock();
   showConfetti();
-  setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
+  renderM();renderS();renderHomeStations();
+}
+
+// ── NO NEED ──
+window.noNeed = async function(id) {
+  const it = tasks[id];
+  if (!it) return;
+  const msg = it.name + ' — No Need: '+tr('noNeedConfirm');
+  if (!confirm(msg)) return;
+  await supa.from('prep_log').insert({
+    item: it.name,
+    station: it.category || tr('generale'),
+    qty: 0, unit: 'no_need', container: '',
+    user_name: user.name,
+    started_at: new Date().toISOString()
+  });
+  await supa.from('prep_tasks').update({need_tomorrow: false, in_progress: false}).eq('id', id);
+  tasks[id].need_tomorrow = false;
+  tasks[id].in_progress = false;
+  delete _taskStep[id];
+  delete _taskStepTotal[id];
+  renderM(); renderS(); renderHomeStations();
+  if (typeof buildFocusList === 'function') buildFocusList();
+  if (typeof window.renderFocusFeed === 'function') window.renderFocusFeed();
+};
+
+async function quickSave(id){
+  const it=tasks[id];
+  const qty=it.average_qty||1;
+  const newStock = it.suggested_qty ? parseFloat(it.suggested_qty) : qty;
+  _finishTask(id, newStock);
+  Promise.all([
+    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit:'kg',container:'1/4 pan',user_name:user.name,is_suggested_qty:false}),
+    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:newStock}).eq('id',id)
+  ]).then(()=>{loadItemAlerts();loadStepsMap();}).catch(e=>console.error('quickSave DB error:',e));
+}
+
+async function saveWip(id, note){
+  tasks[id].in_progress=true;
+  await supa.from('prep_tasks').update({in_progress:true}).eq('id',id);
+  if(note) await supa.from('prep_tasks').update({note}).eq('id',id);
+  renderM();
 }
 
 async function loadStationNotes(){
@@ -494,30 +501,8 @@ async function loadStationNotes(){
   }catch(e){}
 }
 
-// legacy save — kept for compatibility
-window.save=async(id,btn)=>{
-  quickSave(id);
-};
-
-// ── COMMENTO RAPIDO (punto 30) ──
-function askQuickComment(){
-  return new Promise(resolve=>{
-    const popup=document.createElement('div');
-    popup.className='fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end';
-    popup.innerHTML=`
-      <div class="bg-white w-full max-w-md mx-auto rounded-t-[28px] p-5" style="animation:slideUp .2s ease">
-        <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-3"></div>
-        <p class="text-sm font-semibold mb-2">${tr('prep_quick_comment')} <span class="text-slate-400 font-normal">${tr('prep_optional')}</span></p>
-        <input id="quickComment" placeholder="${tr('quickCommentPlaceholder')}" class="w-full px-3 py-2.5 border rounded-xl text-sm mb-3">
-        <div class="grid grid-cols-2 gap-2">
-          <button onclick="this.closest('.fixed').remove();document.dispatchEvent(new CustomEvent('quickCommentDone',{detail:''}))" class="py-2.5 border rounded-xl text-sm">${tr('prep_skip')}</button>
-          <button onclick="const v=document.getElementById('quickComment').value;this.closest('.fixed').remove();document.dispatchEvent(new CustomEvent('quickCommentDone',{detail:v}))" class="py-2.5 bg-slate-900 text-white rounded-xl text-sm font-semibold">${tr('saveBtn')}</button>
-        </div>
-      </div>`;
-    document.body.appendChild(popup);
-    document.addEventListener('quickCommentDone',e=>{resolve(e.detail)},{once:true});
-  });
-}
+// legacy
+window.save=async(id,btn)=>{ quickSave(id); };
 
 // ── FEED ──
 function renderFeed(){
@@ -537,7 +522,7 @@ function renderFeed(){
           ${['1','2','2.5'].map(q=>`<button onclick="feedSave('${i.id}','${q}',this)" class="h-[70px] rounded-2xl border-2 border-slate-200 bg-slate-50 font-semibold text-lg active:scale-95 transition">${q}</button>`).join('')}
         </div>
         <div class="flex items-center justify-between mt-4 pt-4 border-t">
-          <button onclick="openRecipeForItem('${i.id}')" class="text-[13px] text-slate-600 flex items-center gap-1.5">📖 '+tr('recipe')+'</button>
+          <button onclick="openRecipeForItem('${i.id}')" class="text-[13px] text-slate-600 flex items-center gap-1.5">📖 ${tr('recipe')}</button>
         </div>
       </div>
     </div>`).join('');
@@ -550,12 +535,8 @@ async function feedSave(id,qty,btn){
   await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty:parseFloat(qty),unit:'kg',container:'1/4 pan',user_name:user.name});
   await supa.from('prep_tasks').update({need_tomorrow:false}).eq('id',id);
   tasks[id].need_tomorrow=false;
-  setTimeout(()=>{document.getElementById('feed').scrollBy({top:window.innerHeight*0.8,behavior:'smooth'});renderM();renderS();renderHomeStations()},600);
+  setTimeout(()=>{document.getElementById('feed').scrollBy({top:window.innerHeight*0.8,behavior:'smooth'});renderM();renderS();renderHomeStations();},600);
 }
-
-
-
 
 // Carica steps map all'avvio
 loadStepsMap();
-
