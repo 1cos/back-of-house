@@ -251,11 +251,11 @@ async function tcAdminLoad() {
     var badge = document.getElementById('tcNewBadge');
     if (badge && newIds.length) {
       badge.style.display = 'block';
-      badge.textContent = newIds.length + ' new';
+      badge.textContent = newIds.length + ' ' + tr('tc_new');
     }
 
     if (!reports.length) {
-      list.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:40px;font-size:14px;">No reports yet 📭</div>';
+      list.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:40px;font-size:14px;">' + tr('tc_no_reports') + '</div>';
       return;
     }
 
@@ -264,7 +264,7 @@ async function tcAdminLoad() {
       var timeStr = d.toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ' ' +
         d.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true, timeZone:'America/Chicago' });
       var statusColor = r.status==='done' ? '#22c55e' : r.status==='in_progress' ? '#f59e0b' : r.status==='ignored' ? '#94a3b8' : '#3b82f6';
-      var statusLabel = r.status==='in_progress' ? 'In Progress' : r.status.charAt(0).toUpperCase()+r.status.slice(1);
+      var statusLabel = r.status==='in_progress' ? tr('tc_in_progress') : r.status==='done' ? tr('tc_done') : r.status==='ignored' ? tr('tc_ignore') : r.status.charAt(0).toUpperCase()+r.status.slice(1);
       var station = r.station ? r.station.replace(' Station','') : '';
 
       return '<div style="background:#fff;border-radius:14px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,0.06);">' +
@@ -277,9 +277,9 @@ async function tcAdminLoad() {
         '<div style="font-size:14px;color:#2d3748;line-height:1.5;margin-bottom:10px;">' + (r.message||'') + '</div>' +
         (r.souschef_suggestion ? '<div style="background:#eff6ff;border-left:3px solid #3b82f6;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12px;color:#3b82f6;margin-bottom:10px;">🤖 ' + r.souschef_suggestion + '</div>' : '') +
         '<div style="display:flex;gap:6px;">' +
-          '<button onclick="tcSetStatus(\'' + r.id + '\',\'in_progress\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:700;color:#f59e0b;background:#fff;cursor:pointer;">Working on it</button>' +
-          '<button onclick="tcSetStatus(\'' + r.id + '\',\'done\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:700;color:#22c55e;background:#fff;cursor:pointer;">Done ✓</button>' +
-          '<button onclick="tcSetStatus(\'' + r.id + '\',\'ignored\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:700;color:#94a3b8;background:#fff;cursor:pointer;">Ignore</button>' +
+          '<button onclick="tcSetStatus(\'' + r.id + '\',\'in_progress\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:700;color:#f59e0b;background:#fff;cursor:pointer;">' + tr('tc_working') + '</button>' +
+          '<button onclick="tcSetStatus(\'' + r.id + '\',\'done\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:700;color:#22c55e;background:#fff;cursor:pointer;">' + tr('tc_done') + '</button>' +
+          '<button onclick="tcSetStatus(\'' + r.id + '\',\'ignored\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:700;color:#94a3b8;background:#fff;cursor:pointer;">' + tr('tc_ignore') + '</button>' +
         '</div>' +
         '<div style="margin-top:6px;text-align:right;">' +
           '<span style="font-size:10px;font-weight:800;color:' + statusColor + ';">● ' + statusLabel + '</span>' +
@@ -288,7 +288,7 @@ async function tcAdminLoad() {
     }).join('');
 
   } catch(e) {
-    list.innerHTML = '<div style="text-align:center;color:#ef4444;padding:40px;font-size:14px;">Error loading reports</div>';
+    list.innerHTML = '<div style="text-align:center;color:#ef4444;padding:40px;font-size:14px;">' + tr('tc_error_reports') + '</div>';
   }
 }
 
