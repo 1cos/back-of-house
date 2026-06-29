@@ -177,6 +177,7 @@ Schermo: Insignia Fire TV Silk Browser kiosk
 
 ## BACKLOG
 
+- [ ] **Reorder alerts** — prep tasks che sono in realtà soglie di riordino (Caesar Dressing, Lobster tail, Ribeye, Porterhouse, Branzino, Salmon, Filets): quando il cuoco le marca "finito" o lo stock scende sotto soglia → alert a Tela per riordino. Separare logicamente dal sistema prep/inventario.
 - [ ] TripleSeat API (credenziali Monica — Authorize ancora in attesa)
 - [ ] SevenShift API (JWT token bloccato)
 - [ ] Apple Watch
