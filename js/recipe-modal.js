@@ -4,6 +4,7 @@
 // v4: modal adattivo — ricetta completa / prep_steps / nota / bare
 //     prep_steps usa timer_minutes (non timer_seconds)
 //     BOM mai toccato
+// v5: placeholder {bom_id} negli steps — quantità scalabili con porzioni
 // ─────────────────────────────────────────────────────────
 
 (function(){
@@ -115,6 +116,30 @@ function ingIcon(name){if(!name)return '🥄';const n=name.toLowerCase();for(con
 
 function fmtQty(qty,factor){if(qty===null||qty===undefined||qty==='')return '';const raw=parseFloat(qty)*(factor||1);if(isNaN(raw))return qty;if(raw>=100)return Math.round(raw).toString();if(raw>=10)return(Math.round(raw*10)/10).toFixed(1).replace(/\.0$/,'');return(Math.round(raw*100)/100).toFixed(2).replace(/\.?0+$/,'');}
 
+// ── PLACEHOLDER RESOLVER ─────────────────────────────────
+// Sostituisce {item_id} o {uuid} nel testo degli steps con la quantità
+// scalata dal BOM. Esempio: "Heat {abc123} EVOO" → "Heat 250g EVOO"
+// Format placeholder: {bom_item_id} dove bom_item_id è item_id o sub_recipe_id
+// della riga BOM corrispondente (stringa esatta, case-insensitive)
+function resolvePlaceholders(text, bomRows, factor) {
+  if (!text || !bomRows || bomRows.length === 0) return text;
+  return text.replace(/\{([^}]+)\}/g, function(match, key) {
+    // Cerca nel BOM per item_id o sub_recipe_id (entrambi come stringa)
+    var row = bomRows.find(function(b) {
+      return (b.item_id && String(b.item_id) === key) ||
+             (b.sub_recipe_id && String(b.sub_recipe_id) === key);
+    });
+    if (!row) return match; // placeholder non trovato — lascia invariato
+    var qty = fmtQty(row.quantity, factor || 1);
+    var unit = row.unit || '';
+    var name = row.component_type === 'RECIPE'
+      ? (row.recipes && row.recipes.title ? row.recipes.title : '')
+      : (row.ingredients && row.ingredients.name ? row.ingredients.name : '');
+    // Restituisce "250g" oppure "250g Butter" se il nome è nel placeholder
+    return '<strong style="color:#2563eb">' + qty + (unit ? unit : '') + '</strong>';
+  });
+}
+
 // ── TIMER ────────────────────────────────────────────────
 const timers={};
 function startTimer(key,secs,onTick,onDone){
@@ -153,16 +178,17 @@ function buildShell(title, category, pills, botPill, tabs){
 }
 
 // ── STEP RENDERER (condiviso tra recipe_steps e prep_steps) ──
-function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal){
+function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal, bomRows, scaleFactor){
   if(!steps||steps.length===0) return `<div class="rm-empty"><div class="rm-empty-icon">👨‍🍳</div>${t('noSteps')}</div>`;
   const step=steps[currentStep];
   const total=steps.length;
   const pct=Math.round(((currentStep+1)/total)*100);
   const lang=window.user?.lang||'en';
   // Supporta sia recipe_steps (instruction_en/it/es) che prep_steps (note)
-  const instruction=(lang==='it'&&step.instruction_it)?step.instruction_it
+  var rawInstruction=(lang==='it'&&step.instruction_it)?step.instruction_it
     :(lang==='es'&&step.instruction_es)?step.instruction_es
     :(step.instruction_en||step.instruction_it||step.note||'');
+  const instruction=resolvePlaceholders(rawInstruction, bomRows||[], scaleFactor||1);
   // Timer: recipe_steps usa timer_seconds, prep_steps usa timer_minutes
   const timerSecs = step.timer_seconds || (step.timer_minutes ? step.timer_minutes*60 : 0);
   const dots=steps.map((_,i)=>`<div class="rm-dot ${i===currentStep?'active':i<currentStep?'done':''}"></div>`).join('');
@@ -196,7 +222,7 @@ function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal){
     </div>`;
 }
 
-function bindStepEvents(steps, getCurrentStep, setCurrentStep, prepTaskId, totalSteps, renderFn, closeModalFn){
+function bindStepEvents(steps, getCurrentStep, setCurrentStep, prepTaskId, totalSteps, renderFn, closeModalFn, getBomRows, getScaleFactor){
   const idx=getCurrentStep();
   const timerSecs = steps[idx].timer_seconds || (steps[idx].timer_minutes ? steps[idx].timer_minutes*60 : 0);
   const tBtn=document.getElementById(`rmTbtn_${idx}`);
@@ -374,7 +400,7 @@ window.recipeModal={
       function renderTab(tab){
         const body=document.getElementById('rmBody');
         if(tab==='ingredients'){body.innerHTML=buildIngredients(bomRows,scaleFactor,baseServings);bindIngredients();}
-        else if(tab==='steps'){body.innerHTML=renderStepView(recipeSteps,currentStep,prepTaskId,totalSteps,closeFn);bindStepEvents(recipeSteps,()=>currentStep,s=>{currentStep=s;},prepTaskId,totalSteps,()=>renderTab('steps'),closeFn);}
+        else if(tab==='steps'){body.innerHTML=renderStepView(recipeSteps,currentStep,prepTaskId,totalSteps,closeFn,bomRows,scaleFactor);bindStepEvents(recipeSteps,()=>currentStep,s=>{currentStep=s;},prepTaskId,totalSteps,()=>renderTab('steps'),closeFn,()=>bomRows,()=>scaleFactor);}
         else body.innerHTML=buildNotes(rec);
       }
 
@@ -392,7 +418,13 @@ window.recipeModal={
         let servings=startServings||baseServings;
         const val=document.getElementById('rmServVal');
         const list=document.getElementById('rmIngList');
-        function update(s){servings=Math.max(1,s);scaleFactor=servings/baseServings;if(val)val.textContent=servings;if(list&&bomRows)list.innerHTML=renderIngList(bomRows,scaleFactor);}
+        function update(s){servings=Math.max(1,s);scaleFactor=servings/baseServings;if(val)val.textContent=servings;if(list&&bomRows)list.innerHTML=renderIngList(bomRows,scaleFactor);
+          // Se siamo nel tab steps, aggiorna anche il testo degli steps con il nuovo scaleFactor
+          if(activeTab==='steps'){
+            const body=document.getElementById('rmBody');
+            if(body){body.innerHTML=renderStepView(recipeSteps,currentStep,prepTaskId,totalSteps,closeFn,bomRows,scaleFactor);bindStepEvents(recipeSteps,()=>currentStep,s=>{currentStep=s;},prepTaskId,totalSteps,()=>renderTab('steps'),closeFn,()=>bomRows,()=>scaleFactor);}
+          }
+        }
         document.getElementById('rmMinus')?.addEventListener('click',()=>update(servings-1));
         document.getElementById('rmPlus')?.addEventListener('click',()=>update(servings+1));
       }
