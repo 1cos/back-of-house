@@ -326,7 +326,7 @@ window.prepStart = async function(id){
   if(it.in_progress){ prepSeeSteps(id); return; }
   // Segna in_progress nel DB (optimistic)
   tasks[id].in_progress = true;
-  supa.from('prep_tasks').update({in_progress:true, started_at: new Date().toISOString()}).eq('id',id).then(()=>{}).catch(()=>{});
+  supa.from('prep_tasks').update({in_progress:true}).eq('id',id).then(()=>{}).catch(()=>{});
   renderM();
   // Apre il recipe modal con tracking dello step (funziona anche senza recipe_id)
   if(typeof recipeModal!=='undefined'){
