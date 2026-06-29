@@ -253,3 +253,58 @@ Roasted Almonds, Seed mix, Shaved Parm, Shredded Carrots, Sliced Mozzarella, Sli
 - Brigade frontend: **v395**
 - Edge Function gmail-touchbistro-import: **v22**
 - Supabase project: `ydqmumpytgrlceuinoqt`
+
+
+---
+
+## SESSIONE 28 GIUGNO 2026 (notte) — v396 — Audit inventario + fix dati ricette
+
+### Audit inventario prep
+- PDF inventario prep aggiornato e stampabile: `Zenos_Prep_Inventory_June28.pdf`
+- Martedì mattina Max conta fisicamente ogni item e inserisce `current_stock` in Brigade
+- **NON usare valori artificiali** — solo conteggio fisico reale
+
+### Chiarimenti prep_type definitivi
+- **Erbe fresche** (Rosemary, Sage, Thyme, Tarragon, Basil, Arugola) → `checklist` Tela, NON nel PDF inventario
+- **Flowers (Edible, id 455)** → `supporto` corretto (era checklist), `unit = pezzi` — arrivano da Hardie's in contenitori da 25 o 50 pcs
+- **Basil flowers (id 235)** → `supporto`, si preparano dal basilico Hardie's, si contano i singoli fiori
+- **Caesar Dressing** → ingrediente acquistato (Hardie's/BEK), NON prep task, NON nel PDF inventario
+- **Lemon cream** → rimossa dal menu, NON nel PDF
+- **Pastori & onions** → fuori menu, NON nel PDF
+- **Salad squeezer** (Balsamic Glaze, Caesar, Citronnette, Ranch, Blue Cheese, Honey) → `checklist` operativa, NON nel PDF inventario
+
+### Nuovi prep task creati
+- **Thyme Butter** (id nuovo) → Saucier Station, `supporto`, `unit = g`, `shelf_life_days = 30`, collegato a ricetta THYME BUTTER
+
+### Ricette aggiornate con base_weight_g
+| Ricetta | base_weight_g | base_servings | shelf_life | unit prep |
+|---|---|---|---|---|
+| Ranch Dressing | 7,571g | 106 | 7gg | kg |
+| CITRONETTE | 1,000g | 30 | 7gg | kg |
+| BALSAMIC VINAIGRETTE | 2,000g | — | 7gg | kg |
+| Nutella mix | 550g | 13 | 30gg | g |
+| Berry coulis | 3,475g | 56 | 7gg | g |
+| SALMORIGLIO | 450g | 5 | 4gg | g |
+| Risotto Base | 4,000g | 25 | 3gg | kg |
+| THYME BUTTER | 5g* | — | 30gg | g |
+
+*THYME BUTTER base_weight_g = 5g sembra placeholder — verificare con Max
+
+### BOM verificati/recuperati da sessione precedente
+- Berry coulis BOM: Mix Berries 2,250g + Sugar 1,225g ✅ (era vuoto, recuperato da chat)
+- Nutella mix BOM: Nutella 500g + Sunflower Oil 50g ✅ (era presente, solo base_weight_g mancava)
+- Both/Both on side → pos_item_aliases: scarica 1 Nutella + 1 Berry coulis ✅
+
+### Ancora da fare (prossima sessione)
+1. **THYME BUTTER base_weight_g** → verificare peso reale batch con Max
+2. **Brisket, Truffle Butter** → base_weight_g mancante, Max non sa — verificare in cucina
+3. **bot-preplist-builder** → riscrivere per paradigma nuovo (current_stock + shelf_life_days + prep_type)
+4. **Stazioni non ancora toccate**: Finishing Oven, Plating Station complete
+5. **Manager Station aperte**: Basil flowers BOM, Confit tomatoes ricetta, Porterhouse task (id 461), Spinach (id 318)
+6. **PDF inventario** → aggiornare data martedì dopo conteggio fisico
+7. **Aggiornare BOH_OS_BACKLOG.md** versione v396
+
+## STATO VERSIONI
+- Brigade frontend: **v396**
+- Edge Function gmail-touchbistro-import: **v22**
+- Supabase project: `ydqmumpytgrlceuinoqt`
