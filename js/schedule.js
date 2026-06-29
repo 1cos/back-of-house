@@ -380,9 +380,9 @@ function schedRenderOggi(container) {
       : 'Monday';
     sundayBannerHtml = '<div style="background:linear-gradient(135deg,rgba(30,58,95,0.08),rgba(5,150,105,0.08));border:0.5px solid rgba(5,150,105,0.2);border-radius:16px;padding:18px 16px;text-align:center;margin-bottom:14px;">' +
       '<div style="font-size:32px;margin-bottom:6px;">🌙</div>' +
-      '<div style="font-size:17px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">Zenos è chiuso oggi</div>' +
-      '<div style="font-size:13px;color:#64748b;">Buon riposo a tutta la brigata.</div>' +
-      (nextMonday ? '<div style="font-size:13px;color:#059669;font-weight:600;margin-top:8px;">Prossimo turno: ' + nextLabel + '</div>' : '') +
+      '<div style="font-size:17px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">' + tr('sched_closed') + '</div>' +
+      '<div style="font-size:13px;color:#64748b;">' + tr('sched_rest') + '</div>' +
+      (nextMonday ? '<div style="font-size:13px;color:#059669;font-weight:600;margin-top:8px;">' + tr('sched_next_shift') + nextLabel + '</div>' : '') +
     '</div>';
   }
 
