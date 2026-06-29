@@ -226,7 +226,7 @@ Regola: NULL su tutto tranne cadenza fissa per ragione operativa specifica.
 - Ricetta Soffritto Livornese creata e collegata al prep task id 397
 
 ### 2. Ricette da creare (ancora aperte)
-- **Mash Potato** (Saucier) — supporto per Scallops Chef's Way
+- ~~**Mash Potato**~~ (Saucier) — supporto per Scallops Chef's Way ✅
 - **Confit Tomatoes** — supporto per Shrimp Gnocchi + Mediterranean Salad
 - **Truffle Butter** — ricetta interna (usata in Truffle Fettuccine)
 - **Brisket/Pulled Beef** — ricetta interna (usata in Beef Ravioli) — Max deve trovare il nome nell'app
@@ -348,7 +348,7 @@ Due sezioni in una pagina accessibile da L'Ufficio (solo admin):
 ### 4. Dati ricette ancora mancanti da completare
 - Brisket — base_weight_g (Max deve verificare in cucina)
 - Truffle butter — base_weight_g
-- Mash Potato — base_weight_g
+- ~~Mash Potato~~ — base_weight_g ✅
 - THYME BUTTER — base_weight_g = 5g sembra sbagliato (placeholder)
 - Varie Pastry senza shelf_life_days
 
@@ -416,7 +416,7 @@ Due sezioni in una pagina accessibile da L'Ufficio (solo admin):
 ### 2. Dati ricette ancora mancanti
 - **Brisket** — `base_weight_g` (verificare in cucina)
 - **Truffle Butter** — `base_weight_g`
-- **Mash Potato** — `base_weight_g`
+- ~~**Mash Potato**~~ — `base_weight_g` ✅
 - **THYME BUTTER** — `base_weight_g = 5g` sembra placeholder, verificare
 - Varie Pastry — `shelf_life_days` mancanti
 
