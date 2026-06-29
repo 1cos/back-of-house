@@ -525,11 +525,11 @@ window.showMsgMenu = function(msgId, msgText, isMine) {
       ${editBtn}
       <button onclick="addReaction('${msgId}');document.getElementById('_msgMenu').remove();"
         style="width:100%;padding:16px;background:none;border:none;font-size:16px;color:#1e293b;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;">
-        <span style="font-size:20px;">😊</span> Reaction
+        <span style="font-size:20px;">😊</span> ${tr('chat_reaction')}
       </button>
       <button onclick="document.getElementById('_msgMenu').remove();"
         style="width:100%;padding:14px;background:none;border:none;border-top:0.5px solid rgba(0,0,0,0.08);font-size:15px;color:#94a3b8;cursor:pointer;">
-        Annulla
+        ${tr('chat_cancel')}
       </button>
     </div>`;
 
@@ -548,14 +548,14 @@ window.openEditMsg = function(msgId, currentText) {
   sheet.innerHTML = `
     <div style="background:rgba(255,255,255,0.97);border-radius:24px 24px 0 0;width:100%;max-width:480px;padding:16px 16px max(24px,env(safe-area-inset-bottom));box-shadow:0 -8px 40px rgba(0,0,0,0.15);">
       <div style="width:36px;height:4px;background:rgba(0,0,0,0.1);border-radius:2px;margin:0 auto 16px;"></div>
-      <div style="font-size:14px;font-weight:600;color:#64748b;margin-bottom:10px;">✏️ Modifica messaggio</div>
+      <div style="font-size:14px;font-weight:600;color:#64748b;margin-bottom:10px;">${tr('chat_edit_msg')}</div>
       <textarea id="_editMsgTxt"
         style="width:100%;min-height:80px;padding:12px 14px;border-radius:16px;border:1.5px solid #e2e8f0;font-size:15px;line-height:1.5;color:#1e293b;outline:none;resize:none;box-sizing:border-box;font-family:inherit;">${currentText}</textarea>
       <div style="display:flex;gap:10px;margin-top:12px;">
         <button onclick="document.getElementById('_editMsgSheet').remove();"
-          style="flex:1;height:48px;border-radius:14px;background:#f1f5f9;border:none;font-size:15px;font-weight:600;color:#64748b;cursor:pointer;">Annulla</button>
+          style="flex:1;height:48px;border-radius:14px;background:#f1f5f9;border:none;font-size:15px;font-weight:600;color:#64748b;cursor:pointer;">${tr('chat_cancel')}</button>
         <button onclick="saveEditMsg('${msgId}')"
-          style="flex:1;height:48px;border-radius:14px;background:#1e3a5f;border:none;font-size:15px;font-weight:600;color:white;cursor:pointer;">Salva</button>
+          style="flex:1;height:48px;border-radius:14px;background:#1e3a5f;border:none;font-size:15px;font-weight:600;color:white;cursor:pointer;">${tr('chat_save')}</button>
       </div>
     </div>`;
   sheet.onclick = function(e) { if (e.target === sheet) sheet.remove(); };
@@ -582,7 +582,7 @@ window.saveEditMsg = async function(msgId) {
     // Ricarica chat per mostrare il messaggio aggiornato
     loadChat();
   } catch(e) {
-    if (btn) { btn.textContent = 'Salva'; btn.disabled = false; }
+    if (btn) { btn.textContent = tr('chat_save'); btn.disabled = false; }
   }
 };
 
