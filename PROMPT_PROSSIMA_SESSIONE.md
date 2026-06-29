@@ -440,3 +440,80 @@ Due sezioni in una pagina accessibile da L'Ufficio (solo admin):
 - bot-preplist-builder: **v18** (version 36)
 - Edge Function gmail-touchbistro-import: **v22**
 - Supabase project: `ydqmumpytgrlceuinoqt`
+
+---
+
+## Sessione 29 giugno 2026 — pomeriggio/sera
+
+### Completato
+
+**Recipe Modal (recipe-modal.js) — Brigade v410:**
+- Fullscreen (94vh), font grandi per cucina
+- 3 tab: Ingredients (BOM), Steps (recipe_steps), Notes
+- Header: porzioni + shelf life in lingua (IT/EN/ES) — no grammi
+- Bot pill 🤖 se chiamato da prep task con suggested_qty — cliccabile, porta stepper a porzioni suggerite
+- BOM fix: query usa `parent_recipe_id` (non `recipe_id`)
+- Tab labels tradotti IT/EN/ES
+- Timer countdown con vibrazione al termine
+- `recipeModal.open(recipeId, prepTaskId)` — prepTaskId opzionale
+
+**Tabella `recipe_steps` creata** con colonne: id, recipe_id, step_number, title, instruction_en, instruction_it, instruction_es, timer_seconds
+
+**Regola BOM — CRITICA:**
+- I BOM esistenti NON si toccano mai — sono dei bot e hanno connessioni POS
+- Gli steps (recipe_steps) sono nostri da gestire
+- Il modal mostra il BOM in sola lettura
+- Per ricette nuove create da zero (Mash Potato, Rosemary Mash, Grill Mash) il BOM è gestibile
+
+**Ricette con steps completati (Saucier Station):**
+- Mash Potato — 5 steps (base Robuchon)
+- Rosemary Mash — 5 steps (infusione rosmarino) — ricetta nuova
+- Grill Mash — 6 steps (aglio arrostito + timo + demi-glace) — ricetta nuova
+- ARRABBIATA — 4 steps (soffritto olio/aglio/prezzemolo/peperoncino → pelati → smash 2h → store)
+- POMODORO SAUCE — 4 steps (soffritto con carote/sedano → pelati → simmer 2h smash leggero → frulla con basilico fresco)
+- MK-RAGU — 6 steps (soffritto → brown meat → deglaze vino → aromi + pelati → simmer 3h → strain)
+- CACIO E PEPE SAUCE — 6 steps (latte in pentola antiaderente → roux a parte → unisci → formaggi off heat → frulla → chinois)
+- BECHAMEL SAUCE — 4 steps (stessa tecnica Cacio e Pepe senza formaggi, con sale e noce moscata)
+- DEMI FOR RAVIOLI — 5 steps (scarti carne arrostiti → soffritto → deglaze + aromi + acqua → Knorr demi → chinois)
+- SLICED MUSHROOM — 5 steps (prep → soffritto aromi 2min → funghi in batch → deglaze vino → al dente + prezzemolo + placca)
+
+**Regola steps — approvazione obbligatoria:**
+1. Leggo BOM esatto dal DB
+2. Mostro ingredienti a Max
+3. Propongo steps basati su BOM + metodo di Max
+4. Max approva
+5. Solo dopo salvo nel DB
+Non inventare quantità — usare solo quelle del BOM
+
+### Da fare prossima sessione
+
+**PRIORITÀ 1 — Sistema placeholder negli steps:**
+Il testo degli steps deve usare placeholder `{item_id}` invece di quantità hardcoded.
+Esempio: "Heat {412b67a7} EVOO" invece di "Heat 250g EVOO"
+Il modal risolve i placeholder in tempo reale dal BOM scalato — se stepper passa da 10 a 20 porzioni, le quantità nel testo si aggiornano automaticamente.
+Questo richiede:
+- Aggiornare recipe-modal.js per parsare e risolvere placeholder
+- Riscrivere gli steps esistenti con placeholder (o farlo da admin)
+- Aggiungere tab Edit in admin per gestire steps (sessione separata)
+
+**PRIORITÀ 2 — Ricette rimanenti Saucier:**
+- Texana Soup
+- Soffritto Livornese (duplicato prep task 397 e 450 da sistemare)
+- Brisket (recipe_id punta a "Beef Ravioli" — sbagliato, da creare ricetta separata)
+- Truffle Butter (recipe_id punta a "Truffle Fettuccine" — sbagliato)
+- Thyme Butter
+
+**PRIORITÀ 3 — Altre stazioni:**
+- Salad Station
+- Pasta Station
+- Saute Station
+- Oven Station
+- Plating Station
+- Pastry Station
+
+**PRIORITÀ 4 — Admin recipe editor:**
+- Tab Edit inline per tutti i campi ricetta
+- Tab Costs (food cost, selling price, margin) — solo admin
+- Gestione steps da admin
+
+**Versione live:** Brigade v410
