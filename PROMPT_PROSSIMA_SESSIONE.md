@@ -308,3 +308,6 @@ Roasted Almonds, Seed mix, Shaved Parm, Shredded Carrots, Sliced Mozzarella, Sli
 - Brigade frontend: **v396**
 - Edge Function gmail-touchbistro-import: **v22**
 - Supabase project: `ydqmumpytgrlceuinoqt`
+
+
+- **bot-preplist-builder: v18** deployato (version 36) — nuovo paradigma current_stock + shelf_life_days + prep_type. Guard: salta se current_stock IS NULL. Pill: green/yellow/red salvato in suggested_note come 'color|testo'.
