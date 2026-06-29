@@ -15,7 +15,7 @@ async function openRecipeForItem(itemId){
 
   if(task?.recipe_id){
     const{data:recipe} = await supa.from('recipes').select('*').eq('id',task.recipe_id).maybeSingle();
-    if(recipe){ showRecipeSheet(recipe); return; }
+    if(recipe){ recipeModal.open(recipe.id); return; }
   }
   const linked = recipeLinks[itemId];
   if(linked){
@@ -93,7 +93,7 @@ async function openRecipeByData(idx){
     }
   }
 
-  showRecipeSheet(rec);
+  recipeModal.open(rec.id);
 }
 
 // Translate procedure/equipment text only — not ingredient names
