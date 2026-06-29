@@ -352,3 +352,91 @@ Due sezioni in una pagina accessibile da L'Ufficio (solo admin):
 - THYME BUTTER — base_weight_g = 5g sembra sbagliato (placeholder)
 - Varie Pastry senza shelf_life_days
 
+
+---
+
+## SESSIONE 29 GIUGNO 2026 — v398→v408 — Inventory Setup + i18n completo
+
+### Completato in questa sessione
+
+**Inventory Setup (L'Ufficio → admin):**
+- Pagina `Inventory Setup` costruita e deployata in `office.js`
+- Sezione A: lista prep tasks con `current_stock = NULL`, input inline per stazione, salva con un tap, feedback visivo verde ✅
+- Sezione B: Recipe Health — lista ricette collegate a prep tasks attivi con `base_weight_g` o `shelf_life_days` mancanti, input inline, salva ✅
+
+**prep.js — pill bot v18:**
+- Pill `suggested_note` aggiornata per leggere formato `green|testo` / `yellow|testo` / `red|testo` ✅
+- Pill colorata dinamica (verde/giallo/rosso) con testo del bot ✅
+
+**Unità di misura prep tasks:**
+- Tutte le task con `unit = 'batch'` o `unit IS NULL` corrette nel DB ✅
+- Regola: salse/creme/formaggi/pasta = `g`, pezzi = `pz`, erbe/checklist = `NULL`, Tempura = `batch`, Parsley = `mazzi`
+- Sali (Beef/Confit/Fish/Potato/Ribeye) → `NULL` (checklist visiva) ✅
+- Check Balsamic Glaze / Check Basil Oil → `NULL` ✅
+- Caesar Dressing → `NULL` (reorder, non prep) ✅
+- Tempura Batter: `base_weight_g = 800g`, `shelf_life_days = 1` ✅
+
+**Reorder alerts → backlog:**
+- Caesar Dressing, Lobster tail, Ribeye, Porterhouse, Branzino, Salmon → non sono prep tasks, sono soglie di riordino
+- Aggiunto in `BOH_OS_BACKLOG.md` come modulo futuro ✅
+
+**Schedule:**
+- Bottone `✦ Genera` nascosto per tutti tranne admin ✅ (v400)
+
+**i18n — passo completo su tutti i file JS:**
+- `prep.js` → pill stock verde/giallo/rosso, modal "quanto hai preparato", dose suggerita, label Qty/Unità/Contenitore, placeholder WIP, commento rapido, locale orario, "da/by/por" ✅
+- `schedule.js` → banner domenica (chiuso/riposo/prossimo turno) tradotto IT/EN/ES ✅
+- `app.js` → PIN non valido ✅
+- `focus-mode.js` → DONE/TO DO ✅
+- `recipes.js` → confirm/alert (no recipe, delete, error, linked) ✅
+- `recipes.js preview` → Original/Equipment/Procedure/Edit Recipe/Link Recipes/Food Cost/Prep today ✅
+- `briefing.js` → Weekly/Yesterday Highlights, View all, pcs, no food data, add event ✅
+- `briefing.js upcoming events` → guests/portions/more/status (Confirmed/Tentative/Cancelled) ✅
+- `chat.js` → Reaction, Annulla, Modifica messaggio, Salva ✅
+- `tell-chef.js` → badge new, no reports, Working on it, Done, Ignore, In Progress, error ✅
+- `pos.js` → label periodo Ieri, Deep Analysis messaggi stato/errore, option placeholders ✅
+- `closing.js` → già tradotto ✅
+- `operation-notes.js` → già tradotto ✅
+- `news.js` → già tradotto ✅
+- `init.js` → OK (Chiusura = valore interno, non testo UI) ✅
+- `utils.js` → aggiunte ~50 chiavi nuove IT/EN/ES, audit finale: tutte presenti 3x ✅
+- Fix `goodMorning/Afternoon/Evening/Night` mancanti — aggiunte ✅
+
+**Versione finale:** Brigade **v408**
+
+---
+
+## PROSSIMA SESSIONE — DA FARE (priorità)
+
+### 1. Martedì — conteggio fisico inventario
+1. Max apre Brigade → L'Ufficio → Inventory Setup → Sezione A
+2. Conta fisicamente ogni item
+3. Inserisce i numeri nell'app — il bot della notte calcola già tutto
+
+### 2. Dati ricette ancora mancanti
+- **Brisket** — `base_weight_g` (verificare in cucina)
+- **Truffle Butter** — `base_weight_g`
+- **Mash Potato** — `base_weight_g`
+- **THYME BUTTER** — `base_weight_g = 5g` sembra placeholder, verificare
+- Varie Pastry — `shelf_life_days` mancanti
+
+### 3. Stazioni ancora da completare
+- **Finishing Oven** — categorizzazione prep_type non ancora toccata
+- **Plating Station** — categorizzazione prep_type non ancora toccata
+
+### 4. Manager Station — ancora aperti
+- Basil flowers → BOM da collegare alle ricette
+- Confit tomatoes → ricetta da creare + BOM
+- Porterhouse task (id 461) → collegare a ricetta Porterhouse alla Fiorentina
+- Spinach (id 318) → decidere: stessa ricetta di Butter Spinach o separata?
+
+### 5. Backlog i18n — possibili gap residui
+- Verificare `admin.js`, `admin-prep.js`, `admin-team.js`, `admin-ingredients.js` — non toccati
+- Verificare `souschef-chat.js` — non toccato
+- Verificare `office.js` — Inventory Setup aggiunto in italiano, tradurre chiavi
+
+## STATO VERSIONI
+- Brigade frontend: **v408**
+- bot-preplist-builder: **v18** (version 36)
+- Edge Function gmail-touchbistro-import: **v22**
+- Supabase project: `ydqmumpytgrlceuinoqt`
