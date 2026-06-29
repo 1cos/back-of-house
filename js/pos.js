@@ -58,7 +58,7 @@ function getPeriod(mode) {
       : posCustomFrom.slice(5)+' - '+posCustomTo.slice(5);
     return { from:posCustomFrom, to:posCustomTo, label, compareDates:[], singleDay: posCustomFrom === posCustomTo };
   }
-  return { from:toISO(addDays(today,-1)), to:toISO(addDays(today,-1)), label:'Ieri', compareDates:[], singleDay:true };
+  return { from:toISO(addDays(today,-1)), to:toISO(addDays(today,-1)), label:tr('yesterday'), compareDates:[], singleDay:true };
 }
 
 function posSelectors(period) {
@@ -691,10 +691,10 @@ function daPopulateDomande() {
   var cat = document.getElementById('da-cat').value;
   var sel = document.getElementById('da-q');
   if (!cat || !DA_CATEGORIES[cat]) {
-    sel.innerHTML = '<option value="">— Prima seleziona la categoria —</option>';
+    sel.innerHTML = '<option value="">'+tr('pos_select_cat_opt')+'</option>';
     return;
   }
-  sel.innerHTML = '<option value="">— Seleziona domanda —</option>' +
+  sel.innerHTML = '<option value="">'+tr('pos_select_q_opt')+'</option>' +
     DA_CATEGORIES[cat].map(function(q,i) {
       return '<option value="'+i+'">'+(i+1)+'. '+q.label+'</option>';
     }).join('');
@@ -708,25 +708,25 @@ async function runDeepAnalysis() {
   var res     = document.getElementById('da-result');
 
   if (!catVal || qIdx === '' || qIdx === null || qIdx === undefined) {
-    res.innerHTML = '<div style="background:#fef3c7;border-radius:12px;padding:14px;font-size:13px;color:#92400e;">Seleziona categoria e domanda prima di analizzare.</div>';
+    res.innerHTML = '<div style="background:#fef3c7;border-radius:12px;padding:14px;font-size:13px;color:#92400e;">'+tr('pos_select_cat')+'</div>';
     return;
   }
   if (!fromVal || !toVal) {
-    res.innerHTML = '<div style="background:#fef3c7;border-radius:12px;padding:14px;font-size:13px;color:#92400e;">Seleziona il periodo.</div>';
+    res.innerHTML = '<div style="background:#fef3c7;border-radius:12px;padding:14px;font-size:13px;color:#92400e;">'+tr('pos_select_period')+'</div>';
     return;
   }
 
   var q = DA_CATEGORIES[catVal][parseInt(qIdx)];
   if (!q) return;
 
-  res.innerHTML = '<div style="text-align:center;padding:24px;color:#94a3b8;font-size:13px;">Analisi in corso\u2026</div>';
+  res.innerHTML = '<div style="text-align:center;padding:24px;color:#94a3b8;font-size:13px;">'+tr('pos_analyzing')+'</div>';
 
   try {
     var sb = window.supabaseClient;
     var html = await daExecuteQuery(sb, q, fromVal, toVal);
     res.innerHTML = html;
   } catch(e) {
-    res.innerHTML = '<div style="background:#fee2e2;border-radius:12px;padding:14px;font-size:13px;color:#991b1b;">Errore: '+e.message+'</div>';
+    res.innerHTML = '<div style="background:#fee2e2;border-radius:12px;padding:14px;font-size:13px;color:#991b1b;">'+tr('pos_error')+e.message+'</div>';
   }
 }
 
@@ -2408,7 +2408,7 @@ async function staffOpenDishModal(dishName, from, to) {
 
   } catch(e) {
     var modal2 = document.getElementById('sd-modal');
-    if (modal2) modal2.innerHTML = '<div style="background:#f8faff;border-radius:24px 24px 0 0;width:100%;padding:24px;color:#dc2626;">Errore: '+e.message+'</div>';
+    if (modal2) modal2.innerHTML = '<div style="background:#f8faff;border-radius:24px 24px 0 0;width:100%;padding:24px;color:#dc2626;">'+tr('pos_error')+e.message+'</div>';
   }
 }
 
