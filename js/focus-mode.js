@@ -141,7 +141,7 @@ function renderOneFocusCard(i) {
   var statusColor = isWip ? '#d97706' : (isDone ? '#0369a1' : '#dc2626');
   var statusLabel = isWip
     ? 'IN PROGRESS' + (_focusStartTimes[i.id] ? ' · ' + Math.round((Date.now()-_focusStartTimes[i.id])/60000) + ' min ⏱' : '')
-    : (isDone ? 'DONE' : 'TO DO');
+    : (isDone ? tr('focus_done') : tr('focus_todo'));
 
   var hasRecipe = i.recipe_id || (typeof recipeLinks !== 'undefined' && recipeLinks[i.id]) || i.note;
   var recipeLink = hasRecipe
