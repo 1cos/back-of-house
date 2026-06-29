@@ -15,7 +15,7 @@ async function openRecipeForItem(itemId){
 
   if(task?.recipe_id){
     const{data:recipe} = await supa.from('recipes').select('*').eq('id',task.recipe_id).maybeSingle();
-    if(recipe){ recipeModal.open(recipe.id); return; }
+    if(recipe){ recipeModal.open(recipe.id, itemId); return; }
   }
   const linked = recipeLinks[itemId];
   if(linked){
