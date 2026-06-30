@@ -283,3 +283,40 @@ Tutti i titoli esistenti (74 steps, incluse le ricette Saucier della sessione pr
 **File modificati:** tutti e 6 i file MD principali, nessun file JS, nessun bump sw.js (nessuna modifica a codice in questa sessione).
 
 **Lezione per sessioni future:** quando si verifica lo stato di un modulo per aggiornare la documentazione, non basta controllare che il codice "risponda" o sia "implementato nel routing" — va sempre chiesto a Max se l'esperienza reale lo soddisfa, prima di marcare qualcosa come ✅ fatto/risolto. La verifica tecnica e il giudizio di qualità sono due cose diverse.
+
+---
+
+## SESSIONE 30 GIUGNO 2026 (sera) — v428→v430 — Fix Edit Ingredient (measure_type / peso a pezzo)
+
+**Contesto di partenza:** sessione dedicata al file Prep_Reference.xlsx (154 prep_tasks, logica POS↔prep, caso Calamari/Cantaloupe/Burrata — porzioni teoriche vs kg materia prima con resa/scarto). Prima di arrivare al file, Max ha segnalato un bug bloccante nell'editor ingredienti scoperto provando a editare "Lobster Tail" (screenshot allegato): il modal "Edit Ingredient" mostrava solo NAME/CATEGORY/BASE UNIT/YIELD%/NOTES — niente modo di impostare il peso del singolo pezzo per ingredienti a conteggio (`measure_type='each'`).
+
+**Bug trovato in `js/ingredients.js` (funzione `openEditIngredient`/`saveEditIngredient`):**
+- Le label HTML "AVG UNIT WEIGHT (g)" e "UNIT VOLUME (ml)" esistevano nel modal ma senza i relativi `<input>` — div vuoti, codice abbandonato a metà in una sessione precedente.
+- `saveEditIngredient` leggeva `document.getElementById('editIngrWeight')` e `'editIngrVol'`, ID mai esistiti nell'HTML → sempre `NaN`.
+- L'oggetto `updates` inviato al DB non includeva comunque `avg_unit_weight_g` — anche con gli input presenti, non si sarebbe salvato nulla.
+- Verificato che `unit_volume_ml` **non esiste** come colonna in `ingredients` (confermato via `information_schema.columns`) — il campo "UNIT VOLUME" era morto due volte. Rimosso dal modal.
+
+**Discussione concettuale con Max (voce, prima di scrivere codice):**
+- Max ha chiarito che il peso del pezzo va scritto nell'unità che preferisce lui in quel momento (es. once, perché le code di lobster cambiano calibro) — non vuole convertire a mano in grammi. Il software deve convertire da solo.
+- Max ha chiarito anche il flusso a 3 livelli che vuole arrivare a costruire (NON tutto fatto in questa sessione, solo l'ingrediente): 1) sull'ingrediente si fissa una volta "1 pezzo = X once/grammi", 2) nel BOM della ricetta si scrive "1 each" (non i grammi), 3) il prep_task/bot deve restituire un numero di pezzi interi ("scongela 2 code"), non grammi o porzioni teoriche. Verificato sul DB che oggi il BOM di "Lobster Fettucine" è già scritto come "4.5 oz" (probabilmente già corretto come quantità ma nella forma sbagliata, non "1 each") e che `prep_tasks` non ha alcun meccanismo di arrotondamento a pezzi interi. **Esplicitamente rimandato a sessione futura dedicata** — Max ha chiesto di non mescolare questo con il fix dell'editor.
+- Punto importante chiarito con Max: lui voleva piena autonomia per modificare questi valori da solo in app, senza doverli dettare a voce in chat — il modal doveva essere completo e funzionante prima di chiudere la sessione su questo tema.
+- Verificato (su richiesta indiretta di Max, dubbio su Frugé $27.50) che `ingredient_vendors.unit_price` per Lobster Tail è correttamente $27.50/lb (`price_type: per_lb`, `price_per_100g` calcolato giusto) — il dato DB era corretto, era solo il mockup di Claude ad aver presentato il prezzo in modo ambiguo (sembrava un totale invece che un prezzo unitario). Nessun fix DB necessario qui, solo attenzione alla presentazione nel modal.
+
+**Fix implementato e pushato (`js/ingredients.js`, due push):**
+1. Aggiunto campo "PESO DI UN PEZZO" funzionante: input numerico + selettore unità (oz/g/lb, default oz), mostra sempre il valore già salvato convertito nelle tre unità per riferimento. Se il campo viene lasciato vuoto al salvataggio, il valore esistente NON viene toccato (niente azzeramenti accidentali). Conversione riusa la costante esistente `UNIT_CONVERSIONS` già presente nel file (lb:453.592, oz:28.3495) invece di duplicarla.
+2. Rimosso "BASE UNIT" dal modal (su richiesta esplicita di Max — "fai sparire quella cosa che non capisco") — il campo resta nel DB invariato, semplicemente non è più editabile/visibile da questo editor.
+3. Aggiunto "MEASURE TYPE" (each/weight) al posto di BASE UNIT — è il campo che decide se l'ingrediente si conta a pezzo o a peso.
+4. Aggiunto riquadro "VENDOR / PACK" in sola lettura (vendor, pack_description, prezzo per unità d'acquisto) per dare contesto senza permettere modifica da qui (i prezzi fornitore restano editabili solo dalla riga vendor dedicata).
+5. **Bug trovato DOPO il primo push** (segnalato da Max): la lista ingredienti e la scheda dettaglio continuavano a mostrare "g" anche per Lobster Tail dopo il salvataggio corretto (verificato su DB: salvataggio era OK, `measure_type='each'`, `avg_unit_weight_g=127.57`). Causa: la UI di lista/dettaglio leggeva solo `base_unit` (che non viene più toccato, resta sempre "g") e ignorava `measure_type`. Fix: lista ora mostra "each" se `measure_type==='each'` altrimenti `base_unit`; scheda dettaglio mostra "each · [peso]g/pz" invece di "g · each" ridondante. Aggiunta `avg_unit_weight_g` alla query SELECT della scheda dettaglio (mancava, quindi non sarebbe mai apparso anche col fix di visualizzazione).
+
+**Stato finale verificato su DB:** Lobster Tail → `measure_type: "each"`, `avg_unit_weight_g: 127.57` (= 4.5oz), `yield_factor: 1.0` (non toccato in questa sessione).
+
+**Versioni:** v428 → v429 (fix editor) → v430 (fix visualizzazione lista/dettaglio). File modificato: solo `js/ingredients.js` + `sw.js`. Nessuna migration DB necessaria — tutte le colonne usate (`measure_type`, `avg_unit_weight_g`, `yield_factor`) esistevano già nello schema.
+
+**Aperto per sessione futura dedicata (NON iniziare senza che Max lo chieda esplicitamente):**
+- BOM delle ricette scritto in "each" invece che in once/grammi per ingredienti a conteggio (caso pilota: Lobster Tail su "Lobster Fettucine", oggi "4.5 oz" invece di "1 each").
+- `prep_tasks` deve poter arrotondare a pezzi interi quando l'ingrediente collegato è `measure_type='each'` (oggi non esiste questo meccanismo — il bot/prep ragiona sempre in grammi o porzioni teoriche, mai in "code", "uova", ecc.).
+- Stesso filo logico delle prep Calamari/Cantaloupe/Burrata discusse a inizio sessione (porzioni teoriche vs kg materia prima con resa/scarto) — sono la stessa famiglia di problema, da affrontare insieme quando Max avrà tempo di andarci con calma.
+
+**Nota:** sessione svolta in parallelo con un'altra sessione di Max sul Kitchen Display/gestione foto — verificato live sw.js prima di ogni push (mai conflitti in questa sessione, nessuna sovrapposizione di file toccati).
+
