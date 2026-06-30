@@ -433,7 +433,16 @@ function openRecipeManager(){
 }
 
 // ── RECIPE EDITOR (admin only) ───────────────────────────────
-function openRecipeEditor(rec=null){
+async function openRecipeEditor(rec=null){
+  // ── Carica step esistenti (recipe_steps) se la ricetta ha già un id ──
+  let existingSteps = [];
+  if(rec?.id){
+    try{
+      const {data:rs} = await supa.from('recipe_steps').select('*').eq('recipe_id', rec.id).order('step_number');
+      existingSteps = rs || [];
+    }catch(e){ console.error('[Steps] load error:', e); }
+  }
+
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col">
@@ -521,6 +530,14 @@ function openRecipeEditor(rec=null){
         <div id="ingList" class="space-y-1"></div>
       </div>
 
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <div class="font-semibold">👨‍🍳 Steps <span class="text-xs text-slate-400 font-normal">title · instruction (IT) · timer</span></div>
+          <button id="addStep" type="button" class="text-xs text-emerald-600 border border-emerald-200 rounded-lg px-2 py-1">+ step</button>
+        </div>
+        <div id="stepsList" class="space-y-2"></div>
+      </div>
+
       <div><div class="font-semibold mb-1">${tr('equipment')}</div><textarea id="rEquip" class="w-full px-3 py-2 border rounded-xl h-16">${rec?.equipment||''}</textarea></div>
       <div><div class="font-semibold mb-1">${tr('procedure')}</div><textarea id="rProc" class="w-full px-3 py-2 border rounded-xl h-32">${rec?.procedure||''}</textarea></div>
     </div>
@@ -590,6 +607,95 @@ function openRecipeEditor(rec=null){
       }
     });
   })();
+
+  // ── Steps editor logic (recipe_steps: title/title_it/title_es, instruction_en/it/es, timer_seconds) ──
+  let stepsState = existingSteps.map(s => ({
+    title_it: s.title_it || '',
+    title_en: s.title || '',
+    title_es: s.title_es || '',
+    instruction_it: s.instruction_it || '',
+    instruction_en: s.instruction_en || '',
+    instruction_es: s.instruction_es || '',
+    timer_minutes: s.timer_seconds ? Math.round(s.timer_seconds/60) : ''
+  }));
+
+  function renderSteps(){
+    const list = modal.querySelector('#stepsList');
+    if(!list) return;
+    if(!stepsState.length){
+      list.innerHTML = `<div class="text-xs text-slate-400 italic px-1">${tr('noSteps')}</div>`;
+      return;
+    }
+    list.innerHTML = stepsState.map((s, idx) => `
+      <div class="step-row border rounded-xl p-2 space-y-1" data-idx="${idx}" style="background:#fafafa;">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold text-slate-400" style="min-width:18px;">${idx+1}.</span>
+          <input class="step-title-it flex-1 px-2 py-1.5 border rounded-lg text-sm" placeholder="Titolo step (IT)" value="${(s.title_it||'').replace(/"/g,'&quot;')}">
+          <button type="button" class="step-up text-slate-400 px-1" ${idx===0?'disabled style="opacity:.3;"':''}>↑</button>
+          <button type="button" class="step-down text-slate-400 px-1" ${idx===stepsState.length-1?'disabled style="opacity:.3;"':''}>↓</button>
+          <button type="button" class="step-remove text-red-500 px-1">✕</button>
+        </div>
+        <textarea class="step-instr-it w-full px-2 py-1.5 border rounded-lg text-sm h-16" placeholder="Istruzione (IT)">${s.instruction_it||''}</textarea>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500">⏱ Timer (min)</span>
+          <input type="number" min="0" class="step-timer w-20 px-2 py-1 border rounded-lg text-sm" value="${s.timer_minutes||''}">
+          <button type="button" class="step-translate text-xs text-indigo-600 border border-indigo-200 rounded-lg px-2 py-1 ml-auto">${tr('translateStepsBtn')}</button>
+        </div>
+        <div class="step-translated-note text-[11px] text-slate-400 ${(s.title_en||s.title_es) ? '' : 'hidden'}">
+          EN: ${(s.title_en||'—')} · ES: ${(s.title_es||'—')}
+        </div>
+      </div>
+    `).join('');
+
+    list.querySelectorAll('.step-row').forEach(row => {
+      const idx = parseInt(row.dataset.idx);
+      row.querySelector('.step-title-it').oninput = e => stepsState[idx].title_it = e.target.value;
+      row.querySelector('.step-instr-it').oninput = e => stepsState[idx].instruction_it = e.target.value;
+      row.querySelector('.step-timer').oninput = e => stepsState[idx].timer_minutes = e.target.value;
+      row.querySelector('.step-remove').onclick = () => { stepsState.splice(idx,1); renderSteps(); };
+      row.querySelector('.step-up').onclick = () => {
+        if(idx===0) return;
+        [stepsState[idx-1], stepsState[idx]] = [stepsState[idx], stepsState[idx-1]];
+        renderSteps();
+      };
+      row.querySelector('.step-down').onclick = () => {
+        if(idx===stepsState.length-1) return;
+        [stepsState[idx+1], stepsState[idx]] = [stepsState[idx], stepsState[idx+1]];
+        renderSteps();
+      };
+      row.querySelector('.step-translate').onclick = async (e) => {
+        const btn = e.target;
+        const titleIt = stepsState[idx].title_it.trim();
+        const instrIt = stepsState[idx].instruction_it.trim();
+        if(!titleIt && !instrIt){ alert('Scrivi prima titolo o istruzione in italiano.'); return; }
+        btn.disabled = true; btn.textContent = '...';
+        try{
+          const [tEn, tEs, iEn, iEs] = await Promise.all([
+            titleIt ? groqTranslate(titleIt, 'en') : Promise.resolve(''),
+            titleIt ? groqTranslate(titleIt, 'es') : Promise.resolve(''),
+            instrIt ? groqTranslate(instrIt, 'en') : Promise.resolve(''),
+            instrIt ? groqTranslate(instrIt, 'es') : Promise.resolve('')
+          ]);
+          stepsState[idx].title_en = tEn;
+          stepsState[idx].title_es = tEs;
+          stepsState[idx].instruction_en = iEn;
+          stepsState[idx].instruction_es = iEs;
+          renderSteps();
+        }catch(err){
+          alert((tr('error_prefix2')||'Errore: ') + err.message);
+        }finally{
+          btn.disabled = false; btn.textContent = tr('translateStepsBtn');
+        }
+      };
+    });
+  }
+
+  modal.querySelector('#addStep').onclick = () => {
+    stepsState.push({title_it:'',title_en:'',title_es:'',instruction_it:'',instruction_en:'',instruction_es:'',timer_minutes:''});
+    renderSteps();
+  };
+
+  renderSteps();
 
   // Serving weight hint
   const servInput  = modal.querySelector('#rServings');
@@ -927,6 +1033,7 @@ function openRecipeEditor(rec=null){
         savedId = inserted?.id;
       }
       if(savedId) await saveRecipeBOM(savedId, ingredients);
+      if(savedId) await saveRecipeSteps(savedId, stepsState);
       if(savedId) translateAndSaveRecipe(savedId, newRec); // fire-and-forget — non blocca il save
       modal.remove();
       await init();
@@ -1405,6 +1512,30 @@ async function saveRecipeBOM(recipeId, ingredientRows){
   if(!rows.length) return;
   const {error} = await supa.from('recipe_bom').insert(rows);
   if(error) console.error('[BOM] insert error:', error);
+}
+
+// ── SALVA STEPS RICETTA (recipe_steps) ──────────────────────
+async function saveRecipeSteps(recipeId, steps){
+  // Delete existing steps for this recipe
+  await supa.from('recipe_steps').delete().eq('recipe_id', recipeId);
+
+  const rows = (steps||[])
+    .filter(s => (s.title_it && s.title_it.trim()) || (s.instruction_it && s.instruction_it.trim()))
+    .map((s, idx) => ({
+      recipe_id:       recipeId,
+      step_number:     idx + 1,
+      title:           s.title_en || s.title_it || '',
+      title_it:        s.title_it || null,
+      title_es:        s.title_es || null,
+      instruction_en:  s.instruction_en || null,
+      instruction_it:  s.instruction_it || null,
+      instruction_es:  s.instruction_es || null,
+      timer_seconds:   s.timer_minutes ? Math.round(parseFloat(s.timer_minutes)*60) : null
+    }));
+
+  if(!rows.length) return;
+  const {error} = await supa.from('recipe_steps').insert(rows);
+  if(error) console.error('[Steps] insert error:', error);
 }
 
 
