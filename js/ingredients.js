@@ -578,12 +578,29 @@ window.openIngredientCard = async function(ingredientId){
 // ── EDIT INGREDIENTE — solo campi master ingredients ──────────
 window.openEditIngredient = async function(ingredientId){
   const {data:ingr} = await supa.from('ingredients')
-    .select('id,name,category,base_unit,measure_type,notes,yield_factor')
+    .select('id,name,category,base_unit,measure_type,notes,yield_factor,avg_unit_weight_g')
     .eq('id',ingredientId).single();
   if(!ingr) return;
 
+  // Riferimento vendor primario (sola lettura, solo per contesto — si edita dalla riga vendor)
+  const {data:vendorRows} = await supa.from('ingredient_vendors')
+    .select('vendor,purchase_unit,pack_description,unit_price,price_type')
+    .eq('ingredient_id', ingredientId)
+    .eq('active', true)
+    .order('order_count', {ascending:false})
+    .limit(1);
+  const v = vendorRows && vendorRows[0];
+
   const categories = ['Dairy','Produce','Protein','Seafood','Dry Goods','Spices','Spices & Condiments','Oil & Vinegar','Bakery','Frozen','Beverage','Fees','Other'];
-  const units = ['g','kg','ml','l','lb','oz','each'];
+
+  const wg = ingr.avg_unit_weight_g;
+  const currentWeightLine = wg != null
+    ? `<div style="font-size:12px;color:#1d4ed8;margin-bottom:8px;">Salvato ora: ${wg}g · ${(wg/28.3495).toFixed(2)}oz · ${(wg/453.592).toFixed(3)}lb</div>`
+    : `<div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">Non ancora impostato</div>`;
+
+  const vendorLine = v
+    ? `<div style="font-size:12px;color:#64748b;border:1px solid #e2e8f0;border-radius:10px;padding:8px 12px;">${v.vendor} · ${v.pack_description||''} · $${parseFloat(v.unit_price).toFixed(2)}/${v.purchase_unit||'lb'}</div>`
+    : `<div style="font-size:12px;color:#94a3b8;border:1px solid #e2e8f0;border-radius:10px;padding:8px 12px;">Nessun fornitore collegato</div>`;
 
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-[70] flex items-end';
@@ -592,7 +609,7 @@ window.openEditIngredient = async function(ingredientId){
     <div style="background:white;border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:85vh;overflow-y:auto;animation:slideUp .25s ease">
       <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;"></div>
       <div style="font-size:15px;font-weight:500;color:#1e293b;margin-bottom:4px;">✏️ Edit ${ingr.name}</div>
-      <div style="font-size:11px;color:#94a3b8;margin-bottom:16px;">Master ingredient fields only. Vendor pricing is edited per vendor row.</div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:16px;">Solo campi master ingrediente. I prezzi fornitore si editano per riga.</div>
 
       <div style="margin-bottom:12px;">
         <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">NAME</label>
@@ -607,21 +624,27 @@ window.openEditIngredient = async function(ingredientId){
           </select>
         </div>
         <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">BASE UNIT</label>
-          <select id="editIngrUnit" style="width:100%;padding:10px 8px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;">
-            ${units.map(u=>`<option ${u===ingr.base_unit?'selected':''}>${u}</option>`).join('')}
+          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">MEASURE TYPE</label>
+          <select id="editIngrMeasureType" style="width:100%;padding:10px 8px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;">
+            <option value="each" ${ingr.measure_type==='each'?'selected':''}>each (a pezzo)</option>
+            <option value="weight" ${ingr.measure_type!=='each'?'selected':''}>weight (a peso)</option>
           </select>
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
-        <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">AVG UNIT WEIGHT (g)</label>
-          
-        </div>
-        <div>
-          <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">UNIT VOLUME (ml)</label>
-          
+      <div style="background:#eff6ff;border-radius:14px;padding:12px;margin-bottom:12px;">
+        <label style="font-size:11px;color:#1d4ed8;font-weight:600;display:block;margin-bottom:6px;">PESO DI UN PEZZO</label>
+        ${currentWeightLine}
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input id="editIngrWeight" type="number" min="0" step="0.01"
+            placeholder="es. 4.5"
+            style="width:90px;padding:10px 12px;border:1px solid #bfdbfe;border-radius:10px;font-size:14px;box-sizing:border-box;">
+          <select id="editIngrWeightUnit" style="padding:10px 8px;border:1px solid #bfdbfe;border-radius:10px;font-size:13px;">
+            <option value="oz">oz</option>
+            <option value="g">g</option>
+            <option value="lb">lb</option>
+          </select>
+          <span style="font-size:11px;color:#1d4ed8;">scrivi e salva, lascia vuoto per non modificare</span>
         </div>
       </div>
 
@@ -633,6 +656,11 @@ window.openEditIngredient = async function(ingredientId){
             style="width:80px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;text-align:center;">
           <span style="font-size:13px;color:#64748b;">% usabile &nbsp;(100 = nessuno scarto)</span>
         </div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">VENDOR / PACK (riferimento)</label>
+        ${vendorLine}
       </div>
 
       <div style="margin-bottom:16px;">
@@ -654,16 +682,26 @@ window.saveEditIngredient = async function(ingredientId, btn){
   btn.textContent='Saving...'; btn.disabled=true;
   // Only update columns that exist in ingredients table
   const yieldVal = parseFloat(document.getElementById('editIngrYield')?.value);
+  const weightRaw = document.getElementById('editIngrWeight')?.value;
+  const weightUnit = document.getElementById('editIngrWeightUnit')?.value || 'oz';
+
   const updates = {
     name:         document.getElementById('editIngrName')?.value?.trim(),
     category:     document.getElementById('editIngrCat')?.value||null,
-    base_unit:    document.getElementById('editIngrUnit')?.value||'g',
+    measure_type: document.getElementById('editIngrMeasureType')?.value||'weight',
     notes:        document.getElementById('editIngrNotes')?.value||null,
     yield_factor: (!isNaN(yieldVal) && yieldVal > 0 && yieldVal <= 100) ? yieldVal/100 : 1.0,
   };
-  const w = parseFloat(document.getElementById('editIngrWeight')?.value);
-  const v = parseFloat(document.getElementById('editIngrVol')?.value);
 
+  // Peso a pezzo: converti in grammi solo se l'utente ha scritto qualcosa.
+  // Campo vuoto = non toccare il valore già salvato.
+  if (weightRaw !== '' && weightRaw != null) {
+    const w = parseFloat(weightRaw);
+    if (!isNaN(w) && w > 0) {
+      const grams = w * (UNIT_CONVERSIONS[weightUnit] || 1);
+      updates.avg_unit_weight_g = Math.round(grams * 100) / 100;
+    }
+  }
 
   const {error} = await supa.from('ingredients').update(updates).eq('id',ingredientId);
   if(error){ btn.textContent='Error: '+error.message; btn.disabled=false; return; }
