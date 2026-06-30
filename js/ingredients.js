@@ -357,7 +357,7 @@ function renderIngredientsTab(ingrs, priceMap){
         <div style="width:36px;height:36px;border-radius:10px;background:#f8fafc;display:flex;align-items:center;justify-content:center;font-size:18px;">${emoji}</div>
         <div>
           <div style="font-size:14px;font-weight:500;color:#1e293b;">${i.name}</div>
-          <div style="font-size:11px;color:#94a3b8;margin-top:1px;">${i.category||'Other'} · ${i.base_unit}</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:1px;">${i.category||'Other'} · ${i.measure_type==='each' ? 'each' : (i.base_unit||'g')}</div>
         </div>
       </div>
       <div style="text-align:right;flex-shrink:0;">${priceHtml}</div>
@@ -384,7 +384,7 @@ window.openIngredientCard = async function(ingredientId){
     {data:invoiceHistory}
   ] = await Promise.all([
     supa.from('ingredients')
-      .select('id,name,category,base_unit,measure_type,notes,active,yield_factor')
+      .select('id,name,category,base_unit,measure_type,notes,active,yield_factor,avg_unit_weight_g')
       .eq('id', ingredientId).single(),
     supa.from('ingredient_vendors')
       .select('id,vendor,vendor_sku,pack_description,unit_price,price_type,conversion_to_base,price_per_100g,price_per_each,last_invoice_date,active')
@@ -501,7 +501,7 @@ window.openIngredientCard = async function(ingredientId){
         <button onclick="this.closest('.fixed').remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
         <div style="flex:1;">
           <div style="font-size:16px;font-weight:600;color:#1e293b;">${emoji} ${ingr.name}</div>
-          <div style="font-size:11px;color:#94a3b8;">${ingr.category||'Other'} · ${ingr.base_unit} · ${ingr.measure_type||'weight'}</div>
+          <div style="font-size:11px;color:#94a3b8;">${ingr.category||'Other'} · ${ingr.measure_type==='each' ? `each${ingr.avg_unit_weight_g?' · '+ingr.avg_unit_weight_g+'g/pz':''}` : (ingr.base_unit||'g')}</div>
         </div>
         ${isAdmin()?`<button onclick="openEditIngredient('${ingr.id}')" style="font-size:12px;color:#3B82F6;background:rgba(59,130,246,0.08);border:none;padding:5px 10px;border-radius:8px;cursor:pointer;">Edit</button>`:''}
       </div>
