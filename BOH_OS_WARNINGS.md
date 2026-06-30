@@ -1,6 +1,8 @@
 # BOH OS — WARNING MASTER SYSTEM v2.0
 *Authoritative reference for all warnings, alerts, insights and decision rules.*
 *Load alongside SPEC when working on warnings, invoice review, or the attention queue.*
+*Verificato contro `js/vendor-documents-review.js` live il 2026-06-30 (v428) — vedi sezione Implementation Status per lo stato reale aggiornato.*
+*Nota: `sous_chef_tasks` (citata sotto ALT-MISS-001) non esiste nello schema DB attuale — il sistema di task/attention oggi passa da `office_items` e `chef_reports`, non da quella tabella. ALT-MISS-001 resta comunque non implementato.*
 
 ---
 
@@ -138,6 +140,12 @@ sees, possible answers, who resolves it, and what the system learns (BIOS-001).
 #### DOC-NOPARSER-001 — No parser for vendor/type *(was NO_PARSER)*
 - Same treatment as DOC-PARSE-001: red banner, re-upload or manual.
 
+#### DOC-TOTAL-001 — Quadratura: lines don't reconcile with total *(found in code, not in original registry)*
+- **Trigger:** Sum of parsed invoice lines doesn't match the declared document total (Data Priority P1 — document total is truth).
+- **OQR question:** 🧮 *"Totals don't add up — lines sum to [$sum] but document says [$declared] ([diff]%)."*
+- **Resolves:** Admin.
+- **Status:** ✅ Implemented (`vendor-documents-review.js`), classified as blocking.
+
 ### 🟡 Alert
 
 #### ALT-MISS-001 — Item missing with no substitution *(was ALT-001)*
@@ -272,17 +280,22 @@ here and marks the matching `invoice_warnings` row resolved.
 
 ## Implementation Status
 
+*Aggiornato 2026-06-30 verificando direttamente `js/vendor-documents-review.js` (routing dei codici, riga ~1966-1969).*
+
 | Piece | Status |
 |---|---|
-| Severity column + backfill | ✅ Done (this session) |
-| INV-PACK-001 weight question in Vendor Review | ✅ Done (this session, as OQR-008) |
-| DOC-PARSE-001 red banner | ✅ Done (this session, as PARSE_ERROR) |
-| FreshPoint pack parser (repeated-weight patterns) | ✅ Done (this session) |
-| Resolve → `invoice_warnings` analytics update | ✅ Done (this session) |
-| Code migration OQR-* → new codes (DB + JS) | ⬜ Next |
-| Home Banner (queue + role visibility) | ⬜ Next |
-| ALT-MISS-001 (missing item → assign role → person) | ⬜ Next |
-| INV-MATCH-001, INV-DUP-001 inline, INV-OCR-001, INV-UNUSED-001 | ⬜ Backlog |
+| Severity column + backfill | ✅ Done |
+| INV-PACK-001 weight question in Vendor Review | ✅ Implemented |
+| INV-MATCH-001, INV-DUP-001, INV-OCR-001 | ✅ Implementati nel routing blocking (UI esiste in vendor-documents-review.js — verificare a schermo se la UX corrisponde esattamente alla spec OQR sopra) |
+| DOC-PARSE-001, DOC-VENDOR-001, DOC-TYPE-001, DOC-NOPARSER-001 | ✅ Implementati, banner rosso |
+| DOC-TOTAL-001 (quadratura totali) | ✅ Implementato — **non era nel registro originale**, aggiunto sopra |
+| INV-SUB-001, INV-PACKCT-001, INV-PRICE-001, INV-UNUSED-001 | ✅ Implementati nel routing insight |
+| FreshPoint pack parser (repeated-weight patterns) | ✅ Done |
+| Resolve → `invoice_warnings` analytics update | ✅ Done |
+| Code migration OQR-* → new codes (DB + JS) | ✅ Fatto — solo i vecchi codici legacy (OQR-002/006/008, PARSE_ERROR ecc.) restano referenziati come alias di compatibilità nel routing, non più generati per i nuovi warning |
+| ALT-MISS-001 (missing item → assign role → person) | ⬜ **Ancora non implementato** — nessun riferimento nel codice. `sous_chef_tasks` (la tabella che avrebbe dovuto riceverlo) non esiste nello schema attuale; oggi l'attenzione passa da `office_items`/`chef_reports` — se si implementa ALT-MISS-001 va ripensato il target table |
+| Home Banner (queue + role visibility) | ⚠️ Parzialmente sovrapposto da L'Ufficio (`office_items`, office.js) — verificare con Max se questo soddisfa il requisito originale o se serve ancora un banner Home dedicato separato |
+| INV-MATCH-001/INV-DUP-001 — UX esatta da riverificare a schermo | ⬜ Verifica visiva consigliata |
 
 ---
 
