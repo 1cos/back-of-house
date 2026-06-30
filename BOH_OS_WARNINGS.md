@@ -2,6 +2,7 @@
 *Authoritative reference for all warnings, alerts, insights and decision rules.*
 *Load alongside SPEC when working on warnings, invoice review, or the attention queue.*
 *Verificato contro `js/vendor-documents-review.js` live il 2026-06-30 (v428) — vedi sezione Implementation Status per lo stato reale aggiornato.*
+*⚠️ CORREZIONE IMPORTANTE (30/06, da Max): il fatto che i codici sotto siano "implementati nel routing" NON significa che il Warning Center funzioni bene nella pratica. Giudizio esplicito di Max: il modulo "fa cagare" e va ricostruito da zero, non patchato. Questo documento resta valido come registro concettuale (quali warning dovrebbero esistere, quale OQR question), ma "Implementation Status ✅" sotto significa solo "il codice risponde a questo codice", non "questa esperienza funziona o è quella voluta". Trattare ogni voce ✅ con scetticismo finché Max non conferma che l'esperienza reale è soddisfacente.*
 *Nota: `sous_chef_tasks` (citata sotto ALT-MISS-001) non esiste nello schema DB attuale — il sistema di task/attention oggi passa da `office_items` e `chef_reports`, non da quella tabella. ALT-MISS-001 resta comunque non implementato.*
 
 ---
@@ -281,6 +282,7 @@ here and marks the matching `invoice_warnings` row resolved.
 ## Implementation Status
 
 *Aggiornato 2026-06-30 verificando direttamente `js/vendor-documents-review.js` (routing dei codici, riga ~1966-1969).*
+*⚠️ "✅" sotto significa solo che il routing/codice esiste e viene classificato correttamente — NON che l'esperienza utente reale sia buona o accettata da Max. Giudizio esplicito di Max (30/06): il Warning Center va ricostruito da zero. Non usare questa tabella come segnale "tutto ok, si può passare oltre" — serve una sessione dedicata di redesign, partendo probabilmente dal riascoltare da Max cosa esattamente non funziona oggi.*
 
 | Piece | Status |
 |---|---|
