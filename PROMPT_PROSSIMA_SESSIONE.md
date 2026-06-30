@@ -258,3 +258,28 @@ Tutti i titoli esistenti (74 steps, incluse le ricette Saucier della sessione pr
 **Prossima stazione:** Sauté Station (6 ricette individuate, non ancora iniziata): Asparagus, Artichoke Sauce, Butter Spinach, Risotto Base, SALMORIGLIO, Siciliana. (Lemon Cream esclusa — risulta archiviata/non più in uso, da confermare con Max).
 
 **File modificati:** `js/recipe-modal.js`, `sw.js` (v424→v425). Tutto il resto solo DB (`recipe_steps`, `recipes.procedure`, migration `title_it`/`title_es`).
+
+---
+
+## SESSIONE 30 GIUGNO 2026 (sera) — Aggiornamento completo dei 6 file MD principali (v428, nessun bump frontend)
+
+**Contesto:** sessione dedicata esclusivamente a rileggere e aggiornare BOH_OS_BACKLOG.md, BOH_OS_DECISIONS.md, BOH_OS_SPEC.md, BOH_OS_WARNINGS.md, BRIGADE_DB_SCHEMA.md, BRIGADE_VISION.md — erano rimasti disallineati dallo stato reale (alcuni fermi al 26-27 giugno, uno addirittura a uno stack Flutter mai esistito nello schema reale). Nessuna modifica a codice/DB in questa sessione, solo documentazione, verificata punto per punto contro `information_schema.columns`, `list_edge_functions`, `cron.job` live e contro il codice JS reale (non per sentito dire).
+
+**Scoperte importanti emerse durante la verifica (non note prima):**
+- 28 Edge Functions attive (non 14 come documentato) — incluse `bot-recipe-guardian` (nuovo bot, 7° del sistema, scansiona ricette vendute con BOM vuoto/parziale/dati mancanti, cron giornaliero 6AM CDT, scrive in office_items), `generate-briefing` (relazione con sc-nightly-brief da chiarire — girano entrambe sullo stesso cron 10:00 UTC), `pos-import`, `translate` (separata da ai-translate), `tripleseat-sync` v24, `sevenshift-sync`/`sevenshift-explore`, `rapid-worker`, `batch-translate-recipes`
+- 8 cron job attivi (non documentati prima nella loro interezza): incluso `daily-reset-prep-tasks` (5:00 UTC)
+- **50 tabelle hanno RLS disabilitato** — incluso `users` con `password_hash`/`pin` in chiaro, esposte a chiunque abbia la anon key. Segnalato a Max, NON risolto in questa sessione (rischio di bloccare l'app se applicato senza policy pronte) — da affrontare in sessione dedicata futura.
+- `recipe_bom.component_type` è `'ITEM'`/`'RECIPE'` maiuscolo — confermato, vari file vecchi dicevano lowercase
+- 7shifts: confermato da Max che resta un **workaround parziale** (CSV manuale), non un'integrazione risolta, nonostante `sevenshift-sync`/`sevenshift-explore` esistano — quelle funzioni sono solo script di diagnostica/test API (`whoami` ecc.), non importer automatici
+
+**Correzioni importanti fatte su giudizio esplicito di Max (non solo verifica tecnica):**
+- **Warning Center: va ricostruito da zero.** Il codice tecnicamente implementa quasi tutti i codici OQR del registro (verificato nel routing di vendor-documents-review.js), ma Max ha sentenziato che l'esperienza reale non funziona ("fa cagare"). BOH_OS_WARNINGS.md, BOH_OS_BACKLOG.md e BRIGADE_VISION.md sono stati corretti per non dare la falsa impressione che il modulo sia a posto solo perché il codice risponde ai codici. **Prossima sessione su questo: ripartire ascoltando da Max cosa esattamente non funziona, prima di toccare codice.**
+- **Ciclo fondamentale di Brigade ridefinito:** non più sera→notte→mattina→sera con la checklist serale come motore della preplist. Il ciclo reale è **notte→mattina**: di notte bot-preplist-builder scarica il venduto POS, calcola current_stock, genera la preplist; la mattina la brigata produce. La checklist serale di chiusura esiste ancora ma è un controllo di verifica separato, non l'input della preplist. BRIGADE_VISION.md aggiornato di conseguenza — segnalata tensione concettuale sulla vecchia voce backlog "collegamento automatico checklist sera → preplist mattina", da chiarire con Max.
+- **TripleSeat:** confermato fermo solo per attesa esterna (Authorize OAuth di Monica), non per lavoro mancante su Brigade — codice (tripleseat-sync v24) pronto.
+- **TV Display:** confermato fatto e in produzione, non più "da costruire" — resta solo lo slideshow foto come discorso separato.
+- **Fase 2 Flutter/BIOS:** confermato che è un'app gemella **in pausa, non abbandonata ma senza sviluppo attivo** — "resta un sogno" per ora, focus totale su Brigade.
+- **Tela:** titolo corretto ovunque da "Kitchen Manager" a "Kitchen Operation Coordinator" nei file MD — il codice/DB usa ancora "Manager Station" come nome stazione finché il rename (già in backlog) non viene fatto.
+
+**File modificati:** tutti e 6 i file MD principali, nessun file JS, nessun bump sw.js (nessuna modifica a codice in questa sessione).
+
+**Lezione per sessioni future:** quando si verifica lo stato di un modulo per aggiornare la documentazione, non basta controllare che il codice "risponda" o sia "implementato nel routing" — va sempre chiesto a Max se l'esperienza reale lo soddisfa, prima di marcare qualcosa come ✅ fatto/risolto. La verifica tecnica e il giudizio di qualità sono due cose diverse.
