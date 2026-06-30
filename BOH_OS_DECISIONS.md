@@ -1,6 +1,6 @@
 # BRIGADE — DECISIONS
 *Perche abbiamo scelto certe cose. Non ridiscutere senza motivo.*
-*Aggiornato: 2026-06-27 — v391*
+*Aggiornato: 2026-06-30 — v428 — versioni verificate live, contenuto filosofico/architetturale invariato salvo dove indicato*
 
 ---
 
@@ -9,26 +9,32 @@
 | Cosa | Nome corretto |
 |---|---|
 | App HTML/PWA attuale | **BRIGADE** |
-| App Flutter futura con Siri | **BOH OS** (separata, non ancora costruita) |
-| Branch deploy | **brigade-main** (MAI main) |
-| Versione attuale frontend | **v391** |
-| Versione souschef-chat | **v23** |
+| App Flutter futura con Siri | **BOH OS** / **BIOS** (separata, non ancora costruita — vedi nota sotto) |
+| Branch deploy | **brigade-main** (MAI main, MAI brigade-dev — abbandonato) |
+| Versione attuale frontend | **v428** |
+| Versione souschef-chat | **v41** (era v23 quando scritto questo file — verificare azioni disponibili prima di assumere che la lista in BOH_OS_BACKLOG.md sia ancora completa) |
 | Supabase project attivo | ydqmumpytgrlceuinoqt |
 | AI in-app | **Chef AI** — MAI "Sous Chef AI" o "Sous Chef" |
+
+**Nota naming BOH OS/BIOS:** entrambi i nomi sono usati per la stessa app futura separata (Flutter + Siri), da non confondere con Brigade. Se il nome ufficiale si stabilizza su uno dei due, aggiornare qui.
 
 ---
 
 ## Gerarchia cucina Zenos on the Square — DEFINITIVA
 
+*Aggiornamento 30/06: il titolo di Tela è stato chiarito come "Kitchen Operation Coordinator" — il termine "Manager" usato sotto e nel codice (stazione "Manager Station") è legacy e in fase di rinominazione (vedi BOH_OS_BACKLOG.md → "Rinominare stazione Manager → Coordinator"). Finché il rename non è completo in DB/JS, la stazione si chiama ancora "Manager Station" nel sistema — usare "Coordinator" solo nel linguaggio rivolto a Max/brigata, non assumere che sia già cambiato nel codice.*
+
 | Ruolo | Nome | Funzione |
 |---|---|---|
 | Executive Chef | **Max** | Visione, decisioni, direzione — NON owner/proprietario |
-| Chef Rover | **Anto** | Occhi di Max in cucina — gira ovunque, riporta a Max |
+| Chef Rover | **Anto / Antonella** | Occhi di Max in cucina — gira ovunque, riporta a Max |
 | Sous Chef sera | **David** | Esegue direttive, gestisce brigata sera |
 | Sous Chef mattina | **Colton** | Esegue direttive, gestisce brigata mattina |
 | Pastry Chef | **Samantha** | Pasticceria |
-| Kitchen Manager | **Tela** | Operations, gestione logistica — NON sous chef |
-| Chef de partie | Cole, Rachel, Sofia, altri | Stazioni fisse (line cook = termine USA informale) |
+| Kitchen Operation Coordinator | **Tela** | Operations, gestione logistica, prep tasks — NON sous chef, NON chiude (closing) |
+| Saucier | **Cole** | Stazione salse |
+| Chef de partie | Zuu/Maria Rosa Razo, Rachel/Carolina Baquero, altri | Stazioni fisse (line cook = termine USA informale) |
+| Dish Crew | Austin, Jaxon, Arianna, Kelly, Herminia, Jose, Luis, Ronaldo | Lavapiatti — vedi Dish Crew Home Fase 2 in backlog per UI dedicata |
 
 ### Flusso di comando
 Max → Chef Rover (Anto) → Sous Chef (David/Colton) → Chef de partie
@@ -40,7 +46,7 @@ Il Rover (dal francese "tournant") è il cuoco che non ha stazione fissa ma cono
 
 ### REGOLE INVIOLABILI per Brigade e Chef AI
 - Max = Executive Chef. MAI owner, MAI proprietario.
-- Tela = Kitchen Manager. MAI sous chef.
+- Tela = Kitchen Operation Coordinator. MAI sous chef, MAI "Manager" nel linguaggio rivolto a Max (il codice/DB usa ancora "Manager Station" finché il rename non è fatto — vedi nota sopra).
 - Il sous chef umano di Max è David (sera) e Colton (mattina).
 - Chef AI è il segretario digitale — non è il sous chef.
 - "Sous Chef" nell'app si riferisce SOLO a Chef AI come funzione — non come titolo gerarchico.
@@ -68,10 +74,10 @@ NON si chiama "Sous Chef" nell'interfaccia pubblica.
 | **Yesterday/Weekly Highlights** | Brigata + Max | Operativo only — porzioni, piatti venduti, ratio pasta/secondi, analisi chat settimana. **MAI soldi, MAI prezzi** |
 
 ### I bot e Chef AI
-- I bot (5) sono il **mise en place** — esaminano dati, trovano anomalie, le scrivono già strutturate
+- I bot (**7** ad oggi 30/06/2026 — erano 5 quando scritta questa decisione: Guardiano Prezzi, Analista Chat, Costruttore Preplist, Lettore Tell Chef, Guardiano Food Cost, Guardiano Accuratezza Prep, Recipe Guardian) sono il **mise en place** — esaminano dati, trovano anomalie, le scrivono già strutturate
 - Chef AI arriva e trova tutto pronto — non cerca, **legge e interpreta**
 - I bot NON pensano — i bot esaminano. Chef AI ragiona su quello che i bot hanno già trovato.
-- I bot usano AI internamente solo dove necessario (Bot 2 chat, Bot 4 tell chef) — non consumano token per le matematiche (Bot 1, 3, 5 = zero AI)
+- I bot usano AI internamente solo dove necessario (Bot Chat, Bot Tell Chef) — non consumano token per le matematiche
 
 ### Analogia cucina
 I commis (bot) fanno il mise en place.
@@ -214,18 +220,19 @@ Spices & Herbs, Beverages & Spirits, Prepared, Bakery, Frozen, Supply
 ## Nightly Brief
 
 - Cron: 0 10 * * * = 10:00 UTC = 5:00 AM CDT
-- Edge Function: sc-nightly-brief v12 (+ traduzioni EN/ES)
+- Edge Function: sc-nightly-brief **v24** (era v12 — verificare se la logica/qualità testo è cambiata sostanzialmente da allora)
 - Domenica: recap settimana
+- **Da chiarire (30/06):** esiste anche una funzione `generate-briefing` v27 separata con proprio cron giornaliero (10:00 UTC anch'esso) — verificare con Max se è un duplicato/successore di sc-nightly-brief o se hanno scopi diversi, prima di assumere che sc-nightly-brief sia l'unica fonte del briefing
 
 ---
 
-## TripleSeat OAuth 2.0 (2026-06-16)
+## TripleSeat OAuth 2.0 (2026-06-16, stato verificato 30/06)
 
 - OAuth 2.0 authorization_code flow
 - Serve Authorize manuale da Monica (admin TripleSeat)
 - OAuth app "MAX" creata su zottsllc.tripleseat.com
-- Edge Function: tripleseat-sync v4
-- PENDING: Monica deve fare Authorize
+- Edge Function: tripleseat-sync **v24** (era v4 quando scritta questa decisione — funzione sviluppata/aggiornata molto oltre il punto iniziale, ma resta non agganciata in produzione)
+- **PENDING: Monica deve ancora fare Authorize** — confermato 30/06: 0 eventi con source='tripleseat' nel DB, last_synced_at sempre NULL
 
 ---
 
