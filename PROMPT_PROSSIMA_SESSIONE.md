@@ -320,3 +320,28 @@ Tutti i titoli esistenti (74 steps, incluse le ricette Saucier della sessione pr
 
 **Nota:** sessione svolta in parallelo con un'altra sessione di Max sul Kitchen Display/gestione foto — verificato live sw.js prima di ogni push (mai conflitti in questa sessione, nessuna sovrapposizione di file toccati).
 
+
+
+---
+
+## SESSIONE 30 GIUGNO 2026 (tarda sera) — Tentativo sync foto iCloud per Kitchen Display — ABBANDONATO su richiesta Max
+
+**Contesto:** Max voleva mostrare le foto dei piatti su Kitchen Display (`display.html`), prendendole da un Album Condiviso iCloud (per non dover caricare foto manualmente). Esplorato in dettaglio.
+
+**Cosa è stato provato:**
+- Max ha creato un album condiviso e mandato il link nuovo formato Apple (giugno 2026): `https://photos.icloud.com/shared/album/<TOKEN>` — diverso dal vecchio formato `icloud.com/sharedalbum/#TOKEN` usato da tutte le librerie/script community esistenti.
+- Creata tabella `kitchen_display_photos` (poi droppata) e Edge Function `icloud-photos-sync` (deployata, v1, mai schedulata su cron) che tentava di chiamare il vecchio endpoint reverse-engineered `p23-sharedstreams.icloud.com/<TOKEN>/sharedstreams/webstream`.
+- **Test reale via `net.http_post` + log su `net._http_response`: risposta HTTP 404.** Confermato che il nuovo formato di link (`photos.icloud.com/shared/album/...`, introdotto nel redesign Apple di giugno 2026 per supporto Android/Windows — vedi MacRumors 8 giugno 2026) **non è compatibile con il vecchio endpoint `sharedstreams.icloud.com`**. Nessuna documentazione community trovata per il nuovo endpoint (troppo recente).
+- Tentato di individuare il nuovo endpoint ispezionando il bundle JS della pagina via web_fetch — non praticabile (SPA, JS non eseguito da web_fetch, solo HTML/markdown estratto).
+- Proposto a Max di usare Safari Web Inspector (da Mac, via cavo USB con iPhone) per intercettare la chiamata di rete reale e scoprire l'endpoint — Max non ha un Mac comodo a disposizione, non perseguito.
+
+**Decisione di Max: ABBANDONATO il discorso iCloud per ora.** Non vuole occupare storage Supabase (avrebbe richiesto il piano B con upload manuale + Supabase Storage bucket, scartato per lo stesso motivo — voleva la foto "gratis" via iCloud, non un upload che consuma storage Supabase).
+
+**Cleanup eseguito:**
+- Tabella `kitchen_display_photos` → **droppata** (`DROP TABLE`)
+- Edge Function `icloud-photos-sync` → resta deployata su Supabase ma **inerte**: nessun cron job creato, nessuna chiamata da `display.html` o altri file, non consuma risorse né causa effetti. Non rimossa solo perché lo strumento disponibile non permette delete di Edge Function, ma è sicura da ignorare. **Se in futuro si riprende questo discorso, ripartire da qui — non ricreare da zero.**
+- **`display.html` non è stato toccato in nessun modo** — nessuna modifica, nessun bump sw.js. Resta identico a prima di questa sessione (slideshow foto NON presente, come da richiesta esplicita di Max: "non mettere niente, lascia tutto com'era prima").
+
+**Se si riprende in futuro:** prossimo passo naturale sarebbe verificare l'endpoint reale del nuovo formato `photos.icloud.com/shared/album` via Safari Web Inspector (richiede Mac + cavo USB con iPhone, vedi istruzioni date a Max in questa sessione) prima di scrivere altro codice. In alternativa, riconsiderare il piano B (upload manuale + Supabase Storage) se Max cambia idea sul tema storage.
+
+**File modificati:** nessuno. Solo Edge Function deployata (inerte) + tabella creata e poi droppata.
