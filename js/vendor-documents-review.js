@@ -424,23 +424,6 @@ window.vdrToggle = function(id) {
       <div style="height:env(safe-area-inset-bottom,0px);background:white;flex-shrink:0;"></div>
     </div>`;
 
-  // Swipe down to close
-  let startY = 0;
-  const panel = sheet.querySelector('#vdrSheetPanel');
-  panel.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive:true });
-  panel.addEventListener('touchmove', e => {
-    const dy = e.touches[0].clientY - startY;
-    if (dy > 0) panel.style.transform = `translateY(${dy}px)`;
-  }, { passive:true });
-  panel.addEventListener('touchend', e => {
-    const dy = e.changedTouches[0].clientY - startY;
-    if (dy > 80) {
-      sheet.remove();
-    } else {
-      panel.style.transform = '';
-    }
-  });
-
   document.body.appendChild(sheet);
   const _vdrPanel = sheet.querySelector('#vdrSheetPanel');
   if(_vdrPanel) addSwipeToClose(_vdrPanel, ()=>sheet.remove());
