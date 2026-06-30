@@ -1,5 +1,6 @@
 # Brigade — Visione di Sistema
-*Documento architetturale — sessione del 13 giugno 2026*
+*Documento architetturale — sessione del 13 giugno 2026, aggiunte 17 giugno 2026*
+*Revisionato 30/06/2026 (v428): la visione e la filosofia restano invariate. Annotazioni puntuali dove lo stato reale è cambiato rispetto a quando scritto — vedi note marcate "Aggiornamento 30/06". Per lo stato tecnico dettagliato vedi sempre BRIGADE_DB_SCHEMA.md, BOH_OS_BACKLOG.md, BOH_OS_DECISIONS.md.*
 
 ---
 
@@ -12,19 +13,20 @@ Non è un'app di cucina. È la memoria collettiva e il sistema nervoso di una br
 
 ## Il ciclo fondamentale
 
+*Aggiornamento 30/06 (confermato da Max): il ciclo originale era pensato come sera→notte→mattina→sera, con la checklist serale come motore che alimentava la preplist del giorno dopo. Nella pratica il ciclo che guida davvero la produzione oggi è **notte→mattina**: di notte il bot (bot-preplist-builder) scarica il venduto dal POS, calcola `current_stock` e genera la preplist; la mattina la brigata produce in base a quella preplist. La checklist serale di chiusura (`closing_checks`/`closing_log`) esiste ancora ed è tuttora importante, ma è un controllo di verifica separato — non è più (se mai lo è stato in pratica) l'input che alimenta direttamente la preplist del bot. Lo schema sotto rappresenta ancora la visione originale completa; il ciclo realmente operativo oggi è la metà destra del diagramma (notte→mattina).*
+
 ```
-SERA — La brigata serale compila le checklist per stazione
+SERA — La brigata serale compila le checklist per stazione (verifica/chiusura, separato dal ciclo preplist)
   ↓
-NOTTE — L'AI osserva tutto: checklist + vendite + prep + fatture
-         Genera anomalie, prepara le domande, costruisce la preplist mattina
+NOTTE — Il bot scarica il venduto dal POS (TouchBistro), calcola current_stock,
+         genera la preplist mattutina (bot-preplist-builder)
   ↓
 MATTINA — Ogni cuoco vede la sua stazione, cosa fare, in che ordine
            Apre la ricetta, segna fatto, il log si costruisce da solo
   ↓
-SERA — L'AI confronta log mattina con consumo serale
-        Se non torna → warning intelligente con questionario già pronto
+SERA — Si richiude la stazione (checklist di verifica)
   ↓
-  (ricomincia)
+  (ricomincia: il venduto di oggi alimenta la preplist di domani notte)
 ```
 
 ---
@@ -32,6 +34,8 @@ SERA — L'AI confronta log mattina con consumo serale
 ## Le cinque stazioni
 
 Forno · Plating · Pasta · Salad · Sauté / Grill
+
+*Aggiornamento 30/06: questo era il disegno originale delle stazioni. Lo stato reale del DB oggi ha 10 categorie attive in prep_tasks (Salad, Pastry, Sauté, Manager/Coordinator — rename in corso, Saucier, Oven, Pasta, Plating, Table Side, Fresh Pasta Station) — la brigata è cresciuta oltre il disegno iniziale a cinque stazioni. La visione concettuale di "ogni cuoco ha la sua stazione" resta valida, solo il numero e i nomi sono cambiati nella pratica. Vedi BRIGADE_DB_SCHEMA.md per l'elenco aggiornato.*
 
 Ogni cuoco ha la sua stazione. Ogni stazione ha la sua checklist serale, la sua preplist mattutina, le sue ricette, il suo log di produzione.
 
@@ -48,22 +52,22 @@ Ogni cuoco ha la sua stazione. Ogni stazione ha la sua checklist serale, la sua 
 | Ricette con batch scalabili | ✅ in DB |
 | Prep log — chi ha fatto cosa, quando, quanto | ✅ in DB |
 | Vendite TouchBistro via email notturna | ✅ in DB |
-| Fatture vendor (Hardie's, BEK, Fruge, Freshpoint, Global Gourmet) | ✅ in DB |
+| Fatture vendor (Hardie's, BEK, Fruge, Freshpoint, Global Gourmet) | ✅ in DB — *Global Gourmet ancora senza parser dedicato, vedi BOH_OS_BACKLOG.md* |
 | Chat brigata multilingua (IT / EN / ES) | ✅ in Brigade |
 | Sous Chef AI — osservazione e chat | ✅ in Brigade |
 | News / Alert banner scorrevole | ✅ in Brigade |
-| Warning center | ⚠️ parziale — da rifare |
-| TripleSeat catering / eventi | 🔜 quasi pronto |
+| Warning center | 🔴 **da ricostruire da zero** (Aggiornamento 30/06, parola di Max: "fa cagare" — il codice tecnicamente risponde ai codici OQR del registro in BOH_OS_WARNINGS.md, ma l'esperienza reale non funziona/non soddisfa. Non considerare il fatto che i codici siano "implementati nel routing" come segnale che il modulo sia a posto — serve una sessione dedicata di ricostruzione, non patch incrementali) |
+| TripleSeat catering / eventi | ⏸️ **in attesa di conferma esterna** (Aggiornamento 30/06: codice pronto (tripleseat-sync v24), ma tutto fermo finché Monica non fa l'Authorize OAuth — non dipende da lavoro su Brigade, solo da attesa) |
 
 ### Da costruire
 
 | Modulo | Priorità |
 |---|---|
-| Collegamento automatico checklist sera → preplist mattina | Alta |
+| Collegamento automatico checklist sera → preplist mattina | Alta — *Aggiornamento 30/06: da rivedere alla luce del ciclo reale (vedi sezione "Il ciclo fondamentale" sopra) — oggi la preplist nasce dal venduto POS via bot notturno, non dalla checklist serale. Non è chiaro se questa voce vada ancora intesa come scritta originariamente o vada ripensata. Chiedere a Max prima di lavorarci.* |
 | AI che incrocia vendite + prep log + checklist | Alta |
-| Schermo cucina (TV display) — preplist live, chat, alert | Media |
+| Schermo cucina (TV display) — preplist live, chat, alert | ✅ Fatto, *non più "da costruire"* — in produzione (display.html). Resta da fare: slideshow foto (vedi BOH_OS_BACKLOG.md "Centralizzare sistema foto"), discorso separato che non blocca questo modulo |
 | Apple Watch — tap per segnare prep fatta, task done | Media |
-| SevenShift — schedule ragazzi + staffing eventi catering | Media |
+| SevenShift — schedule ragazzi + staffing eventi catering | Media — *Aggiornamento 30/06: l'integrazione API diretta resta bloccata; con Max ci si è accordati su un workaround (import CSV manuale) che è quello che si usa oggi. Non è una soluzione provvisoria in attesa di altro — è l'accordo preso.* |
 | Skill progression per ogni membro brigata | Bassa |
 | Scarico magazzino automatico da prep log | Futura |
 
@@ -214,6 +218,8 @@ Vanilla JavaScript, Supabase, AI esterna (OpenRouter / LLaMA 3.3).
 Solida, funzionante, deployabile ovunque da un browser.
 
 ### Fase 2 — Flutter
+*Aggiornamento 30/06: questa fase resta **un sogno** — non un piano concreto temporaneamente sospeso. Nessuno sviluppo attivo, nessuna data. Il focus reale e totale è su Brigade. Se e quando si materializzerà qualcosa su Flutter/BIOS, andrà ripensato sullo schema DB del momento, che nel frattempo continua a crescere su Brigade.*
+
 Rebuild nativo in Flutter per iOS.
 Performance migliore, Apple Watch nativo, supporto schermo cucina, notifiche push reali.
 Stessa logica, stessa struttura DB — solo il guscio cambia.
