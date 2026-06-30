@@ -320,18 +320,23 @@ window.officeCloseFolder = function() {
 };
 
 function officeAddSwipeDown(el) {
-  var startY = 0, startScroll = 0, active = false;
+  var startY = 0, active = false, touchInList = false;
   var list = el.querySelector('#officeFolderList');
 
   el.addEventListener('touchstart', function(e) {
     startY = e.touches[0].clientY;
-    startScroll = list ? list.scrollTop : 0;
     active = false;
+    // Se il touch parte dentro la lista scrollabile, non interferire mai col drag-to-close:
+    // lo scroll interno deve avere sempre priorità, indipendentemente dallo scrollTop attuale.
+    touchInList = !!(list && list.contains(e.target));
   }, { passive: true });
 
   el.addEventListener('touchmove', function(e) {
     var dy = e.touches[0].clientY - startY;
-    if ((list && list.scrollTop > 6) || dy <= 0) return;
+    // Se il touch è nella lista e la lista può ancora scrollare verso l'alto (non è in cima),
+    // lascia fare lo scroll nativo e non interferire col drag-to-close.
+    if (touchInList && list && list.scrollTop > 0) return;
+    if (dy <= 0) return;
     active = true;
     el.style.transition = 'none';
     el.style.transform = 'translateX(-50%) translateY(' + dy + 'px)';
