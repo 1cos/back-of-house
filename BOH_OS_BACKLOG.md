@@ -132,7 +132,8 @@ URL: https://1cos.github.io/back-of-house/display.html — Insignia Fire TV Silk
 6. **🟠 Focus Mode per closing** — pagina Focus dedicata per i task di chiusura (stazioni applicabili, non Tela/Coordinator) — non ancora implementato.
 7. **Bottom bar fluttuante (bug UI)** — in osservazione dopo fix swipe-to-close v428, non confermato del tutto risolto.
 8. **Yes Chef modal** — sostituire toast piccolo con sheet grande celebrativa (leggibile su iPhone, emoji, riepilogo item).
-9. **Warning format standardizzato** — "Warning [Nome]" + Qty·Pack·Unit Price·Ext editabili, riga "Sous Chef: [math]·[risultato]", nessun giudizio di prezzo — vedi BOH_OS_WARNINGS.md per registro completo.
+9. **🔴 Warning Center — ricostruzione completa da zero** (Aggiornamento 30/06, giudizio esplicito di Max: il modulo attuale non funziona, va ricostruito, non patchato). Distinto dal punto 10 sotto (formato riga articolo), che resta valido come riferimento di formato ma non basta a risolvere il problema di fondo. Prossima sessione dedicata: ripartire ascoltando da Max cosa esattamente non va prima di toccare codice.
+10. **Warning format standardizzato** — "Warning [Nome]" + Qty·Pack·Unit Price·Ext editabili, riga "Sous Chef: [math]·[risultato]", nessun giudizio di prezzo — vedi BOH_OS_WARNINGS.md per registro completo. Da considerare solo un tassello del rebuild più ampio al punto 9, non la soluzione completa.
 10. **OQR-009 pack weight** — tabella pesi unitari standard (uovo 58g, lime 67g, limone 100g, ecc.) applicata automaticamente, OQR solo per sconosciuti.
 
 ---
