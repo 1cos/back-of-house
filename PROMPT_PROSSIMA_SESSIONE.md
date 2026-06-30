@@ -225,3 +225,36 @@ Sessione separata in parallelo alle due sopra (steps editor + ricette contorni).
 
 **⚠️ Nota importante — collisione tra sessioni parallele rilevata e corretta in corsa:** durante questa sessione è stato inizialmente fatto un push su `js/prep.js` partendo da una versione letta a inizio sessione (corrispondente a v393), mentre nel frattempo un'altra sessione parallela aveva già riscritto sia `prep.js` che il modulo recipe-view fino a v410. Max ha bloccato in tempo ("siamo alla versione 410, non fare casino") prima che si creasse un conflitto serio. Il fix del bottone Later (punto 3 sopra) è stato poi rifatto correttamente leggendo dal vero stato live v410. **Lezione confermata per il futuro: rileggere sempre sw.js live immediatamente prima di ogni modifica, mai fidarsi di uno SHA letto a inizio sessione se la sessione è lunga o se si sa che Max lavora in parallelo altrove.**
 
+
+
+---
+
+## SESSIONE v425+ — Oven Station: tutti gli steps completati + fix struttura recipe_steps
+
+**Contesto:** Sessione "RICETTE A STEPS" — Max ha chiesto di compilare `recipe_steps` per tutte le ricette ancora prive di steps, lavorando una stazione alla volta. Iniziata da Oven Station. Workflow stabilito da Max: Claude propone steps basati sul BOM reale → Max corregge a voce (spesso il processo reale è molto diverso da quanto dedotto dal solo BOM) → Claude salva nel DB → Claude riverifica con SELECT che sia tutto salvato correttamente.
+
+**Fix struttura DB importante:** la tabella `recipe_steps` aveva solo `title` (singola colonna, niente i18n) mentre le istruzioni (`instruction_it/en/es`) erano già trilingue. Max ha notato nello screenshot dell'app che i titoli apparivano sempre in italiano anche con istruzioni in inglese. Aggiunta migration:
+```sql
+ALTER TABLE recipe_steps ADD COLUMN title_it text, ADD COLUMN title_es text;
+```
+Tutti i titoli esistenti (74 steps, incluse le ricette Saucier della sessione precedente) sono stati retrocompilati in IT/EN/ES. **`js/recipe-modal.js` aggiornato** (v425) per leggere `title_it`/`title_es`/`title` in base a `window.user?.lang` — stessa logica già usata per le istruzioni. File modificato: `js/recipe-modal.js`, `sw.js` (v424→v425).
+
+**Regola "Note di servizio" stabilita da Max:** le istruzioni di piattaggio/finitura/servizio (cosa fare al pass durante il servizio, diverso dalla prep di produzione mattutina) NON vanno negli step di `recipe_steps`, ma nel campo `recipes.procedure` — che il tab "Notes" della recipe-modal già legge e mostra. Questo evita di mescolare "cosa preparo stamattina" con "cosa faccio quando arriva la comanda".
+
+**Ricette Oven Station completate (9/9 — stazione conclusa al 100%):**
+
+1. **Tempura Batter** (4 step) — soda water fredda + farina frustata + ghiaccio, si rifrusta se si rompe, si fa fresca ogni giorno, conserva in contenitore 1/6 profondo in frigo.
+2. **Croutons** (4 step, timer 2400s) — pane a cubetti + condimento, **forno Rational programma "Croutons" 120°C per 40 min** (non 350°F/15min come da ipotesi iniziale), verificare croccantezza fino all'interno prima di togliere.
+3. **Rosemary Potatoes** (4 step) — niente risciacquo delle patate (il forno le rende comunque croccanti), **forno Rational programma "Rosemary Potato Par Cook"**, si raffredda su teglia poi si trasferisce in **1/3 pan** (non hotel pan).
+4. **Brussel Sprouts** (4 step, timer 540s) — processo completamente diverso dall'ipotesi forno: si **bollono interi 9 min in acqua salata**, si raffreddano in placca con acqua e ghiaccio, si taglia il culetto e si tagliano a metà, poi si mescolano con pomodorini a metà e basilico nelle proporzioni ricetta in un contenitore 1/3, condimento EVOO/sale/pepe, si conservano in frigo crudi (non si cuociono in forno per il prep — la cottura finale è al momento del servizio, non documentata in questa sessione).
+5. **Fried Calamari** (3 step, timer 1200s — solo prep) — calamari congelati, **scongela 20 min in acqua fredda** (non nella confezione), pulisci/separa teste (contenitore 1/6 basso) e tubi tagliati a strisce 1cm (contenitore 1/6 profondo). Note di servizio in `procedure`: porzione 100g tubi + 50g teste, farina abbondante (si recupera l'eccesso), frittura 2-3 min, sale, servito con ramekin 2oz Arrabbiata.
+6. **Artichoke** (3 step, timer 1800s) — carciofi congelati in confezioni da 20: **scongelano nella confezione chiusa 30 min** (non in acqua), poi si aprono e si dispongono a gruppi di 2 interfogliati con carta forno in contenitore 1/3; cipolle rondelle aperte in contenitore 1/6. Note di servizio in `procedure`: seasoning con Ribeye Salt, griglia 1.5-2 min, forno 2.5 min, 4 anelli cipolla fritti in tempura (tempura già pronta — non rifatta al momento), piatto con Artichoke Sauce + 2 carciofi + 3 anelli + parmigiano + prezzemolo.
+7. **Salmon Cakes** (4 step) — processo diverso dall'ipotesi "soffritto in padella": **salmone cotto in forno** condito con EVOO+White Wine, raffreddato, poi mix con **verdure/erbe tritate a crudo** (non soffritte), formate e conservate in contenitore 1/6 a gruppi di 4 con carta forno. Note di servizio in `procedure`: teglia con olio staccante, **forno Rational programma "Salmon Cake" o "Patate Focaccia"**, piattino con insalatina + pomodori bruschetta, salmon cakes rivolte con parte arrostita verso l'alto, Salmon Aioli, zest di limone.
+8. **Chicken Parmesan** (2 step, timer 3600s sul riposo) — petto pulito **~240-250g** (non 300g come da ipotesi BOM, lo scarto di pulizia è significativo), cura con **Poultry Salt 8g/kg**, marinato in EVOO min 1 ora, impanatura **pangrattato→uovo→pangrattato** (non uovo→pangrattato semplice), conservato in teglia mezza a 2 fette per strato con carta forno. Note di servizio in `procedure`: frittura 2.5 min in friggitrice, poi Arrabbiata+mozzarella in forno 2.5-3 min, **controllo temperatura interna col termometro prima di mandare**, impiattato su mezza porzione spaghetti Arrabbiata con rucola e fiore.
+9. **Amalfi Salmon** (2 step) — solo prep mattina: controllo filetto + cura con Fish Salt, insalata finocchio/arancia/olive/citronette a parte. Note di servizio in `procedure`: **forno Rational programma "Salmon" 7 minuti** (non padella come da ipotesi iniziale — niente sear in padella), burro spray sulla teglia, impiattato su insalata con Salmoriglio abbondante e ciuffi di finocchio fresco.
+
+**Pattern emerso (utile per le prossime stazioni):** il BOM da solo NON è sufficiente a dedurre il procedimento reale — più volte il metodo di cottura ipotizzato (padella, forno generico, acqua bollente) era sbagliato rispetto al metodo reale usato in cucina (programmi specifici del forno Rational, bollitura invece di forno, scongelamento in confezione invece che in acqua). Continuare a proporre come bozza di partenza ma aspettarsi correzioni sostanziali su ogni ricetta, specialmente su: metodo di cottura, temperature/programmi forno Rational, tempi, e step mancanti per scongelamento/prep di materie prime congelate.
+
+**Prossima stazione:** Sauté Station (6 ricette individuate, non ancora iniziata): Asparagus, Artichoke Sauce, Butter Spinach, Risotto Base, SALMORIGLIO, Siciliana. (Lemon Cream esclusa — risulta archiviata/non più in uso, da confermare con Max).
+
+**File modificati:** `js/recipe-modal.js`, `sw.js` (v424→v425). Tutto il resto solo DB (`recipe_steps`, `recipes.procedure`, migration `title_it`/`title_es`).
