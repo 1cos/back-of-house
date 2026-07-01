@@ -155,6 +155,11 @@ async function openPrepEditor(prep=null){
               <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Dura... (giorni)</label>
               <input id="pepShelf" type="number" min="1" max="365" placeholder="es. 3" style="width:100%;padding:8px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;" value="">
             </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Prepara quando scende sotto... (giorni coperti)</label>
+              <input id="pepMinCover" type="number" min="1" max="14" placeholder="2" style="width:100%;padding:8px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;" value="${prep?.min_cover_days??2}">
+              <p style="font-size:10px;color:#94a3b8;margin-top:3px;">Default 2 = prepara solo se non arrivi a dopodomani. Cibo fresco: 1-2. Prep in anticipo (ragu, brisket): 4-5.</p>
+            </div>
             ${prep?.suggested_note ? `<div>
               <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Il bot dice...</label>
               <div style="padding:8px 12px;background:white;border:1px solid #e2e8f0;border-radius:10px;font-size:12px;color:#334155;">
@@ -270,6 +275,8 @@ async function openPrepEditor(prep=null){
         const updates = {name, category, note, recipe_id};
         if(duration) updates.expected_duration_days = duration;
         if(pepUnit) updates.unit = pepUnit;
+        const pepMinCoverVal = modal.querySelector('#pepMinCover')?.value;
+        if(pepMinCoverVal) updates.min_cover_days = parseInt(pepMinCoverVal);
         // Aggiorna shelf_life e serving_weight_g sulla ricetta collegata se esiste
         const pepShelfVal = modal.querySelector('#pepShelf')?.value;
         const pepConvVal = modal.querySelector('#pepConversion')?.value;
