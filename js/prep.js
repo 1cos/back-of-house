@@ -202,7 +202,12 @@ function cardButton(i){
   if(i.in_progress){
     const currentStep = _taskStep[iid]||0;
     const totalSteps = _taskStepTotal[iid]||0;
+    const hasStepsInDB = window.prepTasksWithSteps?.has(String(iid));
     const isLastStep = totalSteps>0 && currentStep>=totalSteps-1;
+    // Nessuno step configurato → DONE diretto
+    if(!hasStepsInDB || totalSteps===0 && !hasStepsInDB){
+      return `<button onclick="prepDone(${JSON.stringify(iid)})" style="height:40px;padding:0 18px;border-radius:10px;font-size:13px;font-weight:600;background:#059669;color:white;border:none;white-space:nowrap;flex-shrink:0;">DONE</button>`;
+    }
     if(isLastStep){
       return `<button onclick="prepDone(${JSON.stringify(iid)})" style="height:40px;padding:0 18px;border-radius:10px;font-size:13px;font-weight:600;background:#059669;color:white;border:none;white-space:nowrap;flex-shrink:0;">DONE</button>`;
     }
@@ -560,3 +565,4 @@ async function feedSave(id,qty,btn){
 
 // Carica steps map all'avvio
 loadStepsMap();
+
