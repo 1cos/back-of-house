@@ -594,3 +594,86 @@ Contiene anche: EVOO 3/5lt "Oleoestepa", Pecorino Toscano Fresco DOP, Pecorino R
 - Tutti i dati sono reali da oggi 30/06 — primo inventario fisico completo
 - bot-preplist-builder gira alle 4AM CDT ogni notte (cron `0 9 * * *` UTC)
 
+
+---
+
+## SESSIONE 1 LUGLIO 2026 (mattina) — Bot v21 + audit + fix shelf life + Pears
+
+**Versione:** v430 frontend (nessun bump)
+**Bot:** bot-preplist-builder v21 (Supabase version 40)
+
+---
+
+### Bot v21 — fix fallback unità
+
+Problema identificato in v20: item con `unit='g'` senza ricetta collegata mostravano "porz" nel testo invece di kg/g.
+
+**Fix in v21:**
+- Nuovo blocco in `smartQty`: se `unit='g'` e nessun `base_weight_g` → mostra direttamente in kg/g via `fmtGrams()`
+- Fallback finale ora mostra `numero + unità raw` invece di "porz"
+- Aggiunta `SKIP_PACK` set: ricette dove il primo ingrediente BOM non è il driver acquisto rilevante (Bechamel, Thyme Butter, Texana Soup, Rosemary Oil, Citronette, Salmoriglio, Mash Potato, Garlic Oil) → non usa pack_description per queste
+
+**Risultati post-v21:**
+- Calamari → "2.2kg" ✅
+- Brussels sprouts → "4.5kg" ✅  
+- Croutons → "789g" ✅
+- Texana Soup → "fai 5kg" ✅
+- Siciliana cartoccio → "fai 4 cartocci" ✅
+
+**Fix dati contestuali:**
+- `Spring mix` → unit cambiata da 'porzioni' a 'buste' (il cuoco conta le buste)
+- `Confit tomatoes` → current_stock = NULL (stock 0 senza ricetta → bot skippa)
+
+---
+
+### Audit bot v21 — risultati 1 luglio
+
+**🔴 Prepara oggi:**
+- Chicken Parmesan: 9 in casa → fai 16 pezzi (Mer5+Gio6+Ven11.7=22.7 × 1.1 = 25, mancano 16) ✅ corretto
+- Thaw Lobster: 0 in casa → fai 15 pezzi (dopo fix shelf_life=2gg: Mer6.7+Gio8.3=15) ✅
+- Cheesecake: 0 in casa → fai 72 pezzi (7gg × vendite = 3 batch da 24) ✅
+- Creme Brulee: 0 in casa → fai 48 pezzi (6gg × vendite = 3 batch da 16) ✅
+- Pears: 2 in casa → fai 16 pezzi ✅
+- Thyme Butter: 0 → fai 484g ✅
+
+**🟡 Domani:**
+- Texana Soup: 3.7kg → fai 5kg
+- Siciliana cartoccio: 8 cartocci → fai 4 cartocci
+- Garlic oil: 600g → stock basso
+
+**🟢 OK:** 86 task restanti tutti in kg/g/pezzi leggibili
+
+---
+
+### Shelf life aggiornate
+
+| Ricetta | Shelf life | Note |
+|---|---|---|
+| Lobster Fettucine | 2 gg | scongelata, deperibile rapido |
+| Cheesecake | 7 gg | si fa una volta a settimana |
+| Crème Brûlée | 6 gg | — |
+| Pear & Pecorino Salad | 3 gg | — |
+
+---
+
+### Pears — logica corretta
+
+- 1 pera = 4 porzioni di Pear & Pecorino Salad
+- Aggiornato: `base_servings=4`, `serving_qty=1`, `serving_unit='pezzi'`
+- `pos_name` corretto da 'Pere E Pecorino Salad' → 'Pear & Pecorino Salad' (allineato al POS)
+- Il bot ora calcola: 1 salata venduta = 0.25 pere consumate
+
+---
+
+### DA FARE — priorità prossima sessione
+
+1. **Salad Station** — molti item ancora in unità astratte (porzioni, wedge, 9pan) — completare allineamento
+2. **Pastry Station** — Chopped dark/white choc, Mint liquid, Cocoa powder, Powder sugar → stock 1g = placeholder, da azzerare o misurare reali
+3. **Cacio e pepe sauce** — Milk senza vendor/pack (1 gallone = 3785g) — da inserire
+4. **EVOO** — nessun vendor (Global Gourmet: 3/5lt per case) — da inserire  
+5. **Pomodoro sauce** — ingrediente driver è Onions (sbagliato), il vero driver è Canned Tomatoes — correggere sort_order BOM
+6. **Chicken Parmesan shelf_life** — non impostato, usa default 3gg — verificare con Max
+7. **Croutons** — base_weight_g ancora NULL (bot skippa) — chiedere a Max peso batch reale
+8. **Brisket** — BOM e recipe_steps da completare
+9. **Verifica vendite Pear & Pecorino** — pos_name era sbagliato, potrebbero esserci 0 dati storici — verificare dopo prossimo run bot
+
