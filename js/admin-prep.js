@@ -8,14 +8,19 @@ async function adminDel(id){
   if(choice===null) return;
   if(choice){
     await supa.from('prep_tasks').update({archived:true,need_tomorrow:false}).eq('id',id);
-    // Archivia anche le closing_checks collegate
     await supa.from('closing_checks').update({archived:true}).eq('prep_task_id',id);
   } else {
     if(!confirm('Eliminare definitivamente?')) return;
     await supa.from('closing_checks').delete().eq('prep_task_id',id);
     await supa.from('prep_tasks').delete().eq('id',id);
   }
-  location.reload();
+  // Rimuovi dalla memoria locale e ri-renderizza — niente reload che crashia su iOS
+  delete tasks[id];
+  items = items.filter(i=>String(i.id)!==String(id));
+  renderM();
+  if(typeof renderS==='function') renderS();
+  if(typeof renderHomeStations==='function') renderHomeStations();
+  if(typeof renderFocusFeed==='function') renderFocusFeed();
 }
 
 async function showArchivedPreps(){
@@ -38,7 +43,8 @@ async function showArchivedPreps(){
 async function restorePrep(id){
   await supa.from('prep_tasks').update({archived:false}).eq('id',id);
   await supa.from('closing_checks').update({archived:false}).eq('prep_task_id',id);
-  location.reload();
+  // Ricarica lista completa e ri-renderizza
+  await init();
 }
 window.adminRename=adminRename; window.adminDel=adminDel;
 
@@ -328,4 +334,5 @@ async function openPrepEditor(prep=null){
     }
   };
 }
+
 
