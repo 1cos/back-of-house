@@ -2647,6 +2647,7 @@ window.botLiveCalc = function(tid) {
 
 window.botLiveCalcAsync = async function(tid, stock, shelf, servQty, bw, baseSrv, unit, manIt, manEn, manEs, d) {
   var sb = window.supa;
+  var body = document.getElementById('prepBody_'+tid);
 
   // Mostra "Calcolo in corso..." nella preview
   var liveQty = document.getElementById('liveQty_'+tid);
