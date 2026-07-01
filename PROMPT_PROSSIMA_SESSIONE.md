@@ -492,3 +492,105 @@ Tutti i titoli esistenti (74 steps, incluse le ricette Saucier della sessione pr
 - Dati pre-30/06 erano test/fittizi — ora tutto è reale
 - sw.js NON bumpato in questa sessione (nessuna modifica a file frontend)
 
+
+---
+
+## SESSIONE 30 GIUGNO 2026 (tarda sera) — Fresh Pasta Station + Bot v20 + Arrabbiata ricalcolata
+
+**Versione:** v430 frontend (nessun bump — solo DB + Edge Function)
+**Bot:** bot-preplist-builder v20 (Supabase version 39)
+
+---
+
+### Fresh Pasta Station — completata ✅
+
+**Fettuccine (prep_task id 313):**
+- Collegato a `FETTUCCINE FRESH PASTA` (era erroneamente collegato a SPAGHETTI FRESH PASTA)
+- `base_weight_g = 3500`, `base_servings = 25`, `serving_qty = 2`, `serving_unit = nests`
+- `prep_type = supporto` impostato
+- Spolvero (Semolina 500g, bom_id 1525) rimosso dal BOM
+
+**Spaghetti (prep_task id 314):**
+- Già collegato a `SPAGHETTI FRESH PASTA` ✅
+- `base_weight_g = 3500`, `base_servings = 20`, `serving_qty = 2`, `serving_unit = nests`
+- `prep_type = supporto` impostato
+- Spolvero (Semolina 500g, bom_id 1720) rimosso dal BOM
+- BOM pulito: Liquid Egg 1kg + Semolina 2.3kg + Caputo Flour 200g
+
+**Gnocchi (prep_task id 388):**
+- Collegato a `GNOCCHI` (id `c3836a65-d74d-47ac-8944-ad439f76200f`)
+- `base_weight_g = 2000`, `base_servings = 10`, `serving_weight_g = 200`, `shelf_life_days = 30` (congelati)
+- `pos_name = 'Shrimp Gnocchi|Gnocchi'` — scarica sia da piatto che da modifier
+- `prep_type = supporto`, `unit = g`
+- Spolvero (Flour 200g + Semolina 100g, bom_id 1728/1729) rimosso dal BOM
+- BOM pulito: Water 1200g + Gnocchi Flour 800g + Nutmeg 4g
+
+**Grated Pecorino (prep_task id 438):**
+- Nuova ricetta creata: `Grated Pecorino` (id `27213a2e-e8fd-4100-9fb8-4ebf57cfab1e`)
+- `base_weight_g = 7000`, `base_servings = 1`, `shelf_life_days = 7`
+- Prep_task collegato ✅
+
+**Parmesan Grated (prep_task id 439):**
+- Nuova ricetta creata: `Parmesan Grated` (id `6357c9f1-f944-4153-8d7f-afb11336d91a`)
+- `base_weight_g = 7000`, `base_servings = 1`, `shelf_life_days = 7`
+- Prep_task collegato ✅
+
+**Regola confermata da Max:** entrambi i formaggi si grattano in batch da 7kg per volta.
+
+---
+
+### Arrabbiata — ricalcolata su latta #10 Global Gourmet
+
+- Fornitore vecchio: latte da 2550g → **nuovo: latte #10 da 2950g** (Global Gourmet Foods "La Carmela")
+- Batch ricalcolato su **1 latta #10** (unità minima):
+  - `base_weight_g = 3185`, `base_servings = 12`, `serving_weight_g = 265`
+  - BOM aggiornato: Canned Tomatoes 2950g, Garlic 52g, EVOO 145g, Red Flakes 1g, Parsley 58g, Salt 38g, Sugar 12g, Water 1156g
+- Vendor Global Gourmet inserito per Canned Tomatoes: `pack_description = '6/#10 cans "La Carmela"'`, `conversion_to_base = 17700`, `unit_price = 35.00`
+
+**Fattura Global Gourmet Foods letta (invoice #20404, 5/26/2026, $1,859.07):**
+Contiene anche: EVOO 3/5lt "Oleoestepa", Pecorino Toscano Fresco DOP, Pecorino Romano "Monti Trentini", Carnaroli Rice, Bresaola, Prosciutto Italiano, Sea Salt Coarse/Fine, Gnocchi C-Catering "Molino Pasini", GF Veal Rib Chops. Parser Global Gourmet ancora da costruire (vedi BOH_OS_BACKLOG.md).
+
+---
+
+### Bot-preplist-builder v20 — nuova logica linguaggio cucina
+
+**Deployato come Supabase version 39.**
+
+**Novità rispetto a v19b:**
+
+1. **Linguaggio cucina reale per tipo:**
+   - `unit = pezzi/pz/buste` → conta fisica (es. "22 pezzi", "3 buste")
+   - `serving_unit = nests` → pasta fresca in nests (es. "50 nests"), arrotondato a batch interi
+   - Salse con `pack_description` su vendor → usa il pack (es. "3 × 6/#10 cans La Carmela")
+   - Tutto il resto → kg/g arrotondati a batch interi
+
+2. **Guard anomalie:** salta task con `base_weight_g > 500000` (placeholder mostruosi) invece di produrre numeri assurdi. Logga `[SKIP-ANOMALY]` per debug.
+
+3. **Carica vincoli acquisto:** per ogni ricetta legge il `pack_description` del primo ingrediente con vendor attivo — usato nel testo suggerimento.
+
+4. **Arrotondamento sempre su** a batch interi (invariato da v19b).
+
+**Fix dati anomali eseguiti contestualmente:**
+- Brussels sprouts: `base_weight_g = 1500000` → corretto a `1500` (10 porzioni × 150g)
+- Croutons: `base_weight_g = 15` (placeholder) → impostato a NULL (bot skippa, da correggere con valore reale)
+
+---
+
+### DA FARE — priorità prossima sessione
+
+1. **Croutons** — `base_weight_g` da inserire (quanto pesa un batch reale di croutons?)
+2. **Salad Station + Pastry Station** — unità da verificare (molti item ancora in "porzioni")
+3. **Sauté Station** — unità + ricette steps mancanti
+4. **Cacio e pepe sauce** — Milk non ha vendor/pack nel DB (1 gallone = 3785g) — da inserire
+5. **EVOO** — nessun vendor nel DB (Global Gourmet: 3/5lt per case = 15lt = ~13800g) — da inserire
+6. **Pomodoro sauce** — ingrediente driver è Onions (sbagliato per vincolo acquisto) — il vero driver è Canned Tomatoes, stessa latta dell'Arrabbiata — da correggere BOM sort_order
+7. **Ground Beef** — pack aggiornato a 10lb = 4536g ✅ ma Ragu ha `base_weight_g = 13700` → bot dirà "fai 13.7kg" — verificare con Max se il testo ha senso o serve pack_description HEB
+8. **Verifica bot domani mattina** — controllare log in L'Ufficio dopo run 4AM CDT, verificare che i testi siano leggibili dai cuochi
+
+---
+
+### Note tecniche
+- sw.js NON bumpato (nessuna modifica frontend)
+- Tutti i dati sono reali da oggi 30/06 — primo inventario fisico completo
+- bot-preplist-builder gira alle 4AM CDT ogni notte (cron `0 9 * * *` UTC)
+
