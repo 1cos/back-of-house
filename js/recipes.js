@@ -519,6 +519,26 @@ async function openRecipeEditor(rec=null){
         </div>
       </div>
 
+      <div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;padding:12px;">
+        <div style="font-size:12px;font-weight:700;color:#059669;margin-bottom:8px;">🤖 Campi usati dal Bot Preplist</div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <div class="text-xs text-slate-500 mb-1">Serving qty — unità per porzione venduta</div>
+            <input id="rServingQty" type="number" min="0" step="0.5" placeholder="es. 2" class="w-full px-3 py-2 border rounded-xl" value="${rec?.serving_qty||''}">
+          </div>
+          <div>
+            <div class="text-xs text-slate-500 mb-1">Serving unit — unità di misura</div>
+            <select id="rServingUnit" class="w-full px-3 py-2 border rounded-xl">
+              <option value="">— scegli —</option>
+              ${['g','kg','cup','nests','pezzi','filetto','porzione','buste'].map(u=>`<option value="${u}" ${rec?.serving_unit===u?'selected':''}>${u}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:6px;">
+          Es: Butter Spinach = 2 cup · Fettuccine = 2 nests · Lobster = 1 filetto · Arrabbiata = 200 g
+        </div>
+      </div>
+
       <div>
         <div class="flex items-center justify-between mb-1">
           <div class="font-semibold">Ingredients <span class="text-xs text-slate-400 font-normal">qty · unit · name · note</span></div>
@@ -1018,7 +1038,9 @@ async function openRecipeEditor(rec=null){
       selling_price:     sp,
       base_servings:     bs,
       base_weight_g:     bwg,
-      serving_weight_g:  swg
+      serving_weight_g:  swg,
+      serving_qty:       parseFloat(modal.querySelector('#rServingQty')?.value)||null,
+      serving_unit:      modal.querySelector('#rServingUnit')?.value||null
       // NOTE: ingredients NON va nel payload recipes — stanno in recipe_bom
     };
 
