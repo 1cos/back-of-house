@@ -460,7 +460,7 @@ async function detailSave(id, btn, isSuggested){
   const sheet=btn.closest('.fixed');
   const qtyInput=sheet.querySelector('#dsc-qty-'+id)||sheet.querySelector('.ds-qty');
   const qty=parseFloat(qtyInput?qtyInput.value:0);
-  if(!qty||isNaN(qty)){qtyInput&&qtyInput.focus();return;}
+  if(isNaN(qty)||qtyInput?.value===''){qtyInput&&qtyInput.focus();return;}
   const unit=sheet._dscUnit||(sheet.querySelector('.ds-unit')?sheet.querySelector('.ds-unit').value:'g');
   const cont='';
   btn.textContent='...'; btn.disabled=true;
@@ -583,5 +583,6 @@ async function feedSave(id,qty,btn){
 
 // Carica steps map all'avvio
 loadStepsMap();
+
 
 
