@@ -2427,193 +2427,184 @@ window.botLoadPreplistEditor = async function() {
 
 function botBuildTaskCard(task, bomMap) {
   var rec = task.recipes;
-  var shelfLife = (rec && rec.shelf_life_days) ? rec.shelf_life_days : (task.expected_duration_days || null);
-  var bomCount = rec ? (bomMap[rec.id]||0) : 0;
+  var shelfLife = (rec && rec.shelf_life_days) ? rec.shelf_life_days : (task.expected_duration_days || 3);
+  var bomCount  = rec ? (bomMap[rec.id]||0) : 0;
 
-  // Decodifica suggested_note (formato: color|it|en|es)
-  var noteRaw = task.suggested_note || '';
+  var noteRaw   = task.suggested_note || '';
   var noteParts = noteRaw.split('|');
   var noteColor = noteParts[0] || 'green';
-  var noteIT = noteParts[1] || '';
-  var noteEN = noteParts[2] || '';
-  var noteES = noteParts[3] || '';
+  var noteIT    = noteParts[1] || '';
+  var noteEN    = noteParts[2] || '';
+  var noteES    = noteParts[3] || '';
 
-  var pillColor = noteColor==='red' ? '#ef4444' : noteColor==='yellow' ? '#eab308' : '#22c55e';
-  var pillBg = noteColor==='red' ? 'rgba(239,68,68,0.15)' : noteColor==='yellow' ? 'rgba(234,179,8,0.15)' : 'rgba(34,197,94,0.15)';
-
-  // POS aliases
+  var pillColor = noteColor==='red'?'#ef4444':noteColor==='yellow'?'#eab308':'#22c55e';
+  var pillBg    = noteColor==='red'?'rgba(239,68,68,0.15)':noteColor==='yellow'?'rgba(234,179,8,0.15)':'rgba(34,197,94,0.15)';
   var posAliases = rec && rec.pos_name ? rec.pos_name.split('|').filter(Boolean) : [];
 
   var card = document.createElement('div');
   card.style.cssText = 'background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.1);border-radius:14px;overflow:hidden;';
   card.id = 'prepCard_'+task.id;
 
-  // Header card — clicca per espandere
+  // ── Header collassabile ──
   var header = document.createElement('div');
   header.style.cssText = 'padding:12px 14px;cursor:pointer;-webkit-tap-highlight-color:transparent;display:flex;align-items:center;gap:10px;';
   header.innerHTML =
-    '<span style="font-size:10px;padding:3px 8px;border-radius:20px;font-weight:700;background:'+pillBg+';color:'+pillColor+';flex-shrink:0;">'+noteColor.toUpperCase()+'</span>'+
+    '<span id="pillBadge_'+task.id+'" style="font-size:10px;padding:3px 8px;border-radius:20px;font-weight:700;background:'+pillBg+';color:'+pillColor+';flex-shrink:0;">'+noteColor.toUpperCase()+'</span>'+
     '<div style="flex:1;min-width:0;">'+
       '<div style="color:white;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+task.name+'</div>'+
-      '<div style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:2px;">'+
+      '<div id="headerSub_'+task.id+'" style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:2px;">'+
         (task.current_stock!==null ? task.current_stock+' '+task.unit : '⚠️ stock NULL')+
-        (noteIT ? ' · '+noteIT.replace(/^(fai|hai|stock ok · |prepara oggi · )/i,'').substring(0,40) : '')+
+        (noteIT?' · '+noteIT.replace(/^(fai|hai|stock ok · |prepara oggi · )/i,'').substring(0,40):'')+
       '</div>'+
     '</div>'+
     '<span id="prepArrow_'+task.id+'" style="color:rgba(255,255,255,0.25);font-size:16px;transition:transform 0.2s;">&#x203A;</span>';
 
-  // Body espandibile
+  // ── Body ──
   var body = document.createElement('div');
   body.id = 'prepBody_'+task.id;
-  body.style.cssText = 'display:none;border-top:0.5px solid rgba(255,255,255,0.07);';
+  body.style.cssText = 'display:none;border-top:0.5px solid rgba(255,255,255,0.07);padding:14px;';
 
-  var bodyHTML = '<div style="padding:14px;display:flex;flex-direction:column;gap:16px;">';
+  // Serializza dati task per il ricalcolo live
+  var td = {
+    id: task.id, unit: task.unit||'g',
+    current_stock: parseFloat(task.current_stock)||0,
+    shelf_life: shelfLife,
+    base_weight_g: rec?(parseFloat(rec.base_weight_g)||0):0,
+    base_servings: rec?(parseInt(rec.base_servings)||1):1,
+    serving_qty: rec?(parseFloat(rec.serving_qty)||0):0,
+    serving_unit: rec?(rec.serving_unit||''):'',
+    suggested_qty: parseFloat(task.suggested_qty)||0,
+    note_color: noteColor, note_it: noteIT, note_en: noteEN, note_es: noteES,
+    recipe_id: rec?rec.id:null, pos_name: rec?(rec.pos_name||''):''
+  };
 
-  // ── SEZIONE 1: Cosa vede il bot ──
-  bodyHTML += '<div>';
-  bodyHTML += '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">🤖 Cosa sa il bot</div>';
-  bodyHTML += '<div style="display:flex;flex-direction:column;gap:6px;">';
-
-  // Riga info
-  function infoRow(label, value, warn) {
-    var valColor = warn ? '#fbbf24' : 'rgba(255,255,255,0.75)';
-    return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">'+
-      '<span style="color:rgba(255,255,255,0.35);font-size:12px;flex-shrink:0;">'+label+'</span>'+
-      '<span style="color:'+valColor+';font-size:12px;font-weight:600;text-align:right;">'+value+'</span>'+
+  // Funzione per costruire una riga editabile inline
+  // label = stringa, val = valore attuale, inputId, inputType, opts = {step,min,max,hint,choices,unit}
+  function editRow(label, inputId, inputType, val, opts) {
+    opts = opts||{};
+    var hint = opts.hint ? '<div style="color:rgba(255,255,255,0.2);font-size:10px;margin-top:3px;">'+opts.hint+'</div>' : '';
+    var inputStyle = 'background:rgba(255,255,255,0.08);border:1.5px solid rgba(255,255,255,0.18);border-radius:8px;color:white;font-size:14px;font-weight:700;padding:5px 8px;text-align:right;outline:none;';
+    var inp = '';
+    if (inputType==='select' && opts.choices) {
+      inp = '<select id="'+inputId+'" onchange="botLiveCalc('+task.id+')" style="'+inputStyle+'cursor:pointer;">';
+      opts.choices.forEach(function(c){
+        inp += '<option value="'+c+'"'+(String(val)===String(c)?' selected':'')+'>'+c+'</option>';
+      });
+      inp += '</select>';
+    } else {
+      var step = opts.step ? ' step="'+opts.step+'"' : '';
+      var min  = opts.min!=null ? ' min="'+opts.min+'"' : '';
+      var max  = opts.max!=null ? ' max="'+opts.max+'"' : '';
+      var w    = inputType==='number' ? 'width:80px;' : 'width:140px;';
+      inp = '<input id="'+inputId+'" type="'+inputType+'" value="'+(val||'')+'" '+
+        'oninput="botLiveCalc('+task.id+')"'+step+min+max+
+        'style="'+inputStyle+w+'">';
+    }
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid rgba(255,255,255,0.05);">'+
+      '<div>'+
+        '<span style="color:rgba(255,255,255,0.4);font-size:12px;">'+label+'</span>'+
+        hint+
+      '</div>'+
+      inp+
     '</div>';
   }
 
-  bodyHTML += infoRow('Unità inventario', task.unit || '—');
-  bodyHTML += infoRow('Stock attuale', task.current_stock !== null ? task.current_stock+' '+task.unit : '⚠️ NULL — bot salta', task.current_stock === null);
-  bodyHTML += infoRow('Tipo prep', task.prep_type || '—');
-  bodyHTML += infoRow('Ricetta collegata', rec ? rec.title : '❌ Nessuna', !rec);
-  bodyHTML += infoRow('BOM righe', rec ? bomCount+(bomCount<2?' ⚠️ parziale':'') : '—', rec && bomCount<2);
-  bodyHTML += infoRow('Shelf life', shelfLife ? shelfLife+' giorni' : '⚠️ non impostata — usa default 3gg', !shelfLife);
+  var bodyHTML = '';
+
+  // ── RISULTATO LIVE (in cima, grande) ──
+  bodyHTML +=
+    '<div id="liveResult_'+task.id+'" style="background:rgba(255,255,255,0.06);border:2px solid '+pillColor+';border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
+      '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">👁 Preview risultato bot</div>'+
+      '<div id="liveQty_'+task.id+'" style="color:'+pillColor+';font-size:22px;font-weight:800;margin-bottom:6px;">'+(task.suggested_qty||'—')+' '+task.unit+'</div>'+
+      '<div id="liveIt_'+task.id+'"  style="color:#86efac;font-size:12px;margin-bottom:2px;">🇮🇹 '+noteIT+'</div>'+
+      '<div id="liveEn_'+task.id+'"  style="color:#93c5fd;font-size:12px;margin-bottom:2px;">🇺🇸 '+noteEN+'</div>'+
+      '<div id="liveEs_'+task.id+'"  style="color:#fbbf24;font-size:12px;">🇪🇸 '+noteES+'</div>'+
+    '</div>';
+
+  // ── CAMPI EDITABILI ──
+  bodyHTML += editRow('Stock attuale ('+task.unit+')', 'f_stock_'+task.id, 'number',
+    task.current_stock||0, {min:0, step:'any', hint:'Cambia → la preview si aggiorna subito'});
+
+  bodyHTML += editRow('Shelf life (giorni)', 'f_shelf_'+task.id, 'number',
+    shelfLife, {min:1, max:60, hint:'Quanti giorni guarda avanti il bot'});
+
+  bodyHTML += editRow('Tipo prep', 'f_preptype_'+task.id, 'select',
+    task.prep_type||'supporto', {choices:['finale','supporto']});
+
+  bodyHTML += editRow('Unità inventario', 'f_unit_'+task.id, 'select',
+    task.unit||'g', {choices:['g','pezzi','pz','buste','cup','nests','kg','cartocci']});
 
   if (rec) {
-    bodyHTML += infoRow('Peso batch (base_weight_g)', rec.base_weight_g ? rec.base_weight_g+'g' : '⚠️ mancante — bot non calcola batch', !rec.base_weight_g);
-    bodyHTML += infoRow('Porzioni base', rec.base_servings || '⚠️ mancante');
-    bodyHTML += infoRow('Serving unit', rec.serving_unit || '—');
-    bodyHTML += infoRow('Serving qty', rec.serving_qty || '—');
+    bodyHTML += editRow('Serving qty ('+( rec.serving_unit||'unità')+'/porzione)', 'f_servqty_'+task.id, 'number',
+      rec.serving_qty||'', {min:0, step:0.5, hint:'Spinaci=1cup. Fettuccine=2nests. Lobster=1coda.'});
+
+    bodyHTML += editRow('Serving unit', 'f_servunit_'+task.id, 'select',
+      rec.serving_unit||'g', {choices:['g','cup','nests','pezzi','filetto','porzione','buste']});
+
+    bodyHTML += editRow('Peso batch in grammi', 'f_bw_'+task.id, 'number',
+      rec.base_weight_g||'', {min:1, hint:'1 batch = N grammi. Arrabbiata=3185g.'});
+
+    bodyHTML += editRow('Porzioni base', 'f_basesrv_'+task.id, 'number',
+      rec.base_servings||'', {min:1, hint:'Quante porzioni fa 1 batch'});
   }
 
-  // Logica usata dal bot
-  var logica = '';
-  if (!task.current_stock === null) {
-    logica = '⏭ SKIP — current_stock è NULL';
-  } else if (rec && rec.serving_unit === 'nests') {
-    logica = '🍝 Pasta fresca → calcola in NESTS (porzioni × serving_qty)';
-  } else if (task.unit && ['pezzi','pz'].includes(task.unit.toLowerCase())) {
-    logica = '🔢 Conta PEZZI fisici (serving_qty × porzioni vendute)';
-  } else if (rec && rec.base_weight_g) {
-    logica = '⚖️ Grammi → arrotonda a batch interi da '+rec.base_weight_g+'g';
-  } else if (task.unit && task.unit.toLowerCase()==='g') {
-    logica = '⚖️ Grammi diretti (nessun batch — no ricetta)';
-  } else {
-    logica = '❓ Fallback — nessuna logica specifica';
-  }
-  bodyHTML += infoRow('Logica calcolo', logica);
-
-  // POS aliases
-  if (posAliases.length > 0) {
-    bodyHTML += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">'+
-      '<span style="color:rgba(255,255,255,0.35);font-size:12px;flex-shrink:0;">POS alias</span>'+
-      '<div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;">';
-    posAliases.forEach(function(a) {
-      bodyHTML += '<span style="background:rgba(59,130,246,0.15);color:#93c5fd;font-size:10px;padding:2px 6px;border-radius:10px;">'+a+'</span>';
-    });
-    bodyHTML += '</div></div>';
-  } else if (!rec) {
-    bodyHTML += infoRow('POS alias', '❌ Nessuno — bot legge dal BOM ingrediente', true);
-  } else {
-    bodyHTML += infoRow('POS alias (pos_name)', '⚠️ Vuoto — bot non trova vendite', true);
-  }
-
-  bodyHTML += '</div></div>';
-
-  // ── SEZIONE 2: Risultato ultima run ──
-  bodyHTML += '<div>';
-  bodyHTML += '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">📋 Risultato ultima run</div>';
-  bodyHTML += '<div style="display:flex;flex-direction:column;gap:6px;">';
-  bodyHTML += infoRow('Suggerito', task.suggested_qty!==null ? task.suggested_qty+' '+task.unit : '—');
-
-  if (noteIT || noteEN || noteES) {
-    bodyHTML +=
-      '<div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;margin-top:4px;">'+
-        '<div style="color:rgba(255,255,255,0.3);font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:6px;">Testo preplist</div>'+
-        (noteIT ? '<div style="color:#86efac;font-size:12px;margin-bottom:3px;">🇮🇹 '+noteIT+'</div>' : '')+
-        (noteEN ? '<div style="color:#93c5fd;font-size:12px;margin-bottom:3px;">🇺🇸 '+noteEN+'</div>' : '')+
-        (noteES ? '<div style="color:#fbbf24;font-size:12px;">🇪🇸 '+noteES+'</div>' : '')+
-      '</div>';
-  }
-  bodyHTML += '</div></div>';
-
-  // ── SEZIONE 3: Modifica diretta ──
-  bodyHTML += '<div>';
-  bodyHTML += '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">✏️ Modifica</div>';
-  bodyHTML += '<div style="display:flex;flex-direction:column;gap:10px;">';
-
-  // Shelf life
+  // POS alias — visualizza + aggiungi/rimuovi
   bodyHTML +=
-    '<div>'+
-      '<div style="color:rgba(255,255,255,0.55);font-size:12px;margin-bottom:5px;">Shelf life (giorni) — quanti giorni il bot guarda avanti</div>'+
-      '<input id="edit_shelf_'+task.id+'" type="number" min="1" max="60" value="'+(shelfLife||'')+'" placeholder="es. 3" '+
-        'style="width:100%;padding:8px 10px;background:rgba(255,255,255,0.08);border:1.5px solid rgba(255,255,255,0.15);border-radius:10px;font-size:15px;font-weight:700;color:white;box-sizing:border-box;">'+
+    '<div style="padding:6px 0;border-bottom:0.5px solid rgba(255,255,255,0.05);">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+        '<span style="color:rgba(255,255,255,0.4);font-size:12px;">POS alias (vendite collegate)</span>'+
+        '<span style="color:rgba(255,255,255,0.25);font-size:10px;">Il bot legge queste voci dal POS</span>'+
+      '</div>'+
+      '<div id="posAliasTags_'+task.id+'" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;">';
+  posAliases.forEach(function(a,i){
+    bodyHTML += '<div style="display:inline-flex;align-items:center;gap:3px;background:rgba(59,130,246,0.15);border:0.5px solid rgba(147,197,253,0.3);border-radius:20px;padding:3px 8px;">'+
+      '<span style="color:#93c5fd;font-size:11px;">'+a+'</span>'+
+      '<button onclick="botRemovePosAlias('+task.id+','+i+')" style="background:none;border:none;color:rgba(147,197,253,0.4);font-size:12px;cursor:pointer;padding:0;line-height:1;">&#x2715;</button>'+
+      '</div>';
+  });
+  bodyHTML +=
+      '</div>'+
+      '<div style="display:flex;gap:6px;">'+
+        '<input id="posAliasInput_'+task.id+'" type="text" placeholder="Aggiungi alias POS..." '+
+          'style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(147,197,253,0.25);border-radius:8px;font-size:12px;color:white;">'+
+        '<button onclick="botAddPosAlias('+task.id+')" style="padding:6px 10px;background:rgba(59,130,246,0.2);border:1px solid rgba(147,197,253,0.3);border-radius:8px;color:#93c5fd;font-size:12px;font-weight:700;cursor:pointer;">+ Add</button>'+
+      '</div>'+
     '</div>';
 
-  // Serving qty (come converte porzioni POS in pezzi/grammi)
-  if (rec) {
-    bodyHTML +=
-      '<div>'+
-        '<div style="color:rgba(255,255,255,0.55);font-size:12px;margin-bottom:5px;">Serving qty — quante '+( rec.serving_unit||'unità')+' per porzione venduta</div>'+
-        '<input id="edit_servqty_'+task.id+'" type="number" min="0.1" step="0.5" value="'+(rec.serving_qty||'')+'" placeholder="es. 2" '+
-          'style="width:100%;padding:8px 10px;background:rgba(255,255,255,0.08);border:1.5px solid rgba(255,255,255,0.15);border-radius:10px;font-size:15px;font-weight:700;color:white;box-sizing:border-box;">'+
-        '<div style="color:rgba(255,255,255,0.25);font-size:11px;margin-top:4px;">'+
-          'Esempio: Lobster = 1 coda per porzione. Arrabbiata = 200g per porzione. Fettuccine = 2 nests.'+
-        '</div>'+
-      '</div>';
-
-    bodyHTML +=
-      '<div>'+
-        '<div style="color:rgba(255,255,255,0.55);font-size:12px;margin-bottom:5px;">base_weight_g — peso totale di 1 batch in grammi</div>'+
-        '<input id="edit_bw_'+task.id+'" type="number" min="1" value="'+(rec.base_weight_g||'')+'" placeholder="es. 3185" '+
-          'style="width:100%;padding:8px 10px;background:rgba(255,255,255,0.08);border:1.5px solid rgba(255,255,255,0.15);border-radius:10px;font-size:15px;font-weight:700;color:white;box-sizing:border-box;">'+
-        '<div style="color:rgba(255,255,255,0.25);font-size:11px;margin-top:4px;">'+
-          'Arrabbiata = 3185g (1 latta). Cambia questo e il bot arrotonda ai batch giusti.'+
-        '</div>'+
-      '</div>';
-  }
-
-  // Testo manuale override
+  // Testi preplist IT/EN/ES
   bodyHTML +=
-    '<div>'+
-      '<div style="color:rgba(255,255,255,0.55);font-size:12px;margin-bottom:5px;">Testo preplist IT — sovrascrive quello calcolato dal bot</div>'+
-      '<input id="edit_noteit_'+task.id+'" type="text" value="'+noteIT.replace(/"/g,'&quot;')+'" placeholder="es. Prepara oggi · fai 2 latte" '+
-        'style="width:100%;padding:8px 10px;background:rgba(255,255,255,0.08);border:1.5px solid rgba(34,197,94,0.4);border-radius:10px;font-size:13px;color:#86efac;box-sizing:border-box;">'+
-    '</div>'+
-    '<div>'+
-      '<div style="color:rgba(255,255,255,0.55);font-size:12px;margin-bottom:5px;">Testo preplist EN</div>'+
-      '<input id="edit_noteen_'+task.id+'" type="text" value="'+noteEN.replace(/"/g,'&quot;')+'" placeholder="es. Prep today · make 2 cans" '+
-        'style="width:100%;padding:8px 10px;background:rgba(255,255,255,0.08);border:1.5px solid rgba(147,197,253,0.4);border-radius:10px;font-size:13px;color:#93c5fd;box-sizing:border-box;">'+
-    '</div>'+
-    '<div>'+
-      '<div style="color:rgba(255,255,255,0.55);font-size:12px;margin-bottom:5px;">Testo preplist ES</div>'+
-      '<input id="edit_notees_'+task.id+'" type="text" value="'+noteES.replace(/"/g,'&quot;')+'" placeholder="es. Prepara hoy · haz 2 latas" '+
-        'style="width:100%;padding:8px 10px;background:rgba(255,255,255,0.08);border:1.5px solid rgba(251,191,36,0.4);border-radius:10px;font-size:13px;color:#fbbf24;box-sizing:border-box;">'+
-      '<div style="color:rgba(255,255,255,0.25);font-size:11px;margin-top:4px;">Lascia vuoto = il bot ricalcola da solo stanotte.</div>'+
+    '<div style="padding:6px 0;">'+
+      '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">✍️ Testi preplist (lascia vuoto = bot li ricalcola)</div>'+
+      '<div style="display:flex;flex-direction:column;gap:6px;">'+
+        '<div style="display:flex;align-items:center;gap:6px;">'+
+          '<span style="font-size:14px;flex-shrink:0;">🇮🇹</span>'+
+          '<input id="f_noteit_'+task.id+'" type="text" value="'+noteIT.replace(/"/g,'&quot;')+'" placeholder="Testo italiano..." '+
+            'oninput="botLiveCalc('+task.id+')" style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(134,239,172,0.25);border-radius:8px;font-size:12px;color:#86efac;">'+
+        '</div>'+
+        '<div style="display:flex;align-items:center;gap:6px;">'+
+          '<span style="font-size:14px;flex-shrink:0;">🇺🇸</span>'+
+          '<input id="f_noteen_'+task.id+'" type="text" value="'+noteEN.replace(/"/g,'&quot;')+'" placeholder="English text..." '+
+            'oninput="botLiveCalc('+task.id+')" style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(147,197,253,0.25);border-radius:8px;font-size:12px;color:#93c5fd;">'+
+        '</div>'+
+        '<div style="display:flex;align-items:center;gap:6px;">'+
+          '<span style="font-size:14px;flex-shrink:0;">🇪🇸</span>'+
+          '<input id="f_notees_'+task.id+'" type="text" value="'+noteES.replace(/"/g,'&quot;')+'" placeholder="Texto en español..." '+
+            'oninput="botLiveCalc('+task.id+')" style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(251,191,36,0.25);border-radius:8px;font-size:12px;color:#fbbf24;">'+
+        '</div>'+
+      '</div>'+
     '</div>';
 
   bodyHTML +=
-    '<button onclick="botSaveTask('+task.id+',\''+noteColor+'\')" '+
-      'style="width:100%;padding:12px;background:linear-gradient(135deg,#f59e0b,#d97706);border:none;border-radius:12px;color:white;font-size:14px;font-weight:700;cursor:pointer;">'+
-      '💾 Salva modifiche'+
+    '<button id="saveBtn_'+task.id+'" onclick="botSaveTask('+task.id+')" '+
+      'style="width:100%;padding:13px;background:linear-gradient(135deg,#f59e0b,#d97706);border:none;border-radius:12px;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;">'+
+      '💾 Salva sul DB'+
     '</button>'+
     '<div id="saveMsg_'+task.id+'" style="display:none;"></div>';
 
-  bodyHTML += '</div></div>';
-  bodyHTML += '</div>';
-
   body.innerHTML = bodyHTML;
+
+  // Attacca dati task al body per botLiveCalc
+  body.dataset.task = JSON.stringify(td);
 
   // Toggle expand
   var expanded = false;
@@ -2629,67 +2620,230 @@ function botBuildTaskCard(task, bomMap) {
   return card;
 }
 
-// Salva modifiche al task + ricetta
-window.botSaveTask = async function(taskId, currentColor) {
-  var sb = window.supa;
-  if (!sb) return;
+// ── Ricalcolo live — gira ogni volta che l'utente tocca un campo ──
+window.botLiveCalc = function(tid) {
+  var body = document.getElementById('prepBody_'+tid);
+  if (!body || !body.dataset.task) return;
+  var d = {}; try { d = JSON.parse(body.dataset.task); } catch(e){ return; }
 
-  var shelfInput = document.getElementById('edit_shelf_'+taskId);
-  var servQtyInput = document.getElementById('edit_servqty_'+taskId);
-  var bwInput = document.getElementById('edit_bw_'+taskId);
-  var noteItInput = document.getElementById('edit_noteit_'+taskId);
-  var noteEnInput = document.getElementById('edit_noteen_'+taskId);
-  var noteEsInput = document.getElementById('edit_notees_'+taskId);
-  var msgEl = document.getElementById('saveMsg_'+taskId);
+  var stock   = parseFloat(document.getElementById('f_stock_'+tid)?.value)   || 0;
+  var shelf   = parseInt(document.getElementById('f_shelf_'+tid)?.value)     || d.shelf_life || 3;
+  var servQty = parseFloat(document.getElementById('f_servqty_'+tid)?.value) || d.serving_qty || 0;
+  var bw      = parseFloat(document.getElementById('f_bw_'+tid)?.value)      || d.base_weight_g || 0;
+  var unit    = (document.getElementById('f_unit_'+tid)?.value || d.unit || 'g').toLowerCase();
+  var manIt   = document.getElementById('f_noteit_'+tid)?.value || '';
+  var manEn   = document.getElementById('f_noteen_'+tid)?.value || '';
+  var manEs   = document.getElementById('f_notees_'+tid)?.value || '';
+
+  // Ricalcola fabbisogno stimato proporzionalmente dai parametri
+  // Base: il bot aveva calcolato suggested_qty con i vecchi parametri
+  // Scala proporzionalmente con i nuovi
+  var origNeeded = d.suggested_qty || 0;
+
+  // Se shelf cambiato → scala lineare
+  if (d.shelf_life && shelf !== d.shelf_life && origNeeded > 0) {
+    origNeeded = origNeeded * (shelf / d.shelf_life);
+  }
+  // Se serving_qty cambiato → scala lineare
+  if (d.serving_qty && servQty > 0 && servQty !== d.serving_qty && origNeeded > 0) {
+    origNeeded = origNeeded * (servQty / d.serving_qty);
+  }
+
+  var needed = origNeeded * 1.1; // buffer 10%
+
+  // Determina colore e quantità da suggerire
+  var color = 'green';
+  var toMake = 0;
+  if (stock <= 0 && needed > 0) {
+    color='red'; toMake=needed;
+  } else if (needed > 0 && stock < needed*0.40) {
+    color='red'; toMake=needed-stock;
+  } else if (needed > 0 && stock < needed*0.80) {
+    color='yellow'; toMake=needed-stock;
+  } else {
+    color='green';
+  }
+
+  // Formatta quantità in unità corrette
+  var isPezzi = ['pezzi','pz','buste','cartocci'].includes(unit);
+  var isNests = unit === 'nests';
+  var isCup   = unit === 'cup';
+  var qtyStr  = '';
+  var displayQty = 0;
+
+  if (color==='green') {
+    // Mostra stock disponibile
+    if (isPezzi) { qtyStr = Math.round(stock)+' '+unit+' in casa'; displayQty = Math.round(stock); }
+    else if (isCup) { qtyStr = stock+' cup in casa'; displayQty = stock; }
+    else { qtyStr = stock>=1000?(stock/1000).toFixed(1).replace(/\.0$/,'')+'kg in casa':Math.round(stock)+'g in casa'; displayQty = stock; }
+  } else {
+    // Mostra quanto fare
+    if (isPezzi) {
+      var n = bw>1 ? Math.ceil(toMake/bw)*bw : Math.ceil(toMake);
+      qtyStr = 'fai '+Math.ceil(n)+' '+unit; displayQty = Math.ceil(n);
+    } else if (isCup) {
+      // Cup: non converte in grammi — rimane in cup
+      qtyStr = 'fai '+Math.ceil(toMake)+' cup'; displayQty = Math.ceil(toMake);
+    } else if (isNests) {
+      var nests = bw>0 ? Math.ceil(toMake/bw) : Math.ceil(toMake);
+      qtyStr = 'fai '+nests+' nests'; displayQty = nests;
+    } else {
+      var batches = bw>0 ? Math.ceil(toMake/bw) : 1;
+      var batchGrams = bw>0 ? batches*bw : toMake;
+      qtyStr = batchGrams>=1000?(batchGrams/1000).toFixed(1).replace(/\.0$/,'')+'kg':'fai '+Math.round(batchGrams)+'g';
+      if(bw>0 && batches>1) qtyStr += ' ('+batches+' batch)';
+      displayQty = batchGrams;
+    }
+  }
+
+  // Testi auto (usati solo se i campi manuali sono vuoti)
+  var autoIt, autoEn, autoEs;
+  var pillC = color==='red'?'#ef4444':color==='yellow'?'#eab308':'#22c55e';
+  var pillBg = color==='red'?'rgba(239,68,68,0.15)':color==='yellow'?'rgba(234,179,8,0.15)':'rgba(34,197,94,0.15)';
+
+  if (color==='green') {
+    autoIt=qtyStr; autoEn=qtyStr.replace('in casa','on hand'); autoEs=qtyStr.replace('in casa','en casa');
+  } else if (color==='red') {
+    autoIt='Prepara oggi · '+qtyStr; autoEn='Prep today · '+qtyStr.replace('fai ','make '); autoEs='Prepara hoy · '+qtyStr.replace('fai ','haz ');
+  } else {
+    autoIt='Stock basso · '+qtyStr; autoEn='Low stock · '+qtyStr.replace('fai ','make '); autoEs='Stock bajo · '+qtyStr.replace('fai ','haz ');
+  }
+
+  // Aggiorna DOM
+  var liveResult = document.getElementById('liveResult_'+tid);
+  var liveQty    = document.getElementById('liveQty_'+tid);
+  var liveIt     = document.getElementById('liveIt_'+tid);
+  var liveEn     = document.getElementById('liveEn_'+tid);
+  var liveEs     = document.getElementById('liveEs_'+tid);
+  var pillBadge  = document.getElementById('pillBadge_'+tid);
+  var headerSub  = document.getElementById('headerSub_'+tid);
+
+  if (liveResult) liveResult.style.borderColor = pillC;
+  if (liveQty)   { liveQty.textContent = color==='green'?'✅ OK — '+qtyStr:'Suggerito: '+qtyStr; liveQty.style.color = pillC; }
+  if (liveIt)    liveIt.textContent  = '🇮🇹 '+(manIt||autoIt);
+  if (liveEn)    liveEn.textContent  = '🇺🇸 '+(manEn||autoEn);
+  if (liveEs)    liveEs.textContent  = '🇪🇸 '+(manEs||autoEs);
+  if (pillBadge) { pillBadge.textContent=color.toUpperCase(); pillBadge.style.background=pillBg; pillBadge.style.color=pillC; }
+  if (headerSub) headerSub.textContent = stock+' '+(document.getElementById('f_unit_'+tid)?.value||d.unit);
+
+  // Salva colore corrente nel dataset per il save
+  body.dataset.liveColor = color;
+  body.dataset.liveIt    = manIt||autoIt;
+  body.dataset.liveEn    = manEn||autoEn;
+  body.dataset.liveEs    = manEs||autoEs;
+};
+
+// POS alias — aggiungi/rimuovi
+window.botAddPosAlias = function(tid) {
+  var inp = document.getElementById('posAliasInput_'+tid);
+  if (!inp || !inp.value.trim()) return;
+  var val = inp.value.trim(); inp.value='';
+  var container = document.getElementById('posAliasTags_'+tid);
+  if (!container) return;
+  var body = document.getElementById('prepBody_'+tid);
+  var d={}; try{d=JSON.parse(body?.dataset.task||'{}');}catch(e){}
+  var aliases = d.pos_name ? d.pos_name.split('|').filter(Boolean) : [];
+  if (aliases.indexOf(val)===-1) aliases.push(val);
+  d.pos_name = aliases.join('|');
+  if (body) body.dataset.task = JSON.stringify(d);
+  // Re-render tags
+  var html='';
+  aliases.forEach(function(a,i){
+    html+='<div style="display:inline-flex;align-items:center;gap:3px;background:rgba(59,130,246,0.15);border:0.5px solid rgba(147,197,253,0.3);border-radius:20px;padding:3px 8px;">'+
+      '<span style="color:#93c5fd;font-size:11px;">'+a+'</span>'+
+      '<button onclick="botRemovePosAlias('+tid+','+i+')" style="background:none;border:none;color:rgba(147,197,253,0.4);font-size:12px;cursor:pointer;padding:0;line-height:1;">&#x2715;</button>'+
+      '</div>';
+  });
+  container.innerHTML=html;
+};
+
+window.botRemovePosAlias = function(tid, idx) {
+  var container = document.getElementById('posAliasTags_'+tid);
+  var body = document.getElementById('prepBody_'+tid);
+  var d={}; try{d=JSON.parse(body?.dataset.task||'{}');}catch(e){}
+  var aliases = d.pos_name ? d.pos_name.split('|').filter(Boolean) : [];
+  aliases.splice(idx,1);
+  d.pos_name = aliases.join('|');
+  if (body) body.dataset.task = JSON.stringify(d);
+  var html='';
+  aliases.forEach(function(a,i){
+    html+='<div style="display:inline-flex;align-items:center;gap:3px;background:rgba(59,130,246,0.15);border:0.5px solid rgba(147,197,253,0.3);border-radius:20px;padding:3px 8px;">'+
+      '<span style="color:#93c5fd;font-size:11px;">'+a+'</span>'+
+      '<button onclick="botRemovePosAlias('+tid+','+i+')" style="background:none;border:none;color:rgba(147,197,253,0.4);font-size:12px;cursor:pointer;padding:0;line-height:1;">&#x2715;</button>'+
+      '</div>';
+  });
+  if (container) container.innerHTML=html;
+};
+
+// ── Salva tutto sul DB ──
+window.botSaveTask = async function(tid) {
+  var sb   = window.supa; if(!sb) return;
+  var body = document.getElementById('prepBody_'+tid);
+  var d    = {}; try{d=JSON.parse(body?.dataset.task||'{}');}catch(e){}
+  var btn  = document.getElementById('saveBtn_'+tid);
+  var msg  = document.getElementById('saveMsg_'+tid);
+  if(btn){btn.disabled=true;btn.textContent='Salvo...';}
 
   try {
-    var saved = [];
+    var saved=[];
 
-    // Salva shelf_life su recipes se c'è
-    var recipeUpdate = {};
-    if (bwInput && bwInput.value.trim()) {
-      var bwVal = parseFloat(bwInput.value);
-      if (!isNaN(bwVal) && bwVal > 0) { recipeUpdate.base_weight_g = bwVal; saved.push('batch '+bwVal+'g'); }
-    }
-    if (servQtyInput && servQtyInput.value.trim()) {
-      var sqVal = parseFloat(servQtyInput.value);
-      if (!isNaN(sqVal) && sqVal > 0) { recipeUpdate.serving_qty = sqVal; saved.push('serving qty '+sqVal); }
-    }
-    if (shelfInput && shelfInput.value.trim()) {
-      var slVal = parseInt(shelfInput.value);
-      if (!isNaN(slVal) && slVal > 0) { recipeUpdate.shelf_life_days = slVal; saved.push('shelf life '+slVal+'gg'); }
-    }
+    // 1. prep_tasks: current_stock, unit, prep_type
+    var taskUpdate = {};
+    var stockV = parseFloat(document.getElementById('f_stock_'+tid)?.value);
+    var unitV  = document.getElementById('f_unit_'+tid)?.value;
+    var typeV  = document.getElementById('f_preptype_'+tid)?.value;
+    if(!isNaN(stockV) && stockV>=0) { taskUpdate.current_stock=stockV; saved.push('stock '+stockV); }
+    if(unitV) { taskUpdate.unit=unitV; saved.push('unit '+unitV); }
+    if(typeV) { taskUpdate.prep_type=typeV; saved.push('tipo '+typeV); }
 
-    if (Object.keys(recipeUpdate).length > 0) {
-      // Trova recipe_id dal task
-      var { data: taskRow } = await sb.from('prep_tasks').select('recipe_id').eq('id', taskId).single();
-      if (taskRow && taskRow.recipe_id) {
-        var { error: recErr } = await sb.from('recipes').update(recipeUpdate).eq('id', taskRow.recipe_id);
-        if (recErr) throw recErr;
-      }
-    }
-
-    // Salva testi preplist (nota) — sovrascrive quello del bot
-    var noteIt = noteItInput ? noteItInput.value.trim() : '';
-    var noteEn = noteEnInput ? noteEnInput.value.trim() : '';
-    var noteEs = noteEsInput ? noteEsInput.value.trim() : '';
-
-    if (noteIt || noteEn || noteEs) {
-      var newNote = currentColor+'|'+(noteIt||'')+' |'+(noteEn||'')+' |'+(noteEs||'');
-      var { error: taskErr } = await sb.from('prep_tasks').update({ suggested_note: newNote }).eq('id', taskId);
-      if (taskErr) throw taskErr;
+    // Testi e colore dalla preview live
+    var liveColor = body?.dataset.liveColor || d.note_color || 'green';
+    var liveIt    = body?.dataset.liveIt || '';
+    var liveEn    = body?.dataset.liveEn || '';
+    var liveEs    = body?.dataset.liveEs || '';
+    if(liveIt||liveEn||liveEs){
+      taskUpdate.suggested_note = liveColor+'|'+liveIt+'|'+liveEn+'|'+liveEs;
       saved.push('testo preplist');
     }
 
-    if (msgEl) {
-      msgEl.style.display = 'block';
-      msgEl.innerHTML = '<div style="background:rgba(134,239,172,0.1);border:0.5px solid rgba(134,239,172,0.3);border-radius:10px;padding:10px;color:#86efac;font-size:12px;margin-top:6px;">✅ Salvato: '+saved.join(', ')+(saved.length===0?'nessuna modifica':'')+' — il bot rilegge stanotte alle 4AM</div>';
+    if(Object.keys(taskUpdate).length>0){
+      var {error:te} = await sb.from('prep_tasks').update(taskUpdate).eq('id',tid);
+      if(te) throw te;
+    }
+
+    // 2. recipes: shelf_life_days, base_weight_g, base_servings, serving_qty, serving_unit, pos_name
+    if(d.recipe_id){
+      var recUpdate={};
+      var shelfV  = parseInt(document.getElementById('f_shelf_'+tid)?.value);
+      var bwV     = parseFloat(document.getElementById('f_bw_'+tid)?.value);
+      var bsV     = parseInt(document.getElementById('f_basesrv_'+tid)?.value);
+      var sqV     = parseFloat(document.getElementById('f_servqty_'+tid)?.value);
+      var suV     = document.getElementById('f_servunit_'+tid)?.value;
+      var posV    = d.pos_name; // aggiornato da botAddPosAlias/botRemovePosAlias
+      if(!isNaN(shelfV)&&shelfV>0) { recUpdate.shelf_life_days=shelfV; saved.push('shelf '+shelfV+'gg'); }
+      if(!isNaN(bwV)&&bwV>0)       { recUpdate.base_weight_g=bwV; saved.push('batch '+bwV+'g'); }
+      if(!isNaN(bsV)&&bsV>0)       { recUpdate.base_servings=bsV; saved.push('porzioni base '+bsV); }
+      if(!isNaN(sqV)&&sqV>0)       { recUpdate.serving_qty=sqV; saved.push('serving qty '+sqV); }
+      if(suV)                       { recUpdate.serving_unit=suV; saved.push('serving unit '+suV); }
+      if(posV!==undefined)          { recUpdate.pos_name=posV; saved.push('POS alias'); }
+      if(Object.keys(recUpdate).length>0){
+        var {error:re} = await sb.from('recipes').update(recUpdate).eq('id',d.recipe_id);
+        if(re) throw re;
+      }
+    }
+
+    if(msg){
+      msg.style.display='block';
+      msg.innerHTML='<div style="background:rgba(134,239,172,0.1);border:0.5px solid rgba(134,239,172,0.3);border-radius:10px;padding:10px;color:#86efac;font-size:12px;margin-top:8px;">'+
+        '✅ '+(saved.length>0?saved.join(' · '):'Nessuna modifica')+'<br>'+
+        '<span style="opacity:.6;">Il bot usa questi valori stanotte alle 4AM</span></div>';
     }
   } catch(e) {
-    if (msgEl) {
-      msgEl.style.display = 'block';
-      msgEl.innerHTML = '<div style="background:rgba(239,68,68,0.1);border:0.5px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px;color:#f87171;font-size:12px;margin-top:6px;">❌ Errore: '+e.message+'</div>';
+    if(msg){
+      msg.style.display='block';
+      msg.innerHTML='<div style="background:rgba(239,68,68,0.1);border:0.5px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px;color:#f87171;font-size:12px;margin-top:8px;">❌ '+e.message+'</div>';
     }
+  } finally {
+    if(btn){btn.disabled=false;btn.textContent='💾 Salva sul DB';}
   }
 };
-
