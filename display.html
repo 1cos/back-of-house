@@ -932,16 +932,22 @@ var crewTimer = null;
 var crewVisible = false;
 
 async function loadCrewBoard() {
-  // Chi è online nelle ultime 3 ore (escludi Max/Tela/Coordinator)
+  // Chi e' stato attivo nelle ultime 8 ore (copre tutta la giornata)
   var skipStations = ['Manager', 'Coordinator', 'Admin'];
   var presRes = await supa.from('user_presence')
     .select('user_name,station,last_seen')
-    .gt('last_seen', new Date(Date.now() - 3*60*60*1000).toISOString())
+    .gt('last_seen', new Date(Date.now() - 8*60*60*1000).toISOString())
     .order('last_seen', {ascending: false});
   if (!presRes || !presRes.data) return;
 
-  var crew = presRes.data.filter(function(u) {
-    return u.station && !skipStations.includes(u.station) && u.station !== 'Dish Crew';
+  // Un utente per stazione (il piu' recente)
+  var seen = {};
+  var crew = [];
+  presRes.data.forEach(function(u) {
+    if (!u.station) return;
+    if (skipStations.includes(u.station)) return;
+    if (u.station === 'Dish Crew') return;
+    if (!seen[u.user_name]) { seen[u.user_name] = true; crew.push(u); }
   });
   if (crew.length === 0) return;
 
@@ -965,7 +971,6 @@ async function loadCrewBoard() {
   var doneRes = await supa.from('prep_log')
     .select('user_name,item')
     .gte('created_at', today.toISOString())
-    .eq('is_demo', false)
     .order('created_at', {ascending: false});
   var doneByUser = {};
   if (doneRes && doneRes.data) {
@@ -975,36 +980,32 @@ async function loadCrewBoard() {
     });
   }
 
-  // Costruisci HTML
+  // Costruisci HTML — no emoji, testo puro (TV-safe)
   var html = '';
   crew.forEach(function(u) {
     var wip = inProgByStation[u.station] || [];
     var done = doneByUser[u.user_name] || [];
     if (wip.length === 0 && done.length === 0) return;
 
-    html += '<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px 14px;margin-bottom:8px;">';
+    var stationShort = u.station.replace(' Station','').replace(' station','').toUpperCase();
+
+    html += '<div style="background:rgba(255,255,255,0.05);border-left:3px solid rgba(255,255,255,0.25);border-radius:6px;padding:10px 14px;margin-bottom:10px;">';
     // Nome + stazione
-    html += '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">';
-    html += '<span style="font-size:18px;font-weight:800;color:#fff;letter-spacing:-.01em;">' + u.user_name + '</span>';
-    html += '<span style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:.08em;">' + u.station.replace(' Station','') + '</span>';
+    html += '<div style="margin-bottom:6px;">';
+    html += '<span style="font-size:22px;font-weight:900;color:#fff;letter-spacing:-.01em;">' + u.user_name + '</span>';
+    html += '<span style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:.1em;margin-left:10px;">' + stationShort + '</span>';
     html += '</div>';
     // In progress
     if (wip.length > 0) {
-      html += '<div style="margin-bottom:4px;">';
-      wip.forEach(function(task) {
-        html += '<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:rgba(255,255,255,0.85);padding:2px 0;">';
-        html += '<span style="font-size:10px;">🔄</span><span>' + task + '</span>';
-        html += '</div>';
-      });
-      html += '</div>';
+      html += '<div style="font-size:11px;font-weight:700;color:rgba(255,165,0,0.9);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Working on</div>';
+      html += '<div style="font-size:14px;color:rgba(255,255,255,0.9);margin-bottom:6px;">' + wip.join('  &middot;  ') + '</div>';
     }
     // Done
     if (done.length > 0) {
-      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">';
-      done.slice(0,6).forEach(function(item) {
-        html += '<span style="font-size:11px;background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(74,222,128,0.25);border-radius:20px;padding:2px 8px;">✓ ' + item + '</span>';
-      });
-      if (done.length > 6) html += '<span style="font-size:11px;color:rgba(255,255,255,0.3);">+' + (done.length-6) + ' more</span>';
+      html += '<div style="font-size:11px;font-weight:700;color:rgba(74,222,128,0.9);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Closed</div>';
+      var doneShow = done.slice(0,8);
+      html += '<div style="font-size:13px;color:rgba(255,255,255,0.55);">' + doneShow.join('  &middot;  ');
+      if (done.length > 8) html += '  +' + (done.length-8) + ' more';
       html += '</div>';
     }
     html += '</div>';
