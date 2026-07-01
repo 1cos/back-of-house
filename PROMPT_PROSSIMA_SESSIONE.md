@@ -677,3 +677,121 @@ Problema identificato in v20: item con `unit='g'` senza ricetta collegata mostra
 8. **Brisket** — BOM e recipe_steps da completare
 9. **Verifica vendite Pear & Pecorino** — pos_name era sbagliato, potrebbero esserci 0 dati storici — verificare dopo prossimo run bot
 
+
+---
+
+## SESSIONE 1 LUGLIO 2026 (mattina/pomeriggio) — v430→v431 — Audit bot, fix dati, Bot Config UI
+
+**Versione:** v431 frontend, bot-preplist-builder v22 (Supabase version 41)
+
+---
+
+### Cosa è stato fatto
+
+**1. Salad Station — unità corrette**
+- Shredded Carrots, Sliced Mozzarella, Sliced Tomatoes → `g` (erano "porzioni")
+- Seed mix → `g` (era "contenitore", stock 230g confermato)
+- Pecorino fresh wedge → `g` (26 wedge × 10g = 260g, 1 pecorino = 100 wedge, 2 pecorini = 4.39 lb)
+- Romaine → `g`, `recipe_id=NULL` (bot calcola da BOM di tutte le ricette che usano Romaine)
+- "Pere E Pecorino Salad" → `pos_name=NULL` (disattivata, "Pear & Pecorino Salad" è quella attiva)
+- Spring mix → `current_stock=NULL` (bot skippa)
+- Mini Caesar Salad → `base_servings=8` (1 contenitore = 8 porzioni Caesar)
+
+**2. Pastry Station**
+- Chopped dark/white choc, Cocoa powder, Mint liquid, Powder sugar → `current_stock=NULL`
+- Shelf life impostate su ricette: Cheesecake/Creme brulee/Panna cotta 7gg · Tiramisu/Italian cream 4gg · Cremino/Mimosa/GF sponge cake 30gg · Mint Bavarese NULL (da confermare)
+- Cheesecake → `base_servings=12` (era 24, corretto da Max)
+
+**3. Dati ricette completati**
+- Calamari: `base_weight_g=1800`, `base_servings=12`, `serving_weight_g=150` (1 busta 2.5lb → 1800g prodotto finito)
+- Rosemary Potatoes: `base_weight_g=3200`, `base_servings=20`, `serving_weight_g=160`
+- Salmon Cakes: `base_weight_g=2985`, `base_servings=13`, `serving_qty=3`, `serving_unit=pezzi` (totale BOM reale)
+- Croutons: `base_weight_g=1080`, `base_servings=72`, `serving_weight_g=15` (da ricetta fisica: 1000g pane + condimenti). BOM aggiornato con valori reali dalla ricetta.
+- Artichoke: `serving_qty=2`, `serving_unit=pezzi` (2 carciofi per porzione — visibile nel BOM come "Artichokes 2 each")
+
+**4. Vendor inseriti**
+- Milk → Walmart, 1 gallon = 3785g, $3.32
+- EVOO → Global Gourmet Foods, 3/5lt "Oleoestepa", $32.80/case, 15kg
+- Pomodoro Sauce BOM → Canned Tomatoes portato a sort_order=0 (driver corretto per vincolo acquisto)
+
+**5. Shelf life completate**
+- Salmon Cakes 7gg · Garlic Oil 4gg · Rosemary Oil 15gg · Maccheroni fresca 30gg · Croutons 30gg · Mushrooms 30gg · Ragù 30gg · Bechamel 5gg · Demi 7gg · Artichoke Sauce 3gg
+
+**6. Ricette Salmon/Scallops**
+- Ricetta "Salmon Whole" creata: `pos_name='Add salmon whole|add salmon whole|add salmon|Add salmon'`, `serving_qty=1`, `serving_unit=filetto`, `shelf_life_days=2`. Collegata a prep_task "Pull Salmon filets" (id 278). Risolve il falso positivo modifier→Salmon Cakes.
+- Scallops Chefs Way: `pos_name='Scallops Chefs Way|Scallops'`, `serving_qty=4`, `serving_unit=pezzi`
+- Scallops Asparagus Gnocchi: `pos_name='Scallops Asparagus Gnocchi|Scallops add on'`, `serving_qty=3`, `serving_unit=pezzi`
+- Prep_task Scallops (id 279) collegato a "Scallops Chefs Way"
+
+**7. Spinach (id 318)**
+- Collegato a ricetta "BUTTER SPINACH", `unit=cup`, `serving_weight_g=80`, `serving_unit=cup`, `serving_qty=1`
+- Regola confermata da Max: il cuoco conta le cup nel frigo. 1 cup = 80g. Bot legge dalla ricetta.
+- PROBLEMA: Butter Spinach usa "Fresh Spinach" nel BOM, non "Spinach" — sono due ingredienti separati nel DB. Il bot v22 trovava "Spinach" solo in Texana Soup (250g) producendo numeri assurdi. Fix: collegamento diretto ricetta risolve il problema per il prep_task Spinach.
+
+**8. Romaine**
+- `unit=g`, `recipe_id=NULL`, `current_stock=0`
+- Bot v22 calcola consumo da BOM di tutte le ricette che usano l'ingrediente Romaine (Caesar, Mediterranean, Parmesan Nest Caesar)
+- Suggerisce 954g — circa 1.5 cespi (1 cespo = 626g, già in `ingredients.avg_unit_weight_g`)
+
+**9. Bot-preplist-builder v22 deployato (Supabase version 41)**
+Fix rispetto a v21:
+- **Salmon Cakes bug risolto**: quando `unit=pezzi` e `serving_qty>0`, bot calcola `avg * serving_qty` (pezzi fisici) invece di grammi. Poi `finalSuggested = Math.ceil(pezzi / baseServings) * baseServings`
+- **Romaine/ingredienti senza recipe_id**: nuovo percorso — bot cerca ingrediente per nome del task in `ingredients`, poi somma consumo da tutte le ricette nel BOM che lo usano
+- **SKIP_PACK** aggiornato: aggiunta "Salmon Whole"
+
+**10. Bot Config UI — v431**
+- Aggiunta sezione "🤖 BOT CONFIG" nel modal edit prep_task (`js/admin-prep.js`)
+- Campi: "Nel frigo conto..." (unit), "1 [unità] pesa (grammi)" (conversione, visibile solo se unit≠g), "Dura... (giorni)" (shelf_life), "Il bot dice..." (read-only, ultimo testo IT)
+- Si popola automaticamente da ricetta collegata (shelf_life_days, serving_weight_g)
+- Salva: unit su prep_task, shelf_life_days + serving_weight_g su ricetta collegata
+
+---
+
+### Bug noti aperti — PRIORITÀ PROSSIMA SESSIONE
+
+**1. 🔴 Bot v23 — "good through Wednesday" quando stock=0 (oggi è mercoledì)**
+Il bot mostra il giorno di copertura dello STOCK ATTUALE (0 giorni = oggi) invece del giorno raggiunto CON il batch suggerito. Fix: quando `currentStock=0` o insufficiente, "good through X" deve calcolare partendo dal batch suggerito, non dallo stock attuale.
+
+**2. 🔴 Bot v23 — bot deve leggere il BOM per pezzi, non serving_qty**
+Artichoke: il BOM dice già "Artichokes 2 each" per porzione. Il bot deve leggere il BOM per sapere quanti pezzi fisici consuma ogni vendita, invece di affidarsi a `serving_qty` sulla ricetta (che è un workaround). Architettura corretta: BOM è la fonte di verità per il consumo.
+
+**3. 🟡 Traduzione unità — "pezzi" in EN/ES**
+"make 33 pezzi" → deve essere "make 33 pieces" (EN) / "haz 33 piezas" (ES). Il bot costruisce il testo con l'unità raw del task senza tradurla.
+
+**4. 🟡 Lamb (Table Side, id 471) — suggested_qty=1352 pezzi**
+Stesso bug Spinach/Scallops: bot cerca "Lamb" nel BOM di altre ricette e trova grammi, produce numero assurdo. Da collegare a ricetta o escludere. Quante costolette per porzione? (da chiedere a Max)
+
+**5. 🟡 Honey (Salad Station) — suggested_qty=2389g**
+Il bot suggerisce 2.4kg di miele. Honey non ha ricetta collegata e il bot v22 trova "Honey" nel BOM di qualcosa e somma tutto. Da verificare/escludere.
+
+---
+
+### Concetti fondamentali stabiliti oggi (NON ridiscutere)
+
+**Regola unità fisiche (stabilita da Max, terza volta — non dimenticare mai più):**
+> "L'unità di inventario deve essere quello che il cuoco vede e conta fisicamente nel frigo/in cucina."
+- Grammi → si pesa sulla bilancia
+- Pezzi → si conta (salmon cakes, chicken parm, artichoke...)
+- Cup → si conta la cup (spinaci, porzioni pre-porzionate)
+- Buste → si conta la busta (soffritto livornese, spring mix)
+- MAI "porzioni" come unità astratta
+
+**Il bot deve leggere il BOM, non serving_qty:**
+- Artichoke BOM dice "2 each" → bot sa che 1 vendita = 2 pezzi
+- serving_qty è un workaround da eliminare in v23
+
+**Bot Center — da costruire nella prossima sessione dedicata:**
+Schema approvato da Max: L'Ufficio → sezione "🤖 Bot" → lista 7 bot → clicco → scheda con:
+1. Identità (cosa fa, quando gira, stato)
+2. Ultima run (log leggibile)
+3. Configurazione editabile (SKIP_PACK, soglie, buffer%)
+4. Trigger manuale con risultato live
+Partire da Bot 3 (Preplist Builder) come primo bot.
+
+**Interfaccia editabile ricette — serving_qty visibile:**
+Il campo "Per ogni porzione venduta uso... [N] [unità]" deve essere visibile e modificabile nell'editor ricetta. Oggi non esiste nell'UI — Max non ha modo di verificare o correggere senza passare da Claude. Da aggiungere in prossima sessione.
+
+---
+
+### Nota per sessioni future
+Max lavora su più chat in parallelo. Oggi ha aperto una chat separata per il Bot Center (partendo dallo schema definito qui sopra). Verificare versione live sw.js prima di qualsiasi push.
