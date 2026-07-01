@@ -447,7 +447,7 @@ async function suggestedSave(id, modal){
   delete _startTimes[id];
   Promise.all([
     supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:'',user_name:user.name,is_suggested_qty:true,started_at:_sSt.toISOString(),duration_minutes:_sDur}),
-    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+qty}).eq('id',id)
+    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}).eq('id',id)
   ]).then(()=>{loadItemAlerts();loadStepsMap();})
   .catch(e=>console.error('suggestedSave error:',e));
 }
@@ -467,7 +467,7 @@ async function detailSave(id, btn, isSuggested){
   var _dDur = Math.round((_dNow - _dSt) / 60000);
   delete _startTimes[id];
   await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name,is_suggested_qty:!!isSuggested,started_at:_dSt.toISOString(),duration_minutes:_dDur});
-  await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+qty}).eq('id',id);
+  await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}).eq('id',id);
   sheet.remove();
   _finishTask(id, qty);
   await loadItemAlerts();
@@ -480,6 +480,8 @@ function _finishTask(id, qty){
   tasks[id].need_tomorrow=false;
   tasks[id].in_progress=false;
   tasks[id].current_stock=(parseFloat(tasks[id].current_stock)||0)+qty;
+  tasks[id].suggested_note=null;
+  tasks[id].suggested_qty=null;
   delete _taskStep[id];
   delete _taskStepTotal[id];
   releaseWakeLock();
