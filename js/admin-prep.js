@@ -124,12 +124,70 @@ async function openPrepEditor(prep=null){
           <p class="text-[10px] text-slate-400 mt-1">Se aggiungi steps, la nota viene ignorata al tap. Gli steps sono sequenziali: step 2 si sblocca solo dopo step 1.</p>
         </div>`:''}
       </div>
+        ${!isNew?`<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:16px;margin-top:4px;">
+          <div style="font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.05em;margin-bottom:12px;">🤖 BOT CONFIG</div>
+          <div style="display:grid;gap:10px;">
+            <div>
+              <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Nel frigo conto...</label>
+              <select id="pepUnit" style="width:100%;padding:8px 12px;border:1px solid #e2e8f0;border-radius:10px;background:white;font-size:13px;">
+                <option value="g" ${(prep?.unit||'g')==='g'?'selected':''}>grammi (g)</option>
+                <option value="pezzi" ${prep?.unit==='pezzi'?'selected':''}>pezzi</option>
+                <option value="cup" ${prep?.unit==='cup'?'selected':''}>cup</option>
+                <option value="buste" ${prep?.unit==='buste'?'selected':''}>buste</option>
+                <option value="nests" ${prep?.unit==='nests'?'selected':''}>nests</option>
+                <option value="cartocci" ${prep?.unit==='cartocci'?'selected':''}>cartocci</option>
+                <option value="contenitori" ${prep?.unit==='contenitori'?'selected':''}>contenitori</option>
+                <option value="pz" ${prep?.unit==='pz'?'selected':''}>pz</option>
+              </select>
+            </div>
+            <div id="pepConvRow" style="${(prep?.unit&&prep.unit!=='g')?'':'display:none'}">
+              <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">1 <span id="pepUnitLabel">${prep?.unit||''}</span> pesa (grammi)</label>
+              <input id="pepConversion" type="number" min="1" placeholder="es. 80" style="width:100%;padding:8px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;" value="">
+              <p style="font-size:10px;color:#94a3b8;margin-top:3px;">Lascia vuoto se non serve conversione (es. per i grammi).</p>
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Dura... (giorni)</label>
+              <input id="pepShelf" type="number" min="1" max="365" placeholder="es. 3" style="width:100%;padding:8px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;" value="">
+            </div>
+            ${prep?.suggested_note ? `<div>
+              <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Il bot dice...</label>
+              <div style="padding:8px 12px;background:white;border:1px solid #e2e8f0;border-radius:10px;font-size:12px;color:#334155;">
+                ${(prep.suggested_note||'').split('|')[1]||'—'}
+              </div>
+            </div>` : ''}
+          </div>
+        </div>`:''}
       <div class="p-4 border-t flex gap-2">
         <button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl text-sm">Annulla</button>
         <button id="pepSave" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold text-sm">Salva</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
+
+  // ── BOT CONFIG — show/hide conversione + carica shelf_life dalla ricetta ──
+  if(!isNew && prep) {
+    // Carica shelf_life dalla ricetta collegata
+    if(prep.recipe_id) {
+      const {data: recData} = await supa.from('recipes').select('shelf_life_days,serving_weight_g,serving_unit').eq('id', prep.recipe_id).single();
+      if(recData) {
+        const shelfInput = modal.querySelector('#pepShelf');
+        if(shelfInput && recData.shelf_life_days) shelfInput.value = recData.shelf_life_days;
+        const convInput = modal.querySelector('#pepConversion');
+        if(convInput && recData.serving_weight_g) convInput.value = recData.serving_weight_g;
+      }
+    }
+    // Show/hide riga conversione quando cambia unità
+    const pepUnitSel = modal.querySelector('#pepUnit');
+    const pepConvRow = modal.querySelector('#pepConvRow');
+    const pepUnitLabel = modal.querySelector('#pepUnitLabel');
+    if(pepUnitSel && pepConvRow) {
+      pepUnitSel.onchange = () => {
+        const u = pepUnitSel.value;
+        pepConvRow.style.display = (u && u !== 'g') ? '' : 'none';
+        if(pepUnitLabel) pepUnitLabel.textContent = u;
+      };
+    }
+  }
 
   // ── GESTIONE STEPS ──
   let pepSteps = [];
@@ -196,13 +254,25 @@ async function openPrepEditor(prep=null){
       let prepId = prep?.id;
       if(isNew){
         const{data:newPrep, error} = await supa.from('prep_tasks')
-          .insert({name, category, note, recipe_id, need_tomorrow: false})
+          .insert({name, category, note, recipe_id, need_tomorrow: false, unit: modal.querySelector('#pepUnit')?.value || null})
           .select().single();
         if(error) throw error;
         prepId = newPrep.id;
       } else {
+        const pepUnit = modal.querySelector('#pepUnit')?.value || null;
+        const pepShelf = modal.querySelector('#pepShelf')?.value ? parseInt(modal.querySelector('#pepShelf').value) : null;
         const updates = {name, category, note, recipe_id};
         if(duration) updates.expected_duration_days = duration;
+        if(pepUnit) updates.unit = pepUnit;
+        // Aggiorna shelf_life e serving_weight_g sulla ricetta collegata se esiste
+        const pepShelfVal = modal.querySelector('#pepShelf')?.value;
+        const pepConvVal = modal.querySelector('#pepConversion')?.value;
+        if(recipe_id && (pepShelfVal || pepConvVal)) {
+          const recUpdates = {};
+          if(pepShelfVal) recUpdates.shelf_life_days = parseInt(pepShelfVal);
+          if(pepConvVal) recUpdates.serving_weight_g = parseFloat(pepConvVal);
+          await supa.from('recipes').update(recUpdates).eq('id', recipe_id);
+        }
         const{error} = await supa.from('prep_tasks').update(updates).eq('id', prep.id);
         if(error) throw error;
 
@@ -258,3 +328,4 @@ async function openPrepEditor(prep=null){
     }
   };
 }
+
