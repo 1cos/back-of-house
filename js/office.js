@@ -2565,8 +2565,11 @@ function botBuildTaskCard(task, bomMap) {
   bodyHTML +=
       '</div>'+
       '<div style="display:flex;gap:6px;">'+
-        '<input id="posAliasInput_'+task.id+'" type="text" placeholder="Aggiungi alias POS..." '+
-          'style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(147,197,253,0.25);border-radius:8px;font-size:12px;color:white;">'+
+        '<select id="posAliasInput_'+task.id+'" '+
+          'onfocus="botLoadPosDropdown('+task.id+')" '+
+          'style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(147,197,253,0.25);border-radius:8px;font-size:12px;color:white;cursor:pointer;">'+
+          '<option value="">— Seleziona dal POS —</option>'+
+        '</select>'+
         '<button onclick="botAddPosAlias('+task.id+')" style="padding:6px 10px;background:rgba(59,130,246,0.2);border:1px solid rgba(147,197,253,0.3);border-radius:8px;color:#93c5fd;font-size:12px;font-weight:700;cursor:pointer;">+ Add</button>'+
       '</div>'+
     '</div>';
@@ -2801,10 +2804,41 @@ window.botLiveCalcAsync = async function(tid, stock, shelf, servQty, bw, baseSrv
 };
 
 // POS alias — aggiungi/rimuovi
+// Carica nomi POS nel dropdown quando si apre
+window.botLoadPosDropdown = async function(tid) {
+  var sel = document.getElementById('posAliasInput_'+tid);
+  if (!sel || sel.dataset.loaded) return; // carica solo una volta
+  var sb = window.supa;
+  if (!sb) return;
+  try {
+    sel.innerHTML = '<option value="">Caricamento...</option>';
+    // Leggi tutti i menu_item distinti dal POS
+    var { data } = await sb
+      .from('pos_sales_by_item')
+      .select('menu_item')
+      .order('menu_item')
+      .limit(500);
+    // Deduplicati
+    var items = [...new Set((data||[]).map(function(r){ return r.menu_item; }).filter(Boolean))];
+    sel.innerHTML = '<option value="">— Seleziona dal POS —</option>';
+    items.forEach(function(item) {
+      var opt = document.createElement('option');
+      opt.value = item;
+      opt.textContent = item;
+      sel.appendChild(opt);
+    });
+    sel.dataset.loaded = '1';
+  } catch(e) {
+    sel.innerHTML = '<option value="">Errore caricamento</option>';
+  }
+};
+
 window.botAddPosAlias = function(tid) {
   var inp = document.getElementById('posAliasInput_'+tid);
   if (!inp || !inp.value.trim()) return;
-  var val = inp.value.trim(); inp.value='';
+  var val = inp.value.trim();
+  // Reset il select alla voce placeholder
+  inp.selectedIndex = 0;
   var container = document.getElementById('posAliasTags_'+tid);
   if (!container) return;
   var body = document.getElementById('prepBody_'+tid);
