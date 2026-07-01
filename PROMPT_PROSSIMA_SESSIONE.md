@@ -391,3 +391,104 @@ Tutti i titoli esistenti (74 steps, incluse le ricette Saucier della sessione pr
 - Spinach (Manager Station) barrato = lasciato NULL
 - Plating Station (Lemon Zest, Orange supreme) = non contati, NULL
 - Max: "tutto in grammi, mai in chili tranne se è 1 punto qualcosa"
+
+---
+
+## SESSIONE 30 GIUGNO 2026 (sera) — Inventario reale + allineamento unità + ricette Saucier Station
+
+**Versione:** v430 (nessun bump frontend — solo DB)
+**Contesto:** prima sessione con inventario fisico reale inserito. Obiettivo: allineare unità di misura dei prep_tasks con quello che il cuoco vede fisicamente, e pulire i suggerimenti fittizi del bot.
+
+---
+
+### Principio fondamentale stabilito da Max (OQR Philosophy)
+
+> "L'unità di inventario deve essere quello che il cuoco vede e conta fisicamente nel frigo/in cucina."
+
+- **Grammi** → tutto quello che si pesa sulla bilancia
+- **Pezzi** → tutto quello che si conta (salmon cakes, chicken parm, artichoke, lobster...)
+- **Cup/porzioni** → solo quando il cuoco vede fisicamente quella unità (es. spinaci in cup da 80g)
+- **Buste** → solo per item confezionati contabili (es. Soffritto Livornese)
+- MAI "porzioni" come unità astratta — non è qualcosa che si pesa o conta fisicamente
+
+**Il modello a 3 livelli definito con Max:**
+1. **INVENTARIO** → grammi o pezzi (quello che il cuoco misura/conta)
+2. **BOT NOTTURNO** → legge grammi/pezzi, calcola fabbisogno, dice **quanti batch fare** in linguaggio cucina (es. "2 latte di pelati", "3 batch interi") — sempre arrotondato **su**, mai frazioni
+3. **PREP CARD** → il cuoco vede batch da fare, li fa, conferma i batch completati
+
+---
+
+### Operazioni DB eseguite
+
+**1. Azzeramento suggerimenti bot fittizi**
+- `suggested_qty`, `suggested_note`, `suggested_at`, `suggested_by` → NULL su tutti i 91 prep_tasks con suggerimenti
+- `current_stock` intatto — è l'inventario reale inserito oggi
+- Stanotte il bot ricalcola tutto da zero partendo dallo stock reale
+
+**2. Oven Station — unità corrette**
+
+| Item | Da | A | Note |
+|---|---|---|---|
+| Brussels sprouts | porzioni | g | già grammi nel current_stock |
+| Calamari | porzioni | g | già grammi nel current_stock |
+| Onion rings | porzioni | g | già grammi nel current_stock |
+| Rosmary potatoes | porzioni | g | già grammi nel current_stock |
+| Tempura | batch | checklist | prep_type=checklist, daily_reset=true, current_stock=NULL — si fa ogni mattina, si butta la sera |
+
+**Decisioni Oven Station (da Max):**
+- Artichoke → pezzi ✅ — ricetta scarica anche Artichoke Sauce (g)
+- Brussels sprouts → g, no batch fisso (si può fare liberamente)
+- Calamari → g — ricetta scarica anche Arrabbiata (g)
+- Chicken Parmesan → pezzi ✅ — ricetta scarica: Arrabbiata + Mozzarella + 1 nest Spaghetti + Arrabbiata per spaghetti
+- Pull Salmon filets → pezzi ✅ (annotato: appartiene a Oven Station, confermato)
+- Tempura → checklist giornaliera automatica, niente stock
+
+**3. Pasta Station**
+- Diced butter → `porzioni` → `g` (current_stock 2238 era già grammi) ✅
+
+**4. Saucier Station**
+- Soffritto Livornese → `buste` ✅ (current_stock 2 buste confermato)
+
+**5. Texana Soup — ricetta completa inserita**
+- Ricetta esisteva nel DB vuota (solo pos_name). Completata:
+  - `base_servings=9`, `base_weight_g=2520`, `serving_weight_g=280`, `menu_group=Soups`, `category=ZUPPE`, `shelf_life_days=5`, `prep_time_minutes=40`
+  - Nuovo ingrediente creato: **Chicken Broth** (id `cb07f823-1661-4c60-8305-030cd649c98e`, categoria Prepared, fatto in casa)
+  - BOM: Bacon 454g, Pork Sausage 454g, Chicken Broth 1200g, Heavy Cream 960g, Potatoes 680g, Gold Onion 150g, Garlic 10g, Spinach 250g
+  - 6 recipe_steps IT/EN/ES con timer: Cuoci bacon/salsiccia (5min) → Prepara patate → Bolli in brodo (10min) → Soffriggi cipolla/aglio (7min) → Unisci e finisci (13min) → Porziona in buste 200g solidi + 80g liquido
+  - Porzione = 280g (200g solidi + 80g liquido) — in buste
+
+**6. Thyme Butter — base_weight_g corretto**
+- Era `450000g` (errore inserimento). Corretto:
+  - `base_servings=24`, `base_weight_g=484` (1 lb burro + 30g timo), `serving_weight_g=20`, `shelf_life_days=30`
+
+**7. Brisket — ricetta dedicata creata**
+- Creata ricetta "Brisket" (id `90e0ec76-f2c4-4fa8-ad85-d30bdd86f395`)
+  - `base_servings=1`, `base_weight_g=2000`, `category=SECONDI|supporto`, `menu_group=Bases`, `shelf_life_days=5`
+- prep_task Brisket (id 285) collegato alla nuova ricetta (era collegato a Beef Ravioli — sbagliato)
+- BOM e steps da aggiungere in sessione futura quando Max ha la ricetta completa
+
+**8. Truffle Butter — base_weight_g impostato**
+- `base_weight_g=20`, `serving_weight_g=20` (20g per porzione di Truffle Fettuccine)
+- Il bot ora scarica 20g per ogni Truffle Fettuccine venduta
+
+---
+
+### Priorità prossima sessione su questo tema
+
+1. **Salad Station** — unità da verificare e correggere (molti item con "porzioni" o unità astratte)
+2. **Pastry Station** — stessa cosa
+3. **Sauté Station** — unità + ricette steps mancanti
+4. **Manager Station** — Confit tomatoes (ricetta mancante), Flowers (BOM), Spinach (cup vs g)
+5. **Spinaci** — chiarire unità: Max ha confermato che gli spinaci vanno a **cup** (ogni cup = 80g, dalla ricetta Butter Spinach). Il bot deve sapere che 1 cup = 80g e ragionare in cup nell'inventario
+6. **Bot logic** — una volta che tutte le unità sono allineate, riscrivere la logica di conversione grammi→batch nel bot-preplist-builder (priorità già in backlog)
+7. **Brisket** — BOM e recipe_steps da completare
+8. **Fresh Pasta Station** — Grated Pecorino e Parmesan Grated hanno unità g ma il bot ragiona in batch astratti (no ricetta collegata)
+
+---
+
+### Note operative importanti
+- Il bot gira stanotte alle 4AM CDT — primo calcolo su dati reali
+- Tutti i current_stock inseriti oggi (30/06) sono dati reali, primo inventario fisico completo
+- Dati pre-30/06 erano test/fittizi — ora tutto è reale
+- sw.js NON bumpato in questa sessione (nessuna modifica a file frontend)
+
