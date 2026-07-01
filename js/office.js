@@ -2381,7 +2381,7 @@ window.botLoadPreplistEditor = async function() {
     // Carica tutti i task attivi non checklist con la ricetta collegata
     var { data: tasks, error } = await sb
       .from('prep_tasks')
-      .select('id,name,category,unit,current_stock,prep_type,suggested_qty,suggested_note,shelf_life_days,recipe_id,recipes:recipe_id(id,title,pos_name,base_weight_g,base_servings,serving_unit,serving_qty,shelf_life_days)')
+      .select('id,name,category,unit,current_stock,prep_type,suggested_qty,suggested_note,expected_duration_days,recipe_id,recipes:recipe_id(id,title,pos_name,base_weight_g,base_servings,serving_unit,serving_qty,shelf_life_days)')
       .eq('archived', false)
       .neq('prep_type', 'checklist')
       .order('category')
@@ -2427,7 +2427,7 @@ window.botLoadPreplistEditor = async function() {
 
 function botBuildTaskCard(task, bomMap) {
   var rec = task.recipes;
-  var shelfLife = (rec && rec.shelf_life_days) ? rec.shelf_life_days : (task.shelf_life_days || null);
+  var shelfLife = (rec && rec.shelf_life_days) ? rec.shelf_life_days : (task.expected_duration_days || null);
   var bomCount = rec ? (bomMap[rec.id]||0) : 0;
 
   // Decodifica suggested_note (formato: color|it|en|es)
