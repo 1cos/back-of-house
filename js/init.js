@@ -8,6 +8,7 @@ async function init(){
   const{data}=await supa.from('prep_tasks').select('*').order('name');
   items=(data||[]).filter(i=>!i.archived); tasks={};
   items.forEach(i=>tasks[i.id]=i);
+  window._taskNames={}; items.forEach(i=>window._taskNames[i.id]=i.name);
   // Carica closing_checks separati
   const{data:closingData}=await supa.from('closing_checks').select('*').eq('archived',false).order('name');
   closingItems=closingData||[];
@@ -69,6 +70,7 @@ document.getElementById('toggleView').onclick=()=>{
   document.getElementById('toggleView').textContent=feedMode?'Griglia':'Feed';
   if(feedMode) renderFeed();
 };
+
 
 
 
