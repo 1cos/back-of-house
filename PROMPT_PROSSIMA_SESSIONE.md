@@ -345,3 +345,49 @@ Tutti i titoli esistenti (74 steps, incluse le ricette Saucier della sessione pr
 **Se si riprende in futuro:** prossimo passo naturale sarebbe verificare l'endpoint reale del nuovo formato `photos.icloud.com/shared/album` via Safari Web Inspector (richiede Mac + cavo USB con iPhone, vedi istruzioni date a Max in questa sessione) prima di scrivere altro codice. In alternativa, riconsiderare il piano B (upload manuale + Supabase Storage) se Max cambia idea sul tema storage.
 
 **File modificati:** nessuno. Solo Edge Function deployata (inerte) + tabella creata e poi droppata.
+
+---
+
+## SESSIONE 30 Giugno 2026 — Inventario completo prep_tasks
+
+**Cosa è stato fatto:**
+- Inventario fisico completo di tutte le stazioni — fogli compilati a mano da Max e fotografati
+- `current_stock` aggiornato su ~90 prep_tasks da zero (era tutto NULL tranne pochi test)
+- Unità corrette su vari item (vedi sotto)
+- 2 nuovi prep_tasks creati: `Shrimp` (Pasta Station, g) e `Lamb` (Table Side, pezzi)
+- Lista stampabile inventario generata come HTML (pagina bianca, scritte nere, divisa per stazione)
+
+**Correzioni unità applicate:**
+- Chicken Parmesan: `g` → `pezzi` (16 pz)
+- Brownies: `pezzi` → `g` (568g)
+- Mint bavarese: `g` → `pezzi` (60 pz)
+- Grilled Chicken: `kg` → `g` (4838g)
+- Ranch: `kg` → `g` (5398g)
+- Honey: `squeezer` → `g` (398g)
+- Cantaloupe: `porzioni` → `g` (1308g)
+- Pancetta: `porzioni` → `g` (1307g)
+- Gnocchi: `porzioni` → `g` (3982g)
+- Tempura: `batch` → stock in g (695g) — unità ancora `batch`, da allineare
+- Artichoke: rimane `pezzi` (29 pz) — 2 pz per porzione, conversione da fare nel bot
+
+**Item trovati nel DB ma mancanti dal foglio stampato (prep_type = NULL):**
+- Fettuccine (id 313): `nests`, recipe_id presente MA punta a `SPAGHETTI FRESH PASTA` — ERRORE
+- Spaghetti (id 314): `nests`, stessa recipe_id di Fettuccine — probabile errore di collegamento
+- Gnocchi (id 388): nessuna recipe collegata
+- Tutti e tre con `prep_type = NULL` → bot li ignora, non apparivano sul foglio stampato
+
+**DA FARE — PROSSIMA SESSIONE (priorità):**
+1. Verificare e correggere recipe_id di Fettuccine (id 313) — trovare `FETTUCCINE FRESH PASTA` nel DB e collegare
+2. Verificare recipe_id Spaghetti (id 314) — stesso problema
+3. Impostare `prep_type = 'supporto'` su Fettuccine, Spaghetti, Gnocchi
+4. Lasagne: struttura da definire (monoporzione vs teglia 6 porzioni) — SKIP per ora
+5. Parm chunk: da classificare (grated o shaved) — SKIP per ora, non inserito nel DB
+6. Lista stampabile: correggere filtro per includere item con `prep_type = NULL`
+7. Correggere unità Tempura da `batch` a `g`
+8. Discutere logica bot per Artichoke (pezzi vs porzioni, 2 pz = 1 porzione)
+
+**Note operative:**
+- Item barrati in verde sul foglio (Cook Focaccia, Lemon cream, Lemon sliced, Risotto Base, Season Focaccia) = non disponibili oggi, current_stock lasciato NULL — non eliminare dal DB
+- Spinach (Manager Station) barrato = lasciato NULL
+- Plating Station (Lemon Zest, Orange supreme) = non contati, NULL
+- Max: "tutto in grammi, mai in chili tranne se è 1 punto qualcosa"
