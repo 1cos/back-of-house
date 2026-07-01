@@ -261,6 +261,10 @@ html, body {
         <div style="font-size:11px;font-weight:800;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:.12em;margin-bottom:16px;" id="announcement-time"></div>
         <div style="font-size:36px;font-weight:900;color:white;text-align:center;line-height:1.25;letter-spacing:-.01em;" id="announcement-text"></div>
       </div>
+      <div id="photo-card" style="display:none;flex:1;position:relative;overflow:hidden;border-radius:0 0 12px 12px;">
+        <img id="photo-img" src="" alt="" style="width:100%;height:100%;object-fit:cover;transition:opacity 0.8s ease;">
+        <div id="photo-caption" style="display:none;position:absolute;bottom:0;left:0;right:0;padding:12px 16px;background:linear-gradient(transparent,rgba(0,0,0,0.65));color:white;font-size:14px;font-weight:600;"></div>
+      </div>
     </div>
 
     <!-- RIGHT: KITCHEN CHAT -->
@@ -926,6 +930,82 @@ async function checkAnnouncement() {
   }
 }
 
+// ── PHOTO SLIDESHOW ────────────────────────────────────────
+var photoList = [];
+var photoIndex = 0;
+var photoTimer = null;
+var photoVisible = false;
+
+async function loadPhotos() {
+  var res = await supa.from('kitchen_display_photos').select('url,caption').order('id');
+  if (res && res.data && res.data.length > 0) {
+    // Sostituisce ${f} con public.jpeg (placeholder CloudKit)
+    photoList = res.data.map(function(p) {
+      return { url: p.url.replace('${f}', 'public.jpeg'), caption: p.caption || '' };
+    });
+  }
+}
+
+function showPhoto() {
+  if (photoList.length === 0 || announcementVisible) return;
+  var grid = document.getElementById('prep-grid');
+  var photoCard = document.getElementById('photo-card');
+  var photoImg = document.getElementById('photo-img');
+  var photoCaption = document.getElementById('photo-caption');
+  var title = document.getElementById('centre-title');
+
+  var p = photoList[photoIndex % photoList.length];
+  photoIndex++;
+
+  // Fade out, swap src, fade in
+  photoImg.style.opacity = '0';
+  setTimeout(function() {
+    photoImg.src = p.url;
+    photoImg.onload = function() { photoImg.style.opacity = '1'; };
+    photoImg.onerror = function() {
+      // URL scaduto — nascondi e torna al prep
+      hidePhoto();
+    };
+    if (p.caption) {
+      photoCaption.textContent = p.caption;
+      photoCaption.style.display = 'block';
+    } else {
+      photoCaption.style.display = 'none';
+    }
+  }, 400);
+
+  grid.style.display = 'none';
+  photoCard.style.display = 'flex';
+  title.textContent = 'Kitchen Gallery';
+  photoVisible = true;
+
+  // Mostra foto per 12s poi torna al prep per 20s
+  clearTimeout(photoTimer);
+  photoTimer = setTimeout(function() {
+    hidePhoto();
+    // Prossima foto dopo 20s di prep
+    photoTimer = setTimeout(showPhoto, 20000);
+  }, 12000);
+}
+
+function hidePhoto() {
+  var grid = document.getElementById('prep-grid');
+  var photoCard = document.getElementById('photo-card');
+  var title = document.getElementById('centre-title');
+  photoCard.style.display = 'none';
+  grid.style.display = '';
+  title.textContent = "Today's Prep";
+  photoVisible = false;
+}
+
+function startPhotoSlideshow() {
+  if (photoList.length === 0) return;
+  // Prima foto dopo 25s dall'avvio (lascia caricare il resto)
+  clearTimeout(photoTimer);
+  photoTimer = setTimeout(showPhoto, 25000);
+}
+// ── END PHOTO SLIDESHOW ────────────────────────────────────
+
 async function boot() {
   await checkDisplayActive();
   await loadAll();
@@ -953,6 +1033,11 @@ async function boot() {
   // Check announcements every 30s
   checkAnnouncement();
   setInterval(checkAnnouncement, 30000);
+  // Photos
+  await loadPhotos();
+  startPhotoSlideshow();
+  // Ricarica lista foto ogni ora (dopo il sync iCloud)
+  setInterval(loadPhotos, 60*60*1000);
   // Realtime settings — TV on/off con riconnessione automatica
   startSettingsRealtime();
 }
