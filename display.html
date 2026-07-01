@@ -261,10 +261,7 @@ html, body {
         <div style="font-size:11px;font-weight:800;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:.12em;margin-bottom:16px;" id="announcement-time"></div>
         <div style="font-size:36px;font-weight:900;color:white;text-align:center;line-height:1.25;letter-spacing:-.01em;" id="announcement-text"></div>
       </div>
-      <div id="photo-card" style="display:none;flex:1;position:relative;overflow:hidden;border-radius:0 0 12px 12px;">
-        <img id="photo-img" src="" alt="" style="width:100%;height:100%;object-fit:cover;transition:opacity 0.8s ease;">
-        <div id="photo-caption" style="display:none;position:absolute;bottom:0;left:0;right:0;padding:12px 16px;background:linear-gradient(transparent,rgba(0,0,0,0.65));color:white;font-size:14px;font-weight:600;"></div>
-      </div>
+      <div id="crew-card" style="display:none;flex:1;flex-direction:column;overflow-y:auto;padding:12px 16px;gap:10px;"></div>
     </div>
 
     <!-- RIGHT: KITCHEN CHAT -->
@@ -930,81 +927,134 @@ async function checkAnnouncement() {
   }
 }
 
-// ── PHOTO SLIDESHOW ────────────────────────────────────────
-var photoList = [];
-var photoIndex = 0;
-var photoTimer = null;
-var photoVisible = false;
+// ── CREW BOARD ─────────────────────────────────────────────
+var crewTimer = null;
+var crewVisible = false;
 
-async function loadPhotos() {
-  var res = await supa.from('kitchen_display_photos').select('url,caption').order('id');
-  if (res && res.data && res.data.length > 0) {
-    // Sostituisce ${f} con public.jpeg (placeholder CloudKit)
-    photoList = res.data.map(function(p) {
-      return { url: p.url.replace('${f}', 'public.jpeg'), caption: p.caption || '' };
+async function loadCrewBoard() {
+  // Chi è online nelle ultime 3 ore (escludi Max/Tela/Coordinator)
+  var skipStations = ['Manager', 'Coordinator', 'Admin'];
+  var presRes = await supa.from('user_presence')
+    .select('user_name,station,last_seen')
+    .gt('last_seen', new Date(Date.now() - 3*60*60*1000).toISOString())
+    .order('last_seen', {ascending: false});
+  if (!presRes || !presRes.data) return;
+
+  var crew = presRes.data.filter(function(u) {
+    return u.station && !skipStations.includes(u.station) && u.station !== 'Dish Crew';
+  });
+  if (crew.length === 0) return;
+
+  // Task in progress per stazione
+  var inProgRes = await supa.from('prep_tasks')
+    .select('name,category')
+    .eq('in_progress', true)
+    .eq('done', false)
+    .eq('archived', false);
+  var inProgByStation = {};
+  if (inProgRes && inProgRes.data) {
+    inProgRes.data.forEach(function(t) {
+      if (!inProgByStation[t.category]) inProgByStation[t.category] = [];
+      inProgByStation[t.category].push(t.name);
     });
   }
-}
 
-function showPhoto() {
-  if (photoList.length === 0 || announcementVisible) return;
-  var grid = document.getElementById('prep-grid');
-  var photoCard = document.getElementById('photo-card');
-  var photoImg = document.getElementById('photo-img');
-  var photoCaption = document.getElementById('photo-caption');
-  var title = document.getElementById('centre-title');
+  // Task completati oggi per user_name (da prep_log)
+  var today = new Date();
+  today.setHours(0,0,0,0);
+  var doneRes = await supa.from('prep_log')
+    .select('user_name,item')
+    .gte('created_at', today.toISOString())
+    .eq('is_demo', false)
+    .order('created_at', {ascending: false});
+  var doneByUser = {};
+  if (doneRes && doneRes.data) {
+    doneRes.data.forEach(function(r) {
+      if (!doneByUser[r.user_name]) doneByUser[r.user_name] = [];
+      if (!doneByUser[r.user_name].includes(r.item)) doneByUser[r.user_name].push(r.item);
+    });
+  }
 
-  var p = photoList[photoIndex % photoList.length];
-  photoIndex++;
+  // Costruisci HTML
+  var html = '';
+  crew.forEach(function(u) {
+    var wip = inProgByStation[u.station] || [];
+    var done = doneByUser[u.user_name] || [];
+    if (wip.length === 0 && done.length === 0) return;
 
-  // Fade out, swap src, fade in
-  photoImg.style.opacity = '0';
-  setTimeout(function() {
-    photoImg.src = p.url;
-    photoImg.onload = function() { photoImg.style.opacity = '1'; };
-    photoImg.onerror = function() {
-      // URL scaduto — nascondi e torna al prep
-      hidePhoto();
-    };
-    if (p.caption) {
-      photoCaption.textContent = p.caption;
-      photoCaption.style.display = 'block';
-    } else {
-      photoCaption.style.display = 'none';
+    html += '<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px 14px;margin-bottom:8px;">';
+    // Nome + stazione
+    html += '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">';
+    html += '<span style="font-size:18px;font-weight:800;color:#fff;letter-spacing:-.01em;">' + u.user_name + '</span>';
+    html += '<span style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:.08em;">' + u.station.replace(' Station','') + '</span>';
+    html += '</div>';
+    // In progress
+    if (wip.length > 0) {
+      html += '<div style="margin-bottom:4px;">';
+      wip.forEach(function(task) {
+        html += '<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:rgba(255,255,255,0.85);padding:2px 0;">';
+        html += '<span style="font-size:10px;">🔄</span><span>' + task + '</span>';
+        html += '</div>';
+      });
+      html += '</div>';
     }
-  }, 400);
+    // Done
+    if (done.length > 0) {
+      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">';
+      done.slice(0,6).forEach(function(item) {
+        html += '<span style="font-size:11px;background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(74,222,128,0.25);border-radius:20px;padding:2px 8px;">✓ ' + item + '</span>';
+      });
+      if (done.length > 6) html += '<span style="font-size:11px;color:rgba(255,255,255,0.3);">+' + (done.length-6) + ' more</span>';
+      html += '</div>';
+    }
+    html += '</div>';
+  });
 
-  grid.style.display = 'none';
-  photoCard.style.display = 'flex';
-  title.textContent = 'Kitchen Gallery';
-  photoVisible = true;
+  if (!html) return;
 
-  // Mostra foto per 12s poi torna al prep per 20s
-  clearTimeout(photoTimer);
-  photoTimer = setTimeout(function() {
-    hidePhoto();
-    // Prossima foto dopo 20s di prep
-    photoTimer = setTimeout(showPhoto, 20000);
-  }, 12000);
+  var card = document.getElementById('crew-card');
+  if (card) card.innerHTML = html;
 }
 
-function hidePhoto() {
+var crewCycleTimer = null;
+
+function showCrewBoard() {
+  if (announcementVisible) {
+    crewCycleTimer = setTimeout(showCrewBoard, 20000);
+    return;
+  }
   var grid = document.getElementById('prep-grid');
-  var photoCard = document.getElementById('photo-card');
+  var card = document.getElementById('crew-card');
   var title = document.getElementById('centre-title');
-  photoCard.style.display = 'none';
-  grid.style.display = '';
-  title.textContent = "Today's Prep";
-  photoVisible = false;
+  if (!card || !card.innerHTML) {
+    crewCycleTimer = setTimeout(showCrewBoard, 20000);
+    return;
+  }
+  grid.style.display = 'none';
+  card.style.display = 'flex';
+  card.style.flexDirection = 'column';
+  title.textContent = "Who's Working On What";
+  crewVisible = true;
+  crewCycleTimer = setTimeout(hideCrew, 20000);
 }
 
-function startPhotoSlideshow() {
-  if (photoList.length === 0) return;
-  // Prima foto dopo 25s dall'avvio (lascia caricare il resto)
-  clearTimeout(photoTimer);
-  photoTimer = setTimeout(showPhoto, 25000);
+function hideCrew() {
+  var grid = document.getElementById('prep-grid');
+  var card = document.getElementById('crew-card');
+  var title = document.getElementById('centre-title');
+  if (card) card.style.display = 'none';
+  if (grid) grid.style.display = '';
+  if (title) title.textContent = "Today's Prep";
+  crewVisible = false;
+  // Torna al prep per 20s poi mostra crew di nuovo
+  crewCycleTimer = setTimeout(showCrewBoard, 20000);
 }
-// ── END PHOTO SLIDESHOW ────────────────────────────────────
+
+function startCrewCycle() {
+  // Prima apparizione dopo 20s
+  crewCycleTimer = setTimeout(showCrewBoard, 20000);
+}
+// ── END CREW BOARD ─────────────────────────────────────────
 
 async function boot() {
   await checkDisplayActive();
@@ -1033,11 +1083,11 @@ async function boot() {
   // Check announcements every 30s
   checkAnnouncement();
   setInterval(checkAnnouncement, 30000);
-  // Photos
-  await loadPhotos();
-  startPhotoSlideshow();
-  // Ricarica lista foto ogni ora (dopo il sync iCloud)
-  setInterval(loadPhotos, 60*60*1000);
+  // Crew board
+  await loadCrewBoard();
+  startCrewCycle();
+  // Aggiorna crew ogni 2 minuti
+  setInterval(loadCrewBoard, 2*60*1000);
   // Realtime settings — TV on/off con riconnessione automatica
   startSettingsRealtime();
 }
