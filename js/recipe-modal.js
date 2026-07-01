@@ -169,21 +169,120 @@ function scaleTextQty(text, factor) {
 }
 
 // ── TIMER ────────────────────────────────────────────────
+// timers{}            = interval handles locali al modal (per onTick/onDone DOM)
+// window._timerState  = stato persistente globale (sopravvive alla navigazione)
 const timers={};
-function startTimer(key,secs,onTick,onDone){
-  if(timers[key]){clearInterval(timers[key].interval);delete timers[key];return false;}
-  let rem=secs;
-  timers[key]={rem};
+if(!window._timerState) window._timerState={};
+
+function fmtTime(s){
+  if(s<=0) return '00:00';
+  return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
+
+function _timerRem(key){
+  var st=window._timerState[key];
+  if(!st) return 0;
+  var elapsed=Math.floor((Date.now()-st.startedAt)/1000);
+  return Math.max(0, st.totalSecs - elapsed);
+}
+
+function startTimer(key, secs, onTick, onDone, meta){
+  // toggle: se interval locale esiste, lo fermo completamente
+  if(timers[key]){
+    clearInterval(timers[key].interval);
+    delete timers[key];
+    delete window._timerState[key];
+    if(typeof window._prepTimerStopped==='function') window._prepTimerStopped();
+    _timerBarUpdate();
+    return false;
+  }
+  window._timerState[key]={ totalSecs:secs, startedAt:Date.now(), meta:meta||{} };
   if(typeof window._prepTimerStarted==='function') window._prepTimerStarted();
-  timers[key].interval=setInterval(()=>{
-    rem--;timers[key].rem=rem;
-    if(rem<=0){clearInterval(timers[key].interval);delete timers[key];if(typeof window._prepTimerStopped==='function')window._prepTimerStopped();onDone&&onDone();return;}
+  timers[key]={};
+  timers[key].interval=setInterval(function(){
+    var rem=_timerRem(key);
+    if(timers[key]) timers[key].rem=rem;
+    _timerBarUpdate();
+    if(rem<=0){
+      clearInterval(timers[key] && timers[key].interval);
+      delete timers[key];
+      delete window._timerState[key];
+      if(typeof window._prepTimerStopped==='function') window._prepTimerStopped();
+      _timerBarUpdate();
+      onDone&&onDone();
+      return;
+    }
     onTick&&onTick(rem);
   },1000);
+  _timerBarUpdate();
   return true;
 }
-function stopTimer(key){if(timers[key]){clearInterval(timers[key].interval);delete timers[key];if(typeof window._prepTimerStopped==='function')window._prepTimerStopped();}}
-function fmtTime(s){return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
+
+function stopTimer(key){
+  // Ferma solo l'interval locale — _timerState rimane, timer bar continua
+  if(timers[key]){ clearInterval(timers[key].interval); delete timers[key]; }
+}
+
+function stopTimerFully(key){
+  // Ferma tutto: interval + stato globale (stop manuale dall'utente)
+  if(timers[key]){ clearInterval(timers[key].interval); delete timers[key]; }
+  delete window._timerState[key];
+  if(typeof window._prepTimerStopped==='function') window._prepTimerStopped();
+  _timerBarUpdate();
+}
+
+// ── TIMER BAR ─────────────────────────────────────────────────
+function _timerBarUpdate(){
+  var bar=document.getElementById('_timerBar');
+  var keys=Object.keys(window._timerState||{});
+  if(keys.length===0){
+    if(bar) bar.style.display='none';
+    return;
+  }
+  if(!bar){
+    bar=document.createElement('div');
+    bar.id='_timerBar';
+    bar.style.cssText='position:fixed;bottom:72px;left:0;right:0;z-index:45;display:flex;flex-direction:column;';
+    document.body.appendChild(bar);
+  }
+  bar.style.display='flex';
+  bar.innerHTML=keys.map(function(key){
+    var st=window._timerState[key];
+    if(!st) return '';
+    var rem=_timerRem(key);
+    var pct=Math.round(((st.totalSecs-rem)/st.totalSecs)*100);
+    var taskName=st.meta&&st.meta.taskName||'';
+    var stepTitle=st.meta&&st.meta.stepTitle||'';
+    var label=taskName+(stepTitle?' \u00b7 '+stepTitle:'');
+    var isUrgent=rem>0&&rem<60;
+    var isDone=rem<=0;
+    var bg=isDone?'rgba(5,150,105,0.96)':isUrgent?'rgba(239,68,68,0.96)':'rgba(30,58,95,0.96)';
+    return '<div data-tkey="'+key+'" style="background:'+bg+';padding:0 16px;height:44px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;border-top:0.5px solid rgba(255,255,255,0.15);position:relative;overflow:hidden;">'
+      +'<div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">'
+      +'<span style="font-size:15px;">'+(isDone?'':'⏱')+'</span>'
+      +'<span style="font-size:13px;font-weight:600;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+label+'</span>'
+      +'</div>'
+      +'<div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">'
+      +'<span style="font-size:18px;font-weight:800;color:white;font-variant-numeric:tabular-nums;letter-spacing:-.5px;">'+(isDone?'DONE \u2713':fmtTime(rem))+'</span>'
+      +'<div style="width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;">'
+      +'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>'
+      +'</div>'
+      +'</div>'
+      +'<div style="position:absolute;bottom:0;left:0;height:2px;background:rgba(255,255,255,0.35);width:'+pct+'%;"></div>'
+      +'</div>';
+  }).join('');
+  bar.querySelectorAll('[data-tkey]').forEach(function(row){
+    row.addEventListener('click',function(){
+      var key=row.dataset.tkey;
+      var st=window._timerState[key];
+      if(!st) return;
+      var meta=st.meta||{};
+      if(window.recipeModal&&typeof window.recipeModal.open==='function'){
+        window.recipeModal.open(meta.recipeId||null, meta.prepTaskId||null);
+      }
+    });
+  });
+}
 
 // ── SHELL ─────────────────────────────────────────────────
 function buildShell(title, category, pills, botPill, tabs){
@@ -224,14 +323,22 @@ function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal, 
   // Timer: recipe_steps usa timer_seconds, prep_steps usa timer_minutes
   const timerSecs = step.timer_seconds || (step.timer_minutes ? step.timer_minutes*60 : 0);
   const dots=steps.map((_,i)=>`<div class="rm-dot ${i===currentStep?'active':i<currentStep?'done':''}"></div>`).join('');
-  const timerHtml=timerSecs?`
-    <div class="rm-timer" id="rmTimer_${currentStep}">
-      <div class="rm-timer-info">
-        <span class="rm-timer-lbl idle" id="rmTlbl_${currentStep}">⏱ ${t('timer').toUpperCase()}</span>
-        <span class="rm-timer-display" id="rmTdsp_${currentStep}">${fmtTime(timerSecs)}</span>
-      </div>
-      <button class="rm-timer-btn idle" id="rmTbtn_${currentStep}" data-secs="${timerSecs}">▶</button>
-    </div>`:'';
+  const _tKey='step_'+currentStep;
+  const _tRunning=!!(window._timerState&&window._timerState[_tKey]);
+  const _tRem=_tRunning?_timerRem(_tKey):timerSecs;
+  const _tDone=_tRunning&&_tRem<=0;
+  const _tState=_tDone?'done':_tRunning?'running':'idle';
+  const _tWrap=_tDone?' done-state':_tRunning?' running':'';
+  const _tLbl=_tDone?'\u2713 DONE':_tRunning?'\u23f1 RUNNING':'\u23f1 '+t('timer').toUpperCase();
+  const _tBtn=_tDone?'\u2713':_tRunning?'\u25a0':'\u25b6';
+  const _tDisp=_tDone?t('done')+' \u2713':fmtTime(_tRem);
+  const timerHtml=timerSecs?('<div class="rm-timer'+_tWrap+'" id="rmTimer_'+currentStep+'">'
+    +'<div class="rm-timer-info">'
+    +'<span class="rm-timer-lbl '+_tState+'" id="rmTlbl_'+currentStep+'">'+_tLbl+'</span>'
+    +'<span class="rm-timer-display '+(_tState!=='idle'?_tState:'')+'" id="rmTdsp_'+currentStep+'">'+_tDisp+'</span>'
+    +'</div>'
+    +'<button class="rm-timer-btn '+_tState+'" id="rmTbtn_'+currentStep+'" data-secs="'+timerSecs+'">'+_tBtn+'</button>'
+    +'</div>'):''
   const isLast=currentStep===total-1;
   return `
     <div class="rm-step-counter">
@@ -255,35 +362,68 @@ function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal, 
 }
 
 function bindStepEvents(steps, getCurrentStep, setCurrentStep, prepTaskId, totalSteps, renderFn, closeModalFn, getBomRows, getScaleFactor){
-  const idx=getCurrentStep();
-  const timerSecs = steps[idx].timer_seconds || (steps[idx].timer_minutes ? steps[idx].timer_minutes*60 : 0);
-  const tBtn=document.getElementById(`rmTbtn_${idx}`);
+  var idx=getCurrentStep();
+  var timerSecs = steps[idx].timer_seconds || (steps[idx].timer_minutes ? steps[idx].timer_minutes*60 : 0);
+  var tBtn=document.getElementById('rmTbtn_'+idx);
   if(tBtn&&timerSecs){
-    tBtn.addEventListener('click',()=>{
-      const key=`step_${idx}`;
-      const dsp=document.getElementById(`rmTdsp_${idx}`);
-      const lbl=document.getElementById(`rmTlbl_${idx}`);
-      const wrap=document.getElementById(`rmTimer_${idx}`);
-      if(timers[key]){
-        stopTimer(key);
-        tBtn.className='rm-timer-btn idle';tBtn.textContent='▶';
-        if(lbl){lbl.className='rm-timer-lbl idle';lbl.textContent=`⏱ ${t('timer').toUpperCase()}`;}
+    var key='step_'+idx;
+    var dsp=document.getElementById('rmTdsp_'+idx);
+    var lbl=document.getElementById('rmTlbl_'+idx);
+    var wrap=document.getElementById('rmTimer_'+idx);
+    // Riattacca interval se timer gia' in corso (sopravvissuto alla navigazione)
+    if(window._timerState&&window._timerState[key]&&!timers[key]){
+      timers[key]={};
+      timers[key].interval=setInterval(function(){
+        var rem=_timerRem(key);
+        if(timers[key]) timers[key].rem=rem;
+        if(dsp) dsp.textContent=fmtTime(rem);
+        _timerBarUpdate();
+        if(rem<=0){
+          clearInterval(timers[key]&&timers[key].interval);
+          delete timers[key];
+          delete window._timerState[key];
+          if(typeof window._prepTimerStopped==='function') window._prepTimerStopped();
+          if(dsp){dsp.textContent=t('done')+' \u2713';dsp.className='rm-timer-display done';}
+          if(lbl){lbl.textContent='\u2713 '+t('done').toUpperCase();lbl.className='rm-timer-lbl done';}
+          if(wrap)wrap.className='rm-timer done-state';
+          if(tBtn){tBtn.className='rm-timer-btn done';tBtn.textContent='\u2713';}
+          if(navigator.vibrate)navigator.vibrate([200,100,200]);
+          _timerBarUpdate();
+        }
+      },1000);
+    }
+    tBtn.addEventListener('click',function(){
+      var dsp=document.getElementById('rmTdsp_'+idx);
+      var lbl=document.getElementById('rmTlbl_'+idx);
+      var wrap=document.getElementById('rmTimer_'+idx);
+      if(timers[key]||window._timerState[key]){
+        // Stop manuale: ferma tutto
+        stopTimerFully(key);
+        tBtn.className='rm-timer-btn idle';tBtn.textContent='\u25b6';
+        if(lbl){lbl.className='rm-timer-lbl idle';lbl.textContent='\u23f1 '+t('timer').toUpperCase();}
         if(wrap)wrap.className='rm-timer';
         if(dsp){dsp.className='rm-timer-display';dsp.textContent=fmtTime(timerSecs);}
       } else {
-        tBtn.className='rm-timer-btn running';tBtn.textContent='■';
-        if(lbl){lbl.className='rm-timer-lbl running';lbl.textContent=`⏱ ${t('running').toUpperCase()}`;}
+        tBtn.className='rm-timer-btn running';tBtn.textContent='\u25a0';
+        if(lbl){lbl.className='rm-timer-lbl running';lbl.textContent='\u23f1 '+t('running').toUpperCase();}
         if(wrap)wrap.className='rm-timer running';
         if(dsp)dsp.className='rm-timer-display running';
+        var meta={
+          taskName: (window._taskNames&&window._taskNames[prepTaskId])||prepTaskId||'',
+          stepTitle: steps[idx]&&((window.user&&window.user.lang==='it'&&steps[idx].title_it)||steps[idx].title||''),
+          prepTaskId: prepTaskId||null,
+          recipeId: (steps[idx]&&steps[idx].recipe_id)||null
+        };
         startTimer(key,timerSecs,
-          rem=>{if(dsp)dsp.textContent=fmtTime(rem);},
-          ()=>{
-            if(dsp){dsp.textContent=t('done')+' ✓';dsp.className='rm-timer-display done';}
-            if(lbl){lbl.textContent='✓ '+t('done').toUpperCase();lbl.className='rm-timer-lbl done';}
+          function(rem){if(dsp)dsp.textContent=fmtTime(rem);},
+          function(){
+            if(dsp){dsp.textContent=t('done')+' \u2713';dsp.className='rm-timer-display done';}
+            if(lbl){lbl.textContent='\u2713 '+t('done').toUpperCase();lbl.className='rm-timer-lbl done';}
             if(wrap)wrap.className='rm-timer done-state';
-            if(tBtn){tBtn.className='rm-timer-btn done';tBtn.textContent='✓';}
+            if(tBtn){tBtn.className='rm-timer-btn done';tBtn.textContent='\u2713';}
             if(navigator.vibrate)navigator.vibrate([200,100,200]);
-          }
+          },
+          meta
         );
       }
     });
@@ -315,7 +455,10 @@ window.recipeModal={
   open: async function(recipeId, prepTaskId){
     document.getElementById('rmOverlay')?.remove();
     if(!document.getElementById('rmStyle')) document.head.insertAdjacentHTML('beforeend',STYLE);
-    Object.keys(timers).forEach(k=>stopTimer(k));
+    // NON killare timer globali: restano attivi nella timer bar
+    Object.keys(timers).forEach(function(k){
+      if(!window._timerState[k]){ clearInterval(timers[k].interval); delete timers[k]; }
+    });
 
     // ── Carica prep task info (sempre, per stock pill e suggested_qty)
     let prepTask=null;
@@ -508,9 +651,9 @@ window.recipeModal={
     // Bind DONE button — prima apre done sheet, poi chiude modal
     document.getElementById('rmBareDoneBtn')?.addEventListener('click', ()=>{
       // Chiudi overlay immediatamente senza aspettare animazione
-      const o=document.getElementById('rmOverlay');
+      var o=document.getElementById('rmOverlay');
       if(o) o.remove();
-      Object.keys(timers).forEach(k=>stopTimer(k));
+      // NON killare timer globali: restano nella timer bar
       // Poi apri done sheet
       if(prepTaskId && typeof window.prepDone==='function') window.prepDone(prepTaskId);
     });
@@ -519,10 +662,12 @@ window.recipeModal={
 };
 
 function closeModal(prepTaskId){
-  Object.keys(timers).forEach(k=>stopTimer(k));
+  // Ferma interval locali ma NON cancella _timerState: timer bar continua
+  Object.keys(timers).forEach(function(k){ clearInterval(timers[k].interval); delete timers[k]; });
   if(prepTaskId&&typeof window.prepOnModalClose==='function') window.prepOnModalClose(prepTaskId);
-  const o=document.getElementById('rmOverlay');
-  if(o){o.style.opacity='0';o.style.transition='opacity .2s';setTimeout(()=>o.remove(),200);}
+  var o=document.getElementById('rmOverlay');
+  if(o){o.style.opacity='0';o.style.transition='opacity .2s';setTimeout(function(){o.remove();},200);}
 }
 
 })();
+
