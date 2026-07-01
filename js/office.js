@@ -2630,36 +2630,103 @@ window.botLiveCalc = function(tid) {
   var shelf   = parseInt(document.getElementById('f_shelf_'+tid)?.value)     || d.shelf_life || 3;
   var servQty = parseFloat(document.getElementById('f_servqty_'+tid)?.value) || d.serving_qty || 0;
   var bw      = parseFloat(document.getElementById('f_bw_'+tid)?.value)      || d.base_weight_g || 0;
+  var baseSrv = parseInt(document.getElementById('f_basesrv_'+tid)?.value)   || d.base_servings || 1;
   var unit    = (document.getElementById('f_unit_'+tid)?.value || d.unit || 'g').toLowerCase();
   var manIt   = document.getElementById('f_noteit_'+tid)?.value || '';
   var manEn   = document.getElementById('f_noteen_'+tid)?.value || '';
   var manEs   = document.getElementById('f_notees_'+tid)?.value || '';
 
-  // Ricalcola fabbisogno stimato proporzionalmente dai parametri
-  // Base: il bot aveva calcolato suggested_qty con i vecchi parametri
-  // Scala proporzionalmente con i nuovi
-  var origNeeded = d.suggested_qty || 0;
+  // Ricalcola fabbisogno REALE dal DB — stesso calcolo del bot
+  // Legge vendite per giorno settimana e calcola i prossimi N giorni
+  // Lancia async e aggiorna preview quando arriva
+  botLiveCalcAsync(tid, stock, shelf, servQty, bw, baseSrv, unit, manIt, manEn, manEs, d);
+};
 
-  // Se shelf cambiato → scala lineare
-  if (d.shelf_life && shelf !== d.shelf_life && origNeeded > 0) {
-    origNeeded = origNeeded * (shelf / d.shelf_life);
-  }
-  // Se serving_qty cambiato → scala lineare
-  if (d.serving_qty && servQty > 0 && servQty !== d.serving_qty && origNeeded > 0) {
-    origNeeded = origNeeded * (servQty / d.serving_qty);
+window.botLiveCalcAsync = async function(tid, stock, shelf, servQty, bw, baseSrv, unit, manIt, manEn, manEs, d) {
+  var sb = window.supa;
+
+  // Mostra "Calcolo in corso..." nella preview
+  var liveQty = document.getElementById('liveQty_'+tid);
+  if (liveQty) { liveQty.textContent = '⏳ Ricalcolo...'; liveQty.style.color = 'rgba(255,255,255,0.4)'; }
+
+  var needed = 0;
+
+  // Prova a caricare vendite reali dal DB
+  try {
+    if (sb && d.pos_name) {
+      var posNames = d.pos_name.split('|').filter(Boolean);
+
+      // Leggi vendite storiche ultime 90 giorni
+      var ninetyAgo = new Date();
+      ninetyAgo.setDate(ninetyAgo.getDate() - 90);
+      var since = ninetyAgo.toISOString().slice(0,10);
+
+      var { data: sales } = await sb
+        .from('pos_sales_by_item')
+        .select('sale_date, quantity, menu_item')
+        .in('menu_item', posNames)
+        .gte('sale_date', since);
+
+      if (sales && sales.length > 0) {
+        // Calcola media per giorno settimana (escludi domenica)
+        var dowTotals = {1:0,2:0,3:0,4:0,5:0,6:0}; // lun-sab
+        var dowCounts = {1:0,2:0,3:0,4:0,5:0,6:0};
+        sales.forEach(function(s) {
+          var dow = new Date(s.sale_date).getDay(); // 0=dom
+          if (dow > 0) {
+            dowTotals[dow] = (dowTotals[dow]||0) + (parseFloat(s.quantity)||0);
+            dowCounts[dow] = (dowCounts[dow]||0) + 1;
+          }
+        });
+        var dowAvg = {};
+        for (var k in dowTotals) {
+          dowAvg[k] = dowCounts[k] > 0 ? dowTotals[k] / dowCounts[k] : 0;
+        }
+
+        // Calcola prossimi N giorni (shelf_life, salta domenica)
+        var today = new Date();
+        var futureDays = [];
+        var d2 = new Date(today);
+        while (futureDays.length < shelf) {
+          if (d2.getDay() !== 0) futureDays.push(d2.getDay());
+          d2.setDate(d2.getDate() + 1);
+        }
+
+        // Calcola consumo totale
+        futureDays.forEach(function(dow) {
+          var avgPortions = dowAvg[dow] || 0;
+          // Converti porzioni in unità inventario
+          needed += avgPortions * servQty;
+        });
+      }
+    }
+  } catch(e) {
+    console.warn('[botLiveCalc] DB error:', e.message);
   }
 
-  var needed = origNeeded * 1.1; // buffer 10%
+  // Se non ho dati vendite, usa il valore suggerito dal bot come fallback
+  if (needed === 0 && d.suggested_qty > 0) {
+    // Scala proporzionalmente se serving_qty è cambiato
+    needed = d.suggested_qty;
+    if (d.serving_qty && servQty > 0 && servQty !== d.serving_qty) {
+      needed = needed * (servQty / d.serving_qty);
+    }
+    if (d.shelf_life && shelf !== d.shelf_life) {
+      needed = needed * (shelf / d.shelf_life);
+    }
+  }
+
+  var neededWithBuffer = needed * 1.1; // +10% buffer
 
   // Determina colore e quantità da suggerire
   var color = 'green';
   var toMake = 0;
-  if (stock <= 0 && needed > 0) {
-    color='red'; toMake=needed;
-  } else if (needed > 0 && stock < needed*0.40) {
-    color='red'; toMake=needed-stock;
-  } else if (needed > 0 && stock < needed*0.80) {
-    color='yellow'; toMake=needed-stock;
+  if (stock <= 0 && neededWithBuffer > 0) {
+    color='red'; toMake=neededWithBuffer;
+  } else if (neededWithBuffer > 0 && stock < neededWithBuffer*0.40) {
+    color='red'; toMake=neededWithBuffer-stock;
+  } else if (neededWithBuffer > 0 && stock < neededWithBuffer*0.80) {
+    color='yellow'; toMake=neededWithBuffer-stock;
   } else {
     color='green';
   }
