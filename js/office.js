@@ -210,6 +210,22 @@ async function officeLoadHome() {
         '</div>';
       invBtn.addEventListener('click', function() { officeOpenInventorySetup(); });
       container.appendChild(invBtn);
+
+      // ── BOT CENTER ──
+      var botBtn = document.createElement('div');
+      botBtn.style.cssText = 'background:rgba(15,23,42,0.85);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(255,255,255,0.12);border-radius:18px;cursor:pointer;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.2);-webkit-tap-highlight-color:transparent;margin-top:10px;';
+      botBtn.innerHTML =
+        '<div style="display:flex;align-items:center;padding:14px 16px;gap:12px;">' +
+          '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:46px;flex-shrink:0;background:linear-gradient(180deg,#f59e0b,#8b5cf6,#3b82f6);"></div>' +
+          '<div style="font-size:26px;width:32px;text-align:center;">🤖</div>' +
+          '<div style="flex:1;">' +
+            '<div style="color:white;font-size:16px;font-weight:600;">Bot Center</div>' +
+            '<div style="color:rgba(255,255,255,0.4);font-size:12px;margin-top:3px;">7 bot attivi · Log · Config · Trigger</div>' +
+          '</div>' +
+          '<span style="color:rgba(255,255,255,0.25);font-size:18px;">&#x203A;</span>' +
+        '</div>';
+      botBtn.addEventListener('click', function() { officeBotCenter(); });
+      container.appendChild(botBtn);
     }
 
   } catch(e) {
@@ -1215,3 +1231,629 @@ window.invSaveRecipeHealth = async function(recipeId, hasBw, hasSl) {
     alert('Errore: ' + e.message);
   }
 };
+
+// ══════════════════════════════════════════════════════════════
+// BOT CENTER — sezione 🤖 in L'Ufficio
+// Scheda per ogni bot: identità, ultima run, config editabile,
+// trigger manuale. Solo admin (Max).
+// ══════════════════════════════════════════════════════════════
+
+var _botDefs = [
+  {
+    id: 'bot-preplist-builder',
+    name: 'Costruttore Preplist',
+    icon: '📋',
+    desc: 'Ogni notte legge il venduto del POS e calcola cosa preparare il giorno dopo per ogni stazione.',
+    schedule: 'Ogni notte alle 4:00 AM',
+    ribbon: '#f59e0b',
+    fnName: 'bot-preplist-builder',
+    logTable: 'preplist',
+    hasConfig: true
+  },
+  {
+    id: 'bot-price-guard',
+    name: 'Guardiano Prezzi',
+    icon: '💰',
+    desc: 'Dopo ogni importazione fattura, controlla se i prezzi degli ingredienti sono cambiati rispetto allo storico.',
+    schedule: 'Ad ogni importazione fattura',
+    ribbon: '#ef4444',
+    fnName: 'bot-price-guard',
+    logTable: 'invoice',
+    hasConfig: false
+  },
+  {
+    id: 'bot-chat-analyst',
+    name: 'Analista Chat',
+    icon: '💬',
+    desc: 'Legge la chat della brigata, trova pattern ricorrenti (problemi, suggerimenti, segnali personali) e li porta in L\'Ufficio.',
+    schedule: 'Ogni giorno alle 3:00 AM (domenica: recap settimanale)',
+    ribbon: '#8b5cf6',
+    fnName: 'bot-chat-analyst',
+    logTable: 'chat',
+    hasConfig: false
+  },
+  {
+    id: 'bot-tell-chef-reader',
+    name: 'Lettore Tell Chef',
+    icon: '📣',
+    desc: 'Ogni ora legge i nuovi messaggi Tell Chef, li classifica per tipo e priorità, e li mette in L\'Ufficio già analizzati.',
+    schedule: 'Ogni ora',
+    ribbon: '#3b82f6',
+    fnName: 'bot-tell-chef-reader',
+    logTable: 'tellchef',
+    hasConfig: false
+  },
+  {
+    id: 'bot-food-cost-guard',
+    name: 'Guardiano Food Cost',
+    icon: '📊',
+    desc: 'Dopo ogni importazione fattura, calcola l\'impatto sul food cost delle ricette e segnala le anomalie.',
+    schedule: 'Ad ogni importazione fattura',
+    ribbon: '#ec4899',
+    fnName: 'bot-food-cost-guard',
+    logTable: 'invoice',
+    hasConfig: false
+  },
+  {
+    id: 'bot-prep-accuracy',
+    name: 'Guardiano Accuratezza Prep',
+    icon: '🎯',
+    desc: 'Ogni sera confronta cosa il bot aveva suggerito di preparare con quello che i cuochi hanno effettivamente prodotto.',
+    schedule: 'Ogni sera (17:00–18:00 CDT)',
+    ribbon: '#14b8a6',
+    fnName: 'bot-prep-accuracy',
+    logTable: 'preplog',
+    hasConfig: false
+  },
+  {
+    id: 'bot-recipe-guardian',
+    name: 'Recipe Guardian',
+    icon: '📖',
+    desc: 'Ogni mattina scansiona le ricette vendute e segnala quelle con BOM incompleto, procedure mancante, o dati di porzione mancanti.',
+    schedule: 'Ogni mattina alle 6:00 AM',
+    ribbon: '#10b981',
+    fnName: 'bot-recipe-guardian',
+    logTable: 'office',
+    hasConfig: false
+  }
+];
+
+// ── Apri Bot Center (slide-up sopra L'Ufficio) ──
+window.officeBotCenter = async function() {
+  var existing = document.getElementById('officeBotPanel');
+  if (existing) existing.remove();
+
+  var panel = document.createElement('div');
+  panel.id = 'officeBotPanel';
+  panel.style.cssText = [
+    'position:fixed;top:0;left:50%;transform:translateX(-50%) translateY(100%);',
+    'width:100%;max-width:480px;height:100vh;z-index:500;',
+    'background:linear-gradient(160deg,#0f172a 0%,#1e293b 60%,#0f2027 100%);',
+    'display:flex;flex-direction:column;overflow:hidden;',
+    'font-family:Inter,system-ui,sans-serif;',
+    'transition:transform 0.4s cubic-bezier(0.4,0,0.2,1);'
+  ].join('');
+
+  panel.innerHTML =
+    '<div style="width:40px;height:5px;background:rgba(255,255,255,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
+    '<div style="background:rgba(15,23,42,0.95);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid rgba(255,255,255,0.08);padding:14px 16px;display:flex;align-items:center;gap:14px;flex-shrink:0;">' +
+      '<button onclick="document.getElementById(\'officeBotPanel\')?.remove();" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.15);color:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&#8592;</button>' +
+      '<div style="flex:1;">' +
+        '<div style="font-size:19px;font-weight:700;color:white;letter-spacing:-0.3px;">🤖 Bot Center</div>' +
+        '<div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:2px;">7 bot attivi · Zenos Kitchen</div>' +
+      '</div>' +
+    '</div>' +
+    '<div id="botCenterList" style="flex:1;overflow-y:auto;padding:14px 16px 60px;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:10px;">' +
+      '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Caricamento...</div>' +
+    '</div>';
+
+  document.body.appendChild(panel);
+
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() {
+      panel.style.transform = 'translateX(-50%) translateY(0)';
+    });
+  });
+
+  // Swipe down to close
+  var startY = 0;
+  var dragging = false;
+  panel.addEventListener('touchstart', function(e) {
+    startY = e.touches[0].clientY;
+    dragging = false;
+  }, { passive: true });
+  panel.addEventListener('touchmove', function(e) {
+    var dy = e.touches[0].clientY - startY;
+    if (dy > 40) dragging = true;
+    if (dragging && dy > 0) {
+      panel.style.transition = 'none';
+      panel.style.transform = 'translateX(-50%) translateY(' + dy + 'px)';
+    }
+  }, { passive: true });
+  panel.addEventListener('touchend', function(e) {
+    var dy = e.changedTouches[0].clientY - startY;
+    if (dy > 120) {
+      panel.style.transition = 'transform 0.35s cubic-bezier(0.4,0,0.2,1)';
+      panel.style.transform = 'translateX(-50%) translateY(100%)';
+      setTimeout(function() { panel.remove(); }, 360);
+    } else {
+      panel.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1)';
+      panel.style.transform = 'translateX(-50%) translateY(0)';
+    }
+  }, { passive: true });
+
+  await botCenterLoadList();
+};
+
+// ── Carica lista bot con status da DB ──
+async function botCenterLoadList() {
+  var list = document.getElementById('botCenterList');
+  if (!list) return;
+
+  // Fetch dati DB per tutti i bot in parallelo
+  var sb = window.supa;
+  var preplistData = null;
+  var tellchefData = null;
+  var officeData = null;
+  var invoiceData = null;
+  var preplogData = null;
+
+  if (sb) {
+    try {
+      // Bot 3 (Preplist): legge bot_preplist_log
+      var r1 = await sb.from('bot_preplist_log')
+        .select('run_date,run_at,bot_version,task_name,percorso')
+        .order('run_at', { ascending: false })
+        .limit(100);
+      preplistData = r1.data || [];
+
+      // Bot 4 (Tell Chef): legge chef_reports con souschef_at
+      var r2 = await sb.from('chef_reports')
+        .select('souschef_at,report_type')
+        .not('souschef_at', 'is', null)
+        .order('souschef_at', { ascending: false })
+        .limit(50);
+      tellchefData = r2.data || [];
+
+      // Bot 7 (Recipe Guardian): legge office_items source=ai_scan
+      var r3 = await sb.from('office_items')
+        .select('created_at,title,priority,source')
+        .eq('source', 'ai_scan')
+        .order('created_at', { ascending: false })
+        .limit(30);
+      officeData = r3.data || [];
+
+      // Bot 1+5 (Price/FoodCost): legge invoice_warnings
+      var r4 = await sb.from('invoice_warnings')
+        .select('created_at,code,status')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      invoiceData = r4.data || [];
+
+      // Bot 6 (Prep Accuracy): legge prep_log
+      var r5 = await sb.from('prep_log')
+        .select('created_at,item,station')
+        .order('created_at', { ascending: false })
+        .limit(30);
+      preplogData = r5.data || [];
+
+    } catch(e) {
+      console.warn('[BotCenter] DB error:', e.message);
+    }
+  }
+
+  list.innerHTML = '';
+
+  _botDefs.forEach(function(bot) {
+    var statusInfo = botGetStatus(bot, { preplistData: preplistData, tellchefData: tellchefData, officeData: officeData, invoiceData: invoiceData, preplogData: preplogData });
+    var card = botRenderCard(bot, statusInfo);
+    list.appendChild(card);
+  });
+}
+
+// ── Calcola status ultima run per ogni bot ──
+function botGetStatus(bot, data) {
+  var lastRun = null;
+  var tasksDone = 0;
+  var tasksSkipped = 0;
+  var logLines = [];
+  var version = '';
+
+  if (bot.logTable === 'preplist' && data.preplistData && data.preplistData.length > 0) {
+    // Raggruppa per run (stessa run_at arrotondata al minuto)
+    var latest = data.preplistData[0];
+    var latestRunAt = latest.run_at;
+    version = latest.bot_version || '';
+    lastRun = new Date(latestRunAt);
+
+    // Prendi tutti i task dell'ultima run
+    var lastRunTasks = data.preplistData.filter(function(r) {
+      return r.run_at === latestRunAt;
+    });
+    lastRunTasks.forEach(function(r) {
+      if (r.percorso && r.percorso.indexOf('SKIP') !== -1) {
+        tasksSkipped++;
+        logLines.push({ color: '#94a3b8', text: '⏭ ' + r.task_name + ' — saltato' });
+      } else {
+        tasksDone++;
+        logLines.push({ color: '#86efac', text: '✅ ' + r.task_name });
+      }
+    });
+
+  } else if (bot.logTable === 'tellchef' && data.tellchefData && data.tellchefData.length > 0) {
+    lastRun = new Date(data.tellchefData[0].souschef_at);
+    var recentHour = data.tellchefData.filter(function(r) {
+      return new Date(r.souschef_at) > new Date(Date.now() - 2 * 3600000);
+    });
+    tasksDone = recentHour.length;
+    logLines.push({ color: '#86efac', text: '📣 ' + data.tellchefData.length + ' messaggi classificati totali' });
+    if (recentHour.length > 0) {
+      logLines.push({ color: '#86efac', text: '✅ ' + recentHour.length + ' nelle ultime 2 ore' });
+    } else {
+      logLines.push({ color: '#94a3b8', text: '💤 Nessun nuovo Tell Chef di recente' });
+    }
+
+  } else if (bot.logTable === 'office' && data.officeData && data.officeData.length > 0) {
+    lastRun = new Date(data.officeData[0].created_at);
+    var today = data.officeData.filter(function(r) {
+      return new Date(r.created_at) > new Date(Date.now() - 24 * 3600000);
+    });
+    tasksDone = today.length;
+    logLines.push({ color: '#86efac', text: '📖 ' + today.length + ' ricette segnalate oggi' });
+    if (today.length > 0) {
+      today.slice(0, 3).forEach(function(r) {
+        var pIcon = r.priority === 'red' ? '🔴' : r.priority === 'orange' ? '🟠' : '🔵';
+        logLines.push({ color: '#94a3b8', text: pIcon + ' ' + (r.title || 'senza titolo') });
+      });
+    }
+
+  } else if (bot.logTable === 'invoice' && data.invoiceData && data.invoiceData.length > 0) {
+    lastRun = new Date(data.invoiceData[0].created_at);
+    var open = data.invoiceData.filter(function(r) { return r.status === 'open'; });
+    var resolved = data.invoiceData.filter(function(r) { return r.status === 'resolved'; });
+    tasksDone = data.invoiceData.length;
+    logLines.push({ color: '#86efac', text: '💰 ' + data.invoiceData.length + ' warning totali' });
+    logLines.push({ color: open.length > 0 ? '#fbbf24' : '#86efac', text: open.length > 0 ? '⚠️ ' + open.length + ' ancora aperti' : '✅ Tutti risolti' });
+    logLines.push({ color: '#94a3b8', text: '✔️ ' + resolved.length + ' risolti' });
+
+  } else if (bot.logTable === 'preplog' && data.preplogData && data.preplogData.length > 0) {
+    lastRun = new Date(data.preplogData[0].created_at);
+    tasksDone = data.preplogData.length;
+    logLines.push({ color: '#86efac', text: '🎯 ' + data.preplogData.length + ' log prep disponibili' });
+    logLines.push({ color: '#94a3b8', text: 'Ultima: ' + (data.preplogData[0].item || '—') });
+  }
+
+  // Calcola stato
+  var statusEmoji = '⚪';
+  var statusLabel = 'Nessun dato';
+  var statusColor = '#94a3b8';
+  if (lastRun) {
+    var minutesAgo = (Date.now() - lastRun.getTime()) / 60000;
+    if (minutesAgo < 180) { statusEmoji = '🟢'; statusLabel = 'OK'; statusColor = '#86efac'; }
+    else if (minutesAgo < 1440) { statusEmoji = '🟡'; statusLabel = 'Oggi'; statusColor = '#fbbf24'; }
+    else if (minutesAgo < 10080) { statusEmoji = '🟠'; statusLabel = 'Questa settimana'; statusColor = '#fb923c'; }
+    else { statusEmoji = '🔴'; statusLabel = 'Mai/Bloccato'; statusColor = '#f87171'; }
+  }
+
+  return {
+    lastRun: lastRun,
+    tasksDone: tasksDone,
+    tasksSkipped: tasksSkipped,
+    logLines: logLines,
+    version: version,
+    statusEmoji: statusEmoji,
+    statusLabel: statusLabel,
+    statusColor: statusColor
+  };
+}
+
+// ── Formatta data in CDT leggibile ──
+function botFmtDate(d) {
+  if (!d) return '—';
+  return d.toLocaleDateString('it-IT', { timeZone: 'America/Chicago', weekday: 'short', month: 'short', day: 'numeric' }) +
+    ' · ' + d.toLocaleTimeString('it-IT', { timeZone: 'America/Chicago', hour: '2-digit', minute: '2-digit' }) + ' CDT';
+}
+
+// ── Render card bot nella lista ──
+function botRenderCard(bot, s) {
+  var card = document.createElement('div');
+  card.style.cssText = 'background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.1);border-radius:18px;overflow:hidden;cursor:pointer;-webkit-tap-highlight-color:transparent;';
+
+  card.innerHTML =
+    '<div style="display:flex;align-items:center;padding:14px 16px;gap:12px;">' +
+      '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:46px;flex-shrink:0;background:' + bot.ribbon + ';"></div>' +
+      '<div style="font-size:26px;width:32px;text-align:center;">' + bot.icon + '</div>' +
+      '<div style="flex:1;">' +
+        '<div style="color:white;font-size:16px;font-weight:600;">' + bot.name + '</div>' +
+        '<div style="color:rgba(255,255,255,0.35);font-size:11px;margin-top:2px;">' + bot.schedule + '</div>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">' +
+        '<span style="font-size:18px;">' + s.statusEmoji + '</span>' +
+        '<span style="font-size:10px;color:' + s.statusColor + ';font-weight:600;">' + s.statusLabel + '</span>' +
+      '</div>' +
+    '</div>' +
+    '<div style="border-top:0.5px solid rgba(255,255,255,0.06);padding:10px 16px 12px 65px;color:rgba(255,255,255,0.3);font-size:12px;">' +
+      (s.lastRun ? botFmtDate(s.lastRun) : 'Nessuna run registrata') +
+    '</div>';
+
+  card.addEventListener('click', function() {
+    botOpenDetail(bot, s);
+  });
+
+  return card;
+}
+
+// ── Apri scheda dettaglio bot ──
+function botOpenDetail(bot, s) {
+  var existing = document.getElementById('botDetailPanel');
+  if (existing) existing.remove();
+
+  var panel = document.createElement('div');
+  panel.id = 'botDetailPanel';
+  panel.style.cssText = [
+    'position:fixed;top:0;left:50%;transform:translateX(-50%) translateY(100%);',
+    'width:100%;max-width:480px;height:100vh;z-index:600;',
+    'background:linear-gradient(160deg,#0f172a 0%,#1e293b 60%,#0f2027 100%);',
+    'display:flex;flex-direction:column;overflow:hidden;',
+    'font-family:Inter,system-ui,sans-serif;',
+    'transition:transform 0.4s cubic-bezier(0.4,0,0.2,1);'
+  ].join('');
+
+  var logHtml = '';
+  if (s.logLines && s.logLines.length > 0) {
+    s.logLines.forEach(function(l) {
+      logHtml += '<div style="font-size:13px;color:' + l.color + ';padding:4px 0;border-bottom:0.5px solid rgba(255,255,255,0.04);">' + l.text + '</div>';
+    });
+  } else {
+    logHtml = '<div style="font-size:13px;color:rgba(255,255,255,0.3);padding:8px 0;">Nessun log disponibile</div>';
+  }
+
+  var configHtml = '';
+  if (bot.hasConfig) {
+    configHtml =
+      '<div style="background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.1);border-radius:16px;padding:16px;margin-bottom:16px;">' +
+        '<div style="color:white;font-size:14px;font-weight:700;margin-bottom:14px;">⚙️ Configurazione</div>' +
+
+        '<div style="margin-bottom:14px;">' +
+          '<div style="color:rgba(255,255,255,0.5);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Buffer % (stock aggiuntivo)</div>' +
+          '<div style="display:flex;align-items:center;gap:10px;">' +
+            '<input id="botCfgBuffer" type="number" min="0" max="50" step="5" value="10" ' +
+              'style="width:70px;padding:8px 10px;background:rgba(255,255,255,0.08);border:1.5px solid rgba(255,255,255,0.15);border-radius:10px;font-size:15px;font-weight:700;color:white;text-align:center;">' +
+            '<div style="color:rgba(255,255,255,0.4);font-size:13px;">% di stock aggiuntivo calcolato ogni notte</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div style="margin-bottom:14px;">' +
+          '<div style="color:rgba(255,255,255,0.5);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Ricette escluse dal pack (SKIP_PACK)</div>' +
+          '<div style="color:rgba(255,255,255,0.3);font-size:12px;margin-bottom:8px;">Il bot non usa il pack fornitore per calcolare questi task — mostra direttamente kg/g</div>' +
+          '<div id="botCfgSkipPack" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">' +
+            botRenderSkipPackTags() +
+          '</div>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<input id="botCfgSkipInput" type="text" placeholder="Nome ricetta..." ' +
+              'style="flex:1;padding:8px 10px;background:rgba(255,255,255,0.08);border:1.5px solid rgba(255,255,255,0.15);border-radius:10px;font-size:13px;color:white;">' +
+            '<button onclick="botAddSkipPack()" style="padding:8px 14px;background:rgba(245,158,11,0.2);border:1.5px solid #f59e0b;border-radius:10px;color:#fbbf24;font-size:13px;font-weight:700;cursor:pointer;">+ Aggiungi</button>' +
+          '</div>' +
+        '</div>' +
+
+        '<div style="margin-bottom:14px;">' +
+          '<div style="color:rgba(255,255,255,0.5);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Soglie colore preplist</div>' +
+          '<div style="display:flex;flex-direction:column;gap:8px;">' +
+            '<div style="display:flex;align-items:center;gap:10px;">' +
+              '<span style="font-size:16px;">🔴</span>' +
+              '<div style="color:rgba(255,255,255,0.5);font-size:12px;flex:1;">Stock critico — sotto</div>' +
+              '<input id="botCfgRedPct" type="number" min="0" max="100" step="5" value="40" ' +
+                'style="width:60px;padding:6px 8px;background:rgba(255,255,255,0.08);border:1.5px solid rgba(239,68,68,0.4);border-radius:10px;font-size:14px;font-weight:700;color:white;text-align:center;">' +
+              '<span style="color:rgba(255,255,255,0.4);font-size:12px;">%</span>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:10px;">' +
+              '<span style="font-size:16px;">🟡</span>' +
+              '<div style="color:rgba(255,255,255,0.5);font-size:12px;flex:1;">Quasi finito — sotto</div>' +
+              '<input id="botCfgYellowPct" type="number" min="0" max="100" step="5" value="80" ' +
+                'style="width:60px;padding:6px 8px;background:rgba(255,255,255,0.08);border:1.5px solid rgba(234,179,8,0.4);border-radius:10px;font-size:14px;font-weight:700;color:white;text-align:center;">' +
+              '<span style="color:rgba(255,255,255,0.4);font-size:12px;">%</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<button onclick="botSaveConfig()" style="width:100%;padding:12px;background:linear-gradient(135deg,#f59e0b,#d97706);border:none;border-radius:12px;color:white;font-size:15px;font-weight:700;cursor:pointer;">💾 Salva Configurazione</button>' +
+      '</div>';
+  }
+
+  panel.innerHTML =
+    '<div style="width:40px;height:5px;background:rgba(255,255,255,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
+    '<div style="background:rgba(15,23,42,0.95);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid rgba(255,255,255,0.08);padding:14px 16px;display:flex;align-items:center;gap:14px;flex-shrink:0;">' +
+      '<button onclick="document.getElementById(\'botDetailPanel\')?.remove();" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.15);color:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&#8592;</button>' +
+      '<div style="flex:1;">' +
+        '<div style="font-size:17px;font-weight:700;color:white;">' + bot.icon + ' ' + bot.name + '</div>' +
+        '<div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:2px;">' + bot.schedule + '</div>' +
+      '</div>' +
+      '<div style="width:5px;height:40px;border-radius:4px;background:' + bot.ribbon + ';"></div>' +
+    '</div>' +
+    '<div style="flex:1;overflow-y:auto;padding:16px;padding-bottom:80px;-webkit-overflow-scrolling:touch;">' +
+
+      // ── Sezione 1: Identità ──
+      '<div style="background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.1);border-radius:16px;padding:16px;margin-bottom:16px;">' +
+        '<div style="color:rgba(255,255,255,0.4);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Cosa fa</div>' +
+        '<div style="color:rgba(255,255,255,0.85);font-size:14px;line-height:1.5;">' + bot.desc + '</div>' +
+        (s.version ? '<div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,0.25);">Versione: ' + s.version + '</div>' : '') +
+      '</div>' +
+
+      // ── Sezione 2: Ultima run ──
+      '<div style="background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.1);border-radius:16px;padding:16px;margin-bottom:16px;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">' +
+          '<div style="color:rgba(255,255,255,0.4);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Ultima Run</div>' +
+          '<span style="font-size:16px;">' + s.statusEmoji + ' <span style="color:' + s.statusColor + ';font-size:12px;font-weight:700;">' + s.statusLabel + '</span></span>' +
+        '</div>' +
+        '<div style="color:white;font-size:14px;font-weight:600;margin-bottom:4px;">' + botFmtDate(s.lastRun) + '</div>' +
+        (s.tasksDone > 0 || s.tasksSkipped > 0 ?
+          '<div style="display:flex;gap:12px;margin-bottom:12px;margin-top:8px;">' +
+            (s.tasksDone > 0 ? '<div style="background:rgba(134,239,172,0.1);border:0.5px solid rgba(134,239,172,0.25);border-radius:10px;padding:6px 12px;"><div style="color:#86efac;font-size:18px;font-weight:800;">' + s.tasksDone + '</div><div style="color:rgba(255,255,255,0.3);font-size:10px;">elaborati</div></div>' : '') +
+            (s.tasksSkipped > 0 ? '<div style="background:rgba(148,163,184,0.1);border:0.5px solid rgba(148,163,184,0.2);border-radius:10px;padding:6px 12px;"><div style="color:#94a3b8;font-size:18px;font-weight:800;">' + s.tasksSkipped + '</div><div style="color:rgba(255,255,255,0.3);font-size:10px;">saltati</div></div>' : '') +
+          '</div>' : '') +
+        '<div style="border-top:0.5px solid rgba(255,255,255,0.06);padding-top:10px;">' +
+          logHtml +
+        '</div>' +
+      '</div>' +
+
+      // ── Sezione 3: Configurazione (solo Bot 3) ──
+      configHtml +
+
+      // ── Sezione 4: Trigger manuale ──
+      '<div style="background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.1);border-radius:16px;padding:16px;">' +
+        '<div style="color:rgba(255,255,255,0.4);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;">Trigger Manuale</div>' +
+        '<button id="botRunBtn_' + bot.id + '" onclick="botTrigger(\'' + bot.fnName + '\',\'' + bot.id + '\')" ' +
+          'style="width:100%;padding:14px;background:linear-gradient(135deg,' + bot.ribbon + ',' + bot.ribbon + 'cc);border:none;border-radius:12px;color:white;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;">' +
+          '&#9654; Esegui ora' +
+        '</button>' +
+        '<div id="botRunResult_' + bot.id + '" style="margin-top:10px;display:none;"></div>' +
+      '</div>' +
+
+    '</div>';
+
+  document.body.appendChild(panel);
+
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() {
+      panel.style.transform = 'translateX(-50%) translateY(0)';
+    });
+  });
+}
+
+// ── Trigger manuale bot ──
+window.botTrigger = async function(fnName, botId) {
+  var btn = document.getElementById('botRunBtn_' + botId);
+  var result = document.getElementById('botRunResult_' + botId);
+  if (!btn || !result) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite;">⏳</span> In esecuzione...';
+  result.style.display = 'none';
+
+  var style = document.getElementById('botSpinStyle');
+  if (!style) {
+    var s = document.createElement('style');
+    s.id = 'botSpinStyle';
+    s.textContent = '@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
+    document.head.appendChild(s);
+  }
+
+  try {
+    var supaUrl = window.supa?.supabaseUrl || 'https://ydqmumpytgrlceuinoqt.supabase.co';
+    var supaKey = window.supa?.supabaseKey || window._supabaseAnonKey || '';
+
+    var res = await fetch(supaUrl + '/functions/v1/' + fnName, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + supaKey
+      },
+      body: JSON.stringify({ manual: true })
+    });
+
+    if (res.ok) {
+      var body = {};
+      try { body = await res.json(); } catch(e) {}
+      result.style.display = 'block';
+      result.innerHTML =
+        '<div style="background:rgba(134,239,172,0.1);border:0.5px solid rgba(134,239,172,0.3);border-radius:10px;padding:12px;color:#86efac;font-size:13px;">' +
+          '✅ Bot eseguito · ' + new Date().toLocaleTimeString('it-IT', { timeZone: 'America/Chicago', hour: '2-digit', minute: '2-digit' }) + ' CDT' +
+          (body.processed !== undefined ? '<br>📋 ' + body.processed + ' task elaborati' : '') +
+          (body.skipped !== undefined ? '<br>⏭ ' + body.skipped + ' saltati' : '') +
+        '</div>';
+      btn.innerHTML = '&#9654; Esegui ora';
+    } else {
+      var errText = await res.text();
+      result.style.display = 'block';
+      result.innerHTML =
+        '<div style="background:rgba(239,68,68,0.1);border:0.5px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px;color:#f87171;font-size:13px;">' +
+          '❌ Errore ' + res.status + '<br>' + errText.substring(0, 120) +
+        '</div>';
+      btn.innerHTML = '&#9654; Esegui ora';
+    }
+  } catch(e) {
+    result.style.display = 'block';
+    result.innerHTML =
+      '<div style="background:rgba(239,68,68,0.1);border:0.5px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px;color:#f87171;font-size:13px;">' +
+        '❌ Errore di rete: ' + e.message +
+      '</div>';
+    btn.innerHTML = '&#9654; Esegui ora';
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+// ── SKIP_PACK — lista in memoria ──
+var _botSkipPack = [
+  'Bechamel','Thyme Butter','Texana Soup','Rosemary Oil',
+  'Citronette','Salmoriglio','Mash Potato','Garlic Oil'
+];
+
+function botRenderSkipPackTags() {
+  var html = '';
+  _botSkipPack.forEach(function(name, idx) {
+    html +=
+      '<div style="display:inline-flex;align-items:center;gap:4px;background:rgba(245,158,11,0.15);border:0.5px solid rgba(245,158,11,0.4);border-radius:20px;padding:4px 10px;">' +
+        '<span style="font-size:12px;color:#fbbf24;">' + name + '</span>' +
+        '<button onclick="botRemoveSkipPack(' + idx + ')" style="background:none;border:none;color:rgba(251,191,36,0.5);font-size:14px;cursor:pointer;padding:0;line-height:1;">&#x2715;</button>' +
+      '</div>';
+  });
+  return html;
+}
+
+window.botAddSkipPack = function() {
+  var input = document.getElementById('botCfgSkipInput');
+  if (!input) return;
+  var val = (input.value || '').trim();
+  if (!val) return;
+  if (_botSkipPack.indexOf(val) === -1) {
+    _botSkipPack.push(val);
+  }
+  input.value = '';
+  var container = document.getElementById('botCfgSkipPack');
+  if (container) container.innerHTML = botRenderSkipPackTags();
+};
+
+window.botRemoveSkipPack = function(idx) {
+  _botSkipPack.splice(idx, 1);
+  var container = document.getElementById('botCfgSkipPack');
+  if (container) container.innerHTML = botRenderSkipPackTags();
+};
+
+window.botSaveConfig = function() {
+  var bufferInput = document.getElementById('botCfgBuffer');
+  var redInput = document.getElementById('botCfgRedPct');
+  var yellowInput = document.getElementById('botCfgYellowPct');
+  var buffer = bufferInput ? parseInt(bufferInput.value) : 10;
+  var red = redInput ? parseInt(redInput.value) : 40;
+  var yellow = yellowInput ? parseInt(yellowInput.value) : 80;
+
+  // Salva in localStorage per ora (in futuro → settings DB)
+  try {
+    localStorage.setItem('botCfg_buffer', buffer);
+    localStorage.setItem('botCfg_red', red);
+    localStorage.setItem('botCfg_yellow', yellow);
+    localStorage.setItem('botCfg_skipPack', JSON.stringify(_botSkipPack));
+  } catch(e) {}
+
+  // Feedback visivo
+  var btn = document.querySelector('[onclick="botSaveConfig()"]');
+  if (btn) {
+    var orig = btn.innerHTML;
+    btn.innerHTML = '✅ Salvato!';
+    btn.style.background = 'linear-gradient(135deg,#059669,#047857)';
+    setTimeout(function() {
+      btn.innerHTML = orig;
+      btn.style.background = 'linear-gradient(135deg,#f59e0b,#d97706)';
+    }, 2000);
+  }
+};
+
+// Carica config salvata all'apertura
+(function() {
+  try {
+    var sp = localStorage.getItem('botCfg_skipPack');
+    if (sp) _botSkipPack = JSON.parse(sp);
+  } catch(e) {}
+})();
+
