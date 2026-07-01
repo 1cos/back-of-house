@@ -386,10 +386,10 @@ function openDoneSheet(id){
 
 function openDoneSheetCustom(id){
   const it=tasks[id];
-  // Unità di default: se il task ha unit='pezzi'/'pz'/'each'/'pieces' usa pezzi, altrimenti grammi
   const taskUnit=(it.unit||'').toLowerCase();
   const defaultPezzi = ['pezzi','pz','each','pieces','pcs'].includes(taskUnit);
-  const defQty = it.suggested_qty ? parseFloat(it.suggested_qty) : (it.average_qty||0)||'';
+  const defQty = it.suggested_qty!=null ? parseFloat(it.suggested_qty) : (it.average_qty!=null ? parseFloat(it.average_qty) : 0);
+  const defUnit = defaultPezzi ? 'pz' : 'g';
   const sheet=document.createElement('div');
   sheet.className='fixed inset-0 z-50 flex items-end';
   sheet.style.background='rgba(0,0,0,0.5)';
@@ -397,8 +397,9 @@ function openDoneSheetCustom(id){
     <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 20px;"></div>
     <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:6px;">${it.name}</div>
     <div style="font-size:13px;color:#6b7280;margin-bottom:20px;">Quanto hai fatto?</div>
-    <input id="dsc-qty-${it.id}" type="number" inputmode="decimal" value="${defQty}" placeholder="0"
+    <input id="dsc-qty-${it.id}" type="number" inputmode="decimal" value="${isNaN(defQty)?0:defQty}" placeholder="0"
       style="width:100%;font-size:32px;font-weight:700;color:#1e3a5f;text-align:center;border:none;border-bottom:2px solid #1e3a5f;outline:none;padding:8px 0;margin-bottom:24px;background:transparent;">
+    <input type="hidden" id="dsc-unit-${it.id}" value="${defUnit}">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
       <button id="dsc-btn-g-${it.id}" onclick="dscSelect('${it.id}','g')"
         style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid ${defaultPezzi?'#e2e8f0':'#059669'};background:${defaultPezzi?'#f8fafc':'#059669'};color:${defaultPezzi?'#94a3b8':'#fff'};">
@@ -414,22 +415,17 @@ function openDoneSheetCustom(id){
       <button onclick="detailSave('${it.id}',this,false)" style="height:46px;border-radius:14px;background:#1e3a5f;color:white;font-size:14px;font-weight:600;border:none;">FATTO ✓</button>
     </div>
   </div>`;
-  // Traccia unità selezionata
-  sheet._dscUnit = defaultPezzi ? 'pz' : 'g';
   sheet.onclick=e=>{if(e.target===sheet)sheet.remove();};
   document.body.appendChild(sheet);
-  // Focus sull'input
   setTimeout(()=>{const inp=document.getElementById('dsc-qty-'+it.id); if(inp){inp.focus();inp.select();}},150);
 }
 
 window.dscSelect = function(id, unit){
-  const sheet = document.querySelector('.fixed[style*="0.5"]') || document.querySelector('.fixed');
-  // trova lo sheet giusto risalendo dal bottone
+  const unitInput = document.getElementById('dsc-unit-'+id);
+  if(unitInput) unitInput.value = unit;
   const btnG = document.getElementById('dsc-btn-g-'+id);
   const btnPz = document.getElementById('dsc-btn-pz-'+id);
   if(!btnG||!btnPz) return;
-  const s = btnG.closest('.fixed');
-  if(s) s._dscUnit = unit;
   if(unit==='g'){
     btnG.style.background='#059669'; btnG.style.color='#fff'; btnG.style.borderColor='#059669';
     btnPz.style.background='#f8fafc'; btnPz.style.color='#94a3b8'; btnPz.style.borderColor='#e2e8f0';
@@ -458,10 +454,11 @@ async function suggestedSave(id, modal){
 
 async function detailSave(id, btn, isSuggested){
   const sheet=btn.closest('.fixed');
-  const qtyInput=sheet.querySelector('#dsc-qty-'+id)||sheet.querySelector('.ds-qty');
-  const qty=parseFloat(qtyInput?qtyInput.value:0);
-  if(isNaN(qty)||qtyInput?.value===''){qtyInput&&qtyInput.focus();return;}
-  const unit=sheet._dscUnit||(sheet.querySelector('.ds-unit')?sheet.querySelector('.ds-unit').value:'g');
+  const qtyInput=document.getElementById('dsc-qty-'+id)||sheet.querySelector('.ds-qty');
+  const unitInput=document.getElementById('dsc-unit-'+id);
+  const qty=parseFloat(qtyInput?qtyInput.value:NaN);
+  if(isNaN(qty)){qtyInput&&qtyInput.focus();return;}
+  const unit=unitInput?unitInput.value:(sheet.querySelector('.ds-unit')?sheet.querySelector('.ds-unit').value:'g');
   const cont='';
   btn.textContent='...'; btn.disabled=true;
   const it=tasks[id];
@@ -583,6 +580,7 @@ async function feedSave(id,qty,btn){
 
 // Carica steps map all'avvio
 loadStepsMap();
+
 
 
 
