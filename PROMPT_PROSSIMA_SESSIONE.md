@@ -974,3 +974,83 @@ I file MD si erano fermati a v431. La versione live era già a v446 prima di que
 3. Cube Grilled Chicken (id 242, checklist) — da rivedere ora che esiste Diced Grilled Chicken
 4. Scallops — due task (id 279 e id 257) da unificare
 5. Dish Crew Home (Fase 2) — ancora in coda, priorità alta
+
+
+---
+
+## SESSIONE 1 LUGLIO 2026 (sera) — v453 — Fix ordinamento prep + fix Pomodoro stock
+
+**Versione:** v453 frontend
+**File modificati:** `js/prep.js`, `sw.js`
+**DB:** fix prep_log Pomodoro
+
+---
+
+### 1. Fix Pomodoro sauce — stock corretto
+
+**Bug:** Max aveva loggato la Pomodoro sauce due volte:
+- id 542: `qty=14.74` (inserito in grammi invece di kg — errore UI)
+- id 544: `qty=14740` (corretto — 14.74 kg in grammi)
+
+Il sistema sommava entrambi → `current_stock = 18392.74g` (numero con decimali assurdi visibile in app).
+
+**Fix:**
+- Eliminato prep_log id 542 (il log sbagliato)
+- `current_stock` corretto a `14740g` su prep_task Pomodoro sauce
+- Valore verificato: 14.74 kg di Pomodoro sauce in casa al 1/7/2026
+
+---
+
+### 2. Ordinamento prep — 🔴→🟡→🟢 con soglia 30%
+
+**Richiesta Max:** in lista prep, le card devono essere ordinate per urgenza:
+- 🔴 Rosse (da fare) in cima
+- 🟡 Gialle (quasi ok) al centro  
+- 🟢 Verdi (ok) in fondo
+- Quando si segna DONE → la card scende automaticamente in fondo
+
+**Fix in `js/prep.js` — funzione `renderM()`:**
+
+Vecchio sort score:
+```js
+const score = i => (i.in_progress?3:0) + (i.need_tomorrow?2:0);
+```
+
+Nuovo sort score (5 livelli):
+```js
+const score = i => {
+  if(i.in_progress) return 5;
+  const stock = parseFloat(i.current_stock);
+  const sq = parseFloat(i.suggested_qty||0);
+  if(i.need_tomorrow){
+    if(isNaN(stock)||stock===0||i.current_stock===null||i.current_stock===undefined) return 4; // rosso
+    if(sq>0 && stock<=sq*0.3) return 3; // giallo: stock <= 30% suggested
+    return 2; // need_tomorrow generico
+  }
+  return 0; // verde / ok
+};
+```
+
+**Soglia Max:** 30% (non 50%) — sotto il 30% del suggested_qty diventa gialla.
+
+**Comportamento DONE:** quando si completa una prep, `need_tomorrow` diventa `false` → score scende a 0 → card va automaticamente in fondo alla lista verde. Nessuna logica aggiuntiva necessaria.
+
+---
+
+### 3. Bug aperto — Artichoke Sauce: note sempre in italiano
+
+**Segnalato da Max (screenshot):** tab Notes della ricetta Artichoke Sauce mostra la nota sempre in italiano ("Mettere tutto in una bowl, mischiare con la frusta e travasare in uno squeezer bottle.") anche per utenti EN/ES.
+
+**Verifica DB:** `procedure_en` e `procedure_es` esistono e sono popolati su questa ricetta (confermato via SELECT). Il problema è nel **frontend** — `recipe-modal.js` legge sempre il campo `procedure` (italiano) invece di scegliere in base a `window.user?.lang`.
+
+**Fix NON ancora fatto** — da fare nella prossima sessione su `js/recipe-modal.js`.
+
+---
+
+### Priorità prossima sessione
+
+1. **Fix recipe-modal.js** — tab Notes deve leggere `procedure_en`/`procedure_es`/`procedure` in base a `user.lang`
+2. **44 coperti venerdì prossimo** — Max ha menzionato evento con 44 persone. Da chiarire: serve gestione in Brigade (evento, preplist speciale, menu fisso)?
+3. **TripleSeat** — quando Monica autorizza OAuth
+4. **Dish Crew Home (Fase 2)** — ancora priorità alta in coda
+5. **Scallops** — due task (id 279 e id 257) da unificare
