@@ -1028,32 +1028,35 @@ async function loadCrewBoard() {
 }
 
 function showCrewBoard() {
+  console.log('[crew] show: annVisible='+announcementVisible+' htmlLen='+crewHTML.length);
   if (announcementVisible) { crewCycleTimer = setTimeout(showCrewBoard, 20000); return; }
   var grid = document.getElementById('prep-grid');
   var card = document.getElementById('crew-card');
   var title = document.getElementById('centre-title');
-  // Mostra anche se vuoto (con messaggio placeholder)
   card.innerHTML = crewHTML || '<div style="color:rgba(255,255,255,0.3);font-size:14px;padding:20px;">No active prep in progress</div>';
   grid.style.display = 'none';
   card.style.display = 'flex';
   card.style.flexDirection = 'column';
-  title.textContent = "Who's Working On What";
+  title.textContent = "Who\'s Working On What";
   crewVisible = true;
+  console.log('[crew] card display='+card.style.display+' grid display='+grid.style.display);
   crewCycleTimer = setTimeout(hideCrew, 20000);
 }
 
 function hideCrew() {
+  console.log('[crew] hide');
   var grid = document.getElementById('prep-grid');
   var card = document.getElementById('crew-card');
   var title = document.getElementById('centre-title');
   if (card) { card.style.display = 'none'; card.innerHTML = ''; }
   if (grid) grid.style.display = '';
-  if (title) title.textContent = "Today's Prep";
+  if (title) title.textContent = "Today\'s Prep";
   crewVisible = false;
   crewCycleTimer = setTimeout(showCrewBoard, 20000);
 }
 
 function startCrewCycle() {
+  console.log('[crew] startCrewCycle scheduled in 20s');
   crewCycleTimer = setTimeout(showCrewBoard, 20000);
 }
 // ── END CREW BOARD ─────────────────────────────────────────
