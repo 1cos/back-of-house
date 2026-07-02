@@ -448,21 +448,38 @@ window.dscSelect = function(id, unit){
   }
 };
 
+// ── Banner errore salvataggio — visibile a chiunque, non solo in console ──
+function _prepSaveError(itemName, detail){
+  console.error('[PREP SAVE ERROR]', itemName, detail);
+  var old = document.getElementById('prepSaveErrBanner');
+  if(old) old.remove();
+  var b = document.createElement('div');
+  b.id = 'prepSaveErrBanner';
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#dc2626;color:#fff;padding:14px 16px;font-size:14px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;justify-content:space-between;align-items:center;gap:10px;';
+  b.innerHTML = '<span>⚠️ '+(tr('prepSaveErrorMsg')||'Salvataggio non riuscito')+' — '+itemName+'. '+(tr('prepSaveErrorRetry')||'Riprova, non è stato registrato.')+'</span><button style="background:#fff;color:#dc2626;border:none;border-radius:8px;padding:6px 12px;font-weight:700;" onclick="this.closest(\'div\').remove()">OK</button>';
+  document.body.appendChild(b);
+  setTimeout(()=>{ if(b && b.parentNode) b.remove(); }, 9000);
+}
+
 async function suggestedSave(id, modal){
   const it=tasks[id];
   const qty=parseFloat(it.suggested_qty)||1;
   const unit=it.unit||tr('prep_portions');
   modal.remove();
-  _finishTask(id, qty);
   var _sNow = new Date();
   var _sSt = _startTimes[id] || _sNow;
   var _sDur = Math.round((_sNow - _sSt) / 60000);
   delete _startTimes[id];
-  Promise.all([
+  const [logRes, updRes] = await Promise.all([
     supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:'',user_name:user.name,is_suggested_qty:true,started_at:_sSt.toISOString(),duration_minutes:_sDur}),
     supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}).eq('id',id)
-  ]).then(()=>{loadItemAlerts();loadStepsMap();})
-  .catch(e=>console.error('suggestedSave error:',e));
+  ]);
+  if(logRes.error || updRes.error){
+    _prepSaveError(it.name, (updRes.error||logRes.error).message);
+    return;
+  }
+  _finishTask(id, qty);
+  loadItemAlerts();loadStepsMap();
 }
 
 async function detailSave(id, btn, isSuggested){
@@ -479,8 +496,18 @@ async function detailSave(id, btn, isSuggested){
   var _dSt = _startTimes[id] || _dNow;
   var _dDur = Math.round((_dNow - _dSt) / 60000);
   delete _startTimes[id];
-  await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name,is_suggested_qty:!!isSuggested,started_at:_dSt.toISOString(),duration_minutes:_dDur});
-  await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}).eq('id',id);
+  const logRes = await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name,is_suggested_qty:!!isSuggested,started_at:_dSt.toISOString(),duration_minutes:_dDur});
+  if(logRes.error){
+    btn.textContent=tr('prep_done'); btn.disabled=false;
+    _prepSaveError(it.name, logRes.error.message);
+    return;
+  }
+  const updRes = await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}).eq('id',id);
+  if(updRes.error){
+    btn.textContent=tr('prep_done'); btn.disabled=false;
+    _prepSaveError(it.name, updRes.error.message);
+    return;
+  }
   sheet.remove();
   _finishTask(id, qty);
   await loadItemAlerts();
@@ -533,12 +560,17 @@ window.noNeed = async function(id) {
 async function quickSave(id){
   const it=tasks[id];
   const qty=it.average_qty||1;
-  const newStock = it.suggested_qty ? parseFloat(it.suggested_qty) : qty;
-  _finishTask(id, newStock);
-  Promise.all([
+  const addQty = it.suggested_qty ? parseFloat(it.suggested_qty) : qty;
+  const [logRes, updRes] = await Promise.all([
     supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit:'kg',container:'1/4 pan',user_name:user.name,is_suggested_qty:false}),
-    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:newStock}).eq('id',id)
-  ]).then(()=>{loadItemAlerts();loadStepsMap();}).catch(e=>console.error('quickSave DB error:',e));
+    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+addQty,suggested_note:null,suggested_qty:null}).eq('id',id)
+  ]);
+  if(logRes.error || updRes.error){
+    _prepSaveError(it.name, (updRes.error||logRes.error).message);
+    return;
+  }
+  _finishTask(id, addQty);
+  loadItemAlerts();loadStepsMap();
 }
 
 async function saveWip(id, note){
