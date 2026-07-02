@@ -146,7 +146,7 @@ async function openPrepEditor(prep=null){
                 <option value="pz" ${prep?.unit==='pz'?'selected':''}>pz</option>
               </select>
             </div>
-            <div id="pepConvRow" style="${(prep?.unit&&prep.unit!=='g')?'':'display:none'}">
+            <div id="pepConvRow" style="${(prep?.unit&&prep.unit!=='g'&&prep.unit!=='kg')?'':'display:none'}">
               <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">1 <span id="pepUnitLabel">${prep?.unit||''}</span> pesa (grammi)</label>
               <input id="pepConversion" type="number" min="1" placeholder="es. 80" style="width:100%;padding:8px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;" value="">
               <p style="font-size:10px;color:#94a3b8;margin-top:3px;">Lascia vuoto se non serve conversione (es. per i grammi).</p>
@@ -194,7 +194,7 @@ async function openPrepEditor(prep=null){
     if(pepUnitSel && pepConvRow) {
       pepUnitSel.onchange = () => {
         const u = pepUnitSel.value;
-        pepConvRow.style.display = (u && u !== 'g') ? '' : 'none';
+        pepConvRow.style.display = (u && u !== 'g' && u !== 'kg') ? '' : 'none';
         if(pepUnitLabel) pepUnitLabel.textContent = u;
       };
     }
@@ -265,14 +265,15 @@ async function openPrepEditor(prep=null){
       let prepId = prep?.id;
       if(isNew){
         const{data:newPrep, error} = await supa.from('prep_tasks')
-          .insert({name, category, note, recipe_id, need_tomorrow: false, unit: modal.querySelector('#pepUnit')?.value || null})
+          .insert({name, category, note, recipe_id, ingredient_id: modal.querySelector('#pepIngredient')?.value || null, need_tomorrow: false, unit: modal.querySelector('#pepUnit')?.value || null})
           .select().single();
         if(error) throw error;
         prepId = newPrep.id;
       } else {
         const pepUnit = modal.querySelector('#pepUnit')?.value || null;
         const pepShelf = modal.querySelector('#pepShelf')?.value ? parseInt(modal.querySelector('#pepShelf').value) : null;
-        const updates = {name, category, note, recipe_id};
+        const ingredient_id = modal.querySelector('#pepIngredient')?.value || null;
+        const updates = {name, category, note, recipe_id, ingredient_id};
         if(duration) updates.expected_duration_days = duration;
         if(pepUnit) updates.unit = pepUnit;
         const pepMinCoverVal = modal.querySelector('#pepMinCover')?.value;
