@@ -609,7 +609,8 @@ window.recipeModal={
         if(rec.shelf_life_days) rows.push(['📅',`<strong>${t('shelfLbl')}:</strong> ${rec.shelf_life_days} ${rec.shelf_life_days===1?t('day'):t('days')}`]);
         if(rec.prep_time_minutes) rows.push(['⏱',`<strong>Prep:</strong> ${rec.prep_time_minutes} min`]);
         if(rec.equipment) rows.push(['🔧',`<strong>${t('equipLbl')}:</strong> ${rec.equipment}`]);
-        if(rec.procedure) rows.push(['📝',rec.procedure]);
+        const procLang=(lang==='it'&&rec.procedure)?rec.procedure:(lang==='es'&&rec.procedure_es)?rec.procedure_es:(rec.procedure_en||rec.procedure||'');
+        if(procLang) rows.push(['📝',procLang]);
         if(!rows.length) return `<div class="rm-empty"><div class="rm-empty-icon">📝</div>${t('noNotes')}</div>`;
         return `<div class="rm-notes-card">${rows.map(([icon,text])=>`<div class="rm-note-row"><span class="rm-note-icon">${icon}</span><div class="rm-note-text">${text}</div></div>`).join('')}</div>`;
       }
@@ -642,7 +643,8 @@ window.recipeModal={
     overlay.addEventListener('click',e=>{if(e.target===overlay)closeFn();});
     overlay.querySelector('.rm-close').addEventListener('click',closeFn);
 
-    const noteText=hasNote?prepTask.note:(rec?.procedure||'');
+    const _procLang=(lang==='it'&&rec?.procedure)?rec.procedure:(lang==='es'&&rec?.procedure_es)?rec.procedure_es:(rec?.procedure_en||rec?.procedure||'');
+    const noteText=hasNote?prepTask.note:_procLang;
     document.getElementById('rmBody').innerHTML=`
       <div class="rm-bare-body">
         ${noteText?`<div class="rm-bare-note">${noteText}</div>`:`<div class="rm-empty"><div class="rm-empty-icon">✅</div></div>`}
@@ -670,4 +672,5 @@ function closeModal(prepTaskId){
 }
 
 })();
+
 
