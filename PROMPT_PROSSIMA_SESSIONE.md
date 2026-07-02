@@ -1138,3 +1138,140 @@ const score = i => {
 4. **TripleSeat** — quando Monica autorizza OAuth
 5. **Scallops** — unificare task id 279 e id 257
 
+
+
+
+---
+
+## SESSIONE 2 LUGLIO 2026 — v456→v459 — Card prep, bot-preplist-builder v30, closed_dates
+
+**Versione finale:** v459 frontend, bot-preplist-builder v30 (Supabase version 53)
+
+---
+
+### 1. Fix card prep — urgenza solo dal bot (v457→v458)
+
+**Problema:** badge URGENT e bordo rosso venivano da `need_tomorrow` (flag booleano vecchio), non dal bot. Card checklist mostravano URGENT, Ribeye con 22 pezzi in casa mostrava URGENT.
+
+**Fix in `js/prep.js`:**
+- `buildStockPill`: se `prep_type==='checklist'` → return '' (checklist non hanno stock)
+- `cardBorderColor`: bordo viene SOLO da `suggested_note` del bot (`red/yellow/green`). Checklist bordo grigio-blu neutro fisso (`#64748b`). Nessun `need_tomorrow`.
+- `cardButton`: START su tutti i task sempre (checklist incluse). Dopo START → CONTINUE/SEE STEPS/DONE come prima.
+- `score()` nel sort: urgenza da bot (`red=4, yellow=3, green=2`), checklist fisso a 1, nessun dato bot a 0.
+- Badge URGENT: appare SOLO se `suggested_note` inizia con `red` E `prep_type!=='checklist'`.
+
+**Decisione architetturale confermata:**
+- L'UNICA fonte di urgenza visiva è `suggested_note` del bot.
+- `need_tomorrow` rimane nel DB come flag tecnico per il cron reset, ma NON guida più nessuna UI.
+- Checklist = nessun badge, nessuna pill, bordo neutro, START sempre visibile.
+
+---
+
+### 2. Checklist daily_reset (DB only)
+
+Tutti i prep_tasks con `prep_type='checklist'` aggiornati:
+- `daily_reset = true` (cron li resetta ogni notte a mezzanotte CDT)
+- `need_tomorrow = true` (appaiono nella lista ogni mattina)
+- Eccezioni: Tempura (id 283) e Thaw Scallops (id 464) — già avevano `daily_reset=true` ma `need_tomorrow=false`, lasciati invariati.
+
+---
+
+### 3. closed_dates — giorni chiusura straordinaria (v459)
+
+**Nuova tabella DB:**
+```sql
+CREATE TABLE closed_dates (
+  date date PRIMARY KEY,
+  reason text,
+  created_by text DEFAULT 'Max',
+  created_at timestamptz DEFAULT now()
+);
+```
+
+**UI admin:** bottone "Closed" (rosa) nel menu admin → sheet con lista giorni chiusi, campo data + motivo, bottone +, cancella con ✕.
+File modificati: `js/admin.js` (funzioni openClosedDates/addClosedDate/deleteClosedDate), `index.html` (bottone Closed nel menu).
+
+**4 luglio 2026 già inserito** nella tabella come giorno chiuso.
+
+---
+
+### 4. bot-preplist-builder — evoluzione v25→v30
+
+Tutte le versioni deployate oggi in ordine:
+
+**v26** — consumo giorno-per-giorno reale con medie DOW + giorni chiusi da shifts_schedule (abbandonato: shifts_schedule inaffidabile — schedule si fa giovedì/venerdì, bot gira alle 4AM).
+
+**v27** — closed_dates da tabella dedicata invece di shifts_schedule. Giorni aperti = non domenica E non in closed_dates.
+
+**v28/v28b** — fix percorso ingrediente senza ricetta + buffer +10% su tutto il consumo atteso. `ingredient_id` aggiunto alla select del bot (usa `prep_tasks.ingredient_id` per lookup invece di cercare per nome task).
+
+**v29** — fix fondamentale logica shelf_life:
+- `calendarDays()` per la finestra shelf_life — roba va male anche domenica e giorni chiusi
+- `nextServiceDays()` solo per `coverDays` (minCoverDays — giorni di servizio aperti)
+- `cPerDow(dow, date)` → ritorna 0 per domenica e giorni chiusi (nessun consumo quei giorni ma il cibo va male lo stesso)
+- `simulateCoverage` passa `date` a `cPerDow`
+
+**v30** — `expected_duration_days` dal prep_task come fonte primaria per shelf_life:
+```
+priorità: task.expected_duration_days → recipes.shelf_life_days → ingMaxShelf → default 3
+```
+Architettura corretta: la shelf_life appartiene alla PREP, non alla ricetta finale. Mini Caesar Salad shelf_life_days = NULL (si fa al momento). Chop Romaine expected_duration_days = 2.
+
+**Buffer +10%:** aggiunto in v28, costante `BUFFER = 1.10` applicata a tutto `cPerDow`.
+
+---
+
+### 5. Chop Romaine (ex "Romaine") — prep_task
+
+- Rinominato da "Romaine" → "Chop Romaine" (id 364)
+- `ingredient_id = 'd5adf2db-9fde-4587-83da-47722c38c228'` (ingrediente "Romaine") — collegato per il bot
+- `expected_duration_days = 2` — shelf_life 2 giorni di calendario (include domenica/chiusure)
+- `recipe_id = null` — il bot usa percorso ingrediente, somma consumo da Mini Caesar (60g/porzione) + Mediterranean Salad (100g/porzione)
+- Mini Caesar e Mediterranean: `shelf_life_days` resettati a NULL (erano stati erroneamente impostati a 2 — la shelf_life appartiene alla prep, non alla ricetta finale)
+
+**Logica confermata da Max:**
+- Il cuoco taglia la romana → segna DONE con il peso → `current_stock` in grammi
+- Il bot somma il consumo atteso da tutte le ricette POS che usano Romaine nel BOM
+- La finestra di calcolo = `expected_duration_days` giorni di calendario (2 gg) — domenica inclusa
+- I giorni chiusi/domenica: 0 consumo (nessuna vendita) ma il cibo va male lo stesso
+
+---
+
+### 6. Decisioni architetturali stabilite oggi (NON ridiscutere)
+
+**Shelf_life:**
+- Appartiene al **prep_task** (`expected_duration_days`), non alla ricetta finale
+- Ricette finali (Mini Caesar, Chicken Parmesan, ecc.) = si fanno al momento → `shelf_life_days = NULL`
+- Prep intermedie (Chop Romaine, Pollo impanato, ecc.) = `expected_duration_days` sul prep_task
+
+**Giorni chiusi:**
+- Tabella `closed_dates` = fonte di verità per chiusure straordinarie
+- `shifts_schedule` NON usato dal bot per determinare giorni aperti (troppo in ritardo)
+- Domenica = sempre chiusa (hardcoded)
+
+**Bot buffer:** +10% fisso su tutto il consumo atteso (costante `BUFFER=1.10`)
+
+**Urgenza card:** SOLO da `suggested_note` del bot. `need_tomorrow` = flag tecnico DB, non UI.
+
+---
+
+### 7. Stato sw.js e versioni
+
+- **Brigade frontend:** v459
+- **bot-preplist-builder:** v30 (Supabase version 53)
+- **admin.js:** aggiunta UI closed_dates
+- **index.html:** bottone Closed nel menu admin
+
+---
+
+### Priorità prossima sessione
+
+1. **`expected_duration_days`** — audit e impostazione su tutti i prep_tasks che lo mancano (molti ancora a NULL → bot usa default 3gg). Fare per stazione.
+2. **Fix recipe-modal.js** — tab Notes legge `procedure_en`/`procedure_es` in base a `user.lang` (bug aperto da sessioni precedenti)
+3. **Dish Crew Home Fase 2** — priorità alta in coda
+4. **Reorder bot Steps 4+5** — `reorder_days` su prep_tasks + bot scrive in office_items con info fornitore
+5. **Scallops** — unificare task id 279 e id 257
+6. **TripleSeat** — quando Monica autorizza OAuth
+7. **Warning Center** — ricostruire da zero (sessione dedicata, ascoltare Max prima di toccare codice)
+8. **PROMPT_PROSSIMA_SESSIONE update** — aggiornare BOH_OS_BACKLOG.md con tutte le decisioni di oggi
+
