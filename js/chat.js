@@ -400,14 +400,41 @@ function startChatRealtime(){
     .subscribe();
 }
 
+// ── AUTO-RESIZE TEXTAREA ─────────────────────────────────────
+(function(){
+  function initChatTextarea(){
+    const ta=document.getElementById('txt');
+    if(!ta) return;
+    ta.addEventListener('input',function(){
+      this.style.height='auto';
+      this.style.height=Math.min(this.scrollHeight,120)+'px';
+    });
+    ta.addEventListener('keydown',function(e){
+      if(e.key==='Enter'&&!e.shiftKey){
+        e.preventDefault();
+        const form=document.getElementById('f');
+        if(form) form.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));
+      }
+    });
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',initChatTextarea);
+  else initChatTextarea();
+})();
+
 // ── INVIA MESSAGGIO ──────────────────────────────────────────
+var _chatSending=false;
 document.getElementById('f').onsubmit=async e=>{
   e.preventDefault();
+  if(_chatSending) return;
   const input=document.getElementById('txt');
   const v=input.value.trim();
   const hasImg = !!_chatPendingImageFile;
   if(!v && !hasImg) return;
+  _chatSending=true;
+  const cameraBtn=document.getElementById('chatCameraBtn');
+  if(cameraBtn){cameraBtn.disabled=true;cameraBtn.style.opacity='0.4';}
   input.value='';
+  input.style.height='auto';
   // Upload immagine se presente
   let imageUrl = null;
   if(hasImg){
@@ -433,7 +460,13 @@ document.getElementById('f').onsubmit=async e=>{
   }
   const payload = {text:v||'', user_name:user.name, lang:detectedLang};
   if(imageUrl) payload.image_url = imageUrl;
-  await supa.from('messages').insert(payload);
+  try{
+    await supa.from('messages').insert(payload);
+  }finally{
+    _chatSending=false;
+    const cameraBtn=document.getElementById('chatCameraBtn');
+    if(cameraBtn){cameraBtn.disabled=false;cameraBtn.style.opacity='';}
+  }
 };
 
 // Fullscreen viewer immagine chat
@@ -619,5 +652,6 @@ function attachLongPress(el, msgId, msgText, isMine) {
     clearTimeout(pressTimer);
   }, { passive: true });
 }
+
 
 
