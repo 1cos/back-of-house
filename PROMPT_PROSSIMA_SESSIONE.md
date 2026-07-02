@@ -1,8 +1,8 @@
 # PROMPT PROSSIMA SESSIONE — Brigade
 
-## CARICA SUBITO
+## CARICA SUBITO — UNA SOLA VOLTA A INIZIO SESSIONE
 1. Token GitHub da file `x_claude_GIthub.txt` nel progetto
-2. Leggi TUTTI i file .md da brigade-main prima di fare qualsiasi cosa
+2. Leggi TUTTI i file .md da brigade-main **una sola volta all'inizio della sessione** — NON rileggere tra un messaggio e l'altro nella stessa sessione
 3. Controlla versione live sw.js prima di qualsiasi push
 4. Repo: `1cos/back-of-house`, branch `brigade-main` — MAI `brigade-dev`
 
@@ -1137,3 +1137,4 @@ const score = i => {
 3. **Dish Crew Home Fase 2** — priorita alta in coda
 4. **TripleSeat** — quando Monica autorizza OAuth
 5. **Scallops** — unificare task id 279 e id 257
+
