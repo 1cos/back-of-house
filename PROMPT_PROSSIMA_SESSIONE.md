@@ -798,87 +798,64 @@ Max lavora su più chat in parallelo. Oggi ha aperto una chat separata per il Bo
 
 ---
 
-## SESSIONE 1 LUGLIO 2026 (pomeriggio) — v448→v452 — Fix i18n modal DONE + Bot v24 traduzione unità
+## SESSIONE 1 LUGLIO 2026 (pomeriggio) — v447→v448 — Fix stock prep + Timer Bar persistente
 
-**Versione finale:** v452 frontend, bot-preplist-builder v24 (Supabase version 44)
-
----
-
-### Contesto sessione
-Sessione in parallelo con altre chat attive che facevano push sul timer (prep card) e altri fix. Nessun conflitto — questa sessione ha toccato solo bot (Supabase Edge Function) e utils.js/prep.js (file diversi da quelli delle altre sessioni).
+**Versione:** v448 frontend
+**File modificati:** `js/prep.js`, `js/recipe-modal.js`, `js/init.js`, `sw.js`
 
 ---
 
-### Bot-preplist-builder v24 (Supabase version 44)
+### Fix 1 — v447: current_stock sommato invece di sovrascritto
 
-**Problema:** Samantha (lang='en') e altri utenti EN/ES vedevano "pezzi" invece di "pieces"/"piezas" nelle pill del bot. Il bot costruiva i testi con l'unità raw del task (`taskUnit`) senza tradurla per EN/ES.
+**Bug:** quando un cuoco segnava DONE su una prep con quantità prodotta (es. +40 cremino cake), il sistema sovrascriveva `current_stock = qty` invece di sommarlo allo stock esistente. Risultato: lo stock precedente veniva azzerato.
 
-**Fix:** aggiunta tabella `UNIT_TRANS` con traduzioni per tutte le unità fisiche:
-- `pezzi/pz` → EN: `pieces` / ES: `piezas`
-- `buste` → EN: `bags` / ES: `bolsas`
-- `cartocci` → EN: `cartouches` / ES: `cartuchos`
-- `contenitori/contenitore` → EN: `containers` / ES: `contenedores`
-- `filetto` → EN: `fillets` / ES: `filetes`
-- `cup` → EN: `cups` / ES: `tazas`
-- Fallback: passa l'unità raw se non in tabella
+**Fix in `js/prep.js` — 3 punti:**
+- `suggestedSave`: `current_stock: qty` → `current_stock: (parseFloat(it.current_stock)||0) + qty`
+- `detailSave`: stesso fix
+- `_finishTask` (stato locale): `tasks[id].current_stock = qty` → `tasks[id].current_stock = (parseFloat(tasks[id].current_stock)||0) + qty`
 
-**Fix cup:** testi puliti per ogni lingua invece del vecchio `.replace('fai','make')`:
-- IT: `fai 1 batch (40 cup)` / EN: `make 1 batch (40 cups)` / ES: `haz 1 batch (40 tazas)`
-
-**Deploy:** Supabase version 44 — nessun file GitHub toccato.
+**Regola:** quando il cuoco conferma una prep completata, la quantità prodotta si AGGIUNGE allo stock esistente, non lo sostituisce.
 
 ---
 
-### Fix i18n modal DONE — v449
+### Fix 2 — v448: Timer Bar persistente (sopravvive alla navigazione)
 
-**Problema:** quando Samantha clicca DONE su una prep, il modal "Quantità diversa" (`openDoneSheetCustom` in `prep.js`) mostrava testo hardcoded in italiano:
-- "Quanto hai fatto?" (riga 399)
-- "Grammi" (riga 406)
-- "Pezzi" (riga 410)
-- "Annulla" (riga 414)
-- "FATTO ✓" (riga 415)
+**Bug segnalato dalla brigata:** avviando un timer in una ricetta/step e poi navigando ad altra pagina, il timer si resettava. Non era possibile cucinare multi-task (es. avviare il soffritto e andare a controllare un'altra ricetta).
 
-**Fix in due file:**
+**Architettura nuova:**
 
-1. **`js/utils.js`** — aggiunte 4 nuove chiavi i18n in IT/EN/ES:
-   - `prep_grams`: Grammi / Grams / Gramos
-   - `prep_pieces`: Pezzi / Pieces / Piezas
-   - `prep_cancel`: Annulla / Cancel / Cancelar
-   - `prep_done`: FATTO ✓ / DONE ✓ / LISTO ✓
+- `window._timerState{}` — oggetto globale persistente (non muore mai durante la sessione). Contiene per ogni timer attivo: `totalSecs`, `startedAt` (timestamp reale), `meta` (taskName, stepTitle, prepTaskId, recipeId).
+- `timers{}` — interval handles locali al modal (DOM only). Vengono distrutti alla navigazione ma non portano con sé lo stato.
+- `startTimer(key, secs, onTick, onDone, meta)` — salva in `_timerState` + avvia interval locale.
+- `stopTimer(key)` — ferma solo l'interval locale, **NON cancella `_timerState`** — il timer continua in background.
+- `stopTimerFully(key)` — ferma tutto (stop manuale dall'utente).
+- `_timerRem(key)` — calcola secondi rimasti da `Date.now() - startedAt`, non da un counter locale.
 
-2. **`js/prep.js`** — sostituite le 5 stringhe hardcoded con `tr()`:
-   - `"Quanto hai fatto?"` → `${tr('prep_how_much')}` (chiave già esistente)
-   - `Grammi` → `${tr('prep_grams')}`
-   - `Pezzi` → `${tr('prep_pieces')}`
-   - `Annulla` → `${tr('prep_cancel')}`
-   - `FATTO ✓` → `${tr('prep_done')}`
+**Timer Bar (`_timerBarUpdate()`):**
+- Div fisso `position:fixed; bottom:72px; z-index:45` (sopra bottom nav z-40, sotto modals z-60+)
+- Una riga per ogni timer attivo in `window._timerState`
+- Mostra: nome task · nome step · countdown · barra progresso
+- Colori: blu scuro (normale) → rosso (< 60 secondi) → verde (completato)
+- Click su riga → `recipeModal.open(recipeId, prepTaskId)` — torna allo step giusto
+- Si aggiorna ogni secondo con `_timerBarUpdate()` chiamata dall'interval
 
-**Versione:** v449. File modificati: `js/utils.js`, `js/prep.js`, `sw.js` (v448→v449).
+**Quando il modal riapre:**
+- `renderStepView` legge `window._timerState` per lo step corrente — se in corso, mostra già lo stato running con il tempo rimasto reale
+- `bindStepEvents` riattacca l'interval locale se `_timerState[key]` esiste ma `timers[key]` no
+- `recipeModal.open` NON killa più i timer globali — pulisce solo interval orfani
+- `closeModal` ferma interval locali ma NON cancella `_timerState`
 
-**Nota:** la versione v448 era già stata pushata da un'altra sessione (fix timer prep card — il timer si resettava navigando tra pagine). Questa sessione ha letto la SHA live e incrementato correttamente.
+**`window._taskNames` (in `js/init.js`):**
+- Mappa `id → name` popolata ad ogni `init()` dopo caricamento prep_tasks
+- Usata dalla timer bar per mostrare il nome del task invece dell'id
 
----
-
-### Stato versioni al termine della sessione
-- Frontend: **v452** (altre sessioni parallele hanno pushato v450, v451, v452 dopo il nostro v449 — non toccare nulla senza rileggere sw.js live)
-- Bot preplist builder: **v24** (Supabase version 44)
-- utils.js: nuove chiavi `prep_grams`, `prep_pieces`, `prep_cancel`, `prep_done` in IT/EN/ES
-- prep.js: modal DONE completamente trilingue
+**Regola:** il timer appartiene alla sessione browser, non al modal. Il modal è solo la UI del timer — può aprirsi e chiudersi liberamente senza interrompere il countdown.
 
 ---
 
-### Bug aperti confermati (non toccati in questa sessione)
-1. **Bot "good through Wednesday" quando stock=0** — mostra copertura stock attuale invece di copertura con il batch suggerito
-2. **Bot legge serving_qty invece del BOM** per pezzi — Artichoke e altri: architettura da correggere in v25
-3. **Lamb (id 471)** — suggested_qty assurda, da collegare a ricetta o escludere
-4. **Honey (Salad)** — suggested_qty 2.4kg, da verificare/escludere
-5. **Timer prep card** — si resettava navigando tra pagine (fixato da altra sessione in v448-v452, da verificare)
+### Nota versioni: da v431 (documentata) a v447 (live pre-questa sessione)
 
----
+I file MD si erano fermati a v431. La versione live era già a v446 prima di questa sessione — mancano 15 versioni di storia (v432→v446) da sessioni parallele non ancora documentate. Se Max ricorda cosa è stato fatto in quelle sessioni, aggiornare questo file con un log retroattivo.
 
-### Da fare — prossima sessione
-- Verificare fix timer prep card (altra sessione)
-- Bot v25: fix "good through X" con batch suggerito invece di stock attuale
-- Dish Crew Home (Fase 2) — ancora priorità #1 nel backlog
-- Rinominare stazione Manager → Coordinator
-- Salad/Pastry Station — unità ancora da verificare
+**Versione attuale confermata:** v448
+
