@@ -374,12 +374,12 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <!-- Hidden file input — punta a rullino/foto iPhone -->
         <input id="chatImgInput" type="file" accept="image/*" style="display:none;" onchange="onChatImgSelected(this)">
         <!-- Bottone foto -->
-        <button type="button" onclick="document.getElementById('chatImgInput').click()" style="width:40px;height:40px;border-radius:50%;background:rgba(241,245,249,0.9);border:0.5px solid rgba(148,163,184,0.3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">
+        <button id="chatCameraBtn" type="button" onclick="document.getElementById('chatImgInput').click()" style="width:40px;height:40px;border-radius:50%;background:rgba(241,245,249,0.9);border:0.5px solid rgba(148,163,184,0.3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
         </button>
-        <input id="txt" autocomplete="off"
-          style="flex:1;padding:11px 16px;background:rgba(241,245,249,0.8);backdrop-filter:blur(10px);border:0.5px solid rgba(255,255,255,0.8);border-radius:24px;font-size:14px;color:#1e293b;outline:none;box-shadow:inset 0 1px 3px rgba(0,0,0,0.05);"
-          placeholder="Scrivi un messaggio...">
+        <textarea id="txt" autocomplete="off" rows="1"
+          style="flex:1;padding:11px 16px;background:rgba(241,245,249,0.8);backdrop-filter:blur(10px);border:0.5px solid rgba(255,255,255,0.8);border-radius:20px;font-size:14px;color:#1e293b;outline:none;box-shadow:inset 0 1px 3px rgba(0,0,0,0.05);resize:none;overflow-y:hidden;max-height:120px;line-height:1.4;font-family:inherit;"
+          placeholder="Scrivi un messaggio..."></textarea>
         <button type="submit" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#0369a1,#0284c7);border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;box-shadow:0 4px 12px rgba(3,105,161,0.35);">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
         </button>
@@ -780,6 +780,7 @@ function updateTVButtonState(active) {
 }
 </script>
 </html>
+
 
 
 
