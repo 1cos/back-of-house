@@ -502,7 +502,10 @@ async function detailSave(id, btn, isSuggested){
     _prepSaveError(it.name, logRes.error.message);
     return;
   }
-  const updRes = await supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}).eq('id',id);
+  const stockUpdate = qty > 0
+    ? {need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}
+    : {need_tomorrow:false,in_progress:false,suggested_note:null,suggested_qty:null};
+  const updRes = await supa.from('prep_tasks').update(stockUpdate).eq('id',id);
   if(updRes.error){
     btn.textContent=tr('prep_done'); btn.disabled=false;
     _prepSaveError(it.name, updRes.error.message);
@@ -519,7 +522,7 @@ async function detailSave(id, btn, isSuggested){
 function _finishTask(id, qty){
   tasks[id].need_tomorrow=false;
   tasks[id].in_progress=false;
-  tasks[id].current_stock=(parseFloat(tasks[id].current_stock)||0)+qty;
+  if(qty > 0) tasks[id].current_stock=(parseFloat(tasks[id].current_stock)||0)+qty;
   tasks[id].suggested_note=null;
   tasks[id].suggested_qty=null;
   delete _taskStep[id];
@@ -627,6 +630,7 @@ async function feedSave(id,qty,btn){
 
 // Carica steps map all'avvio
 loadStepsMap();
+
 
 
 
