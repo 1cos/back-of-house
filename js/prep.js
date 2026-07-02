@@ -286,7 +286,9 @@ function renderM(){
       const iid = i.id;
       const borderColor = cardBorderColor(i);
       const isWip = i.in_progress;
-      const isUrgent = i.need_tomorrow && !i.in_progress;
+      // URGENT solo se il bot dice red — mai sui checklist
+      const botColor = i.suggested_note && i.suggested_note.includes('|') ? i.suggested_note.split('|')[0] : null;
+      const isUrgent = !i.in_progress && i.prep_type!=='checklist' && botColor==='red';
       const nameColor = isWip?'#1e40af':isUrgent?'#991b1b':'#0f172a';
 
       const badge = isWip
@@ -593,6 +595,7 @@ async function feedSave(id,qty,btn){
 
 // Carica steps map all'avvio
 loadStepsMap();
+
 
 
 
