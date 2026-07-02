@@ -225,7 +225,17 @@ function renderM(){
   const base=items.filter(i=>station==='All'||i.category?.includes(station));
   // ordinamento: in_progress > urgenti > gialli > normali
   const list=base.sort((a,b)=>{
-    const score=i=>(i.in_progress?3:0)+(i.need_tomorrow?2:0);
+    const score=i=>{
+      if(i.in_progress) return 5;
+      const stock=parseFloat(i.current_stock);
+      const sq=parseFloat(i.suggested_qty||0);
+      if(i.need_tomorrow){
+        if(isNaN(stock)||stock===0||i.current_stock===null||i.current_stock===undefined) return 4; // rosso: niente stock
+        if(sq>0 && stock<=sq*0.3) return 3; // giallo: stock <= 30%
+        return 2; // need_tomorrow generico
+      }
+      return 0; // verde / ok
+    };
     if(score(b)!==score(a)) return score(b)-score(a);
     return a.name.localeCompare(b.name);
   });
@@ -582,6 +592,7 @@ async function feedSave(id,qty,btn){
 
 // Carica steps map all'avvio
 loadStepsMap();
+
 
 
 
