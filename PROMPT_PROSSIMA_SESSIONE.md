@@ -859,3 +859,118 @@ I file MD si erano fermati a v431. La versione live era già a v446 prima di que
 
 **Versione attuale confermata:** v448
 
+
+---
+
+## SESSIONE 1 LUGLIO 2026 (pomeriggio/sera) — v449→v452 — TripleSeat, fix crash iOS, min_cover_days, Brussels/Chicken split
+
+**Versione:** v452 frontend, bot-preplist-builder v25 (Supabase version 45)
+**File modificati:** `js/prep.js`, `js/admin-prep.js`, `sw.js`
+**DB:** migration `min_cover_days`, nuovi prep_tasks, nuove ricette, nuovi recipe_steps
+
+---
+
+### 1. TripleSeat — tentativo connessione (v25→v26 Edge Function)
+
+- tripleseat-sync v25 e v26 deployate (diagnostica)
+- Le due chiavi inserite in Supabase Secrets (`TRIPLESEAT_PUBLIC_KEY`, `TRIPLESEAT_SECRET_KEY`) sono le chiavi OAuth dell'app, non API keys per Basic Auth → tutti gli endpoint rispondono 401
+- **Problema:** TripleSeat non supporta Basic Auth con queste chiavi. Serve un `access_token` OAuth ottenuto dopo il flow di autorizzazione (Monica deve autorizzare da `zottsllc.tripleseat.com/settings/api`)
+- **Stato:** in attesa che Max/Monica completino il flow OAuth. Codice pronto, solo autenticazione bloccata
+- Edge Function tripleseat-sync è a v26 (diagnostica), da riscrivere in v27 quando arriva il token corretto
+
+---
+
+### 2. v450 — Fix crash iOS su elimina prep (`js/admin-prep.js`)
+
+**Bug:** premendo 🗑 su una prep task, l'app crashava e si riavviava su iOS Safari.
+**Causa:** `location.reload()` nelle funzioni `adminDel` e `restorePrep` — su iOS Safari il reload dopo operazione async a volte crashia l'app invece di ricaricare.
+**Fix:** rimosso `location.reload()`. Ora `adminDel` rimuove il task da memoria locale (`delete tasks[id]`, `items = items.filter(...)`) e chiama `renderM()` + `renderS()` + `renderHomeStations()` + `renderFocusFeed()` per aggiornare la UI sul posto. `restorePrep` chiama `init()` per ricaricare lista completa.
+
+---
+
+### 3. v451 — Pill bot si azzera al DONE (`js/prep.js`)
+
+**Bug:** dopo DONE, la pill del bot rimaneva con i dati vecchi (es. "Low stock · 39 pieces") mentre lo stock pill mostrava il nuovo valore aggiornato — due informazioni contraddittorie visibili insieme.
+**Fix (3 punti in prep.js):**
+- `suggestedSave`: aggiunta `suggested_note: null, suggested_qty: null` nell'update DB
+- `detailSave`: stesso fix
+- `_finishTask`: aggiunta `tasks[id].suggested_note = null; tasks[id].suggested_qty = null;` per aggiornamento locale immediato
+
+**Effetto:** dopo DONE entrambe le pill spariscono e rimane solo la stock pill verde aggiornata. Il bot alle 4AM le riscrive basandosi sullo stock reale.
+
+---
+
+### 4. v452 — min_cover_days: logica "cibo fresco" nel bot (`admin-prep.js`, `bot-preplist-builder v25`)
+
+**Problema:** il bot suggeriva prep anche quando lo stock era abbondante (es. Salmon Cakes: 62 pezzi in casa, bot diceva "low stock"). Il bot non aveva il concetto di "non preparare in anticipo il cibo fresco".
+
+**Soluzione:**
+- Nuova colonna `prep_tasks.min_cover_days INTEGER DEFAULT 2` — indica quanti giorni minimi di copertura stock devono esserci prima che il bot smetta di suggerire prep
+- **Logica bot v25:**
+  - 🟢 Verde se `daysCovered >= minCoverDays` → nessun suggerimento
+  - 🟡 Giallo se `1 <= daysCovered < minCoverDays` → prepara presto
+  - 🔴 Rosso se `daysCovered < 1` o stock=0 → prepara oggi
+- **Default 2** → prepara solo se non arrivi a dopodomani
+- Per pasta fresca (si fa ogni giorno): `min_cover_days=1`
+- Per prep in anticipo (ragù, brisket): `min_cover_days=4-5`
+- **UI:** nuovo campo "Prepara quando scende sotto... (giorni coperti)" nell'editor prep task (sezione Bot Config)
+
+---
+
+### 5. DB — Brussels Sprouts split in due prep task
+
+**Problema:** Brussels Sprouts era un unico task "finale" che scaricava dal POS. In realtà sono due preparazioni distinte.
+
+**Soluzione:**
+- **id 265 — Brussels Sprouts Ready to Sell** (ex "Brussels sprouts"): rinominato, `prep_type=finale`, `shelf_life_days=3`, POS `Brussel Sprouts|Brussels|Box Brussels`, `min_cover_days=2`. Scaricato dal venduto ogni notte.
+- **id 472 — Brussels Sprouts Par Cook** (NUOVO): `prep_type=supporto`, `shelf_life_days=6`, nessun pos_name. Recipe `da5b0e5c` creata. 4 recipe_steps IT/EN/ES:
+  1. Bolli in acqua salata (⏱ 9 min)
+  2. Bagno in acqua e ghiaccio (⏱ 3 min)
+  3. Taglia e dividi
+  4. Conserva in 1/3 gastronorm — scrivi data, dura 6gg
+
+---
+
+### 6. DB — Grilled Chicken / Diced Grilled Chicken split
+
+**Problema:** "Grilled Chicken" (id 468) aveva `pos_name` con i modifier POS → il bot scaricava lo stock del pollo grigliato dal venduto. Ma il pollo grigliato è sottovuoto (dura 15gg) e non deve essere scaricato dal POS — solo il pollo tagliato a dadini in linea lo è.
+
+**Soluzione:**
+- **id 468 — Grilled Chicken** (par cook sottovuoto): `shelf_life_days=15`, `pos_name=NULL` (rimosso). `prep_type=supporto`. 5 recipe_steps aggiunti su ricetta `7502f23f`:
+  1. Taglia le fette
+  2. Condisci con sale kosher
+  3. Olio e grill seasoning
+  4. Griglia (T° interna 74°C)
+  5. Raffredda e metti sottovuoto — scrivi data, dura 15gg
+
+- **id 473 — Diced Grilled Chicken** (NUOVO): `prep_type=finale`, `shelf_life_days=4`, `pos_name='Add chicken|Add Chicken|Add chicken for number 4|Blackened chicken'`. Recipe `d4e1cd5f` creata. 4 recipe_steps IT/EN/ES:
+  1. Taglia il pollo a dadini
+  2. Condisci con red pepper flakes e prezzemolo
+  3. Aggiungi 20g di burro
+  4. Metti nel 1/6 pan con data — dura 4gg
+
+---
+
+### Principi confermati in questa sessione
+
+**Due categorie di prep task:**
+- `prep_type=supporto` → par cook, nessun pos_name, bot non scarica dal POS, dura più giorni
+- `prep_type=finale` → pronto al servizio, pos_name collegato, bot scarica dal venduto
+
+**min_cover_days — regola Max:** il cibo fresco non si prepara in anticipo. Il bot deve suggerire solo quando lo stock non copre il minimo di giorni operativi. "Se ne hai per oggi e domani, non serve prepararli adesso — sarebbero vecchi quando li servi."
+
+---
+
+### Stato versioni
+- sw.js: **boh-v452**
+- bot-preplist-builder: **v25** (Supabase version 45)
+- tripleseat-sync: **v26** (diagnostica, in attesa token OAuth)
+- admin-prep.js: fix crash + min_cover_days UI
+- prep.js: pill azzerate al DONE
+
+### Priorità prossima sessione
+1. TripleSeat — quando Monica autorizza, aggiornare tripleseat-sync v27 con il token reale
+2. Brussels Sprouts Ready to Sell — recipe steps da aggiungere (Max ha detto "no" per ora)
+3. Cube Grilled Chicken (id 242, checklist) — da rivedere ora che esiste Diced Grilled Chicken
+4. Scallops — due task (id 279 e id 257) da unificare
+5. Dish Crew Home (Fase 2) — ancora in coda, priorità alta
