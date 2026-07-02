@@ -795,3 +795,90 @@ Il campo "Per ogni porzione venduta uso... [N] [unità]" deve essere visibile e 
 
 ### Nota per sessioni future
 Max lavora su più chat in parallelo. Oggi ha aperto una chat separata per il Bot Center (partendo dallo schema definito qui sopra). Verificare versione live sw.js prima di qualsiasi push.
+
+---
+
+## SESSIONE 1 LUGLIO 2026 (pomeriggio) — v448→v452 — Fix i18n modal DONE + Bot v24 traduzione unità
+
+**Versione finale:** v452 frontend, bot-preplist-builder v24 (Supabase version 44)
+
+---
+
+### Contesto sessione
+Sessione in parallelo con altre chat attive che facevano push sul timer (prep card) e altri fix. Nessun conflitto — questa sessione ha toccato solo bot (Supabase Edge Function) e utils.js/prep.js (file diversi da quelli delle altre sessioni).
+
+---
+
+### Bot-preplist-builder v24 (Supabase version 44)
+
+**Problema:** Samantha (lang='en') e altri utenti EN/ES vedevano "pezzi" invece di "pieces"/"piezas" nelle pill del bot. Il bot costruiva i testi con l'unità raw del task (`taskUnit`) senza tradurla per EN/ES.
+
+**Fix:** aggiunta tabella `UNIT_TRANS` con traduzioni per tutte le unità fisiche:
+- `pezzi/pz` → EN: `pieces` / ES: `piezas`
+- `buste` → EN: `bags` / ES: `bolsas`
+- `cartocci` → EN: `cartouches` / ES: `cartuchos`
+- `contenitori/contenitore` → EN: `containers` / ES: `contenedores`
+- `filetto` → EN: `fillets` / ES: `filetes`
+- `cup` → EN: `cups` / ES: `tazas`
+- Fallback: passa l'unità raw se non in tabella
+
+**Fix cup:** testi puliti per ogni lingua invece del vecchio `.replace('fai','make')`:
+- IT: `fai 1 batch (40 cup)` / EN: `make 1 batch (40 cups)` / ES: `haz 1 batch (40 tazas)`
+
+**Deploy:** Supabase version 44 — nessun file GitHub toccato.
+
+---
+
+### Fix i18n modal DONE — v449
+
+**Problema:** quando Samantha clicca DONE su una prep, il modal "Quantità diversa" (`openDoneSheetCustom` in `prep.js`) mostrava testo hardcoded in italiano:
+- "Quanto hai fatto?" (riga 399)
+- "Grammi" (riga 406)
+- "Pezzi" (riga 410)
+- "Annulla" (riga 414)
+- "FATTO ✓" (riga 415)
+
+**Fix in due file:**
+
+1. **`js/utils.js`** — aggiunte 4 nuove chiavi i18n in IT/EN/ES:
+   - `prep_grams`: Grammi / Grams / Gramos
+   - `prep_pieces`: Pezzi / Pieces / Piezas
+   - `prep_cancel`: Annulla / Cancel / Cancelar
+   - `prep_done`: FATTO ✓ / DONE ✓ / LISTO ✓
+
+2. **`js/prep.js`** — sostituite le 5 stringhe hardcoded con `tr()`:
+   - `"Quanto hai fatto?"` → `${tr('prep_how_much')}` (chiave già esistente)
+   - `Grammi` → `${tr('prep_grams')}`
+   - `Pezzi` → `${tr('prep_pieces')}`
+   - `Annulla` → `${tr('prep_cancel')}`
+   - `FATTO ✓` → `${tr('prep_done')}`
+
+**Versione:** v449. File modificati: `js/utils.js`, `js/prep.js`, `sw.js` (v448→v449).
+
+**Nota:** la versione v448 era già stata pushata da un'altra sessione (fix timer prep card — il timer si resettava navigando tra pagine). Questa sessione ha letto la SHA live e incrementato correttamente.
+
+---
+
+### Stato versioni al termine della sessione
+- Frontend: **v452** (altre sessioni parallele hanno pushato v450, v451, v452 dopo il nostro v449 — non toccare nulla senza rileggere sw.js live)
+- Bot preplist builder: **v24** (Supabase version 44)
+- utils.js: nuove chiavi `prep_grams`, `prep_pieces`, `prep_cancel`, `prep_done` in IT/EN/ES
+- prep.js: modal DONE completamente trilingue
+
+---
+
+### Bug aperti confermati (non toccati in questa sessione)
+1. **Bot "good through Wednesday" quando stock=0** — mostra copertura stock attuale invece di copertura con il batch suggerito
+2. **Bot legge serving_qty invece del BOM** per pezzi — Artichoke e altri: architettura da correggere in v25
+3. **Lamb (id 471)** — suggested_qty assurda, da collegare a ricetta o escludere
+4. **Honey (Salad)** — suggested_qty 2.4kg, da verificare/escludere
+5. **Timer prep card** — si resettava navigando tra pagine (fixato da altra sessione in v448-v452, da verificare)
+
+---
+
+### Da fare — prossima sessione
+- Verificare fix timer prep card (altra sessione)
+- Bot v25: fix "good through X" con batch suggerito invece di stock attuale
+- Dish Crew Home (Fase 2) — ancora priorità #1 nel backlog
+- Rinominare stazione Manager → Coordinator
+- Salad/Pastry Station — unità ancora da verificare
