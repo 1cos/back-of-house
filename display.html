@@ -928,109 +928,112 @@ async function checkAnnouncement() {
 }
 
 // ── CREW BOARD ─────────────────────────────────────────────
-var crewTimer = null;
 var crewVisible = false;
+var crewCycleTimer = null;
+var crewHTML = '';
 
 async function loadCrewBoard() {
-  // Chi e' stato attivo nelle ultime 8 ore (copre tutta la giornata)
-  var skipStations = ['Manager', 'Coordinator', 'Admin'];
+  var skipStations = ['Manager', 'Coordinator', 'Admin', 'Dish Crew'];
+
+  // Presenza ultime 12h (CDT-aware: uso UTC offset -5h)
+  var cutoff = new Date(Date.now() - 12*60*60*1000).toISOString();
   var presRes = await supa.from('user_presence')
     .select('user_name,station,last_seen')
-    .gt('last_seen', new Date(Date.now() - 8*60*60*1000).toISOString())
+    .gt('last_seen', cutoff)
     .order('last_seen', {ascending: false});
   if (!presRes || !presRes.data) return;
 
-  // Un utente per stazione (il piu' recente)
-  var seen = {};
+  // Dedup per user_name, salta stazioni escluse e utenti senza stazione
+  var seenUser = {};
   var crew = [];
   presRes.data.forEach(function(u) {
-    if (!u.station) return;
-    if (skipStations.includes(u.station)) return;
-    if (u.station === 'Dish Crew') return;
-    if (!seen[u.user_name]) { seen[u.user_name] = true; crew.push(u); }
+    if (!u.station || skipStations.includes(u.station)) return;
+    if (seenUser[u.user_name]) return;
+    seenUser[u.user_name] = true;
+    crew.push(u);
   });
-  if (crew.length === 0) return;
 
-  // Task in progress per stazione
+  // Task in_progress per stazione
   var inProgRes = await supa.from('prep_tasks')
     .select('name,category')
     .eq('in_progress', true)
     .eq('done', false)
     .eq('archived', false);
-  var inProgByStation = {};
+  var wipByStation = {};
   if (inProgRes && inProgRes.data) {
     inProgRes.data.forEach(function(t) {
-      if (!inProgByStation[t.category]) inProgByStation[t.category] = [];
-      inProgByStation[t.category].push(t.name);
+      if (!wipByStation[t.category]) wipByStation[t.category] = [];
+      wipByStation[t.category].push(t.name);
     });
   }
 
-  // Task completati oggi per user_name (da prep_log)
-  var today = new Date();
-  today.setHours(0,0,0,0);
+  // Stazioni in_progress senza utente presente — aggiungi come "?" entry
+  Object.keys(wipByStation).forEach(function(station) {
+    if (skipStations.includes(station)) return;
+    var hasUser = crew.some(function(u) { return u.station === station; });
+    if (!hasUser) crew.push({ user_name: null, station: station, last_seen: null });
+  });
+
+  // Prep log ultime 12h (finestra CDT: da midnight CDT = 05:00 UTC)
+  var midnightCDT = new Date();
+  midnightCDT.setUTCHours(5, 0, 0, 0); // midnight CDT = 05:00 UTC (CDT = UTC-5)
+  if (midnightCDT > new Date()) midnightCDT.setUTCDate(midnightCDT.getUTCDate() - 1);
   var doneRes = await supa.from('prep_log')
     .select('user_name,item')
-    .gte('created_at', today.toISOString())
+    .gte('created_at', midnightCDT.toISOString())
     .order('created_at', {ascending: false});
   var doneByUser = {};
   if (doneRes && doneRes.data) {
     doneRes.data.forEach(function(r) {
+      if (!r.user_name) return;
       if (!doneByUser[r.user_name]) doneByUser[r.user_name] = [];
       if (!doneByUser[r.user_name].includes(r.item)) doneByUser[r.user_name].push(r.item);
     });
   }
 
-  // Costruisci HTML — no emoji, testo puro (TV-safe)
+  // Costruisci HTML — solo righe con almeno wip o done
   var html = '';
   crew.forEach(function(u) {
-    var wip = inProgByStation[u.station] || [];
-    var done = doneByUser[u.user_name] || [];
+    var wip = wipByStation[u.station] || [];
+    var done = u.user_name ? (doneByUser[u.user_name] || []) : [];
     if (wip.length === 0 && done.length === 0) return;
 
-    var stationShort = u.station.replace(' Station','').replace(' station','').toUpperCase();
+    var nameLabel = u.user_name || '?';
+    var stLabel = u.station.replace(' Station','').replace(' station','').toUpperCase();
 
-    html += '<div style="background:rgba(255,255,255,0.05);border-left:3px solid rgba(255,255,255,0.25);border-radius:6px;padding:10px 14px;margin-bottom:10px;">';
-    // Nome + stazione
-    html += '<div style="margin-bottom:6px;">';
-    html += '<span style="font-size:22px;font-weight:900;color:#fff;letter-spacing:-.01em;">' + u.user_name + '</span>';
-    html += '<span style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:.1em;margin-left:10px;">' + stationShort + '</span>';
+    html += '<div style="border-left:3px solid rgba(255,255,255,0.2);padding:8px 14px;margin-bottom:12px;">';
+    html += '<div style="margin-bottom:5px;">';
+    html += '<span style="font-size:20px;font-weight:900;color:#fff;">' + nameLabel + '</span>';
+    html += '<span style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:.1em;margin-left:10px;">' + stLabel + '</span>';
     html += '</div>';
-    // In progress
     if (wip.length > 0) {
-      html += '<div style="font-size:11px;font-weight:700;color:rgba(255,165,0,0.9);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Working on</div>';
-      html += '<div style="font-size:14px;color:rgba(255,255,255,0.9);margin-bottom:6px;">' + wip.join('  &middot;  ') + '</div>';
+      html += '<div style="font-size:11px;font-weight:700;color:rgba(255,165,0,0.85);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px;">Working on</div>';
+      html += '<div style="font-size:14px;color:rgba(255,255,255,0.88);margin-bottom:5px;">' + wip.join(' &nbsp;&middot;&nbsp; ') + '</div>';
     }
-    // Done
     if (done.length > 0) {
-      html += '<div style="font-size:11px;font-weight:700;color:rgba(74,222,128,0.9);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Closed</div>';
-      var doneShow = done.slice(0,8);
-      html += '<div style="font-size:13px;color:rgba(255,255,255,0.55);">' + doneShow.join('  &middot;  ');
-      if (done.length > 8) html += '  +' + (done.length-8) + ' more';
+      html += '<div style="font-size:11px;font-weight:700;color:rgba(74,222,128,0.85);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px;">Closed</div>';
+      html += '<div style="font-size:13px;color:rgba(255,255,255,0.5);">' + done.slice(0,10).join(' &nbsp;&middot;&nbsp; ');
+      if (done.length > 10) html += ' &nbsp;+' + (done.length-10) + ' more';
       html += '</div>';
     }
     html += '</div>';
   });
 
-  if (!html) return;
-
-  var card = document.getElementById('crew-card');
-  if (card) card.innerHTML = html;
+  crewHTML = html;
+  // Se la card e' visibile in questo momento, aggiorna subito
+  if (crewVisible) {
+    var card = document.getElementById('crew-card');
+    if (card) card.innerHTML = crewHTML || '<div style="color:rgba(255,255,255,0.3);font-size:14px;padding:20px;">No active prep in progress</div>';
+  }
 }
 
-var crewCycleTimer = null;
-
 function showCrewBoard() {
-  if (announcementVisible) {
-    crewCycleTimer = setTimeout(showCrewBoard, 20000);
-    return;
-  }
+  if (announcementVisible) { crewCycleTimer = setTimeout(showCrewBoard, 20000); return; }
   var grid = document.getElementById('prep-grid');
   var card = document.getElementById('crew-card');
   var title = document.getElementById('centre-title');
-  if (!card || !card.innerHTML) {
-    crewCycleTimer = setTimeout(showCrewBoard, 20000);
-    return;
-  }
+  // Mostra anche se vuoto (con messaggio placeholder)
+  card.innerHTML = crewHTML || '<div style="color:rgba(255,255,255,0.3);font-size:14px;padding:20px;">No active prep in progress</div>';
   grid.style.display = 'none';
   card.style.display = 'flex';
   card.style.flexDirection = 'column';
@@ -1043,16 +1046,14 @@ function hideCrew() {
   var grid = document.getElementById('prep-grid');
   var card = document.getElementById('crew-card');
   var title = document.getElementById('centre-title');
-  if (card) card.style.display = 'none';
+  if (card) { card.style.display = 'none'; card.innerHTML = ''; }
   if (grid) grid.style.display = '';
   if (title) title.textContent = "Today's Prep";
   crewVisible = false;
-  // Torna al prep per 20s poi mostra crew di nuovo
   crewCycleTimer = setTimeout(showCrewBoard, 20000);
 }
 
 function startCrewCycle() {
-  // Prima apparizione dopo 20s
   crewCycleTimer = setTimeout(showCrewBoard, 20000);
 }
 // ── END CREW BOARD ─────────────────────────────────────────
