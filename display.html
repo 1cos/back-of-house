@@ -1001,18 +1001,18 @@ async function loadCrewBoard() {
     var nameLabel = u.user_name || '?';
     var stLabel = u.station.replace(' Station','').replace(' station','').toUpperCase();
 
-    html += '<div style="border-left:3px solid rgba(255,255,255,0.2);padding:8px 14px;margin-bottom:12px;">';
+    html += '<div style="border-left:3px solid #cbd5e0;padding:8px 14px;margin-bottom:12px;">';
     html += '<div style="margin-bottom:5px;">';
-    html += '<span style="font-size:20px;font-weight:900;color:#fff;">' + nameLabel + '</span>';
-    html += '<span style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:.1em;margin-left:10px;">' + stLabel + '</span>';
+    html += '<span style="font-size:20px;font-weight:900;color:#1a202c;">' + nameLabel + '</span>';
+    html += '<span style="font-size:11px;font-weight:700;color:#a0aec0;text-transform:uppercase;letter-spacing:.1em;margin-left:10px;">' + stLabel + '</span>';
     html += '</div>';
     if (wip.length > 0) {
-      html += '<div style="font-size:11px;font-weight:700;color:rgba(255,165,0,0.85);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px;">Working on</div>';
-      html += '<div style="font-size:14px;color:rgba(255,255,255,0.88);margin-bottom:5px;">' + wip.join(' &nbsp;&middot;&nbsp; ') + '</div>';
+      html += '<div style="font-size:11px;font-weight:700;color:#c05621;text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px;">Working on</div>';
+      html += '<div style="font-size:14px;color:#2d3748;margin-bottom:5px;">' + wip.join(' &nbsp;&middot;&nbsp; ') + '</div>';
     }
     if (done.length > 0) {
-      html += '<div style="font-size:11px;font-weight:700;color:rgba(74,222,128,0.85);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px;">Closed</div>';
-      html += '<div style="font-size:13px;color:rgba(255,255,255,0.5);">' + done.slice(0,10).join(' &nbsp;&middot;&nbsp; ');
+      html += '<div style="font-size:11px;font-weight:700;color:#276749;text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px;">Closed</div>';
+      html += '<div style="font-size:13px;color:#4a5568;">' + done.slice(0,10).join(' &nbsp;&middot;&nbsp; ');
       if (done.length > 10) html += ' &nbsp;+' + (done.length-10) + ' more';
       html += '</div>';
     }
@@ -1033,7 +1033,7 @@ function showCrewBoard() {
   var grid = document.getElementById('prep-grid');
   var card = document.getElementById('crew-card');
   var title = document.getElementById('centre-title');
-  card.innerHTML = crewHTML || '<div style="color:rgba(255,255,255,0.3);font-size:14px;padding:20px;">No active prep in progress</div>';
+  card.innerHTML = crewHTML || '<div style="color:#a0aec0;font-size:14px;padding:20px;">No active prep in progress</div>';
   grid.style.display = 'none';
   card.style.display = 'flex';
   card.style.flexDirection = 'column';
