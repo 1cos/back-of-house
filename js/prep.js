@@ -166,6 +166,7 @@ async function checkBeforeMissing(id, itemName){
 
 // ── PILL STOCK — testo human-readable ──
 function buildStockPill(i){
+  if(i.prep_type==='checklist') return ''; // checklist non hanno stock
   if(i.current_stock===null||i.current_stock===undefined) return '';
   const stock = parseFloat(i.current_stock);
   const sq = parseFloat(i.suggested_qty||0);
@@ -185,14 +186,15 @@ function buildStockPill(i){
 // ── COLORE BORDO card ──
 function cardBorderColor(i){
   if(i.in_progress) return '#378add'; // blu
-  if(i.need_tomorrow){
-    // rosso se stock=0 o non noto, giallo se quasi finito
-    const stock = parseFloat(i.current_stock);
-    const sq = parseFloat(i.suggested_qty||0);
-    if(!isNaN(stock) && stock>0 && sq>0 && stock<=sq*0.5) return '#ef9f27'; // giallo
-    return '#e24b4a'; // rosso
+  if(i.prep_type==='checklist') return '#64748b'; // checklist: grigio-blu neutro, sempre
+  // Urgenza viene SOLO dal bot (suggested_note)
+  if(i.suggested_note && i.suggested_note.includes('|')){
+    const col = i.suggested_note.split('|')[0];
+    if(col==='red') return '#e24b4a';
+    if(col==='yellow') return '#ef9f27';
+    if(col==='green') return '#22c55e';
   }
-  return '#94a3b8'; // grigio
+  return '#94a3b8'; // grigio — nessun dato bot
 }
 
 // ── BOTTONE card ──
@@ -214,10 +216,8 @@ function cardButton(i){
     const seeLabel = {it:'VEDI STEPS',en:'SEE STEPS',es:'VER PASOS'}[lang]||'SEE STEPS';
     return `<button onclick="prepSeeSteps(${JSON.stringify(iid)})" style="height:40px;padding:0 18px;border-radius:10px;font-size:13px;font-weight:600;background:#378add;color:white;border:none;white-space:nowrap;flex-shrink:0;">${seeLabel}</button>`;
   }
-  if(i.need_tomorrow){
-    return `<button onclick="prepStart(${JSON.stringify(iid)})" style="height:40px;padding:0 20px;border-radius:10px;font-size:13px;font-weight:600;background:#1e3a5f;color:white;border:none;white-space:nowrap;flex-shrink:0;">START</button>`;
-  }
-  return ''; // grigio — nessun bottone
+  // START su tutti — checklist incluse
+  return `<button onclick="prepStart(${JSON.stringify(iid)})" style="height:40px;padding:0 20px;border-radius:10px;font-size:13px;font-weight:600;background:#1e3a5f;color:white;border:none;white-space:nowrap;flex-shrink:0;">START</button>`;
 }
 
 // ── PREP ──
@@ -227,14 +227,15 @@ function renderM(){
   const list=base.sort((a,b)=>{
     const score=i=>{
       if(i.in_progress) return 5;
-      const stock=parseFloat(i.current_stock);
-      const sq=parseFloat(i.suggested_qty||0);
-      if(i.need_tomorrow){
-        if(isNaN(stock)||stock===0||i.current_stock===null||i.current_stock===undefined) return 4; // rosso: niente stock
-        if(sq>0 && stock<=sq*0.3) return 3; // giallo: stock <= 30%
-        return 2; // need_tomorrow generico
+      if(i.prep_type==='checklist') return 1; // checklist: sempre sotto le prep urgenti
+      // Urgenza da bot (suggested_note)
+      if(i.suggested_note && i.suggested_note.includes('|')){
+        const col=i.suggested_note.split('|')[0];
+        if(col==='red') return 4;
+        if(col==='yellow') return 3;
+        if(col==='green') return 2;
       }
-      return 0; // verde / ok
+      return 0; // nessun dato bot
     };
     if(score(b)!==score(a)) return score(b)-score(a);
     return a.name.localeCompare(b.name);
@@ -592,6 +593,7 @@ async function feedSave(id,qty,btn){
 
 // Carica steps map all'avvio
 loadStepsMap();
+
 
 
 
