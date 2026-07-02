@@ -210,7 +210,7 @@ function _calCard(e) {
         ${(e.location || e.room_name) ? `<span style="font-size:12px;color:#475569;">📍 ${e.location || e.room_name}</span>` : ''}
         ${e.service_style ? `<span style="font-size:11px;color:#6366f1;background:#eef2ff;border-radius:6px;padding:1px 7px;">${e.service_style}</span>` : ''}
       </div>
-      ${e.notes ? `<div style="font-size:11px;color:#94a3b8;margin-top:4px;">${e.notes}</div>` : ''}
+      ${(e.notes && !(Array.isArray(e.event_recipes) && e.event_recipes.length)) ? `<div style="font-size:11px;color:#94a3b8;margin-top:4px;">${e.notes}</div>` : ''}
       ${recipesHtml}
       ${fcHtml}
       ${editBtn}
@@ -319,9 +319,10 @@ function openEventEditor(ev = null) {
       </div>
       <!-- Notes -->
       <div style="margin-bottom:18px;">
-        <div style="${LBL}">Notes</div>
+        <div style="${LBL}">${ev?.source === 'tripleseat' ? '📋 TripleSeat Notes (read-only)' : 'Notes'}</div>
         <textarea id="evNotes" rows="2" placeholder="Any details for the brigade…"
-          style="${I}resize:none;">${ev?.notes||''}</textarea>
+          style="${I}resize:none;${ev?.source === 'tripleseat' ? 'background:#f8fafc;color:#94a3b8;cursor:default;' : ''}"
+          ${ev?.source === 'tripleseat' ? 'readonly' : ''}>${ev?.notes||''}</textarea>
       </div>
 
       <!-- ── RECIPES ── -->
@@ -618,4 +619,5 @@ async function _calSync() {
     alert('TripleSeat sync error: ' + (e.message || JSON.stringify(e)));
   }
 }
+
 
