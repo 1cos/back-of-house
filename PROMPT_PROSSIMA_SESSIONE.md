@@ -1054,3 +1054,86 @@ const score = i => {
 3. **TripleSeat** — quando Monica autorizza OAuth
 4. **Dish Crew Home (Fase 2)** — ancora priorità alta in coda
 5. **Scallops** — due task (id 279 e id 257) da unificare
+
+
+---
+
+## SESSIONE 1 LUGLIO 2026 (tarda sera) — v454→v456 — TripleSeat edit, Closing Checks, ingredient_id
+
+**Versione:** v456 frontend
+**File modificati:** js/calendar.js (v454, v455), js/admin-prep.js (v456), sw.js
+**DB:** nuove closing_checks, migration ingredient_id su prep_tasks
+
+---
+
+### 1. v454 — Fix edit eventi TripleSeat (calendar.js)
+
+**Bug:** bottone Edit non appariva sugli eventi con source=tripleseat.
+**Fix:** rimossa la condizione source !== tripleseat — Edit appare su tutti gli eventi per admin.
+**Fix 2:** quando si salva un evento TripleSeat dopo edit, mantiene source=tripleseat invece di sovrascrivere con manual.
+
+---
+
+### 2. v455 — Notes TripleSeat read-only + preview pulita (calendar.js)
+
+**Fix 1 — Preview:** quando event_recipes ha dati strutturati, le note grezze di Monica spariscono dalla preview.
+**Fix 2 — Editor:** per eventi TripleSeat, il campo Notes diventa read-only con label "TripleSeat Notes (read-only)" e sfondo grigio.
+
+**Sistema event_recipes (scoperto in questa sessione):**
+- events.event_recipes gia esisteva come JSONB con struttura {type, recipe_id, recipe_title, portions, note}
+- Editor gia ha autocomplete ricette Brigade, sezioni, food cost
+- Max compila il menu catering in Brigade collegando ricette reali del DB
+
+---
+
+### 3. DB — Nuove Closing Checks (6 stazioni)
+
+**Decisione Max:** checklist di chiusura completamente rinnovate con task operativi reali.
+**Operazione:** archiviate tutte le 80 closing_checks esistenti (archived=true), inseriti 35 nuovi item.
+
+| Stazione | Item |
+|---|---|
+| Plating Station | 6 |
+| Salad Station | 5 |
+| Pasta Station | 6 |
+| Oven Station | 6 |
+| Sauté Station | 5 |
+| Grill & Features | 7 |
+
+**Trigger operation notes:** invariato — appare dopo che il cuoco ha checkato tutti gli item della sua stazione.
+
+---
+
+### 4. v456 — ingredient_id su prep_tasks (admin-prep.js + migration DB)
+
+**Migration:** `ALTER TABLE prep_tasks ADD COLUMN ingredient_id uuid REFERENCES ingredients(id) ON DELETE SET NULL`
+
+**UI admin-prep.js:**
+- Nuovo dropdown "Collega ingrediente" (434 ingredienti attivi con categoria) tra Collega ricetta e Nota
+- `kg` aggiunto al selettore "Nel frigo conto..." — riga conversione si nasconde per kg come per g
+- Salva ingredient_id nel DB sia su insert che su update
+
+**Schema A a Z concordato con Max (bot che dice ordina Mozzarella da Hardies):**
+
+- STEP 1 FATTO: prep_tasks.ingredient_id
+- STEP 2 GIA ESISTE: ingredient_vendors
+- STEP 3 GIA ESISTE: bot legge current_stock + consumo storico
+- STEP 4 DA FARE: soglia riordino (prep_tasks.reorder_days)
+- STEP 5 DA FARE: bot scrive in office_items "Ordina Mozzarella da Hardies" con vendor + pack + ultimo prezzo
+- STEP 6 GIA ESISTE: Tela vede in L Ufficio e ordina
+
+---
+
+### Versioni
+
+- sw.js: **boh-v456**
+- admin-prep.js: ingredient_id + kg unit
+- calendar.js: edit TripleSeat + notes read-only
+
+### Priorita prossima sessione
+
+1. **Step 4+5 riordino** — reorder_days su prep_tasks + bot scrive in office_items con info fornitore
+2. **Fix recipe-modal.js** — tab Notes deve leggere procedure_en/procedure_es in base a user.lang
+3. **Dish Crew Home Fase 2** — priorita alta in coda
+4. **TripleSeat** — quando Monica autorizza OAuth
+5. **Scallops** — unificare task id 279 e id 257
