@@ -445,9 +445,12 @@ document.getElementById('f').onsubmit=async e=>{
     }
     clearChatImg();
   }
-  // Detect lingua PRIMA di inserire — await garantisce che lang sia corretto
-  let detectedLang = normalizeLang(user.lang);
-  if(v){
+  // Lingua: usa la lingua profilo del mittente come fonte primaria.
+  // Il detect serve solo per chi ha profilo EN ma scrive in altra lingua (es. Rachel scrive ES).
+  const profileLang = normalizeLang(user.lang);
+  let detectedLang = profileLang;
+  if(v && profileLang === 'en'){
+    // Solo per utenti con profilo EN tentiamo il detect — potrebbero scrivere in ES/IT
     try{
       const r = await fetch(`${SUPABASE_URL}/functions/v1/ai-translate`,{
         method:'POST',
@@ -455,7 +458,7 @@ document.getElementById('f').onsubmit=async e=>{
         body:JSON.stringify({text:v, targetLang:'__detect__'})
       });
       const j = await r.json();
-      if(j.detected) detectedLang = normalizeLang(j.detected);
+      if(j.detected && j.detected !== 'en') detectedLang = normalizeLang(j.detected);
     }catch(e){ console.warn('detect failed, using profile lang:', e.message); }
   }
   const payload = {text:v||'', user_name:user.name, lang:detectedLang};
