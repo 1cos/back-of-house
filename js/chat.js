@@ -393,11 +393,27 @@ async function loadPinnedMessages(){
 
 // ── REALTIME ─────────────────────────────────────────────────
 let chatChannel=null;
+let _chatReconnectTimer=null;
+
 function startChatRealtime(){
-  if(chatChannel) return;
-  chatChannel=supa.channel('public:messages')
+  // Rimuovi canale vecchio se esiste (potrebbe essere morto)
+  if(chatChannel){
+    try{ supa.removeChannel(chatChannel); }catch(e){}
+    chatChannel=null;
+  }
+  chatChannel=supa.channel('public:messages-'+Date.now())
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},p=>addMsg(p.new,false))
-    .subscribe();
+    .subscribe((status)=>{
+      if(status==='SUBSCRIBED'){
+        // Canale attivo — cancella eventuale timer di reconnect
+        if(_chatReconnectTimer){ clearTimeout(_chatReconnectTimer); _chatReconnectTimer=null; }
+      }
+      if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED'){
+        // Riconnetti dopo 3 secondi
+        if(_chatReconnectTimer) clearTimeout(_chatReconnectTimer);
+        _chatReconnectTimer=setTimeout(()=>{ if(isChatOpen()) startChatRealtime(); },3000);
+      }
+    });
 }
 
 // ── AUTO-RESIZE TEXTAREA ─────────────────────────────────────
