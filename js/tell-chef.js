@@ -165,6 +165,15 @@ async function tellChefSend() {
     var res = await window.supa.from('chef_reports').insert([payload]).select().single();
     if (res.error) throw res.error;
 
+    // Push notification a admin/sous_chef
+    try {
+      await fetch(SUPABASE_URL + '/functions/v1/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
+        body: JSON.stringify({ table: 'chef_reports', record: Object.assign({}, payload, { message: text }) })
+      });
+    } catch(pe) { console.warn('Tell Chef push failed:', pe.message); }
+
     // Scrivi in office_items per L'Ufficio
     if (typeof officeWriteItem === 'function') {
       var reportId = res.data ? res.data.id : null;
@@ -298,6 +307,7 @@ async function tcSetStatus(id, status, btn) {
     await tcAdminLoad();
   } catch(e) {}
 }
+
 
 
 
