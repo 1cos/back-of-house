@@ -171,8 +171,8 @@ function _calCard(e) {
     fcHtml = `<div style="margin-top:6px;font-size:11px;font-weight:600;color:#059669;">Food Cost: $${parseFloat(e.total_food_cost).toFixed(2)}</div>`;
   }
 
-  // Edit button — solo admin, solo eventi manuali
-  const editBtn = (isAdm && e.source !== 'tripleseat')
+  // Edit button — solo admin
+  const editBtn = (isAdm)
     ? `<button onclick="event.stopPropagation();openEventEditor(${JSON.stringify(e).replace(/"/g,'&quot;')})"
         style="font-size:10px;font-weight:600;color:#3b82f6;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:3px 8px;cursor:pointer;margin-top:8px;">
         ✏️ Edit
@@ -537,7 +537,7 @@ function openEventEditor(ev = null) {
       notes:         sheet.querySelector('#evNotes').value.trim() || null,
       chef_notes:    sheet.querySelector('#evChefNotes').value.trim() || null,
       event_recipes,
-      source:        'manual',
+      source:        (isEdit && ev && ev.source === 'tripleseat') ? 'tripleseat' : 'manual',
       updated_at:    new Date().toISOString()
     };
 
@@ -618,3 +618,4 @@ async function _calSync() {
     alert('TripleSeat sync error: ' + (e.message || JSON.stringify(e)));
   }
 }
+
