@@ -1,4 +1,4 @@
-const CACHE_NAME = 'boh-v476';
+const CACHE_NAME = 'boh-v477';
 // ↑ Incrementa questo questo numero ad ogni deploy — es. v31, v32...
 // Il browser vede la versione diversa e aggiorna automaticamente
 
@@ -38,22 +38,3 @@ self.addEventListener('notificationclick', e => {
     clients.openWindow(e.notification.data?.url || '/back-of-house/')
   );
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
