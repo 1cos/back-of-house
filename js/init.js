@@ -43,6 +43,7 @@ async function init(){
   if(isAdmin()) stationsEl.insertAdjacentHTML('beforeend',`<button onclick="adminAdd()" class="ml-2 px-2 py-1 rounded-full bg-green-600 text-white text-sm">+ Nuovo</button><button onclick="showArchivedPreps()" class="ml-1 px-2 py-1 rounded-full bg-slate-200 text-slate-700 text-sm">📦</button>`);
   await loadItemAlerts();
   await ensureChiusuraStation();
+  if(typeof loadTodayLogs==='function') await loadTodayLogs();
   renderM(); renderS(); renderHomeStations();
   renderHomeStationItems();
   loadServiceUpdates();
