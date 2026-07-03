@@ -196,8 +196,10 @@ async function checkBeforeMissing(id, itemName){
 
 // ── PILL STOCK — testo human-readable ──
 function buildStockPill(i){
-  if(i.prep_type==='checklist') return ''; // checklist non hanno stock
+  if(i.prep_type==='checklist') return '';
   if(i.current_stock===null||i.current_stock===undefined) return '';
+  // Se il bot ha già scritto suggested_note, non mostrare la stock pill — evita tre pill
+  if(i.suggested_note) return '';
   const stock = parseFloat(i.current_stock);
   const sq = parseFloat(i.suggested_qty||0);
   const unit = i.unit||'';
@@ -215,16 +217,16 @@ function buildStockPill(i){
 
 // ── COLORE BORDO card ──
 function cardBorderColor(i){
-  if(i.in_progress) return '#378add'; // blu
-  if(i.prep_type==='checklist') return '#64748b'; // checklist: grigio-blu neutro, sempre
+  if(i.in_progress) return '#2563eb'; // blu
+  if(i.prep_type==='checklist') return '#94a3b8'; // checklist: grigio neutro
   // Urgenza viene SOLO dal bot (suggested_note)
   if(i.suggested_note && i.suggested_note.includes('|')){
     const col = i.suggested_note.split('|')[0];
-    if(col==='red') return '#e24b4a';
-    if(col==='yellow') return '#ef9f27';
-    if(col==='green') return '#22c55e';
+    if(col==='red') return '#dc2626';
+    if(col==='yellow') return '#d97706';
+    if(col==='green') return '#16a34a';
   }
-  return '#94a3b8'; // grigio — nessun dato bot
+  return '#cbd5e1'; // grigio chiaro — nessun dato bot
 }
 
 // ── BOTTONE card ──
@@ -246,8 +248,8 @@ function cardButton(i){
     const seeLabel = {it:'VEDI STEPS',en:'SEE STEPS',es:'VER PASOS'}[lang]||'SEE STEPS';
     return `<button onclick="prepSeeSteps(${JSON.stringify(iid)})" style="height:40px;padding:0 18px;border-radius:10px;font-size:13px;font-weight:600;background:#378add;color:white;border:none;white-space:nowrap;flex-shrink:0;">${seeLabel}</button>`;
   }
-  // START su tutti — checklist incluse
-  return `<button onclick="prepStart(${JSON.stringify(iid)})" style="height:40px;padding:0 20px;border-radius:10px;font-size:13px;font-weight:600;background:#1e3a5f;color:white;border:none;white-space:nowrap;flex-shrink:0;">START</button>`;
+  // START su tutti — largo, sotto la card
+  return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START</button>`;
 }
 
 // ── PREP ──
@@ -323,9 +325,7 @@ function renderM(){
 
       const badge = isWip
         ? '<span style="font-size:10px;font-weight:600;color:#185fa5;background:rgba(55,138,221,0.12);padding:2px 6px;border-radius:6px;">'+tr('inProgress')+'</span>'
-        : isUrgent
-          ? '<span style="font-size:10px;font-weight:700;color:#a32d2d;background:rgba(226,75,74,0.1);padding:2px 6px;border-radius:6px;letter-spacing:.04em;">'+tr('urgent')+'</span>'
-          : '';
+        : ''; // URGENT badge rimosso — bordo colorato è sufficiente
 
       // pill bot suggested_note (formato color|testo_it|testo_en|testo_es)
       let botPill = '';
@@ -361,25 +361,34 @@ function renderM(){
 
       const stockPill = buildStockPill(i);
       const btn = cardButton(i);
-      const recipeTag = i.recipe_id ? '<span style="font-size:11px;color:#059669;font-weight:500;">'+tr('recipe')+'</span>'
+      // recipeTag solo admin
+      const recipeTag = !isAdmin() ? ''
+        : i.recipe_id ? '<span style="font-size:11px;color:#059669;font-weight:500;">'+tr('recipe')+'</span>'
         : window.prepTasksWithSteps?.has(String(iid)) ? '<span style="font-size:11px;color:#7c3aed;font-weight:500;">▶ steps</span>'
         : i.note ? '<span style="font-size:11px;color:#d97706;">'+tr('note')+'</span>'
-        : isAdmin() ? '<span style="font-size:11px;color:#94a3b8;">'+tr('noRecipeLink')+'</span>' : '';
+        : '<span style="font-size:11px;color:#94a3b8;">'+tr('noRecipeLink')+'</span>';
 
-      return '<div class="col-span-2 mb-2 active:scale-[0.98] transition-transform" style="background:rgba(255,255,255,0.60);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:16px;border-left:4px solid '+borderColor+';box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04),inset 0 1px 0 rgba(255,255,255,0.9);">'
-        +'<div style="padding:12px 12px 12px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;">'
-          +'<div style="flex:1;min-width:0;cursor:pointer;" onclick="prepStart('+JSON.stringify(iid)+')">'
-            +'<div style="font-size:17px;font-weight:600;color:'+nameColor+';line-height:1.3;">'+i.name+'</div>'
-            +(badge?'<div style="margin-top:4px;">'+badge+'</div>':'')
-            +'<div style="margin-top:3px;">'+recipeTag+'</div>'
-            +botPill
-            +todayLogStrip
-            +stockPill
+      const adminIcons = isAdmin()
+        ? '<span style="display:flex;gap:4px;align-items:center;"><button onclick="adminRename('+JSON.stringify(iid)+')" style="font-size:14px;color:#94a3b8;background:none;border:none;padding:4px;">✏</button><button onclick="adminDel('+JSON.stringify(iid)+')" style="font-size:14px;color:#94a3b8;background:none;border:none;padding:4px;">🗑</button></span>'
+        : '';
+      const btnBelow = !isWip; // bottone largo sotto solo se non in progress
+      return '<div class="col-span-2 mb-2 active:scale-[0.98] transition-transform" style="background:rgba(255,255,255,0.60);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:16px;border-left:6px solid '+borderColor+';box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04),inset 0 1px 0 rgba(255,255,255,0.9);">'
+        +'<div style="padding:12px 12px '+(btnBelow?'8':'12')+'px 14px;">'
+          +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">'
+            +'<div style="flex:1;min-width:0;cursor:pointer;" onclick="prepStart('+JSON.stringify(iid)+')">'
+              +'<div style="font-size:17px;font-weight:700;color:'+nameColor+';line-height:1.3;">'+i.name+'</div>'
+              +(badge?'<div style="margin-top:4px;">'+badge+'</div>':'')
+              +(recipeTag?'<div style="margin-top:3px;">'+recipeTag+'</div>':'')
+              +botPill
+              +todayLogStrip
+              +stockPill
+            +'</div>'
+            +'<div style="display:flex;gap:4px;flex-shrink:0;align-items:center;">'
+              +(isWip?btn:'')
+              +adminIcons
+            +'</div>'
           +'</div>'
-          +'<div style="display:flex;gap:6px;flex-shrink:0;align-items:center;">'
-            +btn
-            +(isAdmin()?'<span style="display:flex;gap:4px;align-items:center;"><button onclick="adminRename('+JSON.stringify(iid)+')" style="font-size:14px;color:#94a3b8;background:none;border:none;padding:4px;">✏</button><button onclick="adminDel('+JSON.stringify(iid)+')" style="font-size:14px;color:#94a3b8;background:none;border:none;padding:4px;">🗑</button></span>':'')
-          +'</div>'
+          +(btnBelow?'<div style="margin-top:10px;padding-bottom:4px;">'+btn+'</div>':'')
         +'</div>'
       +'</div>';
     }).join('');
