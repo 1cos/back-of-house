@@ -86,7 +86,7 @@ async function openPrepEditor(prep=null){
         <h3 class="font-bold">${isNew?tr('adminNewPrep'):tr('adminEditPrep')}</h3>
         <button onclick="this.closest('.fixed').remove()" class="text-slate-400 text-xl">✕</button>
       </div>
-      <div class="p-4 overflow-auto space-y-3 text-sm flex-1">
+      <div class="p-4 overflow-auto space-y-3 text-sm flex-1" style="-webkit-overflow-scrolling:touch;overscroll-behavior:contain;">
         <div>
           <label class="text-xs font-semibold text-slate-500 mb-1 block">Nome preparazione</label>
           <input id="pepName" placeholder="es. Salsa Arrabbiata" class="w-full px-3 py-2.5 border rounded-xl" value="${prep?.name||''}">
@@ -186,6 +186,20 @@ async function openPrepEditor(prep=null){
       </div>
     </div>`;
   document.body.appendChild(modal);
+  // Lock scroll body su iOS quando modal è aperto
+  document.body.style.overflow = 'hidden';
+  document.body.style.position = 'fixed';
+  document.body.style.width = '100%';
+  const _restoreBodyScroll = () => {
+    document.body.style.overflow = '';
+    document.body.style.position = '';
+    document.body.style.width = '';
+  };
+  // Ripristina scroll body quando modal viene chiuso
+  const _modalObserver = new MutationObserver(() => {
+    if(!document.body.contains(modal)) { _restoreBodyScroll(); _modalObserver.disconnect(); }
+  });
+  _modalObserver.observe(document.body, {childList:true});
 
   // ── BOT CONFIG — show/hide conversione + carica shelf_life dalla ricetta ──
   if(!isNew && prep) {
