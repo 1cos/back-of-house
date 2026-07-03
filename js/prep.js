@@ -254,7 +254,7 @@ function cardButton(i){
 
 // ── PREP ──
 function renderM(){
-  const base=items.filter(i=>station==='All'||i.category?.includes(station));
+  const base=items.filter(i=>station==='All'||i.category===station);
   // ordinamento: in_progress > urgenti > gialli > normali
   const list=base.sort((a,b)=>{
     const score=i=>{
@@ -712,7 +712,7 @@ window.save=async(id,btn)=>{ quickSave(id); };
 
 // ── FEED ──
 function renderFeed(){
-  const base=items.filter(i=>station==='All'||i.category?.includes(station));
+  const base=items.filter(i=>station==='All'||i.category===station);
   const list=base.sort((a,b)=>(b.need_tomorrow?1:0)-(a.need_tomorrow?1:0));
   const feed=document.getElementById('feed');
   feed.innerHTML=list.map((i,idx)=>`
