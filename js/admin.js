@@ -261,15 +261,15 @@ window.openBotDebug = async function(){
     const tdS = 'padding:6px 8px;border-bottom:1px solid #f1f5f9;font-size:12px;vertical-align:top;white-space:nowrap;';
     const thS = 'padding:8px;background:#f8fafc;font-size:11px;font-weight:700;color:#64748b;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap;';
 
-    const thead = `<tr>
-      <th style="${thS}">Prep</th>
-      <th style="${thS}">Stock</th>
-      <th style="${thS}">Venduto ieri</th>
-      <th style="${thS}">Stock presunto</th>
-      <th style="${thS}">Logica copertura (${sl_placeholder}gg cal)</th>
-      <th style="${thS}">Suggestion</th>
-      <th style="${thS}">Perché</th>
-    </tr>`.replace('${sl_placeholder}','sl');
+    const thead = '<tr>'
+      + '<th style="'+thS+'">Prep</th>'
+      + '<th style="'+thS+'">Stock</th>'
+      + '<th style="'+thS+'">Venduto ieri</th>'
+      + '<th style="'+thS+'">Stock presunto</th>'
+      + '<th style="'+thS+'">Logica copertura (cal days)</th>'
+      + '<th style="'+thS+'">Suggestion</th>'
+      + '<th style="'+thS+'">Perché</th>'
+      + '</tr>';
 
     const tbody = rows.map(r=>`<tr style="${r.pill==='🔴'?'background:#fff5f5;':''}">
       <td style="${tdS}font-weight:600;color:#1e3a5f;">${r.pill} ${escHtml(r.name)}<br><span style="font-size:10px;color:#94a3b8;">${escHtml(r.cat)}</span></td>
