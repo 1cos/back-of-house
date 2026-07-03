@@ -1055,6 +1055,12 @@ window.invSaveStock = async function(taskId) {
     input.style.borderColor = '#ef4444';
     return;
   }
+  // Protezione zero: chiede conferma esplicita prima di azzerare
+  if (val === 0) {
+    var itemName = input.closest('div[style*="border-radius:14px"]')?.querySelector('div[style*="font-weight:600"]')?.textContent?.trim() || 'this item';
+    var confirmed = confirm('⚠️ Set ' + itemName + ' to ZERO?\n\nThis will erase the current stock. Tap Cancel to keep the existing value.');
+    if (!confirmed) { input.value = ''; input.focus(); return; }
+  }
   input.disabled = true;
   try {
     var { error } = await sb.from('prep_tasks')
