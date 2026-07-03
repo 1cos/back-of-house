@@ -116,6 +116,9 @@ async function loadTodayLogs(){
       if(!window._todayLogs[r.item]) window._todayLogs[r.item]=[];
       window._todayLogs[r.item].push(r);
     });
+    // Re-render dopo che i log sono pronti
+    if(typeof renderM==='function') renderM();
+    if(typeof renderS==='function') renderS();
   }catch(e){}
 }
 function getTodayLogsFor(itemName){
