@@ -375,7 +375,7 @@ function renderM(){
       return '<div class="col-span-2 mb-2 active:scale-[0.98] transition-transform" style="background:rgba(255,255,255,0.60);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:16px;border-left:6px solid '+borderColor+';box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04),inset 0 1px 0 rgba(255,255,255,0.9);">'
         +'<div style="padding:12px 12px '+(btnBelow?'8':'12')+'px 14px;">'
           +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">'
-            +'<div style="flex:1;min-width:0;">'
+            +'<div style="flex:1;min-width:0;cursor:pointer;" onclick="prepOpenRecipe('+JSON.stringify(iid)+')">'
               +'<div style="font-size:17px;font-weight:700;color:'+nameColor+';line-height:1.3;">'+i.name+'</div>'
               +(badge?'<div style="margin-top:4px;">'+badge+'</div>':'')
               +(recipeTag?'<div style="margin-top:3px;">'+recipeTag+'</div>':'')
@@ -395,6 +395,15 @@ function renderM(){
 }
 
 // ── AZIONI CARD ──
+
+// OPEN RECIPE — sola lettura, senza avviare la prep
+window.prepOpenRecipe = function(id){
+  const it = tasks[id];
+  if(!it) return;
+  if(typeof recipeModal!=='undefined'){
+    recipeModal.open(it.recipe_id||null, id);
+  }
+};
 
 // START — primo avvio: apre ricetta, segna in_progress
 window.prepStart = async function(id){
