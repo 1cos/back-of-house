@@ -1275,3 +1275,23 @@ Architettura corretta: la shelf_life appartiene alla PREP, non alla ricetta fina
 7. **Warning Center** — ricostruire da zero (sessione dedicata, ascoltare Max prima di toccare codice)
 8. **PROMPT_PROSSIMA_SESSIONE update** — aggiornare BOH_OS_BACKLOG.md con tutte le decisioni di oggi
 
+
+
+---
+
+## IDEA ANNOTATA — 2 Luglio 2026 — Pomodori Caprese (fette)
+
+**Contesto:** il prep task "Sliced Tomatoes" (Salad Station) deve essere calcolato in fette, non in grammi generici, perché ogni piatto usa un numero diverso di fette.
+
+**Regola fette per piatto (da Max, voce):**
+- Classic Caprese → 5 fette di pomodoro
+- Tuscany Road Trip → 3 fette di pomodoro
+
+**Cosa fare (non ancora implementato):**
+1. Verificare che `Sliced Tomatoes` esista come ingrediente nel BOM di entrambe le ricette
+2. Se no, aggiungere al BOM con `component_type='ITEM'`, `quantity=5` (o 3), `unit='fette'`
+3. Il prep_task "Sliced Tomatoes" (Salad Station) deve avere `unit='fette'` e `ingredient_id` collegato
+4. Il bot somma le vendite di Classic Caprese × 5 + Tuscany Road Trip × 3 = fette totali da tagliare
+5. Per convertire fette → pomodori interi: serve `avg_unit_weight_g` su ingrediente Tomato + peso medio di una fetta (~30-35g), oppure definire "1 pomodoro = N fette" — **chiedere a Max quante fette si ricavano da un pomodoro**
+
+**Domanda aperta:** quante fette si ricavano da un pomodoro? (serve per convertire fette totali → pomodori da tagliare)
