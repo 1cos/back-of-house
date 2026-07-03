@@ -100,6 +100,33 @@ async function loadStepsMap(){
   }catch(e){}
 }
 
+// ── TODAY LOGS — cache log di oggi per ogni item ──
+// Struttura: { 'Item Name': [{user_name, qty, unit, created_at}, ...] }
+window._todayLogs = {};
+async function loadTodayLogs(){
+  try{
+    const tz = 'America/Chicago';
+    const today = new Date().toLocaleDateString('en-CA', {timeZone: tz}); // YYYY-MM-DD in CDT
+    const{data}=await supa.from('prep_log')
+      .select('item,qty,unit,user_name,created_at')
+      .gte('created_at', today+'T00:00:00-05:00')
+      .order('created_at',{ascending:true});
+    window._todayLogs = {};
+    (data||[]).forEach(r=>{
+      if(!window._todayLogs[r.item]) window._todayLogs[r.item]=[];
+      window._todayLogs[r.item].push(r);
+    });
+  }catch(e){}
+}
+function getTodayLogsFor(itemName){
+  return window._todayLogs[itemName]||[];
+}
+function fmtLogTime(isoStr){
+  try{
+    return new Date(isoStr).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'America/Chicago'});
+  }catch(e){ return ''; }
+}
+
 function getAlertLevel(itemName){
   const a=itemAlerts[itemName];
   if(!a) return null;
@@ -313,6 +340,22 @@ function renderM(){
         botPill = '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.1);border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 '+i.suggested_note+'</span></div>';
       }
 
+      // Today log strip — ultimi log di oggi per questo item
+      let todayLogStrip = '';
+      if(i.prep_type !== 'checklist'){
+        const tlogs = getTodayLogsFor(i.name);
+        if(tlogs.length > 0){
+          const logEntries = tlogs.slice(-3).map(l=>{
+            const qty = parseFloat(l.qty);
+            const qtyStr = Number.isInteger(qty) ? qty : parseFloat(qty.toFixed(1));
+            const unit = l.unit||'';
+            const timeStr = fmtLogTime(l.created_at);
+            return '<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(5,150,105,0.08);border:0.5px solid rgba(5,150,105,0.2);border-radius:10px;padding:2px 8px;font-size:12px;color:#374151;white-space:nowrap;"><b style="color:#1e3a5f">'+l.user_name+'</b>&nbsp;'+qtyStr+unit+'&nbsp;<span style="color:#9ca3af">'+timeStr+'</span></span>';
+          }).join('');
+          todayLogStrip = '<div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-size:10px;font-weight:700;color:#9ca3af;letter-spacing:0.8px;text-transform:uppercase;">Today</span>'+logEntries+'</div>';
+        }
+      }
+
       const stockPill = buildStockPill(i);
       const btn = cardButton(i);
       const recipeTag = i.recipe_id ? '<span style="font-size:11px;color:#059669;font-weight:500;">'+tr('recipe')+'</span>'
@@ -327,6 +370,7 @@ function renderM(){
             +(badge?'<div style="margin-top:4px;">'+badge+'</div>':'')
             +'<div style="margin-top:3px;">'+recipeTag+'</div>'
             +botPill
+            +todayLogStrip
             +stockPill
           +'</div>'
           +'<div style="display:flex;gap:6px;flex-shrink:0;align-items:center;">'
@@ -370,8 +414,63 @@ window.prepDone = function(id){
 };
 
 // ── DONE SHEET ──
+// ── TODAY LOG HELPERS ──
+function buildTodayLogBanner(tlogs){
+  if(!tlogs||!tlogs.length) return '';
+  const rows = tlogs.slice(-3).map(l=>{
+    const qty = parseFloat(l.qty);
+    const qtyStr = Number.isInteger(qty) ? qty : parseFloat(qty.toFixed(1));
+    const unit = l.unit||'';
+    const timeStr = fmtLogTime(l.created_at);
+    return `<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#374151;"><span style="font-size:14px;">🧑‍🍳</span><b style="color:#1e3a5f">${l.user_name}</b><span style="color:#6b7280">${timeStr}</span><span style="font-weight:600;color:#059669">${qtyStr} ${unit}</span></div>`;
+  }).join('');
+  return `<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:12px;padding:10px 12px;margin-bottom:10px;">
+    <div style="font-size:11px;font-weight:700;color:#92400e;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:6px;">⚠️ Already logged today</div>
+    ${rows}
+  </div>`;
+}
+
+// Intercetta il Done — se ci sono log di oggi chiede conferma
+window.doneSheetConfirm = function(id, btn){
+  const tlogs = getTodayLogsFor(tasks[id]?.name||'');
+  if(tlogs.length === 0){
+    detailSave(id, btn, false);
+    return;
+  }
+  const sheet = btn.closest('.fixed');
+  const qtyInput = document.getElementById('dsc-qty-'+id);
+  const unitInput = document.getElementById('dsc-unit-'+id);
+  const qty = parseFloat(qtyInput?.value);
+  if(!qty || qty <= 0){
+    if(qtyInput) { qtyInput.style.borderBottom='2px solid #ef4444'; setTimeout(()=>qtyInput.style.borderBottom='2px solid #1e3a5f',1000); }
+    return;
+  }
+  const unit = unitInput?.value||tasks[id]?.unit||'';
+  const prevSummary = tlogs.slice(-3).map(l=>{
+    const q = parseFloat(l.qty);
+    return `${l.user_name}: ${Number.isInteger(q)?q:parseFloat(q.toFixed(1))} ${l.unit||''}`;
+  }).join(' · ');
+  const popup = document.createElement('div');
+  popup.className = 'fixed inset-0 z-[70] bg-black/60 flex items-center justify-center p-4';
+  popup.innerHTML = `<div style="background:#fff;border-radius:20px;padding:22px 20px;max-width:320px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:slideUp .2s ease">
+    <div style="font-size:28px;text-align:center;margin-bottom:8px;">⚠️</div>
+    <div style="font-size:16px;font-weight:700;color:#1e3a5f;text-align:center;margin-bottom:8px;">${tasks[id]?.name||''}</div>
+    <div style="font-size:12px;color:#6b7280;text-align:center;margin-bottom:14px;">${prevSummary}</div>
+    <div style="font-size:14px;color:#374151;text-align:center;margin-bottom:18px;">Add <b style="color:#059669">${qty} ${unit}</b> more?</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <button onclick="this.closest('.fixed').remove()" style="height:46px;border-radius:14px;background:#f1f5f9;color:#64748b;font-size:14px;font-weight:600;border:none;">Cancel</button>
+      <button onclick="this.closest('.fixed').remove();detailSave('${id}',null,false)" style="height:46px;border-radius:14px;background:#059669;color:white;font-size:14px;font-weight:600;border:none;">Yes, add it</button>
+    </div>
+  </div>`;
+  document.body.appendChild(popup);
+};
+
 function openDoneSheet(id){
   const it=tasks[id];
+  // Build today log banner if needed
+  const tlogs = getTodayLogsFor(it.name);
+  const todayBanner = tlogs.length > 0 ? buildTodayLogBanner(tlogs) : '';
+
   if(it.suggested_qty && parseFloat(it.suggested_qty)>0){
     const sqRaw = parseFloat(it.suggested_qty);
     const sqUnit = it.unit||tr('prep_portions');
@@ -381,12 +480,13 @@ function openDoneSheet(id){
     modal.style.background='rgba(0,0,0,0.35)';
     modal.innerHTML=`<div style="background:rgba(255,255,255,0.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:24px 24px 0 0;border-top:0.5px solid rgba(5,150,105,0.3);padding:20px 16px 28px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
       <div style="width:36px;height:4px;background:rgba(5,150,105,0.2);border-radius:2px;margin:0 auto 16px;"></div>
-      <div style="font-size:15px;font-weight:600;color:#1e3a5f;margin-bottom:4px;">${it.name}</div>
-      <div style="font-size:12px;color:#6b7280;margin-bottom:18px;">${tr('prep_how_much')}</div>
-      <button onclick="suggestedSave('${it.id}',this.closest('.fixed'))" style="width:100%;height:52px;border-radius:16px;background:#059669;color:white;font-size:14px;font-weight:600;border:none;margin-bottom:10px;">
+      <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">${it.name}</div>
+      ${todayBanner}
+      <div style="font-size:13px;color:#6b7280;margin-bottom:18px;">${tlogs.length>0?tr('prep_already_today'):tr('prep_how_much')}</div>
+      <button onclick="suggestedSave('${it.id}',this.closest('.fixed'))" style="width:100%;height:52px;border-radius:16px;background:#059669;color:white;font-size:15px;font-weight:600;border:none;margin-bottom:10px;">
         ✅ ${sqLabel} — ${tr('prep_suggested_label')}
       </button>
-      <button onclick="this.closest('.fixed').remove();openDoneSheetCustom('${it.id}')" style="width:100%;height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:13px;border:0.5px solid rgba(59,130,246,0.2);">
+      <button onclick="this.closest('.fixed').remove();openDoneSheetCustom('${it.id}')" style="width:100%;height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:14px;border:0.5px solid rgba(59,130,246,0.2);">
         ${tr('prep_custom_qty')}
       </button>
     </div>`;
@@ -403,13 +503,17 @@ function openDoneSheetCustom(id){
   const defaultPezzi = ['pezzi','pz','each','pieces','pcs'].includes(taskUnit);
   const defQty = it.suggested_qty!=null ? parseFloat(it.suggested_qty) : (it.average_qty!=null ? parseFloat(it.average_qty) : 0);
   const defUnit = defaultPezzi ? 'pz' : 'g';
+  // Today log banner
+  const tlogs = getTodayLogsFor(it.name);
+  const todayBanner = tlogs.length > 0 ? buildTodayLogBanner(tlogs) : '';
   const sheet=document.createElement('div');
   sheet.className='fixed inset-0 z-50 flex items-end';
   sheet.style.background='rgba(0,0,0,0.5)';
   sheet.innerHTML=`<div style="background:#fff;border-radius:24px 24px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
     <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 20px;"></div>
     <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:6px;">${it.name}</div>
-    <div style="font-size:13px;color:#6b7280;margin-bottom:20px;">${tr('prep_how_much')}</div>
+    ${todayBanner}
+    <div style="font-size:13px;color:#6b7280;margin-bottom:${tlogs.length>0?'12':'20'}px;">${tlogs.length>0?tr('prep_already_today'):tr('prep_how_much')}</div>
     <input id="dsc-qty-${it.id}" type="number" inputmode="decimal" value="${isNaN(defQty)?0:defQty}" placeholder="0"
       style="width:100%;font-size:32px;font-weight:700;color:#1e3a5f;text-align:center;border:none;border-bottom:2px solid #1e3a5f;outline:none;padding:8px 0;margin-bottom:24px;background:transparent;">
     <input type="hidden" id="dsc-unit-${it.id}" value="${defUnit}">
@@ -425,7 +529,7 @@ function openDoneSheetCustom(id){
     </div>
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;">
       <button onclick="this.closest('.fixed').remove()" style="height:46px;border-radius:14px;background:#f1f5f9;color:#64748b;font-size:14px;border:none;">${tr('prep_cancel')}</button>
-      <button onclick="detailSave('${it.id}',this,false)" style="height:46px;border-radius:14px;background:#1e3a5f;color:white;font-size:14px;font-weight:600;border:none;">${tr('prep_done')}</button>
+      <button onclick="doneSheetConfirm('${it.id}',this)" style="height:46px;border-radius:14px;background:#1e3a5f;color:white;font-size:14px;font-weight:600;border:none;">${tr('prep_done')}</button>
     </div>
   </div>`;
   sheet.onclick=e=>{if(e.target===sheet)sheet.remove();};
@@ -479,7 +583,7 @@ async function suggestedSave(id, modal){
     return;
   }
   _finishTask(id, qty);
-  loadItemAlerts();loadStepsMap();
+  loadItemAlerts();loadStepsMap();loadTodayLogs();
 }
 
 async function detailSave(id, btn, isSuggested){
@@ -573,7 +677,7 @@ async function quickSave(id){
     return;
   }
   _finishTask(id, addQty);
-  loadItemAlerts();loadStepsMap();
+  loadItemAlerts();loadStepsMap();loadTodayLogs();
 }
 
 async function saveWip(id, note){
