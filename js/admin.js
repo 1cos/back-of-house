@@ -82,6 +82,7 @@ window.openBotDebug = async function(){
         <span style="font-size:17px;font-weight:700;color:#1e3a5f;">🤖 Bot Debug</span>
         <div style="display:flex;gap:8px;align-items:center;">
           <button id="botSimRunBtn" onclick="runBotSim()" style="padding:7px 14px;background:#4f46e5;color:white;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">▶ Aggiorna simulazione</button>
+          <button id="botSimPrintBtn" onclick="printBotSim()" style="display:none;padding:7px 14px;background:#0f766e;color:white;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">🖨️ Stampa</button>
           <button onclick="document.getElementById('botDebugSheet').remove()" style="font-size:22px;background:none;border:none;color:#94a3b8;">✕</button>
         </div>
       </div>
@@ -165,6 +166,11 @@ window.runBotSim = async function(){
     }).join('');
 
     const nowStr = new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
+    // Salva dati sim per stampa
+    window._botSimMeta = { date: simData.sim_date, time: nowStr, red: simData.red, yellow: simData.yellow, green: simData.green, total: rows.length };
+    window._botSimRows = rows;
+    const printBtn = document.getElementById('botSimPrintBtn');
+    if(printBtn) printBtn.style.display = '';
     if(body) body.innerHTML = `
       <div style="font-size:12px;color:#64748b;margin-bottom:10px;">
         Simulazione del <b>${simData.sim_date}</b> — aggiornata alle ${nowStr} —
@@ -185,4 +191,71 @@ window.runBotSim = async function(){
   } finally {
     if(btn) { btn.disabled=false; btn.textContent='▶ Aggiorna simulazione'; }
   }
+};
+
+window.printBotSim = function() {
+  const meta = window._botSimMeta;
+  const rows = window._botSimRows;
+  if(!meta || !rows) return;
+
+  const fmtN = (n, unit) => {
+    if(n===null||n===undefined) return '—';
+    const v = parseFloat(n);
+    if(isNaN(v)) return '—';
+    const isPz = ['pezzi','pz','nests','buste','cartocci','cup'].includes((unit||'').toLowerCase());
+    if(isPz) return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+    return v >= 1000 ? (v/1000).toFixed(1).replace(/\.0$/,'')+'kg' : Math.round(v)+'g';
+  };
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const pillLabel = p => p==='red'?'🔴':p==='yellow'?'🟡':'🟢';
+
+  const thead = `<tr>
+    <th>Prep</th><th>Stazione</th>
+    <th>Stock reale</th><th>Venduto ieri</th><th>Stock presunto</th>
+    <th>Fabbisogno</th><th>Suggestion</th><th>Percorso</th>
+  </tr>`;
+
+  const tbody = rows.map(r => {
+    const bg = r.pill==='red'?'#fff0f0':r.pill==='yellow'?'#fffbeb':'#fff';
+    return `<tr style="background:${bg};">
+      <td><b>${pillLabel(r.pill)} ${esc(r.task_name)}</b></td>
+      <td style="color:#666;">${esc(r.category)}</td>
+      <td style="text-align:right;">${fmtN(r.current_stock,r.unit)}</td>
+      <td style="text-align:right;color:${r.sold_yesterday?'#c00':'#999'};">${r.sold_yesterday?'-'+fmtN(r.sold_yesterday,r.unit):'—'}</td>
+      <td style="text-align:right;font-weight:700;">${fmtN(r.stock_presunto,r.unit)}</td>
+      <td style="text-align:right;">${fmtN(r.fabbisogno_raw,r.unit)}</td>
+      <td style="font-weight:700;color:${r.pill==='red'?'#c00':r.pill==='yellow'?'#b45309':'#166534'};">${esc(r.suggestion_text)}</td>
+      <td style="font-size:10px;color:#555;">${esc(r.percorso)}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+  <title>Bot Debug Sim — ${meta.date}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 11px; margin: 16px; color: #111; }
+    h2 { font-size: 15px; margin: 0 0 4px; }
+    .meta { font-size: 11px; color: #555; margin-bottom: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #1e3a5f; color: #fff; padding: 5px 6px; text-align: left; font-size: 10px; }
+    td { padding: 4px 6px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    @media print {
+      body { margin: 8px; }
+      @page { size: landscape; margin: 10mm; }
+    }
+  </style>
+  </head><body>
+  <h2>🤖 Bot Debug Simulazione — Zenos on the Square</h2>
+  <div class="meta">
+    Data: <b>${meta.date}</b> · Aggiornata alle ${meta.time} ·
+    🔴 ${meta.red} prep oggi · 🟡 ${meta.yellow} domani · 🟢 ${meta.green} ok · ${meta.total} task totali
+  </div>
+  <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>
+  <div style="margin-top:12px;font-size:9px;color:#999;">
+    Simulazione — stock reale non toccato · generato da Brigade
+  </div>
+  <script>window.onload=()=>{ window.print(); window.onafterprint=()=>window.close(); }<\/script>
+  </body></html>`;
+
+  const w = window.open('','_blank','width=1100,height=800');
+  if(w) { w.document.write(html); w.document.close(); }
 };
