@@ -1295,3 +1295,22 @@ Architettura corretta: la shelf_life appartiene alla PREP, non alla ricetta fina
 5. Per convertire fette → pomodori interi: serve `avg_unit_weight_g` su ingrediente Tomato + peso medio di una fetta (~30-35g), oppure definire "1 pomodoro = N fette" — **chiedere a Max quante fette si ricavano da un pomodoro**
 
 **Domanda aperta:** quante fette si ricavano da un pomodoro? (serve per convertire fette totali → pomodori da tagliare)
+
+---
+
+## IDEA ANNOTATA — 2 Luglio 2026 — Open Food POS / scarico manuale stock
+
+**Situazione verificatasi oggi:** cheesecake intero venduto to-go con Nutella e berry topping. Lo staff non trovava il tasto POS corretto → venduto come **"Open Food" a $65**. Questo codice non è collegato alla ricetta Cheesecake in Brigade → il bot NON scaricherà automaticamente 1 cheesecake dallo stock stanotte.
+
+**Problema strutturale:** ogni volta che qualcosa viene venduto come "Open Food" (o voce POS generica), Brigade non sa cosa è stato consumato. Lo stock rimane gonfiato.
+
+**Workaround immediato applicato oggi:** nessuno (da fare manualmente se serve).
+
+**Domande aperte per Max:**
+1. Quanto spesso succede che lo staff usi "Open Food" per non trovare il tasto giusto?
+2. Vuoi che Brigade abbia un modo per registrare scarichi manuali di stock (es. "ho venduto 1 cheesecake intero fuori POS")?
+3. Oppure meglio risolvere a monte aggiungendo il tasto POS "Cheesecake Intero To-Go" con i topping?
+
+**Possibile soluzione Brigade:** aggiungere in L'Ufficio (o nella home admin) un bottone "Scarico manuale stock" → scegli prep_task → inserisci quantità → motivo (vendita fuori POS, scarto, evento, ecc.) → aggiorna current_stock e logga in prep_log. Il bot la mattina dopo parte dallo stock corretto.
+
+**Nota:** `pos_excluded_items` esiste già nel DB (6 righe) — "Open Food" probabilmente è già lì come voce esclusa. Verificare.
