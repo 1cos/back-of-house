@@ -160,6 +160,18 @@ async function openPrepEditor(prep=null){
               <input id="pepMinCover" type="number" min="1" max="14" placeholder="2" style="width:100%;padding:8px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;" value="${prep?.min_cover_days??2}">
               <p style="font-size:10px;color:#94a3b8;margin-top:3px;">Default 2 = prepara solo se non arrivi a dopodomani. Cibo fresco: 1-2. Prep in anticipo (ragu, brisket): 4-5.</p>
             </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Testo pill (alias)</label>
+              <input id="pepPackLabel" type="text" placeholder='es. pacchi, buste, latte' style="width:100%;padding:8px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;" value="${prep?.pack_label||''}">
+              <p style="font-size:10px;color:#94a3b8;margin-top:3px;">Il bot scrive "2 <b>pacchi</b>" invece di "2 × 25LB" o grammi. Lascia vuoto per usare la logica automatica.</p>
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Ingrediente driver</label>
+              <select id="pepDriverIngredient" style="width:100%;padding:8px 12px;border:1px solid #e2e8f0;border-radius:10px;background:white;font-size:13px;">
+                <option value="">— Automatico (primo BOM) —</option>
+              </select>
+              <p style="font-size:10px;color:#94a3b8;margin-top:3px;">Quale ingrediente del BOM determina il pack. Es. Calamari invece di Flour.</p>
+            </div>
             ${prep?.suggested_note ? `<div>
               <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Il bot dice...</label>
               <div style="padding:8px 12px;background:white;border:1px solid #e2e8f0;border-radius:10px;font-size:12px;color:#334155;">
@@ -197,6 +209,37 @@ async function openPrepEditor(prep=null){
         pepConvRow.style.display = (u && u !== 'g' && u !== 'kg') ? '' : 'none';
         if(pepUnitLabel) pepUnitLabel.textContent = u;
       };
+    }
+    // Carica dropdown ingrediente driver dal BOM della ricetta
+    const driverSel = modal.querySelector('#pepDriverIngredient');
+    if(driverSel && prep.recipe_id) {
+      const {data: bomRows} = await supa
+        .from('recipe_bom')
+        .select('item_id, sort_order, ingredients:item_id(id, name)')
+        .eq('parent_recipe_id', prep.recipe_id)
+        .eq('component_type', 'ITEM')
+        .order('sort_order');
+      if(bomRows && bomRows.length) {
+        bomRows.forEach(r => {
+          const ing = r.ingredients;
+          if(!ing) return;
+          const opt = document.createElement('option');
+          opt.value = ing.id;
+          opt.textContent = ing.name;
+          if(prep.driver_ingredient_id === ing.id) opt.selected = true;
+          driverSel.appendChild(opt);
+        });
+      }
+    } else if(driverSel && !prep.recipe_id) {
+      // Nessuna ricetta — carica tutti gli ingredienti attivi
+      const {data: ings} = await supa.from('ingredients').select('id,name').eq('active',true).order('name').limit(200);
+      (ings||[]).forEach(i => {
+        const opt = document.createElement('option');
+        opt.value = i.id;
+        opt.textContent = i.name;
+        if(prep.driver_ingredient_id === i.id) opt.selected = true;
+        driverSel.appendChild(opt);
+      });
     }
   }
 
@@ -273,7 +316,9 @@ async function openPrepEditor(prep=null){
         const pepUnit = modal.querySelector('#pepUnit')?.value || null;
         const pepShelf = modal.querySelector('#pepShelf')?.value ? parseInt(modal.querySelector('#pepShelf').value) : null;
         const ingredient_id = modal.querySelector('#pepIngredient')?.value || null;
-        const updates = {name, category, note, recipe_id, ingredient_id};
+        const pack_label = modal.querySelector('#pepPackLabel')?.value.trim() || null;
+        const driver_ingredient_id = modal.querySelector('#pepDriverIngredient')?.value || null;
+        const updates = {name, category, note, recipe_id, ingredient_id, pack_label, driver_ingredient_id};
         if(duration) updates.expected_duration_days = duration;
         if(pepUnit) updates.unit = pepUnit;
         const pepMinCoverVal = modal.querySelector('#pepMinCover')?.value;
