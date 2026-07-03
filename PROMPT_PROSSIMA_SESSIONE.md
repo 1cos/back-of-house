@@ -1314,3 +1314,25 @@ Architettura corretta: la shelf_life appartiene alla PREP, non alla ricetta fina
 **Possibile soluzione Brigade:** aggiungere in L'Ufficio (o nella home admin) un bottone "Scarico manuale stock" → scegli prep_task → inserisci quantità → motivo (vendita fuori POS, scarto, evento, ecc.) → aggiorna current_stock e logga in prep_log. Il bot la mattina dopo parte dallo stock corretto.
 
 **Nota:** `pos_excluded_items` esiste già nel DB (6 righe) — "Open Food" probabilmente è già lì come voce esclusa. Verificare.
+
+---
+
+## IDEA ANNOTATA — 2 Luglio 2026 — "L'hai già fatto?" — alert doppio log prep
+
+**Problema:** il cuoco non è sicuro se ha già inserito una prep o no. La rimette → stock gonfiato.
+
+**Flusso desiderato (da Max, voce):**
+Quando il cuoco apre la DONE sheet di un prep_task, Brigade controlla il prep_log di oggi per quel task. Se trova già un log nella giornata corrente:
+
+1. Mostra un alert PRIMA di salvare:
+   > "⚠️ Già inserita oggi — Cole ha segnato 5kg alle 9:30. Vuoi aggiungerne altra?"
+   > **[Sì, aggiungi]** · **[No, annulla]**
+
+2. Se il cuoco conferma → salva normalmente (somma allo stock)
+3. Se annulla → non fa nulla
+
+**Dove implementare:** `js/prep.js` — funzione `openDoneSheet()` o all'inizio di `suggestedSave()`/`detailSave()`. Prima di aprire la sheet (o prima di salvare), query su `prep_log` WHERE `item = task.name` AND `log_date = today` AND `user_name != null`. Se trova righe → mostra alert con riepilogo (chi, quanto, quando in CDT).
+
+**Bonus UX:** nella card prep, sotto il nome del task, mostrare in piccolo gli ultimi 3 log del giorno come indicatore visivo passivo — "Cole 5kg · 9:30" — così il cuoco lo vede prima ancora di aprire la DONE sheet.
+
+**Nota tecnica:** `prep_log.created_at` è UTC — convertire a CDT per display (America/Chicago).
