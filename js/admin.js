@@ -73,234 +73,116 @@ window.deleteClosedDate = async function(date){
 window.openBotDebug = async function(){
   hideAdminMenu();
 
-  // Sheet di caricamento
   const sheet = document.createElement('div');
   sheet.id = 'botDebugSheet';
-  sheet.style.cssText = 'position:fixed;inset:0;z-index:70;background:rgba(15,23,42,0.5);overflow-y:auto;';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:70;background:rgba(15,23,42,0.5);overflow-y:auto;-webkit-overflow-scrolling:touch;';
   sheet.innerHTML = `<div style="min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:16px 8px 40px;">
-    <div style="background:#fff;border-radius:20px;width:100%;max-width:900px;padding:20px 16px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <div style="background:#fff;border-radius:20px;width:100%;max-width:960px;padding:20px 16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <span style="font-size:17px;font-weight:700;color:#1e3a5f;">🤖 Bot Debug</span>
-        <button onclick="document.getElementById('botDebugSheet').remove()" style="font-size:22px;background:none;border:none;color:#94a3b8;">✕</button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button id="botSimRunBtn" onclick="runBotSim()" style="padding:7px 14px;background:#4f46e5;color:white;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">▶ Aggiorna simulazione</button>
+          <button onclick="document.getElementById('botDebugSheet').remove()" style="font-size:22px;background:none;border:none;color:#94a3b8;">✕</button>
+        </div>
       </div>
-      <div id="botDebugBody" style="color:#64748b;font-size:14px;">Caricamento...</div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:12px;">
+        ⚠️ La simulazione NON tocca stock reale — legge i dati attuali e mostra cosa farebbe il bot stanotte.
+      </div>
+      <div id="botDebugBody" style="color:#64748b;font-size:14px;">Premi "Aggiorna simulazione" per caricare i dati.</div>
     </div>
   </div>`;
   sheet.addEventListener('click', e => { if(e.target===sheet) sheet.remove(); });
   document.body.appendChild(sheet);
+};
+
+window.runBotSim = async function(){
+  const btn = document.getElementById('botSimRunBtn');
+  const body = document.getElementById('botDebugBody');
+  if(btn) { btn.disabled=true; btn.textContent='⏳ Calcolo...'; }
+  if(body) body.innerHTML = '<div style="color:#64748b;padding:20px;text-align:center;">Simulazione in corso...</div>';
 
   try {
-    // ── Dati necessari ──────────────────────────────────────────
-    const today = new Date();
-    // offset CDT (UTC-5)
-    const nowCDT = new Date(today.getTime() - 5*60*60*1000);
-    const toISO = d => d.toISOString().slice(0,10);
-    const yesterday = new Date(nowCDT); yesterday.setDate(yesterday.getDate()-1);
+    // 1. Triggera la Edge Function di simulazione
+    const SUPA_URL = 'https://ydqmumpytgrlceuinoqt.supabase.co';
+    const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxNDM5NzgsImV4cCI6MjA2NDcxOTk3OH0.RB5vYE3gJjH7gJy01Gh-eLQixanVX6cLc0disc8-bJs';
 
-    const DOW_IT  = ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'];
-    const DOW_EN  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    const BUFFER  = 1.10;
+    const simRes = await fetch(`${SUPA_URL}/functions/v1/bot-preplist-sim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
+      body: JSON.stringify({ run_by: user?.name || 'Max' })
+    });
+    const simData = await simRes.json();
+    if (!simRes.ok || simData.error) throw new Error(simData.error || 'Errore simulazione');
 
-    // Fetch parallelo
-    const [tasksRes, salesYRes, salesAvgRes, closedRes] = await Promise.all([
-      supa.from('prep_tasks')
-        .select('id,name,category,unit,current_stock,min_cover_days,expected_duration_days,recipe_id,recipes:recipe_id(title,pos_name,base_servings,base_weight_g,serving_qty,serving_unit,serving_weight_g,shelf_life_days)')
-        .eq('archived', false)
-        .neq('prep_type', 'checklist'),
-      supa.from('pos_sales_by_item').select('menu_item,quantity').eq('sale_date', toISO(yesterday)),
-      supa.rpc('get_sales_by_dow', {
-        start_date: toISO(new Date(nowCDT.getTime() - 90*24*60*60*1000)),
-        end_date: toISO(nowCDT)
-      }),
-      supa.from('closed_dates').select('date')
-        .gte('date', toISO(nowCDT))
-        .lte('date', toISO(new Date(nowCDT.getTime() + 30*24*60*60*1000)))
-    ]);
+    // 2. Leggi risultati da bot_debug_runs
+    const { data: rows, error } = await supa
+      .from('bot_debug_runs')
+      .select('*')
+      .eq('sim_date', simData.sim_date)
+      .order('pill', { ascending: true })  // red prima
+      .order('task_name');
+    if (error) throw error;
 
-    const tasks   = (tasksRes.data || []).filter(t => t.current_stock !== null && t.current_stock !== undefined);
-    const closedDates = new Set((closedRes.data||[]).map(r => r.date));
+    // 3. Render tabella
+    const thS = 'padding:7px 8px;background:#f8fafc;font-size:11px;font-weight:700;color:#64748b;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap;';
+    const tdS = 'padding:6px 8px;border-bottom:1px solid #f1f5f9;font-size:12px;vertical-align:top;';
 
-    // yMap: vendite ieri
-    const yMap = {};
-    for(const s of (salesYRes.data||[])){
-      const k=(s.menu_item||'').toLowerCase().trim();
-      yMap[k]=(yMap[k]||0)+(parseFloat(s.quantity)||0);
-    }
-
-    // salesMap: medie per DOW
-    const salesMap = {};
-    for(const r of (salesAvgRes.data||[])){
-      const k=(r.menu_item||'').toLowerCase().trim();
-      if(!salesMap[k])salesMap[k]={};
-      salesMap[k][r.dow_name]=parseFloat(r.avg_qty)||0;
-    }
-    const avgForDow = (pn, dow) => salesMap[pn.toLowerCase().trim()]?.[dow]||0;
-
-    // Helpers
-    const calDays = (from, n) => {
-      const days=[]; const d=new Date(from);
-      for(let i=0;i<n;i++){days.push(new Date(d));d.setDate(d.getDate()+1);}
-      return days;
-    };
-    const fmtN = n => isNaN(n)||n===null?'—':Number.isInteger(n)?String(n):parseFloat(n.toFixed(2)).toString();
-    const PZ_UNITS = ['pezzi','pz'];
-
-    // ── Costruisci righe ────────────────────────────────────────
-    const rows = [];
-    for(const task of tasks){
-      const rec = task.recipes;
-      const pns = rec?.pos_name ? rec.pos_name.split('|').map(x=>x.trim()).filter(Boolean) : [];
-      const tu  = (task.unit||'').toLowerCase().trim();
-      const isPz = PZ_UNITS.includes(tu);
-      const bs  = rec?.base_servings ? parseInt(rec.base_servings) : null;
-      const bw  = rec?.base_weight_g ? parseFloat(rec.base_weight_g) : null;
-      const sq  = rec?.serving_qty   ? parseFloat(rec.serving_qty)   : null;
-      const sw  = rec?.serving_weight_g ? parseFloat(rec.serving_weight_g) : null;
-      const stock = parseFloat(String(task.current_stock))||0;
-
-      // Shelf life
-      let sl = task.expected_duration_days||0;
-      if(!sl) sl = rec?.shelf_life_days||3;
-
-      // Venduto ieri
-      let vendutoIeri = 0;
-      for(const pn of pns){
-        const sold = yMap[pn.toLowerCase().trim()]||0;
-        if(sold>0){
-          if(isPz&&sq&&sq>0) vendutoIeri+=sold*sq;
-          else if(isPz&&bs&&bs>1) vendutoIeri+=sold/bs;
-          else if(sw&&sw>0) vendutoIeri+=sold*sw;
-          else if(bw&&bs&&bs>0) vendutoIeri+=sold*(bw/bs);
-          else vendutoIeri+=sold;
-        }
-      }
-      if(isPz) vendutoIeri = Math.ceil(vendutoIeri);
-
-      // Stock presunto dopo scarico
-      const stockPresunto = Math.max(0, stock - vendutoIeri);
-
-      // cPerDow per ogni giorno
-      const cPerDow = (dow, date) => {
-        if(dow==='Sunday') return 0;
-        if(closedDates.has(toISO(date))) return 0;
-        let c=0;
-        for(const pn of pns){
-          const avg=avgForDow(pn,dow);
-          if(avg>0){
-            if(isPz&&sq&&sq>0) c+=avg*sq;
-            else if(isPz&&bs&&bs>1) c+=avg/bs;
-            else if(sw&&sw>0) c+=avg*sw;
-            else if(bw&&bs&&bs>0) c+=avg*(bw/bs);
-            else c+=avg;
-          }
-        }
-        return c * BUFFER;
-      };
-
-      // coverDays = giorni aperti dentro finestra sl calendar days
-      const shelfWindow = calDays(nowCDT, sl);
-      const coverDays = shelfWindow.filter(d=>d.getDay()!==0&&!closedDates.has(toISO(d)));
-
-      // Logica copertura (usa stock presunto)
-      let remaining = stockPresunto;
-      let coverLog = [];
-      for(const d of shelfWindow){
-        const dow = DOW_EN[d.getDay()];
-        const cons = cPerDow(dow, d);
-        const isOpen = d.getDay()!==0 && !closedDates.has(toISO(d));
-        const label = DOW_IT[d.getDay()]+' '+d.getDate()+'/'+String(d.getMonth()+1).padStart(2,'0');
-        if(!isOpen){
-          coverLog.push(`${label}: chiuso`);
-        } else {
-          remaining -= cons;
-          const ok = remaining > 0;
-          coverLog.push(`${label}: -${fmtN(cons)} → ${fmtN(Math.max(0,remaining))} ${ok?'✓':'✗ ESAURITO'}`);
-        }
-      }
-
-      // fabbisogno
-      const totalForCover = coverDays.reduce((s,d)=>s+cPerDow(DOW_EN[d.getDay()],d),0);
-      const needed = Math.max(0, totalForCover - stockPresunto);
-
-      // pill
-      const hasDOWdata = coverDays.some(d=>cPerDow(DOW_EN[d.getDay()],d)>0);
-      let pill;
-      if(stockPresunto <= 0 && hasDOWdata) pill='🔴';
-      else if(needed > 0 && hasDOWdata) pill='🔴';
-      else if(!hasDOWdata && stockPresunto<=0) pill='🔴';
-      else pill='🟢';
-
-      // suggestion
-      let fin = needed;
-      if(isPz){ fin=Math.ceil(needed); if(bs&&bs>1) fin=Math.ceil(needed/bs)*bs; }
-      else if(bw&&bw>0) fin=Math.ceil(needed/bw)*bw;
-      else fin=Math.ceil(needed);
-
-      rows.push({
-        name: task.name,
-        cat: task.category||'',
-        stock: fmtN(stock),
-        vendutoIeri: fmtN(vendutoIeri),
-        stockPresunto: fmtN(stockPresunto),
-        sl,
-        coverDays: coverDays.length,
-        fabbisogno: fmtN(totalForCover),
-        suggestion: fin>0 ? fmtN(fin)+' '+tu : '—',
-        pill,
-        logicaEsplosa: coverLog.join('<br>'),
-        logicaSugg: fin>0
-          ? `${hasDOWdata?'storico DOW':'no dati'} · finestra ${sl}gg cal · ${coverDays.length} giorni aperti · fabb ${fmtN(totalForCover)} · stock ${fmtN(stockPresunto)} → mancano ${fmtN(needed)}`
-          : `stock presunto ${fmtN(stockPresunto)} copre i ${coverDays.length} giorni aperti`
-      });
-    }
-
-    // Ordina: rossi prima, poi per nome
-    rows.sort((a,b)=>(a.pill===b.pill?a.name.localeCompare(b.name):a.pill==='🔴'?-1:1));
-
-    // ── Render tabella ──────────────────────────────────────────
-    const tdS = 'padding:6px 8px;border-bottom:1px solid #f1f5f9;font-size:12px;vertical-align:top;white-space:nowrap;';
-    const thS = 'padding:8px;background:#f8fafc;font-size:11px;font-weight:700;color:#64748b;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap;';
+    const pillEmoji = p => p==='red'?'🔴':p==='yellow'?'🟡':'🟢';
 
     const thead = '<tr>'
-      + '<th style="'+thS+'">Prep</th>'
-      + '<th style="'+thS+'">Stock</th>'
-      + '<th style="'+thS+'">Venduto ieri</th>'
-      + '<th style="'+thS+'">Stock presunto</th>'
-      + '<th style="'+thS+'">Logica copertura (cal days)</th>'
-      + '<th style="'+thS+'">Suggestion</th>'
-      + '<th style="'+thS+'">Perché</th>'
+      + `<th style="${thS}">Prep</th>`
+      + `<th style="${thS}">Stock reale</th>`
+      + `<th style="${thS}">Venduto ieri</th>`
+      + `<th style="${thS}">Stock presunto</th>`
+      + `<th style="${thS}">Finestra (${rows[0]?.shelf_life_days||'?'}gg cal)</th>`
+      + `<th style="${thS}">Fabbisogno</th>`
+      + `<th style="${thS}">Suggestion</th>`
+      + `<th style="${thS}">Percorso</th>`
       + '</tr>';
 
-    const tbody = rows.map(r=>`<tr style="${r.pill==='🔴'?'background:#fff5f5;':''}">
-      <td style="${tdS}font-weight:600;color:#1e3a5f;">${r.pill} ${escHtml(r.name)}<br><span style="font-size:10px;color:#94a3b8;">${escHtml(r.cat)}</span></td>
-      <td style="${tdS}text-align:right;">${r.stock} ${escHtml(r.stock!=='—'?r.cat.includes('g')?'':'':'')}</td>
-      <td style="${tdS}text-align:right;color:#dc2626;">${r.vendutoIeri!=='0'&&r.vendutoIeri!=='—'?'-'+r.vendutoIeri:'—'}</td>
-      <td style="${tdS}text-align:right;font-weight:600;">${r.stockPresunto}</td>
-      <td style="${tdS}font-size:11px;color:#475569;white-space:normal;min-width:180px;">${r.logicaEsplosa}</td>
-      <td style="${tdS}font-weight:700;color:${r.pill==='🔴'?'#dc2626':'#059669'};">${escHtml(r.suggestion)}</td>
-      <td style="${tdS}font-size:11px;color:#64748b;white-space:normal;min-width:200px;">${escHtml(r.logicaSugg)}</td>
-    </tr>`).join('');
+    const fmtN = (n, unit) => {
+      if(n===null||n===undefined) return '—';
+      const v = parseFloat(n);
+      if(isNaN(v)) return '—';
+      const isPz = ['pezzi','pz','nests','buste','cartocci','cup'].includes((unit||'').toLowerCase());
+      if(isPz) return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+      return v >= 1000 ? (v/1000).toFixed(1).replace(/\.0$/,'')+'kg' : Math.round(v)+'g';
+    };
 
-    const ieri = yesterday.toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'});
+    const tbody = (rows||[]).map(r => {
+      const isRed = r.pill === 'red';
+      const rowBg = isRed ? 'background:#fff5f5;' : r.pill==='yellow' ? 'background:#fffbeb;' : '';
+      return `<tr style="${rowBg}">
+        <td style="${tdS}font-weight:600;color:#1e3a5f;">${pillEmoji(r.pill)} ${escHtml(r.task_name||'')}<br><span style="font-size:10px;color:#94a3b8;font-weight:400;">${escHtml(r.category||'')}</span></td>
+        <td style="${tdS}text-align:right;">${fmtN(r.current_stock, r.unit)}</td>
+        <td style="${tdS}text-align:right;color:${r.sold_yesterday?'#dc2626':'#94a3b8'};">${r.sold_yesterday ? '-'+fmtN(r.sold_yesterday,r.unit) : '—'}</td>
+        <td style="${tdS}text-align:right;font-weight:600;">${fmtN(r.stock_presunto,r.unit)}</td>
+        <td style="${tdS}font-size:10px;color:#64748b;white-space:normal;max-width:160px;">${escHtml(r.cover_days_list||'—')}</td>
+        <td style="${tdS}text-align:right;">${fmtN(r.fabbisogno_raw,r.unit)}</td>
+        <td style="${tdS}font-weight:700;color:${isRed?'#dc2626':r.pill==='yellow'?'#d97706':'#059669'};">${escHtml(r.suggestion_text||'—')}</td>
+        <td style="${tdS}font-size:10px;color:#64748b;white-space:normal;max-width:200px;">${escHtml(r.percorso||'')}</td>
+      </tr>`;
+    }).join('');
 
-    document.getElementById('botDebugBody').innerHTML = `
-      <div style="font-size:12px;color:#64748b;margin-bottom:12px;">
-        Simulazione bot per <b>oggi ${nowCDT.toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'})}</b> ·
-        Venduto ieri: <b>${ieri}</b> · Buffer +10%
+    const nowStr = new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
+    if(body) body.innerHTML = `
+      <div style="font-size:12px;color:#64748b;margin-bottom:10px;">
+        Simulazione del <b>${simData.sim_date}</b> — aggiornata alle ${nowStr} —
+        🔴 ${simData.red} · 🟡 ${simData.yellow} · 🟢 ${simData.green} su ${rows.length} task
       </div>
       <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
-        <table style="width:100%;border-collapse:collapse;min-width:700px;">
+        <table style="width:100%;border-collapse:collapse;min-width:800px;">
           <thead>${thead}</thead>
           <tbody>${tbody}</tbody>
         </table>
       </div>
-      <div style="margin-top:12px;font-size:11px;color:#94a3b8;">
-        Stock presunto = stock attuale − venduto ieri (scarico che il bot fa stanotte) ·
-        Logica copertura = simulazione giorno per giorno dentro la finestra shelf life in calendar days
+      <div style="margin-top:10px;font-size:10px;color:#94a3b8;">
+        Stock reale non toccato · Scarico presunto = stima venduto ieri · Finestra = shelf life in calendar days
       </div>`;
 
   } catch(err) {
-    document.getElementById('botDebugBody').innerHTML =
-      `<div style="color:#ef4444;">Errore: ${err.message}</div>`;
+    if(body) body.innerHTML = `<div style="color:#ef4444;padding:16px;">Errore: ${err.message}</div>`;
+  } finally {
+    if(btn) { btn.disabled=false; btn.textContent='▶ Aggiorna simulazione'; }
   }
 };
