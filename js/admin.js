@@ -210,52 +210,66 @@ window.printBotSim = function() {
   const pillLabel = p => p==='red'?'🔴':p==='yellow'?'🟡':'🟢';
 
   const thead = `<tr>
-    <th>Prep</th><th>Stazione</th>
-    <th>Stock reale</th><th>Venduto ieri</th><th>Stock presunto</th>
-    <th>Fabbisogno</th><th>Suggestion</th><th>Percorso</th>
+    <th style="background:#1e3a5f;color:#fff;padding:5px 6px;font-size:10px;text-align:left;">Prep</th>
+    <th style="background:#1e3a5f;color:#fff;padding:5px 6px;font-size:10px;text-align:left;">Stazione</th>
+    <th style="background:#1e3a5f;color:#fff;padding:5px 6px;font-size:10px;text-align:right;">Stock reale</th>
+    <th style="background:#1e3a5f;color:#fff;padding:5px 6px;font-size:10px;text-align:right;">Venduto ieri</th>
+    <th style="background:#1e3a5f;color:#fff;padding:5px 6px;font-size:10px;text-align:right;">Stock presunto</th>
+    <th style="background:#1e3a5f;color:#fff;padding:5px 6px;font-size:10px;text-align:right;">Fabbisogno</th>
+    <th style="background:#1e3a5f;color:#fff;padding:5px 6px;font-size:10px;text-align:left;">Suggestion</th>
+    <th style="background:#1e3a5f;color:#fff;padding:5px 6px;font-size:10px;text-align:left;">Percorso</th>
   </tr>`;
 
   const tbody = rows.map(r => {
     const bg = r.pill==='red'?'#fff0f0':r.pill==='yellow'?'#fffbeb':'#fff';
-    return `<tr style="background:${bg};">
-      <td><b>${pillLabel(r.pill)} ${esc(r.task_name)}</b></td>
-      <td style="color:#666;">${esc(r.category)}</td>
-      <td style="text-align:right;">${fmtN(r.current_stock,r.unit)}</td>
-      <td style="text-align:right;color:${r.sold_yesterday?'#c00':'#999'};">${r.sold_yesterday?'-'+fmtN(r.sold_yesterday,r.unit):'—'}</td>
-      <td style="text-align:right;font-weight:700;">${fmtN(r.stock_presunto,r.unit)}</td>
-      <td style="text-align:right;">${fmtN(r.fabbisogno_raw,r.unit)}</td>
-      <td style="font-weight:700;color:${r.pill==='red'?'#c00':r.pill==='yellow'?'#b45309':'#166534'};">${esc(r.suggestion_text)}</td>
-      <td style="font-size:10px;color:#555;">${esc(r.percorso)}</td>
+    const tdB = `padding:4px 6px;border-bottom:1px solid #e5e7eb;vertical-align:top;font-size:10px;background:${bg};`;
+    return `<tr>
+      <td style="${tdB}font-weight:700;"><b>${pillLabel(r.pill)} ${esc(r.task_name)}</b></td>
+      <td style="${tdB}color:#666;">${esc(r.category)}</td>
+      <td style="${tdB}text-align:right;">${fmtN(r.current_stock,r.unit)}</td>
+      <td style="${tdB}text-align:right;color:${r.sold_yesterday?'#c00':'#999'};">${r.sold_yesterday?'-'+fmtN(r.sold_yesterday,r.unit):'—'}</td>
+      <td style="${tdB}text-align:right;font-weight:700;">${fmtN(r.stock_presunto,r.unit)}</td>
+      <td style="${tdB}text-align:right;">${fmtN(r.fabbisogno_raw,r.unit)}</td>
+      <td style="${tdB}font-weight:700;color:${r.pill==='red'?'#c00':r.pill==='yellow'?'#b45309':'#166534'};">${esc(r.suggestion_text)}</td>
+      <td style="${tdB}color:#555;font-size:9px;">${esc(r.percorso)}</td>
     </tr>`;
   }).join('');
 
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-  <title>Bot Debug Sim — ${meta.date}</title>
-  <style>
-    body { font-family: Arial, sans-serif; font-size: 11px; margin: 16px; color: #111; }
-    h2 { font-size: 15px; margin: 0 0 4px; }
-    .meta { font-size: 11px; color: #555; margin-bottom: 12px; }
-    table { width: 100%; border-collapse: collapse; }
-    th { background: #1e3a5f; color: #fff; padding: 5px 6px; text-align: left; font-size: 10px; }
-    td { padding: 4px 6px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
-    @media print {
-      body { margin: 8px; }
-      @page { size: landscape; margin: 10mm; }
-    }
-  </style>
-  </head><body>
-  <h2>🤖 Bot Debug Simulazione — Zenos on the Square</h2>
-  <div class="meta">
-    Data: <b>${meta.date}</b> · Aggiornata alle ${meta.time} ·
-    🔴 ${meta.red} prep oggi · 🟡 ${meta.yellow} domani · 🟢 ${meta.green} ok · ${meta.total} task totali
-  </div>
-  <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>
-  <div style="margin-top:12px;font-size:9px;color:#999;">
-    Simulazione — stock reale non toccato · generato da Brigade
-  </div>
-  <script>window.onload=()=>{ window.print(); window.onafterprint=()=>window.close(); }<\/script>
-  </body></html>`;
+  const tableHtml = `
+    <div style="font-family:Arial,sans-serif;font-size:11px;color:#111;padding:12px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">🤖 Bot Debug Simulazione — Zenos on the Square</div>
+      <div style="font-size:11px;color:#555;margin-bottom:10px;">
+        Data: <b>${meta.date}</b> · Aggiornata alle ${meta.time} ·
+        🔴 ${meta.red} prep oggi · 🟡 ${meta.yellow} domani · 🟢 ${meta.green} ok · ${meta.total} task totali
+      </div>
+      <table style="width:100%;border-collapse:collapse;">${thead}${tbody}</table>
+      <div style="margin-top:10px;font-size:9px;color:#999;">Simulazione — stock reale non toccato · generato da Brigade</div>
+    </div>`;
 
-  const w = window.open('','_blank','width=1100,height=800');
-  if(w) { w.document.write(html); w.document.close(); }
+  // Crea overlay fullscreen dentro la PWA (iOS-safe, niente window.open)
+  const overlay = document.createElement('div');
+  overlay.id = 'botPrintOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#fff;overflow-y:auto;-webkit-overflow-scrolling:touch;';
+
+  // Barra azioni in cima (nascosta in stampa via @media print inline)
+  const bar = document.createElement('div');
+  bar.id = 'botPrintBar';
+  bar.style.cssText = 'position:sticky;top:0;z-index:10;background:#1e3a5f;padding:10px 16px;display:flex;gap:10px;align-items:center;';
+  bar.innerHTML = `
+    <button onclick="window.print()" style="padding:8px 18px;background:#4f46e5;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">🖨️ Stampa / Salva PDF</button>
+    <button onclick="document.getElementById('botPrintOverlay').remove()" style="padding:8px 14px;background:#475569;color:#fff;border:none;border-radius:10px;font-size:14px;cursor:pointer;">✕ Chiudi</button>
+    <span style="font-size:11px;color:#94a3b8;margin-left:4px;">Su iPhone: Stampa → tieni premuto PDF → Salva su File</span>`;
+
+  // Contenuto tabella
+  const content = document.createElement('div');
+  content.innerHTML = tableHtml;
+
+  // CSS stampa: nasconde la barra, forza landscape
+  const style = document.createElement('style');
+  style.textContent = `@media print { #botPrintBar { display:none!important; } @page { size: landscape; margin: 8mm; } }`;
+
+  overlay.appendChild(style);
+  overlay.appendChild(bar);
+  overlay.appendChild(content);
+  document.body.appendChild(overlay);
 };
