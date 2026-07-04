@@ -94,6 +94,11 @@ window.openBotDebug = async function(){
   </div>`;
   sheet.addEventListener('click', e => { if(e.target===sheet) sheet.remove(); });
   document.body.appendChild(sheet);
+  // Se la sim è già stata girata in precedenza, mostra subito il bottone Stampa
+  if(window._botSimRows && window._botSimRows.length > 0) {
+    var pb = document.getElementById('botSimPrintBtn');
+    if(pb) pb.style.display = 'inline-block';
+  }
 };
 
 window.runBotSim = async function(){
@@ -170,7 +175,7 @@ window.runBotSim = async function(){
     window._botSimMeta = { date: simData.sim_date, time: nowStr, red: simData.red, yellow: simData.yellow, green: simData.green, total: rows.length };
     window._botSimRows = rows;
     const printBtn = document.getElementById('botSimPrintBtn');
-    if(printBtn) printBtn.style.display = '';
+    if(printBtn) printBtn.style.display = 'inline-block';
     if(body) body.innerHTML = `
       <div style="font-size:12px;color:#64748b;margin-bottom:10px;">
         Simulazione del <b>${simData.sim_date}</b> — aggiornata alle ${nowStr} —
