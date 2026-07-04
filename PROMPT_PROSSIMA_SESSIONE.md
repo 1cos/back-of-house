@@ -1336,3 +1336,37 @@ Quando il cuoco apre la DONE sheet di un prep_task, Brigade controlla il prep_lo
 **Bonus UX:** nella card prep, sotto il nome del task, mostrare in piccolo gli ultimi 3 log del giorno come indicatore visivo passivo — "Cole 5kg · 9:30" — così il cuoco lo vede prima ancora di aprire la DONE sheet.
 
 **Nota tecnica:** `prep_log.created_at` è UTC — convertire a CDT per display (America/Chicago).
+
+
+---
+
+## SESSIONE 4 LUGLIO 2026 — bot-tell-chef-reader v17 (Supabase version 19)
+
+**Bot:** `bot-tell-chef-reader` — Supabase version 19 (codice interno v17)
+**sw.js:** invariato (nessuna modifica frontend)
+**Migration DB applicata:** 9 nuove colonne su `office_items` (source_report_ids, summary, category, station, service_date, service_period, recipe_name, equipment_name, checklist_name)
+
+### Cosa cambia rispetto alla v5/v18
+
+- **Categorie:** da 5 a 11 — aggiunge QUALITA_STANDARD, FOOD_SAFETY, EQUIPMENT, INVENTORY_SHORTAGE, STAFF_COMMUNICATION, TRAINING_NEEDED, CATERING_EVENT_RISK, NOT_ACTIONABLE
+- **Priority:** da 3 livelli (red/orange/blue) a 4 (critical/high/normal/low) + severity automatica (blocking/alert/insight)
+- **Entity detection:** station, recipe_name, ingredient_name, equipment_name, checklist_name, service_period estratti da ogni messaggio
+- **Deduplication:** fingerprint nel JSON AI → match fuzzy sul titolo → merge in office_item esistente (times_seen++, priority escalation, body concatenato con nuovo report)
+- **ai_options strutturate:** 2-4 opzioni per categoria con action + params (non più stringhe libere)
+- **bot_id:** ogni office_item ha `bot_id='tell_chef_reader'` per filtrare per bot
+- **Gossip mode:** prompt riscritto — summary in prima persona plurale, en, specifico, come un kitchen manager informato
+- **Analytics:** fase 4 produce/aggiorna "Tell Chef — Brigade Summary (30 days)" con volume per persona, % actionati, avg response time, top category
+
+### ai_options per categoria (riferimento)
+- PROBLEMA_OPERATIVO: add_to_service_notes, create_task, reply_to_sender, mark_resolved
+- GAP_CHECKLIST: add_checklist_item, update_checklist, create_training_note, dismiss
+- CONTRIBUTO_RICETTA: open_recipe_review, create_recipe_note, add_to_test_batch, dismiss
+- QUALITA_STANDARD: create_quality_note, schedule_tasting, reply, resolve
+- FOOD_SAFETY: create_urgent_task, assign_cleaning_task, notify_manager, resolve
+- EQUIPMENT: log_equipment_issue, schedule_repair, add_to_service_notes, resolve
+- INVENTORY_SHORTAGE: add_to_walmart_list, create_vendor_order_note, emergency_prep_task, resolve
+- STAFF_COMMUNICATION: create_private_note, add_to_briefing, reply, dismiss
+- TRAINING_NEEDED: create_training_note, schedule_demo, reply, dismiss
+- CATERING_EVENT_RISK: add_to_event_brief, notify_coordinator, create_urgent_task, resolve
+- NOT_ACTIONABLE: reply, dismiss
+
