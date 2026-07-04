@@ -150,8 +150,14 @@ window.runBotSim = async function(){
       if(n===null||n===undefined) return '—';
       const v = parseFloat(n);
       if(isNaN(v)) return '—';
-      const isPz = ['pezzi','pz','nests','buste','cartocci','cup'].includes((unit||'').toLowerCase());
-      if(isPz) return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+      const u_lower = (unit||'').toLowerCase();
+      const isPz = ['pezzi','pz','nests','buste','cartocci','cup'].includes(u_lower);
+      if(isPz) {
+        const num = v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+        // Mostra unità esplicita per unità non-generiche (nests, cup, buste, cartocci)
+        const showUnit = ['nests','cup','buste','cartocci'].includes(u_lower);
+        return showUnit ? num + ' ' + unit : num;
+      }
       return v >= 1000 ? (v/1000).toFixed(1).replace(/\.0$/,'')+'kg' : Math.round(v)+'g';
     };
 
@@ -207,8 +213,13 @@ window.printBotSim = function() {
     if(n===null||n===undefined) return '—';
     const v = parseFloat(n);
     if(isNaN(v)) return '—';
-    const isPz = ['pezzi','pz','nests','buste','cartocci','cup'].includes((unit||'').toLowerCase());
-    if(isPz) return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+    const u_lower2 = (unit||'').toLowerCase();
+    const isPz = ['pezzi','pz','nests','buste','cartocci','cup'].includes(u_lower2);
+    if(isPz) {
+      const num = v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+      const showUnit = ['nests','cup','buste','cartocci'].includes(u_lower2);
+      return showUnit ? num + ' ' + unit : num;
+    }
     return v >= 1000 ? (v/1000).toFixed(1).replace(/\.0$/,'')+'kg' : Math.round(v)+'g';
   };
   const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -293,8 +304,9 @@ window.botSimShare = async function() {
         var fmtN = function(n,u) {
           if(n===null||n===undefined) return '—';
           var v=parseFloat(n); if(isNaN(v)) return '—';
-          var isPz=['pezzi','pz','nests','buste','cartocci','cup'].indexOf((u||'').toLowerCase())!==-1;
-          if(isPz) return v%1===0?String(Math.round(v)):v.toFixed(1);
+          var u_lower=(u||'').toLowerCase();
+          var isPz=['pezzi','pz','nests','buste','cartocci','cup'].indexOf(u_lower)!==-1;
+          if(isPz){var num=v%1===0?String(Math.round(v)):v.toFixed(1);var showUnit=['nests','cup','buste','cartocci'].indexOf(u_lower)!==-1;return showUnit?num+' '+u:num;}
           return v>=1000?(v/1000).toFixed(1).replace(/\.0$/,'')+'kg':Math.round(v)+'g';
         };
         lines.push(pill+' '+r.task_name+' | '+(r.category||'')+' | '+fmtN(r.current_stock,r.unit)+' | '+(r.sold_yesterday?'-'+fmtN(r.sold_yesterday,r.unit):'—')+' | '+fmtN(r.stock_presunto,r.unit)+' | '+(r.suggestion_text||'—'));
