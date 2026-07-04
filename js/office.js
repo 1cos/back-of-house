@@ -603,42 +603,36 @@ function officeRenderCard(item) {
       '</div>';
   }
 
-  // ── Skill Dispatcher: issue_types con Skill dedicata ──
+  // ── Skill Dispatcher registry ──
+  // Add issue_type here when a real Skill is implemented for it.
+  // Rule: Resolve button appears ONLY when a Skill exists. Never fake.
   var SKILL_ISSUE_TYPES = ['bom_unknown_units', 'UNKNOWN_UNIT'];
+  var hasSkill = SKILL_ISSUE_TYPES.indexOf(item.issue_type) !== -1;
+
+  // Shared button styles for Later / Solved / Resolve
+  var _styleLater   = 'flex:1;padding:9px 0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;border:0.5px solid rgba(148,163,184,0.3);background:transparent;color:#94a3b8;';
+  var _styleSolved  = 'flex:1;padding:9px 0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;border:0.5px solid rgba(34,197,94,0.4);background:rgba(34,197,94,0.06);color:#15803d;';
+  var _styleResolve = 'flex:1;padding:9px 0;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;';
 
   var actionsHtml = '';
-  if (options.length > 0 && SKILL_ISSUE_TYPES.indexOf(item.issue_type) !== -1) {
-    // Sostituisce i bottoni generici con: Later · Solved · 🧠 Resolve
-    var styleLater  = 'flex:1;padding:9px 0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;border:0.5px solid rgba(148,163,184,0.3);background:transparent;color:#94a3b8;';
-    var styleSolved = 'flex:1;padding:9px 0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;border:0.5px solid rgba(34,197,94,0.4);background:rgba(34,197,94,0.06);color:#15803d;';
-    var styleResolve= 'flex:1;padding:9px 0;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;';
-    actionsHtml =
-      '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">' +
-        '<button onclick="officeResolve(\'' + item.id + '\',\'later\')" style="' + styleLater  + '">🕒 Later</button>' +
-        '<button onclick="officeResolve(\'' + item.id + '\',\'solved\')" style="' + styleSolved + '">✓ Solved</button>' +
-        '<button onclick="officeSkillDispatch(\'' + item.id + '\',\'' + (item.issue_type||'') + '\')" style="' + styleResolve + '">🧠 Resolve</button>' +
-      '</div>';
-  } else if (options.length > 0) {
-    actionsHtml = '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">';
-    options.forEach(function(opt, idx) {
-      var isPrimary = idx === options.length - 1;
-      var label = typeof opt === 'string' ? opt : (opt.label || String(opt));
-      var action = typeof opt === 'object' ? (opt.action || 'resolve') : 'resolve';
-      var onClick;
-      if (action === 'open_recipe' && opt.recipe_id) {
-        onClick = 'officeSkillDispatch(\'' + item.id + '\',\'' + (item.issue_type||'open_recipe') + '\')';
-      } else if (action === 'snooze') {
-        onClick = 'officeResolve(\'' + item.id + '\',\'later\')';
-      } else {
-        onClick = 'officeResolve(\'' + item.id + '\',\'' + escOpt(label) + '\')';
-      }
-      actionsHtml +=
-        '<button onclick="' + onClick + '" ' +
-        'style="flex:1;padding:8px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid ' +
-        (isPrimary ? '#1e3a5f;background:#1e3a5f;color:white;' : 'rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;') +
-        '">' + label + '</button>';
-    });
-    actionsHtml += '</div>';
+  if (options.length > 0) {
+    // All items with ai_options: replace Fix now / Snooze / Ignore with honest buttons
+    if (hasSkill) {
+      // Has a real Skill — show Later + Solved + 🧠 Resolve
+      actionsHtml =
+        '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">' +
+          '<button onclick="officeResolve(\'' + item.id + '\',\'later\')"   style="' + _styleLater   + '">🕒 Later</button>' +
+          '<button onclick="officeResolve(\'' + item.id + '\',\'solved\')"  style="' + _styleSolved  + '">✓ Solved</button>' +
+          '<button onclick="officeSkillDispatch(\'' + item.id + '\',\'' + (item.issue_type||'') + '\')" style="' + _styleResolve + '">🧠 Resolve</button>' +
+        '</div>';
+    } else {
+      // No Skill yet — show only Later + Solved. No fake Resolve.
+      actionsHtml =
+        '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">' +
+          '<button onclick="officeResolve(\'' + item.id + '\',\'later\')"  style="' + _styleLater  + '">🕒 Later</button>' +
+          '<button onclick="officeResolve(\'' + item.id + '\',\'solved\')" style="' + _styleSolved + '">✓ Solved</button>' +
+        '</div>';
+    }
   } else {
     // Bottoni differenziati per fonte
     var src = item.source;
@@ -702,23 +696,58 @@ window.officeResolve = async function(id, resolution) {
   var sb = window.supa;
   if (!sb) return;
   try {
-    var isLetto = (resolution === 'letto');
-    await sb.from('office_items').update({
-      status: isLetto ? 'open' : 'resolved',
-      resolved_by: window.user?.name || 'Max',
-      resolved_at: isLetto ? null : new Date().toISOString(),
-      resolution: isLetto ? null : resolution,
-      priority: isLetto ? 'blue' : undefined,
-    }).eq('id', id);
+    var isLetto  = (resolution === 'letto');
+    var isLater  = (resolution === 'later');
+    var isSolved = (resolution === 'solved');
+
+    var updatePayload = {};
+
+    if (isLater) {
+      // Snooze 7 giorni: status=snoozed, snoozed_until = now + 7d
+      var snoozeUntil = new Date();
+      snoozeUntil.setDate(snoozeUntil.getDate() + 7);
+      updatePayload = {
+        status: 'snoozed',
+        resolved_by: window.user?.name || 'Max',
+        resolution: 'snoozed_7d',
+        snoozed_until: snoozeUntil.toISOString(),
+      };
+    } else if (isSolved) {
+      // Chef marks manually resolved — no Skill used
+      updatePayload = {
+        status: 'resolved',
+        resolved_by: window.user?.name || 'Max',
+        resolved_at: new Date().toISOString(),
+        resolution: 'resolved_manual',
+      };
+    } else if (isLetto) {
+      updatePayload = {
+        status: 'open',
+        resolved_by: null,
+        resolved_at: null,
+        resolution: null,
+        priority: 'blue',
+      };
+    } else {
+      updatePayload = {
+        status: 'resolved',
+        resolved_by: window.user?.name || 'Max',
+        resolved_at: new Date().toISOString(),
+        resolution: resolution,
+      };
+    }
+
+    await sb.from('office_items').update(updatePayload).eq('id', id);
 
     var card = document.querySelector('[data-item-id="' + id + '"]');
 
-    if (isLetto) {
+    if (isLetto || isLater) {
       // Comprimi — non sparisce, si minimizza
+      var toastMsg = isLater ? '🕒 Snoozed 7 days' : '📌 Letto — ci torni dopo';
       if (card) {
         card.style.transition = 'all 0.3s ease';
         card.style.opacity = '0.5';
-        card.style.borderLeft = '3px solid #cbd5e1';
+        card.style.borderLeft = isLater ? '3px solid #f59e0b' : '3px solid #cbd5e1';
         var body = card.querySelector('[data-role="body"]');
         var aiBlock = card.querySelector('[data-role="ai"]');
         var actions = card.querySelector('[data-role="actions"]');
@@ -727,14 +756,32 @@ window.officeResolve = async function(id, resolution) {
         if (body) body.style.display = 'none';
         if (aiBlock) aiBlock.style.display = 'none';
         if (meta) meta.style.display = 'none';
-        if (dot) dot.style.background = '#cbd5e1';
+        if (dot) dot.style.background = isLater ? '#f59e0b' : '#cbd5e1';
         if (actions) actions.innerHTML =
           '<div style="padding:0 14px 10px;">' +
+            (isLater ? '<div style="font-size:11px;color:#f59e0b;font-weight:600;text-align:center;padding-bottom:4px;">🕒 Snoozed 7 days</div>' : '') +
             '<button onclick="officeReopen(\'' + id + '\')" ' +
-              'style="width:100%;padding:8px;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#94a3b8;">↩ Riapri</button>' +
+              'style="width:100%;padding:8px;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer;border:0.5px solid rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#94a3b8;">↩ Reopen</button>' +
           '</div>';
       }
-      if (typeof showScToast === 'function') showScToast('📌 Letto — ci torni dopo');
+      if (typeof showScToast === 'function') showScToast(toastMsg);
+    } else if (isSolved) {
+      // Slide out immediately — resolved_manual
+      if (card) {
+        card.style.transition = 'all 0.25s ease';
+        card.style.opacity = '0';
+        card.style.transform = 'translateX(40px)';
+        setTimeout(function() {
+          card.remove();
+          if (typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
+          var list = document.getElementById('officeFolderList');
+          if (list && list.children.length === 0) {
+            list.innerHTML = '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:12px;">✅</div><div style="font-size:15px;color:rgba(30,58,95,0.4);">'+tr('officeNoDrawer')+'</div></div>';
+          }
+          officeLoadHome();
+        }, 270);
+      }
+      if (typeof showScToast === 'function') showScToast('✓ Marked as Solved');
     } else {
       // Risolto — slide out, rimuovi dal DOM (no officeLoad che cerca #officeList non presente nel folder)
       if (card) {
