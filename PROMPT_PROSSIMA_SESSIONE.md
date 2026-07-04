@@ -9,10 +9,65 @@
 ---
 
 ## VERSIONE LIVE
-- Brigade frontend: **v420**
-- sw.js: `boh-v420`
-- bot-preplist-builder: **v18** (version 36)
+- Brigade frontend: **v488** (sw.js `boh-v488`)
+- bot-preplist-builder: **v39** (Supabase versione 58)
 - Edge Function gmail-touchbistro-import: **v22**
+- Supabase project: `ydqmumpytgrlceuinoqt`
+
+---
+
+## SESSIONE 4 LUGLIO 2026 — bot-preplist-builder v39
+
+### Completato in questa sessione
+
+**bot-preplist-builder aggiornato da v34 (Supabase v57) a v39 (Supabase v58).**
+
+**Nuove funzionalità aggiunte (tutte additive, nessuna regressione):**
+
+1. **Confidence engine (high/medium/low)**
+   - `high`: pos_name + BOM + base_servings + sales ≥7gg + stock>0
+   - `medium`: pos_name + BOM ok, ma dati limitati o stock stimato
+   - `low`: manca pos_name o BOM vuoto o no sales <3gg
+   - Salvato nel log `[pill][confidence]` per ogni task
+
+2. **Trend 7 giorni** (nuova query `pos_sales_by_item` ultimi 7gg)
+   - Calcola media giornaliera per ogni menu_item negli ultimi 7 giorni di servizio (esclude domenica)
+   - `salesDaysCount(pn)` → conteggio giorni dati disponibili → usato per confidence
+   - Integrato nel blended demand: **50% DOW avg storico + 30% trend 7d + 20% ieri**
+
+3. **Adaptive buffer per confidence**
+   - `high`: 1.10 (invariato rispetto a v34)
+   - `medium`: 1.15
+   - `low`: 1.20
+
+4. **buildNote con confidence** — se `confidence='low'` e `pill='red'`, il note viene forzato a `yellow` con testo "Controlla prima di produrre · dati incerti" invece di inviare prep aggressiva
+
+5. **Office items per anomalie specifiche (anti-spam)**
+   Cinque tipi di anomalie generano `office_items` individuali invece di un solo riepilogo:
+   - `null_stock`: task skippato perché `current_stock = NULL`
+   - `missing_pos_name`: ricetta con `recipe_id` ma nessun `pos_name`
+   - `empty_bom`: ricetta con `pos_name` ma BOM vuoto
+   - `missing_base_servings`: ricetta con BOM e pos_name ma `base_servings = NULL`
+   - `sales_spike`: vendite ieri > 2.2× media DOW storica
+
+   Anti-spam: SELECT per `source='bot-preplist-builder' + status='open' + title` prima di ogni insert. Se esiste → UPDATE `times_seen++` e `last_seen_at`. Se no → INSERT.
+
+6. **Migration DB**: aggiunta `office_items.prep_item_id` (bigint → prep_tasks) e `office_items.pos_name` (text).
+
+**Logica invariata rispetto a v34:**
+- `smartQty` / `translateUnit` / `fmtGrams` — identici
+- `simulateCoverage` — identico
+- Scarico stock da vendite ieri — identico
+- Sub-ricette (subMap) — identico
+- Modifier support — identico
+- `closed_dates` awareness — identico
+- Formato `suggested_note`: `color|testo_it|testo_en|testo_es` — identico
+- `SKIP_PACK` set — identico
+
+**Riepilogo office item finale** aggiornato: mostra `confidence: X alta / Y media / Z bassa` e lista anomalie.
+
+---
+
 - Supabase project: `ydqmumpytgrlceuinoqt`
 
 ---
@@ -1369,4 +1424,5 @@ Quando il cuoco apre la DONE sheet di un prep_task, Brigade controlla il prep_lo
 - TRAINING_NEEDED: create_training_note, schedule_demo, reply, dismiss
 - CATERING_EVENT_RISK: add_to_event_brief, notify_coordinator, create_urgent_task, resolve
 - NOT_ACTIONABLE: reply, dismiss
+
 
