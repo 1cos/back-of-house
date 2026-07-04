@@ -1240,23 +1240,24 @@ window.invSaveRecipeHealth = async function(recipeId, hasBw, hasSl) {
 
 
 // ══════════════════════════════════════════════════════════════
-// BOT CENTER v2 — scheda bot con 3 tab: Cosa fa / Config / Codice
+// BOT CENTER v3 — scheda bot con 3 tab: Cosa fa / Config / Codice
+// Aggiornato al 4 luglio 2026 — dati verificati da codice live
 // ══════════════════════════════════════════════════════════════
 
 // Spiegazioni in italiano semplice per ogni bot
 var _botExplain = {
   'bot-preplist-builder': {
     steps: [
-      { icon: '🕓', title: 'Quando gira', text: 'Ogni notte alle 4:00 AM — mentre la cucina dorme.' },
-      { icon: '📦', title: 'Cosa legge', text: 'Guarda quante porzioni di ogni piatto sono state vendute negli ultimi 90 giorni, giorno per giorno. Sa che il martedì si vende meno del venerdì.' },
-      { icon: '🧊', title: 'Guarda lo stock', text: 'Legge quanto hai in casa adesso (current_stock) per ogni prep task. Se è NULL, salta — non inventa numeri.' },
-      { icon: '📐', title: 'Fa i calcoli', text: 'Calcola quanti grammi o pezzi consumerai nei prossimi giorni, aggiunge un 10% di buffer di sicurezza, e confronta con quello che hai già.' },
-      { icon: '🚦', title: 'Assegna un colore', text: 'Rosso = prepara oggi (stock finito o quasi). Giallo = prepara domani (stock basso). Verde = sei a posto.' },
-      { icon: '✍️', title: 'Scrive il risultato', text: 'Aggiorna suggested_qty e suggested_note su ogni prep task. Il cuoco vede "fai 2 latte" o "hai 4.5kg, arrivi a venerdì".' },
-      { icon: '🚫', title: 'Cosa salta', text: 'Salta se current_stock è NULL. Salta se base_weight_g è assurdo (>500kg). Salta i task di tipo "checklist".' }
+      { icon: '🕓', title: 'Quando gira', text: 'Ogni notte alle 4:00 AM CDT — mentre la cucina dorme. v30 (Supabase v53).' },
+      { icon: '📦', title: 'Cosa legge', text: 'Quante porzioni di ogni piatto sono state vendute negli ultimi 90 giorni, giorno per giorno. Sa che il martedì si vende meno del venerdì. Legge i giorni chiusi da closed_dates e non conta le domeniche.' },
+      { icon: '🧊', title: 'Guarda lo stock', text: 'Legge current_stock per ogni prep task. Se è NULL, salta — non inventa numeri. Usa expected_duration_days dal prep task (non shelf_life_days della ricetta) per calcolare la finestra di copertura.' },
+      { icon: '📐', title: 'Fa i calcoli', text: 'Calcola il consumo atteso nei prossimi giorni, aggiunge un buffer del +10%, e confronta con lo stock. Usa min_cover_days per evitare di suggerire cibo fresco che verrebbe preparato troppo in anticipo.' },
+      { icon: '🚦', title: 'Assegna un colore', text: 'Rosso = prepara oggi (stock < minCoverDays). Giallo = prepara presto (stock basso ma non urgente). Verde = sei a posto. Checklist: sempre bordo neutro, nessun badge urgenza.' },
+      { icon: '✍️', title: 'Scrive il risultato', text: 'Aggiorna suggested_qty e suggested_note in formato: colore|testo_it|testo_en|testo_es. Il frontend legge la lingua dall\'utente. Usa linguaggio cucina: "2 latte La Carmela", "22 pezzi", "50 nests".' },
+      { icon: '🚫', title: 'Cosa salta', text: 'Salta se current_stock è NULL. Salta se base_weight_g > 500kg (anomalie). Salta i task di tipo "checklist". Domenica e giorni in closed_dates = 0 consumo ma il cibo va male lo stesso.' }
     ],
     params: [
-      { key: 'buffer', label: 'Buffer %', desc: 'Aggiunge questa % extra allo stock calcolato. Con 10%: se servono 10kg, ne suggerisce 11kg.', type: 'number', min: 0, max: 50, step: 5, default: 10 },
+      { key: 'buffer', label: 'Buffer %', desc: 'Aggiunge questa % extra allo stock calcolato. Default 10%.', type: 'number', min: 0, max: 50, step: 5, default: 10 },
       { key: 'red_pct', label: 'Soglia Rosso (%)', desc: 'Se lo stock è sotto questa % del fabbisogno → rosso (prepara oggi).', type: 'number', min: 0, max: 100, step: 5, default: 40 },
       { key: 'yellow_pct', label: 'Soglia Giallo (%)', desc: 'Se lo stock è sotto questa % del fabbisogno → giallo (prepara domani).', type: 'number', min: 0, max: 100, step: 5, default: 80 },
       { key: 'skip_pack', label: 'SKIP_PACK', desc: 'Ricette dove il bot NON usa il pack fornitore — mostra direttamente kg/g.', type: 'tags', default: ['BECHAMEL SAUCE','THYME BUTTER','Texana Soup','Rosemary Oil','CITRONETTE','SALMORIGLIO','Mash Potato','GARLIC OIL','Salmon Whole'] }
@@ -1264,85 +1265,89 @@ var _botExplain = {
   },
   'bot-price-guard': {
     steps: [
-      { icon: '📬', title: 'Quando gira', text: 'Subito dopo ogni importazione di una fattura fornitore.' },
-      { icon: '📋', title: 'Cosa legge', text: 'Le righe della fattura appena importata — ogni ingrediente con il suo prezzo nuovo.' },
-      { icon: '📊', title: 'Controlla lo storico', text: 'Per ogni ingrediente, guarda almeno 3 acquisti precedenti e calcola il prezzo medio storico.' },
-      { icon: '⚠️', title: 'Quando scatta', text: 'Se il nuovo prezzo è cambiato di oltre il 10% rispetto alla media storica — sia in su che in giù.' },
-      { icon: '📝', title: 'Cosa scrive', text: 'Crea un avviso in L\'Ufficio: "Arrabbiata ▲23% — da $35 a $43". Propone: Accetta / Indaga.' },
-      { icon: '🚫', title: 'Cosa NON fa', text: 'Non blocca mai niente. Non modifica prezzi. Ti avvisa e basta. Decidi tu.' }
+      { icon: '📬', title: 'Quando gira', text: 'Subito dopo ogni importazione di una fattura fornitore — triggered da process-invoice.' },
+      { icon: '📋', title: 'Cosa legge', text: 'Le righe della fattura appena importata (invoice_lines) — ogni ingrediente con il suo prezzo nuovo e il vendor.' },
+      { icon: '📊', title: 'Controlla lo storico', text: 'Per ogni ingrediente, legge ingredient_vendors ordinato per data. Serve almeno 3 acquisti precedenti per avere un confronto affidabile. Calcola la media escludendo il record più recente.' },
+      { icon: '⚠️', title: 'Quando scatta', text: 'Se il nuovo prezzo è variato di oltre il 10% rispetto alla media storica — sia in su che in giù. Sotto soglia o meno di 3 acquisti storici: silenzio.' },
+      { icon: '📝', title: 'Cosa scrive', text: 'Crea un avviso in L\'Ufficio: "🟠 Arrabbiata — prezzo ▲23%" con vecchio prezzo, nuovo prezzo, fornitore. Propone: Accetta nuovo prezzo / Indaga con fornitore. Evita duplicati per stesso ingrediente + stessa fattura.' },
+      { icon: '🚫', title: 'Cosa NON fa', text: 'Non blocca niente. Non modifica prezzi. Non giudica se il prezzo è giusto. Ti avvisa e basta. La decisione è sempre di Max.' }
     ],
     params: [
       { key: 'threshold', label: 'Soglia variazione (%)', desc: 'Sotto questa % di variazione il bot non segnala nulla. Default 10%.', type: 'number', min: 1, max: 50, step: 1, default: 10 },
-      { key: 'min_history', label: 'Storico minimo (acquisti)', desc: 'Quanti acquisti passati deve avere un ingrediente prima che il bot inizia a controllarlo.', type: 'number', min: 1, max: 10, step: 1, default: 3 }
+      { key: 'min_history', label: 'Storico minimo (acquisti)', desc: 'Quanti acquisti passati deve avere un ingrediente prima che il bot inizi a controllarlo.', type: 'number', min: 1, max: 10, step: 1, default: 3 }
     ]
   },
   'bot-chat-analyst': {
     steps: [
-      { icon: '🕓', title: 'Quando gira', text: 'Ogni notte alle 3:00 AM. La domenica fa un recap della settimana intera invece delle sole 24 ore.' },
-      { icon: '💬', title: 'Cosa legge', text: 'Tutti i messaggi della chat brigata delle ultime 24 ore (o 7 giorni la domenica). Legge il testo, il nome di chi scrive, l\'orario.' },
-      { icon: '🤖', title: 'Chiama l\'AI', text: 'Manda tutti i messaggi a LLaMA 3.3 70B con un prompt preciso: trova problemi operativi, tensioni, segnali deboli, cose positive. Mai risponde se la chat è banale.' },
-      { icon: '📝', title: 'Cosa scrive', text: 'Se trova qualcosa di interessante, crea un item in L\'Ufficio — massimo 5 punti, in italiano, diretti. Zero filosofia.' },
-      { icon: '🚫', title: 'Non duplica', text: 'Se ha già analizzato oggi, non crea un secondo item. Un\'analisi al giorno.' }
+      { icon: '🕓', title: 'Quando gira', text: 'Ogni notte alle 3:00 AM CDT (lunedì–sabato). La domenica fa un recap della settimana intera — ultimi 7 giorni invece di 24 ore.' },
+      { icon: '💬', title: 'Cosa legge', text: 'Tutti i messaggi della chat brigata delle ultime 24 ore (o 7 giorni la domenica). Legge testo, autore e orario. Nessun filtraggio preventivo — manda tutto all\'AI.' },
+      { icon: '🤖', title: 'Chiama l\'AI', text: 'Manda i messaggi a LLaMA 3.3 70B con prompt dedicato: cerca problemi operativi, dinamiche di squadra, segnali deboli, lamentele implicite, ritardi, cose positive. Prompt diverso per giornaliero vs settimanale.' },
+      { icon: '📝', title: 'Cosa scrive', text: 'Se trova qualcosa, crea un item in L\'Ufficio (source: bot-chat-analyst) — massimo 5 punti, in italiano, diretti. Zero filosofia. Se l\'AI risponde "NIENTE DA SEGNALARE", non scrive nulla.' },
+      { icon: '🚫', title: 'Non duplica', text: 'Controlla se esiste già un item creato oggi da questo bot. Se sì, salta — un\'analisi al giorno. Se la chat è completamente vuota (0 messaggi), salta senza chiamare l\'AI.' }
     ],
     params: []
   },
   'bot-tell-chef-reader': {
     steps: [
-      { icon: '🕓', title: 'Quando gira', text: 'Ogni ora, tutto il giorno.' },
-      { icon: '📣', title: 'Cosa legge', text: 'I nuovi messaggi Tell Chef — quelli che i cuochi mandano privatamente a Max — non ancora letti dall\'AI.' },
-      { icon: '🤖', title: 'Classifica con l\'AI', text: 'Per ogni messaggio, chiede a LLaMA di capire: è un problema operativo? Un contributo ricetta? Un segnale personale? E quanto è urgente (rosso/arancio/blu)?' },
-      { icon: '📋', title: 'Porta in L\'Ufficio', text: 'Crea una card già pronta per Max con: riassunto, suggerimento, 2-3 opzioni di azione. Max tocca un bottone e ha fatto.' },
-      { icon: '🔄', title: 'Sincronizza azioni', text: 'Se Max ha risposto "Working on it" o "Done" su una card, aggiorna il Tell Chef originale con la stessa risposta.' },
-      { icon: '⏰', title: 'Avvisa se dimentichi', text: 'Se hai segnato "Working on it" su qualcosa da più di 7 giorni, crea un alert rosso per ricordartelo.' },
-      { icon: '📊', title: 'Analisi 30 giorni', text: 'Tiene traccia di chi manda più messaggi, quanto velocemente rispondi, quanti ignori. Lo aggiorna ogni ora.' }
+      { icon: '🕓', title: 'Quando gira', text: 'Ogni ora, tutto il giorno. v17 (Supabase v19).' },
+      { icon: '📣', title: 'Cosa legge', text: 'I nuovi chef_reports con status="new" e souschef_suggestion IS NULL — messaggi Tell Chef non ancora processati dall\'AI. Fino a 25 per run.' },
+      { icon: '🤖', title: 'Classifica con l\'AI — 11 categorie', text: 'Per ogni messaggio, LLaMA 3.3 70B assegna: categoria (PROBLEMA_OPERATIVO, GAP_CHECKLIST, CONTRIBUTO_RICETTA, QUALITA_STANDARD, FOOD_SAFETY, EQUIPMENT, INVENTORY_SHORTAGE, STAFF_COMMUNICATION, TRAINING_NEEDED, CATERING_EVENT_RISK, NOT_ACTIONABLE), priorità (critical/high/normal/low), e rileva entità: stazione, ricetta, ingrediente, attrezzatura, checklist.' },
+      { icon: '🔗', title: 'Deduplication', text: 'Usa un issue_fingerprint per trovare office_items aperti sullo stesso problema. Se esiste, aggiunge il nuovo report al body esistente, incrementa times_seen, e scala la priority se il nuovo messaggio è più urgente. Non crea duplicati.' },
+      { icon: '📋', title: 'Porta in L\'Ufficio', text: 'Crea card strutturate con: titolo specifico in linguaggio cucina (es. "Oven Station: Brussels Sprouts par cook mancante dalla preplist"), summary scritto come un kitchen manager, e 2-4 ai_options contestuali per categoria.' },
+      { icon: '🔄', title: 'Sincronizza azioni', text: 'Se Max ha risposto "Working on it" o "Done" su una card, aggiorna il Tell Chef originale con la stessa risposta — la brigata vede lo stato.' },
+      { icon: '⏰', title: 'Avvisa i dimenticati', text: 'Se un item è rimasto "Working on it" da più di 7 giorni, crea un alert critical con badge rosso per ricordartelo. Anti-spam: un solo alert per item.' },
+      { icon: '📊', title: 'Analisi brigata 30 giorni', text: 'Aggiorna ogni run un riepilogo per persona: volume messaggi, % actionati, tempo medio di risposta, categoria top. Appare in L\'Ufficio come "Tell Chef — Brigade Summary".' }
     ],
     params: []
   },
   'bot-food-cost-guard': {
     steps: [
-      { icon: '📬', title: 'Quando gira', text: 'Subito dopo ogni importazione di una fattura fornitore.' },
-      { icon: '📋', title: 'Cosa legge', text: 'Le righe della fattura nuova. Per ogni ingrediente con prezzo aumentato di almeno il 5%, cerca quali ricette lo usano.' },
-      { icon: '💰', title: 'Calcola l\'impatto', text: 'Conta quante porzioni di quel piatto hai venduto nell\'ultima settimana. Moltiplica per la differenza di costo per porzione. Risultato = impatto in dollari a settimana.' },
-      { icon: '⚠️', title: 'Quando scatta', text: 'Solo se l\'impatto supera $20 a settimana. Sotto quella soglia, non vale la pena disturbarti.' },
-      { icon: '📝', title: 'Cosa scrive', text: '"Food Cost — Lobster Fettuccine · +$47/sett" con tutti i dettagli. Propone: Rivedi prezzo / Rivedi porzione / Accetta.' }
+      { icon: '📬', title: 'Quando gira', text: 'Subito dopo ogni importazione di una fattura fornitore. v13.' },
+      { icon: '📋', title: 'Cosa legge', text: 'Le righe della fattura con ingredient_id collegato. Deduplica ingredienti ripetuti. Carica contestualmente: vendite POS 30 giorni, BOM di tutte le ricette con pos_name, storico prezzi 90 giorni.' },
+      { icon: '🔍', title: 'Noise protection — pack mismatch', text: 'Prima di segnalare un aumento di prezzo, verifica se il pack è cambiato (6 pezzi → 12 pezzi raddoppia il prezzo unitario senza che l\'ingrediente sia diventato più caro). Se rileva mismatch tra pack description o unità di acquisto, crea un warning separato invece di un falso allarme.' },
+      { icon: '💰', title: 'Calcola impatto in dollari', text: 'Per ogni ingrediente con aumento ≥5%, trova le ricette che lo usano nel BOM. Legge le vendite POS degli ultimi 30 giorni per quelle ricette. Calcola: grammi usati per porzione × delta prezzo/100g × porzioni vendute = impatto mensile stimato in $.' },
+      { icon: '🚦', title: 'Tre livelli di severity', text: 'Critical (🔴): aumento ≥15% con vendite reali, O impatto mensile ≥$150. Warning (🟡): aumento ≥5% o impatto ≥$40. Info (🔵): calo prezzi ≥3% su ricette attive, o aumento su ingredienti senza ricette POS. Max 3 critical + 5 warning per run.' },
+      { icon: '📝', title: 'Cosa scrive', text: 'Crea item in L\'Ufficio con: nome ingrediente, % variazione, vecchio/nuovo prezzo, fornitore, ricette impattate, vendite 30gg, impatto mensile stimato. Se selling_price manca su ricette vendute, lo segnala separatamente. Dedup: se l\'item è già aperto, aggiorna invece di duplicare.' }
     ],
     params: [
-      { key: 'impact_threshold', label: 'Soglia impatto ($/sett)', desc: 'Sotto questa cifra settimanale il bot non segnala nulla. Default $20.', type: 'number', min: 5, max: 200, step: 5, default: 20 },
-      { key: 'min_variation', label: 'Variazione minima (%)', desc: 'Variazione di prezzo minima per iniziare il calcolo. Default 5%.', type: 'number', min: 1, max: 30, step: 1, default: 5 }
+      { key: 'impact_threshold', label: 'Soglia impatto ($/mese)', desc: 'Sotto questa cifra mensile il bot non segnala. Default $40.', type: 'number', min: 5, max: 500, step: 5, default: 40 },
+      { key: 'min_variation', label: 'Variazione minima (%)', desc: 'Variazione di prezzo minima per iniziare il calcolo. Default 5%.', type: 'number', min: 1, max: 30, step: 1, default: 5 },
+      { key: 'critical_pct', label: 'Soglia Critical (%)', desc: 'Variazione minima per diventare Critical (con vendite reali). Default 15%.', type: 'number', min: 5, max: 50, step: 5, default: 15 }
     ]
   },
   'bot-prep-accuracy': {
     steps: [
-      { icon: '🕓', title: 'Quando gira', text: 'Ogni sera tra le 17:00 e le 18:00 CDT.' },
-      { icon: '🔍', title: 'Cosa legge', text: 'Tutti i "No Need" di stamattina — i casi in cui un cuoco ha detto "non serve preparare questo" e lo ha saltato.' },
-      { icon: '🤔', title: 'Verifica nel pomeriggio', text: 'Controlla se tra le 14:00 e le 17:00 dello stesso giorno qualcuno ha dovuto preparare quella stessa cosa — vuol dire che il "No Need" era sbagliato.' },
-      { icon: '👆', title: 'Colpevole mattina', text: 'Se nel pomeriggio hanno dovuto farlo → il cuoco della mattina aveva torto a saltarlo. Il closing della sera era corretto.' },
-      { icon: '👆', title: 'Colpevole sera', text: 'Se nel pomeriggio non è stato necessario → il closing della sera era impreciso, non serviva davvero.' },
-      { icon: '📝', title: 'Cosa scrive', text: 'Crea un item in L\'Ufficio che ti dice esattamente chi ha sbagliato e perché, così puoi correggere il processo.' }
+      { icon: '🕓', title: 'Quando gira', text: 'Ogni giorno alle 17:30 CDT (22:30 UTC) — dopo che il servizio di pranzo è finito e prima della serata.' },
+      { icon: '🔍', title: 'Cosa legge', text: 'Tutti i log con unit="no_need" di oggi (mattina) — i casi in cui un cuoco ha dichiarato che un prep task non serviva. Poi guarda il prep_log tra le 14:00 e le 17:00 CDT dello stesso giorno.' },
+      { icon: '👆', title: 'Colpevole mattina', text: 'Se tra le 14:00 e le 17:00 qualcuno ha dovuto preparare quella stessa cosa → il "no_need" della mattina era sbagliato. Crea un item orange in L\'Ufficio con nome del cuoco responsabile.' },
+      { icon: '👆', title: 'Colpevole sera', text: 'Se nel pomeriggio nessuno ha preparato quell\'item → il closing della sera precedente era impreciso. Crea un item blue — era segnato come necessario ma non lo era.' },
+      { icon: '📝', title: 'Cosa scrive', text: 'Un item per ogni discrepanza, con nome dell\'item, chi ha dichiarato "no_need", chi ha fatto la prep nel pomeriggio. Dedup: controlla se ha già scritto oggi per lo stesso item prima di inserire.' }
     ],
     params: []
   },
   'bot-recipe-guardian': {
     steps: [
-      { icon: '🕓', title: 'Quando gira', text: 'Ogni mattina alle 6:00 AM.' },
-      { icon: '🍽️', title: 'Quali ricette controlla', text: 'Solo le ricette che vengono vendute al POS (quelle con pos_name compilato). Se non la vendi, non importa.' },
-      { icon: '🔍', title: 'Cosa controlla per ognuna', text: 'BOM vuoto o con meno di 4 ingredienti. serving_unit e serving_qty mancanti (il Bot 3 non può calcolare senza). Procedura non scritta. base_servings mancante.' },
-      { icon: '🚦', title: 'Priorità', text: 'Rosso = BOM completamente vuoto. Arancio = BOM parziale o campi chiave mancanti. Blu = solo procedura mancante.' },
-      { icon: '📝', title: 'Cosa scrive', text: 'Crea un item in L\'Ufficio per ogni ricetta con problemi. Non duplica — se l\'item è già aperto, non lo ricrea.' }
+      { icon: '🕓', title: 'Quando gira', text: 'Ogni mattina alle 6:00 AM CDT. v13.' },
+      { icon: '🍽️', title: 'Quali ricette controlla', text: 'Solo le ricette con pos_name compilato — quelle vendute al POS. Le ordina per urgenza: vendute ieri prima, poi ultima settimana, poi ultimo mese. Chi vende di più viene controllato per primo.' },
+      { icon: '🔴', title: 'Critical (massimo 5 per run)', text: 'BOM completamente vuoto. serving_qty o serving_unit mancanti (Bot 3 non può calcolare). base_servings mancante (BOM non scalabile). selling_price presente ma food cost non calcolabile per BOM incompleto.' },
+      { icon: '🟠', title: 'Warning (massimo 5 per run)', text: 'BOM con meno di 4 righe valide. Righe BOM senza ingredient_id collegato (righe orfane). Righe BOM senza quantità o unità. Unità non convertibili (es. "portion", "batch") che il sistema non sa convertire in grammi.' },
+      { icon: '🔵', title: 'Info (nessun limite)', text: 'Procedura / note di servizio non scritte (campo procedure vuoto). Foto del piatto mancante — nessun riferimento visivo per i cuochi.' },
+      { icon: '📝', title: 'Deduplication', text: 'Per ogni combinazione (ricetta, tipo issue) controlla se esiste già un item open o snoozed. Se sì, aggiorna last_seen_at e times_seen invece di creare un duplicato. Non riempie L\'Ufficio ogni mattina.' }
     ],
     params: []
   }
 };
 
 var _botDefs = [
-  { id:'bot-preplist-builder', name:'Costruttore Preplist',        icon:'📋', desc:'Calcola cosa preparare ogni notte dal venduto POS.',            schedule:'Ogni notte 4:00 AM',      ribbon:'#f59e0b', fnName:'bot-preplist-builder', logTable:'preplist', hasConfig:true  },
-  { id:'bot-price-guard',      name:'Guardiano Prezzi',            icon:'💰', desc:'Segnala aumenti di prezzo dopo ogni fattura.',                  schedule:'Ad ogni fattura',         ribbon:'#ef4444', fnName:'bot-price-guard',      logTable:'invoice',  hasConfig:false },
-  { id:'bot-chat-analyst',     name:'Analista Chat',               icon:'💬', desc:'Legge la chat della brigata e trova pattern ogni notte.',       schedule:'Ogni notte 3:00 AM',      ribbon:'#8b5cf6', fnName:'bot-chat-analyst',     logTable:'chat',     hasConfig:false },
-  { id:'bot-tell-chef-reader', name:'Lettore Tell Chef',           icon:'📣', desc:'Classifica i Tell Chef ogni ora e li porta in L\'Ufficio.',    schedule:'Ogni ora',                ribbon:'#3b82f6', fnName:'bot-tell-chef-reader', logTable:'tellchef', hasConfig:false },
-  { id:'bot-food-cost-guard',  name:'Guardiano Food Cost',         icon:'📊', desc:'Calcola impatto in dollari degli aumenti prezzo sulle ricette.',schedule:'Ad ogni fattura',         ribbon:'#ec4899', fnName:'bot-food-cost-guard',  logTable:'invoice',  hasConfig:false },
-  { id:'bot-prep-accuracy',    name:'Guardiano Accuratezza Prep',  icon:'🎯', desc:'Ogni sera verifica se i "No Need" della mattina erano corretti.',schedule:'Ogni sera 17:00-18:00',  ribbon:'#14b8a6', fnName:'bot-prep-accuracy',    logTable:'preplog',  hasConfig:false },
-  { id:'bot-recipe-guardian',  name:'Recipe Guardian',             icon:'📖', desc:'Ogni mattina trova le ricette vendute con dati incompleti.',    schedule:'Ogni mattina 6:00 AM',    ribbon:'#10b981', fnName:'bot-recipe-guardian',  logTable:'office',   hasConfig:false }
+  { id:'bot-preplist-builder', name:'Costruttore Preplist',        icon:'📋', desc:'Calcola cosa preparare ogni notte — stock, vendite DOW, min_cover_days, linguaggio cucina.',  schedule:'Ogni notte 4:00 AM',      ribbon:'#f59e0b', fnName:'bot-preplist-builder', logTable:'preplist', hasConfig:true  },
+  { id:'bot-price-guard',      name:'Guardiano Prezzi',            icon:'💰', desc:'Segnala variazioni di prezzo >10% dopo ogni fattura (min 3 acquisti storici).',               schedule:'Ad ogni fattura',         ribbon:'#ef4444', fnName:'bot-price-guard',      logTable:'invoice',  hasConfig:false },
+  { id:'bot-chat-analyst',     name:'Analista Chat',               icon:'💬', desc:'Analizza la chat brigata ogni notte — problemi, dinamiche, segnali deboli. Domenica: recap settimanale.', schedule:'Ogni notte 3:00 AM',  ribbon:'#8b5cf6', fnName:'bot-chat-analyst',     logTable:'chat',     hasConfig:false },
+  { id:'bot-tell-chef-reader', name:'Lettore Tell Chef',           icon:'📣', desc:'11 categorie, 4 livelli priorità, entity detection, dedup — classifica Tell Chef ogni ora.',  schedule:'Ogni ora',                ribbon:'#3b82f6', fnName:'bot-tell-chef-reader', logTable:'tellchef', hasConfig:false },
+  { id:'bot-food-cost-guard',  name:'Guardiano Food Cost',         icon:'📊', desc:'Impatto $ mensile per aumento prezzi su ricette vendute — 3 livelli severity, pack mismatch detection.',schedule:'Ad ogni fattura',   ribbon:'#ec4899', fnName:'bot-food-cost-guard',  logTable:'invoice',  hasConfig:false },
+  { id:'bot-prep-accuracy',    name:'Guardiano Accuratezza Prep',  icon:'🎯', desc:'Ogni sera confronta "no_need" mattutini con prep del pomeriggio — trova chi ha sbagliato.',  schedule:'Ogni sera 17:30 CDT',    ribbon:'#14b8a6', fnName:'bot-prep-accuracy',    logTable:'preplog',  hasConfig:false },
+  { id:'bot-recipe-guardian',  name:'Recipe Guardian',             icon:'📖', desc:'6 AM — 4 check Critical + 4 Warning + 2 Info su ricette vendute, dedup, priorità per vendite.', schedule:'Ogni mattina 6:00 AM',  ribbon:'#10b981', fnName:'bot-recipe-guardian',  logTable:'office',   hasConfig:false }
 ];
+
 
 // Codici sorgente dei bot (aggiornati al 1 luglio 2026)
 var _botSources = {
@@ -2955,3 +2960,4 @@ window.botSaveTask = async function(tid) {
     if(btn){btn.disabled=false;btn.textContent='💾 Salva sul DB';}
   }
 };
+
