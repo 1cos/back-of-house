@@ -2757,6 +2757,7 @@ window.botLiveCalcAsync = async function(tid, stock, shelf, servQty, bw, baseSrv
     // Mostra stock disponibile
     if (isPezzi) { qtyStr = Math.round(stock)+' '+unit+' in casa'; displayQty = Math.round(stock); }
     else if (isCup) { qtyStr = stock+' cup in casa'; displayQty = stock; }
+    else if (isNests) { qtyStr = Math.round(stock)+' nests in casa'; displayQty = Math.round(stock); }
     else { qtyStr = stock>=1000?(stock/1000).toFixed(1).replace(/\.0$/,'')+'kg in casa':Math.round(stock)+'g in casa'; displayQty = stock; }
   } else {
     // Mostra quanto fare
