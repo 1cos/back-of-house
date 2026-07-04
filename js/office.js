@@ -603,14 +603,37 @@ function officeRenderCard(item) {
       '</div>';
   }
 
+  // ── Skill Dispatcher: issue_types con Skill dedicata ──
+  var SKILL_ISSUE_TYPES = ['bom_unknown_units', 'UNKNOWN_UNIT'];
+
   var actionsHtml = '';
-  if (options.length > 0) {
+  if (options.length > 0 && SKILL_ISSUE_TYPES.indexOf(item.issue_type) !== -1) {
+    // Sostituisce i bottoni generici con: Later · Solved · 🧠 Resolve
+    var styleLater  = 'flex:1;padding:9px 0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;border:0.5px solid rgba(148,163,184,0.3);background:transparent;color:#94a3b8;';
+    var styleSolved = 'flex:1;padding:9px 0;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;border:0.5px solid rgba(34,197,94,0.4);background:rgba(34,197,94,0.06);color:#15803d;';
+    var styleResolve= 'flex:1;padding:9px 0;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;';
+    actionsHtml =
+      '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">' +
+        '<button onclick="officeResolve(\'' + item.id + '\',\'later\')" style="' + styleLater  + '">🕒 Later</button>' +
+        '<button onclick="officeResolve(\'' + item.id + '\',\'solved\')" style="' + styleSolved + '">✓ Solved</button>' +
+        '<button onclick="officeSkillDispatch(\'' + item.id + '\',\'' + (item.issue_type||'') + '\')" style="' + styleResolve + '">🧠 Resolve</button>' +
+      '</div>';
+  } else if (options.length > 0) {
     actionsHtml = '<div data-role="actions" style="display:flex;gap:7px;padding:0 14px 12px;">';
     options.forEach(function(opt, idx) {
       var isPrimary = idx === options.length - 1;
       var label = typeof opt === 'string' ? opt : (opt.label || String(opt));
+      var action = typeof opt === 'object' ? (opt.action || 'resolve') : 'resolve';
+      var onClick;
+      if (action === 'open_recipe' && opt.recipe_id) {
+        onClick = 'officeSkillDispatch(\'' + item.id + '\',\'' + (item.issue_type||'open_recipe') + '\')';
+      } else if (action === 'snooze') {
+        onClick = 'officeResolve(\'' + item.id + '\',\'later\')';
+      } else {
+        onClick = 'officeResolve(\'' + item.id + '\',\'' + escOpt(label) + '\')';
+      }
       actionsHtml +=
-        '<button onclick="officeResolve(\'' + item.id + '\',\'' + escOpt(label) + '\')" ' +
+        '<button onclick="' + onClick + '" ' +
         'style="flex:1;padding:8px 0;border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;border:0.5px solid ' +
         (isPrimary ? '#1e3a5f;background:#1e3a5f;color:white;' : 'rgba(59,130,246,0.2);background:rgba(59,130,246,0.04);color:#1e3a5f;') +
         '">' + label + '</button>';
@@ -2967,5 +2990,303 @@ window.botSaveTask = async function(tid) {
   } finally {
     if(btn){btn.disabled=false;btn.textContent='💾 Salva sul DB';}
   }
+};
+
+
+// ══════════════════════════════════════════════════════════════
+// CHEF AI SKILL ENGINE — v1.0
+// Architecture: Bot detects → issue_type → Dispatcher → Skill → Resolve → Learn
+// ══════════════════════════════════════════════════════════════
+
+// ── Skill Dispatcher ──────────────────────────────────────────
+// Entry point: called by any "🧠 Resolve" button in L'Ufficio.
+// Routes issue_type to the correct Skill. Never hardcoded in bots.
+// Future Skills: plug-and-play — add case here, implement function below.
+window.officeSkillDispatch = async function(itemId, issueType) {
+  var sb = window.supa;
+  if (!sb) return;
+
+  // Load the full office_item
+  var { data: item } = await sb
+    .from('office_items')
+    .select('*')
+    .eq('id', itemId)
+    .maybeSingle();
+
+  if (!item) return;
+
+  switch (issueType) {
+    case 'bom_unknown_units':
+    case 'UNKNOWN_UNIT':
+      window.officeSkillUnknownUnit(item);
+      break;
+    // Future Skills — plug-and-play:
+    // case 'bom_partial':         window.officeSkillBomIncomplete(item); break;
+    // case 'MISSING_LINK':        window.officeSkillIngredientLink(item); break;
+    // case 'missing_procedure':   window.officeSkillProcedure(item); break;
+    // case 'PRICE_ANOMALY':       window.officeSkillPriceAnomaly(item); break;
+    default:
+      // Fallback: open recipe editor if recipe_id known
+      if (item.source_id) {
+        window.officeOpenRecipe(itemId, item.source_id);
+      }
+  }
+};
+
+// ── Skill #001 — UNKNOWN_UNIT ─────────────────────────────────
+// Level 1 Skill: deterministic, one row, one field, zero ambiguity.
+// Target: < 30 seconds from open to resolved.
+window.officeSkillUnknownUnit = async function(item) {
+  var sb = window.supa;
+  if (!sb) return;
+
+  var recipeId = item.source_id || item.recipe_id;
+  if (!recipeId) { alert('Recipe ID missing — cannot open Skill.'); return; }
+
+  // Load all BOM rows with unknown units for this recipe
+  var KNOWN_UNITS = ['g','kg','oz','lb','ml','l','tsp','tbsp','cup','each','pezzi','pz'];
+  var { data: bomRows } = await sb
+    .from('recipe_bom')
+    .select('bom_id, quantity, unit, item_id, sub_recipe_id, component_type, ingredients:item_id(id, name, base_unit, measure_type)')
+    .eq('parent_recipe_id', recipeId);
+
+  var unknownRows = (bomRows || []).filter(function(r) {
+    return r.unit && KNOWN_UNITS.indexOf((r.unit||'').toLowerCase().trim()) === -1;
+  });
+
+  var { data: recipe } = await sb
+    .from('recipes')
+    .select('id, title, base_servings, base_weight_g')
+    .eq('id', recipeId)
+    .maybeSingle();
+
+  var recipeName = recipe ? recipe.title : (item.recipe_name || 'Recipe');
+
+  // Build sheet HTML
+  var rowsHTML = '';
+  unknownRows.forEach(function(row, idx) {
+    var ingName = row.ingredients ? row.ingredients.name : (row.sub_recipe_id ? 'Sub-recipe' : 'Ingredient');
+    var baseUnit = row.ingredients ? (row.ingredients.base_unit || 'g') : 'g';
+    var measureType = row.ingredients ? (row.ingredients.measure_type || 'weight') : 'weight';
+
+    // Suggest compatible units based on ingredient measure_type
+    var suggestedUnits;
+    if (measureType === 'each') {
+      suggestedUnits = ['each', 'pezzi', 'pz'];
+    } else if (measureType === 'volume') {
+      suggestedUnits = ['ml', 'l', 'tsp', 'tbsp', 'cup'];
+    } else {
+      suggestedUnits = ['g', 'kg', 'oz', 'lb'];
+    }
+
+    rowsHTML +=
+      '<div style="background:rgba(239,68,68,0.04);border:1px solid rgba(239,68,68,0.15);border-radius:12px;padding:14px;margin-bottom:12px;" id="skillRow_' + row.bom_id + '">' +
+        '<div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">BOM Row #' + row.bom_id + '</div>' +
+        '<div style="font-size:18px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">' + ingName + '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">' +
+          '<div style="background:rgba(239,68,68,0.1);border-radius:8px;padding:4px 10px;font-size:13px;font-weight:700;color:#ef4444;">' + row.quantity + ' <span style="text-decoration:line-through;">' + row.unit + '</span></div>' +
+          '<div style="color:#94a3b8;font-size:13px;">cannot be converted</div>' +
+        '</div>' +
+        '<div style="font-size:12px;color:#475569;margin-bottom:8px;font-weight:600;">Choose unit:</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;" id="unitPicker_' + row.bom_id + '">' +
+          suggestedUnits.map(function(u) {
+            var isBase = u === baseUnit;
+            return '<button onclick="officeSkillSelectUnit(' + row.bom_id + ',\'' + u + '\',this)" ' +
+              'style="padding:8px 16px;border-radius:20px;font-size:14px;font-weight:600;cursor:pointer;' +
+              (isBase
+                ? 'border:2px solid #2563eb;background:#eff6ff;color:#1d4ed8;'
+                : 'border:1px solid rgba(30,58,95,0.15);background:white;color:#475569;') +
+              '">' + u + (isBase ? ' ✓' : '') + '</button>';
+          }).join('') +
+        '</div>' +
+        '<input type="hidden" id="selectedUnit_' + row.bom_id + '" value="">' +
+      '</div>';
+  });
+
+  if (unknownRows.length === 0) {
+    rowsHTML = '<div style="text-align:center;padding:24px;color:#64748b;">No unknown units found — this issue may already be resolved.</div>';
+  }
+
+  var sheetHTML =
+    '<div id="skillOverlay" onclick="if(event.target===this)officeSkillClose()" ' +
+      'style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9000;display:flex;align-items:flex-end;">' +
+      '<div id="skillSheet" style="width:100%;max-height:90vh;background:white;border-radius:20px 20px 0 0;overflow-y:auto;padding:0 0 40px;">' +
+
+        // Header
+        '<div style="position:sticky;top:0;background:white;padding:16px 20px 12px;border-bottom:0.5px solid rgba(30,58,95,0.08);display:flex;align-items:center;gap:12px;z-index:1;">' +
+          '<div style="flex:1;">' +
+            '<div style="font-size:11px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px;">🧠 Skill #001 — Unknown Unit</div>' +
+            '<div style="font-size:18px;font-weight:800;color:#1e3a5f;">' + recipeName + '</div>' +
+          '</div>' +
+          '<button onclick="officeSkillClose()" style="width:32px;height:32px;border-radius:50%;border:none;background:rgba(30,58,95,0.06);color:#64748b;font-size:18px;cursor:pointer;">×</button>' +
+        '</div>' +
+
+        // Context
+        '<div style="margin:14px 20px 0;padding:10px 12px;background:rgba(239,68,68,0.05);border-left:3px solid #ef4444;border-radius:0 8px 8px 0;">' +
+          '<div style="font-size:13px;color:#7f1d1d;line-height:1.5;">' +
+            'This unit cannot be converted into food cost calculations.<br>' +
+            '<span style="color:#94a3b8;font-size:12px;">Select the correct unit for each row below.</span>' +
+          '</div>' +
+        '</div>' +
+
+        // Rows
+        '<div style="padding:14px 20px 0;">' + rowsHTML + '</div>' +
+
+        // Save button
+        '<div style="padding:0 20px;" id="skillSaveBtnWrap"' + (unknownRows.length === 0 ? ' style="display:none"' : '') + '>' +
+          '<button id="skillSaveBtn" onclick="officeSkillUnknownUnitSave(\'' + item.id + '\',\'' + recipeId + '\')" ' +
+            'style="width:100%;padding:16px;border-radius:14px;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;font-size:17px;font-weight:700;cursor:pointer;opacity:0.4;pointer-events:none;">' +
+            '💾 Save &amp; Close Issue' +
+          '</button>' +
+          '<div id="skillSaveMsg" style="display:none;margin-top:10px;"></div>' +
+        '</div>' +
+
+      '</div>' +
+    '</div>';
+
+  document.body.insertAdjacentHTML('beforeend', sheetHTML);
+
+  // Store unknown rows for save
+  window._skillUnknownRows = unknownRows;
+  window._skillSelectedUnits = {};
+};
+
+// ── Unit picker interaction ────────────────────────────────────
+window.officeSkillSelectUnit = function(bomId, unit, btn) {
+  // Highlight selected button
+  var picker = document.getElementById('unitPicker_' + bomId);
+  if (picker) {
+    picker.querySelectorAll('button').forEach(function(b) {
+      b.style.border = '1px solid rgba(30,58,95,0.15)';
+      b.style.background = 'white';
+      b.style.color = '#475569';
+    });
+  }
+  btn.style.border = '2px solid #2563eb';
+  btn.style.background = '#eff6ff';
+  btn.style.color = '#1d4ed8';
+
+  // Store selection
+  var input = document.getElementById('selectedUnit_' + bomId);
+  if (input) input.value = unit;
+  window._skillSelectedUnits = window._skillSelectedUnits || {};
+  window._skillSelectedUnits[bomId] = unit;
+
+  // Check if all rows have a selection — enable Save
+  var allSelected = (window._skillUnknownRows || []).every(function(row) {
+    return window._skillSelectedUnits[row.bom_id];
+  });
+  var saveBtn = document.getElementById('skillSaveBtn');
+  if (saveBtn && allSelected) {
+    saveBtn.style.opacity = '1';
+    saveBtn.style.pointerEvents = 'auto';
+  }
+};
+
+// ── Skill #001 Save ───────────────────────────────────────────
+window.officeSkillUnknownUnitSave = async function(itemId, recipeId) {
+  var sb = window.supa;
+  if (!sb) return;
+  var btn = document.getElementById('skillSaveBtn');
+  var msg = document.getElementById('skillSaveMsg');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving...'; }
+
+  try {
+    var rows = window._skillUnknownRows || [];
+    var selected = window._skillSelectedUnits || {};
+    var now = new Date().toISOString();
+    var resolvedBy = window.user?.name || 'Max';
+    var historyRows = [];
+
+    // 1. Update each BOM row unit
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var newUnit = selected[row.bom_id];
+      if (!newUnit) continue;
+
+      var { error: bomErr } = await sb
+        .from('recipe_bom')
+        .update({ unit: newUnit })
+        .eq('bom_id', row.bom_id);
+      if (bomErr) throw bomErr;
+
+      historyRows.push({
+        skill_name: 'UNKNOWN_UNIT',
+        office_item_id: itemId,
+        recipe_id: recipeId,
+        ingredient_id: row.item_id || null,
+        bom_id: row.bom_id,
+        old_value: row.unit,
+        new_value: newUnit,
+        field_name: 'unit',
+        resolved_by: resolvedBy,
+        resolved_at: now
+      });
+    }
+
+    // 2. Log to chef_ai_skill_history
+    if (historyRows.length > 0) {
+      await sb.from('chef_ai_skill_history').insert(historyRows);
+    }
+
+    // 3. Verify: re-check BOM for unknown units
+    var KNOWN_UNITS = ['g','kg','oz','lb','ml','l','tsp','tbsp','cup','each','pezzi','pz'];
+    var { data: updatedBom } = await sb
+      .from('recipe_bom')
+      .select('bom_id, unit')
+      .eq('parent_recipe_id', recipeId);
+
+    var stillUnknown = (updatedBom || []).filter(function(r) {
+      return r.unit && KNOWN_UNITS.indexOf((r.unit||'').toLowerCase().trim()) === -1;
+    });
+
+    // 4. Close office_item if issue is fully resolved
+    if (stillUnknown.length === 0) {
+      await sb.from('office_items').update({
+        status: 'resolved',
+        resolved_by: resolvedBy,
+        resolved_at: now,
+        resolution: 'Resolved via Skill UNKNOWN_UNIT — ' + historyRows.length + ' row(s) corrected'
+      }).eq('id', itemId);
+    }
+
+    // 5. Success UI
+    if (msg) {
+      msg.style.display = 'block';
+      msg.innerHTML =
+        '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:10px;padding:12px;text-align:center;">' +
+          '<div style="font-size:20px;margin-bottom:4px;">✅</div>' +
+          '<div style="font-size:15px;font-weight:700;color:#15803d;">Issue Resolved</div>' +
+          '<div style="font-size:12px;color:#4ade80;margin-top:2px;">' + historyRows.length + ' unit(s) corrected · Logged to Skill History</div>' +
+        '</div>';
+    }
+
+    // 6. Close sheet and refresh L'Ufficio after brief delay
+    setTimeout(function() {
+      officeSkillClose();
+      // Remove resolved card from DOM
+      var card = document.querySelector('[data-item-id="' + itemId + '"]');
+      if (card) {
+        card.style.transition = 'all 0.25s ease';
+        card.style.opacity = '0';
+        card.style.transform = 'translateX(40px)';
+        setTimeout(function() { card.remove(); }, 280);
+      }
+    }, 1800);
+
+  } catch(e) {
+    if (msg) {
+      msg.style.display = 'block';
+      msg.innerHTML = '<div style="color:#ef4444;font-size:13px;padding:8px;">❌ ' + e.message + '</div>';
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Save & Close Issue'; }
+  }
+};
+
+// ── Close Skill Sheet ─────────────────────────────────────────
+window.officeSkillClose = function() {
+  document.getElementById('skillOverlay')?.remove();
+  window._skillUnknownRows = null;
+  window._skillSelectedUnits = null;
 };
 
