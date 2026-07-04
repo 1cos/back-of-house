@@ -1,5 +1,88 @@
 # PROMPT PROSSIMA SESSIONE — Brigade
 
+---
+
+## SESSIONE 4 LUGLIO 2026 (mattina) — v489→v492 — Chef AI Skill Engine + bot fixes
+
+### Versioni deployate
+- Brigade frontend: **v489→v492**
+- bot-preplist-builder: **v40→v41** (Supabase v59→v60)
+- bot-preplist-sim: **v2→v3** (Supabase v2→v3)
+- chef_ai_skill_history: nuova tabella creata
+- office_items.snoozed_until: nuova colonna aggiunta
+
+### Completato in questa sessione
+
+**1. Fix preview Bot Config — unit=nests (v489)**
+- `office.js`: aggiunto ramo `isNests` nel caso `green` di `botLiveCalcAsync`
+- Prima: "487g in casa" anche con unit=nests. Dopo: "487 nests in casa"
+
+**2. Fix preview iniziale liveQty (v490)**
+- Quando `suggested_qty=NULL` e `current_stock>0`, la preview mostra stock attuale invece di "—"
+- Fix chirurgico nella riga di render iniziale del `liveQty_` div
+
+**3. Chef AI Skill Engine v1 (v491)**
+- `officeSkillDispatch(itemId, issueType)` — dispatcher generico plug-and-play
+- Skill #001 `UNKNOWN_UNIT` (`bom_unknown_units`) — bottom sheet completa:
+  - Carica righe BOM con unità sconosciuta
+  - Suggerisce solo unità compatibili con `measure_type` dell'ingrediente
+  - Salva in `recipe_bom`, verifica risoluzione, chiude `office_item` automaticamente
+  - Logga in `chef_ai_skill_history`
+- Nuovi bottoni sulle card: `🧠 Resolve` (solo se Skill esiste) + `🕒 Later` + `✓ Solved`
+- `chef_ai_skill_history` table: skill_name, office_item_id, recipe_id, ingredient_id, bom_id, old_value, new_value, field_name, resolved_by, resolved_at
+
+**4. Honest buttons per tutte le card ai_scan (v492)**
+- Regola: `🧠 Resolve` appare SOLO se `issue_type` ha una Skill registrata in `SKILL_ISSUE_TYPES`
+- Card senza Skill: solo `🕒 Later` + `✓ Solved` — nessun bottone fake
+- `🕒 Later` = snooze 7 giorni reale (`status=snoozed`, `snoozed_until=+7d`)
+- `✓ Solved` = `status=resolved`, `resolution=resolved_manual`, card sparisce con animazione
+- Rimossi: "Fix now", "Snooze 7 days", "Ignore"
+- `office_items.snoozed_until` colonna aggiunta via migration
+
+**5. bot-preplist-builder v41 — fix missing_base_servings**
+- Warning `missing_base_servings` ora scatta SOLO se il bot non ha NESSUN modo di calcolare il consumo
+- Condizione v41: `hasPosName && hasBom && !hasBaseServings && !botCanCalculate`
+  - `botCanCalculate = hasSw || hasBwBs || hasPhysicalQty`
+  - `hasSw` = serving_weight_g presente e > 0
+  - `hasBwBs` = base_weight_g + base_servings entrambi presenti
+  - `hasPhysicalQty` = unità fisica (pezzi/cup/nests) con serving_qty presente
+- Eliminato falso positivo su Balsamic Dressing (aveva serving_weight_g=74g)
+
+**6. bot-preplist-sim v3 — allineato a v41**
+- Logica identica al bot reale: confidence engine, blended demand (50%+30%+20%), calcOpenStatus, BUFFER_BY_CONF, fix missing_base_servings v41
+- Bot Debug ora simula esattamente quello che il bot farebbe stanotte
+
+### Architettura decisionale (visione Chef AI)
+> "The Office is Chef AI's workspace. During the night, Chef AI observes, analyzes, groups, prioritizes and prepares decisions. When Chef Max opens the Office in the morning, he should never have to search, interpret or investigate. His only job is to make decisions. Everything else is Chef AI's responsibility."
+
+Test per ogni nuova funzione Ufficio: "Riduce il numero di decisioni che Max deve costruire da solo?"
+
+Skill future da registrare in `SKILL_ISSUE_TYPES` (dispatcher in office.js):
+- `bom_partial` → Skill BOM_INCOMPLETE (ingredienti candidati da ricette simili)
+- `missing_base_servings` → Skill MISSING_SERVING (calcolo automatico o OQR)  
+- `missing_photo` → Skill MISSING_PHOTO (raggruppa 89 in 1, ordina per vendite)
+- `missing_procedure` → Skill MISSING_PROCEDURE (archivia 0-vendite, presenta resto)
+
+### Audit office_items (212 card aperte)
+| Tipo | N | Azione suggerita |
+|---|---|---|
+| missing_photo | 89 | Raggruppa in 1 card, ordina per vendite, archivia 0-vendite |
+| missing_procedure | 81 | Archivia 0-vendite 30gg, presenta le altre in ordine |
+| tell_chef | 32 | Tipo A (BOM edit) → Skill; Tipo B (bug) → backlog; Tipo C (prep) → task; Tipo D (info) → no action |
+| bom_partial | 4 | Skill BOM_INCOMPLETE con ingredienti candidati |
+| bom_empty | 3 | Skill BOM_INCOMPLETE |
+| missing_base_servings | 2 | Skill MISSING_SERVING — calcolo automatico |
+| bom_unknown_units | 1 | ✅ Skill #001 UNKNOWN_UNIT già attiva |
+
+### Note architetturali
+- `base_servings` è corretto per Menu Item, non per Prep Recipe a peso (yield)
+- Per Prep Recipe il consumo viene calcolato dal `subMap` (BOM dei piatti padre) — `base_servings` non viene usato
+- `pos_name` NON va rimosso: 30/32 prep_task con pos_name non sono nel BOM di nessun piatto padre
+- bot-preplist-builder usa `subMap` per Prep Recipe (Arrabbiata ecc.) → calcolo corretto per piatto
+- `calcConsumo` con fallback `bw/bs` usato solo per task con `pos_name` diretto
+
+
+
 ## CARICA SUBITO — UNA SOLA VOLTA A INIZIO SESSIONE
 1. Token GitHub da file `x_claude_GIthub.txt` nel progetto
 2. Leggi TUTTI i file .md da brigade-main **una sola volta all'inizio della sessione** — NON rileggere tra un messaggio e l'altro nella stessa sessione
@@ -9,8 +92,9 @@
 ---
 
 ## VERSIONE LIVE
-- Brigade frontend: **v488** (sw.js `boh-v488`)
-- bot-preplist-builder: **v39** (Supabase versione 58)
+- Brigade frontend: **v492** (sw.js `boh-v492`)
+- bot-preplist-builder: **v41** (Supabase versione 60)
+- bot-preplist-sim: **v3** (Supabase versione 3) — allineato a v41
 - Edge Function gmail-touchbistro-import: **v22**
 - Supabase project: `ydqmumpytgrlceuinoqt`
 
