@@ -2526,7 +2526,14 @@ function botBuildTaskCard(task, bomMap) {
   bodyHTML +=
     '<div id="liveResult_'+task.id+'" style="background:rgba(255,255,255,0.06);border:2px solid '+pillColor+';border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
       '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">👁 Preview risultato bot</div>'+
-      '<div id="liveQty_'+task.id+'" style="color:'+pillColor+';font-size:22px;font-weight:800;margin-bottom:6px;">'+(task.suggested_qty||'—')+' '+task.unit+'</div>'+
+      '<div id="liveQty_'+task.id+'" style="color:'+pillColor+';font-size:22px;font-weight:800;margin-bottom:6px;">'+
+      (function(){
+        if(task.suggested_qty) return '✅ OK — '+task.suggested_qty+' '+task.unit+' in casa';
+        var s=parseFloat(task.current_stock)||0;
+        if(s>0) return '✅ OK — '+Math.round(s)+' '+(task.unit||'g')+' in casa';
+        return '— '+(task.unit||'');
+      })()+
+      '</div>'+
       '<div id="liveIt_'+task.id+'"  style="color:#86efac;font-size:12px;margin-bottom:2px;">🇮🇹 '+noteIT+'</div>'+
       '<div id="liveEn_'+task.id+'"  style="color:#93c5fd;font-size:12px;margin-bottom:2px;">🇺🇸 '+noteEN+'</div>'+
       '<div id="liveEs_'+task.id+'"  style="color:#fbbf24;font-size:12px;">🇪🇸 '+noteES+'</div>'+
