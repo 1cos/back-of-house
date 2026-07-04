@@ -261,9 +261,9 @@ window.printBotSim = function() {
   bar.id = 'botPrintBar';
   bar.style.cssText = 'position:sticky;top:0;z-index:10;background:#1e3a5f;padding:10px 16px;display:flex;gap:10px;align-items:center;';
   bar.innerHTML = `
-    <button onclick="window.print()" style="padding:8px 18px;background:#4f46e5;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">🖨️ Stampa / Salva PDF</button>
+    <button onclick="botSimShare()" style="padding:8px 18px;background:#4f46e5;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">📤 Condividi / Salva PDF</button>
     <button onclick="document.getElementById('botPrintOverlay').remove()" style="padding:8px 14px;background:#475569;color:#fff;border:none;border-radius:10px;font-size:14px;cursor:pointer;">✕ Chiudi</button>
-    <span style="font-size:11px;color:#94a3b8;margin-left:4px;">Su iPhone: Stampa → tieni premuto PDF → Salva su File</span>`;
+    <span style="font-size:11px;color:#94a3b8;margin-left:4px;">Tocca Condividi → Stampa → tieni premuto PDF → Salva su File</span>`;
 
   // Contenuto tabella
   const content = document.createElement('div');
@@ -278,3 +278,33 @@ window.printBotSim = function() {
   overlay.appendChild(content);
   document.body.appendChild(overlay);
 };
+
+// ── Bot Sim Share — iOS-safe PDF export ──────────────────────
+window.botSimShare = async function() {
+  if (navigator.share) {
+    try {
+      var meta = window._botSimMeta;
+      var rows = window._botSimRows || [];
+      var lines = ['Bot Debug Simulazione — Zenos on the Square'];
+      if (meta) lines.push('Data: ' + meta.date + ' · 🔴 ' + meta.red + ' prep oggi · 🟡 ' + meta.yellow + ' domani · 🟢 ' + meta.green + ' ok');
+      lines.push('');
+      rows.forEach(function(r) {
+        var pill = r.pill==='red'?'🔴':r.pill==='yellow'?'🟡':'🟢';
+        var fmtN = function(n,u) {
+          if(n===null||n===undefined) return '—';
+          var v=parseFloat(n); if(isNaN(v)) return '—';
+          var isPz=['pezzi','pz','nests','buste','cartocci','cup'].indexOf((u||'').toLowerCase())!==-1;
+          if(isPz) return v%1===0?String(Math.round(v)):v.toFixed(1);
+          return v>=1000?(v/1000).toFixed(1).replace(/\.0$/,'')+'kg':Math.round(v)+'g';
+        };
+        lines.push(pill+' '+r.task_name+' | '+(r.category||'')+' | '+fmtN(r.current_stock,r.unit)+' | '+(r.sold_yesterday?'-'+fmtN(r.sold_yesterday,r.unit):'—')+' | '+fmtN(r.stock_presunto,r.unit)+' | '+(r.suggestion_text||'—'));
+      });
+      await navigator.share({ title: 'Bot Debug Simulazione — Zenos', text: lines.join('\n') });
+      return;
+    } catch(e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  window.print();
+};
+
