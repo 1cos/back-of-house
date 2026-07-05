@@ -1068,25 +1068,12 @@ function mcrOQRDef(problemType) {
         { value: 'review_later',  label: '\u23F8 Rivedi pi\u00F9 tardi' },
         { value: 'verify_bom',    label: '\u{1F50D} Verifica di nuovo BOM' },
       ],
-      buildPlan: (answers, p) => {
-        if (answers.choice !== 'prepare_plan') return [];
-        const legacyIngs = p.detail?.legacyIngredients || [];
-        if (!legacyIngs.length) return [];
-        return legacyIngs.map((ing, idx) => {
-          const ingName = ing.name || ing.ingredient || ing.item || ing.text || '?';
-          const ingQty  = ing.qty || ing.amount || ing.quantity || '?';
-          const ingUnit = ing.unit || 'g';
-          return {
-            action:    'INSERT',
-            table:     'recipe_bom',
-            row_id:    `(new — ${String(ingName)})`,
-            field:     `component #${idx + 1}`,
-            old_value: null,
-            new_value: `${ingQty} ${ingUnit} di "${String(ingName)}"`,
-            reason:    'Migrazione ingrediente legacy. Richiede ingredient_id — collega nel Recipe Editor prima di approvare.',
-            confidence: 'needs_manual_link',
-          };
-        });
+      // buildPlan is intentionally a no-op here.
+      // For 'prepare_plan', mcrOQRAnswer intercepts and calls
+      // mcrResolveConversionPlan() which is async and renders its own UI.
+      buildPlan: (answers) => {
+        if (answers.choice === 'prepare_plan') return '__async_conversion__';
+        return [];
       },
     },
 
@@ -1603,7 +1590,15 @@ window.mcrOQRAnswer = async function (choice) {
     }
   }
 
-  // Build write plan (covers prepare_plan, review_later, and all other choices)
+  // Check if buildPlan returned the async sentinel
+  const testPlan = oqrDef?.buildPlan?.(window._mcrOQRState.answers, p, window._mcrData);
+  if (testPlan === '__async_conversion__') {
+    // Intercept: run async resolver for legacy ingredient conversion
+    await mcrResolveConversionPlan(p);
+    return;
+  }
+
+  // Build write plan (covers review_later and all other synchronous choices)
   mcrBuildAndShowWritePlan(p, oqrDef);
 };
 
@@ -1645,6 +1640,309 @@ window.mcrSubmitFollowUp = function () {
 // ══════════════════════════════════════════════════════════════
 // WRITE PLAN BUILDER + UI
 // ══════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════
+// CONVERSION PLAN RESOLVER — async legacy→BOM migration
+// ══════════════════════════════════════════════════════════════
+// Ingredient families that are NEVER auto-safe due to known ambiguity.
+// These always go to 'review' even on exact name match.
+const MCR_AMBIGUOUS_FAMILIES = [
+  'parmesan', 'parmigiano', 'grana', 'pecorino',
+  'balsamic', 'balsamico',
+];
+function mcrIsAmbiguousFamily(name) {
+  const n = (name || '').toLowerCase();
+  return MCR_AMBIGUOUS_FAMILIES.some(f => n.includes(f));
+}
+
+// Resolve a single legacy ingredient name against the DB.
+// Returns { type, id, name, confidence, reason, candidates }
+// type: 'ingredient' | 'sub_recipe' | 'ambiguous' | 'unresolved'
+// confidence: 'exact' | 'fuzzy' | 'ambiguous' | 'not_found' | 'family_review'
+async function mcrResolveSingleLegacyRow(rawName, sb) {
+  const name = (rawName || '').trim();
+  if (!name) return { type: 'unresolved', id: null, name: '', confidence: 'not_found', reason: 'Nome vuoto', candidates: [] };
+
+  // Family check — always flag for review regardless of match quality
+  if (mcrIsAmbiguousFamily(name)) {
+    // Still do lookup to show candidates, but mark as family_review
+    const [ri, rr] = await Promise.all([
+      sb.from('ingredients').select('id,name,category').ilike('name', `%${name}%`).eq('active', true).limit(6),
+      sb.from('recipes').select('id,title,menu_group').ilike('title', `%${name}%`).limit(4),
+    ]);
+    return {
+      type:       'ambiguous',
+      id:         null,
+      name:       '',
+      confidence: 'family_review',
+      reason:     `Famiglia ambigua (${MCR_AMBIGUOUS_FAMILIES.find(f => name.toLowerCase().includes(f))}). Verifica manuale richiesta.`,
+      candidates: [...(ri.data || []).map(i => ({ label: i.name, id: i.id, kind: 'ingredient', cat: i.category })),
+                   ...(rr.data || []).map(r => ({ label: r.title, id: r.id, kind: 'sub_recipe', cat: r.menu_group }))],
+    };
+  }
+
+  // 1. Exact match on ingredients (case-insensitive exact)
+  const { data: ingExact } = await sb
+    .from('ingredients').select('id,name,category')
+    .ilike('name', name).eq('active', true).limit(3);
+  const ingExactHits = (ingExact || []).filter(i => i.name.toLowerCase() === name.toLowerCase());
+
+  // 2. Exact match on recipes
+  const { data: recExact } = await sb
+    .from('recipes').select('id,title,menu_group')
+    .ilike('title', name).limit(3);
+  const recExactHits = (recExact || []).filter(r => r.title.toLowerCase() === name.toLowerCase());
+
+  const totalExact = ingExactHits.length + recExactHits.length;
+
+  if (totalExact === 1) {
+    // Exactly one exact match — safe
+    if (ingExactHits.length === 1) {
+      return { type: 'ingredient', id: ingExactHits[0].id, name: ingExactHits[0].name, confidence: 'exact',
+               reason: `Corrispondenza esatta unica — ingrediente "${ingExactHits[0].name}"`, candidates: [] };
+    } else {
+      return { type: 'sub_recipe', id: recExactHits[0].id, name: recExactHits[0].title, confidence: 'exact',
+               reason: `Corrispondenza esatta unica — sub-recipe "${recExactHits[0].title}"`, candidates: [] };
+    }
+  }
+
+  if (totalExact > 1) {
+    // Multiple exact matches — ambiguous
+    const candidates = [
+      ...ingExactHits.map(i => ({ label: i.name, id: i.id, kind: 'ingredient', cat: i.category })),
+      ...recExactHits.map(r => ({ label: r.title, id: r.id, kind: 'sub_recipe', cat: r.menu_group })),
+    ];
+    return { type: 'ambiguous', id: null, name: '', confidence: 'ambiguous',
+             reason: `${totalExact} corrispondenze esatte trovate — scelta manuale richiesta.`, candidates };
+  }
+
+  // 3. Fuzzy match
+  const [riFuzz, rrFuzz] = await Promise.all([
+    sb.from('ingredients').select('id,name,category').ilike('name', `%${name}%`).eq('active', true).limit(5),
+    sb.from('recipes').select('id,title,menu_group').ilike('title', `%${name}%`).limit(4),
+  ]);
+  const ingFuzz = riFuzz.data || [];
+  const recFuzz = rrFuzz.data || [];
+  const totalFuzz = ingFuzz.length + recFuzz.length;
+
+  if (totalFuzz === 1) {
+    // One fuzzy match — review (not auto-safe)
+    if (ingFuzz.length === 1) {
+      return { type: 'ingredient', id: ingFuzz[0].id, name: ingFuzz[0].name, confidence: 'fuzzy',
+               reason: `Corrispondenza parziale — "${ingFuzz[0].name}". Verificare prima di approvare.`,
+               candidates: [{ label: ingFuzz[0].name, id: ingFuzz[0].id, kind: 'ingredient', cat: ingFuzz[0].category }] };
+    } else {
+      return { type: 'sub_recipe', id: recFuzz[0].id, name: recFuzz[0].title, confidence: 'fuzzy',
+               reason: `Corrispondenza parziale — "${recFuzz[0].title}". Verificare prima di approvare.`,
+               candidates: [{ label: recFuzz[0].title, id: recFuzz[0].id, kind: 'sub_recipe', cat: recFuzz[0].menu_group }] };
+    }
+  }
+
+  if (totalFuzz > 1) {
+    const candidates = [
+      ...ingFuzz.map(i => ({ label: i.name, id: i.id, kind: 'ingredient', cat: i.category })),
+      ...recFuzz.map(r => ({ label: r.title, id: r.id, kind: 'sub_recipe', cat: r.menu_group })),
+    ];
+    return { type: 'ambiguous', id: null, name: '', confidence: 'ambiguous',
+             reason: `${totalFuzz} corrispondenze parziali — scelta manuale richiesta.`, candidates };
+  }
+
+  // No match at all
+  return { type: 'unresolved', id: null, name: '', confidence: 'not_found',
+           reason: 'Nessuna corrispondenza trovata nel DB. Creare nuovo ingrediente o correggere il nome.', candidates: [] };
+}
+
+// Main async conversion plan function
+async function mcrResolveConversionPlan(p) {
+  const writePlanEl = document.getElementById('mcrWritePlan');
+  if (!writePlanEl) return;
+
+  const legacyIngs = p.detail?.legacyIngredients || [];
+  const rec        = p.detail?.recipe;
+  const sb         = window.supa;
+
+  if (!legacyIngs.length) {
+    writePlanEl.style.display = '';
+    writePlanEl.innerHTML = `<div class="mcr-drawer-section" style="margin-top:8px;">
+      <div class="mcr-drawer-label">📋 Piano Conversione</div>
+      <div style="font-size:12px;color:#475569;">Nessun ingrediente legacy trovato.</div>
+    </div>`;
+    return;
+  }
+
+  // Show loading state
+  writePlanEl.style.display = '';
+  writePlanEl.innerHTML = `
+    <div class="mcr-drawer-section" style="border-color:#7c3aed40;background:#0f172a;margin-top:8px;">
+      <div class="mcr-drawer-label" style="color:#a78bfa;">📋 Risoluzione ingredienti in corso…</div>
+      <div style="font-size:12px;color:#475569;">${legacyIngs.length} righe da verificare nel DB…</div>
+    </div>`;
+
+  // Resolve each legacy row in parallel
+  const resolved = await Promise.all(
+    legacyIngs.map(async (ing, idx) => {
+      const rawName = ing.name || ing.ingredient || ing.item || ing.text || '';
+      const res = await mcrResolveSingleLegacyRow(rawName, sb);
+      return {
+        idx,
+        legacy:  { name: rawName, qty: ing.qty || ing.amount || ing.quantity || '', unit: ing.unit || 'g', comment: ing.comment || '' },
+        resolved: res,
+      };
+    })
+  );
+
+  // Bucket into safe / review / unresolved
+  const safe       = resolved.filter(r => r.resolved.confidence === 'exact');
+  const review     = resolved.filter(r => ['fuzzy', 'family_review'].includes(r.resolved.confidence));
+  const ambiguous  = resolved.filter(r => r.resolved.confidence === 'ambiguous');
+  const unresolved = resolved.filter(r => r.resolved.confidence === 'not_found');
+
+  // Build the plan rows for safe items (these go to mcrApprovePlan)
+  const safePlan = safe.map(r => ({
+    action:     'INSERT',
+    table:      'recipe_bom',
+    row_id:     `(new — ${r.legacy.name})`,
+    field:      `parent_recipe_id = ${rec?.id?.slice(0,8)}`,
+    old_value:  null,
+    new_value:  `${r.legacy.qty} ${r.legacy.unit} di "${r.resolved.name}" (${r.resolved.type} ${r.resolved.id?.slice(0,8)})`,
+    reason:     r.resolved.reason,
+    confidence: 'exact',
+    // Metadata for actual write (future Phase 2)
+    _insert_data: {
+      parent_recipe_id: rec?.id,
+      component_type:   r.resolved.type === 'ingredient' ? 'ITEM' : 'RECIPE',
+      item_id:          r.resolved.type === 'ingredient' ? r.resolved.id : null,
+      sub_recipe_id:    r.resolved.type === 'sub_recipe' ? r.resolved.id : null,
+      quantity:         parseFloat(r.legacy.qty) || null,
+      unit:             r.legacy.unit || 'g',
+      notes:            r.legacy.comment || null,
+    },
+  }));
+
+  window._mcrPendingPlan = safePlan;
+  window._mcrConversionResolved = resolved;
+
+  // ── Render Conversion Plan UI ─────────────────────────────────
+  const confIcon  = { exact: '✅', fuzzy: '↗', ambiguous: '⚠️', family_review: '🔍', not_found: '❌' };
+  const confColor = { exact: '#22c55e', fuzzy: '#a78bfa', ambiguous: '#f59e0b', family_review: '#f59e0b', not_found: '#ef4444' };
+  const confLabel = { exact: 'Esatta — sicura', fuzzy: 'Parziale — verifica', ambiguous: 'Ambigua — scelta manuale', family_review: 'Famiglia ambigua — verifica', not_found: 'Non trovato' };
+
+  let html = `
+    <div class="mcr-drawer-section" style="border-color:#0ea5e960;background:#0f1f2e;margin-top:8px;" id="mcrConversionPlan">
+      <div class="mcr-drawer-label" style="color:#7dd3fc;">📋 Piano Conversione BOM — ${legacyIngs.length} ingredienti</div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:12px;line-height:1.5;">
+        ✅ ${safe.length} sicuri · ↗ ${review.length} da verificare · ⚠️ ${ambiguous.length} ambigui · ❌ ${unresolved.length} non trovati
+        ${!MAPPING_WRITE_ENABLED ? '<br><span style="color:#f59e0b;font-weight:700;">⚠️ WRITE DISABLED — Phase 2 required per la scrittura</span>' : ''}
+      </div>`;
+
+  // Render each resolved row
+  resolved.forEach(r => {
+    const res  = r.resolved;
+    const leg  = r.legacy;
+    const icon  = confIcon[res.confidence]  || '?';
+    const color = confColor[res.confidence] || '#64748b';
+    const label = confLabel[res.confidence] || res.confidence;
+
+    html += `
+      <div style="background:#1e293b;border:1px solid #334155;border-left:3px solid ${color};
+                  border-radius:10px;padding:10px 12px;margin-bottom:8px;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;gap:8px;">
+          <div style="font-size:13px;font-weight:600;color:#f1f5f9;">${icon} ${escH(leg.name || '—')}</div>
+          <div style="font-size:11px;color:#94a3b8;flex-shrink:0;">${escH(leg.qty)} ${escH(leg.unit)}</div>
+        </div>`;
+
+    if (res.type !== 'unresolved' && res.type !== 'ambiguous' && res.id) {
+      html += `
+        <div style="font-size:11px;color:${color};font-weight:600;margin-bottom:4px;">
+          → ${res.type === 'ingredient' ? 'Ingrediente' : 'Sub-recipe'}: <strong>${escH(res.name)}</strong>
+          <span style="font-size:9px;color:#475569;margin-left:4px;">${escH(res.id.slice(0,8))}…</span>
+        </div>`;
+    }
+
+    html += `
+        <div style="font-size:10px;font-weight:700;color:${color};letter-spacing:.3px;margin-bottom:2px;">${escH(label)}</div>
+        <div style="font-size:10px;color:#64748b;line-height:1.4;">${escH(res.reason)}</div>`;
+
+    // Show candidates for ambiguous/fuzzy
+    if (res.candidates?.length > 0) {
+      html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #0f172a;">
+        <div style="font-size:9px;color:#475569;font-weight:700;margin-bottom:4px;">CANDIDATI:</div>`;
+      res.candidates.forEach(c => {
+        html += `<div style="font-size:11px;color:#94a3b8;padding:2px 0;">
+          ${c.kind === 'ingredient' ? '📦' : '🔗'} ${escH(c.label)}
+          <span style="font-size:9px;color:#334155;margin-left:4px;">${escH(c.cat || '')} · ${c.id.slice(0,8)}…</span>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    if (leg.comment) {
+      html += `<div style="font-size:10px;color:#475569;margin-top:4px;">nota: ${escH(leg.comment)}</div>`;
+    }
+
+    html += `</div>`;
+  });
+
+  // Action buttons
+  const safeCount = safe.length;
+  html += `
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+        <button onclick="mcrApproveSafeConversions()"
+          style="width:100%;padding:10px;border-radius:10px;font-size:13px;font-weight:700;
+                 cursor:pointer;font-family:inherit;
+                 ${MAPPING_WRITE_ENABLED && safeCount > 0
+                   ? 'background:#059669;border:none;color:white;'
+                   : 'background:#1e293b;border:1px solid #334155;color:#475569;'}">
+          ${MAPPING_WRITE_ENABLED ? (safeCount > 0 ? `✅ Approva ${safeCount} match esatti` : '— Nessun match esatto da approvare') : `🔒 Approva ${safeCount} match esatti (Write Disabled)`}
+        </button>
+        ${ambiguous.length + review.length > 0
+          ? `<button onclick="mcrScrollToReview()"
+              style="width:100%;padding:10px;background:#1e1b4b;border:1px solid #7c3aed;border-radius:10px;
+                     color:#c4b5fd;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
+              🔍 Rivedi ${ambiguous.length + review.length} da verificare
+             </button>`
+          : ''}
+        <button onclick="mcrCancelPlan()"
+          style="width:100%;padding:10px;background:#1e293b;border:1px solid #334155;border-radius:10px;
+                 color:#64748b;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
+          Annulla
+        </button>
+      </div>
+    </div>`;
+
+  writePlanEl.innerHTML = html;
+}
+
+// Approve only the 'exact' confidence safe matches
+window.mcrApproveSafeConversions = async function () {
+  const plan = (window._mcrPendingPlan || []).filter(r => r.confidence === 'exact');
+  if (!plan.length) return;
+
+  if (!MAPPING_WRITE_ENABLED) {
+    console.log('[MCR] Write gate — safe conversions plan logged:', JSON.stringify(plan, null, 2));
+    const btn = document.querySelector('#mcrConversionPlan button');
+    const noticeEl = document.createElement('div');
+    noticeEl.style.cssText = 'background:#1c1400;border:1px solid #78350f;border-radius:10px;padding:10px;margin-top:8px;';
+    noticeEl.innerHTML = `
+      <div style="font-size:12px;color:#fde68a;font-weight:700;margin-bottom:4px;">🔒 Phase 2 Required — Write Disabled</div>
+      <div style="font-size:11px;color:#92400e;line-height:1.5;">
+        Piano con ${plan.length} match esatti registrato in console.<br>
+        Per abilitare le scritture, imposta <code style="color:#fde68a;">MAPPING_WRITE_ENABLED = true</code>.
+      </div>`;
+    document.getElementById('mcrConversionPlan')?.appendChild(noticeEl);
+    return;
+  }
+  // Phase 2: actual write path — same as mcrApprovePlan but only safe rows
+  // (implementation deferred until MAPPING_WRITE_ENABLED=true session)
+};
+
+// Scroll the drawer to the first non-safe item for manual review
+window.mcrScrollToReview = function () {
+  const drawer = document.getElementById('mcrDrawer');
+  const plan   = document.getElementById('mcrConversionPlan');
+  if (!drawer || !plan) return;
+  drawer.scrollTo({ top: plan.offsetTop, behavior: 'smooth' });
+};
 
 function mcrBuildAndShowWritePlan(p, oqrDef) {
   const writePlanEl = document.getElementById('mcrWritePlan');
