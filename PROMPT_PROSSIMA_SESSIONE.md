@@ -2142,3 +2142,67 @@ Stessa famiglia: Tenderloin Whole→Filets, Grilled Chicken→Diced Grilled Chic
 - **bom_id sessione:** 1857→~1862
 - **Ingredienti nuovi:** Sliced Almonds `1a5c0304`
 - **ingredient_link id=301** corretto: "ALMONDS SLICED BLANCHED" → Sliced Almonds
+
+---
+
+## SESSIONE 5 LUGLIO 2026 (pomeriggio) — Mapping Control Room: source-of-truth fix + bug cascade (v518→v524)
+
+**Versione finale:** boh-v524
+**File modificati:** `js/mapping-control-room.js`, `js/recipes.js`, `sw.js`
+**DB:** `recipes.ingredients` azzerato per Penne Midnight e Penne Midnight Half
+
+---
+
+### Problema originale
+Il Mapping Control Room mostrava Penne Midnight come RED "sold item missing BOM" e "Parmigiano Reggiano 60g" nel piano di conversione — nonostante il BOM strutturato (`recipe_bom`) fosse completo e corretto con 5 componenti (incluso RECIPE Parmesan Grated 60g).
+
+### Root cause chain (3 bug distinti)
+
+**Bug 1 — Stale JSONB (pre-esistente):**
+`recipes.ingredients` (JSONB legacy) conteneva ancora `{"name":"Parmigiano Reggiano","qty":"60","unit":"g"}` mentre `recipe_bom` aveva già RECIPE Parmesan Grated 60g. Il MCR leggeva il JSONB come "conversione da fare" mostrando dati falsi.
+
+**Bug 2 — Query BOM troncata dal hard cap PostgREST (root cause principale):**
+PostgREST impone un hard cap di **1000 righe** indipendentemente dal `limit()` impostato dal client. `recipe_bom` aveva 1284 righe → la query tornava esattamente 1000 righe, tagliando Penne Midnight (bom_id 1146-1150 cadevano oltre il 1000° posto). `bomByParent` era quindi incompleto → `hasStructured=false` → detection: RED "missing BOM".
+
+**Bug 3 — Query `pos_modifiers` con colonne sbagliate (pre-esistente):**
+`pos_modifiers` veniva interrogata con `modifier_name,quantity` ma le colonne reali sono `modifier,quantity_sold`. Il 400 silenzioso non causava crash ma contribuiva a confondere lo stato.
+
+**Bug 4 — `prep_tasks.base_weight_g` inesistente:**
+`prep_tasks` veniva interrogata con `base_weight_g` che non esiste in quella tabella (sta su `recipes`). Altro 400 silenzioso.
+
+### Fix applicati (v518→v524)
+
+| Versione | Fix |
+|---|---|
+| v518 | Step A: `recipes.ingredients = []` per Penne Midnight + Penne Midnight Half (DB). Step B: `saveRecipeBOM()` ora azzera JSONB dopo ogni BOM save. Step C: MCR detection — se `recipe_bom` rows > 0, `recipes.ingredients` ignorato completamente. |
+| v519 | Fix `pos_modifiers` query: `modifier_name→modifier`, `quantity→quantity_sold` |
+| v520 | MCR load: funzione `q()` wrapper — ogni query isolata, errore su una non azzera le altre |
+| v521 | Fix `prep_tasks` query: rimosso `base_weight_g` (non esiste su quella tabella) |
+| v522 | (interim: live BOM re-check nel drawer — rimosso in v523) |
+| v523 | `mcrRefresh`: full state reset (data, problems, plan, drawer, selection). Debug logging temporaneo aggiunto. |
+| v524 | **Fix principale**: split `recipe_bom` in due query parallele (<1000 righe ciascuna) per bypassare il hard cap PostgREST. `bomByParent` ora completo con tutti i 1284 row. Debug logging rimosso in v525. |
+| v525 | Cleanup: debug logging rimosso da MCR. |
+
+### Decisioni architetturali nuove
+
+**PostgREST hard cap rule:** `SELECT` su tabelle con >1000 righe potenziali deve sempre usare filtri o essere spezzato in query multiple. Non fidarsi mai di `limit(N)` con N>1000 — PostgREST lo ignora. Tabelle a rischio: `recipe_bom` (1284 righe), `pos_sales_by_item`, `messages`.
+
+**recipe_bom query pattern (MCR e futuri moduli):**
+```js
+// Split in due: pos-recipes (≈640 rows) + prep-recipes (≈644 rows)
+const bomPos  = await supa.from('recipe_bom').select(...).in('parent_recipe_id', posRecipeIds).limit(1000);
+const bomPrep = await supa.from('recipe_bom').select(...).in('parent_recipe_id', prepRecipeIds).limit(1000);
+const bom = [...bomPos, ...bomPrep];
+```
+
+**Source-of-truth rule (recipe_bom vs recipes.ingredients):**
+- `recipe_bom` = fonte autoritativa. Se ha righe → `recipes.ingredients` ignorato ovunque.
+- `recipes.ingredients` JSONB = legacy fallback solo se `recipe_bom` è vuoto.
+- `saveRecipeBOM()` ora azzera sempre `recipes.ingredients` dopo ogni write.
+
+### Stato finale MCR (v524)
+- Penne Midnight: scomparso dalla lista ✅
+- Penne Midnight Half: scomparso dalla lista ✅
+- `bom=1284` confermato dal debug logging ✅
+- Problemi visibili sono tutti legittimi (Scallops missing BOM reale, subrecipe senza yield, prep no trusted mapping)
+

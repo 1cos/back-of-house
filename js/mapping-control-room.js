@@ -247,28 +247,6 @@ window.mcrLoadAndRender = async function () {
 
     window._mcrData = { prepTasks, recipes, ingredients, bom, posAliases, modifierConfig, posSales, posModifiers };
 
-    // Debug logging: confirm what was fetched
-    console.log('[MCR] fetch complete:',
-      'recipes=' + recipes.length,
-      'bom=' + bom.length,
-      'ingredients=' + ingredients.length,
-      'prepTasks=' + prepTasks.length
-    );
-
-    // Verify Penne Midnight specifically
-    const _pm = recipes.find(r => r.title === 'Penne Midnight');
-    if (_pm) {
-      const _pmBOM = bom.filter(b => b.parent_recipe_id === _pm.id);
-      console.log('[MCR] Penne Midnight debug:',
-        'recipe_id=' + _pm.id,
-        'pos_name=' + _pm.pos_name,
-        'ingredients_legacy=' + (_pm.ingredients?.length || 0),
-        'bom_rows_fetched=' + _pmBOM.length
-      );
-    } else {
-      console.warn('[MCR] Penne Midnight NOT found in recipes array');
-    }
-
     const problems = mcrDetectProblems(window._mcrData);
     window._mcrProblems = problems;
 
@@ -596,18 +574,6 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
   (recipes || []).filter(r => r.pos_name).forEach(r => {
     const structuredRows = bomByParent[r.id] || [];
     const hasStructured = structuredRows.length > 0;
-
-    // DEBUG: log classification for Penne Midnight
-    if (r.title === 'Penne Midnight') {
-      console.log('[MCR] Penne Midnight DETECTION:',
-        'recipe_id=' + r.id,
-        'hasStructured=' + hasStructured,
-        'structuredRows=' + structuredRows.length,
-        'bomByParent_keys=' + Object.keys(bomByParent).length,
-        'bom_has_id=' + (bomByParent[r.id] ? 'YES' : 'NO'),
-        'legacy_len=' + (r.ingredients?.length || 0)
-      );
-    }
 
     if (hasStructured) {
       // Case A: recipe_bom is the source of truth. Ignore recipes.ingredients entirely.
