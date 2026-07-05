@@ -23,13 +23,25 @@ window.openMappingControlRoom = async function () {
   // ── Modal shell ───────────────────────────────────────────────
   const modal = document.createElement('div');
   modal.id = 'mcrModal';
+  const mcrIsMobile = () => window.innerWidth <= 768;
   modal.style.cssText = [
-    'position:fixed;inset:12px;z-index:351;',
-    'background:#0f172a;border-radius:20px;',
+    'position:fixed;z-index:351;',
+    'background:#0f172a;',
     'display:flex;flex-direction:column;overflow:hidden;',
     'box-shadow:0 32px 80px rgba(0,0,0,0.6);',
     'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;',
   ].join('');
+  function mcrApplyModalSize() {
+    if (mcrIsMobile()) {
+      modal.style.inset = '0';
+      modal.style.borderRadius = '0';
+    } else {
+      modal.style.inset = '12px';
+      modal.style.borderRadius = '20px';
+    }
+  }
+  mcrApplyModalSize();
+  window.addEventListener('resize', mcrApplyModalSize);
   modal.innerHTML = `
     <!-- ── HEADER ── -->
     <div style="display:flex;align-items:center;justify-content:space-between;
@@ -68,11 +80,26 @@ window.openMappingControlRoom = async function () {
         <div id="mcrGridPanel" style="display:none;"></div>
       </div>
 
-      <!-- RIGHT: Item Detail Drawer -->
+      <!-- RIGHT: Item Detail Drawer (desktop) / Bottom Sheet (mobile) -->
       <div id="mcrDrawer"
         style="width:420px;flex-shrink:0;background:#0b1628;border-left:1px solid #1e293b;
                overflow-y:auto;-webkit-overflow-scrolling:touch;display:none;padding:16px;">
       </div>
+
+      <!-- MOBILE BOTTOM SHEET -->
+      <div id="mcrBottomSheet"
+        style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:500;
+               background:#0b1628;border-radius:20px 20px 0 0;
+               border-top:1px solid #1e293b;max-height:80vh;
+               overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 16px 32px;
+               box-shadow:0 -8px 40px rgba(0,0,0,0.5);
+               animation:mcrSlideUp .25s ease;">
+        <div style="width:40px;height:4px;background:#334155;border-radius:2px;margin:12px auto 14px;"></div>
+        <div id="mcrBottomSheetContent"></div>
+      </div>
+      <div id="mcrBottomSheetOverlay"
+        style="display:none;position:fixed;inset:0;z-index:499;background:rgba(0,0,0,0.4);"
+        onclick="mcrCloseBottomSheet()"></div>
     </div>`;
   document.body.appendChild(modal);
 
@@ -146,6 +173,31 @@ window.openMappingControlRoom = async function () {
       .mcr-kv-v { font-size:12px;color:#e2e8f0;font-weight:600;text-align:right;max-width:60%;word-break:break-all; }
       .mcr-bom-row { padding:4px 0;border-bottom:1px solid #0f172a;display:flex;justify-content:space-between; }
       .mcr-bom-row:last-child { border-bottom:none; }
+
+      @keyframes mcrSlideUp {
+        from { transform: translateY(100%); opacity:0; }
+        to   { transform: translateY(0);    opacity:1; }
+      }
+
+      @media (max-width: 768px) {
+        .mcr-header-row { display:none !important; }
+        .mcr-row {
+          grid-template-columns: 1fr auto !important;
+          grid-template-rows: auto auto auto;
+          gap:4px !important;
+          padding:12px 14px !important;
+        }
+        .mcr-row-name    { grid-column:1; grid-row:1; font-size:14px !important; }
+        .mcr-row-type    { grid-column:2; grid-row:1; }
+        .mcr-row-station { grid-column:1; grid-row:2; }
+        .mcr-row-sev     { grid-column:2; grid-row:2; }
+        .mcr-row-expl    { grid-column:1 / span 2; grid-row:3; font-size:11px; color:#64748b; }
+        .mcr-row-btn     { display:none !important; }
+        .mcr-filter-bar  { flex-wrap:nowrap; overflow-x:auto; padding-bottom:4px; }
+        .mcr-filter-btn  { flex-shrink:0; }
+        .mcr-search      { min-width:100px; }
+        #mcrTabGrid      { display:none !important; }
+      }
     `;
     document.head.appendChild(style);
   }
@@ -1027,6 +1079,14 @@ const MAPPING_WRITE_ENABLED = false;
 // ITEM DETAIL DRAWER — Chef AI OQR + Write Plan
 // ══════════════════════════════════════════════════════════════
 
+window.mcrCloseBottomSheet = function() {
+  const bs  = document.getElementById('mcrBottomSheet');
+  const bso = document.getElementById('mcrBottomSheetOverlay');
+  if (bs)  bs.style.display  = 'none';
+  if (bso) bso.style.display = 'none';
+  document.querySelectorAll('#mcrProbRows .mcr-row').forEach(r => r.classList.remove('selected'));
+};
+
 window.mcrOpenDrawer = function (idx) {
   const p = (window._mcrProblems || [])[idx];
   if (!p) return;
@@ -1035,18 +1095,26 @@ window.mcrOpenDrawer = function (idx) {
   const row = document.getElementById('mcrRow-' + idx);
   if (row) row.classList.add('selected');
 
-  const drawer = document.getElementById('mcrDrawer');
-  if (!drawer) return;
-  drawer.style.display = '';
-  drawer.innerHTML = `<div style="color:#94a3b8;padding:40px;text-align:center;font-size:13px;">Caricamento…</div>`;
-
-  // Store current problem index for OQR answer handlers
   window._mcrDrawerIdx = idx;
   window._mcrOQRState  = { step: 'info', answers: {} };
 
-  setTimeout(() => {
-    drawer.innerHTML = buildDrawerHTML(p);
-  }, 40);
+  if (window.innerWidth <= 768) {
+    const bs  = document.getElementById('mcrBottomSheet');
+    const bso = document.getElementById('mcrBottomSheetOverlay');
+    const bsc = document.getElementById('mcrBottomSheetContent');
+    if (!bs || !bsc) return;
+    bsc.innerHTML = '<div style="color:#94a3b8;padding:20px;text-align:center;font-size:13px;">Caricamento…</div>';
+    bs.style.display  = '';
+    bso.style.display = '';
+    bs.scrollTop = 0;
+    setTimeout(() => { bsc.innerHTML = buildDrawerHTML(p); }, 40);
+  } else {
+    const drawer = document.getElementById('mcrDrawer');
+    if (!drawer) return;
+    drawer.style.display = '';
+    drawer.innerHTML = '<div style="color:#94a3b8;padding:40px;text-align:center;font-size:13px;">Caricamento…</div>';
+    setTimeout(() => { drawer.innerHTML = buildDrawerHTML(p); }, 40);
+  }
 };
 
 // ── Chef-language field label map ──────────────────────────────
@@ -2156,7 +2224,7 @@ function buildDrawerHTML(p) {
         <div style="font-size:15px;font-weight:700;color:#f1f5f9;line-height:1.3;">${escH(p.name)}</div>
         <div style="font-size:11px;color:#64748b;margin-top:3px;">${escH(probLabel(p.problemType))}</div>
       </div>
-      <button onclick="document.getElementById('mcrDrawer').style.display='none';document.querySelectorAll('.mcr-row').forEach(r=>r.classList.remove('selected'))"
+      <button onclick="document.getElementById('mcrDrawer').style.display='none';mcrCloseBottomSheet();document.querySelectorAll('.mcr-row').forEach(r=>r.classList.remove('selected'))"
         style="background:none;border:none;color:#475569;font-size:18px;cursor:pointer;flex-shrink:0;padding:0 0 0 8px;">✕</button>
     </div>`;
 
