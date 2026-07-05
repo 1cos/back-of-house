@@ -1512,6 +1512,160 @@ function mcrOQRDef(problemType) {
 // PROTOCOL UI RENDERERS
 // ══════════════════════════════════════════════════════════════
 
+
+// ══════════════════════════════════════════════════════════════
+// FREE-TEXT "ALTRO / SPIEGA TU" — UI ONLY (Step 1)
+// No external AI call. No API key. No DB write.
+// Step 2: connect to Chef AI local endpoint (Mac mini) later.
+// ══════════════════════════════════════════════════════════════
+
+function mcrRenderFreeTextButton() {
+  return `
+    <div id="mcrFreeTextArea" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid #1e293b;">
+      <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:6px;letter-spacing:.5px;">
+        SPIEGA CON PAROLE TUE
+      </div>
+      <textarea id="mcrFreeTextInput"
+        placeholder="Es: 'Parmesan Cheese e Pecorino Romano sono due ingredienti diversi. Parmesan Flakes è vecchio e va rimosso...'"
+        style="width:100%;min-height:90px;padding:10px;background:#1e293b;border:1px solid #475569;
+               border-radius:8px;color:#f1f5f9;font-size:13px;font-family:inherit;outline:none;
+               resize:vertical;box-sizing:border-box;line-height:1.5;"
+        oninput="document.getElementById('mcrFreeTextSubmit').disabled=this.value.trim().length<5;">
+      </textarea>
+      <div style="display:flex;gap:8px;margin-top:6px;">
+        <button id="mcrFreeTextSubmit" onclick="mcrSubmitFreeText()" disabled
+          style="flex:1;padding:9px;background:#1e293b;border:1px solid #475569;border-radius:8px;
+                 color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;
+                 transition:all .15s;"
+          onmouseover="if(!this.disabled){this.style.background='#263548';this.style.color='#f1f5f9';}"
+          onmouseout="if(!this.disabled){this.style.background='#1e293b';this.style.color='#94a3b8';}">
+          Invia spiegazione →
+        </button>
+        <button onclick="mcrCancelFreeText()"
+          style="padding:9px 14px;background:transparent;border:1px solid #334155;border-radius:8px;
+                 color:#64748b;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
+          ✕
+        </button>
+      </div>
+    </div>
+    <button onclick="mcrShowFreeText()"
+      id="mcrFreeTextToggle"
+      style="margin-top:10px;width:100%;padding:9px;background:transparent;
+             border:1px dashed #334155;border-radius:8px;color:#64748b;
+             font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;
+             transition:all .15s;"
+      onmouseover="this.style.borderColor='#475569';this.style.color='#94a3b8';"
+      onmouseout="this.style.borderColor='#334155';this.style.color='#64748b';">
+      ✏️ Altro / Spiega tu
+    </button>`;
+}
+
+window.mcrShowFreeText = function() {
+  const btn  = document.getElementById('mcrFreeTextToggle');
+  const area = document.getElementById('mcrFreeTextArea');
+  if (!btn || !area) return;
+  btn.style.display  = 'none';
+  area.style.display = 'block';
+  const ta = document.getElementById('mcrFreeTextInput');
+  if (ta) ta.focus();
+};
+
+window.mcrCancelFreeText = function() {
+  const btn  = document.getElementById('mcrFreeTextToggle');
+  const area = document.getElementById('mcrFreeTextArea');
+  if (!btn || !area) return;
+  area.style.display = 'none';
+  btn.style.display  = '';
+  const ta = document.getElementById('mcrFreeTextInput');
+  if (ta) ta.value = '';
+  // Also clear any previous free-text response
+  const resp = document.getElementById('mcrFreeTextResponse');
+  if (resp) resp.remove();
+};
+
+window.mcrSubmitFreeText = function() {
+  const ta  = document.getElementById('mcrFreeTextInput');
+  const idx = window._mcrDrawerIdx;
+  const p   = (window._mcrProblems || [])[idx];
+  if (!ta || !p) return;
+  const text = ta.value.trim();
+  if (!text || text.length < 5) return;
+
+  // Disable submit while "processing"
+  const btn = document.getElementById('mcrFreeTextSubmit');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+  // Placeholder response structure — ready for Step 2 (Chef AI local endpoint)
+  const placeholderResult = {
+    understood:           [],
+    not_changed:          [],
+    plan:                 [],
+    confidence:           null,
+    follow_up_question:   null,
+    follow_up_options:    [],
+  };
+
+  // Remove previous response if any
+  const prev = document.getElementById('mcrFreeTextResponse');
+  if (prev) prev.remove();
+
+  // Render placeholder card
+  const area = document.getElementById('mcrFreeTextArea');
+  if (!area) return;
+  const div = document.createElement('div');
+  div.id = 'mcrFreeTextResponse';
+  div.style.cssText = 'margin-top:12px;';
+  div.innerHTML = `
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="font-size:16px;">🤖</span>
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#a78bfa;letter-spacing:.4px;">CHEF AI — RISPOSTA</div>
+          <div style="font-size:10px;color:#475569;">Problema: ${escH(p.name || p.problemType || '')}</div>
+        </div>
+      </div>
+
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px;margin-bottom:10px;">
+        <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;letter-spacing:.4px;">HAI SCRITTO</div>
+        <div style="font-size:12px;color:#cbd5e1;line-height:1.5;font-style:italic;">"${escH(text)}"</div>
+      </div>
+
+      <div style="background:#1e1b4b;border:1px solid #312e81;border-radius:8px;padding:10px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+          <span style="font-size:14px;">⏳</span>
+          <div style="font-size:12px;font-weight:700;color:#c4b5fd;">Interpretazione AI — non ancora collegata</div>
+        </div>
+        <div style="font-size:11px;color:#6d28d9;line-height:1.5;">
+          Chef AI locale (Mac mini) non ancora collegato a questo modulo.<br>
+          Step 2: collegheremo questo campo all'endpoint protetto Chef AI.
+        </div>
+      </div>
+
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:8px;margin-bottom:10px;">
+        <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:6px;letter-spacing:.4px;">STRUTTURA RISPOSTA ATTESA (Step 2)</div>
+        <div style="font-size:10px;color:#475569;font-family:monospace;line-height:1.8;">
+          understood: []<br>
+          not_changed: []<br>
+          plan: []<br>
+          confidence: null<br>
+          follow_up_question: null<br>
+          follow_up_options: []
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        <button onclick="mcrCancelFreeText()"
+          style="flex:1;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:8px;
+                 color:#94a3b8;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
+          ✕ Annulla
+        </button>
+      </div>
+    </div>`;
+  area.after(div);
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Invia spiegazione →'; }
+};
+
 function mcrRenderProtocolUI(proto, p) {
   if (!proto) return '';
   const st = proto.state;
@@ -1544,6 +1698,7 @@ function mcrRenderProtocolUI(proto, p) {
             ${escH(o.label)}
           </button>`).join('')}
       </div>
+      ${mcrRenderFreeTextButton()}
     </div>`;
   }
 
@@ -1571,6 +1726,7 @@ function mcrRenderProtocolUI(proto, p) {
       <div style="font-size:13px;color:#e2e8f0;line-height:1.6;margin-bottom:10px;">${escH(question || '')}</div>
       ${candHTML}
       ${note ? `<div style="font-size:10px;color:#475569;margin-top:8px;line-height:1.5;">${escH(note)}</div>` : ''}
+      ${mcrRenderFreeTextButton()}
     </div>`;
   }
 
@@ -1596,6 +1752,7 @@ function mcrRenderProtocolUI(proto, p) {
       </div>`;
     }
     h += mcrRenderEditorActions(proto);
+    h += mcrRenderFreeTextButton();
     h += '</div>';
     return h;
   }
