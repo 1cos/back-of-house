@@ -161,10 +161,27 @@ window.closeMCR = function () {
   document.getElementById('mcrModal')?.remove();
 };
 
-// ── Refresh ─────────────────────────────────────────────────────
+// ── Refresh ───────────────────────────────────────────────────
 window.mcrRefresh = async function () {
-  window._mcrData = null;
-  document.getElementById('mcrSubtitle').textContent = 'Refreshing…';
+  // Full state reset: data, problems, plan, drawer, selection
+  window._mcrData               = null;
+  window._mcrProblems           = [];
+  window._mcrPendingPlan        = [];
+  window._mcrDrawerIdx          = null;
+  window._mcrOQRState           = { step: 'info', answers: {} };
+  window._mcrActiveProtocol     = null;
+  window._mcrConversionResolved = null;
+
+  // Close and clear drawer
+  const drawer = document.getElementById('mcrDrawer');
+  if (drawer) { drawer.style.display = 'none'; drawer.innerHTML = ''; }
+
+  // Deselect all rows
+  document.querySelectorAll('#mcrProbRows .mcr-row').forEach(r => r.classList.remove('selected'));
+
+  const sub = document.getElementById('mcrSubtitle');
+  if (sub) sub.textContent = 'Refreshing…';
+
   await mcrLoadAndRender();
 };
 
@@ -214,6 +231,28 @@ window.mcrLoadAndRender = async function () {
       ]);
 
     window._mcrData = { prepTasks, recipes, ingredients, bom, posAliases, modifierConfig, posSales, posModifiers };
+
+    // Debug logging: confirm what was fetched
+    console.log('[MCR] fetch complete:',
+      'recipes=' + recipes.length,
+      'bom=' + bom.length,
+      'ingredients=' + ingredients.length,
+      'prepTasks=' + prepTasks.length
+    );
+
+    // Verify Penne Midnight specifically
+    const _pm = recipes.find(r => r.title === 'Penne Midnight');
+    if (_pm) {
+      const _pmBOM = bom.filter(b => b.parent_recipe_id === _pm.id);
+      console.log('[MCR] Penne Midnight debug:',
+        'recipe_id=' + _pm.id,
+        'pos_name=' + _pm.pos_name,
+        'ingredients_legacy=' + (_pm.ingredients?.length || 0),
+        'bom_rows_fetched=' + _pmBOM.length
+      );
+    } else {
+      console.warn('[MCR] Penne Midnight NOT found in recipes array');
+    }
 
     const problems = mcrDetectProblems(window._mcrData);
     window._mcrProblems = problems;
@@ -542,6 +581,18 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
   (recipes || []).filter(r => r.pos_name).forEach(r => {
     const structuredRows = bomByParent[r.id] || [];
     const hasStructured = structuredRows.length > 0;
+
+    // DEBUG: log classification for Penne Midnight
+    if (r.title === 'Penne Midnight') {
+      console.log('[MCR] Penne Midnight DETECTION:',
+        'recipe_id=' + r.id,
+        'hasStructured=' + hasStructured,
+        'structuredRows=' + structuredRows.length,
+        'bomByParent_keys=' + Object.keys(bomByParent).length,
+        'bom_has_id=' + (bomByParent[r.id] ? 'YES' : 'NO'),
+        'legacy_len=' + (r.ingredients?.length || 0)
+      );
+    }
 
     if (hasStructured) {
       // Case A: recipe_bom is the source of truth. Ignore recipes.ingredients entirely.
@@ -995,7 +1046,7 @@ const MAPPING_WRITE_ENABLED = false;
 // ITEM DETAIL DRAWER — Chef AI OQR + Write Plan
 // ══════════════════════════════════════════════════════════════
 
-window.mcrOpenDrawer = async function (idx) {
+window.mcrOpenDrawer = function (idx) {
   const p = (window._mcrProblems || [])[idx];
   if (!p) return;
 
@@ -1011,52 +1062,6 @@ window.mcrOpenDrawer = async function (idx) {
   // Store current problem index for OQR answer handlers
   window._mcrDrawerIdx = idx;
   window._mcrOQRState  = { step: 'info', answers: {} };
-
-  // ── Live BOM re-verification for stale-data protection ───────
-  // If a missing/legacy BOM problem is opened, re-query recipe_bom live.
-  // This prevents stale problems (generated when recipe_bom query had errors)
-  // from showing misleading "no BOM" UI when the BOM actually exists.
-  const staleTypes = ['sold-item-missing-bom', 'sold-item-legacy-ingredients'];
-  if (staleTypes.includes(p.problemType) && p.detail?.recipe?.id) {
-    try {
-      const { data: liveBOM } = await window.supa
-        .from('recipe_bom')
-        .select('bom_id,component_type,item_id,sub_recipe_id,quantity,unit,notes')
-        .eq('parent_recipe_id', p.detail.recipe.id);
-      if (liveBOM && liveBOM.length > 0) {
-        // BOM exists — this problem is stale. Show a clear message and offer refresh.
-        drawer.innerHTML = `
-          <div style="padding:24px;">
-            <div style="font-size:15px;font-weight:700;color:#f1f5f9;margin-bottom:6px;">${escH(p.name)}</div>
-            <div style="background:#0f2e1a;border:1px solid #22c55e60;border-radius:12px;padding:16px;margin-bottom:16px;">
-              <div style="font-size:13px;font-weight:700;color:#86efac;margin-bottom:8px;">✅ BOM trovato — ${liveBOM.length} componenti</div>
-              <div style="font-size:12px;color:#94a3b8;line-height:1.6;">
-                Il warning era basato su dati precedenti (quando una query aveva un errore temporaneo).
-                Il BOM strutturato esiste ed è corretto.<br><br>
-                Premi <strong style="color:#f1f5f9;">↺ Refresh</strong> per aggiornare la lista e rimuovere questo warning.
-              </div>
-            </div>
-            <div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:12px;">
-              <div style="font-size:10px;font-weight:700;color:#475569;letter-spacing:.6px;text-transform:uppercase;margin-bottom:8px;">BOM COMPONENTI</div>
-              ${liveBOM.map(b => `
-                <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #0f172a;font-size:12px;">
-                  <span style="color:#${b.component_type==='RECIPE'?'a5b4fc':'7dd3fc'};">${escH(b.component_type)}</span>
-                  <span style="color:#e2e8f0;">${b.quantity} ${escH(b.unit||'')}</span>
-                </div>`).join('')}
-            </div>
-            <button onclick="mcrRefresh()"
-              style="width:100%;padding:12px;background:#1e3a5f;border:1px solid #3b82f6;border-radius:10px;
-                     color:#93c5fd;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">
-              ↺ Refresh — aggiorna lista problemi
-            </button>
-          </div>`;
-        return;
-      }
-    } catch(e) {
-      // Re-query failed — fall through to normal drawer (show the problem as-is)
-      console.warn('[MCR] live BOM check failed:', e.message);
-    }
-  }
 
   setTimeout(() => {
     drawer.innerHTML = buildDrawerHTML(p);
