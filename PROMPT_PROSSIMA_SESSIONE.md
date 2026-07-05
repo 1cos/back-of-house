@@ -1633,3 +1633,48 @@ Richiede meccanismo trasferimento stock freezer→linea nel motore. Stessa famig
 - **Nessun file frontend toccato** tranne admin-prep.js (fix decimali v505)
 - **Ingredienti nuovi creati:** Poultry Salt (998528ab), Marsala Wine già esisteva (da sessione precedente)
 - **Prep tasks modificati ingredient_id:** Olives (id=355) → Kalamata Olive
+
+
+---
+
+## Sessione 5 luglio 2026 — Chef AI locale su Mac mini M4
+
+### Completato
+- **Ollama installato** su Mac mini M4 (brew) con modello `qwen3:8b` (qwen3.6:35b-a3b killato dal sistema — 23GB troppi per 16GB RAM)
+- **Tailscale Funnel attivo** — URL stabile: `https://max-mini.taildf4122.ts.net`
+- **Gateway Node.js** creato in `~/chef-ai-gateway.js` — porta 8080, protetto da `x-chef-ai-key`
+- **LaunchAgent** registrato: `~/Library/LaunchAgents/com.zenos.chefai.gateway.plist` — si avvia automaticamente al boot
+- **Supabase secrets** aggiornati: `LOCAL_AI_URL`, `CHEF_AI_KEY`, `OLLAMA_MODEL=qwen3:8b`
+- **souschef-chat v53** deployato con:
+  - Ollama locale via Tailscale come primario (15s timeout → fallback OpenRouter)
+  - Logging completo: provider_attempted, provider_used, local_url_present, local_response_ok, fallback_reason
+  - System prompt dinamico per ruolo: admin vede tutto ($), supervisor/staff mai dati economici
+  - Zenos knowledge base integrata nel system prompt (gerarchia, regole operative, alias POS)
+  - Fix deduplication sales aliases (Set per ID riga — no più doppio conteggio)
+  - Fix item detection: chicken parmigiana/parmesan/parm/pollo parmigiana
+  - `user_name`, `user_role`, `user_station` passati dal frontend (souschef-chat.js aggiornato)
+
+### Chiave gateway (non perdere)
+`CHEF_AI_KEY=ef2494d331d377a56bb6ab065402761844200c44a38f847572b0745cb060361b`
+
+### Architettura Chef AI finale
+```
+Brigade (telefono) → souschef-chat Edge Function
+  → POST https://max-mini.taildf4122.ts.net/chef-ai (header x-chef-ai-key)
+    → chef-ai-gateway.js :8080 (LaunchAgent, sempre acceso)
+      → Ollama localhost:11434 → qwen3:8b
+  → fallback: OpenRouter LLaMA 70B
+  → fallback: Groq LLaMA 70B
+```
+
+### Prossima sessione Chef AI — obiettivi
+- Insegnare a Chef AI contesti più profondi per utente (personalizzazione per Anto, Cole, Samantha, ecc.)
+- Testare risposta con utente staff — verificare che non veda dati economici
+- Valutare se aggiungere memoria conversazionale persistente (tabella `chef_ai_memory` per utente)
+- Testare voce in chat con Chef AI locale
+
+### Note tecniche
+- ngrok abbandonato — URL instabile, sostituito da Tailscale Funnel (gratuito, URL fisso permanente)
+- qwen3:8b gira bene su 16GB M4, risposta ~3-5s cold start, poi fluido
+- Gateway su 0.0.0.0 (non 127.0.0.1) necessario per Tailscale Funnel
+- souschef-chat.js ora passa user_name/user_role/user_station al body della fetch
