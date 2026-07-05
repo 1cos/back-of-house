@@ -378,24 +378,129 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
     });
   });
 
-  // ── B: Generic structural checks ──────────────────────────────
+  // ── B: Structural checks — SOLD ITEM MODE vs PREP/BATCH MODE ─
+  //
+  // Two distinct recipe modes:
+  //
+  // SOLD ITEM MODE  — recipe has pos_name (connected to POS sales).
+  //   Does NOT need batch weight / base_weight_g.
+  //   NEEDS: a BOM that describes what 1 sale consumes.
+  //   Bot path: reads BOM × sales_qty = daily drawdown per ingredient.
+  //
+  // PREP/BATCH MODE — prep_task has recipe_id (produced ahead, creates stock).
+  //   NEEDS: batch yield (base_weight_g + base_servings, or serving_weight_g).
+  //   Bot path: reads stock, calculates batches to produce.
+  //
+  // DO NOT flag a sold item for missing batch weight if it has a complete BOM.
 
-  // B1: Missing base_weight_g on recipes with pos_name (sold items)
-  (recipes || []).filter(r => r.pos_name && !r.base_weight_g && !r.serving_weight_g).forEach(r => {
+  // B1: SOLD ITEM — missing BOM or BOM rows incomplete
+  // A sold item is "OK for consumption" if:
+  //   1. Has pos_name
+  //   2. Has ≥1 BOM row
+  //   3. Each BOM row has qty > 0 + unit + linked item_id or sub_recipe_id
+  (recipes || []).filter(r => r.pos_name).forEach(r => {
+    const rows = bomByParent[r.id] || [];
+    if (rows.length === 0) {
+      // No BOM at all — bot cannot calculate any drawdown
+      problems.push({
+        id: `sold-no-bom-${r.id}`,
+        name: r.title,
+        type: 'recipe',
+        station: r.menu_group || '—',
+        severity: 'red',
+        problemType: 'sold-item-missing-bom',
+        explanation: `Sold item (POS: "${r.pos_name}") has no BOM rows. Bot cannot calculate what 1 sale consumes — nothing is ever drawn down from stock.`,
+        suggestedFix: 'Add BOM rows describing what each sale consumes: ingredient qty + unit per portion sold.',
+        detail: { recipe: r, bomRows: [] },
+      });
+      return;
+    }
+    // Check for incomplete rows: missing qty, or missing link
+    const incompleteRows = rows.filter(b =>
+      !b.quantity || b.quantity <= 0 ||
+      !b.unit ||
+      (b.component_type === 'ITEM' && !b.item_id) ||
+      (b.component_type === 'RECIPE' && !b.sub_recipe_id)
+    );
+    if (incompleteRows.length > 0) {
+      problems.push({
+        id: `sold-incomplete-bom-${r.id}`,
+        name: r.title,
+        type: 'recipe',
+        station: r.menu_group || '—',
+        severity: 'yellow',
+        problemType: 'sold-item-incomplete-bom',
+        explanation: `Sold item has ${rows.length} BOM row(s) but ${incompleteRows.length} are incomplete (missing qty, unit, or item link). Bot may under-calculate consumption.`,
+        suggestedFix: 'Complete each BOM row: set quantity, unit, and link to ingredient or sub-recipe.',
+        detail: { recipe: r, bomRows: rows, incompleteRows },
+      });
+    }
+    // If BOM is complete: no problem — do NOT flag for missing batch weight
+  });
+
+  // B2: PREP/BATCH — missing batch yield
+  // A prep task in BATCH MODE needs base_weight_g+base_servings OR serving_weight_g
+  // so the bot can calculate "how many batches to produce".
+  // Only applies when:
+  //   - prep_task has recipe_id
+  //   - prep_type != checklist
+  //   - recipe has no pos_name (pure prep/subrecipe, produced ahead)
+  // If recipe has pos_name it is served to-order — batch weight irrelevant — skip.
+  (prepTasks || []).filter(t => {
+    if (!t.recipe_id) return false;
+    if (t.prep_type === 'checklist') return false;
+    const rec = recipeById[t.recipe_id];
+    if (!rec) return false;
+    if (rec.pos_name) return false; // sold-to-order: no batch weight needed
+    const hasYield = rec.base_weight_g || rec.serving_weight_g;
+    return !hasYield;
+  }).forEach(t => {
+    const rec = recipeById[t.recipe_id];
     problems.push({
-      id: `no-base-weight-${r.id}`,
-      name: r.title,
-      type: 'recipe',
-      station: r.menu_group || '—',
+      id: `prep-no-yield-${t.id}`,
+      name: t.name,
+      type: 'prep',
+      station: t.category || '—',
       severity: 'yellow',
-      problemType: 'missing-batch-weight',
-      explanation: 'Recipe has POS name (sold item) but no base_weight_g and no serving_weight_g. Bot cannot calculate consumption from this recipe.',
-      suggestedFix: 'Set base_weight_g (batch total grams) and base_servings, or serving_weight_g per portion.',
-      detail: { recipe: r },
+      problemType: 'prep-missing-batch-yield',
+      explanation: `Prep recipe "${rec.title}" has no batch yield (base_weight_g or serving_weight_g missing). Bot cannot express suggestions in real kitchen units (kg, nests, pezzi).`,
+      suggestedFix: 'Set base_weight_g (total batch grams) + base_servings, or serving_weight_g (grams per portion served).',
+      detail: { prepTask: t, recipe: rec },
     });
   });
 
-  // B2: Prep task with no recipe_id and no ingredient_id
+  // B2b: SUBRECIPE — used in another BOM but has no yield defined
+  // A sub-recipe (component_type=RECIPE in a BOM row) needs yield data so
+  // the bot can scale grams consumed per parent-recipe sale.
+  const subRecipeIds = new Set(
+    (bom || [])
+      .filter(b => b.component_type === 'RECIPE' && b.sub_recipe_id)
+      .map(b => b.sub_recipe_id)
+  );
+  subRecipeIds.forEach(rid => {
+    const rec = recipeById[rid];
+    if (!rec) return;
+    const hasYield = rec.base_weight_g || rec.serving_weight_g;
+    if (!hasYield) {
+      const hasLinkedPrep = (prepTasks || []).some(t => t.recipe_id === rid && t.prep_type !== 'checklist');
+      if (!hasLinkedPrep) {
+        const parentBomRows = (bom || []).filter(b => b.sub_recipe_id === rid);
+        problems.push({
+          id: `subrecipe-no-yield-${rid}`,
+          name: rec.title,
+          type: 'subrecipe',
+          station: rec.menu_group || '—',
+          severity: 'yellow',
+          problemType: 'subrecipe-missing-yield',
+          explanation: `Sub-recipe used in ${parentBomRows.length} BOM row(s) but has no base_weight_g or serving_weight_g. Bot cannot calculate grams consumed per sale.`,
+          suggestedFix: 'Set serving_weight_g (grams of this sub-recipe per parent portion) or base_weight_g + base_servings.',
+          detail: { recipe: rec, usedInBomCount: parentBomRows.length },
+        });
+      }
+    }
+  });
+
+  // B3: PREP — no recipe_id and no ingredient_id (untethered)
   (prepTasks || []).filter(t =>
     !t.recipe_id && !t.ingredient_id &&
     t.prep_type !== 'checklist' &&
@@ -414,7 +519,7 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
     });
   });
 
-  // B3: current_stock = 0 (or null) AND suggested_qty is large (not huge — those caught above)
+  // B4: current_stock = 0 (or null) AND suggested_qty is large (not huge — those caught above)
   (prepTasks || []).filter(t => {
     const sq = parseFloat(t.suggested_qty);
     const cs = parseFloat(t.current_stock);
@@ -436,7 +541,7 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
     });
   });
 
-  // B4: shelf_life_days >> expected_duration_days (big mismatch — recipe says "fine 30 days" but prep task says "use in 2")
+  // B5: shelf_life_days >> expected_duration_days (big mismatch — recipe says "fine 30 days" but prep task says "use in 2")
   (prepTasks || []).filter(t => {
     if (!t.recipe_id) return false;
     const rec = recipeById[t.recipe_id];
@@ -459,7 +564,7 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
     });
   });
 
-  // B5: missing min_cover_days on non-checklist preps with a recipe
+  // B6: missing min_cover_days on non-checklist preps with a recipe
   (prepTasks || []).filter(t =>
     t.recipe_id && t.prep_type !== 'checklist' && !t.min_cover_days
   ).forEach(t => {
@@ -476,7 +581,7 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
     });
   });
 
-  // B6: BOM row with unit = 'batch' or 'porzioni' (invalid units)
+  // B7: BOM row with unit = 'batch' or 'porzioni' (invalid units)
   const badUnits = new Set(['batch', 'porzioni', 'portion', 'portions']);
   (bom || []).filter(b => badUnits.has((b.unit || '').toLowerCase())).forEach(b => {
     const parent = recipeById[b.parent_recipe_id];
@@ -496,7 +601,7 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
     });
   });
 
-  // B7: alias points to a name that matches both an ingredient AND a recipe
+  // B8: alias points to a name that matches both an ingredient AND a recipe
   const recipeNames = new Set((recipes || []).map(r => r.title?.toLowerCase()).filter(Boolean));
   const ingNames = new Set((ingredients || []).map(i => i.name?.toLowerCase()).filter(Boolean));
   const collisions = [...recipeNames].filter(n => ingNames.has(n));
@@ -516,7 +621,7 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
     });
   });
 
-  // B8: Prep has bot suggestion (suggested_at within last 3 days) but suggested_qty is null or 0
+  // B9: Prep has bot suggestion (suggested_at within last 3 days) but suggested_qty is null or 0
   const threeDaysAgo = new Date(Date.now() - 3 * 864e5).toISOString();
   (prepTasks || []).filter(t =>
     t.suggested_at && t.suggested_at > threeDaysAgo &&
@@ -728,6 +833,12 @@ function buildDrawerHTML(p) {
         <div class="mcr-kv"><span class="mcr-kv-k">serving_weight_g</span><span class="mcr-kv-v">${rec.serving_weight_g || '—'}</span></div>
         <div class="mcr-kv"><span class="mcr-kv-k">shelf_life_days</span><span class="mcr-kv-v">${rec.shelf_life_days || '—'}</span></div>
         <div class="mcr-kv"><span class="mcr-kv-k">menu_group</span><span class="mcr-kv-v">${escH(rec.menu_group || '—')}</span></div>
+        <div class="mcr-kv">
+          <span class="mcr-kv-k">Recipe mode</span>
+          <span class="mcr-kv-v" style="font-size:11px;padding:2px 6px;border-radius:6px;${rec.pos_name ? 'background:#1e3a8a;color:#bfdbfe;' : 'background:#1a3a2a;color:#86efac;'}">
+            ${rec.pos_name ? '🛒 SOLD ITEM — BOM = 1 sale consumes' : '🔪 PREP/BATCH — BOM = batch recipe'}
+          </span>
+        </div>
       </div>`;
 
     // BOM
