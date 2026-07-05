@@ -1583,7 +1583,191 @@ window.mcrCancelFreeText = function() {
   if (resp) resp.remove();
 };
 
-window.mcrSubmitFreeText = function() {
+// ── LOCAL CHEF AI CONFIG ─────────────────────────────────────
+// Gateway on Mac mini via Tailscale Funnel — no external AI, no Anthropic.
+// Key stored here matches Supabase Secret CHEF_AI_KEY (set session 5 Jul 2026).
+const MCR_CHEF_AI_URL = 'https://max-mini.taildf4122.ts.net/chef-ai';
+const MCR_CHEF_AI_KEY = 'ef2494d331d377a56bb6ab065402761844200c44a38f847572b0745cb060361b';
+const MCR_CHEF_AI_TIMEOUT_MS = 20000;
+
+// ── SYSTEM PROMPT for MCR free-text interpretation ───────────
+function mcrChefAISystemPrompt(p) {
+  const det  = p.detail || {};
+  const ings = (det.ingredients || []).map(function(i) { return i.name; }).join(', ');
+  const cands = (det.conflictingBOMs || []).join('; ');
+  return [
+    'You are Chef AI, the kitchen management assistant for Zenos on the Square (Weatherford, TX).',
+    'Chef Max will describe a kitchen data problem in his own words (Italian, English, or mixed).',
+    'Your job: interpret what he means and return ONLY a JSON object — nothing else, no markdown, no preamble.',
+    '',
+    'CURRENT PROBLEM CONTEXT:',
+    '  name: ' + (p.name || ''),
+    '  type: ' + (p.problemType || ''),
+    '  explanation: ' + (p.explanation || ''),
+    ings   ? ('  family members: ' + ings)  : '',
+    cands  ? ('  BOM conflicts: ' + cands)  : '',
+    '',
+    'RULES:',
+    '- Never merge Parmesan Cheese and Pecorino Romano — they are different vendor ingredients.',
+    '- Shaved Parmesan is a prep/recipe made FROM Parmesan Cheese, not an ingredient itself.',
+    '- Parmesan Flakes = legacy duplicate — must ask Chef what to do with it.',
+    '- MAPPING_WRITE_ENABLED is false — propose plans only, never claim to write DB.',
+    '- If not enough info, set needs_follow_up: true and provide a specific follow_up_question.',
+    '',
+    'RESPOND ONLY with this JSON (no extra text):',
+    '{',
+    '  "understood": ["string — each thing you understood from Chef Max input"],',
+    '  "not_changed": ["string — things that will NOT be touched"],',
+    '  "affected_items": ["item names affected by the proposed action"],',
+    '  "suggested_action": "one-line plain-text action summary",',
+    '  "needs_follow_up": true or false,',
+    '  "follow_up_question": "the ONE question Chef AI needs answered, or null",',
+    '  "follow_up_options": ["Option A", "Option B", ...],',
+    '  "plan": [],',
+    '  "confidence": "low" or "medium" or "high",',
+    '  "no_save_target_reason": "if no DB write is possible, explain why, else null"',
+    '}',
+  ].filter(Boolean).join('\n');
+}
+
+// ── RENDER Chef AI structured response ───────────────────────
+function mcrRenderChefAIResponse(p, userText, result) {
+  const confColor = { high:'#22c55e', medium:'#f59e0b', low:'#ef4444' }[result.confidence] || '#64748b';
+  const confLabel = { high:'Alta', medium:'Media', low:'Bassa' }[result.confidence] || '—';
+
+  let html = `
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:16px;">🤖</span>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#a78bfa;letter-spacing:.4px;">CHEF AI — INTERPRETAZIONE</div>
+            <div style="font-size:10px;color:#475569;">${escH(p.name || p.problemType || '')}</div>
+          </div>
+        </div>
+        <span style="font-size:10px;font-weight:700;color:${confColor};padding:3px 8px;border-radius:6px;background:${confColor}20;">
+          Fiducia: ${confLabel}
+        </span>
+      </div>
+
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:8px;margin-bottom:8px;">
+        <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:3px;letter-spacing:.4px;">HAI SCRITTO</div>
+        <div style="font-size:12px;color:#cbd5e1;font-style:italic;">"${escH(userText)}"</div>
+      </div>`;
+
+  if (result.understood && result.understood.length) {
+    html += `<div style="margin-bottom:8px;">
+      <div style="font-size:10px;font-weight:700;color:#22c55e;margin-bottom:5px;letter-spacing:.4px;">✅ HO CAPITO</div>`;
+    result.understood.forEach(function(u) {
+      html += `<div style="font-size:12px;color:#86efac;padding:3px 0;display:flex;gap:6px;">
+        <span style="color:#22c55e;flex-shrink:0;">▸</span><span>${escH(u)}</span></div>`;
+    });
+    html += '</div>';
+  }
+
+  if (result.not_changed && result.not_changed.length) {
+    html += `<div style="margin-bottom:8px;">
+      <div style="font-size:10px;font-weight:700;color:#94a3b8;margin-bottom:5px;letter-spacing:.4px;">🔒 NON CAMBIO</div>`;
+    result.not_changed.forEach(function(n) {
+      html += `<div style="font-size:12px;color:#94a3b8;padding:3px 0;display:flex;gap:6px;">
+        <span style="flex-shrink:0;">—</span><span>${escH(n)}</span></div>`;
+    });
+    html += '</div>';
+  }
+
+  if (result.suggested_action) {
+    html += `<div style="background:#1e1b4b;border:1px solid #312e81;border-radius:8px;padding:8px;margin-bottom:8px;">
+      <div style="font-size:10px;font-weight:700;color:#a78bfa;margin-bottom:3px;letter-spacing:.4px;">💡 AZIONE PROPOSTA</div>
+      <div style="font-size:12px;color:#c4b5fd;line-height:1.5;">${escH(result.suggested_action)}</div>
+    </div>`;
+  }
+
+  if (result.needs_follow_up && result.follow_up_question) {
+    html += `<div style="background:#1c1917;border:1px solid #44403c;border-radius:8px;padding:10px;margin-bottom:8px;">
+      <div style="font-size:10px;font-weight:700;color:#f59e0b;margin-bottom:6px;letter-spacing:.4px;">❓ PROSSIMA DOMANDA</div>
+      <div style="font-size:13px;color:#fde68a;margin-bottom:8px;line-height:1.5;">${escH(result.follow_up_question)}</div>`;
+    if (result.follow_up_options && result.follow_up_options.length) {
+      result.follow_up_options.forEach(function(opt, oi) {
+        const letters = ['A','B','C','D','E'];
+        html += `<button onclick="mcrFreeTextFollowUp(${oi})"
+          style="display:block;width:100%;text-align:left;padding:8px 10px;margin-bottom:5px;
+                 background:#292524;border:1px solid #57534e;border-radius:8px;
+                 color:#e7e5e4;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;"
+          onmouseover="this.style.background='#3c3835'" onmouseout="this.style.background='#292524'">
+          ${escH((letters[oi]||String(oi+1)) + ') ' + opt)}
+        </button>`;
+      });
+    }
+    html += '</div>';
+  }
+
+  if (result.no_save_target_reason) {
+    html += `<div style="background:#1c0a0a;border:1px solid #7f1d1d;border-radius:8px;padding:8px;margin-bottom:8px;">
+      <div style="font-size:10px;font-weight:700;color:#f87171;margin-bottom:3px;letter-spacing:.4px;">⛔ NESSUN TARGET DB</div>
+      <div style="font-size:12px;color:#fca5a5;line-height:1.5;">${escH(result.no_save_target_reason)}</div>
+    </div>`;
+  }
+
+  html += `<div style="display:flex;gap:8px;margin-top:4px;">
+    <button onclick="mcrCancelFreeText()"
+      style="flex:1;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:8px;
+             color:#94a3b8;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
+      ✕ Chiudi
+    </button>
+    <button onclick="document.getElementById('mcrFreeTextInput').value='';mcrCancelFreeText();setTimeout(mcrShowFreeText,50);"
+      style="flex:1;padding:8px;background:#1e293b;border:1px solid #475569;border-radius:8px;
+             color:#e2e8f0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
+      ✏️ Riscrivi
+    </button>
+  </div></div>`;
+  return html;
+}
+
+// ── RENDER raw/error response ─────────────────────────────────
+function mcrRenderChefAIRawResponse(p, userText, rawText, errorMsg) {
+  return `
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-size:16px;">⚠️</span>
+        <div style="font-size:12px;font-weight:700;color:#f59e0b;">AI response needs review</div>
+      </div>
+      ${errorMsg ? `<div style="font-size:11px;color:#f87171;margin-bottom:8px;">${escH(errorMsg)}</div>` : ''}
+      ${rawText ? `<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:8px;margin-bottom:8px;max-height:160px;overflow-y:auto;">
+        <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;">RISPOSTA RAW</div>
+        <pre style="font-size:10px;color:#94a3b8;white-space:pre-wrap;margin:0;">${escH(rawText)}</pre>
+      </div>` : ''}
+      <div style="display:flex;gap:8px;">
+        <button onclick="mcrCancelFreeText()"
+          style="flex:1;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:8px;
+                 color:#94a3b8;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
+          ✕ Chiudi
+        </button>
+        <button onclick="document.getElementById('mcrFreeTextInput').value='';mcrCancelFreeText();setTimeout(mcrShowFreeText,50);"
+          style="flex:1;padding:8px;background:#1e293b;border:1px solid #475569;border-radius:8px;
+                 color:#e2e8f0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
+          ✏️ Riscrivi
+        </button>
+      </div>
+    </div>`;
+}
+
+// ── FOLLOW-UP from AI-generated options ──────────────────────
+window.mcrFreeTextFollowUp = function(optIdx) {
+  const resp = document.getElementById('mcrFreeTextResponse');
+  if (!resp) return;
+  // Read the stored follow_up_options from last result
+  const stored = window._mcrLastChefAIResult;
+  if (!stored || !stored.follow_up_options) return;
+  const choice = stored.follow_up_options[optIdx];
+  if (!choice) return;
+  // Pre-fill textarea with chosen option and re-submit
+  const ta = document.getElementById('mcrFreeTextInput');
+  if (ta) ta.value = choice;
+  mcrSubmitFreeText();
+};
+
+// ── MAIN SUBMIT — calls local Chef AI gateway ─────────────────
+window.mcrSubmitFreeText = async function() {
   const ta  = document.getElementById('mcrFreeTextInput');
   const idx = window._mcrDrawerIdx;
   const p   = (window._mcrProblems || [])[idx];
@@ -1591,77 +1775,105 @@ window.mcrSubmitFreeText = function() {
   const text = ta.value.trim();
   if (!text || text.length < 5) return;
 
-  // Disable submit while "processing"
   const btn = document.getElementById('mcrFreeTextSubmit');
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
 
-  // Placeholder response structure — ready for Step 2 (Chef AI local endpoint)
-  const placeholderResult = {
-    understood:           [],
-    not_changed:          [],
-    plan:                 [],
-    confidence:           null,
-    follow_up_question:   null,
-    follow_up_options:    [],
-  };
-
-  // Remove previous response if any
+  // Remove previous response
   const prev = document.getElementById('mcrFreeTextResponse');
   if (prev) prev.remove();
 
-  // Render placeholder card
   const area = document.getElementById('mcrFreeTextArea');
   if (!area) return;
-  const div = document.createElement('div');
-  div.id = 'mcrFreeTextResponse';
-  div.style.cssText = 'margin-top:12px;';
-  div.innerHTML = `
-    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <span style="font-size:16px;">🤖</span>
-        <div>
-          <div style="font-size:12px;font-weight:700;color:#a78bfa;letter-spacing:.4px;">CHEF AI — RISPOSTA</div>
-          <div style="font-size:10px;color:#475569;">Problema: ${escH(p.name || p.problemType || '')}</div>
-        </div>
-      </div>
 
-      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px;margin-bottom:10px;">
-        <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;letter-spacing:.4px;">HAI SCRITTO</div>
-        <div style="font-size:12px;color:#cbd5e1;line-height:1.5;font-style:italic;">"${escH(text)}"</div>
-      </div>
-
-      <div style="background:#1e1b4b;border:1px solid #312e81;border-radius:8px;padding:10px;margin-bottom:10px;">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-          <span style="font-size:14px;">⏳</span>
-          <div style="font-size:12px;font-weight:700;color:#c4b5fd;">Interpretazione AI — non ancora collegata</div>
-        </div>
-        <div style="font-size:11px;color:#6d28d9;line-height:1.5;">
-          Chef AI locale (Mac mini) non ancora collegato a questo modulo.<br>
-          Step 2: collegheremo questo campo all'endpoint protetto Chef AI.
-        </div>
-      </div>
-
-      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:8px;margin-bottom:10px;">
-        <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:6px;letter-spacing:.4px;">STRUTTURA RISPOSTA ATTESA (Step 2)</div>
-        <div style="font-size:10px;color:#475569;font-family:monospace;line-height:1.8;">
-          understood: []<br>
-          not_changed: []<br>
-          plan: []<br>
-          confidence: null<br>
-          follow_up_question: null<br>
-          follow_up_options: []
-        </div>
-      </div>
-
-      <div style="display:flex;gap:8px;">
-        <button onclick="mcrCancelFreeText()"
-          style="flex:1;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:8px;
-                 color:#94a3b8;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
-          ✕ Annulla
-        </button>
-      </div>
+  // Show loading state
+  const loadDiv = document.createElement('div');
+  loadDiv.id = 'mcrFreeTextResponse';
+  loadDiv.style.cssText = 'margin-top:12px;';
+  loadDiv.innerHTML = `
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;text-align:center;">
+      <div style="font-size:20px;margin-bottom:8px;">🤖</div>
+      <div style="font-size:13px;font-weight:600;color:#a78bfa;margin-bottom:4px;">Chef AI sta ragionando…</div>
+      <div style="font-size:11px;color:#475569;">qwen3:8b · Mac mini · timeout 20s</div>
     </div>`;
-  area.after(div);
+  area.after(loadDiv);
+
+  // Build payload for local Chef AI gateway
+  const det   = p.detail || {};
+  const payload = {
+    model:  'qwen3:8b',
+    system: mcrChefAISystemPrompt(p),
+    prompt: [
+      'Chef Max ha scritto:',
+      '"' + text + '"',
+      '',
+      'Rispondi SOLO con il JSON strutturato richiesto.',
+    ].join('\n'),
+    stream: false,
+  };
+
+  let raw = '';
+  let timedOut = false;
+  const controller = new AbortController();
+  const timer = setTimeout(function() {
+    timedOut = true;
+    controller.abort();
+  }, MCR_CHEF_AI_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(MCR_CHEF_AI_URL, {
+      method:  'POST',
+      headers: {
+        'Content-Type':   'application/json',
+        'x-chef-ai-key':  MCR_CHEF_AI_KEY,
+      },
+      body:   JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      const errText = await res.text().catch(function() { return ''; });
+      throw new Error('HTTP ' + res.status + (errText ? ': ' + errText.slice(0, 120) : ''));
+    }
+
+    raw = await res.text();
+
+    // Try to parse JSON — strip any markdown fences
+    let parsed = null;
+    let parseErr = null;
+    try {
+      const clean = raw.replace(/```json|```/g, '').trim();
+      // Extract first {...} block in case model prepended text
+      const match = clean.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsed = JSON.parse(match[0]);
+      } else {
+        throw new Error('No JSON object found in response');
+      }
+    } catch(e) {
+      parseErr = e.message;
+    }
+
+    const respDiv = document.getElementById('mcrFreeTextResponse');
+    if (!respDiv) return;
+
+    if (parsed) {
+      window._mcrLastChefAIResult = parsed;
+      respDiv.innerHTML = mcrRenderChefAIResponse(p, text, parsed);
+    } else {
+      respDiv.innerHTML = mcrRenderChefAIRawResponse(p, text, raw.slice(0, 800), 'JSON parse error: ' + parseErr);
+    }
+
+  } catch(e) {
+    clearTimeout(timer);
+    const respDiv = document.getElementById('mcrFreeTextResponse');
+    if (respDiv) {
+      const msg = timedOut
+        ? 'Timeout 20s — Chef AI locale non ha risposto. Verifica che il Mac mini sia acceso e Tailscale attivo.'
+        : 'Chef AI locale non raggiungibile: ' + e.message;
+      respDiv.innerHTML = mcrRenderChefAIRawResponse(p, text, '', msg);
+    }
+  }
 
   if (btn) { btn.disabled = false; btn.textContent = 'Invia spiegazione →'; }
 };
