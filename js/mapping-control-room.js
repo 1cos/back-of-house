@@ -1707,7 +1707,26 @@ async function mcrResolveSingleLegacyRow(rawName, sb) {
   }
 
   if (totalExact > 1) {
-    // Multiple exact matches — ambiguous
+    // Special case: exactly 1 ingredient + 1 recipe with identical name.
+    // This is the "prep collision" pattern (e.g. "Arrabbiata" exists as both
+    // an ingredient and a prep recipe). The recipe is the correct BOM target —
+    // the ingredient is the raw purchased version, while the recipe is what
+    // the chef actually uses as a subrecipe.
+    // Mark as exact but annotate so Max can verify.
+    if (ingExactHits.length === 1 && recExactHits.length === 1) {
+      return {
+        type:       'sub_recipe',
+        id:         recExactHits[0].id,
+        name:       recExactHits[0].title,
+        confidence: 'exact',
+        reason:     `Sub-recipe preferita su ingrediente con stesso nome "${recExactHits[0].title}". Verifica: se usi la versione acquistata, cambia in ingrediente.`,
+        candidates: [
+          { label: ingExactHits[0].name,    id: ingExactHits[0].id,  kind: 'ingredient', cat: ingExactHits[0].category },
+          { label: recExactHits[0].title,   id: recExactHits[0].id,  kind: 'sub_recipe', cat: recExactHits[0].menu_group },
+        ],
+      };
+    }
+    // Multiple exact matches of the same kind — truly ambiguous
     const candidates = [
       ...ingExactHits.map(i => ({ label: i.name, id: i.id, kind: 'ingredient', cat: i.category })),
       ...recExactHits.map(r => ({ label: r.title, id: r.id, kind: 'sub_recipe', cat: r.menu_group })),
@@ -1791,11 +1810,27 @@ async function mcrResolveConversionPlan(p) {
     })
   );
 
+  // Detect duplicate resolved IDs — same ingredient/recipe used multiple times.
+  // Duplicates are valid (e.g. Arrabbiata for pasta + Arrabbiata for chicken),
+  // but should be flagged so Max can verify the notes distinguish the use.
+  const idCounts = {};
+  resolved.forEach(r => {
+    if (r.resolved.id) {
+      idCounts[r.resolved.id] = (idCounts[r.resolved.id] || 0) + 1;
+    }
+  });
+  // Tag each resolved row with duplicate info
+  resolved.forEach(r => {
+    r.isDuplicate = r.resolved.id && idCounts[r.resolved.id] > 1;
+    r.duplicateCount = r.resolved.id ? (idCounts[r.resolved.id] || 1) : 1;
+  });
+
   // Bucket into safe / review / unresolved
   const safe       = resolved.filter(r => r.resolved.confidence === 'exact');
   const review     = resolved.filter(r => ['fuzzy', 'family_review'].includes(r.resolved.confidence));
   const ambiguous  = resolved.filter(r => r.resolved.confidence === 'ambiguous');
   const unresolved = resolved.filter(r => r.resolved.confidence === 'not_found');
+  const dupCount   = resolved.filter(r => r.isDuplicate).length;
 
   // Build the plan rows for safe items (these go to mcrApprovePlan)
   const safePlan = safe.map(r => ({
@@ -1831,7 +1866,7 @@ async function mcrResolveConversionPlan(p) {
     <div class="mcr-drawer-section" style="border-color:#0ea5e960;background:#0f1f2e;margin-top:8px;" id="mcrConversionPlan">
       <div class="mcr-drawer-label" style="color:#7dd3fc;">📋 Piano Conversione BOM — ${legacyIngs.length} ingredienti</div>
       <div style="font-size:11px;color:#94a3b8;margin-bottom:12px;line-height:1.5;">
-        ✅ ${safe.length} sicuri · ↗ ${review.length} da verificare · ⚠️ ${ambiguous.length} ambigui · ❌ ${unresolved.length} non trovati
+        ✅ ${safe.length} sicuri · ↗ ${review.length} da verificare · ⚠️ ${ambiguous.length} ambigui · ❌ ${unresolved.length} non trovati${dupCount > 0 ? ` · 🔁 ${dupCount} riga${dupCount > 1 ? 'e' : ''} con stesso ingrediente (usi distinti)` : ''}
         ${!MAPPING_WRITE_ENABLED ? '<br><span style="color:#f59e0b;font-weight:700;">⚠️ WRITE DISABLED — Phase 2 required per la scrittura</span>' : ''}
       </div>`;
 
@@ -1876,8 +1911,28 @@ async function mcrResolveConversionPlan(p) {
       html += `</div>`;
     }
 
+    // Duplicate-use badge: same ingredient appears more than once in the recipe
+    if (r.isDuplicate) {
+      html += `
+        <div style="margin-top:6px;padding:4px 8px;background:#1a1f2e;border:1px solid #f59e0b40;
+                    border-radius:6px;display:flex;align-items:flex-start;gap:6px;">
+          <span style="font-size:12px;flex-shrink:0;">🔁</span>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:#f59e0b;margin-bottom:1px;">
+              Stesso ingrediente usato ${r.duplicateCount} volte in questa ricetta
+            </div>
+            <div style="font-size:10px;color:#78350f;line-height:1.4;">
+              Verifica che le note distinguano l'uso (es. "per pasta" / "per pollo").
+              Se è un errore, rimuovi la riga duplicata nel Recipe Editor.
+            </div>
+          </div>
+        </div>`;
+    }
+
     if (leg.comment) {
-      html += `<div style="font-size:10px;color:#475569;margin-top:4px;">nota: ${escH(leg.comment)}</div>`;
+      html += `<div style="font-size:10px;color:#64748b;margin-top:4px;font-style:italic;">📝 nota: ${escH(leg.comment)}</div>`;
+    } else if (r.isDuplicate) {
+      html += `<div style="font-size:10px;color:#f59e0b;margin-top:3px;">⚠️ Nessuna nota — aggiungi nota per distinguere l'uso.</div>`;
     }
 
     html += `</div>`;
