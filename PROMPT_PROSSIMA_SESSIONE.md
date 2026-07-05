@@ -2041,3 +2041,53 @@ Non ancora corretti. Max deve decidere per ognuno usando il panel audit. Il pane
 6. **Spring Mix**: 1 busta = 1 salad (sbagliato)
 7. **Diced Grilled Chicken**: current_stock=NULL → bot lo salta
 
+
+
+---
+
+## SESSIONE 5 LUGLIO 2026 (continuazione pomeriggio) — Prep fix struttura dati parte 2 (DB only, boh-v505)
+
+### Prep items fixati in questa parte di sessione
+
+| Prep | Fix | Dettaglio |
+|---|---|---|
+| **Pastry Cream** | Ricetta creata `dd313da9`, BOM spostato da Italian Cream (Milk 500ml + Egg Yolk 200g + Sugar 250g + Corn Starch 25g + Vanilla Bean 0.5g). Italian Cream BOM: RECIPE Pastry Cream 975g + Heavy Cream 500ml. Limoncello Cake: RECIPE Italian Cream 1450g + RECIPE GF Sponge Cake 1pz + bagna (Limoncello/Sugar/Water). prep_task 384→Pastry Cream, prep_task 385→Italian Cream | Catena 3 livelli completa |
+| **Pears** | base_servings 4→**3** (1 pera = 3 insalate), expected_duration_days 1→**4** | recipe `5128b128` |
+| **Pecorino Fresh Wedge** | Ricetta creata `e1b42f3a`, BOM: Pecorino Toscano 2000g (1 forma). Pear & Pecorino Salad bom_id=1585: Pecorino Toscano ITEM 50g → RECIPE Pecorino Fresh Wedge 80g (4 fette×20g). Pecorino Toscano: avg_unit_weight_g=2000, measure_type=each. prep_task 358 collegato | — |
+| **Ribeye Steaks** | I -4 venivano dall'Audit Panel: bot cercava ingrediente "Ribeye" per nome → trovava nel BOM Ribeye Prime → 4 vendite Costata = -4 pezzi. Ricetta creata `1ccd91e0`, BOM: Ribeye ITEM 1pz. prep_task 254 collegato. Ribeye Prime BOM bom_id=1214: Ribeye ITEM 1pz → RECIPE Ribeye Steaks 1pz | Stesso pattern Filets/Salmon |
+| **Roasted Almonds** | Ingrediente `Sliced Almonds` creato `1a5c0304` (Dry Goods, weight). ingredient_link id=301 corretto: "ALMONDS SLICED BLANCHED" → Sliced Almonds (era Blanched Almonds). Vendor Hardie's spostato da Blanched Almonds a Sliced Almonds (pack 3#, $24.82, conv 1361g). Ricetta creata `6a9e8d48`, BOM: Sliced Almonds 1000g. prep_task 321 collegato. Mediterranean Salad bom_id=578: Roasted Almond ITEM 5g → RECIPE Roasted Almonds 5g | "ALMONDS WHOLE BLANCHED" → Blanched Almonds: intatto ✓ |
+| **Salmon Aioli** | OPEN — prep_task 255, Sauté Station, unit=g, recipe_id=NULL, stock=1877g. BOM Salmon Cakes non ha Salmon Aioli. Manca: grammi per porzione Salmon Cakes da confermare con Max prima del fix | Prossima sessione |
+
+### SALMON FLOW — architettura da costruire (PRIORITÀ CRITICA)
+
+```
+Salmon baffa (Frugé, per lb)
+    ↓ prep "Salmon Filets" (cura con Fish Salt + carta + wrap + congela)
+Salmon Filets [FREEZER] — stock pezzi (prep_task id=317, Table Side)
+    ↓ "Pull Salmon filets" (Oven Station, checklist scongelo)
+    → scarica da Salmon Filets [freezer]
+    → carica Salmon Filets [disponibili per servizio]
+Salmon Filets [DISPONIBILI]
+    ↓ vendita
+    → Amalfi Salmon (1 filetto per piatto)
+    → Add Salmon modifier (½ porzione su pasta)
+```
+
+Richiede meccanismo trasferimento stock freezer→linea nel motore.
+Stessa famiglia: Tenderloin Whole→Filets, Grilled Chicken→Diced Grilled Chicken.
+
+**Pull Salmon filets (id=278):** collegato erroneamente a ricetta "Salmon Whole" (modifier pasta). Da correggere: è checklist operativa di scongelo, non prep di produzione.
+
+### Pendenti aperti da questa sessione
+
+1. **Salmon Aioli** — quanti grammi per porzione Salmon Cakes? → poi crea ricetta + collega prep_task 255 + aggiungi RECIPE Salmon Aioli Xg al BOM Salmon Cakes (bom_id nuovo)
+2. **Salmon Cakes BOM** — bom_id=1425 usa `Cured Salmon` 1300g — verificare se è corretto o deve diventare RECIPE Salmon Filets
+3. **Pull Salmon filets (id=278)** — scollegare da Salmon Whole, classificare come checklist scongelo
+4. **Grated Pecorino** — candidati non ancora convertiti: Cacio e Pepe (30g), Cacio e Pepe Half (15g), La N°4 (20g), La N.4 Half (10g), Maccheroni Arrabbiata (30g)
+5. **Bruschetta/Garlic Oil** — Max sistema manualmente
+
+### Note tecniche
+- **sw.js:** boh-v505 — nessun bump (DB only tutta la sessione)
+- **bom_id sessione:** 1857→~1862
+- **Ingredienti nuovi:** Sliced Almonds `1a5c0304`
+- **ingredient_link id=301** corretto: "ALMONDS SLICED BLANCHED" → Sliced Almonds
