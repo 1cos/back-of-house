@@ -218,17 +218,32 @@ window.mcrLoadAndRender = async function () {
 
     const cutoff = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
 
-    const [prepTasks, recipes, ingredients, bom, posAliases, modifierConfig, posSales, posModifiers] =
+    // recipe_bom: PostgREST hard cap is 1000 rows. DB has 1284+ rows.
+    // Split into two queries (pos-recipes BOM ≈640 rows, prep-recipes BOM ≈644 rows)
+    // to guarantee all rows are fetched regardless of ordering.
+    const BOM_SELECT = 'bom_id,parent_recipe_id,component_type,item_id,sub_recipe_id,quantity,unit,notes';
+    const [prepTasks, recipes, ingredients, bomPos, bomPrep, posAliases, modifierConfig, posSales, posModifiers] =
       await Promise.all([
         q('prep_tasks',        sb.from('prep_tasks').select('id,name,category,prep_type,unit,current_stock,suggested_qty,suggested_note,suggested_at,recipe_id,ingredient_id,expected_duration_days,min_cover_days,archived').eq('archived', false).limit(500)),
         q('recipes',           sb.from('recipes').select('id,title,pos_name,menu_group,category,base_weight_g,base_servings,serving_weight_g,serving_unit,serving_qty,shelf_life_days,food_cost_pct,selling_price,ingredients').limit(500)),
         q('ingredients',       sb.from('ingredients').select('id,name,category,measure_type,active').eq('active', true).limit(500)),
-        q('recipe_bom',        sb.from('recipe_bom').select('bom_id,parent_recipe_id,component_type,item_id,sub_recipe_id,quantity,unit,notes').limit(1500)),
+        // BOM split 1: recipes with pos_name (sold items) — ~640 rows
+        q('recipe_bom_pos',    sb.from('recipe_bom').select(BOM_SELECT)
+            .in('parent_recipe_id',
+              (await sb.from('recipes').select('id').not('pos_name', 'is', null).limit(200)).data?.map(r => r.id) || []
+            ).limit(1000)),
+        // BOM split 2: recipes without pos_name (prep/sub-recipes) — ~644 rows
+        q('recipe_bom_prep',   sb.from('recipe_bom').select(BOM_SELECT)
+            .in('parent_recipe_id',
+              (await sb.from('recipes').select('id').is('pos_name', null).limit(500)).data?.map(r => r.id) || []
+            ).limit(1000)),
         q('pos_item_aliases',  sb.from('pos_item_aliases').select('*').limit(200)),
         q('modifier_config',   sb.from('modifier_config').select('*').limit(200)),
         q('pos_sales_by_item', sb.from('pos_sales_by_item').select('menu_item,quantity,sale_date').gte('sale_date', cutoff).limit(1000)),
         q('pos_modifiers',     sb.from('pos_modifiers').select('modifier,quantity_sold,sale_date').gte('sale_date', cutoff).limit(1000)),
       ]);
+    // Merge BOM arrays — both halves together = complete recipe_bom
+    const bom = [...bomPos, ...bomPrep];
 
     window._mcrData = { prepTasks, recipes, ingredients, bom, posAliases, modifierConfig, posSales, posModifiers };
 
