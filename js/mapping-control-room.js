@@ -201,7 +201,7 @@ window.mcrLoadAndRender = async function () {
       { data: posModifiers },
     ] = await Promise.all([
       sb.from('prep_tasks').select('id,name,category,prep_type,unit,current_stock,suggested_qty,suggested_note,suggested_at,recipe_id,ingredient_id,expected_duration_days,min_cover_days,archived,base_weight_g').eq('archived', false).limit(500),
-      sb.from('recipes').select('id,title,pos_name,menu_group,category,base_weight_g,base_servings,serving_weight_g,serving_unit,serving_qty,shelf_life_days,food_cost_pct,selling_price').limit(500),
+      sb.from('recipes').select('id,title,pos_name,menu_group,category,base_weight_g,base_servings,serving_weight_g,serving_unit,serving_qty,shelf_life_days,food_cost_pct,selling_price,ingredients').limit(500),
       sb.from('ingredients').select('id,name,category,measure_type,active').eq('active', true).limit(500),
       sb.from('recipe_bom').select('bom_id,parent_recipe_id,component_type,item_id,sub_recipe_id,quantity,unit,notes').limit(1500),
       sb.from('pos_item_aliases').select('*').limit(200),
@@ -480,45 +480,117 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
     return { production_constraint, yield_behavior, control_unit, rounding_rule };
   }
 
-  // ── B1: SOLD ITEM — missing BOM usage ────────────────────────
-  // A sold item (has pos_name) needs a BOM defining what 1 sale consumes.
-  // If BOM is complete → no warning (OK). Never flag for missing batch weight.
+  // ── B1: SOLD ITEM — check BOTH structured BOM and legacy ingredients ───
+  //
+  // Three cases for a sold item (has pos_name):
+  //
+  //  A) structured recipe_bom rows exist and are complete
+  //     → NO warning. "OK — 1 vendita scarica questi componenti."
+  //
+  //  B) NO structured BOM, but legacy ingredients JSONB is populated
+  //     → YELLOW. "Ingredienti presenti nell'editor, ma non ancora migrati nel BOM strutturato."
+  //     → NOT red — the recipe data exists, just in the wrong place.
+  //
+  //  C) NO structured BOM and NO legacy ingredients
+  //     → RED. "Questo piatto si vende al POS, ma manca cosa scaricare per 1 vendita."
+  //
+  // Legacy ingredients = recipes.ingredients (JSONB array, free format, used by recipe editor).
+  // Structured BOM    = recipe_bom rows with component_type ITEM/RECIPE + linked ids.
+
+  // Helper: parse legacy ingredients JSONB → array of {name, qty, unit}
+  function parseLegacyIngredients(rec) {
+    const raw = rec.ingredients;
+    if (!raw) return [];
+    // JSONB can arrive as array or string
+    let arr;
+    if (Array.isArray(raw)) {
+      arr = raw;
+    } else if (typeof raw === 'string') {
+      try { arr = JSON.parse(raw); } catch { return []; }
+    } else if (typeof raw === 'object') {
+      // Sometimes Supabase returns an object — treat as single item or array wrapper
+      arr = Array.isArray(raw) ? raw : [raw];
+    } else {
+      return [];
+    }
+    return arr.filter(i => i && (i.name || i.ingredient || i.item || i.text));
+  }
+
   (recipes || []).filter(r => r.pos_name).forEach(r => {
-    const rows = bomByParent[r.id] || [];
-    if (rows.length === 0) {
-      problems.push({
-        id: `sold-no-bom-${r.id}`,
-        name: r.title,
-        type: 'recipe',
-        station: r.menu_group || '—',
-        severity: 'red',
-        problemType: 'sold-item-missing-bom',
-        explanation: `Questo piatto si vende al POS, ma manca cosa scaricare per 1 vendita. POS: "${r.pos_name}". Il bot non può calcolare nessun consumo — lo stock non viene mai scalato.`,
-        suggestedFix: 'Aggiungi righe BOM con ingrediente/sottoricetta + quantità per 1 porzione venduta.',
-        detail: { recipe: r, profile: classifyPrepProfile(r, null, []), bomRows: [] },
-      });
+    const structuredRows = bomByParent[r.id] || [];
+    const legacyIngredients = parseLegacyIngredients(r);
+    const hasStructured = structuredRows.length > 0;
+    const hasLegacy = legacyIngredients.length > 0;
+
+    if (hasStructured) {
+      // Case A: structured BOM exists — check for incomplete rows only
+      const incompleteRows = structuredRows.filter(b =>
+        !b.quantity || b.quantity <= 0 ||
+        !b.unit ||
+        (b.component_type === 'ITEM' && !b.item_id) ||
+        (b.component_type === 'RECIPE' && !b.sub_recipe_id)
+      );
+      if (incompleteRows.length > 0) {
+        problems.push({
+          id: `sold-incomplete-bom-${r.id}`,
+          name: r.title,
+          type: 'recipe',
+          station: r.menu_group || '—',
+          severity: 'yellow',
+          problemType: 'sold-item-incomplete-bom',
+          explanation: `Piatto venduto con ${structuredRows.length} righe BOM, ma ${incompleteRows.length} incomplete (mancano qty, unit o link). Il bot potrebbe sotto-calcolare il consumo.`,
+          suggestedFix: 'Completa ogni riga BOM: qty > 0, unit, collegamento a ingrediente o sottoricetta.',
+          detail: {
+            recipe: r,
+            profile: classifyPrepProfile(r, null, structuredRows),
+            bomRows: structuredRows,
+            incompleteRows,
+            legacyIngredients,
+          },
+        });
+      }
+      // If complete → no warning (case A)
       return;
     }
-    const incompleteRows = rows.filter(b =>
-      !b.quantity || b.quantity <= 0 ||
-      !b.unit ||
-      (b.component_type === 'ITEM' && !b.item_id) ||
-      (b.component_type === 'RECIPE' && !b.sub_recipe_id)
-    );
-    if (incompleteRows.length > 0) {
+
+    if (!hasStructured && hasLegacy) {
+      // Case B: legacy ingredients exist but not yet migrated to structured BOM
       problems.push({
-        id: `sold-incomplete-bom-${r.id}`,
+        id: `sold-legacy-bom-${r.id}`,
         name: r.title,
         type: 'recipe',
         station: r.menu_group || '—',
         severity: 'yellow',
-        problemType: 'sold-item-incomplete-bom',
-        explanation: `Piatto venduto con ${rows.length} righe BOM, ma ${incompleteRows.length} incomplete (mancano qty, unit o link). Il bot potrebbe sotto-calcolare il consumo.`,
-        suggestedFix: 'Completa ogni riga BOM: qty > 0, unit, collegamento a ingrediente o sottoricetta.',
-        detail: { recipe: r, profile: classifyPrepProfile(r, null, rows), bomRows: rows, incompleteRows },
+        problemType: 'sold-item-legacy-ingredients',
+        explanation: `Ingredienti presenti nell'editor (${legacyIngredients.length} voci), ma non ancora migrati nel BOM strutturato. Il bot non può calcolare il consumo finché non sono migrati.`,
+        suggestedFix: 'Converti gli ingredienti legacy in righe BOM strutturate nel Recipe Editor → scheda Ingredients.',
+        detail: {
+          recipe: r,
+          profile: classifyPrepProfile(r, null, []),
+          bomRows: [],
+          legacyIngredients,
+        },
       });
+      return;
     }
-    // BOM complete → no warning (case A: OK — "1 vendita scarica questi componenti")
+
+    // Case C: no structured BOM and no legacy ingredients → truly missing
+    problems.push({
+      id: `sold-no-bom-${r.id}`,
+      name: r.title,
+      type: 'recipe',
+      station: r.menu_group || '—',
+      severity: 'red',
+      problemType: 'sold-item-missing-bom',
+      explanation: `Questo piatto si vende al POS, ma manca cosa scaricare per 1 vendita. POS: "${r.pos_name}". Né BOM strutturato né ingredienti legacy trovati.`,
+      suggestedFix: 'Aggiungi ingredienti nel Recipe Editor e poi migra in BOM strutturato.',
+      detail: {
+        recipe: r,
+        profile: classifyPrepProfile(r, null, []),
+        bomRows: [],
+        legacyIngredients: [],
+      },
+    });
   });
 
   // ── B2: PREP — production profile warnings ────────────────────
@@ -1006,18 +1078,62 @@ function buildDrawerHTML(p) {
       </div>`;
     }
 
-    // BOM
-    if (bomRows.length > 0) {
-      html += `<div class="mcr-drawer-section">
-        <div class="mcr-drawer-label">🧱 Bill of Materials (${bomRows.length} rows)</div>`;
-      bomRows.forEach(b => {
+    // ── BOM sources: structured + legacy ───────────────────
+    const allStructuredRows = (bom || []).filter(b => b.parent_recipe_id === rec.id);
+    const legacyIngs = (() => {
+      const raw = rec.ingredients;
+      if (!raw) return [];
+      let arr;
+      if (Array.isArray(raw)) arr = raw;
+      else if (typeof raw === 'string') { try { arr = JSON.parse(raw); } catch { return []; } }
+      else arr = [raw];
+      return arr.filter(i => i && (i.name || i.ingredient || i.item || i.text));
+    })();
+
+    // Structured BOM
+    html += `<div class="mcr-drawer-section" style="border-color:${allStructuredRows.length > 0 ? '#22c55e40' : '#ef444430'};">
+      <div class="mcr-drawer-label" style="color:${allStructuredRows.length > 0 ? '#86efac' : '#f87171'};">
+        🧱 BOM Strutturato — ${allStructuredRows.length > 0 ? allStructuredRows.length + ' righe' : 'NESSUNA RIGA'}
+      </div>`;
+    if (allStructuredRows.length > 0) {
+      allStructuredRows.forEach(b => {
         const childRec = b.component_type === 'RECIPE' ? recipeById[b.sub_recipe_id] : null;
         const childIng = b.component_type === 'ITEM' ? ingById[b.item_id] : null;
         const childName = childRec?.title || childIng?.name || '?';
+        const linked = !!(childRec || childIng);
         const typeColor = b.component_type === 'RECIPE' ? '#6366f1' : '#0ea5e9';
         html += `<div class="mcr-bom-row">
-          <span style="font-size:12px;color:#e2e8f0;">${escH(childName)}</span>
+          <span style="font-size:12px;color:#e2e8f0;">
+            ${linked ? '' : '<span style="color:#f59e0b;" title="Not linked to ingredient/recipe">⚠ </span>'}${escH(childName)}
+          </span>
           <span style="font-size:11px;color:${typeColor};font-weight:600;">${b.quantity} ${escH(b.unit || '')} · ${b.component_type}</span>
+        </div>`;
+      });
+    } else {
+      html += `<div style="font-size:12px;color:#475569;padding:4px 0;">Il bot non può calcolare il consumo senza BOM strutturato.</div>`;
+    }
+    html += `</div>`;
+
+    // Legacy ingredients
+    if (legacyIngs.length > 0) {
+      html += `<div class="mcr-drawer-section" style="border-color:#f59e0b40;">
+        <div class="mcr-drawer-label" style="color:#fde68a;">📝 Ingredienti Legacy (editor) — ${legacyIngs.length} voci</div>
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">Questi ingredienti sono visibili nel Recipe Editor ma NON sono nel BOM strutturato — il bot non li legge.</div>`;
+      legacyIngs.forEach(ing => {
+        // Legacy JSONB format varies: {name, qty, unit} or {ingredient, amount, unit} or {text} etc.
+        const ingName = ing.name || ing.ingredient || ing.item || ing.text || JSON.stringify(ing);
+        const ingQty  = ing.qty || ing.amount || ing.quantity || '';
+        const ingUnit = ing.unit || '';
+        // Check if a matching structured BOM row exists by name similarity
+        const hasStructuredMatch = allStructuredRows.some(b => {
+          const sName = (recipeById[b.sub_recipe_id]?.title || ingById[b.item_id]?.name || '').toLowerCase();
+          return sName && ingName.toLowerCase().includes(sName.slice(0,6));
+        });
+        html += `<div class="mcr-bom-row">
+          <span style="font-size:12px;color:${hasStructuredMatch ? '#86efac' : '#fde68a'};">
+            ${hasStructuredMatch ? '✅' : '➡'} ${escH(String(ingName))}
+          </span>
+          <span style="font-size:11px;color:#94a3b8;">${escH(String(ingQty))} ${escH(String(ingUnit))}</span>
         </div>`;
       });
       html += `</div>`;
