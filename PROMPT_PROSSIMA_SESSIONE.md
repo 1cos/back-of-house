@@ -1565,3 +1565,71 @@ Aggiunto `buildAuditPanel()` e relativa infrastruttura in `prep.js`:
 
 **Versione attuale confermata:** v496
 
+
+
+---
+
+## SESSIONE 5 LUGLIO 2026 — Prep fix struttura dati (DB only, nessun bump frontend)
+
+**Versione sw.js live:** boh-v505 (nessun bump — solo DB)
+**Supabase:** ydqmumpytgrlceuinoqt
+
+### Prep items fixati oggi (struttura BOM/recipe/prep_task)
+
+Ogni fix ha seguito il pattern: crea ricetta intermedia (pos_name=NULL) → BOM con ingrediente raw → collega prep_task → aggiorna BOM ricette POS che consumano quella prep.
+
+| Prep | Fix | Note |
+|---|---|---|
+| **Filet Branzino** | Ricetta creata, BOM: Whole branzino 1pz (resa 2:1), prep_task 448 collegato, Siciliana BOM: Orata Filet → RECIPE Filet Branzino 1pz | f7f46c56 |
+| **Filets (tenderloin)** | Ricetta creata, BOM: Beef Filet placeholder, prep_task 244 collegato, Filetto di manzo BOM: Beef Filet → RECIPE Filets 1pz | 1eb7f1fa |
+| **Diced Butter** | Ricetta creata, BOM: Butter 454g (1lb→20 cubetti), step procedimento coltello manico bianco, prep_task 292 collegato | 02240420 |
+| **Garlic Oil** | shelf_life 3gg, batch 1900g reale, serving 30g/ladle. Scoglio + Siciliana convertiti a RECIPE Garlic Oil 30g | 3fe428bd (già esisteva) |
+| **Grated Pecorino** | BOM inserito: Pecorino Romano 7000g. Penne Midnight/Half, Artichoke, Butter Spinach, Meatball, Chicken Caesar → RECIPE Parmesan Grated | 27213a2e |
+| **Grilled Chicken** | BOM: Chicken Breast 3000g + EVOO 150g + Poultry Salt 24g (nuovo ingrediente). Diced Grilled Chicken BOM: RECIPE Grilled Chicken 2550g (85%). add chicken BOM: RECIPE Diced Grilled Chicken 60g | 7502f23f |
+| **Halved Tomatoes** | Ricetta creata, BOM: Cherry Tomatoes 1000g. Brussel Sprouts + House Salad → RECIPE Halved Tomatoes | ffa6788c |
+| **Mash Potato** | Scallops Chefs Way: 1pz→150g. Ribeye, Filetto, Porterhouse, Dino Rib: aggiunti RECIPE Mash Potato 150g | 73961be5 |
+| **Mint Bavarese** | Fix display decimali v505 (admin-prep.js isPhysUnit). Berry Coulis + Nutella: Both/Both on one plate/Both on side aggiunti ai pos_name | frontend v505 |
+| **Nutella Mix** | Italian Marble Cake BOM: aggiunto RECIPE Nutella Mix 40g (bom_id 1852) | fb674769 |
+| **Olives** | prep_task 355: ingredient_id → Kalamata Olive (7bedb3ae). Nessuna recipe | — |
+| **Panna Cotta** | Fix display decimali (v505). Modifier Both mappati su Berry Coulis + Nutella Mix | — |
+| **Parmesan Grated** | BOM: Parmesan Cheese 7000g. Gruppo A (scaglie): Bresaola/Tagliata/Tuscany/Mini Caesar → RECIPE Shaved Parmesan. Gruppo B (grattugiato): Penne Midnight/Artichoke/Butter Spinach/Meatball/Chicken Caesar → RECIPE Parmesan Grated. Cheese Wheel: avg_unit_weight_g=38102g (84lb). Wheel Pasta: 60g→100g | 6357c9f1 / cf887ce4 |
+| **Pastry Cream** | Ricetta creata, BOM spostato da Italian Cream (Milk/EggYolk/Sugar/CornStarch/VanillaBean). Italian Cream BOM: RECIPE Pastry Cream 975g + Heavy Cream. Limoncello Cake: RECIPE Italian Cream + RECIPE GF Sponge Cake + bagna | dd313da9 |
+| **Pears** | base_servings 4→3 (1 pera = 3 insalate), expected_duration_days 1→4 | 5128b128 |
+| **Pecorino Fresh Wedge** | Ricetta creata, BOM: Pecorino Toscano 2000g (1 forma). Pear & Pecorino Salad: Pecorino Toscano ITEM 50g → RECIPE Pecorino Fresh Wedge 80g (4 fette×20g). Pecorino Toscano: avg_unit_weight_g=2000, measure_type=each | e1b42f3a |
+| **Salmon Filets** | Ricetta creata, BOM: Salmon (baffa Frugé) 190g, shelf_life=60gg (congelato), prep_task 317 collegato. Amalfi Salmon BOM: Salmon ITEM 1pz → RECIPE Salmon Filets 1pz | 1e31334d |
+
+### SALMON FLOW — architettura da costruire (PRIORITÀ PROSSIMA SESSIONE)
+
+Flusso a 3 livelli identificato ma NON implementato nel motore:
+
+```
+Salmon baffa (Frugé, per lb)
+    ↓ prep "Salmon Filets" (cura con Fish Salt + carta + wrap + congela)
+Salmon Filets [FREEZER] — stock pezzi (prep_task id=317, Table Side)
+    ↓ "Pull Salmon filets" (Oven Station, checklist scongelo)
+    → scarica da Salmon Filets [freezer]
+    → carica Salmon Filets [disponibili per servizio]
+Salmon Filets [DISPONIBILI]
+    ↓ vendita
+    → Amalfi Salmon (1 filetto per piatto)
+    → Add Salmon modifier (½ porzione su pasta)
+```
+
+Richiede meccanismo trasferimento stock freezer→linea nel motore. Stessa famiglia: Tenderloin Whole→Filets, Grilled Chicken→Diced Grilled Chicken.
+
+**Pull Salmon filets (id=278):** oggi collegato erroneamente a ricetta "Salmon Whole" (che è il modifier pasta). Da correggere: è una checklist operativa di scongelo, non una prep di produzione.
+
+### Prep items fixati — BOM ancora aperti
+
+- **Bruschetta / Garlic Oil:** Max sistema manualmente (da sessione oggi)
+- **Filets (tenderloin):** BOM placeholder con Beef Filet — modello futuro Tenderloin Whole → resa 4-5 filetti 8oz → food cost reale $20/filetto stimato
+- **Grated Pecorino candidati non convertiti:** Cacio e Pepe (30g), Cacio e Pepe Half (15g), La N°4 (20g), La N.4 Half (10g), Maccheroni Arrabbiata (30g) — da convertire a RECIPE Grated Pecorino quando confermati
+- **Salmon Cakes BOM:** deve consumare Salmon raw/sides separatamente dai filetti — non toccato oggi
+- **Pull Salmon filets (id=278):** collegamento a Salmon Whole da correggere
+
+### Note tecniche sessione
+
+- **bom_id di questa sessione:** 1834→1859 (tutti legittimi, verificati)
+- **Nessun file frontend toccato** tranne admin-prep.js (fix decimali v505)
+- **Ingredienti nuovi creati:** Poultry Salt (998528ab), Marsala Wine già esisteva (da sessione precedente)
+- **Prep tasks modificati ingredient_id:** Olives (id=355) → Kalamata Olive
