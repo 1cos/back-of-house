@@ -207,7 +207,7 @@ window.mcrLoadAndRender = async function () {
       sb.from('pos_item_aliases').select('*').limit(200),
       sb.from('modifier_config').select('*').limit(200),
       sb.from('pos_sales_by_item').select('menu_item,quantity,sale_date').gte('sale_date', new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10)).limit(1000),
-      sb.from('pos_modifiers').select('modifier_name,quantity,sale_date').gte('sale_date', new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10)).limit(1000),
+      sb.from('pos_modifiers').select('modifier,quantity_sold,sale_date').gte('sale_date', new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10)).limit(1000),
     ]);
 
     window._mcrData = { prepTasks, recipes, ingredients, bom, posAliases, modifierConfig, posSales, posModifiers };
@@ -254,7 +254,7 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
   // Modifier sales last 30d
   const modSales = {};
   (posModifiers || []).forEach(m => {
-    modSales[m.modifier_name] = (modSales[m.modifier_name] || 0) + (m.quantity || 0);
+    modSales[m.modifier] = (modSales[m.modifier] || 0) + (m.quantity_sold || 0);
   });
 
   // ── A: Specific Priority Audits ───────────────────────────────
