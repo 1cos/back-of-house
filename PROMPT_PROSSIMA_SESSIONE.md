@@ -2,6 +2,66 @@
 
 ---
 
+## SESSIONE 4-5 LUGLIO 2026 (pomeriggio/notte) — v492→v505 — Bot Debug fix + Sim stabile
+
+### Versioni deployate
+- Brigade frontend: **v493→v505**
+- bot-preplist-sim: **v3→v6** (Supabase v3→v6)
+- admin.js: fix bottone Stampa + fmtN display unit
+
+### Completato
+
+**v493 — fix bottone Stampa Bot Debug**
+- `display='inline-block'` invece di `''` (funziona su iOS)
+- Al reopen del modal, mostra Stampa se `_botSimRows` già presenti
+- Diagnosi: GitHub Pages deploy fallito (cancel-in-progress su commit multipli ravvicinati) — risolto con `workflow_dispatch` manuale
+
+**v494 — Stampa → Condividi (Web Share API iOS-safe)**
+- `window.print()` non funziona in PWA iOS → sostituito con `navigator.share()`
+- Bottone: `📤 Condividi / Salva PDF` → menu nativo iOS Share Sheet
+- Fallback desktop: `window.print()`
+- Funzione `botSimShare()` aggiunta in admin.js
+
+**v495 — fix fmtN colonne Bot Debug — mostra unità inventory**
+- `fmtN` nelle colonne: aggiunto ramo `isNests` e `showUnit` per nests/cup/buste/cartocci
+- Prima: "157" (numero nudo). Dopo: "157 nests"
+- Fix applicato a tutte e 3 le istanze di `fmtN` in admin.js
+
+**bot-preplist-sim v4/v5/v6 — stabilizzazione messaggio finale**
+- v4: introdotto `fmtDisplay(v, unit, isPhys)` per suggText/coverList/percorso
+- v5: tentativo conversione grammi→unità fisiche (rollback richiesto da Max)
+- v6 STABILE: messaggio copia `stockPresunto` e `fin` già calcolati senza ricalcoli
+  - Regola definitiva: `fmtDisplay(v, unit, isPhys)` = identico a `fmtN` nelle colonne
+  - Nessuna conversione aggiuntiva. Se il numero è sbagliato, il bug è in `calcConsumo`, non nel display.
+
+### Problema aperto — unità fisiche con calcConsumo in grammi
+**Sintomo:** Spinach (cup), Soffritto (buste) mostrano valori troppo alti nel messaggio.
+**Causa:** `calcConsumo` per questi task usa `sw` o `bw/bs` → restituisce grammi.
+`stockPresunto` = `stock (in cup) - soldYesterday (in grammi)` → mismatch unità.
+**Radice:** `stock` è in cup (es. 5), `calcConsumo` restituisce grammi (es. 60g/porzione × 20 vendite = 1200g).
+**Fix corretto (NON fatto ancora):** per task con `isPhys=true` e `calcConsumo` che usa `sw/bw_bs`,
+convertire `soldYesterday` in unità fisiche prima di sottrarre da `stock`.
+Formula: `soldYesterdayPhys = soldYesterday / gramsPerUnit` dove `gramsPerUnit = sw ?? (bw/bs)`.
+Questo fix deve essere fatto anche nel bot-preplist-builder v41 — altrimenti il bot stesso
+calcola lo scarico stock in grammi per task con unità fisiche.
+
+**⚠️ Prossima sessione: verificare se bot-preplist-builder v41 ha lo stesso mismatch per Spinach/cup.**
+
+### Decisioni architetturali confermate
+- `pos_name` NON va rimosso dalle prep_task
+- `base_servings` corretto solo per Menu Item — per Prep Recipe usa yield/subMap
+- Bot Debug (bot-preplist-sim) deve replicare ESATTAMENTE la logica del bot reale
+- Regola display: mai convertire unità nel layer display — la conversione appartiene al calcolo
+- `SKILL_ISSUE_TYPES` in office.js: aggiungere solo quando Skill è implementata davvero
+
+### Visione Chef AI confermata
+> "The Office is Chef AI's workspace. His only job is to make decisions. Everything else is Chef AI's responsibility."
+> Test: "Riduce il numero di decisioni che Max deve costruire da solo?"
+
+
+
+---
+
 ## SESSIONE 4 LUGLIO 2026 (mattina) — v489→v492 — Chef AI Skill Engine + bot fixes
 
 ### Versioni deployate
@@ -92,9 +152,9 @@ Skill future da registrare in `SKILL_ISSUE_TYPES` (dispatcher in office.js):
 ---
 
 ## VERSIONE LIVE
-- Brigade frontend: **v492** (sw.js `boh-v492`)
+- Brigade frontend: **v505** (sw.js `boh-v505`)
 - bot-preplist-builder: **v41** (Supabase versione 60)
-- bot-preplist-sim: **v3** (Supabase versione 3) — allineato a v41
+- bot-preplist-sim: **v6** (Supabase versione 6) — stabile, allineato a v41
 - Edge Function gmail-touchbistro-import: **v22**
 - Supabase project: `ydqmumpytgrlceuinoqt`
 
