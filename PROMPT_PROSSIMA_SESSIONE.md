@@ -2,6 +2,57 @@
 
 ---
 
+## SESSIONE 5 LUGLIO 2026 (sera) — Prep fix struttura dati parte 3 (DB only, boh-v505)
+
+**Versione sw.js live:** boh-v505 (nessun bump — solo DB)
+**Supabase:** ydqmumpytgrlceuinoqt
+
+### Prep items fixati in questa sessione
+
+| Prep | Fix | Dettaglio |
+|---|---|---|
+| **Salmon Flow (Thaw)** | Architettura 3 livelli completata. Ricetta "Thaw Salmon" creata `c2fe373a`, BOM: RECIPE Salmon Filets 1pz. prep_task id=413 aggiornato: prep_type=finale, unit=pezzi, daily_reset=false, recipe_id=c2fe373a, category=Oven Station. Amalfi Salmon bom_id=1614: Salmon Filets -> RECIPE Thaw Salmon 1pz. Salmon Whole bom_id=1863 (NEW): RECIPE Thaw Salmon 1pz. Pull Salmon filets (id=278): archived=true, recipe_id=NULL. | Flusso: baffa -> Salmon Filets [freezer id=317] -> Thaw Salmon [linea id=413] -> Amalfi Salmon + Salmon Whole (1 filetto intero ciascuno) |
+| **Salmon Aioli** | Ricetta creata `88ec1dc5`, base_servings=13, batch=520g, serving=40g, shelf_life=5gg, no pos_name. prep_task id=255 collegato. Salmon Cakes BOM: aggiunto RECIPE Salmon Aioli 40g (bom_id 1864). | BOM Salmon Aioli vuoto — Max aggiunge ingredienti quando ha la ricetta |
+| **Seed Mix** | Ricetta creata `a5f26f01`, BOM: Sunflower Seed 50g + Pumpkin Seed 50g (50/50), shelf_life=30gg, no pos_name. prep_task id=365 collegato. House Salad/Mediterranean/Pear Pecorino/Salmon Salad: tutti convertiti da ITEM Seeds generico -> RECIPE Seed Mix 10g/porzione. | 4 ricette convertite. Seed Mix = Sunflower 50% + Pumpkin Seeds 50% |
+| **Shaved Parmesan** | Audit confermato: struttura gia corretta. 4 ricette POS usano RECIPE Shaved Parmesan (Bresaola 30g, Mini Caesar 40g, Tagliata 10g, Tuscany Road Trip 5g). Ricette con ITEM Parmesan Cheese lasciate invariate (salse/pesto/catering). | Nessun fix necessario |
+| **Shredded Carrots** | Ricetta creata `557fab23`, BOM: Carrots raw (Hardie fresche, grattugiate in cucina) 1000g, serving=20g, shelf_life=4gg, no pos_name. prep_task id=366 collegato. House Salad bom_id=856: ITEM Shredded Carrots (468f601c) -> RECIPE Shredded Carrots 20g. | Ingrediente "Shredded Carrots" (468f601c) non piu usato in BOM attivi |
+
+### Flusso Salmon — architettura finale DB
+
+```
+Salmon baffa (Fruge, per lb)
+    prep_task id=317 "Salmon filets" (Table Side, supporto)
+    ricetta Salmon Filets (1e31334d), BOM: Salmon 190g
+Salmon Filets [FREEZER] — stock pezzi
+    prep_task id=413 "Thaw Salmon" (Oven Station, finale)
+    ricetta Thaw Salmon (c2fe373a), BOM: RECIPE Salmon Filets 1pz
+Thaw Salmon [LINEA] — stock pezzi
+    vendita POS
+    -> Amalfi Salmon BOM: RECIPE Thaw Salmon 1pz
+    -> Salmon Whole BOM: RECIPE Thaw Salmon 1pz
+```
+
+Archiviato: id=278 "Pull Salmon filets" — era legacy con recipe_id errato (puntava a Salmon Whole modifier).
+
+### Note tecniche
+
+- bom_id questa sessione: 1862->1867
+- Ricette create: Thaw Salmon (c2fe373a), Salmon Aioli (88ec1dc5), Seed Mix (a5f26f01), Shredded Carrots (557fab23)
+- Prep tasks archiviati: id=278 Pull Salmon filets
+- Nessun file frontend toccato — solo DB
+
+### Pendenti aperti
+
+1. Salmon Aioli BOM — ingredienti da aggiungere quando Max ha la ricetta pronta
+2. Bruschetta/Garlic Oil — Max sistema manualmente
+3. Grated Pecorino candidati — Cacio e Pepe, La N4, Maccheroni Arrabbiata (30g/15g/20g/10g/30g)
+4. Shredded Carrots resa — batch 1000g carote raw -> shredded da validare in cucina
+5. Ingrediente "Shredded Carrots" (468f601c) — non piu in BOM, da archiviare in sessione futura
+6. Prossimo prep item — continuare lista audit bot-preplist-builder
+
+
+---
+
 ## SESSIONE 4-5 LUGLIO 2026 (pomeriggio/notte) — v492→v505 — Bot Debug fix + Sim stabile
 
 ### Versioni deployate
