@@ -203,7 +203,7 @@ window.mcrLoadAndRender = async function () {
 
     const [prepTasks, recipes, ingredients, bom, posAliases, modifierConfig, posSales, posModifiers] =
       await Promise.all([
-        q('prep_tasks',        sb.from('prep_tasks').select('id,name,category,prep_type,unit,current_stock,suggested_qty,suggested_note,suggested_at,recipe_id,ingredient_id,expected_duration_days,min_cover_days,archived,base_weight_g').eq('archived', false).limit(500)),
+        q('prep_tasks',        sb.from('prep_tasks').select('id,name,category,prep_type,unit,current_stock,suggested_qty,suggested_note,suggested_at,recipe_id,ingredient_id,expected_duration_days,min_cover_days,archived').eq('archived', false).limit(500)),
         q('recipes',           sb.from('recipes').select('id,title,pos_name,menu_group,category,base_weight_g,base_servings,serving_weight_g,serving_unit,serving_qty,shelf_life_days,food_cost_pct,selling_price,ingredients').limit(500)),
         q('ingredients',       sb.from('ingredients').select('id,name,category,measure_type,active').eq('active', true).limit(500)),
         q('recipe_bom',        sb.from('recipe_bom').select('bom_id,parent_recipe_id,component_type,item_id,sub_recipe_id,quantity,unit,notes').limit(1500)),
