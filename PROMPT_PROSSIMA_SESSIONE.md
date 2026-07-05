@@ -1678,3 +1678,147 @@ Brigade (telefono) → souschef-chat Edge Function
 - qwen3:8b gira bene su 16GB M4, risposta ~3-5s cold start, poi fluido
 - Gateway su 0.0.0.0 (non 127.0.0.1) necessario per Tailscale Funnel
 - souschef-chat.js ora passa user_name/user_role/user_station al body della fetch
+
+
+---
+
+## SESSIONE 5 LUGLIO 2026 — bot-preplist-builder v40 + bot-tell-chef-reader v17 + Bot Center v3
+
+**sw.js live:** boh-v505 (invariato questa sessione)
+**Supabase project:** ydqmumpytgrlceuinoqt
+
+---
+
+### VERSIONI AGGIORNATE
+
+- **bot-preplist-builder:** v40 → Supabase version 59 (era v39/v58)
+- **bot-tell-chef-reader:** v17 → Supabase version 19 (era v5/v18)
+- **Bot Center frontend:** v3 (office.js — aggiornato _botExplain e _botDefs per tutti e 7 i bot)
+
+---
+
+### bot-tell-chef-reader v17 (Supabase v19)
+
+**Categorie ampliate da 5 a 11:**
+PROBLEMA_OPERATIVO, GAP_CHECKLIST, CONTRIBUTO_RICETTA, QUALITA_STANDARD, FOOD_SAFETY, EQUIPMENT, INVENTORY_SHORTAGE, STAFF_COMMUNICATION, TRAINING_NEEDED, CATERING_EVENT_RISK, NOT_ACTIONABLE
+
+**Priority da 3 a 4 livelli:** critical / high / normal / low + severity automatica (blocking/alert/insight)
+
+**Entity detection:** station, recipe_name, ingredient_name, equipment_name, checklist_name, service_period estratti da ogni messaggio AI
+
+**Deduplication:** issue_fingerprint nel JSON AI → match fuzzy sul titolo → merge in office_item esistente (times_seen++, priority escalation, body concatenato)
+
+**ai_options strutturate:** 2-4 opzioni per categoria con action + params tipizzati
+
+**Gossip mode:** prompt riscritto — summary in prima persona plurale, en, specifico, kitchen manager tone
+
+**Fase 4 analytics:** produce/aggiorna "📊 Tell Chef — Brigade Summary (30 days)" con volume per persona, % actionati, avg response time, top category
+
+**Migration DB applicata:**
+```sql
+ALTER TABLE office_items ADD COLUMN IF NOT EXISTS source_report_ids uuid[] DEFAULT '{}';
+ALTER TABLE office_items ADD COLUMN IF NOT EXISTS summary text;
+ALTER TABLE office_items ADD COLUMN IF NOT EXISTS category text;
+ALTER TABLE office_items ADD COLUMN IF NOT EXISTS station text;
+ALTER TABLE office_items ADD COLUMN IF NOT EXISTS service_date date;
+ALTER TABLE office_items ADD COLUMN IF NOT EXISTS service_period text;
+ALTER TABLE office_items ADD COLUMN IF NOT EXISTS recipe_name text;
+ALTER TABLE office_items ADD COLUMN IF NOT EXISTS equipment_name text;
+ALTER TABLE office_items ADD COLUMN IF NOT EXISTS checklist_name text;
+```
+
+---
+
+### bot-preplist-builder v40 (Supabase v59)
+
+**PATCH ADDITIVE su v39 — nessuna logica di calcolo modificata.**
+
+**Aggiunge: calendar awareness + sanity caps**
+
+#### 1. openStatus — calcolato all'inizio di ogni run
+
+```
+NORMAL_SERVICE_PREP  → giorno normale di servizio
+CLOSED_DAY_REVIEW    → oggi chiuso, domani aperto
+REOPENING_PREP       → oggi chiuso + domani chiuso (es. sabato festa + domenica)
+```
+
+Logica: legge `closed_dates` + domenica hardcoded. Cerca il prossimo giorno aperto fino a 14 giorni avanti.
+
+#### 2. In REOPENING_PREP (es. 4-5 luglio 2026)
+
+- Mai "Prep today" o colore rosso aggressivo
+- suggestedNote sempre yellow se confidence < high
+- Testo: "Chiusi oggi/domani · controlla stock Lunedì · possibile [qty]"
+- Se stock > 0 e confidence < high → forza yellow anche se pill originale era red
+- Solo high confidence + stock = 0 → resta red con "Rischio riapertura · prepara Lunedì mattina"
+
+#### 3. In CLOSED_DAY_REVIEW
+
+- Stessa safety logic ma target = domani
+- No "Prep today"
+
+#### 4. Sanity cap globale (anche in NORMAL_SERVICE_PREP)
+
+- `suggested_qty > average_qty × 3` → forza yellow con "Quantity looks high · verify before producing"
+- `pill = red AND suggested_qty = 0 o null` → forza yellow con "verify quantity"
+- Richiede colonna `average_qty` su `prep_tasks` (letta dalla query, null-safe)
+
+#### 5. Formato note output
+
+```
+green:  "Chiusi oggi/domani · stock ok per Lunedì"
+yellow: "Chiusi oggi/domani · controlla stock Lunedì · possibile 1 25#"
+red:    "Rischio riapertura · prepara Lunedì mattina · stima 91 pieces · stock 0"
+```
+
+#### Risultati verificati live (4 luglio 2026, REOPENING_PREP)
+
+| Task | v39 | v40 |
+|---|---|---|
+| Brussels Sprouts | 🔴 Prep today · 1 25# · hai 0 | 🟡 Chiusi oggi/domani · controlla stock Lunedì · possibile 1 25# |
+| Chicken Parmesan | 🔴 Prep today · · out of stock | 🟡 Chiusi oggi/domani · controlla stock lunedì |
+| Salmon cakes | 🔴 Prep today · 91 pieces · hai 0 | 🟡 Chiusi oggi/domani · controlla stock Lunedì · possibile 91 pieces |
+| Tiramisu | 🔴 Prep today · 20 pieces · hai 0 | 🟡 Chiusi oggi/domani · controlla stock Lunedì · possibile 20 pieces |
+| Berry coulis | 🟢 You have 3.5kg · good through Thursday | 🟢 Closed today/tomorrow · enough stock for Monday |
+| Spaghetti fresh pasta | 🟢 You have 40 nests | 🟢 Closed today/tomorrow · enough stock for Monday |
+
+#### Note importanti v40
+
+- **Bot Debug (home):** è read-only, non scrive nel DB. Le pill reali vengono solo dal bot cron (4 AM) o da trigger manuale via `net.http_post`
+- **Bot re-trigger manuale:** non rifalsa i numeri — lo scarico stock avviene una sola volta per giornata (vendite ieri), re-triggerare non lo ripete
+- **closed_dates:** solo il 4 luglio era inserito. Il 5 luglio (domenica) è hardcoded come chiuso. Entrambi → REOPENING_PREP → lunedì target
+- **average_qty:** campo letto da prep_tasks ma non ancora popolato per tutti i task → sanity cap non scatta senza dati storici (null-safe)
+
+---
+
+### Bot Center v3 (office.js)
+
+Aggiornati `_botExplain` e `_botDefs` per tutti e 7 i bot con dati verificati dal codice live:
+
+- **bot-preplist-builder:** aggiunto expected_duration_days, min_cover_days, closed_dates, linguaggio cucina, logica domenica
+- **bot-tell-chef-reader:** riscritto con 11 categorie, 4 livelli priority, dedup, ai_options, analytics 30gg
+- **bot-food-cost-guard:** v13 reale — noise protection pack mismatch, 3 livelli severity, calcolo impatto $ mensile, output limits
+- **bot-recipe-guardian:** v13 — 4 check critical, 4 warning, 2 info, ordinamento per vendite, dedup per (ricetta × issue_type)
+- **bot-price-guard, bot-chat-analyst, bot-prep-accuracy:** raffinati, orari corretti
+
+---
+
+### Prep items analizzate durante la sessione (foto Max alle 5:55 AM)
+
+Problemi identificati dalla foto preplist:
+1. `bot_preplist_log` non riceve più scritture dal v39 → Bot Center mostra "Nessun dato" per preplist-builder (da fixare in sessione dedicata)
+2. Berry coulis: mostrava "3.5kg in casa" ma DB aveva 1061g — il testo mostrava stima elaborata, non stock grezzo
+3. Spaghetti: mostrava "40 nests" ma DB aveva 487 nests — conversione stock in nests produceva numero sbagliato
+4. Chicken Parmesan: `base_weight_g = NULL` → pill mostrava testo vuoto "·  ·" senza quantità
+5. Domenica hardcoded come chiusa, 4 luglio in closed_dates → REOPENING_PREP attivo correttamente
+
+---
+
+### Sessione dedicata consigliata per bot-preplist-builder
+
+**Prompt apertura sessione:**
+> Bot-preplist-builder — Sessione verifica e debug
+>
+> Leggi tutti i .md e sw.js da brigade-main all'inizio. Obiettivo: (1) ripristinare scritture su bot_preplist_log da v40, (2) debuggare conversione stock Berry coulis e Spaghetti, (3) verificare Chicken Parmesan base_weight_g, (4) testare sanity cap con average_qty popolato su alcuni task campione. Non toccare logica di calcolo — solo patch chirurgiche.
+
