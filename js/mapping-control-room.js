@@ -1039,170 +1039,666 @@ const MCR_PROB_LABELS = {
 };
 function probLabel(type) { return MCR_PROB_LABELS[type] || type?.replace(/-/g,' ') || '—'; }
 
-// ── OQR definition per problem type ───────────────────────────
-// Each entry defines:
-//   question  — the ONE question to show Chef Max
-//   options   — answer buttons (value + label)
-//   buildPlan(answers, problem, data) → WritePlan[]
-function mcrOQRDef(problemType) {
-  const defs = {
+// ══════════════════════════════════════════════════════════════
+// CHEF AI RESOLVE PROTOCOL — generic engine for every MCR problem
+// Every problem maps to exactly one state:
+//   SAFE_AUTO_PLAN   — deterministic write, show plan directly
+//   NEED_ONE_ANSWER  — one question → plan
+//   NEED_MANUAL_LINK — multiple candidates → selection → plan
+//   NO_SAVE_TARGET   — fix understood, no safe DB target yet
+// ══════════════════════════════════════════════════════════════
 
-    'sold-item-missing-bom': {
-      question: 'Chef, questo piatto si vende ma il bot non sa cosa scaricare. Come vuoi procedere?',
-      options: [
-        { value: 'has_bom_elsewhere', label: 'Ha già ingredienti — devo migrarli in BOM' },
-        { value: 'is_modifier_only',  label: 'Si vende solo come modifier — non serve BOM diretto' },
-        { value: 'skip',              label: 'Ignora per ora' },
-      ],
-      buildPlan: (answers, p) => {
-        if (answers.choice === 'skip' || answers.choice === 'is_modifier_only') return [];
-        return []; // Migration requires manual BOM entry — show guidance only
-      },
-    },
+function mcrBotImpact(field) {
+  const impacts = {
+    base_weight_g:           "Bot suggerisce quantità in kg/batch invece di numero astratto",
+    serving_weight_g:        "Bot scarica grammi corretti per ogni vendita",
+    base_servings:           "Bot arrotonda a porzioni intere nella preplist",
+    unit:                    "Unità visualizzata sulle card corrisponde al conteggio fisico",
+    min_cover_days:          "Bot non suggerisce prep quando lo stock copre i giorni richiesti",
+    expected_duration_days:  "Bot calcola la finestra di consumo correttamente",
+    pos_name:                "Bot abbina le vendite POS a questa ricetta per scaricare stock",
+    recipe_id:               "Bot trova il percorso di calcolo per questa prep task",
+    ingredient_id:           "Bot usa prezzo e conversion corretti per il food cost",
+    current_stock:           "Bot include questa prep nei calcoli notturni",
+  };
+  return impacts[field] || "Impatto sul bot dipende dal contesto";
+}
 
-    'sold-item-legacy-ingredients': {
-      // question is dynamic — legacyCount injected at render time via p.detail.legacyIngredients
-      question: 'Chef, ho trovato {legacyCount} ingredient{pl} nell\'editor ma 0 righe BOM strutturate. Vuoi che prepari un piano per convertirli in BOM?',
-      options: [
-        { value: 'prepare_plan',  label: '\u{1F4CB} Prepara piano conversione' },
-        { value: 'review_later',  label: '\u23F8 Rivedi pi\u00F9 tardi' },
-        { value: 'verify_bom',    label: '\u{1F50D} Verifica di nuovo BOM' },
+function mcrResolveProtocol(p) {
+  const pt  = p.problemType;
+  const det = p.detail || {};
+  const rec = det.recipe || null;
+  const pt_ = det.prepTask || null;
+
+  if (pt === "sold-item-incomplete-bom") {
+    const incomplete = det.incompleteRows || [];
+    return {
+      state: "SAFE_AUTO_PLAN",
+      plan: incomplete.map(function(b) {
+        return {
+          action:    "UPDATE",
+          table:     "recipe_bom",
+          row_id:    b.bom_id,
+          field:     !b.quantity ? "quantity" : !b.unit ? "unit" : "item_id/sub_recipe_id",
+          old_value: null,
+          new_value: "(da impostare nel Recipe Editor)",
+          reason:    "Riga BOM incompleta — bot non calcola il consumo per questa voce",
+          confidence:"needs_chef_input",
+          botImpact: mcrBotImpact("serving_weight_g"),
+        };
+      }),
+      editorAction: { label: "Apri Recipe Editor per completare il BOM", recipeId: rec && rec.id },
+    };
+  }
+
+  if (pt === "sold-item-missing-bom") {
+    return {
+      state:    "NEED_ONE_ANSWER",
+      question: "Chef, \"" + escH(rec && rec.title || p.name) + "\" si vende al POS ma il bot non sa cosa scaricare. Come mai?",
+      options:  [
+        { value: "has_legacy",    label: "Ha ingredienti nell'editor — vanno migrati in BOM" },
+        { value: "modifier_only", label: "Si vende solo come modifier — non serve BOM diretto" },
+        { value: "new_recipe",    label: "Nuova ricetta — devo aggiungere gli ingredienti" },
       ],
-      // buildPlan is intentionally a no-op here.
-      // For 'prepare_plan', mcrOQRAnswer intercepts and calls
-      // mcrResolveConversionPlan() which is async and renders its own UI.
-      buildPlan: (answers) => {
-        if (answers.choice === 'prepare_plan') return '__async_conversion__';
+      buildPlan: function(answers) {
+        if (answers.choice === "modifier_only") return [{
+          action:    "UPDATE",
+          table:     "recipes",
+          row_id:    rec && rec.id,
+          field:     "pos_name",
+          old_value: rec && rec.pos_name,
+          new_value: "(rimuovere se venduto solo come modifier)",
+          reason:    "Piatto venduto solo come modifier — il BOM va sulla ricetta principale",
+          confidence:"needs_chef_confirmation",
+          botImpact: mcrBotImpact("pos_name"),
+        }];
         return [];
       },
-    },
+      editorAction: { label: "Apri Recipe Editor per aggiungere ingredienti", recipeId: rec && rec.id },
+    };
+  }
 
-    'prep-missing-batch-yield': {
-      question: 'Chef, questa prep non ha il peso totale del batch definito. Il bot non riesce a esprimere il suggerimento in unità reali (kg/pezzi). Vuoi impostarlo?',
-      options: [
-        { value: 'set_weight',  label: 'Sì — imposto peso batch' },
-        { value: 'free_weight', label: 'Questa prep è libera a peso — nessun batch fisso' },
-        { value: 'skip',        label: 'Ignora per ora' },
+  if (pt === "prep-missing-batch-yield") {
+    return {
+      state:    "NEED_ONE_ANSWER",
+      question: "Chef, \"" + escH((rec && rec.title) || (pt_ && pt_.name)) + "\" non ha il peso totale del batch. Quanto produce un batch intero?",
+      options:  [
+        { value: "set_weight",  label: "Imposto grammi totali del batch" },
+        { value: "free_weight", label: "Libera a peso — nessun batch fisso" },
       ],
-      buildPlan: (answers, p) => {
-        if (answers.choice !== 'set_weight' || !answers.base_weight_g) return [];
-        const rec = p.detail?.recipe;
-        if (!rec) return [];
-        return [{
-          action:      'UPDATE',
-          table:       'recipes',
-          row_id:      rec.id,
-          field:       'base_weight_g',
-          old_value:   rec.base_weight_g ?? null,
-          new_value:   parseFloat(answers.base_weight_g),
-          reason:      'Peso batch impostato da Chef Max via Mapping Control Room',
-          confidence:  'chef_confirmed',
-        }];
-      },
-      followUp: (choice) => choice === 'set_weight' ? {
-        field: 'base_weight_g',
-        label: 'Peso totale batch (grammi)',
-        type:  'number',
-        placeholder: 'es. 3200',
-      } : null,
-    },
-
-    'minimum-unit-missing-final-yield': {
-      question: 'Chef, questa prep si fa per unità minima (pentola/latta/teglia) ma non sappiamo quanto pesa il batch finale. Vuoi impostarlo?',
-      options: [
-        { value: 'set_weight', label: 'Sì — imposto la resa finale in grammi' },
-        { value: 'skip',       label: 'Ignora per ora' },
-      ],
-      buildPlan: (answers, p) => {
-        if (answers.choice !== 'set_weight' || !answers.base_weight_g) return [];
-        const rec = p.detail?.recipe;
-        if (!rec) return [];
-        return [{
-          action:    'UPDATE',
-          table:     'recipes',
-          row_id:    rec.id,
-          field:     'base_weight_g',
-          old_value: rec.base_weight_g ?? null,
+      buildPlan: function(answers) {
+        if (answers.choice !== "set_weight" || !answers.base_weight_g) return [];
+        return [{ action:"UPDATE", table:"recipes", row_id: rec && rec.id, field:"base_weight_g",
+          old_value: rec && rec.base_weight_g != null ? rec.base_weight_g : null,
           new_value: parseFloat(answers.base_weight_g),
-          reason:    'Resa finale unità minima impostata da Chef Max via MCR',
-          confidence:'chef_confirmed',
-        }];
+          reason: "Peso batch — bot suggerisce kg/batch invece di quantità astratte",
+          confidence:"chef_confirmed", botImpact: mcrBotImpact("base_weight_g") }];
       },
-      followUp: (choice) => choice === 'set_weight' ? {
-        field: 'base_weight_g', label: 'Resa finale in grammi', type: 'number', placeholder: 'es. 4000',
-      } : null,
-    },
+      followUp: function(choice) {
+        return choice === "set_weight" ? { field:"base_weight_g", label:"Grammi totali del batch finito", type:"number", placeholder:"es. 3200" } : null;
+      },
+    };
+  }
 
-    'portioned-unit-missing-portion-count': {
-      question: 'Chef, questa ricetta è porzionata ma non sappiamo quante porzioni produce un batch intero. Quante sono?',
-      options: [
-        { value: 'set_servings', label: 'Imposto il numero di porzioni' },
-        { value: 'skip',         label: 'Ignora per ora' },
+  if (pt === "minimum-unit-missing-final-yield") {
+    return {
+      state:    "NEED_ONE_ANSWER",
+      question: "Chef, \"" + escH((rec && rec.title) || (pt_ && pt_.name)) + "\" si fa per unita minima (pentola/latta/teglia). Quanto pesa il risultato finale?",
+      options:  [
+        { value: "set_weight", label: "Imposto grammi finali (dopo cottura)" },
+        { value: "skip",       label: "Lascia per ora" },
       ],
-      buildPlan: (answers, p) => {
-        if (answers.choice !== 'set_servings' || !answers.base_servings) return [];
-        const rec = p.detail?.recipe;
-        if (!rec) return [];
-        return [{
-          action:    'UPDATE',
-          table:     'recipes',
-          row_id:    rec.id,
-          field:     'base_servings',
-          old_value: rec.base_servings ?? null,
+      buildPlan: function(answers) {
+        if (answers.choice !== "set_weight" || !answers.base_weight_g) return [];
+        return [{ action:"UPDATE", table:"recipes", row_id: rec && rec.id, field:"base_weight_g",
+          old_value: rec && rec.base_weight_g != null ? rec.base_weight_g : null,
+          new_value: parseFloat(answers.base_weight_g),
+          reason: "Resa finale unita minima — bot suggerisce quante unita produrre",
+          confidence:"chef_confirmed", botImpact: mcrBotImpact("base_weight_g") }];
+      },
+      followUp: function(choice) {
+        return choice === "set_weight" ? { field:"base_weight_g", label:"Grammi finali utilizzabili", type:"number", placeholder:"es. 4000" } : null;
+      },
+    };
+  }
+
+  if (pt === "reduction-missing-final-yield") {
+    return {
+      state:    "NEED_ONE_ANSWER",
+      question: "Chef, \"" + escH((rec && rec.title) || (pt_ && pt_.name)) + "\" riduce in cottura. Quanti grammi restano di prodotto utilizzabile?",
+      options:  [
+        { value: "set_weight", label: "Imposto grammi finali (prodotto ridotto)" },
+        { value: "skip",       label: "Lascia per ora" },
+      ],
+      buildPlan: function(answers) {
+        if (answers.choice !== "set_weight" || !answers.base_weight_g) return [];
+        return [{ action:"UPDATE", table:"recipes", row_id: rec && rec.id, field:"base_weight_g",
+          old_value: rec && rec.base_weight_g != null ? rec.base_weight_g : null,
+          new_value: parseFloat(answers.base_weight_g),
+          reason: "Resa dopo riduzione — bot non usa la somma ingredienti crudi come resa",
+          confidence:"chef_confirmed", botImpact: mcrBotImpact("base_weight_g") }];
+      },
+      followUp: function(choice) {
+        return choice === "set_weight" ? { field:"base_weight_g", label:"Grammi finali dopo riduzione", type:"number", placeholder:"es. 2000" } : null;
+      },
+    };
+  }
+
+  if (pt === "portioned-unit-missing-portion-count") {
+    return {
+      state:    "NEED_ONE_ANSWER",
+      question: "Chef, \"" + escH((rec && rec.title) || (pt_ && pt_.name)) + "\" produce un numero fisso di porzioni/fette. Quante ne produce un batch intero?",
+      options:  [
+        { value: "set_servings", label: "Imposto numero porzioni per batch" },
+        { value: "skip",         label: "Lascia per ora" },
+      ],
+      buildPlan: function(answers) {
+        if (answers.choice !== "set_servings" || !answers.base_servings) return [];
+        return [{ action:"UPDATE", table:"recipes", row_id: rec && rec.id, field:"base_servings",
+          old_value: rec && rec.base_servings != null ? rec.base_servings : null,
           new_value: parseInt(answers.base_servings, 10),
-          reason:    'Numero porzioni per batch impostato da Chef Max via MCR',
-          confidence:'chef_confirmed',
-        }];
+          reason: "Porzioni per batch — bot arrotonda il suggerimento a porzioni intere",
+          confidence:"chef_confirmed", botImpact: mcrBotImpact("base_servings") }];
       },
-      followUp: (choice) => choice === 'set_servings' ? {
-        field: 'base_servings', label: 'Porzioni / fette / pezzi per batch', type: 'number', placeholder: 'es. 24',
-      } : null,
-    },
+      followUp: function(choice) {
+        return choice === "set_servings" ? { field:"base_servings", label:"Porzioni / fette / pezzi per batch intero", type:"number", placeholder:"es. 24" } : null;
+      },
+    };
+  }
 
-    'bot-huge-suggestion': {
-      question: 'Chef, il bot ha suggerito una quantità anomala. Qual è il problema più probabile?',
-      options: [
-        { value: 'unit_mismatch',    label: 'Unità sbagliata (grammi invece di pezzi o viceversa)' },
-        { value: 'wrong_pos_alias',  label: 'Alias POS sbagliato — scarica da troppe ricette' },
-        { value: 'no_base_weight',   label: 'Manca peso batch sulla ricetta collegata' },
-        { value: 'skip',             label: 'Ignora per ora' },
+  if (pt === "prep-no-trusted-mapping") {
+    return {
+      state:    "NEED_ONE_ANSWER",
+      question: "Chef, \"" + escH(pt_ && pt_.name) + "\" non ha recipe_id ne ingredient_id. Il bot non sa come calcolarne il fabbisogno.",
+      options:  [
+        { value: "link_recipe",     label: "E una ricetta prodotta in cucina — collego la ricetta" },
+        { value: "link_ingredient", label: "E un ingrediente acquistato — collego ingrediente" },
+        { value: "is_checklist",    label: "E solo un promemoria — cambia tipo in checklist" },
       ],
-      buildPlan: () => [],
-    },
+      buildPlan: function(answers) {
+        if (answers.choice !== "is_checklist") return [];
+        return [{ action:"UPDATE", table:"prep_tasks", row_id: pt_ && pt_.id, field:"prep_type",
+          old_value: pt_ && pt_.prep_type != null ? pt_.prep_type : null,
+          new_value: "checklist",
+          reason: "Prep senza ricetta/ingrediente impostata come checklist — bot la ignora nei calcoli",
+          confidence:"chef_confirmed", botImpact: "Bot ignora questa prep — appare come promemoria quotidiano" }];
+      },
+      editorAction: { label: "Apri Admin Prep per collegare ricetta o ingrediente", prepTaskId: pt_ && pt_.id },
+    };
+  }
 
-    'ingredient-name-collision': {
-      question: 'Chef, ci sono ingredienti con nomi sovrapposti. Vuoi separare Balsamic Dressing (prep fatta in cucina) da Balsamic Vinegar / Glaze (ingrediente acquistato)?',
-      options: [
-        { value: 'dressing_is_prep',  label: 'Sì — Dressing è una prep recipe, Vinegar/Glaze sono ingredienti' },
-        { value: 'all_ingredients',   label: 'No — sono tutti ingredienti acquistati' },
-        { value: 'review_later',      label: 'Rivedi più tardi' },
+  if (pt === "missing-min-cover-days") {
+    return {
+      state:    "NEED_ONE_ANSWER",
+      question: "Chef, per \"" + escH(pt_ && pt_.name) + "\" il bot non sa quanti giorni di copertura servono prima di suggerire nuova prep.",
+      options:  [
+        { value: "1", label: "1 giorno — pasta fresca, checklist giornaliera" },
+        { value: "2", label: "2 giorni — standard (proteine, salse)" },
+        { value: "3", label: "3 giorni — prep meno urgenti" },
+        { value: "5", label: "5 giorni — prep settimanale (ragu, demi)" },
       ],
-      buildPlan: () => [],
-    },
+      buildPlan: function(answers) {
+        if (!answers.choice || isNaN(parseInt(answers.choice))) return [];
+        return [{ action:"UPDATE", table:"prep_tasks", row_id: pt_ && pt_.id, field:"min_cover_days",
+          old_value: pt_ && pt_.min_cover_days != null ? pt_.min_cover_days : null,
+          new_value: parseInt(answers.choice, 10),
+          reason: "Bot suggerisce nuova prep solo quando lo stock scende sotto " + answers.choice + " giorni di copertura",
+          confidence:"chef_confirmed", botImpact: mcrBotImpact("min_cover_days") }];
+      },
+    };
+  }
 
-    'missing-modifier-alias': {
-      question: 'Chef, questo piatto non ha alias nei modifier. Viene venduto anche come add-on su altri piatti?',
-      options: [
-        { value: 'yes_modifier', label: 'Sì — è un add-on, aggiungi alias modifier' },
-        { value: 'no_modifier',  label: 'No — si vende solo come piatto principale' },
-        { value: 'skip',         label: 'Ignora per ora' },
+  if (pt === "shelf-life-mismatch") {
+    var sl = rec && rec.shelf_life_days, ed = pt_ && pt_.expected_duration_days;
+    return {
+      state:    "NEED_ONE_ANSWER",
+      question: "Chef, la ricetta dice shelf_life=" + sl + "gg ma la prep task dice " + ed + "gg. Quale e quello giusto?",
+      options:  [
+        { value: "use_prep",   label: (ed || "?") + "gg — quello della prep task" },
+        { value: "use_recipe", label: (sl || "?") + "gg — quello della ricetta" },
       ],
-      buildPlan: () => [],
-    },
+      buildPlan: function(answers) {
+        if (answers.choice === "use_prep") return [{ action:"UPDATE", table:"recipes", row_id: rec && rec.id,
+          field:"shelf_life_days", old_value: sl, new_value: ed,
+          reason:"Allineato shelf_life ricetta con expected_duration prep task",
+          confidence:"chef_confirmed", botImpact:"Bot usa la finestra corretta per calcolare stock/copertura" }];
+        return [{ action:"UPDATE", table:"prep_tasks", row_id: pt_ && pt_.id,
+          field:"expected_duration_days", old_value: ed, new_value: sl,
+          reason:"Allineato expected_duration prep con shelf_life ricetta",
+          confidence:"chef_confirmed", botImpact: mcrBotImpact("expected_duration_days") }];
+      },
+    };
+  }
 
-    'alias-ingredient-recipe-collision': {
-      question: 'Chef, questo nome esiste sia come ricetta che come ingrediente. Quale dei due è quello corretto da usare nei BOM?',
-      options: [
-        { value: 'use_recipe',     label: 'La ricetta — è una prep fatta in cucina' },
-        { value: 'use_ingredient', label: 'L\'ingrediente — si acquista già pronto' },
-        { value: 'both_valid',     label: 'Entrambi validi — nomi diversi nel DB' },
-        { value: 'skip',           label: 'Ignora per ora' },
+  if (pt === "stock-unit-mismatch") {
+    var bomRow = det.bomRow;
+    return {
+      state:    "NEED_ONE_ANSWER",
+      question: "Chef, la riga BOM \"" + escH(det.childName) + "\" usa unita \"" + escH(bomRow && bomRow.unit) + "\" che il bot non converte. Qual e quella corretta?",
+      options:  [
+        { value: "g",     label: "g — grammi (peso)" },
+        { value: "kg",    label: "kg — chilogrammi" },
+        { value: "ml",    label: "ml — millilitri" },
+        { value: "pezzi", label: "pezzi — contatili" },
+        { value: "nests", label: "nests — nidi pasta fresca" },
       ],
-      buildPlan: () => [],
-    },
+      buildPlan: function(answers) {
+        if (!answers.choice) return [];
+        return [{ action:"UPDATE", table:"recipe_bom", row_id: bomRow && bomRow.bom_id, field:"unit",
+          old_value: bomRow && bomRow.unit, new_value: answers.choice,
+          reason:"Unita BOM corretta — bot calcola ora il consumo in grammi/unita fisiche",
+          confidence:"chef_confirmed", botImpact:"Bot converte correttamente la quantita per il calcolo del consumo" }];
+      },
+    };
+  }
 
+  if (pt === "zero-stock-large-suggestion") {
+    var isNull = pt_ && pt_.current_stock === null;
+    return {
+      state:    "NEED_ONE_ANSWER",
+      question: isNull
+        ? "Chef, \"" + escH(pt_ && pt_.name) + "\" ha stock NULL — il bot la salta. Imposto stock a 0 per includerla?"
+        : "Chef, \"" + escH(pt_ && pt_.name) + "\" ha stock 0 ma bot suggerisce " + (pt_ && pt_.suggested_qty) + " " + (pt_ && pt_.unit) + ". Lo stock e davvero esaurito?",
+      options: isNull ? [
+        { value: "set_zero", label: "Si — imposta stock a 0 (bot la include da stasera)" },
+        { value: "skip",     label: "No — lascia NULL (non ancora in produzione)" },
+      ] : [
+        { value: "confirmed", label: "Si — stock esaurito, bot suggerisce correttamente" },
+        { value: "wrong",     label: "No — c e stock, aggiorno manualmente" },
+      ],
+      buildPlan: function(answers) {
+        if (isNull && answers.choice === "set_zero") return [{ action:"UPDATE", table:"prep_tasks",
+          row_id: pt_ && pt_.id, field:"current_stock", old_value: null, new_value: 0,
+          reason:"Stock impostato a 0 — bot include questa prep nei calcoli notturni",
+          confidence:"chef_confirmed", botImpact: mcrBotImpact("current_stock") }];
+        return [];
+      },
+    };
+  }
+
+  if (pt === "subrecipe-missing-yield") {
+    return {
+      state:    "NEED_ONE_ANSWER",
+      question: "Chef, \"" + escH(rec && rec.title) + "\" e usata come sub-recipe ma non sappiamo quanti grammi usa ogni piatto padre per porzione.",
+      options:  [
+        { value: "set_serving_weight", label: "Imposto grammi per porzione del piatto padre" },
+        { value: "skip",               label: "Lascia per ora" },
+      ],
+      buildPlan: function(answers) {
+        if (answers.choice !== "set_serving_weight" || !answers.serving_weight_g) return [];
+        return [{ action:"UPDATE", table:"recipes", row_id: rec && rec.id, field:"serving_weight_g",
+          old_value: rec && rec.serving_weight_g != null ? rec.serving_weight_g : null,
+          new_value: parseFloat(answers.serving_weight_g),
+          reason:"Grammi per porzione della sub-recipe — bot moltiplica per le vendite del piatto padre",
+          confidence:"chef_confirmed", botImpact: mcrBotImpact("serving_weight_g") }];
+      },
+      followUp: function(choice) {
+        return choice === "set_serving_weight" ? { field:"serving_weight_g", label:"Grammi di questa sub-recipe per porzione del piatto padre", type:"number", placeholder:"es. 150" } : null;
+      },
+    };
+  }
+
+  if (pt === "ingredient-name-collision" || pt === "alias-ingredient-recipe-collision") {
+    var cands = (det.ingredients || []).map(function(i) { return { label:i.name, id:i.id, kind:"ingredient", cat:i.category }; });
+    if (det.recipe) cands.unshift({ label: det.recipe.title, id: det.recipe.id, kind:"sub_recipe", cat: det.recipe.menu_group });
+    return {
+      state:      "NEED_MANUAL_LINK",
+      question:   "Chef, \"" + escH(p.name) + "\" esiste sia come ingrediente sia come ricetta. Quale versione va usata nei BOM?",
+      candidates: cands,
+      onSelect:   function(cand) { return [{ action:"NO_WRITE_NEEDED", table:"recipe_bom", row_id:"(righe esistenti da verificare)",
+        field: cand.kind === "ingredient" ? "item_id" : "sub_recipe_id",
+        old_value:"(misto)", new_value: cand.label + " (" + cand.id.slice(0,8) + "...)",
+        reason:"Chef Max ha scelto \"" + cand.label + "\" come target canonico. Verificare ogni BOM row.",
+        confidence:"chef_confirmed", botImpact:"Bot usa il target canonico per tutti i calcoli di consumo" }]; },
+      note: "Dopo la scelta, verificare ogni riga BOM che usa questo nome nel Recipe Editor.",
+    };
+  }
+
+  if (pt === "parm-duplicates") {
+    return {
+      state:      "NEED_MANUAL_LINK",
+      question:   "Chef, ci sono " + (det.ingredients || []).length + " ingredienti nella famiglia Parmesan/Pecorino. Quale e quello principale usato nei BOM?",
+      candidates: (det.ingredients || []).map(function(i) { return { label:i.name, id:i.id, kind:"ingredient", cat:i.category }; }),
+      onSelect:   function(cand) { return [{ action:"NO_WRITE_NEEDED", table:"recipe_bom", row_id:"(righe da verificare)",
+        field:"item_id", old_value:"(vari)", new_value: cand.label + " (" + cand.id.slice(0,8) + "...)",
+        reason:"Chef Max ha identificato \"" + cand.label + "\" come ingrediente canonico. Consolidare le BOM rows.",
+        confidence:"chef_confirmed", botImpact:"Bot scarica dallo stock del solo ingrediente canonico" }]; },
+      note: "Parmesan Cheese = bulk. Grated Pecorino / Parmesan Grated = prep recipes.",
+    };
+  }
+
+  if (pt === "carrot-relationship") {
+    return {
+      state:      "NEED_MANUAL_LINK",
+      question:   "Chef, alcune ricette collegano carote crude invece della prep Shredded Carrots. Quale versione va usata?",
+      candidates: (det.ingredients || []).map(function(i) { return { label:i.name, id:i.id, kind:"ingredient", cat:i.category }; }),
+      onSelect:   function(cand) { return [{ action:"NO_WRITE_NEEDED", table:"recipe_bom", row_id:"(righe da verificare)",
+        field:"item_id/sub_recipe_id", old_value:"Carrot raw (ITEM)", new_value: cand.label,
+        reason:"Chef Max ha scelto il target corretto per le ricette che usano carote",
+        confidence:"chef_confirmed", botImpact:"Bot scarica dal prep stock Shredded Carrots invece che dall ingrediente grezzo" }]; },
+    };
+  }
+
+  if (pt === "bot-huge-suggestion") {
+    var causes = [];
+    if (pt_ && !pt_.recipe_id) causes.push("Nessuna ricetta collegata — bot usa percorso fallback impreciso");
+    if (pt_ && pt_.unit === "batch") causes.push("Unita batch astratta — bot non riesce a convertire");
+    causes.push("Possibile mismatch grammi vs pezzi nel calcolo");
+    return {
+      state:       "NO_SAVE_TARGET",
+      explanation: "Il bot suggerisce " + (pt_ && pt_.suggested_qty) + " " + (pt_ && pt_.unit) + " per \"" + escH(pt_ && pt_.name) + "\" — valore anomalo.",
+      causes:      causes,
+      missingSchema: null,
+      editorActions: [
+        pt_ && !pt_.recipe_id ? { label: "Collega una ricetta in Admin Prep" } : null,
+        { label: "Verifica unita in Admin Prep" },
+      ].filter(Boolean),
+    };
+  }
+
+  if (pt === "missing-modifier-alias") {
+    var recTitle = (rec && rec.title) || p.name;
+    return {
+      state:       "NO_SAVE_TARGET",
+      explanation: "\"" + escH(recTitle) + "\" non ha alias in modifier_config. Se venduta come add-on, il bot non scarica stock.",
+      causes:      ["modifier_config non ha una UI di editing nel Mapping Control Room", "L alias deve specificare is_kitchen=true e kitchen_cat corretta"],
+      missingSchema: {
+        table:   "modifier_config",
+        fields:  "modifier (PK), is_kitchen BOOLEAN, kitchen_cat TEXT, portion_note TEXT",
+        why:     "modifier_config non ha una UI admin — richiede query SQL diretta",
+      },
+      editorActions: [{ sql: "INSERT INTO modifier_config (modifier, is_kitchen, kitchen_cat) VALUES ('" + recTitle.replace(/'/g, "''") + "', true, 'Proteine');" }],
+    };
+  }
+
+  if (pt === "bot-suggestion-zero-qty") {
+    return {
+      state:       "NO_SAVE_TARGET",
+      explanation: "Il bot ha girato ma ha suggerito 0 per \"" + escH(pt_ && pt_.name) + "\". Il problema e nei dati di input.",
+      causes:      [
+        "Nessuna vendita ieri che corrisponda agli alias POS di questa ricetta",
+        "Il percorso ingrediente non ha trovato ricette collegate con vendite",
+        "Lo stock esistente potrebbe gia coprire il fabbisogno (risultato 0 corretto)",
+      ],
+      missingSchema: null,
+      editorActions: [],
+    };
+  }
+
+  // Default — no protocol yet for this type
+  return {
+    state:       "NO_SAVE_TARGET",
+    explanation: probLabel(pt) + " — protocollo non ancora definito per questo tipo.",
+    causes:      ["Problema rilevato ma risoluzione non ancora implementata"],
+    missingSchema: null,
+    editorActions: [],
   };
-  return defs[problemType] || null;
+}
+
+// Thin shim — kept only for sold-item-legacy-ingredients async path
+function mcrOQRDef(problemType) {
+  if (problemType !== "sold-item-legacy-ingredients") return null;
+  return {
+    question: "Chef, ho trovato {legacyCount} ingredient{pl} nell'editor ma 0 righe BOM strutturate. Vuoi che prepari un piano per convertirli in BOM?",
+    options: [
+      { value: "prepare_plan", label: "Prepara piano conversione" },
+      { value: "review_later", label: "Rivedi piu tardi" },
+      { value: "verify_bom",   label: "Verifica di nuovo BOM" },
+    ],
+    buildPlan: function(answers) { return answers.choice === "prepare_plan" ? "__async_conversion__" : []; },
+  };
+}
+
+
+
+// ══════════════════════════════════════════════════════════════
+// PROTOCOL UI RENDERERS
+// ══════════════════════════════════════════════════════════════
+
+function mcrRenderProtocolUI(proto, p) {
+  if (!proto) return '';
+  const st = proto.state;
+
+  if (st === 'SAFE_AUTO_PLAN') {
+    const plan = proto.plan || [];
+    window._mcrPendingPlan = plan;
+    let h = `<div class="mcr-drawer-section" style="border-color:#22c55e60;background:#0f1f2e;" id="mcrOQRSection">
+      <div class="mcr-drawer-label" style="color:#86efac;">\u{1F916} Chef AI \u2014 Piano automatico</div>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:10px;">Soluzione deterministica. Controlla e approva.</div>`;
+    plan.forEach(function(row) { h += mcrRenderWritePlanRow(row); });
+    h += mcrRenderApproveButtons();
+    if (proto.editorAction) h += mcrRenderEditorActions(proto);
+    h += '</div>';
+    return h;
+  }
+
+  if (st === 'NEED_ONE_ANSWER') {
+    const { question, options } = proto;
+    return `<div class="mcr-drawer-section" style="border-color:#7c3aed60;background:#0d0e1f;" id="mcrOQRSection">
+      <div class="mcr-drawer-label" style="color:#a78bfa;">\u{1F916} Chef AI \u2014 Una domanda</div>
+      <div style="font-size:13px;color:#e2e8f0;line-height:1.6;margin-bottom:12px;">${escH(question || '')}</div>
+      <div style="display:flex;flex-direction:column;gap:6px;" id="mcrOQROptions">
+        ${(options || []).map(o => `
+          <button onclick="mcrProtocolAnswer('${escH(o.value)}')"
+            style="text-align:left;padding:10px 14px;background:#1e293b;border:1px solid #334155;
+                   border-radius:10px;color:#e2e8f0;font-size:13px;font-family:inherit;
+                   cursor:pointer;line-height:1.4;"
+            onmouseover="this.style.background='#263548'" onmouseout="this.style.background='#1e293b'">
+            ${escH(o.label)}
+          </button>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  if (st === 'NEED_MANUAL_LINK') {
+    const { question, candidates, note } = proto;
+    const candHTML = (candidates || []).map((c, ci) => `
+      <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:10px 12px;
+                  margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;color:#f1f5f9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            ${c.kind === 'ingredient' ? '\u{1F4E6}' : '\u{1F517}'} ${escH(c.label)}
+          </div>
+          <div style="font-size:10px;color:#475569;margin-top:1px;">
+            ${escH(c.kind === 'ingredient' ? 'Ingrediente' : 'Sub-recipe')} \u00b7 ${escH(c.cat || '')} \u00b7 ${escH((c.id || '').slice(0,8))}\u2026
+          </div>
+        </div>
+        <button onclick="mcrProtocolSelectCandidate(${ci})"
+          style="flex-shrink:0;padding:6px 14px;background:#7c3aed;border:none;border-radius:8px;
+                 color:white;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">
+          Seleziona
+        </button>
+      </div>`).join('');
+    return `<div class="mcr-drawer-section" style="border-color:#7c3aed60;background:#0d0e1f;" id="mcrOQRSection">
+      <div class="mcr-drawer-label" style="color:#a78bfa;">\u{1F916} Chef AI \u2014 Seleziona target</div>
+      <div style="font-size:13px;color:#e2e8f0;line-height:1.6;margin-bottom:10px;">${escH(question || '')}</div>
+      ${candHTML}
+      ${note ? `<div style="font-size:10px;color:#475569;margin-top:8px;line-height:1.5;">${escH(note)}</div>` : ''}
+    </div>`;
+  }
+
+  if (st === 'NO_SAVE_TARGET') {
+    const { explanation, causes, missingSchema, editorActions } = proto;
+    let h = `<div class="mcr-drawer-section" style="border-color:#f59e0b60;background:#0d0e1f;" id="mcrOQRSection">
+      <div class="mcr-drawer-label" style="color:#fde68a;">\u{1F916} Chef AI \u2014 Nessun target DB disponibile</div>
+      <div style="font-size:13px;color:#e2e8f0;line-height:1.6;margin-bottom:8px;">${escH(explanation || '')}</div>`;
+    if (causes && causes.length) {
+      h += '<div style="margin-bottom:8px;">';
+      causes.forEach(function(c) {
+        h += `<div style="font-size:11px;color:#94a3b8;padding:3px 0;display:flex;gap:6px;">
+          <span style="color:#f59e0b;flex-shrink:0;">\u25b8</span><span>${escH(c)}</span></div>`;
+      });
+      h += '</div>';
+    }
+    if (missingSchema) {
+      h += `<div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px;margin-bottom:8px;">
+        <div style="font-size:10px;font-weight:700;color:#f59e0b;margin-bottom:4px;">\u26a0\ufe0f Schema mancante</div>
+        <div class="mcr-kv"><span class="mcr-kv-k">Tabella</span><span class="mcr-kv-v">${escH(missingSchema.table)}</span></div>
+        <div class="mcr-kv"><span class="mcr-kv-k">Campi</span><span class="mcr-kv-v" style="font-size:10px;font-family:monospace;">${escH(missingSchema.fields)}</span></div>
+        <div style="font-size:10px;color:#475569;margin-top:6px;line-height:1.4;">${escH(missingSchema.why)}</div>
+      </div>`;
+    }
+    h += mcrRenderEditorActions(proto);
+    h += '</div>';
+    return h;
+  }
+  return '';
+}
+
+function mcrRenderWritePlanRow(row) {
+  const actionColor = { UPDATE:'#0ea5e9', INSERT:'#22c55e', DELETE:'#ef4444', NO_WRITE_NEEDED:'#64748b' }[row.action] || '#94a3b8';
+  return `<div style="background:#1e293b;border-radius:10px;padding:10px;margin-bottom:8px;border:1px solid #334155;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <span style="font-size:11px;font-weight:700;color:${actionColor};letter-spacing:.4px;">${escH(row.action || '')}</span>
+      <span style="font-size:10px;color:#475569;">${escH(row.table || '')} \u00b7 ${escH(String(row.row_id || '').slice(0,12))}</span>
+    </div>
+    <div class="mcr-kv"><span class="mcr-kv-k">Campo</span><span class="mcr-kv-v">${escH(fieldLabel(row.field || ''))}</span></div>
+    <div class="mcr-kv"><span class="mcr-kv-k">Valore attuale</span>
+      <span class="mcr-kv-v" style="color:#f87171;">${row.old_value !== null && row.old_value !== undefined ? escH(String(row.old_value)) : '\u2014 (non impostato)'}</span>
+    </div>
+    <div class="mcr-kv"><span class="mcr-kv-k">Nuovo valore</span>
+      <span class="mcr-kv-v" style="color:#86efac;">${escH(String(row.new_value ?? ''))}</span>
+    </div>
+    ${row.botImpact ? `<div class="mcr-kv"><span class="mcr-kv-k">Impatto bot</span>
+      <span class="mcr-kv-v" style="font-size:10px;color:#7dd3fc;">${escH(row.botImpact)}</span></div>` : ''}
+    <div style="font-size:10px;color:#475569;margin-top:6px;line-height:1.4;">${escH(row.reason || '')}</div>
+  </div>`;
+}
+
+function mcrRenderApproveButtons() {
+  return `<div style="display:flex;gap:8px;margin-top:8px;">
+    <button onclick="mcrApprovePlan()"
+      style="flex:1;padding:10px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;
+             ${MAPPING_WRITE_ENABLED ? 'background:#059669;border:none;color:white;' : 'background:#1e293b;border:1px solid #334155;color:#475569;cursor:not-allowed;'}">
+      ${MAPPING_WRITE_ENABLED ? '\u2705 Approva e Salva' : '\u{1F512} Approve (Write Disabled)'}
+    </button>
+    <button onclick="mcrCancelPlan()"
+      style="padding:10px 16px;background:#1e293b;border:1px solid #334155;border-radius:10px;
+             color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
+      Annulla
+    </button>
+  </div>`;
+}
+
+function mcrRenderEditorActions(proto) {
+  const acts = (proto && proto.editorActions) ? proto.editorActions : (proto && proto.editorAction ? [proto.editorAction] : []);
+  if (!acts.length) return '';
+  let h = `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #1e293b;">
+    <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:6px;letter-spacing:.5px;">AZIONE CONSIGLIATA</div>`;
+  acts.forEach(function(a) {
+    if (a.sql) {
+      h += `<div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:8px;margin-bottom:6px;">
+        <div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">SQL:</div>
+        <code style="font-size:10px;color:#86efac;font-family:monospace;word-break:break-all;">${escH(a.sql)}</code>
+      </div>`;
+    } else {
+      h += `<div style="font-size:12px;color:#7c3aed;padding:4px 0;">\u2192 ${escH(a.label || '')}</div>`;
+    }
+  });
+  h += '</div>';
+  return h;
+}
+
+// ── Protocol answer handler ────────────────────────────────────
+window.mcrProtocolAnswer = async function(choice) {
+  const proto = window._mcrActiveProtocol;
+  const idx   = window._mcrDrawerIdx;
+  const p     = (window._mcrProblems || [])[idx];
+  if (!proto || !p) return;
+  window._mcrOQRState = window._mcrOQRState || { step:'info', answers:{} };
+  window._mcrOQRState.answers.choice = choice;
+
+  document.querySelectorAll('#mcrOQROptions button').forEach(function(btn, i) {
+    btn.style.opacity = '0.4'; btn.disabled = true;
+    if (proto.options && proto.options[i] && proto.options[i].value === choice) {
+      btn.style.opacity = '1'; btn.style.borderColor = '#7c3aed';
+      btn.style.background = '#1e1b4b'; btn.style.color = '#c4b5fd';
+    }
+  });
+
+  const fu = proto.followUp && proto.followUp(choice);
+  if (fu) {
+    const sec = document.getElementById('mcrOQRSection');
+    if (sec) {
+      document.getElementById('mcrFollowUp') && document.getElementById('mcrFollowUp').remove();
+      const div = document.createElement('div');
+      div.id = 'mcrFollowUp';
+      div.style.cssText = 'margin-top:12px;padding-top:12px;border-top:1px solid #334155;';
+      div.innerHTML = `<div style="font-size:12px;color:#94a3b8;margin-bottom:6px;">${escH(fu.label)}</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="mcrFollowUpInput" type="${fu.type || 'text'}" placeholder="${escH(fu.placeholder || '')}"
+            style="flex:1;padding:8px 12px;background:#1e293b;border:1px solid #475569;border-radius:8px;
+                   color:#f1f5f9;font-size:13px;font-family:inherit;outline:none;"/>
+          <button onclick="mcrProtocolSubmitFollowUp()"
+            style="padding:8px 16px;background:#7c3aed;border:none;border-radius:8px;
+                   color:white;font-size:13px;font-weight:600;cursor:pointer;">\u2192</button>
+        </div>`;
+      sec.appendChild(div);
+    }
+    return;
+  }
+  mcrProtocolBuildAndShow(proto, p);
+};
+
+window.mcrProtocolSubmitFollowUp = function() {
+  const proto = window._mcrActiveProtocol;
+  const idx   = window._mcrDrawerIdx;
+  const p     = (window._mcrProblems || [])[idx];
+  const val   = document.getElementById('mcrFollowUpInput') && document.getElementById('mcrFollowUpInput').value && document.getElementById('mcrFollowUpInput').value.trim();
+  if (!val || !proto || !p) return;
+  const fu = proto.followUp && proto.followUp(window._mcrOQRState.answers.choice);
+  if (fu) window._mcrOQRState.answers[fu.field] = val;
+  mcrProtocolBuildAndShow(proto, p);
+};
+
+window.mcrProtocolSelectCandidate = function(candIdx) {
+  const proto = window._mcrActiveProtocol;
+  const idx   = window._mcrDrawerIdx;
+  const p     = (window._mcrProblems || [])[idx];
+  if (!proto || !p) return;
+  const cand = proto.candidates && proto.candidates[candIdx];
+  if (!cand) return;
+
+  const plan = (proto.onSelect && proto.onSelect(cand)) || [];
+  window._mcrPendingPlan = plan;
+
+  const el = document.getElementById('mcrWritePlan');
+  if (!el) return;
+  el.style.display = '';
+  let h = `<div class="mcr-drawer-section" style="border-color:#0ea5e960;background:#0f1f2e;margin-top:8px;">
+    <div class="mcr-drawer-label" style="color:#7dd3fc;">\u{1F4CB} Selezione confermata</div>
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">
+      Selezionato: ${cand.kind === 'ingredient' ? '\u{1F4E6}' : '\u{1F517}'} <strong style="color:#f1f5f9;">${escH(cand.label)}</strong>
+      ${!MAPPING_WRITE_ENABLED ? '<span style="color:#f59e0b;font-weight:700;"> \u26a0\ufe0f WRITE DISABLED</span>' : ''}
+    </div>`;
+  plan.forEach(function(row) { h += mcrRenderWritePlanRow(row); });
+  h += mcrRenderApproveButtons() + '</div>';
+  el.innerHTML = h;
+
+  document.querySelectorAll('#mcrOQRSection button').forEach(function(btn) { btn.style.opacity='0.4'; btn.disabled=true; });
+};
+
+function mcrProtocolBuildAndShow(proto, p) {
+  const plan = (proto.buildPlan && proto.buildPlan(window._mcrOQRState.answers, p, window._mcrData)) || [];
+  window._mcrPendingPlan = plan;
+  const el = document.getElementById('mcrWritePlan');
+  if (!el) return;
+  el.style.display = '';
+  if (!plan.length) {
+    el.innerHTML = mcrRenderEditorActions(proto) ||
+      '<div class="mcr-drawer-section" style="border-color:#334155;background:#0f172a;margin-top:8px;"><div style="font-size:12px;color:#475569;">Nessuna modifica DB per questa scelta.</div></div>';
+    return;
+  }
+  let h = `<div class="mcr-drawer-section" style="border-color:#0ea5e960;background:#0f1f2e;margin-top:8px;">
+    <div class="mcr-drawer-label" style="color:#7dd3fc;">\u{1F4CB} Piano di Modifica DB</div>
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:10px;">
+      ${!MAPPING_WRITE_ENABLED ? '<span style="color:#f59e0b;font-weight:700;">\u26a0\ufe0f WRITE DISABLED \u2014 Phase 2 required</span>' : ''}
+    </div>`;
+  plan.forEach(function(row) { h += mcrRenderWritePlanRow(row); });
+  h += mcrRenderApproveButtons();
+  if (proto.editorAction) h += mcrRenderEditorActions(proto);
+  h += '</div>';
+  el.innerHTML = h;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1213,7 +1709,6 @@ function buildDrawerHTML(p) {
   const { recipes, ingredients, bom, posSales, prepTasks } = window._mcrData || {};
   const recipeById = Object.fromEntries((recipes || []).map(r => [r.id, r]));
   const ingById    = Object.fromEntries((ingredients || []).map(i => [i.id, i]));
-  const oqrDef     = mcrOQRDef(p.problemType);
 
   let html = '';
 
@@ -1442,34 +1937,33 @@ function buildDrawerHTML(p) {
     </div>`;
   }
 
-  // ── CHEF AI OQR SECTION ───────────────────────────────────────
-  if (oqrDef) {
-    // Resolve dynamic question text — inject legacyCount if present
-    const legacyCount = p.detail?.legacyIngredients?.length || 0;
-    const oqrQuestion = oqrDef.question
+  // ── CHEF AI RESOLVE PROTOCOL ──────────────────────────────────
+  // Thin shim (mcrOQRDef) only for sold-item-legacy-ingredients async path.
+  // All other types go through mcrResolveProtocol.
+  const legacyOQR = mcrOQRDef(p.problemType);
+  if (legacyOQR) {
+    const legacyCount = p.detail && p.detail.legacyIngredients ? p.detail.legacyIngredients.length : 0;
+    const oqrQuestion = legacyOQR.question
       .replace('{legacyCount}', legacyCount)
       .replace('{pl}', legacyCount === 1 ? 'e' : 'i');
-
     html += `<div class="mcr-drawer-section" style="border-color:#7c3aed60;background:#0d0e1f;" id="mcrOQRSection">
-      <div class="mcr-drawer-label" style="color:#a78bfa;">🤖 Chef AI — Domanda</div>
+      <div class="mcr-drawer-label" style="color:#a78bfa;">\u{1F916} Chef AI \u2014 Domanda</div>
       <div style="font-size:13px;color:#e2e8f0;line-height:1.6;margin-bottom:12px;">${escH(oqrQuestion)}</div>
       <div style="display:flex;flex-direction:column;gap:6px;" id="mcrOQROptions">
-        ${oqrDef.options.map(o => `
+        ${legacyOQR.options.map(o => `
           <button onclick="mcrOQRAnswer('${escH(o.value)}')"
             style="text-align:left;padding:10px 14px;background:#1e293b;border:1px solid #334155;
                    border-radius:10px;color:#e2e8f0;font-size:13px;font-family:inherit;
-                   cursor:pointer;transition:background .12s;line-height:1.4;"
+                   cursor:pointer;line-height:1.4;"
             onmouseover="this.style.background='#263548'" onmouseout="this.style.background='#1e293b'">
             ${escH(o.label)}
           </button>`).join('')}
       </div>
     </div>`;
   } else {
-    // No OQR available — just a note
-    html += `<div class="mcr-drawer-section" style="border-color:#334155;background:#0f172a;">
-      <div class="mcr-drawer-label" style="color:#475569;">🤖 Chef AI</div>
-      <div style="font-size:12px;color:#475569;">Nessuna azione automatica disponibile per questo tipo di problema. Correggi manualmente dal Recipe Editor.</div>
-    </div>`;
+    const proto = mcrResolveProtocol(p);
+    window._mcrActiveProtocol = proto;
+    html += mcrRenderProtocolUI(proto, p);
   }
 
   // ── WRITE PLAN PLACEHOLDER ─────────────────────────────────────
@@ -2399,15 +2893,15 @@ function mcrBuildAndShowWritePlan(p, oqrDef) {
   window._mcrPendingPlan = plan;
 
   if (plan.length === 0) {
+    const proto = window._mcrActiveProtocol;
     writePlanEl.style.display = '';
-    writePlanEl.innerHTML = `
-      <div class="mcr-drawer-section" style="border-color:#334155;background:#0f172a;margin-top:8px;">
-        <div class="mcr-drawer-label" style="color:#475569;">📋 Piano di Modifica</div>
-        <div style="font-size:12px;color:#475569;line-height:1.5;">
-          Nessuna modifica automatica disponibile per questa scelta.<br>
-          Correggi manualmente dal Recipe Editor oppure da una sessione dedicata.
-        </div>
-      </div>`;
+    if (proto && (proto.editorActions || proto.editorAction)) {
+      writePlanEl.innerHTML = mcrRenderEditorActions(proto);
+    } else if (proto && proto.state === 'NO_SAVE_TARGET') {
+      writePlanEl.innerHTML = mcrRenderProtocolUI(proto, (window._mcrProblems||[])[window._mcrDrawerIdx]);
+    } else {
+      writePlanEl.style.display = 'none';
+    }
     return;
   }
 
@@ -2419,23 +2913,8 @@ function mcrBuildAndShowWritePlan(p, oqrDef) {
         ${MAPPING_WRITE_ENABLED ? '' : '<span style="color:#f59e0b;font-weight:700;"> ⚠️ WRITE DISABLED — Phase 2 required</span>'}
       </div>`;
 
-  plan.forEach((row, i) => {
-    const actionColor = { UPDATE: '#0ea5e9', INSERT: '#22c55e', DELETE: '#ef4444' }[row.action] || '#94a3b8';
-    planHTML += `
-      <div style="background:#1e293b;border-radius:10px;padding:10px;margin-bottom:8px;border:1px solid #334155;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="font-size:11px;font-weight:700;color:${actionColor};letter-spacing:.4px;">${row.action}</span>
-          <span style="font-size:10px;color:#475569;">${escH(row.table)} · ${escH(String(row.row_id).slice(0,8))}…</span>
-        </div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Campo</span><span class="mcr-kv-v">${escH(fieldLabel(row.field))}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Valore attuale</span>
-          <span class="mcr-kv-v" style="color:#f87171;">${row.old_value !== null && row.old_value !== undefined ? escH(String(row.old_value)) : '— (non impostato)'}</span>
-        </div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Nuovo valore</span>
-          <span class="mcr-kv-v" style="color:#86efac;">${escH(String(row.new_value))}</span>
-        </div>
-        <div style="font-size:10px;color:#475569;margin-top:6px;line-height:1.4;">${escH(row.reason || '')}</div>
-      </div>`;
+  plan.forEach(function(row) {
+    planHTML += mcrRenderWritePlanRow(row);
   });
 
   planHTML += `
