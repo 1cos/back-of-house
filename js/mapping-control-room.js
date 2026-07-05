@@ -1061,13 +1061,33 @@ function mcrOQRDef(problemType) {
     },
 
     'sold-item-legacy-ingredients': {
-      question: 'Chef, gli ingredienti nell\'editor non sono ancora nel BOM strutturato. Il bot non può calcolarne il consumo. Come vuoi procedere?',
+      // question is dynamic — legacyCount injected at render time via p.detail.legacyIngredients
+      question: 'Chef, ho trovato {legacyCount} ingredient{pl} nell\'editor ma 0 righe BOM strutturate. Vuoi che prepari un piano per convertirli in BOM?',
       options: [
-        { value: 'review_later',  label: 'Rivedi più tardi — nessuna urgenza' },
-        { value: 'migrate_now',   label: 'Voglio migrare in BOM — mostrami cosa c\'è' },
-        { value: 'already_done',  label: 'È già tutto nel BOM — questo warning è sbagliato' },
+        { value: 'prepare_plan',  label: '\u{1F4CB} Prepara piano conversione' },
+        { value: 'review_later',  label: '\u23F8 Rivedi pi\u00F9 tardi' },
+        { value: 'verify_bom',    label: '\u{1F50D} Verifica di nuovo BOM' },
       ],
-      buildPlan: (answers, p) => [],
+      buildPlan: (answers, p) => {
+        if (answers.choice !== 'prepare_plan') return [];
+        const legacyIngs = p.detail?.legacyIngredients || [];
+        if (!legacyIngs.length) return [];
+        return legacyIngs.map((ing, idx) => {
+          const ingName = ing.name || ing.ingredient || ing.item || ing.text || '?';
+          const ingQty  = ing.qty || ing.amount || ing.quantity || '?';
+          const ingUnit = ing.unit || 'g';
+          return {
+            action:    'INSERT',
+            table:     'recipe_bom',
+            row_id:    `(new — ${String(ingName)})`,
+            field:     `component #${idx + 1}`,
+            old_value: null,
+            new_value: `${ingQty} ${ingUnit} di "${String(ingName)}"`,
+            reason:    'Migrazione ingrediente legacy. Richiede ingredient_id — collega nel Recipe Editor prima di approvare.',
+            confidence: 'needs_manual_link',
+          };
+        });
+      },
     },
 
     'prep-missing-batch-yield': {
@@ -1437,9 +1457,15 @@ function buildDrawerHTML(p) {
 
   // ── CHEF AI OQR SECTION ───────────────────────────────────────
   if (oqrDef) {
+    // Resolve dynamic question text — inject legacyCount if present
+    const legacyCount = p.detail?.legacyIngredients?.length || 0;
+    const oqrQuestion = oqrDef.question
+      .replace('{legacyCount}', legacyCount)
+      .replace('{pl}', legacyCount === 1 ? 'e' : 'i');
+
     html += `<div class="mcr-drawer-section" style="border-color:#7c3aed60;background:#0d0e1f;" id="mcrOQRSection">
       <div class="mcr-drawer-label" style="color:#a78bfa;">🤖 Chef AI — Domanda</div>
-      <div style="font-size:13px;color:#e2e8f0;line-height:1.6;margin-bottom:12px;">${escH(oqrDef.question)}</div>
+      <div style="font-size:13px;color:#e2e8f0;line-height:1.6;margin-bottom:12px;">${escH(oqrQuestion)}</div>
       <div style="display:flex;flex-direction:column;gap:6px;" id="mcrOQROptions">
         ${oqrDef.options.map(o => `
           <button onclick="mcrOQRAnswer('${escH(o.value)}')"
@@ -1469,7 +1495,7 @@ function buildDrawerHTML(p) {
 // OQR ANSWER HANDLER
 // ══════════════════════════════════════════════════════════════
 
-window.mcrOQRAnswer = function (choice) {
+window.mcrOQRAnswer = async function (choice) {
   const idx = window._mcrDrawerIdx;
   const p   = (window._mcrProblems || [])[idx];
   if (!p) return;
@@ -1492,8 +1518,84 @@ window.mcrOQRAnswer = function (choice) {
         allBtns[i].style.color       = '#c4b5fd';
       }
     });
+  }
 
-    // Follow-up input?
+  // ── Special handler: verify_bom — re-query recipe_bom live ──
+  if (choice === 'verify_bom' && p.detail?.recipe?.id) {
+    const writePlanEl = document.getElementById('mcrWritePlan');
+    if (writePlanEl) {
+      writePlanEl.style.display = '';
+      writePlanEl.innerHTML = `
+        <div class="mcr-drawer-section" style="border-color:#7c3aed40;background:#0f172a;margin-top:8px;">
+          <div class="mcr-drawer-label" style="color:#a78bfa;">🔍 Verifica BOM in corso…</div>
+          <div style="font-size:12px;color:#475569;">Query live su recipe_bom…</div>
+        </div>`;
+    }
+    try {
+      const sb = window.supa;
+      const recipeId = p.detail.recipe.id;
+      const { data: freshBOM, error } = await sb
+        .from('recipe_bom')
+        .select('bom_id, component_type, item_id, sub_recipe_id, quantity, unit')
+        .eq('parent_recipe_id', recipeId);
+
+      const bomCount = freshBOM?.length || 0;
+      const hasError = !!error;
+
+      if (writePlanEl) {
+        if (hasError) {
+          writePlanEl.innerHTML = `
+            <div class="mcr-drawer-section" style="border-color:#ef444440;background:#0f172a;margin-top:8px;">
+              <div class="mcr-drawer-label" style="color:#f87171;">❌ Errore query</div>
+              <div style="font-size:12px;color:#94a3b8;">${escH(error.message)}</div>
+            </div>`;
+        } else if (bomCount > 0) {
+          // BOM found — warning was wrong, show verified count
+          const rowList = (freshBOM || []).map(b => `
+            <div class="mcr-bom-row">
+              <span style="font-size:12px;color:#86efac;">${b.component_type === 'RECIPE' ? '🔗' : '📦'} ${escH(b.item_id || b.sub_recipe_id || '?')}</span>
+              <span style="font-size:11px;color:#64748b;">${b.quantity || '—'} ${escH(b.unit || '')}</span>
+            </div>`).join('');
+          writePlanEl.innerHTML = `
+            <div class="mcr-drawer-section" style="border-color:#22c55e40;background:#0f172a;margin-top:8px;">
+              <div class="mcr-drawer-label" style="color:#86efac;">✅ Verifica completata — ${bomCount} righe BOM trovate</div>
+              <div style="font-size:11px;color:#64748b;margin-bottom:8px;line-height:1.5;">
+                Il BOM esiste. Questo warning potrebbe essere già risolto — aggiorna la pagina per ricalcolare.
+              </div>
+              ${rowList}
+              <button onclick="mcrRefresh()"
+                style="margin-top:10px;width:100%;padding:8px;background:#1e3a5f;border:1px solid #3b82f6;
+                       border-radius:8px;color:#93c5fd;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
+                ↺ Aggiorna audit
+              </button>
+            </div>`;
+        } else {
+          // Confirmed: still 0 BOM rows
+          writePlanEl.innerHTML = `
+            <div class="mcr-drawer-section" style="border-color:#f59e0b40;background:#0f172a;margin-top:8px;">
+              <div class="mcr-drawer-label" style="color:#fde68a;">🔍 Verifica completata — 0 righe BOM</div>
+              <div style="font-size:12px;color:#94a3b8;line-height:1.5;">
+                Confermato: recipe_bom non ha righe per questa ricetta. Il warning è corretto.<br>
+                Usa "Prepara piano conversione" per migrare gli ingredienti legacy in BOM strutturato.
+              </div>
+            </div>`;
+        }
+      }
+    } catch(err) {
+      if (writePlanEl) {
+        writePlanEl.style.display = '';
+        writePlanEl.innerHTML = `
+          <div class="mcr-drawer-section" style="border-color:#ef444440;background:#0f172a;margin-top:8px;">
+            <div class="mcr-drawer-label" style="color:#f87171;">❌ Errore imprevisto</div>
+            <div style="font-size:12px;color:#94a3b8;">${escH(err.message)}</div>
+          </div>`;
+      }
+    }
+    return; // verify_bom handled — don't fall through to write plan
+  }
+
+  // ── Normal path: follow-up input or write plan ───────────────
+  if (oqrDef) {
     const fu = oqrDef.followUp?.(choice);
     if (fu) {
       mcrShowFollowUp(fu, p, oqrDef);
@@ -1501,7 +1603,7 @@ window.mcrOQRAnswer = function (choice) {
     }
   }
 
-  // Build write plan immediately if no follow-up
+  // Build write plan (covers prepare_plan, review_later, and all other choices)
   mcrBuildAndShowWritePlan(p, oqrDef);
 };
 
