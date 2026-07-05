@@ -1844,175 +1844,9 @@ window.botTrigger = async function(fnName, botId) {
 
 // ── Codici sorgente bot per visualizzazione in Bot Center ──
 window._botHardcodedSources = {
-  'bot-preplist-builder': `// BOT-PREPLIST-BUILDER v22
-// Gira ogni notte alle 4:00 AM CDT
-// Legge prep_tasks + vendite POS degli ultimi 90gg
-// Calcola fabbisogno per i prossimi N giorni (shelf_life)
-// Scrive suggested_qty e suggested_note su ogni prep_task
-
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-
-// Nomi giorni per testo leggibile (IT/EN/ES)
-const DOW_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const DOW_IT  = ['Domenica','Lunedi','Martedi','Mercoledi','Giovedi','Venerdi','Sabato'];
-const DOW_EN  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const DOW_ES  = ['Domingo','Lunes','Martes','Miercoles','Jueves','Viernes','Sabado'];
-
-// Ricette dove NON usiamo il pack fornitore per il testo
-// (il driver di costo non e' il primo ingrediente del BOM)
-const SKIP_PACK = new Set([
-  'BECHAMEL SAUCE', 'THYME BUTTER', 'Texana Soup', 'Rosemary Oil',
-  'CITRONETTE', 'SALMORIGLIO', 'Mash Potato', 'GARLIC OIL', 'Salmon Whole',
-]);
-
-// Formatta grammi in kg/g leggibile
-function fmtGrams(g) {
-  if (g >= 1000) return (g/1000).toFixed(1).replace(/\\.0$/, '') + 'kg';
-  return Math.round(g) + 'g';
-}
-
-// Prossimi N giorni di servizio (salta domenica — Zenos chiuso)
-function nextServiceDays(fromDate, n) {
-  const days = [];
-  const d = new Date(fromDate);
-  if (d.getDay() !== 0) days.push(new Date(d));
-  while (days.length < n) {
-    d.setDate(d.getDate() + 1);
-    if (d.getDay() !== 0) days.push(new Date(d));
-  }
-  return days.slice(0, n);
-}
-
-// Converti grammi -> testo cucina (pezzi, nests, kg, pack)
-function smartQty(qty, baseWeight, baseServings, servingUnit, servingQty, taskUnit, packDescription) {
-  if (!qty || qty <= 0) return { text_it:'0', batches:0 };
-  const unit = (taskUnit || '').toLowerCase().trim();
-  const sUnit = (servingUnit || '').toLowerCase().trim();
-
-  // Pezzi fisici (salmon cakes, chicken parm, artichoke...)
-  if (['pezzi','pz','buste','cartocci'].includes(unit)) {
-    const n = Math.ceil(qty);
-    return { text_it: n + ' ' + taskUnit, batches: n };
-  }
-  // Pasta fresca in nests
-  if (sUnit === 'nests' && servingQty && baseServings && baseWeight) {
-    const gramsPerServing = baseWeight / baseServings;
-    const portions = qty / gramsPerServing;
-    const nests = Math.ceil(portions * servingQty);
-    const nestsPerBatch = baseServings * servingQty;
-    const batchNests = Math.ceil(nests / nestsPerBatch) * nestsPerBatch;
-    return { text_it: batchNests + ' nests', batches: Math.ceil(nests / nestsPerBatch) };
-  }
-  // Grammi con ricetta -> arrotonda a batch e usa pack fornitore se disponibile
-  if (baseWeight && baseWeight > 0) {
-    const batches = Math.ceil(qty / baseWeight);
-    const batchQty = batches * baseWeight;
-    if (packDescription) {
-      const txt = batches === 1 ? '1 ' + packDescription : batches + ' x ' + packDescription;
-      return { text_it: txt, batches };
-    }
-    return { text_it: fmtGrams(batchQty), batches };
-  }
-  // Grammi senza ricetta
-  if (unit === 'g') return { text_it: fmtGrams(qty), batches: 1 };
-  // Fallback
-  return { text_it: Math.ceil(qty) + ' ' + (taskUnit||''), batches: Math.ceil(qty) };
-}
-
-Deno.serve(async (_req) => {
-  const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-  const nowCDT = new Date(Date.now() - 5 * 60 * 60 * 1000); // UTC -> CDT
-  const runAt = new Date().toISOString();
-
-  // 1. Carica tutti i prep task attivi (non checklist, non archiviati)
-  const { data: tasks } = await sb
-    .from('prep_tasks')
-    .select('id, name, unit, current_stock, recipe_id, prep_type, recipes:recipe_id(*)')
-    .eq('archived', false)
-    .neq('prep_type', 'checklist');
-
-  // 2. Carica vendite storiche per giorno settimana (RPC)
-  const histStart = new Date(nowCDT);
-  histStart.setDate(histStart.getDate() - 90);
-  const { data: salesAgg } = await sb.rpc('get_sales_by_dow', {
-    start_date: histStart.toISOString().slice(0,10),
-    end_date: nowCDT.toISOString().slice(0,10)
-  });
-
-  // Mappa: nome_piatto -> { Lunedi: 3.2, Martedi: 1.8, ... }
-  const salesMap = {};
-  for (const row of (salesAgg || [])) {
-    const key = (row.menu_item || '').toLowerCase().trim();
-    if (!salesMap[key]) salesMap[key] = {};
-    salesMap[key][row.dow_name] = parseFloat(row.avg_qty) || 0;
-  }
-
-  let updated = 0, skipped = 0;
-
-  for (const task of (tasks || [])) {
-    // Salta se stock non inserito o base_weight anomalo
-    if (task.current_stock === null) { skipped++; continue; }
-    const rec = task.recipes;
-    const baseWeight = rec?.base_weight_g ? parseFloat(rec.base_weight_g) : null;
-    if (baseWeight && baseWeight > 500000) { skipped++; continue; }
-
-    const currentStock = parseFloat(task.current_stock) || 0;
-    const shelfLife = rec?.shelf_life_days || 3;
-    const posNames = rec?.pos_name ? rec.pos_name.split('|').map(n => n.trim()) : [];
-
-    // Calcola consumo atteso per i prossimi shelf_life giorni
-    const futureDays = nextServiceDays(nowCDT, shelfLife);
-    let expectedConsumption = 0;
-    let hasData = false;
-
-    for (const day of futureDays) {
-      const dow = DOW_NAMES[day.getDay()];
-      for (const posName of posNames) {
-        const avg = salesMap[posName.toLowerCase().trim()]?.[dow] || 0;
-        if (avg > 0) {
-          hasData = true;
-          const servingWeight = rec?.serving_weight_g ? parseFloat(rec.serving_weight_g) : null;
-          expectedConsumption += avg * (servingWeight || (baseWeight && rec?.base_servings ? baseWeight / rec.base_servings : 1));
-        }
-      }
-    }
-
-    const needed = expectedConsumption * 1.1; // +10% buffer
-    let pill = 'green';
-    let suggestedRaw = 0;
-
-    if (!hasData) {
-      pill = currentStock <= 0 ? 'red' : 'green';
-      suggestedRaw = currentStock <= 0 ? (baseWeight || 1) : 0;
-    } else if (currentStock <= 0) {
-      pill = 'red'; suggestedRaw = needed;
-    } else if (currentStock < needed * 0.40) {
-      pill = 'red'; suggestedRaw = needed - currentStock;
-    } else if (currentStock < needed * 0.80) {
-      pill = 'yellow'; suggestedRaw = needed - currentStock;
-    }
-
-    // Arrotonda a batch interi
-    const finalSuggested = suggestedRaw > 0 && baseWeight
-      ? Math.ceil(suggestedRaw / baseWeight) * baseWeight
-      : Math.ceil(suggestedRaw);
-
-    // Scrivi sul task
-    await sb.from('prep_tasks').update({
-      suggested_qty: finalSuggested > 0 ? finalSuggested : null,
-      suggested_by: 'bot-preplist-builder-v22',
-      suggested_at: runAt,
-      suggested_note: pill + '|Testo IT|Testo EN|Testo ES'
-    }).eq('id', task.id);
-
-    updated++;
-  }
-
-  return new Response(JSON.stringify({ ok:true, tasks_updated:updated, tasks_skipped:skipped }), { status:200 });
-});
+  'bot-preplist-builder': `// Historical stub — v22 — not executed — not current bot logic.
+// Current bot: bot-preplist-builder v41 (Supabase Edge Function, not stored in GitHub).
+// Do not rely on this code for any calculation or display.
 `,
   'bot-price-guard': `// bot-price-guard v12
 // Gira dopo ogni importazione fattura (chiamato da process-invoice)
@@ -2506,393 +2340,347 @@ window.botLoadPreplistEditor = async function() {
   }
 };
 
+// ── botLoadSimData — fetch latest bot_debug_runs row for this task ──
+// Returns the most recent sim row, or null if none found.
+window.botLoadSimData = async function(taskName) {
+  var sb = window.supa;
+  if (!sb) return null;
+  try {
+    var { data, error } = await sb
+      .from('bot_debug_runs')
+      .select('*')
+      .eq('task_name', taskName)
+      .order('sim_date', { ascending: false })
+      .limit(1);
+    if (error || !data || !data.length) return null;
+    return data[0];
+  } catch(e) {
+    return null;
+  }
+};
+
+// ── botFmtValue — shared formatter (single source of truth for display) ──
+function botFmtValue(n, unit) {
+  if (n === null || n === undefined) return '—';
+  var v = parseFloat(n);
+  if (isNaN(v)) return '—';
+  var u = (unit || '').toLowerCase();
+  var isPhys = ['pezzi','pz','nests','buste','cartocci','cup'].includes(u);
+  if (isPhys) {
+    var num = v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+    var showUnit = ['nests','cup','buste','cartocci'].includes(u);
+    return showUnit ? num + ' ' + unit : num;
+  }
+  return v >= 1000 ? (v / 1000).toFixed(1).replace(/\.0$/, '') + 'kg' : Math.round(v) + 'g';
+}
+
+// ── botBuildTaskCard — UI shell only. No calculation. Reads trusted bot outputs. ──
+// Sources of truth:
+//   1. Real bot result: prep_tasks.suggested_qty / suggested_note / suggested_at / suggested_by
+//   2. Trusted simulation: bot_debug_runs (via botLoadSimData)
+// This function NEVER calculates quantities or colors independently.
 function botBuildTaskCard(task, bomMap) {
   var rec = task.recipes;
-  var shelfLife = (rec && rec.shelf_life_days) ? rec.shelf_life_days : (task.expected_duration_days || 3);
-  var bomCount  = rec ? (bomMap[rec.id]||0) : 0;
+  var bomCount = rec ? (bomMap[rec.id] || 0) : 0;
 
+  // ── Parse real bot result from suggested_note ──
   var noteRaw   = task.suggested_note || '';
   var noteParts = noteRaw.split('|');
-  var noteColor = noteParts[0] || 'green';
+  var noteColor = noteParts[0] || '';
   var noteIT    = noteParts[1] || '';
   var noteEN    = noteParts[2] || '';
   var noteES    = noteParts[3] || '';
+  var hasRealBot = noteRaw.includes('|') && noteParts.length >= 2;
 
-  var pillColor = noteColor==='red'?'#ef4444':noteColor==='yellow'?'#eab308':'#22c55e';
-  var pillBg    = noteColor==='red'?'rgba(239,68,68,0.15)':noteColor==='yellow'?'rgba(234,179,8,0.15)':'rgba(34,197,94,0.15)';
+  var pillColor = noteColor === 'red' ? '#ef4444' : noteColor === 'yellow' ? '#eab308' : '#22c55e';
+  var pillBg    = noteColor === 'red' ? 'rgba(239,68,68,0.15)' : noteColor === 'yellow' ? 'rgba(234,179,8,0.15)' : 'rgba(34,197,94,0.15)';
+  var pillLabel = hasRealBot ? noteColor.toUpperCase() : '—';
+
   var posAliases = rec && rec.pos_name ? rec.pos_name.split('|').filter(Boolean) : [];
 
   var card = document.createElement('div');
   card.style.cssText = 'background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.1);border-radius:14px;overflow:hidden;';
-  card.id = 'prepCard_'+task.id;
+  card.id = 'prepCard_' + task.id;
 
   // ── Header collassabile ──
   var header = document.createElement('div');
   header.style.cssText = 'padding:12px 14px;cursor:pointer;-webkit-tap-highlight-color:transparent;display:flex;align-items:center;gap:10px;';
+
+  var stockDisplay = task.current_stock !== null
+    ? botFmtValue(task.current_stock, task.unit) + ' in stock'
+    : '⚠️ stock NULL';
+
   header.innerHTML =
-    '<span id="pillBadge_'+task.id+'" style="font-size:10px;padding:3px 8px;border-radius:20px;font-weight:700;background:'+pillBg+';color:'+pillColor+';flex-shrink:0;">'+noteColor.toUpperCase()+'</span>'+
-    '<div style="flex:1;min-width:0;">'+
-      '<div style="color:white;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+task.name+'</div>'+
-      '<div id="headerSub_'+task.id+'" style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:2px;">'+
-        (task.current_stock!==null ? task.current_stock+' '+task.unit : '⚠️ stock NULL')+
-        (noteIT?' · '+noteIT.replace(/^(fai|hai|stock ok · |prepara oggi · )/i,'').substring(0,40):'')+
-      '</div>'+
-    '</div>'+
-    '<span id="prepArrow_'+task.id+'" style="color:rgba(255,255,255,0.25);font-size:16px;transition:transform 0.2s;">&#x203A;</span>';
+    '<span id="pillBadge_' + task.id + '" style="font-size:10px;padding:3px 8px;border-radius:20px;font-weight:700;background:' + (hasRealBot ? pillBg : 'rgba(100,116,139,0.2)') + ';color:' + (hasRealBot ? pillColor : 'rgba(255,255,255,0.3)') + ';flex-shrink:0;">' + pillLabel + '</span>' +
+    '<div style="flex:1;min-width:0;">' +
+      '<div style="color:white;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + task.name + '</div>' +
+      '<div id="headerSub_' + task.id + '" style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:2px;">' +
+        stockDisplay +
+        (noteIT ? ' · ' + noteIT.replace(/^(fai|hai|stock ok · |prepara oggi · )/i, '').substring(0, 40) : '') +
+      '</div>' +
+    '</div>' +
+    '<span id="prepArrow_' + task.id + '" style="color:rgba(255,255,255,0.25);font-size:16px;transition:transform 0.2s;">&#x203A;</span>';
 
   // ── Body ──
   var body = document.createElement('div');
-  body.id = 'prepBody_'+task.id;
+  body.id = 'prepBody_' + task.id;
   body.style.cssText = 'display:none;border-top:0.5px solid rgba(255,255,255,0.07);padding:14px;';
 
-  // Serializza dati task per il ricalcolo live
-  var td = {
-    id: task.id, unit: task.unit||'g',
-    current_stock: parseFloat(task.current_stock)||0,
-    shelf_life: shelfLife,
-    base_weight_g: rec?(parseFloat(rec.base_weight_g)||0):0,
-    base_servings: rec?(parseInt(rec.base_servings)||1):1,
-    serving_qty: rec?(parseFloat(rec.serving_qty)||0):0,
-    serving_unit: rec?(rec.serving_unit||''):'',
-    suggested_qty: parseFloat(task.suggested_qty)||0,
-    note_color: noteColor, note_it: noteIT, note_en: noteEN, note_es: noteES,
-    recipe_id: rec?rec.id:null, pos_name: rec?(rec.pos_name||''):''
-  };
+  // Helper to build a static read-only row
+  function staticRow(label, value, valueColor) {
+    var c = valueColor || 'rgba(255,255,255,0.7)';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid rgba(255,255,255,0.05);">' +
+      '<span style="color:rgba(255,255,255,0.4);font-size:12px;">' + label + '</span>' +
+      '<span style="color:' + c + ';font-size:13px;font-weight:600;text-align:right;">' + value + '</span>' +
+    '</div>';
+  }
 
-  // Funzione per costruire una riga editabile inline
-  // label = stringa, val = valore attuale, inputId, inputType, opts = {step,min,max,hint,choices,unit}
-  function editRow(label, inputId, inputType, val, opts) {
-    opts = opts||{};
-    var hint = opts.hint ? '<div style="color:rgba(255,255,255,0.2);font-size:10px;margin-top:3px;">'+opts.hint+'</div>' : '';
+  // Helper to build an editable config row (for recipe params only — NOT for quantities)
+  function editRowConfig(label, inputId, inputType, val, opts) {
+    opts = opts || {};
+    var hint = opts.hint ? '<div style="color:rgba(255,255,255,0.2);font-size:10px;margin-top:3px;">' + opts.hint + '</div>' : '';
     var inputStyle = 'background:rgba(255,255,255,0.08);border:1.5px solid rgba(255,255,255,0.18);border-radius:8px;color:white;font-size:14px;font-weight:700;padding:5px 8px;text-align:right;outline:none;';
     var inp = '';
-    if (inputType==='select' && opts.choices) {
-      inp = '<select id="'+inputId+'" onchange="botLiveCalc('+task.id+')" style="'+inputStyle+'cursor:pointer;">';
-      opts.choices.forEach(function(c){
-        inp += '<option value="'+c+'"'+(String(val)===String(c)?' selected':'')+'>'+c+'</option>';
+    if (inputType === 'select' && opts.choices) {
+      inp = '<select id="' + inputId + '" style="' + inputStyle + 'cursor:pointer;">';
+      opts.choices.forEach(function(c) {
+        inp += '<option value="' + c + '"' + (String(val) === String(c) ? ' selected' : '') + '>' + c + '</option>';
       });
       inp += '</select>';
     } else {
-      var step = opts.step ? ' step="'+opts.step+'"' : '';
-      var min  = opts.min!=null ? ' min="'+opts.min+'"' : '';
-      var max  = opts.max!=null ? ' max="'+opts.max+'"' : '';
-      var w    = inputType==='number' ? 'width:80px;' : 'width:140px;';
-      inp = '<input id="'+inputId+'" type="'+inputType+'" value="'+(val||'')+'" '+
-        'oninput="botLiveCalc('+task.id+')"'+step+min+max+
-        'style="'+inputStyle+w+'">';
+      var step = opts.step ? ' step="' + opts.step + '"' : '';
+      var min  = opts.min != null ? ' min="' + opts.min + '"' : '';
+      var max  = opts.max != null ? ' max="' + opts.max + '"' : '';
+      var w    = inputType === 'number' ? 'width:80px;' : 'width:140px;';
+      inp = '<input id="' + inputId + '" type="' + inputType + '" value="' + (val || '') + '" ' +
+        step + min + max +
+        'style="' + inputStyle + w + '">';
     }
-    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid rgba(255,255,255,0.05);">'+
-      '<div>'+
-        '<span style="color:rgba(255,255,255,0.4);font-size:12px;">'+label+'</span>'+
-        hint+
-      '</div>'+
-      inp+
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid rgba(255,255,255,0.05);">' +
+      '<div>' +
+        '<span style="color:rgba(255,255,255,0.4);font-size:12px;">' + label + '</span>' +
+        hint +
+      '</div>' +
+      inp +
     '</div>';
   }
 
   var bodyHTML = '';
 
-  // ── RISULTATO LIVE (in cima, grande) ──
+  // ── SEZIONE 1: RISULTATO BOT REALE ──────────────────────────────────
+  // Source: prep_tasks.suggested_note / suggested_qty / suggested_at / suggested_by
+  // logicSource: real_bot_v41_result
+  var realBotColor = hasRealBot ? pillColor : 'rgba(255,255,255,0.2)';
+  var realBotBg    = hasRealBot ? pillBg : 'rgba(255,255,255,0.03)';
+  var realBotBorder = hasRealBot ? pillColor : 'rgba(255,255,255,0.1)';
+
   bodyHTML +=
-    '<div id="liveResult_'+task.id+'" style="background:rgba(255,255,255,0.06);border:2px solid '+pillColor+';border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
-      '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">👁 Preview risultato bot</div>'+
-      '<div id="liveQty_'+task.id+'" style="color:'+pillColor+';font-size:22px;font-weight:800;margin-bottom:6px;">'+
-      (function(){
-        if(task.suggested_qty) return '✅ OK — '+task.suggested_qty+' '+task.unit+' in casa';
-        var s=parseFloat(task.current_stock)||0;
-        if(s>0) return '✅ OK — '+Math.round(s)+' '+(task.unit||'g')+' in casa';
-        return '— '+(task.unit||'');
-      })()+
-      '</div>'+
-      '<div id="liveIt_'+task.id+'"  style="color:#86efac;font-size:12px;margin-bottom:2px;">🇮🇹 '+noteIT+'</div>'+
-      '<div id="liveEn_'+task.id+'"  style="color:#93c5fd;font-size:12px;margin-bottom:2px;">🇺🇸 '+noteEN+'</div>'+
-      '<div id="liveEs_'+task.id+'"  style="color:#fbbf24;font-size:12px;">🇪🇸 '+noteES+'</div>'+
-    '</div>';
+    '<div style="background:' + realBotBg + ';border:1.5px solid ' + realBotBorder + ';border-radius:12px;padding:12px 14px;margin-bottom:14px;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+        '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">🤖 Risultato bot reale</div>' +
+        '<div style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.2);letter-spacing:.05em;">logicSource: real_bot_v41_result</div>' +
+      '</div>';
 
-  // ── CAMPI EDITABILI ──
-  bodyHTML += editRow('Stock attuale ('+task.unit+')', 'f_stock_'+task.id, 'number',
-    task.current_stock||0, {min:0, step:'any', hint:'Cambia → la preview si aggiorna subito'});
+  if (hasRealBot) {
+    var sugQty = task.suggested_qty != null ? botFmtValue(task.suggested_qty, task.unit) : '—';
+    var runAt = task.suggested_at
+      ? (function() {
+          try {
+            var d = new Date(task.suggested_at);
+            var cdt = new Date(d.getTime() - 5 * 60 * 60 * 1000);
+            return cdt.toISOString().slice(0,10) + ' ' +
+              String(cdt.getUTCHours()).padStart(2,'0') + ':' +
+              String(cdt.getUTCMinutes()).padStart(2,'0') + ' CDT';
+          } catch(e) { return task.suggested_at; }
+        })()
+      : '—';
 
-  bodyHTML += editRow('Shelf life (giorni)', 'f_shelf_'+task.id, 'number',
-    shelfLife, {min:1, max:60, hint:'Quanti giorni guarda avanti il bot'});
-
-  bodyHTML += editRow('Tipo prep', 'f_preptype_'+task.id, 'select',
-    task.prep_type||'supporto', {choices:['finale','supporto']});
-
-  bodyHTML += editRow('Unità inventario', 'f_unit_'+task.id, 'select',
-    task.unit||'g', {choices:['g','pezzi','pz','buste','cup','nests','kg','cartocci']});
-
-  if (rec) {
-    bodyHTML += editRow('Serving qty ('+( rec.serving_unit||'unità')+'/porzione)', 'f_servqty_'+task.id, 'number',
-      rec.serving_qty||'', {min:0, step:0.5, hint:'Spinaci=1cup. Fettuccine=2nests. Lobster=1coda.'});
-
-    bodyHTML += editRow('Serving unit', 'f_servunit_'+task.id, 'select',
-      rec.serving_unit||'g', {choices:['g','cup','nests','pezzi','filetto','porzione','buste']});
-
-    bodyHTML += editRow('Peso batch in grammi', 'f_bw_'+task.id, 'number',
-      rec.base_weight_g||'', {min:1, hint:'1 batch = N grammi. Arrabbiata=3185g.'});
-
-    bodyHTML += editRow('Porzioni base', 'f_basesrv_'+task.id, 'number',
-      rec.base_servings||'', {min:1, hint:'Quante porzioni fa 1 batch'});
+    bodyHTML +=
+      staticRow('Pill', '<span style="background:' + pillBg + ';color:' + pillColor + ';padding:2px 8px;border-radius:20px;font-weight:700;">' + noteColor.toUpperCase() + '</span>', null) +
+      staticRow('Suggested qty', sugQty, pillColor) +
+      staticRow('🇮🇹 IT', noteIT || '—', '#86efac') +
+      staticRow('🇺🇸 EN', noteEN || '—', '#93c5fd') +
+      staticRow('🇪🇸 ES', noteES || '—', '#fbbf24') +
+      staticRow('Run at (CDT)', runAt, 'rgba(255,255,255,0.4)') +
+      staticRow('Run by', task.suggested_by || '—', 'rgba(255,255,255,0.3)');
+  } else {
+    bodyHTML +=
+      '<div style="color:rgba(255,255,255,0.3);font-size:12px;padding:6px 0;">Il bot non ha ancora girato per questa prep.<br>' +
+      '<span style="font-size:11px;color:rgba(255,255,255,0.2);">Il bot gira ogni notte alle 4:00 AM CDT.</span></div>';
   }
 
-  // POS alias — visualizza + aggiungi/rimuovi
+  bodyHTML += '</div>';
+
+  // ── SEZIONE 2: SIMULAZIONE TRUSTED (bot_debug_runs) ─────────────────
+  // Source: bot-preplist-sim → bot_debug_runs
+  // logicSource: bot_debug_sim_v6
+  // Loaded async after card is expanded
   bodyHTML +=
-    '<div style="padding:6px 0;border-bottom:0.5px solid rgba(255,255,255,0.05);">'+
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
-        '<span style="color:rgba(255,255,255,0.4);font-size:12px;">POS alias (vendite collegate)</span>'+
-        '<span style="color:rgba(255,255,255,0.25);font-size:10px;">Il bot legge queste voci dal POS</span>'+
-      '</div>'+
-      '<div id="posAliasTags_'+task.id+'" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;">';
-  posAliases.forEach(function(a,i){
-    bodyHTML += '<div style="display:inline-flex;align-items:center;gap:3px;background:rgba(59,130,246,0.15);border:0.5px solid rgba(147,197,253,0.3);border-radius:20px;padding:3px 8px;">'+
-      '<span style="color:#93c5fd;font-size:11px;">'+a+'</span>'+
-      '<button onclick="botRemovePosAlias('+task.id+','+i+')" style="background:none;border:none;color:rgba(147,197,253,0.4);font-size:12px;cursor:pointer;padding:0;line-height:1;">&#x2715;</button>'+
+    '<div style="background:rgba(59,130,246,0.05);border:1.5px solid rgba(59,130,246,0.2);border-radius:12px;padding:12px 14px;margin-bottom:14px;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+        '<div style="color:rgba(147,197,253,0.7);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">📊 Simulazione trusted</div>' +
+        '<div style="font-size:9px;font-weight:700;color:rgba(147,197,253,0.3);letter-spacing:.05em;">logicSource: bot_debug_sim_v6</div>' +
+      '</div>' +
+      '<div id="simData_' + task.id + '" style="color:rgba(255,255,255,0.25);font-size:11px;">Caricamento...</div>' +
+    '</div>';
+
+  // ── SEZIONE 3: STOCK ATTUALE (DB read) ──────────────────────────────
+  // stockSource: current_stock_db
+  var stockVal = task.current_stock !== null ? botFmtValue(task.current_stock, task.unit) : null;
+  bodyHTML +=
+    '<div style="background:rgba(255,255,255,0.03);border:0.5px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px;margin-bottom:14px;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+        '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">📦 Stock attuale</div>' +
+        '<div style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.2);letter-spacing:.05em;">stockSource: current_stock_db</div>' +
+      '</div>' +
+      (stockVal
+        ? staticRow('current_stock', stockVal, '#22c55e')
+        : '<div style="color:rgba(239,68,68,0.7);font-size:12px;">stock NULL — il bot salta questa prep</div>') +
+      staticRow('Unità', task.unit || '—', 'rgba(255,255,255,0.5)') +
+      staticRow('Prep type', task.prep_type || '—', 'rgba(255,255,255,0.5)') +
+    '</div>';
+
+  // ── SEZIONE 4: CONFIGURAZIONE BOT (editable — recipe params only) ────
+  // These are INPUT parameters for the bot, not calculation outputs.
+  // Editing these changes what the bot will use next time it runs.
+  bodyHTML +=
+    '<div style="background:rgba(255,255,255,0.03);border:0.5px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px;margin-bottom:14px;">' +
+      '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">⚙️ Configurazione bot (parametri input)</div>';
+
+  bodyHTML += editRowConfig('Tipo prep', 'f_preptype_' + task.id, 'select',
+    task.prep_type || 'supporto', { choices: ['finale', 'supporto'] });
+
+  bodyHTML += editRowConfig('Unità inventario', 'f_unit_' + task.id, 'select',
+    task.unit || 'g', { choices: ['g', 'pezzi', 'pz', 'buste', 'cup', 'nests', 'kg', 'cartocci'] });
+
+  if (rec) {
+    bodyHTML += editRowConfig('Serving qty (' + (rec.serving_unit || 'unità') + '/porzione)', 'f_servqty_' + task.id, 'number',
+      rec.serving_qty || '', { min: 0, step: 0.5, hint: 'Spinaci=1cup. Fettuccine=2nests. Lobster=1coda.' });
+
+    bodyHTML += editRowConfig('Serving unit', 'f_servunit_' + task.id, 'select',
+      rec.serving_unit || 'g', { choices: ['g', 'cup', 'nests', 'pezzi', 'filetto', 'porzione', 'buste'] });
+
+    bodyHTML += editRowConfig('Peso batch (grammi)', 'f_bw_' + task.id, 'number',
+      rec.base_weight_g || '', { min: 1, hint: '1 batch = N grammi. Es. Arrabbiata=3185g.' });
+
+    bodyHTML += editRowConfig('Porzioni base', 'f_basesrv_' + task.id, 'number',
+      rec.base_servings || '', { min: 1, hint: 'Quante porzioni fa 1 batch.' });
+
+    bodyHTML += editRowConfig('Shelf life (giorni)', 'f_shelf_' + task.id, 'number',
+      (rec.shelf_life_days || task.expected_duration_days || ''), { min: 1, max: 365, hint: 'Usato dal bot per calcolare la finestra di copertura.' });
+  }
+
+  bodyHTML += '</div>';
+
+  // ── SEZIONE 5: POS ALIAS ─────────────────────────────────────────────
+  bodyHTML +=
+    '<div style="padding:6px 0;border-bottom:0.5px solid rgba(255,255,255,0.05);margin-bottom:14px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+        '<span style="color:rgba(255,255,255,0.4);font-size:12px;">POS alias (vendite collegate)</span>' +
+        '<span style="color:rgba(255,255,255,0.25);font-size:10px;">Il bot legge queste voci dal POS</span>' +
+      '</div>' +
+      '<div id="posAliasTags_' + task.id + '" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;">';
+
+  posAliases.forEach(function(a, i) {
+    bodyHTML +=
+      '<div style="display:inline-flex;align-items:center;gap:3px;background:rgba(59,130,246,0.15);border:0.5px solid rgba(147,197,253,0.3);border-radius:20px;padding:3px 8px;">' +
+        '<span style="color:#93c5fd;font-size:11px;">' + a + '</span>' +
+        '<button onclick="botRemovePosAlias(' + task.id + ',' + i + ')" style="background:none;border:none;color:rgba(147,197,253,0.4);font-size:12px;cursor:pointer;padding:0;line-height:1;">&#x2715;</button>' +
       '</div>';
   });
-  bodyHTML +=
-      '</div>'+
-      '<div style="display:flex;gap:6px;">'+
-        '<select id="posAliasInput_'+task.id+'" '+
-          'onfocus="botLoadPosDropdown('+task.id+')" '+
-          'style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(147,197,253,0.25);border-radius:8px;font-size:12px;color:white;cursor:pointer;">'+
-          '<option value="">— Seleziona dal POS —</option>'+
-        '</select>'+
-        '<button onclick="botAddPosAlias('+task.id+')" style="padding:6px 10px;background:rgba(59,130,246,0.2);border:1px solid rgba(147,197,253,0.3);border-radius:8px;color:#93c5fd;font-size:12px;font-weight:700;cursor:pointer;">+ Add</button>'+
-      '</div>'+
-    '</div>';
-
-  // Testi preplist IT/EN/ES
-  bodyHTML +=
-    '<div style="padding:6px 0;">'+
-      '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">✍️ Testi preplist (lascia vuoto = bot li ricalcola)</div>'+
-      '<div style="display:flex;flex-direction:column;gap:6px;">'+
-        '<div style="display:flex;align-items:center;gap:6px;">'+
-          '<span style="font-size:14px;flex-shrink:0;">🇮🇹</span>'+
-          '<input id="f_noteit_'+task.id+'" type="text" value="'+noteIT.replace(/"/g,'&quot;')+'" placeholder="Testo italiano..." '+
-            'oninput="botLiveCalc('+task.id+')" style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(134,239,172,0.25);border-radius:8px;font-size:12px;color:#86efac;">'+
-        '</div>'+
-        '<div style="display:flex;align-items:center;gap:6px;">'+
-          '<span style="font-size:14px;flex-shrink:0;">🇺🇸</span>'+
-          '<input id="f_noteen_'+task.id+'" type="text" value="'+noteEN.replace(/"/g,'&quot;')+'" placeholder="English text..." '+
-            'oninput="botLiveCalc('+task.id+')" style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(147,197,253,0.25);border-radius:8px;font-size:12px;color:#93c5fd;">'+
-        '</div>'+
-        '<div style="display:flex;align-items:center;gap:6px;">'+
-          '<span style="font-size:14px;flex-shrink:0;">🇪🇸</span>'+
-          '<input id="f_notees_'+task.id+'" type="text" value="'+noteES.replace(/"/g,'&quot;')+'" placeholder="Texto en español..." '+
-            'oninput="botLiveCalc('+task.id+')" style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(251,191,36,0.25);border-radius:8px;font-size:12px;color:#fbbf24;">'+
-        '</div>'+
-      '</div>'+
-    '</div>';
 
   bodyHTML +=
-    '<button id="saveBtn_'+task.id+'" onclick="botSaveTask('+task.id+')" '+
-      'style="width:100%;padding:13px;background:linear-gradient(135deg,#f59e0b,#d97706);border:none;border-radius:12px;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;">'+
-      '💾 Salva sul DB'+
-    '</button>'+
-    '<div id="saveMsg_'+task.id+'" style="display:none;"></div>';
+      '</div>' +
+      '<div style="display:flex;gap:6px;">' +
+        '<select id="posAliasInput_' + task.id + '" ' +
+          'onfocus="botLoadPosDropdown(' + task.id + ')" ' +
+          'style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(147,197,253,0.25);border-radius:8px;font-size:12px;color:white;cursor:pointer;">' +
+          '<option value="">— Seleziona dal POS —</option>' +
+        '</select>' +
+        '<button onclick="botAddPosAlias(' + task.id + ')" style="padding:6px 10px;background:rgba(59,130,246,0.2);border:1px solid rgba(147,197,253,0.3);border-radius:8px;color:#93c5fd;font-size:12px;font-weight:700;cursor:pointer;">+ Add</button>' +
+      '</div>' +
+    '</div>';
+
+  // ── SAVE BUTTON — saves recipe config params only ────────────────────
+  // Does NOT save suggested_note or any calculated quantity
+  bodyHTML +=
+    '<button id="saveBtn_' + task.id + '" onclick="botSaveTask(' + task.id + ')" ' +
+      'style="width:100%;padding:13px;background:linear-gradient(135deg,#f59e0b,#d97706);border:none;border-radius:12px;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;">' +
+      '💾 Salva configurazione bot' +
+    '</button>' +
+    '<div id="saveMsg_' + task.id + '" style="display:none;"></div>';
 
   body.innerHTML = bodyHTML;
 
-  // Attacca dati task al body per botLiveCalc
-  body.dataset.task = JSON.stringify(td);
+  // Serializza solo i dati statici necessari a botSaveTask (recipe config, pos_name)
+  body.dataset.task = JSON.stringify({
+    id: task.id,
+    unit: task.unit || 'g',
+    prep_type: task.prep_type || 'supporto',
+    recipe_id: rec ? rec.id : null,
+    pos_name: rec ? (rec.pos_name || '') : '',
+    serving_qty: rec ? (parseFloat(rec.serving_qty) || 0) : 0,
+    serving_unit: rec ? (rec.serving_unit || '') : '',
+    base_weight_g: rec ? (parseFloat(rec.base_weight_g) || 0) : 0,
+    base_servings: rec ? (parseInt(rec.base_servings) || 1) : 1,
+    shelf_life: rec ? (rec.shelf_life_days || task.expected_duration_days || 3) : (task.expected_duration_days || 3)
+  });
 
-  // Toggle expand
+  // Toggle expand — carica sim data solo alla prima apertura
   var expanded = false;
+  var simLoaded = false;
   header.addEventListener('click', function() {
     expanded = !expanded;
     body.style.display = expanded ? 'block' : 'none';
-    var arrow = document.getElementById('prepArrow_'+task.id);
+    var arrow = document.getElementById('prepArrow_' + task.id);
     if (arrow) arrow.style.transform = expanded ? 'rotate(90deg)' : '';
+
+    // Carica sim data la prima volta che la card si apre
+    if (expanded && !simLoaded) {
+      simLoaded = true;
+      var simEl = document.getElementById('simData_' + task.id);
+      window.botLoadSimData(task.name).then(function(sim) {
+        if (!simEl) return;
+        if (!sim) {
+          simEl.innerHTML =
+            '<div style="color:rgba(147,197,253,0.4);font-size:12px;">Nessun dato di simulazione disponibile.</div>' +
+            '<div style="font-size:10px;color:rgba(255,255,255,0.2);margin-top:4px;">Esegui Bot Debug per dettagli — Admin → Bot Debug → Aggiorna simulazione.</div>';
+          return;
+        }
+        var pill = sim.pill || 'green';
+        var pc = pill === 'red' ? '#ef4444' : pill === 'yellow' ? '#eab308' : '#22c55e';
+        var rows = [
+          ['Stock reale',    botFmtValue(sim.current_stock,  sim.unit)],
+          ['Venduto ieri',   sim.sold_yesterday ? '−' + botFmtValue(sim.sold_yesterday, sim.unit) : '—'],
+          ['Stock presunto', botFmtValue(sim.stock_presunto, sim.unit)],
+          ['Fabbisogno raw', botFmtValue(sim.fabbisogno_raw, sim.unit)],
+          ['Suggestion',     sim.suggestion_text || '—'],
+          ['Percorso',       sim.percorso || '—'],
+          ['Sim date',       sim.sim_date || '—']
+        ];
+        var html =
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
+            '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:rgba(59,130,246,0.15);color:' + pc + ';">' + pill.toUpperCase() + '</span>' +
+            '<span style="font-size:13px;font-weight:700;color:' + pc + ';">' + (sim.suggestion_text || '—') + '</span>' +
+          '</div>';
+        rows.forEach(function(r) {
+          html +=
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(255,255,255,0.05);">' +
+              '<span style="color:rgba(147,197,253,0.5);font-size:11px;">' + r[0] + '</span>' +
+              '<span style="color:rgba(255,255,255,0.7);font-size:12px;font-weight:600;text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;">' + r[1] + '</span>' +
+            '</div>';
+        });
+        simEl.innerHTML = html;
+      }).catch(function() {
+        if (simEl) simEl.innerHTML = '<div style="color:rgba(239,68,68,0.5);font-size:11px;">Errore caricamento sim.</div>';
+      });
+    }
   });
 
   card.appendChild(header);
   card.appendChild(body);
   return card;
 }
-
-// ── Ricalcolo live — gira ogni volta che l'utente tocca un campo ──
-window.botLiveCalc = function(tid) {
-  var body = document.getElementById('prepBody_'+tid);
-  if (!body || !body.dataset.task) return;
-  var d = {}; try { d = JSON.parse(body.dataset.task); } catch(e){ return; }
-
-  var stock   = parseFloat(document.getElementById('f_stock_'+tid)?.value)   || 0;
-  var shelf   = parseInt(document.getElementById('f_shelf_'+tid)?.value)     || d.shelf_life || 3;
-  var servQty = parseFloat(document.getElementById('f_servqty_'+tid)?.value) || d.serving_qty || 0;
-  var bw      = parseFloat(document.getElementById('f_bw_'+tid)?.value)      || d.base_weight_g || 0;
-  var baseSrv = parseInt(document.getElementById('f_basesrv_'+tid)?.value)   || d.base_servings || 1;
-  var unit    = (document.getElementById('f_unit_'+tid)?.value || d.unit || 'g').toLowerCase();
-  var manIt   = document.getElementById('f_noteit_'+tid)?.value || '';
-  var manEn   = document.getElementById('f_noteen_'+tid)?.value || '';
-  var manEs   = document.getElementById('f_notees_'+tid)?.value || '';
-
-  // Ricalcola fabbisogno REALE dal DB — stesso calcolo del bot
-  // Legge vendite per giorno settimana e calcola i prossimi N giorni
-  // Lancia async e aggiorna preview quando arriva
-  botLiveCalcAsync(tid, stock, shelf, servQty, bw, baseSrv, unit, manIt, manEn, manEs, d);
-};
-
-window.botLiveCalcAsync = async function(tid, stock, shelf, servQty, bw, baseSrv, unit, manIt, manEn, manEs, d) {
-  var sb = window.supa;
-  var body = document.getElementById('prepBody_'+tid);
-
-  // Mostra "Calcolo in corso..." nella preview
-  var liveQty = document.getElementById('liveQty_'+tid);
-  if (liveQty) { liveQty.textContent = '⏳ Ricalcolo...'; liveQty.style.color = 'rgba(255,255,255,0.4)'; }
-
-  var needed = 0;
-
-  // Prova a caricare vendite reali dal DB
-  try {
-    if (sb && d.pos_name) {
-      var posNames = d.pos_name.split('|').filter(Boolean);
-
-      // Leggi vendite storiche ultime 90 giorni
-      var ninetyAgo = new Date();
-      ninetyAgo.setDate(ninetyAgo.getDate() - 90);
-      var since = ninetyAgo.toISOString().slice(0,10);
-
-      var { data: sales } = await sb
-        .from('pos_sales_by_item')
-        .select('sale_date, quantity, menu_item')
-        .in('menu_item', posNames)
-        .gte('sale_date', since);
-
-      if (sales && sales.length > 0) {
-        // Calcola media per giorno settimana (escludi domenica)
-        var dowTotals = {1:0,2:0,3:0,4:0,5:0,6:0}; // lun-sab
-        var dowCounts = {1:0,2:0,3:0,4:0,5:0,6:0};
-        sales.forEach(function(s) {
-          var dow = new Date(s.sale_date).getDay(); // 0=dom
-          if (dow > 0) {
-            dowTotals[dow] = (dowTotals[dow]||0) + (parseFloat(s.quantity)||0);
-            dowCounts[dow] = (dowCounts[dow]||0) + 1;
-          }
-        });
-        var dowAvg = {};
-        for (var k in dowTotals) {
-          dowAvg[k] = dowCounts[k] > 0 ? dowTotals[k] / dowCounts[k] : 0;
-        }
-
-        // Calcola prossimi N giorni (shelf_life, salta domenica)
-        var today = new Date();
-        var futureDays = [];
-        var d2 = new Date(today);
-        while (futureDays.length < shelf) {
-          if (d2.getDay() !== 0) futureDays.push(d2.getDay());
-          d2.setDate(d2.getDate() + 1);
-        }
-
-        // Calcola consumo totale
-        futureDays.forEach(function(dow) {
-          var avgPortions = dowAvg[dow] || 0;
-          // Converti porzioni in unità inventario
-          needed += avgPortions * servQty;
-        });
-      }
-    }
-  } catch(e) {
-    console.warn('[botLiveCalc] DB error:', e.message);
-  }
-
-  // Se non ho dati vendite, usa il valore suggerito dal bot come fallback
-  if (needed === 0 && d.suggested_qty > 0) {
-    // Scala proporzionalmente se serving_qty è cambiato
-    needed = d.suggested_qty;
-    if (d.serving_qty && servQty > 0 && servQty !== d.serving_qty) {
-      needed = needed * (servQty / d.serving_qty);
-    }
-    if (d.shelf_life && shelf !== d.shelf_life) {
-      needed = needed * (shelf / d.shelf_life);
-    }
-  }
-
-  var neededWithBuffer = needed * 1.1; // +10% buffer
-
-  // Determina colore e quantità da suggerire
-  var color = 'green';
-  var toMake = 0;
-  if (stock <= 0 && neededWithBuffer > 0) {
-    color='red'; toMake=neededWithBuffer;
-  } else if (neededWithBuffer > 0 && stock < neededWithBuffer*0.40) {
-    color='red'; toMake=neededWithBuffer-stock;
-  } else if (neededWithBuffer > 0 && stock < neededWithBuffer*0.80) {
-    color='yellow'; toMake=neededWithBuffer-stock;
-  } else {
-    color='green';
-  }
-
-  // Formatta quantità in unità corrette
-  var isPezzi = ['pezzi','pz','buste','cartocci'].includes(unit);
-  var isNests = unit === 'nests';
-  var isCup   = unit === 'cup';
-  var qtyStr  = '';
-  var displayQty = 0;
-
-  if (color==='green') {
-    // Mostra stock disponibile
-    if (isPezzi) { qtyStr = Math.round(stock)+' '+unit+' in casa'; displayQty = Math.round(stock); }
-    else if (isCup) { qtyStr = stock+' cup in casa'; displayQty = stock; }
-    else if (isNests) { qtyStr = Math.round(stock)+' nests in casa'; displayQty = Math.round(stock); }
-    else { qtyStr = stock>=1000?(stock/1000).toFixed(1).replace(/\.0$/,'')+'kg in casa':Math.round(stock)+'g in casa'; displayQty = stock; }
-  } else {
-    // Mostra quanto fare
-    if (isPezzi) {
-      var n = bw>1 ? Math.ceil(toMake/bw)*bw : Math.ceil(toMake);
-      qtyStr = 'fai '+Math.ceil(n)+' '+unit; displayQty = Math.ceil(n);
-    } else if (isCup) {
-      // Cup: non converte in grammi — rimane in cup
-      qtyStr = 'fai '+Math.ceil(toMake)+' cup'; displayQty = Math.ceil(toMake);
-    } else if (isNests) {
-      var nests = bw>0 ? Math.ceil(toMake/bw) : Math.ceil(toMake);
-      qtyStr = 'fai '+nests+' nests'; displayQty = nests;
-    } else {
-      var batches = bw>0 ? Math.ceil(toMake/bw) : 1;
-      var batchGrams = bw>0 ? batches*bw : toMake;
-      qtyStr = batchGrams>=1000?(batchGrams/1000).toFixed(1).replace(/\.0$/,'')+'kg':'fai '+Math.round(batchGrams)+'g';
-      if(bw>0 && batches>1) qtyStr += ' ('+batches+' batch)';
-      displayQty = batchGrams;
-    }
-  }
-
-  // Testi auto (usati solo se i campi manuali sono vuoti)
-  var autoIt, autoEn, autoEs;
-  var pillC = color==='red'?'#ef4444':color==='yellow'?'#eab308':'#22c55e';
-  var pillBg = color==='red'?'rgba(239,68,68,0.15)':color==='yellow'?'rgba(234,179,8,0.15)':'rgba(34,197,94,0.15)';
-
-  if (color==='green') {
-    autoIt=qtyStr; autoEn=qtyStr.replace('in casa','on hand'); autoEs=qtyStr.replace('in casa','en casa');
-  } else if (color==='red') {
-    autoIt='Prepara oggi · '+qtyStr; autoEn='Prep today · '+qtyStr.replace('fai ','make '); autoEs='Prepara hoy · '+qtyStr.replace('fai ','haz ');
-  } else {
-    autoIt='Stock basso · '+qtyStr; autoEn='Low stock · '+qtyStr.replace('fai ','make '); autoEs='Stock bajo · '+qtyStr.replace('fai ','haz ');
-  }
-
-  // Aggiorna DOM
-  var liveResult = document.getElementById('liveResult_'+tid);
-  var liveQty    = document.getElementById('liveQty_'+tid);
-  var liveIt     = document.getElementById('liveIt_'+tid);
-  var liveEn     = document.getElementById('liveEn_'+tid);
-  var liveEs     = document.getElementById('liveEs_'+tid);
-  var pillBadge  = document.getElementById('pillBadge_'+tid);
-  var headerSub  = document.getElementById('headerSub_'+tid);
-
-  if (liveResult) liveResult.style.borderColor = pillC;
-  if (liveQty)   { liveQty.textContent = color==='green'?'✅ OK — '+qtyStr:'Suggerito: '+qtyStr; liveQty.style.color = pillC; }
-  if (liveIt)    liveIt.textContent  = '🇮🇹 '+(manIt||autoIt);
-  if (liveEn)    liveEn.textContent  = '🇺🇸 '+(manEn||autoEn);
-  if (liveEs)    liveEs.textContent  = '🇪🇸 '+(manEs||autoEs);
-  if (pillBadge) { pillBadge.textContent=color.toUpperCase(); pillBadge.style.background=pillBg; pillBadge.style.color=pillC; }
-  if (headerSub) headerSub.textContent = stock+' '+(document.getElementById('f_unit_'+tid)?.value||d.unit);
-
-  // Salva colore corrente nel dataset per il save
-  body.dataset.liveColor = color;
-  body.dataset.liveIt    = manIt||autoIt;
-  body.dataset.liveEn    = manEn||autoEn;
-  body.dataset.liveEs    = manEs||autoEs;
-};
-
 // POS alias — aggiungi/rimuovi
 // Carica nomi POS nel dropdown quando si apre
 window.botLoadPosDropdown = async function(tid) {
@@ -2980,22 +2768,14 @@ window.botSaveTask = async function(tid) {
 
     // 1. prep_tasks: current_stock, unit, prep_type
     var taskUpdate = {};
-    var stockV = parseFloat(document.getElementById('f_stock_'+tid)?.value);
     var unitV  = document.getElementById('f_unit_'+tid)?.value;
     var typeV  = document.getElementById('f_preptype_'+tid)?.value;
-    if(!isNaN(stockV) && stockV>=0) { taskUpdate.current_stock=stockV; saved.push('stock '+stockV); }
+    // NOTE: current_stock is not edited here — use prep.js DONE flow to update stock
     if(unitV) { taskUpdate.unit=unitV; saved.push('unit '+unitV); }
     if(typeV) { taskUpdate.prep_type=typeV; saved.push('tipo '+typeV); }
 
-    // Testi e colore dalla preview live
-    var liveColor = body?.dataset.liveColor || d.note_color || 'green';
-    var liveIt    = body?.dataset.liveIt || '';
-    var liveEn    = body?.dataset.liveEn || '';
-    var liveEs    = body?.dataset.liveEs || '';
-    if(liveIt||liveEn||liveEs){
-      taskUpdate.suggested_note = liveColor+'|'+liveIt+'|'+liveEn+'|'+liveEs;
-      saved.push('testo preplist');
-    }
+    // NOTE: suggested_note is written ONLY by the real bot (bot-preplist-builder v41).
+    // The Costruttore Preplist UI never writes suggested_note — it only reads it.
 
     if(Object.keys(taskUpdate).length>0){
       var {error:te} = await sb.from('prep_tasks').update(taskUpdate).eq('id',tid);
