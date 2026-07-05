@@ -328,6 +328,9 @@ async function openPrepEditor(prep=null){
         // 6. Costruisci il reasoning HTML
         const fmt = g => g >= 1000 ? (g/1000).toFixed(1)+'kg' : Math.round(g)+'g';
         const stock = parseFloat(prep.current_stock||0);
+        // Per unità fisiche (pezzi/pz/porzione) i valori devono essere interi — mai decimali
+        const isPhysUnit = ['pezzi','pz','porzione'].includes((unit||'').toLowerCase());
+        const roundIfPhys = v => isPhysUnit ? Math.round(v) : v;
 
         // Raggruppa le "righe di consumo"
         const consumoLines = [];
@@ -337,7 +340,7 @@ async function openPrepEditor(prep=null){
         directPosNames.forEach(pn => {
           const sold = (salesYd[pn]||0) + (salesModYd[pn]||0);
           const consumoUnit = sw > 0 ? sw : (bw > 0 && bs > 0 ? bw/bs : 1);
-          const consumoG = sold * consumoUnit;
+          const consumoG = roundIfPhys(sold * consumoUnit);
           consumoLines.push({name: pn, sold, consumoG, via: 'pos_diretto'});
           totalConsumoG += consumoG;
         });
@@ -347,7 +350,7 @@ async function openPrepEditor(prep=null){
           const pParentNames = (p.parent.pos_name||'').split('|').map(s=>s.trim()).filter(Boolean);
           const parentSold = pParentNames.reduce((sum,pn) => sum + (salesYd[pn]||0) + (salesModYd[pn]||0), 0);
           const qtyPerVendita = parseFloat(p.quantity||0);
-          const consumoG = parentSold * qtyPerVendita;
+          const consumoG = roundIfPhys(parentSold * qtyPerVendita);
           consumoLines.push({name: p.parent.title, sold: parentSold, qtyPerVendita, consumoG, via: 'sub_recipe'});
           totalConsumoG += consumoG;
         });
@@ -399,7 +402,7 @@ async function openPrepEditor(prep=null){
           consumoLines.forEach(l => {
             const dots = '.'.repeat(Math.max(2, 28 - l.name.length));
             const soldStr = l.sold > 0 ? `<span style="color:#185fa5;font-weight:700;">${l.sold}</span>` : `<span style="color:#94a3b8;">0</span>`;
-            const qtyNote = l.via === 'sub_recipe' ? ` × ${l.qtyPerVendita}${unit==='g'?'g':''}` : (sw>0 ? ` × ${sw}g` : (bw>0&&bs>0 ? ` × ${Math.round(bw/bs)}g` : ''));
+            const qtyNote = l.via === 'sub_recipe' ? ` × ${roundIfPhys(l.qtyPerVendita)}${unit==='g'?'g':''}` : (sw>0 ? ` × ${sw}g` : (bw>0&&bs>0 ? ` × ${Math.round(bw/bs)}g` : ''));
             html += `${l.name} ${dots} ${soldStr}${qtyNote}<br>`;
           });
           html += `</div>`;
