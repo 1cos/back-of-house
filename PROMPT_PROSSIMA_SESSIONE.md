@@ -1882,3 +1882,162 @@ Problemi identificati dalla foto preplist:
 >
 > Leggi tutti i .md e sw.js da brigade-main all'inizio. Obiettivo: (1) ripristinare scritture su bot_preplist_log da v40, (2) debuggare conversione stock Berry coulis e Spaghetti, (3) verificare Chicken Parmesan base_weight_g, (4) testare sanity cap con average_qty popolato su alcuni task campione. Non toccare logica di calcolo — solo patch chirurgiche.
 
+
+
+---
+
+## SESSIONE 5 LUGLIO 2026 — v496→v505 — Audit Guardian Mode: riscrittura completa + fix BOM editor
+
+**Versione finale:** v505 frontend (boh-v505 in sw.js)
+**File modificati:** `js/prep.js`, `js/recipes.js`, `js/admin-prep.js`, `index.html`, `sw.js`
+**DB:** nessuna modifica (solo letture per audit)
+
+---
+
+### Contesto sessione
+
+Max aveva ~35 prep item che il bot non scalava o scalava in modo sospetto. La sessione ha costruito un sistema di audit diagnostico embedded nelle card prep (Audit Guardian Mode), poi lo ha iterato attraverso diverse versioni per risolvere contraddizioni architetturali e bug tecnici.
+
+---
+
+### Cronologia versioni
+
+**v496 — Audit Guardian Mode (prep.js)**
+Prima implementazione del panel audit embedded nelle card prep. Pulsante `🔍 Audit` visibile solo per admin. Panel on-demand: tap → carica → mostra. Funzioni: `loadAuditData()`, `auditDiagnose()`, `toggleAuditPanel()`. Cache in `window._auditCache`.
+
+**v497 — BOT CONFIG in admin-prep.js**
+- Sezione "🤖 Campi usati dal Bot Preplist" nel modal edit prep task
+- "Serving qty — unità per porzione venduta" e selettore "Serving unit"
+- Campo si nasconde quando `unit=g` (non serve)
+- Esempi contestuali: Butter Spinach=2cup, Fettuccine=2nests, Lobster=1filetto, Arrabbiata=200g
+- Alert CRITICAL rosso se nessun link POS trovato
+
+**v498 — BOM editor recipes.js: warning inline + audit globale**
+- Blur listener nel BOM editor: quando l'utente digita un nome che matcha esattamente il titolo di una recipe esistente → banner arancione inline "⚠ Questo nome è una prep recipe — collegala come sub-recipe blu?"
+- `_auditExistingBOMRows()`: al caricamento editor BOM, flagga righe ITEM esistenti che matchano recipe title
+- `openBOMRecipeAudit()`: funzione globale, modal con tutti i casi DB, bottone "Converti → sub-recipe" (DELETE + INSERT con component_type='RECIPE')
+- Bottone "🔍 BOM Audit — trova ingredienti che sono ricette" in fondo all'editor (solo admin, solo su ricette esistenti)
+
+**v499 — Fix crash BOM audit + campo cerca prep**
+- **Bug fix:** `const {data: rows, error} = await supa.rpc ? null : null` destructurava `null` → crash. Riga rimossa.
+- **Campo cerca prep in index.html:** `<input id="prepSearch">` con icona 🔍, stile glass, posizionato tra stations bar e grid. `oninput` chiama `renderM()` con `window._prepSearchQuery`. `renderM()` in prep.js filtra per query su `i.name` combinato con il filtro stazione.
+
+**v500 — Audit: PARTIAL LINK / ITEM sbagliato / mancanti sospette, vendite ieri+avg 90gg**
+Riscrittura completa `loadAuditData`, `auditDiagnose`, `toggleAuditPanel`:
+- `recipeLinks`: ricette che usano questa prep come RECIPE (link corretto) ✅
+- `itemLinks`: ricette che usano l'ingrediente come ITEM (link sbagliato) ⚠
+- `missingLinks`: ricette sospette senza link (Salads/Soups/Antipasti + keyword title)
+- Vendite ieri + avg 90gg per ogni ricetta (query `pos_sales_by_item`)
+- Badge: ✅ OK / ⚠️ PARTIAL LINK / 🔴 ITEM sbagliato / 📭 POS mancante / 🚫 Stock NULL / 📋 BOM vuoto / ⚙️ Motore: cup/buste
+
+**v501 — [DECISIONE ARCHITETTURALE] Fonte dati unificata: computePrepBotDecision**
+**Problema critico identificato:** `init()` carica `prep_tasks` con `select('*')` senza join → `task.recipes` è sempre `undefined`. L'audit leggeva `task.recipes?.pos_name` → undefined → "POS name mancante" anche su Cremino che il bot scalava correttamente via "Chocolate Cremino|Italian Marble Cake".
+
+**Soluzione:** funzione `computePrepBotDecision(taskId)` — fonte di verità UNICA condivisa tra audit e bot:
+- Fa la STESSA query del bot: `prep_tasks` con join `recipes:recipe_id(id,title,pos_name,base_weight_g,base_servings,shelf_life_days,serving_weight_g,serving_unit,serving_qty)`
+- `pns` estratti dalla ricetta joinata (non dal task flat)
+- Determina `consumoPath`: `direct_pos` | `sub_recipe` | `direct_pos+sub_recipe` | `ingredient_id` | `none`
+- `loadAuditData` chiama `computePrepBotDecision`
+- `auditDiagnose` legge dal risultato
+- Zero query live a `pos_sales_by_item` dentro `computePrepBotDecision` (non serve — il bot ha già calcolato)
+
+**v502 — [DECISIONE ARCHITETTURALE] Audit legge run reale del bot, non simulazione**
+**Bug concettuale:** l'audit rifaceva il calcolo live ogni volta — ma "ieri alle 4AM" è diverso da "ieri alle 10AM". Risultato: valori divergenti tra bot e audit.
+
+**Principio nuovo:** il bot ha già scritto tutto su `prep_tasks`. L'audit lo legge:
+- `suggested_at` → timestamp esatto del run (convertito CDT: UTC-5)
+- `suggested_by` → versione bot (`bot-preplist-builder-v40`)
+- `suggested_note` → decisione completa (`color|it|en|es`)
+- `suggested_qty` → quantità calcolata
+
+**Run header** in cima al panel:
+```
+AUDIT BASATO SU RUN
+2026-07-04 06:23 CDT
+Sales window: 2026-07-03 · bot-preplist-builder-v40
+"Closed today/tomorrow - enough stock for Monday"
+→ Suggerisce: 8 pezzi
+```
+
+`salesDate` = `runAt - 1 giorno` (la finestra vendite del bot è "ieri rispetto al momento del run"). Nessuna query `pos_sales_by_item` dentro `computePrepBotDecision`.
+
+**v503 — Fix crash 400 PostgREST**
+**Bug:** `.select([...array...].join(','))` produceva `recipes:recipe_id(id,...base_servings  ,shelf_life_days,...)` con doppio spazio → PostgREST 400.
+**Fix:** stringa singola compatta, identica a quella usata dall'Edge Function bot: `.select('id,name,...,recipes:recipe_id(id,title,pos_name,base_weight_g,base_servings,shelf_life_days,serving_weight_g,serving_unit,serving_qty)')`
+
+**v504 — Audit: missingLinks keyword-filtered + badge OK quando bot scala**
+Due fix:
+1. **missingLinks troppo ampio** (24 ricette per Croutons): ora tokenizza il nome del task e cerca solo ricette il cui titolo contiene keyword semanticamente legate alla prep. Per Croutons → keyword set `{salad, caesar, house, mediterranean, tuscany, soup, tomato}` → da 24 a ~5-7 ricette veramente candidate.
+2. **Badge arancione anche quando bot scala correttamente**: `PARTIAL LINK` ora si attiva SOLO se `consumoPath === 'none'` (bot non ha trovato vendite). Se il bot ha già scalato (`consumoPath !== 'none'`) → badge `✅ OK (link da completare)` verde con nota informativa sui link strutturali mancanti.
+
+**v505 — [bump esterno da Max]**
+Max ha pushato v505 in una sessione parallela. Versione confermata da sw.js live.
+
+---
+
+### Architettura audit finale — come funziona ora (v504/v505)
+
+1. Tap `🔍 Audit` → `toggleAuditPanel(taskId)`
+2. `loadAuditData(taskId)` → `computePrepBotDecision(taskId)` (cache `window._auditCache`)
+3. `computePrepBotDecision` fetcha il task con join recipe, legge `suggested_at/note/qty/by` (già scritti dal bot), determina `consumoPath` dalla struttura BOM (no query POS live)
+4. `auditDiagnose` legge dal risultato — mai tocca `task.recipes` dal tasks flat
+5. Panel mostra in ordine:
+   - **Run header**: timestamp CDT, sales window, versione bot, nota verbatim IT/EN, pill verde/gialla/rossa, `→ Suggerisce: X unità`
+   - **Percorso usato dal bot**: direct_pos | sub_recipe | ingredient_id | none, con pns e "nel sales window del run"
+   - **Diagnosi strutturale**: badge + causa + azione
+   - **Tabella ricette**: ✅ RECIPE / ⚠ ITEM / ❓ mancanti (keyword-filtered) con POS name
+   - **BOM trovati**: ingredienti del BOM della ricetta
+   - **Tech info**: recipe_id, pos_name, path
+
+---
+
+### Regole architetturali stabilite (NON ridiscutere)
+
+- **`computePrepBotDecision` è la fonte di verità unica** — audit e diagnosi leggono sempre da questa funzione. Non c'è modo che bot e audit divergano.
+- **L'audit legge il run reale** — `suggested_at/note/qty/by` dal task, non una simulazione live
+- **`pns` sempre dalla ricetta joinata** — mai da `task.recipes?.pos_name` (che è undefined nel task flat da `select('*')`)
+- **PostgREST: `.select()` sempre stringa singola compatta** — mai array joinato a runtime
+- **`recipe_bom.component_type` MAIUSCOLO**: `'ITEM'` / `'RECIPE'`
+- **BOM mai toccato automaticamente** — solo su decisione esplicita di Max
+- **Badge PARTIAL LINK** = solo se bot NON scala (`consumoPath === 'none'`). Se bot scala → badge ✅ con nota strutturale.
+- **missingLinks keyword-filtered** — tokenizzazione nome task, mai query broad su tutte le categorie
+
+---
+
+### Bug noti risolti in questa sessione
+
+| Bug | Versione fix | Causa | Fix |
+|---|---|---|---|
+| Cremino mostra "POS name mancante" mentre bot scala | v501 | `task.recipes?.pos_name` undefined (task flat senza join) | `computePrepBotDecision` con join recipe |
+| Audit rifaceva calcolo live diverso dal bot | v502 | Query `pos_sales_by_item` live invece di leggere run esistente | Legge `suggested_at/note/qty/by` |
+| 400 PostgREST al caricamento audit | v503 | `.select([array].join(','))` con spazi spurii | Stringa singola compatta |
+| 24 ricette "mancanti" per Croutons | v504 | missingLinks prendeva TUTTE Salads/Soups/Antipasti | Keyword-filtering per nome task |
+| Badge arancione anche con bot che scala | v504 | PARTIAL LINK senza check consumoPath | Badge ✅ se consumoPath !== 'none' |
+| BOM Audit modal crash al caricamento | v499 | `const {data} = await supa.rpc ? null : null` destructura null | Riga rimossa |
+
+---
+
+### Stato prep item audit — da continuare
+
+Nella sessione sono stati identificati item con struttura mancante. Sessione interrotta prima di correggere i singoli item. Da riprendere:
+
+**Croutons (recipe_id `54f4527a`):**
+- 1 link RECIPE corretto: Mini Caesar Salad (bom_id 1811, 15g) ✅
+- 2 link ITEM sbagliati: Pear & Pecorino Salad (bom_id 1588, 15g) e Tomato And Basil Soup (bom_id 1199, 30g) → da convertire in RECIPE
+- Ricette sospette: House Salad, Mediterranean Salad, Tuscany Road Trip → Max decide caso per caso
+
+**Altri item con struttura mancante (15+):**
+Non ancora corretti. Max deve decidere per ognuno usando il panel audit. Il panel ora mostra tutte le informazioni necessarie per ogni decisione.
+
+---
+
+### Pending per prossima sessione
+
+1. **Croutons BOM**: convertire bom_id 1588 e 1199 da ITEM → RECIPE (Max decide)
+2. **15+ item struttura mancante**: sessione dedicata, un item alla volta con panel audit
+3. **Soffritto Livornese**: unit=buste, base_weight_g=null → suggested_qty assurda (fix: impostare base_weight_g)
+4. **Spinach**: base_weight_g=1200g confuso con cup
+5. **Watermelon Cubes**: base_weight_g=null su Med Salad
+6. **Spring Mix**: 1 busta = 1 salad (sbagliato)
+7. **Diced Grilled Chicken**: current_stock=NULL → bot lo salta
+
