@@ -370,24 +370,77 @@ async function computePrepBotDecision(taskId) {
     itemLinks = (il || []).filter(r => r.parent);
   }
 
-  // Ricette sospette senza link (solo per audit strutturale)
+  // Ricette sospette senza link — filtrate per parole chiave del task
+  // Solo ricette il cui titolo contiene un termine semanticamente legato a questa prep.
+  // Evita di mostrare 24+ ricette generiche non correlate.
   const allLinkedIds = new Set([
     ...recipeLinks.map(r => r.parent?.id).filter(Boolean),
     ...itemLinks.map(r => r.parent?.id).filter(Boolean)
   ]);
   let missingLinks = [];
   if (recipeId || ingId) {
-    const { data: c1 } = await supa.from('recipes')
-      .select('id,title,pos_name,menu_group').not('pos_name', 'is', null)
-      .in('menu_group', ['Salads', 'Soups', 'Antipasti', 'Sides']).order('title');
-    const { data: c2 } = await supa.from('recipes')
-      .select('id,title,pos_name,menu_group').not('pos_name', 'is', null).is('menu_group', null)
-      .or('title.ilike.%caesar%,title.ilike.%salad%,title.ilike.%soup%,title.ilike.%tuscany%')
-      .order('title');
-    const seen = new Set();
-    [...(c1 || []), ...(c2 || [])].forEach(r => {
-      if (!allLinkedIds.has(r.id) && !seen.has(r.id)) { seen.add(r.id); missingLinks.push(r); }
-    });
+    // Keyword set: derivate dal nome prep task + nome ingrediente (se disponibile)
+    // Tokenizziamo il nome e usiamo solo token >= 4 caratteri per evitare falsi positivi
+    const taskTokens = (task.name || '').toLowerCase()
+      .replace(/[^a-z0-9 ]/g, ' ')
+      .split(/\s+/)
+      .filter(t => t.length >= 4);
+    // Aggiungi keyword implicite per prep note come "croutons" → cerca ricette con insalate/zuppe
+    const impliedGroups = [];
+    const impliedTitleKw = [];
+    // Se la prep è tipicamente una guarnizione di insalate/zuppe, cerca in quelle categorie
+    const garnishKeywords = ['crouton','dressing','cheese','parmesan','pecorino','bacon','herb'];
+    const saladKeywords   = ['salad','caesar','house','mediterranean','tuscany','pear','caprese'];
+    const soupKeywords    = ['soup','broth','zuppa','texana','tomato'];
+    const isGarnish = taskTokens.some(t => garnishKeywords.some(k => t.includes(k)));
+    const isSaladPrep = taskTokens.some(t => saladKeywords.some(k => t.includes(k)));
+    const isSoupPrep  = taskTokens.some(t => soupKeywords.some(k => t.includes(k)));
+
+    if (isGarnish || isSaladPrep) {
+      impliedGroups.push('Salads', 'Antipasti');
+      impliedTitleKw.push(...saladKeywords);
+    }
+    if (isGarnish || isSoupPrep) {
+      impliedGroups.push('Soups');
+      impliedTitleKw.push(...soupKeywords);
+    }
+    // Aggiunge i token del task stesso come keyword di ricerca titolo
+    impliedTitleKw.push(...taskTokens);
+
+    // Costruisce il filtro OR per ilike sul titolo (solo keyword rilevanti, dedup)
+    const titleKwUniq = [...new Set(impliedTitleKw)].filter(k => k.length >= 4).slice(0, 8);
+    const orFilter = titleKwUniq.map(k => `title.ilike.%${k}%`).join(',');
+
+    if (titleKwUniq.length || impliedGroups.length) {
+      const queries = [];
+      if (impliedGroups.length && orFilter) {
+        // Ricette nelle categorie rilevanti il cui titolo matcha almeno una keyword
+        const { data: c1 } = await supa.from('recipes')
+          .select('id,title,pos_name,menu_group')
+          .not('pos_name', 'is', null)
+          .in('menu_group', impliedGroups)
+          .or(orFilter)
+          .order('title');
+        queries.push(...(c1 || []));
+      }
+      if (orFilter) {
+        // Ricette senza menu_group il cui titolo matcha
+        const { data: c2 } = await supa.from('recipes')
+          .select('id,title,pos_name,menu_group')
+          .not('pos_name', 'is', null)
+          .is('menu_group', null)
+          .or(orFilter)
+          .order('title');
+        queries.push(...(c2 || []));
+      }
+      const seen = new Set();
+      queries.forEach(r => {
+        if (!allLinkedIds.has(r.id) && !seen.has(r.id)) {
+          seen.add(r.id);
+          missingLinks.push(r);
+        }
+      });
+    }
   }
 
   return {
@@ -473,11 +526,22 @@ function auditDiagnose(task, data) {
       action: 'Converti da ITEM → RECIPE nel BOM delle ricette indicate',
       consumoTeorico: data.consumoTeorico, consumoCalcolato };
 
-  if (nRecipe > 0 && nMissing > 0)
+  // PARTIAL LINK: distingni tra "bot OK ma link strutturali da completare" e "bot NON scala"
+  if (nRecipe > 0 && nMissing > 0) {
+    // Se il bot ha già scalato questa prep (consumoPath != none), il badge è ✅ OK
+    // con una nota informativa sui link strutturali mancanti — non è un errore bot.
+    if (data.consumoPath !== 'none') {
+      return { badge: '✅ OK (link da completare)', color: '#3b6d11', bg: '#eaf3de',
+        causa: `Il bot scala correttamente via ${data.consumoPath}. ${nMissing} ricett${nMissing > 1 ? 'e' : 'a'} nella lista sospette potrebbero usare questa prep ma non sono ancora collegate.`,
+        action: `Audit strutturale: verifica le ${nMissing} ricette in lista e decidi se aggiungere come sub-recipe`,
+        consumoTeorico: data.consumoTeorico, consumoCalcolato };
+    }
+    // Bot non scala (consumoPath === none): link mancanti sono il problema
     return { badge: '⚠️ PARTIAL LINK', color: '#854f0b', bg: '#faeeda',
-      causa: `Collegato a ${nRecipe} ricett${nRecipe > 1 ? 'e' : 'a'}, ma ${nMissing} ricett${nMissing > 1 ? 'e' : 'a'} sospett${nMissing > 1 ? 'e' : 'a'} senza link.`,
+      causa: `Collegato a ${nRecipe} ricett${nRecipe > 1 ? 'e' : 'a'} come sub-recipe, ma il bot non scala (path=none). ${nMissing} ricett${nMissing > 1 ? 'e' : 'a'} sospett${nMissing > 1 ? 'e' : 'a'} senza link.`,
       action: 'Verifica le ricette sospette e decidi se aggiungere come sub-recipe',
       consumoTeorico: data.consumoTeorico, consumoCalcolato };
+  }
 
   if ((data.hasPosName || nRecipe > 0) && nMissing === 0 && nItem === 0)
     return { badge: '✅ OK', color: '#3b6d11', bg: '#eaf3de',
