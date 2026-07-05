@@ -1877,16 +1877,21 @@ async function mcrResolveConversionPlan(p) {
     const icon  = confIcon[res.confidence]  || '?';
     const color = confColor[res.confidence] || '#64748b';
     const label = confLabel[res.confidence] || res.confidence;
+    // Rows needing manual selection
+    const needsReview = ['fuzzy','family_review','ambiguous'].includes(res.confidence);
+    // Row that was manually selected by user
+    const isSelected = res.confidence === 'user_selected';
 
     html += `
-      <div style="background:#1e293b;border:1px solid #334155;border-left:3px solid ${color};
+      <div id="mcr-conv-row-${r.idx}"
+           style="background:#1e293b;border:1px solid #334155;border-left:3px solid ${color};
                   border-radius:10px;padding:10px 12px;margin-bottom:8px;">
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;gap:8px;">
           <div style="font-size:13px;font-weight:600;color:#f1f5f9;">${icon} ${escH(leg.name || '—')}</div>
           <div style="font-size:11px;color:#94a3b8;flex-shrink:0;">${escH(leg.qty)} ${escH(leg.unit)}</div>
         </div>`;
 
-    if (res.type !== 'unresolved' && res.type !== 'ambiguous' && res.id) {
+    if ((res.type === 'ingredient' || res.type === 'sub_recipe') && res.id && !needsReview) {
       html += `
         <div style="font-size:11px;color:${color};font-weight:600;margin-bottom:4px;">
           → ${res.type === 'ingredient' ? 'Ingrediente' : 'Sub-recipe'}: <strong>${escH(res.name)}</strong>
@@ -1894,19 +1899,44 @@ async function mcrResolveConversionPlan(p) {
         </div>`;
     }
 
+    if (isSelected) {
+      html += `
+        <div style="font-size:11px;color:#22c55e;font-weight:600;margin-bottom:4px;">
+          ✅ Selezionato: ${res.type === 'ingredient' ? 'Ingrediente' : 'Sub-recipe'} <strong>${escH(res.name)}</strong>
+          <span style="font-size:9px;color:#475569;margin-left:4px;">${escH(res.id?.slice(0,8))}…</span>
+          <button onclick="mcrClearSelection(${r.idx})"
+            style="margin-left:8px;font-size:10px;padding:1px 7px;background:#1e293b;border:1px solid #334155;
+                   border-radius:5px;color:#94a3b8;cursor:pointer;">✕ Cambia</button>
+        </div>`;
+    }
+
     html += `
         <div style="font-size:10px;font-weight:700;color:${color};letter-spacing:.3px;margin-bottom:2px;">${escH(label)}</div>
         <div style="font-size:10px;color:#64748b;line-height:1.4;">${escH(res.reason)}</div>`;
 
-    // Show candidates for ambiguous/fuzzy
-    if (res.candidates?.length > 0) {
-      html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #0f172a;">
-        <div style="font-size:9px;color:#475569;font-weight:700;margin-bottom:4px;">CANDIDATI:</div>`;
-      res.candidates.forEach(c => {
-        html += `<div style="font-size:11px;color:#94a3b8;padding:2px 0;">
-          ${c.kind === 'ingredient' ? '📦' : '🔗'} ${escH(c.label)}
-          <span style="font-size:9px;color:#334155;margin-left:4px;">${escH(c.cat || '')} · ${c.id.slice(0,8)}…</span>
+    // For review rows: show "Seleziona →" button instead of passive candidate list
+    if (needsReview && !isSelected) {
+      html += `
+        <div style="margin-top:8px;">
+          <button onclick="mcrOpenReviewPanel(${r.idx})"
+            style="width:100%;padding:7px 12px;background:#1e1b4b;border:1px solid #7c3aed;border-radius:8px;
+                   color:#c4b5fd;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;text-align:left;">
+            🔍 Seleziona target per questo ingrediente →
+          </button>
         </div>`;
+    }
+
+    // Passive candidate list only for already-selected rows (show as context)
+    if (isSelected && res.candidates?.length > 0) {
+      html += `<div style="margin-top:4px;">
+        <div style="font-size:9px;color:#334155;margin-bottom:2px;">Altri candidati ignorati:</div>`;
+      res.candidates.forEach(c => {
+        if (c.id !== res.id) {
+          html += `<div style="font-size:10px;color:#334155;padding:1px 0;">
+            ${c.kind === 'ingredient' ? '📦' : '🔗'} ${escH(c.label)}
+            <span style="font-size:9px;color:#1e293b;margin-left:4px;">${escH(c.id.slice(0,8))}…</span>
+          </div>`;
+        }
       });
       html += `</div>`;
     }
@@ -1939,24 +1969,24 @@ async function mcrResolveConversionPlan(p) {
   });
 
   // Action buttons
-  const safeCount = safe.length;
+  const safeCount     = safe.length;
+  const selectedCount = resolved.filter(r => r.resolved.confidence === 'user_selected').length;
   html += `
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;" id="mcrConvActionBtns">
         <button onclick="mcrApproveSafeConversions()"
           style="width:100%;padding:10px;border-radius:10px;font-size:13px;font-weight:700;
                  cursor:pointer;font-family:inherit;
                  ${MAPPING_WRITE_ENABLED && safeCount > 0
                    ? 'background:#059669;border:none;color:white;'
                    : 'background:#1e293b;border:1px solid #334155;color:#475569;'}">
-          ${MAPPING_WRITE_ENABLED ? (safeCount > 0 ? `✅ Approva ${safeCount} match esatti` : '— Nessun match esatto da approvare') : `🔒 Approva ${safeCount} match esatti (Write Disabled)`}
+          ${MAPPING_WRITE_ENABLED ? (safeCount > 0 ? `✅ Approva ${safeCount} match esatti` : '— Nessun match esatto') : `🔒 Approva ${safeCount} match esatti (Write Disabled)`}
         </button>
-        ${ambiguous.length + review.length > 0
-          ? `<button onclick="mcrScrollToReview()"
-              style="width:100%;padding:10px;background:#1e1b4b;border:1px solid #7c3aed;border-radius:10px;
-                     color:#c4b5fd;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
-              🔍 Rivedi ${ambiguous.length + review.length} da verificare
-             </button>`
-          : ''}
+        <button id="mcrApproveSelectedBtn" onclick="mcrApproveSelectedConversions()"
+          style="width:100%;padding:10px;border-radius:10px;font-size:13px;font-weight:700;
+                 cursor:pointer;font-family:inherit;display:${selectedCount > 0 ? 'block' : 'none'};
+                 background:#1e1b4b;border:1px solid #7c3aed;color:#c4b5fd;">
+          ✋ Approva ${selectedCount} selezionati manualmente
+        </button>
         <button onclick="mcrCancelPlan()"
           style="width:100%;padding:10px;background:#1e293b;border:1px solid #334155;border-radius:10px;
                  color:#64748b;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
@@ -1991,12 +2021,374 @@ window.mcrApproveSafeConversions = async function () {
   // (implementation deferred until MAPPING_WRITE_ENABLED=true session)
 };
 
-// Scroll the drawer to the first non-safe item for manual review
-window.mcrScrollToReview = function () {
+// ══════════════════════════════════════════════════════════════
+// REVIEW PANEL — interactive candidate selection for fuzzy/ambiguous rows
+// ══════════════════════════════════════════════════════════════
+
+// Open the review panel for a specific row index
+window.mcrOpenReviewPanel = function (rowIdx) {
+  const resolved = window._mcrConversionResolved || [];
+  const item = resolved.find(r => r.idx === rowIdx);
+  if (!item) return;
+
+  // Remove any existing panel
+  document.getElementById('mcrReviewPanel')?.remove();
+
   const drawer = document.getElementById('mcrDrawer');
-  const plan   = document.getElementById('mcrConversionPlan');
-  if (!drawer || !plan) return;
-  drawer.scrollTo({ top: plan.offsetTop, behavior: 'smooth' });
+  if (!drawer) return;
+
+  const panel = document.createElement('div');
+  panel.id = 'mcrReviewPanel';
+  panel.style.cssText = [
+    'position:sticky;bottom:0;left:0;right:0;',
+    'background:#0f172a;border-top:2px solid #7c3aed;',
+    'padding:14px 16px 20px;z-index:20;',
+    'max-height:70vh;overflow-y:auto;-webkit-overflow-scrolling:touch;',
+  ].join('');
+
+  const leg = item.legacy;
+  const res = item.resolved;
+
+  // Build candidate HTML
+  const candidateHTML = (res.candidates || []).map((cand, ci) => `
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;
+                padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;
+                justify-content:space-between;gap:8px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;color:#f1f5f9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          ${cand.kind === 'ingredient' ? '📦' : '🔗'} ${escH(cand.label)}
+        </div>
+        <div style="font-size:10px;color:#475569;margin-top:1px;">
+          ${escH(cand.kind === 'ingredient' ? 'Ingrediente' : 'Sub-recipe')} · ${escH(cand.cat || '')} · ${cand.id.slice(0,8)}…
+        </div>
+      </div>
+      <button onclick="mcrSelectCandidate(${rowIdx}, ${ci})"
+        style="flex-shrink:0;padding:6px 14px;background:#7c3aed;border:none;border-radius:8px;
+               color:white;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">
+        Seleziona
+      </button>
+    </div>`).join('');
+
+  const noCandidateMsg = !res.candidates?.length
+    ? `<div style="font-size:12px;color:#475569;padding:8px 0;">
+         Nessun candidato suggerito — usa la ricerca manuale.
+       </div>`
+    : '';
+
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#c4b5fd;">🔍 Seleziona target per:</div>
+        <div style="font-size:13px;color:#f1f5f9;margin-top:2px;">
+          <strong>${escH(leg.name)}</strong> — ${escH(String(leg.qty))} ${escH(leg.unit)}
+          ${leg.comment ? `<span style="font-size:11px;color:#64748b;"> (${escH(leg.comment)})</span>` : ''}
+        </div>
+        <div style="font-size:10px;color:#f59e0b;margin-top:4px;line-height:1.4;">${escH(res.reason)}</div>
+      </div>
+      <button onclick="document.getElementById('mcrReviewPanel')?.remove()"
+        style="background:none;border:none;color:#475569;font-size:18px;cursor:pointer;flex-shrink:0;">✕</button>
+    </div>
+
+    ${res.candidates?.length > 0 ? `<div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:8px;letter-spacing:.5px;">CANDIDATI TROVATI NEL DB</div>` : ''}
+    ${candidateHTML}
+    ${noCandidateMsg}
+
+    <!-- Manual search -->
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid #1e293b;">
+      <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:6px;letter-spacing:.5px;">CERCA MANUALMENTE</div>
+      <div style="display:flex;gap:8px;">
+        <input id="mcrReviewSearch" type="text" placeholder="Nome ingrediente o ricetta…"
+          style="flex:1;padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:8px;
+                 color:#f1f5f9;font-size:13px;font-family:inherit;outline:none;" />
+        <button onclick="mcrRunReviewSearch(${rowIdx})"
+          style="padding:8px 14px;background:#1e40af;border:none;border-radius:8px;
+                 color:#bfdbfe;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">🔎</button>
+      </div>
+      <div id="mcrReviewSearchResults" style="margin-top:8px;"></div>
+    </div>
+
+    <!-- Actions -->
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button onclick="mcrLeaveUnresolved(${rowIdx})"
+        style="flex:1;padding:9px;background:#1e293b;border:1px solid #334155;border-radius:8px;
+               color:#64748b;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
+        Lascia non risolto
+      </button>
+      <button onclick="document.getElementById('mcrReviewPanel')?.remove()"
+        style="flex:1;padding:9px;background:#1e293b;border:1px solid #334155;border-radius:8px;
+               color:#64748b;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
+        Annulla
+      </button>
+    </div>`;
+
+  // Append to drawer (sticky bottom)
+  drawer.appendChild(panel);
+  panel.scrollIntoView({ behavior: 'smooth', block: 'end' });
+};
+
+// Run a live search from the review panel
+window.mcrRunReviewSearch = async function (rowIdx) {
+  const q   = document.getElementById('mcrReviewSearch')?.value?.trim();
+  const res = document.getElementById('mcrReviewSearchResults');
+  if (!q || !res) return;
+
+  res.innerHTML = `<div style="font-size:11px;color:#475569;">Ricerca…</div>`;
+
+  const sb = window.supa;
+  const [ri, rr] = await Promise.all([
+    sb.from('ingredients').select('id,name,category').ilike('name',`%${q}%`).eq('active',true).limit(6),
+    sb.from('recipes').select('id,title,menu_group').ilike('title',`%${q}%`).limit(4),
+  ]);
+
+  const ings = ri.data || [], recs = rr.data || [];
+  if (!ings.length && !recs.length) {
+    res.innerHTML = `<div style="font-size:11px;color:#ef4444;">Nessun risultato per "${escH(q)}"</div>`;
+    return;
+  }
+
+  // Add search results temporarily to the resolved item's candidates
+  const resolved = window._mcrConversionResolved || [];
+  const item = resolved.find(r => r.idx === rowIdx);
+  if (item) {
+    const newCandidates = [
+      ...ings.map(i => ({ label: i.name,  id: i.id,  kind: 'ingredient', cat: i.category })),
+      ...recs.map(r => ({ label: r.title, id: r.id,  kind: 'sub_recipe', cat: r.menu_group })),
+    ];
+    // Merge with existing candidates (dedupe by id)
+    const existingIds = new Set((item.resolved.candidates || []).map(c => c.id));
+    newCandidates.forEach(nc => { if (!existingIds.has(nc.id)) item.resolved.candidates.push(nc); });
+  }
+
+  const html = [...ings, ...recs].map((hit, i) => {
+    const isIng = i < ings.length;
+    const id    = hit.id, label = isIng ? hit.name : hit.title, cat = isIng ? hit.category : hit.menu_group;
+    // Find index in candidates array
+    const resolved2 = window._mcrConversionResolved || [];
+    const item2 = resolved2.find(r => r.idx === rowIdx);
+    const candIdx = (item2?.resolved.candidates || []).findIndex(c => c.id === id);
+    return `
+      <div style="background:#1e293b;border:1px solid #334155;border-radius:8px;
+                  padding:8px 10px;margin-bottom:6px;display:flex;align-items:center;
+                  justify-content:space-between;gap:8px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:12px;font-weight:600;color:#f1f5f9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            ${isIng ? '📦' : '🔗'} ${escH(label)}
+          </div>
+          <div style="font-size:10px;color:#475569;">${escH(isIng ? 'Ingrediente' : 'Sub-recipe')} · ${escH(cat || '')} · ${id.slice(0,8)}…</div>
+        </div>
+        <button onclick="mcrSelectCandidate(${rowIdx}, ${candIdx >= 0 ? candIdx : 99})"
+          style="flex-shrink:0;padding:5px 12px;background:#7c3aed;border:none;border-radius:7px;
+                 color:white;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">
+          Seleziona
+        </button>
+      </div>`;
+  }).join('');
+  res.innerHTML = html;
+};
+
+// User selected a specific candidate for a review row
+window.mcrSelectCandidate = function (rowIdx, candIdx) {
+  const resolved = window._mcrConversionResolved;
+  if (!resolved) return;
+
+  const item = resolved.find(r => r.idx === rowIdx);
+  if (!item) return;
+
+  const cand = item.resolved.candidates?.[candIdx];
+  if (!cand) return;
+
+  // Update the resolved item with user selection
+  const oldConf = item.resolved.confidence;
+  item.resolved = {
+    ...item.resolved,
+    type:       cand.kind === 'ingredient' ? 'ingredient' : 'sub_recipe',
+    id:         cand.id,
+    name:       cand.label,
+    confidence: 'user_selected',
+    reason:     `Selezionato manualmente da Chef Max (era: ${oldConf})`,
+  };
+
+  // Rebuild the pending plan to include this user_selected row
+  mcrRebuildPlanFromResolved();
+
+  // Close review panel
+  document.getElementById('mcrReviewPanel')?.remove();
+
+  // Update the row card in the DOM
+  mcrUpdateRowCard(rowIdx);
+
+  // Update counters + buttons
+  mcrUpdateConversionCounters();
+};
+
+// User decides to leave a row unresolved
+window.mcrLeaveUnresolved = function (rowIdx) {
+  const resolved = window._mcrConversionResolved;
+  if (!resolved) return;
+  const item = resolved.find(r => r.idx === rowIdx);
+  if (item) {
+    item.resolved.confidence = 'not_found';
+    item.resolved.reason = 'Lasciato non risolto da Chef Max.';
+  }
+  document.getElementById('mcrReviewPanel')?.remove();
+  mcrUpdateRowCard(rowIdx);
+  mcrUpdateConversionCounters();
+};
+
+// Clear a manual selection (revert to original confidence)
+window.mcrClearSelection = function (rowIdx) {
+  const resolved = window._mcrConversionResolved;
+  if (!resolved) return;
+  const item = resolved.find(r => r.idx === rowIdx);
+  if (!item) return;
+  // Revert to family_review/ambiguous
+  item.resolved.confidence = item.resolved._originalConfidence || 'ambiguous';
+  item.resolved.id   = null;
+  item.resolved.name = '';
+  item.resolved.reason = 'Selezione annullata — scegli di nuovo.';
+  document.getElementById('mcrReviewPanel')?.remove();
+  mcrUpdateRowCard(rowIdx);
+  mcrRebuildPlanFromResolved();
+  mcrUpdateConversionCounters();
+};
+
+// Rebuild mcrPendingPlan from current resolved state
+function mcrRebuildPlanFromResolved() {
+  const resolved = window._mcrConversionResolved || [];
+  const rec = (window._mcrProblems || [])[window._mcrDrawerIdx]?.detail?.recipe;
+
+  const approvable = resolved.filter(r =>
+    r.resolved.confidence === 'exact' || r.resolved.confidence === 'user_selected'
+  );
+
+  window._mcrPendingPlan = approvable.map(r => ({
+    action:     'INSERT',
+    table:      'recipe_bom',
+    row_id:     `(new — ${r.legacy.name})`,
+    field:      `parent_recipe_id = ${rec?.id?.slice(0,8)}`,
+    old_value:  null,
+    new_value:  `${r.legacy.qty} ${r.legacy.unit} di "${r.resolved.name}" (${r.resolved.type} ${r.resolved.id?.slice(0,8)})`,
+    reason:     r.resolved.reason,
+    confidence: r.resolved.confidence,
+    _insert_data: {
+      parent_recipe_id: rec?.id,
+      component_type:   r.resolved.type === 'ingredient' ? 'ITEM' : 'RECIPE',
+      item_id:          r.resolved.type === 'ingredient' ? r.resolved.id : null,
+      sub_recipe_id:    r.resolved.type === 'sub_recipe' ? r.resolved.id : null,
+      quantity:         parseFloat(r.legacy.qty) || null,
+      unit:             r.legacy.unit || 'g',
+      notes:            r.legacy.comment || null,
+    },
+  }));
+}
+
+// Update a single row card in-place after selection
+function mcrUpdateRowCard(rowIdx) {
+  const resolved = window._mcrConversionResolved || [];
+  const item = resolved.find(r => r.idx === rowIdx);
+  if (!item) return;
+
+  const rowEl = document.getElementById(`mcr-conv-row-${rowIdx}`);
+  if (!rowEl) return;
+
+  const res  = item.resolved;
+  const leg  = item.legacy;
+  const confIcon  = { exact: '✅', fuzzy: '↗', ambiguous: '⚠️', family_review: '🔍', not_found: '❌', user_selected: '✅' };
+  const confColor = { exact: '#22c55e', fuzzy: '#a78bfa', ambiguous: '#f59e0b', family_review: '#f59e0b', not_found: '#ef4444', user_selected: '#22c55e' };
+  const confLabel = { exact: 'Esatta — sicura', fuzzy: 'Parziale — verifica', ambiguous: 'Ambigua — scelta manuale', family_review: 'Famiglia ambigua — verifica', not_found: 'Non trovato / lasciato', user_selected: 'Selezionato manualmente' };
+
+  const color = confColor[res.confidence] || '#64748b';
+  const icon  = confIcon[res.confidence]  || '?';
+  const label = confLabel[res.confidence] || res.confidence;
+  const isSelected = res.confidence === 'user_selected';
+  const needsReview = ['fuzzy','family_review','ambiguous'].includes(res.confidence);
+
+  rowEl.style.borderLeftColor = color;
+
+  let inner = `
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;gap:8px;">
+      <div style="font-size:13px;font-weight:600;color:#f1f5f9;">${icon} ${escH(leg.name || '—')}</div>
+      <div style="font-size:11px;color:#94a3b8;flex-shrink:0;">${escH(String(leg.qty))} ${escH(leg.unit)}</div>
+    </div>`;
+
+  if (isSelected) {
+    inner += `
+      <div style="font-size:11px;color:#22c55e;font-weight:600;margin-bottom:6px;">
+        ✅ ${res.type === 'ingredient' ? 'Ingrediente' : 'Sub-recipe'}: <strong>${escH(res.name)}</strong>
+        <span style="font-size:9px;color:#475569;margin-left:4px;">${escH(res.id?.slice(0,8))}…</span>
+        <button onclick="mcrClearSelection(${rowIdx})"
+          style="margin-left:8px;font-size:10px;padding:1px 7px;background:#1e293b;border:1px solid #334155;
+                 border-radius:5px;color:#94a3b8;cursor:pointer;">✕ Cambia</button>
+      </div>
+      <div style="font-size:10px;font-weight:700;color:${color};margin-bottom:2px;">${escH(label)}</div>
+      <div style="font-size:10px;color:#64748b;line-height:1.4;">${escH(res.reason)}</div>`;
+  } else if (needsReview) {
+    inner += `
+      <div style="font-size:10px;font-weight:700;color:${color};margin-bottom:2px;">${escH(label)}</div>
+      <div style="font-size:10px;color:#64748b;line-height:1.4;margin-bottom:8px;">${escH(res.reason)}</div>
+      <button onclick="mcrOpenReviewPanel(${rowIdx})"
+        style="width:100%;padding:7px 12px;background:#1e1b4b;border:1px solid #7c3aed;border-radius:8px;
+               color:#c4b5fd;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;text-align:left;">
+        🔍 Seleziona target per questo ingrediente →
+      </button>`;
+  } else {
+    inner += `
+      <div style="font-size:10px;font-weight:700;color:${color};margin-bottom:2px;">${escH(label)}</div>
+      <div style="font-size:10px;color:#64748b;line-height:1.4;">${escH(res.reason)}</div>`;
+  }
+
+  if (leg.comment) {
+    inner += `<div style="font-size:10px;color:#64748b;margin-top:4px;font-style:italic;">📝 nota: ${escH(leg.comment)}</div>`;
+  }
+
+  rowEl.innerHTML = inner;
+}
+
+// Recount buckets and update counters + buttons in the UI
+function mcrUpdateConversionCounters() {
+  const resolved = window._mcrConversionResolved || [];
+  const safeCount     = resolved.filter(r => r.resolved.confidence === 'exact').length;
+  const selectedCount = resolved.filter(r => r.resolved.confidence === 'user_selected').length;
+  const reviewCount   = resolved.filter(r => ['fuzzy','family_review','ambiguous'].includes(r.resolved.confidence)).length;
+  const unresolvedCnt = resolved.filter(r => r.resolved.confidence === 'not_found').length;
+
+  // Update summary line
+  const summaryEl = document.querySelector('#mcrConversionPlan > div:nth-child(2)');
+  if (summaryEl) {
+    const dupCount = resolved.filter(r => r.isDuplicate).length;
+    summaryEl.innerHTML = `
+      ✅ ${safeCount} esatti · ✋ ${selectedCount} selezionati · ↗ ${reviewCount} da verificare · ❌ ${unresolvedCnt} non trovati
+      ${dupCount > 0 ? ` · 🔁 ${dupCount} riga${dupCount > 1 ? 'e' : ''} con stesso ingrediente` : ''}
+      ${!MAPPING_WRITE_ENABLED ? '<br><span style="color:#f59e0b;font-weight:700;">⚠️ WRITE DISABLED</span>' : ''}`;
+  }
+
+  // Show/hide "Approva selezionati" button
+  const selBtn = document.getElementById('mcrApproveSelectedBtn');
+  if (selBtn) {
+    selBtn.style.display = selectedCount > 0 ? 'block' : 'none';
+    selBtn.textContent = `✋ Approva ${selectedCount} selezionati manualmente`;
+  }
+}
+
+// Approve only user_selected rows (manual selections)
+window.mcrApproveSelectedConversions = function () {
+  const plan = (window._mcrPendingPlan || []).filter(r => r.confidence === 'user_selected');
+  if (!plan.length) return;
+
+  if (!MAPPING_WRITE_ENABLED) {
+    console.log('[MCR] Write gate — user_selected conversions:', JSON.stringify(plan, null, 2));
+    const noticeEl = document.createElement('div');
+    noticeEl.style.cssText = 'background:#1c1400;border:1px solid #78350f;border-radius:10px;padding:10px;margin-top:8px;';
+    noticeEl.innerHTML = `
+      <div style="font-size:12px;color:#fde68a;font-weight:700;margin-bottom:4px;">🔒 Phase 2 Required — Write Disabled</div>
+      <div style="font-size:11px;color:#92400e;line-height:1.5;">
+        Piano con ${plan.length} selezioni manuali registrato in console.<br>
+        Imposta <code style="color:#fde68a;">MAPPING_WRITE_ENABLED = true</code> per abilitare la scrittura.
+      </div>`;
+    document.getElementById('mcrConversionPlan')?.appendChild(noticeEl);
+    return;
+  }
+  // Phase 2: actual write path for user_selected rows
 };
 
 function mcrBuildAndShowWritePlan(p, oqrDef) {
