@@ -1813,6 +1813,16 @@ async function saveRecipeBOM(recipeId, ingredientRows){
     if(error) console.error('[BOM] insert error:', error);
   }
 
+  // recipe_bom is the single source of truth.
+  // After any BOM save (even if linked.length === 0 — user cleared all rows),
+  // wipe the legacy JSONB so it never diverges from recipe_bom.
+  // MCR, bots, and all readers must treat recipe_bom as authoritative.
+  const {error: legacyClearErr} = await supa
+    .from('recipes')
+    .update({ ingredients: [] })
+    .eq('id', recipeId);
+  if(legacyClearErr) console.warn('[BOM] legacy clear failed:', legacyClearErr);
+
   // Return unresolved rows so the save handler can show the warning
   return unresolved;
 }

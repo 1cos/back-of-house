@@ -498,6 +498,8 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
   // Structured BOM    = recipe_bom rows with component_type ITEM/RECIPE + linked ids.
 
   // Helper: parse legacy ingredients JSONB → array of {name, qty, unit}
+  // ONLY used when recipe_bom rows = 0. If structured BOM exists, this is never called.
+  // recipes.ingredients JSONB is legacy fallback only — recipe_bom is the single source of truth.
   function parseLegacyIngredients(rec) {
     const raw = rec.ingredients;
     if (!raw) return [];
@@ -516,14 +518,30 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
     return arr.filter(i => i && (i.name || i.ingredient || i.item || i.text));
   }
 
+  // ── SOURCE-OF-TRUTH RULE ──────────────────────────────────────────────────
+  // recipe_bom = authoritative. recipes.ingredients JSONB = legacy fallback only.
+  //
+  // Three cases (evaluated in order):
+  //
+  //  A) recipe_bom rows exist (≥ 1)
+  //     → recipe_bom is the truth. recipes.ingredients IGNORED entirely.
+  //     → If all rows complete: no warning (recipe OK).
+  //     → If some rows incomplete (missing qty/unit/link): YELLOW on those rows only.
+  //     → NEVER show a "legacy ingredients" panel. NEVER build a conversion plan.
+  //
+  //  B) recipe_bom rows = 0 AND recipes.ingredients has rows
+  //     → Legacy path: migration needed.
+  //     → Show "legacy ingredients need migration" warning + allow conversion plan.
+  //
+  //  C) recipe_bom rows = 0 AND recipes.ingredients = [] or null
+  //     → Truly missing. RED warning.
+  //
   (recipes || []).filter(r => r.pos_name).forEach(r => {
     const structuredRows = bomByParent[r.id] || [];
-    const legacyIngredients = parseLegacyIngredients(r);
     const hasStructured = structuredRows.length > 0;
-    const hasLegacy = legacyIngredients.length > 0;
 
     if (hasStructured) {
-      // Case A: structured BOM exists — check for incomplete rows only
+      // Case A: recipe_bom is the source of truth. Ignore recipes.ingredients entirely.
       const incompleteRows = structuredRows.filter(b =>
         !b.quantity || b.quantity <= 0 ||
         !b.unit ||
@@ -545,16 +563,20 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
             profile: classifyPrepProfile(r, null, structuredRows),
             bomRows: structuredRows,
             incompleteRows,
-            legacyIngredients,
+            legacyIngredients: [], // never expose legacy when BOM exists
           },
         });
       }
-      // If complete → no warning (case A)
+      // Complete structured BOM → no warning. recipe_bom is correct.
       return;
     }
 
-    if (!hasStructured && hasLegacy) {
-      // Case B: legacy ingredients exist but not yet migrated to structured BOM
+    // No structured BOM — now check legacy JSONB (fallback path only)
+    const legacyIngredients = parseLegacyIngredients(r);
+    const hasLegacy = legacyIngredients.length > 0;
+
+    if (hasLegacy) {
+      // Case B: legacy ingredients present, not yet migrated to recipe_bom
       problems.push({
         id: `sold-legacy-bom-${r.id}`,
         name: r.title,
