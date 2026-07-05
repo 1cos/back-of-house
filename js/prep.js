@@ -225,211 +225,245 @@ async function loadAuditData(taskId){
   const task = tasks[taskId];
   if(!task) return null;
   try {
-    // 1. Ricette POS che usano questo task come sub-ricetta (component_type=RECIPE)
-    let posParents = [];
-    if(task.recipe_id){
-      const {data:sub} = await supa.from('recipe_bom')
-        .select('quantity,unit,parent:parent_recipe_id(title,pos_name,base_weight_g,base_servings,serving_weight_g)')
-        .eq('sub_recipe_id', task.recipe_id)
-        .eq('component_type','RECIPE');
-      posParents = (sub||[]).filter(r=>r.parent?.pos_name);
+    const recipeId = task.recipe_id;
+
+    // 1. Cerca ingrediente con stesso nome del task (per trovare link ITEM sbagliati)
+    let linkedIngredientId = task.ingredient_id || null;
+    if(!linkedIngredientId && task.name){
+      const {data:ingMatch} = await supa.from('ingredients')
+        .select('id,name').ilike('name', task.name).eq('active',true).limit(1);
+      if(ingMatch && ingMatch.length) linkedIngredientId = ingMatch[0].id;
     }
-    // 2. BOM della ricetta collegata
+
+    // 2a. Ricette che usano questa prep come sub-recipe RECIPE (link CORRETTO)
+    let recipeLinks = [];
+    if(recipeId){
+      const {data:sub} = await supa.from('recipe_bom')
+        .select('bom_id,quantity,unit,parent:parent_recipe_id(id,title,pos_name,base_weight_g,base_servings,serving_weight_g)')
+        .eq('sub_recipe_id', recipeId)
+        .eq('component_type','RECIPE');
+      recipeLinks = (sub||[]).filter(r=>r.parent);
+    }
+
+    // 2b. Ricette che usano ingrediente come ITEM (link SBAGLIATO)
+    let itemLinks = [];
+    if(linkedIngredientId){
+      const {data:itm} = await supa.from('recipe_bom')
+        .select('bom_id,quantity,unit,parent:parent_recipe_id(id,title,pos_name)')
+        .eq('item_id', linkedIngredientId)
+        .eq('component_type','ITEM');
+      itemLinks = (itm||[]).filter(r=>r.parent);
+    }
+
+    // 3. BOM della ricetta collegata (ingredienti interni)
     let bomItems = [];
-    if(task.recipe_id){
+    if(recipeId){
       const {data:bom} = await supa.from('recipe_bom')
         .select('quantity,unit,component_type,item_id,sub_recipe_id,ingredients:item_id(name),sub:sub_recipe_id(title)')
-        .eq('parent_recipe_id', task.recipe_id)
-        .order('sort_order');
+        .eq('parent_recipe_id', recipeId).order('sort_order');
       bomItems = bom||[];
     }
-    // 3. Vendite ieri per i pos_name (campione reale)
-    const pns = task.recipes?.pos_name ? task.recipes.pos_name.split('|').map(s=>s.trim()).filter(Boolean) : [];
-    let yesterdaySales = {};
-    if(pns.length){
-      const yd = new Date(); yd.setDate(yd.getDate()-1);
-      const ydStr = yd.toISOString().slice(0,10);
+
+    // 4. Ricette "sospette" (salads/soups/antipasti/sides con pos_name) che non hanno nessun link
+    const allLinkedIds = new Set([
+      ...recipeLinks.map(r=>r.parent?.id).filter(Boolean),
+      ...itemLinks.map(r=>r.parent?.id).filter(Boolean)
+    ]);
+    let missingLinks = [];
+    if(recipeId || linkedIngredientId){
+      const {data:cand1} = await supa.from('recipes')
+        .select('id,title,pos_name,menu_group')
+        .not('pos_name','is',null)
+        .in('menu_group',['Salads','Soups','Antipasti','Sides'])
+        .order('title');
+      const {data:cand2} = await supa.from('recipes')
+        .select('id,title,pos_name,menu_group')
+        .not('pos_name','is',null)
+        .is('menu_group',null)
+        .or('title.ilike.%caesar%,title.ilike.%salad%,title.ilike.%soup%,title.ilike.%tuscany%')
+        .order('title');
+      const seenIds = new Set();
+      [...(cand1||[]),...(cand2||[])].forEach(r=>{
+        if(!allLinkedIds.has(r.id) && !seenIds.has(r.id)){
+          seenIds.add(r.id);
+          missingLinks.push(r);
+        }
+      });
+    }
+
+    // 5. Vendite ieri + media 90gg per tutte le ricette coinvolte
+    const allPos = new Set();
+    [...recipeLinks,...itemLinks].forEach(r=>{
+      (r.parent?.pos_name||'').split('|').map(s=>s.trim()).filter(Boolean).forEach(p=>allPos.add(p));
+    });
+    missingLinks.forEach(r=>{
+      (r.pos_name||'').split('|').map(s=>s.trim()).filter(Boolean).forEach(p=>allPos.add(p));
+    });
+
+    const yd = new Date(); yd.setDate(yd.getDate()-1);
+    const ydStr = yd.toISOString().slice(0,10);
+    const p90 = new Date(); p90.setDate(p90.getDate()-90);
+    const p90Str = p90.toISOString().slice(0,10);
+    let yesterdaySales={}, avgSales={};
+
+    if(allPos.size){
+      const posArr=Array.from(allPos);
       const {data:ys} = await supa.from('pos_sales_by_item')
-        .select('menu_item,quantity').eq('sale_date',ydStr).in('menu_item',pns);
+        .select('menu_item,quantity').eq('sale_date',ydStr).in('menu_item',posArr);
       (ys||[]).forEach(r=>{ yesterdaySales[r.menu_item]=(yesterdaySales[r.menu_item]||0)+parseFloat(r.quantity||0); });
-      // Cerca anche in modifiers
-      const {data:ym} = await supa.from('pos_modifiers')
-        .select('modifier,quantity_sold').eq('sale_date',ydStr).in('modifier',pns);
-      (ym||[]).forEach(r=>{ yesterdaySales[r.modifier]=(yesterdaySales[r.modifier]||0)+parseFloat(r.quantity_sold||0); });
+      const {data:avgs} = await supa.from('pos_sales_by_item')
+        .select('menu_item,quantity').gte('sale_date',p90Str).lte('sale_date',ydStr).in('menu_item',posArr);
+      const sm={},sc={};
+      (avgs||[]).forEach(r=>{ sm[r.menu_item]=(sm[r.menu_item]||0)+parseFloat(r.quantity||0); sc[r.menu_item]=(sc[r.menu_item]||0)+1; });
+      Object.keys(sm).forEach(k=>{ avgSales[k]=Math.round((sm[k]/sc[k])*10)/10; });
     }
-    // 4. Ricette POS che usano l'ingredient_id come ITEM nel BOM
-    let ingParents = [];
-    const ingId = task.ingredient_id;
-    if(ingId && !task.recipe_id){
-      const {data:ip} = await supa.from('recipe_bom')
-        .select('quantity,unit,parent:parent_recipe_id(title,pos_name)')
-        .eq('item_id', ingId).eq('component_type','ITEM');
-      ingParents = (ip||[]).filter(r=>r.parent?.pos_name);
-    }
-    const result = {posParents, bomItems, yesterdaySales, ingParents, pns};
+
+    // Legacy compat
+    const posParents = recipeLinks.filter(r=>r.parent?.pos_name);
+    const ingParents = itemLinks.filter(r=>r.parent?.pos_name);
+    const pns = task.recipes?.pos_name ? task.recipes.pos_name.split('|').map(s=>s.trim()).filter(Boolean) : [];
+
+    const result = {posParents, ingParents, bomItems, yesterdaySales, avgSales, pns,
+                    recipeLinks, itemLinks, missingLinks};
     window._auditCache[taskId] = result;
     return result;
-  } catch(e){ return null; }
+  } catch(e){ console.error('[loadAuditData]',e); return null; }
 }
 
 function auditDiagnose(task, data){
-  if(!data) return {badge:'⚠️ Errore caricamento', color:'#854f0b', bg:'#faeeda', causa:'Impossibile caricare i dati di audit.', action:'Riprova'};
-  const rec = task.recipes;
-  const hasPosName = rec?.pos_name && rec.pos_name.length > 0;
-  const hasBom = data.bomItems.length > 0;
-  const hasPosParents = data.posParents.length > 0;
-  const hasIngParents = data.ingParents.length > 0;
-  const hasRecipe = !!task.recipe_id;
-  const hasIngredient = !!task.ingredient_id;
-  const stock = parseFloat(task.current_stock||0);
-  const sq = parseFloat(task.suggested_qty||0);
-  const sw = parseFloat(rec?.serving_weight_g||0);
-  const bw = parseFloat(rec?.base_weight_g||0);
-  const bs = parseFloat(rec?.base_servings||0);
-  const unit = (task.unit||'').toLowerCase();
-  const isCup = unit==='cup';
-  const isBuste = unit==='buste';
+  if(!data) return {badge:'⚠️ Errore', color:'#854f0b', bg:'#faeeda', causa:'Caricamento fallito.', action:'Riprova', consumoTeorico:'—', consumoCalcolato:'—'};
+  const rec = task.recipes||{};
+  const hasRecipe=!!task.recipe_id, hasIngredient=!!task.ingredient_id;
+  const unit=(task.unit||'').toLowerCase();
+  const sw=parseFloat(rec.serving_weight_g||0), bw=parseFloat(rec.base_weight_g||0), bs=parseFloat(rec.base_servings||0);
+  const hasBom=data.bomItems.length>0;
+  const nRecipe=data.recipeLinks.length, nItem=data.itemLinks.length, nMissing=data.missingLinks.length;
 
-  // Calcolo consumo teorico
-  let consumoTeorico = '—';
-  let consumoCalcolato = '—';
-  const totalYd = Object.values(data.yesterdaySales).reduce((s,v)=>s+v,0);
+  let consumoTeorico='—', consumoCalcolato='—';
+  if(sw>0) consumoTeorico=sw+'g per vendita';
+  else if(bw>0&&bs>0) consumoTeorico=Math.round(bw/bs)+'g per vendita';
+  else if(nRecipe>0) consumoTeorico='via '+nRecipe+' sub-ricett'+(nRecipe>1?'e':'a');
 
-  if(hasPosName && totalYd > 0){
-    if(sw > 0) consumoCalcolato = Math.round(totalYd*sw)+'g';
-    else if(bw > 0 && bs > 0) consumoCalcolato = Math.round(totalYd*(bw/bs))+'g';
-    else if(['pezzi','pz'].includes(unit)) consumoCalcolato = Math.round(totalYd)+' pz';
-    else consumoCalcolato = totalYd+' vendite × 1g (fallback)';
-  } else if(hasPosParents){
-    const totSub = data.posParents.reduce((s,p)=>{
-      const pns2 = (p.parent.pos_name||'').split('|').map(x=>x.trim());
-      const yd2 = pns2.reduce((ss,pn)=>{
-        const k=Object.keys(data.yesterdaySales).find(k2=>k2.toLowerCase()===pn.toLowerCase());
-        return ss+(k?data.yesterdaySales[k]:0);
-      },0);
-      return s+(yd2*parseFloat(p.quantity||0));
+  const totalYd=Object.values(data.yesterdaySales).reduce((s,v)=>s+v,0);
+  if(nRecipe>0&&totalYd>0){
+    const tc=data.recipeLinks.reduce((s,r)=>{
+      const pns2=(r.parent?.pos_name||'').split('|').map(x=>x.trim());
+      const yd2=pns2.reduce((ss,pn)=>{const k=Object.keys(data.yesterdaySales).find(k2=>k2.toLowerCase()===pn.toLowerCase());return ss+(k?data.yesterdaySales[k]:0);},0);
+      return s+(yd2*parseFloat(r.quantity||0));
     },0);
-    if(totSub>0) consumoCalcolato = Math.round(totSub)+(unit==='g'?'g':' '+unit)+' (via sub-ricette)';
+    if(tc>0) consumoCalcolato=Math.round(tc)+'g';
   }
 
-  if(sw>0) consumoTeorico = sw+'g per vendita';
-  else if(bw>0&&bs>0) consumoTeorico = Math.round(bw/bs)+'g per vendita';
-  else if(['pezzi','pz'].includes(unit)&&rec?.serving_qty) consumoTeorico = rec.serving_qty+' pz per vendita';
-  else if(hasPosParents) consumoTeorico = 'via '+data.posParents.length+' sub-ricette';
-  else consumoTeorico = 'non calcolabile';
-
-  // Diagnosi
-  if(task.current_stock===null||task.current_stock===undefined){
-    return {badge:'🚫 Stock NULL', color:'#a32d2d', bg:'#fcebeb', causa:'current_stock=NULL → il bot salta questo task. Imposta uno stock iniziale (anche 0) per far girare il bot.', action:'Imposta stock a 0 o quantità reale', consumoTeorico, consumoCalcolato};
-  }
-  if(!hasRecipe && !hasIngredient){
-    return {badge:'🔗 Missing link', color:'#533ab7', bg:'#eeedfe', causa:'Nessuna recipe_id né ingredient_id. Il bot non ha nessun percorso per calcolare il consumo.', action:'Collega una ricetta o un ingrediente', consumoTeorico, consumoCalcolato};
-  }
-  if(hasRecipe && !hasPosName && !hasPosParents && !hasIngParents){
-    return {badge:'📭 POS name mancante', color:'#533ab7', bg:'#eeedfe', causa:'La ricetta collegata non ha pos_name e non è usata come sub-ricetta da nessuna ricetta con pos_name. Il bot non trova vendite.', action:'Aggiungi pos_name alla ricetta o aggiungila come sub-ricetta RECIPE nel BOM di un piatto POS', consumoTeorico, consumoCalcolato};
-  }
-  if(hasRecipe && hasPosName && !hasBom){
-    return {badge:'📋 BOM vuoto', color:'#993c1d', bg:'#faece7', causa:'La ricetta ha pos_name ma il BOM è vuoto. Il bot non sa quanto pesa una porzione.', action:'Compila il BOM della ricetta (almeno 1 ingrediente con quantità)', consumoTeorico, consumoCalcolato};
-  }
-  if(isCup && bw > 0 && bs > 0 && bw > 100){
-    return {badge:'⚙️ Problema motore (cup)', color:'#854f0b', bg:'#faeeda', causa:'Il bot legge base_weight_g='+bw+'g come numero di cup invece che come peso totale del batch. Conflitto grammi/cup nel calcolo batch.', action:'Impostare correttamente serving_qty (cup per porzione) e rimuovere base_weight_g o usare serving_weight_g', consumoTeorico, consumoCalcolato};
-  }
-  if(isBuste && !bw && !sw){
-    return {badge:'⚙️ Problema motore (buste)', color:'#854f0b', bg:'#faeeda', causa:'unit=buste ma né base_weight_g né serving_weight_g sono impostati. Il bot non sa quante g è una busta e calcola qty assurde.', action:'Imposta base_weight_g (peso di 1 busta in grammi) sulla ricetta', consumoTeorico, consumoCalcolato};
-  }
-  if(hasPosName && totalYd===0 && !hasPosParents){
-    return {badge:'📊 Zero vendite ieri', color:'#3b6d11', bg:'#eaf3de', causa:'Nessuna vendita trovata ieri in pos_sales_by_item né pos_modifiers per i pos_name configurati. Possibili cause: ieri era chiuso, pos_name non corrisponde esatto al POS, dati non ancora importati.', action:'Verificare che il pos_name corrisponda ESATTAMENTE al nome nel POS TouchBistro (case-sensitive)', consumoTeorico, consumoCalcolato};
-  }
-  if(hasPosName && !hasBom && !sw && !bw){
-    return {badge:'⚙️ Calcolo fallback', color:'#854f0b', bg:'#faeeda', causa:'Il bot usa fallback 1g per vendita: mancano serving_weight_g e base_weight_g. Il consumo calcolato sarà sbagliato.', action:'Imposta serving_weight_g sulla ricetta', consumoTeorico, consumoCalcolato};
-  }
-  return {badge:'✅ OK', color:'#3b6d11', bg:'#eaf3de', causa:'Il bot dovrebbe calcolare correttamente il consumo per questo prep.', action:'Nessuna azione necessaria', consumoTeorico, consumoCalcolato};
+  if(task.current_stock===null||task.current_stock===undefined)
+    return {badge:'🚫 Stock NULL',color:'#a32d2d',bg:'#fcebeb',causa:'current_stock=NULL → bot salta.',action:'Imposta stock',consumoTeorico,consumoCalcolato};
+  if(!hasRecipe&&!hasIngredient)
+    return {badge:'🔗 Missing link',color:'#533ab7',bg:'#eeedfe',causa:'Nessuna recipe_id né ingredient_id.',action:'Collega una ricetta',consumoTeorico,consumoCalcolato};
+  if(hasRecipe&&nRecipe===0&&nItem===0&&!rec.pos_name)
+    return {badge:'📭 POS name mancante',color:'#533ab7',bg:'#eeedfe',causa:'Ricetta senza pos_name e non usata come sub-recipe.',action:'Aggiungi pos_name o collegala come RECIPE nel BOM',consumoTeorico,consumoCalcolato};
+  if(hasRecipe&&rec.pos_name&&!hasBom)
+    return {badge:'📋 BOM vuoto',color:'#993c1d',bg:'#faece7',causa:'Ricetta con pos_name ma BOM vuoto.',action:'Compila il BOM',consumoTeorico,consumoCalcolato};
+  if(unit==='cup'&&bw>0&&bs>0&&bw>100)
+    return {badge:'⚙️ Motore: cup',color:'#854f0b',bg:'#faeeda',causa:'base_weight_g='+bw+'g confuso con cup.',action:'Usare serving_qty×vendite',consumoTeorico,consumoCalcolato};
+  if(unit==='buste'&&!bw&&!sw)
+    return {badge:'⚙️ Motore: buste',color:'#854f0b',bg:'#faeeda',causa:'unit=buste ma base_weight_g=null.',action:'Imposta base_weight_g',consumoTeorico,consumoCalcolato};
+  if(nRecipe>0&&nMissing>0)
+    return {badge:'⚠️ PARTIAL LINK',color:'#854f0b',bg:'#faeeda',
+      causa:`Collegato a ${nRecipe} ricett${nRecipe>1?'e':'a'} correttamente, ma ${nMissing} ricett${nMissing>1?'e':'a'} sospett${nMissing>1?'e':'a'} senza link.`,
+      action:'Verifica le ricette sospette e decidi se aggiungere come sub-recipe',consumoTeorico,consumoCalcolato};
+  if(nRecipe===0&&nItem>0)
+    return {badge:'🔴 ITEM sbagliato',color:'#a32d2d',bg:'#fcebeb',
+      causa:`Usato come ITEM (ingrediente) in ${nItem} ricett${nItem>1?'e':'a'} invece che come RECIPE.`,
+      action:'Converti da ITEM → RECIPE nel BOM',consumoTeorico,consumoCalcolato};
+  if(nRecipe>0&&nMissing===0&&nItem===0)
+    return {badge:'✅ OK',color:'#3b6d11',bg:'#eaf3de',
+      causa:`Collegato correttamente a ${nRecipe} ricett${nRecipe>1?'e':'a'} come RECIPE.`,
+      action:'Nessuna azione necessaria',consumoTeorico,consumoCalcolato};
+  if(totalYd===0)
+    return {badge:'📊 Zero vendite ieri',color:'#3b6d11',bg:'#eaf3de',causa:'Struttura ok, nessuna vendita ieri.',action:'Normale se chiuso',consumoTeorico,consumoCalcolato};
+  return {badge:'✅ OK',color:'#3b6d11',bg:'#eaf3de',causa:'Calcolo corretto.',action:'Nessuna azione',consumoTeorico,consumoCalcolato};
 }
 
 window.toggleAuditPanel = async function(taskId){
-  const card = document.querySelector('[data-audit-id="'+taskId+'"]');
+  const card=document.querySelector('[data-audit-id="'+taskId+'"]');
   if(!card) return;
-  const panel = card.querySelector('.audit-detail');
+  const panel=card.querySelector('.audit-detail');
   if(!panel) return;
-  const btn = card.querySelector('.audit-toggle-btn');
+  const btn=card.querySelector('.audit-toggle-btn');
   if(panel.style.display==='none'||!panel.style.display){
     panel.style.display='block';
     if(btn) btn.textContent='🔍 Nascondi audit';
-    // Mostra loading
     panel.innerHTML='<div style="padding:10px;font-size:11px;color:#64748b;">Caricamento dati...</div>';
-    const task = tasks[taskId];
-    const data = await loadAuditData(taskId);
-    const diag = auditDiagnose(task, data);
-    const rec = task.recipes||{};
-    const pns = rec.pos_name ? rec.pos_name.split('|').map(s=>s.trim()) : [];
-    // BOM display
-    let bomHTML = '';
-    if(data && data.bomItems.length){
-      bomHTML = data.bomItems.map(b=>{
-        const name = b.component_type==='ITEM' ? (b.ingredients?.name||'?') : ('📦 '+b.sub?.title||'sub-ricetta');
-        return '<span style="font-size:11px;background:#f1f5f9;border-radius:4px;padding:1px 6px;margin:2px;display:inline-block;">'+name+' '+b.quantity+b.unit+'</span>';
-      }).join('');
-    } else if(task.recipe_id){
-      bomHTML = '<span style="font-size:11px;color:#dc2626;">BOM vuoto</span>';
-    } else {
-      bomHTML = '<span style="font-size:11px;color:#94a3b8;">Nessuna ricetta collegata</span>';
+    const task=tasks[taskId];
+    const data=await loadAuditData(taskId);
+    const diag=auditDiagnose(task,data);
+    const rec=task.recipes||{};
+
+    function _recRow(r,type){
+      const pns=(r.parent?.pos_name||r.pos_name||'').split('|').map(s=>s.trim()).filter(Boolean);
+      const ydS=pns.reduce((s,pn)=>{const k=Object.keys(data?.yesterdaySales||{}).find(k2=>k2.toLowerCase()===pn.toLowerCase());return s+(k?data.yesterdaySales[k]:0);},0);
+      const avgS=pns.reduce((s,pn)=>{const k=Object.keys(data?.avgSales||{}).find(k2=>k2.toLowerCase()===pn.toLowerCase());return s+(k?data.avgSales[k]:0);},0);
+      const styles={'RECIPE':'background:#eff6ff;border:0.5px solid #bfdbfe;color:#1e40af;','ITEM':'background:#fef2f2;border:0.5px solid #fca5a5;color:#991b1b;','MISSING':'background:#fafafa;border:0.5px solid #e2e8f0;color:#475569;'};
+      const labels={'RECIPE':'✅ RECIPE','ITEM':'⚠ ITEM','MISSING':'❓ mancante'};
+      const title=r.parent?.title||r.title||'?';
+      const posLabel=pns.length?pns[0]:'—';
+      const qty=r.quantity?` · ${r.quantity}${r.unit||'g'}`:'';
+      return `<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;padding:5px 0;border-bottom:0.5px solid #f1f5f9;">
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+            <span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;${styles[type]}">${labels[type]}</span>
+            <span style="font-size:12px;font-weight:600;color:#0f172a;">${title}${qty}</span>
+          </div>
+          <div style="font-size:11px;color:#64748b;margin-top:2px;">POS: ${posLabel}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:12px;font-weight:700;color:${ydS>0?'#185fa5':'#94a3b8'};">${ydS>0?ydS+' ieri':'—'}</div>
+          <div style="font-size:10px;color:#94a3b8;">${avgS>0?'avg '+avgS+'/gg':''}</div>
+        </div>
+      </div>`;
     }
-    // POS parents display
-    let parentsHTML = '';
-    if(data && (data.posParents.length||data.ingParents.length)){
-      const all = [...data.posParents.map(p=>({title:p.parent.title,pos_name:p.parent.pos_name,qty:p.quantity,unit:p.unit})),
-                   ...data.ingParents.map(p=>({title:p.parent.title,pos_name:p.parent.pos_name,qty:p.quantity,unit:p.unit}))];
-      parentsHTML = all.map(p=>'<span style="font-size:11px;background:#f0fdf4;border:0.5px solid #bbf7d0;border-radius:4px;padding:1px 6px;margin:2px;display:inline-block;">'+p.title+' ('+p.qty+p.unit+')</span>').join('');
-    } else if(pns.length){
-      parentsHTML = pns.map(pn=>{
-        const ydSales = data?.yesterdaySales?.[pn]||0;
-        return '<span style="font-size:11px;background:#eff6ff;border:0.5px solid #bfdbfe;border-radius:4px;padding:1px 6px;margin:2px;display:inline-block;">'+pn+(ydSales>0?' · '+ydSales+' ieri':'')+'</span>';
-      }).join('');
-    } else {
-      parentsHTML = '<span style="font-size:11px;color:#94a3b8;">Nessuna</span>';
-    }
-    const ydTotal = data ? Object.entries(data.yesterdaySales).map(([k,v])=>k+': '+v).join(', ') : '—';
-    panel.innerHTML = `
+
+    const bomHTML=data&&data.bomItems.length
+      ?data.bomItems.map(b=>{const n=b.component_type==='ITEM'?(b.ingredients?.name||'?'):('📦 '+(b.sub?.title||'sub'));return `<span style="font-size:11px;background:#f1f5f9;border-radius:4px;padding:1px 6px;margin:2px;display:inline-block;">${n} ${b.quantity}${b.unit}</span>`;}).join('')
+      :task.recipe_id?'<span style="font-size:11px;color:#dc2626;">BOM vuoto</span>':'<span style="font-size:11px;color:#94a3b8;">Nessuna ricetta</span>';
+
+    const rL=data?.recipeLinks||[], iL=data?.itemLinks||[], mL=data?.missingLinks||[];
+    const hasRows=rL.length||iL.length||mL.length;
+
+    panel.innerHTML=`
       <div style="padding:10px 12px;border-top:0.5px dashed #e2e8f0;">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
-          <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px;background:${diag.bg};color:${diag.color};">${diag.badge}</span>
+          <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;background:${diag.bg};color:${diag.color};">${diag.badge}</span>
         </div>
-        <div style="display:grid;gap:6px;">
-          <div>
-            <div style="font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:2px;">Causa</div>
-            <div style="font-size:12px;color:#334155;line-height:1.5;">${diag.causa}</div>
+        <div style="font-size:12px;color:#334155;line-height:1.5;margin-bottom:4px;">${diag.causa}</div>
+        <div style="font-size:12px;color:#059669;font-weight:600;margin-bottom:10px;">${diag.action}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
+          <div style="background:#f8fafc;border-radius:8px;padding:6px 8px;">
+            <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Consumo teorico</div>
+            <div style="font-size:12px;font-weight:600;color:#0f172a;margin-top:2px;">${diag.consumoTeorico}</div>
           </div>
-          <div>
-            <div style="font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:2px;">Azione suggerita</div>
-            <div style="font-size:12px;color:#059669;font-weight:600;">${diag.action}</div>
+          <div style="background:#f8fafc;border-radius:8px;padding:6px 8px;">
+            <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Consumo ieri</div>
+            <div style="font-size:12px;font-weight:600;color:#0f172a;margin-top:2px;">${diag.consumoCalcolato}</div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-            <div style="background:#f8fafc;border-radius:8px;padding:6px 8px;">
-              <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Consumo teorico</div>
-              <div style="font-size:12px;font-weight:600;color:#0f172a;margin-top:2px;">${diag.consumoTeorico}</div>
-            </div>
-            <div style="background:#f8fafc;border-radius:8px;padding:6px 8px;">
-              <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Consumo ieri</div>
-              <div style="font-size:12px;font-weight:600;color:#0f172a;margin-top:2px;">${diag.consumoCalcolato}</div>
-            </div>
-          </div>
-          <div>
-            <div style="font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:3px;">Ricette POS collegate</div>
-            <div style="display:flex;flex-wrap:wrap;">${parentsHTML}</div>
-          </div>
-          <div>
-            <div style="font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:3px;">BOM trovati</div>
-            <div style="display:flex;flex-wrap:wrap;">${bomHTML}</div>
-          </div>
-          ${ydTotal!=='—'?`<div style="font-size:10px;color:#94a3b8;">Vendite ieri: ${ydTotal}</div>`:''}
-          <div style="font-size:10px;color:#94a3b8;">recipe_id: ${task.recipe_id||'—'} · ingredient_id: ${task.ingredient_id||'—'} · pos_name: ${rec.pos_name||'—'}</div>
         </div>
+        ${hasRows?`<div style="font-size:10px;font-weight:700;color:#64748b;letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px;">
+          Ricette · ${rL.length} RECIPE · ${iL.length} ITEM sbagliati · ${mL.length} mancanti sospette
+        </div>
+        <div style="margin-bottom:8px;">
+          ${rL.map(r=>_recRow(r,'RECIPE')).join('')}
+          ${iL.map(r=>_recRow(r,'ITEM')).join('')}
+          ${mL.map(r=>_recRow({title:r.title,pos_name:r.pos_name},'MISSING')).join('')}
+        </div>`:''}
+        <div style="font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:.05em;text-transform:uppercase;margin-bottom:3px;">BOM trovati</div>
+        <div style="display:flex;flex-wrap:wrap;margin-bottom:6px;">${bomHTML}</div>
+        <div style="font-size:10px;color:#cbd5e1;">recipe_id: ${task.recipe_id||'—'} · ingredient_id: ${task.ingredient_id||'—'}</div>
       </div>`;
   } else {
     panel.style.display='none';
     if(btn) btn.textContent='🔍 Audit';
   }
 };
+
 
 window.toggleAllAudit = function(){
   window._auditMode = !window._auditMode;
