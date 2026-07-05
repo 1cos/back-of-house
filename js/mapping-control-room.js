@@ -184,31 +184,34 @@ window.mcrShowTab = function (tab) {
 };
 
 // ── Load all data in parallel ────────────────────────────────────
+// Each query is wrapped individually so a single failure never
+// empties critical tables (recipe_bom, recipes) that drive detection.
 window.mcrLoadAndRender = async function () {
   const sb = window.supa;
   const sub = document.getElementById('mcrSubtitle');
   if (sub) sub.textContent = 'Loading audit data…';
 
   try {
-    const [
-      { data: prepTasks },
-      { data: recipes },
-      { data: ingredients },
-      { data: bom },
-      { data: posAliases },
-      { data: modifierConfig },
-      { data: posSales },
-      { data: posModifiers },
-    ] = await Promise.all([
-      sb.from('prep_tasks').select('id,name,category,prep_type,unit,current_stock,suggested_qty,suggested_note,suggested_at,recipe_id,ingredient_id,expected_duration_days,min_cover_days,archived,base_weight_g').eq('archived', false).limit(500),
-      sb.from('recipes').select('id,title,pos_name,menu_group,category,base_weight_g,base_servings,serving_weight_g,serving_unit,serving_qty,shelf_life_days,food_cost_pct,selling_price,ingredients').limit(500),
-      sb.from('ingredients').select('id,name,category,measure_type,active').eq('active', true).limit(500),
-      sb.from('recipe_bom').select('bom_id,parent_recipe_id,component_type,item_id,sub_recipe_id,quantity,unit,notes').limit(1500),
-      sb.from('pos_item_aliases').select('*').limit(200),
-      sb.from('modifier_config').select('*').limit(200),
-      sb.from('pos_sales_by_item').select('menu_item,quantity,sale_date').gte('sale_date', new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10)).limit(1000),
-      sb.from('pos_modifiers').select('modifier,quantity_sold,sale_date').gte('sale_date', new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10)).limit(1000),
-    ]);
+    // Wrap each query: on error log and return [] so detection still runs
+    async function q(label, promise) {
+      const { data, error } = await promise;
+      if (error) console.error('[MCR] query error —', label, ':', error.message || error);
+      return data || [];
+    }
+
+    const cutoff = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+
+    const [prepTasks, recipes, ingredients, bom, posAliases, modifierConfig, posSales, posModifiers] =
+      await Promise.all([
+        q('prep_tasks',        sb.from('prep_tasks').select('id,name,category,prep_type,unit,current_stock,suggested_qty,suggested_note,suggested_at,recipe_id,ingredient_id,expected_duration_days,min_cover_days,archived,base_weight_g').eq('archived', false).limit(500)),
+        q('recipes',           sb.from('recipes').select('id,title,pos_name,menu_group,category,base_weight_g,base_servings,serving_weight_g,serving_unit,serving_qty,shelf_life_days,food_cost_pct,selling_price,ingredients').limit(500)),
+        q('ingredients',       sb.from('ingredients').select('id,name,category,measure_type,active').eq('active', true).limit(500)),
+        q('recipe_bom',        sb.from('recipe_bom').select('bom_id,parent_recipe_id,component_type,item_id,sub_recipe_id,quantity,unit,notes').limit(1500)),
+        q('pos_item_aliases',  sb.from('pos_item_aliases').select('*').limit(200)),
+        q('modifier_config',   sb.from('modifier_config').select('*').limit(200)),
+        q('pos_sales_by_item', sb.from('pos_sales_by_item').select('menu_item,quantity,sale_date').gte('sale_date', cutoff).limit(1000)),
+        q('pos_modifiers',     sb.from('pos_modifiers').select('modifier,quantity_sold,sale_date').gte('sale_date', cutoff).limit(1000)),
+      ]);
 
     window._mcrData = { prepTasks, recipes, ingredients, bom, posAliases, modifierConfig, posSales, posModifiers };
 
