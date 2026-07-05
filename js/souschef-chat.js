@@ -259,6 +259,9 @@ window.scChatConfirm = async function() {
         message: '__execute_confirmed__',
         confirmed_action: action,
         history: [],
+        user_name: window.user?.name || 'Unknown',
+        user_role: window.user?.role || 'staff',
+        user_station: window.user?.default_station || '',
       }),
     });
     const data = await res.json();
@@ -363,6 +366,9 @@ async function scChatProcess(userText) {
       body: JSON.stringify({
         message: userText,
         history: _scChatHistory.slice(-10).map(m => ({ role: m.role, content: m.content })),
+        user_name: window.user?.name || 'Unknown',
+        user_role: window.user?.role || 'staff',
+        user_station: window.user?.default_station || '',
       }),
     });
 
@@ -387,3 +393,4 @@ async function scChatProcess(userText) {
     scChatAddMsg('assistant', '❌ Errore: ' + e.message, { isError: true });
   }
 }
+
