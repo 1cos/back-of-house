@@ -378,30 +378,114 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
     });
   });
 
-  // ── B: Structural checks — SOLD ITEM MODE vs PREP/BATCH MODE ─
+  // ── B: Production Profile checks ─────────────────────────────
   //
-  // Two distinct recipe modes:
+  // Each recipe/prep gets a production profile with 4 axes:
   //
-  // SOLD ITEM MODE  — recipe has pos_name (connected to POS sales).
-  //   Does NOT need batch weight / base_weight_g.
-  //   NEEDS: a BOM that describes what 1 sale consumes.
-  //   Bot path: reads BOM × sales_qty = daily drawdown per ingredient.
+  //  production_constraint:
+  //    sold_item       — has pos_name, served to order
+  //    free_quantity   — no minimum unit, bot suggests exact weight
+  //    minimum_unit    — must be made in full kitchen units (can/gallon/tray/pot)
+  //    portioned_unit  — produces fixed pieces/slices/portions
   //
-  // PREP/BATCH MODE — prep_task has recipe_id (produced ahead, creates stock).
-  //   NEEDS: batch yield (base_weight_g + base_servings, or serving_weight_g).
-  //   Bot path: reads stock, calculates batches to produce.
+  //  yield_behavior:
+  //    sum_ingredients    — yield ≈ sum of ingredient weights
+  //    manual_final_yield — chef measures yield manually
+  //    reduction          — cooking reduces yield (sauces, demi, ragù)
+  //    growth_absorption  — cooking increases yield (polenta, risotto)
+  //    portion_count      — output counted in pieces/slices/portions
   //
-  // DO NOT flag a sold item for missing batch weight if it has a complete BOM.
+  //  control_unit: g / kg / each / slice / piece / tray / gallon / can / recipe
+  //
+  //  rounding_rule:
+  //    none                   — bot can suggest exact weight
+  //    round_to_minimum_unit  — bot rounds up to gallon/can/tray/full recipe
+  //    round_to_portion_count — bot rounds to slices/pieces/portions
+  //    round_to_container     — bot rounds to container size
+  //
+  // Classification is heuristic from existing DB fields (no new columns).
+  // Purpose: surface the RIGHT warning per profile, not a generic "missing batch weight".
 
-  // B1: SOLD ITEM — missing BOM or BOM rows incomplete
-  // A sold item is "OK for consumption" if:
-  //   1. Has pos_name
-  //   2. Has ≥1 BOM row
-  //   3. Each BOM row has qty > 0 + unit + linked item_id or sub_recipe_id
+  // ── Profile classifier ────────────────────────────────────────
+  function classifyPrepProfile(rec, prepTask, bomRows) {
+    const n = (rec?.title || prepTask?.name || '').toLowerCase();
+    const su = (rec?.serving_unit || prepTask?.unit || '').toLowerCase();
+
+    // production_constraint
+    let production_constraint;
+    if (rec?.pos_name) {
+      production_constraint = 'sold_item';
+    } else if (
+      su === 'slice' || su === 'slices' || su === 'piece' || su === 'pezzi' ||
+      su === 'each' || su === 'pz' ||
+      (rec?.serving_qty && rec?.serving_unit && ['slice','piece','pezzi','each','pz'].includes(su))
+    ) {
+      production_constraint = 'portioned_unit';
+    } else if (
+      n.includes('sauce') || n.includes('dressing') || n.includes('demi') ||
+      n.includes('ragu') || n.includes('ragù') || n.includes('soup') ||
+      n.includes('broth') || n.includes('oil') || n.includes('glaze') ||
+      n.includes('cacio') || n.includes('arrabbiata') || n.includes('béchamel') ||
+      n.includes('bechamel') || n.includes('pesto') || n.includes('cream') ||
+      n.includes('tiramisu') || n.includes('cheesecake') || n.includes('cake') ||
+      n.includes('bavarese') || n.includes('crème') || n.includes('creme') ||
+      n.includes('brulee') || n.includes('panna') || n.includes('mousse') ||
+      (rec?.base_servings && rec?.base_weight_g)
+    ) {
+      production_constraint = 'minimum_unit';
+    } else {
+      production_constraint = 'free_quantity';
+    }
+
+    // yield_behavior
+    let yield_behavior;
+    if (production_constraint === 'sold_item') {
+      yield_behavior = 'sum_ingredients'; // per-sale BOM drawdown
+    } else if (production_constraint === 'portioned_unit') {
+      yield_behavior = 'portion_count';
+    } else if (
+      n.includes('demi') || n.includes('reduction') ||
+      n.includes('ragu') || n.includes('ragù') ||
+      n.includes('tomato sauce') || n.includes('pomodoro') ||
+      n.includes('broth') || n.includes('stock')
+    ) {
+      yield_behavior = 'reduction';
+    } else if (
+      n.includes('polenta') || n.includes('risotto') || n.includes('rice')
+    ) {
+      yield_behavior = 'growth_absorption';
+    } else if (rec?.base_weight_g) {
+      yield_behavior = 'manual_final_yield';
+    } else {
+      yield_behavior = 'sum_ingredients';
+    }
+
+    // control_unit
+    let control_unit = rec?.serving_unit || prepTask?.unit || 'g';
+    if (control_unit === 'pezzi') control_unit = 'piece';
+    if (control_unit === 'nests') control_unit = 'nests';
+
+    // rounding_rule
+    let rounding_rule;
+    if (production_constraint === 'sold_item') {
+      rounding_rule = 'none';
+    } else if (production_constraint === 'portioned_unit') {
+      rounding_rule = 'round_to_portion_count';
+    } else if (production_constraint === 'minimum_unit') {
+      rounding_rule = 'round_to_minimum_unit';
+    } else {
+      rounding_rule = 'none';
+    }
+
+    return { production_constraint, yield_behavior, control_unit, rounding_rule };
+  }
+
+  // ── B1: SOLD ITEM — missing BOM usage ────────────────────────
+  // A sold item (has pos_name) needs a BOM defining what 1 sale consumes.
+  // If BOM is complete → no warning (OK). Never flag for missing batch weight.
   (recipes || []).filter(r => r.pos_name).forEach(r => {
     const rows = bomByParent[r.id] || [];
     if (rows.length === 0) {
-      // No BOM at all — bot cannot calculate any drawdown
       problems.push({
         id: `sold-no-bom-${r.id}`,
         name: r.title,
@@ -409,13 +493,12 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
         station: r.menu_group || '—',
         severity: 'red',
         problemType: 'sold-item-missing-bom',
-        explanation: `Sold item (POS: "${r.pos_name}") has no BOM rows. Bot cannot calculate what 1 sale consumes — nothing is ever drawn down from stock.`,
-        suggestedFix: 'Add BOM rows describing what each sale consumes: ingredient qty + unit per portion sold.',
-        detail: { recipe: r, bomRows: [] },
+        explanation: `Questo piatto si vende al POS, ma manca cosa scaricare per 1 vendita. POS: "${r.pos_name}". Il bot non può calcolare nessun consumo — lo stock non viene mai scalato.`,
+        suggestedFix: 'Aggiungi righe BOM con ingrediente/sottoricetta + quantità per 1 porzione venduta.',
+        detail: { recipe: r, profile: classifyPrepProfile(r, null, []), bomRows: [] },
       });
       return;
     }
-    // Check for incomplete rows: missing qty, or missing link
     const incompleteRows = rows.filter(b =>
       !b.quantity || b.quantity <= 0 ||
       !b.unit ||
@@ -430,48 +513,98 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
         station: r.menu_group || '—',
         severity: 'yellow',
         problemType: 'sold-item-incomplete-bom',
-        explanation: `Sold item has ${rows.length} BOM row(s) but ${incompleteRows.length} are incomplete (missing qty, unit, or item link). Bot may under-calculate consumption.`,
-        suggestedFix: 'Complete each BOM row: set quantity, unit, and link to ingredient or sub-recipe.',
-        detail: { recipe: r, bomRows: rows, incompleteRows },
+        explanation: `Piatto venduto con ${rows.length} righe BOM, ma ${incompleteRows.length} incomplete (mancano qty, unit o link). Il bot potrebbe sotto-calcolare il consumo.`,
+        suggestedFix: 'Completa ogni riga BOM: qty > 0, unit, collegamento a ingrediente o sottoricetta.',
+        detail: { recipe: r, profile: classifyPrepProfile(r, null, rows), bomRows: rows, incompleteRows },
       });
     }
-    // If BOM is complete: no problem — do NOT flag for missing batch weight
+    // BOM complete → no warning (case A: OK — "1 vendita scarica questi componenti")
   });
 
-  // B2: PREP/BATCH — missing batch yield
-  // A prep task in BATCH MODE needs base_weight_g+base_servings OR serving_weight_g
-  // so the bot can calculate "how many batches to produce".
-  // Only applies when:
-  //   - prep_task has recipe_id
-  //   - prep_type != checklist
-  //   - recipe has no pos_name (pure prep/subrecipe, produced ahead)
-  // If recipe has pos_name it is served to-order — batch weight irrelevant — skip.
+  // ── B2: PREP — production profile warnings ────────────────────
+  // For each prep task with a recipe (non-checklist, non-sold-item recipe),
+  // classify its production profile and surface the specific missing data.
   (prepTasks || []).filter(t => {
     if (!t.recipe_id) return false;
     if (t.prep_type === 'checklist') return false;
     const rec = recipeById[t.recipe_id];
-    if (!rec) return false;
-    if (rec.pos_name) return false; // sold-to-order: no batch weight needed
-    const hasYield = rec.base_weight_g || rec.serving_weight_g;
-    return !hasYield;
+    return rec && !rec.pos_name; // pure prep recipe
   }).forEach(t => {
     const rec = recipeById[t.recipe_id];
-    problems.push({
-      id: `prep-no-yield-${t.id}`,
-      name: t.name,
-      type: 'prep',
-      station: t.category || '—',
-      severity: 'yellow',
-      problemType: 'prep-missing-batch-yield',
-      explanation: `Prep recipe "${rec.title}" has no batch yield (base_weight_g or serving_weight_g missing). Bot cannot express suggestions in real kitchen units (kg, nests, pezzi).`,
-      suggestedFix: 'Set base_weight_g (total batch grams) + base_servings, or serving_weight_g (grams per portion served).',
-      detail: { prepTask: t, recipe: rec },
-    });
+    const rows = bomByParent[rec.id] || [];
+    const profile = classifyPrepProfile(rec, t, rows);
+
+    if (profile.production_constraint === 'minimum_unit') {
+      // Case D: minimum_unit — needs final yield defined
+      const hasYield = rec.base_weight_g || rec.serving_weight_g;
+      if (!hasYield) {
+        problems.push({
+          id: `min-unit-no-yield-${t.id}`,
+          name: t.name,
+          type: 'prep',
+          station: t.category || '—',
+          severity: 'yellow',
+          problemType: 'minimum-unit-missing-final-yield',
+          explanation: `Manca la resa finale dell'unità minima. "${rec.title}" si prepara per unità minima di cucina (pentola/latta/teglia/ricetta intera) ma non è definito quanto produce in grammi.`,
+          suggestedFix: 'Imposta base_weight_g (grammi totali del batch) + base_servings sulla ricetta.',
+          detail: { prepTask: t, recipe: rec, profile, bomRows: rows },
+        });
+      }
+      // If has reduction behavior AND no final yield either → escalate
+      if (profile.yield_behavior === 'reduction' && !hasYield) {
+        // Already caught above — no duplicate
+      } else if (profile.yield_behavior === 'reduction' && hasYield) {
+        // Fine — yield is defined despite reduction
+      }
+    }
+
+    if (profile.production_constraint === 'minimum_unit' && profile.yield_behavior === 'reduction') {
+      // Case E: reduction — verify final yield is truly usable yield (not just ingredient sum)
+      const hasYield = rec.base_weight_g || rec.serving_weight_g;
+      if (!hasYield) {
+        // Already caught in D above — skip duplicate
+      } else {
+        // Has yield, but flag that reduction means it should be measured, not estimated
+        // Only flag if no base_weight_g (serving_weight_g alone is not enough for reduction preps)
+        if (!rec.base_weight_g) {
+          problems.push({
+            id: `reduction-no-base-weight-${t.id}`,
+            name: t.name,
+            type: 'prep',
+            station: t.category || '—',
+            severity: 'yellow',
+            problemType: 'reduction-missing-final-yield',
+            explanation: `Questa prep riduce in cottura: manca la resa finale utilizzabile. "${rec.title}" ha solo serving_weight_g ma non base_weight_g — il bot non sa quanti batch interi produrre.`,
+            suggestedFix: 'Imposta base_weight_g (grammi totali del batch cotto/ridotto, non la somma ingredienti crudi).',
+            detail: { prepTask: t, recipe: rec, profile, bomRows: rows },
+          });
+        }
+      }
+    }
+
+    if (profile.production_constraint === 'portioned_unit') {
+      // Case F: portioned_unit — needs portion count
+      const hasPortions = rec.base_servings && rec.serving_qty;
+      if (!hasPortions) {
+        problems.push({
+          id: `portioned-no-count-${t.id}`,
+          name: t.name,
+          type: 'prep',
+          station: t.category || '—',
+          severity: 'yellow',
+          problemType: 'portioned-unit-missing-portion-count',
+          explanation: `Questa ricetta è porzionata, ma manca quante porzioni/fette/pezzi produce. "${rec.title}" usa serving_unit="${rec.serving_unit || '?'}" ma non ha base_servings o serving_qty.`,
+          suggestedFix: 'Imposta base_servings (quante porzioni produce un batch intero) e serving_qty (pezzi per porzione).',
+          detail: { prepTask: t, recipe: rec, profile, bomRows: rows },
+        });
+      }
+    }
+
+    // Case C: free_quantity → no warning needed
+    // The bot can suggest exact weight. No minimum unit. No portion count.
   });
 
-  // B2b: SUBRECIPE — used in another BOM but has no yield defined
-  // A sub-recipe (component_type=RECIPE in a BOM row) needs yield data so
-  // the bot can scale grams consumed per parent-recipe sale.
+  // ── B2b: SUBRECIPE — used in BOM but no yield defined ────────
   const subRecipeIds = new Set(
     (bom || [])
       .filter(b => b.component_type === 'RECIPE' && b.sub_recipe_id)
@@ -479,12 +612,13 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
   );
   subRecipeIds.forEach(rid => {
     const rec = recipeById[rid];
-    if (!rec) return;
+    if (!rec || rec.pos_name) return; // sold items handled in B1
     const hasYield = rec.base_weight_g || rec.serving_weight_g;
     if (!hasYield) {
       const hasLinkedPrep = (prepTasks || []).some(t => t.recipe_id === rid && t.prep_type !== 'checklist');
       if (!hasLinkedPrep) {
         const parentBomRows = (bom || []).filter(b => b.sub_recipe_id === rid);
+        const profile = classifyPrepProfile(rec, null, parentBomRows);
         problems.push({
           id: `subrecipe-no-yield-${rid}`,
           name: rec.title,
@@ -492,9 +626,9 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
           station: rec.menu_group || '—',
           severity: 'yellow',
           problemType: 'subrecipe-missing-yield',
-          explanation: `Sub-recipe used in ${parentBomRows.length} BOM row(s) but has no base_weight_g or serving_weight_g. Bot cannot calculate grams consumed per sale.`,
-          suggestedFix: 'Set serving_weight_g (grams of this sub-recipe per parent portion) or base_weight_g + base_servings.',
-          detail: { recipe: rec, usedInBomCount: parentBomRows.length },
+          explanation: `Sottoricetta usata in ${parentBomRows.length} BOM ma senza resa definita (base_weight_g o serving_weight_g mancanti). Il bot non riesce a calcolare i grammi consumati per vendita.`,
+          suggestedFix: 'Imposta serving_weight_g (grammi di questa sottoricetta per porzione del piatto padre) o base_weight_g + base_servings.',
+          detail: { recipe: rec, profile, usedInBomCount: parentBomRows.length },
         });
       }
     }
@@ -836,10 +970,41 @@ function buildDrawerHTML(p) {
         <div class="mcr-kv">
           <span class="mcr-kv-k">Recipe mode</span>
           <span class="mcr-kv-v" style="font-size:11px;padding:2px 6px;border-radius:6px;${rec.pos_name ? 'background:#1e3a8a;color:#bfdbfe;' : 'background:#1a3a2a;color:#86efac;'}">
-            ${rec.pos_name ? '🛒 SOLD ITEM — BOM = 1 sale consumes' : '🔪 PREP/BATCH — BOM = batch recipe'}
+            ${rec.pos_name ? '🛒 SOLD ITEM — cosa scarica per 1 vendita' : '🔪 PREP/BATCH — produzione programmata'}
           </span>
         </div>
       </div>`;
+
+    // ── Production profile (if available) ───────────────────
+    if (p.detail?.profile) {
+      const pr = p.detail.profile;
+      const constraintLabel = {
+        sold_item:      '🛒 Piatto venduto al momento',
+        free_quantity:  '⚖️ Libera a peso — nessuna unità minima',
+        minimum_unit:   '🪣 Unità minima di preparazione',
+        portioned_unit: '🍰 Porzionata (fette/pezzi/porzioni)',
+      }[pr.production_constraint] || pr.production_constraint;
+      const yieldLabel = {
+        sum_ingredients:    'Somma ingredienti',
+        manual_final_yield: 'Resa misurata manualmente',
+        reduction:          '🔥 Riduce in cottura',
+        growth_absorption:  '📈 Assorbe liquidi (cresce)',
+        portion_count:      '🔢 Si conta in porzioni',
+      }[pr.yield_behavior] || pr.yield_behavior;
+      const roundLabel = {
+        none:                    'Esatta (nessun arrotondamento)',
+        round_to_minimum_unit:   "Arrotonda all'unità minima",
+        round_to_portion_count:  'Arrotonda alle porzioni',
+        round_to_container:      'Arrotonda al contenitore',
+      }[pr.rounding_rule] || pr.rounding_rule;
+      html += `<div class="mcr-drawer-section" style="border-color:#7c3aed40;">
+        <div class="mcr-drawer-label" style="color:#a78bfa;">🧩 Profilo Produzione</div>
+        <div class="mcr-kv"><span class="mcr-kv-k">Vincolo</span><span class="mcr-kv-v">${escH(constraintLabel)}</span></div>
+        <div class="mcr-kv"><span class="mcr-kv-k">Resa</span><span class="mcr-kv-v">${escH(yieldLabel)}</span></div>
+        <div class="mcr-kv"><span class="mcr-kv-k">Unità controllo</span><span class="mcr-kv-v">${escH(pr.control_unit)}</span></div>
+        <div class="mcr-kv"><span class="mcr-kv-k">Arrotondamento bot</span><span class="mcr-kv-v">${escH(roundLabel)}</span></div>
+      </div>`;
+    }
 
     // BOM
     if (bomRows.length > 0) {
