@@ -954,19 +954,47 @@ async function openRecipeEditor(rec=null){
         return;
       }
       // BOM vuoto — fallback al JSON (ricetta nuova o senza BOM ancora)
+    // If the recipe has legacy ingredients in the JSON field, load them but
+    // mark them as unresolved. Auto-resolve will attempt exact-unique lookup.
+    if(rec?.id && rec?.ingredients && rec.ingredients.length > 0){
+      // ── LEGACY PATH ──────────────────────────────────────────
+      // Show banner warning before populating rows
+      const legacyBanner = document.createElement('div');
+      legacyBanner.id = 'legacyIngBanner';
+      legacyBanner.style.cssText = [
+        'background:#fffbeb;border:1.5px solid #f59e0b;border-radius:10px;',
+        'padding:10px 12px;margin-bottom:10px;font-size:12px;color:#92400e;',
+        'display:flex;align-items:flex-start;gap:8px;',
+      ].join('');
+      legacyBanner.innerHTML = `
+        <span style="font-size:16px;flex-shrink:0;">⚠️</span>
+        <div>
+          <strong>Ingredienti legacy</strong> — questi ingredienti vengono dall'editor ma non sono ancora nel BOM strutturato.
+          Il bot <strong>non li scaricherà</strong> finché non li colleghi.
+          Seleziona ogni ingrediente dal menu a discesa per collegarlo al DB.
+        </div>`;
+      ingList.parentElement.insertBefore(legacyBanner, ingList);
+
+      rec.ingredients.forEach(i=>{
+        if(i.type === 'section') addSectionRow(i);
+        else addIngRow({
+          qty:           i.qty,
+          unit:          i.unit,
+          name:          i.name,
+          comment:       i.comment,
+          ingredient_id: i.ingredient_id || null,
+          sub_recipe_id: i.sub_recipe_id  || null
+        });
+      });
+      // Attempt auto-resolve for unlinked rows (exact-unique match only)
+      await _autoResolveLegacyRows();
+      return;
+    }
     }
     // Nuova ricetta: 3 righe vuote
-    const fallback = rec?.ingredients || [{},{},{}];
+    const fallback = [{},{},{}];
     fallback.forEach(i=>{
-      if(i.type === 'section') addSectionRow(i);
-      else addIngRow({
-        qty:           i.qty,
-        unit:          i.unit,
-        name:          i.name,
-        comment:       i.comment,
-        ingredient_id: i.ingredient_id || null,
-        sub_recipe_id: i.sub_recipe_id  || null
-      });
+      addIngRow({ qty:'', unit:'g', name:'', comment:'', ingredient_id:null, sub_recipe_id:null });
     });
   }
   populateIngredients().then(()=>{
@@ -1129,9 +1157,35 @@ async function openRecipeEditor(rec=null){
         const {data:inserted} = await supa.from('recipes').insert(newRec).select('id').single();
         savedId = inserted?.id;
       }
-      if(savedId) await saveRecipeBOM(savedId, ingredients);
+      let unresolved = [];
+      if(savedId) unresolved = (await saveRecipeBOM(savedId, ingredients)) || [];
       if(savedId) await saveRecipeSteps(savedId, stepsState);
       if(savedId) translateAndSaveRecipe(savedId, newRec); // fire-and-forget — non blocca il save
+
+      // ── POST-SAVE: show unresolved warning if needed ────────
+      if(unresolved.length > 0){
+        // Do NOT close modal yet — keep it open with warning panel
+        _showUnresolvedWarning(modal, savedId, unresolved, async () => {
+          // Called when user clicks "Chiudi" on warning panel
+          modal.remove();
+          await init();
+          renderRecipes();
+          const oldSheet = document.getElementById('_recipeDetailSheet');
+          if(oldSheet){
+            oldSheet.remove();
+            if(savedId){
+              const freshRec = SHOP_RECIPES.find(r=>r.id===savedId);
+              if(freshRec) showRecipeSheet(freshRec);
+            }
+          }
+        });
+        // Update rec.id so re-saves work correctly
+        if(!rec) rec = { id: savedId };
+        else rec.id = savedId;
+        return; // keep modal open
+      }
+
+      // No unresolved — close normally
       modal.remove();
       await init();
       renderRecipes();
@@ -1589,13 +1643,163 @@ async function translateAndSaveRecipe(recipeId, rec){
   }
 }
 
+// ── AUTO-RESOLVE LEGACY ROWS ────────────────────────────────
+// Called after loading legacy ingredients into the editor.
+// For each unlinked row, attempts an exact-unique lookup in ingredients + recipes.
+// Rules:
+//   exact unique match in ingredients → auto-link (green border)
+//   exact unique match in recipes     → auto-link (blue border)
+//   multiple matches (ambiguous)      → mark REVIEW (orange border)
+//   no match                          → mark UNRESOLVED (red border)
+async function _autoResolveLegacyRows(){
+  const ingList = document.getElementById('ingList');
+  if(!ingList) return;
+
+  const unlinkedRows = [...ingList.querySelectorAll('[data-type="ingredient"]')].filter(row =>
+    !row.dataset.ingredientId && !row.dataset.subRecipeId
+  );
+  if(!unlinkedRows.length) return;
+
+  for(const row of unlinkedRows){
+    const nameInput = row.querySelector('.ing-name-input');
+    const name = nameInput?.value?.trim();
+    if(!name) continue;
+
+    // Exact match queries (case-insensitive exact, not ILIKE %)
+    const [riExact, rrExact, riLike, rrLike] = await Promise.all([
+      supa.from('ingredients').select('id,name').ilike('name', name).eq('active',true).limit(2),
+      supa.from('recipes').select('id,title').ilike('title', name).limit(2),
+      supa.from('ingredients').select('id,name').ilike('name', `%${name}%`).eq('active',true).limit(5),
+      supa.from('recipes').select('id,title').ilike('title', `%${name}%`).limit(5),
+    ]);
+
+    const exactIngs  = (riExact.data || []).filter(i => i.name.toLowerCase() === name.toLowerCase());
+    const exactRecs  = (rrExact.data || []).filter(r => r.title.toLowerCase() === name.toLowerCase());
+    const fuzzyIngs  = riLike.data || [];
+    const fuzzyRecs  = rrLike.data || [];
+
+    if(exactIngs.length === 1 && exactRecs.length === 0){
+      // Exact unique ingredient match → auto-link
+      row.dataset.ingredientId = exactIngs[0].id;
+      row.dataset.subRecipeId  = '';
+      if(nameInput){ nameInput.style.borderColor='#10b981'; nameInput.style.background='#f0fdf4'; }
+      // Remove legacy status tag if present
+      row.querySelector('.legacy-status-tag')?.remove();
+    } else if(exactRecs.length === 1 && exactIngs.length === 0){
+      // Exact unique sub-recipe match → auto-link
+      row.dataset.subRecipeId  = exactRecs[0].id;
+      row.dataset.ingredientId = '';
+      if(nameInput){ nameInput.style.borderColor='#3b82f6'; nameInput.style.background='#eff6ff'; }
+      row.querySelector('.legacy-status-tag')?.remove();
+    } else {
+      // Ambiguous or no match → add status tag
+      const isAmbiguous = (exactIngs.length + exactRecs.length > 1)
+        || (exactIngs.length === 0 && exactRecs.length === 0 && (fuzzyIngs.length > 1 || fuzzyRecs.length > 1));
+      const hasPartial  = (fuzzyIngs.length === 1 && exactIngs.length === 0) || (fuzzyRecs.length === 1 && exactRecs.length === 0);
+
+      let tagColor, tagBg, tagText;
+      if(isAmbiguous){
+        tagColor = '#d97706'; tagBg = '#fffbeb'; tagText = '⚠ REVIEW — più corrispondenze';
+        if(nameInput){ nameInput.style.borderColor='#f59e0b'; nameInput.style.background='#fffbeb'; }
+      } else if(hasPartial){
+        tagColor = '#6366f1'; tagBg = '#eef2ff'; tagText = '↗ Parziale — seleziona dal menu';
+        if(nameInput){ nameInput.style.borderColor='#6366f1'; nameInput.style.background='#eef2ff'; }
+      } else {
+        tagColor = '#ef4444'; tagBg = '#fff5f5'; tagText = '✕ NON TROVATO — crea nuovo o correggi nome';
+        if(nameInput){ nameInput.style.borderColor='#ef4444'; nameInput.style.background='#fff5f5'; }
+      }
+
+      // Add inline status tag if not already present
+      if(!row.querySelector('.legacy-status-tag')){
+        const tag = document.createElement('div');
+        tag.className = 'legacy-status-tag';
+        tag.style.cssText = `font-size:10px;font-weight:600;color:${tagColor};background:${tagBg};
+          padding:1px 6px;border-radius:4px;margin-top:2px;grid-column:2/-1;`;
+        tag.textContent = tagText;
+        row.appendChild(tag);
+      }
+    }
+  }
+}
+
+// ── SHOW UNRESOLVED WARNING PANEL ───────────────────────────
+// Shown after Save when some ingredient rows had no UUID.
+// Keeps modal open, shows list of unresolved rows with Link now button.
+// onClose() is called when user dismisses, which closes modal.
+function _showUnresolvedWarning(modal, savedId, unresolved, onClose){
+  // Remove any existing panel
+  modal.querySelector('#unresolvedPanel')?.remove();
+
+  const panel = document.createElement('div');
+  panel.id = 'unresolvedPanel';
+  panel.style.cssText = [
+    'position:absolute;bottom:0;left:0;right:0;',
+    'background:#0f172a;border-top:2px solid #f59e0b;',
+    'padding:16px;z-index:20;max-height:65vh;overflow-y:auto;',
+    '-webkit-overflow-scrolling:touch;',
+  ].join('');
+
+  const rows = unresolved.map(i => `
+    <div style="display:flex;align-items:center;justify-content:space-between;
+                padding:8px 10px;background:#1e293b;border-radius:8px;margin-bottom:6px;gap:8px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;color:#fde68a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(i.name)}</div>
+        <div style="font-size:11px;color:#64748b;">${i.qty || '—'} ${escHtml(i.unit || '')} — nessun ingrediente/subrecipe collegato</div>
+      </div>
+      <div style="font-size:10px;color:#ef4444;font-weight:700;flex-shrink:0;">❌ NON nel bot</div>
+    </div>`).join('');
+
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#f59e0b;">⚠️ ${unresolved.length} ingredient${unresolved.length>1?'i':'e'} non collegat${unresolved.length>1?'i':'o'} al DB</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:2px;">La ricetta è stata salvata. Questi ingredienti sono nella ricetta ma il bot <strong>NON li scaricherà</strong> finché non li colleghi.</div>
+      </div>
+    </div>
+    <div style="margin-bottom:12px;">${rows}</div>
+    <div style="font-size:11px;color:#64748b;margin-bottom:10px;line-height:1.5;">
+      Per collegare: riaprire Edit Ricetta, cliccare sul campo nome di ogni ingrediente arancio/rosso e selezionare dal menu a discesa.
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button id="unresolvedFixBtn"
+        style="flex:1;padding:10px;background:#1e3a5f;border:1px solid #3b82f6;border-radius:10px;
+               color:#93c5fd;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
+        ✏️ Vai all'editor — collega ora
+      </button>
+      <button id="unresolvedCloseBtn"
+        style="flex:1;padding:10px;background:#1e293b;border:1px solid #334155;border-radius:10px;
+               color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
+        Chiudi — collega dopo
+      </button>
+    </div>`;
+
+  // Make the modal container relative for absolute positioning
+  const modalInner = modal.querySelector('.bg-white') || modal.querySelector('[style*="border-radius"]') || modal;
+  modalInner.style.position = 'relative';
+  modalInner.appendChild(panel);
+
+  panel.querySelector('#unresolvedCloseBtn').onclick = () => { onClose(); };
+  panel.querySelector('#unresolvedFixBtn').onclick   = () => {
+    // Hide warning panel so user can interact with the editor above
+    panel.style.display = 'none';
+  };
+}
+
+function escHtml(str){
+  return (str||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 async function saveRecipeBOM(recipeId, ingredientRows){
+  // Split rows into linked (have UUID) and unresolved (name only, no UUID).
+  // Only linked rows go into recipe_bom. Unresolved are returned for UI warning.
+  const linked     = ingredientRows.filter(i => i.type !== 'section' && (i.ingredient_id || i.sub_recipe_id));
+  const unresolved = ingredientRows.filter(i => i.type !== 'section' && !i.ingredient_id && !i.sub_recipe_id && i.name);
+
   // Delete existing BOM rows for this recipe
   await supa.from('recipe_bom').delete().eq('parent_recipe_id', recipeId);
 
-  const rows = ingredientRows
-    .filter(i => i.type !== 'section' && (i.ingredient_id || i.sub_recipe_id))
-    .map((i, idx) => ({
+  if(linked.length > 0){
+    const rows = linked.map((i, idx) => ({
       parent_recipe_id: recipeId,
       component_type:   i.sub_recipe_id ? 'RECIPE' : 'ITEM',
       item_id:          i.ingredient_id || null,
@@ -1605,10 +1809,12 @@ async function saveRecipeBOM(recipeId, ingredientRows){
       notes:            i.comment || null,
       sort_order:       idx + 1
     }));
+    const {error} = await supa.from('recipe_bom').insert(rows);
+    if(error) console.error('[BOM] insert error:', error);
+  }
 
-  if(!rows.length) return;
-  const {error} = await supa.from('recipe_bom').insert(rows);
-  if(error) console.error('[BOM] insert error:', error);
+  // Return unresolved rows so the save handler can show the warning
+  return unresolved;
 }
 
 // ── SALVA STEPS RICETTA (recipe_steps) ──────────────────────
