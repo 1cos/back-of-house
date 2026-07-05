@@ -172,12 +172,10 @@ async function openPrepEditor(prep=null){
               </select>
               <p style="font-size:10px;color:#94a3b8;margin-top:3px;">Quale ingrediente del BOM determina il pack. Es. Calamari invece di Flour.</p>
             </div>
-            ${prep?.suggested_note ? `<div>
-              <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Il bot dice...</label>
-              <div style="padding:8px 12px;background:white;border:1px solid #e2e8f0;border-radius:10px;font-size:12px;color:#334155;">
-                ${(prep.suggested_note||'').split('|')[1]||'—'}
-              </div>
-            </div>` : ''}
+            <div id="pepServingCalc" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:8px 12px;font-size:12px;color:#1e40af;"></div>
+          </div>
+          <div id="pepBotReasoning" style="margin-top:12px;border-top:1px solid #e2e8f0;padding-top:12px;">
+            <div style="font-size:11px;color:#94a3b8;text-align:center;padding:8px 0;">Caricamento ragionamento bot...</div>
           </div>
         </div>`:''}
       <div class="p-4 border-t flex gap-2">
@@ -257,7 +255,192 @@ async function openPrepEditor(prep=null){
     }
   }
 
-  // ── GESTIONE STEPS ──
+  // ── BOT REASONING — popola pepServingCalc + pepBotReasoning dopo il render ──
+  if(!isNew && prep) {
+    (async () => {
+      try {
+        const servCalcEl = modal.querySelector('#pepServingCalc');
+        const reasonEl = modal.querySelector('#pepBotReasoning');
+        const recipeId = prep.recipe_id;
+
+        // 1. Dati ricetta: base_weight_g, base_servings, serving_weight_g, pos_name
+        let recFull = null;
+        if(recipeId) {
+          const {data: rf} = await supa.from('recipes')
+            .select('id,title,pos_name,base_weight_g,base_servings,serving_weight_g,serving_unit,serving_qty')
+            .eq('id', recipeId).single();
+          recFull = rf;
+        }
+
+        // 2. Serving calc: 1 serving = Xg (mostrato solo se unit=g e abbiamo bw+bs)
+        const bw = recFull ? parseFloat(recFull.base_weight_g||0) : 0;
+        const bs = recFull ? parseInt(recFull.base_servings||0) : 0;
+        const sw = recFull ? parseFloat(recFull.serving_weight_g||0) : 0;
+        const unit = (prep.unit||'g').toLowerCase();
+        if(servCalcEl && unit === 'g') {
+          const servG = sw > 0 ? sw : (bw > 0 && bs > 0 ? Math.round(bw/bs) : 0);
+          if(servG > 0) {
+            servCalcEl.style.display = 'block';
+            const batchStr = bw > 0 && bs > 0 ? ` · batch ${bw >= 1000 ? (bw/1000).toFixed(1)+'kg' : bw+'g'} / ${bs} servings` : '';
+            servCalcEl.innerHTML = `<span style="font-weight:700;">1 serving = ${servG}g</span>${batchStr}`;
+          }
+        }
+
+        if(!reasonEl) return;
+
+        // 3. Ricette POS padre (questa ricetta è usata come sub-ricetta RECIPE nel BOM di quelle)
+        let posParents = [];
+        if(recipeId) {
+          const {data: sub} = await supa.from('recipe_bom')
+            .select('quantity,unit,parent_recipe_id,parent:parent_recipe_id(id,title,pos_name,base_weight_g,base_servings,serving_weight_g)')
+            .eq('sub_recipe_id', recipeId).eq('component_type','RECIPE');
+          posParents = (sub||[]).filter(r => r.parent && r.parent.pos_name && r.parent.pos_name.trim());
+        }
+
+        // 4. POS name diretto sulla ricetta collegata (se esiste)
+        const directPosNames = recFull && recFull.pos_name
+          ? recFull.pos_name.split('|').map(s=>s.trim()).filter(Boolean)
+          : [];
+
+        // 5. Vendite ieri per tutti i pos_name coinvolti
+        const yd = new Date(); yd.setDate(yd.getDate()-1);
+        const ydStr = yd.toISOString().slice(0,10);
+
+        // Raccoglie tutti i pos_name da cercare
+        const allPosNames = [...directPosNames];
+        posParents.forEach(p => {
+          (p.parent.pos_name||'').split('|').map(s=>s.trim()).filter(Boolean).forEach(n => {
+            if(!allPosNames.includes(n)) allPosNames.push(n);
+          });
+        });
+
+        const salesYd = {};
+        const salesModYd = {};
+        if(allPosNames.length) {
+          const {data: ys} = await supa.from('pos_sales_by_item')
+            .select('menu_item,quantity').eq('sale_date', ydStr).in('menu_item', allPosNames);
+          (ys||[]).forEach(r => { salesYd[r.menu_item] = (salesYd[r.menu_item]||0) + parseFloat(r.quantity||0); });
+          const {data: ym} = await supa.from('pos_modifiers')
+            .select('modifier,quantity_sold').eq('sale_date', ydStr).in('modifier', allPosNames);
+          (ym||[]).forEach(r => { salesModYd[r.modifier] = (salesModYd[r.modifier]||0) + parseFloat(r.quantity_sold||0); });
+        }
+
+        // 6. Costruisci il reasoning HTML
+        const fmt = g => g >= 1000 ? (g/1000).toFixed(1)+'kg' : Math.round(g)+'g';
+        const stock = parseFloat(prep.current_stock||0);
+
+        // Raggruppa le "righe di consumo"
+        const consumoLines = [];
+        let totalConsumoG = 0;
+
+        // Via pos_name diretto
+        directPosNames.forEach(pn => {
+          const sold = (salesYd[pn]||0) + (salesModYd[pn]||0);
+          const consumoUnit = sw > 0 ? sw : (bw > 0 && bs > 0 ? bw/bs : 1);
+          const consumoG = sold * consumoUnit;
+          consumoLines.push({name: pn, sold, consumoG, via: 'pos_diretto'});
+          totalConsumoG += consumoG;
+        });
+
+        // Via sub-ricette padre
+        posParents.forEach(p => {
+          const pParentNames = (p.parent.pos_name||'').split('|').map(s=>s.trim()).filter(Boolean);
+          const parentSold = pParentNames.reduce((sum,pn) => sum + (salesYd[pn]||0) + (salesModYd[pn]||0), 0);
+          const qtyPerVendita = parseFloat(p.quantity||0);
+          const consumoG = parentSold * qtyPerVendita;
+          consumoLines.push({name: p.parent.title, sold: parentSold, qtyPerVendita, consumoG, via: 'sub_recipe'});
+          totalConsumoG += consumoG;
+        });
+
+        // Nessun collegamento trovato
+        const hasNoLink = directPosNames.length === 0 && posParents.length === 0;
+
+        // Decisione del bot
+        const stockFinale = Math.max(0, stock - totalConsumoG);
+        const batchSize = bw > 0 ? bw : (bs > 0 && sw > 0 ? bs * sw : 0);
+        const minCover = prep.min_cover_days ?? 2;
+        let decisione = '';
+        let decisioneColor = '#334155';
+        let decisioneBg = '#f8fafc';
+        if(prep.suggested_note && prep.suggested_note.includes('|')) {
+          const parts = prep.suggested_note.split('|');
+          const col = parts[0];
+          const txt = parts[1] || '';
+          decisione = txt;
+          decisioneColor = col==='red'?'#dc2626':col==='yellow'?'#d97706':'#059669';
+          decisioneBg = col==='red'?'#fef2f2':col==='yellow'?'#fffbeb':'#f0fdf4';
+        } else if(prep.suggested_note) {
+          decisione = prep.suggested_note;
+        }
+
+        // Build HTML
+        let html = '';
+
+        // CRITICAL alert se nessun link
+        if(hasNoLink) {
+          html += `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:10px 12px;margin-bottom:10px;">
+            <div style="font-size:11px;font-weight:800;color:#dc2626;letter-spacing:0.05em;margin-bottom:4px;">⚠ CRITICAL</div>
+            <div style="font-size:12px;color:#7f1d1d;line-height:1.5;">Nessuna ricetta POS contiene <b>${prep.name}</b> nel BOM.<br>Il bot non scalerà mai questa prep.</div>
+          </div>`;
+        }
+
+        // Header sezione
+        html += `<div style="font-size:11px;font-weight:700;color:#475569;letter-spacing:0.05em;margin-bottom:8px;">🤖 Come ragiona il bot</div>`;
+
+        if(consumoLines.length === 0 && !hasNoLink) {
+          html += `<div style="font-size:12px;color:#94a3b8;">Nessuna vendita trovata ieri (${ydStr}) — possibile giorno di chiusura.</div>`;
+        }
+
+        if(consumoLines.length > 0) {
+          // Vendite trovate
+          html += `<div style="font-size:11px;font-weight:600;color:#64748b;margin-bottom:4px;">Vendite trovate ieri (${ydStr})</div>`;
+          html += `<div style="font-family:monospace;font-size:12px;line-height:1.8;color:#334155;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-bottom:8px;">`;
+          let maxNameLen = Math.max(...consumoLines.map(l => l.name.length), 10);
+          consumoLines.forEach(l => {
+            const dots = '.'.repeat(Math.max(2, 28 - l.name.length));
+            const soldStr = l.sold > 0 ? `<span style="color:#185fa5;font-weight:700;">${l.sold}</span>` : `<span style="color:#94a3b8;">0</span>`;
+            const qtyNote = l.via === 'sub_recipe' ? ` × ${l.qtyPerVendita}${unit==='g'?'g':''}` : (sw>0 ? ` × ${sw}g` : (bw>0&&bs>0 ? ` × ${Math.round(bw/bs)}g` : ''));
+            html += `${l.name} ${dots} ${soldStr}${qtyNote}<br>`;
+          });
+          html += `</div>`;
+
+          // Totale consumo
+          html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px;">`;
+          html += `<div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;text-align:center;">
+            <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;">Consumo previsto</div>
+            <div style="font-size:14px;font-weight:700;color:#185fa5;margin-top:2px;">${unit==='g'?fmt(totalConsumoG):Math.round(totalConsumoG)+' '+unit}</div>
+          </div>`;
+          html += `<div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;text-align:center;">
+            <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;">Stock attuale</div>
+            <div style="font-size:14px;font-weight:700;color:#334155;margin-top:2px;">${unit==='g'?fmt(stock):Math.round(stock)+' '+unit}</div>
+          </div>`;
+          const finaleColor = stockFinale <= 0 ? '#dc2626' : stockFinale < (totalConsumoG * 0.5) ? '#d97706' : '#059669';
+          html += `<div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;text-align:center;">
+            <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;">Stock finale</div>
+            <div style="font-size:14px;font-weight:700;color:${finaleColor};margin-top:2px;">${unit==='g'?fmt(stockFinale):Math.round(Math.max(0,stockFinale))+' '+unit}</div>
+          </div>`;
+          html += `</div>`;
+        }
+
+        // Decisione bot
+        if(decisione) {
+          html += `<div style="background:${decisioneBg};border:1px solid ${decisioneColor}40;border-radius:8px;padding:8px 10px;">
+            <div style="font-size:10px;font-weight:700;color:${decisioneColor};letter-spacing:0.05em;margin-bottom:2px;">Decisione</div>
+            <div style="font-size:12px;color:${decisioneColor};font-weight:600;">${decisione}</div>
+          </div>`;
+        } else if(!hasNoLink) {
+          html += `<div style="font-size:11px;color:#94a3b8;">Il bot non ha ancora girato per questa prep.</div>`;
+        }
+
+        reasonEl.innerHTML = html;
+      } catch(e) {
+        const reasonEl = modal.querySelector('#pepBotReasoning');
+        if(reasonEl) reasonEl.innerHTML = `<div style="font-size:11px;color:#94a3b8;">Errore caricamento: ${e.message}</div>`;
+      }
+    })();
+  }
+
+    // ── GESTIONE STEPS ──
   let pepSteps = [];
   if(!isNew){
     const {data: existingSteps} = await supa.from('prep_steps')
