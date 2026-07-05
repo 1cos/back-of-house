@@ -672,6 +672,11 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span style="color:#4f46e5;font-weight:700;">Bot Debug</span>
         </button>
 
+        <button onclick="hideAdminMenu();openMappingControlRoom()" class="amenu-btn" style="border:1.5px solid #d1fae5;background:#ecfdf5;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
+          <span style="color:#059669;font-weight:700;">Mapping</span>
+        </button>
+
         <!-- Logout — rosso, in fondo -->
         <button onclick="hideAdminMenu();user=null;location.reload()" class="amenu-btn amenu-logout">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -741,6 +746,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/focus-mode.js"></script>
 <script src="js/calendar.js"></script>
 <script src="js/office.js"></script>
+<script src="js/mapping-control-room.js"></script>
 <script src="js/demo-bot.js"></script>
 <script src="js/schedule.js"></script>
 <script src="js/staff-manager.js"></script>
