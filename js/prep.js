@@ -481,7 +481,12 @@ function cardButton(i){
 
 // ── PREP ──
 function renderM(){
-  const base=items.filter(i=>station==='All'||i.category===station);
+  const _pq=(window._prepSearchQuery||'').toLowerCase().trim();
+  const base=items.filter(i=>{
+    if(station!=='All'&&i.category!==station) return false;
+    if(_pq && !i.name.toLowerCase().includes(_pq)) return false;
+    return true;
+  });
   // ordinamento: in_progress > urgenti > gialli > normali
   const list=base.sort((a,b)=>{
     const score=i=>{

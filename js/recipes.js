@@ -1885,9 +1885,7 @@ window.openBOMRecipeAudit = async function(){
 
   try {
     // Query: BOM ITEM rows where ingredient name matches a recipe title (exact, case-insensitive, excluding self)
-    const {data: rows, error} = await supa.rpc ? null : null; // fallback: direct query
-    // Direct join query via JS: fetch all ITEM bom rows + ingredient names + parent recipe names
-    // Then cross-reference against all recipe titles
+    // Fetch all ITEM bom rows + ingredient names + parent recipe names, cross-reference against recipe titles
     const {data: bomRows} = await supa.from('recipe_bom')
       .select('bom_id, parent_recipe_id, quantity, unit, item_id, ingredients:item_id(id,name), parent:parent_recipe_id(id,title)')
       .eq('component_type','ITEM')

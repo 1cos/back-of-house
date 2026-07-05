@@ -336,6 +336,12 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         <button id="toggleView" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-semibold shadow-sm">Feed</button>
         <button id="addPrepBtn" onclick="adminAdd()" class="hidden px-2.5 py-1.5 bg-emerald-600 text-white rounded-xl text-[11px] font-semibold shadow-sm">+ Prep</button>
       </div>
+      <div class="relative mb-2">
+        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;color:#94a3b8;pointer-events:none;">🔍</span>
+        <input id="prepSearch" type="search" placeholder="Cerca prep..." autocomplete="off" autocorrect="off" spellcheck="false"
+          style="width:100%;padding:8px 12px 8px 32px;border:1px solid #e2e8f0;border-radius:12px;font-size:13px;background:rgba(255,255,255,0.85);backdrop-filter:blur(8px);outline:none;-webkit-appearance:none;"
+          oninput="window._prepSearchQuery=this.value;renderM();">
+      </div>
       <div id="grid" class="grid grid-cols-1 gap-2"></div>
       <div id="feed" class="hidden -mx-3 h-[calc(100vh-170px)] overflow-y-auto snap-y snap-mandatory bg-[#f5f7fb]"></div>
       </div>
