@@ -1,4 +1,4 @@
-const CACHE_NAME = 'boh-v512';
+const CACHE_NAME = 'boh-v513';
 // ↑ Incrementa questo questo numero ad ogni deploy — es. v31, v32...
 // Il browser vede la versione diversa e aggiorna automaticamente
 
