@@ -1838,17 +1838,28 @@ window.mcrSubmitFreeText = async function() {
 
     raw = await res.text();
 
-    // Try to parse JSON — strip any markdown fences
+    // Gateway wraps Ollama response as { response: "..." }
+    // Extract the inner text from the gateway wrapper first,
+    // then search for structured JSON inside the model output.
+    let modelText = raw;
+    try {
+      const wrapper = JSON.parse(raw);
+      if (wrapper && typeof wrapper.response === 'string') {
+        modelText = wrapper.response;
+      }
+    } catch(_) { /* raw is not wrapper JSON — use as-is */ }
+
+    // Try to parse structured Chef AI JSON from model output
     let parsed = null;
     let parseErr = null;
     try {
-      const clean = raw.replace(/```json|```/g, '').trim();
+      const clean = modelText.replace(/```json|```/g, '').trim();
       // Extract first {...} block in case model prepended text
       const match = clean.match(/\{[\s\S]*\}/);
       if (match) {
         parsed = JSON.parse(match[0]);
       } else {
-        throw new Error('No JSON object found in response');
+        throw new Error('No JSON object found in model response');
       }
     } catch(e) {
       parseErr = e.message;
