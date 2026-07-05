@@ -1588,7 +1588,7 @@ window.mcrCancelFreeText = function() {
 // Key stored here matches Supabase Secret CHEF_AI_KEY (set session 5 Jul 2026).
 const MCR_CHEF_AI_URL = 'https://max-mini.taildf4122.ts.net/chef-ai';
 const MCR_CHEF_AI_KEY = 'ef2494d331d377a56bb6ab065402761844200c44a38f847572b0745cb060361b';
-const MCR_CHEF_AI_TIMEOUT_MS = 20000;
+const MCR_CHEF_AI_TIMEOUT_MS = 45000;
 
 // ── SYSTEM PROMPT for MCR free-text interpretation ───────────
 function mcrChefAISystemPrompt(p) {
@@ -1793,7 +1793,7 @@ window.mcrSubmitFreeText = async function() {
     <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;text-align:center;">
       <div style="font-size:20px;margin-bottom:8px;">🤖</div>
       <div style="font-size:13px;font-weight:600;color:#a78bfa;margin-bottom:4px;">Chef AI sta ragionando…</div>
-      <div style="font-size:11px;color:#475569;">qwen3:8b · Mac mini · timeout 20s</div>
+      <div style="font-size:11px;color:#475569;">qwen3:8b · Mac mini · timeout 45s</div>
     </div>`;
   area.after(loadDiv);
 
@@ -1880,7 +1880,7 @@ window.mcrSubmitFreeText = async function() {
     const respDiv = document.getElementById('mcrFreeTextResponse');
     if (respDiv) {
       const msg = timedOut
-        ? 'Timeout 20s — Chef AI locale non ha risposto. Verifica che il Mac mini sia acceso e Tailscale attivo.'
+        ? 'Timeout 45s — Chef AI locale non ha risposto. Verifica che il Mac mini sia acceso e Tailscale attivo.'
         : 'Chef AI locale non raggiungibile: ' + e.message;
       respDiv.innerHTML = mcrRenderChefAIRawResponse(p, text, '', msg);
     }
