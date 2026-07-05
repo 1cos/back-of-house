@@ -567,6 +567,7 @@ async function openRecipeEditor(rec=null){
         <button id="saveR" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold">${tr("save")}</button>
       </div>
       ${rec?.id ? `<button id="deleteR" class="w-full py-2.5 text-red-500 border border-red-200 rounded-xl text-sm font-medium" style="background:#fff5f5;">${tr('deleteRecipe')}</button>` : ''}
+      ${rec?.id && isAdmin() ? `<button onclick="openBOMRecipeAudit()" style="width:100%;margin-top:6px;padding:7px;font-size:12px;font-weight:600;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;cursor:pointer;">🔍 BOM Audit — trova ingredienti che sono ricette</button>` : ''}
     </div>
   </div>`;
   document.body.appendChild(modal);
@@ -836,11 +837,82 @@ async function openRecipeEditor(rec=null){
       }, 220);
     });
 
-    nameInput.addEventListener('blur', ()=>{ setTimeout(()=>{ drop.style.display='none'; }, 160); });
+    nameInput.addEventListener('blur', ()=>{
+      setTimeout(async ()=>{
+        drop.style.display = 'none';
+        // If user typed manually without picking from dropdown, check for recipe match
+        const typed = nameInput.value.trim();
+        if(!typed || row.dataset.subRecipeId || row.dataset.ingredientId) return;
+        // Check exact title match against recipes
+        const {data: rMatch} = await supa.from('recipes')
+          .select('id,title,menu_group').ilike('title', typed).limit(1);
+        if(rMatch && rMatch.length && rMatch[0].title.toLowerCase() === typed.toLowerCase()){
+          _showRecipeMatchWarning(row, nameInput, rMatch[0]);
+        }
+      }, 200);
+    });
     ingList.appendChild(row);
   }
 
+  // ── BOM RECIPE MATCH WARNING ──
+  // Shows an inline orange warning when a typed ingredient name exactly matches a recipe title.
+  // Gives user option to convert to sub-recipe link instead.
+  function _showRecipeMatchWarning(row, nameInput, matchedRecipe){
+    // Remove any existing warning on this row
+    const existing = row.querySelector('.bom-recipe-match-warn');
+    if(existing) existing.remove();
+
+    const warn = document.createElement('div');
+    warn.className = 'bom-recipe-match-warn';
+    warn.style.cssText = 'grid-column:1/-1;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:5px 8px;display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px;';
+    warn.innerHTML = `<span style="font-size:11px;color:#9a3412;">⚠ "<b>${matchedRecipe.title}</b>" è una prep recipe — collegala come sub-recipe blu?</span>
+      <div style="display:flex;gap:4px;flex-shrink:0;">
+        <button class="bom-convert-btn" style="font-size:11px;font-weight:700;color:#fff;background:#3b82f6;border:none;border-radius:5px;padding:3px 8px;cursor:pointer;">Collega sub-recipe</button>
+        <button class="bom-dismiss-btn" style="font-size:11px;color:#9a3412;background:none;border:none;cursor:pointer;">Ignora</button>
+      </div>`;
+    warn.querySelector('.bom-convert-btn').addEventListener('mousedown', e=>{
+      e.preventDefault();
+      nameInput.value = matchedRecipe.title;
+      row.dataset.ingredientId = '';
+      row.dataset.subRecipeId = matchedRecipe.id;
+      nameInput.style.borderColor = '#3b82f6';
+      nameInput.style.background = '#eff6ff';
+      warn.remove();
+    });
+    warn.querySelector('.bom-dismiss-btn').addEventListener('mousedown', e=>{
+      e.preventDefault();
+      warn.remove();
+    });
+    // Insert warning after the row's grid (as a full-width row following this element)
+    row.style.flexWrap = 'wrap';
+    row.appendChild(warn);
+  }
+
+  // ── Called after populateIngredients to flag existing ITEM rows that match a recipe ──
+  async function _auditExistingBOMRows(){
+    const rows = [...ingList.querySelectorAll('[data-type="ingredient"]')];
+    if(!rows.length) return;
+    // Fetch all recipe titles once
+    const {data: allRecs} = await supa.from('recipes').select('id,title,menu_group').order('title');
+    if(!allRecs) return;
+    const recByTitle = {};
+    allRecs.forEach(r=>{ recByTitle[r.title.toLowerCase().trim()] = r; });
+
+    rows.forEach(row=>{
+      if(row.dataset.subRecipeId) return; // already a sub-recipe, skip
+      const nameInput = row.querySelector('.ing-name-input');
+      if(!nameInput) return;
+      const typed = (nameInput.value||'').trim().toLowerCase();
+      if(!typed || typed.length < 3) return;
+      const matched = recByTitle[typed];
+      if(matched){
+        _showRecipeMatchWarning(row, nameInput, matched);
+      }
+    });
+  }
+
   function addSectionRow(d={name:''}){
+
     const row = document.createElement('div');
     row.dataset.type = 'section';
     row.draggable = true;
@@ -897,7 +969,10 @@ async function openRecipeEditor(rec=null){
       });
     });
   }
-  populateIngredients();
+  populateIngredients().then(()=>{
+    // After loading existing BOM, flag ITEM rows that match a recipe title
+    if(rec?.id) _auditExistingBOMRows();
+  });
 
   // ── Drag & drop riordinamento ingredienti ──
   (function initIngDragDrop(){
@@ -1788,3 +1863,154 @@ window.completePrepWithSteps = async function(taskId){
   openDoneSheet(taskId);
 };
 
+
+// ── BOM RECIPE AUDIT — mostra tutte le righe ITEM che matchano una recipe ──
+// Accessibile via openBOMRecipeAudit() — nessuna modifica automatica, solo preview con azione "Converti"
+window.openBOMRecipeAudit = async function(){
+  const modal = document.createElement('div');
+  modal.className = 'fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4';
+  modal.innerHTML = `<div style="background:white;width:100%;max-width:680px;border-radius:20px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:16px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#0f172a;">🔍 BOM Audit — Ingredienti che sono Ricette</div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px;">Righe BOM salvate come ITEM (verde) il cui nome matcha esattamente il titolo di una recipe esistente.</div>
+      </div>
+      <button onclick="this.closest('.fixed').remove()" style="font-size:20px;color:#94a3b8;background:none;border:none;cursor:pointer;">✕</button>
+    </div>
+    <div id="bomAuditBody" style="padding:16px;overflow-y:auto;flex:1;">
+      <div style="text-align:center;color:#94a3b8;font-size:13px;padding:24px 0;">Caricamento...</div>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+
+  try {
+    // Query: BOM ITEM rows where ingredient name matches a recipe title (exact, case-insensitive, excluding self)
+    const {data: rows, error} = await supa.rpc ? null : null; // fallback: direct query
+    // Direct join query via JS: fetch all ITEM bom rows + ingredient names + parent recipe names
+    // Then cross-reference against all recipe titles
+    const {data: bomRows} = await supa.from('recipe_bom')
+      .select('bom_id, parent_recipe_id, quantity, unit, item_id, ingredients:item_id(id,name), parent:parent_recipe_id(id,title)')
+      .eq('component_type','ITEM')
+      .limit(1000);
+
+    const {data: allRecipes} = await supa.from('recipes')
+      .select('id,title,menu_group,base_weight_g,base_servings')
+      .order('title');
+
+    if(!bomRows || !allRecipes){
+      document.getElementById('bomAuditBody').innerHTML = '<div style="color:#dc2626;font-size:13px;">Errore caricamento dati.</div>';
+      return;
+    }
+
+    // Build recipe title lookup
+    const recByTitle = {};
+    allRecipes.forEach(r=>{ recByTitle[r.title.toLowerCase().trim()] = r; });
+
+    // Find matches
+    const matches = bomRows.filter(b=>{
+      const iName = b.ingredients?.name;
+      if(!iName) return false;
+      const matched = recByTitle[iName.toLowerCase().trim()];
+      if(!matched) return false;
+      // Exclude self (ingredient in its own recipe)
+      return matched.id !== b.parent_recipe_id;
+    }).map(b=>({
+      bom_id: b.bom_id,
+      parent_recipe_id: b.parent_recipe_id,
+      parent_title: b.parent?.title || '?',
+      ingredient_name: b.ingredients.name,
+      ingredient_id: b.item_id,
+      quantity: b.quantity,
+      unit: b.unit,
+      matched_recipe: recByTitle[b.ingredients.name.toLowerCase().trim()]
+    }));
+
+    const body = document.getElementById('bomAuditBody');
+    if(!matches.length){
+      body.innerHTML = '<div style="text-align:center;color:#059669;font-size:14px;padding:24px 0;">✅ Nessun problema trovato — tutti i BOM sembrano corretti.</div>';
+      return;
+    }
+
+    body.innerHTML = `
+      <div style="font-size:12px;color:#92400e;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 12px;margin-bottom:12px;">
+        <b>${matches.length} caso${matches.length>1?'i':''} trovato${matches.length>1?'i':''}</b> — verifica prima di convertire. La conversione aggiorna il DB immediatamente.
+      </div>
+      ${matches.map(m=>`
+        <div class="bom-audit-row" data-bom-id="${m.bom_id}" style="border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;color:#0f172a;margin-bottom:3px;">
+              <span style="font-size:10px;background:#f0fdf4;color:#059669;border:0.5px solid #bbf7d0;border-radius:4px;padding:1px 5px;margin-right:4px;">ITEM</span>
+              ${m.parent_title}
+            </div>
+            <div style="font-size:12px;color:#64748b;">
+              Ingrediente: <b>${m.ingredient_name}</b> · ${m.quantity}${m.unit}
+            </div>
+            <div style="font-size:11px;color:#94a3b8;margin-top:2px;">
+              → Matcha recipe: <b>${m.matched_recipe.title}</b>
+              ${m.matched_recipe.base_weight_g ? `· batch ${m.matched_recipe.base_weight_g}g / ${m.matched_recipe.base_servings||'?'} servings` : ''}
+              ${m.matched_recipe.menu_group ? `· ${m.matched_recipe.menu_group}` : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;align-items:center;">
+            <button class="convert-to-sub" data-bom-id="${m.bom_id}" data-matched-id="${m.matched_recipe.id}" data-matched-title="${m.matched_recipe.title.replace(/"/g,'&quot;')}" data-qty="${m.quantity}" data-unit="${m.unit}" data-parent-id="${m.parent_recipe_id}"
+              style="font-size:12px;font-weight:700;color:#fff;background:#3b82f6;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;">
+              Converti → sub-recipe
+            </button>
+            <button class="dismiss-audit" style="font-size:12px;color:#94a3b8;background:none;border:none;cursor:pointer;">Ignora</button>
+          </div>
+        </div>`).join('')}`;
+
+    // Wire up convert buttons
+    body.querySelectorAll('.convert-to-sub').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const bomId = parseInt(btn.dataset.bomId);
+        const matchedId = btn.dataset.matchedId;
+        const matchedTitle = btn.dataset.matchedTitle;
+        const qty = parseFloat(btn.dataset.qty);
+        const unit = btn.dataset.unit;
+        const parentId = btn.dataset.parentId;
+
+        btn.disabled = true;
+        btn.textContent = 'Salvataggio...';
+
+        try {
+          // Delete the old ITEM row
+          await supa.from('recipe_bom').delete().eq('bom_id', bomId);
+          // Insert a new RECIPE row
+          const {error: insErr} = await supa.from('recipe_bom').insert({
+            parent_recipe_id: parentId,
+            component_type: 'RECIPE',
+            item_id: null,
+            sub_recipe_id: matchedId,
+            quantity: qty,
+            unit: unit,
+            sort_order: 999 // will be at end; user can reorder in editor
+          });
+          if(insErr) throw insErr;
+
+          // Update the row UI
+          const rowEl = body.querySelector(`[data-bom-id="${bomId}"]`);
+          if(rowEl){
+            rowEl.style.background = '#f0fdf4';
+            rowEl.style.borderColor = '#bbf7d0';
+            rowEl.innerHTML = `<div style="flex:1;"><span style="font-size:10px;background:#eff6ff;color:#3b82f6;border:0.5px solid #bfdbfe;border-radius:4px;padding:1px 5px;margin-right:4px;">RECIPE ✓</span> <b>${matchedTitle}</b> collegato come sub-recipe</div>`;
+          }
+        } catch(e) {
+          btn.disabled = false;
+          btn.textContent = 'Errore — riprova';
+          btn.style.background = '#dc2626';
+          console.error('[BOM audit convert]', e);
+        }
+      });
+    });
+
+    body.querySelectorAll('.dismiss-audit').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        btn.closest('.bom-audit-row').style.opacity = '0.35';
+      });
+    });
+
+  } catch(e) {
+    document.getElementById('bomAuditBody').innerHTML = `<div style="color:#dc2626;font-size:13px;">Errore: ${e.message}</div>`;
+  }
+};
