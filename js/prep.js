@@ -238,13 +238,7 @@ async function computePrepBotDecision(taskId) {
   // 1. Fetch prep_task con join recipe (stesso join del bot) + campi run
   const { data: rows } = await supa
     .from('prep_tasks')
-    .select([
-      'id,name,category,prep_type,unit,current_stock',
-      'recipe_id,ingredient_id,pack_label,min_cover_days,expected_duration_days',
-      'suggested_qty,suggested_note,suggested_by,suggested_at',
-      'recipes:recipe_id(id,title,pos_name,base_weight_g,base_servings',
-      '  ,shelf_life_days,serving_weight_g,serving_unit,serving_qty)'
-    ].join(','))
+    .select('id,name,category,prep_type,unit,current_stock,recipe_id,ingredient_id,pack_label,min_cover_days,expected_duration_days,suggested_qty,suggested_note,suggested_by,suggested_at,recipes:recipe_id(id,title,pos_name,base_weight_g,base_servings,shelf_life_days,serving_weight_g,serving_unit,serving_qty)')
     .eq('id', taskId)
     .limit(1);
 
