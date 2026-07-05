@@ -958,13 +958,22 @@ window.mcrFilterProblems = function () {
 };
 
 // ══════════════════════════════════════════════════════════════
-// ITEM DETAIL DRAWER
+// FEATURE FLAG — WRITE SAFETY GATE
 // ══════════════════════════════════════════════════════════════
+// ALL DB writes in this file are gated behind this flag.
+// Set to true ONLY after explicit approval by Chef Max in a
+// dedicated session with a complete DB Write Plan review.
+// Default: false — no Supabase insert/update/delete can run.
+const MAPPING_WRITE_ENABLED = false;
+
+// ══════════════════════════════════════════════════════════════
+// ITEM DETAIL DRAWER — Chef AI OQR + Write Plan
+// ══════════════════════════════════════════════════════════════
+
 window.mcrOpenDrawer = function (idx) {
   const p = (window._mcrProblems || [])[idx];
   if (!p) return;
 
-  // Highlight selected row
   document.querySelectorAll('#mcrProbRows .mcr-row').forEach(r => r.classList.remove('selected'));
   const row = document.getElementById('mcrRow-' + idx);
   if (row) row.classList.add('selected');
@@ -972,166 +981,413 @@ window.mcrOpenDrawer = function (idx) {
   const drawer = document.getElementById('mcrDrawer');
   if (!drawer) return;
   drawer.style.display = '';
-  drawer.innerHTML = `<div style="color:#94a3b8;padding:40px;text-align:center;">Loading detail…</div>`;
+  drawer.innerHTML = `<div style="color:#94a3b8;padding:40px;text-align:center;font-size:13px;">Caricamento…</div>`;
+
+  // Store current problem index for OQR answer handlers
+  window._mcrDrawerIdx = idx;
+  window._mcrOQRState  = { step: 'info', answers: {} };
 
   setTimeout(() => {
     drawer.innerHTML = buildDrawerHTML(p);
-  }, 50);
+  }, 40);
 };
 
+// ── Chef-language field label map ──────────────────────────────
+const MCR_FIELD_LABELS = {
+  base_weight_g:    'Peso totale ricetta / batch',
+  serving_weight_g: 'Grammi usati per porzione',
+  base_servings:    'Quante porzioni produce',
+  serving_qty:      'Scarico bot per vendita (quantità)',
+  serving_unit:     'Scarico bot per vendita (unità)',
+  pos_name:         'Nome POS collegato',
+  shelf_life_days:  'Durata in frigo (giorni)',
+  menu_group:       'Categoria menu',
+  prep_type:        'Tipo preparazione',
+  expected_duration_days: 'Durata attesa dopo prep (giorni)',
+  min_cover_days:   'Giorni minimi di copertura',
+  current_stock:    'Stock attuale',
+  unit:             'Unità di misura stock',
+};
+function fieldLabel(key) { return MCR_FIELD_LABELS[key] || key; }
+
+// ── Severity color ─────────────────────────────────────────────
+function sevColor(sev) {
+  return { red: '#ef4444', yellow: '#f59e0b', green: '#22c55e' }[sev] || '#64748b';
+}
+
+// ── Human-readable problem type ────────────────────────────────
+const MCR_PROB_LABELS = {
+  'sold-item-missing-bom':         '🛒 Piatto POS — nessun componente scaricato per vendita',
+  'sold-item-legacy-ingredients':  '📝 Ingredienti nell\'editor non ancora migrati in BOM',
+  'sold-item-incomplete-bom':      '⚠️ BOM incompleto — righe senza link o quantità',
+  'prep-missing-batch-yield':      '⚖️ Prep senza resa batch definita',
+  'minimum-unit-missing-final-yield': '🪣 Unità minima senza resa finale',
+  'reduction-missing-final-yield': '🔥 Riduzione in cottura — manca resa finale',
+  'portioned-unit-missing-portion-count': '🍰 Porzionata — manca numero porzioni',
+  'subrecipe-missing-yield':       '🔗 Sottoricetta senza resa per porzione',
+  'prep-no-trusted-mapping':       '❓ Prep senza collegamento ricetta/ingrediente',
+  'bot-huge-suggestion':           '🤖 Suggerimento bot anomalo',
+  'bot-suggestion-zero-qty':       '🤖 Bot ha girato ma suggerito 0',
+  'zero-stock-large-suggestion':   '📦 Stock zero con suggerimento alto',
+  'shelf-life-mismatch':           '📅 Shelf life disallineata tra ricetta e prep',
+  'missing-min-cover-days':        '📅 min_cover_days non impostato',
+  'stock-unit-mismatch':           '⚖️ Unità BOM astratta (batch/porzioni)',
+  'alias-ingredient-recipe-collision': '🔁 Nome duplicato: ricetta E ingrediente',
+  'ingredient-name-collision':     '🧪 Ingredienti con nomi sovrapposti',
+  'missing-modifier-alias':        '🔌 Alias modifier mancanti',
+  'recipe-used-as-ingredient':     '🔗 Ricetta usata come ingrediente grezzo',
+};
+function probLabel(type) { return MCR_PROB_LABELS[type] || type?.replace(/-/g,' ') || '—'; }
+
+// ── OQR definition per problem type ───────────────────────────
+// Each entry defines:
+//   question  — the ONE question to show Chef Max
+//   options   — answer buttons (value + label)
+//   buildPlan(answers, problem, data) → WritePlan[]
+function mcrOQRDef(problemType) {
+  const defs = {
+
+    'sold-item-missing-bom': {
+      question: 'Chef, questo piatto si vende ma il bot non sa cosa scaricare. Come vuoi procedere?',
+      options: [
+        { value: 'has_bom_elsewhere', label: 'Ha già ingredienti — devo migrarli in BOM' },
+        { value: 'is_modifier_only',  label: 'Si vende solo come modifier — non serve BOM diretto' },
+        { value: 'skip',              label: 'Ignora per ora' },
+      ],
+      buildPlan: (answers, p) => {
+        if (answers.choice === 'skip' || answers.choice === 'is_modifier_only') return [];
+        return []; // Migration requires manual BOM entry — show guidance only
+      },
+    },
+
+    'sold-item-legacy-ingredients': {
+      question: 'Chef, gli ingredienti nell\'editor non sono ancora nel BOM strutturato. Il bot non può calcolarne il consumo. Come vuoi procedere?',
+      options: [
+        { value: 'review_later',  label: 'Rivedi più tardi — nessuna urgenza' },
+        { value: 'migrate_now',   label: 'Voglio migrare in BOM — mostrami cosa c\'è' },
+        { value: 'already_done',  label: 'È già tutto nel BOM — questo warning è sbagliato' },
+      ],
+      buildPlan: (answers, p) => [],
+    },
+
+    'prep-missing-batch-yield': {
+      question: 'Chef, questa prep non ha il peso totale del batch definito. Il bot non riesce a esprimere il suggerimento in unità reali (kg/pezzi). Vuoi impostarlo?',
+      options: [
+        { value: 'set_weight',  label: 'Sì — imposto peso batch' },
+        { value: 'free_weight', label: 'Questa prep è libera a peso — nessun batch fisso' },
+        { value: 'skip',        label: 'Ignora per ora' },
+      ],
+      buildPlan: (answers, p) => {
+        if (answers.choice !== 'set_weight' || !answers.base_weight_g) return [];
+        const rec = p.detail?.recipe;
+        if (!rec) return [];
+        return [{
+          action:      'UPDATE',
+          table:       'recipes',
+          row_id:      rec.id,
+          field:       'base_weight_g',
+          old_value:   rec.base_weight_g ?? null,
+          new_value:   parseFloat(answers.base_weight_g),
+          reason:      'Peso batch impostato da Chef Max via Mapping Control Room',
+          confidence:  'chef_confirmed',
+        }];
+      },
+      followUp: (choice) => choice === 'set_weight' ? {
+        field: 'base_weight_g',
+        label: 'Peso totale batch (grammi)',
+        type:  'number',
+        placeholder: 'es. 3200',
+      } : null,
+    },
+
+    'minimum-unit-missing-final-yield': {
+      question: 'Chef, questa prep si fa per unità minima (pentola/latta/teglia) ma non sappiamo quanto pesa il batch finale. Vuoi impostarlo?',
+      options: [
+        { value: 'set_weight', label: 'Sì — imposto la resa finale in grammi' },
+        { value: 'skip',       label: 'Ignora per ora' },
+      ],
+      buildPlan: (answers, p) => {
+        if (answers.choice !== 'set_weight' || !answers.base_weight_g) return [];
+        const rec = p.detail?.recipe;
+        if (!rec) return [];
+        return [{
+          action:    'UPDATE',
+          table:     'recipes',
+          row_id:    rec.id,
+          field:     'base_weight_g',
+          old_value: rec.base_weight_g ?? null,
+          new_value: parseFloat(answers.base_weight_g),
+          reason:    'Resa finale unità minima impostata da Chef Max via MCR',
+          confidence:'chef_confirmed',
+        }];
+      },
+      followUp: (choice) => choice === 'set_weight' ? {
+        field: 'base_weight_g', label: 'Resa finale in grammi', type: 'number', placeholder: 'es. 4000',
+      } : null,
+    },
+
+    'portioned-unit-missing-portion-count': {
+      question: 'Chef, questa ricetta è porzionata ma non sappiamo quante porzioni produce un batch intero. Quante sono?',
+      options: [
+        { value: 'set_servings', label: 'Imposto il numero di porzioni' },
+        { value: 'skip',         label: 'Ignora per ora' },
+      ],
+      buildPlan: (answers, p) => {
+        if (answers.choice !== 'set_servings' || !answers.base_servings) return [];
+        const rec = p.detail?.recipe;
+        if (!rec) return [];
+        return [{
+          action:    'UPDATE',
+          table:     'recipes',
+          row_id:    rec.id,
+          field:     'base_servings',
+          old_value: rec.base_servings ?? null,
+          new_value: parseInt(answers.base_servings, 10),
+          reason:    'Numero porzioni per batch impostato da Chef Max via MCR',
+          confidence:'chef_confirmed',
+        }];
+      },
+      followUp: (choice) => choice === 'set_servings' ? {
+        field: 'base_servings', label: 'Porzioni / fette / pezzi per batch', type: 'number', placeholder: 'es. 24',
+      } : null,
+    },
+
+    'bot-huge-suggestion': {
+      question: 'Chef, il bot ha suggerito una quantità anomala. Qual è il problema più probabile?',
+      options: [
+        { value: 'unit_mismatch',    label: 'Unità sbagliata (grammi invece di pezzi o viceversa)' },
+        { value: 'wrong_pos_alias',  label: 'Alias POS sbagliato — scarica da troppe ricette' },
+        { value: 'no_base_weight',   label: 'Manca peso batch sulla ricetta collegata' },
+        { value: 'skip',             label: 'Ignora per ora' },
+      ],
+      buildPlan: () => [],
+    },
+
+    'ingredient-name-collision': {
+      question: 'Chef, ci sono ingredienti con nomi sovrapposti. Vuoi separare Balsamic Dressing (prep fatta in cucina) da Balsamic Vinegar / Glaze (ingrediente acquistato)?',
+      options: [
+        { value: 'dressing_is_prep',  label: 'Sì — Dressing è una prep recipe, Vinegar/Glaze sono ingredienti' },
+        { value: 'all_ingredients',   label: 'No — sono tutti ingredienti acquistati' },
+        { value: 'review_later',      label: 'Rivedi più tardi' },
+      ],
+      buildPlan: () => [],
+    },
+
+    'missing-modifier-alias': {
+      question: 'Chef, questo piatto non ha alias nei modifier. Viene venduto anche come add-on su altri piatti?',
+      options: [
+        { value: 'yes_modifier', label: 'Sì — è un add-on, aggiungi alias modifier' },
+        { value: 'no_modifier',  label: 'No — si vende solo come piatto principale' },
+        { value: 'skip',         label: 'Ignora per ora' },
+      ],
+      buildPlan: () => [],
+    },
+
+    'alias-ingredient-recipe-collision': {
+      question: 'Chef, questo nome esiste sia come ricetta che come ingrediente. Quale dei due è quello corretto da usare nei BOM?',
+      options: [
+        { value: 'use_recipe',     label: 'La ricetta — è una prep fatta in cucina' },
+        { value: 'use_ingredient', label: 'L\'ingrediente — si acquista già pronto' },
+        { value: 'both_valid',     label: 'Entrambi validi — nomi diversi nel DB' },
+        { value: 'skip',           label: 'Ignora per ora' },
+      ],
+      buildPlan: () => [],
+    },
+
+  };
+  return defs[problemType] || null;
+}
+
+// ══════════════════════════════════════════════════════════════
+// DRAWER HTML BUILDER
+// ══════════════════════════════════════════════════════════════
+
 function buildDrawerHTML(p) {
-  const { prepTasks, recipes, ingredients, bom, posAliases, modifierConfig, posSales, posModifiers } = window._mcrData || {};
+  const { recipes, ingredients, bom, posSales, prepTasks } = window._mcrData || {};
   const recipeById = Object.fromEntries((recipes || []).map(r => [r.id, r]));
   const ingById    = Object.fromEntries((ingredients || []).map(i => [i.id, i]));
+  const oqrDef     = mcrOQRDef(p.problemType);
 
-  let html = `
-    <!-- Drawer header -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+  let html = '';
+
+  // ── HEADER ────────────────────────────────────────────────────
+  html += `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
       <div>
-        <div style="font-size:15px;font-weight:700;color:#f1f5f9;">${escH(p.name)}</div>
-        <div style="font-size:11px;color:#64748b;margin-top:2px;">${escH(p.problemType?.replace(/-/g,' ') || '')}</div>
+        <div style="font-size:15px;font-weight:700;color:#f1f5f9;line-height:1.3;">${escH(p.name)}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:3px;">${escH(probLabel(p.problemType))}</div>
       </div>
       <button onclick="document.getElementById('mcrDrawer').style.display='none';document.querySelectorAll('.mcr-row').forEach(r=>r.classList.remove('selected'))"
-        style="background:none;border:none;color:#475569;font-size:18px;cursor:pointer;flex-shrink:0;">✕</button>
+        style="background:none;border:none;color:#475569;font-size:18px;cursor:pointer;flex-shrink:0;padding:0 0 0 8px;">✕</button>
     </div>`;
 
-  // ── Problem Summary ──────────────────────────────────────────
-  const sevColor = { red: '#ef4444', yellow: '#f59e0b', green: '#22c55e' }[p.severity] || '#94a3b8';
+  // ── PROBLEM IN CHEF LANGUAGE ──────────────────────────────────
+  const sc = sevColor(p.severity);
+  const sevIcon = { red: '🔴', yellow: '🟡', green: '🟢' }[p.severity] || '⚪';
   html += `
-    <div class="mcr-drawer-section" style="border-color:${sevColor}30;">
-      <div class="mcr-drawer-label">⚠️ Problem</div>
-      <div style="font-size:13px;color:#e2e8f0;line-height:1.55;margin-bottom:8px;">${escH(p.explanation)}</div>
-      <div style="font-size:12px;color:#22c55e;line-height:1.5;"><strong>✅ Suggested fix:</strong> ${escH(p.suggestedFix)}</div>
+    <div class="mcr-drawer-section" style="border-color:${sc}50;background:#0f172a;">
+      <div style="font-size:13px;font-weight:700;color:${sc};margin-bottom:6px;">${sevIcon} ${escH(probLabel(p.problemType))}</div>
+      <div style="font-size:13px;color:#e2e8f0;line-height:1.6;">${escH(p.explanation)}</div>
     </div>`;
 
-  // ── Bot output (from prep_task) ──────────────────────────────
-  const pt = p.detail?.prepTask || null;
-  const bomRows = (bom || []).filter(b => b.parent_recipe_id === (p.detail?.recipe?.id || pt?.recipe_id));
-
-  if (pt) {
-    const noteParts = (pt.suggested_note || '').split('|');
-    const noteColor = noteParts[0] || '—';
-    const noteIT    = noteParts[1] || '—';
+  // ── RECIPE CARD (chef language labels, no raw DB names) ───────
+  const rec = p.detail?.recipe || (p.detail?.prepTask?.recipe_id ? recipeById[p.detail.prepTask.recipe_id] : null);
+  if (rec) {
+    const modeColor = rec.pos_name ? '#1e3a8a' : '#1a3a2a';
+    const modeTxt   = rec.pos_name ? '#bfdbfe' : '#86efac';
+    const modeLabel = rec.pos_name
+      ? `🛒 Piatto venduto — ${escH(rec.pos_name.split('|')[0])}`
+      : '🔪 Prep / Batch — produzione programmata';
     html += `
       <div class="mcr-drawer-section">
-        <div class="mcr-drawer-label">🤖 Bot Output</div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Suggested qty</span><span class="mcr-kv-v">${pt.suggested_qty || '—'} ${pt.unit || ''}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Color</span><span class="mcr-kv-v">${escH(noteColor)}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Note (IT)</span><span class="mcr-kv-v">${escH(noteIT)}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Current stock</span><span class="mcr-kv-v">${pt.current_stock === null ? 'NULL ⚠' : pt.current_stock + ' ' + (pt.unit || '')}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Suggested at</span><span class="mcr-kv-v">${pt.suggested_at ? new Date(pt.suggested_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">prep_type</span><span class="mcr-kv-v">${pt.prep_type || '—'}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">expected_duration_days</span><span class="mcr-kv-v">${pt.expected_duration_days || '—'}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">min_cover_days</span><span class="mcr-kv-v">${pt.min_cover_days || '—'}</span></div>
+        <div class="mcr-drawer-label">📖 Ricetta</div>
+        <div class="mcr-kv">
+          <span class="mcr-kv-k">Modalità</span>
+          <span class="mcr-kv-v" style="font-size:11px;padding:2px 6px;border-radius:6px;background:${modeColor};color:${modeTxt};">${modeLabel}</span>
+        </div>`;
+    if (rec.pos_name) {
+      html += `<div class="mcr-kv">
+        <span class="mcr-kv-k">${fieldLabel('pos_name')}</span>
+        <span class="mcr-kv-v" style="font-size:11px;">${escH(rec.pos_name)}</span>
+      </div>`;
+    }
+    if (rec.menu_group) {
+      html += `<div class="mcr-kv">
+        <span class="mcr-kv-k">${fieldLabel('menu_group')}</span>
+        <span class="mcr-kv-v">${escH(rec.menu_group)}</span>
+      </div>`;
+    }
+    if (rec.base_servings) {
+      html += `<div class="mcr-kv">
+        <span class="mcr-kv-k">${fieldLabel('base_servings')}</span>
+        <span class="mcr-kv-v">${rec.base_servings}</span>
+      </div>`;
+    }
+    if (rec.base_weight_g) {
+      html += `<div class="mcr-kv">
+        <span class="mcr-kv-k">${fieldLabel('base_weight_g')}</span>
+        <span class="mcr-kv-v">${rec.base_weight_g} g</span>
+      </div>`;
+    }
+    if (rec.serving_weight_g) {
+      html += `<div class="mcr-kv">
+        <span class="mcr-kv-k">${fieldLabel('serving_weight_g')}</span>
+        <span class="mcr-kv-v">${rec.serving_weight_g} g</span>
+      </div>`;
+    }
+    if (rec.serving_qty || rec.serving_unit) {
+      html += `<div class="mcr-kv">
+        <span class="mcr-kv-k">${fieldLabel('serving_qty')}</span>
+        <span class="mcr-kv-v">${rec.serving_qty || '—'} ${escH(rec.serving_unit || '')}</span>
+      </div>`;
+    }
+    if (rec.shelf_life_days) {
+      html += `<div class="mcr-kv">
+        <span class="mcr-kv-k">${fieldLabel('shelf_life_days')}</span>
+        <span class="mcr-kv-v">${rec.shelf_life_days} giorni</span>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  // ── PREP TASK CARD (if present) ───────────────────────────────
+  const pt = p.detail?.prepTask;
+  if (pt) {
+    const noteParts = (pt.suggested_note || '').split('|');
+    const noteIT    = noteParts[1] || '—';
+    const noteColor = noteParts[0] || '';
+    const pillColor = { red: '#ef4444', yellow: '#f59e0b', green: '#22c55e' }[noteColor] || '#64748b';
+    html += `
+      <div class="mcr-drawer-section">
+        <div class="mcr-drawer-label">🤖 Bot — Ultima Analisi</div>
+        <div class="mcr-kv">
+          <span class="mcr-kv-k">Quanto fare oggi</span>
+          <span class="mcr-kv-v" style="color:${pillColor};font-weight:700;">${pt.suggested_qty || '—'} ${escH(pt.unit || '')}</span>
+        </div>
+        <div class="mcr-kv">
+          <span class="mcr-kv-k">Nota bot</span>
+          <span class="mcr-kv-v" style="font-size:11px;">${escH(noteIT)}</span>
+        </div>
+        <div class="mcr-kv">
+          <span class="mcr-kv-k">Stock attuale</span>
+          <span class="mcr-kv-v" style="color:${pt.current_stock === null ? '#f59e0b' : '#e2e8f0'}">
+            ${pt.current_stock === null ? 'NULL — bot salta questo task' : pt.current_stock + ' ' + (pt.unit || '')}
+          </span>
+        </div>
+        <div class="mcr-kv">
+          <span class="mcr-kv-k">${fieldLabel('min_cover_days')}</span>
+          <span class="mcr-kv-v">${pt.min_cover_days || '— (default 2)'}</span>
+        </div>
+        <div class="mcr-kv">
+          <span class="mcr-kv-k">${fieldLabel('expected_duration_days')}</span>
+          <span class="mcr-kv-v">${pt.expected_duration_days || '—'}</span>
+        </div>
+        ${pt.suggested_at ? `<div class="mcr-kv">
+          <span class="mcr-kv-k">Ultimo run bot</span>
+          <span class="mcr-kv-v" style="font-size:11px;">${new Date(pt.suggested_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+        </div>` : ''}
       </div>`;
   }
 
-  // ── Recipe info ──────────────────────────────────────────────
-  const rec = p.detail?.recipe || (pt?.recipe_id ? recipeById[pt.recipe_id] : null);
+  // ── BOM SOURCES (structured + legacy) ─────────────────────────
   if (rec) {
-    html += `
-      <div class="mcr-drawer-section">
-        <div class="mcr-drawer-label">📖 Recipe</div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Title</span><span class="mcr-kv-v">${escH(rec.title)}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">POS name</span><span class="mcr-kv-v">${escH(rec.pos_name || '—')}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">base_servings</span><span class="mcr-kv-v">${rec.base_servings || '—'}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">base_weight_g</span><span class="mcr-kv-v">${rec.base_weight_g || '—'}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">serving_weight_g</span><span class="mcr-kv-v">${rec.serving_weight_g || '—'}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">shelf_life_days</span><span class="mcr-kv-v">${rec.shelf_life_days || '—'}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">menu_group</span><span class="mcr-kv-v">${escH(rec.menu_group || '—')}</span></div>
-        <div class="mcr-kv">
-          <span class="mcr-kv-k">Recipe mode</span>
-          <span class="mcr-kv-v" style="font-size:11px;padding:2px 6px;border-radius:6px;${rec.pos_name ? 'background:#1e3a8a;color:#bfdbfe;' : 'background:#1a3a2a;color:#86efac;'}">
-            ${rec.pos_name ? '🛒 SOLD ITEM — cosa scarica per 1 vendita' : '🔪 PREP/BATCH — produzione programmata'}
-          </span>
-        </div>
-      </div>`;
-
-    // ── Production profile (if available) ───────────────────
-    if (p.detail?.profile) {
-      const pr = p.detail.profile;
-      const constraintLabel = {
-        sold_item:      '🛒 Piatto venduto al momento',
-        free_quantity:  '⚖️ Libera a peso — nessuna unità minima',
-        minimum_unit:   '🪣 Unità minima di preparazione',
-        portioned_unit: '🍰 Porzionata (fette/pezzi/porzioni)',
-      }[pr.production_constraint] || pr.production_constraint;
-      const yieldLabel = {
-        sum_ingredients:    'Somma ingredienti',
-        manual_final_yield: 'Resa misurata manualmente',
-        reduction:          '🔥 Riduce in cottura',
-        growth_absorption:  '📈 Assorbe liquidi (cresce)',
-        portion_count:      '🔢 Si conta in porzioni',
-      }[pr.yield_behavior] || pr.yield_behavior;
-      const roundLabel = {
-        none:                    'Esatta (nessun arrotondamento)',
-        round_to_minimum_unit:   "Arrotonda all'unità minima",
-        round_to_portion_count:  'Arrotonda alle porzioni',
-        round_to_container:      'Arrotonda al contenitore',
-      }[pr.rounding_rule] || pr.rounding_rule;
-      html += `<div class="mcr-drawer-section" style="border-color:#7c3aed40;">
-        <div class="mcr-drawer-label" style="color:#a78bfa;">🧩 Profilo Produzione</div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Vincolo</span><span class="mcr-kv-v">${escH(constraintLabel)}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Resa</span><span class="mcr-kv-v">${escH(yieldLabel)}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Unità controllo</span><span class="mcr-kv-v">${escH(pr.control_unit)}</span></div>
-        <div class="mcr-kv"><span class="mcr-kv-k">Arrotondamento bot</span><span class="mcr-kv-v">${escH(roundLabel)}</span></div>
-      </div>`;
-    }
-
-    // ── BOM sources: structured + legacy ───────────────────
-    const allStructuredRows = (bom || []).filter(b => b.parent_recipe_id === rec.id);
+    const allStructured = (bom || []).filter(b => b.parent_recipe_id === rec.id);
     const legacyIngs = (() => {
       const raw = rec.ingredients;
       if (!raw) return [];
       let arr;
-      if (Array.isArray(raw)) arr = raw;
+      if (Array.isArray(raw))           arr = raw;
       else if (typeof raw === 'string') { try { arr = JSON.parse(raw); } catch { return []; } }
-      else arr = [raw];
+      else                              arr = [raw];
       return arr.filter(i => i && (i.name || i.ingredient || i.item || i.text));
     })();
 
     // Structured BOM
-    html += `<div class="mcr-drawer-section" style="border-color:${allStructuredRows.length > 0 ? '#22c55e40' : '#ef444430'};">
-      <div class="mcr-drawer-label" style="color:${allStructuredRows.length > 0 ? '#86efac' : '#f87171'};">
-        🧱 BOM Strutturato — ${allStructuredRows.length > 0 ? allStructuredRows.length + ' righe' : 'NESSUNA RIGA'}
+    const bomBorderColor = allStructured.length > 0 ? '#22c55e40' : '#ef444430';
+    const bomLabelColor  = allStructured.length > 0 ? '#86efac' : '#f87171';
+    html += `<div class="mcr-drawer-section" style="border-color:${bomBorderColor};">
+      <div class="mcr-drawer-label" style="color:${bomLabelColor};">
+        🧱 Cosa scarica per 1 vendita (BOM Strutturato) — ${allStructured.length > 0 ? allStructured.length + ' componenti' : 'NESSUN COMPONENTE'}
       </div>`;
-    if (allStructuredRows.length > 0) {
-      allStructuredRows.forEach(b => {
-        const childRec = b.component_type === 'RECIPE' ? recipeById[b.sub_recipe_id] : null;
-        const childIng = b.component_type === 'ITEM' ? ingById[b.item_id] : null;
-        const childName = childRec?.title || childIng?.name || '?';
-        const linked = !!(childRec || childIng);
-        const typeColor = b.component_type === 'RECIPE' ? '#6366f1' : '#0ea5e9';
+    if (allStructured.length > 0) {
+      allStructured.forEach(b => {
+        const cRec  = b.component_type === 'RECIPE' ? recipeById[b.sub_recipe_id] : null;
+        const cIng  = b.component_type === 'ITEM'   ? ingById[b.item_id] : null;
+        const cName = cRec?.title || cIng?.name || '?';
+        const linked = !!(cRec || cIng);
+        const typeClr = b.component_type === 'RECIPE' ? '#a5b4fc' : '#7dd3fc';
         html += `<div class="mcr-bom-row">
           <span style="font-size:12px;color:#e2e8f0;">
-            ${linked ? '' : '<span style="color:#f59e0b;" title="Not linked to ingredient/recipe">⚠ </span>'}${escH(childName)}
+            ${linked ? '' : '<span style="color:#f59e0b;" title="Riga senza link">⚠ </span>'}${escH(cName)}
           </span>
-          <span style="font-size:11px;color:${typeColor};font-weight:600;">${b.quantity} ${escH(b.unit || '')} · ${b.component_type}</span>
+          <span style="font-size:11px;color:${typeClr};font-weight:600;">${b.quantity} ${escH(b.unit || '')} · ${b.component_type}</span>
         </div>`;
       });
     } else {
-      html += `<div style="font-size:12px;color:#475569;padding:4px 0;">Il bot non può calcolare il consumo senza BOM strutturato.</div>`;
+      html += `<div style="font-size:12px;color:#475569;padding:4px 0;line-height:1.5;">
+        Il bot non può calcolare il consumo senza componenti strutturati.
+      </div>`;
     }
     html += `</div>`;
 
-    // Legacy ingredients
+    // Legacy ingredients (only if present)
     if (legacyIngs.length > 0) {
       html += `<div class="mcr-drawer-section" style="border-color:#f59e0b40;">
-        <div class="mcr-drawer-label" style="color:#fde68a;">📝 Ingredienti Legacy (editor) — ${legacyIngs.length} voci</div>
-        <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">Questi ingredienti sono visibili nel Recipe Editor ma NON sono nel BOM strutturato — il bot non li legge.</div>`;
+        <div class="mcr-drawer-label" style="color:#fde68a;">📝 Ingredienti Editor (legacy) — ${legacyIngs.length} voci</div>
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;line-height:1.5;">
+          Visibili nel Recipe Editor ma non nel BOM strutturato — il bot non li legge.
+        </div>`;
       legacyIngs.forEach(ing => {
-        // Legacy JSONB format varies: {name, qty, unit} or {ingredient, amount, unit} or {text} etc.
         const ingName = ing.name || ing.ingredient || ing.item || ing.text || JSON.stringify(ing);
-        const ingQty  = ing.qty || ing.amount || ing.quantity || '';
+        const ingQty  = ing.qty  || ing.amount   || ing.quantity || '';
         const ingUnit = ing.unit || '';
-        // Check if a matching structured BOM row exists by name similarity
-        const hasStructuredMatch = allStructuredRows.some(b => {
-          const sName = (recipeById[b.sub_recipe_id]?.title || ingById[b.item_id]?.name || '').toLowerCase();
-          return sName && ingName.toLowerCase().includes(sName.slice(0,6));
+        const matched = allStructured.some(b => {
+          const sn = (recipeById[b.sub_recipe_id]?.title || ingById[b.item_id]?.name || '').toLowerCase();
+          return sn && String(ingName).toLowerCase().includes(sn.slice(0, 5));
         });
         html += `<div class="mcr-bom-row">
-          <span style="font-size:12px;color:${hasStructuredMatch ? '#86efac' : '#fde68a'};">
-            ${hasStructuredMatch ? '✅' : '➡'} ${escH(String(ingName))}
+          <span style="font-size:12px;color:${matched ? '#86efac' : '#fde68a'};">
+            ${matched ? '✅' : '➡'} ${escH(String(ingName))}
           </span>
           <span style="font-size:11px;color:#94a3b8;">${escH(String(ingQty))} ${escH(String(ingUnit))}</span>
         </div>`;
@@ -1140,57 +1396,339 @@ function buildDrawerHTML(p) {
     }
   }
 
-  // ── Ingredient duplicates ────────────────────────────────────
-  if (p.detail?.ingredients && p.detail.ingredients.length > 1) {
+  // ── INGREDIENT GROUP (for ingredient collision problems) ───────
+  if (p.detail?.ingredients?.length > 1) {
     html += `<div class="mcr-drawer-section">
-      <div class="mcr-drawer-label">🧪 Ingredients in this group</div>`;
+      <div class="mcr-drawer-label">🧪 Gruppo Ingredienti</div>`;
     p.detail.ingredients.forEach(i => {
+      const isBalsamic = i.name?.toLowerCase().includes('balsamic');
+      const isPrep = i.name?.toLowerCase().includes('dressing') || i.name?.toLowerCase().includes('vinaigrette');
+      const tag = isPrep ? '🥗 Prep (fatta in cucina)' : '🛒 Ingrediente acquistato';
       html += `<div class="mcr-kv">
         <span class="mcr-kv-k">${escH(i.name)}</span>
-        <span class="mcr-kv-v">${i.category || '—'} · ${i.measure_type || '—'}</span>
+        <span class="mcr-kv-v" style="font-size:10px;color:#94a3b8;">${i.category || '—'} ${isBalsamic ? '· ' + tag : ''}</span>
       </div>`;
     });
+    if (p.detail?.conflictingBOMs?.length > 0) {
+      html += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #0f172a;">
+        <div style="font-size:10px;color:#f87171;font-weight:700;margin-bottom:4px;">CONFLITTI BOM</div>`;
+      p.detail.conflictingBOMs.forEach(c => {
+        html += `<div style="font-size:11px;color:#fca5a5;padding:2px 0;">${escH(c)}</div>`;
+      });
+      html += `</div>`;
+    }
     html += `</div>`;
   }
 
-  // ── BOM conflicts ────────────────────────────────────────────
-  if (p.detail?.conflictingBOMs?.length > 0) {
-    html += `<div class="mcr-drawer-section" style="border-color:#ef444430;">
-      <div class="mcr-drawer-label" style="color:#f87171;">🔴 BOM Conflicts</div>`;
-    p.detail.conflictingBOMs.forEach(c => {
-      html += `<div style="font-size:12px;color:#fca5a5;padding:3px 0;">${escH(c)}</div>`;
-    });
-    html += `</div>`;
-  }
-
-  // ── POS Sales (last 30d) — for recipes with pos_name ─────────
+  // ── POS SALES (last 30d) ──────────────────────────────────────
   if (rec?.pos_name) {
-    const aliases = rec.pos_name.split('|').filter(Boolean);
-    const salesRows = [];
-    (posSales || []).forEach(s => {
-      if (aliases.some(a => s.menu_item?.toLowerCase().includes(a.toLowerCase()))) {
-        salesRows.push(s);
-      }
-    });
-    const totalSold = salesRows.reduce((acc, s) => acc + (s.quantity || 0), 0);
+    const aliases    = rec.pos_name.split('|').filter(Boolean);
+    const totalSold  = (posSales || [])
+      .filter(s => aliases.some(a => s.menu_item?.toLowerCase().includes(a.toLowerCase())))
+      .reduce((acc, s) => acc + (s.quantity || 0), 0);
     html += `<div class="mcr-drawer-section">
-      <div class="mcr-drawer-label">💰 POS Sales — last 30d</div>
-      <div class="mcr-kv"><span class="mcr-kv-k">Total portions</span><span class="mcr-kv-v">${totalSold}</span></div>
-      <div class="mcr-kv"><span class="mcr-kv-k">Aliases checked</span><span class="mcr-kv-v" style="font-size:11px;">${escH(aliases.join(', '))}</span></div>
+      <div class="mcr-drawer-label">💰 Vendite POS — ultimi 30 giorni</div>
+      <div class="mcr-kv"><span class="mcr-kv-k">Porzioni vendute</span>
+        <span class="mcr-kv-v" style="font-size:14px;color:#86efac;">${totalSold}</span></div>
+      <div class="mcr-kv"><span class="mcr-kv-k">Alias controllati</span>
+        <span class="mcr-kv-v" style="font-size:10px;">${escH(aliases.join(' | '))}</span></div>
     </div>`;
   }
 
-  // ── Phase 2 placeholder ──────────────────────────────────────
-  html += `
-    <div class="mcr-drawer-section" style="border-style:dashed;border-color:#334155;background:#0f172a;">
-      <div class="mcr-drawer-label" style="color:#334155;">✏️ Edit / Save — Phase 2</div>
-      <div style="font-size:12px;color:#334155;">Inline editing with before/after diff and audit log will be enabled in Phase 2.</div>
+  // ── CHEF AI OQR SECTION ───────────────────────────────────────
+  if (oqrDef) {
+    html += `<div class="mcr-drawer-section" style="border-color:#7c3aed60;background:#0d0e1f;" id="mcrOQRSection">
+      <div class="mcr-drawer-label" style="color:#a78bfa;">🤖 Chef AI — Domanda</div>
+      <div style="font-size:13px;color:#e2e8f0;line-height:1.6;margin-bottom:12px;">${escH(oqrDef.question)}</div>
+      <div style="display:flex;flex-direction:column;gap:6px;" id="mcrOQROptions">
+        ${oqrDef.options.map(o => `
+          <button onclick="mcrOQRAnswer('${escH(o.value)}')"
+            style="text-align:left;padding:10px 14px;background:#1e293b;border:1px solid #334155;
+                   border-radius:10px;color:#e2e8f0;font-size:13px;font-family:inherit;
+                   cursor:pointer;transition:background .12s;line-height:1.4;"
+            onmouseover="this.style.background='#263548'" onmouseout="this.style.background='#1e293b'">
+            ${escH(o.label)}
+          </button>`).join('')}
+      </div>
     </div>`;
+  } else {
+    // No OQR available — just a note
+    html += `<div class="mcr-drawer-section" style="border-color:#334155;background:#0f172a;">
+      <div class="mcr-drawer-label" style="color:#475569;">🤖 Chef AI</div>
+      <div style="font-size:12px;color:#475569;">Nessuna azione automatica disponibile per questo tipo di problema. Correggi manualmente dal Recipe Editor.</div>
+    </div>`;
+  }
+
+  // ── WRITE PLAN PLACEHOLDER ─────────────────────────────────────
+  html += `<div id="mcrWritePlan" style="display:none;"></div>`;
 
   return html;
 }
 
-// ── Utility ──────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// OQR ANSWER HANDLER
+// ══════════════════════════════════════════════════════════════
+
+window.mcrOQRAnswer = function (choice) {
+  const idx = window._mcrDrawerIdx;
+  const p   = (window._mcrProblems || [])[idx];
+  if (!p) return;
+
+  window._mcrOQRState.answers.choice = choice;
+
+  // Dim OQR options, highlight chosen
+  document.querySelectorAll('#mcrOQROptions button').forEach(btn => {
+    btn.style.opacity = '0.4';
+    btn.disabled = true;
+  });
+  const allBtns = document.querySelectorAll('#mcrOQROptions button');
+  const oqrDef  = mcrOQRDef(p.problemType);
+  if (oqrDef) {
+    oqrDef.options.forEach((o, i) => {
+      if (o.value === choice) {
+        allBtns[i].style.opacity = '1';
+        allBtns[i].style.borderColor = '#7c3aed';
+        allBtns[i].style.background  = '#1e1b4b';
+        allBtns[i].style.color       = '#c4b5fd';
+      }
+    });
+
+    // Follow-up input?
+    const fu = oqrDef.followUp?.(choice);
+    if (fu) {
+      mcrShowFollowUp(fu, p, oqrDef);
+      return;
+    }
+  }
+
+  // Build write plan immediately if no follow-up
+  mcrBuildAndShowWritePlan(p, oqrDef);
+};
+
+// ── Follow-up input ────────────────────────────────────────────
+function mcrShowFollowUp(fu, p, oqrDef) {
+  const oqrSection = document.getElementById('mcrOQRSection');
+  if (!oqrSection) return;
+
+  const followDiv = document.createElement('div');
+  followDiv.id = 'mcrFollowUp';
+  followDiv.style.cssText = 'margin-top:12px;padding-top:12px;border-top:1px solid #334155;';
+  followDiv.innerHTML = `
+    <div style="font-size:12px;color:#94a3b8;margin-bottom:6px;">${escH(fu.label)}</div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input id="mcrFollowUpInput" type="${fu.type || 'text'}"
+        placeholder="${escH(fu.placeholder || '')}"
+        style="flex:1;padding:8px 12px;background:#1e293b;border:1px solid #475569;border-radius:8px;
+               color:#f1f5f9;font-size:13px;font-family:inherit;outline:none;" />
+      <button onclick="mcrSubmitFollowUp()"
+        style="padding:8px 16px;background:#7c3aed;border:none;border-radius:8px;
+               color:white;font-size:13px;font-weight:600;cursor:pointer;">→</button>
+    </div>`;
+  oqrSection.appendChild(followDiv);
+}
+
+window.mcrSubmitFollowUp = function () {
+  const idx     = window._mcrDrawerIdx;
+  const p       = (window._mcrProblems || [])[idx];
+  const oqrDef  = mcrOQRDef(p?.problemType);
+  const val     = document.getElementById('mcrFollowUpInput')?.value?.trim();
+  if (!val || !p || !oqrDef) return;
+
+  const fu = oqrDef.followUp?.(window._mcrOQRState.answers.choice);
+  if (fu) window._mcrOQRState.answers[fu.field] = val;
+
+  mcrBuildAndShowWritePlan(p, oqrDef);
+};
+
+// ══════════════════════════════════════════════════════════════
+// WRITE PLAN BUILDER + UI
+// ══════════════════════════════════════════════════════════════
+
+function mcrBuildAndShowWritePlan(p, oqrDef) {
+  const writePlanEl = document.getElementById('mcrWritePlan');
+  if (!writePlanEl) return;
+
+  const plan = oqrDef?.buildPlan?.(window._mcrOQRState.answers, p, window._mcrData) || [];
+  window._mcrPendingPlan = plan;
+
+  if (plan.length === 0) {
+    writePlanEl.style.display = '';
+    writePlanEl.innerHTML = `
+      <div class="mcr-drawer-section" style="border-color:#334155;background:#0f172a;margin-top:8px;">
+        <div class="mcr-drawer-label" style="color:#475569;">📋 Piano di Modifica</div>
+        <div style="font-size:12px;color:#475569;line-height:1.5;">
+          Nessuna modifica automatica disponibile per questa scelta.<br>
+          Correggi manualmente dal Recipe Editor oppure da una sessione dedicata.
+        </div>
+      </div>`;
+    return;
+  }
+
+  let planHTML = `
+    <div class="mcr-drawer-section" style="border-color:#0ea5e960;background:#0f1f2e;margin-top:8px;">
+      <div class="mcr-drawer-label" style="color:#7dd3fc;">📋 Piano di Modifica DB</div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:10px;line-height:1.5;">
+        Controlla ogni modifica prima di approvare.
+        ${MAPPING_WRITE_ENABLED ? '' : '<span style="color:#f59e0b;font-weight:700;"> ⚠️ WRITE DISABLED — Phase 2 required</span>'}
+      </div>`;
+
+  plan.forEach((row, i) => {
+    const actionColor = { UPDATE: '#0ea5e9', INSERT: '#22c55e', DELETE: '#ef4444' }[row.action] || '#94a3b8';
+    planHTML += `
+      <div style="background:#1e293b;border-radius:10px;padding:10px;margin-bottom:8px;border:1px solid #334155;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:11px;font-weight:700;color:${actionColor};letter-spacing:.4px;">${row.action}</span>
+          <span style="font-size:10px;color:#475569;">${escH(row.table)} · ${escH(String(row.row_id).slice(0,8))}…</span>
+        </div>
+        <div class="mcr-kv"><span class="mcr-kv-k">Campo</span><span class="mcr-kv-v">${escH(fieldLabel(row.field))}</span></div>
+        <div class="mcr-kv"><span class="mcr-kv-k">Valore attuale</span>
+          <span class="mcr-kv-v" style="color:#f87171;">${row.old_value !== null && row.old_value !== undefined ? escH(String(row.old_value)) : '— (non impostato)'}</span>
+        </div>
+        <div class="mcr-kv"><span class="mcr-kv-k">Nuovo valore</span>
+          <span class="mcr-kv-v" style="color:#86efac;">${escH(String(row.new_value))}</span>
+        </div>
+        <div style="font-size:10px;color:#475569;margin-top:6px;line-height:1.4;">${escH(row.reason || '')}</div>
+      </div>`;
+  });
+
+  planHTML += `
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <button onclick="mcrApprovePlan()"
+          style="flex:1;padding:10px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;
+                 ${MAPPING_WRITE_ENABLED
+                   ? 'background:#059669;border:none;color:white;'
+                   : 'background:#1e293b;border:1px solid #334155;color:#475569;cursor:not-allowed;'}">
+          ${MAPPING_WRITE_ENABLED ? '✅ Approva e Salva' : '🔒 Approve (Write Disabled)'}
+        </button>
+        <button onclick="mcrCancelPlan()"
+          style="padding:10px 16px;background:#1e293b;border:1px solid #334155;border-radius:10px;
+                 color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
+          Annulla
+        </button>
+      </div>
+    </div>`;
+
+  writePlanEl.style.display = '';
+  writePlanEl.innerHTML = planHTML;
+}
+
+// ══════════════════════════════════════════════════════════════
+// APPROVE / CANCEL HANDLERS
+// ══════════════════════════════════════════════════════════════
+
+window.mcrApprovePlan = async function () {
+  const plan = window._mcrPendingPlan || [];
+  if (!plan.length) return;
+
+  // ── WRITE GATE — NEVER REMOVES WITHOUT EXPLICIT FLAG ──────────
+  if (!MAPPING_WRITE_ENABLED) {
+    console.log('[MCR] Write gate active — MAPPING_WRITE_ENABLED=false. Plan logged:', JSON.stringify(plan, null, 2));
+    const el = document.getElementById('mcrWritePlan');
+    if (el) {
+      el.innerHTML += `
+        <div style="background:#1c1400;border:1px solid #78350f;border-radius:10px;padding:12px;margin-top:8px;">
+          <div style="font-size:12px;color:#fde68a;font-weight:700;margin-bottom:4px;">🔒 Phase 2 Required — Write Disabled</div>
+          <div style="font-size:11px;color:#92400e;line-height:1.5;">
+            Le modifiche sono state registrate in console per revisione.<br>
+            Per abilitare le scritture, imposta <code style="color:#fde68a;">MAPPING_WRITE_ENABLED = true</code>
+            in una sessione dedicata con DB Write Plan approvato da Max.
+          </div>
+        </div>`;
+    }
+    return;
+  }
+
+  // ── FUTURE WRITE PATH (only reachable when MAPPING_WRITE_ENABLED=true) ──
+  const sb = window.supa;
+  const approvedAt = new Date().toISOString();
+  const approvedBy = window.user?.name || 'Max';
+  const results = [];
+
+  for (const row of plan) {
+    try {
+      let res;
+      if (row.action === 'UPDATE') {
+        res = await sb.from(row.table).update({ [row.field]: row.new_value }).eq('id', row.row_id);
+      } else if (row.action === 'INSERT') {
+        res = await sb.from(row.table).insert({ ...row.insert_data });
+      }
+      // DELETE is intentionally not implemented — always requires manual action
+      if (res?.error) {
+        results.push({ row, status: 'error', error: res.error.message });
+      } else {
+        // Read-back verification
+        const { data: verified } = await sb.from(row.table).select(row.field).eq('id', row.row_id).single();
+        const ok = verified?.[row.field] == row.new_value;
+        results.push({ row, status: ok ? 'ok' : 'mismatch', readBack: verified?.[row.field] });
+
+        // Write audit log
+        await sb.from('mapping_audit_log').insert({
+          table_name:   row.table,
+          row_id:       String(row.row_id),
+          field_name:   row.field,
+          old_value:    String(row.old_value ?? ''),
+          new_value:    String(row.new_value ?? ''),
+          reason:       row.reason || '',
+          approved_by:  approvedBy,
+          approved_at:  approvedAt,
+          problem_type: (window._mcrProblems || [])[window._mcrDrawerIdx]?.problemType || '',
+        }).catch(() => {}); // audit log failure is non-fatal
+      }
+    } catch (err) {
+      results.push({ row, status: 'exception', error: err.message });
+    }
+  }
+
+  mcrShowWriteResult(results);
+};
+
+window.mcrCancelPlan = function () {
+  window._mcrPendingPlan = [];
+  const el = document.getElementById('mcrWritePlan');
+  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+  // Reset OQR
+  window._mcrOQRState = { step: 'info', answers: {} };
+  const oqrOpts = document.getElementById('mcrOQROptions');
+  if (oqrOpts) {
+    oqrOpts.querySelectorAll('button').forEach(btn => {
+      btn.style.opacity = '1';
+      btn.style.borderColor = '#334155';
+      btn.style.background  = '#1e293b';
+      btn.style.color       = '#e2e8f0';
+      btn.disabled = false;
+    });
+  }
+  document.getElementById('mcrFollowUp')?.remove();
+};
+
+// ── Write result display ───────────────────────────────────────
+function mcrShowWriteResult(results) {
+  const el = document.getElementById('mcrWritePlan');
+  if (!el) return;
+
+  let html = `<div class="mcr-drawer-section" style="border-color:#0ea5e960;background:#0f1f2e;margin-top:8px;">
+    <div class="mcr-drawer-label" style="color:#7dd3fc;">🔍 Verifica Post-Scrittura</div>`;
+
+  results.forEach(r => {
+    const ok    = r.status === 'ok';
+    const clr   = ok ? '#22c55e' : '#ef4444';
+    const icon  = ok ? '✅' : '❌';
+    const label = ok ? 'Verificato OK' : (r.status === 'mismatch' ? `Mismatch — letto: ${r.readBack}` : `Errore: ${r.error}`);
+    html += `<div class="mcr-kv">
+      <span class="mcr-kv-k">${escH(fieldLabel(r.row.field))}</span>
+      <span class="mcr-kv-v" style="color:${clr};">${icon} ${escH(label)}</span>
+    </div>`;
+  });
+
+  html += `</div>`;
+  el.innerHTML = html;
+}
+
+// ── Utility ───────────────────────────────────────────────────
 function escH(str) {
-  return (str || '').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return (str || '').toString()
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
 }
