@@ -626,7 +626,7 @@ function officeRenderCard(item) {
   if (options.length > 0) {
     // All items with ai_options: replace Fix now / Snooze / Ignore with honest buttons
     var _styleElabora2 = 'width:100%;padding:9px 0;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;margin-top:2px;';
-    var _btnElabora2 = src === 'tell_chef' ? '<button onclick="jarvisAnalyze(\'' + item.id + '\')" style="' + _styleElabora2 + '">🤖 Elabora</button>' : '';
+    var _btnElabora2 = (src === 'tell_chef' || src === 'ai_scan' || src === 'bot-recipe-guardian') ? '<button onclick="jarvisAnalyze(\'' + item.id + '\')" style="' + _styleElabora2 + '">🤖 Chef AI</button>' : '';
     if (hasSkill) {
       // Has a real Skill — show Later + Solved + 🧠 Resolve
       actionsHtml =
