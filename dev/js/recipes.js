@@ -2456,6 +2456,8 @@ async function openRecipeEditPage(rec) {
   // Back button — go back to preview or recipes list
   document.getElementById('reBack').onclick = () => {
     document.body.classList.remove('recipe-page-open');
+    document.body.style.top = '';
+    window.scrollTo(0, window._recipePageScrollY || 0);
     document.getElementById('vRecipeEdit').style.display = 'none';
     // If came from preview, go back there
     const preview = document.getElementById('vRecipePreview');
@@ -2469,6 +2471,9 @@ async function openRecipeEditPage(rec) {
   // Show page
   const page = document.getElementById('vRecipeEdit');
   page.style.display = 'flex';
+  // iOS scroll lock
+  window._recipePageScrollY = window.scrollY;
+  document.body.style.top = '-' + window.scrollY + 'px';
   document.body.classList.add('recipe-page-open');
 }
 
@@ -2587,6 +2592,8 @@ async function saveRecipeEditPage(rec) {
     // Go back to preview
     setTimeout(() => {
       document.body.classList.remove('recipe-page-open');
+    document.body.style.top = '';
+    window.scrollTo(0, window._recipePageScrollY || 0);
     document.getElementById('vRecipeEdit').style.display = 'none';
       if (savedRec) openRecipePreviewPage(savedRec);
       renderRecipes();
@@ -2606,6 +2613,8 @@ window.deleteRecipeFromPage = async function(recipeId) {
     SHOP_RECIPES = SHOP_RECIPES.filter(r => r.id !== recipeId);
     // Close both pages
     document.body.classList.remove('recipe-page-open');
+    document.body.style.top = '';
+    window.scrollTo(0, window._recipePageScrollY || 0);
     document.getElementById('vRecipeEdit').style.display = 'none';
     document.getElementById('vRecipePreview').classList.add('hidden');
     document.getElementById('vRecipePreview').style.display = '';
