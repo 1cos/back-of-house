@@ -80,25 +80,177 @@ window.openBotDebug = async function(){
     <div style="background:#fff;border-radius:20px;width:100%;max-width:960px;padding:20px 16px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <span style="font-size:17px;font-weight:700;color:#1e3a5f;">🤖 Bot Debug</span>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <button onclick="document.getElementById('botDebugSheet').remove()" style="font-size:22px;background:none;border:none;color:#94a3b8;">✕</button>
+      </div>
+      <div style="display:flex;gap:0;margin-bottom:14px;border-bottom:2px solid #e2e8f0;">
+        <button id="bdTab1" onclick="bdSwitchTab(1)"
+          style="flex:1;padding:9px 0;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:3px solid #4f46e5;color:#4f46e5;margin-bottom:-2px;">
+          Bot v1 (sim attuale)
+        </button>
+        <button id="bdTab2" onclick="bdSwitchTab(2)"
+          style="flex:1;padding:9px 0;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:3px solid transparent;color:#94a3b8;margin-bottom:-2px;">
+          Bot v2 (logica semplice)
+        </button>
+      </div>
+      <div id="bdPanel1">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
           <button id="botSimRunBtn" onclick="runBotSim()" style="padding:7px 14px;background:#4f46e5;color:white;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">▶ Aggiorna simulazione</button>
           <button id="botSimPrintBtn" onclick="printBotSim()" style="display:none;padding:7px 14px;background:#0f766e;color:white;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">🖨️ Stampa</button>
-          <button onclick="document.getElementById('botDebugSheet').remove()" style="font-size:22px;background:none;border:none;color:#94a3b8;">✕</button>
         </div>
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:12px;">
+          Simulazione bot-preplist-builder — NON tocca stock reale.
+        </div>
+        <div id="botDebugBody" style="color:#64748b;font-size:14px;">Premi "Aggiorna simulazione" per caricare i dati.</div>
       </div>
-      <div style="font-size:11px;color:#94a3b8;margin-bottom:12px;">
-        ⚠️ La simulazione NON tocca stock reale — legge i dati attuali e mostra cosa farebbe il bot stanotte.
+      <div id="bdPanel2" style="display:none;">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+          <button id="botV2RunBtn" onclick="runBotV2()" style="padding:7px 14px;background:#0f766e;color:white;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">▶ Calcola Bot v2</button>
+        </div>
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:12px;">
+          Logica semplice — stock grezzo dal DB, finestra da expected_duration_days, nessuna scrittura su prep_tasks.
+        </div>
+        <div id="botV2Body" style="color:#64748b;font-size:14px;">Premi "Calcola Bot v2" per caricare i dati.</div>
       </div>
-      <div id="botDebugBody" style="color:#64748b;font-size:14px;">Premi "Aggiorna simulazione" per caricare i dati.</div>
     </div>
   </div>`;
   sheet.addEventListener('click', e => { if(e.target===sheet) sheet.remove(); });
   document.body.appendChild(sheet);
-  // Se la sim è già stata girata in precedenza, mostra subito il bottone Stampa
   if(window._botSimRows && window._botSimRows.length > 0) {
     var pb = document.getElementById('botSimPrintBtn');
     if(pb) pb.style.display = 'inline-block';
   }
+};
+
+window.bdSwitchTab = function(n) {
+  document.getElementById('bdPanel1').style.display = n===1 ? 'block' : 'none';
+  document.getElementById('bdPanel2').style.display = n===2 ? 'block' : 'none';
+  const t1 = document.getElementById('bdTab1');
+  const t2 = document.getElementById('bdTab2');
+  if(t1) { t1.style.borderBottomColor = n===1?'#4f46e5':'transparent'; t1.style.color = n===1?'#4f46e5':'#94a3b8'; t1.style.fontWeight = n===1?'700':'600'; }
+  if(t2) { t2.style.borderBottomColor = n===2?'#0f766e':'transparent'; t2.style.color = n===2?'#0f766e':'#94a3b8'; t2.style.fontWeight = n===2?'700':'600'; }
+};
+
+window.runBotV2 = async function(){
+  const btn = document.getElementById('botV2RunBtn');
+  const body = document.getElementById('botV2Body');
+  if(btn) { btn.disabled=true; btn.textContent='Calcolo...'; }
+  if(body) body.innerHTML = '<div style="color:#64748b;padding:20px;text-align:center;">Bot v2 in esecuzione...</div>';
+
+  try {
+    const SUPA_URL = 'https://ydqmumpytgrlceuinoqt.supabase.co';
+    const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxNDM5NzgsImV4cCI6MjA2NDcxOTk3OH0.RB5vYE3gJjH7gJy01Gh-eLQixanVX6cLc0disc8-bJs';
+
+    const res = await fetch(`${SUPA_URL}/functions/v1/bot-preplist-v2`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
+      body: JSON.stringify({ run_by: user?.name || 'Max' })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Errore bot v2');
+
+    const { data: rows, error: rowsErr } = await supa
+      .from('bot_v2_runs')
+      .select('*')
+      .eq('sim_date', data.sim_date)
+      .order('pill', { ascending: true })
+      .order('task_name');
+    if (rowsErr) throw rowsErr;
+
+    const pillDot = p => p==='red'?'#ef4444':p==='yellow'?'#f59e0b':'#22c55e';
+    const pillBg  = p => p==='red'?'#fef2f2':p==='yellow'?'#fefce8':'#f0fdf4';
+    const pillBdr = p => p==='red'?'#fecaca':p==='yellow'?'#fde68a':'#bbf7d0';
+    const pillTxt = p => p==='red'?'#dc2626':p==='yellow'?'#d97706':'#16a34a';
+    const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const fmtN = (n,u) => {
+      if(n===null||n===undefined) return '—';
+      const v=parseFloat(n); if(isNaN(v)) return '—';
+      const ul=(u||'').toLowerCase();
+      const isPh=['pezzi','pz','nests','buste','cartocci','cup'].includes(ul);
+      if(isPh){const nm=v%1===0?String(Math.round(v)):v.toFixed(1);return ['nests','cup','buste','cartocci'].includes(ul)?nm+' '+u:nm;}
+      return v>=1000?(v/1000).toFixed(1).replace(/\.0$/,'')+'kg':Math.round(v)+'g';
+    };
+
+    const cards = rows.map((r,i) => {
+      const p = r.pill||'green';
+      const cid = 'bv2c_'+i;
+      const lang = (window._currentUser?.lang||'en').toLowerCase();
+      const li = lang==='it'?1:lang==='es'?3:2;
+      const noteParts = (r.suggested_note||'').split('|');
+      const noteText = noteParts[li]||noteParts[1]||'';
+
+      const srcLabel = {
+        'expected_duration_days':'expected_duration_days',
+        'shelf_life fallback':'shelf_life (fallback)',
+        'prep_frequency fallback':'prep_frequency (fallback)',
+        'default 3':'default 3 giorni'
+      }[r.planning_window_source] || r.planning_window_source || '—';
+
+      const pct = Math.min(100, Math.round(((r.open_service_days||0)/7)*100));
+      const barCol = pct<30?'#ef4444':pct<60?'#f59e0b':'#22c55e';
+
+      return `<div style="background:${pillBg(p)};border:1.5px solid ${pillBdr(p)};border-radius:14px;margin-bottom:8px;overflow:hidden;">
+        <div onclick="window._bv2Toggle('${cid}')" style="padding:12px 14px;cursor:pointer;display:flex;align-items:flex-start;gap:10px;">
+          <div style="width:10px;height:10px;border-radius:50%;background:${pillDot(p)};margin-top:5px;flex-shrink:0;"></div>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;">
+              <span style="font-size:15px;font-weight:700;color:#0f172a;">${esc(r.task_name)}</span>
+              <span style="font-size:11px;color:#64748b;">${esc(r.category||'')}</span>
+            </div>
+            <div style="font-size:13px;font-weight:700;color:${pillTxt(p)};margin-top:3px;">${esc(noteText)}</div>
+            <div style="margin-top:6px;height:4px;background:#e2e8f0;border-radius:99px;overflow:hidden;">
+              <div style="height:100%;width:${pct}%;background:${barCol};border-radius:99px;"></div>
+            </div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:2px;">${r.open_service_days||0} giorni aperti nella finestra</div>
+          </div>
+          <div style="font-size:18px;color:#94a3b8;flex-shrink:0;" id="${cid}_arr">&#8250;</div>
+        </div>
+        <div id="${cid}" style="display:none;padding:0 14px 14px 34px;border-top:1px solid ${pillBdr(p)};">
+          <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin:10px 0 8px;">Perche il bot dice questo</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;">
+            ${_bv2Row('Stock DB', fmtN(r.current_stock,r.unit))}
+            ${_bv2Row('Giorni da coprire', r.planning_window_days ? r.planning_window_days+'gg' : '—')}
+            ${_bv2Row('Fonte giorni', srcLabel)}
+            ${_bv2Row('Giorni aperti', r.open_service_days !== null ? String(r.open_service_days) : '—')}
+            ${_bv2Row('Consumo / giorno', fmtN(r.consumo_giornaliero,r.unit))}
+            ${_bv2Row('Fabbisogno totale', fmtN(r.fabbisogno,r.unit))}
+            ${_bv2Row('Delta stock vs fabbisogno', r.delta !== null ? (r.delta>=0?'+':'')+fmtN(Math.abs(r.delta),r.unit) : '—')}
+            ${_bv2Row('Suggested qty', r.suggested_qty !== null ? fmtN(r.suggested_qty,r.unit) : '—')}
+            ${r.arrival_day ? _bv2Row('Arrivi a', esc(r.arrival_day)) : ''}
+          </div>
+          ${r.percorso ? `<div style="margin-top:8px;padding:8px 10px;background:rgba(0,0,0,0.04);border-radius:8px;font-size:10px;color:#64748b;line-height:1.5;">${esc(r.percorso)}</div>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    const nowStr = new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
+    if(body) body.innerHTML = `
+      <div style="font-size:12px;color:#64748b;margin-bottom:12px;padding:8px 10px;background:#f8fafc;border-radius:8px;">
+        Bot v2 · <b>${data.sim_date}</b> · ${nowStr} ·
+        <span style="color:#ef4444;">&#9679; ${data.red}</span>
+        <span style="color:#f59e0b;margin-left:6px;">&#9679; ${data.yellow}</span>
+        <span style="color:#22c55e;margin-left:6px;">&#9679; ${data.green}</span>
+        <span style="color:#94a3b8;margin-left:6px;">${rows.length} task · Tap per dettaglio</span>
+      </div>
+      <div>${cards}</div>`;
+  } catch(err) {
+    if(body) body.innerHTML = `<div style="color:#ef4444;padding:16px;">Errore: ${escHtml(err.message)}</div>`;
+  } finally {
+    if(btn) { btn.disabled=false; btn.textContent='▶ Calcola Bot v2'; }
+  }
+};
+
+function _bv2Row(label, value) {
+  if(!value||value==='—') return `<div style="padding:3px 0;"><span style="font-size:10px;color:#94a3b8;">${label}</span><div style="font-size:12px;color:#64748b;">—</div></div>`;
+  return `<div style="padding:3px 0;"><span style="font-size:10px;color:#94a3b8;">${label}</span><div style="font-size:12px;font-weight:600;color:#1e3a5f;">${value}</div></div>`;
+}
+
+window._bv2Toggle = function(id) {
+  const el = document.getElementById(id);
+  const arr = document.getElementById(id+'_arr');
+  if(!el) return;
+  const open = el.style.display==='block';
+  el.style.display = open?'none':'block';
+  if(arr) arr.style.transform = open?'':'rotate(90deg)';
 };
 
 window.runBotSim = async function(){
@@ -380,5 +532,6 @@ window.botSimShare = async function() {
   }
   window.print();
 };
+
 
 
