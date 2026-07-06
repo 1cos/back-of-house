@@ -2434,3 +2434,91 @@ Workaround attuale: dopo un push, triggera `workflow_dispatch` via API separata 
 ### Nota importante per prossima sessione
 Il sistema tab Safari va progettato PRIMA di toccare altre pagine — è l'infrastruttura di navigazione che le altre pagine useranno. Progettare prima, poi implementare su Recipes come pilota, poi estendere.
 
+
+---
+
+## SESSIONE 6 LUGLIO 2026 — boh-v541→v543 — Bot Debug v2 + bot-preplist-v2
+
+**Versione finale sw.js:** boh-v543
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### Discussione architetturale: disallineamento stock tra bot v1 e sim
+
+**Problema discusso (non era un bug):** la sim v7 mostrava `current_stock=457 nests` per Spaghetti, il bot reale scriveva "40 nests" nella pill. La divergenza era intenzionale by design — il bot alle 4AM calcola `stockPresunto = currentStock - vendutoIeri` internamente e usa quello nel testo, senza scrivere il valore su DB. La sim leggeva il `current_stock` grezzo.
+
+**Principio stabilito (fondamentale):**
+> `current_stock` è la fonte di verità unica. Tutti devono leggere da quella colonna. Nessun bot deve calcolare stock "in testa" senza scrivere il risultato nel DB — altrimenti i numeri divergono tra chi li usa.
+
+Questo ha portato alla decisione di creare `bot-preplist-v2` con logica trasparente.
+
+---
+
+### Bot Debug — tab v1/v2 (v542→v543)
+
+**v542:** Bot Debug (`admin.js`) convertito da tabella a card expandable per Bot v1 (sim esistente). Card collapsed mostra pill + nome + stock + messaggio + barra copertura. Card expanded mostra "Perché il bot dice questo" con tutti i campi da `bot_debug_runs`.
+
+**v543:** Aggiunta tab switcher nel Bot Debug:
+- **Bot v1** — simulazione esistente (bot-preplist-sim), invariata
+- **Bot v2** — nuova logica semplice, pulsante "Calcola Bot v2"
+
+Funzioni aggiunte in `admin.js`: `bdSwitchTab()`, `runBotV2()`, `_bv2Toggle()`, `_bv2Row()`.
+
+---
+
+### bot-preplist-v2 — Edge Function nuova (4 versioni in sessione)
+
+**Tabella creata:** `bot_v2_runs` — scrive SOLO qui, non tocca mai `prep_tasks`, `bot_debug_runs`, o `suggested_note/qty`.
+
+**Colonne:** `id, run_at, run_by, sim_date, task_id, task_name, category, unit, current_stock, planning_window_days, planning_window_source, open_service_days, consumo_giornaliero, fabbisogno, delta, pill, suggested_qty, suggested_note, arrival_day, percorso`
+
+**Logica:**
+1. Legge `current_stock` grezzo dal DB — fonte di verità unica, mai modificato
+2. Finestra di pianificazione con priorità: `expected_duration_days` → `shelf_life_days` → `prep_frequency_days` → default 3. Fonte sempre visibile nel percorso.
+3. Consumo per DOW: media storica 60 giorni, **aggregata per data** prima di calcolare la media (fix bug alias multipli)
+4. `fabbisogno = somma consumo per ogni giorno aperto nella finestra` (no divisione/rimoltiplicazione intermedia)
+5. Giorni coperti: simulazione giorno per giorno con consumo reale per DOW
+6. Pill: green/yellow/red da `giorniCoperti` vs `min_cover_days`
+7. Suggested qty: arrotondato al batch (`base_weight_g`) se disponibile, altrimenti `free_quantity`
+8. Percorso dettagliato giorno per giorno: `Mar: 8.25p x 150g = 1.2kg | ...`
+
+**v1:** prima versione — bug doppia media
+**v2:** fix doppia media (fabbisogno diretto, no divisione/moltiplicazione)
+**v3:** aggiunto percorso giorno-per-giorno (`Mar: Np x Xg = Yg`)
+**v4 (finale):** fix aggregazione per data — il problema principale
+
+**Bug critico risolto in v4 — aggregazione per data:**
+Il bot costruiva `salesByItem[alias][dow] = [qty per riga]`. Se lo stesso giorno aveva due righe (`Fried Calamari: 10` e `Calamari: 1`), le inseriva come due elementi separati → il denominatore della media era sbagliato.
+Fix: aggregazione per data prima. `dateTotals[date] += qty` per tutti gli alias che matchano → poi `dowMap[dow].push(totaleDiQuellData)`. Martedì calamari: da 6.6p a **8.25p** corretto.
+
+**Perché "Calamari" e "Fried Calamari" nel POS:**
+Due bottoni distinti — `Fried Calamari` (Antipasti/appetizer, 199 porzioni) e `Calamari` (Happy hours, 5 porzioni). Stesso piatto fisico, prezzi/contesti diversi. Il bot li somma correttamente tramite `pos_name` con alias pipe-delimited.
+
+**Metodi di calcolo media discussi (nessuna decisione presa, per ora rimane media semplice per DOW):**
+1. Media semplice per DOW (attuale) — stabile, equanime
+2. Media pesata per recency — reagisce ai trend recenti
+3. Media su settimane complete incluse quelle a 0 — conservativa
+
+---
+
+### Stato versioni finale sessione
+
+| Componente | Versione |
+|---|---|
+| Brigade frontend | **boh-v543** |
+| bot-preplist-builder | v41 (Supabase v60) — invariato |
+| bot-preplist-sim | v6 (Supabase v6) — invariato |
+| bot-preplist-v2 | **v4** (Supabase v4) — NUOVO |
+| bot_v2_runs | tabella creata oggi |
+
+---
+
+### Pendenti aperti da questa sessione
+
+1. **UI card prep** — rimandato. Spec definita (collapsed: stock DB + coverage + barra; expanded: "Perché il bot dice questo"). Da fare in sessione dedicata.
+2. **bot-preplist-v2 — production_type** — per ora usa solo `free_quantity` (arrotonda al batch se `base_weight_g`) e `minimum_unit`. I tre tipi completi (`free_quantity`, `minimum_unit`, `portioned_unit`) non ancora implementati — campo da aggiungere alla ricetta.
+3. **bot-preplist-v2 — media pesata per recency** — discussa, non implementata. Da valutare in sessione dedicata.
+4. **bot-preplist-v2 cron** — nessun cron aggiunto, trigger solo manuale dal Bot Debug.
+5. **Aggiornamento BOH_OS_BACKLOG.md** — da fare, versioni Edge Function non aggiornate (ferme a v428).
+
