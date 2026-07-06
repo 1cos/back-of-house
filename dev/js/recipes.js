@@ -2310,11 +2310,17 @@ async function openRecipePreviewPage(rec) {
   // Hide topbar + bottom nav
   const topBar = document.getElementById('mainTopBar');
   if (topBar) topBar.style.display = 'none';
+  // iOS scroll lock — save position before fixing body
+  window._recipePageScrollY = window.scrollY;
+  document.body.style.top = '-' + window.scrollY + 'px';
   document.body.classList.add('recipe-page-open');
 }
 
 function closeRecipePreviewPage() {
+  // iOS scroll unlock — restore position
   document.body.classList.remove('recipe-page-open');
+  document.body.style.top = '';
+  window.scrollTo(0, window._recipePageScrollY || 0);
   const page = document.getElementById('vRecipePreview');
   page.style.display = 'none';
   // Restore topbar state based on current section

@@ -873,10 +873,16 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
     .amenu-btn:active { transform:scale(0.95); }
     .amenu-logout { color:#ef4444; background:#fff5f5; border-color:rgba(239,68,68,0.15); }
   
-/* iOS keyboard gap fix — solid bg when recipe pages open */
+/* iOS page lock — position:fixed is the only reliable way on iOS Safari */
 body.recipe-page-open {
-  background: #eff6ff !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
   overflow: hidden !important;
+  background: #eff6ff !important;
+  touch-action: none !important;
 }
 </style>
 
