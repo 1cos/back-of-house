@@ -2310,9 +2310,11 @@ async function openRecipePreviewPage(rec) {
   // Hide topbar + bottom nav
   const topBar = document.getElementById('mainTopBar');
   if (topBar) topBar.style.display = 'none';
+  document.body.classList.add('recipe-page-open');
 }
 
 function closeRecipePreviewPage() {
+  document.body.classList.remove('recipe-page-open');
   const page = document.getElementById('vRecipePreview');
   page.style.display = 'none';
   // Restore topbar state based on current section
@@ -2447,6 +2449,7 @@ async function openRecipeEditPage(rec) {
 
   // Back button — go back to preview or recipes list
   document.getElementById('reBack').onclick = () => {
+    document.body.classList.remove('recipe-page-open');
     document.getElementById('vRecipeEdit').style.display = 'none';
     // If came from preview, go back there
     const preview = document.getElementById('vRecipePreview');
@@ -2460,6 +2463,7 @@ async function openRecipeEditPage(rec) {
   // Show page
   const page = document.getElementById('vRecipeEdit');
   page.style.display = 'flex';
+  document.body.classList.add('recipe-page-open');
 }
 
 function buildRecipeEditForm(rec, steps) {
@@ -2576,7 +2580,8 @@ async function saveRecipeEditPage(rec) {
 
     // Go back to preview
     setTimeout(() => {
-      document.getElementById('vRecipeEdit').style.display = 'none';
+      document.body.classList.remove('recipe-page-open');
+    document.getElementById('vRecipeEdit').style.display = 'none';
       if (savedRec) openRecipePreviewPage(savedRec);
       renderRecipes();
     }, 600);
@@ -2594,6 +2599,7 @@ window.deleteRecipeFromPage = async function(recipeId) {
     await supa.from('recipes').delete().eq('id', recipeId);
     SHOP_RECIPES = SHOP_RECIPES.filter(r => r.id !== recipeId);
     // Close both pages
+    document.body.classList.remove('recipe-page-open');
     document.getElementById('vRecipeEdit').style.display = 'none';
     document.getElementById('vRecipePreview').classList.add('hidden');
     document.getElementById('vRecipePreview').style.display = '';

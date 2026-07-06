@@ -548,7 +548,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
     </section>
 
     <!-- RECIPE PREVIEW PAGE -->
-    <section id="vRecipePreview" style="display:none;flex-direction:column;position:fixed;inset:0;z-index:50;background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);overflow:hidden;">
+    <section id="vRecipePreview" style="display:none;flex-direction:column;position:fixed;top:0;left:0;right:0;bottom:0;z-index:50;background:#eff6ff;overflow:hidden;overscroll-behavior:none;">
       <!-- Nav bar -->
       <div id="rpNavBar" style="display:flex;align-items:center;background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid rgba(59,130,246,0.12);padding:0 16px;height:56px;flex-shrink:0;gap:12px;padding-top:env(safe-area-inset-top);">
         <button id="rpBack" style="width:36px;height:36px;border-radius:50%;border:0.5px solid rgba(59,130,246,0.2);background:rgba(255,255,255,0.7);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">
@@ -568,7 +568,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
     </section>
 
     <!-- RECIPE EDIT PAGE -->
-    <section id="vRecipeEdit" style="display:none;flex-direction:column;position:fixed;inset:0;z-index:51;background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);overflow:hidden;">
+    <section id="vRecipeEdit" style="display:none;flex-direction:column;position:fixed;top:0;left:0;right:0;bottom:0;z-index:51;background:#eff6ff;overflow:hidden;overscroll-behavior:none;">
       <!-- Nav bar -->
       <div style="display:flex;align-items:center;background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid rgba(59,130,246,0.12);padding:0 16px;height:56px;flex-shrink:0;gap:12px;padding-top:env(safe-area-inset-top);">
         <button id="reBack" style="width:36px;height:36px;border-radius:50%;border:0.5px solid rgba(59,130,246,0.2);background:rgba(255,255,255,0.7);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">
@@ -872,7 +872,13 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
     }
     .amenu-btn:active { transform:scale(0.95); }
     .amenu-logout { color:#ef4444; background:#fff5f5; border-color:rgba(239,68,68,0.15); }
-  </style>
+  
+/* iOS keyboard gap fix — solid bg when recipe pages open */
+body.recipe-page-open {
+  background: #eff6ff !important;
+  overflow: hidden !important;
+}
+</style>
 
 </div>
 
