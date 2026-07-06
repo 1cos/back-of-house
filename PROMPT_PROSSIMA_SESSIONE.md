@@ -2334,3 +2334,103 @@ Workaround funzionante: dopo commit falliti, triggerare `workflow_dispatch` via 
 2. Testare il flusso completo: tap 🤖 Chef AI → card thinking → card ready → Approva → esecuzione action_draft
 3. Aggiungere trigger automatico `jarvis-reason` quando arriva una nuova card Tell Chef (nel bot-tell-chef-reader)
 4. Fix `cancel-in-progress` nel workflow (richiede che Max lo faccia da GitHub web UI)
+
+---
+
+## SESSIONE 6 LUGLIO 2026 — Refactor UI /dev/ — Design System + Recipe Pages
+
+**Versione sw.js live:** boh-v541 (root brigade-main invariata)
+**Ambiente dev:** https://1cos.github.io/back-of-house/dev/ (branch brigade-main, cartella /dev/)
+
+### Decisioni architetturali prese
+
+**Ambiente /dev/ creato:**
+- Cartella `/dev/` in brigade-main — URL separato per sviluppo UI
+- `dev/index.html`: carica JS da `../js/` per default, da `dev/js/` quando modificati
+- `dev/sw.js`: cache `boh-dev-v2`, scope `/back-of-house/dev/`
+- `dev/manifest.json`: start_url e scope corretti per /dev/
+- Root brigade-main invariata — i ragazzi non vedono nulla
+- Regola: quando si modifica un JS per il refactor, va in `dev/js/` già modificato
+
+**Design system definito (light theme, stile L'Ufficio):**
+- Sfondo: `linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%)`
+- Card glass: `rgba(255,255,255,0.65)` + `backdrop-filter:blur(14px)` + bordo `rgba(59,130,246,0.18)`
+- Blu come accento SOLO su icone/tab/bordi — MAI come sfondo
+- Testo primario: `#1e3a5f` (navy), secondario: `#60a5fa`
+- Font: 16px titoli card, 15px testo normale, 13px label, 11px uppercase micro-label
+- Zero emoji — rimpiazzate con SVG outline
+- Badge DEV blu fisso in alto a destra su /dev/
+
+**Navigation bar (implementata):**
+- Home → top bar classica (avatar + greeting + campanella) — invariata
+- Qualsiasi altra pagina → top bar SPARISCE, appare navigation bar con: ← indietro + titolo + azioni
+- Implementato in `dev/js/app.js`: tab click handler nasconde `#mainTopBar` per tutti i tab tranne Home (id="mainTopBar" aggiunto al div top bar in dev/index.html)
+
+**Recipes page (implementata in /dev/):**
+- Lista ricette: stile lista verticale (non griglia 2 colonne) con bordo sinistro blu + chevron →
+- Category chips: stile Ufficio (navy attivo, glass inattivo)
+- Search bar: con icona lente SVG
+- Nav bar: ← + "Recipes" + "+ New" (solo admin)
+
+**Recipe Preview page (implementata):**
+- Sezione `id="vRecipePreview"` — `position:fixed;top:0;left:0;right:0;bottom:0;z-index:50`
+- Nav bar: ← + titolo ricetta + "Edit" (solo admin)
+- Tab bar: Ingredients / Steps / Notes
+- Ingredients: lista con bordo sinistro (viola=prep, blu=ingrediente), scaling +/- servings
+- Steps: numerati con timer in minuti
+- Notes: Equipment + Procedure separati
+- Apertura da `openRecipeByData()` → `openRecipePreviewPage(rec)`
+
+**Recipe Edit page (implementata):**
+- Sezione `id="vRecipeEdit"` — `position:fixed;top:0;left:0;right:0;bottom:0;z-index:51`
+- Nav bar: ← + "Edit Recipe" + "Save" (blu)
+- Tutti i campi: Title, Menu Group, POS Name, Base Servings, Total Weight, Prep Time, Shelf Life, Price, Equipment, Procedure, Steps (read-only view), Delete Recipe
+- Save: upsert su `recipes`, aggiorna SHOP_RECIPES cache, torna a preview
+- Apertura da bottone "Edit" in preview → `openRecipeEditPage(rec)`
+
+**iOS scroll lock (fix critico):**
+- Problema: `position:fixed` su iOS non blocca scroll/touch della pagina sotto
+- Soluzione: `body.classList.add('recipe-page-open')` che applica `position:fixed` al body
+- CSS: `.recipe-page-open { position:fixed; top:0; left:0; right:0; bottom:0; overflow:hidden; background:#eff6ff; touch-action:none; }`
+- JS: salva `window._recipePageScrollY = window.scrollY` e `body.style.top = '-Npx'` all'apertura, ripristina alla chiusura
+- Applicato sia a Preview che a Edit
+
+### File modificati in /dev/
+
+| File | Cosa fa |
+|---|---|
+| `dev/index.html` | Sezioni vRecipePreview + vRecipeEdit, nav bar con id="mainTopBar", CSS design system + body lock |
+| `dev/sw.js` | Cache boh-dev-v2 |
+| `dev/manifest.json` | Scope /dev/ |
+| `dev/js/app.js` | showSection + tab click handler: nasconde topbar su non-home |
+| `dev/js/recipes.js` | renderRecipes (lista+chips), openRecipePreviewPage, openRecipeEditPage, closeRecipePreviewPage, saveRecipeEditPage, deleteRecipeFromPage, rpScaleServings |
+
+### Workflow deploy /dev/
+
+**Il workflow `pages.yml` ha `cancel-in-progress: true`** — causa fallimenti se si pusha troppo veloce.
+Fix necessario (richiede scope `workflow` che il token non ha): Max deve cambiare manualmente su GitHub web UI `.github/workflows/pages.yml` riga `cancel-in-progress: true` → `false`.
+Workaround attuale: dopo un push, triggera `workflow_dispatch` via API separata se il deploy fallisce.
+
+### Prossima sessione — da fare
+
+1. **Sistema tab stile Safari** — chips pagine aperte nella navigation bar, + per nuova tab
+   - Ogni tab ha il suo stack indipendente
+   - Puoi tenere aperta una ricetta in una tab, L'Ufficio in un'altra
+   - Max ha confermato di volerlo
+
+2. **Prep page** — navigation bar + card stile Ufficio (bordo urgenza, font 15px)
+
+3. **Office page** — già buona, solo aggiustamenti minori (emoji→icone, font)
+
+4. **BOM editor in Edit page** — oggi la pagina Edit non ha l'editor BOM (ingredienti)
+   Il BOM editor è complesso (`ingList`, sub-recipe handling) — sessione dedicata
+
+5. **Steps editor in Edit page** — oggi mostra gli steps read-only, manca il + per aggiungere step
+
+6. **Aggiornare dev/js/app.js** — aggiungere tutte le sezioni alla lista nascosta/mostrata in showSection (attualmente mancano vRecipePreview e vRecipeEdit dalla lista)
+
+7. **cancel-in-progress: false** nel workflow — da fare manualmente da Max su GitHub
+
+### Nota importante per prossima sessione
+Il sistema tab Safari va progettato PRIMA di toccare altre pagine — è l'infrastruttura di navigazione che le altre pagine useranno. Progettare prima, poi implementare su Recipes come pilota, poi estendere.
+
