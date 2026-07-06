@@ -551,7 +551,7 @@ async function officeLoad() {
 
 // ── RENDER SINGOLA CARD ──
 function officeRenderCard(item) {
-  // ── JARVIS MODE — se reasoning_result e jarvis_status=ready, mostra card Jarvis ──
+  // ── CHEF AI MODE — se reasoning_result e jarvis_status=ready, mostra card Chef AI ──
   if (item.jarvis_status === 'ready' && item.reasoning_result && item.reasoning_result.proposed_solution) {
     return officeRenderJarvisCard(item);
   }
@@ -3130,7 +3130,7 @@ window.officeSkillClose = function() {
 
 
 // ══════════════════════════════════════════════════════════════
-// JARVIS ENGINE UI — v1
+// CHEF AI ENGINE UI — v1
 // Card intelligenti con reasoning result di Chef AI
 // ══════════════════════════════════════════════════════════════
 
@@ -3162,7 +3162,7 @@ function officeRenderJarvisThinking(item) {
   '</div>';
 }
 
-// ── Card Jarvis completa con reasoning result ──
+// ── Card Chef AI completa con reasoning result ──
 function officeRenderJarvisCard(item) {
   var rr = item.reasoning_result || {};
   var ts = '';
@@ -3225,7 +3225,7 @@ function officeRenderJarvisCard(item) {
         (item.from_user && item.from_user !== 'system' ? '<div style="font-size:12px;color:#60a5fa;margin-top:2px;">da ' + item.from_user + '</div>' : '') +
       '</div>' +
       '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">' +
-        '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(139,92,246,0.1);color:#8b5cf6;font-weight:700;">🧠 Jarvis</span>' +
+        '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(139,92,246,0.1);color:#8b5cf6;font-weight:700;">🤖 Chef AI</span>' +
         '<span style="font-size:10px;color:' + confColor + ';font-weight:700;">' + confPct + '% confidence</span>' +
       '</div>' +
     '</div>' +
@@ -3233,7 +3233,7 @@ function officeRenderJarvisCard(item) {
     // Messaggio originale (collassato)
     (item.body ? '<div style="font-size:14px;color:#64748b;padding:0 14px 8px;font-style:italic;line-height:1.4;border-bottom:0.5px solid rgba(30,58,95,0.06);">' + item.body + '</div>' : '') +
 
-    // Soluzione proposta — il cuore della card Jarvis
+    // Soluzione proposta — il cuore della card Chef AI
     '<div style="margin:10px 14px 8px;padding:12px 14px;background:linear-gradient(135deg,rgba(30,58,95,0.04),rgba(37,99,235,0.06));border:0.5px solid rgba(37,99,235,0.15);border-radius:12px;">' +
       '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
         '<span style="font-size:14px;">🤖</span>' +
@@ -3261,7 +3261,7 @@ function officeRenderJarvisCard(item) {
   '</div>';
 }
 
-// ── Azione Jarvis — gestisce approve/reject/edit/ask_question ──
+// ── Azione Chef AI — gestisce approve/reject/edit/ask_question ──
 window.jarvisAction = async function(itemId, action) {
   var sb = window.supa;
   if (!sb) return;
@@ -3538,7 +3538,7 @@ async function jarvisExecuteDraft(sb, draft) {
       var { error } = await sb.from('office_items').insert({
         source: 'sous_chef_chat', from_user: 'jarvis-reason', priority: 'blue',
         title: 'Chiarimento richiesto',
-        body: payload.message || 'Jarvis ha bisogno di un chiarimento.',
+        body: payload.message || 'Chef AI ha bisogno di un chiarimento.',
         status: 'open', station: payload.station
       });
       if (error) throw new Error(error.message);
@@ -3608,7 +3608,7 @@ window.jarvisShowReasoning = async function(itemId) {
   document.body.appendChild(sheet);
 };
 
-// ── Trigger Jarvis su una card esistente (on-demand) ──
+// ── Trigger Chef AI su una card esistente (on-demand) ──
 window.jarvisAnalyze = async function(itemId) {
   var sb = window.supa;
   if (!sb) return;
@@ -3640,9 +3640,9 @@ window.jarvisAnalyze = async function(itemId) {
         officeLoadHome();
       }
     } else {
-      if (typeof showScToast === 'function') showScToast('Jarvis error: ' + (data.error || 'unknown'));
+      if (typeof showScToast === 'function') showScToast('Chef AI error: ' + (data.error || 'unknown'));
     }
   } catch(e) {
-    if (typeof showScToast === 'function') showScToast('Jarvis error: ' + e.message);
+    if (typeof showScToast === 'function') showScToast('Chef AI error: ' + e.message);
   }
 };
