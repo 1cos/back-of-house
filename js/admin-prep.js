@@ -129,7 +129,6 @@ async function openPrepEditor(prep=null){
           <div id="pepStepsList" class="space-y-2"></div>
           <p class="text-[10px] text-slate-400 mt-1">Se aggiungi steps, la nota viene ignorata al tap. Gli steps sono sequenziali: step 2 si sblocca solo dopo step 1.</p>
         </div>`:''}
-      </div>
         ${!isNew?`<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:16px;margin-top:4px;">
           <div style="font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.05em;margin-bottom:12px;">🤖 BOT CONFIG</div>
           <div style="display:grid;gap:10px;">
@@ -137,6 +136,7 @@ async function openPrepEditor(prep=null){
               <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Nel frigo conto...</label>
               <select id="pepUnit" style="width:100%;padding:8px 12px;border:1px solid #e2e8f0;border-radius:10px;background:white;font-size:13px;">
                 <option value="g" ${(prep?.unit||'g')==='g'?'selected':''}>grammi (g)</option>
+                <option value="kg" ${prep?.unit==='kg'?'selected':''}>kg</option>
                 <option value="pezzi" ${prep?.unit==='pezzi'?'selected':''}>pezzi</option>
                 <option value="cup" ${prep?.unit==='cup'?'selected':''}>cup</option>
                 <option value="buste" ${prep?.unit==='buste'?'selected':''}>buste</option>
@@ -178,6 +178,7 @@ async function openPrepEditor(prep=null){
             <div style="font-size:11px;color:#94a3b8;text-align:center;padding:8px 0;">Caricamento ragionamento bot...</div>
           </div>
         </div>`:''}
+      </div>
       <div class="p-4 border-t flex gap-2">
         <button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl text-sm">Annulla</button>
         <button id="pepSave" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold text-sm">Salva</button>
