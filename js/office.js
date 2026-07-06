@@ -551,6 +551,14 @@ async function officeLoad() {
 
 // ── RENDER SINGOLA CARD ──
 function officeRenderCard(item) {
+  // ── JARVIS MODE — se reasoning_result e jarvis_status=ready, mostra card Jarvis ──
+  if (item.jarvis_status === 'ready' && item.reasoning_result && item.reasoning_result.proposed_solution) {
+    return officeRenderJarvisCard(item);
+  }
+  if (item.jarvis_status === 'reasoning') {
+    return officeRenderJarvisThinking(item);
+  }
+
   // Se già actionato da Max → render stato finale direttamente dal DB
   if (item.chef_action === 'done') {
     var byDone = item.chef_action_by || 'Max';
@@ -3120,3 +3128,521 @@ window.officeSkillClose = function() {
   window._skillSelectedUnits = null;
 };
 
+
+// ══════════════════════════════════════════════════════════════
+// JARVIS ENGINE UI — v1
+// Card intelligenti con reasoning result di Chef AI
+// ══════════════════════════════════════════════════════════════
+
+// ── Card "thinking" — mostrata mentre jarvis-reason sta girando ──
+function officeRenderJarvisThinking(item) {
+  var ts = '';
+  try {
+    var d = new Date(item.created_at);
+    ts = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' }) +
+         ' · ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Chicago' });
+  } catch(e) {}
+
+  return '<div data-item-id="' + item.id + '" style="background:white;border:0.5px solid rgba(139,92,246,0.2);border-left:3px solid #8b5cf6;border-radius:16px;margin:0 12px 8px;overflow:hidden;box-shadow:0 2px 8px rgba(139,92,246,0.08);">' +
+    '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;">' +
+      '<div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#8b5cf6,#3b82f6);display:flex;align-items:center;justify-content:center;font-size:14px;animation:spin 2s linear infinite;flex-shrink:0;">🧠</div>' +
+      '<div style="flex:1;">' +
+        '<div style="font-size:15px;font-weight:700;color:#1e3a5f;">' + (item.title || '') + '</div>' +
+        '<div style="font-size:12px;color:#8b5cf6;margin-top:2px;">Chef AI sta ragionando...</div>' +
+      '</div>' +
+      '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(139,92,246,0.1);color:#8b5cf6;font-weight:600;">AI scan</span>' +
+    '</div>' +
+    '<div style="padding:0 14px 12px;">' +
+      '<div style="background:rgba(139,92,246,0.05);border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:8px;">' +
+        '<div style="width:6px;height:6px;border-radius:50%;background:#8b5cf6;animation:pulse 1s infinite;flex-shrink:0;"></div>' +
+        '<div style="font-size:13px;color:#7c3aed;">Investigando nel database... questa operazione richiede 10-20 secondi.</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="padding:0 14px 10px;font-size:12px;color:#94a3b8;">' + ts + '</div>' +
+  '</div>';
+}
+
+// ── Card Jarvis completa con reasoning result ──
+function officeRenderJarvisCard(item) {
+  var rr = item.reasoning_result || {};
+  var ts = '';
+  try {
+    var d = new Date(item.created_at);
+    ts = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' }) +
+         ' · ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Chicago' });
+  } catch(e) {}
+
+  var confidence = rr.confidence || 0;
+  var confPct = Math.round(confidence * 100);
+  var confColor = confidence >= 0.8 ? '#22c55e' : confidence >= 0.6 ? '#f59e0b' : '#ef4444';
+
+  var dotColor = { red: '#ef4444', orange: '#f97316', blue: '#3b82f6' }[item.priority] || '#8b5cf6';
+  var borderLeft = { red: '3px solid #ef4444', orange: '3px solid #f97316', blue: '3px solid #8b5cf6' }[item.priority] || '3px solid #8b5cf6';
+
+  // Action drafts count
+  var draftsCount = rr.action_drafts ? rr.action_drafts.length : 0;
+
+  // One question badge
+  var questionBadge = '';
+  if (rr.needs_one_question && rr.one_question) {
+    questionBadge =
+      '<div style="margin:0 14px 8px;padding:10px 12px;background:rgba(245,158,11,0.06);border:0.5px solid rgba(245,158,11,0.25);border-radius:10px;">' +
+        '<div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px;">Una domanda per Max</div>' +
+        '<div style="font-size:14px;color:#1e3a5f;">' + (rr.one_question || '') + '</div>' +
+      '</div>';
+  }
+
+  // Bottoni dinamici da ui_buttons del reasoning result
+  var uiButtons = rr.ui_buttons || [
+    { label: 'Approva', action: 'approve_all', style: 'primary' },
+    { label: 'Rifiuta', action: 'reject', style: 'danger' }
+  ];
+
+  var styleMap = {
+    primary: 'flex:1;padding:10px 0;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;',
+    secondary: 'flex:1;padding:10px 0;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid rgba(30,58,95,0.2);background:rgba(30,58,95,0.04);color:#1e3a5f;',
+    danger: 'flex:1;padding:10px 0;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.05);color:#ef4444;'
+  };
+
+  var buttonsHtml = '<div style="display:flex;gap:6px;padding:0 14px 8px;">';
+  uiButtons.forEach(function(btn) {
+    var s = styleMap[btn.style] || styleMap.secondary;
+    var escapedAction = btn.action.replace(/'/g, "\\'");
+    var escapedId = item.id.replace(/'/g, "\\'");
+    buttonsHtml += '<button onclick="jarvisAction(\'' + escapedId + '\',\'' + escapedAction + '\')" style="' + s + '">' + btn.label + '</button>';
+  });
+  // Bottone "Mostra ragionamento" sempre presente
+  buttonsHtml += '<button onclick="jarvisShowReasoning(\'' + item.id.replace(/'/g, "\\'") + '\')" style="width:36px;height:36px;border-radius:10px;font-size:16px;cursor:pointer;border:0.5px solid rgba(139,92,246,0.2);background:rgba(139,92,246,0.06);flex-shrink:0;" title="Mostra ragionamento">🔍</button>';
+  buttonsHtml += '</div>';
+
+  return '<div data-item-id="' + item.id + '" style="background:white;border:0.5px solid rgba(139,92,246,0.15);border-left:' + borderLeft + ';border-radius:16px;margin:0 12px 8px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 6px 16px rgba(139,92,246,0.05);">' +
+
+    // Header
+    '<div style="display:flex;align-items:flex-start;gap:8px;padding:11px 14px 6px;">' +
+      '<div style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;margin-top:5px;"></div>' +
+      '<div style="flex:1;">' +
+        '<div style="font-size:16px;font-weight:700;color:#1e3a5f;line-height:1.3;">' + (item.title || '') + '</div>' +
+        (item.from_user && item.from_user !== 'system' ? '<div style="font-size:12px;color:#60a5fa;margin-top:2px;">da ' + item.from_user + '</div>' : '') +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">' +
+        '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(139,92,246,0.1);color:#8b5cf6;font-weight:700;">🧠 Jarvis</span>' +
+        '<span style="font-size:10px;color:' + confColor + ';font-weight:700;">' + confPct + '% confidence</span>' +
+      '</div>' +
+    '</div>' +
+
+    // Messaggio originale (collassato)
+    (item.body ? '<div style="font-size:14px;color:#64748b;padding:0 14px 8px;font-style:italic;line-height:1.4;border-bottom:0.5px solid rgba(30,58,95,0.06);">' + item.body + '</div>' : '') +
+
+    // Soluzione proposta — il cuore della card Jarvis
+    '<div style="margin:10px 14px 8px;padding:12px 14px;background:linear-gradient(135deg,rgba(30,58,95,0.04),rgba(37,99,235,0.06));border:0.5px solid rgba(37,99,235,0.15);border-radius:12px;">' +
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
+        '<span style="font-size:14px;">🤖</span>' +
+        '<div style="font-size:11px;font-weight:700;color:#2563eb;letter-spacing:.04em;">PROPOSTA CHEF AI</div>' +
+        (draftsCount > 0 ? '<span style="font-size:10px;background:rgba(37,99,235,0.1);color:#1d4ed8;border-radius:20px;padding:1px 7px;font-weight:700;">' + draftsCount + ' azione' + (draftsCount > 1 ? 'i' : '') + '</span>' : '') +
+      '</div>' +
+      '<div style="font-size:15px;color:#1e3a5f;line-height:1.5;font-weight:500;">' + (rr.proposed_solution || '') + '</div>' +
+    '</div>' +
+
+    // One question (se presente)
+    questionBadge +
+
+    // Bottoni
+    buttonsHtml +
+
+    // Root cause (piccolo, sotto)
+    (rr.root_cause ? '<div style="padding:0 14px 6px;font-size:11px;color:#94a3b8;">Causa: ' + rr.root_cause + '</div>' : '') +
+
+    // Meta
+    '<div style="padding:0 14px 10px;font-size:12px;color:#94a3b8;display:flex;justify-content:space-between;">' +
+      '<span>' + ts + '</span>' +
+      '<span style="color:#c4b5fd;">' + (rr.model_used || '') + '</span>' +
+    '</div>' +
+
+  '</div>';
+}
+
+// ── Azione Jarvis — gestisce approve/reject/edit/ask_question ──
+window.jarvisAction = async function(itemId, action) {
+  var sb = window.supa;
+  if (!sb) return;
+
+  if (action === 'approve_all') {
+    // Carica action_drafts pending per questo item
+    var { data: drafts } = await sb
+      .from('chef_ai_action_drafts')
+      .select('*')
+      .eq('office_item_id', itemId)
+      .eq('status', 'pending');
+
+    if (!drafts || drafts.length === 0) {
+      if (typeof showScToast === 'function') showScToast('Nessuna azione da eseguire');
+      return;
+    }
+
+    // Mostra sheet di conferma con lista azioni
+    jarvisShowApprovalSheet(itemId, drafts);
+
+  } else if (action === 'reject') {
+    try {
+      var byName = (window.currentUser || window.user || {}).name || 'Max';
+      // Rifiuta tutte le action_drafts pending
+      await sb.from('chef_ai_action_drafts').update({ status: 'rejected', approved_by: byName, approved_at: new Date().toISOString() }).eq('office_item_id', itemId).eq('status', 'pending');
+      // Aggiorna office_item
+      await sb.from('office_items').update({ jarvis_status: 'rejected', chef_action: 'ignored', chef_action_at: new Date().toISOString(), chef_action_by: byName, status: 'resolved', resolution: 'jarvis_rejected', resolved_by: byName, resolved_at: new Date().toISOString() }).eq('id', itemId);
+      // Anima rimozione card
+      var card = document.querySelector('[data-item-id="' + itemId + '"]');
+      if (card) {
+        card.style.transition = 'all 0.25s ease';
+        card.style.opacity = '0';
+        card.style.transform = 'translateX(-40px)';
+        setTimeout(function() { card.remove(); officeLoadHome(); }, 280);
+      }
+      if (typeof showScToast === 'function') showScToast('Proposta rifiutata');
+    } catch(e) {
+      if (typeof showScToast === 'function') showScToast('Errore: ' + e.message);
+    }
+
+  } else if (action === 'ask_question') {
+    // Apre Chef AI con il contesto precaricato
+    var card = document.querySelector('[data-item-id="' + itemId + '"]');
+    var title = card ? (card.querySelector('div[style*="font-size:16px"]')?.textContent || '') : '';
+    if (typeof officeStopRealtime === 'function') officeStopRealtime();
+    document.getElementById('officeOverlay')?.remove();
+    document.getElementById('officeModal')?.remove();
+    if (typeof window.openSousChefChat === 'function') {
+      window.openSousChefChat();
+      setTimeout(function() {
+        var inp = document.getElementById('_scChatInput');
+        if (inp) { inp.value = 'Domanda su: ' + title.trim(); inp.focus(); }
+      }, 400);
+    }
+
+  } else if (action === 'edit') {
+    // Apre il reasoning sheet in modalità edit
+    jarvisShowReasoning(itemId);
+  }
+};
+
+// ── Sheet di approvazione con lista action_drafts ──
+function jarvisShowApprovalSheet(itemId, drafts) {
+  var existing = document.getElementById('jarvisApprovalSheet');
+  if (existing) existing.remove();
+
+  var riskColors = { low: '#22c55e', medium: '#f59e0b', high: '#ef4444' };
+  var riskLabels = { low: 'Basso', medium: 'Medio', high: 'Alto' };
+
+  var draftsHtml = drafts.map(function(d) {
+    var rc = riskColors[d.risk_level] || '#f59e0b';
+    var rl = riskLabels[d.risk_level] || 'Medio';
+    var payloadStr = JSON.stringify(d.payload || {}, null, 2);
+    return '<div style="background:rgba(30,58,95,0.03);border:0.5px solid rgba(30,58,95,0.1);border-radius:12px;padding:12px 14px;margin-bottom:8px;">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
+        '<span style="font-size:11px;background:rgba(' + (d.risk_level === 'low' ? '34,197,94' : d.risk_level === 'high' ? '239,68,68' : '245,158,11') + ',0.1);color:' + rc + ';border-radius:20px;padding:2px 8px;font-weight:700;">' + rl + '</span>' +
+        '<span style="font-size:13px;font-weight:700;color:#1e3a5f;">' + d.action_type + '</span>' +
+      '</div>' +
+      '<pre style="font-size:11px;color:#475569;background:#f8fafc;padding:8px;border-radius:8px;overflow-x:auto;margin:0;white-space:pre-wrap;">' + payloadStr + '</pre>' +
+    '</div>';
+  }).join('');
+
+  var sheet = document.createElement('div');
+  sheet.id = 'jarvisApprovalSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,0.5);display:flex;align-items:flex-end;';
+
+  sheet.innerHTML =
+    '<div style="width:100%;max-width:480px;margin:0 auto;max-height:85vh;background:white;border-radius:24px 24px 0 0;display:flex;flex-direction:column;overflow:hidden;">' +
+      '<div style="padding:14px 20px 12px;border-bottom:0.5px solid rgba(30,58,95,0.08);flex-shrink:0;">' +
+        '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 12px;"></div>' +
+        '<div style="font-size:11px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Conferma esecuzione</div>' +
+        '<div style="font-size:17px;font-weight:700;color:#1e3a5f;">Vuoi eseguire ' + drafts.length + ' azione' + (drafts.length > 1 ? 'i' : '') + '?</div>' +
+        '<div style="font-size:13px;color:#64748b;margin-top:4px;">Chef AI ha preparato questi cambiamenti. Verifica i dettagli prima di confermare.</div>' +
+      '</div>' +
+      '<div style="flex:1;overflow-y:auto;padding:14px 20px;-webkit-overflow-scrolling:touch;">' + draftsHtml + '</div>' +
+      '<div style="padding:12px 20px 28px;border-top:0.5px solid rgba(30,58,95,0.08);display:flex;gap:10px;flex-shrink:0;">' +
+        '<button onclick="document.getElementById(\'jarvisApprovalSheet\').remove()" style="flex:1;padding:14px;border-radius:14px;border:0.5px solid rgba(30,58,95,0.2);background:white;color:#64748b;font-size:15px;font-weight:600;cursor:pointer;">Annulla</button>' +
+        '<button onclick="jarvisExecuteApproved(\'' + itemId + '\')" style="flex:2;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;font-size:15px;font-weight:700;cursor:pointer;">Si Chef \u2014 Esegui</button>' +
+      '</div>' +
+    '</div>';
+
+  sheet.addEventListener('click', function(e) { if (e.target === sheet) sheet.remove(); });
+  document.body.appendChild(sheet);
+}
+
+// ── Esegui action_drafts approvati ──
+window.jarvisExecuteApproved = async function(itemId) {
+  var sheet = document.getElementById('jarvisApprovalSheet');
+  if (sheet) {
+    var btn = sheet.querySelector('button[onclick*="jarvisExecuteApproved"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Esecuzione...'; }
+  }
+
+  var sb = window.supa;
+  if (!sb) return;
+
+  try {
+    var { data: drafts } = await sb.from('chef_ai_action_drafts').select('*').eq('office_item_id', itemId).eq('status', 'pending');
+    if (!drafts || drafts.length === 0) { if (sheet) sheet.remove(); return; }
+
+    var byName = (window.currentUser || window.user || {}).name || 'Max';
+    var now = new Date().toISOString();
+
+    var executedCount = 0;
+    var errors = [];
+
+    for (var i = 0; i < drafts.length; i++) {
+      var draft = drafts[i];
+      try {
+        var result = await jarvisExecuteDraft(sb, draft);
+        // Marca come eseguita
+        await sb.from('chef_ai_action_drafts').update({ status: 'executed', approved_by: byName, approved_at: now, executed_at: now }).eq('id', draft.id);
+        // Audit log
+        await sb.from('chef_ai_audit_log').insert({
+          action_draft_id: draft.id, office_item_id: itemId,
+          action_type: draft.action_type, payload_after: draft.payload,
+          executed_by: 'jarvis-reason', approved_by: byName,
+          result: 'success'
+        });
+        executedCount++;
+      } catch(e) {
+        errors.push(draft.action_type + ': ' + e.message);
+        await sb.from('chef_ai_action_drafts').update({ status: 'failed', error_message: e.message }).eq('id', draft.id);
+        await sb.from('chef_ai_audit_log').insert({
+          action_draft_id: draft.id, office_item_id: itemId,
+          action_type: draft.action_type, payload_after: draft.payload,
+          executed_by: 'jarvis-reason', approved_by: byName,
+          result: 'failure', error_message: e.message
+        });
+      }
+    }
+
+    // Salva in chef_ai_memory per auto-apprendimento
+    var item = await sb.from('office_items').select('reasoning_result,report_type').eq('id', itemId).maybeSingle();
+    if (item.data && item.data.reasoning_result) {
+      var rr = item.data.reasoning_result;
+      await sb.from('chef_ai_memory').insert({
+        pattern_type: rr.issue_type || item.data.report_type || 'unknown',
+        context_summary: rr.summary || '',
+        max_decision: errors.length > 0 ? 'modified' : 'approved',
+        action_taken: { drafts_executed: executedCount, errors: errors },
+        office_item_id: itemId
+      });
+    }
+
+    // Chiudi office_item se tutto ok
+    if (errors.length === 0) {
+      await sb.from('office_items').update({
+        jarvis_status: 'executed',
+        chef_action: 'done', chef_action_at: now, chef_action_by: byName,
+        status: 'resolved', resolved_by: byName, resolved_at: now,
+        resolution: 'jarvis_executed_' + executedCount + '_actions'
+      }).eq('id', itemId);
+    }
+
+    if (sheet) sheet.remove();
+
+    var card = document.querySelector('[data-item-id="' + itemId + '"]');
+    if (card) {
+      card.style.transition = 'all 0.3s ease';
+      card.style.opacity = '0';
+      card.style.transform = 'translateX(40px)';
+      setTimeout(function() { card.remove(); officeLoadHome(); }, 310);
+    }
+
+    if (typeof showScToast === 'function') {
+      if (errors.length === 0) showScToast('Si Chef \u2014 ' + executedCount + ' azione' + (executedCount > 1 ? 'i' : '') + ' eseguita' + (executedCount > 1 ? 'i' : ''));
+      else showScToast('Eseguito con errori: ' + errors.join(' / '));
+    }
+
+  } catch(e) {
+    if (sheet) sheet.remove();
+    if (typeof showScToast === 'function') showScToast('Errore esecuzione: ' + e.message);
+  }
+};
+
+// ── Esegue singola action_draft ──
+async function jarvisExecuteDraft(sb, draft) {
+  var payload = draft.payload || {};
+  switch (draft.action_type) {
+
+    case 'update_recipe_bom': {
+      // payload: { bom_id, fields: { quantity, unit, ... } }
+      if (!payload.bom_id) throw new Error('bom_id mancante');
+      var { error } = await sb.from('recipe_bom').update(payload.fields || {}).eq('bom_id', payload.bom_id);
+      if (error) throw new Error(error.message);
+      return { updated: 'recipe_bom', bom_id: payload.bom_id };
+    }
+
+    case 'create_prep_task': {
+      // payload: { name, category, unit, prep_type, recipe_id? }
+      if (!payload.name || !payload.category) throw new Error('name e category richiesti');
+      var { error } = await sb.from('prep_tasks').insert({ name: payload.name, category: payload.category, unit: payload.unit || 'g', prep_type: payload.prep_type || 'supporto', recipe_id: payload.recipe_id || null, archived: false, done: false, need_tomorrow: true });
+      if (error) throw new Error(error.message);
+      return { created: 'prep_task', name: payload.name };
+    }
+
+    case 'create_procedure_draft': {
+      // payload: { recipe_id, procedure_text }
+      if (!payload.recipe_id) throw new Error('recipe_id mancante');
+      var { error } = await sb.from('recipes').update({ procedure: payload.procedure_text }).eq('id', payload.recipe_id);
+      if (error) throw new Error(error.message);
+      return { updated: 'recipes.procedure', recipe_id: payload.recipe_id };
+    }
+
+    case 'create_photo_request': {
+      // payload: { recipe_id, recipe_title } — crea un office_item con richiesta foto
+      var { error } = await sb.from('office_items').insert({
+        source: 'ai_scan', from_user: 'jarvis-reason', priority: 'blue',
+        title: 'Foto mancante: ' + (payload.recipe_title || payload.recipe_id),
+        body: 'Ricetta venduta al POS senza foto di impiattamento. Scatta una foto e caricala dalla sezione Ricette.',
+        status: 'open'
+      });
+      if (error) throw new Error(error.message);
+      return { created: 'photo_request' };
+    }
+
+    case 'link_prep_task_to_recipe': {
+      // payload: { prep_task_id, recipe_id }
+      if (!payload.prep_task_id || !payload.recipe_id) throw new Error('prep_task_id e recipe_id richiesti');
+      var { error } = await sb.from('prep_tasks').update({ recipe_id: payload.recipe_id }).eq('id', payload.prep_task_id);
+      if (error) throw new Error(error.message);
+      return { linked: { prep_task_id: payload.prep_task_id, recipe_id: payload.recipe_id } };
+    }
+
+    case 'mark_issue_not_needed': {
+      // payload: { office_item_id }
+      var oid = payload.office_item_id;
+      if (!oid) throw new Error('office_item_id mancante');
+      var { error } = await sb.from('office_items').update({ status: 'resolved', resolution: 'not_needed', resolved_at: new Date().toISOString() }).eq('id', oid);
+      if (error) throw new Error(error.message);
+      return { resolved: oid };
+    }
+
+    case 'archive_duplicate_issue': {
+      // payload: { office_item_id }
+      var oid = payload.office_item_id;
+      if (!oid) throw new Error('office_item_id mancante');
+      var { error } = await sb.from('office_items').update({ status: 'resolved', resolution: 'duplicate', resolved_at: new Date().toISOString() }).eq('id', oid);
+      if (error) throw new Error(error.message);
+      return { archived: oid };
+    }
+
+    case 'assign_task_to_station': {
+      // payload: { prep_task_id, station }
+      if (!payload.prep_task_id || !payload.station) throw new Error('prep_task_id e station richiesti');
+      var { error } = await sb.from('prep_tasks').update({ category: payload.station }).eq('id', payload.prep_task_id);
+      if (error) throw new Error(error.message);
+      return { assigned: { prep_task_id: payload.prep_task_id, station: payload.station } };
+    }
+
+    case 'ask_staff_clarification': {
+      // payload: { message, station }
+      var { error } = await sb.from('office_items').insert({
+        source: 'sous_chef_chat', from_user: 'jarvis-reason', priority: 'blue',
+        title: 'Chiarimento richiesto',
+        body: payload.message || 'Jarvis ha bisogno di un chiarimento.',
+        status: 'open', station: payload.station
+      });
+      if (error) throw new Error(error.message);
+      return { created: 'clarification_request' };
+    }
+
+    default:
+      throw new Error('action_type non supportata: ' + draft.action_type);
+  }
+}
+
+// ── Mostra reasoning steps in una sheet ──
+window.jarvisShowReasoning = async function(itemId) {
+  var sb = window.supa;
+  if (!sb) return;
+
+  var { data: item } = await sb.from('office_items').select('reasoning_result,title').eq('id', itemId).maybeSingle();
+  if (!item || !item.reasoning_result) {
+    if (typeof showScToast === 'function') showScToast('Nessun ragionamento disponibile');
+    return;
+  }
+
+  var rr = item.reasoning_result;
+  var steps = rr.react_steps || [];
+
+  var stepsHtml = steps.map(function(s, idx) {
+    var thoughtShort = (s.thought || '').slice(0, 300) + (s.thought && s.thought.length > 300 ? '...' : '');
+    var toolHtml = '';
+    if (s.tool_call) {
+      toolHtml = '<div style="margin-top:6px;background:#f8fafc;border-radius:8px;padding:7px 10px;font-family:monospace;font-size:11px;color:#475569;">' +
+        'TOOL: ' + s.tool_call.name + '(' + JSON.stringify(s.tool_call.args) + ')' + '</div>';
+    }
+    if (s.observation && s.tool_call) {
+      var obsStr = JSON.stringify(s.observation);
+      if (obsStr.length > 200) obsStr = obsStr.slice(0, 200) + '...';
+      toolHtml += '<div style="margin-top:4px;font-size:11px;color:#64748b;">Risultato: ' + obsStr + '</div>';
+    }
+    return '<div style="padding:10px 0;border-bottom:0.5px solid rgba(30,58,95,0.06);">' +
+      '<div style="font-size:11px;font-weight:700;color:#8b5cf6;margin-bottom:4px;">Step ' + (idx + 1) + '</div>' +
+      '<div style="font-size:13px;color:#1e3a5f;line-height:1.4;">' + thoughtShort + '</div>' +
+      toolHtml +
+    '</div>';
+  }).join('');
+
+  var sheet = document.createElement('div');
+  sheet.id = 'jarvisReasoningSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,0.5);display:flex;align-items:flex-end;';
+
+  sheet.innerHTML =
+    '<div style="width:100%;max-width:480px;margin:0 auto;max-height:80vh;background:white;border-radius:24px 24px 0 0;display:flex;flex-direction:column;overflow:hidden;">' +
+      '<div style="padding:14px 20px 12px;border-bottom:0.5px solid rgba(30,58,95,0.08);flex-shrink:0;">' +
+        '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 12px;"></div>' +
+        '<div style="font-size:11px;font-weight:700;color:#8b5cf6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Ragionamento Chef AI</div>' +
+        '<div style="font-size:16px;font-weight:700;color:#1e3a5f;">' + (item.title || '') + '</div>' +
+        '<div style="font-size:12px;color:#94a3b8;margin-top:4px;">' + (rr.thought_summary || '') + '</div>' +
+      '</div>' +
+      '<div style="flex:1;overflow-y:auto;padding:14px 20px;-webkit-overflow-scrolling:touch;">' +
+        (rr.root_cause ? '<div style="background:rgba(239,68,68,0.05);border-left:3px solid #ef4444;padding:8px 12px;border-radius:0 8px 8px 0;margin-bottom:12px;"><div style="font-size:11px;font-weight:700;color:#dc2626;margin-bottom:2px;">Root cause</div><div style="font-size:13px;color:#1e3a5f;">' + rr.root_cause + '</div></div>' : '') +
+        stepsHtml +
+      '</div>' +
+      '<div style="padding:12px 20px 28px;border-top:0.5px solid rgba(30,58,95,0.08);flex-shrink:0;">' +
+        '<button onclick="document.getElementById(\'jarvisReasoningSheet\').remove()" style="width:100%;padding:14px;border-radius:14px;border:none;background:#f1f5f9;color:#475569;font-size:15px;font-weight:600;cursor:pointer;">Chiudi</button>' +
+      '</div>' +
+    '</div>';
+
+  sheet.addEventListener('click', function(e) { if (e.target === sheet) sheet.remove(); });
+  document.body.appendChild(sheet);
+};
+
+// ── Trigger Jarvis su una card esistente (on-demand) ──
+window.jarvisAnalyze = async function(itemId) {
+  var sb = window.supa;
+  if (!sb) return;
+
+  // Aggiorna subito la card a "thinking"
+  await sb.from('office_items').update({ jarvis_status: 'reasoning' }).eq('id', itemId);
+  var card = document.querySelector('[data-item-id="' + itemId + '"]');
+  if (card) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = officeRenderJarvisThinking({ id: itemId, title: card.querySelector('[style*="font-size:16px"]')?.textContent || 'Analisi in corso...', created_at: new Date().toISOString(), jarvis_status: 'reasoning' });
+    var newCard = tmp.firstElementChild;
+    if (newCard) card.parentNode?.replaceChild(newCard, card);
+  }
+
+  try {
+    var supaUrl = window.SUPABASE_URL || 'https://ydqmumpytgrlceuinoqt.supabase.co';
+    var supaKey = window._supabaseAnonKey || '';
+    var res = await fetch(supaUrl + '/functions/v1/jarvis-reason', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + supaKey },
+      body: JSON.stringify({ office_item_id: itemId })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      // Ricarica la folder corrente
+      if (window._officeCurrentFolder && document.getElementById('officeFolder')) {
+        window.officeOpenFolder(window._officeCurrentFolder);
+      } else {
+        officeLoadHome();
+      }
+    } else {
+      if (typeof showScToast === 'function') showScToast('Jarvis error: ' + (data.error || 'unknown'));
+    }
+  } catch(e) {
+    if (typeof showScToast === 'function') showScToast('Jarvis error: ' + e.message);
+  }
+};
