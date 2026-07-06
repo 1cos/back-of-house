@@ -517,7 +517,7 @@ window.showSection = function(id) {
   var target = document.getElementById(id);
   if(target) target.classList.remove('hidden');
   // TOP BAR — visibile solo su Home
-  var topBar = document.querySelector('.sticky.top-0');
+  var topBar = document.getElementById('mainTopBar');
   if(topBar) topBar.style.display = (id === 'vh') ? '' : 'none';
   // Sync bottom bar active state
   var map = {vh:'h',vm:'m',vs:'s',vp:'c',vi:'i',vx:'x',vsched:'sched'};
