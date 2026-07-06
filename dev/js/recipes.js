@@ -2305,7 +2305,6 @@ async function openRecipePreviewPage(rec) {
 
   // Show page
   const page = document.getElementById('vRecipePreview');
-  page.classList.remove('hidden');
   page.style.display = 'flex';
 
   // Hide topbar + bottom nav
@@ -2315,8 +2314,7 @@ async function openRecipePreviewPage(rec) {
 
 function closeRecipePreviewPage() {
   const page = document.getElementById('vRecipePreview');
-  page.classList.add('hidden');
-  page.style.display = '';
+  page.style.display = 'none';
   // Restore topbar state based on current section
   const vp = document.getElementById('vp');
   if (vp && !vp.classList.contains('hidden')) {
@@ -2449,8 +2447,7 @@ async function openRecipeEditPage(rec) {
 
   // Back button — go back to preview or recipes list
   document.getElementById('reBack').onclick = () => {
-    document.getElementById('vRecipeEdit').classList.add('hidden');
-    document.getElementById('vRecipeEdit').style.display = '';
+    document.getElementById('vRecipeEdit').style.display = 'none';
     // If came from preview, go back there
     const preview = document.getElementById('vRecipePreview');
     if (preview && !preview.classList.contains('hidden')) {
@@ -2462,7 +2459,6 @@ async function openRecipeEditPage(rec) {
 
   // Show page
   const page = document.getElementById('vRecipeEdit');
-  page.classList.remove('hidden');
   page.style.display = 'flex';
 }
 
@@ -2580,8 +2576,7 @@ async function saveRecipeEditPage(rec) {
 
     // Go back to preview
     setTimeout(() => {
-      document.getElementById('vRecipeEdit').classList.add('hidden');
-      document.getElementById('vRecipeEdit').style.display = '';
+      document.getElementById('vRecipeEdit').style.display = 'none';
       if (savedRec) openRecipePreviewPage(savedRec);
       renderRecipes();
     }, 600);
@@ -2599,8 +2594,7 @@ window.deleteRecipeFromPage = async function(recipeId) {
     await supa.from('recipes').delete().eq('id', recipeId);
     SHOP_RECIPES = SHOP_RECIPES.filter(r => r.id !== recipeId);
     // Close both pages
-    document.getElementById('vRecipeEdit').classList.add('hidden');
-    document.getElementById('vRecipeEdit').style.display = '';
+    document.getElementById('vRecipeEdit').style.display = 'none';
     document.getElementById('vRecipePreview').classList.add('hidden');
     document.getElementById('vRecipePreview').style.display = '';
     renderRecipes();
