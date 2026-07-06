@@ -185,8 +185,17 @@ window.runBotV2 = async function(){
         'default 3':'default 3 giorni'
       }[r.planning_window_source] || r.planning_window_source || '—';
 
-      const pct = Math.min(100, Math.round(((r.open_service_days||0)/7)*100));
-      const barCol = pct<30?'#ef4444':pct<60?'#f59e0b':'#22c55e';
+      // Estrai giorni_coperti dal percorso ("copertura=Ngg" o "copertura=illimitata")
+      const covMatch = (r.percorso||'').match(/copertura=(\d+)gg/);
+      const giorniCoperti = covMatch ? parseInt(covMatch[1]) : ((r.percorso||'').includes('illimitata') ? 999 : 0);
+      const windowDays = r.planning_window_days || 3;
+      const rawPct = windowDays > 0 ? giorniCoperti / windowDays : 0;
+      const pct = Math.min(100, Math.round(rawPct * 100));
+      const barCol = pct >= 100 ? '#22c55e' : pct >= 30 ? '#f59e0b' : '#ef4444';
+      const barPct = giorniCoperti === 0 ? 2 : pct;
+
+      // recipe_id per contributors sub-recipe lookup
+      const recipeId = r.recipe_id || '';
 
       return `<div style="background:${pillBg(p)};border:1.5px solid ${pillBdr(p)};border-radius:14px;margin-bottom:8px;overflow:hidden;">
         <div onclick="window._bv2Toggle('${cid}')" style="padding:12px 14px;cursor:pointer;display:flex;align-items:flex-start;gap:10px;">
@@ -197,15 +206,15 @@ window.runBotV2 = async function(){
               <span style="font-size:11px;color:#64748b;">${esc(r.category||'')}</span>
             </div>
             <div style="font-size:13px;font-weight:700;color:${pillTxt(p)};margin-top:3px;">${esc(noteText)}</div>
-            <div style="margin-top:6px;height:4px;background:#e2e8f0;border-radius:99px;overflow:hidden;">
-              <div style="height:100%;width:${pct}%;background:${barCol};border-radius:99px;"></div>
+            <div style="margin-top:6px;height:6px;background:#e2e8f0;border-radius:99px;overflow:hidden;">
+              <div style="height:100%;width:${barPct}%;background:${barCol};border-radius:99px;"></div>
             </div>
           </div>
           <div style="font-size:18px;color:#94a3b8;flex-shrink:0;" id="${cid}_arr">&#8250;</div>
         </div>
         <div id="${cid}" style="display:none;padding:0 14px 14px 34px;border-top:1px solid ${pillBdr(p)};">
           <div style="margin:10px 0 4px;">
-            <button onclick="event.stopPropagation();window._bv2Contributors('${cid}','${esc(r.task_name)}')" style="font-size:12px;color:#3b82f6;font-weight:600;background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <button onclick="event.stopPropagation();window._bv2Contributors('${cid}','${esc(r.task_name)}','${esc(recipeId)}')" style="font-size:12px;color:#3b82f6;font-weight:600;background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;gap:4px;">
               <span id="${cid}_ctoggle_icon" style="display:inline-block;transition:transform 0.2s;">&#9660;</span>
               Chi scarica questo stock
             </button>
@@ -259,7 +268,7 @@ window._bv2Toggle = function(id) {
   if(arr) arr.style.transform = open?'':'rotate(90deg)';
 };
 
-window._bv2Contributors = async function(cid, taskName) {
+window._bv2Contributors = async function(cid, taskName, recipeId) {
   const box = document.getElementById(cid+'_contrib');
   const icon = document.getElementById(cid+'_ctoggle_icon');
   if(!box) return;
@@ -279,24 +288,62 @@ window._bv2Contributors = async function(cid, taskName) {
     const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxNDM5NzgsImV4cCI6MjA2NDcxOTk3OH0.RB5vYE3gJjH7gJy01Gh-eLQixanVX6cLc0disc8-bJs';
     const hdrs = { 'apikey': ANON_KEY, 'Authorization': 'Bearer '+ANON_KEY };
 
-    // Leggo run corrente per ottenere pos_name del task
+    // Leggo run corrente per unit e consumo
     const runRes = await fetch(
-      SUPA_URL+'/rest/v1/bot_v2_runs?sim_date=eq.'+new Date().toISOString().slice(0,10)+'&task_name=eq.'+encodeURIComponent(taskName)+'&select=percorso,planning_window_days,consumo_giornaliero,unit',
+      SUPA_URL+'/rest/v1/bot_v2_runs?sim_date=eq.'+new Date().toISOString().slice(0,10)+'&task_name=eq.'+encodeURIComponent(taskName)+'&select=unit,consumo_giornaliero',
       {headers: hdrs}
     );
     const runRows = await runRes.json();
     const run = runRows[0];
     const unit = run?.unit || 'g';
-    const cgDay = parseFloat(run?.consumo_giornaliero) || 0;
 
-    // Leggo aliases del task dalla recipe collegata al prep_task
-    const ptRes = await fetch(
-      SUPA_URL+'/rest/v1/prep_tasks?archived=eq.false&name=eq.'+encodeURIComponent(taskName)+'&select=recipe_id,recipes:recipe_id(pos_name)',
-      {headers: hdrs}
-    );
-    const ptRows = await ptRes.json();
-    const posName = ptRows[0]?.recipes?.pos_name || '';
-    const aliases = posName ? posName.split('|').map(s=>s.trim().toLowerCase()).filter(Boolean) : [];
+    // Leggo aliases diretti dalla recipe collegata al prep_task
+    let aliases = [];
+    let gPerPorzDirect = 0;
+    if(recipeId) {
+      const recRes = await fetch(
+        SUPA_URL+'/rest/v1/recipes?id=eq.'+encodeURIComponent(recipeId)+'&select=pos_name,serving_weight_g,base_weight_g,base_servings',
+        {headers: hdrs}
+      );
+      const recRows = await recRes.json();
+      const rec = recRows[0];
+      const posName = rec?.pos_name || '';
+      aliases = posName ? posName.split('|').map(s=>s.trim().toLowerCase()).filter(Boolean) : [];
+      const sw = parseFloat(rec?.serving_weight_g)||0;
+      const bw = parseFloat(rec?.base_weight_g)||0;
+      const bs = parseFloat(rec?.base_servings)||1;
+      gPerPorzDirect = sw>0?sw:(bw>0&&bs>0?bw/bs:0);
+    }
+
+    // Se non ho alias diretti, cerco le ricette padre nel BOM (sub-recipe chain)
+    // queste ricette padre hanno il pos_name e tramite BOM consumano questa prep
+    let parentRecipes = []; // [{id, pos_name, bom_qty, sw, bw, bs}]
+    if(aliases.length === 0 && recipeId) {
+      const bomRes = await fetch(
+        SUPA_URL+'/rest/v1/recipe_bom?sub_recipe_id=eq.'+encodeURIComponent(recipeId)+'&component_type=eq.RECIPE&select=parent_recipe_id,quantity,unit',
+        {headers: hdrs}
+      );
+      const bomRows = await bomRes.json();
+      for(const brow of (bomRows||[])) {
+        const prRes = await fetch(
+          SUPA_URL+'/rest/v1/recipes?id=eq.'+encodeURIComponent(brow.parent_recipe_id)+'&select=id,pos_name,serving_weight_g,base_weight_g,base_servings',
+          {headers: hdrs}
+        );
+        const prRows = await prRes.json();
+        const pr = prRows[0];
+        if(pr?.pos_name) {
+          parentRecipes.push({
+            id: pr.id,
+            pos_name: pr.pos_name,
+            bom_qty: parseFloat(brow.quantity)||1,
+            bom_unit: brow.unit||'',
+            sw: parseFloat(pr.serving_weight_g)||0,
+            bw: parseFloat(pr.base_weight_g)||0,
+            bs: parseFloat(pr.base_servings)||1
+          });
+        }
+      }
+    }
 
     // Date range 60 giorni
     const d60 = new Date(); d60.setDate(d60.getDate()-60);
@@ -313,92 +360,91 @@ window._bv2Contributors = async function(cid, taskName) {
 
     let rows = [];
 
-    if(aliases.length > 0) {
-      // Vendite dirette da pos_sales_by_item
-      const salesRes = await fetch(
-        SUPA_URL+'/rest/v1/pos_sales_by_item?sale_date=gte.'+since+'&select=sale_date,menu_item,quantity',
-        {headers: hdrs}
-      );
-      const salesAll = await salesRes.json();
+    // helper: media su date
+    const avgDates = obj => {
+      const vals = Object.values(obj.dates);
+      return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
+    };
 
-      // Modifier da pos_modifier_by_item
-      const modRes = await fetch(
-        SUPA_URL+'/rest/v1/pos_modifier_by_item?sale_date=gte.'+since+'&select=sale_date,modifier,parent_item,quantity_sold',
-        {headers: hdrs}
-      );
-      const modAll = await modRes.json();
+    // Carico sales + modifier una volta sola (servono in entrambi i percorsi)
+    const salesRes = await fetch(
+      SUPA_URL+'/rest/v1/pos_sales_by_item?sale_date=gte.'+since+'&select=sale_date,menu_item,quantity',
+      {headers: hdrs}
+    );
+    const salesAll = await salesRes.json();
 
-      // portion_factor da pos_item_aliases
-      const pfRes = await fetch(
-        SUPA_URL+'/rest/v1/pos_item_aliases?source=in.(modifier,both)&select=alias_name,portion_factor',
-        {headers: hdrs}
-      );
-      const pfAll = await pfRes.json();
-      const pfMap = {};
-      (pfAll||[]).forEach(a => { pfMap[(a.alias_name||'').toLowerCase().trim()] = parseFloat(a.portion_factor)||1.0; });
+    const modRes = await fetch(
+      SUPA_URL+'/rest/v1/pos_modifier_by_item?sale_date=gte.'+since+'&select=sale_date,modifier,parent_item,quantity_sold',
+      {headers: hdrs}
+    );
+    const modAll = await modRes.json();
 
-      // Aggregazione vendite dirette per menu_item
+    const pfRes = await fetch(
+      SUPA_URL+'/rest/v1/pos_item_aliases?source=in.(modifier,both)&select=alias_name,portion_factor',
+      {headers: hdrs}
+    );
+    const pfAll = await pfRes.json();
+    const pfMap = {};
+    (pfAll||[]).forEach(a => { pfMap[(a.alias_name||'').toLowerCase().trim()] = parseFloat(a.portion_factor)||1.0; });
+
+    // Funzione per costruire righe dato un set di alias e g/porzione
+    const buildRows = (aliasSet, gPerPorz, labelPrefix) => {
       const directByItem = {};
       (salesAll||[]).forEach(row => {
-        if(!aliases.includes((row.menu_item||'').toLowerCase().trim())) return;
+        if(!aliasSet.has((row.menu_item||'').toLowerCase().trim())) return;
         const k = row.menu_item;
-        if(!directByItem[k]) directByItem[k] = {dates:{}, type:'direct'};
+        if(!directByItem[k]) directByItem[k] = {dates:{}};
         if(!directByItem[k].dates[row.sale_date]) directByItem[k].dates[row.sale_date] = 0;
         directByItem[k].dates[row.sale_date] += parseFloat(row.quantity)||0;
       });
-
-      // Aggregazione modifier per "modifier — parent_item"
       const modByKey = {};
       (modAll||[]).forEach(row => {
         const mk = (row.modifier||'').toLowerCase().trim();
-        if(!aliases.includes(mk)) return;
+        if(!aliasSet.has(mk)) return;
         const pf = pfMap[mk] || 1.0;
         const k = (row.modifier||'')+'|'+(row.parent_item||'');
         if(!modByKey[k]) modByKey[k] = {modifier: row.modifier, parent: row.parent_item, pf, dates:{}};
         if(!modByKey[k].dates[row.sale_date]) modByKey[k].dates[row.sale_date] = 0;
         modByKey[k].dates[row.sale_date] += (row.quantity_sold||0) * pf;
       });
-
-      // Calcolo medie DOW e totale medio/giorno
-      const avgDates = obj => {
-        const vals = Object.values(obj.dates);
-        return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
-      };
-
-      // Serving weight per calcolare grammi
-      const swRes = await fetch(
-        SUPA_URL+'/rest/v1/prep_tasks?archived=eq.false&name=eq.'+encodeURIComponent(taskName)+'&select=recipes:recipe_id(serving_weight_g,base_weight_g,base_servings)',
-        {headers: hdrs}
-      );
-      const swRows = await swRes.json();
-      const rec = swRows[0]?.recipes;
-      const sw = parseFloat(rec?.serving_weight_g)||0;
-      const bw = parseFloat(rec?.base_weight_g)||0;
-      const bs = parseFloat(rec?.base_servings)||1;
-      const gPerPorz = sw>0?sw:(bw>0&&bs>0?bw/bs:0);
-
-      // Righe vendite dirette
+      const out = [];
       Object.entries(directByItem).forEach(([item, obj]) => {
         const avgPorz = avgDates(obj);
         const avgG = gPerPorz>0 ? avgPorz*gPerPorz : avgPorz;
-        rows.push({label: esc2(item), sub: 'Vendita diretta', type:'direct', avgPorz, avgG, pf:1});
+        if(avgG > 0) out.push({label: esc2(labelPrefix||item), sub: esc2(labelPrefix?item:'Vendita diretta'), type:'direct', avgPorz, avgG, pf:1});
       });
-
-      // Righe modifier — raggruppa per modifier name (somma parent_item)
       const modByMod = {};
       Object.entries(modByKey).forEach(([k, obj]) => {
         const modName = obj.modifier;
         if(!modByMod[modName]) modByMod[modName] = {parents:[], totalAvgPorz:0, pf: obj.pf};
-        const avgPorz = avgDates(obj);
         modByMod[modName].parents.push(esc2(obj.parent));
-        modByMod[modName].totalAvgPorz += avgPorz;
+        modByMod[modName].totalAvgPorz += avgDates(obj);
       });
       Object.entries(modByMod).forEach(([mod, obj]) => {
         const avgG = gPerPorz>0 ? obj.totalAvgPorz*gPerPorz : obj.totalAvgPorz;
-        const parentList = [...new Set(obj.parents)].slice(0,3).join(', ');
-        const sub = 'Modifier su: '+parentList+(obj.parents.length>3?' +altri':'');
-        rows.push({label: esc2(mod), sub, type:'modifier', avgPorz: obj.totalAvgPorz, avgG, pf: obj.pf});
+        if(avgG > 0) {
+          const parentList = [...new Set(obj.parents)].slice(0,3).join(', ');
+          const sub = (labelPrefix?esc2(labelPrefix)+' — ':'')+esc2(mod)+' su: '+parentList+(obj.parents.length>3?' +altri':'');
+          out.push({label: esc2(labelPrefix||mod), sub, type:'modifier', avgPorz: obj.totalAvgPorz, avgG, pf: obj.pf});
+        }
       });
+      return out;
+    };
+
+    if(aliases.length > 0) {
+      // Percorso diretto: questa prep ha pos_name proprio
+      const aliasSet = new Set(aliases);
+      rows = buildRows(aliasSet, gPerPorzDirect, '');
+    } else if(parentRecipes.length > 0) {
+      // Percorso sub-recipe: itero le ricette padre e uso i loro alias
+      for(const pr of parentRecipes) {
+        const parentAliases = pr.pos_name.split('|').map(s=>s.trim().toLowerCase()).filter(Boolean);
+        const parentAliasSet = new Set(parentAliases);
+        // g/porzione di QUESTA prep consumata da ogni porzione della ricetta padre = bom_qty
+        const gPerPorzParent = pr.bom_qty;
+        const prRows = buildRows(parentAliasSet, gPerPorzParent, pr.pos_name.split('|')[0]);
+        rows = rows.concat(prRows);
+      }
     }
 
     // Render
