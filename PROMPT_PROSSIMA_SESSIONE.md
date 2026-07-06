@@ -2304,3 +2304,33 @@ const bom = [...bomPos, ...bomPrep];
 9. **NO_BASE_WEIGHT rimanenti:** Chicken Parmesan, Diced Grilled Chicken, Pancetta (La N°4), Grilled Chicken, Bruschetta, Spring mix, Watermelon Cubes, Tomahawk, Wagyu ribeye
 10. **BOM vuoti rimanenti:** Brisket, Soffritto Livornese, Brussels Sprouts Par Cook (solo ingrediente 1500g Brussel Sprouts da aggiungere — steps già presenti)
 11. **Pomodori Caprese fette** (idea sessione 2 luglio) — Classic Caprese 5 fette, Tuscany Road Trip 3 fette — quante fette per pomodoro? Da chiedere a Max
+
+---
+## Sessione 2026-07-06 — Jarvis/Chef AI Engine
+
+### Fatto
+- Migration DB applicata: `chef_ai_memory`, `chef_ai_action_drafts`, `chef_ai_audit_log`, + colonne `reasoning_result` e `jarvis_status` su `office_items`
+- Edge Function `jarvis-reason` v1 deployata (ReAct loop, 9 tool read-only, Mac mini primario / OpenRouter fallback)
+- `office.js` aggiornato con UI Chef AI completa (card thinking, card ready, approval sheet, reasoning sheet, audit log, memoria)
+- Bottone `🤖 Chef AI` su card `ai_scan` e `bot-recipe-guardian` (L666-L673 di office.js)
+- Test reale su card Brussel Sprouts: `jarvis_status=ready`, `confidence=0.9`, `model_used=ollama/qwen3:8b`, 1 action_draft creata
+- Versione live su GitHub: **boh-v536** ✅
+
+### Problema irrisolto — Cache browser iPhone
+Il deploy GitHub Pages è andato a buon fine (boh-v536 live) ma Max vede ancora i vecchi bottoni "Later/Solved".
+Il codice su GitHub è CORRETTO (verificato L666-L673 office.js live).
+**È un problema di cache service worker sul browser di Max.**
+Soluzione al prossimo avvio: chiedere a Max di fare hard refresh o cancellare dati sito `1cos.github.io` da Impostazioni Safari.
+Se persiste: bumpa sw.js di +1 (boh-v537) senza toccare office.js — questo forza il service worker a scaricare tutto da capo.
+
+### Problema GitHub Actions workflow
+`cancel-in-progress: true` nel workflow causa fallimenti quando i commit arrivano ravvicinati.
+Il token GitHub non ha scope `workflow` — non è possibile modificare `.github/workflows/pages.yml` da Claude.
+**Fix necessario da fare manualmente da Max su GitHub:** cambiare `cancel-in-progress: true` → `false` in `.github/workflows/pages.yml`.
+Workaround funzionante: dopo commit falliti, triggerare `workflow_dispatch` via API con coda vuota.
+
+### Prossima sessione
+1. Verificare che Max veda boh-v536 con bottoni 🤖 Chef AI (se non li vede, bumpa a boh-v537)
+2. Testare il flusso completo: tap 🤖 Chef AI → card thinking → card ready → Approva → esecuzione action_draft
+3. Aggiungere trigger automatico `jarvis-reason` quando arriva una nuova card Tell Chef (nel bot-tell-chef-reader)
+4. Fix `cancel-in-progress` nel workflow (richiede che Max lo faccia da GitHub web UI)
