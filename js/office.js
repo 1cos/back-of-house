@@ -1055,6 +1055,7 @@ window.invLoadSectionA = async function(container) {
       .select('id,name,category,unit,current_stock,recipe_id,prep_type')
       .is('current_stock', null)
       .eq('archived', false)
+      .neq('prep_type', 'checklist')
       .order('category')
       .order('name');
     var tasks = res.data || [];
@@ -1164,6 +1165,7 @@ window.invLoadSectionB = async function(container) {
     var ptRes = await sb.from('prep_tasks')
       .select('id,name,category,recipe_id')
       .eq('archived', false)
+      .neq('prep_type', 'checklist')
       .not('recipe_id', 'is', null);
     var ptData = ptRes.data || [];
 
@@ -2298,6 +2300,7 @@ window.botLoadPreplistEditor = async function() {
       .from('prep_tasks')
       .select('id,name,category,unit,current_stock,prep_type,suggested_qty,suggested_note,expected_duration_days,recipe_id,recipes:recipe_id(id,title,pos_name,base_weight_g,base_servings,serving_unit,serving_qty,shelf_life_days)')
       .eq('archived', false)
+      .neq('prep_type', 'checklist')
       .neq('prep_type', 'checklist')
       .order('category')
       .order('name');
