@@ -547,6 +547,41 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       </div>
     </section>
 
+    <!-- RECIPE PREVIEW PAGE -->
+    <section id="vRecipePreview" class="hidden" style="flex-direction:column;position:fixed;inset:0;z-index:50;background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);overflow:hidden;">
+      <!-- Nav bar -->
+      <div id="rpNavBar" style="display:flex;align-items:center;background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid rgba(59,130,246,0.12);padding:0 16px;height:56px;flex-shrink:0;gap:12px;padding-top:env(safe-area-inset-top);">
+        <button id="rpBack" style="width:36px;height:36px;border-radius:50%;border:0.5px solid rgba(59,130,246,0.2);background:rgba(255,255,255,0.7);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e3a5f" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div id="rpTitle" style="font-size:17px;font-weight:600;color:#1e3a5f;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+        <button id="rpEditBtn" style="display:none;height:32px;padding:0 16px;border-radius:16px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Edit</button>
+      </div>
+      <!-- Tab bar -->
+      <div id="rpTabs" style="display:flex;background:rgba(255,255,255,0.7);border-bottom:0.5px solid rgba(59,130,246,0.1);flex-shrink:0;">
+        <button class="rp-tab rp-tab-active" data-tab="ingredients" style="flex:1;height:44px;font-size:13px;font-weight:600;color:#1e3a5f;border:none;background:transparent;cursor:pointer;border-bottom:2px solid #1e3a5f;">Ingredients</button>
+        <button class="rp-tab" data-tab="steps" style="flex:1;height:44px;font-size:13px;font-weight:500;color:#94a3b8;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Steps</button>
+        <button class="rp-tab" data-tab="notes" style="flex:1;height:44px;font-size:13px;font-weight:500;color:#94a3b8;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Notes</button>
+      </div>
+      <!-- Content -->
+      <div id="rpBody" style="flex:1;overflow-y:auto;padding:16px 16px 100px;"></div>
+    </section>
+
+    <!-- RECIPE EDIT PAGE -->
+    <section id="vRecipeEdit" class="hidden" style="flex-direction:column;position:fixed;inset:0;z-index:51;background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);overflow:hidden;">
+      <!-- Nav bar -->
+      <div style="display:flex;align-items:center;background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid rgba(59,130,246,0.12);padding:0 16px;height:56px;flex-shrink:0;gap:12px;padding-top:env(safe-area-inset-top);">
+        <button id="reBack" style="width:36px;height:36px;border-radius:50%;border:0.5px solid rgba(59,130,246,0.2);background:rgba(255,255,255,0.7);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e3a5f" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div id="reTitle" style="font-size:17px;font-weight:600;color:#1e3a5f;flex:1;">Edit Recipe</div>
+        <button id="reSaveBtn" style="height:32px;padding:0 16px;border-radius:16px;background:#2563eb;color:white;font-size:13px;font-weight:600;border:none;cursor:pointer;">Save</button>
+      </div>
+      <!-- Scrollable form -->
+      <div id="reBody" style="flex:1;overflow-y:auto;padding:16px 16px 120px;"></div>
+    </section>
+
+
     <!-- REPORT -->
     <section id="vr" class="hidden px-3 pt-3">
       <div class="flex items-center justify-between mb-3">

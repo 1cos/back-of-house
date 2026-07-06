@@ -93,7 +93,7 @@ async function openRecipeByData(idx){
     }
   }
 
-  recipeModal.open(rec.id);
+  openRecipePreviewPage(rec);
 }
 
 // Translate procedure/equipment text only — not ingredient names
@@ -408,7 +408,7 @@ function renderRecipes(){
     const timeTxt = (r.prep_time_minutes||r.prep_time) ? ' · '+(r.prep_time_minutes||r.prep_time)+'m' : '';
     const editBtns = isAdmin()
       ? `<div style="display:flex;gap:6px;margin-top:10px;" onclick="event.stopPropagation()">
-           <button onclick="openRecipeEditor(SHOP_RECIPES[${realIdx}])"
+           <button onclick="openRecipeEditPage(SHOP_RECIPES[${realIdx}])"
              style="height:28px;padding:0 12px;border-radius:14px;background:rgba(30,58,95,0.08);border:0.5px solid rgba(30,58,95,0.15);color:#1e3a5f;font-size:12px;font-weight:500;cursor:pointer;">Edit</button>
            <button onclick="linkRecipeToItem('${r.title.replace(/'/g,"\\'")}')
              " style="height:28px;padding:0 12px;border-radius:14px;background:rgba(37,99,235,0.1);border:0.5px solid rgba(37,99,235,0.2);color:#2563eb;font-size:12px;font-weight:500;cursor:pointer;">Link</button>
@@ -2244,5 +2244,367 @@ window.openBOMRecipeAudit = async function(){
 
   } catch(e) {
     document.getElementById('bomAuditBody').innerHTML = `<div style="color:#dc2626;font-size:13px;">Errore: ${e.message}</div>`;
+  }
+};
+
+
+// ── RECIPE PREVIEW PAGE ──────────────────────────────────────
+window._currentRecipeData = null;
+
+async function openRecipePreviewPage(rec) {
+  window._currentRecipeData = rec;
+
+  // Load BOM + steps
+  let bomRows = [], recipeSteps = [];
+  if (rec.id) {
+    try {
+      const { data: bom } = await supa.from('recipe_bom')
+        .select('quantity,unit,component_type,item_id,sub_recipe_id,ingredients(name),recipes!recipe_bom_sub_recipe_id_fkey(title)')
+        .eq('parent_recipe_id', rec.id).order('sort_order');
+      bomRows = bom || [];
+    } catch(e) {}
+    try {
+      const { data: rs } = await supa.from('recipe_steps')
+        .select('*').eq('recipe_id', rec.id).order('step_number');
+      recipeSteps = rs || [];
+    } catch(e) {}
+  }
+
+  // Set title
+  document.getElementById('rpTitle').textContent = rec.title || '';
+
+  // Show edit button for admin
+  const editBtn = document.getElementById('rpEditBtn');
+  if (editBtn) editBtn.style.display = (typeof isAdmin === 'function' && isAdmin()) ? '' : 'none';
+
+  // Back button
+  document.getElementById('rpBack').onclick = () => closeRecipePreviewPage();
+
+  // Edit button
+  if (editBtn) editBtn.onclick = () => openRecipeEditPage(rec);
+
+  // Tabs
+  document.querySelectorAll('.rp-tab').forEach(btn => {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.rp-tab').forEach(b => {
+        b.style.color = '#94a3b8';
+        b.style.fontWeight = '500';
+        b.style.borderBottom = '2px solid transparent';
+        b.classList.remove('rp-tab-active');
+      });
+      this.style.color = '#1e3a5f';
+      this.style.fontWeight = '600';
+      this.style.borderBottom = '2px solid #1e3a5f';
+      this.classList.add('rp-tab-active');
+      renderRecipePreviewTab(this.dataset.tab, rec, bomRows, recipeSteps);
+    });
+  });
+
+  // Show ingredients tab by default
+  renderRecipePreviewTab('ingredients', rec, bomRows, recipeSteps);
+
+  // Show page
+  const page = document.getElementById('vRecipePreview');
+  page.classList.remove('hidden');
+  page.style.display = 'flex';
+
+  // Hide topbar + bottom nav
+  const topBar = document.getElementById('mainTopBar');
+  if (topBar) topBar.style.display = 'none';
+}
+
+function closeRecipePreviewPage() {
+  const page = document.getElementById('vRecipePreview');
+  page.classList.add('hidden');
+  page.style.display = '';
+  // Restore topbar state based on current section
+  const vp = document.getElementById('vp');
+  if (vp && !vp.classList.contains('hidden')) {
+    const topBar = document.getElementById('mainTopBar');
+    if (topBar) topBar.style.display = 'none';
+  }
+}
+
+function renderRecipePreviewTab(tab, rec, bomRows, recipeSteps) {
+  const body = document.getElementById('rpBody');
+  if (!body) return;
+
+  if (tab === 'ingredients') {
+    if (bomRows.length === 0) {
+      body.innerHTML = '<div style="color:#94a3b8;font-size:14px;padding:20px 0;">No ingredients yet.</div>';
+      return;
+    }
+    // Scaling
+    const baseServings = rec.base_servings || 1;
+    let scaleHtml = '';
+    if (rec.base_servings) {
+      scaleHtml = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:12px 14px;background:rgba(255,255,255,0.6);border:0.5px solid rgba(59,130,246,0.18);border-radius:14px;">
+        <span style="font-size:13px;color:#60a5fa;flex:1;">Servings</span>
+        <button onclick="rpScaleServings(-1)" style="width:30px;height:30px;border-radius:50%;border:0.5px solid rgba(59,130,246,0.25);background:white;font-size:18px;color:#1e3a5f;cursor:pointer;display:flex;align-items:center;justify-content:center;">-</button>
+        <span id="rpScaleVal" style="font-size:16px;font-weight:600;color:#1e3a5f;min-width:30px;text-align:center;">${baseServings}</span>
+        <button onclick="rpScaleServings(1)" style="width:30px;height:30px;border-radius:50%;border:0.5px solid rgba(59,130,246,0.25);background:white;font-size:18px;color:#1e3a5f;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
+      </div>`;
+    }
+    window._rpScale = baseServings;
+    window._rpBaseServings = baseServings;
+    window._rpBomRows = bomRows;
+    window._rpRec = rec;
+
+    const rows = bomRows.map(b => {
+      const name = b.component_type === 'RECIPE'
+        ? (b.recipes?.title || 'Sub-recipe')
+        : (b.ingredients?.name || 'Ingredient');
+      const qty = b.quantity ? `${b.quantity}${b.unit ? ' ' + b.unit : ''}` : '';
+      return `<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;background:rgba(255,255,255,0.6);border:0.5px solid rgba(59,130,246,0.14);border-radius:12px;margin-bottom:6px;">
+        <div style="width:4px;height:36px;border-radius:2px;background:${b.component_type === 'RECIPE' ? '#8b5cf6' : '#3b82f6'};flex-shrink:0;"></div>
+        <div style="flex:1;">
+          <div style="font-size:15px;font-weight:500;color:#1e3a5f;">${name}</div>
+          ${b.component_type === 'RECIPE' ? '<div style="font-size:11px;color:#8b5cf6;margin-top:1px;">prep</div>' : ''}
+        </div>
+        <div class="rp-qty" data-base="${b.quantity||0}" data-unit="${b.unit||''}" style="font-size:14px;font-weight:600;color:#1e3a5f;">${qty}</div>
+      </div>`;
+    }).join('');
+
+    body.innerHTML = scaleHtml + rows;
+  }
+
+  else if (tab === 'steps') {
+    if (recipeSteps.length === 0) {
+      body.innerHTML = '<div style="color:#94a3b8;font-size:14px;padding:20px 0;">No steps yet.</div>';
+      return;
+    }
+    const lang = user?.lang || 'en';
+    body.innerHTML = recipeSteps.map((s, i) => {
+      const title = lang === 'it' ? (s.title_it || s.title) : lang === 'es' ? (s.title_es || s.title) : (s.title || '');
+      const instr = lang === 'it' ? (s.instruction_it || s.instruction_en || '') : lang === 'es' ? (s.instruction_es || s.instruction_en || '') : (s.instruction_en || '');
+      const timer = s.timer_seconds ? `<div style="margin-top:8px;display:inline-flex;align-items:center;gap:6px;background:rgba(37,99,235,0.08);border:0.5px solid rgba(37,99,235,0.2);border-radius:8px;padding:4px 10px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span style="font-size:12px;font-weight:600;color:#2563eb;">${Math.floor(s.timer_seconds/60)}m</span>
+      </div>` : '';
+      return `<div style="background:rgba(255,255,255,0.65);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;padding:16px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <div style="width:26px;height:26px;border-radius:50%;background:#1e3a5f;color:white;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${i+1}</div>
+          <div style="font-size:15px;font-weight:600;color:#1e3a5f;">${title}</div>
+        </div>
+        <div style="font-size:14px;color:rgba(30,58,95,0.7);line-height:1.6;">${instr}</div>
+        ${timer}
+      </div>`;
+    }).join('');
+  }
+
+  else if (tab === 'notes') {
+    const proc = rec.procedure || '';
+    const equip = rec.equipment || '';
+    if (!proc && !equip) {
+      body.innerHTML = '<div style="color:#94a3b8;font-size:14px;padding:20px 0;">No notes yet.</div>';
+      return;
+    }
+    body.innerHTML = `
+      ${equip ? `<div style="margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;">Equipment</div>
+        <div style="background:rgba(255,255,255,0.65);border:0.5px solid rgba(59,130,246,0.18);border-radius:14px;padding:14px;font-size:14px;color:rgba(30,58,95,0.8);line-height:1.6;">${equip}</div>
+      </div>` : ''}
+      ${proc ? `<div>
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;">Procedure</div>
+        <div style="background:rgba(255,255,255,0.65);border:0.5px solid rgba(59,130,246,0.18);border-radius:14px;padding:14px;font-size:14px;color:rgba(30,58,95,0.8);line-height:1.6;">${proc}</div>
+      </div>` : ''}`;
+  }
+}
+
+window.rpScaleServings = function(delta) {
+  const base = window._rpBaseServings || 1;
+  window._rpScale = Math.max(1, (window._rpScale || base) + delta);
+  document.getElementById('rpScaleVal').textContent = window._rpScale;
+  const factor = window._rpScale / base;
+  document.querySelectorAll('.rp-qty').forEach(el => {
+    const baseQty = parseFloat(el.dataset.base) || 0;
+    const unit = el.dataset.unit || '';
+    if (baseQty === 0) { el.textContent = ''; return; }
+    const scaled = baseQty * factor;
+    el.textContent = (scaled % 1 === 0 ? scaled : scaled.toFixed(2)) + (unit ? ' ' + unit : '');
+  });
+};
+
+// ── RECIPE EDIT PAGE ─────────────────────────────────────────
+async function openRecipeEditPage(rec) {
+  const title = document.getElementById('reTitle');
+  if (title) title.textContent = rec ? 'Edit Recipe' : 'New Recipe';
+
+  // Load existing steps
+  let existingSteps = [];
+  if (rec?.id) {
+    try {
+      const { data: rs } = await supa.from('recipe_steps')
+        .select('*').eq('recipe_id', rec.id).order('step_number');
+      existingSteps = rs || [];
+    } catch(e) {}
+  }
+
+  // Build form in reBody
+  const body = document.getElementById('reBody');
+  body.innerHTML = buildRecipeEditForm(rec, existingSteps);
+
+  // Wire save button
+  document.getElementById('reSaveBtn').onclick = () => saveRecipeEditPage(rec);
+
+  // Back button — go back to preview or recipes list
+  document.getElementById('reBack').onclick = () => {
+    document.getElementById('vRecipeEdit').classList.add('hidden');
+    document.getElementById('vRecipeEdit').style.display = '';
+    // If came from preview, go back there
+    const preview = document.getElementById('vRecipePreview');
+    if (preview && !preview.classList.contains('hidden')) {
+      // already open
+    } else if (rec) {
+      openRecipePreviewPage(rec);
+    }
+  };
+
+  // Show page
+  const page = document.getElementById('vRecipeEdit');
+  page.classList.remove('hidden');
+  page.style.display = 'flex';
+}
+
+function buildRecipeEditForm(rec, steps) {
+  const MENU_GROUPS_LIST = ['Add-ons','Antipasti','Bases','Catering','Cocktails','Desserts','Entrees','Prepared','Salads','Sauces','Sides','Soups','SECONDI','ZUPPE','Pizzas'];
+  const field = (label, inputHtml) => `<div style="margin-bottom:14px;">
+    <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;">${label}</div>
+    ${inputHtml}
+  </div>`;
+  const inp = (id, type, val, placeholder='') => `<input id="${id}" type="${type}" value="${val||''}" placeholder="${placeholder}"
+    style="width:100%;height:42px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,0.7);border:0.5px solid rgba(59,130,246,0.25);color:#1e3a5f;font-size:15px;box-sizing:border-box;font-family:inherit;outline:none;">`;
+  const textarea = (id, val, placeholder='', rows=3) => `<textarea id="${id}" placeholder="${placeholder}" rows="${rows}"
+    style="width:100%;padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.7);border:0.5px solid rgba(59,130,246,0.25);color:#1e3a5f;font-size:14px;box-sizing:border-box;font-family:inherit;outline:none;resize:vertical;line-height:1.5;">${val||''}</textarea>`;
+
+  const stepsHtml = steps.length > 0
+    ? steps.map((s,i) => `<div style="background:rgba(255,255,255,0.65);border:0.5px solid rgba(59,130,246,0.18);border-radius:12px;padding:12px;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <div style="width:22px;height:22px;border-radius:50%;background:#1e3a5f;color:white;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;">${i+1}</div>
+          <input placeholder="Step title" value="${s.title_it||s.title||''}" data-step-idx="${i}" data-step-field="title_it"
+            style="flex:1;height:34px;padding:0 10px;border-radius:8px;background:rgba(255,255,255,0.8);border:0.5px solid rgba(59,130,246,0.2);color:#1e3a5f;font-size:13px;font-family:inherit;outline:none;">
+          <input type="number" placeholder="min" value="${s.timer_seconds ? Math.floor(s.timer_seconds/60) : ''}" data-step-idx="${i}" data-step-field="timer_minutes"
+            style="width:56px;height:34px;padding:0 8px;border-radius:8px;background:rgba(255,255,255,0.8);border:0.5px solid rgba(59,130,246,0.2);color:#1e3a5f;font-size:13px;font-family:inherit;outline:none;">
+        </div>
+        <textarea placeholder="Instruction" rows="2" data-step-idx="${i}" data-step-field="instruction_en"
+          style="width:100%;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.8);border:0.5px solid rgba(59,130,246,0.2);color:#1e3a5f;font-size:13px;font-family:inherit;outline:none;resize:vertical;box-sizing:border-box;">${s.instruction_en||s.instruction_it||''}</textarea>
+      </div>`).join('')
+    : '<div style="color:#94a3b8;font-size:13px;margin-bottom:8px;">No steps yet.</div>';
+
+  return `
+    ${field('Title', inp('reF_title', 'text', rec?.title, 'Recipe title'))}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;">Menu Group</div>
+        <select id="reF_menu_group" style="width:100%;height:42px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,0.7);border:0.5px solid rgba(59,130,246,0.25);color:#1e3a5f;font-size:14px;box-sizing:border-box;">
+          <option value="">— select —</option>
+          ${MENU_GROUPS_LIST.map(g => `<option value="${g}" ${rec?.menu_group===g?'selected':''}>${g}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;">POS Name</div>
+        ${inp('reF_pos_name','text',rec?.pos_name,'e.g. Lobster Fettucine')}
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;">Base Servings</div>
+        ${inp('reF_base_servings','number',rec?.base_servings,'e.g. 20')}
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;">Total Weight (kg)</div>
+        ${inp('reF_base_weight_kg','number',rec?.base_weight_g?(rec.base_weight_g/1000).toFixed(3).replace(/\.?0+$/,''):'',' e.g. 5.5')}
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;">Prep Time (min)</div>
+        ${inp('reF_prep_time','number',rec?.prep_time_minutes||rec?.prep_time,'60')}
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;">Shelf Life (days)</div>
+        ${inp('reF_shelf_life','number',rec?.shelf_life_days,'e.g. 5')}
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;">Price ($)</div>
+        ${inp('reF_selling_price','number',rec?.selling_price,'0.00')}
+      </div>
+    </div>
+    ${field('Equipment', textarea('reF_equipment', rec?.equipment, 'Equipment needed...'))}
+    ${field('Procedure / Notes', textarea('reF_procedure', rec?.procedure, 'Service notes, plating instructions...', 4))}
+    <div style="margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;">Steps</div>
+      <div id="reF_steps">${stepsHtml}</div>
+    </div>
+    ${rec?.id ? `<button onclick="deleteRecipeFromPage('${rec.id}')" style="width:100%;height:44px;border-radius:12px;background:rgba(239,68,68,0.08);border:0.5px solid rgba(239,68,68,0.25);color:#dc2626;font-size:14px;font-weight:500;cursor:pointer;margin-top:8px;">Delete Recipe</button>` : ''}
+  `;
+}
+
+async function saveRecipeEditPage(rec) {
+  const btn = document.getElementById('reSaveBtn');
+  if (btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
+
+  const title = document.getElementById('reF_title')?.value?.trim();
+  if (!title) { alert('Title is required'); if(btn){btn.textContent='Save';btn.disabled=false;} return; }
+
+  const payload = {
+    title,
+    menu_group: document.getElementById('reF_menu_group')?.value || null,
+    pos_name: document.getElementById('reF_pos_name')?.value?.trim() || null,
+    base_servings: parseInt(document.getElementById('reF_base_servings')?.value) || null,
+    base_weight_g: parseFloat(document.getElementById('reF_base_weight_kg')?.value) ? Math.round(parseFloat(document.getElementById('reF_base_weight_kg').value) * 1000) : null,
+    prep_time_minutes: parseInt(document.getElementById('reF_prep_time')?.value) || null,
+    shelf_life_days: parseInt(document.getElementById('reF_shelf_life')?.value) || null,
+    selling_price: parseFloat(document.getElementById('reF_selling_price')?.value) || null,
+    equipment: document.getElementById('reF_equipment')?.value?.trim() || null,
+    procedure: document.getElementById('reF_procedure')?.value?.trim() || null,
+  };
+
+  try {
+    let savedRec;
+    if (rec?.id) {
+      const { data, error } = await supa.from('recipes').update(payload).eq('id', rec.id).select().maybeSingle();
+      if (error) throw error;
+      savedRec = data;
+      // Update SHOP_RECIPES cache
+      const idx = SHOP_RECIPES.findIndex(r => r.id === rec.id);
+      if (idx !== -1) SHOP_RECIPES[idx] = { ...SHOP_RECIPES[idx], ...payload };
+    } else {
+      const { data, error } = await supa.from('recipes').insert(payload).select().maybeSingle();
+      if (error) throw error;
+      savedRec = data;
+      if (savedRec) SHOP_RECIPES.push({ ...savedRec, ingredients: [], yield: savedRec.yield_text, prep_time: savedRec.prep_time_minutes });
+    }
+
+    if (btn) { btn.textContent = 'Saved'; btn.style.background = '#059669'; }
+
+    // Go back to preview
+    setTimeout(() => {
+      document.getElementById('vRecipeEdit').classList.add('hidden');
+      document.getElementById('vRecipeEdit').style.display = '';
+      if (savedRec) openRecipePreviewPage(savedRec);
+      renderRecipes();
+    }, 600);
+
+  } catch(e) {
+    console.error('[Edit] save error:', e);
+    alert('Save failed: ' + e.message);
+    if (btn) { btn.textContent = 'Save'; btn.disabled = false; }
+  }
+}
+
+window.deleteRecipeFromPage = async function(recipeId) {
+  if (!confirm('Delete this recipe? This cannot be undone.')) return;
+  try {
+    await supa.from('recipes').delete().eq('id', recipeId);
+    SHOP_RECIPES = SHOP_RECIPES.filter(r => r.id !== recipeId);
+    // Close both pages
+    document.getElementById('vRecipeEdit').classList.add('hidden');
+    document.getElementById('vRecipeEdit').style.display = '';
+    document.getElementById('vRecipePreview').classList.add('hidden');
+    document.getElementById('vRecipePreview').style.display = '';
+    renderRecipes();
+  } catch(e) {
+    alert('Delete failed: ' + e.message);
   }
 };
