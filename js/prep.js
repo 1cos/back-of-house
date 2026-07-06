@@ -842,7 +842,7 @@ function renderM(){
         const lang = (window._currentUser?.lang || 'en').toLowerCase();
         const langIdx = lang === 'it' ? 1 : lang === 'es' ? 3 : 2;
         const rawTxt = parts[langIdx] || parts[1] || '';
-        const txt = rawTxt.length>60 ? rawTxt.slice(0,57)+'…' : rawTxt;
+        const txt = rawTxt.length>120 ? rawTxt.slice(0,117)+'…' : rawTxt;
         const s = {green:{bg:'rgba(5,150,105,0.1)',border:'#bbf7d0',color:'#059669'},yellow:{bg:'rgba(217,119,6,0.1)',border:'#fde68a',color:'#d97706'},red:{bg:'rgba(220,38,38,0.1)',border:'#fca5a5',color:'#dc2626'}}[col]||{bg:'rgba(217,119,6,0.1)',border:'#fde68a',color:'#d97706'};
         botPill = '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:'+s.color+';background:'+s.bg+';border:1px solid '+s.border+';border-radius:6px;padding:2px 7px;">🤖 '+txt+'</span></div>';
       } else if(i.suggested_note){
