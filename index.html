@@ -83,6 +83,155 @@
     top: 0;
   }
 </style>
+
+<script>
+(function(){
+  if(window.location.search.indexOf('dev=1')!==-1){
+    document.documentElement.classList.add('dev-mode');
+  }
+})();
+</script>
+<style>
+/* ── BRIGADE DEV THEME — attivo solo con ?dev=1 ── */
+html.dev-mode,
+html.dev-mode body {
+  background: #0f1117 !important;
+  color: #f1f5f9 !important;
+}
+html.dev-mode body {
+  background: #0f1117 !important;
+  font-size: 15px !important;
+}
+/* Sfondo principale app */
+html.dev-mode #app {
+  background: #0f1117 !important;
+}
+/* Gradient body override */
+html.dev-mode body[style*="background"] {
+  background: #0f1117 !important;
+}
+
+/* ── TOP BAR ── */
+html.dev-mode .sticky.top-0,
+html.dev-mode [class*="sticky"] {
+  background: #161b27 !important;
+  border-bottom: 0.5px solid rgba(255,255,255,0.08) !important;
+}
+
+/* ── BOTTOM NAV ── */
+html.dev-mode nav.fixed {
+  background: rgba(22,27,39,0.96) !important;
+  border-top: 0.5px solid rgba(255,255,255,0.08) !important;
+  backdrop-filter: blur(20px) !important;
+}
+html.dev-mode .tab-active { color: #3b82f6 !important; }
+html.dev-mode .tab-active svg { stroke: #3b82f6 !important; }
+
+/* ── CARDS & GLASS ── */
+html.dev-mode .glass,
+html.dev-mode .glass-card {
+  background: rgba(26,31,46,0.9) !important;
+  border: 0.5px solid rgba(255,255,255,0.1) !important;
+  backdrop-filter: blur(16px) !important;
+}
+
+/* ── TESTO ── */
+html.dev-mode .text-slate-800,
+html.dev-mode .text-slate-700,
+html.dev-mode .text-gray-800,
+html.dev-mode .text-gray-900 {
+  color: #f1f5f9 !important;
+}
+html.dev-mode .text-slate-500,
+html.dev-mode .text-slate-400,
+html.dev-mode .text-gray-500,
+html.dev-mode .text-gray-400 {
+  color: #94a3b8 !important;
+}
+html.dev-mode .text-slate-600,
+html.dev-mode .text-gray-600 {
+  color: #94a3b8 !important;
+}
+
+/* ── SFONDO SEZIONI ── */
+html.dev-mode .bg-white,
+html.dev-mode [style*="background:white"],
+html.dev-mode [style*="background:#fff"],
+html.dev-mode [style*="background: white"] {
+  background: #1a1f2e !important;
+  color: #f1f5f9 !important;
+}
+html.dev-mode .bg-slate-50,
+html.dev-mode .bg-gray-50,
+html.dev-mode .bg-slate-100,
+html.dev-mode .bg-gray-100 {
+  background: #161b27 !important;
+}
+
+/* ── BORDI ── */
+html.dev-mode .border,
+html.dev-mode .border-t,
+html.dev-mode .border-b {
+  border-color: rgba(255,255,255,0.08) !important;
+}
+
+/* ── FONT SIZE testo normale ── */
+html.dev-mode p,
+html.dev-mode span:not(.tab-label),
+html.dev-mode li,
+html.dev-mode div:not([class*="text-"]) {
+  font-size: inherit;
+}
+
+/* ── OFFICE FOLDERS — dot al posto emoji ── */
+html.dev-mode .office-folder-icon { display: none !important; }
+
+/* ── LOGIN SCREEN — non toccare ── */
+html.dev-mode #login {
+  background: linear-gradient(160deg,#0f1117 0%,#161b27 100%) !important;
+}
+
+/* ── PREP CARDS bordo urgenza ── */
+html.dev-mode [style*="border-left"][style*="#ef4444"],
+html.dev-mode [style*="border-left"][style*="red"] {
+  border-left-color: #ef4444 !important;
+}
+
+/* ── INPUT & BUTTON ── */
+html.dev-mode input,
+html.dev-mode textarea,
+html.dev-mode select {
+  background: #1e2538 !important;
+  border-color: rgba(255,255,255,0.12) !important;
+  color: #f1f5f9 !important;
+}
+html.dev-mode input::placeholder,
+html.dev-mode textarea::placeholder {
+  color: #475569 !important;
+}
+
+/* ── SCROLLBAR ── */
+html.dev-mode ::-webkit-scrollbar { width: 4px; height: 4px; }
+html.dev-mode ::-webkit-scrollbar-track { background: transparent; }
+html.dev-mode ::-webkit-scrollbar-thumb { background: #253047; border-radius: 2px; }
+
+/* ── DEV BADGE — visibile solo in dev mode ── */
+html.dev-mode body::after {
+  content: 'DEV';
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  background: #2563eb;
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 3px 6px;
+  border-radius: 4px;
+  z-index: 9999;
+  pointer-events: none;
+}
+</style>
 </head>
 
 <body style="background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);min-height:100vh;">
