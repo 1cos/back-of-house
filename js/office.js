@@ -664,11 +664,13 @@ function officeRenderCard(item) {
       btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
       btnRight = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleSolid + '">Archivia</button>';
     } else if (src === 'ai_scan') {
+      var styleChefAI = 'flex:1;padding:11px 0;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;';
       btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleGhost + '">Ignora</button>';
-      btnRight = '<button onclick="officeInvestiga(\'' + item.id + '\')" style="' + styleSolid + '">Investiga</button>';
+      btnRight = '<button onclick="jarvisAnalyze(\'' + item.id + '\')" style="' + styleChefAI + '">🤖 Chef AI</button>';
     } else if (src === 'bot-recipe-guardian') {
+      var styleChefAI2 = 'flex:1;padding:11px 0;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;';
       btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'archived\')" style="' + styleGhost + '">Ignora</button>';
-      btnRight = '<button onclick="officeOpenRecipe(\'' + item.id + '\',\'' + (item.source_id || '') + '\')" style="' + styleSolid + '">'+tr('openRecipe')+'</button>';
+      btnRight = '<button onclick="jarvisAnalyze(\'' + item.id + '\')" style="' + styleChefAI2 + '">🤖 Chef AI</button>';
     } else {
       // sous_chef_chat — solo Letto
       btnLeft  = '<button onclick="officeResolve(\'' + item.id + '\',\'letto\')" style="' + styleGhost + '">Letto</button>';
@@ -3624,8 +3626,8 @@ window.jarvisAnalyze = async function(itemId) {
   }
 
   try {
-    var supaUrl = window.SUPABASE_URL || 'https://ydqmumpytgrlceuinoqt.supabase.co';
-    var supaKey = window._supabaseAnonKey || '';
+    var supaUrl = (window.supa?.supabaseUrl) || 'https://ydqmumpytgrlceuinoqt.supabase.co';
+    var supaKey = window.SUPABASE_ANON_KEY || (window.supa?.supabaseKey) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MzcyOTUsImV4cCI6MjA5NDUxMzI5NX0.MSIKL4nCOxK8YFFTkt9AbFGViiwl-KEhHy6cL25gnKc';
     var res = await fetch(supaUrl + '/functions/v1/jarvis-reason', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + supaKey },
