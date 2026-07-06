@@ -2206,3 +2206,101 @@ const bom = [...bomPos, ...bomPrep];
 - `bom=1284` confermato dal debug logging ✅
 - Problemi visibili sono tutti legittimi (Scallops missing BOM reale, subrecipe senza yield, prep no trusted mapping)
 
+
+---
+
+## SESSIONE 5 LUGLIO 2026 (sera) — Audit prep principali + bonifica BOM (DB only, boh-v530)
+
+**Versione sw.js live:** boh-v530 (nessun bump questa sessione — solo DB)
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### Fix eseguiti in questa sessione
+
+**Nutella Mix**
+- `base_weight_g = 550` (500g Nutella + 50g Sunflower Oil), `serving_weight_g = 40g` ✅
+- Italian Marble Cake BOM aveva già bom_id=1852 RECIPE Nutella Mix 40g ✅
+
+**Dati ricette corretti (base_weight_g mancanti)**
+- Filets: `base_weight_g = 908` (4×227g) ✅
+- Halved Tomatoes: `base_weight_g = 1000` ✅
+- Shaved Parmesan: `base_weight_g = 3000` ✅
+- Roasted Almonds: `base_weight_g = 1000` ✅
+- Chop Romaine (cf6d1561): `base_weight_g = 1000` (era 700000 — errore enorme) ✅
+- Thaw Salmon: `pos_name = NULL` (era stringa vuota '') ✅
+
+**Nuove ricette create**
+- Lemon Zest (`70518e0e`) — BOM: 2 Lemon pz, 2 steps, shelf_life=2gg. prep_task 436 collegato
+- Orange Supreme (`f98c0842`) — BOM: 2 Orange pz, 3 steps, shelf_life=2gg. prep_task 250 collegato
+- Onion Rings (`68e2947c`) — BOM: Red Onions 300g, 1 step, shelf_life=1gg. prep_task 273 collegato. Artichoke BOM: Red Onions ITEM → RECIPE Onion Rings 30g ✅
+- Confit Tomatoes — ricetta esistente TOMATOES CONFIT (3c7b1350) collegata a prep_task 451. `base_weight_g=150`, `base_servings=1` ✅
+- Bacon Crumbs (`f3775587`) — BOM: Bacon 500g, 4 steps (forno 9min, asciuga, trita, conserva), `base_weight_g=250` (50% resa), shelf_life=5gg. prep_task 234 collegato
+- White Chocolate — nuovo ingrediente creato (`15452d89`)
+
+**Ingredient link (prep senza ricetta)**
+- Mint liquid (id=376, id=352) → ingredient_id: Mint Syrup
+- Basil flowers (id=235) → ingredient_id: Basil
+- Flowers (id=455) → ingredient_id: Edible Flower
+- Shrimp (id=470) → ingredient_id: Shrimp
+- Chopped dark choc (id=337) → ingredient_id: Dark Chocolate
+- Chopped white choc (id=338) → ingredient_id: White Chocolate (nuovo)
+- Cocoa powder (id=339) → ingredient_id: Cocoa Powder
+- Choco logo (id=387) → ingredient_id: Dark Chocolate
+- Powder sugar (id=359) → ingredient_id: Powdered Sugar
+
+**Recipe link (prep collegate a ricette esistenti)**
+- Porterhouse (id=461) → recipe_id: Ribeye Steaks (1ccd91e0)
+- Confit tomatoes (id=451) → recipe_id: TOMATOES CONFIT (3c7b1350)
+
+**Bonifica BOM — ITEM → RECIPE (sostituzione sistemica)**
+- Grated Pecorino: tutti gli ITEM Pecorino Romano → RECIPE Grated Pecorino (9 ricette) ✅
+- Diced Butter (≤20g): ITEM Butter → RECIPE Diced Butter (10 ricette) ✅
+- Shredded Carrots: SOLO House Salad (bom_id=856) → RECIPE Shredded Carrots. Resto rollbackato ✅
+- Halved Tomatoes: 9 ricette → RECIPE Halved Tomatoes (escluse Bresaola/Fettuccine Allo Scoglio rollbackate + self-reference rollbackata) ✅
+- Roasted Almonds: ITEM Sliced Almonds → RECIPE Roasted Almonds (2 ricette) ✅
+- Lemon Zest: ITEM Lemon Zest → RECIPE Lemon Zest (1 ricetta: PASTA FROLLA) ✅
+
+**Correzioni BOM unità (g → kg)**
+- FOCACCIA Flour: 8400g → 8.4kg
+- Parmesan Grated Parmesan Cheese: 7000g → 7kg (poi corretta a 2kg — batch realistico)
+- Grated Pecorino Pecorino Romano: 7000g → 7kg
+- Ranch Dressing Buttermilk: 3900g → 3.9kg
+- Ranch Dressing Mayo: 3785g → 3.8kg
+- Shaved Parmesan Parmesan Cheese: 3000g → 3kg
+- POMODORO SAUCE Canned Tomatoes: 3000g → 3kg
+- Grilled Chicken Chicken Breast: 3000g → 3kg
+- ARRABBIATA Canned Tomatoes: 2950g → 2.95kg
+- BESCIAMELLA Flour: 1500g → 1.5kg
+- BESCIAMELLA Butter: 1300g → 1.3kg
+
+**Conversione unità BOM**
+- Cacio e Pepe Sauce: Milk 128oz → 1 gallone ✅
+
+**Stock NULL → 0 (bot non skippa domani)**
+- Basil flowers (id=235), Thaw Salmon (id=413), Choco logo (id=387), Chopped dark choc (id=337), Chopped white choc (id=338), Cocoa powder (id=339), Mint liquid (id=376), Powder sugar (id=359), Lemon Zest (id=436), Orange supreme (id=250) → current_stock = 0 ✅
+
+**Regole stabilite**
+- Diced Butter: ≤20g → RECIPE, >20g → resta ITEM Butter
+- Shredded Carrots: solo House Salad usa RECIPE, tutti gli altri usi sono carote raw in ricette diverse
+- Parmesan Grated: batch realistico = 2kg (non 7kg), si gratta on-demand dalla ruota
+
+---
+
+### Pendenti aperti
+
+1. **Salmon Aioli BOM** — ingredienti da aggiungere quando Max ha la ricetta
+2. **Garlic Oil / Bruschetta** — Max sistema manualmente (BOM Bruschetta usa ITEM Garlic Oil come RECIPE da fare)
+3. **GF Sponge Cake** — ricetta esiste, non collegata. Da fare in sessione futura
+4. **Pastry Station NO_BASE_WEIGHT** (Creme brulee, Cremino, Mimosa, Mint bavarese, Panna cotta, Tiramisu) — nessun problema operativo: bot usa base_servings per pezzi, nessun bot flagga questi. Da lasciare
+5. **Gnocchi prep_type = NULL** — da impostare a 'supporto'
+6. **Chop Romaine id=364** — prep_task con recipe_id=NULL. La ricetta cf6d1561 esiste. Da collegare
+7. **Thaw Salmon current_stock** — impostato a 0 stanotte. Verificare con Max la mattina
+8. **NO_RECIPE rimanenti (da fare in prossima sessione):**
+   - Salad: Cantaloupe, Caprese seasoning, Goat cheese, Honey, Olives (ingredient link), Sliced Mozzarella, Sliced Tomatoes, Walnuts
+   - Sauté: Season Focaccia
+   - Table Side: Branzino tableside, Ny strip
+   - Pastry: GF sponge cake
+9. **NO_BASE_WEIGHT rimanenti:** Chicken Parmesan, Diced Grilled Chicken, Pancetta (La N°4), Grilled Chicken, Bruschetta, Spring mix, Watermelon Cubes, Tomahawk, Wagyu ribeye
+10. **BOM vuoti rimanenti:** Brisket, Soffritto Livornese, Brussels Sprouts Par Cook (solo ingrediente 1500g Brussel Sprouts da aggiungere — steps già presenti)
+11. **Pomodori Caprese fette** (idea sessione 2 luglio) — Classic Caprese 5 fette, Tuscany Road Trip 3 fette — quante fette per pomodoro? Da chiedere a Max
