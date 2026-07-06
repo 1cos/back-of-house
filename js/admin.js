@@ -200,11 +200,17 @@ window.runBotV2 = async function(){
             <div style="margin-top:6px;height:4px;background:#e2e8f0;border-radius:99px;overflow:hidden;">
               <div style="height:100%;width:${pct}%;background:${barCol};border-radius:99px;"></div>
             </div>
-            <div style="font-size:10px;color:#94a3b8;margin-top:2px;">${r.open_service_days||0} giorni aperti nella finestra</div>
           </div>
           <div style="font-size:18px;color:#94a3b8;flex-shrink:0;" id="${cid}_arr">&#8250;</div>
         </div>
         <div id="${cid}" style="display:none;padding:0 14px 14px 34px;border-top:1px solid ${pillBdr(p)};">
+          <div style="margin:10px 0 4px;">
+            <button onclick="event.stopPropagation();window._bv2Contributors('${cid}','${esc(r.task_name)}')" style="font-size:12px;color:#3b82f6;font-weight:600;background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;gap:4px;">
+              <span id="${cid}_ctoggle_icon" style="display:inline-block;transition:transform 0.2s;">&#9660;</span>
+              Chi scarica questo stock
+            </button>
+            <div id="${cid}_contrib" style="display:none;margin-top:8px;"></div>
+          </div>
           <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin:10px 0 8px;">Perche il bot dice questo</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;">
             ${_bv2Row('Stock DB', fmtN(r.current_stock,r.unit))}
@@ -251,6 +257,191 @@ window._bv2Toggle = function(id) {
   const open = el.style.display==='block';
   el.style.display = open?'none':'block';
   if(arr) arr.style.transform = open?'':'rotate(90deg)';
+};
+
+window._bv2Contributors = async function(cid, taskName) {
+  const box = document.getElementById(cid+'_contrib');
+  const icon = document.getElementById(cid+'_ctoggle_icon');
+  if(!box) return;
+  const isOpen = box.style.display === 'block';
+  if(isOpen) {
+    box.style.display = 'none';
+    if(icon) icon.style.transform = '';
+    return;
+  }
+  box.style.display = 'block';
+  if(icon) icon.style.transform = 'rotate(180deg)';
+  if(box.dataset.loaded) return;
+  box.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:6px 0;">Caricamento...</div>';
+
+  try {
+    const SUPA_URL = 'https://ydqmumpytgrlceuinoqt.supabase.co';
+    const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxNDM5NzgsImV4cCI6MjA2NDcxOTk3OH0.RB5vYE3gJjH7gJy01Gh-eLQixanVX6cLc0disc8-bJs';
+    const hdrs = { 'apikey': ANON_KEY, 'Authorization': 'Bearer '+ANON_KEY };
+
+    // Leggo run corrente per ottenere pos_name del task
+    const runRes = await fetch(
+      SUPA_URL+'/rest/v1/bot_v2_runs?sim_date=eq.'+new Date().toISOString().slice(0,10)+'&task_name=eq.'+encodeURIComponent(taskName)+'&select=percorso,planning_window_days,consumo_giornaliero,unit',
+      {headers: hdrs}
+    );
+    const runRows = await runRes.json();
+    const run = runRows[0];
+    const unit = run?.unit || 'g';
+    const cgDay = parseFloat(run?.consumo_giornaliero) || 0;
+
+    // Leggo aliases del task dalla recipe collegata al prep_task
+    const ptRes = await fetch(
+      SUPA_URL+'/rest/v1/prep_tasks?archived=eq.false&name=eq.'+encodeURIComponent(taskName)+'&select=recipe_id,recipes:recipe_id(pos_name)',
+      {headers: hdrs}
+    );
+    const ptRows = await ptRes.json();
+    const posName = ptRows[0]?.recipes?.pos_name || '';
+    const aliases = posName ? posName.split('|').map(s=>s.trim().toLowerCase()).filter(Boolean) : [];
+
+    // Date range 60 giorni
+    const d60 = new Date(); d60.setDate(d60.getDate()-60);
+    const since = d60.toISOString().slice(0,10);
+
+    const fmtG = (v, u) => {
+      if(isNaN(v)||v===0) return '0';
+      const ul=(u||'').toLowerCase();
+      const isPh=['pezzi','pz','nests','buste','cartocci','cup'].includes(ul);
+      if(isPh){ return v%1===0?String(Math.round(v)):v.toFixed(1); }
+      return v>=1000?(v/1000).toFixed(1).replace(/\.0$/,'')+'kg':Math.round(v)+'g';
+    };
+    const esc2 = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    let rows = [];
+
+    if(aliases.length > 0) {
+      // Vendite dirette da pos_sales_by_item
+      const salesRes = await fetch(
+        SUPA_URL+'/rest/v1/pos_sales_by_item?sale_date=gte.'+since+'&select=sale_date,menu_item,quantity',
+        {headers: hdrs}
+      );
+      const salesAll = await salesRes.json();
+
+      // Modifier da pos_modifier_by_item
+      const modRes = await fetch(
+        SUPA_URL+'/rest/v1/pos_modifier_by_item?sale_date=gte.'+since+'&select=sale_date,modifier,parent_item,quantity_sold',
+        {headers: hdrs}
+      );
+      const modAll = await modRes.json();
+
+      // portion_factor da pos_item_aliases
+      const pfRes = await fetch(
+        SUPA_URL+'/rest/v1/pos_item_aliases?source=in.(modifier,both)&select=alias_name,portion_factor',
+        {headers: hdrs}
+      );
+      const pfAll = await pfRes.json();
+      const pfMap = {};
+      (pfAll||[]).forEach(a => { pfMap[(a.alias_name||'').toLowerCase().trim()] = parseFloat(a.portion_factor)||1.0; });
+
+      // Aggregazione vendite dirette per menu_item
+      const directByItem = {};
+      (salesAll||[]).forEach(row => {
+        if(!aliases.includes((row.menu_item||'').toLowerCase().trim())) return;
+        const k = row.menu_item;
+        if(!directByItem[k]) directByItem[k] = {dates:{}, type:'direct'};
+        if(!directByItem[k].dates[row.sale_date]) directByItem[k].dates[row.sale_date] = 0;
+        directByItem[k].dates[row.sale_date] += parseFloat(row.quantity)||0;
+      });
+
+      // Aggregazione modifier per "modifier — parent_item"
+      const modByKey = {};
+      (modAll||[]).forEach(row => {
+        const mk = (row.modifier||'').toLowerCase().trim();
+        if(!aliases.includes(mk)) return;
+        const pf = pfMap[mk] || 1.0;
+        const k = (row.modifier||'')+'|'+(row.parent_item||'');
+        if(!modByKey[k]) modByKey[k] = {modifier: row.modifier, parent: row.parent_item, pf, dates:{}};
+        if(!modByKey[k].dates[row.sale_date]) modByKey[k].dates[row.sale_date] = 0;
+        modByKey[k].dates[row.sale_date] += (row.quantity_sold||0) * pf;
+      });
+
+      // Calcolo medie DOW e totale medio/giorno
+      const avgDates = obj => {
+        const vals = Object.values(obj.dates);
+        return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
+      };
+
+      // Serving weight per calcolare grammi
+      const swRes = await fetch(
+        SUPA_URL+'/rest/v1/prep_tasks?archived=eq.false&name=eq.'+encodeURIComponent(taskName)+'&select=recipes:recipe_id(serving_weight_g,base_weight_g,base_servings)',
+        {headers: hdrs}
+      );
+      const swRows = await swRes.json();
+      const rec = swRows[0]?.recipes;
+      const sw = parseFloat(rec?.serving_weight_g)||0;
+      const bw = parseFloat(rec?.base_weight_g)||0;
+      const bs = parseFloat(rec?.base_servings)||1;
+      const gPerPorz = sw>0?sw:(bw>0&&bs>0?bw/bs:0);
+
+      // Righe vendite dirette
+      Object.entries(directByItem).forEach(([item, obj]) => {
+        const avgPorz = avgDates(obj);
+        const avgG = gPerPorz>0 ? avgPorz*gPerPorz : avgPorz;
+        rows.push({label: esc2(item), sub: 'Vendita diretta', type:'direct', avgPorz, avgG, pf:1});
+      });
+
+      // Righe modifier — raggruppa per modifier name (somma parent_item)
+      const modByMod = {};
+      Object.entries(modByKey).forEach(([k, obj]) => {
+        const modName = obj.modifier;
+        if(!modByMod[modName]) modByMod[modName] = {parents:[], totalAvgPorz:0, pf: obj.pf};
+        const avgPorz = avgDates(obj);
+        modByMod[modName].parents.push(esc2(obj.parent));
+        modByMod[modName].totalAvgPorz += avgPorz;
+      });
+      Object.entries(modByMod).forEach(([mod, obj]) => {
+        const avgG = gPerPorz>0 ? obj.totalAvgPorz*gPerPorz : obj.totalAvgPorz;
+        const parentList = [...new Set(obj.parents)].slice(0,3).join(', ');
+        const sub = 'Modifier su: '+parentList+(obj.parents.length>3?' +altri':'');
+        rows.push({label: esc2(mod), sub, type:'modifier', avgPorz: obj.totalAvgPorz, avgG, pf: obj.pf});
+      });
+    }
+
+    // Render
+    if(rows.length === 0) {
+      box.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:6px 0;">Nessuna fonte trovata nei dati POS.</div>';
+      box.dataset.loaded = '1';
+      return;
+    }
+
+    const totalG = rows.reduce((s,r) => s+r.avgG, 0);
+
+    let html = '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Media/giorno negli ultimi 60 giorni</div>';
+    rows.sort((a,b) => b.avgG - a.avgG).forEach(row => {
+      const isM = row.type==='modifier';
+      const bg = isM?'#eff6ff':'#f8fafc';
+      const tagBg = isM?'#dbeafe':'#dcfce7';
+      const tagCol = isM?'#2563eb':'#16a34a';
+      const tagTxt = isM?'MOD':'MAIN';
+      const gStr = fmtG(row.avgG, unit);
+      const porzStr = row.avgPorz>0?(row.avgPorz%1===0?Math.round(row.avgPorz):row.avgPorz.toFixed(1))+' porz':null;
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:8px;background:'+bg+';margin-bottom:3px;">'
+        +'<div style="min-width:0;flex:1;">'
+        +'<div style="display:flex;align-items:center;gap:5px;"><span style="font-size:12px;font-weight:600;color:#1e3a5f;">'+row.label+'</span>'
+        +'<span style="font-size:9px;background:'+tagBg+';color:'+tagCol+';border-radius:3px;padding:1px 4px;font-weight:700;">'+tagTxt+'</span></div>'
+        +'<div style="font-size:10px;color:#94a3b8;">'+esc2(row.sub)+(isM&&row.pf!==1?' \u00b7 \u00d7'+row.pf:'')+'</div>'
+        +'</div>'
+        +'<div style="text-align:right;flex-shrink:0;margin-left:8px;">'
+        +(porzStr?'<div style="font-size:10px;color:#64748b;">~'+porzStr+'</div>':'')
+        +'<div style="font-size:13px;font-weight:700;color:'+(isM?'#2563eb':'#1e3a5f')+';">'+gStr+'</div>'
+        +'</div>'
+        +'</div>';
+    });
+
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px 0;border-top:1px dashed #e2e8f0;margin-top:4px;">'
+      +'<span style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Totale / giorno</span>'
+      +'<span style="font-size:14px;font-weight:800;color:#1e3a5f;">'+fmtG(totalG,unit)+'</span>'
+      +'</div>';
+
+    box.innerHTML = html;
+    box.dataset.loaded = '1';
+  } catch(e) {
+    box.innerHTML = '<div style="font-size:11px;color:#ef4444;">Errore: '+e.message+'</div>';
+  }
 };
 
 window.runBotSim = async function(){
