@@ -467,6 +467,9 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   const svg=b.querySelector('svg');if(svg)svg.style.stroke='#059669';
   const sp=b.querySelector('.tab-label');if(sp)sp.style.color='#059669';
   const t=b.dataset.t;
+  // TOP BAR — visibile solo su Home
+  var _topBar = document.getElementById('mainTopBar');
+  if(_topBar) _topBar.style.display = (t === 'h') ? '' : 'none';
   document.getElementById('vh').classList.toggle('hidden',t!=='h');
   document.getElementById('vm').classList.toggle('hidden',t!=='m');
   document.getElementById('vs').classList.toggle('hidden',t!=='s');
