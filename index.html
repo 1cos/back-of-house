@@ -92,141 +92,170 @@
 })();
 </script>
 <style>
-/* ── BRIGADE DEV THEME — attivo solo con ?dev=1 ── */
-html.dev-mode,
+/* == BRIGADE DEV THEME ?dev=1 — light, stesso linguaggio L'Ufficio == */
+
+/* ── SFONDO GLOBALE — stesso gradient dell'Ufficio ── */
 html.dev-mode body {
-  background: #0f1117 !important;
-  color: #f1f5f9 !important;
-}
-html.dev-mode body {
-  background: #0f1117 !important;
+  background: linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%) !important;
+  background-attachment: fixed !important;
+  color: #1e3a5f !important;
   font-size: 15px !important;
+  font-family: Inter,system-ui,sans-serif !important;
 }
-/* Sfondo principale app */
-html.dev-mode #app {
-  background: #0f1117 !important;
+
+/* ── CARD GLASS — identica all'Ufficio ── */
+html.dev-mode .glass,
+html.dev-mode .glass-card {
+  background: rgba(255,255,255,0.6) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border: 0.5px solid rgba(59,130,246,0.18) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 2px 8px rgba(30,58,95,0.06),0 6px 20px rgba(30,58,95,0.04) !important;
 }
-/* Gradient body override */
-html.dev-mode body[style*="background"] {
-  background: #0f1117 !important;
+
+/* ── CARD generica bianca ── */
+html.dev-mode .bg-white {
+  background: rgba(255,255,255,0.6) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border: 0.5px solid rgba(59,130,246,0.14) !important;
+  border-radius: 16px !important;
 }
 
 /* ── TOP BAR ── */
-html.dev-mode .sticky.top-0,
-html.dev-mode [class*="sticky"] {
-  background: #161b27 !important;
-  border-bottom: 0.5px solid rgba(255,255,255,0.08) !important;
+html.dev-mode #app > div:first-child,
+html.dev-mode .sticky.top-0 {
+  background: rgba(255,255,255,0.75) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-bottom: 0.5px solid rgba(59,130,246,0.15) !important;
 }
 
 /* ── BOTTOM NAV ── */
 html.dev-mode nav.fixed {
-  background: rgba(22,27,39,0.96) !important;
-  border-top: 0.5px solid rgba(255,255,255,0.08) !important;
+  background: rgba(255,255,255,0.88) !important;
   backdrop-filter: blur(20px) !important;
-}
-html.dev-mode .tab-active { color: #3b82f6 !important; }
-html.dev-mode .tab-active svg { stroke: #3b82f6 !important; }
-
-/* ── CARDS & GLASS ── */
-html.dev-mode .glass,
-html.dev-mode .glass-card {
-  background: rgba(26,31,46,0.9) !important;
-  border: 0.5px solid rgba(255,255,255,0.1) !important;
-  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-top: 0.5px solid rgba(59,130,246,0.15) !important;
 }
 
-/* ── TESTO ── */
+/* ── ACCENTO BLU — icone e tab attiva ── */
+html.dev-mode .tab-active { color: #2563eb !important; }
+html.dev-mode .tab-active svg { stroke: #2563eb !important; }
+html.dev-mode .tab-active span { color: #2563eb !important; }
+
+/* ── TESTO PRIMARIO ── */
+html.dev-mode h1,
+html.dev-mode h2,
+html.dev-mode h3,
 html.dev-mode .text-slate-800,
-html.dev-mode .text-slate-700,
+html.dev-mode .text-slate-900,
 html.dev-mode .text-gray-800,
 html.dev-mode .text-gray-900 {
-  color: #f1f5f9 !important;
+  color: #1e3a5f !important;
 }
+
+/* ── TESTO SECONDARIO ── */
 html.dev-mode .text-slate-500,
-html.dev-mode .text-slate-400,
-html.dev-mode .text-gray-500,
-html.dev-mode .text-gray-400 {
-  color: #94a3b8 !important;
-}
 html.dev-mode .text-slate-600,
+html.dev-mode .text-gray-500,
 html.dev-mode .text-gray-600 {
-  color: #94a3b8 !important;
+  color: #60a5fa !important;
+}
+html.dev-mode .text-slate-400,
+html.dev-mode .text-gray-400 {
+  color: rgba(30,58,95,0.4) !important;
+}
+
+/* ── FONT SIZE — testo normale più grande ── */
+html.dev-mode p,
+html.dev-mode li,
+html.dev-mode .text-sm { font-size: 15px !important; }
+html.dev-mode .text-xs { font-size: 13px !important; }
+html.dev-mode .text-base { font-size: 15px !important; }
+
+/* ── SECTION LABEL — stile Ufficio ── */
+html.dev-mode .text-\[11px\],
+html.dev-mode .tracking-wider {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: #60a5fa !important;
+}
+
+/* ── INPUT ── */
+html.dev-mode input,
+html.dev-mode textarea,
+html.dev-mode select {
+  background: rgba(255,255,255,0.7) !important;
+  border: 0.5px solid rgba(59,130,246,0.25) !important;
+  color: #1e3a5f !important;
+  border-radius: 12px !important;
+}
+html.dev-mode input::placeholder,
+html.dev-mode textarea::placeholder {
+  color: rgba(30,58,95,0.35) !important;
 }
 
 /* ── SFONDO SEZIONI ── */
-html.dev-mode .bg-white,
-html.dev-mode [style*="background:white"],
-html.dev-mode [style*="background:#fff"],
-html.dev-mode [style*="background: white"] {
-  background: #1a1f2e !important;
-  color: #f1f5f9 !important;
-}
 html.dev-mode .bg-slate-50,
 html.dev-mode .bg-gray-50,
 html.dev-mode .bg-slate-100,
 html.dev-mode .bg-gray-100 {
-  background: #161b27 !important;
+  background: rgba(255,255,255,0.4) !important;
 }
 
 /* ── BORDI ── */
 html.dev-mode .border,
 html.dev-mode .border-t,
-html.dev-mode .border-b {
-  border-color: rgba(255,255,255,0.08) !important;
+html.dev-mode .border-b,
+html.dev-mode .border-slate-200,
+html.dev-mode .border-gray-200 {
+  border-color: rgba(59,130,246,0.15) !important;
 }
 
-/* ── FONT SIZE testo normale ── */
-html.dev-mode p,
-html.dev-mode span:not(.tab-label),
-html.dev-mode li,
-html.dev-mode div:not([class*="text-"]) {
-  font-size: inherit;
+/* ── PILLS / BADGE — stile Ufficio ── */
+html.dev-mode .bg-blue-100 { background: rgba(59,130,246,0.12) !important; color: #2563eb !important; }
+html.dev-mode .bg-green-100 { background: rgba(16,185,129,0.12) !important; color: #059669 !important; }
+html.dev-mode .bg-amber-100 { background: rgba(245,158,11,0.12) !important; color: #d97706 !important; }
+html.dev-mode .bg-red-100 { background: rgba(239,68,68,0.12) !important; color: #dc2626 !important; }
+
+/* ── BOTTONI PRIMARI ── */
+html.dev-mode button.bg-blue-500,
+html.dev-mode button.bg-blue-600,
+html.dev-mode button[style*="background:#2563eb"],
+html.dev-mode button[style*="background:#059669"] {
+  border-radius: 10px !important;
+  font-weight: 600 !important;
 }
 
-/* ── OFFICE FOLDERS — dot al posto emoji ── */
-html.dev-mode .office-folder-icon { display: none !important; }
+/* ── EMOJI ICONE CASSETTI — nascondi, rimpiazzate da ribbon dot ── */
+html.dev-mode .office-folder-emoji { display: none !important; }
 
-/* ── LOGIN SCREEN — non toccare ── */
-html.dev-mode #login {
-  background: linear-gradient(160deg,#0f1117 0%,#161b27 100%) !important;
-}
-
-/* ── PREP CARDS bordo urgenza ── */
-html.dev-mode [style*="border-left"][style*="#ef4444"],
-html.dev-mode [style*="border-left"][style*="red"] {
-  border-left-color: #ef4444 !important;
-}
-
-/* ── INPUT & BUTTON ── */
-html.dev-mode input,
-html.dev-mode textarea,
-html.dev-mode select {
-  background: #1e2538 !important;
-  border-color: rgba(255,255,255,0.12) !important;
-  color: #f1f5f9 !important;
-}
-html.dev-mode input::placeholder,
-html.dev-mode textarea::placeholder {
-  color: #475569 !important;
-}
-
-/* ── SCROLLBAR ── */
-html.dev-mode ::-webkit-scrollbar { width: 4px; height: 4px; }
+/* ── SCROLLBAR — sottile, stile Apple ── */
+html.dev-mode ::-webkit-scrollbar { width: 3px; height: 3px; }
 html.dev-mode ::-webkit-scrollbar-track { background: transparent; }
-html.dev-mode ::-webkit-scrollbar-thumb { background: #253047; border-radius: 2px; }
+html.dev-mode ::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.25); border-radius: 2px; }
 
-/* ── DEV BADGE — visibile solo in dev mode ── */
+/* ── PREP CARD BORDER URGENZA ── */
+html.dev-mode [style*="border-left"][style*="#ef4444"] { border-left-color: #ef4444 !important; }
+html.dev-mode [style*="border-left"][style*="#f59e0b"] { border-left-color: #f59e0b !important; }
+html.dev-mode [style*="border-left"][style*="#10b981"] { border-left-color: #10b981 !important; }
+
+/* ── DEV BADGE ── */
 html.dev-mode body::after {
   content: 'DEV';
   position: fixed;
-  top: 8px;
-  right: 8px;
+  top: 10px;
+  right: 10px;
   background: #2563eb;
   color: white;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.1em;
-  padding: 3px 6px;
+  padding: 3px 7px;
   border-radius: 4px;
   z-index: 9999;
   pointer-events: none;
