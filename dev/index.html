@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Brigade</title>
+<meta name="theme-color" content="#059669">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Brigade">
+<link rel="apple-touch-icon" href="../icon-192.png">
+<link rel="manifest" href="manifest.json">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="../js/vendor-documents-review.js"></script>
+<script src="../js/warnings-banner.js"></script>
+<script src="../js/operation-notes.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body{font-family:Inter,system-ui,sans-serif}
+  .glass{background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;}
+  .glass-card{background:rgba(255,255,255,0.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1.5px solid rgba(59,130,246,0.15);border-radius:16px;}
+  .tab-active{color:#059669} .tab-active svg{stroke:#059669}
+  .scrollbar-hide::-webkit-scrollbar{display:none}
+  @keyframes marquee{0%{transform:translateX(100%)}100%{transform:translateX(-100%)}}
+  .animate-marquee{animation:marquee 25s linear infinite}
+  .snap-y{scroll-snap-type:y mandatory} .snap-start{scroll-snap-align:start}
+  @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .animate-pulse{animation:pulse 1.5s ease-in-out infinite}
+  @keyframes flyOut{0%{transform:scale(1);opacity:1}50%{transform:scale(1.1) translateY(-10px);opacity:0.8}100%{transform:scale(0.5) translateY(-30px);opacity:0}}
+  .fly-out{animation:flyOut 0.5s ease-out forwards}
+  @keyframes confettiFall{0%{transform:translateY(-20px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
+</style>
+</style>
+  <style>
+    /* ── TYPOGRAPHY & COLOR OVERRIDES ── */
+    /* Base font +1px su tutto il body — richiesta Zuu/staff */
+    body { font-size: 15px; }
+    /* Top bar */
+    #app .text-sm { font-size: 15px !important; }
+    /* Brigade title */
+    .app-title { font-size: 18px !important; font-weight: 600 !important; }
+    /* Username nel top bar */
+    #who { font-size: 15px !important; font-weight: 500 !important; }
+    /* News bar */
+    #newsBar { font-size: 14px !important; }
+    #newsScroll { font-size: 14px !important; }
+    /* Widget titles (SERVICE UPDATES, YOUR STATION, etc) */
+    .text-\[11px\] { font-size: 13px !important; }
+    .text-\[10px\] { font-size: 12px !important; }
+    /* Tono celeste più scuro — sostituzione variabili colore */
+    :root {
+      --color-blue-light: #bfdbfe;   /* era #93c5fd */
+      --color-blue-mid:   #3b82f6;   /* invariato */
+      --color-blue-dark:  #1d4ed8;   /* più scuro */
+      --color-navy:       #1e3a5f;   /* invariato */
+    }
+    /* Subtitles e labels celesti più scuri */
+    [style*="color:#93c5fd"] { color: #60a5fa !important; }
+    [style*="color: #93c5fd"] { color: #60a5fa !important; }
+    /* Tab labels */
+    .tab-label { font-size: 12px !important; }
+    /* Avatar utenti online nel top bar — più grandi */
+    #online .online-dot,
+    #online img,
+    #online div {
+      width: 36px !important;
+      height: 36px !important;
+      min-width: 36px !important;
+      font-size: 14px !important;
+      border: 2px solid white !important;
+    }
+    /* Section headers (UPCOMING DEMAND, SERVICE UPDATES...) */
+    .tracking-wider { letter-spacing: 0.08em; }
+    /* iOS Safari scroll lock */
+  body.sheet-open {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    top: 0;
+  }
+</style>
+
+
+<style>
+/* == BRIGADE /dev/ — design system attivo sempre == */
+
+/* Token sistema */
+:root {
+  --col-bg: linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);
+  --col-surface: rgba(255,255,255,0.65);
+  --col-surface-solid: #ffffff;
+  --col-border: rgba(59,130,246,0.18);
+  --col-navy: #1e3a5f;
+  --col-navy-mid: rgba(30,58,95,0.5);
+  --col-navy-soft: rgba(30,58,95,0.25);
+  --col-blue: #2563eb;
+  --col-blue-mid: #3b82f6;
+  --col-blue-light: #60a5fa;
+  --col-blue-pale: rgba(59,130,246,0.1);
+}
+
+/* Sfondo globale */
+body {
+  background: var(--col-bg) !important;
+  background-attachment: fixed !important;
+  color: var(--col-navy) !important;
+  font-size: 15px !important;
+  font-family: Inter,system-ui,sans-serif !important;
+  -webkit-font-smoothing: antialiased !important;
+}
+
+/* App container */
+#app { background: transparent !important; }
+
+/* Glass card — identica all'Ufficio */
+.glass, .glass-card {
+  background: var(--col-surface) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border: 0.5px solid var(--col-border) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 2px 8px rgba(30,58,95,0.06),0 6px 20px rgba(30,58,95,0.04) !important;
+}
+
+/* Bottom nav */
+nav.fixed {
+  background: rgba(255,255,255,0.88) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-top: 0.5px solid var(--col-border) !important;
+}
+
+/* Tab attiva — blu */
+.tab-active { color: var(--col-blue) !important; }
+.tab-active svg { stroke: var(--col-blue) !important; }
+.tab-active span { color: var(--col-blue) !important; }
+
+/* Testo */
+.text-slate-800,.text-slate-900,.text-gray-800,.text-gray-900 { color: var(--col-navy) !important; }
+.text-slate-500,.text-slate-600,.text-gray-500,.text-gray-600 { color: var(--col-blue-light) !important; }
+.text-slate-400,.text-gray-400 { color: var(--col-navy-soft) !important; }
+
+/* Font size testo normale */
+.text-sm { font-size: 15px !important; }
+.text-xs { font-size: 13px !important; }
+
+/* Label sezione — stile Ufficio */
+.tracking-wider {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  color: var(--col-blue-light) !important;
+}
+
+/* Input */
+input, textarea, select {
+  background: rgba(255,255,255,0.7) !important;
+  border: 0.5px solid rgba(59,130,246,0.25) !important;
+  color: var(--col-navy) !important;
+  border-radius: 12px !important;
+}
+input::placeholder, textarea::placeholder {
+  color: var(--col-navy-soft) !important;
+}
+
+/* Bordi */
+.border, .border-t, .border-b {
+  border-color: var(--col-border) !important;
+}
+
+/* Badge colori */
+.bg-blue-100 { background: rgba(59,130,246,0.12) !important; color: var(--col-blue) !important; }
+.bg-green-100 { background: rgba(16,185,129,0.12) !important; color: #059669 !important; }
+.bg-amber-100 { background: rgba(245,158,11,0.12) !important; color: #d97706 !important; }
+.bg-red-100 { background: rgba(239,68,68,0.12) !important; color: #dc2626 !important; }
+.bg-slate-50,.bg-gray-50,.bg-slate-100,.bg-gray-100 {
+  background: rgba(255,255,255,0.4) !important;
+}
+
+/* Scrollbar sottile */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.2); border-radius: 2px; }
+
+/* DEV badge */
+body::after {
+  content: 'DEV';
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  background: var(--col-blue);
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 3px 7px;
+  border-radius: 4px;
+  z-index: 9999;
+  pointer-events: none;
+}
+</style>
+</head>
+
+<body style="background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);min-height:100vh;">
+
+<!-- LOGIN — PIN KEYPAD -->
+<div id="login" class="min-h-screen flex items-center justify-center p-4" style="background:linear-gradient(160deg,#1e3a5f 0%,#1e40af 100%);">
+  <div style="width:100%;max-width:340px;">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:22px;font-weight:500;color:white;margin-bottom:4px;">Brigade</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.5);">Zenos on the Square</div>
+      <div id="appVersionPin" style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px;letter-spacing:0.05em;"></div>
+    </div>
+
+    <!-- PIN dots -->
+    <div id="pinDots" style="display:flex;justify-content:center;gap:14px;margin-bottom:32px;">
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+      <div class="pin-dot" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent;"></div>
+    </div>
+
+    <!-- Keypad -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:280px;margin:0 auto;">
+      <button class="pin-key" onclick="pinPress('1')">1</button>
+      <button class="pin-key" onclick="pinPress('2')">2</button>
+      <button class="pin-key" onclick="pinPress('3')">3</button>
+      <button class="pin-key" onclick="pinPress('4')">4</button>
+      <button class="pin-key" onclick="pinPress('5')">5</button>
+      <button class="pin-key" onclick="pinPress('6')">6</button>
+      <button class="pin-key" onclick="pinPress('7')">7</button>
+      <button class="pin-key" onclick="pinPress('8')">8</button>
+      <button class="pin-key" onclick="pinPress('9')">9</button>
+      <div></div>
+      <button class="pin-key" onclick="pinPress('0')">0</button>
+      <button class="pin-key pin-del" onclick="pinDel()">⌫</button>
+    </div>
+
+    <p id="err" class="text-red-400 text-xs text-center mt-5 hidden"></p>
+  </div>
+</div>
+
+<style>
+.pin-key{height:70px;border-radius:50%;background:rgba(255,255,255,0.12);border:0.5px solid rgba(255,255,255,0.2);color:white;font-size:24px;font-weight:400;cursor:pointer;transition:background .15s;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none;}
+.pin-key:active{background:rgba(255,255,255,0.28);}
+.pin-del{font-size:20px;}
+</style>
+<script>
+function pinPress(d){if(typeof window._pinPress==='function')window._pinPress(d);}
+function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
+</script>
+
+<div id="app" class="hidden min-h-screen flex flex-col" style="background:transparent;">
+
+  <!-- FOCUS MODE OVERLAY — staff only, 8AM-8PM CDT -->
+  <div id="focusMode" style="display:none;position:fixed;inset:0;z-index:60;background:#f1f5f9;flex-direction:column;overflow:hidden;">
+    <!-- Header -->
+    <div style="background:white;padding:14px 16px 10px;border-bottom:1px solid #e2e8f0;flex-shrink:0;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:20px;font-weight:800;color:#1e3a5f;" id="focusHeaderName"></div>
+          <div style="font-size:13px;color:#94a3b8;" id="focusHeaderStation"></div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:16px;font-weight:600;color:#1e3a5f;" id="focusClock"></div>
+          <div style="font-size:11px;color:#94a3b8;">FOCUS MODE</div>
+        </div>
+      </div>
+    </div>
+    <!-- Scrollable feed -->
+    <div id="focusFeed" style="flex:1;overflow-y:auto;padding:12px;-webkit-overflow-scrolling:touch;"></div>
+    <!-- Bottom bar -->
+    <div style="display:flex;gap:8px;padding:10px 12px;border-top:1px solid #e2e8f0;background:white;flex-shrink:0;padding-bottom:max(10px,env(safe-area-inset-bottom));">
+      <button onclick="showChat()" style="flex:1;height:52px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;position:relative;">💬 Chat<span id="focusChatBadge" style="display:none;position:absolute;top:6px;right:6px;background:#ef4444;color:white;font-size:10px;font-weight:700;width:18px;height:18px;border-radius:50%;align-items:center;justify-content:center;">0</span></button>
+      <button onclick="focusMyStation()" style="flex:1;height:52px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;">📍 My Station</button>
+      <button onclick="focusShowStations()" style="flex:1;height:52px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;">🗂 Stations</button>
+      <button onclick="openTellChef()" style="flex:1;height:52px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;">📢 Chef</button>
+      <button onclick="focusOpenSchedule();" style="flex:1;height:52px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;color:#1e3a5f;font-size:13px;font-weight:600;cursor:pointer;">📅 Schedule</button>
+    </div>
+  </div>
+  <!-- Top bar -->
+  <div class="sticky top-0 z-[70]" style="background:rgba(255,255,255,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:0.5px solid rgba(59,130,246,0.12);box-shadow:0 2px 8px rgba(30,58,95,0.06);">
+    <div class="max-w-md mx-auto px-4 h-16 flex items-center gap-2">
+
+      <!-- SINISTRA: avatar + buongiorno + nome -->
+      <div onclick="openProfile()" style="display:flex;align-items:center;gap:10px;cursor:pointer;flex-shrink:0;-webkit-tap-highlight-color:transparent;">
+        <div id="topbarAvatar" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#1e3a5f,#2563eb);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:white;overflow:hidden;flex-shrink:0;box-shadow:0 3px 8px rgba(30,58,95,0.3);"></div>
+        <div style="line-height:1.2;">
+          <div id="topbarGreeting" style="font-size:12px;color:#60a5fa;line-height:1;"></div>
+          <div style="display:flex;align-items:baseline;gap:5px;">
+            <div id="who" style="font-size:17px;font-weight:600;color:#1e3a5f;line-height:1.3;"></div>
+            <div id="appVersion" style="display:none;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CENTRO: utenti online -->
+      <div id="online" class="flex items-center" style="flex:1;justify-content:center;gap:4px;"></div>
+
+      <!-- DESTRA: campanella → solo admin; bottoni legacy nascosti -->
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        <button id="alertBtn" class="hidden" style="width:36px;height:36px;border-radius:50%;background:#fee2e2;border:none;font-size:16px;cursor:pointer;">🚨</button>
+        <button id="userMgrBtn" onclick="openUserManager()" style="display:none;"></button>
+        <button id="pwdBtn" onclick="openChangePIN()" style="display:none;"></button>
+        <button id="out" onclick="user=null;location.reload()" style="display:none;"></button>
+        <button id="bellBtn" onclick="isAdmin()?showNewsModal():null" style="width:38px;height:38px;border-radius:50%;background:white;border:0.5px solid rgba(59,130,246,0.2);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(30,58,95,0.1);position:relative;-webkit-tap-highlight-color:transparent;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e3a5f" stroke-width="1.8" stroke-linecap="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          <span id="bellDot" style="display:none;position:absolute;top:7px;right:7px;width:8px;height:8px;background:#ef4444;border-radius:50%;border:1.5px solid white;"></span>
+        </button>
+      </div>
+
+    </div>
+
+    <!-- News pill blu scorrevole — visibile solo se ci sono news -->
+    <div id="newsBar" class="hidden" style="padding:0 14px 8px;">
+      <div style="background:rgba(59,130,246,0.07);border:0.5px solid rgba(59,130,246,0.18);border-radius:12px;padding:6px 13px;display:flex;align-items:center;gap:9px;overflow:hidden;box-shadow:0 1px 4px rgba(59,130,246,0.08);">
+        <span style="font-size:10px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;flex-shrink:0;">News</span>
+        <span style="width:1px;height:13px;background:rgba(59,130,246,0.2);flex-shrink:0;"></span>
+        <div style="flex:1;overflow:hidden;">
+          <div id="newsScroll" class="whitespace-nowrap animate-marquee" style="font-size:12px;color:#1e3a5f;"></div>
+        </div>
+        <button id="newsManage" class="hidden" style="font-size:10px;padding:2px 8px;background:#3b82f6;color:white;border:none;border-radius:6px;cursor:pointer;flex-shrink:0;">Gest</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right rail -->
+  <!-- Menu laterale rimosso — tutto nella bottom bar -->
+  <!-- Badge rimosso dalla posizione fixed — ora è solo nella bottom bar -->
+
+  <main class="flex-1 max-w-md w-full mx-auto pb-24" style="background:transparent;">
+
+    <!-- HOME -->
+    <section id="vh" class="px-3 pt-3 pb-4 space-y-3">
+
+      <!-- ── CLOSING CHECKLIST (sale in cima dopo le 20:00) — tutti ── -->
+      <!-- Nascosto di default, JS lo mostra dopo le 20:00 -->
+      <div id="homeClosingWidget" style="display:none;background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span id="homeClosingLabel" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Closing Checklist</span>
+          <button id="homeClosingOpenBtn" onclick="document.querySelector('[data-t=s]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Open →</button>
+        </div>
+        <div id="homeClosingStations" style="padding:9px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+        <!-- Campo commento serale — appare solo dopo le 20:00 -->
+        <div id="homeEveningNote" style="padding:0 14px 14px;">
+          <textarea id="homeEveningNoteText" rows="2" id="homeEveningNoteText" placeholder="Anything to pass on for tomorrow?"
+            style="width:100%;padding:8px 12px;border:0.5px solid rgba(59,130,246,0.2);border-radius:10px;font-size:13px;resize:none;box-sizing:border-box;outline:none;font-family:inherit;color:#1e3a5f;background:rgba(59,130,246,0.03);"></textarea>
+          <button id="homeSaveNoteBtn" onclick="saveEveningNote()" style="margin-top:6px;width:100%;height:36px;border-radius:10px;background:#1e3a5f;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Save note</button>
+        </div>
+      </div>
+
+      <!-- WARNINGS BANNER — populated by warnings-banner.js — solo admin -->
+      <div id="warningsBanner" style="display:none;"></div>
+
+      <!-- Invoice quick actions — solo admin -->
+      <div id="invoiceSection" style="display:none;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <button onclick="openInvoiceImport()" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;padding:14px 12px;text-align:left;cursor:pointer;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 6px 16px rgba(30,58,95,0.04);-webkit-tap-highlight-color:transparent;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round" style="margin-bottom:7px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            <div style="font-size:12px;font-weight:600;color:#1e3a5f;line-height:1.3;">Import Invoice</div>
+            <div style="font-size:10px;color:#60a5fa;margin-top:3px;">Photo / PDF</div>
+          </button>
+          <button onclick="openVendorDocumentsReview()" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;padding:14px 12px;text-align:left;cursor:pointer;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 6px 16px rgba(30,58,95,0.04);-webkit-tap-highlight-color:transparent;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round" style="margin-bottom:7px;"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="m9 14 2 2 4-4"/></svg>
+            <div style="font-size:12px;font-weight:600;color:#1e3a5f;line-height:1.3;">Vendor Review</div>
+            <div id="vdrPendingBadge" style="font-size:10px;color:#60a5fa;margin-top:3px;">Pending</div>
+          </button>
+          <button onclick="openPurchaseHistory()" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;padding:14px 12px;text-align:left;cursor:pointer;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 6px 16px rgba(30,58,95,0.04);-webkit-tap-highlight-color:transparent;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round" style="margin-bottom:7px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <div style="font-size:12px;font-weight:600;color:#1e3a5f;line-height:1.3;">Purchase History</div>
+            <div style="font-size:10px;color:#60a5fa;margin-top:3px;">All invoices</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Briefing AI — solo admin -->
+      <div id="homeBriefingSection" style="display:none;background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Briefing AI</span>
+          <button id="briefingRefreshBtn" onclick="refreshBriefing()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Refresh</button>
+        </div>
+        <div id="briefingContent" style="padding:10px 14px;">
+          <div class="animate-pulse h-4 bg-slate-100 rounded w-3/4 mb-2"></div>
+          <div class="animate-pulse h-4 bg-slate-100 rounded w-full mb-2"></div>
+          <div class="animate-pulse h-4 bg-slate-100 rounded w-2/3"></div>
+        </div>
+      </div>
+
+      <!-- Yesterday's Highlights / Weekly Highlights — admin: tecnico, staff: motivazionale -->
+      <!-- Il titolo viene aggiornato da JS in base al giorno della settimana -->
+      <div id="homeHighlightsWidget" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span id="homeHighlightsTitle" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Yesterday's Highlights</span>
+          <button id="homeViewAllBtn" onclick="openServiceUpdates()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">View all</button>
+        </div>
+        <div id="serviceUpdatesList" style="padding:9px 14px;"></div>
+      </div>
+
+      <!-- Upcoming Demand — tutti -->
+      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
+        <div style="padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span id="homeUpcomingLabel" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Upcoming Demand</span>
+        </div>
+        <div id="upcomingDemand" style="padding:9px 14px;">
+          <div style="font-size:13px;color:#94a3b8;padding:4px 0;">No upcoming events</div>
+        </div>
+      </div>
+
+      <!-- Stations — admin: tutte le stazioni; staff: la propria + altre in pill -->
+      <div id="homeStationsWidget" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span id="homeStationsTitle" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Stations</span>
+          <button id="homeStationsGoBtn" onclick="document.querySelector('[data-t=m]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Go to prep →</button>
+        </div>
+        <!-- Admin: pill tutte le stazioni -->
+        <div id="homeStations" style="padding:9px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+        <!-- Staff: top 3 item propria stazione -->
+        <div id="homeStationItems" style="padding:9px 14px;padding-bottom:14px;display:none;"></div>
+        <!-- Staff: altre stazioni con item da fare — label + pill -->
+        <div id="homeOtherStationsLabel" style="display:none;padding:8px 14px 4px;border-top:0.5px solid rgba(59,130,246,0.08);">
+          <span id="homeOtherStationsSpan" style="font-size:10px;font-weight:700;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Other Stations</span>
+        </div>
+        <div id="homeOtherStations" style="padding:4px 14px 14px;display:none;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+
+      <!-- Closing Checklist nella posizione originale — solo admin, solo prima delle 20:00 -->
+      <div id="homeChecklistSection" style="display:none;background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span id="homeChecklistLabel" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Closing Checklist</span>
+          <button id="homeOpenBtn" onclick="document.querySelector('[data-t=s]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Open →</button>
+        </div>
+        <div id="homeChecklistStations" style="padding:9px 14px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+
+    </section>
+
+    <!-- PREP -->
+    <section id="vm" class="hidden px-3 pt-2" style="min-height:100vh;position:relative;overflow:hidden;">
+  <!-- Blob background per liquid glass -->
+  <div style="pointer-events:none;position:fixed;inset:0;z-index:0;overflow:hidden;">
+    <div style="position:absolute;top:-80px;left:-60px;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,rgba(99,102,241,0.18) 0%,rgba(99,102,241,0) 70%);filter:blur(32px);"></div>
+    <div style="position:absolute;top:120px;right:-80px;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(59,130,246,0.20) 0%,rgba(59,130,246,0) 70%);filter:blur(28px);"></div>
+    <div style="position:absolute;top:340px;left:30px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,0.16) 0%,rgba(14,165,233,0) 70%);filter:blur(36px);"></div>
+    <div style="position:absolute;bottom:200px;right:20px;width:260px;height:260px;border-radius:50%;background:radial-gradient(circle,rgba(139,92,246,0.14) 0%,rgba(139,92,246,0) 70%);filter:blur(30px);"></div>
+    <div style="position:absolute;bottom:80px;left:-40px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(56,189,248,0.18) 0%,rgba(56,189,248,0) 70%);filter:blur(28px);"></div>
+  </div>
+  <div style="position:relative;z-index:1;">
+      <!-- urgentProgress rimosso -->
+      <div class="flex items-center gap-2 mb-2">
+        <div id="stations" class="flex gap-2 overflow-x-auto scrollbar-hide flex-1"></div>
+        <button id="toggleView" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-semibold shadow-sm">Feed</button>
+        <button id="addPrepBtn" onclick="adminAdd()" class="hidden px-2.5 py-1.5 bg-emerald-600 text-white rounded-xl text-[11px] font-semibold shadow-sm">+ Prep</button>
+      </div>
+      <div class="relative mb-2">
+        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;color:#94a3b8;pointer-events:none;">🔍</span>
+        <input id="prepSearch" type="search" placeholder="Cerca prep..." autocomplete="off" autocorrect="off" spellcheck="false"
+          style="width:100%;padding:8px 12px 8px 32px;border:1px solid #e2e8f0;border-radius:12px;font-size:13px;background:rgba(255,255,255,0.85);backdrop-filter:blur(8px);outline:none;-webkit-appearance:none;"
+          oninput="window._prepSearchQuery=this.value;renderM();">
+      </div>
+      <div id="grid" class="grid grid-cols-1 gap-2"></div>
+      <div id="feed" class="hidden -mx-3 h-[calc(100vh-170px)] overflow-y-auto snap-y snap-mandatory bg-[#f5f7fb]"></div>
+      </div>
+</section>
+
+    <!-- CHIUSURA -->
+    <section id="vs" class="hidden px-3 pt-2">
+      <div id="stations2" class="flex gap-2 overflow-x-auto scrollbar-hide pb-2"></div>
+      <div id="checks" class="space-y-2 mt-2"></div>
+      <div class="mt-4 pb-4">
+        <button id="closeTurnBtn" onclick="closeTurn()" class="w-full py-3.5 bg-slate-900 text-white rounded-2xl font-semibold text-sm">Chiudi Turno</button>
+      </div>
+    </section>
+
+    <!-- CHAT -->
+    <section id="vc" class="hidden flex flex-col" style="position:fixed;top:64px;left:0;right:0;bottom:72px;overflow:hidden;background:linear-gradient(160deg,#e0f2fe 0%,#f0f9ff 40%,#f8fafc 100%);z-index:10;">
+      
+      <!-- Header chat glass -->
+      <div style="padding:12px 16px;border-bottom:0.5px solid rgba(255,255,255,0.6);background:rgba(255,255,255,0.6);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:10px;"><button id="chatBackBtn" onclick="closeChat()" style="display:none;width:32px;height:32px;border-radius:50%;background:rgba(59,130,246,0.08);border:none;color:#1e3a5f;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&#8592;</button><div style="font-size:16px;font-weight:600;color:#1e3a5f;">💬 Chat Brigata</div></div>
+        <div id="chatOnlineCount" style="font-size:12px;color:#60a5fa;"></div>
+      </div>
+
+      <!-- Messaggi -->
+      <div id="msgs" style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:4px;"></div>
+
+      <!-- Input glass -->
+      <!-- Preview foto selezionata -->
+      <div id="chatImgPreview" style="display:none;padding:8px 12px;background:rgba(255,255,255,0.9);border-top:0.5px solid rgba(0,0,0,0.06);">
+        <div style="position:relative;display:inline-block;">
+          <img id="chatImgThumb" style="height:60px;border-radius:10px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.12);" />
+          <button onclick="clearChatImg()" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#ef4444;border:none;color:white;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">✕</button>
+        </div>
+      </div>
+      <form id="f" style="padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:rgba(255,255,255,0.75);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:0.5px solid rgba(255,255,255,0.8);display:flex;gap:8px;align-items:center;box-shadow:0 -4px 20px rgba(0,0,0,0.04);">
+        <!-- Hidden file input — punta a rullino/foto iPhone -->
+        <input id="chatImgInput" type="file" accept="image/*" style="display:none;" onchange="onChatImgSelected(this)">
+        <!-- Bottone foto -->
+        <button id="chatCameraBtn" type="button" onclick="document.getElementById('chatImgInput').click()" style="width:40px;height:40px;border-radius:50%;background:rgba(241,245,249,0.9);border:0.5px solid rgba(148,163,184,0.3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
+        <textarea id="txt" autocomplete="off" rows="1"
+          style="flex:1;padding:11px 16px;background:rgba(241,245,249,0.8);backdrop-filter:blur(10px);border:0.5px solid rgba(255,255,255,0.8);border-radius:20px;font-size:14px;color:#1e293b;outline:none;box-shadow:inset 0 1px 3px rgba(0,0,0,0.05);resize:none;overflow-y:hidden;max-height:120px;line-height:1.4;font-family:inherit;"
+          placeholder="Scrivi un messaggio..."></textarea>
+        <button type="submit" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#0369a1,#0284c7);border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;box-shadow:0 4px 12px rgba(3,105,161,0.35);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </form>
+    </section>
+
+    <!-- RICETTE -->
+    <section id="vp" class="hidden px-3 pt-3">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-lg font-semibold" id="recipesHeading">Ricette</h2>
+        <div id="recipeAdminBtns" class="flex gap-2">
+          <button onclick="openRecipeManager()" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs">Collega</button>
+          <button onclick="openRecipeEditor()" class="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs">+ Nuova</button>
+        </div>
+      </div>
+      <div class="mb-2">
+        <input id="recipeSearch" placeholder="Cerca ricetta..." class="w-full px-3 py-2 rounded-xl bg-white border text-sm" oninput="renderRecipes()">
+      </div>
+      <div id="recipeCats" class="flex gap-2 overflow-x-auto scrollbar-hide pb-2"></div>
+      <div id="recipeGrid" class="grid grid-cols-2 gap-2.5 mt-2 pb-4"></div>
+    </section>
+
+    <!-- REPORT -->
+    <section id="vr" class="hidden px-3 pt-3">
+      <div class="flex items-center justify-between mb-3">
+        <h2 id="reportTitle" class="text-lg font-semibold">Report</h2>
+        <div class="flex gap-2 flex-wrap">
+          <button id="btnToday" onclick="loadReport('today')" class="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-sm">Oggi</button>
+          <button id="btnWeek" onclick="loadReport('week')" class="px-3 py-1.5 bg-slate-200 rounded-lg text-sm">Settimana</button>
+          <button id="btnPresence" onclick="showPresenceTab()" class="hidden px-3 py-1.5 bg-slate-200 rounded-lg text-sm">Presenze</button>
+          <button id="btnAlertsLog" onclick="showAlertsLogTab()" class="hidden px-3 py-1.5 bg-slate-200 rounded-lg text-sm">Avvisi</button>
+          <button id="btnPDF" onclick="exportPDF()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">PDF</button>
+        </div>
+      </div>
+      <div id="reportOut" class="bg-white rounded-xl border p-3 text-sm overflow-auto min-h-[200px]">Seleziona Oggi o Settimana</div>
+      <div id="presenceLogOut" class="hidden bg-white rounded-xl border p-3 text-sm overflow-auto min-h-[200px] mt-2"></div>
+      <div id="alertsLogOut" class="hidden bg-white rounded-xl border p-3 text-sm overflow-auto min-h-[200px] mt-2"></div>
+    </section>
+
+    <!-- ── INGREDIENTS TAB ── -->
+    <section id="vi" class="hidden px-3 pt-3 pb-24">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold text-slate-800">🏷️ Ingredients</h2>
+        <button onclick="openAddIngredient()" class="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-sm">+ Add</button>
+      </div>
+      <!-- Search -->
+      <input id="ingrSearchMain" placeholder="Search ingredient..."
+        class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3 outline-none"
+        oninput="filterIngredientsTab(this.value)">
+      <!-- Category filter -->
+      <div id="ingrCategoryFilter" class="flex gap-2 overflow-x-auto pb-2 mb-3" style="scrollbar-width:none;">
+        <button onclick="filterIngrCategory('all',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-900 text-white whitespace-nowrap">All</button>
+        <button onclick="filterIngrCategory('Dairy',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🧀 Dairy</button>
+        <button onclick="filterIngrCategory('Produce',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🥦 Produce</button>
+        <button onclick="filterIngrCategory('Protein',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🥩 Protein</button>
+        <button onclick="filterIngrCategory('Seafood',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🐟 Seafood</button>
+        <button onclick="filterIngrCategory('Dry Goods',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">🌾 Dry Goods</button>
+        <button onclick="filterIngrCategory('Other',this)" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap">📦 Other</button>
+      </div>
+      <!-- List -->
+      <div id="ingrTabList" class="space-y-2">
+        <div class="text-sm text-slate-400 text-center py-8">Loading...</div>
+      </div>
+    </section>
+
+    <!-- POS Analytics -->
+    <section id="vx" class="hidden px-3 pt-3 pb-24" style="background:linear-gradient(160deg,#f0fdf4 0%,#f8fafc 60%);"></section>
+
+    <section id="vkal" class="hidden px-0 pb-24" style="background:linear-gradient(160deg,#f0f6ff 0%,#f8fafc 100%);min-height:100vh;"></section>
+
+    <!-- VENDOR DOCUMENTS REVIEW — full page section -->
+    <section id="vvdr" class="hidden pb-24" style="min-height:100vh;background:white;">
+      <div style="position:sticky;top:64px;z-index:10;background:white;border-bottom:1px solid #f1f5f9;">
+        <div style="padding:12px 16px;display:flex;align-items:center;gap:10px;">
+          <button onclick="vdrBack()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:18px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;">&#8249;</button>
+          <div style="flex:1;">
+            <div style="font-size:15px;font-weight:600;color:#1e293b;">&#128203; Vendor Documents</div>
+            <div style="font-size:11px;color:#94a3b8;">Pending review</div>
+          </div>
+          <button onclick="vdrLoad()" style="font-size:11px;color:#3B82F6;background:rgba(59,130,246,0.08);border:none;padding:5px 10px;border-radius:8px;cursor:pointer;">&#8635; Refresh</button>
+        </div>
+        <div id="vdrVendorTabs" style="display:flex;gap:6px;padding:0 16px 12px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;">
+          <button onclick="vdrSetVendor('all')" id="vdrTab-all" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:#1e3a5f;color:white;">All</button>
+        </div>
+      </div>
+      <div style="padding:16px;max-width:640px;width:100%;margin:0 auto;">
+        <div id="vdrList">
+          <div style="text-align:center;padding:40px 0;color:#94a3b8;font-size:13px;">Loading&#8230;</div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- SCHEDULE 7shifts -->
+    <section id="vsched" class="hidden px-3 pt-3 pb-24" style="background:linear-gradient(160deg,#f0f4ff 0%,#f8fafc 60%);min-height:100vh;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:18px;font-weight:700;color:#1e3a5f;">Schedule</div>
+        <button onclick="syncSevenShift()" id="schedSyncBtn" style="font-size:12px;background:#1e3a5f;color:white;border:none;border-radius:20px;padding:6px 14px;cursor:pointer;">Sincronizza</button>
+      </div>
+      <!-- Toggle Oggi / Settimana / Genera -->
+      <div style="display:flex;gap:6px;margin-bottom:16px;">
+        <button id="schedBtnOggi" onclick="schedShowView('oggi')" style="flex:1;padding:8px;border-radius:12px;border:none;background:#1e3a5f;color:white;font-size:12px;font-weight:600;cursor:pointer;">Oggi</button>
+        <button id="schedBtnSettimana" onclick="schedShowView('settimana')" style="flex:1;padding:8px;border-radius:12px;border:1.5px solid #1e3a5f;background:white;color:#1e3a5f;font-size:12px;font-weight:600;cursor:pointer;">Settimana</button>
+        <button id="schedBtnGenera" onclick="schedShowView('genera')" style="display:none;flex:1;padding:8px;border-radius:12px;border:1.5px solid #059669;background:white;color:#059669;font-size:12px;font-weight:700;cursor:pointer;">✦ Genera</button>
+      </div>
+      <div id="schedLastSync" style="font-size:11px;color:#94a3b8;margin-bottom:12px;text-align:right;"></div>
+      <div id="schedContent" style="display:flex;flex-direction:column;gap:10px;">
+        <div style="text-align:center;color:#94a3b8;padding:40px 0;font-size:14px;">Premi Sincronizza per caricare la schedule</div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Bottom Nav -->
+  <nav class="fixed bottom-0 left-0 right-0 z-40 border-t" style="background:rgba(255,255,255,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-color:rgba(59,130,246,0.12);">
+    <div class="max-w-md mx-auto h-[72px] flex items-end justify-around pb-3 px-1">
+
+      <!-- HOME — tutti -->
+      <button data-t="h" class="tab flex flex-col items-center gap-1 w-14 tab-active">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon" style="stroke:#059669"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span class="text-[10px] font-medium tab-label" style="color:#059669">Home</span>
+      </button>
+
+      <!-- PREP — staff only -->
+      <button id="tabPrep" data-t="m" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/></svg>
+        <span class="text-[10px] tab-label">Prep</span>
+      </button>
+
+
+      <!-- CHIUSURA — staff only, nascosta fino alle 20:00 CDT -->
+      <button id="tabChiusura" data-t="s" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><path d="m9 14 2 2 4-4"/></svg>
+        <span class="text-[10px] tab-label">Closing</span>
+      </button>
+
+      <!-- RICETTE — tutti -->
+      <button data-t="c" class="tab flex flex-col items-center gap-1 w-14 text-slate-500">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span class="text-[10px] tab-label">Recipes</span>
+      </button>
+
+      <!-- INGREDIENTI — solo admin -->
+      <button id="tabIngredients" data-t="i" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+        <span class="text-[10px] tab-label" data-i18n="ingredients">Ingredienti</span>
+      </button>
+
+      <!-- SALES — admin e staff (contenuto diverso) -->
+      <button id="tabSales" data-t="x" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span class="text-[10px] tab-label">Sales</span>
+      </button>
+
+      <!-- SCHEDULE — solo admin -->
+      <button id="tabSchedule" data-t="sched" class="tab flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span class="text-[10px] tab-label">Schedule</span>
+      </button>
+
+      <!-- CHAT — tutti -->
+      <button id="tabChat" onclick="showChat()" class="flex flex-col items-center gap-1 w-14 text-slate-500 relative">
+        <div class="relative">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span id="badge" class="hidden absolute -top-1 -right-2 text-white text-[10px] w-5 h-5 items-center justify-center rounded-full font-bold" style="background:#0a84ff;min-width:18px;"></span>
+        </div>
+        <span class="text-[10px] tab-label">Chat</span>
+      </button>
+
+      <!-- TELL CHEF — solo user, non admin -->
+      <button id="tabTellChef" onclick="openTellChef()" class="flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.63 3.18 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.1a16 16 0 0 0 6 6l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        <span class="text-[10px] tab-label">Tell Chef</span>
+      </button>
+
+      <!-- MENU ••• — solo admin -->
+      <button id="tabMenu" onclick="showAdminMenu()" class="flex flex-col items-center gap-1 w-14 text-slate-500" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="19" r="1.5" fill="currentColor"/></svg>
+        <span class="text-[10px] tab-label">Menu</span>
+      </button>
+
+    </div>
+  </nav>
+
+  <!-- ADMIN MENU TENDINA -->
+  <div id="adminMenuSheet" class="fixed inset-0 z-[60] hidden" style="background:rgba(15,23,42,0.4);touch-action:none;">
+    <div id="adminMenuContent" style="position:absolute;bottom:0;left:0;right:0;max-width:448px;margin:0 auto;background:linear-gradient(160deg,#f0f6ff 0%,#f8faff 100%);border-radius:28px 28px 0 0;padding:16px 14px 32px;box-shadow:0 -8px 40px rgba(30,58,95,0.15);will-change:transform;">
+      <div style="width:36px;height:4px;background:#cbd5e1;border-radius:2px;margin:0 auto 16px;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+
+        <button onclick="hideAdminMenu();document.querySelector('[data-t=m]').click()" class="amenu-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="12" y2="16"/></svg>
+          <span>Prep</span>
+        </button>
+
+        <button onclick="hideAdminMenu();document.querySelector('[data-t=s]').click()" class="amenu-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><path d="m9 14 2 2 4-4"/></svg>
+          <span>Closing</span>
+        </button>
+
+
+
+        <button onclick="hideAdminMenu();document.querySelectorAll('.tab').forEach(x=>{x.classList.remove('tab-active');x.classList.add('text-slate-500')});['vh','vm','vs','vc','vr','vp','vi','vx','vsched'].forEach(id=>{var el=document.getElementById(id);if(el)el.classList.add('hidden')});document.getElementById('vr').classList.remove('hidden');loadReport('today')" class="amenu-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          <span>Report</span>
+        </button>
+
+        <button onclick="hideAdminMenu();showPresenceTab()" class="amenu-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Presenze</span>
+        </button>
+
+        <button onclick="hideAdminMenu();openUserManager()" class="amenu-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span>Users</span>
+        </button>
+
+        <button onclick="hideAdminMenu();openChangePIN()" class="amenu-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <span>PIN</span>
+        </button>
+
+        <button onclick="hideAdminMenu();showSchedule()" class="amenu-btn" style="border:2px solid #dbeafe;background:#eff6ff;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1e3a5f" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span style="color:#1e3a5f;font-weight:700;">Schedule</span>
+        </button>
+
+        <button onclick="openOffice()" class="amenu-btn" style="border:2px solid #dbeafe;background:#eff6ff;position:relative;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1e3a5f" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <span style="color:#1e3a5f;font-weight:700;">L'Ufficio</span>
+          <span id="officeMenuBadge" style="display:none;position:absolute;top:6px;right:6px;background:#ef4444;color:white;border-radius:20px;padding:2px 7px;font-size:11px;font-weight:700;line-height:1.4;"></span>
+        </button>
+
+        <button onclick="openDemoBot()" class="amenu-btn" style="border:2px solid #fde68a;background:#fffbeb;position:relative;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#92400e" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9h.01M15 9h.01M9.5 14.5s1 1.5 2.5 1.5 2.5-1.5 2.5-1.5"/><path d="M8 3l1 3M16 3l-1 3"/></svg>
+          <span style="color:#92400e;font-weight:700;">Demo Bot</span>
+          <span id="demoBotBadge" style="display:none;position:absolute;top:6px;right:6px;background:#22c55e;color:white;border-radius:20px;padding:2px 7px;font-size:11px;font-weight:700;line-height:1.4;">ON</span>
+        </button>
+
+        <button onclick="hideAdminMenu();openChefAISettings()" class="amenu-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+          <span>Chef AI</span>
+        </button>
+
+        <button onclick="hideAdminMenu();openOperationNotes()" class="amenu-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Note brigata</span>
+        </button>
+
+        <button onclick="openTellChefAdmin()" class="amenu-btn" style="border:2px solid #fef3c7;background:#fffbeb;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.63 3.18 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.1a16 16 0 0 0 6 6l .91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          <span style="color:#f59e0b;">Tell Chef</span>
+        </button>
+
+        <button onclick="hideAdminMenu();openAnnouncements()" class="amenu-btn" style="border:2px solid #fde68a;background:#fffbeb;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="1.8" stroke-linecap="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6.002 6.002 0 0 0-4-5.659V5a2 2 0 1 0-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 1 1-6 0v-1m6 0H9"/></svg>
+          <span style="color:#d97706;font-weight:700;">Announce</span>
+        </button>
+
+        <button onclick="toggleKitchenDisplay()" id="tvToggleBtn" class="amenu-btn" style="border:2px solid #e0f2fe;background:#f0f9ff;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <span id="tvToggleLabel" style="color:#0ea5e9;">TV ●</span>
+        </button>
+
+
+
+        <button onclick="showCalendar()" class="amenu-btn" style="border:1.5px solid #dbeafe;background:#eff6ff;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span style="color:#2563eb;">Calendar</span>
+        </button>
+
+        <button onclick="openStaffManager()" class="amenu-btn" style="border:1.5px solid #d1fae5;background:#ecfdf5;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span style="color:#059669;font-weight:700;">Staff</span>
+        </button>
+
+        <button onclick="openClosedDates()" class="amenu-btn" style="border:1.5px solid #fce7f3;background:#fdf2f8;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#db2777" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="12" y1="14" x2="12" y2="18"/><line x1="10" y1="16" x2="14" y2="16"/></svg>
+          <span style="color:#db2777;font-weight:700;">Closed</span>
+        </button>
+
+        <button onclick="openBotDebug()" class="amenu-btn" style="border:1.5px solid #e0e7ff;background:#eef2ff;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="1.8" stroke-linecap="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"/></svg>
+          <span style="color:#4f46e5;font-weight:700;">Bot Debug</span>
+        </button>
+
+        <button onclick="hideAdminMenu();openMappingControlRoom()" class="amenu-btn" style="border:1.5px solid #d1fae5;background:#ecfdf5;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
+          <span style="color:#059669;font-weight:700;">Mapping</span>
+        </button>
+
+        <!-- Logout — rosso, in fondo -->
+        <button onclick="hideAdminMenu();user=null;location.reload()" class="amenu-btn amenu-logout">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <span>Logout</span>
+        </button>
+
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .amenu-btn {
+      display:flex;flex-direction:column;align-items:center;gap:7px;
+      padding:14px 8px;border-radius:14px;background:white;
+      border:0.5px solid rgba(59,130,246,0.1);cursor:pointer;font-size:11px;
+      font-weight:500;color:#1e3a5f;font-family:inherit;
+      box-shadow:0 2px 8px rgba(30,58,95,0.07),0 4px 12px rgba(30,58,95,0.05);
+      transition:transform .12s;-webkit-tap-highlight-color:transparent;
+    }
+    .amenu-btn:active { transform:scale(0.95); }
+    .amenu-logout { color:#ef4444; background:#fff5f5; border-color:rgba(239,68,68,0.15); }
+  </style>
+
+</div>
+
+
+<script src="../js/utils.js"></script>
+<script src="../js/news.js"></script>
+<script src="../js/app.js"></script>
+<script>
+// Greeting dinamico basato sull'ora (CDT)
+(function(){
+  var el = document.getElementById('topbarGreeting');
+  if(!el) return;
+  var h = new Date().toLocaleString('en-US',{timeZone:'America/Chicago',hour:'numeric',hour12:false});
+  h = parseInt(h);
+  if(h>=5 && h<12) el.textContent='Good morning,';
+  else if(h>=12 && h<17) el.textContent='Good afternoon,';
+  else if(h>=17 && h<21) el.textContent='Good evening,';
+  else el.textContent='Good night,';
+})();
+</script>
+<script src="../js/briefing.js"></script>
+<script src="../js/init.js"></script>
+<script src="../js/admin.js"></script>
+<script src="../js/tell-chef.js"></script>
+<script src="../js/admin-prep.js"></script>
+<script src="../js/admin-ingredients.js"></script>
+<script src="../js/admin-chef-ai.js"></script>
+<script src="../js/prep.js"></script>
+<script src="../js/closing.js"></script>
+<script src="../js/recipe-modal.js"></script>
+<script src="../js/recipes.js"></script>
+<script src="../js/chat.js"></script>
+<script src="../js/presence.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/push.js"></script>
+<script src="../js/souschef-core.js"></script>
+<script src="../js/souschef-voice.js"></script>
+<script src="../js/souschef-scan.js"></script>
+<script src="../js/souschef-warnings.js"></script>
+<script src="../js/souschef-chat.js"></script>
+  <script src="../js/vendor-parser-ui.js"></script>
+<script src="../js/invoice.js"></script>
+<script src="../js/ingredients.js"></script>
+<script src="../js/pos.js"></script>
+<script src="../js/focus-mode.js"></script>
+<script src="../js/calendar.js"></script>
+<script src="../js/office.js"></script>
+<script src="../js/mapping-control-room.js"></script>
+<script src="../js/demo-bot.js"></script>
+<script src="../js/schedule.js"></script>
+<script src="../js/staff-manager.js"></script>
+<script>if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js')}</script>
+<script>
+// App version — single source of truth: CACHE_NAME in sw.js (boh-vNN).
+// Bumped on every deploy; label and title update automatically.
+fetch('sw.js?nocache=' + Date.now())
+  .then(r => r.text())
+  .then(t => {
+    const m = t.match(/boh-v(\d+)/);
+    if (!m) return;
+    const v = 'v' + m[1];
+    const el = document.getElementById('appVersion');
+    if (el) el.textContent = v;
+    const elPin = document.getElementById('appVersionPin');
+    if (elPin) elPin.textContent = v;
+    document.title = 'Brigade — ' + v;
+  })
+  .catch(() => {});
+</script>
+<script>
+async function toggleKitchenDisplay() {
+  try {
+    var res = await supa.from('settings').select('value').eq('key','display_active').maybeSingle();
+    var current = !res.data || res.data.value === 'true';
+    var newVal = current ? 'false' : 'true';
+    var user = window.currentUser || {};
+    await supa.from('settings').upsert({key:'display_active', value:newVal, updated_by: user.name||'admin', updated_at: new Date().toISOString()});
+    updateTVButtonState(newVal === 'true');
+    if (typeof showToast === 'function') showToast(newVal === 'true' ? 'TV Display enabled' : 'TV Display disabled');
+  } catch(e) {
+    if (typeof showToast === 'function') showToast('Error toggling display');
+  }
+}
+
+function updateTVButtonState(active) {
+  var label = document.getElementById('tvToggleLabel');
+  var btn = document.getElementById('tvToggleBtn');
+  if (!label || !btn) return;
+  if (active) {
+    label.textContent = 'TV ON'; label.style.color='#0ea5e9';
+    btn.style.background='#f0f9ff'; btn.style.borderColor='#e0f2fe';
+  } else {
+    label.textContent = 'TV OFF'; label.style.color='#ef4444';
+    btn.style.background='#fff1f2'; btn.style.borderColor='#fecdd3';
+  }
+}
+</script>
+</html>
+
+
+
+
+
+
+
+
+
+
+
