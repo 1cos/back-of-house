@@ -104,11 +104,10 @@ window.openBotDebug = async function(){
 window.runBotSim = async function(){
   const btn = document.getElementById('botSimRunBtn');
   const body = document.getElementById('botDebugBody');
-  if(btn) { btn.disabled=true; btn.textContent='⏳ Calcolo...'; }
+  if(btn) { btn.disabled=true; btn.textContent='Calcolo...'; }
   if(body) body.innerHTML = '<div style="color:#64748b;padding:20px;text-align:center;">Simulazione in corso...</div>';
 
   try {
-    // 1. Triggera la Edge Function di simulazione
     const SUPA_URL = 'https://ydqmumpytgrlceuinoqt.supabase.co';
     const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxNDM5NzgsImV4cCI6MjA2NDcxOTk3OH0.RB5vYE3gJjH7gJy01Gh-eLQixanVX6cLc0disc8-bJs';
 
@@ -120,89 +119,151 @@ window.runBotSim = async function(){
     const simData = await simRes.json();
     if (!simRes.ok || simData.error) throw new Error(simData.error || 'Errore simulazione');
 
-    // 2. Leggi risultati da bot_debug_runs
     const { data: rows, error } = await supa
       .from('bot_debug_runs')
       .select('*')
       .eq('sim_date', simData.sim_date)
-      .order('pill', { ascending: true })  // red prima
+      .order('pill', { ascending: true })
       .order('task_name');
     if (error) throw error;
 
-    // 3. Render tabella
-    const thS = 'padding:7px 8px;background:#f8fafc;font-size:11px;font-weight:700;color:#64748b;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap;';
-    const tdS = 'padding:6px 8px;border-bottom:1px solid #f1f5f9;font-size:12px;vertical-align:top;';
-
-    const pillEmoji = p => p==='red'?'🔴':p==='yellow'?'🟡':'🟢';
-
-    const thead = '<tr>'
-      + `<th style="${thS}">Prep</th>`
-      + `<th style="${thS}">Stock reale</th>`
-      + `<th style="${thS}">Venduto ieri</th>`
-      + `<th style="${thS}">Stock presunto</th>`
-      + `<th style="${thS}">Finestra (${rows[0]?.shelf_life_days||'?'}gg cal)</th>`
-      + `<th style="${thS}">Fabbisogno</th>`
-      + `<th style="${thS}">Suggestion</th>`
-      + `<th style="${thS}">Percorso</th>`
-      + '</tr>';
+    window._botSimMeta = { date: simData.sim_date, time: new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}), red: simData.red, yellow: simData.yellow, green: simData.green, total: rows.length };
+    window._botSimRows = rows;
+    const printBtn = document.getElementById('botSimPrintBtn');
+    if(printBtn) printBtn.style.display = 'inline-block';
 
     const fmtN = (n, unit) => {
       if(n===null||n===undefined) return '—';
       const v = parseFloat(n);
       if(isNaN(v)) return '—';
-      const u_lower = (unit||'').toLowerCase();
-      const isPz = ['pezzi','pz','nests','buste','cartocci','cup'].includes(u_lower);
-      if(isPz) {
-        const num = v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
-        // Mostra unità esplicita per unità non-generiche (nests, cup, buste, cartocci)
-        const showUnit = ['nests','cup','buste','cartocci'].includes(u_lower);
-        return showUnit ? num + ' ' + unit : num;
+      const u = (unit||'').toLowerCase();
+      const isPhys = ['pezzi','pz','nests','buste','cartocci','cup'].includes(u);
+      if(isPhys){
+        const num = v%1===0 ? String(Math.round(v)) : v.toFixed(1);
+        const showUnit = ['nests','cup','buste','cartocci'].includes(u);
+        return showUnit ? num+' '+unit : num;
       }
-      return v >= 1000 ? (v/1000).toFixed(1).replace(/\.0$/,'')+'kg' : Math.round(v)+'g';
+      return v>=1000 ? (v/1000).toFixed(1).replace(/\.0$/,'')+'kg' : Math.round(v)+'g';
     };
 
-    const tbody = (rows||[]).map(r => {
-      const isRed = r.pill === 'red';
-      const rowBg = isRed ? 'background:#fff5f5;' : r.pill==='yellow' ? 'background:#fffbeb;' : '';
-      return `<tr style="${rowBg}">
-        <td style="${tdS}font-weight:600;color:#1e3a5f;">${pillEmoji(r.pill)} ${escHtml(r.task_name||'')}<br><span style="font-size:10px;color:#94a3b8;font-weight:400;">${escHtml(r.category||'')}</span></td>
-        <td style="${tdS}text-align:right;">${fmtN(r.current_stock, r.unit)}</td>
-        <td style="${tdS}text-align:right;color:${r.sold_yesterday?'#dc2626':'#94a3b8'};">${r.sold_yesterday ? '-'+fmtN(r.sold_yesterday,r.unit) : '—'}</td>
-        <td style="${tdS}text-align:right;font-weight:600;">${fmtN(r.stock_presunto,r.unit)}</td>
-        <td style="${tdS}font-size:10px;color:#64748b;white-space:normal;max-width:160px;">${escHtml(r.cover_days_list||'—')}</td>
-        <td style="${tdS}text-align:right;">${fmtN(r.fabbisogno_raw,r.unit)}</td>
-        <td style="${tdS}font-weight:700;color:${isRed?'#dc2626':r.pill==='yellow'?'#d97706':'#059669'};">${escHtml(r.suggestion_text||'—')}</td>
-        <td style="${tdS}font-size:10px;color:#64748b;white-space:normal;max-width:200px;">${escHtml(r.percorso||'')}</td>
-      </tr>`;
+    const pillColor = p => p==='red'?'#ef4444':p==='yellow'?'#d97706':'#16a34a';
+    const pillBg    = p => p==='red'?'#fef2f2':p==='yellow'?'#fefce8':'#f0fdf4';
+    const pillBdr   = p => p==='red'?'#fecaca':p==='yellow'?'#fde68a':'#bbf7d0';
+    const pillDot   = p => p==='red'?'#ef4444':p==='yellow'?'#f59e0b':'#22c55e';
+    const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    // Barra di copertura: 0-7 giorni = 0-100%
+    const coverBar = (days) => {
+      if(days===null||days===undefined) return '';
+      const pct = Math.min(100, Math.round((parseFloat(days)||0) / 7 * 100));
+      const col = pct < 30 ? '#ef4444' : pct < 60 ? '#f59e0b' : '#22c55e';
+      return `<div style="margin-top:6px;height:4px;background:#e2e8f0;border-radius:99px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:${col};border-radius:99px;transition:width 0.3s;"></div>
+      </div>
+      <div style="font-size:10px;color:#94a3b8;margin-top:2px;">${parseFloat(days).toFixed(1)} giorni</div>`;
+    };
+
+    // Fonte finestra di pianificazione — ricavata dal percorso
+    const windowSource = (percorso) => {
+      if(!percorso) return null;
+      if(percorso.includes('expected_duration_days')) return 'expected_duration_days';
+      if(percorso.includes('shelf_life fallback')||percorso.includes('shelf_life')) return 'shelf_life (fallback)';
+      if(percorso.includes('prep_frequency')) return 'prep_frequency (fallback)';
+      if(percorso.includes('default 3')||percorso.includes('default:3')) return 'default 3 giorni';
+      return null;
+    };
+
+    const cards = rows.map((r, i) => {
+      const p = r.pill || 'green';
+      const cardId = 'bdc_'+i;
+      const days = r.cover_days_count;
+      const src = windowSource(r.percorso);
+
+      // Azione collapsed
+      let actionText = '';
+      if(p==='red') actionText = r.suggested_qty ? `Prepara oggi: ${fmtN(r.suggested_qty, r.unit)}` : 'Prepara oggi';
+      else if(p==='yellow') actionText = r.suggested_qty ? `Prepara presto: ${fmtN(r.suggested_qty, r.unit)}` : 'Prepara presto';
+      else actionText = 'Sei coperto';
+
+      // Coverage label
+      let coverLabel = '';
+      if(r.stock_presunto!==null&&r.stock_presunto!==undefined) {
+        coverLabel = `Stock DB: ${fmtN(r.current_stock, r.unit)}`;
+        if(r.cover_days_list) {
+          const lastDay = r.cover_days_list.split(',').pop().trim();
+          if(lastDay) coverLabel += ` \u00b7 arrivi a ${lastDay}`;
+        }
+      }
+
+      return `<div style="background:${pillBg(p)};border:1.5px solid ${pillBdr(p)};border-radius:14px;margin-bottom:8px;overflow:hidden;">
+        <div onclick="window._bdToggle('${cardId}')" style="padding:12px 14px;cursor:pointer;display:flex;align-items:flex-start;gap:10px;">
+          <div style="width:10px;height:10px;border-radius:50%;background:${pillDot(p)};margin-top:5px;flex-shrink:0;"></div>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+              <span style="font-size:15px;font-weight:700;color:#0f172a;">${esc(r.task_name)}</span>
+              <span style="font-size:11px;color:#64748b;font-weight:500;flex-shrink:0;">${esc(r.category||'')}</span>
+            </div>
+            <div style="font-size:12px;color:#475569;margin-top:2px;">${esc(coverLabel)}</div>
+            <div style="font-size:13px;font-weight:700;color:${pillColor(p)};margin-top:3px;">${esc(actionText)}</div>
+            ${coverBar(days)}
+          </div>
+          <div style="font-size:18px;color:#94a3b8;flex-shrink:0;transition:transform 0.2s;" id="${cardId}_arrow">&#8250;</div>
+        </div>
+        <div id="${cardId}" style="display:none;padding:0 14px 14px 34px;border-top:1px solid ${pillBdr(p)};">
+          <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin:10px 0 8px;">Perche il bot dice questo</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;">
+            ${_bdRow('Stock DB', fmtN(r.current_stock, r.unit))}
+            ${_bdRow('Venduto ieri', r.sold_yesterday ? '-'+fmtN(r.sold_yesterday, r.unit) : '—')}
+            ${_bdRow('Stock presunto', fmtN(r.stock_presunto, r.unit))}
+            ${_bdRow('Fabbisogno', fmtN(r.fabbisogno_raw, r.unit))}
+            ${_bdRow('Manca', r.needed && parseFloat(r.needed) > 0 ? fmtN(r.needed, r.unit) : '—')}
+            ${_bdRow('Giorni da coprire', r.cover_days_count !== null ? r.cover_days_count+' gg' : '—')}
+            ${src ? _bdRow('Fonte giorni', src) : ''}
+            ${_bdRow('Shelf life', r.shelf_life_days ? r.shelf_life_days+' gg' : '—')}
+            ${r.cover_days_list ? _bdRow('Giorni aperti', esc(r.cover_days_list)) : ''}
+            ${_bdRow('Suggested qty', r.suggested_qty !== null ? fmtN(r.suggested_qty, r.unit) : '—')}
+            ${r.pack_label ? _bdRow('Pack / batch', esc(r.pack_label)) : ''}
+          </div>
+          ${r.percorso ? `<div style="margin-top:8px;padding:8px 10px;background:rgba(0,0,0,0.04);border-radius:8px;font-size:10px;color:#64748b;line-height:1.5;">${esc(r.percorso)}</div>` : ''}
+        </div>
+      </div>`;
     }).join('');
 
     const nowStr = new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
-    // Salva dati sim per stampa
-    window._botSimMeta = { date: simData.sim_date, time: nowStr, red: simData.red, yellow: simData.yellow, green: simData.green, total: rows.length };
-    window._botSimRows = rows;
-    const printBtn = document.getElementById('botSimPrintBtn');
-    if(printBtn) printBtn.style.display = 'inline-block';
     if(body) body.innerHTML = `
-      <div style="font-size:12px;color:#64748b;margin-bottom:10px;">
-        Simulazione del <b>${simData.sim_date}</b> — aggiornata alle ${nowStr} —
-        🔴 ${simData.red} · 🟡 ${simData.yellow} · 🟢 ${simData.green} su ${rows.length} task
+      <div style="font-size:12px;color:#64748b;margin-bottom:12px;padding:8px 10px;background:#f8fafc;border-radius:8px;">
+        Sim <b>${simData.sim_date}</b> \u00b7 aggiornata ${nowStr} \u00b7
+        <span style="color:#ef4444;">&#9679; ${simData.red}</span>
+        <span style="color:#f59e0b;margin-left:6px;">&#9679; ${simData.yellow}</span>
+        <span style="color:#22c55e;margin-left:6px;">&#9679; ${simData.green}</span>
+        <span style="color:#94a3b8;margin-left:6px;">${rows.length} task</span>
+        <span style="font-size:10px;color:#cbd5e1;margin-left:8px;">Tap card per dettaglio</span>
       </div>
-      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
-        <table style="width:100%;border-collapse:collapse;min-width:800px;">
-          <thead>${thead}</thead>
-          <tbody>${tbody}</tbody>
-        </table>
-      </div>
-      <div style="margin-top:10px;font-size:10px;color:#94a3b8;">
-        Stock reale non toccato · Scarico presunto = stima venduto ieri · Finestra = shelf life in calendar days
-      </div>`;
+      <div id="botCardList">${cards}</div>`;
 
   } catch(err) {
-    if(body) body.innerHTML = `<div style="color:#ef4444;padding:16px;">Errore: ${err.message}</div>`;
+    if(body) body.innerHTML = `<div style="color:#ef4444;padding:16px;">Errore: ${escHtml(err.message)}</div>`;
   } finally {
-    if(btn) { btn.disabled=false; btn.textContent='▶ Aggiorna simulazione'; }
+    if(btn) { btn.disabled=false; btn.textContent='\u25b6 Aggiorna simulazione'; }
   }
 };
+
+// Helper riga expanded
+function _bdRow(label, value) {
+  if(!value || value==='—') return `<div style="padding:3px 0;"><span style="font-size:10px;color:#94a3b8;">${label}</span><div style="font-size:12px;color:#64748b;">—</div></div>`;
+  return `<div style="padding:3px 0;"><span style="font-size:10px;color:#94a3b8;">${label}</span><div style="font-size:12px;font-weight:600;color:#1e3a5f;">${value}</div></div>`;
+}
+
+// Toggle card expanded/collapsed
+window._bdToggle = function(id) {
+  const el = document.getElementById(id);
+  const arrow = document.getElementById(id+'_arrow');
+  if(!el) return;
+  const open = el.style.display === 'block';
+  el.style.display = open ? 'none' : 'block';
+  if(arrow) arrow.style.transform = open ? '' : 'rotate(90deg)';
+};
+
 
 window.printBotSim = function() {
   const meta = window._botSimMeta;
@@ -319,4 +380,5 @@ window.botSimShare = async function() {
   }
   window.print();
 };
+
 
