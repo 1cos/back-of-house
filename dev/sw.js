@@ -1,6 +1,6 @@
-const CACHE_NAME = 'boh-dev-v1';
+const CACHE_NAME = 'boh-dev-v2';
 // Dev environment — scope: /back-of-house/dev/
-// Non interferisce con sw.js di root (boh-v541)
+// Non interferisce con sw.js di root
 
 self.addEventListener('install', e => {
   self.skipWaiting();
