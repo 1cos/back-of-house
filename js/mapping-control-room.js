@@ -917,24 +917,35 @@ window.mcrDetectProblems = function ({ prepTasks, recipes, ingredients, bom, pos
   });
 
   // B8: alias points to a name that matches both an ingredient AND a recipe
+  // Exception: if the ingredient is used ONLY inside the BOM of its own namesake recipe
+  // (e.g. "Asparagus" ingredient inside recipe "Asparagus" BOM) — that is correct by design.
   const recipeNames = new Set((recipes || []).map(r => r.title?.toLowerCase()).filter(Boolean));
   const ingNames = new Set((ingredients || []).map(i => i.name?.toLowerCase()).filter(Boolean));
   const collisions = [...recipeNames].filter(n => ingNames.has(n));
   collisions.forEach(name => {
     const rec = recipeByTitle[name];
     const ing = ingByName[name];
+    if (!rec || !ing) return;
+    // Find all BOM rows that use this ingredient as ITEM
+    const ingBomRows = (bom || []).filter(b => b.component_type === 'ITEM' && b.item_id === ing.id);
+    // If every BOM row is inside the recipe with the same name → legitimate raw material, skip
+    const allInsideOwnRecipe = ingBomRows.length > 0 && ingBomRows.every(b => b.parent_recipe_id === rec.id);
+    if (allInsideOwnRecipe) return;
     problems.push({
       id: `name-collision-${name.replace(/\s+/g, '-')}`,
       name: name,
       type: 'recipe',
-      station: '—',
-      severity: 'red',
+      station: '\u2014',
+      severity: ingBomRows.length === 0 ? 'yellow' : 'red',
       problemType: 'alias-ingredient-recipe-collision',
       explanation: `"${name}" exists as both a Recipe (${rec?.id?.slice(0,8)}) and an Ingredient (${ing?.id?.slice(0,8)}). BOM rows linking either may be ambiguous.`,
-      suggestedFix: 'Rename the ingredient (add "raw" prefix) or archive whichever is no longer used directly.',
-      detail: { recipe: rec, ingredient: ing },
+      suggestedFix: ingBomRows.length === 0
+        ? 'Ingredient not used in any BOM — archive it (active=false) to remove this warning.'
+        : 'Check BOM rows: ingredient is used outside its own recipe. Convert to sub-recipe or rename ingredient.',
+      detail: { recipe: rec, ingredient: ing, bomRows: ingBomRows },
     });
   });
+
 
   // B9: Prep has bot suggestion (suggested_at within last 3 days) but suggested_qty is null or 0
   const threeDaysAgo = new Date(Date.now() - 3 * 864e5).toISOString();
