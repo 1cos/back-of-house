@@ -4,6 +4,8 @@
 const CAL_LOCATIONS = ['Zenos', 'La Scuderia', 'Private Home'];
 const CAL_SERVICE_STYLES = ['Al Piatto', 'Buffet', 'Family Style', 'Cocktail'];
 const CAL_STATUSES = ['confirmed', 'tentative', 'cancelled'];
+// TripleSeat statuses (read-only display, not editable via UI)
+// definite, prospect — imported from TripleSeat
 
 let _calEvents = [];
 let _calFilter = 'upcoming';
@@ -137,8 +139,8 @@ function _calCard(e) {
   const isToday = e.event_date === today;
   const isAdm = typeof isAdmin === 'function' && isAdmin();
 
-  const statusColor = { confirmed:'#059669', tentative:'#f59e0b', cancelled:'#ef4444' }[e.status] || '#94a3b8';
-  const statusBg    = { confirmed:'#f0fdf4', tentative:'#fffbeb', cancelled:'#fff5f5' }[e.status] || '#f8fafc';
+  const statusColor = { confirmed:'#059669', definite:'#059669', tentative:'#f59e0b', prospect:'#8b5cf6', cancelled:'#ef4444' }[e.status] || '#94a3b8';
+  const statusBg    = { confirmed:'#f0fdf4', definite:'#f0fdf4', tentative:'#fffbeb', prospect:'#f5f3ff', cancelled:'#fff5f5' }[e.status] || '#f8fafc';
 
   let timeStr = '';
   if (e.event_time) {
@@ -167,8 +169,8 @@ function _calCard(e) {
 
   // Food cost — solo admin
   let fcHtml = '';
-  if (isAdm && e.total_food_cost) {
-    fcHtml = `<div style="margin-top:6px;font-size:11px;font-weight:600;color:#059669;">Food Cost: $${parseFloat(e.total_food_cost).toFixed(2)}</div>`;
+  if (isAdm && e.total_amount) {
+    fcHtml = `<div style="margin-top:6px;font-size:11px;font-weight:600;color:#059669;">Total: $${parseFloat(e.total_amount).toFixed(2)}</div>`;
   }
 
   // Edit button — solo admin
@@ -536,7 +538,6 @@ function openEventEditor(ev = null) {
       service_style: sheet.querySelector('#evService').value || null,
       status:        sheet.querySelector('#evStatus').value || 'confirmed',
       notes:         sheet.querySelector('#evNotes').value.trim() || null,
-      chef_notes:    sheet.querySelector('#evChefNotes').value.trim() || null,
       event_recipes,
       source:        (isEdit && ev && ev.source === 'tripleseat') ? 'tripleseat' : 'manual',
       updated_at:    new Date().toISOString()
