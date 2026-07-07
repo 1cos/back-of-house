@@ -226,6 +226,22 @@ async function officeLoadHome() {
         '</div>';
       botBtn.addEventListener('click', function() { officeBotCenter(); });
       container.appendChild(botBtn);
+
+      // ── LA DISPENSA ──
+      var dispensaBtn = document.createElement('div');
+      dispensaBtn.style.cssText = 'background:linear-gradient(135deg,rgba(5,150,105,0.95) 0%,rgba(4,120,87,0.95) 100%);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(255,255,255,0.15);border-radius:18px;cursor:pointer;overflow:hidden;box-shadow:0 2px 12px rgba(5,150,105,0.3);-webkit-tap-highlight-color:transparent;margin-top:10px;';
+      dispensaBtn.innerHTML =
+        '<div style="display:flex;align-items:center;padding:14px 16px;gap:12px;">' +
+          '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:46px;flex-shrink:0;background:rgba(255,255,255,0.4);"></div>' +
+          '<div style="font-size:26px;width:32px;text-align:center;">\U0001F6D2</div>' +
+          '<div style="flex:1;">' +
+            '<div style="color:white;font-size:16px;font-weight:600;">La Dispensa</div>' +
+            '<div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:3px;">Snapshot POS · Read-only</div>' +
+          '</div>' +
+          '<span style="color:rgba(255,255,255,0.4);font-size:18px;">&#x203A;</span>' +
+        '</div>';
+      dispensaBtn.addEventListener('click', function() { openLaDispensa(); });
+      container.appendChild(dispensaBtn);
     }
 
   } catch(e) {
@@ -4509,3 +4525,381 @@ window.jarvisAnalyze = async function(itemId) {
     if (typeof showScToast === 'function') showScToast('Chef AI error: ' + e.message);
   }
 };
+
+// ════════════════════════════════════════════════════════════════
+// LA DISPENSA — Sprint 6 — Read-only POS snapshot viewer
+// ════════════════════════════════════════════════════════════════
+
+window.openLaDispensa = function() {
+  var existing = document.getElementById('dispensaPanel');
+  if (existing) existing.remove();
+
+  var panel = document.createElement('div');
+  panel.id = 'dispensaPanel';
+  panel.style.cssText = [
+    'position:fixed;top:0;left:50%;transform:translateX(-50%) translateY(100%);',
+    'width:100%;max-width:480px;height:100vh;z-index:500;',
+    'background:#0f2417;',
+    'display:flex;flex-direction:column;overflow:hidden;',
+    'font-family:Inter,system-ui,sans-serif;',
+    'transition:transform 0.4s cubic-bezier(0.4,0,0.2,1);'
+  ].join('');
+
+  panel.innerHTML =
+    '<div style="width:40px;height:5px;background:rgba(255,255,255,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
+    // Header
+    '<div style="background:rgba(5,150,105,0.15);border-bottom:0.5px solid rgba(16,185,129,0.2);padding:12px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;">' +
+      '<button onclick="document.getElementById(\'dispensaPanel\')?.remove();" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.15);color:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&#8592;</button>' +
+      '<div style="flex:1;">' +
+        '<div style="font-size:19px;font-weight:700;color:white;">🏪 La Dispensa</div>' +
+        '<div style="font-size:11px;color:rgba(16,185,129,0.7);margin-top:1px;">Snapshot POS giornaliero — read-only</div>' +
+      '</div>' +
+      // Date picker
+      '<input type="date" id="dispensaDate" style="background:rgba(255,255,255,0.08);border:0.5px solid rgba(16,185,129,0.3);border-radius:8px;color:white;font-size:13px;padding:6px 8px;cursor:pointer;" />' +
+    '</div>' +
+    // Safety banner
+    '<div style="background:rgba(245,158,11,0.12);border-bottom:0.5px solid rgba(245,158,11,0.2);padding:8px 16px;font-size:11px;color:rgba(245,158,11,0.9);flex-shrink:0;display:flex;align-items:center;gap:6px;">' +
+      '<span>⚠️</span><span>Read-only snapshot. POS-based deductions only. Stock not updated yet.</span>' +
+    '</div>' +
+    // Summary cards row
+    '<div id="dispensaSummary" style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0;border-bottom:0.5px solid rgba(255,255,255,0.06);"></div>' +
+    // Tab bar
+    '<div style="display:flex;border-bottom:0.5px solid rgba(255,255,255,0.08);flex-shrink:0;">' +
+      '<button onclick="dispensaTab(\'cucina\')" id="dtab-cucina" style="flex:1;padding:10px 4px;background:none;border:none;color:rgba(16,185,129,0.9);font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid #10b981;">🥘 Cucina</button>' +
+      '<button onclick="dispensaTab(\'magazzino\')" id="dtab-magazzino" style="flex:1;padding:10px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">📦 Magazzino</button>' +
+      '<button onclick="dispensaTab(\'commis\')" id="dtab-commis" style="flex:1;padding:10px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">⚠️ Commis</button>' +
+      '<button onclick="dispensaTab(\'esploso\')" id="dtab-esploso" style="flex:1;padding:10px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">🧾 Esploso</button>' +
+    '</div>' +
+    // Content area
+    '<div id="dispensaContent" style="flex:1;overflow-y:auto;padding:0 0 80px;-webkit-overflow-scrolling:touch;">' +
+      '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Caricamento...</div>' +
+    '</div>';
+
+  document.body.appendChild(panel);
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() { panel.style.transform = 'translateX(-50%) translateY(0)'; });
+  });
+
+  // Swipe-to-close
+  var startY = 0;
+  panel.addEventListener('touchstart', function(e) { startY = e.touches[0].clientY; }, { passive:true });
+  panel.addEventListener('touchmove', function(e) {
+    var dy = e.touches[0].clientY - startY;
+    if (dy > 40) { panel.style.transition='none'; panel.style.transform='translateX(-50%) translateY('+dy+'px)'; }
+  }, { passive:true });
+  panel.addEventListener('touchend', function(e) {
+    var dy = e.changedTouches[0].clientY - startY;
+    if (dy > 120) {
+      panel.style.transition='transform 0.35s cubic-bezier(0.4,0,0.2,1)';
+      panel.style.transform='translateX(-50%) translateY(100%)';
+      setTimeout(function(){ panel.remove(); }, 360);
+    } else {
+      panel.style.transition='transform 0.3s cubic-bezier(0.4,0,0.2,1)';
+      panel.style.transform='translateX(-50%) translateY(0)';
+    }
+  }, { passive:true });
+
+  // Load latest date, then render
+  dispensaInit();
+};
+
+// ── Internal state ──
+window._dispensaCurrentTab = 'cucina';
+window._dispensaCurrentDate = null;
+window._dispensaSelectedItem = null;
+
+async function dispensaInit() {
+  var sb = window.supa;
+  if (!sb) return;
+  try {
+    // Get latest available date
+    var r = await sb.from('stock_daily_snapshot')
+      .select('business_date')
+      .order('business_date', { ascending: false })
+      .limit(1);
+    var latestDate = (r.data && r.data[0]) ? r.data[0].business_date : new Date().toISOString().split('T')[0];
+    window._dispensaCurrentDate = latestDate;
+
+    var datePicker = document.getElementById('dispensaDate');
+    if (datePicker) {
+      datePicker.value = latestDate;
+      datePicker.addEventListener('change', function() {
+        window._dispensaCurrentDate = this.value;
+        dispensaLoadAll();
+      });
+    }
+    await dispensaLoadAll();
+  } catch(e) {
+    dispensaShowError(e.message);
+  }
+}
+
+async function dispensaLoadAll() {
+  var d = window._dispensaCurrentDate;
+  if (!d) return;
+  var sb = window.supa;
+  if (!sb) return;
+
+  // Show loading
+  var content = document.getElementById('dispensaContent');
+  if (content) content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Caricamento...</div>';
+
+  try {
+    // Load all data in parallel
+    var [snapRes, commisRes, botRunRes] = await Promise.all([
+      sb.from('stock_daily_snapshot').select('*').eq('business_date', d).order('pos_deducted_qty', { ascending: false }),
+      sb.from('commis_observations').select('*')
+        .eq('business_date', d)
+        .in('bot_name', ['bot-pos-cleaner','bot-direct-deduction','bot-bom-chain-deduction','bot-stock-consolidator'])
+        .order('severity', { ascending: false }),
+      sb.from('bot_runs').select('bot_name,status,rows_read,rows_written,warnings_count,summary,finished_at')
+        .eq('run_date', d)
+        .in('bot_name', ['pos-cleaner','bot-direct-deduction','bot-bom-chain-deduction','bot-stock-consolidator'])
+        .order('finished_at', { ascending: false })
+    ]);
+
+    window._dispensaSnap = snapRes.data || [];
+    window._dispensaCommis = commisRes.data || [];
+    window._dispensaBotRuns = botRunRes.data || [];
+
+    dispensaRenderSummary();
+    dispensaTab(window._dispensaCurrentTab);
+  } catch(e) {
+    dispensaShowError(e.message);
+  }
+}
+
+function dispensaRenderSummary() {
+  var snap = window._dispensaSnap || [];
+  var commis = window._dispensaCommis || [];
+  var runs = window._dispensaBotRuns || [];
+
+  var prepRows = snap.filter(function(r){ return r.item_type === 'prep'; }).length;
+  var ingRows = snap.filter(function(r){ return r.item_type === 'ingredient'; }).length;
+  var warnRows = snap.filter(function(r){ return r.status === 'warning'; }).length;
+  var totalDeducted = snap.reduce(function(a, r) {
+    return a + (r.item_type === 'prep' && (r.unit === 'g' || !r.unit) ? parseFloat(r.pos_deducted_qty||0) : 0);
+  }, 0);
+
+  // Bot runs: find latest consolidator status
+  var consRun = runs.find(function(r){ return r.bot_name === 'bot-stock-consolidator'; });
+  var pipelineStatus = consRun ? consRun.status : 'no run';
+  var pipelineColor = pipelineStatus === 'success' ? '#10b981' : pipelineStatus === 'error' ? '#ef4444' : '#f59e0b';
+
+  var el = document.getElementById('dispensaSummary');
+  if (!el) return;
+
+  function card(label, value, color) {
+    return '<div style="flex:1;min-width:70px;background:rgba(255,255,255,0.05);border-radius:10px;padding:8px 10px;text-align:center;">' +
+      '<div style="font-size:18px;font-weight:700;color:' + color + ';">' + value + '</div>' +
+      '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;">' + label + '</div>' +
+    '</div>';
+  }
+
+  el.innerHTML =
+    card('Prep', prepRows, '#10b981') +
+    card('Ingredienti', ingRows, '#60a5fa') +
+    card('Warning', warnRows, warnRows > 0 ? '#f59e0b' : '#6b7280') +
+    card('Pipeline', pipelineStatus, pipelineColor);
+}
+
+window.dispensaTab = function(tab) {
+  window._dispensaCurrentTab = tab;
+  // Update tab styles
+  ['cucina','magazzino','commis','esploso'].forEach(function(t) {
+    var btn = document.getElementById('dtab-' + t);
+    if (!btn) return;
+    if (t === tab) {
+      btn.style.color = 'rgba(16,185,129,0.9)';
+      btn.style.borderBottom = '2px solid #10b981';
+      btn.style.fontWeight = '600';
+    } else {
+      btn.style.color = 'rgba(255,255,255,0.4)';
+      btn.style.borderBottom = '2px solid transparent';
+      btn.style.fontWeight = '500';
+    }
+  });
+
+  var content = document.getElementById('dispensaContent');
+  if (!content) return;
+
+  if (tab === 'cucina') dispensaRenderPrep(content);
+  else if (tab === 'magazzino') dispensaRenderIngredients(content);
+  else if (tab === 'commis') dispensaRenderCommis(content);
+  else if (tab === 'esploso') dispensaRenderEsploso(content);
+};
+
+function dispensaRenderPrep(content) {
+  var rows = (window._dispensaSnap || []).filter(function(r){ return r.item_type === 'prep'; });
+  if (!rows.length) {
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Nessun dato prep per questa data</div>';
+    return;
+  }
+  content.innerHTML = rows.map(function(r) {
+    return dispensaSnapRow(r, 'prep');
+  }).join('');
+}
+
+function dispensaRenderIngredients(content) {
+  var rows = (window._dispensaSnap || []).filter(function(r){ return r.item_type === 'ingredient'; });
+  if (!rows.length) {
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Nessun dato ingredienti per questa data</div>';
+    return;
+  }
+  content.innerHTML = rows.map(function(r) {
+    return dispensaSnapRow(r, 'ingredient');
+  }).join('');
+}
+
+function dispensaSnapRow(r, type) {
+  var name = (r.metadata && r.metadata.target_name) || r.item_id;
+  var qty = parseFloat(r.pos_deducted_qty || 0);
+  var unit = r.unit || '?';
+  var isWarning = r.status === 'warning';
+  var sources = (r.metadata && r.metadata.sources) ? r.metadata.sources.join('+') : '';
+  var deducRows = (r.metadata && r.metadata.deduction_rows) || '?';
+
+  var statusBadge = isWarning
+    ? '<span style="background:rgba(245,158,11,0.2);color:#f59e0b;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;">⚠ warning</span>'
+    : '<span style="background:rgba(16,185,129,0.15);color:#6ee7b7;font-size:10px;padding:2px 6px;border-radius:4px;">partial</span>';
+
+  var warningLine = (isWarning && r.warning)
+    ? '<div style="font-size:10px;color:#f59e0b;margin-top:3px;padding:3px 6px;background:rgba(245,158,11,0.08);border-radius:4px;">' + r.warning + '</div>'
+    : '';
+
+  // Format quantity
+  var qtyDisplay = qty >= 1000 ? (qty/1000).toFixed(2)+'kg' : qty.toFixed(1)+unit;
+
+  return '<div onclick="dispensaOpenEsploso(\'' + r.item_type + '\',\'' + r.item_id + '\',\'' + (name||'').replace(/'/g,'') + '\')" style="padding:12px 16px;border-bottom:0.5px solid rgba(255,255,255,0.05);cursor:pointer;active:background:rgba(255,255,255,0.04);">' +
+    '<div style="display:flex;align-items:flex-start;gap:8px;">' +
+      '<div style="flex:1;">' +
+        '<div style="font-size:14px;font-weight:600;color:white;">' + (name||'—') + '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">' +
+          '<span style="font-size:13px;color:#10b981;font-weight:600;">' + qtyDisplay + '</span>' +
+          statusBadge +
+          '<span style="font-size:10px;color:rgba(255,255,255,0.25);">' + sources + ' · ' + deducRows + ' rows</span>' +
+        '</div>' +
+        warningLine +
+      '</div>' +
+      '<span style="color:rgba(255,255,255,0.2);font-size:16px;padding-top:2px;">&#x203A;</span>' +
+    '</div>' +
+  '</div>';
+}
+
+function dispensaRenderCommis(content) {
+  var rows = window._dispensaCommis || [];
+  if (!rows.length) {
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Nessuna observation per questa data</div>';
+    return;
+  }
+
+  var sevColor = { critical:'#ef4444', warning:'#f59e0b', info:'#60a5fa' };
+
+  content.innerHTML = rows.map(function(r) {
+    var col = sevColor[r.severity] || '#94a3b8';
+    return '<div style="padding:12px 16px;border-bottom:0.5px solid rgba(255,255,255,0.05);">' +
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">' +
+        '<span style="background:rgba(0,0,0,0.3);color:' + col + ';font-size:10px;padding:2px 7px;border-radius:4px;font-weight:600;border:0.5px solid ' + col + '40;">' + r.severity + '</span>' +
+        '<span style="font-size:10px;color:rgba(255,255,255,0.3);">' + (r.bot_name||'') + '</span>' +
+      '</div>' +
+      '<div style="font-size:13px;font-weight:600;color:white;margin-bottom:4px;">' + (r.title||'') + '</div>' +
+      (r.explanation ? '<div style="font-size:12px;color:rgba(255,255,255,0.5);line-height:1.5;margin-bottom:4px;">' + r.explanation + '</div>' : '') +
+      (r.suggested_action ? '<div style="font-size:11px;color:#6ee7b7;font-family:monospace;background:rgba(16,185,129,0.08);padding:4px 6px;border-radius:4px;word-break:break-all;">' + r.suggested_action + '</div>' : '') +
+    '</div>';
+  }).join('');
+}
+
+// ── Esploso tab ──
+window.dispensaOpenEsploso = async function(itemType, itemId, itemName) {
+  window._dispensaSelectedItem = { itemType: itemType, itemId: itemId, itemName: itemName };
+  dispensaTab('esploso');
+};
+
+function dispensaRenderEsploso(content) {
+  var sel = window._dispensaSelectedItem;
+  if (!sel) {
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);font-size:13px;">Seleziona una riga da Cucina o Magazzino per vedere il dettaglio</div>';
+    return;
+  }
+  content.innerHTML = '<div style="text-align:center;padding:30px;color:rgba(255,255,255,0.3);">Caricamento esploso...</div>';
+  dispensaLoadEsploso(content, sel);
+}
+
+async function dispensaLoadEsploso(content, sel) {
+  var sb = window.supa;
+  if (!sb) return;
+  var d = window._dispensaCurrentDate;
+
+  try {
+    var query = sb.from('stock_deductions')
+      .select('pos_item_name,source,quantity,unit,portions_sold,calculation_path,warning,target_name,metadata')
+      .eq('business_date', d)
+      .order('quantity', { ascending: false });
+
+    if (sel.itemType === 'prep') {
+      // Match by target_recipe_id or prep_task_id
+      query = query.eq('item_id', sel.itemId);
+    } else {
+      query = query.eq('ingredient_id', sel.itemId);
+    }
+
+    var r = await query;
+    var rows = r.data || [];
+
+    if (!rows.length) {
+      // Try fallback: match by item_id directly
+      var r2 = await sb.from('stock_deductions')
+        .select('pos_item_name,source,quantity,unit,portions_sold,calculation_path,warning,target_name,metadata')
+        .eq('business_date', d)
+        .eq('item_id', sel.itemId)
+        .order('quantity', { ascending: false });
+      rows = r2.data || [];
+    }
+
+    if (!rows.length) {
+      content.innerHTML =
+        '<div style="padding:16px 16px 8px;">' +
+          '<div style="font-size:14px;font-weight:600;color:white;margin-bottom:4px;">🧾 ' + sel.itemName + '</div>' +
+          '<div style="font-size:12px;color:rgba(255,255,255,0.3);">Nessuna deduction trovata per questo item</div>' +
+        '</div>';
+      return;
+    }
+
+    var totalQty = rows.reduce(function(a,r){ return a + parseFloat(r.quantity||0); }, 0);
+    var unit = rows[0].unit || '';
+
+    var html =
+      '<div style="padding:12px 16px 8px;border-bottom:0.5px solid rgba(255,255,255,0.08);">' +
+        '<div style="font-size:15px;font-weight:700;color:white;">🧾 ' + sel.itemName + '</div>' +
+        '<div style="font-size:12px;color:#10b981;margin-top:2px;">' + rows.length + ' deductions · totale ' + totalQty.toFixed(2) + unit + '</div>' +
+      '</div>';
+
+    html += rows.map(function(row) {
+      var srcColor = row.source === 'direct_recipe' ? '#a78bfa' : '#60a5fa';
+      var srcLabel = row.source === 'direct_recipe' ? 'direct' : 'bom_chain';
+      var qty = parseFloat(row.quantity || 0);
+      var hasWarn = row.warning;
+      return '<div style="padding:10px 16px;border-bottom:0.5px solid rgba(255,255,255,0.04);">' +
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">' +
+          '<span style="font-size:13px;color:white;font-weight:500;">' + (row.pos_item_name||'—') + '</span>' +
+          '<span style="background:rgba(0,0,0,0.4);color:' + srcColor + ';font-size:9px;padding:1px 5px;border-radius:3px;">' + srcLabel + '</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:12px;font-size:11px;color:rgba(255,255,255,0.45);">' +
+          '<span><span style="color:#10b981;font-weight:600;">' + qty.toFixed(2) + (row.unit||'') + '</span></span>' +
+          '<span>' + (row.portions_sold ? row.portions_sold + ' porz.' : '') + '</span>' +
+        '</div>' +
+        (row.calculation_path ? '<div style="font-size:10px;color:rgba(255,255,255,0.25);margin-top:2px;font-family:monospace;">' + row.calculation_path + '</div>' : '') +
+        (hasWarn ? '<div style="font-size:10px;color:#f59e0b;margin-top:3px;">' + row.warning + '</div>' : '') +
+      '</div>';
+    }).join('');
+
+    content.innerHTML = html;
+  } catch(e) {
+    content.innerHTML = '<div style="padding:20px;color:#ef4444;font-size:12px;">Errore: ' + e.message + '</div>';
+  }
+}
+
+function dispensaShowError(msg) {
+  var content = document.getElementById('dispensaContent');
+  if (content) content.innerHTML = '<div style="padding:20px;color:#ef4444;font-size:12px;">Errore: ' + msg + '</div>';
+}
