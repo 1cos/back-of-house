@@ -1,5 +1,123 @@
 ---
 
+## SESSIONE 7 LUGLIO 2026 — Sprint 5.1 + Sprint 6: La Dispensa v1
+
+**Versione sw.js live:** boh-v564
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### Sprint 5.1 — BOM Unit Standardization (PASS ✅)
+
+**Regola ufficiale BOM:** grammi per tutto tranne 'pz/each' per cose contabili. Niente ml, l, kg, tbsp, tsp, pinch, cup dentro recipe_bom operative.
+
+**Conversioni sicure applicate via UPDATE recipe_bom:**
+- Water: ml→g (stesso numero), l→g (×1000)
+- Extra Virgin Olive Oil: ml→g, l→g (×1000)
+- Heavy Cream: ml→g, l→g (×1000), kg→g (×1000)
+- Milk: ml→g, l→g (×1000)
+- Mayo: kg→g (×1000)
+- Potatoes: kg→g (×1000)
+- Salt: kg→g (×1000)
+- Parsley: kg→g (×1000)
+
+**4 warning residui — intenzionali, NON convertire:**
+| Ingrediente | Unità miste | Motivo |
+|---|---|---|
+| Sugar | g + tbsp | tbsp ambiguo — flaggato in commis_observations |
+| Parsley | g + pinch | pinch ambiguo |
+| White Pepper | g + pinch | pinch ambiguo |
+| Eggs | g + pz | regola Max: whole egg=pz, liquid egg=g, NON mescolare |
+
+**8 commis_observations inserite** manualmente per casi ambigui (bom_warning category).
+
+**bot-stock-consolidator v3 deployato:**
+- Fix commis_observations: category='bom_warning' (era 'unit_mismatch' che violava CHECK constraint)
+- Risultato v3: 167 snapshot rows, 4 warning, commis_observations scritte correttamente ✅
+
+**Verifica finale Sprint 5.1:**
+- stock_daily_snapshot: 167 righe (48 prep, 119 ingredient)
+- Totali deductions vs snapshot: diff = 0.000 ✅
+- Duplicati: 0 ✅
+- stock_movements: 335 invariato ✅
+- current_stock: non toccato ✅
+
+---
+
+### Sprint 6 — La Dispensa v1 Read-Only
+
+**File modificati:** js/office.js, sw.js (v563→v564)
+
+**Cosa è stato aggiunto in office.js:**
+
+**Bottone home (dopo Bot Center):**
+- Card verde scuro "🏪 La Dispensa" con subtitle "Snapshot POS · Read-only"
+- Appare solo per admin (stesso livello del Bot Center)
+- Click → `openLaDispensa()`
+
+**Funzioni aggiunte (~380 righe):**
+- `window.openLaDispensa()` — apre fullscreen panel, stesso pattern di officeBotCenter
+- `dispensaInit()` — carica latest date da stock_daily_snapshot, imposta date picker
+- `dispensaLoadAll()` — carica in parallelo: stock_daily_snapshot, commis_observations, bot_runs
+- `dispensaRenderSummary()` — 4 summary cards: Prep rows, Ingredienti, Warning, Pipeline status
+- `window.dispensaTab(tab)` — switcher tra Cucina/Magazzino/Commis/Esploso
+- `dispensaRenderPrep(content)` — Tab Cucina: item_type='prep'
+- `dispensaRenderIngredients(content)` — Tab Magazzino: item_type='ingredient'
+- `dispensaSnapRow(r, type)` — card row con qty, status badge, warning, sources
+- `dispensaRenderCommis(content)` — Tab Commis Notes da commis_observations
+- `window.dispensaOpenEsploso(type, id, name)` — click su riga → switch a tab Esploso
+- `dispensaRenderEsploso(content)` / `dispensaLoadEsploso()` — dettaglio da stock_deductions
+
+**UI features:**
+- Safety banner fisso: "Read-only snapshot. POS-based deductions only. Stock not updated yet."
+- Date picker: default = ultima business_date disponibile in stock_daily_snapshot
+- Summary cards: Prep, Ingredienti, Warning count, Pipeline status (success/error/no run)
+- Tab bar: 🥘 Cucina | 📦 Magazzino | ⚠️ Commis | 🧾 Esploso
+- Warning badge arancione visibile su ogni riga con problemi
+- Click su riga → Esploso con deduction detail (pos_item_name, source, qty, portions, path)
+- Swipe-to-close, back button — stesso pattern Bot Center
+
+**ZERO scritture DB dalla UI.** Tutte le funzioni sono SELECT only.
+
+---
+
+### PROSSIMA SESSIONE — Test La Dispensa + decisioni next step
+
+**Test da fare (Max):**
+1. Hard refresh (cancella cache Safari per 1cos.github.io)
+2. L'Ufficio → scrollare in basso → vedere bottone verde "La Dispensa"
+3. Aprire → verificare Cucina, Magazzino, Commis Notes
+4. Cliccare una riga → Esploso deve mostrare le deductions
+
+**Se i numeri convincono (dopo qualche giorno di osservazione):**
+- Sprint 7: Stock Consolidator v2 — apply current_stock
+  - Legge prep_log per loaded_qty
+  - Calcola stock_end = stock_start + loaded_qty - pos_deducted_qty
+  - UPDATE prep_tasks.current_stock
+
+**Fix aperti in commis_observations (per review manuale con Max):**
+- Sugar tbsp in Tiramisu (bom_id 617) e TIRAMISU NEL SIFONE (bom_id 73)
+- Water tbsp in LEMON TARTE (bom_id 925)
+- EVOO tbsp in SALSA VERDE (bom_id 510)
+- Parsley pinch in Scallops Chefs Way (bom_id 150)
+- White Pepper pinch in SALMON SAUCE (bom_id 144, qty anomala 0.02) e Scallops (bom_id 151)
+- Salt pinch in 4 ricette (bom_id 161, 630, 369, 502) — 1g ciascuna
+- Salt in litri CITRUS RISOTTO BUFFET (bom_id 1998) — errore manifesto, ~20g probabile
+
+---
+
+### Versioni finali sessione
+
+| Componente | Versione |
+|---|---|
+| Brigade frontend | **boh-v564** |
+| bot-stock-consolidator | **v3** (ACTIVE) |
+| La Dispensa UI | **v1** (office.js) |
+
+---
+
+---
+
 ## SESSIONE 7 LUGLIO 2026 — Sprint 5: Stock Consolidator Bot v1
 
 **Versione sw.js live:** boh-v563 (invariato — zero file frontend toccati)
