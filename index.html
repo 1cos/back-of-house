@@ -373,6 +373,9 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 
     </div>
 
+    <!-- Timer bar — appare nella top bar quando ci sono timer attivi -->
+    <div id="topTimerBar" style="display:none;border-top:0.5px solid rgba(59,130,246,0.10);"></div>
+
     <!-- News pill blu scorrevole — visibile solo se ci sono news -->
     <div id="newsBar" class="hidden" style="padding:0 14px 8px;">
       <div style="background:rgba(59,130,246,0.07);border:0.5px solid rgba(59,130,246,0.18);border-radius:12px;padding:6px 13px;display:flex;align-items:center;gap:9px;overflow:hidden;box-shadow:0 1px 4px rgba(59,130,246,0.08);">
@@ -1031,6 +1034,7 @@ function updateTVButtonState(active) {
 }
 </script>
 </html>
+
 
 
 
