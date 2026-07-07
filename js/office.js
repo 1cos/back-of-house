@@ -3368,9 +3368,48 @@ window.jarvisAction = async function(itemId, action) {
       .eq('office_item_id', itemId)
       .eq('status', 'pending');
 
+    // Se action_drafts e vuoto ma c'e un write_plan nel reasoning_result, crea draft sintetico
     if (!drafts || drafts.length === 0) {
-      if (typeof showScToast === 'function') showScToast('Nessuna azione da eseguire');
-      return;
+      var { data: officeItem } = await sb.from('office_items').select('reasoning_result').eq('id', itemId).maybeSingle();
+      var rr = officeItem && officeItem.reasoning_result ? officeItem.reasoning_result : null;
+      var intent = rr ? (rr.intent || rr.issue_type || '') : '';
+      var isProductionReport = (intent === 'production_report' || intent === 'stock_count');
+      if (rr && isProductionReport && rr.write_plan) {
+        var wp = rr.write_plan;
+        var prep = rr.prep_candidate || wp.row || 'stock';
+        var newVal = rr.new_total_claimed != null ? rr.new_total_claimed : wp.new_value;
+        var unit = rr.unit || '';
+        // Crea draft sintetico in DB e poi mostra sheet
+        var synthDraft = {
+          office_item_id: itemId,
+          action_type: 'update_prep_stock',
+          payload: {
+            prep_name: prep,
+            new_value: newVal,
+            unit: unit,
+            field: wp.field || 'current_stock',
+            table: wp.table || 'prep_tasks',
+            produced_qty: rr.produced_qty,
+            previous_stock_claimed: rr.previous_stock_claimed,
+            new_total_claimed: rr.new_total_claimed,
+            reporter: rr.reporter || '',
+            station: rr.station || '',
+            STOCK_WRITE_ENABLED: false
+          },
+          risk_level: 'medium',
+          requires_approval: true,
+          status: 'pending'
+        };
+        var { data: inserted } = await sb.from('chef_ai_action_drafts').insert(synthDraft).select();
+        drafts = inserted || [];
+        if (!drafts || drafts.length === 0) {
+          if (typeof showScToast === 'function') showScToast('Nessuna azione da eseguire');
+          return;
+        }
+      } else {
+        if (typeof showScToast === 'function') showScToast('Nessuna azione da eseguire');
+        return;
+      }
     }
 
     // Mostra sheet di conferma con lista azioni
@@ -3428,12 +3467,29 @@ function jarvisShowApprovalSheet(itemId, drafts) {
   var draftsHtml = drafts.map(function(d) {
     var rc = riskColors[d.risk_level] || '#f59e0b';
     var rl = riskLabels[d.risk_level] || 'Medio';
-    var payloadStr = JSON.stringify(d.payload || {}, null, 2);
+    var p = d.payload || {};
+    // Label human-readable per update_prep_stock
+    var actionLabel = d.action_type;
+    var actionDetail = '';
+    if (d.action_type === 'update_prep_stock') {
+      var writeOk = p.STOCK_WRITE_ENABLED === true;
+      actionLabel = 'Aggiorna stock: ' + (p.prep_name || 'prep') + ' → ' + (p.new_total_claimed != null ? p.new_total_claimed : p.new_value) + (p.unit ? ' ' + p.unit : '');
+      actionDetail = '<table style="border-collapse:collapse;width:100%;margin-top:8px;">' +
+        '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;">Tabella</td><td style="font-size:12px;font-weight:600;color:#1e3a5f;">' + (p.table || 'prep_tasks') + '</td></tr>' +
+        '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;">Campo</td><td style="font-size:12px;font-weight:600;color:#1e3a5f;">' + (p.field || 'current_stock') + '</td></tr>' +
+        (p.previous_stock_claimed != null ? '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;">Da</td><td style="font-size:12px;color:#94a3b8;">' + p.previous_stock_claimed + (p.unit ? ' ' + p.unit : '') + '</td></tr>' : '') +
+        '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;">A</td><td style="font-size:12px;font-weight:700;color:#2563eb;">' + (p.new_total_claimed != null ? p.new_total_claimed : p.new_value) + (p.unit ? ' ' + p.unit : '') + '</td></tr>' +
+        (p.reporter ? '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;">Reporter</td><td style="font-size:12px;color:#1e3a5f;">' + p.reporter + '</td></tr>' : '') +
+        '</table>' +
+        '<div style="margin-top:8px;font-size:11px;color:' + (writeOk ? '#16a34a' : '#94a3b8') + ';font-style:italic;">' + (writeOk ? 'Scrittura abilitata.' : 'STOCK_WRITE_ENABLED=false — piano registrato, nessuna modifica al DB.') + '</div>';
+    }
+    var payloadStr = d.action_type === 'update_prep_stock' ? '' : JSON.stringify(p, null, 2);
     return '<div style="background:rgba(30,58,95,0.03);border:0.5px solid rgba(30,58,95,0.1);border-radius:12px;padding:12px 14px;margin-bottom:8px;">' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
         '<span style="font-size:11px;background:rgba(' + (d.risk_level === 'low' ? '34,197,94' : d.risk_level === 'high' ? '239,68,68' : '245,158,11') + ',0.1);color:' + rc + ';border-radius:20px;padding:2px 8px;font-weight:700;">' + rl + '</span>' +
-        '<span style="font-size:13px;font-weight:700;color:#1e3a5f;">' + d.action_type + '</span>' +
+        '<span style="font-size:13px;font-weight:700;color:#1e3a5f;">' + actionLabel + '</span>' +
       '</div>' +
+      actionDetail +
       '<pre style="font-size:11px;color:#475569;background:#f8fafc;padding:8px;border-radius:8px;overflow-x:auto;margin:0;white-space:pre-wrap;">' + payloadStr + '</pre>' +
     '</div>';
   }).join('');
