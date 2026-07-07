@@ -3708,3 +3708,80 @@ Il Consolidator legge:
 
 - Waygu Tomahawk → Edible Flower: 2 righe bom_chain unità diverse (pz, g) — BOM da correggere
 - Non portare al Consolidator finché BOM non è allineato
+
+---
+
+## SESSIONE 7 LUGLIO 2026 (chiusura) — BOM Fix Wagyu + Edible Flower
+
+**boh-v563** (sw.js live a inizio sessione)
+
+---
+
+### Fix BOM eseguiti
+
+**Edible Flower (ingrediente):**
+- `base_unit` aggiornato: `g` → `pz`
+- `measure_type` aggiornato: `weight` → `each`
+- Si compra da Hardie's come **FLOWER MARIGOLD 50 CT** a $18.29/scatola
+- Waygu Tomahawk: 2 pz (era 2 righe duplicate: 2g + 1pz → ora 1 riga: 2pz) ✅
+- Wagyu Ribeye: 1 pz (era 2g → ora 1pz) ✅
+
+**Wagyu Rack — struttura completa creata:**
+
+```
+RWPR 103 Rib (ingrediente, 28 lb/rack, $29.05/lb da Hardie's item code 13544)
+    ↓
+Process Wagyu Rack (ricetta id: b3b3c595) — BOM: 28 lb RWPR 103 Rib
+    ↓ produce
+Wagyu Tomahawk Portioned (ricetta id: e46a91a5) ← prep_task 477, unit=pz, Table Side
+Wagyu Ribeye Portioned   (ricetta id: 1cd28254) ← prep_task 478, unit=pz, Table Side
+```
+
+**Wagyu Beef (ingrediente):** rinominato → **RWPR 103 Rib**, base_unit=lb
+
+**BOM piatti POS aggiornati:**
+- `Waygu Tomahawk`: rimosso ITEM Wagyu Beef 48oz → aggiunto RECIPE Wagyu Tomahawk Portioned 1pz
+- `Wagyu Ribeye`: rimosso ITEM Wagyu Beef 20oz → aggiunto RECIPE Wagyu Ribeye Portioned 1pz
+
+**Nota:** Process Wagyu Rack produce 7 Tomahawk + 7 Ribeye per rack. Il BOM "output" (7pz×2) sarà gestito dal futuro **Prep Production Consumption Bot** — non dal POS bot.
+
+---
+
+### Risultati pipeline finale 2026-07-06
+
+| Source | Righe | Note |
+|---|---|---|
+| direct_recipe | 93 | +2 rispetto a prima (Wagyu Tomahawk 2pz + Wagyu Ribeye 1pz ora come prep dirette) |
+| bom_chain | 235 | -3 rispetto a prima (RWPR 103 Rib raw sparito dai BOM POS) |
+| **Totale** | **328** | Zero duplicati ✅ |
+
+Edible Flower: Tomahawk 4pz (2×2), Ribeye 1pz — corretto ✅
+
+---
+
+### PROSSIMA SESSIONE — Sprint 5: Stock Consolidator Bot
+
+**Obiettivo:** bot che legge `stock_deductions` e aggiorna `current_stock` su `prep_tasks` e `ingredients`.
+
+**Logica:**
+1. Legge `stock_deductions` per `business_date` (direct_recipe + bom_chain)
+2. Legge `prep_log` per `business_date` (carichi della cucina)
+3. Per ogni prep_task_id / ingredient_id:
+   - `stock_end = stock_start + caricato - dedotto_POS`
+4. Scrive `stock_daily_snapshot`
+5. Aggiorna `current_stock` in `prep_tasks` (per item_type=prep)
+
+**Attenzione:**
+- `stock_deductions.prep_task_id` è ora colonna esplicita (bigint) — il Consolidator lo legge diretto
+- `stock_deductions.ingredient_id` è colonna esplicita (uuid) — per gli ingredienti raw
+- Waygu Tomahawk: prep_task_id=477, unit=pz
+- Wagyu Ribeye: prep_task_id=478, unit=pz
+- RWPR 103 Rib NON appare in stock_deductions POS (corretto — si scarica solo quando si processa il rack)
+
+**Duplicato ancora presente:**
+- Waygu Tomahawk → Edible Flower: ORA RISOLTO (era pz+g, ora solo 2pz) ✅
+
+**Non fare ancora:**
+- La Dispensa UI
+- Prep Production Consumption Bot
+- stock_movements logic
