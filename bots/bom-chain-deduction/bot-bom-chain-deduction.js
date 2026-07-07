@@ -475,8 +475,49 @@ Deno.serve(async (req) => {
     }
 
     // Esegui traversal per ogni piatto
+    // REGOLA 0 (entry-point): se la ricetta POS stessa ha base_servings > 1 e ha prep_task
+    // → è già una stocked prep terminale. Il direct-deduction la gestisce come RECIPE stop.
+    // Il bom-chain NON deve traversare i suoi ITEM raw (sono da batch, non da porzione POS).
+    // Se ha base_servings > 1 ma NON ha prep_task → caso raro, batch virtuale → batch warning.
     for (const [posItemName, { recipe_id, portions }] of rowByPosName) {
       if (portions <= 0) continue
+
+      const topMeta = recipeMetaCache.get(recipe_id) || { title: recipe_id, base_servings: null }
+      const topBaseServings = topMeta.base_servings
+      const topPrepTask = prepTaskCache.get(recipe_id) ?? await getPrepTask(recipe_id)
+
+      if (topBaseServings !== null && topBaseServings > 1 && topPrepTask) {
+        // Stocked prep con BOM batch — direct_recipe già la deduce come prep terminale.
+        // Qui il bom-chain non espande gli ITEM raw per evitare numeri batch.
+        // Nessun warning necessario — è il comportamento corretto.
+        continue
+      }
+
+      if (topBaseServings !== null && topBaseServings > 1 && !topPrepTask) {
+        // Batch senza prep_task: caso anomalo. Segnala e skip.
+        const batchKey = `${posItemName}|${recipe_id}`
+        if (!batchWarnedKeys.has(batchKey)) {
+          batchWarnedKeys.add(batchKey)
+          const topBoms = bomCache.get(recipe_id) || []
+          const skippedComponents = topBoms.filter(b => b.component_type === 'ITEM').length
+          observations.push({
+            business_date: businessDate, bot_name: 'bot-bom-chain-deduction',
+            commis_name: 'bom-chain-commis', severity: 'warning',
+            category: 'bom_warning', entity_type: 'recipe',
+            title: `${posItemName} — POS recipe batch-level senza prep_task (base_servings=${topBaseServings})`,
+            explanation: `La ricetta POS "${topMeta.title}" ha base_servings=${topBaseServings} ma nessun prep_task. Ingredienti raw NON scaricati — probabilmente batch.`,
+            suggested_action: `Creare un prep_task per "${topMeta.title}" o impostare base_servings=1 se il BOM è già per porzione.`,
+            metadata: {
+              pos_item_name: posItemName, recipe_id, recipe_name: topMeta.title,
+              base_servings: topBaseServings, skipped_reason: 'top_level_batch_no_prep_task',
+              skipped_components_count: skippedComponents,
+            },
+            status: 'open',
+          })
+        }
+        continue
+      }
+
       await traverse(recipe_id, portions, posItemName, recipe_id, posItemName, 1, 1)
     }
 
