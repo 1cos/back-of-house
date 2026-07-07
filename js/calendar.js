@@ -548,6 +548,113 @@ function openEventEditor(ev = null) {
   sheet.querySelector('#evAddRecipe').onclick  = () => _addRecipeRow();
   sheet.querySelector('#evAddSection').onclick = () => _addSection();
 
+  // ── Fuzzy menu pre-fill ──────────────────────────────────────
+  // Runs only when the recipe list is empty (no existing menu)
+  async function _calFuzzyMenu() {
+    // Build source text from name + notes
+    const sourceName  = (ev?.name  || '').toLowerCase();
+    const sourceNotes = (ev?.notes || '').toLowerCase();
+    const combined = sourceName + ' ' + sourceNotes;
+
+    // Tokenize: split on spaces/punctuation, remove stopwords + short tokens
+    const STOP = new Set(['the','a','an','and','or','for','of','with','in','at','to','is',
+      'il','la','le','lo','i','gli','le','di','da','in','con','su','per','tra','fra',
+      'e','o','un','una','del','della','dei','degli','delle']);
+    const tokens = combined
+      .replace(/[^a-z0-9àèéìòù\s]/g,' ')
+      .split(/\s+/)
+      .filter(t => t.length >= 3 && !STOP.has(t));
+    const unique = [...new Set(tokens)];
+    if (!unique.length) return;
+
+    // Query recipes for each keyword, collect with hit count
+    const client = window.supa || window.supabaseClient;
+    const hitMap = {}; // id → {recipe, hits}
+
+    await Promise.all(unique.map(async kw => {
+      const { data } = await client
+        .from('recipes')
+        .select('id,title,menu_group,food_cost_pct')
+        .ilike('title', `%${kw}%`)
+        .not('pos_name', 'is', null)   // only POS recipes
+        .limit(5);
+      (data || []).forEach(r => {
+        if (!hitMap[r.id]) hitMap[r.id] = { recipe: r, hits: 0 };
+        hitMap[r.id].hits++;
+      });
+    }));
+
+    const matched = Object.values(hitMap)
+      .sort((a,b) => b.hits - a.hits)
+      .slice(0, 12)
+      .map(h => h.recipe);
+
+    if (!matched.length) return;
+
+    // Show suggestion banner above recipe list
+    const banner = document.createElement('div');
+    banner.style.cssText = 'background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:11px 13px;margin-bottom:10px;';
+    banner.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+        <div style="font-size:13px;font-weight:700;color:#1e40af;">🔍 ${matched.length} recipes found in notes</div>
+        <button id="evFuzzyDismiss" style="font-size:11px;color:#94a3b8;background:none;border:none;cursor:pointer;padding:0;">Dismiss</button>
+      </div>
+      <div style="font-size:12px;color:#3b82f6;margin-bottom:9px;">These look like they match this event. Add all or pick individually.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px;" id="evFuzzyChips">
+        ${matched.map(r => `
+          <span data-rid="${r.id}" data-title="${(r.title||'').replace(/"/g,'&quot;')}" data-fc="${r.food_cost_pct||''}"
+            style="font-size:12px;font-weight:600;background:white;border:1.5px solid #bfdbfe;border-radius:20px;
+                   padding:4px 11px;color:#1e40af;cursor:pointer;transition:background .15s;"
+            onclick="this.style.background=this.style.background==='#dbeafe'?'white':'#dbeafe';this.dataset.sel=this.dataset.sel==='1'?'0':'1';">
+            ${r.title}
+          </span>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button id="evFuzzyAll"
+          style="flex:1;font-size:13px;font-weight:700;background:#2563eb;color:white;border:none;border-radius:9px;padding:9px;cursor:pointer;">
+          Add All
+        </button>
+        <button id="evFuzzySelected"
+          style="flex:1;font-size:13px;font-weight:600;background:#eff6ff;color:#2563eb;border:1.5px solid #bfdbfe;border-radius:9px;padding:9px;cursor:pointer;">
+          Add Selected
+        </button>
+      </div>`;
+
+    recipeList.parentNode.insertBefore(banner, recipeList);
+
+    const guestCount = parseInt(sheet.querySelector('#evGuests')?.value) || (ev?.guest_count ? parseInt(ev.guest_count) : 0);
+
+    function _addMatched(list) {
+      // Clear the empty placeholder row if present
+      const rows = recipeList.querySelectorAll('[data-type="recipe"]');
+      if (rows.length === 1 && !rows[0].querySelector('.ev-rec-name')?.value) rows[0].remove();
+      list.forEach(r => _addRecipeRow({
+        recipe_id: r.id,
+        recipe_title: r.title,
+        portions: guestCount || null,
+        food_cost: r.food_cost_pct || null
+      }));
+      banner.remove();
+      _calcFoodCost();
+    }
+
+    banner.querySelector('#evFuzzyAll').onclick = () => _addMatched(matched);
+    banner.querySelector('#evFuzzyDismiss').onclick = () => banner.remove();
+    banner.querySelector('#evFuzzySelected').onclick = () => {
+      const sel = matched.filter(r => {
+        const chip = banner.querySelector(`[data-rid="${r.id}"]`);
+        return chip && chip.dataset.sel === '1';
+      });
+      if (!sel.length) { banner.querySelector('#evFuzzySelected').textContent = 'Select some first'; return; }
+      _addMatched(sel);
+    };
+  }
+
+  // Trigger fuzzy only for events without a menu yet
+  if (!existing.length && (ev?.notes || ev?.name)) {
+    _calFuzzyMenu();
+  }
+
   // ── Save ──
   sheet.querySelector('#evSaveBtn').onclick = async () => {
     const name = sheet.querySelector('#evName').value.trim();
