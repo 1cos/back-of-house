@@ -1,5 +1,121 @@
 ---
 
+## SESSIONE 7 LUGLIO 2026 — Sprint 5: Stock Consolidator Bot v1
+
+**Versione sw.js live:** boh-v563 (invariato — zero file frontend toccati)
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### Sprint 5 — bot-stock-consolidator v1
+
+**Edge Function:** `bot-stock-consolidator` v1 — deployata e ACTIVE
+**bot_name:** `bot-stock-consolidator`
+**Commis:** `stock-consolidator-commis` (deterministico, zero LLM)
+**Input:** `stock_deductions` (direct_recipe + bom_chain)
+**Output:** `stock_daily_snapshot` + `commis_observations`
+
+**⚠️ v1 è SNAPSHOT ONLY:**
+- Scrive `stock_daily_snapshot` con status='partial'
+- NON aggiorna `current_stock` su `prep_tasks`
+- NON scrive `stock_movements`
+- NON costruisce La Dispensa UI
+
+**Logica aggregazione:**
+- Chiave: `(item_type, resolved_item_id, unit)`
+  - Per prep: `resolved_item_id = target_recipe_id`
+  - Per ingredient: `resolved_item_id = ingredient_id`
+- `pos_deducted_qty = SUM(quantity)` da stock_deductions
+- `stock_start = NULL`, `loaded_qty = 0`, `stock_end = NULL` in v1
+- `metadata` include: sources, deduction_rows, prep_task_id, target_name, consolidator_version
+
+**Safety rules (bot non si blocca — gestisce per riga):**
+- Unit mismatch → status='warning', riga separata, commis observation
+- item_id mancante → riga saltata, commis observation
+- Prep senza prep_task_id → status='warning', commis observation
+- Ingredient senza ingredient_id → status='warning'
+
+**Idempotenza:**
+```sql
+DELETE FROM stock_daily_snapshot WHERE business_date = target_date;
+DELETE FROM commis_observations WHERE business_date = target_date AND bot_name = 'bot-stock-consolidator';
+```
+
+**File MD creati su brigade-main:**
+- `bots/stock-consolidator/STOCK_CONSOLIDATOR_BOT.md`
+- `bots/stock-consolidator/STOCK_CONSOLIDATOR_COMMIS.md`
+- `bots/stock-consolidator/STOCK_CONSOLIDATOR_TEST.md`
+- `bots/stock-consolidator/bot-stock-consolidator.js` (source)
+
+---
+
+### PROSSIMA SESSIONE — Test Sprint 5 + verifica numeri
+
+**Trigger pipeline completa per 2026-07-06:**
+1. bot-pos-cleaner
+2. bot-direct-deduction
+3. bot-bom-chain-deduction
+4. **bot-stock-consolidator** ← nuovo
+
+**Verification queries (da STOCK_CONSOLIDATOR_TEST.md):**
+
+```sql
+-- 1. Bot run status
+SELECT bot_name, status, rows_read, rows_written, warnings_count, summary
+FROM bot_runs WHERE bot_name = 'bot-stock-consolidator' ORDER BY created_at DESC LIMIT 5;
+
+-- 2. Snapshot per tipo
+SELECT item_type, unit, COUNT(*) AS rows, SUM(pos_deducted_qty) AS total_pos_deducted
+FROM stock_daily_snapshot WHERE business_date = '2026-07-06'
+GROUP BY item_type, unit ORDER BY item_type, unit;
+
+-- 3. Duplicati (deve essere vuoto)
+SELECT item_type, item_id, unit, COUNT(*) AS duplicate_count
+FROM stock_daily_snapshot WHERE business_date = '2026-07-06'
+GROUP BY item_type, item_id, unit HAVING COUNT(*) > 1;
+
+-- 4. Top deductions
+SELECT item_type, item_id, pos_deducted_qty, unit, status, warning, metadata->>'target_name' AS target_name
+FROM stock_daily_snapshot WHERE business_date = '2026-07-06'
+ORDER BY item_type, pos_deducted_qty DESC LIMIT 50;
+
+-- 5. Commis observations
+SELECT severity, category, title, explanation, suggested_action
+FROM commis_observations
+WHERE business_date = '2026-07-06' AND bot_name = 'bot-stock-consolidator'
+ORDER BY severity DESC, created_at DESC;
+
+-- 6. Safety: current_stock non toccato
+SELECT 'stock_movements new today' AS check_name, COUNT(*) FROM stock_movements WHERE created_at >= CURRENT_DATE
+UNION ALL SELECT 'stock_daily_snapshot 2026-07-06', COUNT(*) FROM stock_daily_snapshot WHERE business_date = '2026-07-06';
+```
+
+**Success criteria:**
+- stock_daily_snapshot popolata
+- zero duplicati
+- current_stock NON toccato
+- stock_movements NON toccati
+- warnings solo per dati davvero ambigui
+- totali snapshot ≈ totali deductions
+- bot_runs status = 'success'
+
+**Dopo verifica:** decidere se passare a v2 (che leggerà prep_log e aggiornerà current_stock).
+
+---
+
+### Versioni finali sessione
+
+| Componente | Versione |
+|---|---|
+| Brigade frontend | **boh-v563** (invariato) |
+| bot-stock-consolidator | **v1 (nuovo)** |
+| MD docs | bots/stock-consolidator/ (3 file + source) |
+
+---
+
+
+---
+
 ## SESSIONE 7 LUGLIO 2026 (fine sessione) — Sprint UI Bot Center + Analisi unknown modifier
 
 **Versione sw.js live:** boh-v562
