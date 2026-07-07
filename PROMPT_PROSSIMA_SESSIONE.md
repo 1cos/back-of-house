@@ -1,6 +1,149 @@
 
 ---
 
+## SESSIONE 7 LUGLIO 2026 — Bot Preplist Debug continuo + Fix dati spaghetti (DB only, boh-v557)
+
+**Versione sw.js live:** boh-v557 (nessun bump questa sessione — solo DB)
+**Supabase:** ydqmumpytgrlceuinoqt
+**Bot:** bot-preplist-builder v42 (Supabase v67), bot-preplist-sim v7 (Supabase v13)
+
+---
+
+### Contesto sessione
+
+Continuazione debug bot-preplist-builder. Max ha esaminato le card prep in produzione e identificato ulteriori incongruenze. Focus su: unità sbagliate, calcolo spaghetti nests, anomalie numeriche.
+
+---
+
+### Fix unità — ultimi task rimasti con unità errate
+
+| Task | Fix | Note |
+|---|---|---|
+| **Soffritto Livornese (397)** | `unit='buste'` → `unit='g'` | Bot ora mostra "1.4kg" ✅ |
+| **Italian cream (385)** | `unit='kg'` → `unit='g'` | Fix completato sessione precedente, confermato |
+| **Parmesan Grated (439)** | `unit='kg'` → `unit='g'` | Fix sessione precedente, ancora "26kg" anomalo — problema nel calcolo, non nell'unità |
+
+---
+
+### Fix Spaghetti fresh pasta — calcolo nests
+
+**Problema:** bot calcolava male il consumo nests per spaghetti. Tre errori distinti.
+
+**Errore 1 — serving_qty/serving_unit sbagliati:**
+- La N°4: già corretto da Max a mano (`serving_unit='nests'`) ✅
+- Spaghetti Al Ragu: già corretto da Max a mano (`serving_qty=2, serving_unit='nests'`) ✅
+- **Spaghetti al Pomodoro Half:** `serving_unit='porzione'` → `serving_unit='nests'` ✅ (fatto in questa sessione)
+- Maccheroni lasciato fuori (pasta diversa, non spaghetti)
+
+**Errore 2 — Modifier non scaricati:**
+- Vendite verificate: "Add spaghetti half" 38 venduti, "Add half spaghetti" 28 venduti
+- `pos_name` di SPAGHETTI FRESH PASTA era vuoto `''`
+- Fix: `pos_name='Add spaghetti half|Add half spaghetti|Spaghetti'` ✅
+
+**Errore 3 — Wheel Pasta non collegata:**
+- Wheel Pasta scarica 2 nests per ogni venduta ma non era nel subMap
+- Fix: INSERT `recipe_bom` (bom_id 2055): `parent_recipe_id=Wheel Pasta`, `sub_recipe_id=SPAGHETTI FRESH PASTA`, `component_type='RECIPE'`, `quantity=1`
+- Nota: Wheel Pasta ha `serving_qty=2, serving_unit='nests'` → bot moltiplica 1×2=2 nests per vendita ✅
+
+**Vendite spaghetti dal DB (verificate):**
+- "Add shrimp" modifier: 144 vendute in 22 giorni → più frequente di molti piatti
+- Ultima data con vendite: 3 luglio 2026 (4-5 luglio chiusi)
+
+---
+
+### Fix ADD SHRIMP — collegamento ricetta
+
+**Problema:** `calcConsumo` ritornava `sold` grezzo (5 porzioni) invece di grammi perché `serving_weight_g=NULL` su ADD SHRIMP.
+**Vendite verificate da pos_modifiers:** "Add shrimp" presente, ieri (5 luglio) zero vendite (chiusi).
+**Fix:**
+1. `pos_name='Add shrimp'` aggiunto a ricetta ADD SHRIMP (`8346fbee`)
+2. prep_task Shrimp (470): `recipe_id='8346fbee'`, `ingredient_id=NULL`
+**Risultato:** "Hai 1.2kg - good through Thursday" ✅
+
+---
+
+### Fix Italian cream — BOM Limoncello Cake
+
+**Problema strutturale:** il bot usa `subMap` dove ogni porzione di Limoncello Cake moltiplicava per 1450g (peso intera torta) invece di 121g (peso per fetta = 1450÷12).
+**Verifica vendite Limoncello Cake:** media ~5 porzioni/giorno, 12 in casa → bot calcolava 33kg fabbisogno (assurdo).
+**Fix:** `recipe_bom bom_id=1856: quantity=1450` → `quantity=121` ✅
+**Risultato:** "Stock basso - 1.4kg - arrivi a Lunedì" (lunedì = prossimo giorno aperto dopo shelf_life 4gg) ✅
+
+**Nota su Mimosa stock:** 12 pezzi in casa, con vendite medie ~5/giorno arriva a mercoledì — il bot calcola Italian cream sulla base delle vendite storiche, non sullo stock fisico delle torte finite. Questo è comportamento corretto ma può divergere dalla realtà.
+
+---
+
+### Basil Flowers — ingrediente creato e collegato
+
+Già documentato nella sessione precedente. Confermato funzionante: `ingredient_id='064cf37a'` (Basil Flowers), bot mostra "1 pezzo" (fallback minimo — no BOM, confidence low).
+
+---
+
+### bot-preplist-sim v7
+
+**Deploy:** solo tag versione (v6→v7), logica invariata. Supabase version 13.
+
+**Divergenza sim vs bot reale:**
+- La sim ricalcola con dati correnti; il bot reale ha già scaricato lo stock alle 04:00
+- Con ristorante chiuso domenica, non c'è scarico → i due dovrebbero allinearsi
+- Differenze residue verificate: solo Salmoriglio (borderline yellow/red) e display bug nests spaghetti
+
+**Bug Spinach nella sim:** sim dice "1200 cup", bot reale dice "make 2 batches (80 cups)". Bug noto nel percorso cup della sim — `calcConsumo` con `ingRecMap` ritorna grammi ma vengono interpretati come cup. NON corretto in questa sessione.
+
+---
+
+### Discussione calcolo nests spaghetti
+
+**Stock verificato da bot_debug_runs:**
+- 3 luglio (sim): stock=517 nests, scarico=40.5 nests (vendite giovedì 2)
+- 4 luglio (sim): stock=457 nests, scarico=30 nests (vendite venerdì 3)
+- 5-6-7 luglio: stock=457 nests, scarico=0 (chiusi domenica + festività)
+
+**Vendite verificate da pos_sales_by_item:**
+- Giovedì 2 luglio: ~45 nests (Cacio 11+Half 5, La N°4 7+Half 11, Ragu 9+5)
+- Venerdì 3 luglio: ~30 nests (Cacio 10+Half 5+Child 1, La N°4 7+Half 4, Ragu 6)
+- Giovedì ha più vendite di venerdì — confermato dai dati, non anomalia
+
+**Bug "40 nests" nel testo:** il testo `suggested_note` mostra "40 nests" ma lo stock reale è 457. Il numero 40 è il batch suggerito (multiplo di `bs×sq=20×2=40`), non lo stock. Bug in `buildNote` per nests: mostra `ss.text_it` (batch) invece dello stock reale. Da fixare in v43.
+
+---
+
+### Incongruenze ancora aperte per prossima sessione
+
+| Item | Problema | Note |
+|---|---|---|
+| **Parmesan Grated (439)** | "26kg" anomalo nonostante fix unità | Calcolo sub_recipe o ingRecMap sproporzionato — da investigare |
+| **GF sponge cake (382)** | "164 pezzi" con `base_servings=NULL` | Da investigare |
+| **Maccheroni (412)** | testo "2 Grams" | pack driver sbagliato (Semolina ha pack_description "Grams") |
+| **Spaghetti nests display** | "40 nests" = batch, non stock | Bug in `buildNote` — da fixare in v43 |
+| **Task rossi stock=0 senza dati** | Choco logo, Lemon Zest, Powder sugar, Goat cheese, Honey, Mint liquid | Rumore — diventano rossi per fallback. Da gestire con skip o grey |
+| **Spinach sim** | "1200 cup" in sim vs "80 cup" bot reale | Bug mismatch unità cup nel percorso ingRecMap della sim |
+| **Artichoke (261)** | "hai 1 pezzi" — singolare/plurale sbagliato | Bug display |
+
+---
+
+### Decisioni architetturali confermate in sessione
+
+1. **unit del prep_task deve essere quello fisico** — grammi per tutto quello che si pesa. MAI "buste", "kg", "9pan", "porzioni" se il cuoco inserisce grammi.
+2. **suggested_qty in grammi con fmtGrams()** — il testo si formatta automaticamente in kg quando ≥1000g.
+3. **pos_name pipe-delimited** per alias modifier — "Add spaghetti half|Add half spaghetti|Spaghetti" funziona.
+4. **subMap usa quantity dal BOM per porzione** — non per batch. Se il BOM ha la quantità per torta intera, va divisa per `base_servings` manualmente nel BOM stesso (fix bom_id 1856: 1450→121).
+5. **Bot Debug (sim)** — legge `suggested_note` già scritto dal bot reale, non ricalcola. Unica fonte di verità è il run delle 04:00.
+
+---
+
+### Versioni finali sessione
+
+| Componente | Versione |
+|---|---|
+| Brigade frontend | **boh-v557** (invariato) |
+| bot-preplist-builder | **v42** (Supabase v67) — invariato |
+| bot-preplist-sim | **v7** (Supabase v13) — invariato |
+
+
+
+---
+
 ## SESSIONE 6 LUGLIO 2026 — Bot Preplist Debug + Fix dati (DB only, boh-v536)
 
 **Versione sw.js live:** boh-v536 (nessun bump — solo DB + Edge Functions)
@@ -2659,4 +2802,5 @@ Due bottoni distinti — `Fried Calamari` (Antipasti/appetizer, 199 porzioni) e 
 3. **bot-preplist-v2 — media pesata per recency** — discussa, non implementata. Da valutare in sessione dedicata.
 4. **bot-preplist-v2 cron** — nessun cron aggiunto, trigger solo manuale dal Bot Debug.
 5. **Aggiornamento BOH_OS_BACKLOG.md** — da fare, versioni Edge Function non aggiornate (ferme a v428).
+
 
