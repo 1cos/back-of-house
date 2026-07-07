@@ -3875,6 +3875,27 @@ async function jarvisExecuteDraft(sb, draft) {
       return { created: 'clarification_request' };
     }
 
+    case 'update_prep_stock': {
+      // payload: { prep_name, new_value, unit, field, table, produced_qty, reporter }
+      var prepName = payload.prep_name || '';
+      var newStock = payload.new_value != null ? parseFloat(payload.new_value) : null;
+      if (!prepName || newStock == null || isNaN(newStock)) throw new Error('prep_name e new_value richiesti');
+      // Lookup: exact match su nome non archiviato, poi ILIKE fallback
+      var { data: exactRows } = await sb.from('prep_tasks').select('id,name,current_stock,unit').eq('archived', false).eq('name', prepName).limit(3);
+      var foundRows = exactRows && exactRows.length ? exactRows : null;
+      if (!foundRows || !foundRows.length) {
+        // Fuzzy: cerca con ILIKE
+        var { data: fuzzyRows } = await sb.from('prep_tasks').select('id,name,current_stock,unit').eq('archived', false).ilike('name', '%' + prepName + '%').limit(5);
+        foundRows = fuzzyRows || [];
+      }
+      if (!foundRows || !foundRows.length) throw new Error('Prep task non trovato: ' + prepName);
+      // Se multipli, preferisce quello con recipe_id o quello piu recente — prende il primo
+      var target = foundRows[0];
+      var { error } = await sb.from('prep_tasks').update({ current_stock: newStock }).eq('id', target.id);
+      if (error) throw new Error(error.message);
+      return { updated: 'prep_tasks.current_stock', id: target.id, name: target.name, new_value: newStock };
+    }
+
     default:
       throw new Error('action_type non supportata: ' + draft.action_type);
   }
