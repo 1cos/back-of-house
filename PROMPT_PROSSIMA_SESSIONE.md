@@ -3381,3 +3381,172 @@ La Dispensa
 - `prep_log` ha 17 giorni di storia carico (dal 5 giugno, 160 prep distinte)
 - Backfill storico 17 giorni: possibile via SQL dopo che le tabelle sono create dalla brigata bot
 
+
+---
+
+## SESSIONE 7 LUGLIO 2026 (continuazione) — Sprint 2: bot-pos-cleaner v1
+
+**Versione sw.js live:** boh-v562 (invariato — zero file frontend toccati)
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### Checkpoint Sprint 1 — verificato prima di Sprint 2
+
+Eseguito verification checkpoint su `pos_daily_raw` per `2026-07-06`:
+
+- **197 righe totali:** 50 da `pos_sales_by_item` (191 porzioni), 96 da `pos_modifiers` (524 porzioni)
+- **Il 6 luglio era lunedì** — il Commis aveva scritto "domenica/festività" per errore nel testo, ma i dati erano corretti. Cucina aperta, servizio regolare.
+- **Top food:** Wheel Pasta 10, Meatball 9, Calamari 9, Lobster Fettucine 8, Mini Caesar 8, Beef Ravioli 8, Risotto Mushrooms 7...
+- **58 missing_mapping** classificate manualmente in 5 categorie: SYSTEM (17), BAR (16), SERVER (16), KITCHEN_OPERATIONAL (12), MENU_ITEM_MANCANTE (3 food item senza ricetta Brigade).
+
+**Decisione chiave:** non hardcodare la lista nel bot, ma creare una tabella configurabile `pos_item_class_rules`.
+
+---
+
+### Chiarimento architettura TouchBistro POS Bot
+
+Il "TouchBistro POS Bot" è diviso in stazioni interne della Brigata:
+
+```
+TouchBistro POS Bot
+├── Station 1 — bot-pos-importer    → pos_daily_raw       ✅ v6
+├── Station 2 — bot-pos-cleaner     → pos_daily_clean     ✅ v1 (questa sessione)
+└── Station 3 — bot-stock-drain     → stock_movements     (aggiornamento pendente)
+```
+
+**Nome corretto Edge Function:** `bot-pos-cleaner` (non `bot-recipe-matcher v2` — il Recipe Matcher è un bot separato già esistente).
+
+---
+
+### Sprint 2 — bot-pos-cleaner v1
+
+**Edge Function:** `bot-pos-cleaner` v1 — deployata e ACTIVE
+**bot_name:** `pos-cleaner`
+**Commis:** `mapping-commis` (deterministico, zero LLM)
+**Input:** `pos_daily_raw` | **Output:** `pos_daily_clean` + `commis_observations`
+
+**Migration DB applicata:** `pos_cleaner_sprint2_foundation`
+- Nuove colonne su `pos_daily_clean`: `item_class`, `class_source`, `rule_id`, `action`
+- Nuova tabella `pos_item_class_rules` (configurazione dati, non hardcode)
+- FK `pos_daily_clean.rule_id → pos_item_class_rules.id`
+- Indice su `(active, source_table, priority)`
+
+**Seed iniziale `pos_item_class_rules`:** 69 regole
+- 20 SYSTEM_IGNORE (incluso `Fired at` starts_with per tutti i timestamp)
+- 19 BAR_IGNORE (liquori, cocktail, mixer — tutti da `pos_modifiers`)
+- 18 SERVER_INSTRUCTION (allergie, temperature, sostituzioni)
+- 9 KITCHEN_OPERATIONAL (Caesar, Berry Coulis, Daily risotto, Mash potatoes, citronette, Burratta, Spaghetti Pomodoro, Ranch, Risotto)
+- 2 MENU_ITEM noti senza ricetta (Risotto Mushrooms And Steak, Branzino Chef Style)
+- 1 OPEN_ITEM_MANUAL (Open Food)
+
+**Classi item_class:**
+| Classe | action | Verso stock? |
+|---|---|---|
+| MENU_ITEM | map | ✅ Sprint 3+ |
+| KITCHEN_OPERATIONAL | map | ✅ Sprint 3+ |
+| SYSTEM_IGNORE | ignore | ❌ mai |
+| BAR_IGNORE | ignore | ❌ mai |
+| SERVER_INSTRUCTION | ignore | ❌ mai |
+| OPEN_ITEM_MANUAL | manual_review | ❌ mai auto |
+| UNKNOWN_REVIEW | manual_review | ❌ finché non classificato |
+
+**Logica classificazione:**
+1. Cerca match su `pos_item_class_rules` (exact → starts_with → contains → regex, priority ASC)
+2. Default: `pos_sales_by_item` senza regola → MENU_ITEM; `pos_modifiers` senza regola → UNKNOWN_REVIEW
+3. Per MENU_ITEM + KITCHEN_OPERATIONAL: cerca ricetta via `recipes.pos_name` (pipe-delimited) + `pos_item_aliases` + Kids menu logic
+4. Commis Auditor: SYSTEM/BAR/SERVER → silenzio totale; altri → observations mirate
+
+**Idempotenza:** DELETE pos_daily_clean + commis_observations per la data prima di reinserire.
+
+**File MD creati su brigade-main:**
+- `bots/pos-cleaner/POS_CLEANER_BOT.md`
+- `bots/pos-cleaner/POS_CLEANER_COMMIS.md`
+- `bots/pos-cleaner/POS_CLEANER_TEST.md`
+- `bots/pos-cleaner/bot-pos-cleaner.js` (copia source)
+
+---
+
+### PRIMO TEST MANUALE — da fare
+
+Max deve triggerare da Supabase Dashboard:
+
+**Edge Functions → bot-pos-cleaner → Invoke:**
+```json
+{ "business_date": "2026-07-06" }
+```
+
+**Query di verifica post-run:**
+
+```sql
+-- 1. Distribuzione per item_class
+SELECT item_class, action, COUNT(*), SUM(portions_sold)
+FROM pos_daily_clean
+WHERE business_date = '2026-07-06'
+GROUP BY item_class, action
+ORDER BY COUNT(*) DESC;
+
+-- 2. Righe mappate a ricetta
+SELECT pos_item_name, item_class, match_type, matched_recipe_name, portions_sold
+FROM pos_daily_clean
+WHERE business_date = '2026-07-06'
+  AND action = 'map' AND recipe_id IS NOT NULL
+ORDER BY portions_sold DESC;
+
+-- 3. Review queue reale
+SELECT pos_item_name, item_class, portions_sold, warning
+FROM pos_daily_clean
+WHERE business_date = '2026-07-06' AND needs_review = true
+ORDER BY portions_sold DESC;
+
+-- 4. Osservazioni Commis
+SELECT severity, title, metadata->>'portions_sold' AS porzioni
+FROM commis_observations
+WHERE business_date = '2026-07-06' AND bot_name = 'pos-cleaner'
+ORDER BY severity DESC, (metadata->>'portions_sold')::numeric DESC;
+
+-- 5. Stock intatto
+SELECT COUNT(*) FROM stock_movements WHERE business_date = '2026-07-06';
+SELECT COUNT(*) FROM stock_daily_snapshot WHERE snapshot_date = '2026-07-06';
+
+-- 6. bot_runs
+SELECT bot_name, status, rows_read, rows_written, warnings_count, summary
+FROM bot_runs WHERE bot_name = 'pos-cleaner' ORDER BY started_at DESC LIMIT 3;
+```
+
+**Atteso:** ~50-60 righe SYSTEM/BAR/SERVER ignorate, ~40-50 MENU_ITEM mappate, review queue di 5-10 item reali.
+
+---
+
+### Aggiornamento regole (future sessioni)
+
+Per aggiungere nuove regole senza deploy:
+```sql
+-- Aggiungere un drink
+INSERT INTO pos_item_class_rules (pattern, match_type, source_table, item_class, action, priority, notes)
+VALUES ('Bellini', 'exact', 'pos_modifiers', 'BAR_IGNORE', 'ignore', 10, 'Cocktail — bar');
+
+-- Disattivare una regola
+UPDATE pos_item_class_rules SET active = false WHERE pattern = 'Balsamic';
+```
+
+---
+
+### PROSSIMA SESSIONE — Sprint 3 update + test Sprint 2
+
+1. **Triggerare bot-pos-cleaner su 2026-07-06** e verificare le 5 query sopra
+2. **Decidere modifier operativi**: Caesar, Berry Coulis, Daily risotto, citronette, Mash potatoes — aggiungere a `pos_item_aliases` per enableare mapping
+3. **Aggiornare bot-stock-drain** (v1 già esiste) per leggere `pos_daily_clean` con la nuova colonna `item_class` invece della vecchia logica `needs_review=false + match_type IN (...)` — la nuova condizione è `action='map' AND recipe_id IS NOT NULL`
+4. **Ricette mancanti**: Risotto Mushrooms And Steak, Branzino Chef Style — Max le crea quando ha le ricette pronte
+
+---
+
+### Versioni finali sessione
+
+| Componente | Versione |
+|---|---|
+| Brigade frontend | **boh-v562** (invariato) |
+| POS TouchBistro Bot (Importer) | v6 (invariato) |
+| POS Cleaner Bot | **v1 (nuovo)** |
+| Migration DB | `pos_cleaner_sprint2_foundation` |
+| pos_item_class_rules | 69 regole seed |
