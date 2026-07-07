@@ -331,8 +331,16 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Prep da bom_chain (non anti-doubled)
+    // Prep da bom_chain — anti-doubled: skip se già dedotta da direct_recipe
+    let skippedPrep = 0
     for (const acc of prepAccum.values()) {
+      // Salta se direct_recipe ha già dedotto questa prep per lo stesso pos_item_name
+      const keyR = `${acc.posItemName}|r:${acc.subId}`
+      const keyP = `${acc.posItemName}|p:${acc.prepTask.id}`
+      if (alreadyDeducted.has(keyR) || alreadyDeducted.has(keyP)) {
+        skippedPrep++
+        continue // evita il doppio scarico
+      }
       const calcPath = `${acc.posItemName} → PREP ${acc.prepTask.name}: ${acc.portions}p × ${acc.totalQty / acc.portions}${acc.unit} = ${acc.totalQty}${acc.unit} [bom_chain/stocked_prep]`
       deductions.push({
         business_date:    businessDate,
@@ -379,7 +387,7 @@ Deno.serve(async (req) => {
     const aggCount = [...ingredientAccum.values()].filter(a => a.paths.length > 1).length
     const summary = insertError
       ? `Error: ${insertError}`
-      : `${cleanRows.length} clean → ${rowsWritten} bom_chain (${ingDeds} ingredient, ${prepDeds} prep, ${aggCount} aggregati) · ${obsWritten} obs`
+      : `${cleanRows.length} clean → ${rowsWritten} bom_chain (${ingDeds} ingredient, ${prepDeds} prep, ${aggCount} aggregati, ${skippedPrep} skip_doubled) · ${obsWritten} obs`
 
     await supa.from('bot_runs').insert({
       bot_name: 'bot-bom-chain-deduction', run_date: businessDate, status,

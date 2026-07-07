@@ -233,7 +233,7 @@ async function officeLoadHome() {
       dispensaBtn.innerHTML =
         '<div style="display:flex;align-items:center;padding:14px 16px;gap:12px;">' +
           '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:46px;flex-shrink:0;background:rgba(255,255,255,0.4);"></div>' +
-          '<div style="font-size:26px;width:32px;text-align:center;">\U0001F6D2</div>' +
+          '<div style="font-size:22px;width:32px;text-align:center;line-height:1;">&#x1F6D2;</div>' +
           '<div style="flex:1;">' +
             '<div style="color:white;font-size:16px;font-weight:600;">La Dispensa</div>' +
             '<div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:3px;">Snapshot POS · Read-only</div>' +
@@ -4571,7 +4571,7 @@ window.openLaDispensa = function() {
       '<button onclick="dispensaTab(\'esploso\')" id="dtab-esploso" style="flex:1;padding:10px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">🧾 Esploso</button>' +
     '</div>' +
     // Content area
-    '<div id="dispensaContent" style="flex:1;overflow-y:auto;padding:0 0 80px;-webkit-overflow-scrolling:touch;">' +
+    '<div id="dispensaContent" style="flex:1;overflow-y:auto;padding:0 0 80px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;">' +
       '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Caricamento...</div>' +
     '</div>';
 
@@ -4580,24 +4580,48 @@ window.openLaDispensa = function() {
     requestAnimationFrame(function() { panel.style.transform = 'translateX(-50%) translateY(0)'; });
   });
 
-  // Swipe-to-close
-  var startY = 0;
-  panel.addEventListener('touchstart', function(e) { startY = e.touches[0].clientY; }, { passive:true });
-  panel.addEventListener('touchmove', function(e) {
-    var dy = e.touches[0].clientY - startY;
-    if (dy > 40) { panel.style.transition='none'; panel.style.transform='translateX(-50%) translateY('+dy+'px)'; }
-  }, { passive:true });
-  panel.addEventListener('touchend', function(e) {
-    var dy = e.changedTouches[0].clientY - startY;
+  // Swipe-to-close — solo sull'header/drag-handle, MAI sul contenuto scrollabile
+  // Il contenuto #dispensaContent ha scroll proprio con overscroll-behavior:contain
+  var _swipeStartY = 0;
+  var _swipeActive = false;
+  var header = panel.querySelector('div[style*="border-bottom"]');
+  var dragHandle = panel.querySelector('div[style*="height:5px"]');
+
+  function _swipeStart(e) {
+    _swipeStartY = e.touches[0].clientY;
+    _swipeActive = true;
+    panel.style.transition = 'none';
+  }
+  function _swipeMove(e) {
+    if (!_swipeActive) return;
+    var dy = e.touches[0].clientY - _swipeStartY;
+    if (dy > 0) panel.style.transform = 'translateX(-50%) translateY('+dy+'px)';
+  }
+  function _swipeEnd(e) {
+    if (!_swipeActive) return;
+    _swipeActive = false;
+    var dy = e.changedTouches[0].clientY - _swipeStartY;
     if (dy > 120) {
-      panel.style.transition='transform 0.35s cubic-bezier(0.4,0,0.2,1)';
-      panel.style.transform='translateX(-50%) translateY(100%)';
+      panel.style.transition = 'transform 0.35s cubic-bezier(0.4,0,0.2,1)';
+      panel.style.transform = 'translateX(-50%) translateY(100%)';
       setTimeout(function(){ panel.remove(); }, 360);
     } else {
-      panel.style.transition='transform 0.3s cubic-bezier(0.4,0,0.2,1)';
-      panel.style.transform='translateX(-50%) translateY(0)';
+      panel.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1)';
+      panel.style.transform = 'translateX(-50%) translateY(0)';
     }
-  }, { passive:true });
+  }
+
+  // Attacca swipe SOLO su header e drag handle
+  if (dragHandle) {
+    dragHandle.addEventListener('touchstart', _swipeStart, { passive:true });
+    dragHandle.addEventListener('touchmove', _swipeMove, { passive:true });
+    dragHandle.addEventListener('touchend', _swipeEnd, { passive:true });
+  }
+  if (header) {
+    header.addEventListener('touchstart', _swipeStart, { passive:true });
+    header.addEventListener('touchmove', _swipeMove, { passive:true });
+    header.addEventListener('touchend', _swipeEnd, { passive:true });
+  }
 
   // Load latest date, then render
   dispensaInit();
