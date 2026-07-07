@@ -3384,8 +3384,16 @@ window.jarvisAction = async function(itemId, action) {
       var rr = officeItem && officeItem.reasoning_result ? officeItem.reasoning_result : null;
       var intent = rr ? (rr.intent || rr.issue_type || '') : '';
       var isProductionReport = (intent === 'production_report' || intent === 'stock_count');
-      if (rr && isProductionReport && rr.write_plan) {
-        var wp = rr.write_plan;
+      // write_plan puo essere null se il modello non lo ha costruito — ricava dai campi top-level
+      var effectiveWritePlan = rr ? (rr.write_plan || (isProductionReport && rr.new_total_claimed != null ? {
+        table: 'prep_tasks',
+        field: 'current_stock',
+        new_value: rr.new_total_claimed,
+        row: rr.prep_candidate || '',
+        unit: rr.unit || ''
+      } : null)) : null;
+      if (rr && isProductionReport && effectiveWritePlan) {
+        var wp = effectiveWritePlan;
         var prep = rr.prep_candidate || wp.row || 'stock';
         var newVal = rr.new_total_claimed != null ? rr.new_total_claimed : wp.new_value;
         var unit = rr.unit || '';
