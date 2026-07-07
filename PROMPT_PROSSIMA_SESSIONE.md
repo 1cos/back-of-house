@@ -3550,3 +3550,78 @@ UPDATE pos_item_class_rules SET active = false WHERE pattern = 'Balsamic';
 | POS Cleaner Bot | **v1 (nuovo)** |
 | Migration DB | `pos_cleaner_sprint2_foundation` |
 | pos_item_class_rules | 69 regole seed |
+
+---
+
+## SESSIONE 7 LUGLIO 2026 (continuazione) — Sprint 3: bot-direct-deduction v1
+
+**Versione sw.js live:** boh-v562 (invariato)
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### Architettura aggiornata TouchBistro POS Bot
+
+```
+TouchBistro POS Bot
+├── Station 1 — bot-pos-importer       → pos_daily_raw        ✅ v6
+├── Station 2 — bot-pos-cleaner        → pos_daily_clean      ✅ v2
+└── Station 3 — bot-direct-deduction   → stock_deductions     ✅ v1 (questa sessione)
+```
+
+Prossimi:
+- Station 4 — bot-bom-chain-deduction  → stock_deductions (catene BOM complesse)
+- Station 5 — bot-stock-consolidator   → current_stock
+- Station 6 — La Dispensa UI
+
+---
+
+### Sprint 3 — bot-direct-deduction v1
+
+**Edge Function:** `bot-direct-deduction` v1 — deployata e ACTIVE
+**bot_name:** `bot-direct-deduction`
+**Commis:** `direct-deduction-commis` (deterministico, zero LLM)
+**Input:** `pos_daily_clean` (action='map', recipe_id IS NOT NULL, item_class IN MENU_ITEM/KITCHEN_OPERATIONAL)
+**Output:** `stock_deductions` (source='direct_recipe') + `commis_observations`
+
+**Logica:**
+1. Per ogni riga mappata di pos_daily_clean → legge BOM della ricetta (solo `component_type='RECIPE'`)
+2. Per ogni sub-recipe nel BOM → cerca prep_task attivo collegato
+3. Calcola `quantity = bom_qty × portions_sold`
+4. Scrive in `stock_deductions`
+
+**Nota tecnica item_id:** `stock_deductions.item_id` è uuid NOT NULL; `prep_tasks.id` è bigint. Soluzione Sprint 3: `item_id = sub_recipe_id` (uuid della prep recipe). `prep_task_id` (bigint) in `metadata.prep_task_id`. Da rivedere in Sprint 5.
+
+**Risultati verificati su 2026-07-06:**
+- 58 righe clean lette → **99 deductions** scritte
+- source=direct_recipe, item_type=prep
+- total_qty = ~53.857g equivalenti di prep
+- 13 info (ricette con solo ITEM raw → da fare in Bot 4)
+- 3 warning (sub-recipe senza prep_task attivo)
+- stock_movements: 335 (pre-esistenti, non toccate da Sprint 3)
+- stock_daily_snapshot: 0 ✅
+
+**Idempotente:** `DELETE ... WHERE source='direct_recipe'` prima di reinserire.
+
+**Anomalie note nei dati (da verificare con Max):**
+- `Meatball Appetizer → Parmesan Grated`: 340g/porzione — BOM per batch o per porzione?
+- `Add chicken → Grilled Chicken`: 2550g/porzione — intentionale (batch pollo completo)
+- `Lobster Fettucine → Fettucine`: qty=1 ma unit=g invece di each — disallineamento unità BOM
+
+**File MD creati su brigade-main:**
+- `bots/direct-deduction/DIRECT_DEDUCTION_BOT.md`
+- `bots/direct-deduction/DIRECT_DEDUCTION_COMMIS.md`
+- `bots/direct-deduction/DIRECT_DEDUCTION_TEST.md`
+- `bots/direct-deduction/bot-direct-deduction.js`
+
+---
+
+### Cosa non fare in prossima sessione
+
+- ❌ Non toccare current_stock
+- ❌ Non costruire La Dispensa UI
+- ❌ Non fare Bot 4 BOM Chain senza conferma di Max
+
+### Prossima sessione possibile
+
+Sprint 4 — Bot BOM Chain Deduction: segue catene BOM multi-livello (RECIPE dentro RECIPE) per scaricare anche le prep intermedie che Sprint 3 salta. Da fare solo dopo verifica Sprint 3 da parte di Max.
