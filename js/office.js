@@ -3451,7 +3451,7 @@ window.jarvisDirectExecute = async function(itemId) {
       try {
         var result = await jarvisExecuteDraft(sb, draft);
         await sb.from('chef_ai_action_drafts').update({ status: 'executed', approved_by: byName, approved_at: now, executed_at: now }).eq('id', draft.id);
-        await sb.from('chef_ai_audit_log').insert({ action_draft_id: draft.id, office_item_id: itemId, action_type: draft.action_type, result: result, executed_by: 'jarvis-reason', approved_by: byName, approved_at: now, executed_at: now });
+        await sb.from('chef_ai_audit_log').insert({ action_draft_id: draft.id, office_item_id: itemId, action_type: draft.action_type, payload_after: draft.payload, result: typeof result === 'object' ? JSON.stringify(result) : String(result), executed_by: 'jarvis-reason', approved_by: byName });
         executedCount++;
       } catch(e) {
         await sb.from('chef_ai_action_drafts').update({ status: 'failed', error_message: e.message }).eq('id', draft.id);
