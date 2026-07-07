@@ -870,6 +870,15 @@ function renderM(){
       const auditBtn = isAdmin()
         ? '<div style="margin-top:6px;"><button class="audit-toggle-btn" onclick="event.stopPropagation();toggleAuditPanel('+JSON.stringify(iid)+')" style="font-size:11px;font-weight:600;color:#7c3aed;background:rgba(124,58,237,0.08);border:0.5px solid rgba(124,58,237,0.25);border-radius:6px;padding:2px 8px;cursor:pointer;">🔍 Audit</button></div>'
         : '';
+
+      // Chef AI buttons — solo admin
+      const hasBotNote = !!(i.suggested_note && i.suggested_note.includes('|'));
+      const chefAiBtns = isAdmin()
+        ? '<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap;">'
+          + '<button class="chef-ai-prep-btn" onclick="event.stopPropagation();chefAiAuditPrep('+JSON.stringify(iid)+')" style="font-size:11px;font-weight:700;color:#1e40af;background:linear-gradient(135deg,rgba(239,246,255,0.9),rgba(219,234,254,0.9));border:1px solid #93c5fd;border-radius:6px;padding:2px 8px;cursor:pointer;">🧠 Controlla prep</button>'
+          + (hasBotNote ? '<button class="chef-ai-explain-btn" onclick="event.stopPropagation();chefAiExplainBot('+JSON.stringify(iid)+')" style="font-size:11px;font-weight:700;color:#7c3aed;background:linear-gradient(135deg,rgba(245,243,255,0.9),rgba(237,233,254,0.9));border:1px solid #c4b5fd;border-radius:6px;padding:2px 8px;cursor:pointer;">📉 Spiega suggerimento bot</button>' : '')
+          + '</div>'
+        : '';
       const btn = cardButton(i);
       // recipeTag solo admin
       const recipeTag = !isAdmin() ? ''
@@ -891,6 +900,7 @@ function renderM(){
               +(recipeTag?'<div style="margin-top:3px;">'+recipeTag+'</div>':'')
               +botPill
               +auditBtn
+              +chefAiBtns
               +todayLogStrip
               +stockPill
             +'</div>'
@@ -902,6 +912,7 @@ function renderM(){
           +(btnBelow?'<div style="margin-top:10px;padding-bottom:4px;">'+btn+'</div>':'')
         +'</div>'
         +'<div class=\"audit-detail\" style=\"display:none;\"></div>'
+        +'<div class=\"chef-ai-panel\" id=\"chef-ai-panel-'+iid+'\" style=\"display:none;\"></div>'
       +'</div>';
     }).join('');
 }
@@ -1267,6 +1278,294 @@ async function feedSave(id,qty,btn){
 
 // Carica steps map all'avvio
 loadStepsMap();
+
+// ── Chef AI — Controlla prep ──────────────────────────────────
+window.chefAiAuditPrep = async function(taskId){
+  const panel = document.getElementById('chef-ai-panel-'+taskId);
+  if(!panel) return;
+
+  // Toggle: se aperto, chiudi
+  if(panel.style.display !== 'none'){
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+
+  panel.style.display = 'block';
+  panel.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#6b7280;border-top:1px solid #f1f5f9;">🧠 Chef AI sta analizzando...</div>';
+
+  try {
+    const it = tasks[taskId];
+    if(!it){ panel.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#dc2626;">Task non trovato.</div>'; return; }
+
+    // Raccoglie dati
+    const [recRes, bomRes, stockRes, tellChefRes, posRes] = await Promise.all([
+      it.recipe_id ? supa.from('recipes').select('id,title,pos_name,base_servings,base_weight_g,serving_weight_g,serving_qty,serving_unit,shelf_life_days,menu_group').eq('id',it.recipe_id).maybeSingle() : Promise.resolve({data:null}),
+      it.recipe_id ? supa.from('recipe_bom').select('bom_id,component_type,quantity,unit,notes,ingredients(name,category),recipes!recipe_bom_sub_recipe_id_fkey(title)').eq('parent_recipe_id',it.recipe_id).order('sort_order',{nullsFirst:false}).limit(50) : Promise.resolve({data:[]}),
+      it.ingredient_id ? supa.from('ingredients').select('id,name,category,base_unit,measure_type').eq('id',it.ingredient_id).maybeSingle() : Promise.resolve({data:null}),
+      supa.from('chef_reports').select('message,station,created_at').ilike('message','%'+it.name+'%').order('created_at',{ascending:false}).limit(3),
+      it.recipe_id ? supa.from('pos_sales_by_item').select('menu_item,quantity,sale_date').ilike('menu_item','%'+(it.name.split(' ')[0])+'%').order('sale_date',{ascending:false}).limit(7) : Promise.resolve({data:[]})
+    ]);
+
+    const payload = {
+      prep_task: {
+        id: it.id,
+        name: it.name,
+        category: it.category,
+        prep_type: it.prep_type,
+        unit: it.unit,
+        current_stock: it.current_stock,
+        suggested_qty: it.suggested_qty,
+        suggested_note: it.suggested_note,
+        expected_duration_days: it.expected_duration_days,
+        min_cover_days: it.min_cover_days,
+        ingredient_id: it.ingredient_id,
+        recipe_id: it.recipe_id,
+        daily_reset: it.daily_reset
+      },
+      linked_recipe: recRes.data || null,
+      bom_rows: (bomRes.data||[]).map(b=>({
+        component_type: b.component_type,
+        quantity: b.quantity,
+        unit: b.unit,
+        notes: b.notes,
+        ingredient: b.component_type==='ITEM' ? (b.ingredients ? b.ingredients.name : null) : null,
+        sub_recipe: b.component_type==='RECIPE' ? (b.recipes ? b.recipes.title : null) : null
+      })),
+      linked_ingredient: stockRes.data || null,
+      recent_tell_chef: (tellChefRes.data||[]).map(t=>t.message),
+      recent_pos_sales: posRes.data || []
+    };
+
+    const systemPrompt = `Sei Chef AI, il sous-chef digitale operativo di Zenos on the Square (Weatherford TX).
+Il tuo compito e' un AUDIT OPERATIVO di un prep task Brigade. Non sei un chatbot — sei un controllore tecnico.
+
+REGOLE:
+- Rispondi SOLO in JSON valido, niente altro.
+- Usa linguaggio da cucina, non da consulente.
+- Non scrivere mai nel DB — solo analisi.
+
+CONTROLLA:
+1. Il prep e' collegato a recipe_id o ingredient_id? Se no — il bot non puo' calcolare.
+2. recipe_bom presente se e' un prep finale con pos_name?
+3. pos_name presente sulla ricetta se prep_type=finale o venduto al POS?
+4. Le unita' (unit) sono fisiche e convertibili (g/kg/ml/l/oz/lb/cup/nests/pezzi/buste)?
+5. shelf_life_days o expected_duration_days comprensibili e plausibili per questo tipo di prep?
+6. suggested_qty e' spiegabile dai dati? Sembra logico per il livello di stock?
+7. Ingredienti duplicati o ambigui nel BOM?
+8. Sub-recipe mancante di base_weight_g (necessario per il bot)?
+9. Tell Chef recenti segnalano problemi su questo prep?
+10. Vendite POS recenti coerenti con il livello di stock attuale?
+
+REGOLE ZENOS:
+- min_cover_days e' una soglia di alert, NON un orizzonte di pianificazione
+- expected_duration_days e' la shelf_life del PREP (priorita' su shelf_life_days della ricetta)
+- prep_type=finale -> collegato al POS; prep_type=supporto -> non ha pos_name
+- Unita' sopra 100g usano kg, sotto usano g
+
+Rispondi ESATTAMENTE con questo JSON (niente markdown, niente backtick):
+{
+  "status": "ok|warning|critical",
+  "understood": ["lista di cose capite e corrette su questo prep"],
+  "issues": [{"severity":"info|warning|critical","field":"campo","message":"descrizione problema in italiano cucina"}],
+  "bot_impact": ["impatti sul bot-preplist-builder se ci sono problemi"],
+  "suggested_fixes": [{"action":"cosa fare","detail":"dettaglio operativo"}],
+  "follow_up_question": "domanda per Max (stringa vuota se non serve)",
+  "follow_up_options": ["opzione 1","opzione 2"],
+  "write_plan": null,
+  "confidence": 0.0
+}`;
+
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/souschef-chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+      },
+      body: JSON.stringify({
+        message: 'AUDIT PREP TASK:\n' + JSON.stringify(payload, null, 2),
+        user_name: window.user?.name || 'Max',
+        user_role: 'admin',
+        user_station: 'Admin',
+        system_override: systemPrompt
+      })
+    });
+
+    const raw = await r.json();
+    const replyText = raw.reply || raw.message || raw.text || (typeof raw === 'string' ? raw : JSON.stringify(raw));
+
+    let audit;
+    try {
+      const cleaned = replyText.replace(/```json|```/g,'').trim();
+      audit = JSON.parse(cleaned);
+    } catch(e){
+      panel.innerHTML = _chefAiPrepPanelError('Risposta non JSON: '+replyText.slice(0,200));
+      return;
+    }
+    panel.innerHTML = _chefAiPrepPanelHtml(audit, it.name);
+
+  } catch(err){
+    panel.innerHTML = _chefAiPrepPanelError(err.message);
+  }
+};
+
+// ── Chef AI — Spiega suggerimento bot ────────────────────────
+window.chefAiExplainBot = async function(taskId){
+  const panel = document.getElementById('chef-ai-panel-'+taskId);
+  if(!panel) return;
+
+  if(panel.style.display !== 'none' && panel.dataset.mode === 'explain'){
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+  panel.dataset.mode = 'explain';
+  panel.style.display = 'block';
+  panel.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#6b7280;border-top:1px solid #f1f5f9;">📉 Chef AI sta spiegando il suggerimento...</div>';
+
+  try {
+    const it = tasks[taskId];
+    if(!it){ panel.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#dc2626;">Task non trovato.</div>'; return; }
+
+    const payload = {
+      prep_task_name: it.name,
+      category: it.category,
+      prep_type: it.prep_type,
+      unit: it.unit,
+      current_stock: it.current_stock,
+      suggested_qty: it.suggested_qty,
+      suggested_note: it.suggested_note,
+      expected_duration_days: it.expected_duration_days,
+      min_cover_days: it.min_cover_days,
+      shelf_life_days_recipe: null
+    };
+
+    // Try to get shelf_life from linked recipe
+    if(it.recipe_id){
+      const {data:rr} = await supa.from('recipes').select('shelf_life_days').eq('id',it.recipe_id).maybeSingle();
+      if(rr) payload.shelf_life_days_recipe = rr.shelf_life_days;
+    }
+
+    const systemPrompt = `Sei Chef AI, il sous-chef digitale operativo di Zenos on the Square.
+Spiega in linguaggio cucina (italiano) perche' il bot-preplist-builder ha dato questa raccomandazione.
+NON inventare dati. Usa solo i dati forniti.
+Sii conciso — massimo 3-4 frasi come un sous chef direbbe a Max.
+Rispondi SOLO in JSON valido:
+{
+  "status": "ok|warning|critical",
+  "understood": ["ho visto questi dati chiave"],
+  "issues": [],
+  "bot_impact": ["spiegazione logica del suggerimento bot in 2-3 frasi"],
+  "suggested_fixes": [],
+  "follow_up_question": "",
+  "follow_up_options": [],
+  "write_plan": null,
+  "confidence": 0.0
+}`;
+
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/souschef-chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+      },
+      body: JSON.stringify({
+        message: 'SPIEGA SUGGERIMENTO BOT:\n' + JSON.stringify(payload, null, 2),
+        user_name: window.user?.name || 'Max',
+        user_role: 'admin',
+        user_station: 'Admin',
+        system_override: systemPrompt
+      })
+    });
+
+    const raw = await r.json();
+    const replyText = raw.reply || raw.message || raw.text || (typeof raw === 'string' ? raw : JSON.stringify(raw));
+
+    let audit;
+    try {
+      const cleaned = replyText.replace(/```json|```/g,'').trim();
+      audit = JSON.parse(cleaned);
+    } catch(e){
+      panel.innerHTML = _chefAiPrepPanelError('Risposta non JSON: '+replyText.slice(0,200));
+      return;
+    }
+
+    // Spiega: mostra solo bot_impact in un panel semplice
+    const statusColor = audit.status==='ok'?'#059669':audit.status==='critical'?'#dc2626':'#d97706';
+    const statusBg    = audit.status==='ok'?'#f0fdf4':audit.status==='critical'?'#fff5f5':'#fffbeb';
+    const statusBorder= audit.status==='ok'?'#bbf7d0':audit.status==='critical'?'#fca5a5':'#fde68a';
+    const explains = (audit.bot_impact||[]);
+    panel.innerHTML = '<div style="border-top:1px solid #f1f5f9;padding:12px 14px;">'
+      +'<div style="background:'+statusBg+';border:1.5px solid '+statusBorder+';border-radius:10px;padding:10px 12px;">'
+        +'<div style="font-size:10px;font-weight:700;color:'+statusColor+';letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">📉 PERCHE IL BOT DICE COSI</div>'
+        + explains.map(e=>'<div style="font-size:13px;color:#1e293b;line-height:1.5;margin-bottom:4px;">'+e+'</div>').join('')
+        + (audit.understood&&audit.understood.length ? '<div style="margin-top:8px;font-size:11px;color:#6b7280;">'+(audit.understood.join(' · '))+'</div>' : '')
+        +'<div style="margin-top:8px;font-size:10px;color:#9ca3af;">Chef AI · '+Math.round((audit.confidence||0)*100)+'% confidenza</div>'
+      +'</div>'
+    +'</div>';
+
+  } catch(err){
+    panel.innerHTML = _chefAiPrepPanelError(err.message);
+  }
+};
+
+// ── Chef AI Prep Panel Render Helpers ────────────────────────
+function _chefAiPrepPanelError(msg){
+  return '<div style="border-top:1px solid #f1f5f9;padding:10px 14px;"><div style="background:#fff5f5;border:1.5px solid #fca5a5;border-radius:8px;padding:10px;font-size:12px;color:#991b1b;">Errore Chef AI: '+msg+'</div></div>';
+}
+
+function _chefAiPrepPanelHtml(a, prepName){
+  const statusColor = a.status==='ok'?'#059669':a.status==='critical'?'#dc2626':'#d97706';
+  const statusBg    = a.status==='ok'?'#f0fdf4':a.status==='critical'?'#fff5f5':'#fffbeb';
+  const statusBorder= a.status==='ok'?'#bbf7d0':a.status==='critical'?'#fca5a5':'#fde68a';
+  const statusLabel = a.status==='ok'?'OK':a.status==='critical'?'CRITICO':'ATTENZIONE';
+  const s = 'font-size:11px;color:#1e293b;padding:3px 0;border-bottom:0.5px solid #f1f5f9;';
+  const lbl = 'font-size:9px;font-weight:700;color:#6b7280;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:3px;';
+
+  let issuesHtml = '';
+  if(a.issues && a.issues.length){
+    issuesHtml = '<div style="margin-top:8px;"><div style="'+lbl+'">PROBLEMI TROVATI</div>'
+      +a.issues.map(iss=>{
+        const ic=iss.severity==='critical'?'#dc2626':iss.severity==='warning'?'#d97706':'#6b7280';
+        const ib=iss.severity==='critical'?'#fff5f5':iss.severity==='warning'?'#fffbeb':'#f8fafc';
+        return '<div style="'+s+';background:'+ib+';border-left:3px solid '+ic+';border-radius:3px;padding:3px 7px;margin-bottom:2px;">'
+          +'<b style="color:'+ic+';">'+(iss.severity==='critical'?'Critico':iss.severity==='warning'?'Attenzione':'Info')+'</b>'
+          +(iss.field?' · <span style="color:#94a3b8;">'+iss.field+'</span>':'')
+          +' — '+iss.message+'</div>';
+      }).join('')+'</div>';
+  }
+  let botHtml = '';
+  if(a.bot_impact && a.bot_impact.length){
+    botHtml='<div style="margin-top:8px;"><div style="'+lbl+'">IMPATTO SUL BOT</div>'
+      +a.bot_impact.map(b=>'<div style="'+s+';color:#7c3aed;">'+b+'</div>').join('')+'</div>';
+  }
+  let fixesHtml = '';
+  if(a.suggested_fixes && a.suggested_fixes.length){
+    fixesHtml='<div style="margin-top:8px;"><div style="'+lbl+'">PROPOSTA CHEF AI</div>'
+      +a.suggested_fixes.map(f=>'<div style="'+s+'"><b>'+f.action+'</b>'+(f.detail?' — <span style="color:#64748b;">'+f.detail+'</span>':'')+'</div>').join('')+'</div>';
+  }
+  let fqHtml = '';
+  if(a.follow_up_question){
+    fqHtml='<div style="margin-top:8px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:7px;padding:8px 10px;">'
+      +'<div style="'+lbl+'">DOMANDA PER MAX</div>'
+      +'<div style="font-size:12px;font-weight:600;color:#0c4a6e;">'+a.follow_up_question+'</div>'
+      +((a.follow_up_options||[]).length?'<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;">'+(a.follow_up_options.map(o=>'<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:5px;border:1px solid #93c5fd;color:#1e40af;background:#eff6ff;">'+o+'</span>').join(''))+'</div>':'')
+    +'</div>';
+  }
+
+  return '<div style="border-top:1px solid #f1f5f9;padding:10px 14px;">'
+    +'<div style="background:'+statusBg+';border:1.5px solid '+statusBorder+';border-radius:10px;padding:10px 12px;">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+        +'<span style="font-size:11px;font-weight:700;color:'+statusColor+';">🧠 CHEF AI · '+statusLabel+'</span>'
+        +'<span style="font-size:10px;color:#9ca3af;">'+Math.round((a.confidence||0)*100)+'%</span>'
+      +'</div>'
+      + issuesHtml
+      + botHtml
+      + fixesHtml
+      + fqHtml
+    +'</div>'
+  +'</div>';
+}
 
 
 

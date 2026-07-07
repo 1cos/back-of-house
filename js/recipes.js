@@ -568,6 +568,8 @@ async function openRecipeEditor(rec=null){
       </div>
       ${rec?.id ? `<button id="deleteR" class="w-full py-2.5 text-red-500 border border-red-200 rounded-xl text-sm font-medium" style="background:#fff5f5;">${tr('deleteRecipe')}</button>` : ''}
       ${rec?.id && isAdmin() ? `<button onclick="openBOMRecipeAudit()" style="width:100%;margin-top:6px;padding:7px;font-size:12px;font-weight:600;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;cursor:pointer;">🔍 BOM Audit — trova ingredienti che sono ricette</button>` : ''}
+      ${rec?.id && isAdmin() ? `<button id="chefAiAuditRecipeBtn" onclick="chefAiAuditRecipeFromEditor()" style="width:100%;margin-top:6px;padding:9px;font-size:13px;font-weight:700;color:#1e40af;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1.5px solid #93c5fd;border-radius:10px;cursor:pointer;">🧠 Controlla ricetta</button>` : ''}
+      <div id="chefAiRecipePanel" style="display:none;margin-top:10px;"></div>
     </div>
   </div>`;
   document.body.appendChild(modal);
@@ -1217,6 +1219,232 @@ async function openRecipeEditor(rec=null){
       } catch(e){ alert(tr('error_deleting') + e.message); }
     };
   }
+
+  // ── Chef AI Audit — Controlla ricetta ──
+  window.chefAiAuditRecipeFromEditor = async function(){
+    if(!rec?.id) return;
+    const btn = modal.querySelector('#chefAiAuditRecipeBtn');
+    const panel = modal.querySelector('#chefAiRecipePanel');
+    if(!btn || !panel) return;
+
+    btn.disabled = true;
+    btn.textContent = '🧠 Analisi in corso...';
+    panel.style.display = 'block';
+    panel.innerHTML = '<div style="padding:12px;font-size:13px;color:#6b7280;text-align:center;">Chef AI sta leggendo la ricetta...</div>';
+
+    try {
+      // Raccoglie dati completi
+      const [rRes, bomRes] = await Promise.all([
+        supa.from('recipes').select('*').eq('id', rec.id).maybeSingle(),
+        supa.from('recipe_bom')
+          .select('bom_id,component_type,quantity,unit,notes,sort_order,item_id,sub_recipe_id,ingredients(id,name,category,base_unit,measure_type,yield_factor),recipes!recipe_bom_sub_recipe_id_fkey(id,title,pos_name,base_servings,base_weight_g,serving_weight_g)')
+          .eq('parent_recipe_id', rec.id)
+          .order('sort_order',{nullsFirst:false}).order('bom_id')
+      ]);
+      const recipe = rRes.data;
+      const bomRows = bomRes.data || [];
+
+      // MCR issues per questa ricetta (office_items con recipe_id o nome ricetta)
+      const {data: mcrIssues} = await supa.from('office_items')
+        .select('title,body,priority,source,category')
+        .eq('status','open')
+        .ilike('title', '%'+recipe.title+'%')
+        .limit(5);
+
+      // Prep tasks collegati
+      const {data: linkedPreps} = await supa.from('prep_tasks')
+        .select('id,name,unit,current_stock,suggested_qty,suggested_note,expected_duration_days,prep_type,prep_frequency_days')
+        .eq('recipe_id', rec.id)
+        .eq('archived', false);
+
+      const payload = {
+        recipe: {
+          id: recipe.id,
+          title: recipe.title,
+          pos_name: recipe.pos_name,
+          menu_group: recipe.menu_group,
+          base_servings: recipe.base_servings,
+          base_weight_g: recipe.base_weight_g,
+          serving_weight_g: recipe.serving_weight_g,
+          serving_qty: recipe.serving_qty,
+          serving_unit: recipe.serving_unit,
+          shelf_life_days: recipe.shelf_life_days,
+          prep_frequency_days: recipe.prep_frequency_days,
+          selling_price: recipe.selling_price
+        },
+        bom_rows: bomRows.map(b => ({
+          bom_id: b.bom_id,
+          component_type: b.component_type,
+          quantity: b.quantity,
+          unit: b.unit,
+          notes: b.notes,
+          ingredient: b.component_type === 'ITEM' ? (b.ingredients ? {name:b.ingredients.name, category:b.ingredients.category, base_unit:b.ingredients.base_unit, measure_type:b.ingredients.measure_type, yield_factor:b.ingredients.yield_factor} : null) : null,
+          sub_recipe: b.component_type === 'RECIPE' ? (b.recipes ? {title:b.recipes.title, pos_name:b.recipes.pos_name, base_servings:b.recipes.base_servings, base_weight_g:b.recipes.base_weight_g} : null) : null
+        })),
+        linked_prep_tasks: linkedPreps || [],
+        mcr_issues: mcrIssues || []
+      };
+
+      const systemPrompt = `Sei Chef AI, il sous-chef digitale operativo di Zenos on the Square (Weatherford TX).
+Il tuo compito e' un AUDIT OPERATIVO di una ricetta Brigade. Non sei un chatbot — sei un controllore tecnico di dati.
+
+REGOLE:
+- Rispondi SOLO in JSON valido, niente altro.
+- Usa linguaggio da cucina, non da consulente.
+- Non scrivere mai nel DB — solo analisi.
+- Non inventare dati che non ci sono.
+
+CONTROLLA:
+1. pos_name presente se e' una ricetta venduta al POS (menu_group non Bases/Sauces)?
+2. base_servings e base_weight_g coerenti tra loro?
+3. BOM completo? Almeno 1 ingrediente o sub-recipe?
+4. Unita' BOM fisicamente sensate e convertibili (g/kg/ml/l/oz/lb/cup/pz)?
+5. serving_qty e serving_unit presenti se prep_type=finale o ha pos_name?
+6. shelf_life_days presente?
+7. Ingredienti con component_type corretto (ITEM per ingredienti, RECIPE per sub-recipe)?
+8. Sub-recipe con base_weight_g presente (necessario per il bot)?
+9. Ingredienti duplicati o ambigui nel BOM?
+10. Issues MCR aperte che impattano questa ricetta?
+
+REGOLE ZENOS:
+- Porzione pasta intera = 2 nests (60-65g), mezza = 1 nest
+- Add-on (chicken/shrimp/salmon/scallops/lobster) = mezza porzione per produzione
+- Unita' sopra 100g usano kg, sotto usano g
+- Batch sempre interi arrotondati per eccesso
+
+Rispondi ESATTAMENTE con questo JSON (niente markdown, niente backtick):
+{
+  "status": "ok|warning|critical",
+  "understood": ["lista di cose capite e corrette sulla ricetta"],
+  "issues": [{"severity":"info|warning|critical","field":"campo","message":"descrizione problema in italiano cucina"}],
+  "bot_impact": ["impatti sul bot-preplist-builder o sul food cost se ci sono problemi"],
+  "suggested_fixes": [{"action":"cosa fare","detail":"dettaglio operativo"}],
+  "follow_up_question": "domanda per Max (stringa vuota se non serve)",
+  "follow_up_options": ["opzione 1","opzione 2"],
+  "write_plan": null,
+  "confidence": 0.0
+}`;
+
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/souschef-chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({
+          message: 'AUDIT RICETTA:\n' + JSON.stringify(payload, null, 2),
+          user_name: window.user?.name || 'Max',
+          user_role: 'admin',
+          user_station: 'Admin',
+          system_override: systemPrompt
+        })
+      });
+
+      const raw = await r.json();
+      // Estrai testo dalla risposta (souschef-chat restituisce {reply:...} o {message:...})
+      const replyText = raw.reply || raw.message || raw.text || (typeof raw === 'string' ? raw : JSON.stringify(raw));
+
+      let audit;
+      try {
+        const cleaned = replyText.replace(/```json|```/g,'').trim();
+        audit = JSON.parse(cleaned);
+      } catch(e) {
+        panel.innerHTML = _chefAiRecipePanelError('Risposta non JSON: ' + replyText.slice(0, 200));
+        return;
+      }
+
+      panel.innerHTML = _chefAiRecipePanelHtml(audit, recipe.title);
+
+    } catch(err) {
+      panel.innerHTML = _chefAiRecipePanelError(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🧠 Controlla ricetta';
+    }
+  };
+}
+
+// ── Chef AI Recipe Audit Panel Render ──────────────────────────
+function _chefAiRecipePanelError(msg){
+  return '<div style="background:#fff5f5;border:1.5px solid #fca5a5;border-radius:10px;padding:12px;font-size:12px;color:#991b1b;">Errore Chef AI: '+msg+'</div>';
+}
+
+function _chefAiRecipePanelHtml(a, recipeTitle){
+  const statusColor = a.status==='ok' ? '#059669' : a.status==='critical' ? '#dc2626' : '#d97706';
+  const statusBg    = a.status==='ok' ? '#f0fdf4' : a.status==='critical' ? '#fff5f5' : '#fffbeb';
+  const statusBorder= a.status==='ok' ? '#bbf7d0' : a.status==='critical' ? '#fca5a5' : '#fde68a';
+  const statusLabel = a.status==='ok' ? 'OK' : a.status==='critical' ? 'CRITICO' : 'ATTENZIONE';
+
+  const sectionStyle = 'margin-top:10px;';
+  const labelStyle   = 'font-size:10px;font-weight:700;color:#6b7280;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;';
+  const itemStyle    = 'font-size:12px;color:#1e293b;padding:3px 0;border-bottom:0.5px solid #f1f5f9;';
+
+  // Issues
+  let issuesHtml = '';
+  if(a.issues && a.issues.length){
+    issuesHtml = '<div style="'+sectionStyle+'"><div style="'+labelStyle+'">🔴 PROBLEMI TROVATI</div>'
+      + a.issues.map(iss => {
+          const ic = iss.severity==='critical'?'#dc2626':iss.severity==='warning'?'#d97706':'#6b7280';
+          const ib = iss.severity==='critical'?'#fff5f5':iss.severity==='warning'?'#fffbeb':'#f8fafc';
+          return '<div style="'+itemStyle+';background:'+ib+';border-left:3px solid '+ic+';border-radius:4px;padding:4px 8px;margin-bottom:3px;">'
+            +'<span style="font-weight:700;color:'+ic+';">'+(iss.severity==='critical'?'CRITICO':iss.severity==='warning'?'Attenzione':'Info')+'</span>'
+            +(iss.field ? ' · <span style="color:#64748b;">'+iss.field+'</span>' : '')
+            +' — '+iss.message
+            +'</div>';
+        }).join('')
+    +'</div>';
+  } else {
+    issuesHtml = '<div style="'+sectionStyle+'"><div style="'+labelStyle+'">PROBLEMI TROVATI</div><div style="font-size:12px;color:#059669;padding:4px 0;">Nessun problema rilevato.</div></div>';
+  }
+
+  // Understood
+  let understoodHtml = '';
+  if(a.understood && a.understood.length){
+    understoodHtml = '<div style="'+sectionStyle+'"><div style="'+labelStyle+'">✅ HO CONTROLLATO</div>'
+      + a.understood.map(u=>'<div style="'+itemStyle+'">'+u+'</div>').join('')
+    +'</div>';
+  }
+
+  // Bot impact
+  let botHtml = '';
+  if(a.bot_impact && a.bot_impact.length){
+    botHtml = '<div style="'+sectionStyle+'"><div style="'+labelStyle+'">🤖 IMPATTO SUL BOT</div>'
+      + a.bot_impact.map(b=>'<div style="'+itemStyle+';color:#7c3aed;">'+b+'</div>').join('')
+    +'</div>';
+  }
+
+  // Suggested fixes
+  let fixesHtml = '';
+  if(a.suggested_fixes && a.suggested_fixes.length){
+    fixesHtml = '<div style="'+sectionStyle+'"><div style="'+labelStyle+'">💡 PROPOSTA CHEF AI</div>'
+      + a.suggested_fixes.map(f=>'<div style="'+itemStyle+'"><span style="font-weight:600;">'+f.action+'</span>'+(f.detail?' — <span style="color:#64748b;">'+f.detail+'</span>':'')+'</div>').join('')
+    +'</div>';
+  }
+
+  // Follow-up question
+  let fqHtml = '';
+  if(a.follow_up_question){
+    const optBtns = (a.follow_up_options||[]).map((opt,idx)=>
+      '<button onclick="this.closest(\'#chefAiRecipePanel\')" style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;border:1px solid #93c5fd;color:#1e40af;background:#eff6ff;cursor:pointer;margin:2px;">'+opt+'</button>'
+    ).join('');
+    fqHtml = '<div style="'+sectionStyle+';background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px;">'
+      +'<div style="'+labelStyle+'">DOMANDA PER MAX</div>'
+      +'<div style="font-size:13px;font-weight:600;color:#0c4a6e;margin-bottom:6px;">'+a.follow_up_question+'</div>'
+      +(optBtns ? '<div style="display:flex;flex-wrap:wrap;gap:4px;">'+optBtns+'</div>' : '')
+    +'</div>';
+  }
+
+  return '<div style="background:'+statusBg+';border:1.5px solid '+statusBorder+';border-radius:12px;padding:12px;">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'
+      +'<span style="font-size:12px;font-weight:700;color:'+statusColor+';">'+statusLabel+'</span>'
+      +'<span style="font-size:10px;color:#9ca3af;">Chef AI · '+Math.round((a.confidence||0)*100)+'% confidenza</span>'
+    +'</div>'
+    + understoodHtml
+    + issuesHtml
+    + botHtml
+    + fixesHtml
+    + fqHtml
+  +'</div>';
 }
 
 function linkRecipeToItem(title){
