@@ -4167,3 +4167,141 @@ Edible Flower: Tomahawk 4pz (2×2), Ribeye 1pz — corretto ✅
 - La Dispensa UI
 - Prep Production Consumption Bot
 - stock_movements logic
+
+
+---
+
+## SESSIONE 7 LUGLIO 2026 — Sprint 7.2: BOM Chain Safety Mode
+
+**Versione sw.js live:** boh-v567 (invariato — zero file frontend toccati)
+**Supabase:** ydqmumpytgrlceuinoqt
+**Edge Function modificata:** bot-bom-chain-deduction → v6 (safety mode)
+
+---
+
+### SPRINT 7.2 — BOM Chain Safety Mode — PASS ✅
+
+**Live version:** boh-v567 / bot-bom-chain-deduction v6 (Supabase Edge Function version 6)
+
+#### Problema trovato
+
+Bot 4 (bot-bom-chain-deduction) stava espandendo ricette batch e prep stockate, scaricando ingredienti raw batch-level come se fossero quantità per porzione POS.
+
+Esempio critico: `Meatballs` (base_servings=162) aveva nel BOM Ground Beef 4536g, Pork Sausage 907g, Bread Crumbs 820g, ecc. Il bot scaricava queste quantità per ogni porzione venduta — trattando 4.5 kg di carne come fabbisogno per 1 porzione.
+
+La stessa famiglia di problemi riguardava: Ranch Dressing (bs=106), Berry Coulis (bs=56), BUTTER SPINACH (bs=40), CITRONETTE (bs=30), Cheesecake (bs=24), ROSMARY POTATOES (bs=20), Crème Brûlée (bs=16), Italian Marble Cake (bs=12), Fried calamari (bs=12), GNOCCHI (bs=10), Texana Soup (bs=9) — tutte ricette con BOM da batch, non da porzione.
+
+**Root cause — due bug distinti:**
+
+**Bug #1 (principale):** le ricette POS dirette con `base_servings > 1` venivano sempre attraversate dal bot senza nessun controllo. Il bot apriva il loro BOM raw e scaricava gli ingredienti come se la porzione venduta consumasse l'intero batch.
+
+**Bug #2 (cache miss):** il `prepTaskCache` non copriva le sub-ricette di livello 2+. Il check `prepTaskCache.get(subId)` ritornava `undefined` (non null) → il bot trattava quella ricetta come virtuale invece di fermarsi.
+
+#### Fix applicato — Regole costituzionali v3
+
+**bot-bom-chain-deduction** ora usa safety mode con 4 regole in cascata:
+
+**Regola 0 — Entry-point (nuova, il fix principale):**
+Se la ricetta POS diretta ha `prep_task` attivo **e** `base_servings > 1`:
+- NON apre il BOM raw
+- La tratta come prep terminale già gestita da `direct_recipe`
+- bom_chain non entra negli ingredienti
+- Silenzio: nessun warning (comportamento corretto, non anomalia)
+
+Se ha `base_servings > 1` ma **nessun prep_task**:
+- STOP + `commis_observation` (caso anomalo — Wheel Pasta è il solo caso trovato)
+
+**Regola 1 — Sub-recipe con prep_task (rafforzata):**
+STOP sempre. Fix: lookup live se cache miss (risolve Bug #2).
+
+**Regola 2 — Sub-recipe senza prep_task ma base_servings > 1:**
+STOP + `commis_observation` con `skipped_reason: 'batch_level_bom'`.
+1 observation per `(pos_item_name, recipe_id)` — non per ingrediente (de-dup).
+
+**Regola 3 — Recipe senza prep_task e base_servings = 1 (o NULL):**
+Virtuale/per-portion → espandibile. Bot scende nel BOM.
+
+**Regola 4 — Threshold safety:**
+Anche sulle ricette virtuali, se la quantità per porzione supera le soglie (meat >500g, salse >500g, oli >100g, formaggi >200g, generic >1000g), scrive warning senza bloccare.
+
+#### Regola fondamentale (da non dimenticare mai)
+
+> POS vende prep finite.
+> Produzione prep scarica ingredienti raw.
+> Il POS non deve scaricare ingredienti batch-level.
+
+#### Risultati verificati su 2026-07-06
+
+| Metrica | Prima (v2) | Dopo (v3 safety) |
+|---|---|---|
+| bom_chain rows | 207 | **104** |
+| bom_chain total qty | 146.848g | **11.810g** |
+| ingredient snapshot | — | 54 righe, 11.810g |
+| prep snapshot | — | 50 righe, 20.068g |
+| stock_movements | 335 | **335** (invariato) |
+| current_stock | non toccato | non toccato ✅ |
+| La Dispensa | Beta read-only | Beta read-only ✅ |
+
+**Meatballs — comportamento corretto dopo fix:**
+```
+Meatball Appetizer → Meatball Sauce: 9p × 100g = 900g   [direct_recipe]
+Meatball Appetizer → Meatballs: 9p × 5pz = 45pz          [direct_recipe]
+Meatballs → Meatball Sauce: 1p × 100g = 100g             [direct_recipe]
+Meatballs → Meatballs: 1p × 5pz = 5pz                    [direct_recipe]
+```
+Nessun Ground Beef / Pork Sausage / Bread Crumbs scaricato dal POS ✅
+
+**Ranch, Berry Coulis, Cheesecake, Crème Brûlée, Citronette:**
+Zero righe bom_chain raw. Corretto: hanno prep_task, gestite come terminali da direct_recipe.
+
+**Unico warning legittimo generato:**
+Wheel Pasta — base_servings=130, nessun prep_task → observation scritta.
+
+#### File modificati
+
+| File | Modifica |
+|---|---|
+| `bots/bom-chain-deduction/bot-bom-chain-deduction.js` | v3 safety mode (645 righe) |
+| `bots/bom-chain-deduction/BOM_CHAIN_BOT.md` | Regole costituzionali v3 documentate |
+
+---
+
+### NEXT STEPS
+
+**1. Test iPhone La Dispensa Beta**
+- Hard refresh su boh-v567 (cancella cache Safari per 1cos.github.io)
+- Verificare card senza garbage text (quantità batch-level erano visibili prima del fix)
+- Verificare scroll che non chiude il panel
+- Testare bottone "Segnala errore" se presente
+- Verificare che `dispensa_feedback` riceva le righe correttamente
+
+**2. Sistemare Wheel Pasta**
+- Audit ricetta Wheel Pasta (base_servings=130, nessun prep_task)
+- Decidere: creare prep_task oppure correggere base_servings/scope
+- Non lasciare base_servings=130 senza scope definito — il bot genera warning ogni run
+
+**3. Continuare BOM Fix List**
+- Controllare ricette batch rimaste (query: `base_servings > 1 AND no prep_task`)
+- Tutte devono diventare una di:
+  - a) prep stockate (creare prep_task)
+  - b) per-portion approvate (verificare BOM e impostare base_servings=1)
+  - c) virtuali approvate (base_servings=1 confermato)
+  - d) bloccate con warning (nessuna azione immediata, warning in Dispensa)
+
+**4. NON fare ancora**
+- `current_stock` update automatico da POS
+- `stock_movements` write da bot
+- Apply automatico deductions su stock fisico
+- Replacement del vecchio Guardian / Prep Builder
+- La Dispensa resta Beta read-only finché i numeri non sono validati da Max per almeno 1 settimana
+
+---
+
+### Versioni finali sessione
+
+| Componente | Versione |
+|---|---|
+| Brigade frontend | **boh-v567** (invariato) |
+| bot-bom-chain-deduction | **v6** (Supabase Edge Function version 6) — safety mode |
+| BOM_CHAIN_BOT.md | v3 — regole costituzionali aggiornate |
+| Pipeline 2026-07-06 | pos-cleaner ✅ + direct-deduction ✅ + bom-chain v6 ✅ + consolidator ✅ |
