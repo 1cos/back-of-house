@@ -1,5 +1,112 @@
 ---
 
+## SESSIONE 7 LUGLIO 2026 (continuazione) — Brigata di Bot Sprint 2 + Sprint 3
+
+**Versione sw.js live:** boh-v561 (invariato — zero file frontend toccati)
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### Sprint 2 — Recipe Matcher Bot v1
+
+**Edge Function:** `bot-recipe-matcher` (nuova)
+**bot_name:** `recipe-matcher-bot`
+**Commis:** `recipe-matcher-commis`
+**Input:** `pos_daily_raw` | **Output:** `pos_daily_clean`
+
+**Logica:**
+- `menu_group = 'Kids menu'` → cerca alias `[Nome] [Kids]` o ricetta Half → `kids_alias` (confidence 0.98)
+- Match esatto su `recipes.pos_name` pipe-delimited → `exact` (confidence 1.0)
+- Modifier tramite `pos_item_aliases` → `modifier_alias` (confidence 0.95)
+- Fuzzy (contiene/è contenuto) → `fuzzy` (confidence 0.70, needs_review=true)
+- Nessun match → `unknown` (confidence 0, needs_review=true)
+- `fuzzy` e `unknown` NON usati per scaricare stock
+
+**Fix prerequisito:** POS TouchBistro Bot v6 aggiornato per aggregare per `(item_name, menu_group)` invece di solo `item_name`. Aggiunto `menu_group` come colonna esplicita in `pos_daily_raw` e nel UNIQUE constraint.
+
+**Risultati su 2026-07-06:**
+- 44 exact, 2 kids_alias, 9 modifier_alias, 1 fuzzy, 90 unknown
+- Pere E Pecorino Salad → Pear & Pecorino Salad (exact 1.0) ✅
+- Spaghetti Al Ragu Kids → Spaghetti Al Ragu Half (kids_alias 0.98) ✅
+- Penne Midnight Kids → Penne Midnight Half (kids_alias 0.98) ✅
+- Gift Card: sparita silenziosamente ✅
+- Gluten Free Bread: resta, needs_review=true ✅
+
+**Ricette Half create in questa sessione:**
+- `Fettuccine Alla Vodka Half` — BOM: fettuccine 1 nido, Pomodoro 125g, Heavy Cream 15g
+- `Spaghetti Al Ragu Half` — BOM: spaghetti 1 nido, MK-Ragu 100g, Pomodoro 25g, Rosemary 1g
+- Alias `[Kids]` aggiunti a tutte le half esistenti (Cacio e Pepe, La N.4, Penne Midnight, Spaghetti al Pomodoro)
+
+**Naming ufficiale bot:** `[Nome] Bot` / `[Nome] Commis`
+
+---
+
+### Sprint 3 — Stock Drain Bot v1
+
+**Edge Function:** `bot-stock-drain` (nuova)
+**bot_name:** `stock-drain-bot`
+**Commis:** `stock-drain-commis`
+**Input:** `pos_daily_clean` (solo righe sicure) | **Output:** `stock_movements`
+
+**IMPORTANTE:** Stock Drain Bot scrive movimenti REALI in `stock_movements`. Non è teorico.
+Ogni POS item venduto → BOM espanso → movimento `POS_DRAIN` negativo per ogni ingrediente/prep.
+
+**Regole:**
+- Solo `needs_review=false` + `recipe_id IS NOT NULL` + `match_type IN ('exact','kids_alias','modifier_alias')`
+- Esclusi silenziosamente: Gift Card, Open Food
+- Idempotente: cancella solo `movement_type='POS_DRAIN'` + `source_bot='stock-drain-bot'` + `business_date`
+- NON tocca: `current_stock`, `prep_tasks`, `stock_daily_snapshot`
+
+**Migration applicata:** colonne audit aggiunte a `stock_movements`:
+`source_bot`, `source_pos_item_name`, `source_menu_group`, `source_match_type`,
+`recipe_id`, `recipe_name`, `bom_item_type`, `bom_item_name`, `sold_quantity`, `bom_quantity_per_recipe`
+
+**Risultati su 2026-07-06:**
+- 51 righe POS processate → 335 movimenti POS_DRAIN scritti
+- 0 ricette saltate per BOM mancante
+- Drain verificati: ARRABBIATA -3225g, MK-RAGU -1700g, POMODORO SAUCE -1700g, SPAGHETTI FRESH PASTA -27each
+
+**File MD creati:**
+- `bots/stock-drain-bot/STOCK_DRAIN_BOT.md`
+- `bots/stock-drain-bot/STOCK_DRAIN_COMMIS.md`
+- `bots/stock-drain-bot/STOCK_DRAIN_TEST.md`
+
+---
+
+### Naming Brigata di Bot — regola fissata
+
+| Bot | Edge Function | bot_name | Commis |
+|---|---|---|---|
+| POS TouchBistro Bot | bot-pos-importer | pos-touchbistro-bot | pos-touchbistro-commis |
+| Recipe Matcher Bot | bot-recipe-matcher | recipe-matcher-bot | recipe-matcher-commis |
+| Stock Drain Bot | bot-stock-drain | stock-drain-bot | stock-drain-commis |
+
+Regola: `[Nome] Bot` / `[Nome] Commis`
+
+---
+
+### Sprint 4 — prossimo: Stock Consolidator Bot
+
+Legge `stock_movements` e `prep_log` per la business_date.
+Calcola `stock_end = stock_start + loaded_qty - pos_deducted_qty - waste`.
+Scrive `stock_daily_snapshot` — UNICO bot che poi aggiorna `current_stock`.
+Solo dopo Sprint 4 si costruisce **La Dispensa UI**.
+
+---
+
+### Versioni finali sessione
+
+| Componente | Versione |
+|---|---|
+| Brigade frontend | **boh-v561** (invariato) |
+| POS TouchBistro Bot | **v6** (fix aggregazione menu_group) |
+| Recipe Matcher Bot | **v1** (nuovo) |
+| Stock Drain Bot | **v1** (nuovo — scrive movimenti reali) |
+
+
+
+---
+
 ## SESSIONE 7 LUGLIO 2026 — Brigata di Bot Sprint 1 (DB + Edge Function, nessun bump frontend)
 
 **Versione sw.js live:** boh-v559 (invariato — zero file frontend toccati)
