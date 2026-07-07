@@ -58,7 +58,8 @@ const STYLE=`<style id="rmStyle">
 .rm-servings-label{font-size:16px;font-weight:700;color:#1e3a5f;}
 .rm-stepper{display:flex;align-items:center;gap:12px;}
 .rm-step-btn{width:36px;height:36px;border-radius:50%;background:#1e3a5f;border:none;color:white;font-size:20px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;}
-.rm-servings-val{font-size:20px;font-weight:800;color:#1e3a5f;min-width:32px;text-align:center;}
+.rm-servings-val{font-size:20px;font-weight:800;color:#1e3a5f;width:56px;text-align:center;border:none;background:transparent;outline:none;padding:0;-moz-appearance:textfield;appearance:textfield;cursor:text;}
+.rm-servings-val::-webkit-inner-spin-button,.rm-servings-val::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 .rm-ing-list{display:flex;flex-direction:column;gap:10px;}
 .rm-ing-row{display:flex;align-items:center;background:white;border-radius:16px;padding:14px 16px;box-shadow:0 1px 4px rgba(30,58,95,0.06);}
 .rm-ing-icon{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#dbeafe,#bfdbfe);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;margin-right:14px;}
@@ -583,7 +584,7 @@ window.recipeModal={
 
       function buildIngredients(bom,factor,base){
         if(!bom||bom.length===0) return `<div class="rm-empty"><div class="rm-empty-icon">📋</div>${t('noIng').replace('\n','<br>')}</div>`;
-        return `<div class="rm-servings"><span class="rm-servings-label">${t('servings')}</span><div class="rm-stepper"><button class="rm-step-btn" id="rmMinus">−</button><span class="rm-servings-val" id="rmServVal">${Math.round(factor*base)||base}</span><button class="rm-step-btn" id="rmPlus">+</button></div></div><div class="rm-ing-list" id="rmIngList">${renderIngList(bom,factor)}</div>`;
+        return `<div class="rm-servings"><span class="rm-servings-label">${t('servings')}</span><div class="rm-stepper"><button class="rm-step-btn" id="rmMinus">−</button><input type="number" class="rm-servings-val" id="rmServVal" min="1" max="9999" inputmode="numeric" value="${Math.round(factor*base)||base}"><button class="rm-step-btn" id="rmPlus">+</button></div></div><div class="rm-ing-list" id="rmIngList">${renderIngList(bom,factor)}</div>`;
       }
       function renderIngList(bom,factor){
         return bom.map(b=>{
@@ -595,7 +596,7 @@ window.recipeModal={
         let servings=startServings||baseServings;
         const val=document.getElementById('rmServVal');
         const list=document.getElementById('rmIngList');
-        function update(s){servings=Math.max(1,s);scaleFactor=servings/baseServings;if(val)val.textContent=servings;if(list&&bomRows)list.innerHTML=renderIngList(bomRows,scaleFactor);
+        function update(s){servings=Math.max(1,Math.min(9999,Math.round(s)));scaleFactor=servings/baseServings;if(val)val.value=servings;if(list&&bomRows)list.innerHTML=renderIngList(bomRows,scaleFactor);
           // Se siamo nel tab steps, aggiorna anche il testo degli steps con il nuovo scaleFactor
           if(activeTab==='steps'){
             const body=document.getElementById('rmBody');
@@ -604,6 +605,17 @@ window.recipeModal={
         }
         document.getElementById('rmMinus')?.addEventListener('click',()=>update(servings-1));
         document.getElementById('rmPlus')?.addEventListener('click',()=>update(servings+1));
+        // Digitazione diretta nel campo numero
+        val?.addEventListener('input',()=>{
+          const v=parseInt(val.value,10);
+          if(!isNaN(v)&&v>=1) update(v);
+        });
+        val?.addEventListener('blur',()=>{
+          // Al blur, correggi se vuoto o < 1
+          const v=parseInt(val.value,10);
+          update(isNaN(v)||v<1?1:v);
+        });
+        val?.addEventListener('focus',()=>val.select());
       }
       function buildNotes(rec){
         const rows=[];
