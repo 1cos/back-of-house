@@ -3995,16 +3995,42 @@ async function jarvisExecuteDraft(sb, draft) {
       var prepName = payload.prep_name || '';
       var newStock = payload.new_value != null ? parseFloat(payload.new_value) : null;
       if (!prepName || newStock == null || isNaN(newStock)) throw new Error('prep_name e new_value richiesti');
-      // Lookup: exact match su nome non archiviato, poi ILIKE fallback
-      var { data: exactRows } = await sb.from('prep_tasks').select('id,name,current_stock,unit').eq('archived', false).eq('name', prepName).limit(3);
+      // Alias map: nomi comuni/POS -> nome DB reale (per evitare mismatch lingua o sinonimi)
+      var PREP_NAME_ALIASES = {
+        'tagliatelle': 'Fettucine fresh pasta',
+        'fettuccine': 'Fettucine fresh pasta',
+        'fettuccine fresh pasta': 'Fettucine fresh pasta',
+        'spaghetti': 'Spaghetti fresh pasta',
+        'spaghetti fresh pasta': 'Spaghetti fresh pasta',
+        'gnocchi': 'Gnocchi',
+        'chicken parm': 'Chicken Parmesan',
+        'chicken parmesan': 'Chicken Parmesan',
+        'chicken parmigiana': 'Chicken Parmesan',
+        'brussels': 'Brussels Sprouts Ready to Sell',
+        'brussel sprouts': 'Brussels Sprouts Ready to Sell',
+        'brussels sprouts': 'Brussels Sprouts Ready to Sell',
+        'salmon cakes': 'Salmon cakes',
+        'salmon cake': 'Salmon cakes',
+        'arrabbiata': 'Arrabbiata',
+        'pomodoro': 'Pomodoro sauce',
+        'cacio e pepe': 'Cacio e Pepe Sauce',
+        'bechamel': 'Besciamella'
+      };
+      var resolvedName = PREP_NAME_ALIASES[prepName.toLowerCase()] || prepName;
+      // Lookup: exact match su nome risolto, poi ILIKE fallback
+      var { data: exactRows } = await sb.from('prep_tasks').select('id,name,current_stock,unit').eq('archived', false).eq('name', resolvedName).limit(3);
       var foundRows = exactRows && exactRows.length ? exactRows : null;
       if (!foundRows || !foundRows.length) {
-        // Fuzzy: cerca con ILIKE
-        var { data: fuzzyRows } = await sb.from('prep_tasks').select('id,name,current_stock,unit').eq('archived', false).ilike('name', '%' + prepName + '%').limit(5);
-        foundRows = fuzzyRows || [];
+        // Fuzzy: cerca con ILIKE sul nome risolto
+        var { data: fuzzyRows } = await sb.from('prep_tasks').select('id,name,current_stock,unit').eq('archived', false).ilike('name', '%' + resolvedName + '%').limit(5);
+        foundRows = fuzzyRows && fuzzyRows.length ? fuzzyRows : null;
       }
-      if (!foundRows || !foundRows.length) throw new Error('Prep task non trovato: ' + prepName);
-      // Se multipli, preferisce quello con recipe_id o quello piu recente — prende il primo
+      if (!foundRows || !foundRows.length) {
+        // Ultimo fallback: ILIKE sul nome originale (potrebbe matchare qualcosa)
+        var { data: fallbackRows } = await sb.from('prep_tasks').select('id,name,current_stock,unit').eq('archived', false).ilike('name', '%' + prepName + '%').limit(5);
+        foundRows = fallbackRows || [];
+      }
+      if (!foundRows || !foundRows.length) throw new Error('Prep task non trovato: ' + prepName + ' (cercato anche come: ' + resolvedName + ')');
       var target = foundRows[0];
       var { error } = await sb.from('prep_tasks').update({ current_stock: newStock }).eq('id', target.id);
       if (error) throw new Error(error.message);
