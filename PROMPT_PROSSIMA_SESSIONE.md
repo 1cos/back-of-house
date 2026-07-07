@@ -4305,3 +4305,36 @@ Wheel Pasta — base_servings=130, nessun prep_task → observation scritta.
 | bot-bom-chain-deduction | **v6** (Supabase Edge Function version 6) — safety mode |
 | BOM_CHAIN_BOT.md | v3 — regole costituzionali aggiornate |
 | Pipeline 2026-07-06 | pos-cleaner ✅ + direct-deduction ✅ + bom-chain v6 ✅ + consolidator ✅ |
+
+---
+
+## WHEEL PASTA FIX — Sessione 7 Luglio 2026
+
+**Fix eseguito da Max:** Wheel Pasta portata a `base_servings = 1` (era batch-level con `base_servings = 130`).
+
+**BOM verificata (per 1 porzione venduta):**
+- RECIPE Diced Butter: 20g
+- RECIPE SPAGHETTI FRESH PASTA: 2 each (nests)
+- ITEM Rhum: 30g
+- ITEM Cheese Wheel: 100g
+- ITEM Butane Can: 3g
+
+**Pipeline rilancita (18:15-18:16 CDT):**
+| Bot | Status | Rows |
+|---|---|---|
+| bot-pos-cleaner | success | 146 classified, 58 mapped |
+| bot-direct-deduction | success | 97 deductions |
+| bot-bom-chain-deduction | success | 107 ing, 0 batch-blocked, 0 obs |
+| bot-stock-consolidator | success | 107 snapshot rows |
+
+**Verifica Wheel Pasta (10 porzioni vendute il 6 luglio):**
+- `direct_recipe`: Spaghetti fresh pasta 20 each ✅ | Diced butter 200g ✅
+- `bom_chain`: Cheese Wheel 1000g ✅ | Rhum 300g ✅ | Butane Can 30g ✅
+- Nessun warning batch-level ✅
+- Nessun blocco `base_servings > 1` ✅
+- commis_observations Wheel: **0 righe** ✅
+- current_stock: non toccato ✅
+- stock_movements: non toccati ✅
+
+**Nota bom_chain v6 (questa sessione):** ora produce 107 righe invece delle 233 del run precedente. Il calo è corretto — la Regola 0 del safety mode blocca le prep con `base_servings > 1` anche come ricette POS dirette, quindi ora Wheel Pasta non viene più trattata come batch ma espande correttamente il suo BOM per-porzione attraverso il bot.
+
