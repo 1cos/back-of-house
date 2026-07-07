@@ -365,7 +365,13 @@ window._bv2Contributors = async function(cid, taskName, recipeId) {
       .filter(a => a.source === 'modifier' || a.source === 'both')
       .forEach(a => { pfMap[(a.alias_name||'').toLowerCase().trim()] = parseFloat(a.portion_factor)||1.0; });
 
-    // Funzione per costruire righe dato un set di alias e g/porzione
+    // helper: media per data
+    const avgDates = obj => {
+      const vals = Object.values(obj.dates);
+      return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
+    };
+
+    // Costruisce righe dato un set di alias e grammi/porzione
     const buildRows = (aliasSet, gPerPorz, labelPrefix) => {
       const directByItem = {};
       (salesAll||[]).forEach(row => {
@@ -409,18 +415,15 @@ window._bv2Contributors = async function(cid, taskName, recipeId) {
       return out;
     };
 
+    let rows = [];
     if(aliases.length > 0) {
       // Percorso diretto: questa prep ha pos_name proprio
-      const aliasSet = new Set(aliases);
-      rows = buildRows(aliasSet, gPerPorzDirect, '');
+      rows = buildRows(new Set(aliases), gPerPorzDirect, '');
     } else if(parentRecipes.length > 0) {
-      // Percorso sub-recipe: itero le ricette padre e uso i loro alias
+      // Percorso sub-recipe: uso i pos_name delle ricette padre
       for(const pr of parentRecipes) {
         const parentAliases = pr.pos_name.split('|').map(s=>s.trim().toLowerCase()).filter(Boolean);
-        const parentAliasSet = new Set(parentAliases);
-        // g/porzione di QUESTA prep consumata da ogni porzione della ricetta padre = bom_qty
-        const gPerPorzParent = pr.bom_qty;
-        const prRows = buildRows(parentAliasSet, gPerPorzParent, pr.pos_name.split('|')[0]);
+        const prRows = buildRows(new Set(parentAliases), pr.bom_qty, pr.pos_name.split('|')[0]);
         rows = rows.concat(prRows);
       }
     }
