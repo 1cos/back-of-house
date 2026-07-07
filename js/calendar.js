@@ -129,6 +129,16 @@ function _calRender() {
   list.innerHTML = html;
 }
 
+// ── CARD EXPAND TOGGLE ────────────────────────────────────────
+function _calToggle(id) {
+  const detail = document.getElementById('cal-detail-' + id);
+  const chevron = document.getElementById('cal-chev-' + id);
+  if (!detail) return;
+  const isOpen = detail.style.display !== 'none';
+  detail.style.display = isOpen ? 'none' : 'block';
+  if (chevron) chevron.textContent = isOpen ? '›' : '⌄';
+}
+
 // ── CARD ─────────────────────────────────────────────────────
 function _calCard(e) {
   const d = new Date(e.event_date + 'T12:00:00');
@@ -138,6 +148,7 @@ function _calCard(e) {
   const isPast = e.event_date < today;
   const isToday = e.event_date === today;
   const isAdm = typeof isAdmin === 'function' && isAdmin();
+  const safeId = (e.id || '').replace(/-/g,'');
 
   const statusColor = { confirmed:'#059669', definite:'#059669', tentative:'#f59e0b', prospect:'#8b5cf6', cancelled:'#ef4444' }[e.status] || '#94a3b8';
   const statusBg    = { confirmed:'#f0fdf4', definite:'#f0fdf4', tentative:'#fffbeb', prospect:'#f5f3ff', cancelled:'#fff5f5' }[e.status] || '#f8fafc';
@@ -151,32 +162,46 @@ function _calCard(e) {
     timeStr = `${hr12}:${m} ${ampm}`;
   }
 
-  // Recipes list
+  // Recipes list — full detail (shown on expand)
   const recipes = Array.isArray(e.event_recipes) ? e.event_recipes : [];
+  let menuItems = recipes.filter(r => r.type !== 'section' && (r.recipe_title || r.name));
+  let menuCount = menuItems.length;
+
   let recipesHtml = '';
   if (recipes.length) {
-    recipesHtml = `<div style="margin-top:8px;padding-top:8px;border-top:0.5px solid rgba(59,130,246,0.08);">
-      <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Menu</div>
-      ${recipes.map(r => `
-        <div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;color:#1e3a5f;">
-          <span style="color:#94a3b8;">•</span>
-          <span>${r.recipe_title || r.name || ''}</span>
-          ${r.portions ? `<span style="color:#94a3b8;font-size:11px;">— ${r.portions} portions</span>` : ''}
-          ${r.note ? `<span style="color:#cbd5e1;font-size:10px;"> (${r.note})</span>` : ''}
-        </div>`).join('')}
-    </div>`;
+    // Build sections + recipes preserving order
+    const rows = recipes.map(r => {
+      if (r.type === 'section') {
+        return `<div style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;margin:8px 0 3px;">${r.title || ''}</div>`;
+      }
+      const title = r.recipe_title || r.name || '';
+      if (!title) return '';
+      return `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;padding:3px 0;border-bottom:0.5px solid #f1f5f9;">
+        <span style="font-size:13px;color:#1e3a5f;font-weight:500;">${title}</span>
+        <span style="font-size:12px;color:#94a3b8;white-space:nowrap;flex-shrink:0;">${r.portions ? r.portions + ' pax' : ''}${r.note ? ' · ' + r.note : ''}</span>
+      </div>`;
+    }).join('');
+
+    recipesHtml = `
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;">
+        <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Menu</div>
+        ${rows}
+      </div>`;
   }
+
+  // Notes
+  const notesHtml = (e.notes && !recipes.length)
+    ? `<div style="font-size:11px;color:#94a3b8;margin-top:6px;">${e.notes}</div>` : '';
 
   // Food cost — solo admin
-  let fcHtml = '';
-  if (isAdm && e.total_amount) {
-    fcHtml = `<div style="margin-top:6px;font-size:11px;font-weight:600;color:#059669;">Total: $${parseFloat(e.total_amount).toFixed(2)}</div>`;
-  }
+  const fcHtml = (isAdm && e.total_amount)
+    ? `<div style="margin-top:8px;font-size:11px;font-weight:600;color:#059669;">Total: $${parseFloat(e.total_amount).toFixed(2)}</div>`
+    : '';
 
   // Edit button — solo admin
-  const editBtn = (isAdm)
+  const editBtn = isAdm
     ? `<button onclick="event.stopPropagation();openEventEditor(${JSON.stringify(e).replace(/"/g,'&quot;')})"
-        style="font-size:10px;font-weight:600;color:#3b82f6;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:3px 8px;cursor:pointer;margin-top:8px;">
+        style="font-size:11px;font-weight:600;color:#3b82f6;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:4px 10px;cursor:pointer;margin-top:10px;">
         ✏️ Edit
       </button>`
     : '';
@@ -184,37 +209,57 @@ function _calCard(e) {
   // TripleSeat link
   const tsLink = e.tripleseat_id
     ? `<a href="https://lc.tripleseat.com/events/${e.tripleseat_id}" target="_blank"
-        style="font-size:10px;color:#94a3b8;text-decoration:none;display:block;margin-top:6px;">View in TripleSeat ↗</a>`
+        onclick="event.stopPropagation();"
+        style="font-size:10px;color:#94a3b8;text-decoration:none;display:inline-block;margin-top:6px;">View in TripleSeat ↗</a>`
     : '';
+
+  // Summary line shown when collapsed (e.g. "8 dishes · Al Piatto")
+  const summaryParts = [];
+  if (menuCount) summaryParts.push(menuCount + (menuCount === 1 ? ' dish' : ' dishes'));
+  if (e.service_style) summaryParts.push(e.service_style);
+  const summaryLine = summaryParts.length
+    ? `<span style="font-size:11px;color:#94a3b8;">${summaryParts.join(' · ')}</span>` : '';
 
   return `
 <div style="background:white;border-radius:16px;border:0.5px solid rgba(59,130,246,0.1);
             box-shadow:0 2px 8px rgba(30,58,95,0.06);margin-bottom:10px;overflow:hidden;
-            opacity:${isPast ? '0.65' : '1'};">
-  <div style="display:flex;gap:0;">
+            opacity:${isPast ? '0.65' : '1'};cursor:pointer;"
+     onclick="_calToggle('${safeId}')">
+  <!-- Header row (always visible) -->
+  <div style="display:flex;gap:0;cursor:pointer;">
+    <!-- Date block -->
     <div style="min-width:52px;background:${isToday ? '#1e3a5f' : '#f8fafc'};
                 display:flex;flex-direction:column;align-items:center;justify-content:center;
-                padding:12px 8px;border-right:0.5px solid rgba(59,130,246,0.08);">
+                padding:12px 8px;border-right:0.5px solid rgba(59,130,246,0.08);flex-shrink:0;">
       <div style="font-size:10px;font-weight:600;color:${isToday ? '#93c5fd' : '#94a3b8'};text-transform:uppercase;">${dayName}</div>
       <div style="font-size:22px;font-weight:800;color:${isToday ? 'white' : '#1e3a5f'};line-height:1.1;">${dayNum}</div>
     </div>
-    <div style="flex:1;padding:12px 14px;">
+    <!-- Summary info -->
+    <div style="flex:1;padding:12px 14px;min-width:0;">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-        <div style="font-size:14px;font-weight:700;color:#1e3a5f;line-height:1.3;">${e.name || ''}</div>
-        <span style="font-size:10px;font-weight:600;color:${statusColor};background:${statusBg};
-                     border-radius:6px;padding:2px 7px;white-space:nowrap;flex-shrink:0;">
-          ${(e.status || 'tentative').charAt(0).toUpperCase() + (e.status || 'tentative').slice(1)}
-        </span>
+        <div style="font-size:14px;font-weight:700;color:#1e3a5f;line-height:1.3;flex:1;min-width:0;">${e.name || ''}</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+          <span style="font-size:10px;font-weight:600;color:${statusColor};background:${statusBg};
+                       border-radius:6px;padding:2px 7px;white-space:nowrap;">
+            ${(e.status || 'tentative').charAt(0).toUpperCase() + (e.status || 'tentative').slice(1)}
+          </span>
+          <span id="cal-chev-${safeId}" style="font-size:18px;color:#94a3b8;line-height:1;user-select:none;">›</span>
+        </div>
       </div>
-      <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+      <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
         ${timeStr ? `<span style="font-size:12px;color:#475569;">🕐 ${timeStr}</span>` : ''}
         ${e.guest_count ? `<span style="font-size:12px;color:#475569;">👥 ${e.guest_count}</span>` : ''}
         ${(e.location || e.room_name) ? `<span style="font-size:12px;color:#475569;">📍 ${e.location || e.room_name}</span>` : ''}
-        ${e.service_style ? `<span style="font-size:11px;color:#6366f1;background:#eef2ff;border-radius:6px;padding:1px 7px;">${e.service_style}</span>` : ''}
+        ${summaryLine}
       </div>
-      ${(e.notes && !(Array.isArray(e.event_recipes) && e.event_recipes.length)) ? `<div style="font-size:11px;color:#94a3b8;margin-top:4px;">${e.notes}</div>` : ''}
-      ${recipesHtml}
-      ${fcHtml}
+    </div>
+  </div>
+  <!-- Expanded detail (hidden by default) -->
+  <div id="cal-detail-${safeId}" style="display:none;padding:0 14px 14px 14px;border-top:0.5px solid #f1f5f9;">
+    ${recipesHtml}
+    ${notesHtml}
+    ${fcHtml}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
       ${editBtn}
       ${tsLink}
     </div>
@@ -441,6 +486,12 @@ function openEventEditor(ev = null) {
       nameInput.style.borderColor = '#10b981';
       nameInput.style.background  = '#f0fdf4';
       dropdown.style.display = 'none';
+      // Pre-fill pax with guest count if field is empty
+      const paxInput = row.querySelector('.ev-rec-portions');
+      if (paxInput && !paxInput.value) {
+        const gc = parseInt(sheet.querySelector('#evGuests')?.value) || (ev && ev.guest_count ? parseInt(ev.guest_count) : 0);
+        if (gc) paxInput.value = gc;
+      }
       _calcFoodCost();
     }
 
