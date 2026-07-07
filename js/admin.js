@@ -380,12 +380,14 @@ window._bv2Contributors = async function(cid, taskName, recipeId) {
     const modAll = await modRes.json();
 
     const pfRes = await fetch(
-      SUPA_URL+'/rest/v1/pos_item_aliases?source=in.(modifier,both)&select=alias_name,portion_factor',
+      SUPA_URL+'/rest/v1/pos_item_aliases?select=alias_name,portion_factor,source',
       {headers: hdrs}
     );
-    const pfAll = await pfRes.json();
+    const pfAllRaw = await pfRes.json();
     const pfMap = {};
-    (pfAll||[]).forEach(a => { pfMap[(a.alias_name||'').toLowerCase().trim()] = parseFloat(a.portion_factor)||1.0; });
+    (Array.isArray(pfAllRaw) ? pfAllRaw : [])
+      .filter(a => a.source === 'modifier' || a.source === 'both')
+      .forEach(a => { pfMap[(a.alias_name||'').toLowerCase().trim()] = parseFloat(a.portion_factor)||1.0; });
 
     // Funzione per costruire righe dato un set di alias e g/porzione
     const buildRows = (aliasSet, gPerPorz, labelPrefix) => {
