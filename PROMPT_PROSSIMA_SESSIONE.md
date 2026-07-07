@@ -2804,3 +2804,277 @@ Due bottoni distinti — `Fried Calamari` (Antipasti/appetizer, 199 porzioni) e 
 5. **Aggiornamento BOH_OS_BACKLOG.md** — da fare, versioni Edge Function non aggiornate (ferme a v428).
 
 
+
+---
+
+## Sessione 7 luglio 2026 — Brigata di Bot + La Dispensa
+
+### Decisioni prese
+
+- **La Dispensa** = nuova sezione in L'Ufficio (admin-only per ora, in futuro nel bottom bar)
+- **Ordine di build corretto:** prima Brigata Bot → poi tabelle DB → poi UI La Dispensa
+- **Motivazione:** le tabelle devono essere disegnate da chi le scrive (i bot), non prima
+
+---
+
+### Architettura Brigata di Bot — SPECIFICA COMPLETA
+
+Pipeline notturna 04:00–06:00 CDT. Ogni bot scrive **solo la sua tabella**. Nessun bot tocca ciò che non è suo.
+
+#### Regole costituzionali (inviolabili)
+- Bot 1→3 non toccano mai `current_stock`
+- Solo Bot 4 (Stock Consolidator) aggiorna `current_stock` su `prep_tasks`
+- Solo Bot 5 aggiorna `suggested_qty` e `suggested_note`
+- I Commis AI **osservano e scrivono in `commis_observations`** — non modificano mai dati
+- Nessun bot deve partire se quello precedente ha fallito (pipeline con dependency check)
+- Meglio un dato incompleto dichiarato che un dato sbagliato spacciato per vero
+
+#### Scheduling
+
+| Ora CDT | Bot | Descrizione |
+|---|---|---|
+| 04:00 | Bot 1 — POS Importer | Copia raw da POS |
+| 04:05 | Commis 1 — POS Auditor | Controlla anomalie POS |
+| 04:15 | Bot 2 — POS Cleaner | Canonicalizza nomi POS→ricette |
+| 04:20 | Commis 2 — Name Matching Auditor | Controlla match dubbi |
+| 04:30 | Bot 3A — Direct Deduction | Scarico ricette dirette |
+| 04:35 | Commis 3A — Direct Deduction Auditor | Controlla scarichi diretti |
+| 04:45 | Bot 3B — BOM Chain Deduction | Scarico catene BOM complesse |
+| 04:55 | Commis 3B — BOM Auditor | Controlla BOM incomplete/anomale |
+| 05:10 | Bot 4 — Stock Consolidator | Consolida snapshot finale |
+| 05:15 | Commis 4 — Stock Auditor | Controlla discrepanze stock |
+| 05:30 | Bot 5 — Prep Suggester | Genera suggerimenti prod. |
+| 05:40 | Commis 5 — Prep Suggestion Auditor | Controlla suggerimenti anomali |
+| 05:50 | Bot 6 — Chef Auditor | Briefing mattutino per Max |
+
+---
+
+#### Bot 1 — POS Importer
+**Fa una cosa sola:** legge dati POS reali del giorno prima. Non ragiona, non prevede.
+
+**Legge:** `pos_sales_by_item`, `pos_production_daily`, `pos_modifier_by_item`
+
+**Scrive:** tabella `pos_daily_raw`
+```
+pos_daily_raw
+- id
+- date
+- pos_item_name        (nome originale dal POS)
+- canonical_name       (copia diretta, nessuna interpretazione)
+- portions_sold
+- revenue
+- source              ('sales_by_item' | 'modifier' | 'production_daily')
+- imported_at
+```
+
+---
+
+#### Bot 2 — POS Cleaner / Canonicalizer
+**Fa una cosa sola:** mappa nomi POS → recipe_id.
+
+Esempio: "Chicken Parmesan", "Chicken Parm", "Chicken Parmigiana" → stesso `recipe_id`.
+
+**Legge:** `pos_daily_raw`, `recipes.pos_name` (pipe-delimited aliases), `pos_item_aliases`
+
+**Scrive:** tabella `pos_daily_clean`
+```
+pos_daily_clean
+- id
+- date
+- pos_item_name        (originale)
+- recipe_id            (UUID ricetta matchata, NULL se non trovata)
+- canonical_name       (nome pulito)
+- portions_sold
+- match_type          ('exact' | 'alias' | 'fuzzy' | 'unmatched')
+- confidence          (0.0–1.0)
+- warning             (testo se match dubbio o non trovato)
+- created_at
+```
+
+Se non è sicuro: non inventa. Scrive `match_type='unmatched'` e `warning`.
+
+---
+
+#### Bot 3A — Direct Recipe Deduction
+**Fa una cosa sola:** scarico dalle ricette con POS diretto.
+
+Ricette "dritte": hanno `pos_name` non nullo e BOM con prep_task collegata direttamente.
+
+**Legge:** `pos_daily_clean`, `recipe_bom`, `prep_tasks`
+
+**Scrive:** tabella `stock_deductions`
+```
+stock_deductions
+- id
+- date
+- task_id             (FK prep_tasks)
+- recipe_id           (ricetta che ha generato lo scarico)
+- source              ('direct_recipe')
+- portions_sold
+- grams_per_portion
+- quantity_deducted   (in unità del task)
+- unit
+- confidence          (1.0 per diretti)
+- bom_path            (es. "Salmon Cakes → prep:salmon_cakes")
+- warning
+- created_at
+```
+
+---
+
+#### Bot 3B — BOM Chain Deduction
+**Fa una cosa sola:** scarico dalle catene BOM complesse (sub-ricette, ingredienti sparsi).
+
+Questo è il bot più delicato — qui nascono gli errori. Va tenuto separato da 3A proprio per isolare i problemi.
+
+**Legge:** `pos_daily_clean`, `recipe_bom` (ricorsivo), `prep_tasks`, `ingredients`
+
+**Scrive:** stessa tabella `stock_deductions` con `source='bom_chain'`
+
+Campi extra importanti:
+```
+- bom_path    (es. "Chicken Parm → Tomato Sauce → Arrabbiata Base")
+- confidence  (< 1.0 se BOM incompleta o path ambiguo)
+- warning     (es. "BOM missing mozzarella for Chicken Parm")
+```
+
+---
+
+#### Bot 4 — Stock Consolidator
+**È il capo magazziniere.** Non interpreta ricette, non legge POS.
+
+Prende SOLO:
+- Carichi: `prep_log` del giorno
+- Scarichi: `stock_deductions` del giorno
+- Waste/adjustment manuali (futura tabella `stock_adjustments`)
+- Conteggi fisici manuali
+
+**Scrive:** tabella `stock_daily_snapshot`
+```
+stock_daily_snapshot
+- id
+- date
+- task_id             (FK prep_tasks)
+- unit
+- stock_start         (stock inizio giornata = stock_end del giorno prima)
+- loaded_qty          (carico dai ragazzi — da prep_log)
+- pos_deducted_qty    (scarico POS — da stock_deductions)
+- waste_qty           (future waste entries)
+- adjustment_qty      (correzioni manuali)
+- stock_end           (stock_start + loaded - deducted - waste ± adjustment)
+- is_partial          (true se Bot 3B ha fallito)
+- created_at
+```
+
+**È l'unico bot che poi aggiorna `prep_tasks.current_stock`** con `stock_end`.
+
+---
+
+#### Bot 5 — Prep Suggester
+Attuale `bot-preplist-builder` ma ripulito di tutto il codice di scarico stock.
+
+**Legge SOLO:** `stock_daily_snapshot` (stock attuale), storico consumi per DOW, `prep_tasks` (batch_size, shelf_life, min_cover_days)
+
+**Scrive:** `prep_tasks.suggested_qty`, `prep_tasks.suggested_note`, `bot_preplist_log`
+
+---
+
+#### Bot 6 — Chef Auditor
+Non cambia dati. Legge tutto e scrive osservazioni.
+
+**Legge:** `pos_daily_raw`, `pos_daily_clean`, `stock_deductions`, `stock_daily_snapshot`, `commis_observations`
+
+**Scrive:** `commis_observations` con severity alta (solo anomalie vere, niente rumore)
+
+**Output briefing alle 06:00:**
+```
+Good morning Chef.
+Night run completed.
+POS: 126 items processed, 3 unmatched.
+Stock: 92 snapshots updated, 14 items below par.
+Issues:
+1. Spaghetti allo Scoglio sold 0 (avg Monday: 5.2) — check POS mapping
+2. Chicken Parm BOM missing mozzarella — check recipe
+3. Arrabbiata 5kg below expected — possible waste
+Suggested focus: fix Scoglio mapping, make Arrabbiata + Salmon Cakes
+```
+
+---
+
+#### Commis AI — regola generale
+Ogni Commis affianca il proprio bot. Regole:
+
+- **Non modifica mai dati**
+- Scrive solo in `commis_observations`
+- La maggior parte sono **regole deterministiche** (if venduto=0 AND media>3 → warning), non LLM
+- LLM solo per generare la spiegazione umana leggibile
+- Propone `proposed_fix` con `status: needs_chef_approval` — Max clicca Approve/Later/Ignore
+
+**Tabella `commis_observations`** (già esiste come `ai_watch_items` — verificare se estendere quella o creare separata):
+```
+- id
+- date
+- bot_name
+- commis_name
+- severity           ('info' | 'warning' | 'critical')
+- category           ('pos_anomaly' | 'bom_incomplete' | 'stock_discrepancy' | 'prep_suggestion' | 'name_mismatch')
+- entity_type        ('recipe' | 'prep_task' | 'ingredient' | 'pos_item')
+- entity_id
+- title
+- explanation
+- suggested_action
+- proposed_fix       (JSONB, opzionale)
+- status             ('open' | 'approved' | 'ignored' | 'later')
+- created_at
+```
+
+---
+
+### Tabelle nuove da creare (in ordine)
+
+1. `pos_daily_raw` — Bot 1
+2. `pos_daily_clean` — Bot 2
+3. `stock_deductions` — Bot 3A + 3B
+4. `stock_daily_snapshot` — Bot 4 (**alimenta La Dispensa**)
+5. `stock_adjustments` — future waste/correction manuali
+
+Verificare se `commis_observations` è già `ai_watch_items` o va creata separata.
+
+---
+
+### La Dispensa — UI (da costruire DOPO brigata bot)
+
+Posizione: L'Ufficio → card "La Dispensa" (admin-only)
+Future: bottom bar
+
+**Struttura tab:**
+```
+La Dispensa
+├── 🥘 Cucina         → legge stock_daily_snapshot per prep_tasks
+├── 📦 Magazzino      → legge stock_daily_snapshot per ingredients (futuro)
+├── 📋 Movimenti      → legge stock_deductions drill-down
+└── 🤖 Bot Debug      → legge bot_runs — esploso pipeline
+```
+
+**Vista Cucina — foglio scorrevole:**
+- Colonne fisse: Nome · Stock oggi · Stazione
+- Colonne scorrevoli (destra→sinistra, più recente prima): per ogni giorno → **+carico** (verde) e **−POS** (rosso)
+- Click su una cella → drill-down (quali piatti hanno scaricato quella prep quel giorno)
+- Colori: stock critico rosso, sotto soglia giallo, ok verde
+
+---
+
+### Fix pushato questa sessione
+
+- **boh-v558** — `admin.js`: `_bv2Contributors` ora legge `prep_tasks.sources_json` invece di requeryare tutto il POS lato client. Elimina "Nessuna fonte trovata" per task con sources_json popolato.
+
+---
+
+### Note operative sessione
+
+- `bot_preplist_log` contiene fabbisogno **futuro** (proiezione), NON scarico reale — chiarito definitivamente
+- Lo scarico reale viene da `pos_production_daily` × BOM — dati certi, non stime
+- `pos_production_daily` ha già 17 giorni di storia reale (dal 5 giugno)
+- `prep_log` ha 17 giorni di storia carico (dal 5 giugno, 160 prep distinte)
+- Backfill storico 17 giorni: possibile via SQL dopo che le tabelle sono create dalla brigata bot
+
