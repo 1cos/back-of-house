@@ -1,0 +1,39 @@
+{
+  "_comment": "Modular BOH Bible index. Always load core files + domain-specific files.",
+  "_always_load": [
+    "00_core_rules.md",
+    "01_database_map.md",
+    "11_write_plan_rules.md",
+    "12_forbidden_behaviors.md"
+  ],
+  "_domains": {
+    "tell_chef_production_report": {
+      "keywords": ["did", "made", "count start", "total is", "nests", "pezzi", "ho fatto", "prodotto", "stock"],
+      "files": ["02_tell_chef_intents.md", "03_production_reports.md", "07_inventory_stock_rules.md"]
+    },
+    "tell_chef_general": {
+      "keywords": ["tell chef", "chef report", "missing", "broken", "out of", "finito", "rotto", "manca"],
+      "files": ["02_tell_chef_intents.md", "07_inventory_stock_rules.md"]
+    },
+    "recipe_audit": {
+      "keywords": ["ricetta", "recipe", "bom", "ingredienti", "controlla ricetta", "pos_name", "serving", "batch"],
+      "files": ["04_recipe_bom_rules.md", "05_recipe_editor_audit.md", "08_pos_sales_modifiers.md"]
+    },
+    "prep_audit": {
+      "keywords": ["prep", "controlla prep", "spiega bot", "suggested", "shelf life", "cover days", "bot"],
+      "files": ["06_prep_bot_logic.md", "07_inventory_stock_rules.md", "08_pos_sales_modifiers.md", "04_recipe_bom_rules.md"]
+    },
+    "mapping_control_room": {
+      "keywords": ["mapping", "mcr", "mappa", "collegamento", "sub-recipe", "yield", "mismatch"],
+      "files": ["09_mapping_control_room.md", "04_recipe_bom_rules.md", "08_pos_sales_modifiers.md", "06_prep_bot_logic.md"]
+    },
+    "stock_inventory": {
+      "keywords": ["stock", "inventario", "frigo", "in casa", "current_stock", "quante", "quanto abbiamo"],
+      "files": ["07_inventory_stock_rules.md", "03_production_reports.md"]
+    },
+    "pos_sales": {
+      "keywords": ["vendite", "sales", "pos", "touchbistro", "piatti venduti", "ieri sera", "quanti coperti"],
+      "files": ["08_pos_sales_modifiers.md", "07_inventory_stock_rules.md"]
+    }
+  }
+}
