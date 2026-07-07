@@ -284,7 +284,6 @@ window._bv2Contributors = async function(cid, taskName, recipeId) {
   box.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:6px 0;">Caricamento...</div>';
 
   try {
-    // Usa supa (client globale) per tutte le query — evita problemi auth con fetch manuale
     const fmtG = (v, u) => {
       if(isNaN(v)||v===0) return '0';
       const ul=(u||'').toLowerCase();
@@ -294,163 +293,44 @@ window._bv2Contributors = async function(cid, taskName, recipeId) {
     };
     const esc2 = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-    // Unit dal run corrente
-    const {data: runRows} = await supa.from('bot_v2_runs')
-      .select('unit,consumo_giornaliero')
-      .eq('sim_date', new Date().toISOString().slice(0,10))
-      .eq('task_name', taskName)
+    // Legge sources_json da prep_tasks — gia calcolato dal builder ogni notte
+    const {data: taskRows} = await supa.from('prep_tasks')
+      .select('unit,sources_json')
+      .eq('name', taskName)
+      .eq('archived', false)
       .limit(1);
-    const unit = runRows?.[0]?.unit || 'g';
+    const taskRow = taskRows?.[0];
+    const unit = taskRow?.unit || 'g';
+    const sources = taskRow?.sources_json || [];
 
-    // Aliases diretti dalla recipe
-    let aliases = [];
-    let gPerPorzDirect = 0;
-    if(recipeId) {
-      const {data: recRows} = await supa.from('recipes')
-        .select('pos_name,serving_weight_g,base_weight_g,base_servings')
-        .eq('id', recipeId)
-        .limit(1);
-      const rec = recRows?.[0];
-      const posName = rec?.pos_name || '';
-      aliases = posName ? posName.split('|').map(s=>s.trim().toLowerCase()).filter(Boolean) : [];
-      const sw = parseFloat(rec?.serving_weight_g)||0;
-      const bw = parseFloat(rec?.base_weight_g)||0;
-      const bs = parseFloat(rec?.base_servings)||1;
-      gPerPorzDirect = sw>0?sw:(bw>0&&bs>0?bw/bs:0);
-    }
-
-    // Se no alias diretti, cerco ricette padre nel BOM (sub-recipe chain)
-    let parentRecipes = [];
-    if(aliases.length === 0 && recipeId) {
-      const {data: bomRows} = await supa.from('recipe_bom')
-        .select('parent_recipe_id,quantity,unit')
-        .eq('sub_recipe_id', recipeId)
-        .eq('component_type', 'RECIPE');
-      for(const brow of (bomRows||[])) {
-        const {data: prRows} = await supa.from('recipes')
-          .select('id,pos_name,serving_weight_g,base_weight_g,base_servings')
-          .eq('id', brow.parent_recipe_id)
-          .limit(1);
-        const pr = prRows?.[0];
-        if(pr?.pos_name) {
-          parentRecipes.push({
-            id: pr.id,
-            pos_name: pr.pos_name,
-            bom_qty: parseFloat(brow.quantity)||1,
-            sw: parseFloat(pr.serving_weight_g)||0,
-            bw: parseFloat(pr.base_weight_g)||0,
-            bs: parseFloat(pr.base_servings)||1
-          });
-        }
-      }
-    }
-
-    // Date range 60 giorni
-    const d60 = new Date(); d60.setDate(d60.getDate()-60);
-    const since = d60.toISOString().slice(0,10);
-
-    // Carico sales + modifier + portion_factor con supa
-    const {data: salesAll} = await supa.from('pos_sales_by_item')
-      .select('sale_date,menu_item,quantity')
-      .gte('sale_date', since);
-
-    const {data: modAll} = await supa.from('pos_modifier_by_item')
-      .select('sale_date,modifier,parent_item,quantity_sold')
-      .gte('sale_date', since);
-
-    const {data: pfAllRaw} = await supa.from('pos_item_aliases')
-      .select('alias_name,portion_factor,source');
-    const pfMap = {};
-    ((pfAllRaw)||[])
-      .filter(a => a.source === 'modifier' || a.source === 'both')
-      .forEach(a => { pfMap[(a.alias_name||'').toLowerCase().trim()] = parseFloat(a.portion_factor)||1.0; });
-
-    // helper: media per data
-    const avgDates = obj => {
-      const vals = Object.values(obj.dates);
-      return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
-    };
-
-    // Costruisce righe dato un set di alias e grammi/porzione
-    const buildRows = (aliasSet, gPerPorz, labelPrefix) => {
-      const directByItem = {};
-      (salesAll||[]).forEach(row => {
-        if(!aliasSet.has((row.menu_item||'').toLowerCase().trim())) return;
-        const k = row.menu_item;
-        if(!directByItem[k]) directByItem[k] = {dates:{}};
-        if(!directByItem[k].dates[row.sale_date]) directByItem[k].dates[row.sale_date] = 0;
-        directByItem[k].dates[row.sale_date] += parseFloat(row.quantity)||0;
-      });
-      const modByKey = {};
-      (modAll||[]).forEach(row => {
-        const mk = (row.modifier||'').toLowerCase().trim();
-        if(!aliasSet.has(mk)) return;
-        const pf = pfMap[mk] || 1.0;
-        const k = (row.modifier||'')+'|'+(row.parent_item||'');
-        if(!modByKey[k]) modByKey[k] = {modifier: row.modifier, parent: row.parent_item, pf, dates:{}};
-        if(!modByKey[k].dates[row.sale_date]) modByKey[k].dates[row.sale_date] = 0;
-        modByKey[k].dates[row.sale_date] += (row.quantity_sold||0) * pf;
-      });
-      const out = [];
-      Object.entries(directByItem).forEach(([item, obj]) => {
-        const avgPorz = avgDates(obj);
-        const avgG = gPerPorz>0 ? avgPorz*gPerPorz : avgPorz;
-        if(avgG > 0) out.push({label: esc2(labelPrefix||item), sub: esc2(labelPrefix?item:'Vendita diretta'), type:'direct', avgPorz, avgG, pf:1});
-      });
-      const modByMod = {};
-      Object.entries(modByKey).forEach(([k, obj]) => {
-        const modName = obj.modifier;
-        if(!modByMod[modName]) modByMod[modName] = {parents:[], totalAvgPorz:0, pf: obj.pf};
-        modByMod[modName].parents.push(esc2(obj.parent));
-        modByMod[modName].totalAvgPorz += avgDates(obj);
-      });
-      Object.entries(modByMod).forEach(([mod, obj]) => {
-        const avgG = gPerPorz>0 ? obj.totalAvgPorz*gPerPorz : obj.totalAvgPorz;
-        if(avgG > 0) {
-          const parentList = [...new Set(obj.parents)].slice(0,3).join(', ');
-          const sub = (labelPrefix?esc2(labelPrefix)+' — ':'')+esc2(mod)+' su: '+parentList+(obj.parents.length>3?' +altri':'');
-          out.push({label: esc2(labelPrefix||mod), sub, type:'modifier', avgPorz: obj.totalAvgPorz, avgG, pf: obj.pf});
-        }
-      });
-      return out;
-    };
-
-    let rows = [];
-    if(aliases.length > 0) {
-      // Percorso diretto: questa prep ha pos_name proprio
-      rows = buildRows(new Set(aliases), gPerPorzDirect, '');
-    } else if(parentRecipes.length > 0) {
-      // Percorso sub-recipe: uso i pos_name delle ricette padre
-      for(const pr of parentRecipes) {
-        const parentAliases = pr.pos_name.split('|').map(s=>s.trim().toLowerCase()).filter(Boolean);
-        const prRows = buildRows(new Set(parentAliases), pr.bom_qty, pr.pos_name.split('|')[0]);
-        rows = rows.concat(prRows);
-      }
-    }
-
-    // Render
-    if(rows.length === 0) {
-      box.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:6px 0;">Nessuna fonte trovata nei dati POS.</div>';
+    if(!sources.length) {
+      box.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:6px 0;">Nessuna fonte POS collegata — aggiungi pos_name alla ricetta.</div>';
       box.dataset.loaded = '1';
       return;
     }
 
-    const totalG = rows.reduce((s,r) => s+r.avgG, 0);
+    const totalG = sources.reduce((s,r) => s+(parseFloat(r.avg_daily_g)||0), 0);
 
-    let html = '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Media/giorno negli ultimi 60 giorni</div>';
-    rows.sort((a,b) => b.avgG - a.avgG).forEach(row => {
-      const isM = row.type==='modifier';
-      const bg = isM?'#eff6ff':'#f8fafc';
-      const tagBg = isM?'#dbeafe':'#dcfce7';
-      const tagCol = isM?'#2563eb':'#16a34a';
-      const tagTxt = isM?'MOD':'MAIN';
-      const gStr = fmtG(row.avgG, unit);
-      const porzStr = row.avgPorz>0?(row.avgPorz%1===0?Math.round(row.avgPorz):row.avgPorz.toFixed(1))+' porz':null;
+    let html = '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Fonti POS · media/giorno (storico 90gg bot)</div>';
+    sources.forEach(src => {
+      const isM = src.source_type === 'modifier';
+      const isSub = (src.source_origin||'').includes('sub') || (src.source_origin||'').includes('ingredient');
+      const bg = isM?'#eff6ff':isSub?'#fefce8':'#f8fafc';
+      const tagBg = isM?'#dbeafe':isSub?'#fef9c3':'#dcfce7';
+      const tagCol = isM?'#2563eb':isSub?'#ca8a04':'#16a34a';
+      const tagTxt = isM?'MOD':isSub?'SUB':'MAIN';
+      const gStr = fmtG(parseFloat(src.avg_daily_g)||0, unit);
+      const porzStr = src.avg_daily_portions>0
+        ? (Number.isInteger(src.avg_daily_portions)?src.avg_daily_portions:src.avg_daily_portions.toFixed(1))+' porz'
+        : null;
+      const originLabel = src.source_origin==='direct_pos'?'Vendita diretta':src.source_origin==='sub_recipe_l1'?'Sub-ricetta':src.source_origin==='ingredient_bom'?'Ingrediente BOM':'';
       html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:8px;background:'+bg+';margin-bottom:3px;">'
         +'<div style="min-width:0;flex:1;">'
-        +'<div style="display:flex;align-items:center;gap:5px;"><span style="font-size:12px;font-weight:600;color:#1e3a5f;">'+row.label+'</span>'
-        +'<span style="font-size:9px;background:'+tagBg+';color:'+tagCol+';border-radius:3px;padding:1px 4px;font-weight:700;">'+tagTxt+'</span></div>'
-        +'<div style="font-size:10px;color:#94a3b8;">'+esc2(row.sub)+(isM&&row.pf!==1?' \u00b7 \u00d7'+row.pf:'')+'</div>'
+        +'<div style="display:flex;align-items:center;gap:5px;">'
+        +'<span style="font-size:12px;font-weight:600;color:#1e3a5f;">'+esc2(src.pos_value||'')+'</span>'
+        +'<span style="font-size:9px;background:'+tagBg+';color:'+tagCol+';border-radius:3px;padding:1px 4px;font-weight:700;">'+tagTxt+'</span>'
+        +'</div>'
+        +'<div style="font-size:10px;color:#94a3b8;">'+esc2(originLabel)+(src.grams_per_unit>0?' \u00b7 '+fmtG(src.grams_per_unit,unit)+'/porz':'')+'</div>'
         +'</div>'
         +'<div style="text-align:right;flex-shrink:0;margin-left:8px;">'
         +(porzStr?'<div style="font-size:10px;color:#64748b;">~'+porzStr+'</div>':'')
