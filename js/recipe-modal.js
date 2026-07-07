@@ -233,42 +233,44 @@ function stopTimerFully(key){
 
 // ── TIMER BAR ─────────────────────────────────────────────────
 function _timerBarUpdate(){
-  var bar=document.getElementById('_timerBar');
+  // Rimuovi vecchio bar fixed (legacy) se esiste
+  var oldBar=document.getElementById('_timerBar');
+  if(oldBar) oldBar.remove();
+
+  var bar=document.getElementById('topTimerBar');
   var keys=Object.keys(window._timerState||{});
-  if(keys.length===0){
+  if(!bar||keys.length===0){
     if(bar) bar.style.display='none';
     return;
   }
-  if(!bar){
-    bar=document.createElement('div');
-    bar.id='_timerBar';
-    bar.style.cssText='position:fixed;bottom:72px;left:0;right:0;z-index:45;display:flex;flex-direction:column;';
-    document.body.appendChild(bar);
-  }
-  bar.style.display='flex';
+  bar.style.display='block';
   bar.innerHTML=keys.map(function(key){
     var st=window._timerState[key];
     if(!st) return '';
     var rem=_timerRem(key);
-    var pct=Math.round(((st.totalSecs-rem)/st.totalSecs)*100);
+    var pct=Math.max(0,Math.min(100,Math.round(((st.totalSecs-rem)/st.totalSecs)*100)));
     var taskName=st.meta&&st.meta.taskName||'';
     var stepTitle=st.meta&&st.meta.stepTitle||'';
     var label=taskName+(stepTitle?' \u00b7 '+stepTitle:'');
     var isUrgent=rem>0&&rem<60;
     var isDone=rem<=0;
-    var bg=isDone?'rgba(5,150,105,0.96)':isUrgent?'rgba(239,68,68,0.96)':'rgba(30,58,95,0.96)';
-    return '<div data-tkey="'+key+'" style="background:'+bg+';padding:0 16px;height:44px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;border-top:0.5px solid rgba(255,255,255,0.15);position:relative;overflow:hidden;">'
-      +'<div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">'
-      +'<span style="font-size:15px;">'+(isDone?'':'⏱')+'</span>'
-      +'<span style="font-size:13px;font-weight:600;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+label+'</span>'
-      +'</div>'
-      +'<div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">'
-      +'<span style="font-size:18px;font-weight:800;color:white;font-variant-numeric:tabular-nums;letter-spacing:-.5px;">'+(isDone?'DONE \u2713':fmtTime(rem))+'</span>'
-      +'<div style="width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;">'
-      +'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>'
-      +'</div>'
-      +'</div>'
-      +'<div style="position:absolute;bottom:0;left:0;height:2px;background:rgba(255,255,255,0.35);width:'+pct+'%;"></div>'
+    // Colori integrati con la top bar (no sfondo scuro full-width)
+    var accent=isDone?'#059669':isUrgent?'#ef4444':'#2563eb';
+    var bg=isDone?'rgba(5,150,105,0.06)':isUrgent?'rgba(239,68,68,0.06)':'rgba(37,99,235,0.05)';
+    var timeStr=isDone?'Done \u2713':fmtTime(rem);
+    return '<div data-tkey="'+key+'" style="padding:5px 16px 6px;display:flex;align-items:center;gap:10px;cursor:pointer;background:'+bg+';position:relative;overflow:hidden;-webkit-tap-highlight-color:transparent;">'
+      // Barra progresso sottile in fondo alla riga
+      +'<div style="position:absolute;bottom:0;left:0;height:2px;background:'+accent+';opacity:0.25;width:100%;"></div>'
+      +'<div style="position:absolute;bottom:0;left:0;height:2px;background:'+accent+';width:'+pct+'%;transition:width .5s linear;"></div>'
+      // Icona timer SVG (niente emoji)
+      +'<div style="flex-shrink:0;width:28px;height:28px;border-radius:8px;background:'+accent+';opacity:0.12;position:absolute;left:16px;"></div>'
+      +'<svg style="flex-shrink:0;position:relative;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="'+accent+'" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>'
+      // Label
+      +'<span style="flex:1;font-size:12px;font-weight:500;color:#1e3a5f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;">'+label+'</span>'
+      // Countdown
+      +'<span style="font-size:13px;font-weight:700;color:'+accent+';font-variant-numeric:tabular-nums;letter-spacing:-.3px;white-space:nowrap;flex-shrink:0;">'+timeStr+'</span>'
+      // Chevron
+      +'<svg style="flex-shrink:0;" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="'+accent+'" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>'
       +'</div>';
   }).join('');
   bar.querySelectorAll('[data-tkey]').forEach(function(row){
@@ -672,5 +674,6 @@ function closeModal(prepTaskId){
 }
 
 })();
+
 
 
