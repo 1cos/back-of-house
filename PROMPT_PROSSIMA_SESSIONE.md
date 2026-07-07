@@ -1,3 +1,94 @@
+---
+
+## SESSIONE 7 LUGLIO 2026 — Brigata di Bot Sprint 1 (DB + Edge Function, nessun bump frontend)
+
+**Versione sw.js live:** boh-v559 (invariato — zero file frontend toccati)
+**Supabase:** ydqmumpytgrlceuinoqt
+**Edge Function nuova:** bot-pos-importer v1
+
+---
+
+### Cosa è stato fatto
+
+**Architettura Brigata di Bot approvata da Max (documenti voice + allegati).**
+
+Pipeline notturna 04:00–06:00 CDT con regola costituzionale: ogni bot scrive solo la sua tabella. Solo Bot 4 (futuro Stock Consolidator) aggiorna current_stock. Commis AI osservano e scrivono SOLO commis_observations.
+
+**Migration DB `brigata_bot_sprint1_foundation` — 8 tabelle create:**
+
+| Tabella | Scopo |
+|---|---|
+| `bot_runs` | Registro turni notturni di ogni bot |
+| `pos_daily_raw` | Output grezzo POS Importer |
+| `pos_daily_clean` | Output futuro POS Cleaner (Bot 2) |
+| `stock_deductions` | Scarichi calcolati (Bot 3A/3B, futuri) |
+| `stock_movements` | Ledger universale movimenti |
+| `stock_daily_snapshot` | Alimenta La Dispensa — SOLO Bot 4 scrive qui |
+| `commis_observations` | Osservazioni Commis AI |
+| `menu_item_status` | Lifecycle item POS — vuota, futuro |
+
+**Edge Function `bot-pos-importer` v1:**
+- Legge pos_sales_by_item + pos_modifiers per una business_date
+- Scrive pos_daily_raw (idempotente)
+- Scrive bot_runs con status/conteggi/summary
+- Lancia Commis POS Auditor (deterministico, zero LLM)
+- NON tocca: current_stock, prep_tasks, stock_daily_snapshot
+
+**Commis POS Auditor (dentro bot-pos-importer):**
+- Menu change date: 2026-06-27 — storico pre-cambio ignorato
+- Min 2 occorrenze post-cambio per generare warning
+- Regola 1: zero anomalo → warning (media > 3) o info (storico insufficiente)
+- Regola 2: vendita > 2.5× media → info
+- Regola 3: nome non mappato a ricetta → info (missing_mapping)
+- Idempotente: cancella observation precedenti prima di riscrivere
+
+**File MD creati in `/bots/pos-importer/`:**
+- POS_IMPORTER_BOT.md
+- POS_IMPORTER_COMMIS.md
+- POS_IMPORTER_TEST.md
+
+---
+
+### PRIMO PASSO PROSSIMA SESSIONE — Test bot
+
+Il bot non è stato ancora triggerato (dominio Supabase fuori allowlist container Claude).
+Max deve triggerarlo da Supabase Dashboard:
+
+Edge Functions → bot-pos-importer → Body: {"business_date": "2026-07-06"} → Send
+
+Poi verificare:
+```sql
+SELECT business_date, source_table, COUNT(*), SUM(portions_sold)
+FROM pos_daily_raw WHERE business_date = '2026-07-06'
+GROUP BY 1, 2;
+
+SELECT bot_name, status, rows_read, rows_written, warnings_count, summary
+FROM bot_runs WHERE bot_name = 'pos-importer' ORDER BY started_at DESC LIMIT 3;
+
+SELECT severity, category, title
+FROM commis_observations WHERE business_date = '2026-07-06' ORDER BY severity DESC;
+```
+
+Attesi: ~104 righe sales + ~96 modifier in pos_daily_raw. stock_daily_snapshot e stock_deductions devono restare vuote.
+
+---
+
+### Sprint 2 — dopo verifica Sprint 1
+
+Bot 2 — POS Cleaner: legge pos_daily_raw, mappa pos_item_name → recipe_id usando recipes.pos_name (alias pipe-delimited), scrive pos_daily_clean con match_type (exact/alias/fuzzy/unknown) e confidence.
+
+---
+
+### Versioni finali sessione
+
+| Componente | Versione |
+|---|---|
+| Brigade frontend | **boh-v559** (invariato) |
+| bot-preplist-builder | v42 (Supabase v67) — invariato |
+| bot-pos-importer | **v1 (nuovo)** |
+| Migration | `brigata_bot_sprint1_foundation` |
+
+
 
 ---
 
