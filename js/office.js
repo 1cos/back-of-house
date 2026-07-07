@@ -236,7 +236,7 @@ async function officeLoadHome() {
           '<div style="font-size:22px;width:32px;text-align:center;line-height:1;">&#x1F6D2;</div>' +
           '<div style="flex:1;">' +
             '<div style="color:white;font-size:16px;font-weight:600;">La Dispensa</div>' +
-            '<div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:3px;">Snapshot POS · Read-only</div>' +
+            '<div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:3px;">Beta · Controllo scarichi POS</div>' +
           '</div>' +
           '<span style="color:rgba(255,255,255,0.4);font-size:18px;">&#x203A;</span>' +
         '</div>';
@@ -4552,14 +4552,14 @@ window.openLaDispensa = function() {
       '<button onclick="document.getElementById(\'dispensaPanel\')?.remove();" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.15);color:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&#8592;</button>' +
       '<div style="flex:1;">' +
         '<div style="font-size:19px;font-weight:700;color:white;">🏪 La Dispensa</div>' +
-        '<div style="font-size:11px;color:rgba(16,185,129,0.7);margin-top:1px;">Snapshot POS giornaliero — read-only</div>' +
+        '<div style="font-size:11px;color:rgba(16,185,129,0.7);margin-top:1px;">⚡ BETA · Read-only · Segnala errori</div>' +
       '</div>' +
       // Date picker
       '<input type="date" id="dispensaDate" style="background:rgba(255,255,255,0.08);border:0.5px solid rgba(16,185,129,0.3);border-radius:8px;color:white;font-size:13px;padding:6px 8px;cursor:pointer;" />' +
     '</div>' +
     // Safety banner
     '<div style="background:rgba(245,158,11,0.12);border-bottom:0.5px solid rgba(245,158,11,0.2);padding:8px 16px;font-size:11px;color:rgba(245,158,11,0.9);flex-shrink:0;display:flex;align-items:center;gap:6px;">' +
-      '<span>⚠️</span><span>Read-only snapshot. POS-based deductions only. Stock not updated yet.</span>' +
+      '<span>⚡</span><span><b>Beta read-only.</b> I numeri sono generati dai bot POS e non aggiornano ancora lo stock reale. Usa questa pagina per controllare e segnalare errori.</span>' +
     '</div>' +
     // Summary cards row
     '<div id="dispensaSummary" style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0;border-bottom:0.5px solid rgba(255,255,255,0.06);"></div>' +
@@ -4782,30 +4782,35 @@ function dispensaSnapRow(r, type) {
   var isWarning = r.status === 'warning';
   var sources = (r.metadata && r.metadata.sources) ? r.metadata.sources.join('+') : '';
   var deducRows = (r.metadata && r.metadata.deduction_rows) || '?';
+  var safeName = (name || '').replace(/['"<>]/g, '');
+  var safeDate = r.business_date || window._dispensaCurrentDate || '';
 
   var statusBadge = isWarning
-    ? '<span style="background:rgba(245,158,11,0.2);color:#f59e0b;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;">⚠ warning</span>'
+    ? '<span style="background:rgba(245,158,11,0.2);color:#f59e0b;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;">\u26a0 warning</span>'
     : '<span style="background:rgba(16,185,129,0.15);color:#6ee7b7;font-size:10px;padding:2px 6px;border-radius:4px;">partial</span>';
 
   var warningLine = (isWarning && r.warning)
     ? '<div style="font-size:10px;color:#f59e0b;margin-top:3px;padding:3px 6px;background:rgba(245,158,11,0.08);border-radius:4px;">' + r.warning + '</div>'
     : '';
 
-  // Format quantity
   var qtyDisplay = qty >= 1000 ? (qty/1000).toFixed(2)+'kg' : qty.toFixed(1)+unit;
 
-  return '<div onclick="dispensaOpenEsploso(\'' + r.item_type + '\',\'' + r.item_id + '\',\'' + (name||'').replace(/'/g,'') + '\')" style="padding:12px 16px;border-bottom:0.5px solid rgba(255,255,255,0.05);cursor:pointer;active:background:rgba(255,255,255,0.04);">' +
-    '<div style="display:flex;align-items:flex-start;gap:8px;">' +
+  return '<div style="padding:10px 16px;border-bottom:0.5px solid rgba(255,255,255,0.05);">' +
+    '<div style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;" onclick="dispensaOpenEsploso(\'' + r.item_type + '\',\'' + r.item_id + '\',\'' + safeName + '\')">' +
       '<div style="flex:1;">' +
-        '<div style="font-size:14px;font-weight:600;color:white;">' + (name||'—') + '</div>' +
-        '<div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">' +
+        '<div style="font-size:14px;font-weight:600;color:white;">' + (name||'\u2014') + '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">' +
           '<span style="font-size:13px;color:#10b981;font-weight:600;">' + qtyDisplay + '</span>' +
           statusBadge +
-          '<span style="font-size:10px;color:rgba(255,255,255,0.25);">' + sources + ' · ' + deducRows + ' rows</span>' +
+          '<span style="font-size:10px;color:rgba(255,255,255,0.25);">' + sources + ' \u00b7 ' + deducRows + ' rows</span>' +
         '</div>' +
         warningLine +
       '</div>' +
-      '<span style="color:rgba(255,255,255,0.2);font-size:16px;padding-top:2px;">&#x203A;</span>' +
+      '<span style="color:rgba(255,255,255,0.2);font-size:15px;padding-top:3px;">&#x203A;</span>' +
+    '</div>' +
+    '<div style="margin-top:5px;">' +
+      '<button onclick="event.stopPropagation();dispensaFeedback(\'' + r.item_id + '\',\'' + r.item_type + '\',\'' + safeName + '\',\'' + safeDate + '\')" ' +
+        'style="background:none;border:0.5px solid rgba(255,255,255,0.1);border-radius:6px;color:rgba(255,255,255,0.3);font-size:10px;padding:2px 9px;cursor:pointer;font-family:inherit;">\u2691 Segnala errore</button>' +
     '</div>' +
   '</div>';
 }
@@ -4927,3 +4932,81 @@ function dispensaShowError(msg) {
   var content = document.getElementById('dispensaContent');
   if (content) content.innerHTML = '<div style="padding:20px;color:#ef4444;font-size:12px;">Errore: ' + msg + '</div>';
 }
+
+// ── La Dispensa Beta — Feedback modal ──
+window.dispensaFeedback = function(itemId, itemType, itemName, businessDate) {
+  var existing = document.getElementById('dispensaFeedbackModal');
+  if (existing) existing.remove();
+
+  var TYPES = [
+    ['wrong_quantity',    'Quantità sbagliata'],
+    ['wrong_unit',        'Unità sbagliata'],
+    ['wrong_name',        'Nome/prep sbagliata'],
+    ['duplicate_deduction','Doppio scarico'],
+    ['missing_sale',      'Manca una vendita'],
+    ['should_not_deduct', 'Item non dovrebbe scaricare'],
+    ['other',             'Altro'],
+  ];
+
+  var options = TYPES.map(function(t) {
+    return '<label style="display:flex;align-items:center;gap:8px;padding:7px 0;cursor:pointer;border-bottom:0.5px solid rgba(255,255,255,0.05);">' +
+      '<input type="radio" name="dfType" value="' + t[0] + '" style="accent-color:#10b981;width:14px;height:14px;">' +
+      '<span style="font-size:13px;color:rgba(255,255,255,0.75);">' + t[1] + '</span>' +
+      '</label>';
+  }).join('');
+
+  var modal = document.createElement('div');
+  modal.id = 'dispensaFeedbackModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:600;display:flex;align-items:flex-end;';
+  modal.innerHTML =
+    '<div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);" onclick="document.getElementById(\'dispensaFeedbackModal\').remove()"></div>' +
+    '<div style="position:relative;width:100%;max-width:480px;margin:0 auto;background:#0f2417;border-radius:20px 20px 0 0;padding:20px 20px 40px;">' +
+      '<div style="width:36px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;margin:0 auto 14px;"></div>' +
+      '<div style="font-size:15px;font-weight:700;color:white;margin-bottom:3px;">\u2691 Segnala errore</div>' +
+      '<div style="font-size:11px;color:#10b981;margin-bottom:14px;">' + (itemName || itemId) + '</div>' +
+      '<form onsubmit="dispensaFeedbackSubmit(event,\'' + itemId + '\',\'' + itemType + '\',\'' + (itemName||'').replace(/'/g,'') + '\',\'' + businessDate + '\')">' +
+        options +
+        '<textarea id="dfNote" placeholder="Note opzionali..." style="width:100%;margin-top:12px;background:rgba(255,255,255,0.06);border:0.5px solid rgba(255,255,255,0.1);border-radius:8px;color:white;font-size:12px;padding:8px;box-sizing:border-box;height:60px;font-family:inherit;resize:none;"></textarea>' +
+        '<button type="submit" style="width:100%;margin-top:10px;background:#10b981;border:none;border-radius:10px;color:white;font-size:14px;font-weight:600;padding:11px;cursor:pointer;">Invia segnalazione</button>' +
+      '</form>' +
+    '</div>';
+  document.body.appendChild(modal);
+};
+
+window.dispensaFeedbackSubmit = async function(e, itemId, itemType, itemName, businessDate) {
+  e.preventDefault();
+  var selected = document.querySelector('input[name="dfType"]:checked');
+  if (!selected) { alert('Seleziona un tipo di errore'); return; }
+  var note = (document.getElementById('dfNote') || {}).value || '';
+  var sb = window.supa;
+  if (!sb) return;
+
+  var createdBy = (window.user && window.user.name) ? window.user.name : null;
+
+  try {
+    var { error } = await sb.from('dispensa_feedback').insert({
+      business_date: businessDate || window._dispensaCurrentDate,
+      item_type:     itemType,
+      item_id:       itemId,
+      target_name:   itemName,
+      source_table:  'stock_daily_snapshot',
+      feedback_type: selected.value,
+      note:          note || null,
+      created_by:    createdBy,
+      status:        'open',
+      metadata: {
+        user_role:   window.user && window.user.role,
+        user_station: window.user && window.user.default_station,
+        dispensaTab: window._dispensaCurrentTab,
+      }
+    });
+    document.getElementById('dispensaFeedbackModal')?.remove();
+    if (error) {
+      if (typeof showScToast === 'function') showScToast('Errore: ' + error.message);
+    } else {
+      if (typeof showScToast === 'function') showScToast('Segnalazione inviata \u2713');
+    }
+  } catch(err) {
+    if (typeof showScToast === 'function') showScToast('Errore: ' + err.message);
+  }
+};
