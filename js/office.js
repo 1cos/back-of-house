@@ -3283,44 +3283,54 @@ function officeRenderJarvisCard(item) {
   }
 
   var styleMap = {
-    primary: 'flex:1;padding:10px 0;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;',
+    primary: 'flex:1;padding:10px 0;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;line-height:1.3;',
     secondary: 'flex:1;padding:10px 0;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:0.5px solid rgba(30,58,95,0.2);background:rgba(30,58,95,0.04);color:#1e3a5f;',
     danger: 'flex:1;padding:10px 0;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:0.5px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.05);color:#ef4444;'
   };
 
+  // Per production_report: bottone Approva corto + riga quantita + bottone Correggi
+  var apNewTotal2 = rr.new_total_claimed != null ? rr.new_total_claimed : (rr.write_plan && rr.write_plan.new_value != null ? rr.write_plan.new_value : null);
+  var apUnit2 = rr.unit || '';
+  var approvaHtml = isProductionReport
+    ? '<button onclick="jarvisAction(\'' + escapedId + '\',\'approve_all\')" style="' + styleMap.primary + 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;">'
+        + '<span style="font-size:14px;font-weight:700;">&#x2713; Aggiorna stock</span>'
+        + (apNewTotal2 != null ? '<span style="font-size:11px;font-weight:600;opacity:0.85;">' + apNewTotal2 + (apUnit2 ? ' ' + apUnit2 : '') + '</span>' : '')
+        + '</button>'
+    : '<button onclick="jarvisAction(\'' + escapedId + '\',\'approve_all\')" style="' + styleMap.primary + '">' + approvaLabel + '</button>';
+
   var followUpOptions = rr.follow_up_options || [];
-  var uiButtons = [];
-  if (followUpOptions.length > 0) {
-    followUpOptions.forEach(function(opt, i) {
-      if (i === 0) {
-        uiButtons.push({ label: approvaLabel, action: 'approve_all', style: 'primary' });
-      } else if (opt.toLowerCase().indexOf('rifiut') >= 0 || opt.toLowerCase().indexOf('close') >= 0 || opt.toLowerCase().indexOf('ignore') >= 0) {
-        uiButtons.push({ label: opt, action: 'reject', style: 'danger' });
+  var secondaryBtns = [];
+  if (isProductionReport) {
+    // Correggi quantita apre editor inline
+    secondaryBtns.push('<button onclick="jarvisInlineEdit(\'' + escapedId + '\')" style="' + styleMap.secondary + '">Correggi quantita</button>');
+    secondaryBtns.push('<button onclick="jarvisAction(\'' + escapedId + '\',\'reject\')" style="' + styleMap.danger + '">Rifiuta</button>');
+  } else if (followUpOptions.length > 0) {
+    followUpOptions.slice(1).forEach(function(opt, i) {
+      if (opt.toLowerCase().indexOf('rifiut') >= 0 || opt.toLowerCase().indexOf('close') >= 0) {
+        secondaryBtns.push('<button onclick="jarvisAction(\'' + escapedId + '\',\'reject\')" style="' + styleMap.danger + '">' + opt + '</button>');
       } else {
-        uiButtons.push({ label: opt, action: 'secondary_' + i, style: 'secondary' });
+        secondaryBtns.push('<button onclick="jarvisAction(\'' + escapedId + '\',\'secondary_' + i + '\')" style="' + styleMap.secondary + '">' + opt + '</button>');
       }
     });
-    if (!uiButtons.some(function(b) { return b.action === 'reject'; })) {
-      uiButtons.push({ label: 'Rifiuta', action: 'reject', style: 'danger' });
+    if (!secondaryBtns.some(function(b) { return b.indexOf('reject') >= 0; })) {
+      secondaryBtns.push('<button onclick="jarvisAction(\'' + escapedId + '\',\'reject\')" style="' + styleMap.danger + '">Rifiuta</button>');
     }
   } else {
-    var rawUiButtons = rr.ui_buttons || [
-      { label: approvaLabel, action: 'approve_all', style: 'primary' },
-      { label: 'Rifiuta', action: 'reject', style: 'danger' }
-    ];
-    uiButtons = rawUiButtons.map(function(btn) {
-      if (btn.action === 'approve_all') return { label: approvaLabel, action: 'approve_all', style: btn.style || 'primary' };
-      return btn;
+    var rawUiButtons = rr.ui_buttons || [];
+    rawUiButtons.filter(function(b) { return b.action !== 'approve_all'; }).forEach(function(btn) {
+      var s = styleMap[btn.style] || styleMap.secondary;
+      var ea = btn.action.replace(/'/g, "\\'");
+      secondaryBtns.push('<button onclick="jarvisAction(\'' + escapedId + '\',\'' + ea + '\')" style="' + s + '">' + btn.label + '</button>');
     });
+    if (!secondaryBtns.some(function(b) { return b.indexOf('reject') >= 0; })) {
+      secondaryBtns.push('<button onclick="jarvisAction(\'' + escapedId + '\',\'reject\')" style="' + styleMap.danger + '">Rifiuta</button>');
+    }
   }
 
-  var buttonsHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;padding:0 14px 8px;">';
-  uiButtons.forEach(function(btn) {
-    var s = styleMap[btn.style] || styleMap.secondary;
-    var ea = btn.action.replace(/'/g, "\\'");
-    buttonsHtml += '<button onclick="jarvisAction(\'' + escapedId + '\',\'' + ea + '\')" style="' + s + '">' + btn.label + '</button>';
-  });
-  buttonsHtml += '<button onclick="jarvisShowReasoning(\'' + escapedId + '\')" style="width:36px;height:36px;border-radius:10px;font-size:16px;cursor:pointer;border:0.5px solid rgba(139,92,246,0.2);background:rgba(139,92,246,0.06);flex-shrink:0;" title="Mostra ragionamento">&#x1F50D;</button>';
+  var buttonsHtml = '<div style="display:flex;flex-direction:column;gap:6px;padding:0 14px 8px;">';
+  buttonsHtml += '<div style="display:flex;gap:6px;">' + approvaHtml + '</div>';
+  if (secondaryBtns.length > 0) buttonsHtml += '<div style="display:flex;gap:6px;">' + secondaryBtns.join('') + '</div>';
+  buttonsHtml += '<button onclick="jarvisShowReasoning(\'' + escapedId + '\')" style="align-self:flex-end;width:36px;height:36px;border-radius:10px;font-size:16px;cursor:pointer;border:0.5px solid rgba(139,92,246,0.2);background:rgba(139,92,246,0.06);" title="Mostra ragionamento">&#x1F50D;</button>';
   buttonsHtml += '</div>';
 
   return '<div data-item-id="' + item.id + '" style="background:white;border:0.5px solid rgba(139,92,246,0.15);border-left:' + borderLeft + ';border-radius:16px;margin:0 12px 8px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 6px 16px rgba(139,92,246,0.05);">' +
@@ -3457,6 +3467,121 @@ window.jarvisAction = async function(itemId, action) {
 };
 
 // ── Sheet di approvazione con lista action_drafts ──
+// ── Editor inline per correggere quantita production_report ──
+window.jarvisInlineEdit = async function(itemId) {
+  var sb = window.supa;
+  if (!sb) return;
+  var { data: officeItem } = await sb.from('office_items').select('reasoning_result,title').eq('id', itemId).maybeSingle();
+  var rr = officeItem && officeItem.reasoning_result ? officeItem.reasoning_result : {};
+
+  var existing = document.getElementById('jarvisInlineEditSheet');
+  if (existing) existing.remove();
+
+  var producedQty = rr.produced_qty != null ? rr.produced_qty : '';
+  var prevStock = rr.previous_stock_claimed != null ? rr.previous_stock_claimed : '';
+  var newTotal = rr.new_total_claimed != null ? rr.new_total_claimed : '';
+  var unit = rr.unit || 'nests';
+  var prep = rr.prep_candidate || '';
+
+  var sheet = document.createElement('div');
+  sheet.id = 'jarvisInlineEditSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:9900;background:rgba(0,0,0,0.5);display:flex;align-items:flex-end;';
+
+  var inpStyle = 'width:100%;padding:10px 12px;border-radius:10px;border:0.5px solid rgba(30,58,95,0.2);font-size:15px;color:#1e3a5f;background:white;box-sizing:border-box;';
+  var labelStyle = 'font-size:12px;font-weight:600;color:#64748b;margin-bottom:4px;display:block;';
+
+  sheet.innerHTML =
+    '<div style="width:100%;max-width:480px;margin:0 auto;background:white;border-radius:24px 24px 0 0;padding:20px 20px 32px;max-height:80vh;overflow-y:auto;-webkit-overflow-scrolling:touch;">' +
+      '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;"></div>' +
+      '<div style="font-size:17px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">Correggi quantita</div>' +
+      '<div style="font-size:13px;color:#64748b;margin-bottom:16px;">' + (prep || 'Prep') + ' — modifica i valori dichiarati</div>' +
+      '<div style="display:flex;flex-direction:column;gap:12px;">' +
+        '<div><label style="' + labelStyle + '">Prodotto ora</label><input id="_jeProduced" type="number" value="' + producedQty + '" placeholder="es. 102" style="' + inpStyle + '"></div>' +
+        '<div><label style="' + labelStyle + '">Stock precedente dichiarato</label><input id="_jePrev" type="number" value="' + prevStock + '" placeholder="es. 303" style="' + inpStyle + '"></div>' +
+        '<div><label style="' + labelStyle + '">Nuovo totale</label><input id="_jeTotal" type="number" value="' + newTotal + '" placeholder="es. 405" style="' + inpStyle + '"></div>' +
+        '<div><label style="' + labelStyle + '">Unita</label>' +
+          '<select id="_jeUnit" style="' + inpStyle + '">' +
+            '<option value="nests"' + (unit === 'nests' ? ' selected' : '') + '>nests</option>' +
+            '<option value="g"' + (unit === 'g' ? ' selected' : '') + '>g</option>' +
+            '<option value="kg"' + (unit === 'kg' ? ' selected' : '') + '>kg</option>' +
+            '<option value="pezzi"' + (unit === 'pezzi' ? ' selected' : '') + '>pezzi</option>' +
+            '<option value="pz"' + (unit === 'pz' ? ' selected' : '') + '>pz</option>' +
+            '<option value="cup"' + (unit === 'cup' ? ' selected' : '') + '>cup</option>' +
+          '</select>' +
+        '</div>' +
+        '<div id="_jeAutoCalc" style="font-size:12px;color:#94a3b8;min-height:18px;"></div>' +
+      '</div>' +
+      '<div style="display:flex;gap:10px;margin-top:20px;">' +
+        '<button id="_jeCancel" style="flex:1;padding:14px;border-radius:14px;border:0.5px solid rgba(30,58,95,0.2);background:white;color:#64748b;font-size:15px;font-weight:600;cursor:pointer;">Annulla</button>' +
+        '<button id="_jeSave" style="flex:2;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;font-size:15px;font-weight:700;cursor:pointer;">Aggiorna</button>' +
+      '</div>' +
+    '</div>';
+
+  // Collega bottoni via event listener (non onclick inline con variabile JS)
+  sheet.querySelector('#_jeCancel').addEventListener('click', function() { sheet.remove(); });
+  sheet.querySelector('#_jeSave').addEventListener('click', function() { jarvisInlineEditSave(itemId); });
+
+  // Auto-calcola nuovo totale da produced + prev
+  sheet.addEventListener('input', function() {
+    var prod = parseFloat(document.getElementById('_jeProduced')?.value) || 0;
+    var prev = parseFloat(document.getElementById('_jePrev')?.value) || 0;
+    var calc = document.getElementById('_jeAutoCalc');
+    if (calc && prod > 0 && prev > 0) {
+      var tot = prod + prev;
+      document.getElementById('_jeTotal').value = tot;
+      calc.textContent = prev + ' + ' + prod + ' = ' + tot + ' (calcolato automaticamente)';
+    } else if (calc) {
+      calc.textContent = '';
+    }
+  });
+
+  sheet.addEventListener('click', function(e) { if (e.target === sheet) sheet.remove(); });
+  document.body.appendChild(sheet);
+};
+
+window.jarvisInlineEditSave = async function(itemId) {
+  var sb = window.supa;
+  if (!sb) return;
+  var produced = parseFloat(document.getElementById('_jeProduced')?.value);
+  var prev = parseFloat(document.getElementById('_jePrev')?.value);
+  var total = parseFloat(document.getElementById('_jeTotal')?.value);
+  var unit = document.getElementById('_jeUnit')?.value || 'nests';
+
+  if (isNaN(total)) {
+    if (typeof showScToast === 'function') showScToast('Inserisci almeno il nuovo totale');
+    return;
+  }
+
+  // Aggiorna reasoning_result nel DB con i valori corretti
+  var { data: current } = await sb.from('office_items').select('reasoning_result').eq('id', itemId).maybeSingle();
+  var rr = current && current.reasoning_result ? { ...current.reasoning_result } : {};
+  if (!isNaN(produced)) rr.produced_qty = produced;
+  if (!isNaN(prev)) rr.previous_stock_claimed = prev;
+  rr.new_total_claimed = total;
+  rr.unit = unit;
+  if (rr.write_plan) {
+    rr.write_plan.new_value = total;
+    rr.write_plan.unit = unit;
+  }
+  // Aggiorna anche i draft pending
+  var { data: drafts } = await sb.from('chef_ai_action_drafts').select('id,payload').eq('office_item_id', itemId).eq('status', 'pending');
+  if (drafts) {
+    for (var dr of drafts) {
+      var newPayload = { ...dr.payload, new_total_claimed: total, new_value: total, unit: unit };
+      if (!isNaN(produced)) newPayload.produced_qty = produced;
+      if (!isNaN(prev)) newPayload.previous_stock_claimed = prev;
+      await sb.from('chef_ai_action_drafts').update({ payload: newPayload }).eq('id', dr.id);
+    }
+  }
+  await sb.from('office_items').update({ reasoning_result: rr }).eq('id', itemId);
+
+  document.getElementById('jarvisInlineEditSheet')?.remove();
+  if (typeof showScToast === 'function') showScToast('Quantita aggiornata');
+  // Ricarica la card
+  if (typeof officeLoadHome === 'function') officeLoadHome();
+};
+
+
 function jarvisShowApprovalSheet(itemId, drafts) {
   var existing = document.getElementById('jarvisApprovalSheet');
   if (existing) existing.remove();
@@ -3473,15 +3598,62 @@ function jarvisShowApprovalSheet(itemId, drafts) {
     var actionDetail = '';
     if (d.action_type === 'update_prep_stock') {
       var writeOk = p.STOCK_WRITE_ENABLED === true;
-      actionLabel = 'Aggiorna stock: ' + (p.prep_name || 'prep') + ' → ' + (p.new_total_claimed != null ? p.new_total_claimed : p.new_value) + (p.unit ? ' ' + p.unit : '');
-      actionDetail = '<table style="border-collapse:collapse;width:100%;margin-top:8px;">' +
-        '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;">Tabella</td><td style="font-size:12px;font-weight:600;color:#1e3a5f;">' + (p.table || 'prep_tasks') + '</td></tr>' +
-        '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;">Campo</td><td style="font-size:12px;font-weight:600;color:#1e3a5f;">' + (p.field || 'current_stock') + '</td></tr>' +
-        (p.previous_stock_claimed != null ? '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;">Da</td><td style="font-size:12px;color:#94a3b8;">' + p.previous_stock_claimed + (p.unit ? ' ' + p.unit : '') + '</td></tr>' : '') +
-        '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;">A</td><td style="font-size:12px;font-weight:700;color:#2563eb;">' + (p.new_total_claimed != null ? p.new_total_claimed : p.new_value) + (p.unit ? ' ' + p.unit : '') + '</td></tr>' +
-        (p.reporter ? '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;">Reporter</td><td style="font-size:12px;color:#1e3a5f;">' + p.reporter + '</td></tr>' : '') +
-        '</table>' +
-        '<div style="margin-top:8px;font-size:11px;color:' + (writeOk ? '#16a34a' : '#94a3b8') + ';font-style:italic;">' + (writeOk ? 'Scrittura abilitata.' : 'STOCK_WRITE_ENABLED=false — piano registrato, nessuna modifica al DB.') + '</div>';
+      var prepName = p.prep_name || 'prep';
+      var newVal2 = p.new_total_claimed != null ? p.new_total_claimed : p.new_value;
+      actionLabel = 'Aggiorna stock: ' + prepName + ' → ' + newVal2 + (p.unit ? ' ' + p.unit : '');
+      // Placeholder — verra popolato async dopo inserimento sheet nel DOM
+      actionDetail =
+        '<div id="writePlanBlock_' + d.id + '" style="margin-top:8px;">' +
+          '<div style="font-size:12px;color:#94a3b8;">Caricamento DB...</div>' +
+        '</div>';
+      // Schedula caricamento async del current_stock
+      (function(draftId, pInner, writeOkInner) {
+        setTimeout(async function() {
+          var sb = window.supa;
+          if (!sb) return;
+          var prepN = pInner.prep_name || '';
+          var dbStock = null;
+          var dbPrepId = null;
+          try {
+            var { data: prepRows } = await sb.from('prep_tasks')
+              .select('id,name,current_stock,unit')
+              .ilike('name', '%' + prepN + '%')
+              .eq('archived', false)
+              .limit(3);
+            if (prepRows && prepRows.length > 0) {
+              dbStock = prepRows[0].current_stock;
+              dbPrepId = prepRows[0].id;
+            }
+          } catch(e) {}
+          var newV = pInner.new_total_claimed != null ? pInner.new_total_claimed : pInner.new_value;
+          var prevClaimed = pInner.previous_stock_claimed;
+          var unit2 = pInner.unit || '';
+          var mismatch = dbStock != null && prevClaimed != null && Math.abs(dbStock - prevClaimed) > 0.01;
+          var warningHtml = mismatch
+            ? '<div style="margin-top:8px;padding:8px 10px;background:rgba(245,158,11,0.08);border:0.5px solid rgba(245,158,11,0.3);border-radius:8px;font-size:12px;color:#92400e;">' +
+                '<span style="font-weight:700;">Attenzione:</span> ' + pInner.reporter + ' diceva stock iniziale ' + prevClaimed + ' ' + unit2 + ', ma il DB ora mostra ' + dbStock + ' ' + unit2 + '.' +
+              '</div>'
+            : '';
+          var dbRow = dbStock != null
+            ? '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;white-space:nowrap;">DB attuale</td><td style="font-size:12px;font-weight:600;color:#1e293b;">' + dbStock + ' ' + unit2 + '</td></tr>'
+            : '';
+          var html =
+            '<div style="background:rgba(30,58,95,0.03);border:0.5px solid rgba(30,58,95,0.1);border-radius:8px;padding:10px 12px;margin-top:6px;">' +
+              '<div style="font-size:10px;font-weight:700;color:#64748b;letter-spacing:.05em;margin-bottom:6px;">SCRIVEREBBE</div>' +
+              '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:8px;">prep_tasks.current_stock</div>' +
+              '<table style="border-collapse:collapse;width:100%;">' +
+                '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;white-space:nowrap;">Target</td><td style="font-size:12px;font-weight:600;color:#1e3a5f;">' + (pInner.prep_name || '-') + '</td></tr>' +
+                dbRow +
+                (prevClaimed != null ? '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;white-space:nowrap;">Dichiarato da</td><td style="font-size:12px;color:#94a3b8;">' + prevClaimed + ' ' + unit2 + '</td></tr>' : '') +
+                '<tr><td style="color:#64748b;font-size:12px;padding:2px 8px 2px 0;white-space:nowrap;">Nuovo valore</td><td style="font-size:12px;font-weight:700;color:#2563eb;">' + newV + ' ' + unit2 + '</td></tr>' +
+              '</table>' +
+              warningHtml +
+              '<div style="margin-top:8px;font-size:11px;color:' + (writeOkInner ? '#16a34a' : '#94a3b8') + ';font-style:italic;">' + (writeOkInner ? 'Scrittura abilitata.' : 'Write disabled — piano pronto, nessuna modifica fatta.') + '</div>' +
+            '</div>';
+          var el = document.getElementById('writePlanBlock_' + draftId);
+          if (el) el.innerHTML = html;
+        }, 100);
+      })(d.id, p, writeOk);
     }
     var payloadStr = d.action_type === 'update_prep_stock' ? '' : JSON.stringify(p, null, 2);
     return '<div style="background:rgba(30,58,95,0.03);border:0.5px solid rgba(30,58,95,0.1);border-radius:12px;padding:12px 14px;margin-bottom:8px;">' +
