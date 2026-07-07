@@ -1210,13 +1210,24 @@ async function openRecipeEditor(rec=null){
       const confirmed = confirm(`${tr('deleteRecipe')} "${rec.title}"?`);
       if(!confirmed) return;
       try {
+        // 1. Rimuovi righe figlie che potrebbero bloccare il delete per FK
         await supa.from('recipe_bom').delete().eq('parent_recipe_id', rec.id);
+        await supa.from('recipe_bom').delete().eq('sub_recipe_id', rec.id);
+        await supa.from('recipe_steps').delete().eq('recipe_id', rec.id);
         await supa.from('recipe_translations').delete().eq('recipe_id', rec.id);
-        await supa.from('recipes').delete().eq('id', rec.id);
+        // 2. Scollega prep_tasks che puntano a questa ricetta (ON DELETE SET NULL non sempre attivo)
+        await supa.from('prep_tasks').update({recipe_id: null}).eq('recipe_id', rec.id);
+        // 3. Cancella la ricetta
+        const {error: delErr} = await supa.from('recipes').delete().eq('id', rec.id);
+        if(delErr) throw delErr;
+        // 4. Aggiorna SHOP_RECIPES in memoria immediatamente (evita flash UI)
+        const delIdx = SHOP_RECIPES.findIndex(r=>r.id===rec.id);
+        if(delIdx>=0) SHOP_RECIPES.splice(delIdx,1);
         modal.remove();
-        await init();
         renderRecipes();
-      } catch(e){ alert(tr('error_deleting') + e.message); }
+        // 5. Ricarica in background per sincronizzare con DB
+        init();
+      } catch(e){ alert('Errore eliminazione: ' + (e.message||JSON.stringify(e))); }
     };
   }
 
@@ -2456,3 +2467,4 @@ window.openBOMRecipeAudit = async function(){
     document.getElementById('bomAuditBody').innerHTML = `<div style="color:#dc2626;font-size:13px;">Errore: ${e.message}</div>`;
   }
 };
+
