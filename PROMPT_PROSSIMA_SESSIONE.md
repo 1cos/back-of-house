@@ -1,3 +1,141 @@
+
+---
+
+## SESSIONE 6 LUGLIO 2026 — Bot Preplist Debug + Fix dati (DB only, boh-v536)
+
+**Versione sw.js live:** boh-v536 (nessun bump — solo DB + Edge Functions)
+**Supabase:** ydqmumpytgrlceuinoqt
+**Bot:** bot-preplist-builder v42 (Supabase v67), bot-preplist-sim v7 (Supabase v13)
+
+---
+
+### Fix source office_items — bot-preplist-builder v41→v42
+
+**Root cause:** `source='bot-preplist-builder'` violava CHECK constraint su `office_items.source` (valori accettati: tell_chef/operation_note/ai_scan/sous_chef_chat).
+**Fix chirurgico (4 punti):**
+1. `upsertOfficeItem` SELECT dedup: `source='bot-preplist-builder'` → `source='ai_scan'` + `bot_id='preplist_builder'`
+2. `upsertOfficeItem` INSERT anomalie: stesso fix
+3. INSERT riepilogo run finale: `source='ai_scan'` + `bot_id='preplist_builder'`
+4. Versione: `v41` → `v42`
+
+**Verificato:** riepilogo "Preplist 07/06 - 13 prepara oggi - 39 domani - 47 ok" scritto in office_items ✅
+
+---
+
+### Fix unità DB — `unit='kg'` → `unit='g'` su 21 prep_tasks
+
+**Problema:** `current_stock` era inserito in grammi ma `unit='kg'` → testi assurdi ("2552 kg in casa" invece di "2.6kg").
+**Fix:** `UPDATE prep_tasks SET unit='g' WHERE id IN (412,439,472,265,343,292,294,468,392,389,385,354,332,333,334,233,291,423,449,415,399)`
+**Risultati:** Cantaloupe "2552 kg" → "2.6kg", Grilled Chicken "4831 kg" → "4.8kg" ✅
+
+---
+
+### Fix specifici prep_tasks e ricette
+
+| Fix | Dettaglio |
+|---|---|
+| **Orange supreme (250)** | `prep_type='checklist'`, `daily_reset=true` — era "2 arance ricorrente", bot la ignorava correttamente |
+| **halved tomatoes (346)** | `unit='pezzi'` → `unit='g'` — stock 2694 erano grammi |
+| **Olives (355)** | `unit='9pan'` → `unit='g'` — stock 441 erano grammi |
+| **Shrimp vendor** | `pack_description='2.5 LB'`, `conversion_to_base=1134` (era 20 LB sbagliato) |
+| **Soffritto Livornese (397)** | `unit='buste'` → `unit='g'` — bot ora usa fmtGrams(), "1.4kg" ✅ |
+| **Italian cream (385)** | `unit='kg'` → `unit='g'` |
+| **Italian cream ricetta** | `base_weight_g=1450`, `base_servings=12` |
+| **BOM Limoncello Cake (bom_id 1856)** | `quantity=1450` → `quantity=121` (1450÷12 porzioni — bot moltiplicava per torta intera invece che per fetta) |
+
+---
+
+### Basil Flowers — ingrediente separato
+
+**Problema:** prep_task 235 aveva `ingredient_id` → Basil generico (usato in 26+ ricette) → bot sommava tutto → 515 pezzi.
+**Fix:**
+- Creato ingrediente `Basil Flowers` (id `064cf37a`, measure_type='each')
+- `UPDATE prep_tasks SET ingredient_id='064cf37a' WHERE id=235`
+- Bot trova 0 ricette BOM → confidence low → nessun numero assurdo ✅
+
+---
+
+### Shrimp (470) — collegamento a ricetta ADD SHRIMP
+
+**Problema:** `ingredient_id` → Shrimp generico → bot trovava grammi da BOM misto → 5g (erano le 5 vendite medie di "Add shrimp" senza conversione, perché `serving_weight_g=NULL`).
+**Fix:**
+1. `pos_name='Add shrimp'` aggiunto a ricetta ADD SHRIMP (`8346fbee`)
+2. prep_task 470: `recipe_id='8346fbee'`, `ingredient_id=NULL`
+**Risultato:** "Hai 1.2kg - good through Thursday" ✅
+
+---
+
+### Spaghetti fresh pasta — fix serving e modifier
+
+**Problema:** bot calcolava male il consumo nests per spaghetti.
+**Fix 1 — serving_qty/serving_unit ricette:**
+- La N°4: `serving_unit='g'` → `serving_unit='nests'` (già corretto da Max a mano prima del fix)
+- Spaghetti Al Ragu: `serving_qty=1, serving_unit='porzione'` → `2, nests` (già corretto da Max)
+- Spaghetti al Pomodoro Half: `serving_qty=1, serving_unit='porzione'` → `serving_unit='nests'` ✅
+- Maccheroni lasciato fuori (pasta diversa)
+
+**Fix 2 — Modifier nel pos_name SPAGHETTI FRESH PASTA:**
+- `pos_name='' (vuoto)` → `pos_name='Add spaghetti half|Add half spaghetti|Spaghetti'`
+- Dati vendite verificati: "Add shrimp" 38 vendite luglio, "Add half spaghetti" 28 — bot ora li scarica
+
+**Fix 3 — BOM Wheel Pasta:**
+- INSERT `recipe_bom` (bom_id 2055): `parent_recipe_id=Wheel Pasta`, `sub_recipe_id=SPAGHETTI FRESH PASTA`, `component_type='RECIPE'`, `quantity=1`
+
+---
+
+### Parmesan Grated (439) — ancora "26kg" anomalo
+
+**Status:** problema non risolto in questa sessione. Il calcolo sembra venire da sub_recipe o ingRecMap con quantità sproporzionate. Da investigare in sessione dedicata.
+
+---
+
+### bot-preplist-sim v7
+
+**Aggiornamento:** solo tag versione da v6 a v7, logica invariata. Supabase version 13.
+**Nota:** Il bug Spinach "1200 cup" nella sim è confermato — è diverso dal bot reale (che dice "make 2 batches (80 cups)"). Bug noto nel percorso cup della sim, logica non corretta in questa sessione.
+
+---
+
+### Confronto bot reale vs sim
+
+**Conclusione sessione:** dopo trigger multipli, bot v42 e sim v7 sono sostanzialmente allineati. Le differenze residue:
+1. **Spaghetti "40 nests"** — il testo nel suggested_note è il batch suggerito (multiplo di 40), non lo stock. Bug di display nel buildNote per nests.
+2. **Salmoriglio** — pill borderline tra yellow e red, calcolo marginalmente diverso.
+
+**Dati storici stock spaghetti confermati da bot_debug_runs:**
+- 3 luglio: stock=517 nests, scarico=40.5 nests
+- 4 luglio: stock=457 nests, scarico=30 nests
+- 5-6 luglio: stock=457 nests, scarico=0 (chiusi domenica + festività)
+
+**Vendite spaghetti confermati da pos_sales_by_item:**
+- Giovedì 2 luglio: ~45 nests (Cacio e Pepe 11+Half 5, La N°4 7+Half 11, Spaghetti Al Ragu 9+5)
+- Venerdì 3 luglio: ~30 nests (Cacio e Pepe 10+Half 5+Child 1, La N°4 7+Half 4, Spaghetti Al Ragu 6)
+
+---
+
+### Incongruenze note ancora aperte
+
+| Item | Problema | Priorità |
+|---|---|---|
+| **Parmesan Grated (439)** | "26kg" — calcolo anomalo | Alta |
+| **GF sponge cake (382)** | "164 pezzi" con `base_servings=NULL` | Media |
+| **Maccheroni (412)** | testo "2 Grams" — pack driver sbagliato | Media |
+| **Spinach (318)** | sim dice "1200 cup", bot reale "80 cup" — bug sim noto | Bassa |
+| **Spaghetti nests display** | "40 nests" = batch, non stock — buildNote bug | Media |
+| **Task rossi con stock=0 senza dati** (Choco logo, Lemon Zest, Powder sugar, Goat cheese) | Rumore e sfiducia — diventano rossi per fallback | Alta |
+| **Basil flowers** | "1 pezzo" fallback — accettabile, nessun BOM disponibile | Bassa |
+
+---
+
+### Versioni finali sessione
+
+| Componente | Versione |
+|---|---|
+| Brigade frontend | **boh-v536** (invariato) |
+| bot-preplist-builder | **v42** (Supabase v67) |
+| bot-preplist-sim | **v7** (Supabase v13) |
+
+
 # PROMPT PROSSIMA SESSIONE — Brigade
 
 ---
