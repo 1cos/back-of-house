@@ -1,5 +1,110 @@
 ---
 
+## SESSIONE 7 LUGLIO 2026 (fine sessione) — Sprint UI Bot Center + Analisi unknown modifier
+
+**Versione sw.js live:** boh-v562
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### Sprint UI — Bot Center Dati Live (boh-v562)
+
+**File modificati:** `js/office.js`, `sw.js`
+
+Aggiunti 3 nuovi bot alla Brigata di Bot nel Bot Center esistente (`office.js`):
+
+**`_botDefs[]` — 3 nuove entry:**
+- `pos-touchbistro-bot` | POS TouchBistro Bot | 🔄 | ribbon `#0ea5e9` | `isBrigata:true`
+- `recipe-matcher-bot` | Recipe Matcher Bot | 🎯 | ribbon `#6366f1` | `isBrigata:true`
+- `stock-drain-bot` | Stock Drain Bot | 📉 | ribbon `#f97316` | `isBrigata:true`
+
+**`_botExplain{}` — 3 nuove spiegazioni** passo-per-passo in italiano.
+
+**`botCenterLoadList` aggiornato:** legge `bot_runs` con `bot_name IN ('pos-touchbistro-bot','recipe-matcher-bot','stock-drain-bot')` — valori reali dal DB (con dash, non underscore).
+
+**`botGetStatus` aggiornato:** gestisce `logTable='bot_runs'` per i nuovi bot.
+
+**Tab "📊 Dati Live"** — appare solo per bot con `isBrigata:true`:
+
+| Bot | Cosa mostra |
+|---|---|
+| POS TouchBistro Bot | `pos_daily_raw` — food items con menu_group e badge Kids, modifier collassati |
+| Recipe Matcher Bot | `pos_daily_clean` — color coding match_type, filtri (Tutti/Matched/Kids/Da rivedere/Unknown/Modifier), confidence % |
+| Stock Drain Bot | `stock_movements POS_DRAIN` — trail completo POS item → ricetta → BOM component → quantity_delta, riepilogo totali |
+
+**Date picker:** selezionabile, default `2026-07-06`. Idempotente — cambia data → ricarica dati.
+
+**Contatore aggiornato:** da "7 bot attivi" a "10 bot attivi".
+
+---
+
+### Analisi unknown modifier (pos_daily_clean 2026-07-06)
+
+90 unknown totali — quasi tutti modifier non operativi da `pos_modifiers`:
+- **Operativi zero** (non scaricano stock): "Glass", "No Glass", "Goodnight", "Fired at HH:MM", "Medium Rare", "citronette", "TO GO", "Dbl", "Rocks", ecc. — questi sono note al cameriere, tempi di cottura, preferenze drink. Non devono mai scaricare stock.
+- **Da food items** (3): Open Food (10), Risotto Mushrooms And Steak (7), Gluten Free Bread (1) — già gestiti.
+- **Modifier operativi senza alias**: "Berry Coulis" (5), "Mash potatoes" (2), "Daily risotto" (5), "Caesar" (8), "Risotto" (2), "Spaghetti Pomodoro" (1), "Burratta" (1) — questi POTREBBERO scaricare stock se aggiunti a `pos_item_aliases`.
+
+**Decisione da prendere in sessione dedicata:** quali modifier operativi aggiungere a `pos_item_aliases` e quali lasciare come unknown permanente.
+
+**Nota strutturale:** i modifier "Fired at HH:MM" sono timestamps di firing da TouchBistro — non scaricano nulla, devono essere aggiunti a una lista di esclusione permanente nel Recipe Matcher Bot.
+
+---
+
+### Versioni finali sessione completa 7 luglio 2026
+
+| Componente | Versione |
+|---|---|
+| Brigade frontend | **boh-v562** |
+| POS TouchBistro Bot | v6 (Edge Function `bot-pos-importer`) |
+| Recipe Matcher Bot | v1 (Edge Function `bot-recipe-matcher`) |
+| Stock Drain Bot | v1 (Edge Function `bot-stock-drain`) |
+| Bot Center UI | v562 — 10 bot attivi, tab Dati Live per Brigata |
+
+---
+
+### PROSSIMA SESSIONE — Sprint 4: Stock Consolidator Bot
+
+**Obiettivo:** unico bot che aggiorna `current_stock` su `prep_tasks`.
+
+**Logica:**
+1. Legge `stock_movements` per `business_date` filtrato per tipo di movimento
+2. Legge `prep_log` per `business_date` (carichi dei cuochi)
+3. Calcola per ogni `item_id`:
+   - `stock_start` = `stock_end` del giorno precedente da `stock_daily_snapshot` (o `current_stock` attuale se primo run)
+   - `loaded_qty` = somma movimenti da `prep_log` del giorno
+   - `pos_deducted_qty` = somma movimenti `POS_DRAIN` da `stock_movements`
+   - `waste_qty` = movimenti `waste` (futuro)
+   - `stock_end` = `stock_start + loaded_qty - pos_deducted_qty - waste_qty`
+4. Scrive `stock_daily_snapshot` — UNICA fonte di verità per La Dispensa
+5. Aggiorna `prep_tasks.current_stock` con `stock_end` dove `item_type='prep'`
+
+**Regole costituzionali:**
+- È l'UNICO bot che modifica `current_stock`
+- Idempotente: cancella solo snapshot POS_DRAIN per quella data
+- Tutti gli altri bot dipendono da lui per leggere lo stock corretto
+- `stock_daily_snapshot` alimenterà La Dispensa UI
+
+**Nome ufficiale:**
+- bot_name: `stock-consolidator-bot`
+- Commis: `stock-consolidator-commis`
+- Edge Function: `bot-stock-consolidator`
+
+**Dopo Sprint 4:** La Dispensa UI in L'Ufficio (tab Cucina → vista scrollabile stock per stazione).
+
+---
+
+### Fix da fare in prossima sessione (non urgenti)
+
+1. **Modifier "Fired at HH:MM"** — aggiungere lista esclusione permanente in Recipe Matcher Bot (sono timestamps TouchBistro, non scaricano nulla)
+2. **Modifier operativi senza alias**: "Berry Coulis", "Caesar", "Daily risotto" — decidere con Max quali aggiungere a `pos_item_aliases`
+3. **Ricette mancanti**: Risotto Mushrooms And Steak, Branzino Chef Style — Max le crea quando ha le ricette pronte
+4. **Penne Midnight Half BOM** — usa ancora 60g Penne (porzione intera) invece di 30g — da dimezzare
+
+
+
+---
+
 ## SESSIONE 7 LUGLIO 2026 (continuazione) — Brigata di Bot Sprint 2 + Sprint 3
 
 **Versione sw.js live:** boh-v561 (invariato — zero file frontend toccati)
