@@ -1418,6 +1418,40 @@ var _botExplain = {
     ],
     params: []
   },
+  // ── Brigata di Bot ──
+  'pos-touchbistro-bot': {
+    steps: [
+      { icon: '🕓', title: 'Quando gira', text: 'Ogni notte alle 04:00 AM CDT. v6 (attuale).' },
+      { icon: '📥', title: 'Cosa legge', text: 'pos_sales_by_item e pos_modifiers per la business_date. Aggrega per (item_name, menu_group) — così Pasta e Kids menu restano righe separate.' },
+      { icon: '🚫', title: 'Cosa esclude (silenzioso)', text: 'Alcohol, Beer, Wine, NA Beverages, Mocktail, Gift Card. Cassetto chiuso — nessuna observation, nessun rumore.' },
+      { icon: '✍️', title: 'Cosa scrive', text: 'pos_daily_raw: una riga per ogni (item_name, menu_group, source_table). bot_runs: log del run con status, rows_read, rows_written.' },
+      { icon: '🔍', title: 'Commis', text: 'Dopo l\'import, il Commis POS Auditor controlla: item storici assenti (warning se media > 3), item a zero con storico insufficiente (info), vendita anomalmente alta (info).' },
+      { icon: '🔁', title: 'Idempotenza', text: 'Cancella pos_daily_raw per quella data prima di riscrivere. Puoi rilanciare 10 volte senza duplicati.' }
+    ],
+    params: []
+  },
+  'recipe-matcher-bot': {
+    steps: [
+      { icon: '🕓', title: 'Quando gira', text: 'Ogni notte alle 04:15 AM CDT, dopo POS TouchBistro Bot. v1.' },
+      { icon: '📥', title: 'Cosa legge', text: 'pos_daily_raw per la business_date. Carica anche recipes.pos_name (alias pipe-delimited) e pos_item_aliases per i modifier.' },
+      { icon: '🎯', title: 'Logica di match', text: '1) Kids menu → cerca alias [Nome] [Kids] o ricetta Half (kids_alias, 0.98). 2) Match esatto su pos_name (exact, 1.0). 3) Modifier via pos_item_aliases (modifier_alias, 0.95). 4) Fuzzy se titolo ricetta contiene il nome POS (0.70, needs_review=true). 5) Unknown se nessun match (0, needs_review=true).' },
+      { icon: '✍️', title: 'Cosa scrive', text: 'pos_daily_clean: una riga per ogni item POS con recipe_id, matched_recipe_name, match_type, confidence, needs_review. Solo exact/kids_alias/modifier_alias alimentano Stock Drain Bot.' },
+      { icon: '🔍', title: 'Commis', text: 'Genera observation per ogni unknown con porzioni > 0 e per ogni fuzzy match — così sai esattamente cosa manca dalla mappatura.' },
+      { icon: '🔁', title: 'Idempotenza', text: 'Cancella pos_daily_clean per quella data prima di riscrivere.' }
+    ],
+    params: []
+  },
+  'stock-drain-bot': {
+    steps: [
+      { icon: '🕓', title: 'Quando gira', text: 'Ogni notte alle 04:30 AM CDT, dopo Recipe Matcher Bot. v1.' },
+      { icon: '📥', title: 'Cosa legge', text: 'pos_daily_clean — solo righe sicure: needs_review=false, recipe_id non nullo, match_type in (exact, kids_alias, modifier_alias). Poi espande il BOM di ogni ricetta matchata.' },
+      { icon: '🚫', title: 'Cosa NON scarica', text: 'Fuzzy, unknown, needs_review=true, Gift Card, Open Food. E NON tocca mai current_stock — quello è compito futuro dello Stock Consolidator Bot.' },
+      { icon: '✍️', title: 'Cosa scrive', text: 'stock_movements con movement_type=POS_DRAIN, source_bot=stock-drain-bot. Ogni riga BOM diventa un movimento negativo. Trail completo: POS item → ricetta matchata → componente BOM → quantità scaricata.' },
+      { icon: '🔍', title: 'Commis', text: 'Segnala ricette safe che avevano BOM vuoto — quelle non hanno generato movimenti stock.' },
+      { icon: '🔁', title: 'Idempotenza', text: 'Cancella SOLO i movimenti POS_DRAIN con source_bot=stock-drain-bot per quella data. Non tocca mai movimenti manuali, invoice, adjustment, waste.' }
+    ],
+    params: []
+  },
   'bot-recipe-guardian': {
     steps: [
       { icon: '🕓', title: 'Quando gira', text: 'Ogni mattina alle 6:00 AM CDT. v13.' },
@@ -1438,7 +1472,11 @@ var _botDefs = [
   { id:'bot-tell-chef-reader', name:'Lettore Tell Chef',           icon:'📣', desc:'11 categorie, 4 livelli priorità, entity detection, dedup — classifica Tell Chef ogni ora.',  schedule:'Ogni ora',                ribbon:'#3b82f6', fnName:'bot-tell-chef-reader', logTable:'tellchef', hasConfig:false },
   { id:'bot-food-cost-guard',  name:'Guardiano Food Cost',         icon:'📊', desc:'Impatto $ mensile per aumento prezzi su ricette vendute — 3 livelli severity, pack mismatch detection.',schedule:'Ad ogni fattura',   ribbon:'#ec4899', fnName:'bot-food-cost-guard',  logTable:'invoice',  hasConfig:false },
   { id:'bot-prep-accuracy',    name:'Guardiano Accuratezza Prep',  icon:'🎯', desc:'Ogni sera confronta "no_need" mattutini con prep del pomeriggio — trova chi ha sbagliato.',  schedule:'Ogni sera 17:30 CDT',    ribbon:'#14b8a6', fnName:'bot-prep-accuracy',    logTable:'preplog',  hasConfig:false },
-  { id:'bot-recipe-guardian',  name:'Recipe Guardian',             icon:'📖', desc:'6 AM — 4 check Critical + 4 Warning + 2 Info su ricette vendute, dedup, priorità per vendite.', schedule:'Ogni mattina 6:00 AM',  ribbon:'#10b981', fnName:'bot-recipe-guardian',  logTable:'office',   hasConfig:false }
+  { id:'bot-recipe-guardian',  name:'Recipe Guardian',             icon:'📖', desc:'6 AM — 4 check Critical + 4 Warning + 2 Info su ricette vendute, dedup, priorità per vendite.', schedule:'Ogni mattina 6:00 AM',  ribbon:'#10b981', fnName:'bot-recipe-guardian',  logTable:'office',   hasConfig:false },
+  // ── Brigata di Bot — pipeline notturna ──
+  { id:'pos-touchbistro-bot',  name:'POS TouchBistro Bot',         icon:'🔄', desc:'Legge vendite TouchBistro da pos_sales_by_item + modifiers. Aggrega per item+menu_group. Esclude bevande e Gift Card.',  schedule:'04:00 AM CDT',           ribbon:'#0ea5e9', fnName:'bot-pos-importer',     logTable:'bot_runs', hasConfig:false, isBrigata:true },
+  { id:'recipe-matcher-bot',   name:'Recipe Matcher Bot',          icon:'🎯', desc:'Mappa ogni item POS alla ricetta Brigade. Gestisce Kids/Half, alias pipe-delimited, modifier. Scrive pos_daily_clean.',    schedule:'04:15 AM CDT',           ribbon:'#6366f1', fnName:'bot-recipe-matcher',   logTable:'bot_runs', hasConfig:false, isBrigata:true },
+  { id:'stock-drain-bot',      name:'Stock Drain Bot',             icon:'📉', desc:'Espande BOM di ogni POS item e scrive movimenti POS_DRAIN in stock_movements. Solo righe sicure (exact/kids/modifier).',  schedule:'04:30 AM CDT',           ribbon:'#f97316', fnName:'bot-stock-drain',      logTable:'bot_runs', hasConfig:false, isBrigata:true }
 ];
 
 
@@ -1481,7 +1519,7 @@ window.officeBotCenter = function() {
     '<div style="width:40px;height:5px;background:rgba(255,255,255,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
     '<div style="background:rgba(15,23,42,0.98);border-bottom:0.5px solid rgba(255,255,255,0.08);padding:14px 16px;display:flex;align-items:center;gap:14px;flex-shrink:0;">' +
       '<button onclick="document.getElementById(\'officeBotPanel\')?.remove();" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.15);color:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&#8592;</button>' +
-      '<div style="flex:1;"><div style="font-size:19px;font-weight:700;color:white;">🤖 Bot Center</div><div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:2px;">7 bot attivi · clicca per aprire la scheda</div></div>' +
+      '<div style="flex:1;"><div style="font-size:19px;font-weight:700;color:white;">🤖 Bot Center</div><div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:2px;">10 bot attivi · clicca per aprire la scheda</div></div>' +
     '</div>' +
     '<div id="botCenterList" style="flex:1;overflow-y:auto;padding:14px 16px 80px;display:flex;flex-direction:column;gap:10px;">' +
       '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Caricamento...</div>' +
@@ -1509,7 +1547,7 @@ async function botCenterLoadList() {
   var list = document.getElementById('botCenterList');
   if (!list) return;
   var sb = window.supa;
-  var preplistData=[], tellchefData=[], officeData=[], invoiceData=[], preplogData=[];
+  var preplistData=[], tellchefData=[], officeData=[], invoiceData=[], preplogData=[], botRunsData=[];
   if (sb) {
     try {
       var r1 = await sb.from('bot_preplist_log').select('run_date,run_at,bot_version,task_name,percorso').order('run_at',{ascending:false}).limit(100);
@@ -1522,17 +1560,42 @@ async function botCenterLoadList() {
       invoiceData = r4.data || [];
       var r5 = await sb.from('prep_log').select('created_at,item,station').order('created_at',{ascending:false}).limit(30);
       preplogData = r5.data || [];
+      // Brigata di Bot — legge bot_runs con valori reali dal DB
+      var r6 = await sb.from('bot_runs').select('bot_name,run_date,started_at,finished_at,status,rows_read,rows_written,warnings_count,summary').in('bot_name',['pos-touchbistro-bot','recipe-matcher-bot','stock-drain-bot']).order('started_at',{ascending:false}).limit(30);
+      botRunsData = r6.data || [];
     } catch(e) { console.warn('[BotCenter]', e.message); }
   }
   list.innerHTML = '';
   _botDefs.forEach(function(bot) {
-    var s = botGetStatus(bot, {preplistData:preplistData, tellchefData:tellchefData, officeData:officeData, invoiceData:invoiceData, preplogData:preplogData});
+    var s = botGetStatus(bot, {preplistData:preplistData, tellchefData:tellchefData, officeData:officeData, invoiceData:invoiceData, preplogData:preplogData, botRunsData:botRunsData});
     list.appendChild(botRenderCard(bot, s));
   });
 }
 
 function botGetStatus(bot, data) {
   var lastRun=null, tasksDone=0, tasksSkipped=0, logLines=[], version='';
+  // Brigata di Bot — legge da bot_runs (valori reali: 'pos-touchbistro-bot', 'recipe-matcher-bot', 'stock-drain-bot')
+  if (bot.logTable==='bot_runs' && data.botRunsData && data.botRunsData.length>0) {
+    var myRuns = data.botRunsData.filter(function(r){return r.bot_name===bot.id;});
+    if (myRuns.length>0) {
+      var latest=myRuns[0];
+      lastRun = new Date(latest.started_at);
+      tasksDone = latest.rows_written || 0;
+      var statusIcon = latest.status==='success'?'✅':latest.status==='warning'?'⚠️':'❌';
+      logLines.push({c: latest.status==='success'?'#86efac':latest.status==='warning'?'#fbbf24':'#f87171', t: statusIcon+' '+latest.run_date+' — '+latest.rows_read+' lette, '+latest.rows_written+' scritte'});
+      if (latest.warnings_count>0) logLines.push({c:'#fbbf24', t:'⚠️ '+latest.warnings_count+' warning'});
+      if (latest.summary) logLines.push({c:'#94a3b8', t:latest.summary.slice(0,80)+(latest.summary.length>80?'…':'')});
+    }
+    var se='⚪', sl='Nessun dato', sc='#94a3b8';
+    if (lastRun) {
+      var m=(Date.now()-lastRun.getTime())/60000;
+      if(m<180){se='🟢';sl='OK';sc='#86efac';}
+      else if(m<1440){se='🟡';sl='Oggi';sc='#fbbf24';}
+      else if(m<10080){se='🟠';sl='Questa settimana';sc='#fb923c';}
+      else{se='🔴';sl='Mai/Bloccato';sc='#f87171';}
+    }
+    return {lastRun:lastRun,tasksDone:tasksDone,tasksSkipped:0,logLines:logLines,version:version,statusEmoji:se,statusLabel:sl,statusColor:sc};
+  }
   if (bot.logTable==='preplist' && data.preplistData.length>0) {
     var latest=data.preplistData[0]; version=latest.bot_version||''; lastRun=new Date(latest.run_at);
     var same=data.preplistData.filter(function(r){return r.run_at===latest.run_at;});
@@ -1614,6 +1677,7 @@ function botOpenDetail(bot, s) {
     '<div id="botTabBar" style="display:flex;background:rgba(255,255,255,0.04);border-bottom:0.5px solid rgba(255,255,255,0.08);flex-shrink:0;">'+
       '<button id="botTab_cosa" onclick="botSwitchTab(\'cosa\',\''+bot.id+'\')" style="flex:1;padding:11px 4px;background:none;border:none;color:white;font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid '+bot.ribbon+';">📖 Cosa fa</button>'+
       (bot.id==='bot-preplist-builder' ? '<button id="botTab_config" onclick="botSwitchTab(\'config\',\''+bot.id+'\')" style="flex:1;padding:11px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;">✏️ Preplist</button>' : '')+
+      (bot.isBrigata ? '<button id="botTab_dati" onclick="botSwitchTab(\'dati\',\''+bot.id+'\')" style="flex:1;padding:11px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;">📊 Dati Live</button>' : '')+
       '<button id="botTab_codice" onclick="botSwitchTab(\'codice\',\''+bot.id+'\')" style="flex:1;padding:11px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;">💻 Codice</button>'+
     '</div>'+
     // Content area
@@ -1640,7 +1704,7 @@ window.botSwitchTab = function(tab, botId, statusArg) {
   var exp = panel._botExp || _botExplain[botId] || {steps:[],params:[]};
 
   // Aggiorna stili tab bar
-  ['cosa','config','codice'].forEach(function(t) {
+  ['cosa','config','codice','dati'].forEach(function(t) {
     var btn = document.getElementById('botTab_'+t);
     if (!btn) return;
     if (t===tab) { btn.style.color='white'; btn.style.borderBottomColor=bot.ribbon; }
@@ -1692,6 +1756,11 @@ window.botSwitchTab = function(tab, botId, statusArg) {
     html+='</div>';
     content.innerHTML = html;
 
+  } else if (tab==='dati') {
+    // ── DATI LIVE — POS Review per i 3 bot della Brigata ──
+    content.innerHTML = '<div style="padding:12px 16px 80px;"><div style="text-align:center;padding:30px;color:rgba(255,255,255,0.3);">Caricamento dati...</div></div>';
+    botLoadDatiLive(bot.id, bot.ribbon);
+
   } else if (tab==='config') {
     // ── PREPLIST EDITOR — lista task con tutto quello che il bot vede ──
     content.innerHTML =
@@ -1733,6 +1802,308 @@ window.botSwitchTab = function(tab, botId, statusArg) {
     botCodeLoad(bot.fnName);
   }
 };
+
+// ── POS Review — Dati Live per i 3 bot della Brigata ──
+window.botLoadDatiLive = async function(botId, ribbon) {
+  var content = document.getElementById('botDetailContent');
+  if (!content) return;
+  var sb = window.supa;
+  if (!sb) { content.innerHTML='<div style="padding:20px;color:#f87171;">Supabase non disponibile.</div>'; return; }
+
+  // Date disponibili
+  var availDates = ['2026-07-06'];
+  try {
+    var dr = await sb.from('pos_daily_raw').select('business_date').order('business_date',{ascending:false}).limit(20);
+    if (dr.data && dr.data.length>0) {
+      availDates = [...new Set(dr.data.map(function(r){return r.business_date;}))];
+    }
+  } catch(e) {}
+  var defDate = availDates[0] || '2026-07-06';
+
+  // Render iniziale con date picker
+  content.innerHTML =
+    '<div style="padding:12px 16px 80px;display:flex;flex-direction:column;gap:12px;">' +
+    // Date picker
+    '<div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px 14px;">' +
+      '<div style="color:rgba(255,255,255,0.5);font-size:12px;font-weight:700;flex-shrink:0;">📅 Data</div>' +
+      '<select id="brigataDatePicker" onchange="botLoadDatiLive(\''+botId+'\',\''+ribbon+'\')" style="flex:1;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.15);border-radius:8px;color:white;font-size:13px;padding:6px 10px;cursor:pointer;">' +
+        availDates.map(function(d){return '<option value="'+d+'" '+(d===defDate?'selected':'')+'>'+d+'</option>';}).join('') +
+      '</select>' +
+    '</div>' +
+    '<div id="brigataDataContent" style="display:flex;flex-direction:column;gap:12px;">' +
+      '<div style="text-align:center;padding:30px;color:rgba(255,255,255,0.3);">Caricamento...</div>' +
+    '</div>' +
+    '</div>';
+
+  // Legge la data dal picker se esiste
+  var picker = document.getElementById('brigataDatePicker');
+  var selDate = (picker ? picker.value : null) || defDate;
+
+  var dataDiv = document.getElementById('brigataDataContent');
+  if (!dataDiv) return;
+
+  try {
+    if (botId === 'pos-touchbistro-bot') {
+      await botDatiPosRaw(dataDiv, sb, selDate, ribbon);
+    } else if (botId === 'recipe-matcher-bot') {
+      await botDatiPosClean(dataDiv, sb, selDate, ribbon);
+    } else if (botId === 'stock-drain-bot') {
+      await botDatiStockDrain(dataDiv, sb, selDate, ribbon);
+    }
+  } catch(e) {
+    dataDiv.innerHTML = '<div style="padding:16px;background:rgba(239,68,68,0.1);border-radius:10px;color:#f87171;font-size:13px;">❌ Errore: '+e.message+'</div>';
+  }
+};
+
+// ── POS TouchBistro Bot: mostra pos_daily_raw ──
+async function botDatiPosRaw(container, sb, date, ribbon) {
+  var r = await sb.from('pos_daily_raw')
+    .select('pos_item_name,menu_group,portions_sold,source_table,metadata')
+    .eq('business_date', date)
+    .order('portions_sold',{ascending:false})
+    .limit(200);
+  var rows = r.data || [];
+
+  var sales = rows.filter(function(x){return x.source_table==='pos_sales_by_item';});
+  var mods  = rows.filter(function(x){return x.source_table==='pos_modifiers';});
+  var totPortions = sales.reduce(function(s,x){return s+(x.portions_sold||0);},0);
+
+  var html = '';
+  // Summary
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
+  html += _brigataCard('Righe sales', sales.length, ribbon);
+  html += _brigataCard('Righe modifier', mods.length, ribbon);
+  html += _brigataCard('Porzioni food', totPortions, ribbon);
+  html += _brigataCard('Escluse (bev)', '—', '#64748b');
+  html += '</div>';
+
+  // Tabella sales
+  html += '<div style="background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;">';
+  html += '<div style="padding:10px 14px;border-bottom:0.5px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Food items — pos_daily_raw</div>';
+  sales.forEach(function(row) {
+    var isKids = row.menu_group === 'Kids menu';
+    html += '<div style="display:flex;align-items:center;padding:9px 14px;border-bottom:0.5px solid rgba(255,255,255,0.05);gap:10px;">';
+    html += '<div style="flex:1;">';
+    html += '<div style="color:white;font-size:13px;font-weight:600;">'+row.pos_item_name+'</div>';
+    if (row.menu_group) html += '<div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:1px;">'+row.menu_group+'</div>';
+    html += '</div>';
+    if (isKids) html += '<span style="font-size:10px;background:rgba(139,92,246,0.2);color:#c4b5fd;border-radius:6px;padding:2px 7px;font-weight:700;">Kids</span>';
+    html += '<div style="color:white;font-size:14px;font-weight:700;min-width:32px;text-align:right;">'+row.portions_sold+'</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // Modifier (collassati)
+  html += '<div style="background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;">';
+  html += '<div style="padding:10px 14px;border-bottom:0.5px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Modifier — '+mods.length+' item</div>';
+  mods.slice(0,10).forEach(function(row) {
+    html += '<div style="display:flex;align-items:center;padding:8px 14px;border-bottom:0.5px solid rgba(255,255,255,0.05);gap:10px;">';
+    html += '<div style="flex:1;color:rgba(255,255,255,0.6);font-size:12px;">'+row.pos_item_name+'</div>';
+    html += '<div style="color:rgba(255,255,255,0.5);font-size:13px;font-weight:600;">'+row.portions_sold+'</div>';
+    html += '</div>';
+  });
+  if (mods.length>10) html += '<div style="padding:8px 14px;color:rgba(255,255,255,0.25);font-size:11px;">+ altri '+(mods.length-10)+' modifier...</div>';
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+// ── Recipe Matcher Bot: mostra pos_daily_clean ──
+async function botDatiPosClean(container, sb, date, ribbon) {
+  // Carica filtro attivo
+  var activeFilter = window._brigataMatchFilter || 'all';
+
+  var query = sb.from('pos_daily_clean')
+    .select('pos_item_name,menu_group,source_table,matched_recipe_name,match_type,confidence,needs_review,portions_sold,warning')
+    .eq('business_date', date)
+    .order('portions_sold',{ascending:false})
+    .limit(200);
+
+  var r = await query;
+  var rows = r.data || [];
+
+  // Counts
+  var exact    = rows.filter(function(x){return x.match_type==='exact';}).length;
+  var kids     = rows.filter(function(x){return x.match_type==='kids_alias';}).length;
+  var modifier = rows.filter(function(x){return x.match_type==='modifier_alias';}).length;
+  var fuzzy    = rows.filter(function(x){return x.match_type==='fuzzy';}).length;
+  var unknown  = rows.filter(function(x){return x.match_type==='unknown';}).length;
+  var needsRev = rows.filter(function(x){return x.needs_review;}).length;
+
+  var html = '';
+  // Summary cards
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">';
+  html += _brigataCard('Exact', exact, '#22c55e');
+  html += _brigataCard('Kids', kids, '#a78bfa');
+  html += _brigataCard('Modifier', modifier, '#60a5fa');
+  html += _brigataCard('Fuzzy', fuzzy, '#fbbf24');
+  html += _brigataCard('Unknown', unknown, '#f87171');
+  html += _brigataCard('Da rivedere', needsRev, '#f97316');
+  html += '</div>';
+
+  // Filtri
+  var filters = [
+    {key:'all',      label:'Tutti'},
+    {key:'matched',  label:'Matched'},
+    {key:'kids',     label:'Kids'},
+    {key:'review',   label:'Da rivedere'},
+    {key:'unknown',  label:'Unknown'},
+    {key:'modifier', label:'Modifier'}
+  ];
+  html += '<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;">';
+  filters.forEach(function(f) {
+    var active = activeFilter===f.key;
+    html += '<button onclick="window._brigataMatchFilter=\''+f.key+'\';botLoadDatiLive(\'recipe-matcher-bot\',\''+ribbon+'\')" style="flex-shrink:0;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:0.5px solid '+(active?ribbon:'rgba(255,255,255,0.15)')+';background:'+(active?ribbon+'22':'transparent')+';color:'+(active?'white':'rgba(255,255,255,0.45)')+';">'+f.label+'</button>';
+  });
+  html += '</div>';
+
+  // Filtra righe
+  var filtered = rows.filter(function(x) {
+    if (activeFilter==='matched') return !x.needs_review && x.match_type!=='unknown';
+    if (activeFilter==='kids') return x.menu_group==='Kids menu';
+    if (activeFilter==='review') return x.needs_review;
+    if (activeFilter==='unknown') return x.match_type==='unknown';
+    if (activeFilter==='modifier') return x.source_table==='pos_modifiers';
+    return true;
+  });
+
+  // Lista
+  html += '<div style="background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;">';
+  html += '<div style="padding:10px 14px;border-bottom:0.5px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">pos_daily_clean — '+filtered.length+' righe</div>';
+
+  filtered.forEach(function(row) {
+    var mc = row.match_type==='exact'?'#22c55e':row.match_type==='kids_alias'?'#a78bfa':row.match_type==='modifier_alias'?'#60a5fa':row.match_type==='fuzzy'?'#fbbf24':'#f87171';
+    var bgc = row.match_type==='unknown'?'rgba(239,68,68,0.06)':row.match_type==='fuzzy'?'rgba(251,191,36,0.06)':'transparent';
+    html += '<div style="padding:10px 14px;border-bottom:0.5px solid rgba(255,255,255,0.05);background:'+bgc+';">';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">';
+    html += '<div style="flex:1;">';
+    html += '<div style="color:white;font-size:13px;font-weight:600;">'+row.pos_item_name;
+    if (row.menu_group) html += ' <span style="font-size:10px;color:rgba(255,255,255,0.35);">('+row.menu_group+')</span>';
+    html += '</div></div>';
+    html += '<span style="font-size:10px;background:'+mc+'22;color:'+mc+';border-radius:6px;padding:2px 7px;font-weight:700;flex-shrink:0;">'+row.match_type+'</span>';
+    html += '<div style="color:white;font-size:13px;font-weight:700;min-width:28px;text-align:right;">'+row.portions_sold+'</div>';
+    html += '</div>';
+    if (row.matched_recipe_name) {
+      html += '<div style="font-size:12px;color:'+mc+';margin-top:2px;">→ '+row.matched_recipe_name+' <span style="color:rgba(255,255,255,0.25);">('+Math.round((row.confidence||0)*100)+'%)</span></div>';
+    } else {
+      html += '<div style="font-size:12px;color:#f87171;margin-top:2px;">Nessuna ricetta trovata</div>';
+    }
+    if (row.needs_review && row.warning) {
+      html += '<div style="font-size:11px;color:rgba(251,191,36,0.7);margin-top:3px;font-style:italic;">'+row.warning.slice(0,80)+'</div>';
+    }
+    html += '</div>';
+  });
+  if (filtered.length===0) html += '<div style="padding:24px;text-align:center;color:rgba(255,255,255,0.3);font-size:13px;">Nessuna riga per questo filtro</div>';
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+// ── Stock Drain Bot: mostra stock_movements POS_DRAIN ──
+async function botDatiStockDrain(container, sb, date, ribbon) {
+  // Legge movimenti POS_DRAIN con source_bot='stock-drain-bot'
+  var r = await sb.from('stock_movements')
+    .select('source_pos_item_name,source_menu_group,source_match_type,recipe_name,bom_item_type,bom_item_name,sold_quantity,bom_quantity_per_recipe,quantity,unit,item_type')
+    .eq('business_date', date)
+    .eq('movement_type', 'POS_DRAIN')
+    .eq('source_bot', 'stock-drain-bot')
+    .order('source_pos_item_name')
+    .limit(500);
+  var rows = r.data || [];
+
+  if (rows.length===0) {
+    container.innerHTML = '<div style="padding:24px;text-align:center;color:rgba(255,255,255,0.4);font-size:13px;">Nessun movimento POS_DRAIN per '+date+'.<br>Trigera prima Stock Drain Bot.</div>';
+    return;
+  }
+
+  // Summary
+  var totalMovements = rows.length;
+  var preps  = rows.filter(function(x){return x.item_type==='prep';}).length;
+  var ingrs  = rows.filter(function(x){return x.item_type==='ingredient';}).length;
+  var posItems = [...new Set(rows.map(function(x){return x.source_pos_item_name;}))].length;
+  var recipes  = [...new Set(rows.map(function(x){return x.recipe_name;}))].length;
+
+  var html = '';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
+  html += _brigataCard('Movimenti', totalMovements, ribbon);
+  html += _brigataCard('POS items', posItems, ribbon);
+  html += _brigataCard('Prep scaricate', preps, '#22c55e');
+  html += _brigataCard('Ingredienti', ingrs, '#60a5fa');
+  html += '</div>';
+
+  // Raggruppa per POS item → ricetta
+  var byPosItem = {};
+  rows.forEach(function(row) {
+    var key = row.source_pos_item_name + '||' + (row.source_menu_group||'') + '||' + row.recipe_name;
+    if (!byPosItem[key]) byPosItem[key] = { posItem:row.source_pos_item_name, menuGroup:row.source_menu_group, matchType:row.source_match_type, recipeName:row.recipe_name, soldQty:row.sold_quantity, lines:[] };
+    byPosItem[key].lines.push(row);
+  });
+
+  // Trail: POS item → ricetta → BOM components
+  html += '<div style="background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;">';
+  html += '<div style="padding:10px 14px;border-bottom:0.5px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Trail POS → Ricetta → Stock</div>';
+
+  Object.values(byPosItem).forEach(function(group) {
+    var mc = group.matchType==='exact'?'#22c55e':group.matchType==='kids_alias'?'#a78bfa':'#60a5fa';
+    // Header gruppo
+    html += '<div style="padding:10px 14px;background:rgba(255,255,255,0.04);border-bottom:0.5px solid rgba(255,255,255,0.08);">';
+    html += '<div style="display:flex;align-items:center;gap:8px;">';
+    html += '<div style="flex:1;">';
+    html += '<div style="color:white;font-size:13px;font-weight:700;">'+group.posItem;
+    if (group.menuGroup) html += ' <span style="font-size:10px;color:rgba(255,255,255,0.35);">('+group.menuGroup+')</span>';
+    html += '</div>';
+    html += '<div style="font-size:12px;color:'+mc+';margin-top:2px;">→ '+group.recipeName+'</div>';
+    html += '</div>';
+    html += '<span style="font-size:10px;background:'+mc+'22;color:'+mc+';border-radius:6px;padding:2px 7px;font-weight:700;flex-shrink:0;">sold '+group.soldQty+'</span>';
+    html += '</div></div>';
+    // BOM lines
+    group.lines.forEach(function(line) {
+      var isPrep = line.item_type==='prep';
+      var itemColor = isPrep?'#a78bfa':'#60a5fa';
+      var qty = Math.abs(line.quantity||0);
+      var qtyStr = qty>=1000?(qty/1000).toFixed(1)+'kg':qty.toFixed(qty<1?2:0)+(line.unit||'');
+      html += '<div style="display:flex;align-items:center;padding:7px 14px 7px 28px;border-bottom:0.5px solid rgba(255,255,255,0.04);gap:8px;">';
+      html += '<span style="font-size:10px;color:'+itemColor+';background:'+itemColor+'22;border-radius:4px;padding:1px 5px;flex-shrink:0;">'+line.bom_item_type+'</span>';
+      html += '<div style="flex:1;color:rgba(255,255,255,0.75);font-size:12px;">'+line.bom_item_name+'</div>';
+      html += '<div style="color:#f87171;font-size:12px;font-weight:700;">-'+qtyStr+'</div>';
+      html += '</div>';
+    });
+  });
+  html += '</div>';
+
+  // Riepilogo totali per prep/ingrediente (top 10 per scarico)
+  var totByItem = {};
+  rows.forEach(function(row) {
+    var k = row.bom_item_name + '||' + (row.unit||'');
+    if (!totByItem[k]) totByItem[k]={name:row.bom_item_name, unit:row.unit, type:row.item_type, total:0};
+    totByItem[k].total += Math.abs(row.quantity||0);
+  });
+  var sorted = Object.values(totByItem).sort(function(a,b){return b.total-a.total;}).slice(0,12);
+
+  html += '<div style="background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;">';
+  html += '<div style="padding:10px 14px;border-bottom:0.5px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Totale scarico per prep/ingrediente</div>';
+  sorted.forEach(function(item) {
+    var isPrep = item.type==='prep';
+    var itemColor = isPrep?'#a78bfa':'#60a5fa';
+    var qty = item.total>=1000?(item.total/1000).toFixed(1)+'kg':item.total.toFixed(item.total<1?2:0)+(item.unit||'');
+    html += '<div style="display:flex;align-items:center;padding:8px 14px;border-bottom:0.5px solid rgba(255,255,255,0.05);gap:8px;">';
+    html += '<span style="font-size:10px;color:'+itemColor+';width:36px;flex-shrink:0;">'+item.type+'</span>';
+    html += '<div style="flex:1;color:rgba(255,255,255,0.8);font-size:12px;">'+item.name+'</div>';
+    html += '<div style="color:#f87171;font-size:13px;font-weight:700;">-'+qty+'</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+// Helper: summary card
+function _brigataCard(label, value, color) {
+  return '<div style="background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px 14px;text-align:center;">' +
+    '<div style="color:rgba(255,255,255,0.35);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">'+label+'</div>' +
+    '<div style="color:'+color+';font-size:22px;font-weight:700;">'+value+'</div>' +
+    '</div>';
+}
 
 // Carica codice edge function
 window.botCodeLoad = async function(fnName) {
