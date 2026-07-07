@@ -4775,6 +4775,26 @@ function dispensaRenderIngredients(content) {
   }).join('');
 }
 
+// ── La Dispensa — formattazione quantità ──
+function formatDispQty(qty, unit) {
+  var q = parseFloat(qty) || 0;
+  var u = (unit || '').trim();
+  if (u === 'g') {
+    if (q >= 1000) {
+      var kg = q / 1000;
+      var s = parseFloat(kg.toPrecision(3));
+      return s + 'kg';
+    }
+    return Math.round(q) + 'g';
+  }
+  if (u === 'oz') return (q % 1 === 0 ? q : parseFloat(q.toFixed(1))) + 'oz';
+  if (u === 'each' || u === 'pz' || u === 'nests' || u === 'pezzi') {
+    return Math.round(q) + ' ' + u;
+  }
+  var rounded = parseFloat(q.toFixed(2));
+  return rounded + (u ? ' ' + u : '');
+}
+
 function dispensaSnapRow(r, type) {
   var name = (r.metadata && r.metadata.target_name) || r.item_id;
   var qty = parseFloat(r.pos_deducted_qty || 0);
@@ -4793,7 +4813,7 @@ function dispensaSnapRow(r, type) {
     ? '<div style="font-size:10px;color:#f59e0b;margin-top:3px;padding:3px 6px;background:rgba(245,158,11,0.08);border-radius:4px;">' + r.warning + '</div>'
     : '';
 
-  var qtyDisplay = qty >= 1000 ? (qty/1000).toFixed(2)+'kg' : qty.toFixed(1)+unit;
+  var qtyDisplay = formatDispQty(qty, unit);
 
   return '<div style="padding:10px 16px;border-bottom:0.5px solid rgba(255,255,255,0.05);">' +
     '<div style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;" onclick="dispensaOpenEsploso(\'' + r.item_type + '\',\'' + r.item_id + '\',\'' + safeName + '\')">' +
@@ -4896,11 +4916,18 @@ async function dispensaLoadEsploso(content, sel) {
 
     var totalQty = rows.reduce(function(a,r){ return a + parseFloat(r.quantity||0); }, 0);
     var unit = rows[0].unit || '';
+    var esiName = (sel.itemName || '').replace(/['\'\"<>]/g, '');
 
     var html =
       '<div style="padding:12px 16px 8px;border-bottom:0.5px solid rgba(255,255,255,0.08);">' +
-        '<div style="font-size:15px;font-weight:700;color:white;">🧾 ' + sel.itemName + '</div>' +
-        '<div style="font-size:12px;color:#10b981;margin-top:2px;">' + rows.length + ' deductions · totale ' + totalQty.toFixed(2) + unit + '</div>' +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">' +
+          '<div>' +
+            '<div style="font-size:15px;font-weight:700;color:white;">🧾 ' + sel.itemName + '</div>' +
+            '<div style="font-size:12px;color:#10b981;margin-top:2px;">' + rows.length + ' deductions · totale ' + formatDispQty(totalQty, unit) + '</div>' +
+          '</div>' +
+          '<button onclick="dispensaFeedback(\'' + sel.itemId + '\',\'' + sel.itemType + '\',\'' + esiName + '\',\'' + d + '\')" ' +
+            'style="background:none;border:0.5px solid rgba(255,255,255,0.15);border-radius:7px;color:rgba(255,255,255,0.4);font-size:10px;padding:3px 9px;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0;margin-top:2px;">⚑ Segnala</button>' +
+        '</div>' +
       '</div>';
 
     html += rows.map(function(row) {
@@ -4914,11 +4941,15 @@ async function dispensaLoadEsploso(content, sel) {
           '<span style="background:rgba(0,0,0,0.4);color:' + srcColor + ';font-size:9px;padding:1px 5px;border-radius:3px;">' + srcLabel + '</span>' +
         '</div>' +
         '<div style="display:flex;gap:12px;font-size:11px;color:rgba(255,255,255,0.45);">' +
-          '<span><span style="color:#10b981;font-weight:600;">' + qty.toFixed(2) + (row.unit||'') + '</span></span>' +
+          '<span><span style="color:#10b981;font-weight:600;">' + formatDispQty(qty, row.unit||'') + '</span></span>' +
           '<span>' + (row.portions_sold ? row.portions_sold + ' porz.' : '') + '</span>' +
         '</div>' +
         (row.calculation_path ? '<div style="font-size:10px;color:rgba(255,255,255,0.25);margin-top:2px;font-family:monospace;">' + row.calculation_path + '</div>' : '') +
         (hasWarn ? '<div style="font-size:10px;color:#f59e0b;margin-top:3px;">' + row.warning + '</div>' : '') +
+        '<div style="margin-top:4px;">' +
+          '<button onclick="event.stopPropagation();dispensaFeedback(\'' + sel.itemId + '\',\'' + sel.itemType + '\',\'' + esiName + ' ← ' + (row.pos_item_name||'').replace(/['\'<>]/g,'') + '\',\'' + d + '\')" ' +
+            'style="background:none;border:0.5px solid rgba(255,255,255,0.08);border-radius:5px;color:rgba(255,255,255,0.25);font-size:9px;padding:2px 7px;cursor:pointer;font-family:inherit;">⚑ Segnala riga</button>' +
+        '</div>' +
       '</div>';
     }).join('');
 
