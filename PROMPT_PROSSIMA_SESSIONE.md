@@ -1,5 +1,153 @@
 ---
 
+## SESSIONE 7 LUGLIO 2026 — Sprint 7.1 + Meatballs 3-Level BOM
+
+**Versione sw.js live:** boh-v567
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### Pipeline Guard — VERIFICATO ✅
+
+**bot-bom-chain-deduction v4:**
+- Guard: verifica `bot-direct-deduction` success per la stessa `run_date` prima di girare
+- Test negativo (2099-01-01): `bom_chain_rows=0`, observation scritta, zero bot_run → PASS ✅
+- Test positivo (2026-07-06): 233 ing, 0 prep, 95 skip_doubled → PASS ✅
+
+**bot-stock-consolidator v4:**
+- Guard: verifica `bot-direct-deduction` E `bot-bom-chain-deduction` success
+- Se upstream mancanti: aborta, scrive `commis_observation category=system`, ritorna errore
+
+**Regola operativa confermata:**
+Ordine esecuzione OBBLIGATORIO e SEQUENZIALE:
+1. `bot-pos-cleaner`
+2. `bot-direct-deduction`
+3. `bot-bom-chain-deduction` (Guard: richiede #2 success)
+4. `bot-stock-consolidator` (Guard: richiede #2 e #3 success)
+
+---
+
+### La Dispensa Beta — boh-v566/v567
+
+**Feature aggiunte:**
+- Badge `⚡ BETA · Read-only` in titolo e banner
+- Bottone **"Segnala errore"** su ogni riga (Cucina + Magazzino + Esploso)
+- Modal feedback con 7 tipi: wrong_quantity, wrong_unit, wrong_name, duplicate_deduction, missing_sale, should_not_deduct, other
+- Scrive in tabella `dispensa_feedback` (nuova, da migration)
+- Swipe-to-close: solo su header/drag-handle, non su contenuto scrollabile
+- `overscroll-behavior:contain` su `#dispensaContent`
+- Card home: emoji HTML entity `&#x1F6D2;` (fix testo garbage)
+
+**tabella `dispensa_feedback`:**
+```sql
+id uuid PK, business_date, item_type, item_id uuid,
+target_name, source_table, deduction_id uuid nullable,
+feedback_type (7 valori CHECK), note, created_by,
+status (open/reviewed/resolved/ignored), metadata jsonb, created_at
+```
+
+**Test iPhone (ancora da fare):**
+- Aprire La Dispensa Beta → scroll non chiude
+- Segnala errore → modal apre → submit → riga in `dispensa_feedback`
+- Poi query: `SELECT * FROM dispensa_feedback ORDER BY created_at DESC LIMIT 10;`
+
+---
+
+### Meatballs BOM — struttura 3 livelli ✅
+
+**Problema risolto:** BOM Meatballs usava quantità batch-level (2800g Pomodoro per porzione venduta).
+
+**Struttura finale:**
+
+```
+Livello 1 — Impasto polpette
+  recipe: Meatballs (pos_name=NULL, base_servings=162, unit=pz)
+  BOM: Ground Beef 4536g + Pork Sausage 907g + Bread Crumbs 820g
+       + Eggs 495g + Parmesan 545g + Milk 1100g + Parsley 135g + ...
+  prep_task: "Meatballs" — Sauté Station, unit=pz, supporto
+  Logica: 1 batch → 162 polpette (32 buste × 5pz + 2 avanzo)
+
+Livello 2 — Meatball Sauce
+  recipe: Meatball Sauce (pos_name=NULL, base_servings=32, serving_weight_g=100g)
+  BOM: POMODORO SAUCE 2800g + DEMI FOR RAVIOLI 500g
+  prep_task: "Meatball Sauce" — Sauté Station, unit=g, supporto
+
+Livello 3 — Busta POS
+  recipe: Meatball Appetizer
+  pos_name: "Meatball Appetizer|Meatballs|Add Meatballs"
+  base_servings=1, serving_weight_g=380g
+  BOM: RECIPE Meatballs 5pz + RECIPE Meatball Sauce 100g
+  prep_task: "Meatball Appetizer" — Sauté Station, unit=pz, finale
+```
+
+**Pipeline dopo fix (2026-07-06):**
+- Meatball Appetizer (9 porz) → Meatballs **45 pz** + Meatball Sauce **900g** ✅
+- Meatballs modifier (1 porz) → Meatballs **5 pz** + Meatball Sauce **100g** ✅
+- Zero ingredienti raw nel POS scarico (solo quando si produce il batch)
+- Zero duplicati direct+bom_chain ✅
+- stock_movements: 335 invariato ✅
+- current_stock: non toccato ✅
+
+**Nota "Add Meatballs" modifier:**
+Ora mappa su `Meatball Appetizer` (stessa busta). Se in futuro "Add Meatballs" 
+su pasta usa quantità diverse (es. 3pz invece di 5), creare ricetta separata 
+`Add Meatballs` con BOM dedicato e `pos_name='Add Meatballs'`.
+
+---
+
+### Stato pipeline finale sessione (2026-07-06)
+
+| Bot | Status | Rows |
+|---|---|---|
+| bot-pos-cleaner | success | 146 clean |
+| bot-direct-deduction | success | 97 deductions |
+| bot-bom-chain-deduction v4 | success | 233 ing, 0 prep, 95 skip_doubled |
+| bot-stock-consolidator v4 | success | 163 snapshot rows |
+
+- Duplicati: **0** ✅
+- stock_movements: **335** invariato ✅
+- current_stock: **non toccato** ✅
+- dispensa_feedback: pronta per test iPhone
+
+---
+
+### Versioni finali sessione
+
+| Componente | Versione |
+|---|---|
+| Brigade frontend | **boh-v567** |
+| bot-bom-chain-deduction | **v4** (Pipeline Guard) |
+| bot-stock-consolidator | **v4** (Pipeline Guard) |
+| La Dispensa Beta | **v1** con feedback (office.js) |
+| dispensa_feedback | tabella creata |
+| Meatball Appetizer recipe | **nuova** |
+| Meatballs recipe | aggiornata (3 livelli) |
+| Meatball Sauce recipe | **nuova** |
+
+---
+
+### PROSSIMA SESSIONE — checklist
+
+1. **Test iPhone La Dispensa Beta** (Max):
+   - scroll non chiude panel
+   - Segnala errore → scrive in `dispensa_feedback`
+   - `SELECT * FROM dispensa_feedback ORDER BY created_at DESC LIMIT 10;`
+
+2. **"Add Meatballs" modifier** — verificare se quantità diversa da busta appetizer.
+   Se 3pz invece di 5: creare ricetta `Add Meatballs` con BOM dedicato.
+
+3. **Stock Consolidator v2** (quando La Dispensa Beta è validata):
+   - Legge `prep_log` per `loaded_qty`
+   - Calcola `stock_end = stock_start + loaded_qty - pos_deducted_qty`
+   - Aggiorna `prep_tasks.current_stock`
+   - Solo dopo approvazione Max
+
+4. **Meatballs prep_task "Meatballs"**: impostare `current_stock` al prossimo inventario fisico.
+
+---
+
+---
+
 ## SESSIONE 7 LUGLIO 2026 — Sprint 5.1 + Sprint 6: La Dispensa v1
 
 **Versione sw.js live:** boh-v564
