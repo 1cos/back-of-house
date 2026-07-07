@@ -25,6 +25,31 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}))
     const businessDate = body.business_date || new Date().toISOString().slice(0, 10)
 
+    // ── PIPELINE GUARD: richiede bot-direct-deduction success per la stessa run_date ──
+    const { data: directGuard } = await supa
+      .from('bot_runs')
+      .select('bot_name, status')
+      .eq('run_date', businessDate)
+      .eq('bot_name', 'bot-direct-deduction')
+      .eq('status', 'success')
+      .limit(1)
+
+    if (!directGuard || directGuard.length === 0) {
+      const guardMsg = `Pipeline Guard: bot-direct-deduction non ha status success per ${businessDate}. Eseguire prima bot-direct-deduction, poi questo bot.`
+      console.warn('[bot-bom-chain-deduction] ' + guardMsg)
+      await supa.from('commis_observations').insert({
+        business_date: businessDate, bot_name: 'bot-bom-chain-deduction', commis_name: 'bom-chain-commis',
+        severity: 'warning', category: 'system',
+        title: `Pipeline Guard attivato — ${businessDate}`,
+        explanation: guardMsg,
+        suggested_action: 'Eseguire bot-direct-deduction prima di bot-bom-chain-deduction.',
+        status: 'open',
+      })
+      return new Response(JSON.stringify({ ok: false, error: 'pipeline_guard', missing: 'bot-direct-deduction', businessDate }), {
+        headers: corsHeaders, status: 200
+      })
+    }
+
     // ── 0. Idempotenza — solo bom_chain, mai direct_recipe ─────────────────
     await supa.from('stock_deductions')
       .delete().eq('business_date', businessDate).eq('source', 'bom_chain')
