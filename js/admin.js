@@ -284,29 +284,33 @@ window._bv2Contributors = async function(cid, taskName, recipeId) {
   box.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:6px 0;">Caricamento...</div>';
 
   try {
-    const SUPA_URL = 'https://ydqmumpytgrlceuinoqt.supabase.co';
-    const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxNDM5NzgsImV4cCI6MjA2NDcxOTk3OH0.RB5vYE3gJjH7gJy01Gh-eLQixanVX6cLc0disc8-bJs';
-    const hdrs = { 'apikey': ANON_KEY, 'Authorization': 'Bearer '+ANON_KEY };
+    // Usa supa (client globale) per tutte le query — evita problemi auth con fetch manuale
+    const fmtG = (v, u) => {
+      if(isNaN(v)||v===0) return '0';
+      const ul=(u||'').toLowerCase();
+      const isPh=['pezzi','pz','nests','buste','cartocci','cup'].includes(ul);
+      if(isPh){ return v%1===0?String(Math.round(v)):v.toFixed(1); }
+      return v>=1000?(v/1000).toFixed(1).replace(/\.0$/,'')+'kg':Math.round(v)+'g';
+    };
+    const esc2 = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-    // Leggo run corrente per unit e consumo
-    const runRes = await fetch(
-      SUPA_URL+'/rest/v1/bot_v2_runs?sim_date=eq.'+new Date().toISOString().slice(0,10)+'&task_name=eq.'+encodeURIComponent(taskName)+'&select=unit,consumo_giornaliero',
-      {headers: hdrs}
-    );
-    const runRows = await runRes.json();
-    const run = runRows[0];
-    const unit = run?.unit || 'g';
+    // Unit dal run corrente
+    const {data: runRows} = await supa.from('bot_v2_runs')
+      .select('unit,consumo_giornaliero')
+      .eq('sim_date', new Date().toISOString().slice(0,10))
+      .eq('task_name', taskName)
+      .limit(1);
+    const unit = runRows?.[0]?.unit || 'g';
 
-    // Leggo aliases diretti dalla recipe collegata al prep_task
+    // Aliases diretti dalla recipe
     let aliases = [];
     let gPerPorzDirect = 0;
     if(recipeId) {
-      const recRes = await fetch(
-        SUPA_URL+'/rest/v1/recipes?id=eq.'+encodeURIComponent(recipeId)+'&select=pos_name,serving_weight_g,base_weight_g,base_servings',
-        {headers: hdrs}
-      );
-      const recRows = await recRes.json();
-      const rec = recRows[0];
+      const {data: recRows} = await supa.from('recipes')
+        .select('pos_name,serving_weight_g,base_weight_g,base_servings')
+        .eq('id', recipeId)
+        .limit(1);
+      const rec = recRows?.[0];
       const posName = rec?.pos_name || '';
       aliases = posName ? posName.split('|').map(s=>s.trim().toLowerCase()).filter(Boolean) : [];
       const sw = parseFloat(rec?.serving_weight_g)||0;
@@ -315,28 +319,24 @@ window._bv2Contributors = async function(cid, taskName, recipeId) {
       gPerPorzDirect = sw>0?sw:(bw>0&&bs>0?bw/bs:0);
     }
 
-    // Se non ho alias diretti, cerco le ricette padre nel BOM (sub-recipe chain)
-    // queste ricette padre hanno il pos_name e tramite BOM consumano questa prep
-    let parentRecipes = []; // [{id, pos_name, bom_qty, sw, bw, bs}]
+    // Se no alias diretti, cerco ricette padre nel BOM (sub-recipe chain)
+    let parentRecipes = [];
     if(aliases.length === 0 && recipeId) {
-      const bomRes = await fetch(
-        SUPA_URL+'/rest/v1/recipe_bom?sub_recipe_id=eq.'+encodeURIComponent(recipeId)+'&component_type=eq.RECIPE&select=parent_recipe_id,quantity,unit',
-        {headers: hdrs}
-      );
-      const bomRows = await bomRes.json();
+      const {data: bomRows} = await supa.from('recipe_bom')
+        .select('parent_recipe_id,quantity,unit')
+        .eq('sub_recipe_id', recipeId)
+        .eq('component_type', 'RECIPE');
       for(const brow of (bomRows||[])) {
-        const prRes = await fetch(
-          SUPA_URL+'/rest/v1/recipes?id=eq.'+encodeURIComponent(brow.parent_recipe_id)+'&select=id,pos_name,serving_weight_g,base_weight_g,base_servings',
-          {headers: hdrs}
-        );
-        const prRows = await prRes.json();
-        const pr = prRows[0];
+        const {data: prRows} = await supa.from('recipes')
+          .select('id,pos_name,serving_weight_g,base_weight_g,base_servings')
+          .eq('id', brow.parent_recipe_id)
+          .limit(1);
+        const pr = prRows?.[0];
         if(pr?.pos_name) {
           parentRecipes.push({
             id: pr.id,
             pos_name: pr.pos_name,
             bom_qty: parseFloat(brow.quantity)||1,
-            bom_unit: brow.unit||'',
             sw: parseFloat(pr.serving_weight_g)||0,
             bw: parseFloat(pr.base_weight_g)||0,
             bs: parseFloat(pr.base_servings)||1
@@ -349,43 +349,19 @@ window._bv2Contributors = async function(cid, taskName, recipeId) {
     const d60 = new Date(); d60.setDate(d60.getDate()-60);
     const since = d60.toISOString().slice(0,10);
 
-    const fmtG = (v, u) => {
-      if(isNaN(v)||v===0) return '0';
-      const ul=(u||'').toLowerCase();
-      const isPh=['pezzi','pz','nests','buste','cartocci','cup'].includes(ul);
-      if(isPh){ return v%1===0?String(Math.round(v)):v.toFixed(1); }
-      return v>=1000?(v/1000).toFixed(1).replace(/\.0$/,'')+'kg':Math.round(v)+'g';
-    };
-    const esc2 = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    // Carico sales + modifier + portion_factor con supa
+    const {data: salesAll} = await supa.from('pos_sales_by_item')
+      .select('sale_date,menu_item,quantity')
+      .gte('sale_date', since);
 
-    let rows = [];
+    const {data: modAll} = await supa.from('pos_modifier_by_item')
+      .select('sale_date,modifier,parent_item,quantity_sold')
+      .gte('sale_date', since);
 
-    // helper: media su date
-    const avgDates = obj => {
-      const vals = Object.values(obj.dates);
-      return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
-    };
-
-    // Carico sales + modifier una volta sola (servono in entrambi i percorsi)
-    const salesRes = await fetch(
-      SUPA_URL+'/rest/v1/pos_sales_by_item?sale_date=gte.'+since+'&select=sale_date,menu_item,quantity',
-      {headers: hdrs}
-    );
-    const salesAll = await salesRes.json();
-
-    const modRes = await fetch(
-      SUPA_URL+'/rest/v1/pos_modifier_by_item?sale_date=gte.'+since+'&select=sale_date,modifier,parent_item,quantity_sold',
-      {headers: hdrs}
-    );
-    const modAll = await modRes.json();
-
-    const pfRes = await fetch(
-      SUPA_URL+'/rest/v1/pos_item_aliases?select=alias_name,portion_factor,source',
-      {headers: hdrs}
-    );
-    const pfAllRaw = await pfRes.json();
+    const {data: pfAllRaw} = await supa.from('pos_item_aliases')
+      .select('alias_name,portion_factor,source');
     const pfMap = {};
-    (Array.isArray(pfAllRaw) ? pfAllRaw : [])
+    ((pfAllRaw)||[])
       .filter(a => a.source === 'modifier' || a.source === 'both')
       .forEach(a => { pfMap[(a.alias_name||'').toLowerCase().trim()] = parseFloat(a.portion_factor)||1.0; });
 
