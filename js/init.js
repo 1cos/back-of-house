@@ -61,6 +61,14 @@ async function init(){
   // Focus Mode — attiva dopo che items è caricato
   if (!isAdmin() && !isSupervisor() && typeof initFocusMode === 'function') initFocusMode();
   // Badge L'Ufficio — mostra items aperti nel menu admin
+  // Chef Hat — visibile solo ad admin
+  const chefHat = document.getElementById('chefHatBtn');
+  if (chefHat && isAdmin()) {
+    chefHat.style.display = 'flex';
+    if (!chefHat.classList.contains('hat-ok') && !chefHat.classList.contains('hat-warn') && !chefHat.classList.contains('hat-alert')) {
+      chefHat.classList.add('hat-idle');
+    }
+  }
   if (isAdmin() && typeof officeBadgeUpdate === 'function') officeBadgeUpdate();
 }
 

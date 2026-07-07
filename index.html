@@ -748,6 +748,62 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
     </div>
   </nav>
 
+  <!-- Chef Hat Button — solo admin/pablo, Phase 1 -->
+  <div id="chefHatBtn" onclick="openSousChef()" style="display:none;position:fixed;bottom:88px;right:16px;z-index:55;width:52px;height:52px;border-radius:50%;cursor:pointer;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(30,58,95,0.18);transition:transform 0.15s ease;" onmouseenter="this.style.transform='scale(1.08)'" onmouseleave="this.style.transform='scale(1)'">
+    <svg id="chefHatSvg" width="44" height="52" viewBox="0 0 44 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- tesa -->
+      <ellipse id="hatBrim" cx="22" cy="46" rx="22" ry="6"/>
+      <!-- corpo -->
+      <rect id="hatBody" x="5" y="26" width="34" height="22" rx="3"/>
+      <!-- cupola centrale -->
+      <ellipse id="hatDome" cx="22" cy="26" rx="17" ry="14"/>
+      <!-- lobi -->
+      <ellipse id="hatL1" cx="12" cy="20" rx="8" ry="11"/>
+      <ellipse id="hatL2" cx="22" cy="16" rx="8" ry="12"/>
+      <ellipse id="hatL3" cx="32" cy="20" rx="8" ry="11"/>
+    </svg>
+  </div>
+
+  <style>
+    /* Chef Hat — colori di stato */
+    #chefHatBtn.hat-idle  { background:#f5f5f5; border:1.5px solid #ccc; }
+    #chefHatBtn.hat-ok    { background:#E1F5EE; border:1.5px solid #1D9E75; }
+    #chefHatBtn.hat-warn  { background:#FAEEDA; border:1.5px solid #BA7517; }
+    #chefHatBtn.hat-alert { background:#FCEBEB; border:1.5px solid #A32D2D; }
+
+    /* Tesa */
+    #chefHatBtn.hat-idle  #hatBrim { fill:#e0e0e0; stroke:#ccc; stroke-width:1; }
+    #chefHatBtn.hat-ok    #hatBrim { fill:#1D9E75; stroke:#0F6E56; stroke-width:1; }
+    #chefHatBtn.hat-warn  #hatBrim { fill:#BA7517; stroke:#854F0B; stroke-width:1; }
+    #chefHatBtn.hat-alert #hatBrim { fill:#A32D2D; stroke:#791F1F; stroke-width:1; }
+
+    /* Corpo + cupola + lobi */
+    #chefHatBtn.hat-idle  #hatBody,
+    #chefHatBtn.hat-idle  #hatDome,
+    #chefHatBtn.hat-idle  #hatL1,
+    #chefHatBtn.hat-idle  #hatL2,
+    #chefHatBtn.hat-idle  #hatL3 { fill:#f5f5f5; stroke:#ddd; stroke-width:1; }
+
+    #chefHatBtn.hat-ok    #hatBody,
+    #chefHatBtn.hat-ok    #hatDome,
+    #chefHatBtn.hat-ok    #hatL1,
+    #chefHatBtn.hat-ok    #hatL2,
+    #chefHatBtn.hat-ok    #hatL3 { fill:#5DCAA5; stroke:#0F6E56; stroke-width:1; }
+
+    #chefHatBtn.hat-warn  #hatBody,
+    #chefHatBtn.hat-warn  #hatDome,
+    #chefHatBtn.hat-warn  #hatL1,
+    #chefHatBtn.hat-warn  #hatL2,
+    #chefHatBtn.hat-warn  #hatL3 { fill:#EF9F27; stroke:#854F0B; stroke-width:1; }
+
+    #chefHatBtn.hat-alert #hatBody,
+    #chefHatBtn.hat-alert #hatDome,
+    #chefHatBtn.hat-alert #hatL1,
+    #chefHatBtn.hat-alert #hatL2,
+    #chefHatBtn.hat-alert #hatL3 { fill:#E24B4A; stroke:#791F1F; stroke-width:1; }
+  </style>
+
+
   <!-- ADMIN MENU TENDINA -->
   <div id="adminMenuSheet" class="fixed inset-0 z-[60] hidden" style="background:rgba(15,23,42,0.4);touch-action:none;">
     <div id="adminMenuContent" style="position:absolute;bottom:0;left:0;right:0;max-width:448px;margin:0 auto;background:linear-gradient(160deg,#f0f6ff 0%,#f8faff 100%);border-radius:28px 28px 0 0;padding:16px 14px 32px;box-shadow:0 -8px 40px rgba(30,58,95,0.15);will-change:transform;">
