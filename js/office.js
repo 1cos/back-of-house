@@ -3188,49 +3188,143 @@ function officeRenderJarvisCard(item) {
   var confidence = rr.confidence || 0;
   var confPct = Math.round(confidence * 100);
   var confColor = confidence >= 0.8 ? '#22c55e' : confidence >= 0.6 ? '#f59e0b' : '#ef4444';
-
   var dotColor = { red: '#ef4444', orange: '#f97316', blue: '#3b82f6' }[item.priority] || '#8b5cf6';
   var borderLeft = { red: '3px solid #ef4444', orange: '3px solid #f97316', blue: '3px solid #8b5cf6' }[item.priority] || '3px solid #8b5cf6';
+  var escapedId = item.id.replace(/'/g, "\\'");
+  var intent = rr.intent || rr.issue_type || '';
+  var isProductionReport = (intent === 'production_report' || intent === 'stock_count');
 
-  // Action drafts count
-  var draftsCount = rr.action_drafts ? rr.action_drafts.length : 0;
+  // HO CAPITO block per production_report / stock_count
+  var hoCapitoBlock = '';
+  if (isProductionReport) {
+    var wp = rr.write_plan || null;
+    var prep = rr.prep_candidate || (wp && wp.row) || '';
+    var producedQty = rr.produced_qty != null ? rr.produced_qty : null;
+    var prevStock = rr.previous_stock_claimed != null ? rr.previous_stock_claimed : null;
+    var newTotal = rr.new_total_claimed != null ? rr.new_total_claimed : (wp && wp.new_value != null ? wp.new_value : null);
+    var unit = rr.unit || (wp && wp.unit) || '';
+    var reporter = rr.reporter || item.from_user || '';
+    var station = rr.station || '';
+    var writeEnabled = wp ? (wp.requires_approval === false) : false;
 
-  // One question badge
-  var questionBadge = '';
-  if (rr.needs_one_question && rr.one_question) {
-    questionBadge =
-      '<div style="margin:0 14px 8px;padding:10px 12px;background:rgba(245,158,11,0.06);border:0.5px solid rgba(245,158,11,0.25);border-radius:10px;">' +
-        '<div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px;">Una domanda per Max</div>' +
-        '<div style="font-size:14px;color:#1e3a5f;">' + (rr.one_question || '') + '</div>' +
+    var rows = '';
+    if (prep)                rows += '<tr><td style="color:#64748b;padding:2px 8px 2px 0;font-size:13px;white-space:nowrap;">Prep</td><td style="font-weight:600;color:#1e3a5f;font-size:13px;">' + prep + '</td></tr>';
+    if (producedQty != null) rows += '<tr><td style="color:#64748b;padding:2px 8px 2px 0;font-size:13px;white-space:nowrap;">Prodotto ora</td><td style="font-weight:700;color:#16a34a;font-size:13px;">+' + producedQty + ' ' + unit + '</td></tr>';
+    if (prevStock != null)   rows += '<tr><td style="color:#64748b;padding:2px 8px 2px 0;font-size:13px;white-space:nowrap;">Stock prec.</td><td style="font-weight:600;color:#1e3a5f;font-size:13px;">' + prevStock + ' ' + unit + '</td></tr>';
+    if (newTotal != null)    rows += '<tr><td style="color:#64748b;padding:2px 8px 2px 0;font-size:13px;white-space:nowrap;">Nuovo totale</td><td style="font-weight:700;color:#2563eb;font-size:13px;">' + newTotal + ' ' + unit + '</td></tr>';
+    if (reporter)            rows += '<tr><td style="color:#64748b;padding:2px 8px 2px 0;font-size:13px;white-space:nowrap;">Reporter</td><td style="font-weight:600;color:#1e3a5f;font-size:13px;">' + reporter + '</td></tr>';
+    if (station)             rows += '<tr><td style="color:#64748b;padding:2px 8px 2px 0;font-size:13px;white-space:nowrap;">Station</td><td style="font-weight:600;color:#1e3a5f;font-size:13px;">' + station + '</td></tr>';
+    rows += '<tr><td style="color:#64748b;padding:2px 8px 2px 0;font-size:13px;white-space:nowrap;">Confidence</td><td style="font-weight:700;color:' + confColor + ';font-size:13px;">' + confPct + '%</td></tr>';
+
+    var writePlanHtml = '';
+    if (wp) {
+      var wpTable = wp.table || 'prep_tasks';
+      var wpField = wp.field || 'current_stock';
+      var wpOld = wp.old_value != null ? wp.old_value : (prevStock != null ? prevStock : '-');
+      var wpNew = wp.new_value != null ? wp.new_value : (newTotal != null ? newTotal : '-');
+      var wpLabelColor = writeEnabled ? '#16a34a' : '#94a3b8';
+      var wpLabel = writeEnabled ? 'WRITE ABILITATO' : 'WRITE DISABLED';
+      writePlanHtml =
+        '<div style="margin-top:10px;padding:8px 10px;background:rgba(30,58,95,0.04);border:0.5px solid rgba(30,58,95,0.12);border-radius:8px;">' +
+          '<div style="font-size:10px;font-weight:700;color:' + wpLabelColor + ';letter-spacing:.05em;margin-bottom:6px;">WRITE PLAN - ' + wpLabel + '</div>' +
+          '<table style="border-collapse:collapse;width:100%;">' +
+            '<tr><td style="color:#64748b;font-size:12px;padding:1px 8px 1px 0;white-space:nowrap;">Tabella</td><td style="font-size:12px;font-weight:600;color:#1e3a5f;">' + wpTable + '</td></tr>' +
+            '<tr><td style="color:#64748b;font-size:12px;padding:1px 8px 1px 0;white-space:nowrap;">Target</td><td style="font-size:12px;font-weight:600;color:#1e3a5f;">' + (prep || '-') + '</td></tr>' +
+            '<tr><td style="color:#64748b;font-size:12px;padding:1px 8px 1px 0;white-space:nowrap;">Campo</td><td style="font-size:12px;font-weight:600;color:#1e3a5f;">' + wpField + '</td></tr>' +
+            '<tr><td style="color:#64748b;font-size:12px;padding:1px 8px 1px 0;white-space:nowrap;">Da</td><td style="font-size:12px;color:#94a3b8;">' + wpOld + (unit ? ' ' + unit : '') + '</td></tr>' +
+            '<tr><td style="color:#64748b;font-size:12px;padding:1px 8px 1px 0;white-space:nowrap;">A</td><td style="font-size:12px;font-weight:700;color:#2563eb;">' + wpNew + (unit ? ' ' + unit : '') + '</td></tr>' +
+          '</table>' +
+          (!writeEnabled ? '<div style="margin-top:6px;font-size:11px;color:#94a3b8;font-style:italic;">Piano pronto. Nessuna modifica fatta.</div>' : '') +
+        '</div>';
+    }
+
+    hoCapitoBlock =
+      '<div style="margin:0 14px 8px;padding:12px 14px;background:rgba(22,163,74,0.04);border:0.5px solid rgba(22,163,74,0.2);border-radius:12px;">' +
+        '<div style="font-size:11px;font-weight:700;color:#16a34a;letter-spacing:.05em;margin-bottom:8px;">HO CAPITO</div>' +
+        '<table style="border-collapse:collapse;width:100%;">' + rows + '</table>' +
+        writePlanHtml +
       '</div>';
   }
 
-  // Bottoni dinamici da ui_buttons del reasoning result
-  var uiButtons = rr.ui_buttons || [
-    { label: 'Approva', action: 'approve_all', style: 'primary' },
-    { label: 'Rifiuta', action: 'reject', style: 'danger' }
-  ];
+  // Proposta
+  var draftsCount = rr.action_drafts ? rr.action_drafts.length : 0;
+  var proposalBlock =
+    '<div style="margin:8px 14px 8px;padding:12px 14px;background:linear-gradient(135deg,rgba(30,58,95,0.04),rgba(37,99,235,0.06));border:0.5px solid rgba(37,99,235,0.15);border-radius:12px;">' +
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
+        '<span style="font-size:14px;">&#x1F916;</span>' +
+        '<div style="font-size:11px;font-weight:700;color:#2563eb;letter-spacing:.04em;">PROPOSTA CHEF AI</div>' +
+        (draftsCount > 0 ? '<span style="font-size:10px;background:rgba(37,99,235,0.1);color:#1d4ed8;border-radius:20px;padding:1px 7px;font-weight:700;">' + draftsCount + ' azione' + (draftsCount > 1 ? 'i' : '') + '</span>' : '') +
+      '</div>' +
+      '<div style="font-size:15px;color:#1e3a5f;line-height:1.5;font-weight:500;">' + (rr.proposed_solution || '') + '</div>' +
+    '</div>';
+
+  // Domanda per Max
+  var questionBadge = '';
+  var questionText = rr.follow_up_question || (rr.needs_one_question ? rr.one_question : null);
+  if (questionText) {
+    questionBadge =
+      '<div style="margin:0 14px 8px;padding:10px 12px;background:rgba(245,158,11,0.06);border:0.5px solid rgba(245,158,11,0.25);border-radius:10px;">' +
+        '<div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px;">Una domanda per Max</div>' +
+        '<div style="font-size:14px;color:#1e3a5f;">' + questionText + '</div>' +
+      '</div>';
+  }
+
+  // Bottone Approva contestuale
+  var approvaLabel = 'Approva';
+  if (isProductionReport) {
+    var apNewTotal = rr.new_total_claimed != null ? rr.new_total_claimed : (rr.write_plan && rr.write_plan.new_value != null ? rr.write_plan.new_value : null);
+    var apPrep = rr.prep_candidate || '';
+    var apUnit = rr.unit || '';
+    if (apPrep && apNewTotal != null) {
+      approvaLabel = 'Aggiorna ' + apPrep + ' a ' + apNewTotal + (apUnit ? ' ' + apUnit : '');
+    } else if (apNewTotal != null) {
+      approvaLabel = 'Aggiorna stock a ' + apNewTotal;
+    }
+  }
 
   var styleMap = {
-    primary: 'flex:1;padding:10px 0;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;',
-    secondary: 'flex:1;padding:10px 0;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid rgba(30,58,95,0.2);background:rgba(30,58,95,0.04);color:#1e3a5f;',
-    danger: 'flex:1;padding:10px 0;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.05);color:#ef4444;'
+    primary: 'flex:1;padding:10px 0;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;',
+    secondary: 'flex:1;padding:10px 0;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:0.5px solid rgba(30,58,95,0.2);background:rgba(30,58,95,0.04);color:#1e3a5f;',
+    danger: 'flex:1;padding:10px 0;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:0.5px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.05);color:#ef4444;'
   };
 
-  var buttonsHtml = '<div style="display:flex;gap:6px;padding:0 14px 8px;">';
+  var followUpOptions = rr.follow_up_options || [];
+  var uiButtons = [];
+  if (followUpOptions.length > 0) {
+    followUpOptions.forEach(function(opt, i) {
+      if (i === 0) {
+        uiButtons.push({ label: approvaLabel, action: 'approve_all', style: 'primary' });
+      } else if (opt.toLowerCase().indexOf('rifiut') >= 0 || opt.toLowerCase().indexOf('close') >= 0 || opt.toLowerCase().indexOf('ignore') >= 0) {
+        uiButtons.push({ label: opt, action: 'reject', style: 'danger' });
+      } else {
+        uiButtons.push({ label: opt, action: 'secondary_' + i, style: 'secondary' });
+      }
+    });
+    if (!uiButtons.some(function(b) { return b.action === 'reject'; })) {
+      uiButtons.push({ label: 'Rifiuta', action: 'reject', style: 'danger' });
+    }
+  } else {
+    var rawUiButtons = rr.ui_buttons || [
+      { label: approvaLabel, action: 'approve_all', style: 'primary' },
+      { label: 'Rifiuta', action: 'reject', style: 'danger' }
+    ];
+    uiButtons = rawUiButtons.map(function(btn) {
+      if (btn.action === 'approve_all') return { label: approvaLabel, action: 'approve_all', style: btn.style || 'primary' };
+      return btn;
+    });
+  }
+
+  var buttonsHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;padding:0 14px 8px;">';
   uiButtons.forEach(function(btn) {
     var s = styleMap[btn.style] || styleMap.secondary;
-    var escapedAction = btn.action.replace(/'/g, "\\'");
-    var escapedId = item.id.replace(/'/g, "\\'");
-    buttonsHtml += '<button onclick="jarvisAction(\'' + escapedId + '\',\'' + escapedAction + '\')" style="' + s + '">' + btn.label + '</button>';
+    var ea = btn.action.replace(/'/g, "\\'");
+    buttonsHtml += '<button onclick="jarvisAction(\'' + escapedId + '\',\'' + ea + '\')" style="' + s + '">' + btn.label + '</button>';
   });
-  // Bottone "Mostra ragionamento" sempre presente
-  buttonsHtml += '<button onclick="jarvisShowReasoning(\'' + item.id.replace(/'/g, "\\'") + '\')" style="width:36px;height:36px;border-radius:10px;font-size:16px;cursor:pointer;border:0.5px solid rgba(139,92,246,0.2);background:rgba(139,92,246,0.06);flex-shrink:0;" title="Mostra ragionamento">🔍</button>';
+  buttonsHtml += '<button onclick="jarvisShowReasoning(\'' + escapedId + '\')" style="width:36px;height:36px;border-radius:10px;font-size:16px;cursor:pointer;border:0.5px solid rgba(139,92,246,0.2);background:rgba(139,92,246,0.06);flex-shrink:0;" title="Mostra ragionamento">&#x1F50D;</button>';
   buttonsHtml += '</div>';
 
   return '<div data-item-id="' + item.id + '" style="background:white;border:0.5px solid rgba(139,92,246,0.15);border-left:' + borderLeft + ';border-radius:16px;margin:0 12px 8px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 6px 16px rgba(139,92,246,0.05);">' +
 
-    // Header
     '<div style="display:flex;align-items:flex-start;gap:8px;padding:11px 14px 6px;">' +
       '<div style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;margin-top:5px;"></div>' +
       '<div style="flex:1;">' +
@@ -3238,34 +3332,20 @@ function officeRenderJarvisCard(item) {
         (item.from_user && item.from_user !== 'system' ? '<div style="font-size:12px;color:#60a5fa;margin-top:2px;">da ' + item.from_user + '</div>' : '') +
       '</div>' +
       '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">' +
-        '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(139,92,246,0.1);color:#8b5cf6;font-weight:700;">🤖 Chef AI</span>' +
-        '<span style="font-size:10px;color:' + confColor + ';font-weight:700;">' + confPct + '% confidence</span>' +
+        '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(139,92,246,0.1);color:#8b5cf6;font-weight:700;">&#x1F916; Chef AI</span>' +
+        (isProductionReport ? '<span style="font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(22,163,74,0.1);color:#16a34a;font-weight:700;">' + intent.replace('_', ' ') + '</span>' : '<span style="font-size:10px;color:' + confColor + ';font-weight:700;">' + confPct + '% confidence</span>') +
       '</div>' +
     '</div>' +
 
-    // Messaggio originale (collassato)
     (item.body ? '<div style="font-size:14px;color:#64748b;padding:0 14px 8px;font-style:italic;line-height:1.4;border-bottom:0.5px solid rgba(30,58,95,0.06);">' + item.body + '</div>' : '') +
 
-    // Soluzione proposta — il cuore della card Chef AI
-    '<div style="margin:10px 14px 8px;padding:12px 14px;background:linear-gradient(135deg,rgba(30,58,95,0.04),rgba(37,99,235,0.06));border:0.5px solid rgba(37,99,235,0.15);border-radius:12px;">' +
-      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
-        '<span style="font-size:14px;">🤖</span>' +
-        '<div style="font-size:11px;font-weight:700;color:#2563eb;letter-spacing:.04em;">PROPOSTA CHEF AI</div>' +
-        (draftsCount > 0 ? '<span style="font-size:10px;background:rgba(37,99,235,0.1);color:#1d4ed8;border-radius:20px;padding:1px 7px;font-weight:700;">' + draftsCount + ' azione' + (draftsCount > 1 ? 'i' : '') + '</span>' : '') +
-      '</div>' +
-      '<div style="font-size:15px;color:#1e3a5f;line-height:1.5;font-weight:500;">' + (rr.proposed_solution || '') + '</div>' +
-    '</div>' +
-
-    // One question (se presente)
+    hoCapitoBlock +
+    proposalBlock +
     questionBadge +
-
-    // Bottoni
     buttonsHtml +
 
-    // Root cause (piccolo, sotto)
-    (rr.root_cause ? '<div style="padding:0 14px 6px;font-size:11px;color:#94a3b8;">Causa: ' + rr.root_cause + '</div>' : '') +
+    (rr.root_cause && !isProductionReport ? '<div style="padding:0 14px 6px;font-size:11px;color:#94a3b8;">Causa: ' + rr.root_cause + '</div>' : '') +
 
-    // Meta
     '<div style="padding:0 14px 10px;font-size:12px;color:#94a3b8;display:flex;justify-content:space-between;">' +
       '<span>' + ts + '</span>' +
       '<span style="color:#c4b5fd;">' + (rr.model_used || '') + '</span>' +
@@ -3273,6 +3353,7 @@ function officeRenderJarvisCard(item) {
 
   '</div>';
 }
+
 
 // ── Azione Chef AI — gestisce approve/reject/edit/ask_question ──
 window.jarvisAction = async function(itemId, action) {
