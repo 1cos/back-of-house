@@ -3288,15 +3288,31 @@ function officeRenderJarvisCard(item) {
     danger: 'flex:1;padding:10px 0;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:0.5px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.05);color:#ef4444;'
   };
 
-  // Per production_report: bottone Approva corto + riga quantita + bottone Correggi
+  // Bottoni: production_report usa logica confidence-based
+  // confidence >= 0.85 -> "Si Chef" diretto + "Verifica" piccolo
+  // confidence < 0.85  -> "Apri dettaglio" + "Verifica ragionamento"
   var apNewTotal2 = rr.new_total_claimed != null ? rr.new_total_claimed : (rr.write_plan && rr.write_plan.new_value != null ? rr.write_plan.new_value : null);
   var apUnit2 = rr.unit || '';
-  var approvaHtml = isProductionReport
-    ? '<button onclick="jarvisAction(\'' + escapedId + '\',\'approve_all\')" style="' + styleMap.primary + 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;">'
-        + '<span style="font-size:14px;font-weight:700;">&#x2713; Aggiorna stock</span>'
-        + (apNewTotal2 != null ? '<span style="font-size:11px;font-weight:600;opacity:0.85;">' + apNewTotal2 + (apUnit2 ? ' ' + apUnit2 : '') + '</span>' : '')
-        + '</button>'
-    : '<button onclick="jarvisAction(\'' + escapedId + '\',\'approve_all\')" style="' + styleMap.primary + '">' + approvaLabel + '</button>';
+  var apPrep2 = rr.prep_candidate || '';
+  var highConf = confidence >= 0.85;
+  var approvaHtml;
+  if (isProductionReport) {
+    var siChefLabel = '<span style="font-size:14px;font-weight:700;">&#x2713; Si Chef</span>'
+      + (apNewTotal2 != null ? '<span style="font-size:11px;font-weight:600;opacity:0.85;">' + (apPrep2 ? apPrep2 + ' ' : '') + apNewTotal2 + (apUnit2 ? ' ' + apUnit2 : '') + '</span>' : '');
+    if (highConf) {
+      // Confidence alta: esecuzione diretta
+      approvaHtml = '<button onclick="jarvisDirectExecute(\'' + escapedId + '\')" style="' + styleMap.primary + 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;">'
+        + siChefLabel + '</button>';
+    } else {
+      // Confidence bassa: apre approval sheet
+      approvaHtml = '<button onclick="jarvisAction(\'' + escapedId + '\',\'approve_all\')" style="' + styleMap.primary + 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;">'
+        + '<span style="font-size:14px;font-weight:700;">Apri dettaglio</span>'
+        + (apNewTotal2 != null ? '<span style="font-size:11px;font-weight:600;opacity:0.85;">' + (apPrep2 ? apPrep2 + ' ' : '') + apNewTotal2 + (apUnit2 ? ' ' + apUnit2 : '') + '</span>' : '')
+        + '</button>';
+    }
+  } else {
+    approvaHtml = '<button onclick="jarvisAction(\'' + escapedId + '\',\'approve_all\')" style="' + styleMap.primary + '">' + approvaLabel + '</button>';
+  }
 
   var followUpOptions = rr.follow_up_options || [];
   var secondaryBtns = [];
@@ -3327,10 +3343,19 @@ function officeRenderJarvisCard(item) {
     }
   }
 
+  var verificaBtn = '<button onclick="jarvisShowReasoning(\'' + escapedId + '\')" style="padding:10px 14px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;border:0.5px solid rgba(139,92,246,0.2);background:rgba(139,92,246,0.06);color:#7c3aed;white-space:nowrap;" title="Mostra ragionamento">&#x1F50D; Verifica</button>';
   var buttonsHtml = '<div style="display:flex;flex-direction:column;gap:6px;padding:0 14px 8px;">';
-  buttonsHtml += '<div style="display:flex;gap:6px;">' + approvaHtml + '</div>';
-  if (secondaryBtns.length > 0) buttonsHtml += '<div style="display:flex;gap:6px;">' + secondaryBtns.join('') + '</div>';
-  buttonsHtml += '<button onclick="jarvisShowReasoning(\'' + escapedId + '\')" style="align-self:flex-end;width:36px;height:36px;border-radius:10px;font-size:16px;cursor:pointer;border:0.5px solid rgba(139,92,246,0.2);background:rgba(139,92,246,0.06);" title="Mostra ragionamento">&#x1F50D;</button>';
+  if (isProductionReport && highConf) {
+    // Confidence alta: Si Chef diretto su tutta la larghezza, Verifica + secondari sotto
+    buttonsHtml += '<div style="display:flex;gap:6px;">' + approvaHtml + '</div>';
+    var row2 = secondaryBtns.join('') + verificaBtn;
+    buttonsHtml += '<div style="display:flex;gap:6px;">' + row2 + '</div>';
+  } else {
+    // Confidence bassa o non-production: layout standard
+    buttonsHtml += '<div style="display:flex;gap:6px;">' + approvaHtml + '</div>';
+    if (secondaryBtns.length > 0) buttonsHtml += '<div style="display:flex;gap:6px;">' + secondaryBtns.join('') + '</div>';
+    buttonsHtml += '<div style="display:flex;justify-content:flex-end;">' + verificaBtn + '</div>';
+  }
   buttonsHtml += '</div>';
 
   return '<div data-item-id="' + item.id + '" style="background:white;border:0.5px solid rgba(139,92,246,0.15);border-left:' + borderLeft + ';border-radius:16px;margin:0 12px 8px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.07),0 6px 16px rgba(139,92,246,0.05);">' +
@@ -3366,6 +3391,96 @@ function officeRenderJarvisCard(item) {
 
 
 // ── Azione Chef AI — gestisce approve/reject/edit/ask_question ──
+// ── Esecuzione diretta senza approval sheet (confidence alta) ──
+window.jarvisDirectExecute = async function(itemId) {
+  var sb = window.supa;
+  if (!sb) return;
+  var byName = (window.currentUser || window.user || {}).name || 'Max';
+
+  // Mostra feedback visivo immediato sulla card
+  var card = document.querySelector('[data-item-id="' + itemId + '"]');
+  var execBtn = card ? card.querySelector('button[onclick*="jarvisDirectExecute"]') : null;
+  if (execBtn) { execBtn.disabled = true; execBtn.textContent = 'Esecuzione...'; }
+
+  try {
+    // Carica action_drafts pending — se vuoti li sintetizza dal reasoning_result
+    var { data: drafts } = await sb.from('chef_ai_action_drafts').select('*').eq('office_item_id', itemId).eq('status', 'pending');
+    if (!drafts || drafts.length === 0) {
+      var { data: officeItem } = await sb.from('office_items').select('reasoning_result').eq('id', itemId).maybeSingle();
+      var rr = officeItem && officeItem.reasoning_result ? officeItem.reasoning_result : null;
+      var intent = rr ? (rr.intent || rr.issue_type || '') : '';
+      var isProductionReport = (intent === 'production_report' || intent === 'stock_count');
+      var effectiveWritePlan = rr ? (rr.write_plan || (isProductionReport && rr.new_total_claimed != null ? {
+        table: 'prep_tasks', field: 'current_stock',
+        new_value: rr.new_total_claimed, row: rr.prep_candidate || '', unit: rr.unit || ''
+      } : null)) : null;
+      if (rr && isProductionReport && effectiveWritePlan) {
+        var wp = effectiveWritePlan;
+        var synthDraft = {
+          office_item_id: itemId,
+          action_type: 'update_prep_stock',
+          payload: {
+            prep_name: rr.prep_candidate || wp.row || '',
+            new_value: rr.new_total_claimed != null ? rr.new_total_claimed : wp.new_value,
+            unit: rr.unit || '',
+            field: wp.field || 'current_stock',
+            table: wp.table || 'prep_tasks',
+            produced_qty: rr.produced_qty,
+            previous_stock_claimed: rr.previous_stock_claimed,
+            new_total_claimed: rr.new_total_claimed,
+            reporter: rr.reporter || '',
+            station: rr.station || ''
+          },
+          risk_level: 'medium', requires_approval: true, status: 'pending'
+        };
+        var { data: inserted } = await sb.from('chef_ai_action_drafts').insert(synthDraft).select();
+        drafts = inserted || [];
+      }
+    }
+    if (!drafts || drafts.length === 0) {
+      if (typeof showScToast === 'function') showScToast('Nessuna azione da eseguire');
+      if (execBtn) { execBtn.disabled = false; execBtn.textContent = '✓ Si Chef'; }
+      return;
+    }
+
+    // Esegue tutti i draft in sequenza
+    var now = new Date().toISOString();
+    var executedCount = 0;
+    for (var di = 0; di < drafts.length; di++) {
+      var draft = drafts[di];
+      try {
+        var result = await jarvisExecuteDraft(sb, draft);
+        await sb.from('chef_ai_action_drafts').update({ status: 'executed', approved_by: byName, approved_at: now, executed_at: now }).eq('id', draft.id);
+        await sb.from('chef_ai_audit_log').insert({ action_draft_id: draft.id, office_item_id: itemId, action_type: draft.action_type, result: result, executed_by: 'jarvis-reason', approved_by: byName, approved_at: now, executed_at: now });
+        executedCount++;
+      } catch(e) {
+        await sb.from('chef_ai_action_drafts').update({ status: 'failed', error_message: e.message }).eq('id', draft.id);
+        if (typeof showScToast === 'function') showScToast('Errore: ' + e.message);
+      }
+    }
+
+    // Chiude la card con animazione
+    await sb.from('office_items').update({
+      jarvis_status: 'executed', chef_action: 'done',
+      chef_action_at: now, chef_action_by: byName,
+      status: 'resolved', resolution: 'jarvis_direct_' + executedCount,
+      resolved_by: byName, resolved_at: now
+    }).eq('id', itemId);
+
+    if (card) {
+      card.style.transition = 'all 0.3s ease';
+      card.style.opacity = '0';
+      card.style.transform = 'translateX(-30px)';
+      setTimeout(function() { card.remove(); }, 320);
+    }
+    if (typeof showScToast === 'function') showScToast('Si Chef — fatto');
+
+  } catch(e) {
+    if (typeof showScToast === 'function') showScToast('Errore: ' + e.message);
+    if (execBtn) { execBtn.disabled = false; execBtn.textContent = '✓ Si Chef'; }
+  }
+};
+
 window.jarvisAction = async function(itemId, action) {
   var sb = window.supa;
   if (!sb) return;
