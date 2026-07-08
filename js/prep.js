@@ -1044,12 +1044,45 @@ function openDoneSheet(id){
 function openDoneSheetCustom(id){
   const it=tasks[id];
   const taskUnit=(it.unit||'').toLowerCase();
-  const defaultPezzi = ['pezzi','pz','each','pieces','pcs'].includes(taskUnit);
+  const PIECE_UNITS = ['pezzi','pz','each','pieces','pcs'];
+  const WEIGHT_UNITS = ['g','kg','oz','lb'];
+  const NATIVE_UNITS = ['nests','buste','cup','filetto','mazzi']; // unità fisiche native non-g non-pz
+  const defaultPezzi = PIECE_UNITS.includes(taskUnit);
+  const defaultNative = NATIVE_UNITS.includes(taskUnit); // nests, buste, cup, ecc.
   const defQty = it.suggested_qty!=null ? parseFloat(it.suggested_qty) : (it.average_qty!=null ? parseFloat(it.average_qty) : 0);
-  const defUnit = defaultPezzi ? 'pz' : 'g';
+  // defUnit: usa sempre l'unità del prep_task se riconosciuta, fallback g
+  const defUnit = defaultNative ? taskUnit : (defaultPezzi ? 'pz' : 'g');
+  // Etichetta leggibile per unità native
+  const nativeLabel = taskUnit === 'nests' ? 'Nests' : taskUnit === 'buste' ? 'Buste' : taskUnit === 'cup' ? 'Cup' : taskUnit === 'filetto' ? 'Filetto' : taskUnit;
   // Today log banner
   const tlogs = getTodayLogsFor(it.name);
   const todayBanner = tlogs.length > 0 ? buildTodayLogBanner(tlogs) : '';
+  // Layout bottoni: se unità nativa → 3 colonne (g, nativa, pz); altrimenti 2 colonne (g, pz)
+  const btnGrid = defaultNative
+    ? `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+        <button id="dsc-btn-g-${it.id}" onclick="dscSelect('${it.id}','g')"
+          style="height:52px;border-radius:14px;font-size:14px;font-weight:600;border:2px solid #e2e8f0;background:#f8fafc;color:#94a3b8;">
+          ${tr('prep_grams')}
+        </button>
+        <button id="dsc-btn-native-${it.id}" onclick="dscSelect('${it.id}','${taskUnit}')"
+          style="height:52px;border-radius:14px;font-size:14px;font-weight:600;border:2px solid #059669;background:#059669;color:#fff;">
+          ${nativeLabel}
+        </button>
+        <button id="dsc-btn-pz-${it.id}" onclick="dscSelect('${it.id}','pz')"
+          style="height:52px;border-radius:14px;font-size:14px;font-weight:600;border:2px solid #e2e8f0;background:#f8fafc;color:#94a3b8;">
+          ${tr('prep_pieces')}
+        </button>
+      </div>`
+    : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+        <button id="dsc-btn-g-${it.id}" onclick="dscSelect('${it.id}','g')"
+          style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid ${defaultPezzi?'#e2e8f0':'#059669'};background:${defaultPezzi?'#f8fafc':'#059669'};color:${defaultPezzi?'#94a3b8':'#fff'};">
+          ${tr('prep_grams')}
+        </button>
+        <button id="dsc-btn-pz-${it.id}" onclick="dscSelect('${it.id}','pz')"
+          style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid ${defaultPezzi?'#059669':'#e2e8f0'};background:${defaultPezzi?'#059669':'#f8fafc'};color:${defaultPezzi?'#fff':'#94a3b8'};">
+          ${tr('prep_pieces')}
+        </button>
+      </div>`;
   const sheet=document.createElement('div');
   sheet.className='fixed inset-0 z-50 flex items-end';
   sheet.style.background='rgba(0,0,0,0.5)';
@@ -1061,16 +1094,7 @@ function openDoneSheetCustom(id){
     <input id="dsc-qty-${it.id}" type="number" inputmode="decimal" value="${isNaN(defQty)?0:defQty}" placeholder="0"
       style="width:100%;font-size:32px;font-weight:700;color:#1e3a5f;text-align:center;border:none;border-bottom:2px solid #1e3a5f;outline:none;padding:8px 0;margin-bottom:24px;background:transparent;">
     <input type="hidden" id="dsc-unit-${it.id}" value="${defUnit}">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
-      <button id="dsc-btn-g-${it.id}" onclick="dscSelect('${it.id}','g')"
-        style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid ${defaultPezzi?'#e2e8f0':'#059669'};background:${defaultPezzi?'#f8fafc':'#059669'};color:${defaultPezzi?'#94a3b8':'#fff'};">
-        ${tr('prep_grams')}
-      </button>
-      <button id="dsc-btn-pz-${it.id}" onclick="dscSelect('${it.id}','pz')"
-        style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid ${defaultPezzi?'#059669':'#e2e8f0'};background:${defaultPezzi?'#059669':'#f8fafc'};color:${defaultPezzi?'#fff':'#94a3b8'};">
-        ${tr('prep_pieces')}
-      </button>
-    </div>
+    ${btnGrid}
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;">
       <button onclick="this.closest('.fixed').remove()" style="height:46px;border-radius:14px;background:#f1f5f9;color:#64748b;font-size:14px;border:none;">${tr('prep_cancel')}</button>
       <button onclick="doneSheetConfirm('${it.id}',this)" style="height:46px;border-radius:14px;background:#1e3a5f;color:white;font-size:14px;font-weight:600;border:none;">${tr('prep_done')}</button>
@@ -1084,16 +1108,16 @@ function openDoneSheetCustom(id){
 window.dscSelect = function(id, unit){
   const unitInput = document.getElementById('dsc-unit-'+id);
   if(unitInput) unitInput.value = unit;
-  const btnG = document.getElementById('dsc-btn-g-'+id);
-  const btnPz = document.getElementById('dsc-btn-pz-'+id);
-  if(!btnG||!btnPz) return;
-  if(unit==='g'){
-    btnG.style.background='#059669'; btnG.style.color='#fff'; btnG.style.borderColor='#059669';
-    btnPz.style.background='#f8fafc'; btnPz.style.color='#94a3b8'; btnPz.style.borderColor='#e2e8f0';
-  } else {
-    btnPz.style.background='#059669'; btnPz.style.color='#fff'; btnPz.style.borderColor='#059669';
-    btnG.style.background='#f8fafc'; btnG.style.color='#94a3b8'; btnG.style.borderColor='#e2e8f0';
-  }
+  const btnG      = document.getElementById('dsc-btn-g-'+id);
+  const btnPz     = document.getElementById('dsc-btn-pz-'+id);
+  const btnNative = document.getElementById('dsc-btn-native-'+id);
+  const ON  = {background:'#059669', color:'#fff',   borderColor:'#059669'};
+  const OFF = {background:'#f8fafc', color:'#94a3b8', borderColor:'#e2e8f0'};
+  const applyStyle = (btn, active) => { if(!btn) return; Object.assign(btn.style, active ? ON : OFF); };
+  // Tre bottoni possibili — solo uno attivo alla volta
+  applyStyle(btnG,      unit==='g');
+  applyStyle(btnPz,     unit==='pz');
+  applyStyle(btnNative, btnNative && unit !== 'g' && unit !== 'pz');
 };
 
 // ── Banner errore salvataggio — visibile a chiunque, non solo in console ──
@@ -1566,6 +1590,7 @@ function _chefAiPrepPanelHtml(a, prepName){
     +'</div>'
   +'</div>';
 }
+
 
 
 
