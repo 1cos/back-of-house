@@ -443,6 +443,18 @@ async function openRecipeEditor(rec=null){
     }catch(e){ console.error('[Steps] load error:', e); }
   }
 
+  // Pre-compute depletion section vars (dynamic title/desc based on recipe type)
+  const _mg = (rec?.menu_group||'').toLowerCase();
+  const _isModifier = _mg==='salads'||_mg==='sauces'||_mg==='condiments'||!!((rec?.pos_name||'').match(/balsamic|citronette|ranch|caesar|dressing/i));
+  const _deplTitle    = _isModifier ? 'Avanzato — Modifier Depletion' : 'Avanzato — POS Depletion';
+  const _deplDesc     = _isModifier
+    ? 'Ogni modifier POS collegato scarica questa quantità. Es: cliente sceglie "+Balsamic" → scarica <b>74g</b> di Balsamic Dressing.'
+    : 'Ogni vendita POS scarica questa quantità dalla prep collegata. Es: vendita Tiramisu → scarica <b>1 pezzo</b>.';
+  const _deplLabel    = _isModifier ? 'Qty scaricata per modifier' : 'Qty scaricata per vendita POS';
+  const _deplPlh      = _isModifier ? 'es. 74' : 'es. 1';
+  const _deplCfg      = rec?.serving_qty ? '('+rec.serving_qty+(rec?.serving_unit?' '+rec.serving_unit:'')+')' : '(non configurato)';
+  const _deplExamples = _isModifier ? 'Balsamic=74g · Citronette=78g · Ranch=74g · Caesar=~74g (stimato)' : 'Tiramisu=1pz · Crème Brülée=1pz · Fettuccine=2nests · Lobster=1filetto';
+
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML = `<div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col">
@@ -492,7 +504,7 @@ async function openRecipeEditor(rec=null){
           </div>
           <div>
             <div style="font-size:11px;font-weight:600;color:#7c3aed;margin-bottom:4px;">Grandezza finale prodotto</div>
-            <input id="rYield" placeholder="es. 2 LT · 5 kg · 1 tray · 40 pezzi" class="w-full px-3 py-2 border rounded-xl" value="${rec?.yield_text||rec?.yield||''}">
+            <input id="rYield" placeholder="es. 2 LT · 5 kg · 1 tray · 40 pezzi" class="w-full px-3 py-2 border rounded-xl" value="${(()=>{ const yt=(rec?.yield_text||rec?.yield||'').trim(); const bs=rec?.base_servings; if(!yt) return ''; if(bs && (yt===String(bs)+' porzioni'||yt===bs+'  porzioni'||yt.match(/^\d+\s+porzioni?/i)&&parseInt(yt)===bs)) return ''; return yt; })()}">
             <div style="font-size:10px;color:#94a3b8;margin-top:3px;">Volume o formato totale del batch finito</div>
           </div>
         </div>
@@ -513,21 +525,19 @@ async function openRecipeEditor(rec=null){
         </div>
       </div>
 
-      <!-- ── AVANZATO: BOT & MODIFIER DEPLETION ─────────────── -->
+      <!-- ── AVANZATO: POS / MODIFIER DEPLETION ──────────────── -->
       <details style="border:1px solid #d1fae5;border-radius:12px;overflow:hidden;">
         <summary style="padding:10px 14px;font-size:12px;font-weight:700;color:#059669;background:#f0fdf4;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:14px;">🤖</span>
-          <span>Avanzato — Bot &amp; Modifier Depletion</span>
-          <span style="font-size:10px;font-weight:400;color:#6b7280;margin-left:4px;">${rec?.serving_qty ? '('+rec.serving_qty+(rec?.serving_unit?' '+rec.serving_unit:'')+' configurato)' : '(non configurato)'}</span>
+          <span id="deplSummaryTitle">${_deplTitle}</span>
+          <span style="font-size:10px;font-weight:400;color:#6b7280;margin-left:4px;">${_deplCfg}</span>
         </summary>
         <div style="padding:12px;background:#f8fffe;">
-          <div style="font-size:11px;color:#6b7280;margin-bottom:8px;line-height:1.5;">
-            Usato dal bot per scaricare ingredienti/prep. Per le <b>dressing</b>, serving_qty è la quantità da scaricare per ogni modifier POS (es. 74g quando il cliente sceglie "Balsamic"). Per ricette a pezzi (Tiramisu), è la qty per POS sale.
-          </div>
+          <div style="font-size:11px;color:#6b7280;margin-bottom:8px;line-height:1.5;" id="deplSummaryDesc">${_deplDesc}</div>
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <div class="text-xs text-slate-500 mb-1">Qty per modifier / porzione venduta</div>
-              <input id="rServingQty" type="number" min="0" step="0.5" placeholder="es. 74" class="w-full px-3 py-2 border rounded-xl" value="${rec?.serving_qty||''}">
+              <div class="text-xs text-slate-500 mb-1">${_deplLabel}</div>
+              <input id="rServingQty" type="number" min="0" step="0.5" placeholder="${_deplPlh}" class="w-full px-3 py-2 border rounded-xl" value="${rec?.serving_qty||''}">
             </div>
             <div>
               <div class="text-xs text-slate-500 mb-1">Unità</div>
@@ -537,9 +547,7 @@ async function openRecipeEditor(rec=null){
               </select>
             </div>
           </div>
-          <div style="font-size:10px;color:#94a3b8;margin-top:6px;">
-            Es: Balsamic = 74 g · Citronette = 78 g · Fettuccine = 2 nests · Lobster = 1 filetto · Tiramisu = 1 pezzi
-          </div>
+          <div style="font-size:10px;color:#94a3b8;margin-top:6px;">${_deplExamples}</div>
         </div>
       </details>
 
@@ -548,23 +556,21 @@ async function openRecipeEditor(rec=null){
         <summary style="padding:10px 14px;font-size:12px;font-weight:700;color:#64748b;background:#f8fafc;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;">
           <span style="font-size:14px;">💰</span>
           <span>Avanzato — Costing &amp; Scheduling</span>
-          <span style="font-size:10px;font-weight:400;color:#94a3b8;margin-left:4px;">(prezzo · peso totale · prep ogni N giorni)</span>
+          <span style="font-size:10px;font-weight:400;color:#94a3b8;margin-left:4px;">(prezzo · prep ogni N giorni)</span>
         </summary>
         <div style="padding:12px;">
-          <div class="grid grid-cols-3 gap-2">
+          <div class="grid grid-cols-2 gap-2">
             <div>
               <div class="text-xs text-slate-500 mb-1">${tr('sellingPrice')}</div>
               <input id="rPrice" type="number" step="0.01" placeholder="0.00" class="w-full px-3 py-2 border rounded-xl" value="${rec?.selling_price||''}">
-            </div>
-            <div>
-              <div class="text-xs text-slate-500 mb-1">Peso totale batch (kg)</div>
-              <input id="rWeightKg" type="number" min="0" step="0.01" placeholder="es. 5.5" class="w-full px-3 py-2 border rounded-xl" value="${rec?.base_weight_g ? (rec.base_weight_g/1000).toFixed(3).replace(/\.?0+$/,'') : ''}">
             </div>
             <div>
               <div class="text-xs text-slate-500 mb-1">${tr('prepEvery')}</div>
               <input id="rPrepFreq" type="number" min="1" placeholder="es. 7" class="w-full px-3 py-2 border rounded-xl" value="${rec?.prep_frequency_days||''}">
             </div>
           </div>
+          ${rec?.base_weight_g ? `<div style="margin-top:8px;font-size:11px;color:#94a3b8;">Peso tecnico batch: <b>${(rec.base_weight_g/1000).toFixed(2).replace(/\.?0+$/,'')} kg</b> — calcolato dagli ingredienti</div>` : ''}
+          <input id="rWeightKg" type="hidden" value="${rec?.base_weight_g ? (rec.base_weight_g/1000).toFixed(3).replace(/\.?0+$/,'') : ''}">
         </div>
       </details>
 
@@ -759,10 +765,18 @@ async function openRecipeEditor(rec=null){
     const yieldTxt = (rYieldInput?.value||'').trim();
     if(!resaSummary) return;
     const parts = [];
-    if(portions) parts.push('Produce <b>' + portions + ' porzioni / pezzi</b>');
-    if(yieldTxt) parts.push('Grandezza finale: <b>' + yieldTxt + '</b>');
+    // A: solo Nr. porzioni
+    if(portions && !yieldTxt) parts.push('Produce <b>' + portions + ' porzioni / pezzi</b>');
+    // B: solo Grandezza finale
+    else if(!portions && yieldTxt) parts.push('Produce <b>' + yieldTxt + '</b> finali');
+    // C: entrambi (solo se Grandezza finale aggiunge info, non è solo "N porzioni")
+    else if(portions && yieldTxt) {
+      const isDuplicate = yieldTxt.match(/^\d+\s+porzioni?/i) && parseInt(yieldTxt) === portions;
+      if(isDuplicate) parts.push('Produce <b>' + portions + ' porzioni / pezzi</b>');
+      else parts.push('Produce <b>' + portions + ' porzioni</b> · Grandezza finale: <b>' + yieldTxt + '</b>');
+    }
     if(parts.length){
-      resaSummary.innerHTML = '📐 ' + parts.join(' · ');
+      resaSummary.innerHTML = '📐 ' + parts[0];
       resaSummary.style.display = 'block';
     } else {
       resaSummary.style.display = 'none';
@@ -2503,6 +2517,7 @@ window.openBOMRecipeAudit = async function(){
     document.getElementById('bomAuditBody').innerHTML = `<div style="color:#dc2626;font-size:13px;">Errore: ${e.message}</div>`;
   }
 };
+
 
 
 
