@@ -264,3 +264,158 @@ Dedicated simplified home per `user.default_station === 'Dish Crew'`:
 | 7 lug 2026 | v543→v570 | Pipeline POS Bot completa (pos-cleaner, direct-deduction, bom-chain, consolidator), La Dispensa v1, BOM fix Wagyu/Meatball |
 | 8 lug 2026 | v570→v573 | Stock Consolidator v6 (prep_log loaded_qty), direct-deduction v4 (direct_parent_prep_task), La Dispensa light theme + load-only UI, serving_qty 14 recipe fix |
 
+
+| 8 lug 2026 (sessione 2) | v574→v586 | Recipe editor Fase 1 UI, Modifier Depletion Audit Fase 2, Unit Normalizer Phase 2.1 |
+
+---
+
+## SESSIONE 8 LUGLIO 2026 (sera) — v574→v586
+
+### Stato all'inizio sessione
+- sw.js: boh-v583 (versione live trovata)
+- Recipe editor ancora mostrava label tecniche: baseServings, totalWeight, yieldText
+
+---
+
+### 1. Recipe Editor Fase 1 UI — COMPLETATA (v584→v585)
+
+**Problema:** Editor mostrava label da DB non da cuoco.
+
+**Fix deployato (v584):**
+- Sezione viola "📐 Resa della ricetta" con due campi: Nr. porzioni + Grandezza finale prodotto
+- Riepilogo leggibile live ("Produce 10 porzioni · Grandezza finale: 2 LT")
+- Prep time + Shelf life visibili direttamente
+- Bot section: collassata in `<details>` (serving_qty/unit ancora funzionali)
+- Costing section: collassata (prezzo, prep ogni N giorni)
+
+**Fix v585 — raffinamenti:**
+- `rYield` sopprime yield_text se ridondante con base_servings (es. "10 porzioni" quando base_servings=10)
+- Titolo Bot section dinamico: "Avanzato — Modifier Depletion" per Salads/Sauces, "Avanzato — POS Depletion" per il resto (calcolato con `_deplTitle` pre-computato PRIMA di modal.innerHTML)
+- "Peso totale batch" rimosso come input — read-only se base_weight_g esiste
+- updateResaSummary: logica A/B/C/D (porzioni sole, grandezza sola, entrambe, vuoto)
+
+**Acceptance criteria:**
+- Tiramisu: Nr.porzioni=10, Grandezza vuota, summary "Produce 10 porzioni / pezzi" ✅
+- Balsamic: Nr.porzioni vuoto, Grandezza=2LT, summary "Produce 2 LT finali" ✅
+- Zero bot changes, zero DB migration ✅
+- Tutti gli id (#rServings, #rYield, #rTime, ecc.) invariati ✅
+
+---
+
+### 2. Modifier Depletion Audit Fase 2 — COMPLETATA (solo lab/doc, nessun DB)
+
+**Dati reali dal DB:** 650+ modifier unici, ~15.789 usi in 60gg
+
+**Classificazione:**
+| Cat | Tipo | Usi | Note |
+|---|---|---|---|
+| A | DEPLETION | ~2.620 | 4 dressing + proteine + contorni + pasta |
+| B | PREFERENCE | ~1.048 | Allergie, temperature, esclusioni |
+| C | KITCHEN OP | ~456 | Timing, deshell, split, togo |
+| D | NOISE/BAR | ~11.665 | 9.135 blank, spirits, timestamp "Fired at..." |
+
+**Dressing numeri riconciliati (60gg):**
+| Modifier | Usi | qty/use | Consumo | Confidence |
+|---|---|---|---|---|
+| Caesar | 312 | ⚠️ N/D | N/D | 🔴 REVIEW |
+| citronette | 195 | 78g | 15.2 kg | 🟡 estimated |
+| Balsamic | 151 | 74g/59g | 11.2-8.9 kg | 🟡 estimated |
+| Ranch | 86 | 74g/59g | 6.4-5.1 kg | 🟡 estimated |
+| **Totale senza Caesar** | | | **32.7 kg certi** | |
+
+**Discrepanza aperta Balsamic/Ranch:** serving_qty in DB = 74g ma 2 fl oz standard = 59.15g. Delta: 14.85g/servizio. Il ramekin è da 2 o 2.5 fl oz?
+
+**OQR aperta (priorità Fase 2.2):**
+Caesar Dressing: quanti grammi per salad? A) 74g  B) 60g  C) 1 squeezer = ?g
+
+**Bot audit:** tutti i bot (direct-deduction, bom-chain, preplist-builder) scaricano ZERO dressing modifier. Il consumo non viene mai tracciato.
+
+**Deliverable:**
+- `MODIFIER_DEPLETION_AUDIT.md`
+- `proposed_pos_modifier_depletion_rules.sql` (schema v2 + 4 righe dressing, active=false)
+- `modifier-depletion-lab.jsx` (Lab UI React)
+
+---
+
+### 3. Unit Normalizer Phase 2.1 — COMPLETATA (v586)
+
+**File pushato:** `js/unit-normalizer.js` su brigade-main
+
+**Filosofia:** il cuoco scrive nella misura che conosce. La app converte. Mai chiedere al cuoco quanti grammi sono 2 fl oz.
+
+**API pubblica:**
+```js
+normalizeQty(qty, unit, density=1.0)
+  → { normalized_g, normalized_ml, display_g, display_ml, unit_type }
+
+calcPortions(stockQty, stockUnit, portionQty, portionUnit, density)
+  → { portions, sb, pb }
+
+calcBatches(stockQty, stockUnit, batchQty, batchUnit)
+buildModifierRule(canonical, qty, unit, display, density, usage_mode, recipe_id)
+convertQty(qty, from, to, density)
+formatQty(value, unit)   // auto: 5000g→"5 kg", 2000ml→"2 L"
+resolveUnit(unit)        // "lt"→"l", "fl oz"→"fl_oz", "gram"→"g"
+loadConversionsFromDB(supa)  // optional override, static fallback sempre attivo
+```
+
+**11/11 acceptance tests passati:**
+- 2 fl_oz → 59.15g · 59.15ml ✅
+- 5 kg → 5000g · 5000ml ✅
+- 2 L (e alias "lt") → 2000ml · 2000g ✅
+- 5000g ÷ 2fl_oz → 84.5 ramekin ✅
+- 5000g ÷ 2LT → 2.5 batch ✅
+- 2fl_oz density=1.03 → 60.92g ✅
+
+**Static fallback:** tutte le conversioni embedded da unit_conversion_table (DB verificato).
+
+**Scope Phase 2.1:** NON wired a bot, prep, inventory, recipe editor. Solo Lab + schema proposto.
+
+**Schema SQL aggiornato** con colonne normalizzate:
+```sql
+display_qty           text    -- "2 fl oz ramekin" (chef-facing)
+qty_per_modifier      numeric -- 2 (numero digitato)
+unit                  text    -- "fl_oz" (unità originale)
+normalized_qty_ml     numeric -- 59.15 (calcolato dalla app)
+normalized_qty_g      numeric -- 59.15 (calcolato dalla app)
+density_g_per_ml      numeric -- 1.0 default
+usage_mode            text    -- 'fixed_quantity' | 'use_recipe_serving' | 'no_depletion'
+```
+
+**usage_mode:**
+- `fixed_quantity`: dressings — grammi fissi per modifier
+- `use_recipe_serving`: Add Chicken, Meatballs, Scallops → legge serving_qty dalla recipe
+- `no_depletion`: preferenze/istruzioni cucina
+
+---
+
+### Versioni deployate questa sessione
+
+| Versione | Contenuto |
+|---|---|
+| boh-v584 | Recipe editor refactor visivo (sezione Resa viola, Bot/Costing collassati) |
+| boh-v585 | Fix yield duplicate suppress, titolo Bot dinamico, Peso totale read-only |
+| boh-v586 | js/unit-normalizer.js (Phase 2.1 foundation, 11/11 test pass) |
+
+---
+
+### PENDING PROSSIMA SESSIONE
+
+**Immediati:**
+1. **OQR Caesar** — Max deve confermare: quanti grammi Caesar Dressing per salad? (A:74g B:60g C:squeezer=?g)
+2. **OQR ramekin** — 2 fl oz (59g) o 2.5 fl oz (74g) per Balsamic e Ranch?
+3. **Dopo OQR:** creare tabella `pos_modifier_depletion_rules` nel DB (schema pronto in proposed_pos_modifier_depletion_rules.sql)
+
+**Non fare:**
+- Non attivare nessuna `pos_modifier_depletion_rules` (active=false sempre finché non approvato)
+- Non wiring unit-normalizer ai bot live finché Phase 2.2 non completata
+- Non toccare serving_qty/serving_unit sul DB (ancora usate da PATH B bot)
+
+**Backlog confermato (invariato):**
+- La Dispensa Beta polish (Sprint 8 — priorità prima di current_stock)
+- Dish Crew Home Fase 2
+- Stock Consolidator v2 promotion (quando Max approva current_stock writes)
+- 7shifts sync (JWT auth da diagnosticare: aprire Safari Mac Console → Sincronizza → leggere whoami_body)
+- Sales: rimuovere tab "Oggi"
+- Rename Manager → Coordinator
+
