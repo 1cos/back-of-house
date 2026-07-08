@@ -5632,39 +5632,23 @@ function dqChip(label, val) {
 }
 
 // ── Apri Recipe Editor dalla DQ ──
-window.dqOpenRecipe = async function(recipeId) {
-  var sb = window.supa;
-  if (!sb || !recipeId) return;
-
-  // Fetch recipe completo dal DB (openRecipeEditor vuole l'oggetto, non solo l'id)
-  var rec = null;
-  try {
-    var res = await sb.from('recipes').select('*').eq('id', recipeId).single();
-    if (res.error || !res.data) {
-      if (typeof showScToast === 'function') showScToast('Ricetta non trovata');
-      return;
-    }
-    rec = res.data;
-  } catch(err) {
-    if (typeof showScToast === 'function') showScToast('Errore: ' + err.message);
-    return;
-  }
-
-  // Chiudi il panel DQ con animazione slide-down prima di aprire l'editor
+window.dqOpenRecipe = function(recipeId) {
+  if (!recipeId) return;
+  // Chiudi il panel DQ prima
   var panel = document.getElementById('dqPanel');
   if (panel) {
     panel.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1)';
     panel.style.transform = 'translateX(-50%) translateY(100%)';
     setTimeout(function() {
       panel.remove();
-      // Apri editor con oggetto recipe completo — z-index z-[150] è ok senza panel sopra
-      if (typeof openRecipeEditor === 'function') {
-        openRecipeEditor(rec);
+      // Usa officeOpenRecipe: chiude L'Ufficio, va al tab Ricette, fetch record, apre editor
+      if (typeof window.officeOpenRecipe === 'function') {
+        window.officeOpenRecipe(null, recipeId);
       }
     }, 320);
   } else {
-    if (typeof openRecipeEditor === 'function') {
-      openRecipeEditor(rec);
+    if (typeof window.officeOpenRecipe === 'function') {
+      window.officeOpenRecipe(null, recipeId);
     }
   }
 };
@@ -5685,6 +5669,7 @@ window.dqCopyFix = function(idx) {
     });
   }
 };
+
 
 
 
