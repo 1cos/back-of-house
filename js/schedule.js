@@ -412,18 +412,23 @@ function schedSelectDay(idx) {
 }
 
 function schedGetWeekDates() {
-  if (schedAllShifts.length === 0) return [];
   var now = new Date();
   var dow = now.getDay(); // 0=Sun
-  // Calcola lunedì della settimana corrente
+  // Calcola lunedì della settimana corrente (domenica → lunedì prossimo)
   var monday = new Date(now);
-  monday.setDate(now.getDate() + (dow === 0 ? 1 : 1 - dow)); // se domenica → lunedì prossimo; altrimenti lunedì di questa settimana
+  monday.setDate(now.getDate() + (dow === 0 ? 1 : 1 - dow));
   var cutoff = monday.getFullYear() + '-' + String(monday.getMonth()+1).padStart(2,'0') + '-' + String(monday.getDate()).padStart(2,'0');
   var dates = {};
   schedAllShifts.forEach(function(s) { if (s.date && s.date >= cutoff) dates[s.date] = true; });
-  // Se non ci sono date future, mostra tutto (fallback)
+  // Se non ci sono turni nella settimana corrente o futura, genera comunque i giorni
+  // lun–sab della settimana corrente (così la strip mostra sempre today, non il vecchio CSV)
   if (Object.keys(dates).length === 0) {
-    schedAllShifts.forEach(function(s) { if (s.date) dates[s.date] = true; });
+    for (var i = 0; i < 6; i++) {
+      var d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      var ds = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+      dates[ds] = true;
+    }
   }
   return Object.keys(dates).sort();
 }
@@ -1067,3 +1072,4 @@ function sgenRenderWeek(container, weekDates) {
   html += '</div></div>';
   container.innerHTML += html;
 }
+
