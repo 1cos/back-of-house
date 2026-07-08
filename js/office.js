@@ -4700,7 +4700,12 @@ function dispensaRenderSummary() {
 
   var prepRows = snap.filter(function(r){ return r.item_type === 'prep'; }).length;
   var ingRows = snap.filter(function(r){ return r.item_type === 'ingredient'; }).length;
-  var warnRows = snap.filter(function(r){ return r.status === 'warning'; }).length;
+  // Non contare i load-only come warning — hanno status='warning' ma sono informativi
+  var warnRows = snap.filter(function(r){ 
+    return r.status === 'warning' && !(
+      parseFloat(r.loaded_qty||0) > 0 && parseFloat(r.pos_deducted_qty||0) === 0
+    );
+  }).length;
   var totalDeducted = snap.reduce(function(a, r) {
     return a + (r.item_type === 'prep' && (r.unit === 'g' || !r.unit) ? parseFloat(r.pos_deducted_qty||0) : 0);
   }, 0);
@@ -4839,21 +4844,45 @@ function dispensaSnapRow(r, type, snapIdx) {
       '</div>';
   }
 
-  // Riga scarico POS: evidenziata se c'è anche un carico, neutra altrimenti
-  var posColor = loadedQty > 0 ? '#f87171' : '#10b981';
-  var posPrefix = loadedQty > 0 ? '- ' : '';
+  // Riga scarico POS
+  var posQtyVal = parseFloat(r.pos_deducted_qty || 0);
+  var isLoadOnly = loadedQty > 0 && posQtyVal === 0;
+
+  // Badge: se load-only → "Solo carico" info; se warning → warning; else partial
+  var statusBadgeMain = isLoadOnly
+    ? '<span style="background:#dbeafe;color:#1e40af;font-size:11px;padding:2px 7px;border-radius:5px;font-weight:600;">Solo carico</span>'
+    : statusBadge;
+
+  // Riga POS: mostra solo se pos > 0
+  var posLine = '';
+  if (posQtyVal > 0) {
+    var posColor2 = loadedQty > 0 ? '#ef4444' : '#059669';
+    var posPrefix2 = loadedQty > 0 ? '\u2212 ' : '';
+    posLine = '<div style="display:flex;align-items:center;gap:5px;margin-top:3px;">' +
+      '<span style="font-size:13px;color:' + posColor2 + ';font-weight:600;">' + posPrefix2 + qtyDisplay + '</span>' +
+      '<span style="font-size:11px;color:#94a3b8;">POS scaricato</span>' +
+    '</div>';
+  } else if (!isLoadOnly) {
+    // pos=0 e loaded=0: mostra il qty normale
+    posLine = '<div style="margin-top:3px;"><span style="font-size:13px;color:#059669;font-weight:600;">' + qtyDisplay + '</span></div>';
+  }
+
+  // Nota neutra per load-only (invece di warning)
+  var loadOnlyNote = isLoadOnly
+    ? '<div style="font-size:12px;color:#64748b;margin-top:3px;">Nessuno scarico POS trovato oggi</div>'
+    : '';
 
   return '<div style="padding:12px 16px;border-bottom:0.5px solid rgba(59,130,246,0.08);background:rgba(255,255,255,0.5);">' +
     '<div style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;" onclick="dispensaOpenEsploso(\'' + r.item_type + '\',\'' + r.item_id + '\',\'' + safeName + '\',' + (snapIdx !== undefined ? snapIdx : -1) + ')">' +
       '<div style="flex:1;">' +
         '<div style="font-size:16px;font-weight:700;color:#1e3a5f;">' + (name||'\u2014') + '</div>' +
         '<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">' +
-          '<span style="font-size:13px;color:' + posColor + ';font-weight:600;">' + posPrefix + qtyDisplay + '</span>' +
-          statusBadge +
-          '<span style="font-size:11px;color:#94a3b8;">' + sources + ' \u00b7 ' + deducRows + ' righe</span>' +
+          statusBadgeMain +
+          '<span style="font-size:11px;color:#94a3b8;">' + sources + (deducRows && deducRows !== '?' && !isLoadOnly ? ' \u00b7 ' + deducRows + ' righe' : '') + '</span>' +
         '</div>' +
+        posLine +
         loadedLine +
-        warningLine +
+        (isLoadOnly ? loadOnlyNote : warningLine) +
       '</div>' +
       '<span style="color:#94a3b8;font-size:18px;padding-top:2px;">&#x203A;</span>' +
     '</div>' +
@@ -4940,11 +4969,37 @@ async function dispensaLoadEsploso(content, sel) {
     }
 
     if (!rows.length) {
-      content.innerHTML =
-        '<div style="padding:16px 16px 8px;">' +
-          '<div style="font-size:14px;font-weight:600;color:white;margin-bottom:4px;">🧾 ' + sel.itemName + '</div>' +
-          '<div style="font-size:14px;color:#94a3b8;margin-top:4px;">Nessuna deduction trovata per questo item</div>' +
+      // Nessuna deduction POS — controlla se ci sono loaded_logs dallo snapshot
+      var snapRowForEmpty = (sel && sel.snapRow) ? sel.snapRow : null;
+      var emptyLogs = (snapRowForEmpty && snapRowForEmpty.metadata && snapRowForEmpty.metadata.loaded_logs) ? snapRowForEmpty.metadata.loaded_logs : [];
+      var emptyLoadedQty = snapRowForEmpty ? parseFloat(snapRowForEmpty.loaded_qty || 0) : 0;
+      var emptyUnit2 = snapRowForEmpty ? (snapRowForEmpty.unit || '') : '';
+
+      if (emptyLogs.length > 0 || emptyLoadedQty > 0) {
+        var lh = '<div style="padding:14px 16px 20px;">' +
+          '<div style="font-size:17px;font-weight:700;color:#1e3a5f;margin-bottom:10px;">🏪 ' + sel.itemName + '</div>' +
+          '<div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.25);border-radius:12px;padding:12px 14px;margin-bottom:10px;">' +
+            '<div style="font-size:11px;font-weight:700;color:#059669;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">\u2191 Carichi prep_log</div>';
+        if (emptyLoadedQty > 0) lh += '<div style="font-size:16px;font-weight:700;color:#059669;margin-bottom:6px;">+ ' + formatDispQty(emptyLoadedQty, emptyUnit2) + '</div>';
+        lh += emptyLogs.map(function(log) {
+          return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-top:0.5px solid rgba(52,211,153,0.12);">' +
+            '<span style="font-size:13px;font-weight:600;color:#065f46;">' + (log.user||'—') + '</span>' +
+            '<span style="font-size:13px;color:#059669;">' + formatDispQty(log.qty, log.unit || emptyUnit2) + '</span>' +
+            '<span style="font-size:11px;color:#94a3b8;">' + (log.at ? ' · ' + log.at : '') + (log.duration_min ? ' · ' + log.duration_min + 'min' : '') + '</span>' +
+          '</div>';
+        }).join('');
+        lh += '</div>' +
+          '<div style="padding:8px 12px;background:#eff6ff;border-radius:8px;font-size:12px;color:#1d4ed8;line-height:1.5;">' +
+            '\u2139\ufe0f Nessuno scarico POS trovato. Se questo item viene venduto, verifica il mapping recipe \u2194 pos_name.' +
+          '</div>' +
         '</div>';
+        content.innerHTML = lh;
+      } else {
+        content.innerHTML = '<div style="padding:16px;">' +
+          '<div style="font-size:17px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">🧾 ' + sel.itemName + '</div>' +
+          '<div style="font-size:14px;color:#94a3b8;margin-top:6px;">Nessuna deduction POS e nessun carico trovato per questa data.</div>' +
+        '</div>';
+      }
       return;
     }
 
