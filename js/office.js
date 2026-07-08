@@ -5554,14 +5554,40 @@ function dqChip(label, val) {
 }
 
 // ── Apri Recipe Editor dalla DQ ──
-window.dqOpenRecipe = function(recipeId) {
-  document.getElementById('dqPanel')?.remove();
-  // Usa l'editor ricette esistente
-  if (typeof openRecipeEditor === 'function') {
-    openRecipeEditor(recipeId);
-  } else if (typeof goToTab === 'function') {
-    goToTab('ricette');
-    setTimeout(function(){ if(typeof openRecipeEditor==='function') openRecipeEditor(recipeId); }, 400);
+window.dqOpenRecipe = async function(recipeId) {
+  var sb = window.supa;
+  if (!sb || !recipeId) return;
+
+  // Fetch recipe completo dal DB (openRecipeEditor vuole l'oggetto, non solo l'id)
+  var rec = null;
+  try {
+    var res = await sb.from('recipes').select('*').eq('id', recipeId).single();
+    if (res.error || !res.data) {
+      if (typeof showScToast === 'function') showScToast('Ricetta non trovata');
+      return;
+    }
+    rec = res.data;
+  } catch(err) {
+    if (typeof showScToast === 'function') showScToast('Errore: ' + err.message);
+    return;
+  }
+
+  // Chiudi il panel DQ con animazione slide-down prima di aprire l'editor
+  var panel = document.getElementById('dqPanel');
+  if (panel) {
+    panel.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1)';
+    panel.style.transform = 'translateX(-50%) translateY(100%)';
+    setTimeout(function() {
+      panel.remove();
+      // Apri editor con oggetto recipe completo — z-index z-[150] è ok senza panel sopra
+      if (typeof openRecipeEditor === 'function') {
+        openRecipeEditor(rec);
+      }
+    }, 320);
+  } else {
+    if (typeof openRecipeEditor === 'function') {
+      openRecipeEditor(rec);
+    }
   }
 };
 
@@ -5581,4 +5607,5 @@ window.dqCopyFix = function(idx) {
     });
   }
 };
+
 
