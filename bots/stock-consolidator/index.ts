@@ -95,7 +95,12 @@ Deno.serve(async (req: Request) => {
     botRunId = runData?.id ?? null;
 
     // ── Idempotenza ──
-    await supa.from('stock_daily_snapshot').delete().eq('business_date', businessDate);
+    // Run normale: cancella e ricostruisce tutto (deductions + prep_log).
+    // load_only=true: NON cancellare snapshot esistenti — aggiorna solo loaded_qty via merge.
+    //   Questo preserva pos_deducted_qty già consolidato da una run POS precedente.
+    if (!loadOnly) {
+      await supa.from('stock_daily_snapshot').delete().eq('business_date', businessDate);
+    }
     await supa.from('commis_observations').delete()
       .eq('business_date', businessDate).eq('bot_name', BOT_NAME).eq('commis_name', COMMIS_NAME);
 
@@ -452,12 +457,55 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ── STEP 8: Insert snapshot ──
+    // ── STEP 8: Insert / merge snapshot ──
+    // Run normale: INSERT (tabella già svuotata dall'idempotenza sopra).
+    // load_only=true: UPSERT aggiornando solo loaded_qty + metadata.
+    //   pos_deducted_qty, waste_qty, stock_start ecc. rimangono intatti.
+    //   Usa onConflict su (business_date, item_id) se esiste unique constraint,
+    //   altrimenti: per ogni riga cerca snapshot esistente e fa UPDATE solo dei campi carico.
     let rowsWritten = 0;
     if (snapshotRows.length > 0) {
-      const { error: insertErr } = await supa.from('stock_daily_snapshot').insert(snapshotRows);
-      if (insertErr) throw new Error(`snapshot insert: ${insertErr.message}`);
-      rowsWritten = snapshotRows.length;
+      if (!loadOnly) {
+        // Run normale — INSERT diretto (tabella già pulita)
+        const { error: insertErr } = await supa.from('stock_daily_snapshot').insert(snapshotRows);
+        if (insertErr) throw new Error(`snapshot insert: ${insertErr.message}`);
+        rowsWritten = snapshotRows.length;
+      } else {
+        // load_only — per ogni riga: UPDATE loaded_qty se esiste, INSERT se non esiste
+        for (const row of snapshotRows) {
+          if ((row.loaded_qty || 0) === 0) continue; // niente da scrivere
+          // Cerca snapshot esistente per questa prep
+          const { data: existing } = await supa
+            .from('stock_daily_snapshot')
+            .select('id, metadata')
+            .eq('business_date', row.business_date)
+            .eq('item_id', row.item_id)
+            .maybeSingle();
+
+          if (existing) {
+            // UPDATE solo loaded_qty e metadata carico — preserva pos_deducted_qty
+            const mergedMeta = {
+              ...(existing.metadata || {}),
+              loaded_logs_count: row.metadata.loaded_logs_count,
+              loaded_by: row.metadata.loaded_by,
+              last_loaded_at: row.metadata.last_loaded_at,
+              loaded_logs: row.metadata.loaded_logs,
+              consolidator_version: BOT_VERSION,
+            };
+            const { error: updErr } = await supa
+              .from('stock_daily_snapshot')
+              .update({ loaded_qty: row.loaded_qty, metadata: mergedMeta })
+              .eq('id', existing.id);
+            if (updErr) console.warn(`[${BOT_NAME}] load_only update error for ${row.item_id}: ${updErr.message}`);
+            else rowsWritten++;
+          } else {
+            // Snapshot non esiste ancora — INSERT con pos_deducted_qty=0
+            const { error: insErr } = await supa.from('stock_daily_snapshot').insert(row);
+            if (insErr) console.warn(`[${BOT_NAME}] load_only insert error for ${row.item_id}: ${insErr.message}`);
+            else rowsWritten++;
+          }
+        }
+      }
     }
 
     console.log(`[${BOT_NAME}] Wrote ${rowsWritten} snapshot rows, ${skipped} skipped`);
