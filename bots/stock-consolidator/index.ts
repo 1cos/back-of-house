@@ -149,7 +149,7 @@ Deno.serve(async (req: Request) => {
     if (prepLogErr) {
       console.warn(`[${BOT_NAME}] prep_log read error: ${prepLogErr.message}`);
       observations.push({
-        severity: 'warning', category: 'prep_log_read_error',
+        severity: 'warning', category: 'system',
         title: `prep_log read error — ${businessDate}`,
         explanation: `Impossibile leggere prep_log: ${prepLogErr.message}. loaded_qty sarà 0 su tutti gli snapshot.`,
         suggested_action: 'Verificare permessi tabella prep_log e ripetere il run.',
@@ -200,7 +200,7 @@ Deno.serve(async (req: Request) => {
         if (!unitMismatchSentinels.has(obsKey)) {
           unitMismatchSentinels.add(obsKey);
           observations.push({
-            severity: 'warning', category: 'prep_log_no_recipe_id',
+            severity: 'warning', category: 'missing_mapping',
             title: `prep_log senza recipe_id — ${log.item}`,
             explanation: `prep_task "${log.item}" (id=${task.id}) non ha recipe_id. Impossibile creare snapshot: item_id è uuid NOT NULL.`,
             suggested_action: `Collegare "${log.item}" (id=${task.id}) a una ricetta nel Recipe Editor.`,
@@ -226,7 +226,7 @@ Deno.serve(async (req: Request) => {
           if (!unitMismatchSentinels.has(sentinel)) {
             unitMismatchSentinels.add(sentinel);
             observations.push({
-              severity: 'warning', category: 'unit_mismatch_load',
+              severity: 'warning', category: 'bom_warning',
               title: `Unit mismatch carico — ${log.item}: log=${logUnit} vs task=${taskUnit}`,
               explanation: `Impossibile convertire "${logUnit}" in "${taskUnit}". La riga viene scartata da loaded_qty.`,
               suggested_action: `Verificare che il cook registri in ${taskUnit}. Aggiornare il DONE flow se l'unità predefinita è sbagliata.`,
@@ -264,7 +264,7 @@ Deno.serve(async (req: Request) => {
     if (unmatchedItems.size > 0) {
       const names = [...unmatchedItems];
       observations.push({
-        severity: 'warning', category: 'prep_log_unmatched',
+        severity: 'warning', category: 'missing_mapping',
         title: `prep_log: ${names.length} item senza match prep_task — ${names.slice(0, 5).join(', ')}${names.length > 5 ? '...' : ''}`,
         explanation: `${names.length} item di prep_log non hanno trovato un prep_task con nome corrispondente (archived=false). loaded_qty non può essere calcolato per questi item.`,
         suggested_action: `Verificare nomi: ${names.join(', ')}. Se esiste con nome diverso, allineare nome in Brigade.`,
@@ -363,7 +363,7 @@ Deno.serve(async (req: Request) => {
               unitMismatchSentinels.add(sentinel);
               g.warnings.push(`loaded_qty unit mismatch: POS=${posUnit} vs log=${loadUnit} — loaded_qty non sommato`);
               observations.push({
-                severity: 'warning', category: 'unit_mismatch_snapshot',
+                severity: 'warning', category: 'bom_warning',
                 title: `Unit mismatch snapshot — ${lg.task_name}: POS=${posUnit} vs carico=${loadUnit}`,
                 explanation: `Non è possibile sommare ${loadUnit} e ${posUnit} in modo sicuro. loaded_qty=0 per questo item.`,
                 suggested_action: `Allineare unità prep_task "${lg.task_name}" con quella del DONE flow.`,
@@ -395,7 +395,7 @@ Deno.serve(async (req: Request) => {
 
         if (!loadOnly) {
           observations.push({
-            severity: 'info', category: 'load_only_snapshot',
+            severity: 'info', category: 'stock_mismatch',
             title: `Load-only snapshot — ${lg.task_name}`,
             explanation: `"${lg.task_name}" ha carichi in prep_log (${lg.loaded_qty.toFixed(2)} ${lg.task_unit}) ma nessuno scarico POS per ${businessDate}. Snapshot creato con pos_deducted_qty=0.`,
             suggested_action: `Normale per prep non vendute direttamente al POS. Se inatteso, verificare mapping recipe ↔ pos_name.`,
@@ -412,7 +412,7 @@ Deno.serve(async (req: Request) => {
       if (!g.item_id) {
         skipped++;
         observations.push({
-          severity: 'warning', category: 'missing_link',
+          severity: 'warning', category: 'missing_mapping',
           title: `Snapshot saltato — item_id mancante: ${g.target_name || 'unknown'}`,
           explanation: `item_type=${g.item_type}, prep_task_id=${g.prep_task_id}, ingredient_id=${g.ingredient_id}`,
           suggested_action: `Collegare a una ricetta con UUID valido`,
@@ -515,7 +515,7 @@ Deno.serve(async (req: Request) => {
 
     // Summary observation
     observations.push({
-      severity: 'info', category: 'consolidation_summary',
+      severity: 'info', category: 'system',
       title: `Snapshot ${businessDate} — ${rowsWritten} righe, ${loadedCount} con carico, ${loadOnlyCount} load-only, ${warningCount} warning, ${skipped} saltati`,
       explanation: `${BOT_VERSION}: ${rowsWritten} snapshot da ${(deductions?.length ?? 0)} deductions + ${logs.length} prep_log rows. ${loadedCount} con loaded_qty>0. ${loadOnlyCount} load-only. ${warningCount} warning. ${skipped} saltati. current_stock NON aggiornato.`,
       suggested_action: `SELECT metadata->>'target_name', loaded_qty, pos_deducted_qty, unit FROM stock_daily_snapshot WHERE business_date='${businessDate}' AND loaded_qty > 0 ORDER BY loaded_qty DESC`,
