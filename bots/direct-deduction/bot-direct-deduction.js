@@ -1,12 +1,48 @@
 // bot-direct-deduction — Station 3 del TouchBistro POS Bot
 // Legge pos_daily_clean → calcola scarichi diretti → scrive stock_deductions
-// Solo prep con BOM RECIPE diretto. Zero LLM, zero current_stock, zero stock_movements.
-// v3 — aggregazione scarichi: stessa prep + stessa unità per stesso piatto = una riga
+// v4 — direct_parent_prep_task:
+//   Se la recipe POS non ha BOM RECIPE, ma ha un prep_task collegato via
+//   prep_tasks.recipe_id, scarica direttamente quel prep_task (se plausibile).
+//   Protezioni: unità non plausibili (g/kg con serving_qty <= 5) e unità
+//   contenitore (buste/bag/case/box) vengono saltate con observation.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+
+// ── Unità ammesse per direct_parent_prep_task ──────────────────────────────
+const PIECE_UNITS   = new Set(['pezzi','pz','each','ea','nests','pcs','pieces'])
+const WEIGHT_UNITS  = new Set(['g','kg'])
+const VOLUME_UNITS  = new Set(['ml','l','oz','lb'])
+const CONTAINER_UNITS = new Set(['buste','bag','case','box','carton','sacchi'])
+
+// Se unit è peso/volume, la serving_qty deve essere >= questa soglia per essere plausibile
+const MIN_PLAUSIBLE_WEIGHT_QTY = 5   // g o ml: sotto 5 = placeholder
+const MIN_PLAUSIBLE_KG_QTY     = 0.05 // kg: sotto 50g (0.05kg) = placeholder
+
+function isPlausibleDeduction(servingQty, unit) {
+  const u = (unit || '').toLowerCase().trim()
+  const q = parseFloat(servingQty) || 0
+
+  if (CONTAINER_UNITS.has(u)) return { ok: false, reason: 'container_unit' }
+  if (PIECE_UNITS.has(u)) {
+    // pezzi con serving_qty >= 1 → ok; default 1 se null
+    return { ok: q >= 1 || servingQty == null, reason: null, effectiveQty: Math.max(q, 1) }
+  }
+  if (WEIGHT_UNITS.has(u)) {
+    if (u === 'kg' && q < MIN_PLAUSIBLE_KG_QTY) return { ok: false, reason: 'weight_too_low' }
+    if (u === 'g'  && q <= MIN_PLAUSIBLE_WEIGHT_QTY) return { ok: false, reason: 'weight_too_low' }
+    return { ok: true, reason: null, effectiveQty: q }
+  }
+  if (VOLUME_UNITS.has(u)) {
+    if (u === 'l'  && q < 0.05) return { ok: false, reason: 'volume_too_low' }
+    if (u === 'ml' && q <= 5)   return { ok: false, reason: 'volume_too_low' }
+    return { ok: true, reason: null, effectiveQty: q }
+  }
+  // Unità astratta (porzione, cup, squeezer, ecc.) — non scaricare via parent
+  return { ok: false, reason: 'abstract_unit' }
+}
 
 Deno.serve(async (req) => {
   const corsHeaders = {
@@ -22,14 +58,14 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}))
     const businessDate = body.business_date || new Date().toISOString().slice(0, 10)
 
-    // ── 0. Idempotenza ──────────────────────────────────────────────────────
+    // 0. Idempotenza
     await supa.from('stock_deductions')
       .delete().eq('business_date', businessDate).eq('source', 'direct_recipe')
     await supa.from('commis_observations')
       .delete().eq('business_date', businessDate)
       .eq('bot_name', 'bot-direct-deduction').eq('commis_name', 'direct-deduction-commis')
 
-    // ── 1. pos_daily_clean — righe mappate ──────────────────────────────────
+    // 1. pos_daily_clean
     const { data: cleanRows, error: cleanErr } = await supa
       .from('pos_daily_clean')
       .select('id, pos_item_name, recipe_id, portions_sold, item_class, match_type')
@@ -42,24 +78,21 @@ Deno.serve(async (req) => {
       success: false, message: `No mapped rows for ${businessDate}`, business_date: businessDate
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
-    // ── 2. Aggrega porzioni per piatto (stesso pos_item_name → somma portions) ─
-    // Gestisce il caso in cui lo stesso piatto appare più volte in pos_daily_clean
-    const rowByPosName = new Map() // pos_item_name → { recipe_id, totalPortions }
+    // 2. Aggrega porzioni per piatto
+    const rowByPosName = new Map()
     for (const r of cleanRows) {
       const portions = parseFloat(r.portions_sold) || 0
       if (rowByPosName.has(r.pos_item_name)) {
         rowByPosName.get(r.pos_item_name).totalPortions += portions
       } else {
         rowByPosName.set(r.pos_item_name, {
-          recipe_id:    r.recipe_id,
-          totalPortions: portions,
-          item_class:   r.item_class,
-          match_type:   r.match_type
+          recipe_id: r.recipe_id, totalPortions: portions,
+          item_class: r.item_class, match_type: r.match_type
         })
       }
     }
 
-    // ── 3. BOM per le ricette coinvolte (solo RECIPE links) ─────────────────
+    // 3. BOM RECIPE links
     const recipeIds = [...new Set([...rowByPosName.values()].map(r => r.recipe_id))]
     const allBom = []
     for (let i = 0; i < recipeIds.length; i += 50) {
@@ -72,7 +105,7 @@ Deno.serve(async (req) => {
       if (bom) allBom.push(...bom)
     }
 
-    // ── 4. prep_tasks collegati alle sub-recipe ─────────────────────────────
+    // 4. prep_tasks per sub-recipe (BOM path)
     const subIds = [...new Set(allBom.map(b => b.sub_recipe_id))]
     const prepBySubRecipe = new Map()
     if (subIds.length > 0) {
@@ -90,19 +123,50 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 5. Indicizza BOM per ricetta POS ────────────────────────────────────
+    // 5. prep_tasks collegati DIRETTAMENTE alla recipe POS (nuovo v4)
+    //    prep_tasks.recipe_id = recipe.id (il prep padre, non sub-recipe)
+    const prepByParentRecipe = new Map()
+    for (let i = 0; i < recipeIds.length; i += 50) {
+      const { data: tasks } = await supa
+        .from('prep_tasks')
+        .select('id, name, recipe_id, unit, current_stock, prep_type')
+        .in('recipe_id', recipeIds.slice(i, i + 50))
+        .eq('archived', false)
+        .in('prep_type', ['finale', 'supporto'])
+      if (tasks) {
+        for (const t of tasks) {
+          // Solo se NON è già in prepBySubRecipe (non vogliamo duplicare)
+          if (!prepBySubRecipe.has(t.recipe_id)) {
+            if (!prepByParentRecipe.has(t.recipe_id)) prepByParentRecipe.set(t.recipe_id, t)
+          }
+        }
+      }
+    }
+
+    // 6. recipe metadata (serving_qty, serving_unit) per direct_parent path
+    const recipesMeta = new Map()
+    for (let i = 0; i < recipeIds.length; i += 50) {
+      const { data: recs } = await supa
+        .from('recipes')
+        .select('id, serving_qty, serving_unit')
+        .in('id', recipeIds.slice(i, i + 50))
+      if (recs) {
+        for (const r of recs) recipesMeta.set(r.id, r)
+      }
+    }
+
+    // 7. Indicizza BOM per ricetta
     const bomByRecipe = new Map()
     for (const b of allBom) {
       if (!bomByRecipe.has(b.parent_recipe_id)) bomByRecipe.set(b.parent_recipe_id, [])
       bomByRecipe.get(b.parent_recipe_id).push(b)
     }
 
-    // ── 6. Calcola scarichi con accumulatore per aggregazione ───────────────
-    // Chiave aggregazione: "posItemName|prepTaskId|unit"
-    // Stesso piatto + stessa prep + stessa unità → una sola riga
-    const dedAccum    = new Map() // chiave → { qty, portions, paths[], prepTask, row }
+    // 8. Calcola scarichi
+    const dedAccum = new Map()
     const observations = []
     let skippedNoBom = 0, skippedNoPrepTask = 0, skippedZeroQty = 0
+    let parentPrepDeductions = 0, parentPrepSkipped = 0
 
     for (const [posItemName, row] of rowByPosName) {
       const portions = row.totalPortions
@@ -110,112 +174,177 @@ Deno.serve(async (req) => {
 
       const bomLinks = bomByRecipe.get(row.recipe_id) || []
 
-      if (bomLinks.length === 0) {
+      // ── PATH A: BOM RECIPE (comportamento v3 invariato) ──────────────────
+      if (bomLinks.length > 0) {
+        let deductedCount = 0
+        for (const bom of bomLinks) {
+          const bomQty   = parseFloat(bom.quantity) || 0
+          const prepTask = prepBySubRecipe.get(bom.sub_recipe_id)
+
+          if (!prepTask) {
+            skippedNoPrepTask++
+            observations.push({
+              business_date: businessDate, bot_name: 'bot-direct-deduction',
+              commis_name: 'direct-deduction-commis', severity: 'warning',
+              category: 'bom_warning', entity_type: 'prep',
+              title: `${posItemName} → sub-recipe senza prep task`,
+              explanation: `BOM punta a sub_recipe ${bom.sub_recipe_id} ma nessun prep_task attivo.`,
+              suggested_action: 'Collegare prep_task alla sub-ricetta in Brigade.',
+              metadata: { pos_item_name: posItemName, sub_recipe_id: bom.sub_recipe_id, bom_id: bom.bom_id }
+            })
+            continue
+          }
+
+          if (bomQty <= 0) {
+            skippedZeroQty++
+            observations.push({
+              business_date: businessDate, bot_name: 'bot-direct-deduction',
+              commis_name: 'direct-deduction-commis', severity: 'warning',
+              category: 'bom_warning', entity_type: 'prep',
+              title: `${posItemName} → BOM qty = 0 per "${prepTask.name}"`,
+              explanation: 'Quantità BOM è 0 — impossibile calcolare scarico.',
+              suggested_action: 'Correggere la quantità nel BOM.',
+              metadata: { pos_item_name: posItemName, prep_task_name: prepTask.name, bom_id: bom.bom_id }
+            })
+            continue
+          }
+
+          if (bomQty > 5000) {
+            observations.push({
+              business_date: businessDate, bot_name: 'bot-direct-deduction',
+              commis_name: 'direct-deduction-commis', severity: 'info',
+              category: 'bom_warning', entity_type: 'prep',
+              title: `${posItemName} → ${prepTask.name} — qty alta (${bomQty}${bom.unit}/porz)`,
+              explanation: `${bomQty}${bom.unit}/porz: potrebbe essere BOM per batch.`,
+              suggested_action: 'Verificare che il BOM sia per porzione singola.',
+              metadata: { prep_task_name: prepTask.name, bom_qty: bomQty, unit: bom.unit }
+            })
+          }
+
+          const unit     = bom.unit || prepTask.unit || 'g'
+          const totalQty = bomQty * portions
+          const calcPath = `${posItemName} → ${prepTask.name}: ${portions}p × ${bomQty}${unit} = ${totalQty}${unit} [bom_recipe]`
+
+          const accumKey = `${posItemName}|${prepTask.id}|${unit}`
+          if (dedAccum.has(accumKey)) {
+            const acc = dedAccum.get(accumKey)
+            acc.totalQty += totalQty
+            acc.paths.push(calcPath)
+          } else {
+            dedAccum.set(accumKey, {
+              totalQty, portions, unit, prepTask,
+              posItemName, posRecipeId: row.recipe_id,
+              subRecipeId: bom.sub_recipe_id,
+              paths: [calcPath],
+              item_class: row.item_class, match_type: row.match_type, bom_id: bom.bom_id,
+              deductionPath: 'bom_recipe'
+            })
+          }
+          deductedCount++
+        }
+
+        if (deductedCount === 0 && bomLinks.length > 0) {
+          observations.push({
+            business_date: businessDate, bot_name: 'bot-direct-deduction',
+            commis_name: 'direct-deduction-commis', severity: 'warning',
+            category: 'bom_warning', entity_type: 'recipe',
+            title: `${posItemName} — nessun scarico generato`,
+            explanation: 'Ha BOM RECIPE ma nessuno scarico calcolato (prep task mancanti o qty zero).',
+            suggested_action: 'Verificare BOM e prep_task collegati.',
+            metadata: { pos_item_name: posItemName, recipe_id: row.recipe_id, portions_sold: portions }
+          })
+        }
+        continue // STOP — non cercare parent prep task se BOM esiste
+      }
+
+      // ── PATH B: direct_parent_prep_task (nuovo v4) ────────────────────────
+      // Nessun BOM RECIPE trovato → cerco prep_task collegato direttamente
+      const parentTask = prepByParentRecipe.get(row.recipe_id)
+
+      if (!parentTask) {
+        // Nessun BOM e nessun prep task padre → Bot 4 gestirà via BOM chain
         skippedNoBom++
         observations.push({
           business_date: businessDate, bot_name: 'bot-direct-deduction',
           commis_name: 'direct-deduction-commis', severity: 'info',
           category: 'bom_warning', entity_type: 'recipe',
           title: `${posItemName} — nessuna prep nel BOM (Bot 4)`,
-          explanation: `"${posItemName}" non ha prep intermedie nel BOM. Scarico via Bot 4 BOM Chain.`,
+          explanation: `"${posItemName}" non ha prep intermedie nel BOM né prep_task diretto. Scarico via Bot 4 BOM Chain.`,
           suggested_action: 'Nessuna azione. Bot 4 gestirà lo scarico via BOM chain.',
           metadata: { pos_item_name: posItemName, recipe_id: row.recipe_id, portions_sold: portions }
         })
         continue
       }
 
-      let deductedCount = 0
-      for (const bom of bomLinks) {
-        const bomQty = parseFloat(bom.quantity) || 0
-        const prepTask = prepBySubRecipe.get(bom.sub_recipe_id)
+      // Calcola serving_qty dalla recipe
+      const recipeMeta  = recipesMeta.get(row.recipe_id) || {}
+      const servingQty  = parseFloat(recipeMeta.serving_qty) || null
+      const servingUnit = (recipeMeta.serving_unit || '').toLowerCase().trim()
 
-        if (!prepTask) {
-          skippedNoPrepTask++
-          observations.push({
-            business_date: businessDate, bot_name: 'bot-direct-deduction',
-            commis_name: 'direct-deduction-commis', severity: 'warning',
-            category: 'bom_warning', entity_type: 'prep',
-            title: `${posItemName} → sub-recipe senza prep task`,
-            explanation: `BOM punta a sub_recipe ${bom.sub_recipe_id} ma nessun prep_task attivo.`,
-            suggested_action: 'Collegare prep_task alla sub-ricetta in Brigade.',
-            metadata: { pos_item_name: posItemName, sub_recipe_id: bom.sub_recipe_id, bom_id: bom.bom_id }
-          })
-          continue
-        }
+      // Unità da usare: prefer prep_task.unit (fisico operativo)
+      // Non usare serving_unit astratto (porzione, etc.)
+      const taskUnit = (parentTask.unit || '').toLowerCase().trim()
 
-        if (bomQty <= 0) {
-          skippedZeroQty++
-          observations.push({
-            business_date: businessDate, bot_name: 'bot-direct-deduction',
-            commis_name: 'direct-deduction-commis', severity: 'warning',
-            category: 'bom_warning', entity_type: 'prep',
-            title: `${posItemName} → BOM qty = 0 per "${prepTask.name}"`,
-            explanation: 'Quantità BOM è 0 — impossibile calcolare scarico.',
-            suggested_action: 'Correggere la quantità nel BOM.',
-            metadata: { pos_item_name: posItemName, prep_task_name: prepTask.name, bom_id: bom.bom_id }
-          })
-          continue
-        }
+      // Plausibility check
+      const effectiveUnit = taskUnit || servingUnit || 'pezzi'
+      const effectiveQty  = servingQty !== null ? servingQty : 1.0  // default 1
+      const check = isPlausibleDeduction(servingQty, effectiveUnit)
 
-        const unit      = bom.unit || prepTask.unit || 'g'
-        const totalQty  = bomQty * portions
-        const calcPath  = `${posItemName} → ${prepTask.name}: ${portions}p × ${bomQty}${unit} = ${totalQty}${unit}`
+      if (!check.ok) {
+        parentPrepSkipped++
+        const reasonMsg = {
+          container_unit: `Unità contenitore (${effectiveUnit}) — non scaricabile automaticamente via parent prep task`,
+          weight_too_low: `serving_qty=${servingQty}${effectiveUnit} troppo bassa per essere un peso reale — probabilmente placeholder`,
+          volume_too_low: `serving_qty=${servingQty}${effectiveUnit} troppo bassa — probabilmente placeholder`,
+          abstract_unit:  `Unità astratta (${effectiveUnit}) — usare prep_task.unit concreto`
+        }[check.reason] || `Deduction non plausibile: serving_qty=${servingQty} unit=${effectiveUnit}`
 
-        // Sanity: BOM qty molto alta per porzione
-        if (bomQty > 5000) {
-          observations.push({
-            business_date: businessDate, bot_name: 'bot-direct-deduction',
-            commis_name: 'direct-deduction-commis', severity: 'info',
-            category: 'bom_warning', entity_type: 'prep',
-            title: `${posItemName} → ${prepTask.name} — qty alta (${bomQty}${unit}/porz)`,
-            explanation: `${bomQty}${unit} per porzione potrebbe essere BOM per batch. Standard Brigade: BOM quantity = per porzione singola.`,
-            suggested_action: 'Verificare che il BOM sia espresso per porzione singola.',
-            metadata: { pos_item_name: posItemName, prep_task_name: prepTask.name, bom_qty: bomQty, unit }
-          })
-        }
-
-        // Accumulatore aggregazione
-        const accumKey = `${posItemName}|${prepTask.id}|${unit}`
-        if (dedAccum.has(accumKey)) {
-          const acc = dedAccum.get(accumKey)
-          acc.totalQty   += totalQty
-          acc.portions   += 0 // portions già aggregate sopra — non sommare di nuovo
-          acc.paths.push(calcPath)
-        } else {
-          dedAccum.set(accumKey, {
-            totalQty, portions, unit,
-            prepTask,
-            posItemName, posRecipeId: row.recipe_id,
-            subRecipeId: bom.sub_recipe_id,
-            paths: [calcPath],
-            item_class:  row.item_class,
-            match_type:  row.match_type,
-            bom_id:      bom.bom_id
-          })
-        }
-        deductedCount++
-      }
-
-      if (deductedCount === 0 && bomLinks.length > 0) {
         observations.push({
           business_date: businessDate, bot_name: 'bot-direct-deduction',
           commis_name: 'direct-deduction-commis', severity: 'warning',
-          category: 'bom_warning', entity_type: 'recipe',
-          title: `${posItemName} — nessun scarico generato`,
-          explanation: `Ha BOM RECIPE ma nessuno scarico calcolato (prep task mancanti o qty zero).`,
-          suggested_action: 'Verificare BOM e prep_task collegati.',
-          metadata: { pos_item_name: posItemName, recipe_id: row.recipe_id, portions_sold: portions }
+          category: 'missing_mapping', entity_type: 'prep',
+          title: `Suspicious parent prep deduction: ${posItemName} → ${parentTask.name}`,
+          explanation: reasonMsg,
+          suggested_action: `Impostare serving_qty plausibile sulla recipe "${posItemName}" oppure aggiungere BOM RECIPE con qty per porzione.`,
+          metadata: {
+            pos_item_name: posItemName, recipe_id: row.recipe_id,
+            prep_task_id: parentTask.id, prep_task_name: parentTask.name,
+            serving_qty: servingQty, serving_unit: servingUnit,
+            prep_task_unit: taskUnit, guard_reason: check.reason
+          }
         })
+        continue
       }
+
+      // Deduction plausibile → calcola
+      const deductQty   = (check.effectiveQty || effectiveQty) * portions
+      const calcPath    = `${posItemName} → ${parentTask.name}: ${portions}p × ${check.effectiveQty || effectiveQty}${effectiveUnit} = ${deductQty}${effectiveUnit} [direct_parent_prep_task]`
+
+      const accumKey = `${posItemName}|${parentTask.id}|${effectiveUnit}`
+      if (!dedAccum.has(accumKey)) {
+        dedAccum.set(accumKey, {
+          totalQty: deductQty, portions, unit: effectiveUnit, prepTask: parentTask,
+          posItemName, posRecipeId: row.recipe_id,
+          subRecipeId: row.recipe_id,  // parent recipe IS the item_id for snapshot
+          paths: [calcPath],
+          item_class: row.item_class, match_type: row.match_type, bom_id: null,
+          deductionPath: 'direct_parent_prep_task'
+        })
+      } else {
+        const acc = dedAccum.get(accumKey)
+        acc.totalQty += deductQty
+        acc.paths.push(calcPath)
+      }
+      parentPrepDeductions++
     }
 
-    // ── 7. Costruisci array deductions dagli accumulatori ───────────────────
+    // 9. Costruisci deductions dagli accumulatori
     const deductions = []
     for (const acc of dedAccum.values()) {
       const aggregated = acc.paths.length > 1
       const calcPath = aggregated
-        ? `${acc.posItemName} → ${acc.prepTask.name} (${acc.paths.length} righe aggregate): ${acc.totalQty}${acc.unit} [direct_recipe/aggregated]`
-        : `${acc.paths[0]} [direct_recipe]`
+        ? `${acc.posItemName} → ${acc.prepTask.name} (${acc.paths.length} righe): ${acc.totalQty}${acc.unit} [${acc.deductionPath}/aggregated]`
+        : `${acc.paths[0]}`
 
       deductions.push({
         business_date:    businessDate,
@@ -232,21 +361,25 @@ Deno.serve(async (req) => {
         unit:             acc.unit,
         portions_sold:    acc.portions,
         calculation_path: calcPath,
-        confidence:       0.9,
-        warning:          null,
+        confidence:       acc.deductionPath === 'direct_parent_prep_task' ? 0.85 : 0.9,
+        warning:          acc.deductionPath === 'direct_parent_prep_task'
+                            ? 'direct_parent_prep_task — no BOM RECIPE found, used prep_tasks.recipe_id link'
+                            : null,
         metadata: {
-          aggregated,
-          paths_count:    acc.paths.length,
+          aggregated, paths_count: acc.paths.length,
           prep_task_name: acc.prepTask.name,
           current_stock:  acc.prepTask.current_stock,
-          bom_id:         acc.bom_id,
-          item_class:     acc.item_class,
-          match_type:     acc.match_type
+          bom_id: acc.bom_id, item_class: acc.item_class, match_type: acc.match_type,
+          reason: acc.deductionPath,
+          ...(acc.deductionPath === 'direct_parent_prep_task' ? {
+            parent_recipe_id: acc.posRecipeId,
+            guard: 'plausibility_checked'
+          } : {})
         }
       })
     }
 
-    // ── 8. Scrivi stock_deductions (batch 50) ───────────────────────────────
+    // 10. Scrivi stock_deductions
     let rowsWritten = 0, insertError = null
     for (let i = 0; i < deductions.length; i += 50) {
       const { error: ie } = await supa.from('stock_deductions').insert(deductions.slice(i, i + 50))
@@ -254,7 +387,7 @@ Deno.serve(async (req) => {
       rowsWritten += deductions.slice(i, i + 50).length
     }
 
-    // ── 9. commis_observations ──────────────────────────────────────────────
+    // 11. commis_observations
     let obsWritten = 0
     if (observations.length > 0) {
       const { error: oe } = await supa.from('commis_observations').insert(observations)
@@ -262,13 +395,13 @@ Deno.serve(async (req) => {
       obsWritten = observations.length
     }
 
-    // ── 10. bot_runs ────────────────────────────────────────────────────────
+    // 12. bot_runs
     const durationMs = Date.now() - runStart
     const status = insertError ? 'error' : 'success'
     const aggCount = [...dedAccum.values()].filter(a => a.paths.length > 1).length
     const summary = insertError
       ? `Error: ${insertError}`
-      : `${cleanRows.length} clean → ${rowsWritten} deductions (${aggCount} aggregati) · ${obsWritten} obs · skip ${skippedNoBom}+${skippedNoPrepTask}+${skippedZeroQty}`
+      : `${cleanRows.length} clean → ${rowsWritten} deductions (${aggCount} agg, ${parentPrepDeductions} parent_prep) · ${parentPrepSkipped} parent_skipped · ${obsWritten} obs`
 
     await supa.from('bot_runs').insert({
       bot_name: 'bot-direct-deduction', run_date: businessDate, status,
@@ -277,7 +410,10 @@ Deno.serve(async (req) => {
       warnings_count: obsWritten, errors_count: insertError ? 1 : 0, summary,
       metadata: {
         business_date: businessDate, deductions_written: rowsWritten,
-        aggregated_count: aggCount, observations: obsWritten,
+        aggregated_count: aggCount,
+        parent_prep_deductions: parentPrepDeductions,
+        parent_prep_skipped: parentPrepSkipped,
+        observations: obsWritten,
         skipped_no_bom: skippedNoBom, skipped_no_prep: skippedNoPrepTask,
         skipped_zero_qty: skippedZeroQty, insert_error: insertError || null, duration_ms: durationMs
       }
@@ -286,7 +422,10 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({
       success: !insertError, business_date: businessDate,
       clean_rows_read: cleanRows.length, deductions_written: rowsWritten,
-      aggregated_count: aggCount, observations: obsWritten,
+      aggregated_count: aggCount,
+      parent_prep_deductions: parentPrepDeductions,
+      parent_prep_skipped: parentPrepSkipped,
+      observations: obsWritten,
       skipped: { no_bom: skippedNoBom, no_prep: skippedNoPrepTask, zero_qty: skippedZeroQty },
       insert_error: insertError || null, duration_ms: durationMs, summary
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
