@@ -1532,7 +1532,7 @@ window.officeBotCenter = function() {
   ].join('');
 
   panel.innerHTML =
-    '<div style="width:40px;height:5px;background:rgba(255,255,255,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
+    '<div style="width:40px;height:5px;background:rgba(30,58,95,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
     '<div style="background:rgba(15,23,42,0.98);border-bottom:0.5px solid rgba(255,255,255,0.08);padding:14px 16px;display:flex;align-items:center;gap:14px;flex-shrink:0;">' +
       '<button onclick="document.getElementById(\'officeBotPanel\')?.remove();" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.15);color:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&#8592;</button>' +
       '<div style="flex:1;"><div style="font-size:19px;font-weight:700;color:white;">🤖 Bot Center</div><div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:2px;">10 bot attivi · clicca per aprire la scheda</div></div>' +
@@ -4539,7 +4539,7 @@ window.openLaDispensa = function() {
   panel.style.cssText = [
     'position:fixed;top:0;left:50%;transform:translateX(-50%) translateY(100%);',
     'width:100%;max-width:480px;height:100vh;z-index:500;',
-    'background:#0f2417;',
+    'background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);',
     'display:flex;flex-direction:column;overflow:hidden;',
     'font-family:Inter,system-ui,sans-serif;',
     'transition:transform 0.4s cubic-bezier(0.4,0,0.2,1);'
@@ -4548,31 +4548,31 @@ window.openLaDispensa = function() {
   panel.innerHTML =
     '<div style="width:40px;height:5px;background:rgba(255,255,255,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
     // Header
-    '<div style="background:rgba(5,150,105,0.15);border-bottom:0.5px solid rgba(16,185,129,0.2);padding:12px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;">' +
-      '<button onclick="document.getElementById(\'dispensaPanel\')?.remove();" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.15);color:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&#8592;</button>' +
+    '<div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:0.5px solid rgba(59,130,246,0.12);box-shadow:0 2px 8px rgba(30,58,95,0.06);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;">' +
+      '<button onclick="document.getElementById(\'dispensaPanel\')?.remove();" style="color:#60a5fa;background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1;">&#8592;</button>' +
       '<div style="flex:1;">' +
-        '<div style="font-size:19px;font-weight:700;color:white;">🏪 La Dispensa</div>' +
-        '<div style="font-size:11px;color:rgba(16,185,129,0.7);margin-top:1px;">⚡ BETA · Read-only · Segnala errori</div>' +
+        '<div style="font-size:18px;font-weight:700;color:#1e3a5f;">🏪 La Dispensa</div>' +
+        '<div style="font-size:12px;color:#059669;margin-top:1px;font-weight:500;">⚡ BETA · Read-only · Segnala errori</div>' +
       '</div>' +
       // Date picker
       '<input type="date" id="dispensaDate" style="background:rgba(255,255,255,0.08);border:0.5px solid rgba(16,185,129,0.3);border-radius:8px;color:white;font-size:13px;padding:6px 8px;cursor:pointer;" />' +
     '</div>' +
     // Safety banner
-    '<div style="background:rgba(245,158,11,0.12);border-bottom:0.5px solid rgba(245,158,11,0.2);padding:8px 16px;font-size:11px;color:rgba(245,158,11,0.9);flex-shrink:0;display:flex;align-items:center;gap:6px;">' +
+    '<div style="background:rgba(245,158,11,0.08);border-bottom:0.5px solid rgba(245,158,11,0.25);padding:8px 16px;font-size:12px;color:#92400e;flex-shrink:0;display:flex;align-items:center;gap:6px;">' +
       '<span>⚡</span><span><b>Beta read-only.</b> I numeri sono generati dai bot POS e non aggiornano ancora lo stock reale. Usa questa pagina per controllare e segnalare errori.</span>' +
     '</div>' +
     // Summary cards row
-    '<div id="dispensaSummary" style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0;border-bottom:0.5px solid rgba(255,255,255,0.06);"></div>' +
+    '<div id="dispensaSummary" style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0;border-bottom:0.5px solid rgba(59,130,246,0.1);background:rgba(255,255,255,0.4);"></div>' +
     // Tab bar
-    '<div style="display:flex;border-bottom:0.5px solid rgba(255,255,255,0.08);flex-shrink:0;">' +
-      '<button onclick="dispensaTab(\'cucina\')" id="dtab-cucina" style="flex:1;padding:10px 4px;background:none;border:none;color:rgba(16,185,129,0.9);font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid #10b981;">🥘 Cucina</button>' +
-      '<button onclick="dispensaTab(\'magazzino\')" id="dtab-magazzino" style="flex:1;padding:10px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">📦 Magazzino</button>' +
-      '<button onclick="dispensaTab(\'commis\')" id="dtab-commis" style="flex:1;padding:10px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">⚠️ Commis</button>' +
-      '<button onclick="dispensaTab(\'esploso\')" id="dtab-esploso" style="flex:1;padding:10px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">🧾 Esploso</button>' +
+    '<div style="display:flex;border-bottom:1px solid rgba(59,130,246,0.1);flex-shrink:0;background:rgba(255,255,255,0.6);">' +
+      '<button onclick="dispensaTab(\'cucina\')" id="dtab-cucina" style="flex:1;padding:12px 4px;background:none;border:none;color:#059669;font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid #10b981;">🥘 Cucina</button>' +
+      '<button onclick="dispensaTab(\'magazzino\')" id="dtab-magazzino" style="flex:1;padding:12px 4px;background:none;border:none;color:#94a3b8;font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">📦 Magazzino</button>' +
+      '<button onclick="dispensaTab(\'commis\')" id="dtab-commis" style="flex:1;padding:12px 4px;background:none;border:none;color:#94a3b8;font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">⚠️ Commis</button>' +
+      '<button onclick="dispensaTab(\'esploso\')" id="dtab-esploso" style="flex:1;padding:12px 4px;background:none;border:none;color:#94a3b8;font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">🧾 Esploso</button>' +
     '</div>' +
     // Content area
     '<div id="dispensaContent" style="flex:1;overflow-y:auto;padding:0 0 80px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;">' +
-      '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Caricamento...</div>' +
+      '<div style="text-align:center;padding:40px;color:#94a3b8;">Caricamento...</div>' +
     '</div>';
 
   document.body.appendChild(panel);
@@ -4714,9 +4714,9 @@ function dispensaRenderSummary() {
   if (!el) return;
 
   function card(label, value, color) {
-    return '<div style="flex:1;min-width:70px;background:rgba(255,255,255,0.05);border-radius:10px;padding:8px 10px;text-align:center;">' +
-      '<div style="font-size:18px;font-weight:700;color:' + color + ';">' + value + '</div>' +
-      '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;">' + label + '</div>' +
+    return '<div style="flex:1;min-width:70px;background:rgba(255,255,255,0.7);border-radius:10px;padding:9px 10px;text-align:center;border:0.5px solid rgba(59,130,246,0.1);">' +
+      '<div style="font-size:20px;font-weight:700;color:' + color + ';">' + value + '</div>' +
+      '<div style="font-size:11px;color:#64748b;margin-top:2px;font-weight:500;">' + label + '</div>' +
     '</div>';
   }
 
@@ -4734,11 +4734,11 @@ window.dispensaTab = function(tab) {
     var btn = document.getElementById('dtab-' + t);
     if (!btn) return;
     if (t === tab) {
-      btn.style.color = 'rgba(16,185,129,0.9)';
+      btn.style.color = '#059669';
       btn.style.borderBottom = '2px solid #10b981';
-      btn.style.fontWeight = '600';
+      btn.style.fontWeight = '700';
     } else {
-      btn.style.color = 'rgba(255,255,255,0.4)';
+      btn.style.color = '#94a3b8';
       btn.style.borderBottom = '2px solid transparent';
       btn.style.fontWeight = '500';
     }
@@ -4756,7 +4756,7 @@ window.dispensaTab = function(tab) {
 function dispensaRenderPrep(content) {
   var rows = (window._dispensaSnap || []).filter(function(r){ return r.item_type === 'prep'; });
   if (!rows.length) {
-    content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Nessun dato prep per questa data</div>';
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;font-size:15px;">Nessun dato prep per questa data</div>';
     return;
   }
   content.innerHTML = rows.map(function(r, _snapIdx) {
@@ -4769,7 +4769,7 @@ function dispensaRenderPrep(content) {
 function dispensaRenderIngredients(content) {
   var rows = (window._dispensaSnap || []).filter(function(r){ return r.item_type === 'ingredient'; });
   if (!rows.length) {
-    content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Nessun dato ingredienti per questa data</div>';
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;font-size:15px;">Nessun dato ingredienti per questa data</div>';
     return;
   }
   content.innerHTML = rows.map(function(r, _snapIdx) {
@@ -4809,11 +4809,11 @@ function dispensaSnapRow(r, type, snapIdx) {
   var safeDate = r.business_date || window._dispensaCurrentDate || '';
 
   var statusBadge = isWarning
-    ? '<span style="background:rgba(245,158,11,0.2);color:#f59e0b;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;">\u26a0 warning</span>'
-    : '<span style="background:rgba(16,185,129,0.15);color:#6ee7b7;font-size:10px;padding:2px 6px;border-radius:4px;">partial</span>';
+    ? '<span style="background:#fef3c7;color:#92400e;font-size:11px;padding:2px 7px;border-radius:5px;font-weight:700;">\u26a0 warning</span>'
+    : '<span style="background:#d1fae5;color:#065f46;font-size:11px;padding:2px 7px;border-radius:5px;font-weight:600;">partial</span>';
 
   var warningLine = (isWarning && r.warning)
-    ? '<div style="font-size:10px;color:#f59e0b;margin-top:3px;padding:3px 6px;background:rgba(245,158,11,0.08);border-radius:4px;">' + r.warning + '</div>'
+    ? '<div style="font-size:12px;color:#92400e;margin-top:4px;padding:4px 8px;background:#fef3c7;border-radius:6px;">\u26a0\ufe0f ' + r.warning + '</div>'
     : '';
 
   var qtyDisplay = formatDispQty(qty, unit);
@@ -4843,23 +4843,23 @@ function dispensaSnapRow(r, type, snapIdx) {
   var posColor = loadedQty > 0 ? '#f87171' : '#10b981';
   var posPrefix = loadedQty > 0 ? '- ' : '';
 
-  return '<div style="padding:10px 16px;border-bottom:0.5px solid rgba(255,255,255,0.05);">' +
+  return '<div style="padding:12px 16px;border-bottom:0.5px solid rgba(59,130,246,0.08);background:rgba(255,255,255,0.5);">' +
     '<div style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;" onclick="dispensaOpenEsploso(\'' + r.item_type + '\',\'' + r.item_id + '\',\'' + safeName + '\',' + (snapIdx !== undefined ? snapIdx : -1) + ')">' +
       '<div style="flex:1;">' +
-        '<div style="font-size:14px;font-weight:600;color:white;">' + (name||'\u2014') + '</div>' +
+        '<div style="font-size:16px;font-weight:700;color:#1e3a5f;">' + (name||'\u2014') + '</div>' +
         '<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">' +
           '<span style="font-size:13px;color:' + posColor + ';font-weight:600;">' + posPrefix + qtyDisplay + '</span>' +
           statusBadge +
-          '<span style="font-size:10px;color:rgba(255,255,255,0.25);">' + sources + ' \u00b7 ' + deducRows + ' rows</span>' +
+          '<span style="font-size:11px;color:#94a3b8;">' + sources + ' \u00b7 ' + deducRows + ' righe</span>' +
         '</div>' +
         loadedLine +
         warningLine +
       '</div>' +
-      '<span style="color:rgba(255,255,255,0.2);font-size:15px;padding-top:3px;">&#x203A;</span>' +
+      '<span style="color:#94a3b8;font-size:18px;padding-top:2px;">&#x203A;</span>' +
     '</div>' +
     '<div style="margin-top:5px;">' +
       '<button onclick="event.stopPropagation();dispensaFeedback(\'' + r.item_id + '\',\'' + r.item_type + '\',\'' + safeName + '\',\'' + safeDate + '\')" ' +
-        'style="background:none;border:0.5px solid rgba(255,255,255,0.1);border-radius:6px;color:rgba(255,255,255,0.3);font-size:10px;padding:2px 9px;cursor:pointer;font-family:inherit;">\u2691 Segnala errore</button>' +
+        'style="background:rgba(59,130,246,0.06);border:0.5px solid rgba(59,130,246,0.2);border-radius:7px;color:#3b82f6;font-size:11px;padding:3px 10px;cursor:pointer;font-family:inherit;font-weight:500;">\u2691 Segnala errore</button>' +
     '</div>' +
   '</div>';
 }
@@ -4867,7 +4867,7 @@ function dispensaSnapRow(r, type, snapIdx) {
 function dispensaRenderCommis(content) {
   var rows = window._dispensaCommis || [];
   if (!rows.length) {
-    content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Nessuna observation per questa data</div>';
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;font-size:15px;">Nessuna observation per questa data</div>';
     return;
   }
 
@@ -4875,14 +4875,14 @@ function dispensaRenderCommis(content) {
 
   content.innerHTML = rows.map(function(r) {
     var col = sevColor[r.severity] || '#94a3b8';
-    return '<div style="padding:12px 16px;border-bottom:0.5px solid rgba(255,255,255,0.05);">' +
+    return '<div style="padding:12px 16px;border-bottom:0.5px solid rgba(59,130,246,0.08);background:rgba(255,255,255,0.5);">' +
       '<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">' +
-        '<span style="background:rgba(0,0,0,0.3);color:' + col + ';font-size:10px;padding:2px 7px;border-radius:4px;font-weight:600;border:0.5px solid ' + col + '40;">' + r.severity + '</span>' +
-        '<span style="font-size:10px;color:rgba(255,255,255,0.3);">' + (r.bot_name||'') + '</span>' +
+        '<span style="background:' + col + '22;color:' + col + ';font-size:11px;padding:2px 8px;border-radius:5px;font-weight:700;border:0.5px solid ' + col + '66;">' + r.severity + '</span>' +
+        '<span style="font-size:11px;color:#94a3b8;">' + (r.bot_name||'') + '</span>' +
       '</div>' +
-      '<div style="font-size:13px;font-weight:600;color:white;margin-bottom:4px;">' + (r.title||'') + '</div>' +
-      (r.explanation ? '<div style="font-size:12px;color:rgba(255,255,255,0.5);line-height:1.5;margin-bottom:4px;">' + r.explanation + '</div>' : '') +
-      (r.suggested_action ? '<div style="font-size:11px;color:#6ee7b7;font-family:monospace;background:rgba(16,185,129,0.08);padding:4px 6px;border-radius:4px;word-break:break-all;">' + r.suggested_action + '</div>' : '') +
+      '<div style="font-size:14px;font-weight:600;color:#1e3a5f;margin-bottom:4px;line-height:1.4;">' + (r.title||'') + '</div>' +
+      (r.explanation ? '<div style="font-size:13px;color:#475569;line-height:1.5;margin-bottom:4px;">' + r.explanation + '</div>' : '') +
+      (r.suggested_action ? '<div style="font-size:11px;color:#065f46;font-family:monospace;background:#d1fae5;padding:4px 8px;border-radius:5px;word-break:break-all;">' + r.suggested_action + '</div>' : '') +
     '</div>';
   }).join('');
 }
@@ -4901,10 +4901,10 @@ window.dispensaOpenEsploso = async function(itemType, itemId, itemName, snapRowI
 function dispensaRenderEsploso(content) {
   var sel = window._dispensaSelectedItem;
   if (!sel) {
-    content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);font-size:13px;">Seleziona una riga da Cucina o Magazzino per vedere il dettaglio</div>';
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;font-size:15px;">Seleziona una riga da Cucina o Magazzino per vedere il dettaglio</div>';
     return;
   }
-  content.innerHTML = '<div style="text-align:center;padding:30px;color:rgba(255,255,255,0.3);">Caricamento esploso...</div>';
+  content.innerHTML = '<div style="text-align:center;padding:30px;color:#94a3b8;font-size:15px;">Caricamento...</div>';
   dispensaLoadEsploso(content, sel);
 }
 
@@ -4943,7 +4943,7 @@ async function dispensaLoadEsploso(content, sel) {
       content.innerHTML =
         '<div style="padding:16px 16px 8px;">' +
           '<div style="font-size:14px;font-weight:600;color:white;margin-bottom:4px;">🧾 ' + sel.itemName + '</div>' +
-          '<div style="font-size:12px;color:rgba(255,255,255,0.3);">Nessuna deduction trovata per questo item</div>' +
+          '<div style="font-size:14px;color:#94a3b8;margin-top:4px;">Nessuna deduction trovata per questo item</div>' +
         '</div>';
       return;
     }
@@ -4953,11 +4953,11 @@ async function dispensaLoadEsploso(content, sel) {
     var esiName = (sel.itemName || '').replace(/['\'\"<>]/g, '');
 
     var html =
-      '<div style="padding:12px 16px 8px;border-bottom:0.5px solid rgba(255,255,255,0.08);">' +
+      '<div style="padding:14px 16px 10px;border-bottom:0.5px solid rgba(59,130,246,0.1);background:rgba(255,255,255,0.7);">' +
         '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">' +
           '<div>' +
-            '<div style="font-size:15px;font-weight:700;color:white;">🧾 ' + sel.itemName + '</div>' +
-            '<div style="font-size:12px;color:#10b981;margin-top:2px;">' + rows.length + ' deductions · totale ' + formatDispQty(totalQty, unit) + '</div>' +
+            '<div style="font-size:17px;font-weight:700;color:#1e3a5f;">🧾 ' + sel.itemName + '</div>' +
+            '<div style="font-size:13px;color:#059669;margin-top:2px;font-weight:500;">' + rows.length + ' deductions · totale ' + formatDispQty(totalQty, unit) + '</div>' +
           '</div>' +
           '<button onclick="dispensaFeedback(\'' + sel.itemId + '\',\'' + sel.itemType + '\',\'' + esiName + '\',\'' + d + '\')" ' +
             'style="background:none;border:0.5px solid rgba(255,255,255,0.15);border-radius:7px;color:rgba(255,255,255,0.4);font-size:10px;padding:3px 9px;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0;margin-top:2px;">⚑ Segnala</button>' +
@@ -5024,20 +5024,20 @@ async function dispensaLoadEsploso(content, sel) {
       var srcLabel = row.source === 'direct_recipe' ? 'direct' : 'bom_chain';
       var qty = parseFloat(row.quantity || 0);
       var hasWarn = row.warning;
-      return '<div style="padding:10px 16px;border-bottom:0.5px solid rgba(255,255,255,0.04);">' +
+      return '<div style="padding:11px 16px;border-bottom:0.5px solid rgba(59,130,246,0.07);">' +
         '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">' +
-          '<span style="font-size:13px;color:white;font-weight:500;">' + (row.pos_item_name||'—') + '</span>' +
-          '<span style="background:rgba(0,0,0,0.4);color:' + srcColor + ';font-size:9px;padding:1px 5px;border-radius:3px;">' + srcLabel + '</span>' +
+          '<span style="font-size:14px;color:#1e3a5f;font-weight:600;">' + (row.pos_item_name||'—') + '</span>' +
+          '<span style="background:' + srcColor + '22;color:' + srcColor + ';font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;">' + srcLabel + '</span>' +
         '</div>' +
-        '<div style="display:flex;gap:12px;font-size:11px;color:rgba(255,255,255,0.45);">' +
+        '<div style="display:flex;gap:12px;font-size:12px;color:#64748b;">' +
           '<span><span style="color:#10b981;font-weight:600;">' + formatDispQty(qty, row.unit||'') + '</span></span>' +
           '<span>' + (row.portions_sold ? row.portions_sold + ' porz.' : '') + '</span>' +
         '</div>' +
-        (row.calculation_path ? '<div style="font-size:10px;color:rgba(255,255,255,0.25);margin-top:2px;font-family:monospace;">' + row.calculation_path + '</div>' : '') +
-        (hasWarn ? '<div style="font-size:10px;color:#f59e0b;margin-top:3px;">' + row.warning + '</div>' : '') +
+        (row.calculation_path ? '<div style="font-size:10px;color:#94a3b8;margin-top:2px;font-family:monospace;">' + row.calculation_path + '</div>' : '') +
+        (hasWarn ? '<div style="font-size:11px;color:#92400e;margin-top:3px;padding:3px 6px;background:#fef3c7;border-radius:4px;">\u26a0\ufe0f ' + row.warning + '</div>' : '') +
         '<div style="margin-top:4px;">' +
           '<button onclick="event.stopPropagation();dispensaFeedback(\'' + sel.itemId + '\',\'' + sel.itemType + '\',\'' + esiName + ' ← ' + (row.pos_item_name||'').replace(/['\'<>]/g,'') + '\',\'' + d + '\')" ' +
-            'style="background:none;border:0.5px solid rgba(255,255,255,0.08);border-radius:5px;color:rgba(255,255,255,0.25);font-size:9px;padding:2px 7px;cursor:pointer;font-family:inherit;">⚑ Segnala riga</button>' +
+            'style="background:rgba(59,130,246,0.05);border:0.5px solid rgba(59,130,246,0.15);border-radius:5px;color:#3b82f6;font-size:10px;padding:2px 8px;cursor:pointer;font-family:inherit;">⚑ Segnala</button>' +
         '</div>' +
       '</div>';
     }).join('');
@@ -5069,9 +5069,9 @@ window.dispensaFeedback = function(itemId, itemType, itemName, businessDate) {
   ];
 
   var options = TYPES.map(function(t) {
-    return '<label style="display:flex;align-items:center;gap:8px;padding:7px 0;cursor:pointer;border-bottom:0.5px solid rgba(255,255,255,0.05);">' +
-      '<input type="radio" name="dfType" value="' + t[0] + '" style="accent-color:#10b981;width:14px;height:14px;">' +
-      '<span style="font-size:13px;color:rgba(255,255,255,0.75);">' + t[1] + '</span>' +
+    return '<label style="display:flex;align-items:center;gap:8px;padding:9px 0;cursor:pointer;border-bottom:0.5px solid rgba(59,130,246,0.08);">' +
+      '<input type="radio" name="dfType" value="' + t[0] + '" style="accent-color:#059669;width:16px;height:16px;">' +
+      '<span style="font-size:14px;color:#374151;">' + t[1] + '</span>' +
       '</label>';
   }).join('');
 
@@ -5080,10 +5080,10 @@ window.dispensaFeedback = function(itemId, itemType, itemName, businessDate) {
   modal.style.cssText = 'position:fixed;inset:0;z-index:600;display:flex;align-items:flex-end;';
   modal.innerHTML =
     '<div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);" onclick="document.getElementById(\'dispensaFeedbackModal\').remove()"></div>' +
-    '<div style="position:relative;width:100%;max-width:480px;margin:0 auto;background:#0f2417;border-radius:20px 20px 0 0;padding:20px 20px 40px;">' +
-      '<div style="width:36px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;margin:0 auto 14px;"></div>' +
-      '<div style="font-size:15px;font-weight:700;color:white;margin-bottom:3px;">\u2691 Segnala errore</div>' +
-      '<div style="font-size:11px;color:#10b981;margin-bottom:14px;">' + (itemName || itemId) + '</div>' +
+    '<div style="position:relative;width:100%;max-width:480px;margin:0 auto;background:white;border-radius:20px 20px 0 0;padding:20px 20px 40px;box-shadow:0 -4px 24px rgba(30,58,95,0.12);">' +
+      '<div style="width:36px;height:4px;background:rgba(30,58,95,0.15);border-radius:2px;margin:0 auto 14px;"></div>' +
+      '<div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:3px;">⚑ Segnala errore</div>' +
+      '<div style="font-size:13px;color:#059669;margin-bottom:14px;font-weight:500;">' + (itemName || itemId) + '</div>' +
       '<form onsubmit="dispensaFeedbackSubmit(event,\'' + itemId + '\',\'' + itemType + '\',\'' + (itemName||'').replace(/'/g,'') + '\',\'' + businessDate + '\')">' +
         options +
         '<textarea id="dfNote" placeholder="Note opzionali..." style="width:100%;margin-top:12px;background:rgba(255,255,255,0.06);border:0.5px solid rgba(255,255,255,0.1);border-radius:8px;color:white;font-size:12px;padding:8px;box-sizing:border-box;height:60px;font-family:inherit;resize:none;"></textarea>' +
