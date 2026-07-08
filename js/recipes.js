@@ -520,10 +520,11 @@ async function openRecipeEditor(rec=null){
       </div>
 
       <div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;padding:12px;">
-        <div style="font-size:12px;font-weight:700;color:#059669;margin-bottom:8px;">🤖 Campi usati dal Bot Preplist</div>
+        <div style="font-size:12px;font-weight:700;color:#059669;margin-bottom:4px;">🤖 Avanzato — Bot &amp; Modifier Depletion</div>
+        <div style="font-size:10px;color:#6b7280;margin-bottom:8px;">Usato dal bot per scaricare ingredienti/prep. Per le dressing, serving_qty è la quantità scaricata per ogni modifier POS (es. 74g per "Balsamic").</div>
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <div class="text-xs text-slate-500 mb-1">Serving qty — unità per porzione venduta</div>
+            <div class="text-xs text-slate-500 mb-1">Serving qty — qty per modifier / porzione venduta</div>
             <input id="rServingQty" type="number" min="0" step="0.5" placeholder="es. 2" class="w-full px-3 py-2 border rounded-xl" value="${rec?.serving_qty||''}">
           </div>
           <div>
@@ -2467,4 +2468,5 @@ window.openBOMRecipeAudit = async function(){
     document.getElementById('bomAuditBody').innerHTML = `<div style="color:#dc2626;font-size:13px;">Errore: ${e.message}</div>`;
   }
 };
+
 
