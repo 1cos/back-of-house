@@ -5532,56 +5532,72 @@ function dqOkRow(item, idx) {
 // ── Riga Blocking ──
 function dqBlockingRow(item, idx) {
   var r = item.recipe, pt = item.pt;
+  var isMech = item.autoFix && !item.needsDecision && item.suggestedUnit;
   var badgeColor = item.needsDecision ? '#dc2626' : '#d97706';
-  var badgeText  = item.needsDecision ? '👨‍🍳 Decisione cucina' : '🔧 Fix meccanico';
-  var fixHint = '';
-  if (item.autoFix && item.suggestedUnit) {
-    fixHint = '<div style="background:rgba(5,150,105,0.08);border:1px solid rgba(5,150,105,0.2);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:12px;color:#065f46;">' +
-      '<b>Fix suggerito:</b> serving_unit=<code>' + item.suggestedUnit + '</code>' +
-      (item.suggestedQty!=null ? ' · serving_qty=<code>' + item.suggestedQty + '</code>' : '') +
-      '</div>';
-  } else if (item.needsDecision) {
-    fixHint = '<div style="background:rgba(220,38,38,0.06);border:1px solid rgba(220,38,38,0.15);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:12px;color:#7f1d1d;">' +
-      '<b>Serve decisione:</b> quante ' + (pt.unit||'unità') + ' per porzione?' +
-    '</div>';
-  }
+  var badgeText  = item.needsDecision ? '\u{1F468}\u{200D}\u{1F373} Decisione cucina' : '\u{1F527} Fix meccanico';
 
   var soldBadge = item.soldQty > 0
     ? '<span style="background:#e0f2fe;color:#0369a1;font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;margin-left:6px;">' + Math.round(item.soldQty) + ' venduti/30gg</span>'
     : '<span style="background:#f1f5f9;color:#94a3b8;font-size:10px;padding:2px 7px;border-radius:10px;margin-left:6px;">0 venduti</span>';
 
-  return '<div style="margin:10px 12px;background:rgba(255,255,255,0.9);border-radius:14px;padding:14px;box-shadow:0 1px 4px rgba(124,58,237,0.08);border:1px solid rgba(220,38,38,0.12);">' +
-    // Nome ricetta + badge
+  // Sezione fix proposto
+  var fixSection = '';
+  if (isMech) {
+    fixSection =
+      '<div style="background:#f0fdf4;border:1px solid rgba(22,163,74,0.25);border-radius:10px;padding:10px 12px;margin-top:8px;">' +
+        '<div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:6px;">\u{1F4CB} Fix proposto (deterministico)</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+          '<div style="background:white;border:1px solid #bbf7d0;border-radius:6px;padding:4px 8px;font-size:11px;">' +
+            '<span style="color:#94a3b8;">serving_qty</span>&nbsp;' +
+            '<span style="color:#dc2626;text-decoration:line-through;">' + (r.serving_qty!=null?r.serving_qty:'?') + '</span>' +
+            '&nbsp;\u2192&nbsp;' +
+            '<b style="color:#16a34a;">' + item.suggestedQty + '</b>' +
+          '</div>' +
+          '<div style="background:white;border:1px solid #bbf7d0;border-radius:6px;padding:4px 8px;font-size:11px;">' +
+            '<span style="color:#94a3b8;">serving_unit</span>&nbsp;' +
+            '<span style="color:#dc2626;text-decoration:line-through;">' + (r.serving_unit||'NULL') + '</span>' +
+            '&nbsp;\u2192&nbsp;' +
+            '<b style="color:#16a34a;">' + item.suggestedUnit + '</b>' +
+          '</div>' +
+        '</div>' +
+        '<div style="font-size:10px;color:#6b7280;margin-top:6px;">Non tocca stock · prep_log · stock_movements · recipe_bom</div>' +
+      '</div>';
+  } else if (item.needsDecision) {
+    fixSection =
+      '<div style="background:rgba(220,38,38,0.05);border:1px solid rgba(220,38,38,0.15);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:12px;color:#7f1d1d;">' +
+        '<b>Serve decisione:</b> quante ' + (pt.unit||'unità') + ' per porzione?' +
+      '</div>';
+  }
+
+  // Bottoni azione
+  var actionBtns =
+    '<div style="display:flex;gap:6px;margin-top:10px;">' +
+      (isMech
+        ? '<button onclick="dqApplyFix(' + idx + ')" style="flex:2;height:38px;border-radius:10px;background:#16a34a;color:white;font-size:12px;font-weight:700;border:none;cursor:pointer;">\u2705 Applica fix</button>'
+        : '') +
+      '<button onclick="dqOpenRecipe(\'' + r.id + '\')" style="flex:1;height:38px;border-radius:10px;background:#7c3aed;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;">\u{1F4C2} Apri</button>' +
+      '<button onclick="dqCopyFix(' + idx + ')" style="height:38px;padding:0 10px;border-radius:10px;background:#f3e8ff;color:#7c3aed;font-size:12px;font-weight:600;border:none;cursor:pointer;">SQL</button>' +
+    '</div>';
+
+  return '<div style="margin:10px 12px;background:rgba(255,255,255,0.9);border-radius:14px;padding:14px;box-shadow:0 1px 4px rgba(124,58,237,0.08);border:1px solid ' + (isMech?'rgba(217,119,6,0.2)':'rgba(220,38,38,0.12)') + ';">' +
     '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px;">' +
-      '<div style="flex:1;">' +
-        '<span style="font-size:14px;font-weight:700;color:#1e3a5f;">' + r.title + '</span>' +
-        soldBadge +
-      '</div>' +
+      '<div style="flex:1;"><span style="font-size:14px;font-weight:700;color:#1e3a5f;">' + r.title + '</span>' + soldBadge + '</div>' +
       '<span style="background:'+badgeColor+';color:white;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap;">' + badgeText + '</span>' +
     '</div>' +
-    // Dettagli
     '<div style="font-size:11px;color:#6b7280;margin-bottom:8px;">' +
       '<span style="background:#f3e8ff;color:#7c3aed;padding:1px 6px;border-radius:6px;margin-right:4px;">POS: ' + (r.pos_name||'').split('|')[0] + '</span>' +
       '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:6px;margin-right:4px;">pt: ' + pt.name + '</span>' +
       '<span style="background:#fce7f3;color:#9d174d;padding:1px 6px;border-radius:6px;">unit: ' + (pt.unit||'?') + '</span>' +
     '</div>' +
-    // Problema
-    '<div style="font-size:12px;color:#7f1d1d;background:#fef2f2;border-radius:8px;padding:6px 10px;margin-bottom:6px;">' +
-      '⚠️ ' + item.issue +
-    '</div>' +
-    // Dati attuali
+    '<div style="font-size:12px;color:#7f1d1d;background:#fef2f2;border-radius:8px;padding:6px 10px;margin-bottom:6px;">\u26A0\uFE0F ' + item.issue + '</div>' +
     '<div style="font-size:11px;color:#6b7280;display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;">' +
       dqChip('serving_qty', r.serving_qty!=null?r.serving_qty:'NULL') +
       dqChip('serving_unit', r.serving_unit||'NULL') +
       dqChip('serving_wt_g', r.serving_weight_g!=null?r.serving_weight_g+'g':'NULL') +
       dqChip('base_srv', r.base_servings!=null?r.base_servings:'NULL') +
     '</div>' +
-    fixHint +
-    // Azioni
-    '<div style="display:flex;gap:8px;margin-top:10px;">' +
-      '<button onclick="dqOpenRecipe(\'' + r.id + '\')" style="flex:1;height:36px;border-radius:10px;background:#7c3aed;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;">Apri ricetta</button>' +
-      '<button onclick="dqCopyFix(' + idx + ')" style="height:36px;padding:0 12px;border-radius:10px;background:#f3e8ff;color:#7c3aed;font-size:12px;font-weight:600;border:none;cursor:pointer;">Copia fix</button>' +
-    '</div>' +
+    fixSection +
+    actionBtns +
   '</div>';
 }
 
@@ -5653,22 +5669,166 @@ window.dqOpenRecipe = function(recipeId) {
   }
 };
 
-// ── Copia fix suggerito negli appunti ──
+// ── Copia SQL fix ──
 window.dqCopyFix = function(idx) {
   var item = window._dqData.blocking[idx];
   if (!item) return;
   var r=item.recipe, pt=item.pt;
-  var text = 'Recipe: ' + r.title + '\n' +
-    'recipe_id: ' + r.id + '\n' +
-    'Fix: SET serving_unit=\'' + (item.suggestedUnit||'?') + '\'' +
-    (item.suggestedQty!=null ? ', serving_qty=' + item.suggestedQty : '') + '\n' +
-    'prep_task: ' + pt.name + ' (unit=' + pt.unit + ')';
+  var sql = '-- Recipe Data Quality fix\n' +
+    '-- ' + r.title + '\n' +
+    'UPDATE recipes\n' +
+    'SET serving_qty = ' + (item.suggestedQty!=null?item.suggestedQty:'/* INSERISCI */') + ',\n' +
+    '    serving_unit = \'' + (item.suggestedUnit||'?') + '\'\n' +
+    'WHERE id = \'' + r.id + '\'\n' +
+    '  AND serving_unit = \'' + (r.serving_unit||'') + '\'\n' +
+    '  AND (serving_qty IS NULL OR serving_qty = ' + (r.serving_qty!=null?r.serving_qty:'NULL') + ');\n\n' +
+    '-- Audit\n' +
+    'INSERT INTO data_quality_fixes (recipe_id, recipe_name, issue_type, old_values, new_values, reason, confidence)\n' +
+    'VALUES (\'' + r.id + '\', \'' + r.title.replace(/'/g,"''") + '\', \'serving_unit_fix\',\n' +
+    '  \'{"serving_qty":' + r.serving_qty + ',"serving_unit":"' + (r.serving_unit||'') + '"}\'::jsonb,\n' +
+    '  \'{"serving_qty":' + item.suggestedQty + ',"serving_unit":"' + (item.suggestedUnit||'') + '"}\'::jsonb,\n' +
+    '  \'fix_meccanico_deterministico\', \'high\');';
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(function(){
-      if(typeof showScToast==='function') showScToast('Fix copiato ✓');
+    navigator.clipboard.writeText(sql).then(function(){
+      if(typeof showScToast==='function') showScToast('SQL copiato ✓');
     });
   }
 };
+
+// ── Apri modal di conferma fix ──
+window.dqApplyFix = function(idx) {
+  var item = window._dqData.blocking[idx];
+  if (!item || !item.autoFix || item.needsDecision) return;
+  var r = item.recipe, pt = item.pt;
+
+  // Safety check: deve avere tutti i valori necessari
+  if (!r.id || !item.suggestedUnit || item.suggestedQty == null) {
+    if(typeof showScToast==='function') showScToast('Fix incompleto — usa Apri ricetta');
+    return;
+  }
+
+  var overlay = document.createElement('div');
+  overlay.id = 'dqConfirmOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,0.6);display:flex;align-items:flex-end;justify-content:center;font-family:Inter,system-ui,sans-serif;';
+  overlay.innerHTML =
+    '<div style="background:white;border-radius:24px 24px 0 0;padding:24px 20px 40px;width:100%;max-width:480px;animation:slideUp .25s ease;">' +
+      '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 20px;"></div>' +
+      // Header
+      '<div style="font-size:18px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">Confermi questo fix?</div>' +
+      '<div style="font-size:12px;color:#6b7280;margin-bottom:16px;">Commis AI aggiorna solo la recipe · Nessun altro dato toccato</div>' +
+      // Recipe name
+      '<div style="background:#f3e8ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;">' +
+        '<div style="font-size:13px;font-weight:700;color:#4c1d95;">' + r.title + '</div>' +
+        '<div style="font-size:11px;color:#7c3aed;margin-top:2px;">POS: ' + (r.pos_name||'').split('|')[0] + '</div>' +
+      '</div>' +
+      // Cambiamenti
+      '<div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:12px;">' +
+        '<div style="font-size:11px;font-weight:700;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em;">Modifiche</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px;">' +
+          '<span style="color:#94a3b8;min-width:90px;">serving_qty</span>' +
+          '<span style="color:#dc2626;text-decoration:line-through;">' + (r.serving_qty!=null?r.serving_qty:'NULL') + '</span>' +
+          '<span style="color:#94a3b8;">&#x2192;</span>' +
+          '<b style="color:#16a34a;">' + item.suggestedQty + '</b>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;font-size:13px;">' +
+          '<span style="color:#94a3b8;min-width:90px;">serving_unit</span>' +
+          '<span style="color:#dc2626;text-decoration:line-through;">' + (r.serving_unit||'NULL') + '</span>' +
+          '<span style="color:#94a3b8;">&#x2192;</span>' +
+          '<b style="color:#16a34a;">' + item.suggestedUnit + '</b>' +
+        '</div>' +
+      '</div>' +
+      // Safety note
+      '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:20px;font-size:11px;color:#166534;">' +
+        '&#x2705; Non tocca: stock_movements · current_stock · prep_log · recipe_bom · stock_daily_snapshot' +
+      '</div>' +
+      // Bottoni
+      '<div style="display:flex;gap:10px;">' +
+        '<button onclick="document.getElementById(\'dqConfirmOverlay\')?.remove()" style="flex:1;height:48px;border-radius:14px;background:#f1f5f9;color:#64748b;font-size:14px;font-weight:600;border:none;cursor:pointer;">Annulla</button>' +
+        '<button onclick="dqConfirmApply(' + idx + ')" style="flex:2;height:48px;border-radius:14px;background:#16a34a;color:white;font-size:14px;font-weight:700;border:none;cursor:pointer;">&#x2705; Sì, applica</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+};
+
+// ── Esegui il fix dopo conferma ──
+window.dqConfirmApply = async function(idx) {
+  var item = window._dqData.blocking[idx];
+  if (!item) return;
+  var r = item.recipe, pt = item.pt;
+  var sb = window.supa;
+
+  // Rimuovi overlay conferma
+  document.getElementById('dqConfirmOverlay')?.remove();
+
+  // Loading toast
+  if(typeof showScToast==='function') showScToast('Applicazione fix...');
+
+  try {
+    // ── UPDATE con WHERE protettivo su old values ──
+    var { data: updated, error: upErr, count } = await sb
+      .from('recipes')
+      .update({
+        serving_qty:  item.suggestedQty,
+        serving_unit: item.suggestedUnit
+      })
+      .eq('id', r.id)
+      .eq('serving_unit', r.serving_unit || '')
+      .select('id');
+
+    if (upErr) throw upErr;
+
+    // Se affected rows = 0 → record cambiato nel frattempo
+    if (!updated || updated.length === 0) {
+      if(typeof showScToast==='function') showScToast('⚠️ Record cambiato — ricarica e riprova');
+      return;
+    }
+
+    // ── Audit log ──
+    var rollbackSql = 'UPDATE recipes SET serving_qty=' +
+      (r.serving_qty!=null?r.serving_qty:'NULL') +
+      ', serving_unit=\'' + (r.serving_unit||'') + '\'' +
+      ' WHERE id=\'' + r.id + '\';';
+
+    await sb.from('data_quality_fixes').insert({
+      recipe_id:    r.id,
+      recipe_name:  r.title,
+      issue_type:   'serving_unit_fix',
+      old_values:   { serving_qty: r.serving_qty, serving_unit: r.serving_unit },
+      new_values:   { serving_qty: item.suggestedQty, serving_unit: item.suggestedUnit },
+      reason:       'fix_meccanico_deterministico — prep_task.unit=' + pt.unit,
+      confidence:   'high',
+      status:       'applied',
+      applied_at:   new Date().toISOString(),
+      rollback_sql: rollbackSql,
+      metadata:     { prep_task_id: pt.id, prep_task_name: pt.name, approved_by: 'max' }
+    });
+
+    // ── Aggiorna _dqData: sposta da blocking a ok ──
+    var fixedItem = window._dqData.blocking.splice(idx, 1)[0];
+    fixedItem.note = 'Fix applicato: serving_unit=\'' + item.suggestedUnit + '\', serving_qty=' + item.suggestedQty;
+    if (!window._dqData.ok) window._dqData.ok = [];
+    window._dqData.ok.unshift(fixedItem);
+
+    // Aggiorna summary
+    var sumEl = document.getElementById('dqSummary');
+    if (sumEl) {
+      var d = window._dqData;
+      sumEl.innerHTML =
+        dqSummaryCard((d.blocking||[]).length, '🔴', 'Blocking', '#fef2f2', '#dc2626') +
+        dqSummaryCard((d.review||[]).length,   '🟡', 'Review',   '#fffbeb', '#d97706') +
+        dqSummaryCard((d.info||[]).length,     '🔵', 'Info',     '#eff6ff', '#2563eb') +
+        dqSummaryCard((d.ok||[]).length,       '✅', 'OK/BOM',   '#f0fdf4', '#16a34a');
+    }
+
+    dqRender();
+    if(typeof showScToast==='function') showScToast('✅ Fix applicato — audit log scritto');
+
+  } catch(err) {
+    console.error('[dqConfirmApply]', err);
+    if(typeof showScToast==='function') showScToast('Errore: ' + err.message);
+  }
+};
+
 
 
 
