@@ -5390,14 +5390,19 @@ window.dqLoad = async function() {
 
           // ── REGOLA 2: BOM per porzione disponibile (base_servings=1 + BOM fisico) ──
           // Il bot può scaricare via bom_chain/direct_recipe → non è Blocking
-          if (hasBOM && hasPhysicalBOM && r.base_servings === 1) {
-            ok.push({ recipe:r, pt:pt, soldQty:soldQty,
-              note:'OK via BOM per porzione — ' + bom.physicalCount + ' ingredienti fisici nel BOM' });
+          // parseInt() per sicurezza: base_servings può arrivare come stringa da PostgREST
+          var bsNum = parseInt(r.base_servings, 10);
+          if (hasBOM && hasPhysicalBOM && bsNum === 1) {
+            // Nota speciale se c'è oil/grasso come ingrediente (food cost / yield review)
+            var hasOilNote = bom.physicalCount >= 4; // recipe complessa, possibile olio di processo
+            var okNote = 'OK via BOM per porzione — ' + bom.physicalCount + ' ingredienti fisici';
+            if (hasOilNote) okNote += ' · Verifica ingredienti processo (es. olio frittura) se food cost non corrisponde';
+            ok.push({ recipe:r, pt:pt, soldQty:soldQty, note:okNote });
             return;
           }
 
           // ── REGOLA 3: BOM presente ma base_servings > 1 → Review (bot scala ma serving_unit ambigua) ──
-          if (hasBOM && hasPhysicalBOM && r.base_servings > 1) {
+          if (hasBOM && hasPhysicalBOM && bsNum > 1) {
             review.push({ recipe:r, soldQty:soldQty,
               note:'BOM presente ma base_servings=' + r.base_servings + ' — verifica se serving_unit deve essere aggiornata',
               fromTask: true, pt:pt });
@@ -5423,10 +5428,14 @@ window.dqLoad = async function() {
           }
 
           // ── REGOLA 6: tutto il resto senza BOM fisico → Blocking, decisione cucina ──
+          var r6issue = 'serving_unit=\'porzione\', BOM ' +
+            (hasBOM ? 'parziale ('+bom.count+' righe)' : 'vuoto') +
+            ', prep_task.unit=\'' + ptUnit + '\'';
+          if (soldQty === 0) r6issue += ' · 0 venduti/30gg — verificare se inactive';
           blocking.push({ recipe:r, pt:pt, soldQty:soldQty,
             autoFix:false, needsDecision:true,
             suggestedUnit:'', suggestedQty:null,
-            issue:'serving_unit=\'porzione\', BOM ' + (hasBOM ? 'parziale ('+bom.count+' righe)' : 'vuoto') + ', prep_task.unit=\'' + ptUnit + '\'' });
+            issue:r6issue });
         });
       }
 
@@ -5826,6 +5835,7 @@ window.dqConfirmApply = async function(idx) {
     if(typeof showScToast==='function') showScToast('Errore: ' + (err.message||err));
   }
 };
+
 
 
 
