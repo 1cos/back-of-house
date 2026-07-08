@@ -4759,8 +4759,10 @@ function dispensaRenderPrep(content) {
     content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Nessun dato prep per questa data</div>';
     return;
   }
-  content.innerHTML = rows.map(function(r) {
-    return dispensaSnapRow(r, 'prep');
+  content.innerHTML = rows.map(function(r, _snapIdx) {
+    // _snapIdx: index into rows (subset of _dispensaSnap), find real index in _dispensaSnap
+    var _realIdx = (window._dispensaSnap || []).indexOf(r);
+    return dispensaSnapRow(r, 'prep', _realIdx);
   }).join('');
 }
 
@@ -4770,8 +4772,9 @@ function dispensaRenderIngredients(content) {
     content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Nessun dato ingredienti per questa data</div>';
     return;
   }
-  content.innerHTML = rows.map(function(r) {
-    return dispensaSnapRow(r, 'ingredient');
+  content.innerHTML = rows.map(function(r, _snapIdx) {
+    var _realIdx = (window._dispensaSnap || []).indexOf(r);
+    return dispensaSnapRow(r, 'ingredient', _realIdx);
   }).join('');
 }
 
@@ -4795,7 +4798,7 @@ function formatDispQty(qty, unit) {
   return rounded + (u ? ' ' + u : '');
 }
 
-function dispensaSnapRow(r, type) {
+function dispensaSnapRow(r, type, snapIdx) {
   var name = (r.metadata && r.metadata.target_name) || r.item_id;
   var qty = parseFloat(r.pos_deducted_qty || 0);
   var unit = r.unit || '?';
@@ -4815,15 +4818,41 @@ function dispensaSnapRow(r, type) {
 
   var qtyDisplay = formatDispQty(qty, unit);
 
+  // ── loaded_qty (da prep_log via Consolidator) ──
+  var loadedQty = parseFloat(r.loaded_qty || 0);
+  var loadedBy = (r.metadata && r.metadata.loaded_by && r.metadata.loaded_by.length)
+    ? r.metadata.loaded_by.join(', ')
+    : null;
+  var lastLoadedAt = (r.metadata && r.metadata.last_loaded_at) || null;
+  var loadedLogsCount = (r.metadata && r.metadata.loaded_logs_count) || 0;
+
+  // Riga carico: verde con +
+  var loadedLine = '';
+  if (loadedQty > 0) {
+    var loadedQtyStr = formatDispQty(loadedQty, unit);
+    var loadedMeta = loadedBy ? (' \u00b7 ' + loadedBy) : '';
+    if (lastLoadedAt) loadedMeta += ' \u00b7 ' + lastLoadedAt;
+    loadedLine =
+      '<div style="display:flex;align-items:center;gap:5px;margin-top:4px;">' +
+        '<span style="font-size:11px;font-weight:700;color:#34d399;">+ ' + loadedQtyStr + '</span>' +
+        '<span style="font-size:10px;color:rgba(52,211,153,0.6);">caricato' + loadedMeta + '</span>' +
+      '</div>';
+  }
+
+  // Riga scarico POS: evidenziata se c'è anche un carico, neutra altrimenti
+  var posColor = loadedQty > 0 ? '#f87171' : '#10b981';
+  var posPrefix = loadedQty > 0 ? '- ' : '';
+
   return '<div style="padding:10px 16px;border-bottom:0.5px solid rgba(255,255,255,0.05);">' +
-    '<div style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;" onclick="dispensaOpenEsploso(\'' + r.item_type + '\',\'' + r.item_id + '\',\'' + safeName + '\')">' +
+    '<div style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;" onclick="dispensaOpenEsploso(\'' + r.item_type + '\',\'' + r.item_id + '\',\'' + safeName + '\',' + (snapIdx !== undefined ? snapIdx : -1) + ')">' +
       '<div style="flex:1;">' +
         '<div style="font-size:14px;font-weight:600;color:white;">' + (name||'\u2014') + '</div>' +
         '<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">' +
-          '<span style="font-size:13px;color:#10b981;font-weight:600;">' + qtyDisplay + '</span>' +
+          '<span style="font-size:13px;color:' + posColor + ';font-weight:600;">' + posPrefix + qtyDisplay + '</span>' +
           statusBadge +
           '<span style="font-size:10px;color:rgba(255,255,255,0.25);">' + sources + ' \u00b7 ' + deducRows + ' rows</span>' +
         '</div>' +
+        loadedLine +
         warningLine +
       '</div>' +
       '<span style="color:rgba(255,255,255,0.2);font-size:15px;padding-top:3px;">&#x203A;</span>' +
@@ -4859,8 +4888,13 @@ function dispensaRenderCommis(content) {
 }
 
 // ── Esploso tab ──
-window.dispensaOpenEsploso = async function(itemType, itemId, itemName) {
-  window._dispensaSelectedItem = { itemType: itemType, itemId: itemId, itemName: itemName };
+window.dispensaOpenEsploso = async function(itemType, itemId, itemName, snapRowIdx) {
+  // snapRowIdx: optional index into window._dispensaSnap to get loaded_qty / metadata
+  var snapRow = null;
+  if (snapRowIdx !== undefined && window._dispensaSnap) {
+    snapRow = window._dispensaSnap[snapRowIdx] || null;
+  }
+  window._dispensaSelectedItem = { itemType: itemType, itemId: itemId, itemName: itemName, snapRow: snapRow };
   dispensaTab('esploso');
 };
 
@@ -4929,6 +4963,61 @@ async function dispensaLoadEsploso(content, sel) {
             'style="background:none;border:0.5px solid rgba(255,255,255,0.15);border-radius:7px;color:rgba(255,255,255,0.4);font-size:10px;padding:3px 9px;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0;margin-top:2px;">⚑ Segnala</button>' +
         '</div>' +
       '</div>';
+
+    // ── Sezione carico da prep_log (se disponibile nello snapshot) ──
+    var snapRow = (sel && sel.snapRow) ? sel.snapRow : null;
+    var snapLoaded = snapRow ? parseFloat(snapRow.loaded_qty || 0) : 0;
+    var snapLoadedLogs = (snapRow && snapRow.metadata && snapRow.metadata.loaded_logs) ? snapRow.metadata.loaded_logs : [];
+    var snapLoadedBy = (snapRow && snapRow.metadata && snapRow.metadata.loaded_by) ? snapRow.metadata.loaded_by : [];
+    var snapLoadedUnit = snapRow ? (snapRow.unit || unit) : unit;
+    var snapPosQty = snapRow ? parseFloat(snapRow.pos_deducted_qty || 0) : parseFloat(totalQty || 0);
+
+    // Aggiungi sezione carico solo se c'è loaded_qty o se snap ha info
+    if (snapLoaded > 0 || snapLoadedLogs.length > 0) {
+      html += '<div style="padding:10px 16px 6px;border-bottom:0.5px solid rgba(255,255,255,0.08);background:rgba(52,211,153,0.04);">' +
+        '<div style="font-size:10px;font-weight:700;color:rgba(52,211,153,0.7);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">\u2191 Carico da prep_log</div>';
+
+      if (snapLoaded > 0) {
+        html +=
+          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">' +
+            '<span style="font-size:14px;font-weight:700;color:#34d399;">+ ' + formatDispQty(snapLoaded, snapLoadedUnit) + '</span>' +
+            (snapLoadedBy.length ? '<span style="font-size:11px;color:rgba(52,211,153,0.5);">' + snapLoadedBy.join(', ') + '</span>' : '') +
+          '</div>';
+      }
+
+      if (snapLoadedLogs.length) {
+        html += snapLoadedLogs.map(function(log) {
+          var logQtyStr = formatDispQty(log.qty, log.unit || snapLoadedUnit);
+          var logAt = log.at ? ' \u00b7 ' + log.at : '';
+          var logDur = log.duration_min ? ' \u00b7 ' + log.duration_min + 'min' : '';
+          return '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-top:0.5px solid rgba(255,255,255,0.04);">' +
+            '<span style="font-size:12px;font-weight:600;color:#a7f3d0;">' + (log.user||'—') + '</span>' +
+            '<span style="font-size:12px;color:#34d399;">' + logQtyStr + '</span>' +
+            '<span style="font-size:10px;color:rgba(255,255,255,0.3);">' + logAt + logDur + '</span>' +
+          '</div>';
+        }).join('');
+      }
+      html += '</div>';
+
+      // Se c'è sia carico che scarico, mostra il confronto
+      if (snapLoaded > 0 && snapPosQty > 0) {
+        var diffQty = snapLoaded - snapPosQty;
+        var diffColor = diffQty >= 0 ? '#34d399' : '#f87171';
+        var diffSign = diffQty >= 0 ? '+' : '';
+        html +=
+          '<div style="padding:8px 16px;border-bottom:0.5px solid rgba(255,255,255,0.08);background:rgba(0,0,0,0.2);display:flex;gap:16px;flex-wrap:wrap;">' +
+            '<div style="font-size:11px;color:rgba(255,255,255,0.4);">+ Caricato: <span style="color:#34d399;font-weight:600;">' + formatDispQty(snapLoaded, snapLoadedUnit) + '</span></div>' +
+            '<div style="font-size:11px;color:rgba(255,255,255,0.4);">- POS: <span style="color:#f87171;font-weight:600;">' + formatDispQty(snapPosQty, unit) + '</span></div>' +
+            '<div style="font-size:11px;color:rgba(255,255,255,0.4);">Delta: <span style="color:' + diffColor + ';font-weight:600;">' + diffSign + formatDispQty(Math.abs(diffQty), unit) + '</span></div>' +
+          '</div>';
+      }
+    }
+
+    // ── Deductions POS ──
+    html += '<div style="padding:8px 16px 4px;">' +
+      '<div style="font-size:10px;font-weight:700;color:rgba(96,165,250,0.7);letter-spacing:0.08em;text-transform:uppercase;">' +
+      '\u2193 Scarico POS \u00b7 ' + rows.length + ' deductions \u00b7 ' + formatDispQty(totalQty, unit) +
+      '</div></div>';
 
     html += rows.map(function(row) {
       var srcColor = row.source === 'direct_recipe' ? '#a78bfa' : '#60a5fa';
