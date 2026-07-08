@@ -4338,3 +4338,100 @@ Wheel Pasta — base_servings=130, nessun prep_task → observation scritta.
 
 **Nota bom_chain v6 (questa sessione):** ora produce 107 righe invece delle 233 del run precedente. Il calo è corretto — la Regola 0 del safety mode blocca le prep con `base_servings > 1` anche come ricette POS dirette, quindi ora Wheel Pasta non viene più trattata come batch ma espande correttamente il suo BOM per-porzione attraverso il bot.
 
+
+---
+
+## SESSIONE 8 LUGLIO 2026 — Sprint A: Stock Consolidator v5 (load_qty from prep_log)
+
+**Versione sw.js live:** boh-v570 (invariato — zero file frontend toccati)
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### Sprint A completato — bot-stock-consolidator v5 VERIFIED ✅
+
+**Supabase Edge Function:** bot-stock-consolidator version 7 (ACTIVE)
+**Repo source of truth:** `bots/stock-consolidator/index.ts` (TypeScript v5)
+`bots/stock-consolidator/bot-stock-consolidator.js` → stub deprecato (non usare)
+
+#### Cosa fa v5 (rispetto a v4):
+- Legge `prep_log` per `business_date` (CDT: `T05:00:00Z` → giorno+1 `T05:00:00Z`)
+- Matcha `prep_log.item` → `prep_tasks.name` (exact + contains fallback)
+- Aggrega `loaded_qty` per `recipe_id` con normalizzazione unità (kg↔g, ml↔l)
+- Unisce `loaded_qty` nei groups POS esistenti (Step 6)
+- Crea snapshot "load-only" per prep con carichi ma senza scarichi POS
+- **load_only=true**: NON cancella snapshot esistenti — merge loaded_qty via UPDATE, preserva pos_deducted_qty
+- Scrive `commis_observations` con categorie valide per CHECK constraint DB:
+  `pos_anomaly | missing_mapping | bom_warning | stock_mismatch | prep_suggestion | system | manual_review`
+
+#### 4 protezioni implementate:
+1. **Pipeline Guard** (intatto da v4) — bypassato solo con `load_only=true`
+2. **Match warning** — prep_log.item senza prep_task → observation `missing_mapping`
+3. **recipe_id NULL** — prep_task senza recipe_id → observation `missing_mapping`, non crea snapshot (item_id NOT NULL)
+4. **Unit normalisation** — kg↔g, ml↔l sicuri; pz/nests/cup/buste non convertibili → warning
+
+#### Run verificato su 2026-07-06:
+| Metrica | Valore |
+|---|---|
+| deductions lette | 204 |
+| prep_log lette | 37 |
+| snapshot scritti | 110 |
+| con loaded_qty > 0 | 9 |
+| load-only (carico no POS) | 3 |
+| warning | 25 |
+| observations | 29 |
+| unmatchedLogs | 0 |
+| stock_movements | 335 (invariato) |
+| current_stock | non toccato ✅ |
+| prep_log | non modificato ✅ |
+
+#### 9 prep con loaded_qty > 0 il 06/07:
+- Chop Romaine: +1572g caricati (Zuu) | -580g POS
+- Diced butter: +1235g (Chris) | -800g POS
+- Diced Grilled Chicken: +750g (Chris) | -1300g POS
+- Pecorino fresh wedge: +598g (Zuu) | -480g POS
+- Check Basil Oil: +414g (Zuu) | -80g POS
+- Seed mix: +382g (Zuu) | -120g POS
+- Scallops: +80pz (Tela) | load-only (no POS scarico)
+- Filet Branzino: +10pz (David) | load-only
+- Tomahawk: +4pz (David) | load-only
+
+#### Warning noti (da risolvere in sessioni future):
+- `pz` vs `pezzi` per Wagyu ribeye, Branzino tableside, Creme brulee, Tiramisu, Pears, Spaghetti (unit mismatch carico)
+- `g` vs `buste` per Spring mix
+- `pz` vs `nests` per Spaghetti fresh pasta — PROB: cook registra in pz, task in nests
+- 8 prep_task senza recipe_id (walnuts, Refill Blueberry, Refill Raspberry, Check Balsamic Dressing, Check Caesar, Check Balsamic Glaze, Check Citronnette, Check Ranch, Honey, Sliced Mozzarella, Cantaloupe, Olives, Parsley, Check Burrata, Check Raspberry, Refill Blackberries, Clean Branzino)
+- Parsley: unit mismatch POS (pinch vs g) — BOM da allineare
+
+#### Stato pipeline prep_log → snapshot:
+```
+prep_log (DONE dai cook)
+   ↓
+bot-stock-consolidator v5 (legge e aggrega)
+   ↓
+stock_daily_snapshot.loaded_qty ✅
+stock_daily_snapshot.pos_deducted_qty ✅ (da pipeline POS)
+```
+
+---
+
+### NEXT STEPS — Sprint B
+
+**Priorità 1:** Risolvere unit mismatch `pz` vs `pezzi` e `pz` vs `nests`
+- Il DONE flow salva `unit = 'g'` o `'pz'` (hardcoded in `dscSelect`)
+- Il prep_task usa `pezzi` o `nests`
+- Fix: normalizzare `pz` = `pezzi` nel Consolidator (sicuro, stessa unità)
+- Fix: non fare → `pz` = `nests` (1 nests ≠ 1 pz — non convertibile)
+
+**Priorità 2:** bot-prep-suggester beta
+- Legge `stock_daily_snapshot` (loaded_qty + pos_deducted_qty)
+- Legge `prep_tasks` (current_stock, expected_duration_days, min_cover_days)
+- Calcola stock teorico: `current_stock - pos_deducted_qty + loaded_qty`
+- Suggerisce quantità con spiegazione in `prep_suggestions_daily` (nuova tabella)
+- La prep UI legge da `prep_suggestions_daily` se disponibile, fallback a `prep_tasks.suggested_qty`
+- NON tocca ancora `current_stock`
+- NON spegne vecchio Prep Builder
+
+**Nota sessione:** non commitare mai API key / service role key nel repo o nei prompt.
+Anon key è pubblica nell'app (ok per runtime), ma non va copiata in documenti di sessione.
+Triggero bot via pg_net — non chiedere a Max di usare curl/Postman.
