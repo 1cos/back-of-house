@@ -5697,6 +5697,12 @@ window.dqCopyFix = function(idx) {
 
 // ── Apri modal di conferma fix ──
 window.dqApplyFix = function(idx) {
+  // ── Gate admin: solo Max/admin può applicare fix ──
+  if (typeof isAdmin !== 'function' || !isAdmin()) {
+    if(typeof showScToast==='function') showScToast('Solo admin può applicare fix');
+    return;
+  }
+
   var item = window._dqData.blocking[idx];
   if (!item || !item.autoFix || item.needsDecision) return;
   var r = item.recipe, pt = item.pt;
@@ -5750,66 +5756,58 @@ window.dqApplyFix = function(idx) {
   document.body.appendChild(overlay);
 };
 
-// ── Esegui il fix dopo conferma ──
+// ── Esegui il fix dopo conferma — via RPC transazionale ──
 window.dqConfirmApply = async function(idx) {
+  // Doppio gate admin lato JS (il DB lo blocca comunque via SECURITY DEFINER)
+  if (typeof isAdmin !== 'function' || !isAdmin()) {
+    if(typeof showScToast==='function') showScToast('Solo admin può applicare fix');
+    return;
+  }
+
   var item = window._dqData.blocking[idx];
   if (!item) return;
   var r = item.recipe, pt = item.pt;
   var sb = window.supa;
 
-  // Rimuovi overlay conferma
+  // Chiudi overlay conferma
   document.getElementById('dqConfirmOverlay')?.remove();
-
-  // Loading toast
   if(typeof showScToast==='function') showScToast('Applicazione fix...');
 
   try {
-    // ── UPDATE con WHERE protettivo su old values ──
-    var { data: updated, error: upErr, count } = await sb
-      .from('recipes')
-      .update({
-        serving_qty:  item.suggestedQty,
-        serving_unit: item.suggestedUnit
-      })
-      .eq('id', r.id)
-      .eq('serving_unit', r.serving_unit || '')
-      .select('id');
+    var approvedBy = (window.currentUser || window.user || {}).name || 'max';
 
-    if (upErr) throw upErr;
+    // ── RPC transazionale: UPDATE recipes + INSERT audit in una sola transazione ──
+    // WHERE protettivo: IS NOT DISTINCT FROM su ENTRAMBI old_qty e old_unit
+    var { data: result, error: rpcErr } = await sb.rpc('apply_data_quality_fix', {
+      p_recipe_id:   r.id,
+      p_old_qty:     r.serving_qty != null ? parseFloat(r.serving_qty) : null,
+      p_old_unit:    r.serving_unit || '',
+      p_new_qty:     parseFloat(item.suggestedQty),
+      p_new_unit:    item.suggestedUnit,
+      p_issue_type:  'serving_unit_fix',
+      p_reason:      'fix_meccanico_deterministico — prep_task.unit=' + (pt ? pt.unit : 'unknown'),
+      p_approved_by: approvedBy
+    });
 
-    // Se affected rows = 0 → record cambiato nel frattempo
-    if (!updated || updated.length === 0) {
-      if(typeof showScToast==='function') showScToast('⚠️ Record cambiato — ricarica e riprova');
+    if (rpcErr) throw rpcErr;
+
+    // RPC ritorna jsonb: {success, affected, error?, recipe_name}
+    if (!result || !result.success) {
+      var errMsg = result && result.error === 'record_changed'
+        ? '⚠️ Record cambiato nel frattempo — ricarica e riprova'
+        : '⚠️ Fix non applicato: ' + (result && result.error ? result.error : 'errore sconosciuto');
+      if(typeof showScToast==='function') showScToast(errMsg);
       return;
     }
 
-    // ── Audit log ──
-    var rollbackSql = 'UPDATE recipes SET serving_qty=' +
-      (r.serving_qty!=null?r.serving_qty:'NULL') +
-      ', serving_unit=\'' + (r.serving_unit||'') + '\'' +
-      ' WHERE id=\'' + r.id + '\';';
-
-    await sb.from('data_quality_fixes').insert({
-      recipe_id:    r.id,
-      recipe_name:  r.title,
-      issue_type:   'serving_unit_fix',
-      old_values:   { serving_qty: r.serving_qty, serving_unit: r.serving_unit },
-      new_values:   { serving_qty: item.suggestedQty, serving_unit: item.suggestedUnit },
-      reason:       'fix_meccanico_deterministico — prep_task.unit=' + pt.unit,
-      confidence:   'high',
-      status:       'applied',
-      applied_at:   new Date().toISOString(),
-      rollback_sql: rollbackSql,
-      metadata:     { prep_task_id: pt.id, prep_task_name: pt.name, approved_by: 'max' }
-    });
-
-    // ── Aggiorna _dqData: sposta da blocking a ok ──
+    // ── Successo: sposta da Blocking → OK nella UI ──
     var fixedItem = window._dqData.blocking.splice(idx, 1)[0];
-    fixedItem.note = 'Fix applicato: serving_unit=\'' + item.suggestedUnit + '\', serving_qty=' + item.suggestedQty;
+    fixedItem.note = '\u2705 Fix applicato \u2014 serving_unit=' + item.suggestedUnit +
+      ', serving_qty=' + item.suggestedQty + ' \u2014 audit scritto';
     if (!window._dqData.ok) window._dqData.ok = [];
     window._dqData.ok.unshift(fixedItem);
 
-    // Aggiorna summary
+    // Aggiorna summary cards
     var sumEl = document.getElementById('dqSummary');
     if (sumEl) {
       var d = window._dqData;
@@ -5821,13 +5819,14 @@ window.dqConfirmApply = async function(idx) {
     }
 
     dqRender();
-    if(typeof showScToast==='function') showScToast('✅ Fix applicato — audit log scritto');
+    if(typeof showScToast==='function') showScToast('✅ ' + r.title + ' — fix applicato, audit scritto');
 
   } catch(err) {
     console.error('[dqConfirmApply]', err);
-    if(typeof showScToast==='function') showScToast('Errore: ' + err.message);
+    if(typeof showScToast==='function') showScToast('Errore: ' + (err.message||err));
   }
 };
+
 
 
 
