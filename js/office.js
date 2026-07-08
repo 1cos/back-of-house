@@ -5242,6 +5242,7 @@ window.openRecipeDataQuality = async function() {
       '<button onclick="dqTab(\'blocking\')" id="dqtab-blocking" style="flex:1;padding:11px 4px;background:none;border:none;color:#dc2626;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid #dc2626;">&#x1F534; Blocking</button>' +
       '<button onclick="dqTab(\'review\')" id="dqtab-review" style="flex:1;padding:11px 4px;background:none;border:none;color:#94a3b8;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">&#x1F7E1; Review</button>' +
       '<button onclick="dqTab(\'info\')" id="dqtab-info" style="flex:1;padding:11px 4px;background:none;border:none;color:#94a3b8;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">&#x1F535; Info</button>' +
+      '<button onclick="dqTab(\'ok\')" id="dqtab-ok" style="flex:1;padding:11px 4px;background:none;border:none;color:#94a3b8;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">&#x2705; OK</button>' +
     '</div>' +
     // Content
     '<div id="dqContent" style="flex:1;overflow-y:auto;padding:0 0 80px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;">' +
@@ -5279,8 +5280,8 @@ window._dqData = { blocking:[], review:[], info:[] };
 
 window.dqTab = function(tab) {
   window._dqActiveTab = tab;
-  var colors = { blocking:'#dc2626', review:'#d97706', info:'#2563eb' };
-  ['blocking','review','info'].forEach(function(t){
+  var colors = { blocking:'#dc2626', review:'#d97706', info:'#2563eb', ok:'#16a34a' };
+  ['blocking','review','info','ok'].forEach(function(t){
     var btn = document.getElementById('dqtab-'+t);
     if (!btn) return;
     if (t===tab) { btn.style.color=colors[t]; btn.style.borderBottomColor=colors[t]; btn.style.fontWeight='700'; }
@@ -5295,7 +5296,7 @@ window.dqLoad = async function() {
   if (!sb) return;
 
   try {
-    // Query 1: ricette POS con prep_task collegato (per Blocking)
+    // Query 1: ricette POS
     var { data: linked } = await sb
       .from('recipes')
       .select('id,title,pos_name,menu_group,serving_qty,serving_unit,base_servings,base_weight_g,serving_weight_g')
@@ -5303,20 +5304,46 @@ window.dqLoad = async function() {
       .neq('pos_name','')
       .order('menu_group',{ascending:true});
 
-    // Query 2: prep_tasks con recipe_id per join lato client
+    // Query 2: prep_tasks con recipe_id
     var { data: tasks } = await sb
       .from('prep_tasks')
       .select('id,name,recipe_id,prep_type,unit,current_stock')
       .eq('archived',false)
       .in('prep_type',['finale','supporto']);
 
-    // Query 3: vendite recenti (ultimi 30gg) per capire se è venduto
+    // Query 3: vendite recenti 30gg
     var cutoff = new Date(); cutoff.setDate(cutoff.getDate()-30);
     var cutoffStr = cutoff.toISOString().split('T')[0];
     var { data: sales } = await sb
       .from('pos_sales_by_item')
       .select('menu_item,quantity')
       .gte('sale_date', cutoffStr);
+
+    // Query 4: BOM — conta righe fisiche per ricetta (ITEM e RECIPE con qty>0)
+    // Split in due batch da ≤500 per stare sotto il cap PostgREST 1000
+    var recipeIds = (linked||[]).map(function(r){ return r.id; });
+    var bomRows = [];
+    var BATCH = 100;
+    for (var bi=0; bi<recipeIds.length; bi+=BATCH) {
+      var batch = recipeIds.slice(bi, bi+BATCH);
+      var { data: batchRows } = await sb
+        .from('recipe_bom')
+        .select('parent_recipe_id,component_type,quantity,unit')
+        .in('parent_recipe_id', batch)
+        .gt('quantity', 0);
+      bomRows = bomRows.concat(batchRows||[]);
+    }
+    // Mappa: recipe_id → {count, hasPhysicalItems}
+    // "fisico" = righe con unit in unità reali (g,kg,ml,l,pezzi,pz,oz,lb,nests,cup,ecc.)
+    var ABSTRACT_UNITS = ['porzione','batch','portion','serving',''];
+    var bomByRecipe = {};
+    bomRows.forEach(function(row){
+      var rid = row.parent_recipe_id;
+      if (!bomByRecipe[rid]) bomByRecipe[rid] = { count:0, physicalCount:0 };
+      bomByRecipe[rid].count++;
+      var u = (row.unit||'').toLowerCase().trim();
+      if (ABSTRACT_UNITS.indexOf(u) === -1) bomByRecipe[rid].physicalCount++;
+    });
 
     // Costruisci mappe
     var taskByRecipe = {};
@@ -5333,52 +5360,74 @@ window.dqLoad = async function() {
       return aliases.reduce(function(acc,a){ return acc+(salesByItem[a]||0); },0);
     }
 
-    var blocking=[], review=[], info=[];
+    var blocking=[], review=[], info=[], ok=[];
 
     (linked||[]).forEach(function(r) {
       var pts = taskByRecipe[r.id] || [];
       var soldQty = getSoldQty(r);
       var hasTask = pts.length > 0;
+      var bom = bomByRecipe[r.id] || { count:0, physicalCount:0 };
+      var hasBOM = bom.count > 0;
+      var hasPhysicalBOM = bom.physicalCount >= 2; // almeno 2 righe fisiche = BOM reale per porzione
 
-      // ── BLOCKING: serving_unit='porzione'|null con prep_task e unità fisica ──
-      if (hasTask) {
-        var badUnit = (!r.serving_unit || r.serving_unit==='porzione' || r.serving_unit==='batch' || r.serving_unit==='');
-        if (badUnit) {
-          pts.forEach(function(pt){
-            var physicalUnits = ['g','kg','pezzi','pz','nests','buste','cup','filetto','oz','lb'];
-            var isPhysical = physicalUnits.indexOf((pt.unit||'').toLowerCase()) >= 0;
-            if (!isPhysical) return;
+      var badUnit = (!r.serving_unit || r.serving_unit==='porzione' || r.serving_unit==='batch' || r.serving_unit==='');
 
-            // Distingui fix meccanico da decisione cucina
-            var autoFix = false, suggestedUnit='', suggestedQty=null, needsDecision=false;
-            if ((pt.unit==='pezzi'||pt.unit==='pz') && r.serving_unit==='porzione') {
-              autoFix=true; suggestedUnit='pezzi'; suggestedQty=1;
-            } else if (pt.unit==='g' && r.serving_weight_g) {
-              autoFix=true; suggestedUnit='g'; suggestedQty=r.serving_weight_g;
-            } else if (pt.unit==='g' && !r.serving_weight_g) {
-              needsDecision=true;
-            } else if (pt.unit==='kg' && r.serving_weight_g) {
-              autoFix=true; suggestedUnit='g'; suggestedQty=r.serving_weight_g;
-            } else if (pt.unit==='nests') {
-              autoFix=true; suggestedUnit='nests'; suggestedQty=r.serving_qty||1;
-            } else if (pt.unit==='buste') {
-              needsDecision=true;
-            } else {
-              needsDecision=true;
-            }
+      if (hasTask && badUnit) {
+        pts.forEach(function(pt){
+          var ptUnit = (pt.unit||'').toLowerCase();
+          var physicalUnits = ['g','kg','pezzi','pz','nests','buste','cup','filetto','oz','lb'];
+          var isPhysical = physicalUnits.indexOf(ptUnit) >= 0;
+          if (!isPhysical) return;
 
-            blocking.push({
-              recipe: r,
-              pt: pt,
-              soldQty: soldQty,
-              autoFix: autoFix,
-              needsDecision: needsDecision,
-              suggestedUnit: suggestedUnit,
-              suggestedQty: suggestedQty,
-              issue: 'serving_unit=\'' + (r.serving_unit||'NULL') + '\' ma prep_task.unit=\'' + pt.unit + '\''
-            });
-          });
-        }
+          // ── REGOLA 1: pezzi/pz → fix meccanico sicuro (1 porzione = 1 pezzo) ──
+          if (ptUnit==='pezzi'||ptUnit==='pz') {
+            blocking.push({ recipe:r, pt:pt, soldQty:soldQty,
+              autoFix:true, needsDecision:false,
+              suggestedUnit:'pezzi', suggestedQty:1,
+              issue:'serving_unit=\'porzione\' ma prep_task.unit=\'pezzi\' — fix meccanico: 1 porzione = 1 pezzo' });
+            return;
+          }
+
+          // ── REGOLA 2: BOM per porzione disponibile (base_servings=1 + BOM fisico) ──
+          // Il bot può scaricare via bom_chain/direct_recipe → non è Blocking
+          if (hasBOM && hasPhysicalBOM && r.base_servings === 1) {
+            ok.push({ recipe:r, pt:pt, soldQty:soldQty,
+              note:'OK via BOM per porzione — ' + bom.physicalCount + ' ingredienti fisici nel BOM' });
+            return;
+          }
+
+          // ── REGOLA 3: BOM presente ma base_servings > 1 → Review (bot scala ma serving_unit ambigua) ──
+          if (hasBOM && hasPhysicalBOM && r.base_servings > 1) {
+            review.push({ recipe:r, soldQty:soldQty,
+              note:'BOM presente ma base_servings=' + r.base_servings + ' — verifica se serving_unit deve essere aggiornata',
+              fromTask: true, pt:pt });
+            return;
+          }
+
+          // ── REGOLA 4: serving_weight_g noto → fix meccanico con grammi ──
+          if ((ptUnit==='g'||ptUnit==='kg') && r.serving_weight_g) {
+            blocking.push({ recipe:r, pt:pt, soldQty:soldQty,
+              autoFix:true, needsDecision:false,
+              suggestedUnit:'g', suggestedQty:r.serving_weight_g,
+              issue:'serving_unit=\'porzione\' ma serving_weight_g noto — aggiornare serving_unit=g, serving_qty=' + r.serving_weight_g });
+            return;
+          }
+
+          // ── REGOLA 5: nests/buste/cup senza BOM utilizzabile → Blocking vero ──
+          if (ptUnit==='nests') {
+            blocking.push({ recipe:r, pt:pt, soldQty:soldQty,
+              autoFix:true, needsDecision:false,
+              suggestedUnit:'nests', suggestedQty:r.serving_qty||1,
+              issue:'serving_unit=\'porzione\' ma prep_task.unit=\'nests\'' });
+            return;
+          }
+
+          // ── REGOLA 6: tutto il resto senza BOM fisico → Blocking, decisione cucina ──
+          blocking.push({ recipe:r, pt:pt, soldQty:soldQty,
+            autoFix:false, needsDecision:true,
+            suggestedUnit:'', suggestedQty:null,
+            issue:'serving_unit=\'porzione\', BOM ' + (hasBOM ? 'parziale ('+bom.count+' righe)' : 'vuoto') + ', prep_task.unit=\'' + ptUnit + '\'' });
+        });
       }
 
       // ── REVIEW: venduta recentemente ma senza prep_task ──
@@ -5392,13 +5441,15 @@ window.dqLoad = async function() {
       }
     });
 
-    // Ordina blocking: needsDecision prima, poi autoFix; per venduto desc
+    // Ordina: needsDecision prima, poi autoFix, poi per venduto desc
     blocking.sort(function(a,b){
       if (a.needsDecision && !b.needsDecision) return -1;
       if (!a.needsDecision && b.needsDecision) return 1;
       return b.soldQty - a.soldQty;
     });
     review.sort(function(a,b){ return b.soldQty - a.soldQty; });
+
+    window._dqData = { blocking:blocking, review:review, info:info, ok:ok };
 
     window._dqData = { blocking:blocking, review:review, info:info };
 
@@ -5408,7 +5459,8 @@ window.dqLoad = async function() {
       sumEl.innerHTML =
         dqSummaryCard(blocking.length, '🔴', 'Blocking', '#fef2f2', '#dc2626') +
         dqSummaryCard(review.length,   '🟡', 'Review',   '#fffbeb', '#d97706') +
-        dqSummaryCard(info.length,     '🔵', 'Info',     '#eff6ff', '#2563eb');
+        dqSummaryCard(info.length,     '🔵', 'Info',     '#eff6ff', '#2563eb') +
+        dqSummaryCard(ok.length,       '✅', 'OK/BOM',   '#f0fdf4', '#16a34a');
     }
 
     dqRender();
@@ -5445,10 +5497,36 @@ window.dqRender = function() {
     if (!data.info.length) { el.innerHTML = dqEmpty('Nessun problema informativo','#6b7280'); return; }
     el.innerHTML = data.info.map(function(item,idx){ return dqInfoRow(item,idx); }).join('');
   }
+  else if (tab==='ok') {
+    if (!data.ok || !data.ok.length) { el.innerHTML = dqEmpty('Nessuna ricetta classificata OK ancora','#16a34a'); return; }
+    el.innerHTML = data.ok.map(function(item,idx){ return dqOkRow(item,idx); }).join('');
+  }
 };
 
 function dqEmpty(msg, color) {
   return '<div style="text-align:center;padding:60px 24px;color:'+color+';font-size:14px;">'+msg+'</div>';
+}
+
+// ── Riga OK/BOM ──
+function dqOkRow(item, idx) {
+  var r = item.recipe, pt = item.pt;
+  var soldBadge = item.soldQty > 0
+    ? '<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;margin-left:6px;">' + Math.round(item.soldQty) + ' venduti/30gg</span>'
+    : '<span style="background:#f1f5f9;color:#94a3b8;font-size:10px;padding:2px 7px;border-radius:10px;margin-left:6px;">0 venduti</span>';
+  return '<div style="margin:10px 12px;background:rgba(255,255,255,0.85);border-radius:14px;padding:14px;box-shadow:0 1px 4px rgba(22,163,74,0.08);border:1px solid rgba(22,163,74,0.18);">' +
+    '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">' +
+      '<div style="flex:1;"><span style="font-size:14px;font-weight:700;color:#1e3a5f;">' + r.title + '</span>' + soldBadge + '</div>' +
+      '<span style="background:#16a34a;color:white;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap;">&#x2705; OK via BOM</span>' +
+    '</div>' +
+    '<div style="font-size:11px;color:#6b7280;margin-bottom:8px;">' +
+      '<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:6px;margin-right:4px;">POS: ' + (r.pos_name||'').split('|')[0] + '</span>' +
+      (pt ? '<span style="background:#f3e8ff;color:#7c3aed;padding:1px 6px;border-radius:6px;margin-right:4px;">pt: ' + pt.name + '</span>' : '') +
+    '</div>' +
+    '<div style="font-size:12px;color:#166534;background:#f0fdf4;border-radius:8px;padding:6px 10px;margin-bottom:10px;">' +
+      item.note +
+    '</div>' +
+    '<button onclick="dqOpenRecipe(\'' + r.id + '\')" style="width:100%;height:36px;border-radius:10px;background:#16a34a;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;">Apri ricetta</button>' +
+  '</div>';
 }
 
 // ── Riga Blocking ──
@@ -5607,5 +5685,6 @@ window.dqCopyFix = function(idx) {
     });
   }
 };
+
 
 
