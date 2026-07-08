@@ -1,7 +1,7 @@
 -- ============================================================
--- pos_modifier_depletion_rules v3 — Schema + Righe Proposte
+-- pos_modifier_depletion_rules v4 — Schema + Righe Proposte
 -- Brigade · Zenos on the Square · Weatherford TX
--- Aggiornato: Phase 2.2 — 8 luglio 2026
+-- Aggiornato: Phase 2.3 — 8 luglio 2026
 -- NON APPLICARE senza approvazione Max
 -- ============================================================
 --
@@ -26,6 +26,12 @@
 --
 -- REGOLA FONDAMENTALE: active=false per TUTTO.
 -- Solo confidence='confirmed' + active=true viene letto dal bot (Fase 3).
+--
+-- NOTA Caesar Dressing (confermato Max, 8 lug 2026):
+-- Caesar Dressing è un prodotto ACQUISTATO, non prodotto in cucina.
+-- Gli altri dressing (Balsamic, Citronette, Ranch) sono ricette strutturate.
+-- Per Caesar: linked_ingredient_id → ingredient "Caesar Dressing" (f47e1c26-...)
+-- linked_recipe_id = NULL (nessuna recipe), linked_prep_task_id = NULL
 -- ============================================================
 
 -- Unit conversion reference (embedded dalla unit_conversion_table del DB):
@@ -46,16 +52,24 @@ CREATE TABLE IF NOT EXISTS pos_modifier_depletion_rules (
   -- ── TARGET DEPLETION ─────────────────────────────────────────────────────
   linked_recipe_id      uuid          REFERENCES recipes(id) ON DELETE SET NULL,
   linked_prep_task_id   bigint        REFERENCES prep_tasks(id) ON DELETE SET NULL,
+  linked_ingredient_id  uuid          REFERENCES ingredients(id) ON DELETE SET NULL,
+  -- Per prodotti acquistati (no recipe strutturata).
+  -- Es: Caesar Dressing → ingredient "Caesar Dressing" (f47e1c26-b91e-4539-a60b-95a9a11f5aa1)
+  -- Se linked_ingredient_id è popolato, il bot scarica direttamente quell'ingredient.
 
   -- ── MODALITÀ DI SCARICO ──────────────────────────────────────────────────
   usage_mode            text          NOT NULL DEFAULT 'fixed_quantity'
                         CHECK (usage_mode IN ('fixed_quantity', 'use_recipe_serving', 'no_depletion')),
-  -- fixed_quantity:     usa i campi qty/unit/normalized qui sotto
+  -- fixed_quantity:     usa i campi qty/unit/normalized qui sotto.
+  --                     Target: linked_recipe_id (recipe strutturata) OPPURE
+  --                             linked_ingredient_id (prodotto acquistato, no recipe).
+  --                     Es: Balsamic → linked_recipe (recipe strutturata, 2 fl oz)
+  --                     Es: Caesar   → linked_ingredient (acquistato, 2 fl oz)
   -- use_recipe_serving: consuma 1 porzione logica della ricetta collegata usando
   --                     la resa/BOM della ricetta come source of truth.
-  --                     Esempio: + Add Chicken → linked_recipe = Add Chicken →
-  --                     la ricetta sa già cosa contiene, non chiedere di nuovo in grammi.
-  --                     Esempio: + Meatballs → Meatball Appetizer → use_recipe_serving.
+  --                     Non si chiedono grammi — la recipe sa già cosa contiene.
+  --                     Es: + Add Chicken → linked_recipe = Add Chicken → BOM
+  --                     Es: + Meatballs → Meatball Appetizer → BOM
   -- no_depletion:       modifier non scarica stock (es. preferenza, istruzione cucina)
 
   -- ── QUANTITÀ — CHEF FACING (quello che vede e capisce il cuoco) ──────────
@@ -124,16 +138,21 @@ CREATE INDEX IF NOT EXISTS idx_pmdr_usage ON pos_modifier_depletion_rules (usage
 -- RIGHE DRESSING — REGOLA CUCINA: 2 fl oz ramekin per tutti
 -- Confermato da Max: 8 luglio 2026.
 -- 2 fl oz = 59.147 ml = 59.147 g (density=1.0)
--- I vecchi valori DB (74g Balsamic/Ranch, 78g Citronette) sono legacy —
--- superati dalla regola cucina. NON sono valori competing.
--- confidence='estimated' per tutti — diventa 'confirmed' quando Max
--- esegue l'approvazione finale in Fase 3.
+-- I vecchi valori DB (74g Balsamic/Ranch, 78g Citronette) sono legacy — superati.
+--
+-- TARGET DEDUCTION per tipo:
+--   Balsamic   → linked_recipe_id   (recipe strutturata BALSAMIC VINAIGRETTE)
+--   Citronette → linked_recipe_id   (recipe strutturata CITRONETTE)
+--   Ranch      → linked_recipe_id   (recipe strutturata Ranch Dressing)
+--   Caesar     → linked_ingredient_id (prodotto ACQUISTATO — ingredient "Caesar Dressing")
+--
+-- confidence='estimated' = qty confermata, bot non ancora in produzione (Fase 3).
 -- active=false — nessun bot production change.
 -- ============================================================
 
 INSERT INTO pos_modifier_depletion_rules (
   modifier_canonical, modifier_aliases,
-  linked_recipe_id, usage_mode,
+  linked_recipe_id, linked_ingredient_id, usage_mode,
   display_qty, qty_per_modifier, unit,
   normalized_qty_ml, normalized_qty_g, density_g_per_ml,
   confidence, active, notes, created_by
@@ -148,7 +167,7 @@ INSERT INTO pos_modifier_depletion_rules (
   ARRAY['Balsamic','balsamic','BALSAMIC ON SIDE','Balsamic on side',
         'Balsamic for salad','Extra balsamic','Balsamic reduction',
         'Side balsamic vinaigrette','Salad now balsamic dressing','Balsamic and tomatoes on side'],
-  'e834c1e2-c9a7-4c5c-b525-a4e092df42df',
+  'e834c1e2-c9a7-4c5c-b525-a4e092df42df', NULL,
   'fixed_quantity',
   '2 fl oz ramekin',
   2,
@@ -169,7 +188,7 @@ INSERT INTO pos_modifier_depletion_rules (
 (
   'citronette',
   ARRAY['citronette','Citronette','Citronette on side','Add Citronette ots','Citronette on the side'],
-  '3f433b8b-eb7f-4f55-90c6-64d25801d9b7',
+  '3f433b8b-eb7f-4f55-90c6-64d25801d9b7', NULL,
   'fixed_quantity',
   '2 fl oz ramekin',
   2,
@@ -194,7 +213,8 @@ INSERT INTO pos_modifier_depletion_rules (
   'Caesar',
   ARRAY['Caesar','caesar','Caesar dressing','Extra side of Caesar dressing',
         'Ceasar is split between both seats','Add Ceasar dressing side for arugula'],
-  NULL,   -- pending: recipe Caesar Dressing non in DB; da creare o collegare prep_task
+  NULL,   -- Caesar: prodotto acquistato, nessuna recipe strutturata
+  'f47e1c26-b91e-4539-a60b-95a9a11f5aa1',  -- ingredient "Caesar Dressing"
   'fixed_quantity',
   '2 fl oz ramekin',
   2,
@@ -204,7 +224,7 @@ INSERT INTO pos_modifier_depletion_rules (
   1.0,
   'estimated',
   false,
-  'Qty confermata: 2 fl oz ramekin = 59.147g (Max 8/7/2026). PENDING solo: linked_recipe_id — recipe "Caesar Dressing" non esiste nel DB. Prep_task "Check Caesar" usa unit=squeezer, inutilizzabile per deduction. Da creare recipe o identificare prep_task corretto prima di Fase 3. 312 usi/60gg → ~18.5kg/60gg non tracciati.',
+  'Qty confermata: 2 fl oz ramekin = 59.147g (Max 8/7/2026). Caesar Dressing = prodotto ACQUISTATO (non ricetta). linked_ingredient_id = f47e1c26 (ingredient "Caesar Dressing"). 312 usi/60gg → ~18.5kg/60gg non tracciati.',
   'brigade_audit'
 ),
 
@@ -215,7 +235,7 @@ INSERT INTO pos_modifier_depletion_rules (
 (
   'Ranch',
   ARRAY['Ranch','ranch'],
-  '3cee627c-5eb6-48aa-ad50-91949dcbfc9a',
+  '3cee627c-5eb6-48aa-ad50-91949dcbfc9a', NULL,
   'fixed_quantity',
   '2 fl oz ramekin',
   2,
@@ -282,13 +302,22 @@ SELECT
   r.usage_mode,
   r.confidence,
   r.active,
-  rec.title AS recipe_title,
+  rec.title   AS recipe_title,
   rec.base_weight_g AS recipe_batch_g,
-  -- Porzioni per batch (se base_weight_g noto)
+  ing.name    AS ingredient_name,
+  -- Porzioni per batch (se base_weight_g noto, per recipe-backed dressings)
   CASE
     WHEN r.normalized_qty_g > 0 AND rec.base_weight_g > 0
     THEN ROUND(rec.base_weight_g / r.normalized_qty_g, 1)
     ELSE NULL
-  END AS portions_per_batch
+  END AS portions_per_batch,
+  -- Target type: recipe o ingredient diretto
+  CASE
+    WHEN r.linked_recipe_id IS NOT NULL THEN 'recipe'
+    WHEN r.linked_ingredient_id IS NOT NULL THEN 'ingredient'
+    ELSE 'unlinked'
+  END AS depletion_target_type
 FROM pos_modifier_depletion_rules r
-LEFT JOIN recipes rec ON rec.id = r.linked_recipe_id;
+LEFT JOIN recipes     rec ON rec.id = r.linked_recipe_id
+LEFT JOIN ingredients ing ON ing.id = r.linked_ingredient_id;
+

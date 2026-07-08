@@ -1,6 +1,6 @@
 # MODIFIER DEPLETION AUDIT
 *Brigade · Zenos on the Square · Weatherford TX*
-*Aggiornato: 8 luglio 2026 — Phase 2.3*
+*Aggiornato: 8 luglio 2026 — Phase 2.3 (Caesar risolto)*
 
 ---
 
@@ -34,41 +34,43 @@ Il valore `confidence='estimated'` nel DB riflette **solo** che le regole non so
 
 ## Stato dressing modifier (Phase 2.3)
 
-| Modifier | Recipe ID | confidence (DB) | qty | unit | normalized_g | Qty confermata | Link confermato |
-|---|---|---|---|---|---|---|---|
-| Balsamic | e834c1e2 | estimated | 2 | fl_oz | 59.147g | ✅ | ✅ |
-| citronette | 3f433b8b | estimated | 2 | fl_oz | 59.147g | ✅ | ✅ |
-| Ranch | 3cee627c | estimated | 2 | fl_oz | 59.147g | ✅ | ✅ |
-| Caesar | NULL | estimated | 2 | fl_oz | 59.147g | ✅ | ⏳ pending |
+| Modifier | Target | confidence | qty | normalized_g | Tipo target |
+|---|---|---|---|---|---|
+| Balsamic | recipe e834c1e2 | estimated | 2 fl_oz | 59.147g | recipe strutturata |
+| citronette | recipe 3f433b8b | estimated | 2 fl_oz | 59.147g | recipe strutturata |
+| Ranch | recipe 3cee627c | estimated | 2 fl_oz | 59.147g | recipe strutturata |
+| Caesar | ingredient f47e1c26 | estimated | 2 fl_oz | 59.147g | prodotto acquistato |
 
 **Tutti i record:** `active = false` — nessun bot production change finché Max non approva Fase 3.
 
 ---
 
-## Caesar — cosa è ancora aperto (solo il link)
+## Caesar — RISOLTO (8 lug 2026)
 
-La **quantità** è confermata: 2 fl oz ramekin = 59.147g. **Chiusa.**
+Confermato da Max: **Caesar Dressing è un prodotto acquistato, non prodotto in cucina.**
 
-L'**unica cosa pending** è: dove scaricare? Quale recipe o prep riceve la deduction?
+Gli altri tre dressing (Balsamic, Citronette, Ranch) sono ricette strutturate con BOM e prep task.
+Caesar Dressing arriva già pronto — nessuna recipe da creare.
+
+### Target deduction Caesar
+
+| Campo | Valore |
+|---|---|
+| `linked_recipe_id` | NULL |
+| `linked_prep_task_id` | NULL |
+| `linked_ingredient_id` | `f47e1c26-b91e-4539-a60b-95a9a11f5aa1` (ingredient "Caesar Dressing") |
+| `usage_mode` | `fixed_quantity` |
+| `qty` | 2 fl oz = 59.147g |
+
+Lo schema `pos_modifier_depletion_rules` aggiornato in v4 include il campo `linked_ingredient_id` per questo caso — prodotti acquistati senza recipe strutturata.
 
 ### Stato DB (verificato 8 lug 2026)
 
-| Entità | Tipo | Stato | Utilizzabile? |
-|---|---|---|---|
-| prep_task 391 "Caesar Dressing" | checklist | **archiviata** | ❌ |
-| prep_task 395 "Check Caesar" | checklist, unit=squeezer | attiva, Salad Station | ❌ non è una recipe |
-| ingredient "Caesar Dressing" (f47e1c26) | ingrediente raw | usato in Mini Caesar (50g ITEM) | ⚠️ solo come ITEM |
-| recipe "Caesar Dressing" | — | **non esiste** | — |
-
-### La domanda per Max (una sola)
-
-**Caesar Dressing a Zenos è prodotto in casa o acquistato pronto?**
-
-**A) Prodotto in cucina** → creare recipe strutturata "Caesar Dressing" con yield (LT o QT) + BOM ingredienti + prep task → modifier si collega alla recipe → `use_recipe_serving` o `fixed_quantity 2 fl oz`
-
-**B) Acquistato pronto** → l'ingredient "Caesar Dressing" (f47e1c26) è già nel DB → si può collegare il modifier direttamente → `fixed_quantity 2 fl oz`, linked_recipe_id punta alla recipe wrapper se esiste, oppure si usa solo `normalized_qty_g` senza link recipe
-
-La scelta A è quella pulita (come Balsamic, Citronette, Ranch hanno tutte recipe strutturate).
+| Entità | Tipo | Stato |
+|---|---|---|
+| prep_task 391 "Caesar Dressing" | checklist | **archiviata** — ignorata |
+| prep_task 395 "Check Caesar" | checklist, unit=squeezer | checklist operativa, non usata per deduction |
+| ingredient "Caesar Dressing" (f47e1c26) | ingrediente raw | ✅ **questo è il target** |
 
 ---
 
@@ -113,8 +115,8 @@ Esempio: 5 kg stock → 5000g ÷ 59.147g = **84.5 ramekin** · ÷ 2000g = **2.5 
 
 | File | Descrizione | Versione |
 |---|---|---|
-| `proposed_pos_modifier_depletion_rules.sql` | Schema tabella + INSERT dressing | v3 (Phase 2.2) |
-| `modifier-depletion-lab.jsx` | Artifact React — lab UI + calculator | Phase 2.3, boh-v588 |
+| `proposed_pos_modifier_depletion_rules.sql` | Schema tabella + INSERT dressing | v4 (Phase 2.3) |
+| `modifier-depletion-lab.jsx` | Artifact React — lab UI + calculator | Phase 2.3, boh-v589 |
 | `js/unit-normalizer.js` | Engine conversione unità | boh-v586 |
 
 ---
@@ -126,4 +128,4 @@ Esempio: 5 kg stock → 5000g ÷ 59.147g = **84.5 ramekin** · ÷ 2000g = **2.5 
 | **Fase 1** | ✅ Completa | unit-normalizer.js (boh-v586), acceptance tests 11/11 |
 | **Fase 2.2** | ✅ Completa | Dati modifier corretti (regola 2 fl oz), schema SQL, lab UI |
 | **Fase 2.3** | ✅ Completa | Audit Caesar DB, chiarimento semantica confidence, questa nota |
-| **Fase 3** | ⏳ Pending | Caesar: Max risponde A o B → link → `confidence='confirmed'` → `active=true` → primo bot run |
+| **Fase 3** | ⏳ Pending Max | Tutti i link confermati → `confidence='confirmed'` → `active=true` → primo bot run |
