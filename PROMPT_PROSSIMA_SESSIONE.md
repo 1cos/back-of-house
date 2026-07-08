@@ -4526,3 +4526,128 @@ Dopo verifica UI loaded_qty e fix dei 3 warning:
 - Scrive `prep_suggestions_daily` con spiegazione
 - Prep UI legge `prep_suggestions_daily` se disponibile, fallback a `prep_tasks.suggested_qty`
 - Confronto vecchio vs nuovo per 5-7 giorni prima di spegnere bot-preplist-builder
+
+---
+
+## SESSIONE 8 LUGLIO 2026 — Parte 2: serving_qty batch fix + bot-direct-deduction v4
+
+**Versione sw.js live:** boh-v573
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### La Dispensa UI — boh-v571/v572/v573
+
+**boh-v571:** loaded_qty in card Cucina/Magazzino + Esploso con sezione ↑ Carico da prep_log
+**boh-v572:** Tema light completo (sfondo Office gradient, testo #1e3a5f, font grandi)
+**boh-v573:** load-only = badge "Solo carico" (no "-0"), Esploso mostra carichi senza deductions
+
+---
+
+### bot-direct-deduction v4 — direct_parent_prep_task
+
+**Deploy:** Supabase version 4, ACTIVE
+**File repo:** `bots/direct-deduction/bot-direct-deduction.js`
+
+**Nuova logica PATH B:**
+- Se recipe POS non ha BOM RECIPE → cerca prep_task con `prep_tasks.recipe_id = recipe.id`
+- PATH A (BOM RECIPE) ha sempre priorità — PATH B solo se BOM vuoto
+- Protezioni plausibilità:
+  - PIECE_UNITS (pezzi/pz/each/ea/nests): ok se serving_qty ≥ 1 (default 1 se null)
+  - WEIGHT_UNITS g: ok solo se serving_qty > 5; kg: ok se serving_qty ≥ 0.05
+  - CONTAINER_UNITS (buste/bag/case/box): skip + observation
+  - Unità astratte (porzione, ecc.): skip + observation
+- metadata: `reason='direct_parent_prep_task'`, `guard='plausibility_checked'`
+
+**Run 2026-07-06 post serving_qty fix:**
+- 8 parent_prep_deductions (erano 5 prima del fix):
+  - Tiramisu 2 pz, Crème Brûlée 3 pz, Cheesecake 5 pz, Panna Cotta 3 pz
+  - Berry Coulis 350g, Ranch 222g, Rosemary Potatoes 320g, Texana Soup 560g
+- 0 parent_prep_skipped (Ranch/Rosemary/Texana ora passano con serving_qty reale)
+- 3 obs no_bom invariati
+
+---
+
+### Serving Integrity Audit — 14 UPDATE recipes eseguiti
+
+**Transazione eseguita e verificata 14/14:**
+
+| Recipe | serving_qty | serving_unit | Fonte |
+|---|---|---|---|
+| CITRONETTE | 78 | g | serving_weight_g |
+| Ranch Dressing | 74 | g | serving_weight_g |
+| Nutella mix | 40 | g | serving_weight_g |
+| ROSMARY POTATOES | 160 | g | serving_weight_g |
+| Texana Soup | 280 | g | serving_weight_g |
+| BALSAMIC VINAIGRETTE | 74 | g | serving_weight_g |
+| Diced Butter | 23 | g | serving_weight_g |
+| Diced Grilled Chicken | 60 | g | serving_weight_g |
+| ITALIAN CREAM | 61 | g | serving_weight_g |
+| MACCHERONI FRESH PASTA | 120 | g | serving_weight_g |
+| **Pecorino Fresh Wedge** | **70** | g | **Max manual** |
+| Salmon Aioli | 40 | g | serving_weight_g |
+| **Seed Mix** | **15** | g | **Max manual** |
+| Shredded Carrots | 20 | g | serving_weight_g |
+
+**Safety post-update:** stock_movements=335 invariato ✅
+
+---
+
+### Decisioni architetturali stabilite
+
+**Brussels Sprouts — flusso corretto:**
+```
+POS vende Brussels Sprouts
+→ scarica Brussels Sprouts Ready to Sell (prep_task, unit=g)
+
+Cook produce Ready to Sell (da Par Cook):
+- Brussels Sprouts Par Cook
++ Brussels Sprouts Ready to Sell
+```
+- BOM `Brussels Sprouts → Brussels Sprouts Par Cook 1200g` è BATCH-LEVEL corretto (per 10 porzioni)
+- Il bot ora non legge questo BOM correttamente (divide per base_servings = task futuro)
+- Non toccare BOM, non toccare serving_qty di Brussels Sprouts
+
+**Asparagus — pendente:**
+- `pt_unit=kg`, `serving_weight_g=150g`
+- Opzioni: cambiare `pt_unit` a `g`, oppure `serving_qty=0.15, serving_unit='kg'`
+- Decisione rimandata
+
+---
+
+### Classificazione recipe audit
+
+**A: OK_COUNT (18)** — pezzi con serving_qty plausibile ✅
+**B: OK_WEIGHT (4)** — g/kg con serving_qty > 5 reale ✅
+**C: SUSPICIOUS — fixate (14)** ✅ — erano placeholder 1g/1 porzione, ora hanno serving_weight_g reale
+**D: PACKAGE_UNIT (3)** — buste (Spring mix, Basil Oil) — non auto-scaricabili, richiede decisione unit
+**E: MISSING (12)** — sauces/supporto senza pos_name (Arrabbiata, Pomodoro, Cacio e Pepe, ecc.) — non impattano il bot POS direttamente
+**F: MANUAL_REVIEW (5)** — Butter Spinach cup, Fried Calamari BOM anomalo, ecc.
+
+---
+
+### PENDING next session
+
+**Priorità 1 — 3 warning Consolidator (da dopo UI):**
+1. Spring mix: `g vs buste` — decidere pt_unit
+2. Spaghetti fresh pasta: `pz vs nests` — decidere se DONE salva nests
+3. Parsley: `pinch vs g` dal BOM POS
+
+**Priorità 2 — Asparagus pt_unit fix:**
+- Scegliere: `pt_unit='g'` oppure `serving_qty=0.15, serving_unit='kg'`
+
+**Priorità 3 — Brussels Sprouts bot fix:**
+- Bot-bom-chain deve dividere BOM qty per base_servings quando base_servings > 1
+- Solo allora Brussels Sprouts Par Cook si scarica correttamente
+
+**Priorità 4 — Sprint B: bot-prep-suggester**
+- Dopo fix warning + Asparagus
+- Nuova tabella `prep_suggestions_daily`
+- Legge stock_daily_snapshot (loaded_qty + pos_deducted_qty) + prep_tasks
+- UI Prep legge suggestions se disponibili, fallback a suggested_qty attuale
+- Confronto 5-7gg prima di spegnere bot-preplist-builder
+
+**Non ancora risolti (Blocco B/C audit precedente):**
+- Gnocchi: serving_qty=200g ma deduction=0 — prep_type='supporto' non ha pos_name
+- CITRONETTE: serving_qty ora 78g ma deduction ancora 0 su 06/07 — da verificare
+- ADD SHRIMP serving_qty=1g ancora (ha BOM RECIPE via path A)
