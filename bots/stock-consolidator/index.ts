@@ -1,13 +1,12 @@
-// bot-stock-consolidator v6
-// Sprint A — Load Qty from prep_log
+// bot-stock-consolidator v7
+// Sprint A — Load Qty from prep_log + unit_conversion_table
 //
-// v5 aggiunge rispetto a v4:
-//   - Legge prep_log per business_date (CDT) → popola stock_daily_snapshot.loaded_qty
-//   - Crea snapshot "load-only" se prep_log ha carichi ma mancano POS deductions per quella prep
-//   - 4 protezioni: Pipeline Guard (v4), match warning, item_id check, unit normalisation
-//   - load_only=true: consente run senza deductions POS (solo carichi)
+// v7 aggiunge rispetto a v6:
+//   - Carica unit_conversion_table da DB all'avvio
+//   - normaliseQty usa la tabella come fallback per conversioni non hardcoded
+//   - Fix warning "buste vs g": 1 busta Spring mix = 907g (inserito in unit_conversion_table)
 //
-// ⚠️ INVARIATO v4→v5:
+// ⚠️ INVARIATO v6→v7:
 //   - Non aggiorna current_stock
 //   - Non scrive stock_movements
 //   - Non modifica prep_log
@@ -18,7 +17,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const BOT_NAME    = 'bot-stock-consolidator';
 const COMMIS_NAME = 'stock-consolidator-commis';
-const BOT_VERSION = 'v6_hygiene';
+const BOT_VERSION = 'v7_unit_table';
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -26,10 +25,11 @@ const CORS = {
 
 // ── Unit normalisation ──
 // Converte unità sicure verso l'unità canonica.
-// NON converte: pz, each, nests, cup, buste, filetto — unità fisiche non riducibili a peso.
+// NON converte: pz, each, nests, cup, filetto — unità fisiche non riducibili a peso.
 // Unit aliases -- equivalenze fisiche sicure.
 // pz = pezzi = piece = pieces = ea = each  (stesso oggetto contato)
 // NON convertire: pz/nests, pz/g, cup/g, oz/g -- unita fisicamente diverse.
+// buste: convertibile via unit_conversion_table (1 busta = 907g per Spring mix).
 const PIECE_ALIASES = new Set(['pz', 'pezzi', 'piece', 'pieces', 'ea', 'each']);
 
 function normaliseUnit(u: string): string {
@@ -38,14 +38,22 @@ function normaliseUnit(u: string): string {
   return low;
 }
 
-function normaliseQty(qty: number, fromUnit: string, toUnit: string): number | null {
+// conversionMap: caricata da unit_conversion_table all'avvio
+// key: "from|to" → factor (number)
+function normaliseQty(qty: number, fromUnit: string, toUnit: string, conversionMap?: Map<string, number>): number | null {
   const f = normaliseUnit(fromUnit);
   const t = normaliseUnit(toUnit);
   if (f === t) return qty;
+  // Conversioni hardcoded (sicure, sempre presenti)
   if (f === 'kg' && t === 'g')  return qty * 1000;
   if (f === 'g'  && t === 'kg') return qty / 1000;
   if (f === 'ml' && t === 'l')  return qty / 1000;
   if (f === 'l'  && t === 'ml') return qty * 1000;
+  // Fallback: unit_conversion_table dal DB
+  if (conversionMap) {
+    const factor = conversionMap.get(`${f}|${t}`);
+    if (factor != null) return qty * factor;
+  }
   return null; // non convertibile (pz/nests, pz/g, cup/g, ecc.)
 }
 
@@ -64,7 +72,15 @@ Deno.serve(async (req: Request) => {
     // load_only=true: consente snapshot senza deductions POS (run manuale carichi)
     const loadOnly: boolean = body.load_only === true;
 
-    console.log(`[${BOT_NAME}] v5 Starting run for ${businessDate}, load_only=${loadOnly}`);
+    console.log(`[${BOT_NAME}] v7 Starting run for ${businessDate}, load_only=${loadOnly}`);
+
+    // ── Carica unit_conversion_table ──
+    const conversionMap = new Map<string, number>();
+    const { data: convRows } = await supa.from('unit_conversion_table').select('from_unit, to_unit, factor');
+    for (const row of (convRows || [])) {
+      conversionMap.set(`${row.from_unit}|${row.to_unit}`, parseFloat(row.factor));
+    }
+    console.log(`[${BOT_NAME}] Loaded ${conversionMap.size} unit conversions from DB`);
 
     // ── PROTEZIONE 1: Pipeline Guard ──
     // Verifica upstream success — bypassato solo se load_only=true
@@ -234,7 +250,7 @@ Deno.serve(async (req: Request) => {
 
       // PROTEZIONE 4: normalizza
       if (logUnit !== taskUnit && taskUnit) {
-        const converted = normaliseQty(loadQty, logUnit, taskUnit);
+        const converted = normaliseQty(loadQty, logUnit, taskUnit, conversionMap);
         if (converted !== null) {
           loadQty = converted;
         } else {
@@ -367,7 +383,7 @@ Deno.serve(async (req: Request) => {
           g.loaded_by    = [...new Set<string>(lg.logs.map((l: any) => l.user))];
           g.last_loaded_at = lg.logs.length > 0 ? lg.logs[lg.logs.length - 1].at : null;
         } else {
-          const converted = normaliseQty(lg.loaded_qty, loadUnit, posUnit);
+          const converted = normaliseQty(lg.loaded_qty, loadUnit, posUnit, conversionMap);
           if (converted !== null) {
             g.loaded_qty   = (g.loaded_qty || 0) + converted;
             g.loaded_logs  = lg.logs;
@@ -591,3 +607,4 @@ function jsonRes(body: object, status = 200) {
     status,
   });
 }
+
