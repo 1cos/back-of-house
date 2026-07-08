@@ -1,4 +1,4 @@
-// bot-stock-consolidator v5
+// bot-stock-consolidator v6
 // Sprint A — Load Qty from prep_log
 //
 // v5 aggiunge rispetto a v4:
@@ -18,7 +18,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const BOT_NAME    = 'bot-stock-consolidator';
 const COMMIS_NAME = 'stock-consolidator-commis';
-const BOT_VERSION = 'v5_load_qty';
+const BOT_VERSION = 'v6_hygiene';
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -27,15 +27,26 @@ const CORS = {
 // ── Unit normalisation ──
 // Converte unità sicure verso l'unità canonica.
 // NON converte: pz, each, nests, cup, buste, filetto — unità fisiche non riducibili a peso.
+// Unit aliases -- equivalenze fisiche sicure.
+// pz = pezzi = piece = pieces = ea = each  (stesso oggetto contato)
+// NON convertire: pz/nests, pz/g, cup/g, oz/g -- unita fisicamente diverse.
+const PIECE_ALIASES = new Set(['pz', 'pezzi', 'piece', 'pieces', 'ea', 'each']);
+
+function normaliseUnit(u: string): string {
+  const low = u.toLowerCase().trim();
+  if (PIECE_ALIASES.has(low)) return 'pezzi'; // canonical
+  return low;
+}
+
 function normaliseQty(qty: number, fromUnit: string, toUnit: string): number | null {
-  const f = fromUnit.toLowerCase().trim();
-  const t = toUnit.toLowerCase().trim();
+  const f = normaliseUnit(fromUnit);
+  const t = normaliseUnit(toUnit);
   if (f === t) return qty;
   if (f === 'kg' && t === 'g')  return qty * 1000;
   if (f === 'g'  && t === 'kg') return qty / 1000;
   if (f === 'ml' && t === 'l')  return qty / 1000;
   if (f === 'l'  && t === 'ml') return qty * 1000;
-  return null; // unità non convertibili
+  return null; // non convertibile (pz/nests, pz/g, cup/g, ecc.)
 }
 
 Deno.serve(async (req: Request) => {
@@ -163,7 +174,7 @@ Deno.serve(async (req: Request) => {
     // ── STEP 3: Fetch prep_tasks per match nome → recipe_id ──
     const { data: allTasks } = await supa
       .from('prep_tasks')
-      .select('id, name, recipe_id, unit')
+      .select('id, name, recipe_id, ingredient_id, unit, prep_type')
       .eq('archived', false);
 
     // Map: name_lower → task
@@ -191,19 +202,25 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // PROTEZIONE 2
+      // PROTEZIONE 2: nessun match prep_task
       if (!task) { unmatchedItems.add(log.item); continue; }
 
-      // PROTEZIONE 3
+      // PROTEZIONE 2b: checklist -- task operativo, non inventario. Skip silenzioso.
+      if (task.prep_type === 'checklist') continue;
+
+      // PROTEZIONE 3: task senza recipe_id
       if (!task.recipe_id) {
-        const obsKey = `no_recipe|${task.id}`;
+        // raw_item valido: ha ingredient_id -- tracciato via ingredient path. Skip silenzioso.
+        if (task.ingredient_id) continue;
+        // Nessun link -- genuinamente mancante, segnala una volta.
+        const obsKey = `no_recipe_no_ing|${task.id}`;
         if (!unitMismatchSentinels.has(obsKey)) {
           unitMismatchSentinels.add(obsKey);
           observations.push({
             severity: 'warning', category: 'missing_mapping',
-            title: `prep_log senza recipe_id — ${log.item}`,
-            explanation: `prep_task "${log.item}" (id=${task.id}) non ha recipe_id. Impossibile creare snapshot: item_id è uuid NOT NULL.`,
-            suggested_action: `Collegare "${log.item}" (id=${task.id}) a una ricetta nel Recipe Editor.`,
+            title: `prep_log senza recipe_id ne ingredient_id -- ${log.item}`,
+            explanation: `prep_task "${log.item}" (id=${task.id}) non ha recipe_id ne ingredient_id. Nessun path di tracciamento disponibile.`,
+            suggested_action: `Archiviare "${log.item}" se non piu usato, oppure collegare a recipe_id o ingredient_id.`,
           });
           warningCount++;
         }
