@@ -1,8 +1,11 @@
 -- ============================================================
--- pos_modifier_depletion_rules v4 — Schema + Righe Proposte
+-- pos_modifier_depletion_rules v5 — Schema + Righe PRODUCTION-READY
 -- Brigade · Zenos on the Square · Weatherford TX
--- Aggiornato: Phase 2.3 — 8 luglio 2026
--- NON APPLICARE senza approvazione Max
+-- Aggiornato: Phase 2.3 finale — 8 luglio 2026
+-- APPROVATO da Max: confidence=confirmed, active=false
+-- Phase 2.3: eseguire CREATE TABLE + INSERT (rules inactive)
+-- Phase 3a: dry-run storico 60gg → report → approvazione Max
+-- Phase 3b: solo dopo approvazione → active=true + bot production
 -- ============================================================
 --
 -- FILOSOFIA (Phase 2.2):
@@ -103,9 +106,10 @@ CREATE TABLE IF NOT EXISTS pos_modifier_depletion_rules (
                         CHECK (confidence IN ('confirmed','estimated','review','missing')),
   active                boolean       NOT NULL DEFAULT false,
 
-  -- Constraint: solo 'confirmed' può essere attivato
+  -- Constraint: solo 'confirmed' può essere attivato (active=true richiede confirmed)
   CONSTRAINT no_active_unconfirmed
     CHECK (NOT (active = true AND confidence != 'confirmed')),
+  -- Nota: confirmed+active=false è lo stato corretto per regole verificate ma non ancora in produzione.
 
   -- Constraint: fixed_quantity richiede qty e unit
   CONSTRAINT fixed_qty_requires_values
@@ -146,7 +150,9 @@ CREATE INDEX IF NOT EXISTS idx_pmdr_usage ON pos_modifier_depletion_rules (usage
 --   Ranch      → linked_recipe_id   (recipe strutturata Ranch Dressing)
 --   Caesar     → linked_ingredient_id (prodotto ACQUISTATO — ingredient "Caesar Dressing")
 --
--- confidence='estimated' = qty confermata, bot non ancora in produzione (Fase 3).
+-- confidence='confirmed': la regola è corretta (quantità E target verificati da Max).
+-- active=false: il bot NON usa ancora queste regole in produzione.
+-- Semantica: confirmed = la regola è giusta. active = il bot è acceso.
 -- active=false — nessun bot production change.
 -- ============================================================
 
@@ -175,7 +181,7 @@ INSERT INTO pos_modifier_depletion_rules (
   59.147,
   59.147,
   1.0,
-  'estimated',
+  'confirmed',
   false,
   'Regola cucina confermata Max 8/7/2026: 1 ramekin = 2 fl oz per tutti i dressing. 59.147g per porzione. 151 usi/60gg → ~8.9kg/60gg non tracciati. Legacy DB serving_qty=74g superato.',
   'brigade_audit'
@@ -196,7 +202,7 @@ INSERT INTO pos_modifier_depletion_rules (
   59.147,
   59.147,
   1.0,
-  'estimated',
+  'confirmed',
   false,
   'Regola cucina confermata Max 8/7/2026: 1 ramekin = 2 fl oz per tutti i dressing. 59.147g per porzione. 195 usi/60gg → ~11.5kg/60gg non tracciati. Legacy DB serving_qty=78g superato.',
   'brigade_audit'
@@ -222,7 +228,7 @@ INSERT INTO pos_modifier_depletion_rules (
   59.147,
   59.147,
   1.0,
-  'estimated',
+  'confirmed',
   false,
   'Qty confermata: 2 fl oz ramekin = 59.147g (Max 8/7/2026). Caesar Dressing = prodotto ACQUISTATO (non ricetta). linked_ingredient_id = f47e1c26 (ingredient "Caesar Dressing"). 312 usi/60gg → ~18.5kg/60gg non tracciati.',
   'brigade_audit'
@@ -243,7 +249,7 @@ INSERT INTO pos_modifier_depletion_rules (
   59.147,
   59.147,
   1.0,
-  'estimated',
+  'confirmed',
   false,
   'Regola cucina confermata Max 8/7/2026: 1 ramekin = 2 fl oz per tutti i dressing. 59.147g per porzione. 86 usi/60gg → ~5.1kg/60gg non tracciati. Legacy DB serving_qty=74g superato.',
   'brigade_audit'
@@ -320,4 +326,5 @@ SELECT
 FROM pos_modifier_depletion_rules r
 LEFT JOIN recipes     rec ON rec.id = r.linked_recipe_id
 LEFT JOIN ingredients ing ON ing.id = r.linked_ingredient_id;
+
 

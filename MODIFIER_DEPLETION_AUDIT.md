@@ -1,6 +1,6 @@
 # MODIFIER DEPLETION AUDIT
 *Brigade · Zenos on the Square · Weatherford TX*
-*Aggiornato: 8 luglio 2026 — Phase 2.3 (Caesar risolto)*
+*Aggiornato: 8 luglio 2026 — Phase 2.3 finale*
 
 ---
 
@@ -23,12 +23,22 @@ Lo schema ha un solo campo `confidence`. Per i dressing questo campo ha due dime
 | Dimensione | Stato |
 |---|---|
 | **Quantità (2 fl oz ramekin)** | ✅ **CONFERMATA** da Max, 8 lug 2026 |
-| **Recipe/prep link** | Balsamic ✅ · Citronette ✅ · Ranch ✅ · Caesar ⏳ pending |
-| **Bot active** | ❌ `active=false` — Fase 3 non ancora attiva |
+| **Recipe/prep link** | Balsamic ✅ · Citronette ✅ · Ranch ✅ · Caesar ✅ (ingredient acquistato) |
+| **Bot active** | ❌ `active=false` — Phase 3a (dry-run) non ancora eseguita |
 
 Il valore `confidence='estimated'` nel DB riflette **solo** che le regole non sono ancora in produzione (Fase 3 non attiva), **non** che la quantità sia in dubbio.
 
-> **Chiunque rilegga questo file:** la quantità 2 fl oz = 59.147g è chiusa. Non riaprire la domanda "quanti grammi sono". Non chiedere a Max. Non mettere OQR sulla quantità.
+> **Chiunque rilegga questo file:** la quantità 2 fl oz = 59.147g è chiusa. Non riaprire.
+
+**Semantica dei due campi (definitiva):**
+
+| Campo | Significato |
+|---|---|
+| `confidence='confirmed'` | La regola è **corretta** — quantità e target verificati da Max |
+| `active=false` | Il bot **non usa ancora** questa regola in produzione |
+
+`confirmed + active=false` = regola verificata, in attesa del dry-run di Phase 3a.
+Non confondere: `confirmed` non significa "bot acceso". `active` controlla il bot.
 
 ---
 
@@ -36,10 +46,10 @@ Il valore `confidence='estimated'` nel DB riflette **solo** che le regole non so
 
 | Modifier | Target | confidence | qty | normalized_g | Tipo target |
 |---|---|---|---|---|---|
-| Balsamic | recipe e834c1e2 | estimated | 2 fl_oz | 59.147g | recipe strutturata |
-| citronette | recipe 3f433b8b | estimated | 2 fl_oz | 59.147g | recipe strutturata |
-| Ranch | recipe 3cee627c | estimated | 2 fl_oz | 59.147g | recipe strutturata |
-| Caesar | ingredient f47e1c26 | estimated | 2 fl_oz | 59.147g | prodotto acquistato |
+| Balsamic | recipe e834c1e2 | **confirmed** | 2 fl_oz | 59.147g | recipe strutturata |
+| citronette | recipe 3f433b8b | **confirmed** | 2 fl_oz | 59.147g | recipe strutturata |
+| Ranch | recipe 3cee627c | **confirmed** | 2 fl_oz | 59.147g | recipe strutturata |
+| Caesar | ingredient f47e1c26 | **confirmed** | 2 fl_oz | 59.147g | prodotto acquistato |
 
 **Tutti i record:** `active = false` — nessun bot production change finché Max non approva Fase 3.
 
@@ -115,8 +125,8 @@ Esempio: 5 kg stock → 5000g ÷ 59.147g = **84.5 ramekin** · ÷ 2000g = **2.5 
 
 | File | Descrizione | Versione |
 |---|---|---|
-| `proposed_pos_modifier_depletion_rules.sql` | Schema tabella + INSERT dressing | v4 (Phase 2.3) |
-| `modifier-depletion-lab.jsx` | Artifact React — lab UI + calculator | Phase 2.3, boh-v589 |
+| `proposed_pos_modifier_depletion_rules.sql` | Schema tabella + INSERT dressing | v5 (Phase 2.3 finale) |
+| `modifier-depletion-lab.jsx` | Artifact React — lab UI + calculator | Phase 2.3, boh-v590 |
 | `js/unit-normalizer.js` | Engine conversione unità | boh-v586 |
 
 ---
@@ -128,4 +138,7 @@ Esempio: 5 kg stock → 5000g ÷ 59.147g = **84.5 ramekin** · ÷ 2000g = **2.5 
 | **Fase 1** | ✅ Completa | unit-normalizer.js (boh-v586), acceptance tests 11/11 |
 | **Fase 2.2** | ✅ Completa | Dati modifier corretti (regola 2 fl oz), schema SQL, lab UI |
 | **Fase 2.3** | ✅ Completa | Audit Caesar DB, chiarimento semantica confidence, questa nota |
-| **Fase 3** | ⏳ Pending Max | Tutti i link confermati → `confidence='confirmed'` → `active=true` → primo bot run |
+| **Phase 2.3** | ✅ Completa | Caesar = ingredient, schema v5, `confidence='confirmed'`, `active=false` |
+| **Phase 3a** | ⏳ Pending | `CREATE TABLE` + `INSERT` regole inactive → dry-run 60gg storici → report per Max |
+| **Phase 3b** | ⏳ Bloccata da 3a | Solo dopo approvazione dry-run: `active=true` + bot production |
+
