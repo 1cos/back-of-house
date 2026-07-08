@@ -4435,3 +4435,94 @@ stock_daily_snapshot.pos_deducted_qty ✅ (da pipeline POS)
 **Nota sessione:** non commitare mai API key / service role key nel repo o nei prompt.
 Anon key è pubblica nell'app (ok per runtime), ma non va copiata in documenti di sessione.
 Triggero bot via pg_net — non chiedere a Max di usare curl/Postman.
+
+---
+
+## SESSIONE 8 LUGLIO 2026 — Sprint A.1: Prep Data Hygiene + La Dispensa UI loaded_qty
+
+**Versione sw.js live:** boh-v571
+**Supabase:** ydqmumpytgrlceuinoqt
+
+---
+
+### Sprint A.1 completato ✅
+
+#### Consolidator v6 (Supabase version 8, ACTIVE)
+
+**Modifiche rispetto a v5:**
+- Unit alias: `pz = pezzi = piece = pieces = ea = each` via `normaliseUnit()` e `PIECE_ALIASES`
+- `checklist` skip silenzioso — nessun warning, nessun snapshot (operativi non inventario)
+- `raw_item` skip silenzioso — prep_task con `ingredient_id` ma senza `recipe_id` è valido, tracciato via ingredient path
+- Solo prep senza nessun link (no `recipe_id` E no `ingredient_id`) genera `missing_mapping` warning
+- STEP 3 fetch: aggiunto `ingredient_id` e `prep_type` alla query
+- BOT_VERSION = `v6_hygiene`
+- Choco logo (id=387) archiviato in DB (era l'unico `supporto` senza né recipe_id né ingredient_id)
+
+**Run v6 su 2026-07-06:**
+
+| Metrica | v5 (25 warning) | v6 (3 warning) |
+|---|---|---|
+| Snapshot totali | 110 | 115 |
+| Con loaded_qty > 0 | 9 | **13** |
+| Load-only snapshots | 3 | **8** |
+| Warning | 25 | **3** |
+| Observations | 29 | 12 |
+
+**3 warning legittimi rimasti (da risolvere dopo UI):**
+- `Spring mix: g vs buste` — non convertibile
+- `Spaghetti fresh pasta: pz vs nests` — non convertibile
+- `Parsley: pinch vs g` (POS BOM mismatch)
+
+**13 prep con loaded_qty > 0 il 06/07:**
+Chop Romaine, Diced butter, Diced Grilled Chicken, Pecorino fresh wedge, Seed mix,
+Scallops, Tiramisu, Creme brulee, Filet Branzino, Wagyu ribeye, Branzino tableside, Tomahawk, Pears
+
+**Audit prep senza recipe_id — decisione Max:**
+- **Gruppo 1 (14 task con ingredient_id):** raw_item validi, nessuna recipe da creare. Lasciati come sono.
+  Lista: Basil flowers, Cantaloupe, Chopped dark/white choc, Cocoa powder, Flowers, Goat cheese, Honey, Mint liquid, Olives, Powder sugar, Sliced Mozzarella, Sliced Tomatoes, walnuts
+- **Choco logo (id=387):** archiviato ✅
+- **Regola stabilita:** `recipe_id` = vera trasformazione/BOM; `ingredient_id` = raw stock item; `checklist` = task operativo
+
+#### La Dispensa UI boh-v571
+
+**Modifiche a `js/office.js`:**
+
+`dispensaSnapRow(r, type, snapIdx)` — nella card Cucina/Magazzino:
+- POS scaricato: colore rosso (`#f87171`) con prefisso `- ` quando c'è anche un carico
+- `+ Caricato` verde (`#34d399`) con nome cook e orario se `loaded_qty > 0`
+- Il colore POS diventa verde neutro se non c'è carico (comportamento precedente)
+
+`dispensaOpenEsploso(itemType, itemId, itemName, snapRowIdx)`:
+- Nuovo parametro `snapRowIdx`: indice nello `_dispensaSnap` array per passare il snapshot row all'Esploso
+
+`dispensaLoadEsploso`:
+- Sezione **↑ Carico da prep_log** (sfondo verde scuro) con:
+  - Totale caricato formattato
+  - Log individuali: user · qty · orario · durata
+- Sezione **Delta** (comparazione carico vs scarico POS)
+- Sezione **↓ Scarico POS** (label sopra le deduction rows)
+
+**Cosa testare:**
+- La Dispensa → Cucina → Tiramisu/Creme brulee/Scallops → verde `+ Caricato`
+- Click su item → Esploso → sezione ↑ Carico da prep_log con log di Samantha/Tela/David
+- Item senza carico → solo riga POS verde (comportamento invariato)
+- Spaghetti fresh pasta → warning `pz vs nests` visibile sia in card che in Esploso
+
+---
+
+### 3 warning rimasti — da sistemare nel prossimo step
+
+1. **Spring mix** `g vs buste`: decidere se task deve essere `g` o `buste`
+2. **Spaghetti fresh pasta** `pz vs nests`: decidere se DONE salva `nests` invece di `pz`
+3. **Parsley** `pinch vs g`: rimuovere `pinch` dal BOM POS e usare `g`
+
+---
+
+### NEXT: Sprint B — bot-prep-suggester
+
+Dopo verifica UI loaded_qty e fix dei 3 warning:
+- Creare `prep_suggestions_daily` (nuova tabella)
+- `bot-prep-suggester` legge `stock_daily_snapshot` (loaded + pos_deducted) + prep_tasks (current_stock, shelf_life, batch_size)
+- Scrive `prep_suggestions_daily` con spiegazione
+- Prep UI legge `prep_suggestions_daily` se disponibile, fallback a `prep_tasks.suggested_qty`
+- Confronto vecchio vs nuovo per 5-7 giorni prima di spegnere bot-preplist-builder
