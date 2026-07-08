@@ -30,6 +30,12 @@ function fmtNum(n,dec=2){ if(n==null||isNaN(n)) return '—'; if(n===0) return '
 // TUTTI i salad dressing = 1 ramekin da 2 US fl oz.
 // Source of truth = 2 fl oz. 2 fl oz = 59.147 ml = 59.147 g (density=1.0).
 // I vecchi valori DB (74g, 78g) erano dati legacy — non sono più una scelta aperta.
+//
+// NOTA confidence='estimated':
+// Il campo confidence ha un solo valore ma due dimensioni semantiche:
+//   - quantità (2 fl oz ramekin): CONFERMATA da Max. Non riaprire.
+//   - bot active: false — Fase 3 non ancora attiva.
+// 'estimated' NON significa "Max deve ancora confermare i grammi". Quello è chiuso.
 const RULES = [
   { canonical:"Balsamic", confidence:"estimated", uses_60d:151,
     recipe:"BALSAMIC VINAIGRETTE (e834c1e2)", recipe_id:"e834c1e2",
@@ -235,7 +241,7 @@ export default function App(){
     <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#f5f3ff 0%,#ede9fe 50%,#dbeafe 100%)",fontFamily:"Inter,system-ui,sans-serif",padding:"16px"}}>
       <div style={{maxWidth:860,margin:"0 auto"}}>
         <div style={{background:"rgba(255,255,255,0.9)",borderRadius:18,padding:"16px 20px",marginBottom:14,border:"1.5px solid rgba(124,58,237,0.12)"}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#7c3aed",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Brigade · Phase 2.2 · boh-v587</div>
+          <div style={{fontSize:11,fontWeight:700,color:"#7c3aed",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:2}}>Brigade · Phase 2.3 · boh-v588</div>
           <div style={{fontSize:20,fontWeight:800,color:"#1e3a5f",marginBottom:4}}>🫗 Modifier Depletion Lab v2 — Unit Normalizer</div>
           <div style={{fontSize:12,color:"#64748b"}}>js/unit-normalizer.js live · 11/11 acceptance tests pass · Solo lab — nessun bot cambia</div>
         </div>
@@ -278,7 +284,9 @@ export default function App(){
         {tab==="rules" && (
           <div>
             <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:12,padding:"10px 16px",marginBottom:14,fontSize:12,color:"#166534"}}>
-              ✅ Regola cucina applicata: tutti i dressing = <b>2 fl oz ramekin = 59.147g</b> · <b>active=false</b> · <b>confidence=estimated</b> · Nessun bot production change.
+              ✅ Regola cucina applicata: tutti i dressing = <b>2 fl oz ramekin = 59.147g</b> — qty <b>CONFERMATA</b> da Max.
+              <br/><span style={{color:"#64748b"}}>confidence='estimated' = bot non ancora in produzione (Fase 3). Non indica dubbio sulla quantità.</span>
+              <br/>active=false · Nessun bot production change.
             </div>
             {RULES.map((rule,i)=><RuleCard key={i} rule={rule}/>)}
           </div>
@@ -336,3 +344,4 @@ export default function App(){
     </div>
   );
 }
+

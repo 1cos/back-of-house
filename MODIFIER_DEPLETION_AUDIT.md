@@ -1,6 +1,6 @@
 # MODIFIER DEPLETION AUDIT
 *Brigade · Zenos on the Square · Weatherford TX*
-*Creato: 8 luglio 2026 — Phase 2.2*
+*Aggiornato: 8 luglio 2026 — Phase 2.3*
 
 ---
 
@@ -16,27 +16,59 @@ I vecchi valori nel DB (`serving_qty` = 74g per Balsamic/Ranch, 78g per Citronet
 
 ---
 
-## Stato dressing modifier (Phase 2.2)
+## Stato della `confidence` — IMPORTANTE
 
-| Modifier | Aliases principali | Recipe ID | confidence | qty | unit | normalized_g | Pendente |
-|---|---|---|---|---|---|---|---|
-| Balsamic | Balsamic, balsamic, BALSAMIC ON SIDE, Extra balsamic | e834c1e2 | estimated | 2 | fl_oz | 59.147g | — |
-| citronette | Citronette, Citronette on side, Add Citronette ots | 3f433b8b | estimated | 2 | fl_oz | 59.147g | — |
-| Caesar | Caesar, caesar, Caesar dressing, Extra side of Caesar dressing | NULL | estimated | 2 | fl_oz | 59.147g | **recipe/prep link** |
-| Ranch | Ranch, ranch | 3cee627c | estimated | 2 | fl_oz | 59.147g | — |
+Lo schema ha un solo campo `confidence`. Per i dressing questo campo ha due dimensioni semantiche distinte:
 
-**Tutti i record:** `active = false` — nessun bot production change finché Max non esegue approvazione Fase 3.
+| Dimensione | Stato |
+|---|---|
+| **Quantità (2 fl oz ramekin)** | ✅ **CONFERMATA** da Max, 8 lug 2026 |
+| **Recipe/prep link** | Balsamic ✅ · Citronette ✅ · Ranch ✅ · Caesar ⏳ pending |
+| **Bot active** | ❌ `active=false` — Fase 3 non ancora attiva |
+
+Il valore `confidence='estimated'` nel DB riflette **solo** che le regole non sono ancora in produzione (Fase 3 non attiva), **non** che la quantità sia in dubbio.
+
+> **Chiunque rilegga questo file:** la quantità 2 fl oz = 59.147g è chiusa. Non riaprire la domanda "quanti grammi sono". Non chiedere a Max. Non mettere OQR sulla quantità.
 
 ---
 
-## Caesar — unica cosa ancora aperta
+## Stato dressing modifier (Phase 2.3)
 
-La **quantità** è confermata: 2 fl oz ramekin = 59.147g.
+| Modifier | Recipe ID | confidence (DB) | qty | unit | normalized_g | Qty confermata | Link confermato |
+|---|---|---|---|---|---|---|---|
+| Balsamic | e834c1e2 | estimated | 2 | fl_oz | 59.147g | ✅ | ✅ |
+| citronette | 3f433b8b | estimated | 2 | fl_oz | 59.147g | ✅ | ✅ |
+| Ranch | 3cee627c | estimated | 2 | fl_oz | 59.147g | ✅ | ✅ |
+| Caesar | NULL | estimated | 2 | fl_oz | 59.147g | ✅ | ⏳ pending |
 
-Il **collegamento recipe/prep_task** è pending:
-- Recipe "Caesar Dressing" non esiste nel DB come entità separata (`linked_recipe_id = NULL`)
-- Prep_task "Check Caesar" usa `unit = squeezer` — non utilizzabile per deduction automatica
-- **Da fare prima di Fase 3:** creare recipe Caesar Dressing nel DB, oppure identificare il prep_task corretto con unità peso/volume
+**Tutti i record:** `active = false` — nessun bot production change finché Max non approva Fase 3.
+
+---
+
+## Caesar — cosa è ancora aperto (solo il link)
+
+La **quantità** è confermata: 2 fl oz ramekin = 59.147g. **Chiusa.**
+
+L'**unica cosa pending** è: dove scaricare? Quale recipe o prep riceve la deduction?
+
+### Stato DB (verificato 8 lug 2026)
+
+| Entità | Tipo | Stato | Utilizzabile? |
+|---|---|---|---|
+| prep_task 391 "Caesar Dressing" | checklist | **archiviata** | ❌ |
+| prep_task 395 "Check Caesar" | checklist, unit=squeezer | attiva, Salad Station | ❌ non è una recipe |
+| ingredient "Caesar Dressing" (f47e1c26) | ingrediente raw | usato in Mini Caesar (50g ITEM) | ⚠️ solo come ITEM |
+| recipe "Caesar Dressing" | — | **non esiste** | — |
+
+### La domanda per Max (una sola)
+
+**Caesar Dressing a Zenos è prodotto in casa o acquistato pronto?**
+
+**A) Prodotto in cucina** → creare recipe strutturata "Caesar Dressing" con yield (LT o QT) + BOM ingredienti + prep task → modifier si collega alla recipe → `use_recipe_serving` o `fixed_quantity 2 fl oz`
+
+**B) Acquistato pronto** → l'ingredient "Caesar Dressing" (f47e1c26) è già nel DB → si può collegare il modifier direttamente → `fixed_quantity 2 fl oz`, linked_recipe_id punta alla recipe wrapper se esiste, oppure si usa solo `normalized_qty_g` senza link recipe
+
+La scelta A è quella pulita (come Balsamic, Citronette, Ranch hanno tutte recipe strutturate).
 
 ---
 
@@ -45,11 +77,11 @@ Il **collegamento recipe/prep_task** è pending:
 | Modalità | Significato | Quando usare |
 |---|---|---|
 | `fixed_quantity` | Il bot usa `normalized_qty_g` da questa tabella | Dressing, aggiunte a quantità fissa |
-| `use_recipe_serving` | Il bot consuma 1 porzione logica della ricetta collegata usando la resa/BOM come source of truth. Non si chiedono grammi — la recipe sa già cosa contiene. | + Add Chicken, + Meatballs, + Shrimp — qualsiasi modifier con recipe strutturata |
+| `use_recipe_serving` | Il bot consuma 1 porzione logica della ricetta collegata usando la **resa/BOM della ricetta come source of truth**. Non si chiedono grammi — la recipe sa già cosa contiene. | + Add Chicken, + Meatballs, + Shrimp — qualsiasi modifier con recipe strutturata |
 | `no_depletion` | Nessuno scarico stock | Preferenze, istruzioni cucina (es. "no onions") |
 
 **Regola `use_recipe_serving`:** se una recipe strutturata esiste nel DB, il bot NON chiede di nuovo quanti grammi. Usa la recipe. Esempi:
-- `+ Add Chicken` → `linked_recipe = Add Chicken` → `use_recipe_serving` → usa 1 porzione da BOM
+- `+ Add Chicken` → `linked_recipe = Add Chicken` → `use_recipe_serving` → consuma 1 porzione da BOM
 - `+ Meatballs` → `linked_recipe = Meatball Appetizer` → `use_recipe_serving`
 
 ---
@@ -82,7 +114,7 @@ Esempio: 5 kg stock → 5000g ÷ 59.147g = **84.5 ramekin** · ÷ 2000g = **2.5 
 | File | Descrizione | Versione |
 |---|---|---|
 | `proposed_pos_modifier_depletion_rules.sql` | Schema tabella + INSERT dressing | v3 (Phase 2.2) |
-| `modifier-depletion-lab.jsx` | Artifact React — lab UI + calculator | Phase 2.2, boh-v587 |
+| `modifier-depletion-lab.jsx` | Artifact React — lab UI + calculator | Phase 2.3, boh-v588 |
 | `js/unit-normalizer.js` | Engine conversione unità | boh-v586 |
 
 ---
@@ -93,4 +125,5 @@ Esempio: 5 kg stock → 5000g ÷ 59.147g = **84.5 ramekin** · ÷ 2000g = **2.5 
 |---|---|---|
 | **Fase 1** | ✅ Completa | unit-normalizer.js (boh-v586), acceptance tests 11/11 |
 | **Fase 2.2** | ✅ Completa | Dati modifier corretti (regola 2 fl oz), schema SQL, lab UI |
-| **Fase 3** | ⏳ Pending Max | Caesar recipe link → confidence='confirmed' → active=true → primo bot production run |
+| **Fase 2.3** | ✅ Completa | Audit Caesar DB, chiarimento semantica confidence, questa nota |
+| **Fase 3** | ⏳ Pending | Caesar: Max risponde A o B → link → `confidence='confirmed'` → `active=true` → primo bot run |
