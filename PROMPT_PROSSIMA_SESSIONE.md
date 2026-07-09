@@ -419,3 +419,85 @@ usage_mode            text    -- 'fixed_quantity' | 'use_recipe_serving' | 'no_d
 - Sales: rimuovere tab "Oggi"
 - Rename Manager → Coordinator
 
+
+---
+
+## Sessione 9 lug 2026 (boh-v587 → boh-v595)
+
+### Modifier Depletion System — completato Phase 2 + Phase 3a + Phase 3b go-live
+
+**Regola madre fissata definitivamente:**
+> La produzione scarica gli ingredienti. La vendita scarica il prodotto finito.
+
+**Tabella `pos_modifier_depletion_rules` — creata e live:**
+- 4 regole `confidence='confirmed'`, `active=true`
+- Balsamic → `item_type='prep'`, recipe BALSAMIC VINAIGRETTE (e834c1e2)
+- citronette → `item_type='prep'`, recipe CITRONETTE (3f433b8b)
+- Ranch → `item_type='prep'`, recipe Ranch Dressing (3cee627c)
+- Caesar → `item_type='ingredient'`, ingredient Caesar Dressing (f47e1c26) — acquistato pronto
+- Schema: `linked_ingredient_id` aggiunto per prodotti acquistati (no recipe)
+- View `v_modifier_depletion_summary` con `depletion_target_type`
+
+**Dry-run 29gg (Phase 3a):**
+- 745 ramekin totali, 44.06 kg non tracciati
+- Caesar 312 / Citronette 195 / Balsamic 152 / Ranch 86
+- Report in `MODIFIER_DEPLETION_DRY_RUN_60D.md`
+
+**Bot `bot-modifier-depletion` — deployato su Supabase Edge Functions:**
+- `go_live_at = '2026-07-09 07:00:00+00'` (primo import post go-live)
+- Cutoff su `pos_modifiers.created_at >= go_live_at` — impedisce backfill storico
+- Idempotency key: `modifier_depletion:{sale_date}:{rule_id}:{canonical}`
+- `dry_run=true/false`, `force_live=true` per test
+- La prima run live è stanotte alle 07:05 UTC (02:05 CDT) con `sale_date=2026-07-08`
+- Documentazione in `BOT_MODIFIER_DEPLETION.md` con rollback SQL
+
+**Documentazione creata:**
+- `MODIFIER_DEPLETION_AUDIT.md` — regola cucina, semantica confirmed/active, Caesar risolto
+- `MODIFIER_DEPLETION_DRY_RUN_60D.md` — report Phase 3a
+- `BOT_MODIFIER_DEPLETION.md` — architettura bot, go-live, rollback
+- `proposed_pos_modifier_depletion_rules.sql` v5 — schema definitivo
+
+### Recipe Data Quality panel — aggiornato (boh-v593→v595)
+
+**Nuovo tab "🟢 Safe Fix":**
+- Regola 1 (pezzi) e Regola 4 (grammi) escono da Blocking solo se `serving_unit='porzione'` esplicita
+- `serving_unit=NULL` → Review con nota e ipotesi da confermare, non Safe Fix
+- Messaggio umano: "Ogni vendita POS scarica 1 pezzo dalla prep collegata. Posso allineare l'unità automaticamente."
+- Bottone "Applica tutti i fix sicuri" — non tocca stock/BOM/stock_movements
+- Campi tecnici nascosti in `<details>` espandibile
+
+**Fix classificazione made-to-order:**
+- Ricette con BOM fisico ma senza prep_task → Info (non Review)
+- Mini Caesar Salad non è più bloccata solo per assenza prep_task
+
+**Fix toast `record_changed`:**
+- Ora mostra "Record non più valido — ricarico..." e chiama `dqLoad()` auto dopo 800ms
+- Bug root cause: UI passava `p_old_unit=''` invece di `null` → RPC falliva su `IS NOT DISTINCT FROM`
+- Corretto in tutte e 3 le occorrenze RPC (blocking, safe fix, apply all)
+
+### Meatball Appetizer — confermato e fixato
+
+**Decisione Max (8 lug 2026):** Opzione B — stock conta porzioni assemblate
+- `serving_qty=1`, `serving_unit='pz'`
+- pz = 1 bag assemblata = 5 meatballs + 100g sauce = 380g
+- La ricetta sa già la struttura — il bot non chiede grammi
+- Audit scritto in `data_quality_fixes`, rollback SQL disponibile
+
+### Prossima sessione
+
+**Priorità immediata — verificare go-live bot:**
+- Domani mattina (dopo 07:05 UTC) controllare `bot_runs` per `bot_name='bot-modifier-depletion'`
+- Verificare `stock_movements WHERE source='pos_modifier_drain'` — attesi 4 nuovi movimenti (uno per dressing per `sale_date=2026-07-08`)
+- Se il bot non gira automaticamente, triggerarlo manualmente via `net.http_post`
+
+**Rollback bot se necessario:**
+```sql
+UPDATE pos_modifier_depletion_rules SET active = false;
+DELETE FROM stock_movements WHERE source = 'pos_modifier_drain';
+```
+
+**Backlog aperto:**
+- La pipeline bot-modifier-depletion è standalone — non è ancora integrata nel cron/trigger nightly
+- La Dispensa Beta: Sprint 8 (search, warning filter, sorting, feedback list)
+- Recipe DQ: rimangono ricette in Review/Blocking da processare una per una con Max
+- 7shifts sync: ancora bloccato su JWT
