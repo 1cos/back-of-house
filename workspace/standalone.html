@@ -1,10 +1,30 @@
+<!-- ── NEW SHELL LAB BANNER ── -->
+<div id="shell-lab-banner" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:linear-gradient(90deg,#0f766e,#0891b2);color:white;font-size:11px;font-weight:800;letter-spacing:0.09em;text-transform:uppercase;text-align:center;padding:5px 16px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;user-select:none;box-shadow:0 1px 6px rgba(8,145,178,0.4);">
+  🎨 NEW SHELL LAB &nbsp;·&nbsp; brigade-dev/shell.html &nbsp;·&nbsp; Not for kitchen use
+</div>
+<style>
+/* push shell content below banner */
+#shell-lab-banner ~ * { margin-top: 0; }
+body { padding-top: 26px; }
+</style>
+<script>
+// Shrink banner to corner pill after 10s
+setTimeout(function(){
+  var b=document.getElementById('shell-lab-banner');
+  if(!b)return;
+  b.style.cssText='position:fixed;top:6px;right:6px;left:auto;z-index:99999;background:#0891b2;color:white;font-size:9px;font-weight:800;letter-spacing:0.09em;text-transform:uppercase;border-radius:8px;padding:4px 9px;cursor:pointer;box-shadow:0 2px 6px rgba(8,145,178,0.5);';
+  b.textContent='🎨 SHELL LAB';
+  b.title='New Shell Lab — tap to dismiss';
+  b.onclick=function(){b.style.display='none';};
+},10000);
+</script>
 <!DOCTYPE html>
 <html lang="it">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>BOH OS — Workspace</title>
+<title>Brigade — New Shell Lab</title>
 <style>
 :root{
   --bg:#eff6ff;--bg2:#dbeafe;--bg3:#e0f2fe;
