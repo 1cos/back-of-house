@@ -409,6 +409,95 @@ input,select,textarea{font-family:inherit}
 .yi{font-size:54px;margin-bottom:14px}
 .yh{font-size:25px;font-weight:700;color:var(--tx);margin-bottom:10px}
 .ym{font-size:14px;color:var(--tx2);margin-bottom:28px;line-height:1.55}
+
+/* ════ JOURNAL PAGE ══════════════════════════════════════════════════════ */
+.j-page{display:flex;flex-direction:column;gap:0}
+
+/* Day section headers */
+.j-day-hd{
+  display:flex;align-items:center;gap:12px;
+  padding:6px 0 10px;margin-top:4px
+}
+.j-day-lbl{
+  font-size:12px;font-weight:700;color:var(--txm);
+  text-transform:uppercase;letter-spacing:.07em;white-space:nowrap
+}
+.j-day-line{flex:1;height:1px;background:var(--bd)}
+
+/* Entry cards */
+.jent{
+  background:var(--surf-g);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--bd);border-radius:var(--r2);
+  padding:14px 18px;margin-bottom:10px;
+  transition:box-shadow .13s;cursor:default
+}
+.jent:hover{box-shadow:var(--sh2)}
+.jent.sv-ok{border-left:3px solid var(--ok)}
+.jent.sv-wn{border-left:3px solid var(--wn)}
+.jent.sv-er{border-left:3px solid var(--er)}
+.jmeta{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+.jtime{font-size:11px;color:var(--txm);font-family:var(--fm)}
+.jdot{font-size:9px;color:var(--bd2)}
+.jcat-pill{
+  font-size:10px;font-weight:700;letter-spacing:.05em;
+  padding:2px 8px;border-radius:var(--rp);
+  background:var(--b0);border:1px solid var(--b2);color:var(--b6)
+}
+.jvis{font-size:10px;color:var(--txm);background:rgba(37,99,235,.07);
+  padding:2px 7px;border-radius:var(--rp)}
+.jauth{font-size:11px;color:var(--txm);margin-left:auto}
+.jtit{font-size:14px;font-weight:600;color:var(--tx);margin-bottom:4px;line-height:1.3}
+.jbod{font-size:13px;color:var(--tx2);line-height:1.55}
+
+/* Inline add-entry form panel */
+.j-form-panel{
+  background:rgba(255,255,255,.97);
+  border:1px solid var(--b2);border-radius:var(--r2);
+  padding:20px 22px;margin-bottom:16px;
+  box-shadow:var(--sh2);
+  animation:slideDown .2s cubic-bezier(.34,1.3,.64,1)
+}
+@keyframes slideDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+.j-form-title{font-size:14px;font-weight:700;color:var(--tx);margin-bottom:16px}
+.j-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:560px){.j-form-grid{grid-template-columns:1fr}}
+.j-form-row{display:flex;flex-direction:column;gap:4px}
+.j-form-row.full{grid-column:1/-1}
+.flbl2{font-size:11px;font-weight:600;color:var(--tx2);
+  letter-spacing:.04em;text-transform:uppercase}
+.fin2{background:var(--bg);border:1px solid var(--bd2);
+  border-radius:var(--r1);padding:8px 11px;
+  font-size:13px;color:var(--tx);outline:none;
+  transition:border-color .13s,box-shadow .13s;width:100%}
+.fin2:focus{border-color:var(--b5);box-shadow:0 0 0 3px rgba(59,130,246,.13)}
+.fta2{resize:vertical;min-height:72px}
+.j-form-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;
+  padding-top:12px;border-top:1px solid var(--bd)}
+
+/* Filter bar */
+.j-filter-bar{
+  display:flex;align-items:center;gap:6px;
+  flex-wrap:wrap;margin-bottom:16px
+}
+.j-filter-lbl{font-size:11px;font-weight:600;color:var(--txm);
+  text-transform:uppercase;letter-spacing:.05em;margin-right:2px}
+
+/* Header row */
+.j-hrow{
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:10px;margin-bottom:6px
+}
+.j-date-str{font-size:13px;color:var(--tx2)}
+
+/* Empty state */
+.j-empty{
+  text-align:center;padding:52px 20px;color:var(--txm);
+  font-size:14px;border:1px dashed var(--bd2);
+  border-radius:var(--r2);margin-top:8px
+}
+.j-empty-ico{font-size:36px;margin-bottom:10px}
+
 </style>
 </head>
 <body>
@@ -442,10 +531,21 @@ it:{
   istock:'Stock attuale', iloaded:'Caricato oggi', ideduct:'Scaricato POS (60gg)',
   imovs:'Movimenti recenti', inote:'Dati demo — nessuna query DB',
   jtit:'Diario operativo', jsub:'Log condiviso — servizio, manutenzione, eventi',
-  jnew:'Nuova voce', jall:'Tutto',
-  cservice:'Servizio', cmaint:'Manutenzione', ckitch:'Cucina',
-  cstaff:'Staff', cinci:'Incidente', cpurch:'Acquisto',
-  ft:'Titolo', fc:'Categoria', fb:'Note', fsave:'Salva voce', fcancel:'Annulla',
+  jnew:'+ Nuova voce', jall:'Tutto', jtoday:'Oggi', jyest:'Ieri', jolder:'Più vecchi',
+  jempty:'Nessuna voce per questi filtri.', jempty_sub:'Prova a cambiare categoria o visibilità.',
+  /* categories — full list */
+  cservice:'Servizio', ckitchen:'Cucina', cfoh:'Sala', cmaint:'Manutenzione',
+  cequip:'Attrezzatura', cpurch:'Acquisto', cevent:'Evento', cstaff:'Staff',
+  cadmin:'Admin', cinci:'Incidente', ccater:'Catering',
+  /* legacy short keys kept for backward compat */
+  cmaint_s:'Manutenzione', ckitch:'Cucina', cstaff:'Staff', cpurch:'Acquisto',
+  /* visibility */
+  vAll:'Tutti', vKit:'Cucina', vMgr:'Manager', vExec:'Executive',
+  vOwn:'Proprietari', vFoh:'Sala', vAdm:'Admin',
+  /* form */
+  ft:'Cosa è successo?', fb:'Dettagli', fc:'Categoria', fv:'Visibile a',
+  fsave:'Salva voce', fcancel:'Annulla',
+  fadderr:'Inserisci un titolo.',
   yct:'Sì Chef! ✅', ycclose:'Chiudi',
 },
 en:{
@@ -468,11 +568,18 @@ en:{
   rnote:'Demo data — no DB query in this prototype',
   istock:'Current stock', iloaded:'Loaded today', ideduct:'POS deducted (60d)',
   imovs:'Recent movements', inote:'Demo data — no DB query',
-  jtit:'Operations Journal', jsub:'Shared log — service, maintenance, events',
-  jnew:'New entry', jall:'All',
-  cservice:'Service', cmaint:'Maintenance', ckitch:'Kitchen',
-  cstaff:'Staff', cinci:'Incident', cpurch:'Purchase',
-  ft:'Title', fc:'Category', fb:'Notes', fsave:'Save entry', fcancel:'Cancel',
+  jtit:'Operations Journal', jsub:'Shared operational log — service, maintenance, events',
+  jnew:'+ New entry', jall:'All', jtoday:'Today', jyest:'Yesterday', jolder:'Earlier',
+  jempty:'No entries for these filters.', jempty_sub:'Try changing category or visibility.',
+  cservice:'Service', ckitchen:'Kitchen', cfoh:'FOH', cmaint:'Maintenance',
+  cequip:'Equipment', cpurch:'Purchase', cevent:'Event', cstaff:'Staff',
+  cadmin:'Admin', cinci:'Incident', ccater:'Catering',
+  cmaint_s:'Maintenance', ckitch:'Kitchen', cpurch:'Purchase',
+  vAll:'Everyone', vKit:'Kitchen', vMgr:'Managers', vExec:'Executive',
+  vOwn:'Owners', vFoh:'FOH', vAdm:'Admin',
+  ft:'What happened?', fb:'Details', fc:'Category', fv:'Visible to',
+  fsave:'Save entry', fcancel:'Cancel',
+  fadderr:'Please enter a title.',
   yct:'Yes Chef! ✅', ycclose:'Close',
 },
 es:{
@@ -495,11 +602,18 @@ es:{
   rnote:'Datos demo — sin consulta DB en este prototipo',
   istock:'Stock actual', iloaded:'Cargado hoy', ideduct:'Deducido POS (60d)',
   imovs:'Movimientos recientes', inote:'Datos demo — sin consulta DB',
-  jtit:'Diario de Operaciones', jsub:'Registro compartido — servicio, mantenimiento, eventos',
-  jnew:'Nueva entrada', jall:'Todo',
-  cservice:'Servicio', cmaint:'Mantenimiento', ckitch:'Cocina',
-  cstaff:'Personal', cinci:'Incidente', cpurch:'Compra',
-  ft:'Título', fc:'Categoría', fb:'Notas', fsave:'Guardar entrada', fcancel:'Cancelar',
+  jtit:'Diario de Operaciones', jsub:'Registro operativo compartido — servicio, mantenimiento, eventos',
+  jnew:'+ Nueva entrada', jall:'Todo', jtoday:'Hoy', jyest:'Ayer', jolder:'Anteriores',
+  jempty:'Sin entradas para estos filtros.', jempty_sub:'Intenta cambiar categoría o visibilidad.',
+  cservice:'Servicio', ckitchen:'Cocina', cfoh:'Sala', cmaint:'Mantenimiento',
+  cequip:'Equipo', cpurch:'Compra', cevent:'Evento', cstaff:'Personal',
+  cadmin:'Admin', cinci:'Incidente', ccater:'Catering',
+  cmaint_s:'Mantenimiento', ckitch:'Cocina', cpurch:'Compra', cstaff:'Personal', cinci:'Incidente',
+  vAll:'Todos', vKit:'Cocina', vMgr:'Gerentes', vExec:'Ejecutivo',
+  vOwn:'Propietarios', vFoh:'Sala', vAdm:'Admin',
+  ft:'¿Qué pasó?', fb:'Detalles', fc:'Categoría', fv:'Visible para',
+  fsave:'Guardar entrada', fcancel:'Cancelar',
+  fadderr:'Por favor ingresa un título.',
   yct:'¡Sí Chef! ✅', ycclose:'Cerrar',
 }
 };
@@ -661,20 +775,79 @@ var MOVS=[
   {d:'2026-07-05',q:'-370g',qc:'qn', src:'POS modifier drain', note:'20 uses'}
 ];
 var CAT_ICO={service:'🍽️',maintenance:'🔧',kitchen:'👨‍🍳',staff:'👥',incident:'⚠️',purchase:'📦'};
+/* Journal entries — demo, no DB */
+/* date: 'today' | 'yesterday' | 'YYYY-MM-DD'; vis: visibility tag */
+/* sv: '' | 'ok' | 'wn' | 'er' */
+var J_TODAY    = '2026-07-09';
+var J_YESTERDAY= '2026-07-08';
+
+/* Role→ allowed categories map */
+var J_ROLE_CATS={
+  executive:   ['service','kitchen','foh','maintenance','equipment','purchase','event','staff','admin','incident','catering'],
+  lead:        ['service','kitchen','foh','maintenance','equipment','event','staff','incident'],
+  coordinator: ['service','kitchen','maintenance','equipment','purchase','event','staff'],
+  cook:        ['kitchen','equipment','incident'],
+  dish_crew:   ['kitchen','incident'],
+  viewer:      ['service','maintenance','equipment','event']
+};
+/* Role→ allowed visibility levels */
+var J_ROLE_VIS={
+  executive:   ['all','kitchen','managers','executive','owners','foh','admin'],
+  lead:        ['all','kitchen','managers','foh'],
+  coordinator: ['all','kitchen','managers'],
+  cook:        ['all','kitchen'],
+  dish_crew:   ['all','kitchen'],
+  viewer:      ['all','foh']
+};
+
 var JDATA=[
-  {id:1,time:'21:30',cat:'service',   auth:'David', sv:'ok',
-   title:'52 bills — record luglio',
-   body:'Servizio pulito. Brussels finiti alle 21:15 — avvisare Tela per ordine extra venerdì.'},
-  {id:2,time:'19:05',cat:'maintenance',auth:'Tela',  sv:'ok',
-   title:'Lavastoviglie riparata — Hobart',
-   body:'Tecnico Hobart alle 18:30. Braccio superiore sostituito. OK per servizio.'},
-  {id:3,time:'15:40',cat:'kitchen',   auth:'Colton',sv:'wn',
-   title:'Arrabbiata finita a pranzo',
-   body:'Batch 3150g esaurito. Aggiunto in prep list per domani mattina.'},
-  {id:4,time:'10:20',cat:'purchase',  auth:'Tela',  sv:'',
-   title:"Hardie's ricevuto — #HI-44021",
-   body:"Consegna OK. Caesar Dressing 4×2.4kg. Pecorino 1kg mancante — reso segnalato."}
+  /* TODAY */
+  {id:10, date:'today',  time:'10:42 AM', cat:'maintenance', vis:'managers',
+   auth:'Tela',  sv:'wn',
+   title:'Dishwasher leaking again',
+   body:'Water pooling under unit. Called Zeno Appliance Service — tech arriving 2 PM. Invoice expected tomorrow.'},
+  {id:9,  date:'today',  time:'09:15 AM', cat:'kitchen',    vis:'kitchen',
+   auth:'Colton',sv:'ok',
+   title:'Balsamic batch made',
+   body:'2 LT produced. Moved to salad station cooler. Par until Friday.'},
+  {id:8,  date:'today',  time:'08:30 AM', cat:'purchase',   vis:'managers',
+   auth:'Tela',  sv:'',
+   title:"Hardie's delivery — invoice #HI-44023",
+   body:"Received: Caesar 4×2.4kg, Arugula 2 cs, Salmon 12 filets. All OK. Signed by Tela."},
+  {id:7,  date:'today',  time:'07:55 AM', cat:'staff',      vis:'managers',
+   auth:'David', sv:'',
+   title:'Preston called out — short tonight',
+   body:'Preston sick. Colton covering grill for dinner. Notified Max.'},
+  /* YESTERDAY */
+  {id:6,  date:'yesterday', time:'08:50 PM', cat:'incident',   vis:'managers',
+   auth:'David', sv:'er',
+   title:'Expo printer dropped tickets during rush',
+   body:'3 tickets lost around 7:40 PM. Server recovered manually. Printer restarted — OK after. Needs new ribbon.'},
+  {id:5,  date:'yesterday', time:'07:10 PM', cat:'service',    vis:'all',
+   auth:'David', sv:'ok',
+   title:'52 bills — July record',
+   body:'Full house from 6 PM. Brussels sold out at 9:15 PM. Tiramisu: 14 sold. Strong night.'},
+  {id:4,  date:'yesterday', time:'03:20 PM', cat:'equipment',  vis:'managers',
+   auth:'Tela',  sv:'wn',
+   title:'Reach-in cooler #2 running warm',
+   body:'Logged 42°F at 3 PM check (should be 36-38°F). Moved salmon to walk-in. Calling service tomorrow AM.'},
+  {id:3,  date:'yesterday', time:'09:00 AM', cat:'kitchen',    vis:'kitchen',
+   auth:'Samantha',sv:'ok',
+   title:'Tiramisu batch — 20 pz',
+   body:'Fresh batch for dinner service. 20 vaschette. Ready by 4 PM. Using Tuesday espresso.'},
+  /* 2 DAYS AGO */
+  {id:2,  date:'2026-07-07', time:'06:00 PM', cat:'event',     vis:'all',
+   auth:'Tela', sv:'ok',
+   title:'Private dining — Rossi party, 18 pax',
+   body:'Event confirmed for July 14. Menu: 4 course + wine pairing. Deposit received. Max to confirm specials by Monday.'},
+  {id:1,  date:'2026-07-07', time:'10:30 AM', cat:'maintenance',vis:'managers',
+   auth:'Tela', sv:'ok',
+   title:'Hood filter cleaned — Vendor CleanAir',
+   body:'Monthly service completed. Certificate filed. Next: August 7.'}
 ];
+var J_FILTER_CAT = 'all';
+var J_FILTER_VIS = 'all';
+var J_SHOW_FORM  = false;
 
 /* ══ PAGE RENDERERS ═══════════════════════════════════════════════════════ */
 var ICO={home:'⌂',bot_center:'🤖',recipe:'📋',inventory:'📦',daily_journal:'📓'};
@@ -802,107 +975,258 @@ function pageInventory(){
 }
 
 /* JOURNAL */
-function pageJournal(){
-  var cats=['service','maintenance','kitchen','staff','purchase'];
-  var entryHTML = function(list){
-    return list.map(function(e){
-      return '<div class="jent sv-'+e.sv+'" data-cat="'+e.cat+'">'
-        +'<div class="jmeta">'
-        +(CAT_ICO[e.cat]||'📝')
-        +' <span class="jcat">'+t('c'+e.cat.substring(0,5)).toUpperCase()+'</span>'
-        +' <span class="jdot">·</span>'
-        +' <span class="jtm">'+e.time+'</span>'
-        +' <span class="jdot">·</span>'
-        +' <span class="jau">'+e.auth+'</span>'
-        +'</div>'
-        +'<h4 class="jtit">'+e.title+'</h4>'
-        +(e.body?'<p class="jbod">'+e.body+'</p>':'')
-        +'</div>';
-    }).join('');
-  };
-  var chipHTML = '<button class="chip on" data-f="all">'+t('jall')+'</button>'
-    +cats.map(function(c){
-      var ck='c'+c.substring(0,5);
-      return '<button class="chip" data-f="'+c+'">'+t(ck)+'</button>';
-    }).join('');
-  var addBtn = can('add_journal')
-    ? '<button class="btnp" id="jnew-btn">+ '+t('jnew')+'</button>' : '';
-  var modalCats = cats.map(function(c){
-    return '<option value="'+c+'">'+t('c'+c.substring(0,5))+'</option>';
-  }).join('');
-  return '<div class="pi"><div class="ph">'
-    +'<div class="ph-row"><h2 class="ptitle">'+t('jtit')+'</h2>'+addBtn+'</div>'
-    +'<p class="psub">'+t('jsub')+'</p></div>'
-    +'<div class="frow" id="jfilter">'+chipHTML+'</div>'
-    +'<div class="jlist" id="jlist">'+entryHTML(JDATA)+'</div>'
-    +'<p class="note"><span class="nd"></span>'+t('demo')+'</p></div>'
-    /* modal */
-    +'<div class="mbk hi" id="jmod" onclick="if(event.target===this)closeJ()">'
-    +'<div class="msh">'
-    +'<div class="mhd"><span class="mt">'+t('jnew')+'</span>'
-    +'<button class="mx" onclick="closeJ()">✕</button></div>'
-    +'<div class="mbody">'
-    +'<div><label class="flbl">'+t('ft')+'</label>'
-    +'<input class="fin" id="jt" type="text" placeholder="Es. Lavastoviglie riparata"></div>'
-    +'<div><label class="flbl">'+t('fc')+'</label>'
-    +'<select class="fin" id="jcat">'+modalCats+'</select></div>'
-    +'<div><label class="flbl">'+t('fb')+'</label>'
-    +'<textarea class="fin fta" id="jb" rows="3" placeholder="Dettagli..."></textarea></div>'
+/* Category metadata */
+var J_CAT_META={
+  service:   {ico:'🍽️',key:'cservice'},
+  kitchen:   {ico:'👨‍🍳',key:'ckitchen'},
+  foh:       {ico:'🍷',key:'cfoh'},
+  maintenance:{ico:'🔧',key:'cmaint'},
+  equipment: {ico:'⚙️',key:'cequip'},
+  purchase:  {ico:'📦',key:'cpurch'},
+  event:     {ico:'🎉',key:'cevent'},
+  staff:     {ico:'👥',key:'cstaff'},
+  admin:     {ico:'🗂️',key:'cadmin'},
+  incident:  {ico:'⚠️',key:'cinci'},
+  catering:  {ico:'🥂',key:'ccater'}
+};
+var J_VIS_META={
+  all:'vAll', kitchen:'vKit', managers:'vMgr',
+  executive:'vExec', owners:'vOwn', foh:'vFoh', admin:'vAdm'
+};
+
+function jAllCats(){
+  return Object.keys(J_CAT_META);
+}
+function jAllVis(){
+  return Object.keys(J_VIS_META);
+}
+function jRoleCats(){
+  return J_ROLE_CATS[ROLE]||jAllCats();
+}
+function jRoleVis(){
+  return J_ROLE_VIS[ROLE]||jAllVis();
+}
+
+function jFilteredEntries(){
+  var allowedCats = jRoleCats();
+  var allowedVis  = jRoleVis();
+  return JDATA.filter(function(e){
+    /* role permission */
+    if(allowedCats.indexOf(e.cat)<0) return false;
+    if(allowedVis.indexOf(e.vis)<0)  return false;
+    /* active filters */
+    if(J_FILTER_CAT!=='all' && e.cat!==J_FILTER_CAT) return false;
+    if(J_FILTER_VIS!=='all' && e.vis!==J_FILTER_VIS) return false;
+    return true;
+  });
+}
+
+function jEntryHTML(e){
+  var meta=J_CAT_META[e.cat]||{ico:'📝',key:'cservice'};
+  var vis=J_VIS_META[e.vis]||'vAll';
+  return '<div class="jent sv-'+e.sv+'" data-cat="'+e.cat+'" data-vis="'+e.vis+'">'
+    +'<div class="jmeta">'
+    +'<span class="jtime">'+e.time+'</span>'
+    +'<span class="jdot">·</span>'
+    +'<span class="jcat-pill">'+meta.ico+' '+t(meta.key)+'</span>'
+    +'<span class="jdot">·</span>'
+    +'<span class="jvis">'+t(vis)+'</span>'
+    +'<span class="jauth">'+e.auth+'</span>'
     +'</div>'
-    +'<div class="mfoot">'
-    +'<button class="btns" onclick="closeJ()">'+t('fcancel')+'</button>'
-    +'<button class="btnp" onclick="saveJ()">'+t('fsave')+'</button>'
-    +'</div></div></div>';
+    +'<h4 class="jtit">'+e.title+'</h4>'
+    +(e.body?'<p class="jbod">'+e.body+'</p>':'')
+    +'</div>';
+}
+
+function jGroupedHTML(entries){
+  if(entries.length===0){
+    return '<div class="j-empty">'
+      +'<div class="j-empty-ico">📓</div>'
+      +'<p>'+t('jempty')+'</p>'
+      +'<p style="font-size:12px;margin-top:4px">'+t('jempty_sub')+'</p>'
+      +'</div>';
+  }
+  var today=[], yest=[], older=[];
+  entries.forEach(function(e){
+    if(e.date==='today')      today.push(e);
+    else if(e.date==='yesterday') yest.push(e);
+    else                      older.push(e);
+  });
+  function section(lbl, list){
+    if(!list.length) return '';
+    return '<div class="j-day-hd">'
+      +'<span class="j-day-lbl">'+lbl+'</span>'
+      +'<div class="j-day-line"></div>'
+      +'</div>'
+      +list.map(jEntryHTML).join('');
+  }
+  return section(t('jtoday'),today)
+       + section(t('jyest'),yest)
+       + section(t('jolder'),older);
+}
+
+function jFormHTML(){
+  if(!J_SHOW_FORM) return '';
+  var cats=jRoleCats();
+  var vis =jRoleVis();
+  var catOpts=cats.map(function(c){
+    var m=J_CAT_META[c]||{ico:'',key:'c'+c};
+    return '<option value="'+c+'"'+(c===J_FILTER_CAT&&J_FILTER_CAT!=='all'?' selected':'')+'>'
+      +m.ico+' '+t(m.key)+'</option>';
+  }).join('');
+  var visOpts=vis.map(function(v){
+    var vk=J_VIS_META[v]||'vAll';
+    return '<option value="'+v+'">'+t(vk)+'</option>';
+  }).join('');
+  return '<div class="j-form-panel" id="j-form-panel">'
+    +'<p class="j-form-title">'+t('jnew').replace('+ ','')+'</p>'
+    +'<div class="j-form-row full">'
+    +'<label class="flbl2">'+t('ft')+'</label>'
+    +'<input class="fin2" id="jt" type="text" placeholder="Es. Dishwasher leaking, 52 bills, Balsamic batch..." autofocus>'
+    +'</div>'
+    +'<div class="j-form-row full" style="margin-top:10px">'
+    +'<label class="flbl2">'+t('fb')+'</label>'
+    +'<textarea class="fin2 fta2" id="jb" rows="3" placeholder="Dettagli opzionali..."></textarea>'
+    +'</div>'
+    +'<div class="j-form-grid" style="margin-top:10px">'
+    +'<div class="j-form-row">'
+    +'<label class="flbl2">'+t('fc')+'</label>'
+    +'<select class="fin2" id="jcat">'+catOpts+'</select>'
+    +'</div>'
+    +'<div class="j-form-row">'
+    +'<label class="flbl2">'+t('fv')+'</label>'
+    +'<select class="fin2" id="jvis">'+visOpts+'</select>'
+    +'</div>'
+    +'</div>'
+    +'<div class="j-form-foot">'
+    +'<button class="btns" id="j-cancel-btn">'+t('fcancel')+'</button>'
+    +'<button class="btnp" id="j-save-btn">'+t('fsave')+'</button>'
+    +'</div>'
+    +'</div>';
+}
+
+function pageJournal(){
+  var cats=jAllCats(); /* all for filter bar, role applied in display */
+  var entries=jFilteredEntries();
+
+  /* today date string */
+  var now=new Date();
+  var dayNames=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var monNames=['January','February','March','April','May','June',
+                'July','August','September','October','November','December'];
+  var dateStr=dayNames[now.getDay()]+', '+monNames[now.getMonth()]+' '+now.getDate();
+
+  /* category filter chips */
+  var catChips='<button class="chip'+(J_FILTER_CAT==='all'?' on':'')+'" data-jf-cat="all">'+t('jall')+'</button>'
+    +cats.map(function(c){
+      var m=J_CAT_META[c]||{ico:'',key:'c'+c};
+      return '<button class="chip'+(J_FILTER_CAT===c?' on':'')+'" data-jf-cat="'+c+'">'
+        +m.ico+' '+t(m.key)+'</button>';
+    }).join('');
+
+  /* visibility filter */
+  var visOpts='<option value="all">'+t('jall')+'</option>'
+    +jAllVis().map(function(v){
+      return '<option value="'+v+'"'+(J_FILTER_VIS===v?' selected':'')+'>'+t(J_VIS_META[v]||'vAll')+'</option>';
+    }).join('');
+
+  var canAdd=['executive','lead','coordinator','cook'].indexOf(ROLE)>=0;
+
+  return '<div class="pi j-page">'
+    /* Header */
+    +'<div class="ph">'
+    +'<div class="j-hrow">'
+    +'<div>'
+    +'<h2 class="ptitle">'+t('jtit')+'</h2>'
+    +'<p class="j-date-str psub">'+dateStr+'</p>'
+    +'</div>'
+    +(canAdd?'<button class="btnp" id="j-add-btn">'+t('jnew')+'</button>':'')
+    +'</div>'
+    +'</div>'
+    /* Inline form (shown/hidden) */
+    +'<div id="j-form-wrap">'+jFormHTML()+'</div>'
+    /* Filter bar */
+    +'<div class="j-filter-bar">'
+    +'<span class="j-filter-lbl" style="display:none">'+t('fc')+':</span>'
+    +catChips
+    +'<span style="flex:1"></span>'
+    +'<select class="fin2" id="j-vis-filter" style="width:auto;padding:4px 8px;font-size:11px">'+visOpts+'</select>'
+    +'</div>'
+    /* Entries */
+    +'<div id="j-entries">'+jGroupedHTML(entries)+'</div>'
+    +'<p class="note" style="margin-top:8px"><span class="nd"></span>'+t('demo')+'</p>'
+    +'</div>';
 }
 
 function journalAfterRender(){
   var ws=document.getElementById('workspace');
-  /* filter chips */
-  ws.querySelectorAll('#jfilter .chip').forEach(function(chip){
-    chip.addEventListener('click',function(){
-      ws.querySelectorAll('#jfilter .chip').forEach(function(c){ c.classList.remove('on'); });
-      chip.classList.add('on');
-      var f=chip.dataset.f;
-      ws.querySelectorAll('.jent').forEach(function(e){
-        e.style.display=(f==='all'||e.dataset.cat===f)?'':'none';
-      });
+
+  /* category filter chips — event delegation */
+  ws.addEventListener('click', function jcat_handler(ev){
+    var chip=ev.target.closest('[data-jf-cat]');
+    if(!chip) return;
+    J_FILTER_CAT=chip.dataset.jfCat;
+    /* update chip active state */
+    ws.querySelectorAll('[data-jf-cat]').forEach(function(c){
+      c.classList.toggle('on', c.dataset.jfCat===J_FILTER_CAT);
     });
+    /* re-render entries only */
+    var el=document.getElementById('j-entries');
+    if(el) el.innerHTML=jGroupedHTML(jFilteredEntries());
+    ws._j_chip_handler=jcat_handler; /* store ref for cleanup */
+  },false);
+
+  /* vis filter */
+  var vsel=ws.querySelector('#j-vis-filter');
+  if(vsel) vsel.addEventListener('change',function(){
+    J_FILTER_VIS=vsel.value;
+    var el=document.getElementById('j-entries');
+    if(el) el.innerHTML=jGroupedHTML(jFilteredEntries());
   });
-  /* new entry btn */
-  var btn=ws.querySelector('#jnew-btn');
-  if(btn) btn.addEventListener('click', openJ);
+
+  /* add button */
+  var addBtn=ws.querySelector('#j-add-btn');
+  if(addBtn) addBtn.addEventListener('click', function(){
+    J_SHOW_FORM=!J_SHOW_FORM;
+    var fw=document.getElementById('j-form-wrap');
+    if(fw){ fw.innerHTML=jFormHTML(); journalWireForm(); }
+    if(J_SHOW_FORM){
+      var inp=document.getElementById('jt'); if(inp) inp.focus();
+    }
+  });
+
+  journalWireForm();
 }
 
-function openJ(){ document.getElementById('jmod')?.classList.remove('hi'); }
-function closeJ(){ document.getElementById('jmod')?.classList.add('hi'); }
-function saveJ(){
+function journalWireForm(){
+  var ws=document.getElementById('workspace');
+  var cancelBtn=ws.querySelector('#j-cancel-btn');
+  var saveBtn  =ws.querySelector('#j-save-btn');
+  if(cancelBtn) cancelBtn.addEventListener('click',function(){
+    J_SHOW_FORM=false;
+    var fw=document.getElementById('j-form-wrap'); if(fw) fw.innerHTML='';
+  });
+  if(saveBtn) saveBtn.addEventListener('click', saveJEntry);
+}
+
+function saveJEntry(){
   var title=(document.getElementById('jt')?.value||'').trim();
-  if(!title) return;
-  var cat  = document.getElementById('jcat')?.value || 'service';
-  var body = (document.getElementById('jb')?.value || '').trim();
-  var now  = new Date();
-  var time = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
-  JDATA.unshift({id:Date.now(),time:time,cat:cat,auth:'Max (demo)',sv:'',title:title,body:body});
-  closeJ();
-  /* re-render only the list without losing scroll */
-  var listEl=document.getElementById('jlist');
-  if(listEl){
-    listEl.innerHTML=JDATA.map(function(e){
-      return '<div class="jent sv-'+e.sv+'" data-cat="'+e.cat+'">'
-        +'<div class="jmeta">'+(CAT_ICO[e.cat]||'📝')
-        +' <span class="jcat">'+t('c'+e.cat.substring(0,5)).toUpperCase()+'</span>'
-        +' <span class="jdot">·</span>'
-        +' <span class="jtm">'+e.time+'</span>'
-        +' <span class="jdot">·</span>'
-        +' <span class="jau">'+e.auth+'</span></div>'
-        +'<h4 class="jtit">'+e.title+'</h4>'
-        +(e.body?'<p class="jbod">'+e.body+'</p>':'')
-        +'</div>';
-    }).join('');
-  }
-  document.getElementById('jt').value='';
-  document.getElementById('jb').value='';
-  showYCS('"'+title+'" salvato nel diario.');
+  if(!title){ alert(t('fadderr')); return; }
+  var cat = document.getElementById('jcat')?.value || jRoleCats()[0] || 'service';
+  var vis = document.getElementById('jvis')?.value || 'kitchen';
+  var body= (document.getElementById('jb')?.value||'').trim();
+  var now=new Date();
+  var h=now.getHours(), m=now.getMinutes();
+  var ampm=h>=12?'PM':'AM'; h=h%12||12;
+  var time=h+':'+(m<10?'0'+m:m)+' '+ampm;
+  JDATA.unshift({id:Date.now(),date:'today',time:time,cat:cat,vis:vis,
+    auth:RNAME[ROLE]||'Chef',sv:'',title:title,body:body});
+  J_SHOW_FORM=false;
+  /* re-render form + entries */
+  var fw=document.getElementById('j-form-wrap'); if(fw) fw.innerHTML='';
+  var el=document.getElementById('j-entries');
+  if(el) el.innerHTML=jGroupedHTML(jFilteredEntries());
+  showYCS('"'+title+'" '+t('fsave').toLowerCase()+'.');
 }
 
 /* YES CHEF */
@@ -933,7 +1257,7 @@ var PAGES={
   bot_center:   {render:pageBots,      after:null},
   recipe:       {render:pageRecipe,    after:null},
   inventory:    {render:pageInventory, after:null},
-  daily_journal:{render:pageJournal,   after:journalAfterRender}
+  daily_journal:{render:pageJournal,   after:journalAfterRender, rerender:true}
 };
 
 /* ══ SHELL RENDERERS ══════════════════════════════════════════════════════ */
