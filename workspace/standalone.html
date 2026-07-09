@@ -40,41 +40,46 @@ input,select,textarea{font-family:inherit}
 /* ── TOPBAR ─────────────────────────────────────────────────────────────── */
 #topbar{
   flex-shrink:0;height:var(--th);
-  display:flex;align-items:center;gap:10px;padding:0 16px;
-  background:rgba(239,246,255,.82);
+  display:flex;align-items:center;gap:8px;padding:0 14px;
+  background:rgba(239,246,255,.85);
   backdrop-filter:blur(28px) saturate(1.9);
   -webkit-backdrop-filter:blur(28px) saturate(1.9);
   border-bottom:1px solid var(--bd);box-shadow:var(--sh1);z-index:100
 }
 
-/* Brand */
-.t-brand{display:flex;align-items:center;gap:8px;flex-shrink:0}
-.t-mark{width:30px;height:30px;border-radius:9px;
+/* ── Brand ── */
+.t-brand{display:flex;align-items:center;gap:7px;flex-shrink:0}
+.t-mark{
+  width:30px;height:30px;border-radius:9px;
   background:linear-gradient(135deg,var(--b6) 0%,var(--b4) 100%);
   display:flex;align-items:center;justify-content:center;
   font-size:16px;font-weight:800;color:#fff;
-  box-shadow:0 2px 8px rgba(37,99,235,.35);flex-shrink:0}
+  box-shadow:0 2px 8px rgba(37,99,235,.35);flex-shrink:0
+}
 .t-words{display:flex;flex-direction:column;line-height:1}
 .t-name{font-size:14px;font-weight:700;color:var(--b7);letter-spacing:-.03em}
 .t-sub{font-size:9px;font-weight:500;color:var(--txm);letter-spacing:.05em}
 
-/* Search */
-.t-search{flex:1;max-width:280px;
-  display:flex;align-items:center;gap:7px;
+/* ── Search ── */
+.t-search{
+  flex:1;
+  display:flex;align-items:center;gap:6px;
   background:var(--surf-r);border:1px solid var(--bd);border-radius:var(--rp);
   padding:6px 12px;color:var(--txm);font-size:13px;cursor:text;
-  transition:border-color .15s,box-shadow .15s}
+  transition:border-color .15s,box-shadow .15s,max-width .2s;
+  max-width:300px
+}
 .t-search:hover{border-color:var(--bd2);box-shadow:var(--sh0)}
 
-/* Right cluster */
-.t-right{display:flex;align-items:center;gap:7px;flex-shrink:0;margin-left:auto}
+/* ── Right cluster ── */
+.t-right{display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:auto}
 
-/* ── CHEF AI BUTTON ──────────────────────────────────────────── */
+/* ── Chef AI button ── */
 .chef-ai-btn{
   display:flex;align-items:center;gap:6px;
-  background:linear-gradient(135deg,rgba(37,99,235,.12),rgba(96,165,250,.12));
-  border:1px solid rgba(37,99,235,.25);border-radius:var(--rp);
-  padding:5px 12px 5px 8px;cursor:pointer;
+  background:linear-gradient(135deg,rgba(37,99,235,.11),rgba(96,165,250,.11));
+  border:1px solid rgba(37,99,235,.22);border-radius:var(--rp);
+  padding:5px 11px 5px 7px;cursor:pointer;
   transition:all .15s;flex-shrink:0
 }
 .chef-ai-btn:hover{
@@ -85,8 +90,7 @@ input,select,textarea{font-family:inherit}
   background:var(--b6);border-color:var(--b7);
   box-shadow:0 2px 12px rgba(37,99,235,.35)
 }
-.chef-ai-btn.active .cai-label{color:#fff}
-.chef-ai-btn.active .cai-status{color:rgba(255,255,255,.75)}
+.chef-ai-btn.active .cai-label,.chef-ai-btn.active .cai-status{color:#fff}
 .cai-av{
   width:24px;height:24px;border-radius:50%;
   background:var(--b6);display:flex;align-items:center;justify-content:center;
@@ -96,11 +100,9 @@ input,select,textarea{font-family:inherit}
 .cai-text{display:flex;flex-direction:column;line-height:1.1}
 .cai-label{font-size:12px;font-weight:700;color:var(--b7);letter-spacing:-.01em}
 .cai-status{font-size:10px;color:var(--txm)}
-@media(max-width:640px){.cai-text{display:none}}
 
-/* ── ONLINE PILLS ────────────────────────────────────────────── */
+/* ── Online pills (desktop) ── */
 .online-pills{display:flex;align-items:center;flex-shrink:0}
-@media(max-width:700px){.online-pills{display:none}}
 .op-av{
   width:26px;height:26px;border-radius:50%;
   border:2px solid rgba(239,246,255,.95);
@@ -118,55 +120,79 @@ input,select,textarea{font-family:inherit}
   pointer-events:none;opacity:0;transition:opacity .15s;z-index:20
 }
 .op-av:hover .op-tooltip{opacity:1}
-.online-n{font-size:11px;font-weight:600;color:var(--txm);
-  margin-left:6px;display:none}
-@media(max-width:700px){.online-n{display:block}}
 
-/* Demo tag */
-.demo-tag{font-size:9px;font-weight:800;letter-spacing:.1em;
+/* Online count — compact badge, mobile only */
+.online-n{
+  display:none;/* shown on mobile via media query */
+  align-items:center;gap:3px;
+  font-size:11px;font-weight:600;color:var(--b6);
+  background:var(--b0);border:1px solid var(--b2);
+  border-radius:var(--r-pill);padding:3px 8px;cursor:default;flex-shrink:0
+}
+
+/* ── Demo badge — desktop only ── */
+.demo-tag{
+  font-size:9px;font-weight:800;letter-spacing:.1em;
   color:var(--wn);background:var(--wn-bg);
   border:1px solid var(--wn-bd);border-radius:var(--rp);
-  padding:2px 8px;flex-shrink:0}
+  padding:2px 8px;flex-shrink:0
+}
 
-/* User menu */
+/* ── User menu button ── */
 .usr-wrap{position:relative}
-.usr-btn{display:flex;align-items:center;gap:6px;
+.usr-btn{
+  display:flex;align-items:center;gap:6px;
   background:var(--b0);border:1px solid var(--b2);border-radius:var(--rp);
-  padding:4px 10px 4px 5px;cursor:pointer;transition:all .13s}
+  padding:4px 9px 4px 5px;cursor:pointer;transition:all .13s
+}
 .usr-btn:hover{background:var(--b1);border-color:var(--b4)}
-.usr-av{width:26px;height:26px;border-radius:50%;
+.usr-av{
+  width:26px;height:26px;border-radius:50%;
   background:var(--b6);color:#fff;
   font-size:10px;font-weight:800;
-  display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  display:flex;align-items:center;justify-content:center;flex-shrink:0
+}
 .usr-name{font-size:12px;font-weight:600;color:var(--b7)}
 .usr-arr{font-size:10px;color:var(--txm);margin-left:1px;transition:transform .13s}
 .usr-wrap.open .usr-arr{transform:rotate(180deg)}
-.usr-menu{position:absolute;top:calc(100% + 6px);right:0;
+
+/* ── User dropdown ── */
+.usr-menu{
+  position:absolute;top:calc(100% + 6px);right:0;
   background:var(--surf);border:1px solid var(--bd2);
   border-radius:var(--r2);box-shadow:var(--sh3);
-  min-width:210px;z-index:300;
-  animation:pIn .18s cubic-bezier(.34,1.4,.64,1);overflow:hidden}
+  min-width:220px;z-index:300;
+  animation:pIn .18s cubic-bezier(.34,1.4,.64,1);overflow:hidden
+}
 .usr-menu.hi{display:none}
 .um-section{padding:6px 0;border-bottom:1px solid var(--bd)}
 .um-section:last-child{border-bottom:none}
-.um-lbl{font-size:10px;font-weight:700;color:var(--txm);
-  letter-spacing:.07em;text-transform:uppercase;padding:6px 14px 2px}
-.um-item{display:flex;align-items:center;gap:9px;
+.um-lbl{
+  font-size:10px;font-weight:700;color:var(--txm);
+  letter-spacing:.07em;text-transform:uppercase;padding:6px 14px 2px
+}
+.um-item{
+  display:flex;align-items:center;gap:9px;
   padding:9px 14px;font-size:13px;color:var(--tx);
-  cursor:pointer;transition:background .1s;text-align:left;width:100%}
+  cursor:pointer;transition:background .1s;text-align:left;width:100%
+}
 .um-item:hover{background:var(--b0)}
 .um-item-ico{font-size:15px;width:18px;text-align:center;flex-shrink:0}
 .um-lang{display:flex;gap:4px;padding:8px 14px}
-.um-lbtn{flex:1;font-size:12px;font-weight:600;padding:5px 8px;
+.um-lbtn{
+  flex:1;font-size:12px;font-weight:600;padding:5px 8px;
   border-radius:var(--r1);border:1px solid var(--bd);
-  color:var(--txm);text-align:center;cursor:pointer;transition:all .12s}
+  color:var(--txm);text-align:center;cursor:pointer;transition:all .12s
+}
 .um-lbtn:hover{border-color:var(--b4);color:var(--b6)}
 .um-lbtn.on{background:var(--b6);color:#fff;border-color:var(--b6)}
-.um-role-sel{margin:4px 14px 8px;width:calc(100% - 28px);
+.um-role-sel{
+  margin:4px 14px 8px;width:calc(100% - 28px);
   background:var(--bg);border:1px solid var(--bd2);border-radius:var(--r1);
-  padding:7px 10px;font-size:12px;color:var(--tx);outline:none}
+  padding:7px 10px;font-size:12px;color:var(--tx);outline:none
+}
 
-/* ── CHEF AI DRAWER ──────────────────────────────────────────── */
+/* ── Chef AI Drawer ── */
 #cai-overlay{
   position:fixed;inset:0;z-index:400;
   pointer-events:none;display:flex;justify-content:flex-end
@@ -178,7 +204,6 @@ input,select,textarea{font-family:inherit}
   opacity:0;transition:opacity .22s;cursor:pointer
 }
 #cai-overlay.open .cai-backdrop{opacity:1}
-
 .cai-drawer{
   position:relative;width:340px;max-width:90vw;height:100%;
   background:rgba(248,252,255,.97);
@@ -191,56 +216,46 @@ input,select,textarea{font-family:inherit}
   transition:transform .26s cubic-bezier(.34,1.3,.64,1)
 }
 #cai-overlay.open .cai-drawer{transform:translateX(0)}
-
-@media(max-width:640px){
-  #cai-overlay{align-items:flex-end;justify-content:center}
-  .cai-drawer{
-    width:100%;max-width:100%;height:85dvh;
-    border-left:none;border-top:1px solid var(--bd2);
-    border-radius:var(--r3) var(--r3) 0 0;
-    transform:translateY(100%)
-  }
-  #cai-overlay.open .cai-drawer{transform:translateY(0)}
-}
-
 .cai-head{
   display:flex;align-items:center;gap:10px;
-  padding:16px 18px;
-  border-bottom:1px solid var(--bd);flex-shrink:0
+  padding:16px 18px;border-bottom:1px solid var(--bd);flex-shrink:0
 }
 .cai-head-av{
   width:36px;height:36px;border-radius:50%;
   background:var(--b6);display:flex;align-items:center;justify-content:center;
-  font-size:18px;flex-shrink:0;
-  box-shadow:0 2px 8px rgba(37,99,235,.3)
+  font-size:18px;flex-shrink:0;box-shadow:0 2px 8px rgba(37,99,235,.3)
 }
 .cai-head-info{flex:1;min-width:0}
 .cai-head-name{font-size:15px;font-weight:700;color:var(--tx);margin-bottom:1px}
-.cai-head-ctx{font-size:11px;color:var(--txm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cai-close{width:28px;height:28px;border-radius:50%;
+.cai-head-ctx{
+  font-size:11px;color:var(--txm);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.cai-close{
+  width:28px;height:28px;border-radius:50%;
   background:var(--bg2);color:var(--txm);font-size:12px;
   display:flex;align-items:center;justify-content:center;
-  cursor:pointer;transition:all .12s;flex-shrink:0}
+  cursor:pointer;transition:all .12s;flex-shrink:0
+}
 .cai-close:hover{background:var(--er-bg);color:var(--er)}
-
-.cai-body{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:10px}
-
-/* Status card */
+.cai-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
 .cai-status-card{
   background:var(--surf-g);border:1px solid var(--b2);
-  border-radius:var(--r2);padding:14px 16px
+  border-radius:var(--r2);padding:13px 15px
 }
-.cai-st-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.cai-st-dot{width:8px;height:8px;border-radius:50%;background:var(--ok);
-  box-shadow:0 0 0 3px rgba(22,163,74,.2);flex-shrink:0}
+.cai-st-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.cai-st-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 0 3px rgba(22,163,74,.2);flex-shrink:0
+}
 .cai-st-lbl{font-size:13px;font-weight:600;color:var(--tx)}
 .cai-st-sub{font-size:12px;color:var(--txm);line-height:1.5}
-
-/* Messages */
 .cai-msg{display:flex;gap:8px;align-items:flex-start}
-.cai-msg-av{width:26px;height:26px;border-radius:50%;
+.cai-msg-av{
+  width:26px;height:26px;border-radius:50%;
   background:var(--b6);display:flex;align-items:center;justify-content:center;
-  font-size:13px;flex-shrink:0;margin-top:2px}
+  font-size:13px;flex-shrink:0;margin-top:2px
+}
 .cai-bubble{
   background:var(--surf);border:1px solid var(--bd);
   border-radius:0 var(--r2) var(--r2) var(--r2);
@@ -252,15 +267,13 @@ input,select,textarea{font-family:inherit}
   background:var(--b6);color:#fff;
   border-radius:var(--r2) 0 var(--r2) var(--r2);border-color:var(--b7)
 }
-
-/* Input row */
 .cai-foot{
-  padding:12px 16px;border-top:1px solid var(--bd);flex-shrink:0;
-  display:flex;gap:8px;align-items:flex-end
+  padding:12px 14px;border-top:1px solid var(--bd);flex-shrink:0;
+  display:flex;gap:7px;align-items:flex-end
 }
 .cai-input{
   flex:1;background:var(--bg);border:1px solid var(--bd2);
-  border-radius:var(--r2);padding:9px 12px;
+  border-radius:var(--r2);padding:9px 11px;
   font-size:13px;color:var(--tx);outline:none;resize:none;
   max-height:100px;overflow-y:auto;
   transition:border-color .13s,box-shadow .13s;font-family:var(--ff)
@@ -274,15 +287,75 @@ input,select,textarea{font-family:inherit}
 }
 .cai-send:hover{background:var(--b7);transform:scale(1.05)}
 .cai-send:active{transform:scale(.97)}
-
-/* Suggestions chips */
-.cai-suggestions{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.cai-suggestions{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
 .sug{
   font-size:11px;padding:5px 11px;border-radius:var(--rp);
   border:1px solid var(--b2);background:var(--b0);color:var(--b6);
   cursor:pointer;transition:all .12s;font-weight:500
 }
 .sug:hover{background:var(--b1);border-color:var(--b4)}
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE OVERRIDES  ≤ 640px
+   Goal: [B] Brigade | Search | 🤖 | MZ
+   ══════════════════════════════════════════════════════════════ */
+@media(max-width:640px){
+  /* Topbar padding tighter */
+  #topbar{gap:6px;padding:0 10px}
+
+  /* Brand: hide "by BOH OS" subtitle, keep name */
+  .t-sub{display:none}
+  /* Shrink brand gap */
+  .t-brand{gap:6px}
+
+  /* Search: narrower pill, flex shrinks */
+  .t-search{max-width:none;flex:1;min-width:0;padding:6px 10px;font-size:12px}
+
+  /* Chef AI: icon-only — .cai-text already hidden by .cai-text CSS below */
+  .chef-ai-btn{padding:5px 7px}
+
+  /* Online: hide desktop pills, show compact badge */
+  .online-pills{display:none}
+  .online-n{display:flex}
+
+  /* Demo badge: hide on mobile (footer note is enough) */
+  .demo-tag{display:none}
+
+  /* User name: hide text on narrow screens, keep avatar */
+  .usr-name{display:none}
+  .usr-arr{display:none}
+  .usr-btn{padding:3px 3px}
+
+  /* CAI drawer: bottom sheet on mobile */
+  #cai-overlay{align-items:flex-end;justify-content:center}
+  .cai-drawer{
+    width:100%;max-width:100%;
+    /* 65% height — half-ish, feels like assistant not full page */
+    height:65dvh;
+    border-left:none;border-top:1px solid var(--bd2);
+    border-radius:var(--r3) var(--r3) 0 0;
+    transform:translateY(100%)
+  }
+  #cai-overlay.open .cai-drawer{transform:translateY(0)}
+}
+
+/* cai-text hidden on <640px: already in chef-ai-btn rule, make explicit */
+@media(max-width:640px){
+  .cai-text{display:none}
+}
+
+/* ══ Tablet 641-900px: show online pills, hide demo ══ */
+@media(min-width:641px) and (max-width:900px){
+  .demo-tag{display:none}
+  .t-sub{display:none}
+  .online-n{display:none}
+}
+
+/* ══ Desktop 901px+: full topbar ══ */
+@media(min-width:901px){
+  .online-n{display:none}   /* show pills instead */
+  .online-pills{display:flex}
+}
 
 /* ── END TOPBAR CSS ──────────────────────────────────────────── */
 /* ── TAB BAR ─────────────────────────────────────────────────────────────── */
@@ -741,6 +814,7 @@ it:{
   cai_r4:'Puoi aprire più tab contemporaneamente — Bot Center, Diario, Ricetta — e passare dall\'una all\'altra. Lo scroll viene salvato per tab.',
   /* User menu extra */
   um_profile:'Profilo', um_notif:'Notifiche', um_quiet:'Quiet hours', um_pin:'Cambia PIN',
+  um_online:'Online adesso',
   yct:'Sì Chef! ✅', ycclose:'Chiudi',
 },
 en:{
@@ -796,6 +870,7 @@ en:{
   cai_r4:'You can keep multiple tabs open — Bot Center, Journal, Recipe — and switch between them. Scroll position is saved per tab.',
   /* User menu extra */
   um_profile:'Profile', um_notif:'Notifications', um_quiet:'Quiet hours', um_pin:'Change PIN',
+  um_online:'Online now',
   yct:'Yes Chef! ✅', ycclose:'Close',
 },
 es:{
@@ -851,6 +926,7 @@ es:{
   cai_r4:'Puedes tener varias tabs abiertas — Centro Bot, Diario, Receta — y cambiar entre ellas. El scroll se guarda por tab.',
   /* User menu extra */
   um_profile:'Perfil', um_notif:'Notificaciones', um_quiet:'Horas silenciosas', um_pin:'Cambiar PIN',
+  um_online:'En línea ahora',
   yct:'¡Sí Chef! ✅', ycclose:'Cerrar',
 }
 };
@@ -1579,6 +1655,23 @@ function renderTopBar(){
     +'<select class="um-role-sel" id="um-role-sel">'+roleOpts+'</select>'
     +'</div>'
     /* Logout */
+    +'<div class="um-section">'
+    +'<p class="um-lbl">'+t('um_online')+'</p>'
+    +'<div style="padding:4px 14px 8px">'
+    +'<div style="display:flex;align-items:center;gap:7px;padding:5px 0">'
+    +'<div style="width:20px;height:20px;border-radius:50%;background:var(--b6);display:flex;align-items:center;justify-content:center;font-size:10px">🤖</div>'
+    +'<span style="font-size:12px;color:var(--tx)">Chef AI</span>'
+    +'<span style="font-size:10px;color:var(--ok);margin-left:auto">● '+t('cai_duty')+'</span>'
+    +'</div>'
+    +others.map(function(u){
+      return '<div style="display:flex;align-items:center;gap:7px;padding:5px 0">'
+        +'<div style="width:20px;height:20px;border-radius:50%;background:'+u.col+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:700">'+u.init+'</div>'
+        +'<span style="font-size:12px;color:var(--tx)">'+u.name+'</span>'
+        +'<span style="font-size:10px;color:var(--txm);margin-left:auto">'+u.role+'</span>'
+        +'</div>';
+    }).join('')
+    +'</div>'
+    +'</div>'
     +'<div class="um-section">'
     +'<button class="um-item"><span class="um-item-ico">↩</span>'+t('um_logout')+'</button>'
     +'</div>'
