@@ -935,34 +935,25 @@ function classifyCard(i) {
 }
 
 // ── KITCHEN UNIT DISPLAY ────────────────────────────────────────────────────
-// Per COUNT_FIRST: invece di "g", usa unità da cucina quando possibile
+// Per COUNT_FIRST: unità di conteggio in cucina — sempre metriche (g/kg)
 function kitchenCountUnit(item) {
   const unit = (item.unit || '').toLowerCase().trim();
-  const name = (item.name || '').toLowerCase();
-  // Grammi/kg → converti in unità cucina per il conteggio
-  if (unit === 'g' || unit === 'kg') {
-    if (name.includes('soup') || name.includes('sauce') || name.includes('demi') ||
-        name.includes('coulis') || name.includes('cream') || name.includes('liquid') ||
-        name.includes('oil') || name.includes('dressing') || name.includes('vinaigrette') ||
-        name.includes('mix') || name.includes('batter')) {
-      return { unit: 'qt', hint: '(approx. 1 qt = 950g)' };
-    }
-    if (name.includes('par cook') || name.includes('sprout') || name.includes('potato') ||
-        name.includes('mushroom') || name.includes('onion') || name.includes('asparagus') ||
-        name.includes('spinach') || name.includes('calamari')) {
-      return { unit: 'lb', hint: '(approx. 1 lb = 450g)' };
-    }
-    if (name.includes('pasta') || name.includes('dough') || name.includes('gnocco')) {
-      return { unit: 'portions', hint: '' };
-    }
-    // Default per grammi non riconosciuti: lascia g ma spiega
-    return { unit: unit, hint: '' };
+  const current = parseFloat(item.current_stock) || 0;
+  const suggested = parseFloat(item.suggested_qty) || 0;
+  const refQty = suggested || current; // quantità di riferimento per scegliere g vs kg
+
+  // Grammi → kg se la quantità è grande (≥500g), altrimenti g
+  if (unit === 'g') {
+    if (refQty >= 500) return { unit: 'kg', hint: '' };
+    return { unit: 'g', hint: '' };
   }
-  // Unità già umane
-  if (['pezzi','pz'].includes(unit)) return { unit: 'pieces', hint: '' };
-  if (unit === 'cup')   return { unit: 'cups', hint: '' };
+  // Già in kg → lascia kg
+  if (unit === 'kg') return { unit: 'kg', hint: '' };
+  // Unità già umane — lascia invariate
+  if (['pezzi','pz'].includes(unit)) return { unit: 'pz', hint: '' };
+  if (unit === 'cup')   return { unit: 'cup', hint: '' };
   if (unit === 'nests') return { unit: 'nests', hint: '' };
-  if (unit === 'buste') return { unit: 'bags', hint: '' };
+  if (unit === 'buste') return { unit: 'buste', hint: '' };
   return { unit: unit, hint: '' };
 }
 
@@ -1350,17 +1341,23 @@ window.saveKitchenCount = async function(id) {
     return;
   }
 
-  const unit = it.unit || '';
+  const taskUnit = (it.unit || '').toLowerCase();
   const prevStock = parseFloat(it.current_stock) || 0;
   const prevSugg  = parseFloat(it.suggested_qty) || null;
   const prevBy    = it.suggested_by || null;
   const userName  = window.user?.name || 'unknown';
 
+  // Se l'input era in kg (display) ma il task è in g, converti per current_stock
+  const { unit: displayUnit } = kitchenCountUnit(it);
+  const isKgDisplay = displayUnit === 'kg' && taskUnit === 'g';
+  const savedUnit   = isKgDisplay ? 'kg' : taskUnit; // salva in kg se il cuoco ha contato in kg
+  const stockVal    = isKgDisplay ? val * 1000 : val; // current_stock sempre in unità native (g)
+
   // 1. Salva in prep_stock_counts — NON in prep_tasks.suggested_*
   const { data: countRows, error: countErr } = await supa.from('prep_stock_counts').insert({
     prep_task_id:        id,
-    counted_qty:         val,
-    unit:                unit,
+    counted_qty:         val,       // valore come inserito dal cuoco (es. 3.5 kg)
+    unit:                savedUnit, // unità come inserita (kg, non g)
     counted_by:          userName,
     source:              'kitchen_count',
     prev_bot_stock:      prevStock,
@@ -1371,11 +1368,12 @@ window.saveKitchenCount = async function(id) {
   const countId = countRows?.[0]?.id || null;
 
   // 2. Aggiorna current_stock (loggato in prev_bot_stock — non distruttivo)
-  await supa.from('prep_tasks').update({ current_stock: val }).eq('id', id);
-  tasks[id].current_stock = val;
+  // current_stock sempre in unità native del task (es. g) — converti se input era in kg
+  await supa.from('prep_tasks').update({ current_stock: stockVal }).eq('id', id);
+  tasks[id].current_stock = stockVal;
   if (items) {
     const idx = items.findIndex(x => x.id === id);
-    if (idx >= 0) items[idx].current_stock = val;
+    if (idx >= 0) items[idx].current_stock = stockVal;
   }
 
   // 3. Mostra feedback immediato "saving..."

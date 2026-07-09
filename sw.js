@@ -1,9 +1,9 @@
-const CACHE_NAME = 'boh-v615';
+const CACHE_NAME = 'boh-v616';
 // ↑ Incrementa questo questo numero ad ogni deploy — es. v31, v32...
 // Il browser vede la versione diversa e aggiorna automaticamente
 
 self.addEventListener('install', e => {
-  self.skipWaiting(); // attiva subito senza aspettare che le tab si chiudano
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
