@@ -791,7 +791,15 @@ function cardButton(i){
     const seeLabel = {it:'VEDI STEPS',en:'SEE STEPS',es:'VER PASOS'}[lang]||'SEE STEPS';
     return `<button onclick="prepSeeSteps(${JSON.stringify(iid)})" style="height:40px;padding:0 18px;border-radius:10px;font-size:13px;font-weight:600;background:#378add;color:white;border:none;white-space:nowrap;flex-shrink:0;">${seeLabel}</button>`;
   }
-  // START su tutti — largo, sotto la card
+  // START solo su card actionable — NO su Looks okay (green) e WATCH
+  const _ct2 = classifyCard(i);
+  const _botCol2 = (i.suggested_note||'').split('|')[0];
+  const _isGreenOk = (_ct2 === 'TRUSTED' && _botCol2 === 'green');
+  const _isWatch   = (_ct2 === 'WATCH');
+  const _isBlocked = (_ct2 === 'BLOCKED' || _ct2 === 'CHEF_REVIEW');
+  if (_isGreenOk || _isWatch || _isBlocked) {
+    return ''; // nessun bottone — queste card non sono actionable
+  }
   return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START</button>`;
 }
 
@@ -940,6 +948,8 @@ function kitchenCountUnit(item) {
 }
 
 // ── PARSE SOURCES_JSON per numeri "Sold yesterday / Expected today" ──
+// avgDaily è sempre in PORZIONI (vendite POS), NON nelle unità della prep task.
+// Non usare humanQty(avgDaily, prep_unit) — usare avgDaily + ' portions/day'.
 function parseSourcesNumbers(i) {
   let soldYesterday = null;
   let avgDaily = null;
@@ -952,7 +962,15 @@ function parseSourcesNumbers(i) {
       if (avgDaily > 0) avgDaily = Math.round(avgDaily * 10) / 10;
     }
   } catch(e) {}
-  return { avgDaily };
+  // avgDailyUnit è SEMPRE 'portions' — le vendite POS sono in porzioni, non in unità prep
+  return { avgDaily, avgDailyUnit: 'portions' };
+}
+
+// ── FORMAT avg_daily per display — SEMPRE in porzioni, mai in unità prep ──
+function fmtAvgDaily(avgDaily) {
+  if (!avgDaily || avgDaily <= 0) return null;
+  const n = Math.round(avgDaily * 10) / 10;
+  return (Number.isInteger(n) ? n : n) + ' portions/day';
 }
 
 // ── HUMANIZE QTY per display ──
@@ -989,7 +1007,8 @@ function buildChefAiNote(i, cardType) {
 
   const qtyHuman      = humanQty(qty, unit);
   const stockHuman    = (stock > 0) ? humanQty(stock, unit) : null;
-  const expectedToday = avgDaily ? humanQty(Math.ceil(avgDaily), unit) : null;
+  // BUG FIX: avgDaily è in PORZIONI POS, non in unità prep — usare fmtAvgDaily sempre
+  const expectedToday = avgDaily ? fmtAvgDaily(avgDaily) : null;
 
   function goodThroughDay() {
     const rawEN = note.split('|')[2] || '';
@@ -1215,17 +1234,18 @@ function renderChefAiBlock(i, cardType) {
   const statusPill = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${statusCfg.color};background:${statusCfg.bg};border:1px solid ${statusCfg.border};border-radius:20px;padding:3px 9px;letter-spacing:0.02em;">${statusCfg.emoji} ${statusCfg.label}</span>`;
 
   // NUMBERS SECTION — solo se abbiamo dati
+  // BUG FIX: avgDaily è in PORZIONI POS — non usare humanQty(avgDaily, unit) !
   const { avgDaily } = parseSourcesNumbers(i);
   const stock = parseFloat(i.current_stock);
   const qty = parseFloat(i.suggested_qty) || 0;
   const unit = i.unit || '';
   const stockHuman = (stock > 0) ? humanQty(stock, unit) : null;
-  const expectedHuman = avgDaily ? humanQty(Math.ceil(avgDaily), unit) : null;
+  const avgDailyHuman = avgDaily ? fmtAvgDaily(avgDaily) : null;      // sempre "N portions/day"
   const suggHuman = humanQty(qty, unit);
 
   let numbersHtml = '';
   const nums = [];
-  if (expectedHuman) nums.push(`<span>Avg daily: <b>${expectedHuman}</b></span>`);
+  if (avgDailyHuman) nums.push(`<span>Avg sales: <b>${avgDailyHuman}</b></span>`);
   if (stockHuman)    nums.push(`<span>In stock: <b>${stockHuman}</b></span>`);
   if (suggHuman && (cardType === 'TRUSTED') && (i.suggested_note||'').split('|')[0] !== 'green')
     nums.push(`<span>Suggested: <b>${suggHuman}</b></span>`);
@@ -1429,6 +1449,26 @@ window.saveKitchenCount = async function(id) {
 };
 
 // ── PREP ──
+// ── PREP FEED VIEW MODE — default: actionable only ──────────────────────────
+// 'actionable' = default (nasconde looks_ok, watch, blocked, chef_review)
+// 'all'        = mostra tutto (attivato da admin col toggle)
+window._prepViewAll = window._prepViewAll || false;
+
+// Controlla se una card è visibile nel default feed
+function isActionableCard(i) {
+  const ct = classifyCard(i);
+  if (ct === 'TRUSTED') {
+    const col = (i.suggested_note||'').split('|')[0];
+    if (col === 'green') return false; // Looks okay — nascosta per default
+    return true; // red, yellow, no-note → actionable
+  }
+  if (ct === 'WATCH')      return false;
+  if (ct === 'BLOCKED')    return false;
+  if (ct === 'CHEF_REVIEW') return false;
+  // COUNT_FIRST, STAGED_CHECK, LARGE_BATCH, COUNT_RECONCILED → sempre visibili
+  return true;
+}
+
 function renderM(){
   const _pq=(window._prepSearchQuery||'').toLowerCase().trim();
   const base=items.filter(i=>{
@@ -1436,8 +1476,12 @@ function renderM(){
     if(_pq && !i.name.toLowerCase().includes(_pq)) return false;
     return true;
   });
+  // ── FILTRO DEFAULT: solo card actionable (nascondi Looks okay / Watch / Setup) ──
+  const actionableBase = window._prepViewAll ? base : base.filter(isActionableCard);
+  const hiddenCount = base.length - actionableBase.length;
+
   // ordinamento: in_progress > urgenti > gialli > normali
-  const list=base.sort((a,b)=>{
+  const list=actionableBase.sort((a,b)=>{
     const score=i=>{
       if(i.in_progress) return 5;
       if(i.prep_type==='checklist') return 1; // checklist: sempre sotto le prep urgenti
@@ -1579,6 +1623,44 @@ function renderM(){
         +'<div class=\"chef-ai-panel\" id=\"chef-ai-panel-'+iid+'\" style=\"display:none;\"></div>'
       +'</div>';
     }).join('');
+
+  // ── BANNER "items nascosti" — mostra solo se ci sono card filtrate ──
+  if (hiddenCount > 0 && !window._prepViewAll) {
+    const existingBanner = document.getElementById('prepHiddenBanner');
+    const banner = existingBanner || document.createElement('div');
+    banner.id = 'prepHiddenBanner';
+    banner.style.cssText = 'margin-top:10px;padding:10px 14px;border-radius:12px;background:rgba(100,116,139,0.07);border:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;gap:8px;';
+    banner.innerHTML = `
+      <span style="font-size:12px;color:#64748b;">
+        <b>${hiddenCount}</b> item${hiddenCount>1?'s':''} hidden (Looks okay / Watch)
+      </span>
+      <button onclick="window._prepViewAll=true;renderM();"
+        style="font-size:12px;font-weight:700;color:#1e3a5f;background:rgba(30,58,95,0.08);border:1px solid rgba(30,58,95,0.2);border-radius:8px;padding:4px 12px;cursor:pointer;">
+        Show all
+      </button>`;
+    if (!existingBanner) grid.after(banner);
+  } else {
+    const b = document.getElementById('prepHiddenBanner');
+    if (b) b.remove();
+  }
+
+  // Se _prepViewAll è attivo, mostra banner "Back to actionable"
+  if (window._prepViewAll) {
+    const existingAll = document.getElementById('prepShowAllBanner');
+    const allBanner = existingAll || document.createElement('div');
+    allBanner.id = 'prepShowAllBanner';
+    allBanner.style.cssText = 'margin-bottom:8px;padding:8px 14px;border-radius:12px;background:rgba(30,58,95,0.06);border:1px solid rgba(30,58,95,0.15);display:flex;align-items:center;justify-content:space-between;gap:8px;';
+    allBanner.innerHTML = `
+      <span style="font-size:12px;color:#475569;">Showing all ${base.length} items</span>
+      <button onclick="window._prepViewAll=false;renderM();"
+        style="font-size:12px;font-weight:700;color:#059669;background:rgba(5,150,105,0.08);border:1px solid rgba(5,150,105,0.25);border-radius:8px;padding:4px 12px;cursor:pointer;">
+        Show actionable only
+      </button>`;
+    if (!existingAll) grid.before(allBanner);
+  } else {
+    const b = document.getElementById('prepShowAllBanner');
+    if (b) b.remove();
+  }
 }
 
 // ── AZIONI CARD ──
@@ -2255,6 +2337,7 @@ function _chefAiPrepPanelHtml(a, prepName){
     +'</div>'
   +'</div>';
 }
+
 
 
 
