@@ -5656,7 +5656,7 @@ window.dqConfirmSafeFix = async function(idx) {
     var approvedBy = (window.currentUser || window.user || {}).name || 'max';
     var { data: result, error: rpcErr } = await sb.rpc('apply_data_quality_fix', {
       p_recipe_id: r.id, p_old_qty: r.serving_qty!=null?parseFloat(r.serving_qty):null,
-      p_old_unit: r.serving_unit||'', p_new_qty: parseFloat(item.suggestedQty),
+      p_old_unit: r.serving_unit!=null?r.serving_unit:null, p_new_qty: parseFloat(item.suggestedQty),
       p_new_unit: item.suggestedUnit, p_issue_type: 'serving_unit_fix',
       p_reason: 'unit_cleanup_auto — prep_task.unit=' + (pt?pt.unit:'unknown'),
       p_approved_by: approvedBy
@@ -5696,7 +5696,7 @@ window.dqApplyAllSafeFix = async function() {
     try {
       var { data: res, error: e } = await sb.rpc('apply_data_quality_fix', {
         p_recipe_id: r.id, p_old_qty: r.serving_qty!=null?parseFloat(r.serving_qty):null,
-        p_old_unit: r.serving_unit||'', p_new_qty: parseFloat(item.suggestedQty),
+        p_old_unit: r.serving_unit!=null?r.serving_unit:null, p_new_qty: parseFloat(item.suggestedQty),
         p_new_unit: item.suggestedUnit, p_issue_type: 'serving_unit_fix',
         p_reason: 'unit_cleanup_batch', p_approved_by: approvedBy
       });
@@ -5972,7 +5972,7 @@ window.dqConfirmApply = async function(idx) {
     var { data: result, error: rpcErr } = await sb.rpc('apply_data_quality_fix', {
       p_recipe_id:   r.id,
       p_old_qty:     r.serving_qty != null ? parseFloat(r.serving_qty) : null,
-      p_old_unit:    r.serving_unit || '',
+      p_old_unit:    r.serving_unit != null ? r.serving_unit : null,
       p_new_qty:     parseFloat(item.suggestedQty),
       p_new_unit:    item.suggestedUnit,
       p_issue_type:  'serving_unit_fix',
