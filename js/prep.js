@@ -1401,24 +1401,22 @@ window.saveKitchenCount = async function(id) {
     }
   }
 
-  // 5. Aggiorna _recentCounts locale con il risultato del reconciler
-  if (reconcilerResult?.ok) {
-    window._recentCounts[id] = {
-      id:                countId,
-      prep_task_id:      id,
-      counted_qty:       val,
-      unit:              unit,
-      counted_by:        userName,
-      counted_at:        new Date().toISOString(),
-      reconcile_status:  reconcilerResult.reconcile_status,
-      reconciled_qty:    reconcilerResult.reconciled_qty,
-      reconciled_note:   reconcilerResult.reconciled_note,
-      expires_at:        reconcilerResult.expires_at,
-      prev_bot_stock:    prevStock,
-      prev_bot_suggestion: prevSugg,
-      prev_suggested_by: prevBy,
-    };
-  }
+  // 5. Aggiorna _recentCounts subito — anche senza reconciler, così renderM() mostra START
+  window._recentCounts[id] = {
+    id:                countId,
+    prep_task_id:      id,
+    counted_qty:       val,
+    unit:              savedUnit,
+    counted_by:        userName,
+    counted_at:        new Date().toISOString(),
+    reconcile_status:  reconcilerResult?.reconcile_status || 'pending',
+    reconciled_qty:    reconcilerResult?.reconciled_qty   || null,
+    reconciled_note:   reconcilerResult?.reconciled_note  || null,
+    expires_at:        reconcilerResult?.expires_at       || null,
+    prev_bot_stock:    prevStock,
+    prev_bot_suggestion: prevSugg,
+    prev_suggested_by: prevBy,
+  };
 
   // 6. Aggiorna card inline con il risultato
   if (confirmBlock) {
@@ -1467,6 +1465,9 @@ window.saveKitchenCount = async function(id) {
         ${startBtnHtml}
       </div>`;
   }
+  // Re-render la card così il bottone START è correttamente nel DOM
+  // (il confirmBlock inline viene sostituito da renderM con la card aggiornata)
+  setTimeout(() => { if (typeof renderM === 'function') renderM(); }, 100);
 };
 
 // ── PREP ──
