@@ -1,0 +1,2259 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>BOH OS — Workspace</title>
+<style>
+/* BOH OS Workspace — Design Tokens
+   Single source of truth. Never use raw hex values in component files.
+   -------------------------------------------------------------------- */
+
+:root {
+  /* ── Backgrounds ─────────────────────────────── */
+  --bg-base:        #eff6ff;
+  --bg-mid:         #dbeafe;
+  --bg-accent:      #e0f2fe;
+  --bg-sidebar:     rgba(219, 234, 254, 0.60);
+
+  /* ── Surfaces ────────────────────────────────── */
+  --surface:        #ffffff;
+  --surface-glass:  rgba(255, 255, 255, 0.68);
+  --surface-raised: rgba(255, 255, 255, 0.92);
+  --surface-tab:    rgba(255, 255, 255, 0.82);
+  --surface-tab-active: #ffffff;
+
+  /* ── Text ────────────────────────────────────── */
+  --text-primary:   #1e3a5f;
+  --text-secondary: #3b6ea8;
+  --text-muted:     #7a9cc4;
+  --text-inverse:   #ffffff;
+  --text-tab:       #4a6fa5;
+  --text-tab-active: #1e3a5f;
+
+  /* ── Blue scale ──────────────────────────────── */
+  --blue-900:  #1e3a5f;
+  --blue-700:  #1d4ed8;
+  --blue-600:  #2563eb;
+  --blue-500:  #3b82f6;
+  --blue-400:  #60a5fa;
+  --blue-200:  #bfdbfe;
+  --blue-100:  #dbeafe;
+  --blue-50:   #eff6ff;
+
+  /* ── Status (soft, not neon) ─────────────────── */
+  --ok:        #16a34a;
+  --ok-bg:     #f0fdf4;
+  --ok-border: #bbf7d0;
+
+  --warn:        #d97706;
+  --warn-bg:     #fffbeb;
+  --warn-border: #fde68a;
+
+  --danger:        #dc2626;
+  --danger-bg:     #fef2f2;
+  --danger-border: #fecaca;
+
+  --info:        #2563eb;
+  --info-bg:     #eff6ff;
+  --info-border: #bfdbfe;
+
+  /* ── Border & Shadow ─────────────────────────── */
+  --border:         rgba(37, 99, 235, 0.13);
+  --border-strong:  rgba(37, 99, 235, 0.28);
+  --border-tab:     rgba(37, 99, 235, 0.18);
+
+  --shadow-xs: 0 1px 2px rgba(30, 58, 95, 0.06);
+  --shadow-sm: 0 1px 4px rgba(30, 58, 95, 0.09);
+  --shadow-md: 0 4px 16px rgba(30, 58, 95, 0.11);
+  --shadow-lg: 0 8px 32px rgba(30, 58, 95, 0.14);
+  --shadow-glass: 0 8px 32px rgba(30, 58, 95, 0.09), inset 0 1px 0 rgba(255,255,255,0.6);
+
+  /* ── Radius ──────────────────────────────────── */
+  --r-xs:   4px;
+  --r-sm:   8px;
+  --r-md:   12px;
+  --r-lg:   16px;
+  --r-xl:   22px;
+  --r-pill: 999px;
+
+  /* ── Typography ──────────────────────────────── */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+               'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-md:   16px;
+  --text-lg:   18px;
+  --text-xl:   22px;
+  --text-2xl:  28px;
+
+  --weight-normal:   400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  --leading-tight:  1.2;
+  --leading-normal: 1.5;
+  --leading-loose:  1.7;
+
+  /* ── Layout ──────────────────────────────────── */
+  --topbar-h:    52px;
+  --tabbar-h:    42px;
+  --sidebar-w:   220px;
+  --content-max: 960px;
+
+  /* ── Motion ──────────────────────────────────── */
+  --ease-out:  cubic-bezier(0.0, 0.0, 0.2, 1);
+  --ease-in:   cubic-bezier(0.4, 0.0, 1, 1);
+  --ease-snap: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast:  120ms;
+  --dur-base:  200ms;
+  --dur-slow:  340ms;
+}
+
+/* Reduced motion: kill everything decorative */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* BOH OS Workspace — Shell & Components
+   All values from tokens.css. No raw hex here.
+   ─────────────────────────────────────────── */
+
+/* ── Reset & Base ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  background: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+button { cursor: pointer; border: none; background: none; font-family: inherit; }
+input, select, textarea { font-family: inherit; }
+ol, ul { list-style: none; }
+
+/* ── App Shell ───────────────────────────────────────────────────────────── */
+#ws-app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--bg-base) 0%, var(--bg-mid) 55%, var(--bg-accent) 100%);
+}
+
+/* ── Top Bar ─────────────────────────────────────────────────────────────── */
+#ws-topbar {
+  flex-shrink: 0;
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  background: var(--surface-glass);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  z-index: 100;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.topbar-logo {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  color: var(--blue-700);
+  letter-spacing: -0.03em;
+}
+.topbar-tagline {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.topbar-center { flex: 1; display: flex; justify-content: center; }
+.topbar-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 6px 14px;
+  max-width: 320px;
+  width: 100%;
+  opacity: 0.75;
+  cursor: text;
+  transition: opacity var(--dur-base) var(--ease-out),
+              box-shadow var(--dur-base) var(--ease-out);
+}
+.topbar-search:hover { opacity: 1; box-shadow: var(--shadow-sm); }
+.search-icon { color: var(--text-muted); font-size: 15px; }
+.search-placeholder { font-size: var(--text-sm); color: var(--text-muted); }
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Language switcher */
+.lang-switcher { display: flex; gap: 2px; }
+.lang-btn {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  padding: 3px 7px;
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  transition: all var(--dur-fast);
+}
+.lang-btn:hover { background: var(--blue-100); color: var(--blue-600); }
+.lang-btn.active {
+  background: var(--blue-600);
+  color: var(--text-inverse);
+}
+
+/* Role switcher */
+.role-switcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.role-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.role-select {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+/* Demo badge */
+.demo-badge {
+  font-size: 10px;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.08em;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r-pill);
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+
+/* ── Tab Bar ─────────────────────────────────────────────────────────────── */
+#ws-tabbar {
+  flex-shrink: 0;
+  height: var(--tabbar-h);
+  background: var(--surface-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  position: relative;
+}
+
+.tabbar-inner {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 0 4px;
+}
+.tabbar-inner::-webkit-scrollbar { display: none; }
+
+/* Individual tab */
+.ws-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px 0 10px;
+  min-width: 0;
+  max-width: 200px;
+  height: 100%;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-tab);
+  background: transparent;
+  color: var(--text-tab);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--dur-fast), color var(--dur-fast);
+  position: relative;
+}
+.ws-tab:hover { background: rgba(255,255,255,0.45); color: var(--text-primary); }
+.ws-tab.active {
+  background: var(--surface-tab-active);
+  color: var(--text-tab-active);
+  font-weight: var(--weight-medium);
+  box-shadow: inset 0 -2px 0 var(--blue-600);
+}
+
+.tab-icon { font-size: 13px; flex-shrink: 0; }
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.tab-close {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: all var(--dur-fast);
+}
+.ws-tab:hover .tab-close { opacity: 1; }
+.tab-close:hover {
+  opacity: 1 !important;
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* New tab button */
+.tab-new-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 100%;
+  font-size: 18px;
+  font-weight: var(--weight-normal);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--border-tab);
+  transition: all var(--dur-fast);
+}
+.tab-new-btn:hover {
+  color: var(--blue-600);
+  background: rgba(255,255,255,0.45);
+}
+
+/* ── Workspace area ──────────────────────────────────────────────────────── */
+#ws-workspace {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px 20px 40px;
+  scroll-behavior: smooth;
+}
+
+/* ── Page shared layout ──────────────────────────────────────────────────── */
+.page-header {
+  margin-bottom: 24px;
+}
+.page-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.page-title {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: var(--leading-tight);
+}
+.page-subtitle {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.section {
+  background: var(--surface-glass);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-glass);
+}
+.section-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+/* ── Demo banner ─────────────────────────────────────────────────────────── */
+.demo-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  padding: 10px 0 0;
+}
+.demo-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  flex-shrink: 0;
+}
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.badge-ok     { background: var(--ok-bg);     color: var(--ok);     border: 1px solid var(--ok-border);     }
+.badge-warn   { background: var(--warn-bg);   color: var(--warn);   border: 1px solid var(--warn-border);   }
+.badge-danger { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-border); }
+.badge-info   { background: var(--info-bg);   color: var(--info);   border: 1px solid var(--info-border);   }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.btn-primary {
+  background: var(--blue-600);
+  color: var(--text-inverse);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  padding: 8px 18px;
+  border-radius: var(--r-md);
+  transition: all var(--dur-fast);
+  white-space: nowrap;
+}
+.btn-primary:hover  { background: var(--blue-700); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.btn-primary:active { transform: translateY(0); box-shadow: none; }
+
+.btn-secondary {
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  padding: 8px 16px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  transition: all var(--dur-fast);
+}
+.btn-secondary:hover { background: var(--blue-100); color: var(--blue-600); }
+
+/* ── Home page ───────────────────────────────────────────────────────────── */
+.page-home { max-width: var(--content-max); margin: 0 auto; }
+
+.home-greeting { margin-bottom: 28px; }
+.greeting-text {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  color: var(--blue-900);
+  letter-spacing: -0.03em;
+}
+.greeting-sub {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.home-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  padding: 18px 16px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-glass);
+  transition: all var(--dur-base) var(--ease-out);
+}
+.home-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--blue-400);
+  background: var(--surface-raised);
+}
+.home-card:active { transform: translateY(0); box-shadow: var(--shadow-sm); }
+
+.home-card-icon {
+  font-size: 26px;
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--blue-50);
+  border-radius: var(--r-md);
+  border: 1px solid var(--blue-200);
+}
+.home-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.home-card-title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.home-card-desc {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-normal);
+}
+.home-card-arrow {
+  color: var(--text-muted);
+  font-size: 16px;
+  flex-shrink: 0;
+  transition: transform var(--dur-fast);
+}
+.home-card:hover .home-card-arrow { transform: translateX(3px); color: var(--blue-500); }
+
+/* ── Bot Center ──────────────────────────────────────────────────────────── */
+.page-bots { max-width: var(--content-max); margin: 0 auto; }
+
+.pipeline-list { display: flex; flex-direction: column; gap: 8px; }
+.pipeline-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.pipeline-step {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--blue-100);
+  color: var(--blue-700);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.pipeline-body { flex: 1; min-width: 0; }
+.pipeline-name { display: block; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); font-family: var(--font-mono); }
+.pipeline-meta { display: block; font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px; }
+
+.obs-list { display: flex; flex-direction: column; gap: 8px; }
+.obs-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  font-size: var(--text-sm);
+}
+.obs-warn { border-color: var(--warn-border); background: var(--warn-bg); }
+.obs-info { border-color: var(--info-border); background: var(--info-bg); }
+.obs-icon { flex-shrink: 0; }
+.obs-text  { color: var(--text-primary); line-height: var(--leading-normal); }
+
+/* ── Recipe page ─────────────────────────────────────────────────────────── */
+.page-recipe { max-width: var(--content-max); margin: 0 auto; }
+
+.bom-table { font-size: var(--text-sm); }
+.bom-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0 4px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.bom-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.bom-row:last-child { border-bottom: none; }
+.bom-item { color: var(--text-primary); }
+.bom-qty  {
+  color: var(--blue-600);
+  font-weight: var(--weight-medium);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.steps-list { display: flex; flex-direction: column; gap: 10px; }
+.step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.step-num {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--blue-600);
+  color: var(--text-inverse);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.step-text { color: var(--text-primary); }
+
+/* ── Inventory page ──────────────────────────────────────────────────────── */
+.page-inventory { max-width: var(--content-max); margin: 0 auto; }
+
+.inv-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.inv-stat {
+  background: var(--surface-glass);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow-glass);
+}
+.inv-stat-label { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.inv-stat-value { font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--text-primary); }
+.inv-load   { color: var(--ok); }
+.inv-deduct { color: var(--danger); font-size: var(--text-sm) !important; }
+
+.movements-list { display: flex; flex-direction: column; gap: 6px; }
+.movement-row {
+  display: grid;
+  grid-template-columns: 90px 60px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: var(--text-sm);
+}
+.movement-date { color: var(--text-muted); font-size: var(--text-xs); }
+.movement-qty  { font-weight: var(--weight-bold); font-family: var(--font-mono); font-size: var(--text-sm); }
+.qty-pos { color: var(--ok); }
+.qty-neg { color: var(--danger); }
+.movement-meta { display: flex; flex-direction: column; gap: 1px; }
+.movement-source { font-weight: var(--weight-medium); color: var(--text-primary); }
+.movement-note   { font-size: var(--text-xs); color: var(--text-muted); }
+
+/* ── Journal page ────────────────────────────────────────────────────────── */
+.page-journal { max-width: var(--content-max); margin: 0 auto; }
+
+.journal-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.filter-chip {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+  transition: all var(--dur-fast);
+}
+.filter-chip:hover  { border-color: var(--blue-400); color: var(--blue-600); }
+.filter-chip.active { background: var(--blue-600); color: var(--text-inverse); border-color: var(--blue-600); }
+
+.journal-entries { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+
+.journal-entry {
+  background: var(--surface-glass);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--dur-fast);
+}
+.journal-entry:hover { box-shadow: var(--shadow-md); }
+.entry-ok     { border-left: 3px solid var(--ok);     }
+.entry-warn   { border-left: 3px solid var(--warn);   }
+.entry-danger { border-left: 3px solid var(--danger); }
+
+.entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.entry-icon   { font-size: 14px; }
+.entry-cat    { font-size: var(--text-xs); font-weight: var(--weight-bold); color: var(--text-secondary); letter-spacing: 0.06em; }
+.entry-dot    { color: var(--text-muted); font-size: 10px; }
+.entry-time   { font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.entry-author { font-size: var(--text-xs); color: var(--text-muted); }
+.entry-title  { font-size: var(--text-base); font-weight: var(--weight-semibold); color: var(--text-primary); margin-bottom: 4px; }
+.entry-body   { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-normal); }
+
+/* ── Modal (small actions only) ──────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(30, 58, 95, 0.35);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 200;
+  padding: 0;
+  transition: opacity var(--dur-base);
+}
+.modal-overlay.hidden {
+  display: none;
+}
+@media (min-width: 600px) {
+  .modal-overlay { align-items: center; padding: 24px; }
+}
+
+.modal-small {
+  background: var(--surface);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: slideUp var(--dur-slow) var(--ease-snap);
+}
+@media (min-width: 600px) {
+  .modal-small { border-radius: var(--r-xl); animation: popIn var(--dur-slow) var(--ease-snap); }
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes popIn   { from { transform: scale(0.94) translateY(8px); opacity: 0; }
+                      to   { transform: scale(1) translateY(0); opacity: 1; } }
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-title { font-size: var(--text-md); font-weight: var(--weight-semibold); color: var(--text-primary); }
+.modal-close {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-mid);
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--dur-fast);
+}
+.modal-close:hover { background: var(--danger-bg); color: var(--danger); }
+
+.modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.modal-footer {
+  display: flex;
+  gap: 8px;
+  padding: 14px 20px 20px;
+  border-top: 1px solid var(--border);
+  justify-content: flex-end;
+}
+
+.form-label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: block;
+  margin-bottom: 4px;
+}
+.form-input {
+  width: 100%;
+  background: var(--bg-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.form-input:focus {
+  border-color: var(--blue-500);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+.form-textarea { resize: vertical; min-height: 80px; }
+
+/* ── Yes Chef Sheet ──────────────────────────────────────────────────────── */
+#yes-chef-sheet {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 300;
+  padding: 0;
+}
+@media (min-width: 600px) {
+  #yes-chef-sheet { align-items: center; }
+}
+.yeschef-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(30,58,95,0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity var(--dur-base);
+}
+#yes-chef-sheet.visible .yeschef-backdrop { opacity: 1; }
+
+.yeschef-sheet {
+  position: relative;
+  background: var(--surface);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  width: 100%;
+  max-width: 440px;
+  padding: 40px 32px 48px;
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+  transform: translateY(100%);
+  transition: transform var(--dur-slow) var(--ease-snap);
+}
+@media (min-width: 600px) {
+  .yeschef-sheet {
+    border-radius: var(--r-xl);
+    transform: scale(0.9) translateY(20px);
+    padding: 48px 40px;
+  }
+}
+#yes-chef-sheet.visible .yeschef-sheet {
+  transform: translateY(0);
+}
+@media (min-width: 600px) {
+  #yes-chef-sheet.visible .yeschef-sheet { transform: scale(1) translateY(0); }
+}
+
+.yeschef-icon    { font-size: 56px; margin-bottom: 12px; }
+.yeschef-title   { font-size: var(--text-2xl); font-weight: var(--weight-bold); color: var(--text-primary); margin-bottom: 10px; }
+.yeschef-message { font-size: var(--text-base); color: var(--text-secondary); margin-bottom: 28px; line-height: var(--leading-normal); }
+.yeschef-btn     { width: 100%; max-width: 240px; padding: 14px 24px; font-size: var(--text-md); }
+
+/* ── Misc ────────────────────────────────────────────────────────────────── */
+.ws-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: var(--text-base);
+}
+
+/* ── Mobile tweaks ───────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  #ws-workspace { padding: 16px 12px 32px; }
+
+  .topbar-center { display: none; }
+  .role-label    { display: none; }
+  .lang-btn      { padding: 3px 5px; }
+
+  .home-grid { grid-template-columns: 1fr; }
+
+  .movement-row { grid-template-columns: 75px 55px 1fr; gap: 8px; }
+
+  .inv-stats { grid-template-columns: 1fr 1fr; }
+}
+
+</style>
+</head>
+<body>
+<div id="ws-app">
+  <header id="ws-topbar" role="banner"></header>
+  <nav    id="ws-tabbar"  role="tablist"></nav>
+  <main   id="ws-workspace" role="main" tabindex="-1"></main>
+</div>
+
+<script>
+// ── Translations ──────────────────────────────────────────────
+// BOH OS Workspace — UI Translations
+// Rule: every visible label goes through t(). Recipe names / DB data are NOT translated here.
+// ──────────────────────────────────────────────────────────────────────────────
+
+const translations = {
+
+  it: {
+    // ── App shell ─────────────────────────────────────────
+    'app.name':          'BOH OS',
+    'app.tagline':       'Workspace',
+
+    // ── Top bar ───────────────────────────────────────────
+    'topbar.search':     'Cerca...',
+    'topbar.new_tab':    'Nuova pagina',
+
+    // ── Nav / Home cards ──────────────────────────────────
+    'nav.home':          'Home',
+    'nav.bot_center':    'Bot Center',
+    'nav.daily_journal': 'Diario',
+    'nav.recipes':       'Ricette',
+    'nav.inventory':     'Dispensa',
+    'nav.pos':           'Vendite',
+    'nav.settings':      'Impostazioni',
+
+    // ── Tab bar ───────────────────────────────────────────
+    'tab.home':          'Home',
+    'tab.bot_center':    'Bot Center',
+    'tab.daily_journal': 'Diario',
+    'tab.recipe':        'Ricetta: {name}',
+    'tab.inventory':     'Dispensa: {name}',
+    'tab.pos':           'Vendite',
+    'tab.new':           'Nuova pagina',
+
+    // ── Role switcher (demo only) ─────────────────────────
+    'role.label':        'Ruolo (demo)',
+    'role.executive':    'Executive Chef',
+    'role.lead':         'Sous Chef',
+    'role.coordinator':  'Coordinatore',
+    'role.cook':         'Cuoco',
+    'role.dish_crew':    'Dish Crew',
+    'role.viewer':       'Ospite',
+
+    // ── Home page ─────────────────────────────────────────
+    'home.greeting.morning': 'Buongiorno, {name}.',
+    'home.greeting.afternoon':'Buon pomeriggio, {name}.',
+    'home.greeting.evening': 'Buonasera, {name}.',
+    'home.subtitle':     'Cosa lavoriamo oggi?',
+    'home.card.bots.title':  'Bot Center',
+    'home.card.bots.desc':   'Pipeline POS, deduction log, avvisi sistema',
+    'home.card.journal.title':'Diario',
+    'home.card.journal.desc':'Log operativo, manutenzione, eventi servizio',
+    'home.card.recipes.title':'Ricette',
+    'home.card.recipes.desc':'Editor ricette, BOM, procedura per stazione',
+    'home.card.inventory.title':'Dispensa',
+    'home.card.inventory.desc':'Stock, carichi, deduzioni POS',
+    'home.card.pos.title':   'Vendite',
+    'home.card.pos.desc':    'Dashboard vendite, modifier depletion',
+
+    // ── Bot Center page ───────────────────────────────────
+    'bots.title':        'Bot Center',
+    'bots.subtitle':     'Pipeline POS — esecuzione sequenziale nightly',
+    'bots.pipeline':     'Pipeline',
+    'bots.last_run':     'Ultima esecuzione',
+    'bots.status.ok':    'OK',
+    'bots.status.warn':  'Attenzione',
+    'bots.status.error': 'Errore',
+    'bots.status.pending':'In attesa',
+    'bots.observations': 'Osservazioni',
+    'bots.no_obs':       'Nessuna osservazione per oggi.',
+    'bots.view_log':     'Vedi log completo',
+
+    // ── Recipe page ───────────────────────────────────────
+    'recipe.title':      'Ricetta',
+    'recipe.servings':   '{n} porzioni',
+    'recipe.batch':      'Batch da {n}',
+    'recipe.bom':        'Ingredienti (BOM)',
+    'recipe.steps':      'Procedura',
+    'recipe.no_steps':   'Nessuna procedura caricata.',
+    'recipe.station':    'Stazione: {name}',
+    'recipe.edit':       'Modifica ricetta',
+    'recipe.note':       '(Dati demo — nessuna query DB in questo prototipo)',
+
+    // ── Inventory page ────────────────────────────────────
+    'inv.title':         'Dispensa',
+    'inv.current_stock': 'Stock attuale',
+    'inv.loaded':        'Caricato oggi',
+    'inv.deducted':      'Scaricato POS',
+    'inv.movements':     'Movimenti recenti',
+    'inv.no_movements':  'Nessun movimento recente.',
+    'inv.note':          '(Dati demo — nessuna query DB in questo prototipo)',
+
+    // ── Daily Journal page ────────────────────────────────
+    'journal.title':     'Diario operativo',
+    'journal.subtitle':  'Log condiviso — servizio, manutenzione, eventi',
+    'journal.new':       'Nuova voce',
+    'journal.filter_all':'Tutto',
+    'journal.no_entries':'Nessuna voce per oggi.',
+    'journal.cat.service':    'Servizio',
+    'journal.cat.maintenance':'Manutenzione',
+    'journal.cat.kitchen':    'Cucina',
+    'journal.cat.staff':      'Staff',
+    'journal.cat.incident':   'Incidente',
+    'journal.cat.purchase':   'Acquisto',
+    'journal.form.title':     'Titolo',
+    'journal.form.category':  'Categoria',
+    'journal.form.body':      'Note',
+    'journal.form.visibility':'Visibilità',
+    'journal.form.save':      'Salva voce',
+    'journal.form.cancel':    'Annulla',
+
+    // ── Modals ────────────────────────────────────────────
+    'modal.confirm.title':  'Conferma',
+    'modal.confirm.ok':     'Sì, procedi',
+    'modal.confirm.cancel': 'Annulla',
+    'modal.note.title':     'Nota rapida',
+    'modal.note.placeholder':'Scrivi una nota...',
+    'modal.note.save':      'Salva nota',
+
+    // ── Yes Chef sheet ────────────────────────────────────
+    'yeschef.title': 'Sì Chef! ✅',
+    'yeschef.done':  'Eseguito',
+    'yeschef.close': 'Chiudi',
+
+    // ── Misc ──────────────────────────────────────────────
+    'btn.open':    'Apri',
+    'btn.close':   'Chiudi',
+    'btn.save':    'Salva',
+    'btn.cancel':  'Annulla',
+    'btn.edit':    'Modifica',
+    'btn.back':    'Indietro',
+    'status.demo': 'Prototipo — nessun dato reale',
+  },
+
+  en: {
+    'app.name':          'BOH OS',
+    'app.tagline':       'Workspace',
+    'topbar.search':     'Search...',
+    'topbar.new_tab':    'New page',
+    'nav.home':          'Home',
+    'nav.bot_center':    'Bot Center',
+    'nav.daily_journal': 'Journal',
+    'nav.recipes':       'Recipes',
+    'nav.inventory':     'Pantry',
+    'nav.pos':           'Sales',
+    'nav.settings':      'Settings',
+    'tab.home':          'Home',
+    'tab.bot_center':    'Bot Center',
+    'tab.daily_journal': 'Journal',
+    'tab.recipe':        'Recipe: {name}',
+    'tab.inventory':     'Pantry: {name}',
+    'tab.pos':           'Sales',
+    'tab.new':           'New page',
+    'role.label':        'Role (demo)',
+    'role.executive':    'Executive Chef',
+    'role.lead':         'Sous Chef',
+    'role.coordinator':  'Coordinator',
+    'role.cook':         'Cook',
+    'role.dish_crew':    'Dish Crew',
+    'role.viewer':       'Viewer',
+    'home.greeting.morning':   'Good morning, {name}.',
+    'home.greeting.afternoon': 'Good afternoon, {name}.',
+    'home.greeting.evening':   'Good evening, {name}.',
+    'home.subtitle':           'What are we working on today?',
+    'home.card.bots.title':    'Bot Center',
+    'home.card.bots.desc':     'POS pipeline, deduction log, system alerts',
+    'home.card.journal.title': 'Journal',
+    'home.card.journal.desc':  'Operational log, maintenance, service events',
+    'home.card.recipes.title': 'Recipes',
+    'home.card.recipes.desc':  'Recipe editor, BOM, station procedure',
+    'home.card.inventory.title':'Pantry',
+    'home.card.inventory.desc':'Stock, loads, POS deductions',
+    'home.card.pos.title':     'Sales',
+    'home.card.pos.desc':      'Sales dashboard, modifier depletion',
+    'bots.title':        'Bot Center',
+    'bots.subtitle':     'POS Pipeline — sequential nightly execution',
+    'bots.pipeline':     'Pipeline',
+    'bots.last_run':     'Last run',
+    'bots.status.ok':    'OK',
+    'bots.status.warn':  'Warning',
+    'bots.status.error': 'Error',
+    'bots.status.pending':'Pending',
+    'bots.observations': 'Observations',
+    'bots.no_obs':       'No observations for today.',
+    'bots.view_log':     'View full log',
+    'recipe.title':      'Recipe',
+    'recipe.servings':   '{n} servings',
+    'recipe.batch':      'Batch of {n}',
+    'recipe.bom':        'Ingredients (BOM)',
+    'recipe.steps':      'Procedure',
+    'recipe.no_steps':   'No procedure loaded.',
+    'recipe.station':    'Station: {name}',
+    'recipe.edit':       'Edit recipe',
+    'recipe.note':       '(Demo data — no DB query in this prototype)',
+    'inv.title':         'Pantry',
+    'inv.current_stock': 'Current stock',
+    'inv.loaded':        'Loaded today',
+    'inv.deducted':      'POS deducted',
+    'inv.movements':     'Recent movements',
+    'inv.no_movements':  'No recent movements.',
+    'inv.note':          '(Demo data — no DB query in this prototype)',
+    'journal.title':     'Operations Journal',
+    'journal.subtitle':  'Shared log — service, maintenance, events',
+    'journal.new':       'New entry',
+    'journal.filter_all':'All',
+    'journal.no_entries':'No entries for today.',
+    'journal.cat.service':    'Service',
+    'journal.cat.maintenance':'Maintenance',
+    'journal.cat.kitchen':    'Kitchen',
+    'journal.cat.staff':      'Staff',
+    'journal.cat.incident':   'Incident',
+    'journal.cat.purchase':   'Purchase',
+    'journal.form.title':     'Title',
+    'journal.form.category':  'Category',
+    'journal.form.body':      'Notes',
+    'journal.form.visibility':'Visibility',
+    'journal.form.save':      'Save entry',
+    'journal.form.cancel':    'Cancel',
+    'modal.confirm.title':    'Confirm',
+    'modal.confirm.ok':       'Yes, proceed',
+    'modal.confirm.cancel':   'Cancel',
+    'modal.note.title':       'Quick note',
+    'modal.note.placeholder': 'Write a note...',
+    'modal.note.save':        'Save note',
+    'yeschef.title': 'Yes Chef! ✅',
+    'yeschef.done':  'Done',
+    'yeschef.close': 'Close',
+    'btn.open':    'Open',
+    'btn.close':   'Close',
+    'btn.save':    'Save',
+    'btn.cancel':  'Cancel',
+    'btn.edit':    'Edit',
+    'btn.back':    'Back',
+    'status.demo': 'Prototype — no real data',
+  },
+
+  es: {
+    'app.name':          'BOH OS',
+    'app.tagline':       'Workspace',
+    'topbar.search':     'Buscar...',
+    'topbar.new_tab':    'Nueva página',
+    'nav.home':          'Inicio',
+    'nav.bot_center':    'Centro Bot',
+    'nav.daily_journal': 'Diario',
+    'nav.recipes':       'Recetas',
+    'nav.inventory':     'Despensa',
+    'nav.pos':           'Ventas',
+    'nav.settings':      'Ajustes',
+    'tab.home':          'Inicio',
+    'tab.bot_center':    'Centro Bot',
+    'tab.daily_journal': 'Diario',
+    'tab.recipe':        'Receta: {name}',
+    'tab.inventory':     'Despensa: {name}',
+    'tab.pos':           'Ventas',
+    'tab.new':           'Nueva página',
+    'role.label':        'Rol (demo)',
+    'role.executive':    'Chef Ejecutivo',
+    'role.lead':         'Sous Chef',
+    'role.coordinator':  'Coordinador',
+    'role.cook':         'Cocinero',
+    'role.dish_crew':    'Equipo de Platos',
+    'role.viewer':       'Visitante',
+    'home.greeting.morning':   'Buenos días, {name}.',
+    'home.greeting.afternoon': 'Buenas tardes, {name}.',
+    'home.greeting.evening':   'Buenas noches, {name}.',
+    'home.subtitle':           '¿En qué trabajamos hoy?',
+    'home.card.bots.title':    'Centro Bot',
+    'home.card.bots.desc':     'Pipeline POS, log deducciones, alertas sistema',
+    'home.card.journal.title': 'Diario',
+    'home.card.journal.desc':  'Registro operativo, mantenimiento, eventos',
+    'home.card.recipes.title': 'Recetas',
+    'home.card.recipes.desc':  'Editor recetas, BOM, procedimiento estación',
+    'home.card.inventory.title':'Despensa',
+    'home.card.inventory.desc':'Stock, cargas, deducciones POS',
+    'home.card.pos.title':     'Ventas',
+    'home.card.pos.desc':      'Dashboard ventas, modifier depletion',
+    'bots.title':        'Centro Bot',
+    'bots.subtitle':     'Pipeline POS — ejecución secuencial nocturna',
+    'bots.pipeline':     'Pipeline',
+    'bots.last_run':     'Última ejecución',
+    'bots.status.ok':    'OK',
+    'bots.status.warn':  'Atención',
+    'bots.status.error': 'Error',
+    'bots.status.pending':'Pendiente',
+    'bots.observations': 'Observaciones',
+    'bots.no_obs':       'Sin observaciones para hoy.',
+    'bots.view_log':     'Ver log completo',
+    'recipe.title':      'Receta',
+    'recipe.servings':   '{n} porciones',
+    'recipe.batch':      'Batch de {n}',
+    'recipe.bom':        'Ingredientes (BOM)',
+    'recipe.steps':      'Procedimiento',
+    'recipe.no_steps':   'Sin procedimiento cargado.',
+    'recipe.station':    'Estación: {name}',
+    'recipe.edit':       'Editar receta',
+    'recipe.note':       '(Datos demo — sin consulta DB en este prototipo)',
+    'inv.title':         'Despensa',
+    'inv.current_stock': 'Stock actual',
+    'inv.loaded':        'Cargado hoy',
+    'inv.deducted':      'Deducido POS',
+    'inv.movements':     'Movimientos recientes',
+    'inv.no_movements':  'Sin movimientos recientes.',
+    'inv.note':          '(Datos demo — sin consulta DB en este prototipo)',
+    'journal.title':     'Diario de Operaciones',
+    'journal.subtitle':  'Registro compartido — servicio, mantenimiento, eventos',
+    'journal.new':       'Nueva entrada',
+    'journal.filter_all':'Todo',
+    'journal.no_entries':'Sin entradas para hoy.',
+    'journal.cat.service':    'Servicio',
+    'journal.cat.maintenance':'Mantenimiento',
+    'journal.cat.kitchen':    'Cocina',
+    'journal.cat.staff':      'Personal',
+    'journal.cat.incident':   'Incidente',
+    'journal.cat.purchase':   'Compra',
+    'journal.form.title':     'Título',
+    'journal.form.category':  'Categoría',
+    'journal.form.body':      'Notas',
+    'journal.form.visibility':'Visibilidad',
+    'journal.form.save':      'Guardar entrada',
+    'journal.form.cancel':    'Cancelar',
+    'modal.confirm.title':    'Confirmar',
+    'modal.confirm.ok':       'Sí, proceder',
+    'modal.confirm.cancel':   'Cancelar',
+    'modal.note.title':       'Nota rápida',
+    'modal.note.placeholder': 'Escribe una nota...',
+    'modal.note.save':        'Guardar nota',
+    'yeschef.title': '¡Sí Chef! ✅',
+    'yeschef.done':  'Listo',
+    'yeschef.close': 'Cerrar',
+    'btn.open':    'Abrir',
+    'btn.close':   'Cerrar',
+    'btn.save':    'Guardar',
+    'btn.cancel':  'Cancelar',
+    'btn.edit':    'Editar',
+    'btn.back':    'Atrás',
+    'status.demo': 'Prototipo — sin datos reales',
+  }
+};
+
+
+// ── i18n ──────────────────────────────────────────────────────
+// BOH OS Workspace — i18n Engine
+// ──────────────────────────────────────────────────────────────────────────────
+
+
+const SUPPORTED = ['it', 'en', 'es'];
+const DEFAULT   = 'it';
+
+/** Returns the currently active language code */
+function getLang() {
+  return sessionStorage.getItem('ws_lang') || DEFAULT;
+}
+
+/** Sets the active language and triggers a full re-render */
+function setLang(code) {
+  if (!SUPPORTED.includes(code)) return;
+  sessionStorage.setItem('ws_lang', code);
+  document.dispatchEvent(new CustomEvent('ws:langchange', { detail: { lang: code } }));
+}
+
+/**
+ * Translate a key with optional interpolation params.
+ * Falls back: requested lang → 'it' → raw key
+ *
+ * @param {string} key   e.g. 'tab.recipe'
+ * @param {Object} params  e.g. { name: 'Tiramisu' }
+ * @returns {string}
+ */
+function t(key, params = {}) {
+  const lang = getLang();
+  const str =
+    translations[lang]?.[key] ??
+    translations[DEFAULT]?.[key] ??
+    key;
+  return str.replace(/\{(\w+)\}/g, (_, k) => params[k] ?? `{${k}}`);
+}
+
+/** Retranslate all elements with data-t attribute */
+function applyTranslations(root = document) {
+  root.querySelectorAll('[data-t]').forEach(el => {
+    const key    = el.dataset.t;
+    const params = el.dataset.tParams ? JSON.parse(el.dataset.tParams) : {};
+    const attr   = el.dataset.tAttr;
+    const text   = t(key, params);
+    if (attr) {
+      el.setAttribute(attr, text);
+    } else {
+      el.textContent = text;
+    }
+  });
+  root.querySelectorAll('[data-t-placeholder]').forEach(el => {
+    el.placeholder = t(el.dataset.tPlaceholder);
+  });
+}
+
+
+// ── Permissions ───────────────────────────────────────────────
+// BOH OS Workspace — Permissions
+// Demo only: roles are set via role switcher, not from DB.
+// ──────────────────────────────────────────────────────────────────────────────
+
+const ROLES = ['executive', 'lead', 'coordinator', 'cook', 'dish_crew', 'viewer'];
+
+const PERMISSIONS = {
+  // Navigation
+  can_see_home:           ['executive','lead','coordinator','cook','dish_crew','viewer'],
+  can_see_bot_center:     ['executive','lead'],
+  can_see_recipes:        ['executive','lead','coordinator','cook'],
+  can_see_inventory:      ['executive','lead','coordinator'],
+  can_see_pos:            ['executive','lead'],
+  can_see_journal:        ['executive','lead','coordinator','viewer'],
+
+  // Recipes
+  can_view_bom:           ['executive','lead'],
+  can_edit_recipes:       ['executive'],
+
+  // Financial (NEVER for cook/dish_crew/viewer)
+  can_view_food_cost:     ['executive'],
+  can_view_margins:       ['executive'],
+  can_view_prices:        ['executive','lead'],
+
+  // Bots
+  can_run_bots:           ['executive'],
+  can_view_bot_logs:      ['executive','lead'],
+
+  // Journal
+  can_add_journal:        ['executive','lead','coordinator'],
+
+  // Admin
+  can_manage_users:       ['executive'],
+};
+
+/** Active role stored in sessionStorage (demo only, not from DB) */
+function getRole() {
+  return sessionStorage.getItem('ws_demo_role') || 'executive';
+}
+
+function setRole(role) {
+  if (!ROLES.includes(role)) return;
+  sessionStorage.setItem('ws_demo_role', role);
+  document.dispatchEvent(new CustomEvent('ws:rolechange', { detail: { role } }));
+}
+
+/**
+ * Returns true if the current demo role has the given permission.
+ * @param {string} permission
+ */
+function can(permission) {
+  const role = getRole();
+  return (PERMISSIONS[permission] ?? []).includes(role);
+}
+
+
+// ── Tabs ──────────────────────────────────────────────────────
+// BOH OS Workspace — Tab Manager
+// Tabs are persisted in sessionStorage (survives refresh, cleared on window close).
+// Each tab: { id, type, title, params, scrollTop }
+// ──────────────────────────────────────────────────────────────────────────────
+
+const STORAGE_KEY = 'ws_tabs';
+const ACTIVE_KEY  = 'ws_active_tab';
+const MAX_TABS    = 10;
+
+let _tabs    = [];
+let _activeId = null;
+let _onChange = null; // callback registered by shell
+
+/* ── Persistence ─────────────────────────────────────────────────────────── */
+
+function save() {
+  sessionStorage.setItem(STORAGE_KEY,  JSON.stringify(_tabs));
+  sessionStorage.setItem(ACTIVE_KEY,   _activeId ?? '');
+}
+
+function load() {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    _tabs = raw ? JSON.parse(raw) : [];
+    _activeId = sessionStorage.getItem(ACTIVE_KEY) || null;
+    // Validate: active must exist
+    if (_activeId && !_tabs.find(t => t.id === _activeId)) _activeId = _tabs[0]?.id ?? null;
+  } catch {
+    _tabs = [];
+    _activeId = null;
+  }
+}
+
+/* ── Core API ────────────────────────────────────────────────────────────── */
+
+/** Returns a copy of all open tabs */
+function getTabs() { return [..._tabs]; }
+
+/** Returns the active tab object or null */
+function getActiveTab() { return _tabs.find(t => t.id === _activeId) ?? null; }
+
+/**
+ * Open a tab. If a tab with the same key exists, bring it to front.
+ * @param {string} type     e.g. 'recipe', 'bot_center', 'home'
+ * @param {string} title    Visible tab label (already translated)
+ * @param {Object} params   Extra data the page component needs (id, name, etc.)
+ * @returns {string}        The tab id
+ */
+function openTab(type, title, params = {}) {
+  // Deduplicate: same type + same primary key → focus existing
+  const key = tabKey(type, params);
+  const existing = _tabs.find(t => tabKey(t.type, t.params) === key);
+  if (existing) {
+    _activeId = existing.id;
+    save();
+    notify();
+    return existing.id;
+  }
+
+  // Enforce max
+  if (_tabs.length >= MAX_TABS) {
+    // Close the oldest non-home tab
+    const oldest = _tabs.find(t => t.type !== 'home');
+    if (oldest) closeTab(oldest.id, false);
+  }
+
+  const id = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  _tabs.push({ id, type, title, params, scrollTop: 0 });
+  _activeId = id;
+  save();
+  notify();
+  return id;
+}
+
+/**
+ * Close a tab. Activates the nearest remaining tab.
+ * @param {string} id
+ * @param {boolean} [andNotify=true]
+ */
+function closeTab(id, andNotify = true) {
+  const idx = _tabs.findIndex(t => t.id === id);
+  if (idx === -1) return;
+
+  // If closing the active tab, pick the next nearest
+  if (_activeId === id) {
+    const next = _tabs[idx + 1] ?? _tabs[idx - 1] ?? null;
+    _activeId = next?.id ?? null;
+  }
+
+  _tabs.splice(idx, 1);
+  save();
+  if (andNotify) notify();
+}
+
+/** Bring a tab to front */
+function activateTab(id) {
+  if (!_tabs.find(t => t.id === id)) return;
+  _activeId = id;
+  save();
+  notify();
+}
+
+/** Save scroll position for a tab */
+function saveScroll(id, scrollTop) {
+  const tab = _tabs.find(t => t.id === id);
+  if (tab) { tab.scrollTop = scrollTop; save(); }
+}
+
+/** Get saved scroll for a tab */
+function getScroll(id) {
+  return _tabs.find(t => t.id === id)?.scrollTop ?? 0;
+}
+
+/** Register a callback fired on every tab state change */
+function onChange(fn) { _onChange = fn; }
+
+/* ── Init ────────────────────────────────────────────────────────────────── */
+
+function initTabs(onChangeFn) {
+  _onChange = onChangeFn;
+  load();
+  if (_tabs.length === 0) {
+    // First visit: open Home
+    openTab('home', 'Home', {});
+  }
+}
+
+/* ── Internals ───────────────────────────────────────────────────────────── */
+
+function tabKey(type, params) {
+  // home and bot_center are singletons; recipe/inventory are keyed by id
+  switch (type) {
+    case 'home':        return 'home';
+    case 'bot_center':  return 'bot_center';
+    case 'daily_journal': return 'daily_journal';
+    case 'pos':         return 'pos';
+    case 'recipe':      return `recipe:${params.id ?? params.name}`;
+    case 'inventory':   return `inventory:${params.id ?? params.name}`;
+    default:            return `${type}:${JSON.stringify(params)}`;
+  }
+}
+
+function notify() {
+  if (_onChange) _onChange({ tabs: getTabs(), activeId: _activeId });
+  document.dispatchEvent(new CustomEvent('ws:tabschange', {
+    detail: { tabs: getTabs(), activeId: _activeId }
+  }));
+}
+
+
+// ── Pages ─────────────────────────────────────────────────────
+// BOH OS Workspace — Page Components
+// Each page: render(params) → HTML string, then afterRender(el, params)
+// No Supabase queries. Demo data only.
+// ──────────────────────────────────────────────────────────────────────────────
+
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  HOME                                                                      */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+const HomePage = {
+  render() {
+    const hour = new Date().getHours();
+    const greetKey = hour < 12 ? 'home.greeting.morning'
+                   : hour < 18 ? 'home.greeting.afternoon'
+                   :             'home.greeting.evening';
+    const role = getRole();
+    const name = { executive:'Max', lead:'David', coordinator:'Tela',
+                   cook:'Cole', dish_crew:'Austin', viewer:'Guest' }[role] ?? 'Chef';
+
+    const cards = [
+      { key:'bots',    type:'bot_center',   icon:'🤖', perm:'can_see_bot_center' },
+      { key:'journal', type:'daily_journal', icon:'📓', perm:'can_see_journal' },
+      { key:'recipes', type:'recipe',        icon:'📋', perm:'can_see_recipes',
+        params:{ id:'tiramisu', name:'Tiramisu' } },
+      { key:'inventory', type:'inventory',   icon:'📦', perm:'can_see_inventory',
+        params:{ id:'caesar', name:'Caesar Dressing' } },
+      { key:'pos',     type:'pos',           icon:'📊', perm:'can_see_pos' },
+    ].filter(c => can(c.perm));
+
+    return `
+      <div class="page-home">
+        <div class="home-greeting">
+          <h1 class="greeting-text">${t(greetKey, { name })}</h1>
+          <p class="greeting-sub">${t('home.subtitle')}</p>
+        </div>
+
+        <div class="home-grid">
+          ${cards.map(c => `
+            <button class="home-card" data-open-tab="${c.type}"
+                    data-params='${JSON.stringify(c.params ?? {})}'>
+              <span class="home-card-icon">${c.icon}</span>
+              <div class="home-card-body">
+                <span class="home-card-title">${t(`home.card.${c.key}.title`)}</span>
+                <span class="home-card-desc">${t(`home.card.${c.key}.desc`)}</span>
+              </div>
+              <span class="home-card-arrow">→</span>
+            </button>
+          `).join('')}
+        </div>
+
+        <div class="demo-banner">
+          <span class="demo-dot"></span>
+          ${t('status.demo')}
+        </div>
+      </div>
+    `;
+  },
+
+  afterRender(el) {
+    el.querySelectorAll('[data-open-tab]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const type   = btn.dataset.openTab;
+        const params = JSON.parse(btn.dataset.params || '{}');
+        const titleKey = `tab.${type}`;
+        const title  = t(titleKey, { name: params.name ?? '' });
+        openTab(type, title, params);
+      });
+    });
+  }
+};
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  BOT CENTER                                                                */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+const BOT_DEMO = [
+  { name: 'bot-pos-cleaner',        status: 'ok',      time: '02:05 CDT', rows: 247 },
+  { name: 'bot-direct-deduction',   status: 'ok',      time: '02:07 CDT', rows: 8 },
+  { name: 'bot-bom-chain-deduction',status: 'ok',      time: '02:09 CDT', rows: 3 },
+  { name: 'bot-modifier-depletion', status: 'ok',      time: '02:11 CDT', rows: 4 },
+  { name: 'bot-stock-consolidator', status: 'warn',    time: '02:13 CDT', rows: 12 },
+];
+
+const OBS_DEMO = [
+  { type:'warn',  text:'Spring Mix: unità g vs buste non risolta — consolidator skip.' },
+  { type:'info',  text:'Parsley: prep_type=checklist → skip silenzioso da tutti i bot.' },
+  { type:'info',  text:'Edible Flower: BOM inconsistency non-blocking — open.' },
+];
+
+const BotCenterPage = {
+  render() {
+    const statusLabel = s => t(`bots.status.${s}`);
+    const statusClass = s => ({ ok:'badge-ok', warn:'badge-warn', error:'badge-danger', pending:'badge-info' })[s] ?? 'badge-info';
+
+    return `
+      <div class="page-bots">
+        <div class="page-header">
+          <h2 class="page-title">${t('bots.title')}</h2>
+          <p class="page-subtitle">${t('bots.subtitle')}</p>
+        </div>
+
+        <section class="section">
+          <h3 class="section-title">${t('bots.pipeline')} — 2026-07-08</h3>
+          <div class="pipeline-list">
+            ${BOT_DEMO.map((b, i) => `
+              <div class="pipeline-item">
+                <div class="pipeline-step">${i + 1}</div>
+                <div class="pipeline-body">
+                  <span class="pipeline-name">${b.name}</span>
+                  <span class="pipeline-meta">${t('bots.last_run')}: ${b.time} · ${b.rows} rows</span>
+                </div>
+                <span class="badge ${statusClass(b.status)}">${statusLabel(b.status)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </section>
+
+        <section class="section">
+          <h3 class="section-title">${t('bots.observations')}</h3>
+          <div class="obs-list">
+            ${OBS_DEMO.map(o => `
+              <div class="obs-item obs-${o.type}">
+                <span class="obs-icon">${o.type === 'warn' ? '⚠️' : 'ℹ️'}</span>
+                <span class="obs-text">${o.text}</span>
+              </div>
+            `).join('')}
+          </div>
+        </section>
+
+        <div class="demo-banner">
+          <span class="demo-dot"></span>
+          ${t('status.demo')}
+        </div>
+      </div>
+    `;
+  },
+
+  afterRender() {}
+};
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  RECIPE: TIRAMISU                                                          */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+const RECIPE_DEMO = {
+  tiramisu: {
+    name: 'Tiramisu',
+    station: 'Pastry',
+    base_servings: 10,
+    yield_text: '10 pz',
+    bom: [
+      { item:'Savoiardi',       qty:'400g',  unit:'g'  },
+      { item:'Mascarpone',      qty:'500g',  unit:'g'  },
+      { item:'Eggs (yolk)',     qty:'6 pz',  unit:'pz' },
+      { item:'Heavy Cream',     qty:'300ml', unit:'ml' },
+      { item:'Sugar',           qty:'120g',  unit:'g'  },
+      { item:'Espresso',        qty:'300ml', unit:'ml' },
+      { item:'Cocoa Powder',    qty:'30g',   unit:'g'  },
+      { item:'Kahlúa',          qty:'60ml',  unit:'ml' },
+    ],
+    steps: [
+      'Monta i tuorli con lo zucchero fino a ottenere un composto chiaro e spumoso.',
+      'Incorpora il mascarpone ai tuorli montati — mescola delicatamente.',
+      'Monta la panna e incorporala al composto in due tempi.',
+      'Inzuppa i savoiardi nell\'espresso con Kahlúa per 2 secondi per lato.',
+      'Strati: crema / savoiardi / crema. Ripeti per 10 vaschette individuali.',
+      'Spolverizza cacao in polvere sulla superficie.',
+      'Riposa in frigo almeno 4 ore — ideale overnight.',
+    ],
+  },
+};
+
+const RecipePage = {
+  render(params) {
+    const data = RECIPE_DEMO[params.id] ?? RECIPE_DEMO.tiramisu;
+    const canBOM = can('can_view_bom');
+
+    return `
+      <div class="page-recipe">
+        <div class="page-header">
+          <div class="page-header-top">
+            <h2 class="page-title">${data.name}</h2>
+            <span class="badge badge-info">${t('recipe.station', { name: data.station })}</span>
+          </div>
+          <p class="page-subtitle">${t('recipe.batch', { n: data.base_servings })} · ${data.yield_text}</p>
+        </div>
+
+        ${canBOM ? `
+        <section class="section">
+          <h3 class="section-title">${t('recipe.bom')}</h3>
+          <div class="bom-table">
+            <div class="bom-header">
+              <span>Ingrediente</span><span>Qtà</span>
+            </div>
+            ${data.bom.map(row => `
+              <div class="bom-row">
+                <span class="bom-item">${row.item}</span>
+                <span class="bom-qty">${row.qty}</span>
+              </div>
+            `).join('')}
+          </div>
+        </section>
+        ` : ''}
+
+        <section class="section">
+          <h3 class="section-title">${t('recipe.steps')}</h3>
+          <ol class="steps-list">
+            ${data.steps.map((s, i) => `
+              <li class="step-item">
+                <span class="step-num">${i + 1}</span>
+                <span class="step-text">${s}</span>
+              </li>
+            `).join('')}
+          </ol>
+        </section>
+
+        <div class="demo-banner">
+          <span class="demo-dot"></span>
+          ${t('recipe.note')}
+        </div>
+      </div>
+    `;
+  },
+
+  afterRender() {}
+};
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  INVENTORY: CAESAR DRESSING                                                */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+const INV_DEMO = {
+  caesar: {
+    name: 'Caesar Dressing',
+    stock: '2.4 kg',
+    loaded: '— (purchased, no prep task)',
+    deducted: '23.1 kg (60gg, 312 modifier uses)',
+    movements: [
+      { date:'2026-07-08', type:'deduction', qty:'-74g', source:'POS modifier drain',  note:'4 Caesar salads' },
+      { date:'2026-07-07', type:'deduction', qty:'-296g',source:'POS modifier drain',  note:'16 uses' },
+      { date:'2026-07-06', type:'load',      qty:'+2.4kg',source:'Hardie\'s invoice',  note:'Lot #HI-44021' },
+      { date:'2026-07-05', type:'deduction', qty:'-370g',source:'POS modifier drain',  note:'20 uses' },
+    ],
+  },
+};
+
+const InventoryPage = {
+  render(params) {
+    const data = INV_DEMO[params.id] ?? INV_DEMO.caesar;
+
+    return `
+      <div class="page-inventory">
+        <div class="page-header">
+          <h2 class="page-title">${data.name}</h2>
+        </div>
+
+        <div class="inv-stats">
+          <div class="inv-stat">
+            <span class="inv-stat-label">${t('inv.current_stock')}</span>
+            <span class="inv-stat-value">${data.stock}</span>
+          </div>
+          <div class="inv-stat">
+            <span class="inv-stat-label">${t('inv.loaded')}</span>
+            <span class="inv-stat-value inv-load">${data.loaded}</span>
+          </div>
+          <div class="inv-stat">
+            <span class="inv-stat-label">${t('inv.deducted')}</span>
+            <span class="inv-stat-value inv-deduct">${data.deducted}</span>
+          </div>
+        </div>
+
+        <section class="section">
+          <h3 class="section-title">${t('inv.movements')}</h3>
+          <div class="movements-list">
+            ${data.movements.map(m => `
+              <div class="movement-row movement-${m.type}">
+                <span class="movement-date">${m.date}</span>
+                <span class="movement-qty ${m.type === 'load' ? 'qty-pos' : 'qty-neg'}">${m.qty}</span>
+                <div class="movement-meta">
+                  <span class="movement-source">${m.source}</span>
+                  <span class="movement-note">${m.note}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </section>
+
+        <div class="demo-banner">
+          <span class="demo-dot"></span>
+          ${t('inv.note')}
+        </div>
+      </div>
+    `;
+  },
+
+  afterRender() {}
+};
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  DAILY JOURNAL                                                             */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+const JOURNAL_DEMO = [
+  { id:1, time:'21:30', cat:'service',    author:'David',
+    title:'52 bills — record luglio',
+    body:'Servizio pulito. Brussels finiti alle 21:15 — avvisare Tela per ordine extra venerdì.',
+    severity:'info' },
+  { id:2, time:'19:05', cat:'maintenance', author:'Tela',
+    title:'Lavastoviglie riparata — Hobart',
+    body:'Tecnico Hobart passato alle 18:30. Braccio superiore sostituito. OK per servizio.',
+    severity:'ok' },
+  { id:3, time:'15:40', cat:'kitchen',    author:'Colton',
+    title:'Arrabbiata finita a pranzo',
+    body:'Batch da 3150g consumato tutto. Aggiunto in prep list per domani mattina.',
+    severity:'warn' },
+  { id:4, time:'10:20', cat:'purchase',   author:'Tela',
+    title:'Hardie\'s ricevuto — fattura #HI-44021',
+    body:'Consegna OK. Caesar Dressing 4×2.4kg. Un articolo mancante: Pecorino 1kg — reso segnalato.',
+    severity:'info' },
+];
+
+const CAT_ICONS = {
+  service:'🍽️', maintenance:'🔧', kitchen:'👨‍🍳',
+  staff:'👥', incident:'⚠️', purchase:'📦', foh:'🍷'
+};
+const SEV_CLASS = { info:'', ok:'entry-ok', warn:'entry-warn', danger:'entry-danger' };
+
+const JournalPage = {
+  render() {
+    const today = new Date().toLocaleDateString(
+      getLangLocale(), { weekday:'long', day:'numeric', month:'long', year:'numeric' }
+    );
+
+    return `
+      <div class="page-journal">
+        <div class="page-header">
+          <div class="page-header-top">
+            <h2 class="page-title">${t('journal.title')}</h2>
+            ${can('can_add_journal') ? `
+              <button class="btn-primary" id="btn-new-entry">
+                + ${t('journal.new')}
+              </button>
+            ` : ''}
+          </div>
+          <p class="page-subtitle">${today}</p>
+        </div>
+
+        <div class="journal-filters">
+          ${['all','service','maintenance','kitchen','staff','purchase'].map(cat => `
+            <button class="filter-chip ${cat === 'all' ? 'active' : ''}"
+                    data-filter="${cat}">
+              ${cat === 'all' ? t('journal.filter_all') : t(`journal.cat.${cat}`)}
+            </button>
+          `).join('')}
+        </div>
+
+        <div class="journal-entries" id="journal-entries">
+          ${JOURNAL_DEMO.map(e => renderEntry(e)).join('')}
+        </div>
+
+        <div class="demo-banner">
+          <span class="demo-dot"></span>
+          ${t('status.demo')}
+        </div>
+      </div>
+
+      <!-- New entry modal (small action — correct use of modal) -->
+      <div class="modal-overlay hidden" id="journal-modal">
+        <div class="modal-small" role="dialog" aria-modal="true">
+          <div class="modal-header">
+            <span class="modal-title">${t('journal.new')}</span>
+            <button class="modal-close" id="modal-close">✕</button>
+          </div>
+          <div class="modal-body">
+            <label class="form-label">${t('journal.form.title')}</label>
+            <input class="form-input" id="j-title" type="text" placeholder="Es. Lavastoviglie riparata">
+
+            <label class="form-label">${t('journal.form.category')}</label>
+            <select class="form-input" id="j-cat">
+              ${['service','maintenance','kitchen','staff','purchase','incident'].map(c =>
+                `<option value="${c}">${t(`journal.cat.${c}`)}</option>`
+              ).join('')}
+            </select>
+
+            <label class="form-label">${t('journal.form.body')}</label>
+            <textarea class="form-input form-textarea" id="j-body" rows="3"
+              placeholder="Dettagli..."></textarea>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-secondary" id="modal-cancel">${t('journal.form.cancel')}</button>
+            <button class="btn-primary"   id="modal-save">${t('journal.form.save')}</button>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  afterRender(el) {
+    // Filter chips
+    el.querySelectorAll('.filter-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        el.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        const f = chip.dataset.filter;
+        el.querySelectorAll('.journal-entry').forEach(entry => {
+          entry.style.display = (f === 'all' || entry.dataset.cat === f) ? '' : 'none';
+        });
+      });
+    });
+
+    // New entry modal
+    const modal  = el.querySelector('#journal-modal');
+    const btnNew = el.querySelector('#btn-new-entry');
+    const btnCancel = el.querySelector('#modal-cancel');
+    const btnClose  = el.querySelector('#modal-close');
+    const btnSave   = el.querySelector('#modal-save');
+    const list   = el.querySelector('#journal-entries');
+
+    const openModal  = () => modal?.classList.remove('hidden');
+    const closeModal = () => modal?.classList.add('hidden');
+
+    btnNew?.addEventListener('click', openModal);
+    btnCancel?.addEventListener('click', closeModal);
+    btnClose?.addEventListener('click', closeModal);
+    modal?.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+    btnSave?.addEventListener('click', () => {
+      const title = el.querySelector('#j-title')?.value.trim();
+      const cat   = el.querySelector('#j-cat')?.value;
+      const body  = el.querySelector('#j-body')?.value.trim();
+      if (!title) return;
+
+      const now  = new Date();
+      const time = now.toLocaleTimeString('it-IT', { hour:'2-digit', minute:'2-digit' });
+      const entry = {
+        id: Date.now(), time, cat,
+        author: 'Max (demo)', title, body, severity:'info'
+      };
+      list?.insertAdjacentHTML('afterbegin', renderEntry(entry));
+      closeModal();
+      el.querySelector('#j-title').value = '';
+      el.querySelector('#j-body').value  = '';
+      showYesChef(el, `"${title}" salvato nel diario.`);
+    });
+  }
+};
+
+function renderEntry(e) {
+  const icon     = CAT_ICONS[e.cat] ?? '📝';
+  const sevClass = SEV_CLASS[e.severity] ?? '';
+  const catLabel = t(`journal.cat.${e.cat}`);
+  return `
+    <div class="journal-entry ${sevClass}" data-cat="${e.cat}">
+      <div class="entry-meta">
+        <span class="entry-icon">${icon}</span>
+        <span class="entry-cat">${catLabel.toUpperCase()}</span>
+        <span class="entry-dot">·</span>
+        <span class="entry-time">${e.time}</span>
+        <span class="entry-dot">·</span>
+        <span class="entry-author">${e.author}</span>
+      </div>
+      <h4 class="entry-title">${e.title}</h4>
+      ${e.body ? `<p class="entry-body">${e.body}</p>` : ''}
+    </div>
+  `;
+}
+
+function getLangLocale() {
+  try { return { it:'it-IT', en:'en-US', es:'es-MX' }[
+    sessionStorage.getItem('ws_lang') || 'it'
+  ]; } catch { return 'it-IT'; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  YES CHEF SHEET (shared utility)                                           */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+function showYesChef(root, message) {
+  const existing = root.querySelector('#yes-chef-sheet');
+  existing?.remove();
+
+  const sheet = document.createElement('div');
+  sheet.id = 'yes-chef-sheet';
+  sheet.innerHTML = `
+    <div class="yeschef-backdrop"></div>
+    <div class="yeschef-sheet" role="dialog">
+      <div class="yeschef-icon">✅</div>
+      <h2 class="yeschef-title">${t('yeschef.title')}</h2>
+      <p class="yeschef-message">${message}</p>
+      <button class="btn-primary yeschef-btn" id="yeschef-close">
+        ${t('yeschef.close')}
+      </button>
+    </div>
+  `;
+  root.appendChild(sheet);
+  requestAnimationFrame(() => sheet.classList.add('visible'));
+
+  const close = () => {
+    sheet.classList.remove('visible');
+    setTimeout(() => sheet.remove(), 300);
+  };
+  sheet.querySelector('#yeschef-close').addEventListener('click', close);
+  sheet.querySelector('.yeschef-backdrop').addEventListener('click', close);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  PAGE REGISTRY                                                             */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+const PAGES = {
+  home:          HomePage,
+  bot_center:    BotCenterPage,
+  recipe:        RecipePage,
+  inventory:     InventoryPage,
+  daily_journal: JournalPage,
+};
+
+
+// ── App ───────────────────────────────────────────────────────
+// BOH OS Workspace — App Bootstrap
+// Orchestrates shell: top bar, tab bar, workspace area, role switcher.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/* ── DOM refs (set in init) ─────────────────────────────────────────────── */
+let $topbar, $tabbar, $workspace;
+
+/* ── Init ────────────────────────────────────────────────────────────────── */
+function init() {
+  $topbar   = document.getElementById('ws-topbar');
+  $tabbar   = document.getElementById('ws-tabbar');
+  $workspace = document.getElementById('ws-workspace');
+
+  // Tabs
+  initTabs(renderShell);
+
+  // Listen for tab/lang/role changes
+  document.addEventListener('ws:tabschange',  () => renderShell());
+  document.addEventListener('ws:langchange',  () => renderShell());
+  document.addEventListener('ws:rolechange',  () => renderShell());
+
+  // First render
+  renderShell();
+}
+
+/* ── Shell render ────────────────────────────────────────────────────────── */
+function renderShell() {
+  renderTopBar();
+  renderTabBar();
+  renderWorkspace();
+}
+
+/* ── Top bar ─────────────────────────────────────────────────────────────── */
+function renderTopBar() {
+  const lang = getLang();
+  const role = getRole();
+
+  $topbar.innerHTML = `
+    <div class="topbar-left">
+      <span class="topbar-logo">BOH OS</span>
+      <span class="topbar-tagline">Workspace</span>
+    </div>
+
+    <div class="topbar-center">
+      <div class="topbar-search">
+        <span class="search-icon">⌕</span>
+        <span class="search-placeholder">${t('topbar.search')}</span>
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <!-- Language switcher -->
+      <div class="lang-switcher">
+        ${['it','en','es'].map(l => `
+          <button class="lang-btn ${l === lang ? 'active' : ''}"
+                  data-lang="${l}">${l.toUpperCase()}</button>
+        `).join('')}
+      </div>
+
+      <!-- Role switcher (demo) -->
+      <div class="role-switcher">
+        <span class="role-label">${t('role.label')}:</span>
+        <select class="role-select" id="role-select">
+          ${ROLES.map(r => `
+            <option value="${r}" ${r === role ? 'selected' : ''}>
+              ${t(`role.${r}`)}
+            </option>
+          `).join('')}
+        </select>
+      </div>
+
+      <!-- Demo badge -->
+      <span class="demo-badge">DEMO</span>
+    </div>
+  `;
+
+  // Lang buttons
+  $topbar.querySelectorAll('[data-lang]').forEach(btn => {
+    btn.addEventListener('click', () => setLang(btn.dataset.lang));
+  });
+
+  // Role select
+  $topbar.querySelector('#role-select')?.addEventListener('change', e => {
+    setRole(e.target.value);
+  });
+}
+
+/* ── Tab bar ─────────────────────────────────────────────────────────────── */
+function renderTabBar() {
+  const tabs   = getTabs();
+  const active = getActiveTab();
+
+  $tabbar.innerHTML = `
+    <div class="tabbar-inner" id="tabbar-inner">
+      ${tabs.map(tab => `
+        <div class="ws-tab ${tab.id === active?.id ? 'active' : ''}"
+             data-tab-id="${tab.id}" role="tab"
+             aria-selected="${tab.id === active?.id}">
+          <span class="tab-icon">${tabIcon(tab.type)}</span>
+          <span class="tab-title">${tab.title}</span>
+          ${tab.type !== 'home' ? `
+            <button class="tab-close" data-close-tab="${tab.id}"
+                    title="${t('btn.close')}">✕</button>
+          ` : ''}
+        </div>
+      `).join('')}
+
+      <button class="tab-new-btn" id="btn-new-tab" title="${t('topbar.new_tab')}">
+        +
+      </button>
+    </div>
+  `;
+
+  // Activate
+  $tabbar.querySelectorAll('[data-tab-id]').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('[data-close-tab]')) return;
+      activateTab(el.dataset.tabId);
+    });
+  });
+
+  // Close
+  $tabbar.querySelectorAll('[data-close-tab]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      closeTab(btn.dataset.closeTab);
+    });
+  });
+
+  // New tab: open Home if not already there, else show picker
+  $tabbar.querySelector('#btn-new-tab')?.addEventListener('click', () => {
+    openTab('home', t('tab.home'), {});
+  });
+
+  // Scroll active tab into view
+  requestAnimationFrame(() => {
+    const activeEl = $tabbar.querySelector('.ws-tab.active');
+    activeEl?.scrollIntoView({ behavior:'smooth', inline:'nearest', block:'nearest' });
+  });
+}
+
+/* ── Workspace ───────────────────────────────────────────────────────────── */
+function renderWorkspace() {
+  const tab = getActiveTab();
+  if (!tab) {
+    $workspace.innerHTML = `<div class="ws-empty">Nessuna pagina aperta.</div>`;
+    return;
+  }
+
+  // Save scroll of currently rendered tab before switching
+  const prev = $workspace.dataset.tabId;
+  if (prev && prev !== tab.id) {
+    saveScroll(prev, $workspace.scrollTop);
+  }
+
+  const Page = PAGES[tab.type];
+  if (!Page) {
+    $workspace.innerHTML = `<div class="ws-empty">Pagina non trovata: ${tab.type}</div>`;
+    return;
+  }
+
+  $workspace.dataset.tabId = tab.id;
+  $workspace.innerHTML = Page.render(tab.params ?? {});
+  applyTranslations($workspace);
+
+  // Restore scroll
+  const savedScroll = getScroll(tab.id);
+  $workspace.scrollTop = savedScroll;
+
+  // After-render hooks
+  Page.afterRender?.($workspace, tab.params ?? {});
+
+  // Save scroll on scroll
+  $workspace.onscroll = () => saveScroll(tab.id, $workspace.scrollTop);
+}
+
+/* ── Utilities ───────────────────────────────────────────────────────────── */
+function tabIcon(type) {
+  return { home:'⌂', bot_center:'🤖', recipe:'📋',
+           inventory:'📦', daily_journal:'📓', pos:'📊' }[type] ?? '📄';
+}
+
+// Expose openTab for inline onclick (used from pages)
+window._wsOpenTab = openTab;
+
+
+// ── Boot ──────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  init();
+  document.getElementById('ws-app').style.visibility = 'visible';
+});
+</script>
+</body>
+</html>
