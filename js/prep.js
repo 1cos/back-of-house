@@ -1031,6 +1031,7 @@ function buildChefAiNote(i, cardType) {
   }
 
   // ── 🔴 Do first ──────────────────────────────────────────────
+  // Tono: sous-chef calmo, non sirena
   if (botColor === 'red') {
     const nums = [];
     if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
@@ -1038,7 +1039,7 @@ function buildChefAiNote(i, cardType) {
     if (!stockHuman)               nums.push('Stock is at zero');
     const body = nums.join(' · ') + '.';
     return {
-      headline: chef + ', ' + name + ' is out or critical — prep now.',
+      headline: chef + ', I would start ' + name + ' early today.',
       body,
       action: qtyHuman ? 'Make ' + qtyHuman + ' first thing.' : 'Prep this first.'
     };
