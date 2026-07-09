@@ -787,32 +787,74 @@ function classifyCard(i) {
   // Se il bot non ha ancora girato su questo task → TRUSTED (nessuna suggestion)
   if (!i.suggested_note) return 'TRUSTED';
 
-  const note = i.suggested_note;
+  const note     = i.suggested_note;
   const botColor = note.includes('|') ? note.split('|')[0] : null;
   const isUncertain = note.includes('uncertain data') || note.includes('incerti') || note.includes('datos inciertos');
   const stock = parseFloat(i.current_stock) || 0;
-  const qty = parseFloat(i.suggested_qty) || 0;
-  const unit = (i.unit || '').toLowerCase().trim();
-  const isPz = ['pezzi', 'pz'].includes(unit);
-  const isG  = unit === 'g';
+  const qty   = parseFloat(i.suggested_qty) || 0;
+  const unit  = (i.unit || '').toLowerCase().trim();
+  const isPz  = ['pezzi', 'pz'].includes(unit);
+  const isG   = unit === 'g';
 
-  // Regole COUNT_FIRST:
-  // 1. Nota con "uncertain/incerti" → sempre count first
+  // ── Regola 1: uncertain → COUNT_FIRST ─────────────────────────
   if (isUncertain) return 'COUNT_FIRST';
-  // 2. Stock=0 + confidence low segnalata dal bot (pill red o yellow + no sources_json)
+
+  // ── Regola 2: stock=0 + red + qty assurda → COUNT_FIRST ───────
   if (stock === 0 && botColor === 'red') {
-    // qty assurda per pezzi: > 50
-    if (isPz && qty > 50) return 'COUNT_FIRST';
-    // qty assurda per grammi: > 5kg con stock 0
-    if (isG && qty > 5000) return 'COUNT_FIRST';
-    // Scallops, Salmon cakes: prep tipicamente a freezer, stock 0 è sospetto
-    // Segnale: sources_json null o vuoto con red pill
-    if (!i.sources_json) return 'COUNT_FIRST';
+    if (isPz && qty > 50)  return 'COUNT_FIRST';  // Salmon 117, Scallops 127
+    if (isG  && qty > 5000) return 'COUNT_FIRST';
+    if (!i.sources_json)   return 'COUNT_FIRST';
   }
-  // 3. suggested_qty null con note non-green
+
+  // ── Regola 3: suggested_qty null + non-green → COUNT_FIRST ────
   if (!i.suggested_qty && botColor !== 'green') return 'COUNT_FIRST';
 
+  // ── Regola 4: LARGE BATCH — quantità enorme, chiede verifica ──
+  // Soglie: >15 kg (15000g), o >50 pz in un contesto non-batch-noto
+  // Eccezioni: items che SONO normalmente batch grandi (pasta, ragu, ecc.)
+  const LARGE_BATCH_EXCEPTIONS = new Set([
+    'ragu','ragu sauce','cacio e pepe sauce','pomodoro sauce',
+    'mash potato','risotto base','diced butter','garlic oil'
+  ]);
+  const nameLC = (i.name || '').toLowerCase();
+  if (!LARGE_BATCH_EXCEPTIONS.has(nameLC)) {
+    if (isG && qty > 15000) return 'LARGE_BATCH';
+    if (isPz && qty > 50 && botColor !== 'green') return 'LARGE_BATCH';
+  }
+
   return 'TRUSTED';
+}
+
+// ── KITCHEN UNIT DISPLAY ────────────────────────────────────────────────────
+// Per COUNT_FIRST: invece di "g", usa unità da cucina quando possibile
+function kitchenCountUnit(item) {
+  const unit = (item.unit || '').toLowerCase().trim();
+  const name = (item.name || '').toLowerCase();
+  // Grammi/kg → converti in unità cucina per il conteggio
+  if (unit === 'g' || unit === 'kg') {
+    if (name.includes('soup') || name.includes('sauce') || name.includes('demi') ||
+        name.includes('coulis') || name.includes('cream') || name.includes('liquid') ||
+        name.includes('oil') || name.includes('dressing') || name.includes('vinaigrette') ||
+        name.includes('mix') || name.includes('batter')) {
+      return { unit: 'qt', hint: '(approx. 1 qt = 950g)' };
+    }
+    if (name.includes('par cook') || name.includes('sprout') || name.includes('potato') ||
+        name.includes('mushroom') || name.includes('onion') || name.includes('asparagus') ||
+        name.includes('spinach') || name.includes('calamari')) {
+      return { unit: 'lb', hint: '(approx. 1 lb = 450g)' };
+    }
+    if (name.includes('pasta') || name.includes('dough') || name.includes('gnocco')) {
+      return { unit: 'portions', hint: '' };
+    }
+    // Default per grammi non riconosciuti: lascia g ma spiega
+    return { unit: unit, hint: '' };
+  }
+  // Unità già umane
+  if (['pezzi','pz'].includes(unit)) return { unit: 'pieces', hint: '' };
+  if (unit === 'cup')   return { unit: 'cups', hint: '' };
+  if (unit === 'nests') return { unit: 'nests', hint: '' };
+  if (unit === 'buste') return { unit: 'bags', hint: '' };
+  return { unit: unit, hint: '' };
 }
 
 // ── PARSE SOURCES_JSON per numeri "Sold yesterday / Expected today" ──
@@ -846,15 +888,16 @@ function humanQty(qty, unit) {
 }
 
 // ── CHEF AI NOTE — testo della card basato sul tipo ──
-// Regola status/testo COERENTE:
-//   🟢 Looks okay  → stock sufficiente, NO prep needed, usa batch esistente
-//   🟠 Prep today  → quantità affidabile, PRODUCI oggi
-//   🔴 Do first    → urgente e affidabile, PRODUCI subito
-//   🔴 Count first → stock sospetto, CONTA prima di qualsiasi azione
-//   ⚠️ Needs setup → problema strutturale, solo admin/office
+// Status/testo COERENTI:
+//   🟢 Looks okay     → no prep, usa batch esistente
+//   🟠 Prep today     → quantità affidabile, produci
+//   🟠 Large batch    → quantità grande, verifica prima
+//   🔴 Do first       → urgente affidabile, produci subito
+//   🔴 Count first    → stock sospetto, conta prima
+//   ⚠️ Needs setup   → problema strutturale
 function buildChefAiNote(i, cardType) {
-  const chef = chefGreeting();
-  const name = i.name;
+  const chef  = chefGreeting();
+  const name  = i.name;
   const stock = parseFloat(i.current_stock) || 0;
   const qty   = parseFloat(i.suggested_qty) || 0;
   const unit  = i.unit || '';
@@ -862,72 +905,84 @@ function buildChefAiNote(i, cardType) {
   const note     = i.suggested_note || '';
   const botColor = note.includes('|') ? note.split('|')[0] : null;
 
-  // Helpers
   const qtyHuman      = humanQty(qty, unit);
   const stockHuman    = (stock > 0) ? humanQty(stock, unit) : null;
   const expectedToday = avgDaily ? humanQty(Math.ceil(avgDaily), unit) : null;
 
-  // Estrai "good through [day]" dall'EN del note (parte [2])
   function goodThroughDay() {
     const rawEN = note.split('|')[2] || '';
     const m = rawEN.match(/good through (\w+)/i) || rawEN.match(/enough through (\w+)/i);
     return m ? m[1] : null;
   }
 
-  // ── COUNT FIRST ──────────────────────────────────────────────
+  // ── COUNT FIRST ─────────────────────────────────────────────
   if (cardType === 'COUNT_FIRST') {
-    // Tono: chiede collaborazione, non comanda
+    const { unit: kUnit, hint } = kitchenCountUnit(i);
     const stockSays = stock === 0 ? 'zero' : stockHuman;
     return {
       headline: chef + ', Chef AI is not sure about this count.',
-      body: `The system shows ${stockSays} for ${name} — but that may not be right. Can you do a quick count before prepping more?`,
-      action: null
+      body: 'The system shows ' + stockSays + ' for ' + name + ' — but that may not be right. Can you do a quick count before prepping more?',
+      action: null,
+      countUnit: kUnit,
+      countHint: hint
     };
   }
 
-  // ── BLOCKED ──────────────────────────────────────────────────
+  // ── LARGE BATCH ─────────────────────────────────────────────
+  if (cardType === 'LARGE_BATCH') {
+    const nums = [];
+    if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
+    if (stockHuman)                nums.push('Stock: ' + stockHuman);
+    const body = nums.length
+      ? nums.join(' · ') + '.'
+      : 'This is a large batch suggestion.';
+    return {
+      headline: chef + ', ' + name + ' may need a large batch today.',
+      body: body + ' Chef AI suggests ' + (qtyHuman || qty + ' ' + unit) + ', but that is a large amount — please verify with Chef before making the full batch.',
+      action: 'Make normal batch first / Check with Chef.'
+    };
+  }
+
+  // ── BLOCKED ─────────────────────────────────────────────────
   if (cardType === 'BLOCKED') {
     return {
       headline: 'Needs setup',
-      body: 'Missing recipe or ingredient link. Chef review needed in L\'Ufficio.',
+      body: "Missing recipe or ingredient link. Chef review needed in L'Ufficio.",
       action: null
     };
   }
 
-  // ── TRUSTED: nessun dato bot ancora ──────────────────────────
+  // ── No bot data yet ──────────────────────────────────────────
   if (!botColor) {
-    let body = stockHuman ? `Stock: ${stockHuman}.` : 'No stock count available.';
     return {
       headline: chef + ', ' + name + ' — no suggestion yet.',
-      body,
+      body: stockHuman ? 'Stock: ' + stockHuman + '.' : 'No stock count available.',
       action: null
     };
   }
 
-  // ── TRUSTED 🟢 Looks okay ────────────────────────────────────
-  // green = stock sufficiente, NON serve prep adesso
+  // ── 🟢 Looks okay ────────────────────────────────────────────
   if (botColor === 'green') {
     const goodThrough = goodThroughDay();
     const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push(`Avg daily: ~${expectedToday}`);
-    if (stockHuman)                nums.push(`Stock: ${stockHuman}`);
-    if (goodThrough)               nums.push(`Enough through ${goodThrough}`);
+    if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
+    if (stockHuman)                nums.push('Stock: ' + stockHuman);
+    if (goodThrough)               nums.push('Enough through ' + goodThrough);
     const body = nums.length ? nums.join(' · ') + '.' : 'Stock looks good for today.';
     return {
       headline: chef + ', ' + name + ' looks okay for today.',
       body,
-      action: 'No prep needed. Use existing batch.'   // azione = rassicurante, non "Make X"
+      action: 'No prep needed. Use existing batch.'
     };
   }
 
-  // ── TRUSTED 🟠 Prep today ─────────────────────────────────────
-  // yellow = stock basso ma affidabile, quantità sensata
+  // ── 🟠 Prep today ────────────────────────────────────────────
   if (botColor === 'yellow') {
     const goodThrough = goodThroughDay();
     const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push(`Avg daily: ~${expectedToday}`);
-    if (stockHuman)                nums.push(`Stock: ${stockHuman}`);
-    if (goodThrough)               nums.push(`Good through ${goodThrough}`);
+    if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
+    if (stockHuman)                nums.push('Stock: ' + stockHuman);
+    if (goodThrough)               nums.push('Good through ' + goodThrough);
     const body = nums.length ? nums.join(' · ') + '.' : 'Stock is getting low.';
     return {
       headline: chef + ', ' + name + ' needs prep today.',
@@ -936,12 +991,11 @@ function buildChefAiNote(i, cardType) {
     };
   }
 
-  // ── TRUSTED 🔴 Do first ───────────────────────────────────────
-  // red = urgente, dati affidabili (già passato classifyCard, non è COUNT_FIRST)
+  // ── 🔴 Do first ──────────────────────────────────────────────
   if (botColor === 'red') {
     const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push(`Avg daily: ~${expectedToday}`);
-    if (stockHuman)                nums.push(`Stock: ${stockHuman}`);
+    if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
+    if (stockHuman)                nums.push('Stock: ' + stockHuman);
     if (!stockHuman)               nums.push('Stock is at zero');
     const body = nums.join(' · ') + '.';
     return {
@@ -963,28 +1017,24 @@ function renderChefAiBlock(i, cardType) {
   const { headline, body, action } = buildChefAiNote(i, cardType);
   const iid = i.id;
 
-  // STATUS PILL — label coerenti con buildChefAiNote
-  // 🟢 Looks okay  → non serve prep
-  // 🟠 Prep today  → produci, quantità affidabile
-  // 🔴 Do first    → urgente affidabile
-  // 🔴 Count first → conta prima
-  // ⚠️ Needs setup → problema strutturale
+  // STATUS PILL
   const statusMap = {
     TRUSTED: {
-      green:  { emoji: '🟢', label: 'Looks okay',  bg: 'rgba(5,150,105,0.08)',  border: '#bbf7d0', color: '#059669' },
-      yellow: { emoji: '🟠', label: 'Prep today',  bg: 'rgba(217,119,6,0.08)',  border: '#fde68a', color: '#d97706' },
-      red:    { emoji: '🔴', label: 'Do first',    bg: 'rgba(220,38,38,0.08)',  border: '#fca5a5', color: '#dc2626' },
-      '':     { emoji: '⚪', label: 'Watch',       bg: 'rgba(100,116,139,0.06)', border: '#e2e8f0', color: '#64748b' },
+      green:  { emoji: '🟢', label: 'Looks okay',   bg: 'rgba(5,150,105,0.08)',   border: '#bbf7d0', color: '#059669' },
+      yellow: { emoji: '🟠', label: 'Prep today',   bg: 'rgba(217,119,6,0.08)',   border: '#fde68a', color: '#d97706' },
+      red:    { emoji: '🔴', label: 'Do first',     bg: 'rgba(220,38,38,0.08)',   border: '#fca5a5', color: '#dc2626' },
+      '':     { emoji: '⚪', label: 'Watch',        bg: 'rgba(100,116,139,0.06)', border: '#e2e8f0', color: '#64748b' },
     },
-    COUNT_FIRST: { emoji: '🔴', label: 'Count first', bg: 'rgba(220,38,38,0.08)',   border: '#fca5a5', color: '#dc2626' },
-    BLOCKED:     { emoji: '⚠️',  label: 'Needs setup', bg: 'rgba(100,100,100,0.06)', border: '#e2e8f0', color: '#64748b' },
+    LARGE_BATCH: { emoji: '🟠', label: 'Large batch — verify', bg: 'rgba(217,119,6,0.1)', border: '#fde68a', color: '#b45309' },
+    COUNT_FIRST: { emoji: '🔴', label: 'Count first',          bg: 'rgba(220,38,38,0.08)', border: '#fca5a5', color: '#dc2626' },
+    BLOCKED:     { emoji: '⚠️',  label: 'Needs setup',          bg: 'rgba(100,100,100,0.06)', border: '#e2e8f0', color: '#64748b' },
   };
 
   let statusCfg;
   if (cardType === 'TRUSTED') {
     const note = i.suggested_note || '';
-    const col = note.includes('|') ? note.split('|')[0] : 'green';
-    statusCfg = statusMap.TRUSTED[col] || statusMap.TRUSTED.green;
+    const col = note.includes('|') ? note.split('|')[0] : '';
+    statusCfg = statusMap.TRUSTED[col] || statusMap.TRUSTED[''];
   } else {
     statusCfg = statusMap[cardType] || statusMap.BLOCKED;
   }
@@ -1019,26 +1069,30 @@ function renderChefAiBlock(i, cardType) {
   // ACTION
   const actionHtml = action ? `<div style="font-size:12px;font-weight:700;color:#1e3a5f;margin-top:4px;">${action}</div>` : '';
 
-  // COUNT FIRST INPUT
+  // COUNT FIRST INPUT — usa unità da cucina (qt, lb, pieces) non g raw
   let countInputHtml = '';
   if (cardType === 'COUNT_FIRST') {
-    const unitLabel = unit || 'units';
+    // note da buildChefAiNote contiene countUnit/countHint se disponibile
+    // Ricaviamo kitchenCountUnit direttamente qui
+    const { unit: kUnit, hint: kHint } = kitchenCountUnit(i);
+    const displayUnit = kUnit || unit || 'units';
+    const hintSpan = kHint ? `<span style="font-size:11px;color:#94a3b8;margin-left:4px;">${kHint}</span>` : '';
     countInputHtml = `
       <div style="margin-top:10px;">
-        <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">How many do we actually have?</div>
-        <div style="display:flex;align-items:center;gap:8px;">
+        <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">How much do we actually have?</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <input
             id="count-input-${iid}"
             type="number"
             min="0"
-            step="1"
+            step="0.5"
             placeholder="0"
             style="width:80px;height:40px;border:2px solid #cbd5e1;border-radius:10px;font-size:18px;font-weight:700;text-align:center;color:#1e3a5f;background:#f8fafc;outline:none;"
             onclick="event.stopPropagation();"
             onfocus="this.style.borderColor='#2563eb';"
             onblur="this.style.borderColor='#cbd5e1';"
           >
-          <span style="font-size:13px;color:#64748b;font-weight:500;">${unitLabel}</span>
+          <span style="font-size:13px;color:#64748b;font-weight:500;">${displayUnit}${hintSpan}</span>
           <button
             onclick="event.stopPropagation();saveKitchenCount(${JSON.stringify(iid)})"
             style="height:40px;padding:0 16px;border-radius:10px;font-size:13px;font-weight:700;background:#1e3a5f;color:white;border:none;cursor:pointer;flex-shrink:0;"
