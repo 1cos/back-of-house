@@ -1,13 +1,27 @@
-// ── BOH WORKSPACE ROUTER — Phase 1 ──────────────────────────────────────────
-// Safari-like navigation: every major view opens as a full workspace page.
-// Back/forward via history.pushState + popstate.
-// Modals remain available as fallback for quick actions.
+// ── BOH WORKSPACE ROUTER ──────────────────────────────────────────────────────
+// ⚠️  PRODUCTION SAFETY:
+//     This module is EXPERIMENTAL. It must remain DISABLED by default in production.
+//     Do NOT activate globally without explicit approval from Chef Max.
+//     Workspace is a UI refactor laboratory — not a live operational change.
+//
+//     To enable (dev/testing only):
+//       wsActivate()          — sets localStorage flag, reloads
+//       ?workspace=1          — URL query flag, session only
+//       localStorage.setItem('bohWorkspace','1')
+//
+//     On normal load with no flag: this file loads but does NOTHING.
+//     window.prepOpenRecipe and all live behaviors are untouched.
+//
+// Architecture:
+//   Safari-like navigation — important views open as full workspace pages.
+//   Back/forward via history.pushState + popstate.
+//   Modals remain for quick actions only.
 //
 // Phase 1 routes:
-//   #/prep/:prep_task_id   → Prep Detail page
+//   /prep/:prep_task_id   → Prep Detail page
 //
-// Safety rule: every render is wrapped in try/catch so a broken page
-// cannot block init(), events, office, or service updates.
+// Versioning: workspace-v001 (Phase 1), workspace-v002 (Phase 2)...
+//   Live boh-v### bumps only for hotfixes, not for workspace features.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /* ══ STATE ═══════════════════════════════════════════════════════════════════ */
@@ -215,9 +229,10 @@ function _wsEscape(str) {
 }
 
 /* ══ STYLES ══════════════════════════════════════════════════════════════════ */
-// Injected once at load — uses same visual language as the app.
+// Injected only when workspace is enabled — no DOM pollution on live load.
+// Called from inside the DOMContentLoaded guard.
 
-(function wsInjectStyles() {
+function wsInjectStyles() {
   if (document.getElementById('ws-styles')) return;
   const style = document.createElement('style');
   style.id = 'ws-styles';
@@ -459,7 +474,7 @@ function _wsEscape(str) {
     .wsp-note-area:focus { border-color: #2563eb; background: #fff; }
   `;
   document.head.appendChild(style);
-})();
+}
 
 /* ══ PHASE 1: PREP DETAIL PAGE ═══════════════════════════════════════════════ */
 
@@ -692,6 +707,9 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   console.log('[workspace] enabled — activating router and intercepts');
+
+  // Inject workspace CSS (only when enabled)
+  if (!document.getElementById('ws-styles')) wsInjectStyles();
 
   // Intercept prep card click
   const _originalPrepOpenRecipe = window.prepOpenRecipe;
