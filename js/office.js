@@ -5239,10 +5239,11 @@ window.openRecipeDataQuality = async function() {
     '<div id="dqSummary" style="padding:10px 16px;display:flex;gap:8px;flex-shrink:0;border-bottom:0.5px solid rgba(124,58,237,0.1);background:rgba(255,255,255,0.4);"></div>' +
     // Tab bar
     '<div style="display:flex;border-bottom:1px solid rgba(124,58,237,0.12);flex-shrink:0;background:rgba(255,255,255,0.6);">' +
-      '<button onclick="dqTab(\'blocking\')" id="dqtab-blocking" style="flex:1;padding:11px 4px;background:none;border:none;color:#dc2626;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid #dc2626;">&#x1F534; Blocking</button>' +
-      '<button onclick="dqTab(\'review\')" id="dqtab-review" style="flex:1;padding:11px 4px;background:none;border:none;color:#94a3b8;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">&#x1F7E1; Review</button>' +
-      '<button onclick="dqTab(\'info\')" id="dqtab-info" style="flex:1;padding:11px 4px;background:none;border:none;color:#94a3b8;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">&#x1F535; Info</button>' +
-      '<button onclick="dqTab(\'ok\')" id="dqtab-ok" style="flex:1;padding:11px 4px;background:none;border:none;color:#94a3b8;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">&#x2705; OK</button>' +
+      '<button onclick="dqTab(\'blocking\')" id="dqtab-blocking" style="flex:1;padding:11px 2px;background:none;border:none;color:#dc2626;font-size:10px;font-weight:700;cursor:pointer;border-bottom:2px solid #dc2626;">&#x1F534; Blocking</button>' +
+      '<button onclick="dqTab(\'safefix\')" id="dqtab-safefix" style="flex:1;padding:11px 2px;background:none;border:none;color:#94a3b8;font-size:10px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">&#x1F7E2; Safe Fix</button>' +
+      '<button onclick="dqTab(\'review\')" id="dqtab-review" style="flex:1;padding:11px 2px;background:none;border:none;color:#94a3b8;font-size:10px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">&#x1F7E1; Review</button>' +
+      '<button onclick="dqTab(\'info\')" id="dqtab-info" style="flex:1;padding:11px 2px;background:none;border:none;color:#94a3b8;font-size:10px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">&#x1F535; Info</button>' +
+      '<button onclick="dqTab(\'ok\')" id="dqtab-ok" style="flex:1;padding:11px 2px;background:none;border:none;color:#94a3b8;font-size:10px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;">&#x2705; OK</button>' +
     '</div>' +
     // Content
     '<div id="dqContent" style="flex:1;overflow-y:auto;padding:0 0 80px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;">' +
@@ -5280,8 +5281,8 @@ window._dqData = { blocking:[], review:[], info:[] };
 
 window.dqTab = function(tab) {
   window._dqActiveTab = tab;
-  var colors = { blocking:'#dc2626', review:'#d97706', info:'#2563eb', ok:'#16a34a' };
-  ['blocking','review','info','ok'].forEach(function(t){
+  var colors = { blocking:'#dc2626', safefix:'#16a34a', review:'#d97706', info:'#2563eb', ok:'#16a34a' };
+  ['blocking','safefix','review','info','ok'].forEach(function(t){
     var btn = document.getElementById('dqtab-'+t);
     if (!btn) return;
     if (t===tab) { btn.style.color=colors[t]; btn.style.borderBottomColor=colors[t]; btn.style.fontWeight='700'; }
@@ -5360,7 +5361,7 @@ window.dqLoad = async function() {
       return aliases.reduce(function(acc,a){ return acc+(salesByItem[a]||0); },0);
     }
 
-    var blocking=[], review=[], info=[], ok=[];
+    var blocking=[], safeFix=[], review=[], info=[], ok=[];
 
     (linked||[]).forEach(function(r) {
       var pts = taskByRecipe[r.id] || [];
@@ -5381,10 +5382,10 @@ window.dqLoad = async function() {
 
           // ── REGOLA 1: pezzi/pz → fix meccanico sicuro (1 porzione = 1 pezzo) ──
           if (ptUnit==='pezzi'||ptUnit==='pz') {
-            blocking.push({ recipe:r, pt:pt, soldQty:soldQty,
-              autoFix:true, needsDecision:false,
+            safeFix.push({ recipe:r, pt:pt, soldQty:soldQty,
+              autoFix:true, needsDecision:false, fixType:'pezzi',
               suggestedUnit:'pezzi', suggestedQty:1,
-              issue:'serving_unit=\'porzione\' ma prep_task.unit=\'pezzi\' — fix meccanico: 1 porzione = 1 pezzo' });
+              issue:'serving_unit=\'porzione\' ma prep_task.unit=\'pezzi\'' });
             return;
           }
 
@@ -5411,17 +5412,17 @@ window.dqLoad = async function() {
 
           // ── REGOLA 4: serving_weight_g noto → fix meccanico con grammi ──
           if ((ptUnit==='g'||ptUnit==='kg') && r.serving_weight_g) {
-            blocking.push({ recipe:r, pt:pt, soldQty:soldQty,
-              autoFix:true, needsDecision:false,
+            safeFix.push({ recipe:r, pt:pt, soldQty:soldQty,
+              autoFix:true, needsDecision:false, fixType:'grammi',
               suggestedUnit:'g', suggestedQty:r.serving_weight_g,
-              issue:'serving_unit=\'porzione\' ma serving_weight_g noto — aggiornare serving_unit=g, serving_qty=' + r.serving_weight_g });
+              issue:'serving_unit=\'porzione\' — allineo a ' + r.serving_weight_g + 'g' });
             return;
           }
 
           // ── REGOLA 5: nests/buste/cup senza BOM utilizzabile → Blocking vero ──
           if (ptUnit==='nests') {
-            blocking.push({ recipe:r, pt:pt, soldQty:soldQty,
-              autoFix:true, needsDecision:false,
+            safeFix.push({ recipe:r, pt:pt, soldQty:soldQty,
+              autoFix:true, needsDecision:false, fixType:'nests',
               suggestedUnit:'nests', suggestedQty:r.serving_qty||1,
               issue:'serving_unit=\'porzione\' ma prep_task.unit=\'nests\'' });
             return;
@@ -5440,8 +5441,13 @@ window.dqLoad = async function() {
       }
 
       // ── REVIEW: venduta recentemente ma senza prep_task ──
+      // Made-to-order con BOM fisico: scaricato via bom_chain, non Review
       if (!hasTask && soldQty > 0) {
-        review.push({ recipe: r, soldQty: soldQty });
+        if (hasPhysicalBOM) {
+          info.push({ recipe:r, soldQty:soldQty, issue:'Nessun prep_task (made-to-order) — scaricato via BOM. Verificare che il BOM sia completo.' });
+        } else {
+          review.push({ recipe: r, soldQty: soldQty });
+        }
       }
 
       // ── INFO: base_servings NULL ──
@@ -5458,18 +5464,17 @@ window.dqLoad = async function() {
     });
     review.sort(function(a,b){ return b.soldQty - a.soldQty; });
 
-    window._dqData = { blocking:blocking, review:review, info:info, ok:ok };
-
-    window._dqData = { blocking:blocking, review:review, info:info };
+    window._dqData = { blocking:blocking, safeFix:safeFix, review:review, info:info, ok:ok };
 
     // Summary
     var sumEl = document.getElementById('dqSummary');
     if (sumEl) {
       sumEl.innerHTML =
-        dqSummaryCard(blocking.length, '🔴', 'Blocking', '#fef2f2', '#dc2626') +
-        dqSummaryCard(review.length,   '🟡', 'Review',   '#fffbeb', '#d97706') +
-        dqSummaryCard(info.length,     '🔵', 'Info',     '#eff6ff', '#2563eb') +
-        dqSummaryCard(ok.length,       '✅', 'OK/BOM',   '#f0fdf4', '#16a34a');
+        dqSummaryCard(blocking.length,  '🔴', 'Blocking',  '#fef2f2', '#dc2626') +
+        dqSummaryCard(safeFix.length,   '🟢', 'Safe Fix',  '#f0fdf4', '#16a34a') +
+        dqSummaryCard(review.length,    '🟡', 'Review',    '#fffbeb', '#d97706') +
+        dqSummaryCard(info.length,      '🔵', 'Info',      '#eff6ff', '#2563eb') +
+        dqSummaryCard(ok.length,        '✅', 'OK/BOM',    '#f0fdf4', '#16a34a');
     }
 
     dqRender();
@@ -5497,6 +5502,11 @@ window.dqRender = function() {
   if (tab==='blocking') {
     if (!data.blocking.length) { el.innerHTML = dqEmpty('Nessun problema critico rilevato ✅','#059669'); return; }
     el.innerHTML = data.blocking.map(function(item,idx){ return dqBlockingRow(item,idx); }).join('');
+  }
+  else if (tab==='safefix') {
+    if (!(data.safeFix||[]).length) { el.innerHTML = dqEmpty('Nessun fix automatico disponibile ✅','#059669'); return; }
+    var applyAllBtn = '<div style="padding:12px 12px 0;"><button onclick="dqApplyAllSafeFix()" style="width:100%;height:42px;border-radius:12px;background:#16a34a;color:white;font-size:13px;font-weight:700;border:none;cursor:pointer;">✅ Applica tutti i fix sicuri (' + data.safeFix.length + ')</button><div style="font-size:10px;color:#6b7280;text-align:center;margin-top:4px;">Solo serving_unit/qty — non tocca stock, prep_log, BOM, stock_movements</div></div>';
+    el.innerHTML = applyAllBtn + data.safeFix.map(function(item,idx){ return dqSafeFixRow(item,idx); }).join('');
   }
   else if (tab==='review') {
     if (!data.review.length) { el.innerHTML = dqEmpty('Nessuna ricetta orfana venduta recentemente ✅','#059669'); return; }
@@ -5537,6 +5547,147 @@ function dqOkRow(item, idx) {
     '<button onclick="dqOpenRecipe(\'' + r.id + '\')" style="width:100%;height:36px;border-radius:10px;background:#16a34a;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;">Apri ricetta</button>' +
   '</div>';
 }
+
+// ── Riga Safe Fix — linguaggio umano, campi tecnici in <details> ──
+function dqSafeFixRow(item, idx) {
+  var r = item.recipe, pt = item.pt;
+  var soldBadge = item.soldQty > 0
+    ? '<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;margin-left:6px;">' + Math.round(item.soldQty) + ' venduti/30gg</span>'
+    : '<span style="background:#f1f5f9;color:#94a3b8;font-size:10px;padding:2px 7px;border-radius:10px;margin-left:6px;">0 venduti</span>';
+  var humanMsg = item.fixType === 'pezzi'
+    ? 'Ogni vendita POS scarica 1 pezzo dalla prep collegata. Posso allineare l\u2019unit\u00e0 automaticamente.'
+    : item.fixType === 'nests'
+      ? 'Ogni vendita POS scarica ' + (item.suggestedQty||1) + ' nest/i dalla prep collegata. Posso allineare l\u2019unit\u00e0 automaticamente.'
+      : 'Ogni vendita POS scarica ' + item.suggestedQty + 'g dalla prep collegata. Posso allineare l\u2019unit\u00e0 automaticamente.';
+  var techDetails =
+    '<details style="margin-top:8px;">' +
+      '<summary style="font-size:10px;color:#94a3b8;cursor:pointer;padding:2px 0;">Dettagli tecnici \u25bc</summary>' +
+      '<div style="font-size:11px;color:#6b7280;display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">' +
+        dqChip('serving_unit', r.serving_unit||'NULL') +
+        dqChip('prep.unit', pt ? pt.unit : 'NULL') +
+        dqChip('fix\u2192', item.suggestedQty + ' ' + item.suggestedUnit) +
+      '</div>' +
+    '</details>';
+  var actionBtns =
+    '<div style="display:flex;gap:6px;margin-top:10px;">' +
+      '<button onclick="dqApplySafeFix(' + idx + ')" style="flex:2;height:38px;border-radius:10px;background:#16a34a;color:white;font-size:12px;font-weight:700;border:none;cursor:pointer;">\u2705 Applica fix</button>' +
+      '<button onclick="dqOpenRecipe(\'' + r.id + '\')" style="flex:1;height:38px;border-radius:10px;background:#7c3aed;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;">\uD83D\uDCC2 Apri</button>' +
+      '<button onclick="dqCopySafeFix(' + idx + ')" style="height:38px;padding:0 10px;border-radius:10px;background:#f3e8ff;color:#7c3aed;font-size:12px;font-weight:600;border:none;cursor:pointer;">SQL</button>' +
+    '</div>';
+  return '<div style="margin:10px 12px;background:rgba(240,253,244,0.9);border-radius:14px;padding:14px;border:1.5px solid rgba(22,163,74,0.25);">' +
+    '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">' +
+      '<div style="flex:1;"><span style="font-size:14px;font-weight:700;color:#1e3a5f;">' + r.title + '</span>' + soldBadge + '</div>' +
+      '<span style="background:#16a34a;color:white;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap;">\uD83D\uDD27 Unit cleanup</span>' +
+    '</div>' +
+    '<div style="font-size:11px;color:#6b7280;margin-bottom:8px;">' +
+      '<span style="background:#f3e8ff;color:#7c3aed;padding:1px 6px;border-radius:6px;margin-right:4px;">POS: ' + (r.pos_name||'').split('|')[0] + '</span>' +
+      (pt ? '<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:6px;">prep: ' + pt.name + '</span>' : '') +
+    '</div>' +
+    '<div style="font-size:12px;color:#166534;background:rgba(22,163,74,0.07);border-radius:8px;padding:8px 10px;margin-bottom:6px;">' + humanMsg + '</div>' +
+    '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:6px 10px;font-size:11px;color:#166534;margin-bottom:4px;">' +
+      '\u2705 Fix sicuro \u2014 non tocca stock, prep_log, BOM, stock_movements' +
+    '</div>' +
+    techDetails + actionBtns +
+  '</div>';
+}
+
+window.dqApplySafeFix = function(idx) {
+  if (typeof isAdmin !== 'function' || !isAdmin()) { if(typeof showScToast==='function') showScToast('Solo admin'); return; }
+  var item = window._dqData.safeFix[idx];
+  if (!item || !item.autoFix) return;
+  var r = item.recipe, pt = item.pt;
+  var overlay = document.createElement('div');
+  overlay.id = 'dqConfirmOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,0.6);display:flex;align-items:flex-end;justify-content:center;font-family:Inter,system-ui,sans-serif;';
+  overlay.innerHTML =
+    '<div style="background:white;border-radius:24px 24px 0 0;padding:24px 20px 40px;width:100%;max-width:480px;">' +
+      '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 20px;"></div>' +
+      '<div style="font-size:18px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">Confermi questo fix?</div>' +
+      '<div style="font-size:12px;color:#6b7280;margin-bottom:16px;">Aggiorna solo la recipe &middot; Nessun altro dato toccato</div>' +
+      '<div style="background:#f3e8ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;">' +
+        '<div style="font-size:13px;font-weight:700;color:#4c1d95;">' + r.title + '</div>' +
+        (pt ? '<div style="font-size:11px;color:#7c3aed;margin-top:2px;">prep: ' + pt.name + '</div>' : '') +
+      '</div>' +
+      '<div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:12px;font-size:13px;">' +
+        'serving_unit: <span style="color:#dc2626;text-decoration:line-through;">' + (r.serving_unit||'porzione') + '</span>' +
+        ' &rarr; <b style="color:#16a34a;">' + item.suggestedUnit + '</b>' +
+      '</div>' +
+      '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:20px;font-size:11px;color:#166534;">' +
+        '\u2705 Non tocca: stock_movements &middot; current_stock &middot; prep_log &middot; recipe_bom' +
+      '</div>' +
+      '<div style="display:flex;gap:10px;">' +
+        '<button onclick="document.getElementById(\'dqConfirmOverlay\')?.remove()" style="flex:1;height:48px;border-radius:14px;background:#f1f5f9;color:#64748b;font-size:14px;font-weight:600;border:none;cursor:pointer;">Annulla</button>' +
+        '<button onclick="dqConfirmSafeFix(' + idx + ')" style="flex:2;height:48px;border-radius:14px;background:#16a34a;color:white;font-size:14px;font-weight:700;border:none;cursor:pointer;">\u2705 S\u00ec, applica</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+};
+
+window.dqConfirmSafeFix = async function(idx) {
+  if (typeof isAdmin !== 'function' || !isAdmin()) return;
+  document.getElementById('dqConfirmOverlay')?.remove();
+  var item = window._dqData.safeFix[idx];
+  if (!item) return;
+  var r = item.recipe, pt = item.pt, sb = window.supa;
+  if(typeof showScToast==='function') showScToast('Applicazione fix...');
+  try {
+    var approvedBy = (window.currentUser || window.user || {}).name || 'max';
+    var { data: result, error: rpcErr } = await sb.rpc('apply_data_quality_fix', {
+      p_recipe_id: r.id, p_old_qty: r.serving_qty!=null?parseFloat(r.serving_qty):null,
+      p_old_unit: r.serving_unit||'', p_new_qty: parseFloat(item.suggestedQty),
+      p_new_unit: item.suggestedUnit, p_issue_type: 'serving_unit_fix',
+      p_reason: 'unit_cleanup_auto — prep_task.unit=' + (pt?pt.unit:'unknown'),
+      p_approved_by: approvedBy
+    });
+    if (rpcErr) throw rpcErr;
+    if (!result || !result.success) { if(typeof showScToast==='function') showScToast('\u26a0\ufe0f ' + (result&&result.error||'errore')); return; }
+    var fixedItem = window._dqData.safeFix.splice(idx, 1)[0];
+    fixedItem.note = '\u2705 Fix applicato — serving_unit=' + item.suggestedUnit;
+    if (!window._dqData.ok) window._dqData.ok = [];
+    window._dqData.ok.unshift(fixedItem);
+    var sumEl = document.getElementById('dqSummary');
+    if (sumEl) { var d = window._dqData; sumEl.innerHTML =
+      dqSummaryCard((d.blocking||[]).length, '\uD83D\uDD34', 'Blocking', '#fef2f2', '#dc2626') +
+      dqSummaryCard((d.safeFix||[]).length,  '\uD83D\uDFE2', 'Safe Fix', '#f0fdf4', '#16a34a') +
+      dqSummaryCard((d.review||[]).length,   '\uD83D\uDFE1', 'Review',   '#fffbeb', '#d97706') +
+      dqSummaryCard((d.info||[]).length,     '\uD83D\uDD35', 'Info',     '#eff6ff', '#2563eb') +
+      dqSummaryCard((d.ok||[]).length,       '\u2705', 'OK/BOM', '#f0fdf4', '#16a34a'); }
+    dqRender();
+    if(typeof showScToast==='function') showScToast('\u2705 ' + r.title + ' — fix applicato');
+  } catch(err) { if(typeof showScToast==='function') showScToast('Errore: ' + (err.message||err)); }
+};
+
+window.dqApplyAllSafeFix = async function() {
+  if (typeof isAdmin !== 'function' || !isAdmin()) { if(typeof showScToast==='function') showScToast('Solo admin'); return; }
+  var items = (window._dqData.safeFix||[]).slice();
+  if (!items.length) return;
+  if (!window.confirm('Applicare tutti i ' + items.length + ' fix sicuri?\n\nNon tocca stock, BOM o stock_movements.')) return;
+  var ok = 0, fail = 0, sb = window.supa;
+  var approvedBy = (window.currentUser||window.user||{}).name || 'max';
+  for (var i=0; i<items.length; i++) {
+    var item = items[i], r = item.recipe, pt = item.pt;
+    try {
+      var { data: res, error: e } = await sb.rpc('apply_data_quality_fix', {
+        p_recipe_id: r.id, p_old_qty: r.serving_qty!=null?parseFloat(r.serving_qty):null,
+        p_old_unit: r.serving_unit||'', p_new_qty: parseFloat(item.suggestedQty),
+        p_new_unit: item.suggestedUnit, p_issue_type: 'serving_unit_fix',
+        p_reason: 'unit_cleanup_batch', p_approved_by: approvedBy
+      });
+      if (!e && res && res.success) ok++; else fail++;
+    } catch(ex) { fail++; }
+  }
+  if(typeof showScToast==='function') showScToast('\u2705 ' + ok + ' fix applicati' + (fail?' · '+fail+' errori':''));
+  await dqLoad();
+};
+
+window.dqCopySafeFix = function(idx) {
+  var item = window._dqData.safeFix[idx];
+  if (!item) return;
+  var r = item.recipe;
+  var sql = '-- Safe unit cleanup\n-- ' + r.title + '\nUPDATE recipes\nSET serving_qty=' + item.suggestedQty + ', serving_unit=\'' + item.suggestedUnit + '\'\nWHERE id=\'' + r.id + '\';';
+  if (navigator.clipboard) navigator.clipboard.writeText(sql).then(function(){ if(typeof showScToast==='function') showScToast('SQL copiato'); });
+};
+
 
 // ── Riga Blocking ──
 function dqBlockingRow(item, idx) {
