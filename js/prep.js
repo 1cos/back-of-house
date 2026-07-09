@@ -948,22 +948,24 @@ function kitchenCountUnit(item) {
 }
 
 // ── PARSE SOURCES_JSON per numeri "Sold yesterday / Expected today" ──
-// avgDaily è sempre in PORZIONI (vendite POS), NON nelle unità della prep task.
-// Non usare humanQty(avgDaily, prep_unit) — usare avgDaily + ' portions/day'.
+// avgDaily è SEMPRE in PORZIONI (vendite POS), NON nelle unità della prep task.
+// avgDailyG è il consumo reale in grammi — somma di avg_daily_g da ogni source row.
+// È QUESTO il numero che spiega il suggested_qty al cuoco.
 function parseSourcesNumbers(i) {
-  let soldYesterday = null;
   let avgDaily = null;
+  let avgDailyG = null;
   try {
     const src = typeof i.sources_json === 'string' ? JSON.parse(i.sources_json) : i.sources_json;
     if (src && src.length > 0) {
-      // Somma portions da tutti i source (item + modifier)
-      soldYesterday = null; // non disponibile direttamente in sources_json
-      avgDaily = src.reduce((sum, s) => sum + (parseFloat(s.avg_daily_portions) || 0), 0);
-      if (avgDaily > 0) avgDaily = Math.round(avgDaily * 10) / 10;
+      // Porzioni POS vendute al giorno (somma su tutti i piatti che usano questo prep)
+      const totalPortions = src.reduce((sum, s) => sum + (parseFloat(s.avg_daily_portions) || 0), 0);
+      if (totalPortions > 0) avgDaily = Math.round(totalPortions * 10) / 10;
+      // Consumo in grammi/giorno — questo è avg_daily_g già calcolato dal bot
+      const totalG = src.reduce((sum, s) => sum + (parseFloat(s.avg_daily_g) || 0), 0);
+      if (totalG > 0) avgDailyG = Math.round(totalG);
     }
   } catch(e) {}
-  // avgDailyUnit è SEMPRE 'portions' — le vendite POS sono in porzioni, non in unità prep
-  return { avgDaily, avgDailyUnit: 'portions' };
+  return { avgDaily, avgDailyG };
 }
 
 // ── FORMAT avg_daily per display — SEMPRE in porzioni, mai in unità prep ──
@@ -1001,14 +1003,16 @@ function buildChefAiNote(i, cardType) {
   const stock = parseFloat(i.current_stock) || 0;
   const qty   = parseFloat(i.suggested_qty) || 0;
   const unit  = i.unit || '';
-  const { avgDaily } = parseSourcesNumbers(i);
+  const { avgDaily, avgDailyG } = parseSourcesNumbers(i);
   const note     = i.suggested_note || '';
   const botColor = note.includes('|') ? note.split('|')[0] : null;
 
   const qtyHuman      = humanQty(qty, unit);
   const stockHuman    = (stock > 0) ? humanQty(stock, unit) : null;
-  // BUG FIX: avgDaily è in PORZIONI POS, non in unità prep — usare fmtAvgDaily sempre
+  // avgDaily = porzioni POS/giorno | avgDailyG = consumo g/giorno dal bot
   const expectedToday = avgDaily ? fmtAvgDaily(avgDaily) : null;
+  const botUsageToday = (avgDailyG && unit !== 'pezzi' && unit !== 'pz')
+    ? '~' + humanQty(avgDailyG, unit) + '/day' : null;
 
   function goodThroughDay() {
     const rawEN = note.split('|')[2] || '';
@@ -1066,7 +1070,8 @@ function buildChefAiNote(i, cardType) {
   // Vendite basse + stock ready-to-sell=0 → controlla batch staged prima
   if (cardType === 'STAGED_CHECK') {
     const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
+    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
+    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
     const body = nums.length ? nums.join(' · ') + '.' : 'Sales are low right now.';
     const { unit: kUnit } = kitchenCountUnit(i);
     return {
@@ -1081,7 +1086,8 @@ function buildChefAiNote(i, cardType) {
   // ── LARGE BATCH ─────────────────────────────────────────────
   if (cardType === 'LARGE_BATCH') {
     const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
+    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
+    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
     if (stockHuman)                nums.push('Stock: ' + stockHuman);
     const body = nums.length
       ? nums.join(' · ') + '.'
@@ -1097,7 +1103,8 @@ function buildChefAiNote(i, cardType) {
   // Uncertain ma non critico — non interrompere la cucina
   if (cardType === 'WATCH') {
     const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
+    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
+    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
     if (stockHuman)                nums.push('Stock: ' + stockHuman);
     const body = (nums.length ? nums.join(' · ') + '. ' : '') +
       'Only check this if you are already working on it today.';
@@ -1140,7 +1147,8 @@ function buildChefAiNote(i, cardType) {
   if (botColor === 'green') {
     const goodThrough = goodThroughDay();
     const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
+    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
+    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
     if (stockHuman)                nums.push('Stock: ' + stockHuman);
     if (goodThrough)               nums.push('Enough through ' + goodThrough);
     const body = nums.length ? nums.join(' · ') + '.' : 'Stock looks good for today.';
@@ -1155,7 +1163,8 @@ function buildChefAiNote(i, cardType) {
   // "Good through Wednesday" rimosso dalla card principale — va solo nei Details
   if (botColor === 'yellow') {
     const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
+    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
+    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
     if (stockHuman)                nums.push('Stock: ' + stockHuman);
     const body = nums.length ? nums.join(' · ') + '.' : 'Stock is getting low.';
     return {
@@ -1169,7 +1178,8 @@ function buildChefAiNote(i, cardType) {
   // Tono: sous-chef calmo, non sirena
   if (botColor === 'red') {
     const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
+    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
+    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
     if (stockHuman)                nums.push('Stock: ' + stockHuman);
     if (!stockHuman)               nums.push('Stock is at zero');
     const body = nums.join(' · ') + '.';
@@ -1234,18 +1244,23 @@ function renderChefAiBlock(i, cardType) {
   const statusPill = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${statusCfg.color};background:${statusCfg.bg};border:1px solid ${statusCfg.border};border-radius:20px;padding:3px 9px;letter-spacing:0.02em;">${statusCfg.emoji} ${statusCfg.label}</span>`;
 
   // NUMBERS SECTION — solo se abbiamo dati
-  // BUG FIX: avgDaily è in PORZIONI POS — non usare humanQty(avgDaily, unit) !
-  const { avgDaily } = parseSourcesNumbers(i);
+  // avgDaily = porzioni/giorno POS  |  avgDailyG = consumo g/giorno (dal bot)
+  const { avgDaily, avgDailyG } = parseSourcesNumbers(i);
   const stock = parseFloat(i.current_stock);
   const qty = parseFloat(i.suggested_qty) || 0;
   const unit = i.unit || '';
   const stockHuman = (stock > 0) ? humanQty(stock, unit) : null;
-  const avgDailyHuman = avgDaily ? fmtAvgDaily(avgDaily) : null;      // sempre "N portions/day"
+  const avgDailyHuman = avgDaily ? fmtAvgDaily(avgDaily) : null;  // "N portions/day"
+  const botUsageHuman = avgDailyG ? humanQty(avgDailyG, unit) + '/day' : null; // "460 g/day"
   const suggHuman = humanQty(qty, unit);
 
   let numbersHtml = '';
   const nums = [];
   if (avgDailyHuman) nums.push(`<span>Avg sales: <b>${avgDailyHuman}</b></span>`);
+  // Bot usage — mostra solo se è significativo e diverso dalle porzioni
+  // (non mostrare su pezzi puri dove avg_daily_g è già le porzioni)
+  if (botUsageHuman && unit !== 'pezzi' && unit !== 'pz')
+    nums.push(`<span>Bot usage: <b>~${botUsageHuman}</b></span>`);
   if (stockHuman)    nums.push(`<span>In stock: <b>${stockHuman}</b></span>`);
   if (suggHuman && (cardType === 'TRUSTED') && (i.suggested_note||'').split('|')[0] !== 'green')
     nums.push(`<span>Suggested: <b>${suggHuman}</b></span>`);
