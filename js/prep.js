@@ -760,6 +760,8 @@ function cardBorderColor(i){
   if(ct==='STAGED_CHECK') return '#ca8a04';
   if(ct==='LARGE_BATCH')  return '#d97706';
   if(ct==='BLOCKED')      return '#94a3b8';
+  if(ct==='WATCH')        return '#cbd5e1';
+  if(ct==='CHEF_REVIEW')  return '#bfdbfe';
   // TRUSTED: usa il colore del pill
   if(i.suggested_note && i.suggested_note.includes('|')){
     const col = i.suggested_note.split('|')[0];
@@ -825,19 +827,15 @@ function classifyCard(i) {
   // Dati strutturali mancanti → BLOCKED
   if (!i.recipe_id && !i.ingredient_id) return 'BLOCKED';
 
-  // ── Priorità 0: kitchen count recente e reconciled ────────────
-  // Se esiste un count nelle ultime 24h con reconcile_status valorizzato,
-  // la card usa quello — ignora bot suggestion sospette
+  // ── Priorità 0: kitchen count recente e reconciled ─────────────
   const validCount = getValidCount(i.id);
-  if (validCount && validCount.reconcile_status) {
-    return 'COUNT_RECONCILED';
-  }
+  if (validCount && validCount.reconcile_status) return 'COUNT_RECONCILED';
 
   // Bot non ancora girato → TRUSTED
   if (!i.suggested_note) return 'TRUSTED';
 
-  const note      = i.suggested_note;
-  const botColor  = note.includes('|') ? note.split('|')[0] : null;
+  const note       = i.suggested_note;
+  const botColor   = note.includes('|') ? note.split('|')[0] : null;
   const isUncertain = note.includes('uncertain data') || note.includes('incerti') || note.includes('datos inciertos');
   const stock  = parseFloat(i.current_stock) || 0;
   const qty    = parseFloat(i.suggested_qty) || 0;
@@ -846,7 +844,7 @@ function classifyCard(i) {
   const isG    = unit === 'g';
   const nameLC = (i.name || '').toLowerCase();
 
-  // avg_daily dalle sources_json (per logica velocity)
+  // avg_daily da sources_json
   let avgDaily = 0;
   try {
     const src = typeof i.sources_json === 'string' ? JSON.parse(i.sources_json) : i.sources_json;
@@ -855,37 +853,54 @@ function classifyCard(i) {
     }
   } catch(e) {}
 
-  // ── R1: uncertain → COUNT_FIRST ───────────────────────────────
-  if (isUncertain) return 'COUNT_FIRST';
+  // ── R1: WATCH invece di COUNT_FIRST per uncertain generico ─────
+  // uncertain da solo NON basta. COUNT_FIRST solo se c'è un rischio reale.
+  // Il resto va a WATCH (check only if you're already working on it).
 
-  // ── R2: stock=0 + pieces > 50 → COUNT_FIRST sempre ───────────
-  // (anche se sources_json esiste — la qty è sospetta per cucina)
+  // ── R2: stock=0 + pezzi>50 → COUNT_FIRST sempre ───────────────
+  // Salmon 117pz, Scallops 127pz, GF sponge 161pz
   if (stock === 0 && isPz && qty > 50) return 'COUNT_FIRST';
 
-  // ── R3: stock=0 + red + altri controlli → COUNT_FIRST ─────────
+  // ── R3: uncertain + carni pregiate → COUNT_FIRST ───────────────
+  // Wagyu, Porterhouse — errore costoso se sbagliato
+  const PRECIOUS_MEATS = ['wagyu', 'porterhouse', 'tomahawk'];
+  if (isUncertain && PRECIOUS_MEATS.some(p => nameLC.includes(p))) return 'COUNT_FIRST';
+
+  // ── R4: uncertain + stock=0 + alta rotazione + qty grande ──────
+  // Solo se avg>=5/gg E qty>=2kg — altrimenti WATCH
+  if (isUncertain && stock === 0 && isG && avgDaily >= 5 && qty >= 2000) return 'COUNT_FIRST';
+
+  // ── R5: uncertain + stock presente ma << qty + alta rotazione ──
+  // stock < 20% della qty richiesta + avg>=5 + qty>=3kg
+  if (isUncertain && stock > 0 && isG && avgDaily >= 5 && qty >= 3000 && stock < qty * 0.20) return 'COUNT_FIRST';
+
+  // ── R6: uncertain senza sources + qty=1 → CHEF_REVIEW ──────────
+  // Bot completamente cieco (Lemon Zest, Powder sugar, ecc.)
+  if (isUncertain && !i.sources_json && qty <= 1) return 'CHEF_REVIEW';
+
+  // ── R7: suggested_qty null + non-green → WATCH (non più CF) ────
+  // Il bot non ha calcolato niente — non è necessariamente un'emergenza
+  if (!i.suggested_qty && botColor !== 'green') return 'WATCH';
+
+  // ── R8: uncertain residuo → WATCH ──────────────────────────────
+  // Tutto il resto uncertain non critico
+  if (isUncertain) return 'WATCH';
+
+  // ── R9: stock=0 + red + g>5000 + no sources → COUNT_FIRST ─────
   if (stock === 0 && botColor === 'red') {
-    if (isG && qty > 5000)  return 'COUNT_FIRST';
-    if (!i.sources_json)    return 'COUNT_FIRST';
+    if (isG && qty > 5000 && !i.sources_json) return 'COUNT_FIRST';
   }
 
-  // ── R4: suggested_qty null + non-green → COUNT_FIRST ──────────
-  if (!i.suggested_qty && botColor !== 'green') return 'COUNT_FIRST';
+  // ── R10: STAGED_CHECK — stock=0 + red + avgDaily basso ─────────
+  if (stock === 0 && botColor === 'red' && avgDaily > 0 && avgDaily < 5) return 'STAGED_CHECK';
 
-  // ── R5: STAGED_CHECK — vendite basse + stock=0 + red ──────────
-  // Per prep con staged inventory (Ready to Sell dopo Par Cook):
-  // se avg daily < 5 e stock=0 e red → non urlare "Do first", chiedi di controllare lo staged
-  if (stock === 0 && botColor === 'red' && avgDaily > 0 && avgDaily < 5) {
-    return 'STAGED_CHECK';
-  }
-
-  // ── R6: LARGE BATCH — qty enorme → verifica prima ─────────────
+  // ── R11: LARGE BATCH ───────────────────────────────────────────
   const LARGE_BATCH_EXCEPTIONS = new Set([
     'ragu','ragu sauce','cacio e pepe sauce','pomodoro sauce',
     'mash potato','risotto base','diced butter','garlic oil'
   ]);
   if (!LARGE_BATCH_EXCEPTIONS.has(nameLC)) {
     if (isG && qty > 15000) return 'LARGE_BATCH';
-    // pz>50: solo se NON già catturato da R2 (cioè stock>0)
     if (isPz && qty > 50 && stock > 0 && botColor !== 'green') return 'LARGE_BATCH';
   }
 
@@ -1059,6 +1074,31 @@ function buildChefAiNote(i, cardType) {
     };
   }
 
+  // ── WATCH ───────────────────────────────────────────────────
+  // Uncertain ma non critico — non interrompere la cucina
+  if (cardType === 'WATCH') {
+    const nums = [];
+    if (avgDaily && avgDaily > 0) nums.push('Avg daily: ~' + expectedToday);
+    if (stockHuman)                nums.push('Stock: ' + stockHuman);
+    const body = (nums.length ? nums.join(' · ') + '. ' : '') +
+      'Only check this if you are already working on it today.';
+    return {
+      headline: chef + ', ' + name + ' — low data, no action needed.',
+      body,
+      action: null
+    };
+  }
+
+  // ── CHEF_REVIEW ──────────────────────────────────────────────
+  // Bot completamente cieco — non chiedere alla cucina, passa all'office
+  if (cardType === 'CHEF_REVIEW') {
+    return {
+      headline: name + ' — needs data setup.',
+      body: 'Chef AI has no sales data for this item yet. No action needed from kitchen.',
+      action: null
+    };
+  }
+
   // ── BLOCKED ─────────────────────────────────────────────────
   if (cardType === 'BLOCKED') {
     return {
@@ -1147,6 +1187,8 @@ function renderChefAiBlock(i, cardType) {
     STAGED_CHECK: { emoji: '🟡', label: 'Check staged stock',  bg: 'rgba(234,179,8,0.08)',   border: '#fef08a', color: '#854d0e' },
     LARGE_BATCH:  { emoji: '🟠', label: 'Large batch — verify', bg: 'rgba(217,119,6,0.1)',   border: '#fde68a', color: '#b45309' },
     COUNT_FIRST:  { emoji: '🔴', label: 'Count first',          bg: 'rgba(220,38,38,0.08)',  border: '#fca5a5', color: '#dc2626' },
+    WATCH:         { emoji: '⚪',  label: 'Watch',               bg: 'rgba(100,116,139,0.06)', border: '#e2e8f0', color: '#64748b' },
+    CHEF_REVIEW:  { emoji: '🔵',  label: 'Chef review',         bg: 'rgba(37,99,235,0.06)',   border: '#bfdbfe', color: '#1d4ed8' },
     BLOCKED:      { emoji: '⚠️',  label: 'Needs setup',          bg: 'rgba(100,100,100,0.06)', border: '#e2e8f0', color: '#64748b' },
   };
 
@@ -1162,6 +1204,10 @@ function renderChefAiBlock(i, cardType) {
     statusCfg = rs === 'sufficient'     ? statusMap.COUNT_RECONCILED
               : rs === 'prep_more'      ? statusMap.COUNT_RECONCILED_MORE
               : statusMap.COUNT_RECONCILED_REVIEW;
+  } else if (cardType === 'WATCH') {
+    statusCfg = statusMap.WATCH;
+  } else if (cardType === 'CHEF_REVIEW') {
+    statusCfg = statusMap.CHEF_REVIEW;
   } else {
     statusCfg = statusMap[cardType] || statusMap.BLOCKED;
   }
