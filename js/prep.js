@@ -753,6 +753,352 @@ function cardButton(i){
   return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START</button>`;
 }
 
+// ── CHEF AI CARD SYSTEM ──────────────────────────────────────────────────────
+//
+// Tre modalità card:
+//   TRUSTED    → dati affidabili, mostra quantità consigliata + contesto numeri
+//   COUNT_FIRST → stock 0 sospetto o confidence low — chiede conteggio fisico
+//   BLOCKED     → dati strutturali mancanti — solo admin/office
+//
+// Non tocca bot, cron, edge functions.
+// Il save count scrive su prep_stock_counts (nuova tabella) + aggiorna current_stock.
+
+// ── CHEF NAME ──
+function chefFirstName() {
+  const name = window.user?.name || '';
+  if (!name) return null;
+  // Prende il primo token (es. "Rachel" da "Rachel Baquero", "Max" da "Max")
+  const first = name.trim().split(/\s+/)[0];
+  return first || null;
+}
+function chefGreeting() {
+  const first = chefFirstName();
+  if (!first) return 'Chef';
+  return 'Chef ' + first;
+}
+
+// ── CLASSIFICA CARD ──
+// Ritorna: 'TRUSTED' | 'COUNT_FIRST' | 'BLOCKED'
+function classifyCard(i) {
+  // Checklist: sempre trusted (non sono suggestion bot)
+  if (i.prep_type === 'checklist') return 'TRUSTED';
+  // Dati strutturali mancanti → BLOCKED
+  if (!i.recipe_id && !i.ingredient_id) return 'BLOCKED';
+  // Se il bot non ha ancora girato su questo task → TRUSTED (nessuna suggestion)
+  if (!i.suggested_note) return 'TRUSTED';
+
+  const note = i.suggested_note;
+  const botColor = note.includes('|') ? note.split('|')[0] : null;
+  const isUncertain = note.includes('uncertain data') || note.includes('incerti') || note.includes('datos inciertos');
+  const stock = parseFloat(i.current_stock) || 0;
+  const qty = parseFloat(i.suggested_qty) || 0;
+  const unit = (i.unit || '').toLowerCase().trim();
+  const isPz = ['pezzi', 'pz'].includes(unit);
+  const isG  = unit === 'g';
+
+  // Regole COUNT_FIRST:
+  // 1. Nota con "uncertain/incerti" → sempre count first
+  if (isUncertain) return 'COUNT_FIRST';
+  // 2. Stock=0 + confidence low segnalata dal bot (pill red o yellow + no sources_json)
+  if (stock === 0 && botColor === 'red') {
+    // qty assurda per pezzi: > 50
+    if (isPz && qty > 50) return 'COUNT_FIRST';
+    // qty assurda per grammi: > 5kg con stock 0
+    if (isG && qty > 5000) return 'COUNT_FIRST';
+    // Scallops, Salmon cakes: prep tipicamente a freezer, stock 0 è sospetto
+    // Segnale: sources_json null o vuoto con red pill
+    if (!i.sources_json) return 'COUNT_FIRST';
+  }
+  // 3. suggested_qty null con note non-green
+  if (!i.suggested_qty && botColor !== 'green') return 'COUNT_FIRST';
+
+  return 'TRUSTED';
+}
+
+// ── PARSE SOURCES_JSON per numeri "Sold yesterday / Expected today" ──
+function parseSourcesNumbers(i) {
+  let soldYesterday = null;
+  let avgDaily = null;
+  try {
+    const src = typeof i.sources_json === 'string' ? JSON.parse(i.sources_json) : i.sources_json;
+    if (src && src.length > 0) {
+      // Somma portions da tutti i source (item + modifier)
+      soldYesterday = null; // non disponibile direttamente in sources_json
+      avgDaily = src.reduce((sum, s) => sum + (parseFloat(s.avg_daily_portions) || 0), 0);
+      if (avgDaily > 0) avgDaily = Math.round(avgDaily * 10) / 10;
+    }
+  } catch(e) {}
+  return { avgDaily };
+}
+
+// ── HUMANIZE QTY per display ──
+function humanQty(qty, unit) {
+  if (!qty || qty <= 0) return null;
+  const u = (unit || '').toLowerCase().trim();
+  if (u === 'g') {
+    if (qty >= 1000) return (qty / 1000).toFixed(1).replace(/\.0$/, '') + ' kg';
+    return Math.round(qty) + ' g';
+  }
+  if (['pezzi','pz'].includes(u)) return Math.ceil(qty) + ' ' + (qty === 1 ? 'piece' : 'pieces');
+  if (u === 'cup') return Math.ceil(qty) + ' cup' + (qty > 1 ? 's' : '');
+  if (u === 'nests') return Math.ceil(qty) + ' nests';
+  return Math.ceil(qty) + (unit ? ' ' + unit : '');
+}
+
+// ── CHEF AI NOTE — testo della card basato sul tipo ──
+function buildChefAiNote(i, cardType) {
+  const chef = chefGreeting();
+  const name = i.name;
+  const stock = parseFloat(i.current_stock);
+  const qty = parseFloat(i.suggested_qty) || 0;
+  const unit = i.unit || '';
+  const { avgDaily } = parseSourcesNumbers(i);
+  const note = i.suggested_note || '';
+  const botColor = note.includes('|') ? note.split('|')[0] : null;
+
+  if (cardType === 'COUNT_FIRST') {
+    return {
+      headline: chef + ', Chef AI is not sure about this count.',
+      body: 'The system thinks we have 0 — but that seems off. Can you count before prepping more?',
+      action: null
+    };
+  }
+
+  if (cardType === 'BLOCKED') {
+    return {
+      headline: 'Needs setup',
+      body: 'Missing recipe or ingredient link. Chef review needed.',
+      action: null
+    };
+  }
+
+  // TRUSTED — costruisce testo contestuale
+  const qtyHuman = humanQty(qty, unit);
+  const stockHuman = humanQty(stock, unit);
+  const expectedToday = avgDaily ? humanQty(Math.ceil(avgDaily), unit) : null;
+
+  if (botColor === 'green') {
+    const parts = note.split('|');
+    // Estrai "arrivi a [giorno]" o "good through [day]"
+    const rawEN = parts[2] || '';
+    const dayMatch = rawEN.match(/good through (\w+)/i);
+    const goodThrough = dayMatch ? dayMatch[1] : null;
+
+    let body = '';
+    if (avgDaily && avgDaily > 0) body += `Avg daily: ~${expectedToday}.`;
+    if (stockHuman) body += (body ? ' ' : '') + `Stock: ${stockHuman}.`;
+    if (goodThrough) body += (body ? ' ' : '') + `Enough through ${goodThrough}.`;
+    if (!body) body = 'Stock looks good for today.';
+
+    return {
+      headline: chef + ', ' + name + ' looks okay for today.',
+      body,
+      action: null
+    };
+  }
+
+  if (botColor === 'yellow') {
+    const parts = note.split('|');
+    const rawEN = parts[2] || '';
+    const dayMatch = rawEN.match(/good through (\w+)/i);
+    const goodThrough = dayMatch ? dayMatch[1] : null;
+
+    let body = '';
+    if (avgDaily && avgDaily > 0) body += `Avg daily: ~${expectedToday}.`;
+    if (stockHuman && stock > 0) body += (body ? ' ' : '') + `Stock: ${stockHuman}.`;
+    if (goodThrough) body += (body ? ' ' : '') + `Enough through ${goodThrough}.`;
+    if (!body && stock > 0) body = 'Running a bit low. Keep an eye on it.';
+    if (!body) body = 'Consider prepping today or tomorrow.';
+
+    return {
+      headline: chef + ', ' + name + ' is running low.',
+      body,
+      action: qtyHuman ? 'Consider making ' + qtyHuman + ' today.' : null
+    };
+  }
+
+  if (botColor === 'red') {
+    let body = '';
+    if (avgDaily && avgDaily > 0) body += `Avg daily: ~${expectedToday}.`;
+    if (stockHuman && stock > 0) body += (body ? ' ' : '') + `Stock: ${stockHuman}.`;
+    if (!body && stock === 0) body = 'Stock is at zero.';
+
+    return {
+      headline: chef + ', ' + name + ' needs to be prepped today.',
+      body,
+      action: qtyHuman ? 'Make ' + qtyHuman + '.' : 'Prep today.'
+    };
+  }
+
+  return {
+    headline: chef + ', check ' + name + '.',
+    body: 'No suggestion data available.',
+    action: null
+  };
+}
+
+// ── RENDER CHEF AI BLOCK (dentro la card) ──
+function renderChefAiBlock(i, cardType) {
+  const { headline, body, action } = buildChefAiNote(i, cardType);
+  const iid = i.id;
+
+  // STATUS PILL
+  const statusMap = {
+    TRUSTED: {
+      green:  { emoji: '🟢', label: 'Looks okay',  bg: 'rgba(5,150,105,0.08)',   border: '#bbf7d0', color: '#059669' },
+      yellow: { emoji: '🟠', label: 'Prep today',  bg: 'rgba(217,119,6,0.08)',   border: '#fde68a', color: '#d97706' },
+      red:    { emoji: '🔴', label: 'Do first',    bg: 'rgba(220,38,38,0.08)',   border: '#fca5a5', color: '#dc2626' },
+    },
+    COUNT_FIRST: { emoji: '🔴', label: 'Count first', bg: 'rgba(220,38,38,0.08)', border: '#fca5a5', color: '#dc2626' },
+    BLOCKED:     { emoji: '⚠️', label: 'Needs setup', bg: 'rgba(100,100,100,0.06)', border: '#e2e8f0', color: '#64748b' },
+  };
+
+  let statusCfg;
+  if (cardType === 'TRUSTED') {
+    const note = i.suggested_note || '';
+    const col = note.includes('|') ? note.split('|')[0] : 'green';
+    statusCfg = statusMap.TRUSTED[col] || statusMap.TRUSTED.green;
+  } else {
+    statusCfg = statusMap[cardType] || statusMap.BLOCKED;
+  }
+
+  const statusPill = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${statusCfg.color};background:${statusCfg.bg};border:1px solid ${statusCfg.border};border-radius:20px;padding:3px 9px;letter-spacing:0.02em;">${statusCfg.emoji} ${statusCfg.label}</span>`;
+
+  // NUMBERS SECTION — solo se abbiamo dati
+  const { avgDaily } = parseSourcesNumbers(i);
+  const stock = parseFloat(i.current_stock);
+  const qty = parseFloat(i.suggested_qty) || 0;
+  const unit = i.unit || '';
+  const stockHuman = (stock > 0) ? humanQty(stock, unit) : null;
+  const expectedHuman = avgDaily ? humanQty(Math.ceil(avgDaily), unit) : null;
+  const suggHuman = humanQty(qty, unit);
+
+  let numbersHtml = '';
+  const nums = [];
+  if (expectedHuman) nums.push(`<span>Avg daily: <b>${expectedHuman}</b></span>`);
+  if (stockHuman)    nums.push(`<span>In stock: <b>${stockHuman}</b></span>`);
+  if (suggHuman && (cardType === 'TRUSTED') && (i.suggested_note||'').split('|')[0] !== 'green')
+    nums.push(`<span>Suggested: <b>${suggHuman}</b></span>`);
+  if (nums.length > 0) {
+    numbersHtml = `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:5px;font-size:12px;color:#475569;">${nums.join('')}</div>`;
+  }
+
+  // HEADLINE
+  const headlineHtml = `<div style="font-size:13px;font-weight:600;color:#1e3a5f;margin-top:6px;line-height:1.4;">${headline}</div>`;
+
+  // BODY
+  const bodyHtml = body ? `<div style="font-size:12px;color:#475569;margin-top:3px;line-height:1.5;">${body}</div>` : '';
+
+  // ACTION
+  const actionHtml = action ? `<div style="font-size:12px;font-weight:700;color:#1e3a5f;margin-top:4px;">${action}</div>` : '';
+
+  // COUNT FIRST INPUT
+  let countInputHtml = '';
+  if (cardType === 'COUNT_FIRST') {
+    const unitLabel = unit || 'units';
+    countInputHtml = `
+      <div style="margin-top:10px;">
+        <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">How many do we actually have?</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input
+            id="count-input-${iid}"
+            type="number"
+            min="0"
+            step="1"
+            placeholder="0"
+            style="width:80px;height:40px;border:2px solid #cbd5e1;border-radius:10px;font-size:18px;font-weight:700;text-align:center;color:#1e3a5f;background:#f8fafc;outline:none;"
+            onclick="event.stopPropagation();"
+            onfocus="this.style.borderColor='#2563eb';"
+            onblur="this.style.borderColor='#cbd5e1';"
+          >
+          <span style="font-size:13px;color:#64748b;font-weight:500;">${unitLabel}</span>
+          <button
+            onclick="event.stopPropagation();saveKitchenCount(${JSON.stringify(iid)})"
+            style="height:40px;padding:0 16px;border-radius:10px;font-size:13px;font-weight:700;background:#1e3a5f;color:white;border:none;cursor:pointer;flex-shrink:0;"
+          >Save count</button>
+        </div>
+      </div>`;
+  }
+
+  // DETAILS COLLAPSED — debug tecnico
+  const botColor = (i.suggested_note||'').split('|')[0] || '—';
+  const rawNote  = (i.suggested_note||'').split('|').slice(1).join(' | ') || '—';
+  const detailsHtml = `
+    <details style="margin-top:8px;">
+      <summary style="font-size:11px;color:#94a3b8;cursor:pointer;user-select:none;list-style:none;">
+        <span style="font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:0.5px;text-transform:uppercase;">Details ↓</span>
+      </summary>
+      <div style="margin-top:6px;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:11px;color:#64748b;line-height:1.7;font-family:monospace;">
+        <div>Bot stock: ${i.current_stock ?? '—'} ${unit}</div>
+        <div>Bot suggestion: ${i.suggested_qty ?? '—'} ${unit}</div>
+        <div>Pill: ${botColor}</div>
+        <div>Source: ${i.suggested_by || '—'}</div>
+        <div>Note: ${rawNote}</div>
+      </div>
+    </details>`;
+
+  return `<div style="margin-top:6px;">${statusPill}${headlineHtml}${bodyHtml}${numbersHtml}${actionHtml}${countInputHtml}${detailsHtml}</div>`;
+}
+
+// ── SAVE KITCHEN COUNT ──
+window.saveKitchenCount = async function(id) {
+  const it = tasks[id];
+  if (!it) return;
+  const input = document.getElementById('count-input-' + id);
+  if (!input) return;
+  const val = parseFloat(input.value);
+  if (isNaN(val) || val < 0) {
+    input.style.borderColor = '#ef4444';
+    setTimeout(() => input.style.borderColor = '#cbd5e1', 1200);
+    return;
+  }
+
+  const unit = it.unit || '';
+  const prevStock = parseFloat(it.current_stock) || 0;
+  const prevSugg  = parseFloat(it.suggested_qty) || null;
+  const prevBy    = it.suggested_by || null;
+  const userName  = window.user?.name || 'unknown';
+
+  // Salva in prep_stock_counts
+  await supa.from('prep_stock_counts').insert({
+    prep_task_id:       id,
+    counted_qty:        val,
+    unit:               unit,
+    counted_by:         userName,
+    source:             'kitchen_count',
+    prev_bot_stock:     prevStock,
+    prev_bot_suggestion: prevSugg,
+    prev_suggested_by:  prevBy
+  });
+
+  // Aggiorna current_stock sul task (non distruttivo — il vecchio valore è in prep_stock_counts)
+  await supa.from('prep_tasks').update({ current_stock: val }).eq('id', id);
+
+  // Aggiorna locale
+  tasks[id].current_stock = val;
+  if (items) {
+    const idx = items.findIndex(x => x.id === id);
+    if (idx >= 0) items[idx].current_stock = val;
+  }
+
+  // Feedback visivo inline — sostituisce la card COUNT_FIRST con conferma
+  const cardEl = document.querySelector('[data-audit-id="' + id + '"]');
+  if (cardEl) {
+    const confirmQty = humanQty(val, unit) || val + ' ' + unit;
+    const msg = val > 0
+      ? `Stock confirmed: ${confirmQty}. Chef AI will update the prep suggestion next run.`
+      : `Stock confirmed: 0. You may need to prep today. Chef will review.`;
+    const confirmBlock = cardEl.querySelector('.chef-ai-card-block');
+    if (confirmBlock) {
+      confirmBlock.innerHTML = `
+        <div style="margin-top:6px;">
+          <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.08);border:1px solid #bbf7d0;border-radius:20px;padding:3px 9px;">✅ Count saved</span>
+          <div style="font-size:13px;font-weight:600;color:#1e3a5f;margin-top:6px;">${msg}</div>
+        </div>`;
+    }
+  }
+};
+
 // ── PREP ──
 function renderM(){
   const _pq=(window._prepSearchQuery||'').toLowerCase().trim();
@@ -833,21 +1179,9 @@ function renderM(){
         ? '<span style="font-size:10px;font-weight:600;color:#185fa5;background:rgba(55,138,221,0.12);padding:2px 6px;border-radius:6px;">'+tr('inProgress')+'</span>'
         : ''; // URGENT badge rimosso — bordo colorato è sufficiente
 
-      // pill bot suggested_note (formato color|testo_it|testo_en|testo_es)
-      let botPill = '';
-      if(i.suggested_note && i.suggested_note.includes('|')){
-        const parts = i.suggested_note.split('|');
-        const col = parts[0];
-        // Scegli testo in base alla lingua utente: 1=IT, 2=EN, 3=ES
-        const lang = (window._currentUser?.lang || 'en').toLowerCase();
-        const langIdx = lang === 'it' ? 1 : lang === 'es' ? 3 : 2;
-        const rawTxt = parts[langIdx] || parts[1] || '';
-        const txt = rawTxt.length>120 ? rawTxt.slice(0,117)+'…' : rawTxt;
-        const s = {green:{bg:'rgba(5,150,105,0.1)',border:'#bbf7d0',color:'#059669'},yellow:{bg:'rgba(217,119,6,0.1)',border:'#fde68a',color:'#d97706'},red:{bg:'rgba(220,38,38,0.1)',border:'#fca5a5',color:'#dc2626'}}[col]||{bg:'rgba(217,119,6,0.1)',border:'#fde68a',color:'#d97706'};
-        botPill = '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:'+s.color+';background:'+s.bg+';border:1px solid '+s.border+';border-radius:6px;padding:2px 7px;">🤖 '+txt+'</span></div>';
-      } else if(i.suggested_note){
-        botPill = '<div style="margin-top:5px;"><span style="font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.1);border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;">🤖 '+i.suggested_note+'</span></div>';
-      }
+      // Chef AI card block — sostituisce botPill con sistema nuovo
+      // classifyCard e renderChefAiBlock definiti sopra nella sezione CHEF AI CARD SYSTEM
+      const botPill = isWip ? '' : '<div class="chef-ai-card-block">' + renderChefAiBlock(i, cardType) + '</div>';
 
       // Today log strip — ultimi log di oggi per questo item
       let todayLogStrip = '';
@@ -1590,6 +1924,7 @@ function _chefAiPrepPanelHtml(a, prepName){
     +'</div>'
   +'</div>';
 }
+
 
 
 
