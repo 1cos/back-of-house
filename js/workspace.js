@@ -23,7 +23,12 @@
 // Phase 2 routes (workspace-v002):
 //   /recipe/:recipe_id    → Recipe Workspace Page
 //
-// Versioning: workspace-v001 (Phase 1), workspace-v002 (Phase 2)...
+// workspace-v003-lab-safety:
+//   Lab mode detection: /brigade-dev/ path OR window.BOH_LAB_MODE = true
+//   In lab mode: all write actions blocked with toast. Reads/navigation unchanged.
+//   Production write behavior: completely unchanged.
+//
+// Versioning: workspace-v001 (Phase 1), workspace-v002 (Phase 2), workspace-v003 (Lab Safety)
 //   Live boh-v### bumps only for hotfixes, not for workspace features.
 //   Workspace builds are labeled workspace-v00N, not boh-v### releases.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,7 +155,11 @@ function _wsRender() {
     pageHTML = _wsErrorHTML(err);
   }
 
-  // Assemble shell with debug badge
+  // Assemble shell with debug badge — READ ONLY variant in lab mode
+  const _labBadgeHTML = _wsIsLabMode()
+    ? `<span class="ws-lab-badge ws-lab-badge--readonly" title="Workspace Lab — write actions disabled">⚗️ READ ONLY</span>`
+    : `<span class="ws-lab-badge">WORKSPACE LAB</span>`;
+
   root.innerHTML = `
     <div class="ws-shell" id="ws-shell">
       <div class="ws-header" id="ws-header">
@@ -159,7 +168,7 @@ function _wsRender() {
         </button>
         <div class="ws-header-title" id="ws-header-title">${_wsEscape(title)}</div>
         <div class="ws-header-actions" id="ws-header-actions">
-          <span class="ws-lab-badge">WORKSPACE LAB</span>
+          ${_labBadgeHTML}
         </div>
       </div>
       <div class="ws-page" id="ws-page">
@@ -208,12 +217,15 @@ window.wsBack = function() {
 function _wsShowError(err) {
   const root = document.getElementById('workspace-root');
   if (!root) return;
+  const _errBadge = _wsIsLabMode()
+    ? `<span class="ws-lab-badge ws-lab-badge--readonly">⚗️ READ ONLY</span>`
+    : `<span class="ws-lab-badge">WORKSPACE LAB</span>`;
   root.innerHTML = `
     <div class="ws-shell">
       <div class="ws-header">
         <button class="ws-back-btn" onclick="wsBack()">‹</button>
         <div class="ws-header-title">Error</div>
-        <div class="ws-header-actions"><span class="ws-lab-badge">WORKSPACE LAB</span></div>
+        <div class="ws-header-actions">${_errBadge}</div>
       </div>
       <div class="ws-page" style="padding:24px 16px">
         ${_wsErrorHTML(err)}
@@ -337,6 +349,13 @@ function wsInjectStyles() {
       user-select: none;
       flex-shrink: 0;
     }
+    /* READ ONLY variant — shown in lab/brigade-dev mode */
+    .ws-lab-badge--readonly {
+      background: #dc2626;   /* red — immediately visible as restricted */
+      opacity: 1;
+      letter-spacing: 0.06em;
+      font-size: 9px;
+    }
 
     /* ── Page scroll area ── */
     .ws-page {
@@ -445,6 +464,13 @@ function wsInjectStyles() {
       color: #dc2626;
       border: 1px solid rgba(220,38,38,0.2);
     }
+    /* Lab read-only visual state — button still clickable (shows toast), but looks disabled */
+    .wsp-btn--lab-disabled {
+      opacity: 0.45;
+      filter: grayscale(0.4);
+      cursor: not-allowed;
+    }
+    .wsp-btn--lab-disabled:active { transform: none; }
 
     .wsp-today-log {
       background: rgba(5,150,105,0.06);
@@ -757,12 +783,16 @@ wsRegisterRoute('/prep/:id', function renderPrepDetail(params, payload) {
 
     <!-- ── Actions ── -->
     <div class="wsp-section" style="padding:14px;">
+      ${_wsIsLabMode() ? `
+      <div style="background:rgba(220,38,38,0.06);border:1px solid rgba(220,38,38,0.18);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#dc2626;font-weight:600;text-align:center;">
+        ⚗️ Read-only in Workspace Lab — Start, Done, Save are disabled
+      </div>` : ''}
       <div class="wsp-action-row">
         ${!isWip
-          ? `<button class="wsp-btn primary" onclick="wsCallPrepStart(${JSON.stringify(params.id)})">▶ Start</button>`
+          ? `<button class="wsp-btn primary${_wsIsLabMode() ? ' wsp-btn--lab-disabled' : ''}" onclick="wsCallPrepStart(${JSON.stringify(params.id)})">▶ Start</button>`
           : `<button class="wsp-btn secondary" onclick="wsCallPrepSeeSteps(${JSON.stringify(params.id)})">📋 See steps</button>`
         }
-        <button class="wsp-btn success" onclick="wsCallPrepDone(${JSON.stringify(params.id)})">✓ Done</button>
+        <button class="wsp-btn success${_wsIsLabMode() ? ' wsp-btn--lab-disabled' : ''}" onclick="wsCallPrepDone(${JSON.stringify(params.id)})">✓ Done</button>
       </div>
     </div>
 
@@ -770,8 +800,11 @@ wsRegisterRoute('/prep/:id', function renderPrepDetail(params, payload) {
     ${typeof isAdmin === 'function' && isAdmin() ? `
     <div class="wsp-section" id="ws-note-section">
       <div class="wsp-section-title">Add / edit note</div>
-      <textarea class="wsp-note-area" id="ws-note-input" rows="3" placeholder="Note for the team...">${_wsEscape(task.note || '')}</textarea>
-      <button onclick="wsNotesSave(${JSON.stringify(params.id)})" style="margin-top:8px;padding:8px 16px;background:#1e3a5f;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">Save note</button>
+      <textarea class="wsp-note-area" id="ws-note-input" rows="3" placeholder="Note for the team...${_wsIsLabMode() ? ' (read-only in Lab)' : ''}" ${_wsIsLabMode() ? 'readonly style="opacity:0.5;cursor:not-allowed;"' : ''}>${_wsEscape(task.note || '')}</textarea>
+      ${_wsIsLabMode()
+        ? `<button onclick="wsNotesSave(${JSON.stringify(params.id)})" style="margin-top:8px;padding:8px 16px;background:#94a3b8;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:not-allowed;opacity:0.5;">Save note</button>`
+        : `<button onclick="wsNotesSave(${JSON.stringify(params.id)})" style="margin-top:8px;padding:8px 16px;background:#1e3a5f;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">Save note</button>`
+      }
     </div>` : ''}
   `;
 }, {
@@ -1113,6 +1146,7 @@ window.wsPrepOpenRecipe = function(id) {
 };
 
 window.wsCallPrepStart = function(id) {
+  if (_wsLabBlock('Start prep task')) return;   // lab: blocked
   if (typeof window.prepStart === 'function') {
     window.prepStart(id);
     // After starting, refresh workspace to show updated state
@@ -1128,6 +1162,7 @@ window.wsCallPrepSeeSteps = function(id) {
 };
 
 window.wsCallPrepDone = function(id) {
+  if (_wsLabBlock('Mark prep Done')) return;   // lab: blocked
   // Close workspace first so Done sheet appears on top of prep list
   closeWorkspace();
   setTimeout(() => {
@@ -1136,6 +1171,7 @@ window.wsCallPrepDone = function(id) {
 };
 
 window.wsNotesSave = async function(id) {
+  if (_wsLabBlock('Save note')) return;   // lab: blocked
   const input = document.getElementById('ws-note-input');
   if (!input) return;
   const note = input.value.trim();
@@ -1161,6 +1197,109 @@ window.wsNotesSave = async function(id) {
    This keeps the live operational UI completely unchanged.
    The Workspace refactor is a separate laboratory, not a live feature.
    ─────────────────────────────────────────────────────────────────────────── */
+
+/* ══ LAB SAFETY GUARD — workspace-v003 ══════════════════════════════════════
+   Detects when workspace is running on the lab deployment (brigade-dev).
+   In lab mode: ALL write actions inside Workspace are blocked.
+   - No DB writes (no .update, .insert, .upsert, .delete via Workspace UI)
+   - No prep state changes (Start, Done)
+   - Clear toast explains why
+   Production (back-of-house): _wsIsLabMode() always returns false → no impact.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Returns true if running in Workspace Lab (brigade-dev deployment).
+ * Detection: URL path contains /brigade-dev/ OR window.BOH_LAB_MODE === true.
+ * Safe to call before DOM ready.
+ */
+function _wsIsLabMode() {
+  if (typeof window !== 'undefined' && window.BOH_LAB_MODE === true) return true;
+  try {
+    return location.pathname.includes('/brigade-dev/');
+  } catch(e) {}
+  return false;
+}
+
+/**
+ * Lab write-block guard.
+ * Call at the top of every Workspace write action.
+ * Returns true if the action was blocked (caller must return immediately).
+ * Returns false if write is allowed (production, or lab mode explicitly unlocked).
+ *
+ * @param {string} actionLabel  Human-readable action name shown in toast.
+ */
+function _wsLabBlock(actionLabel) {
+  if (!_wsIsLabMode()) return false;   // production — allow all writes
+
+  const msg = `⚗️ Lab mode — write actions disabled here.\n"${actionLabel}" blocked.\n\nThis is Workspace Lab using live data.\nOpen the kitchen app to perform real actions.`;
+
+  // Show toast if available, else fallback to a non-blocking overlay
+  if (typeof window._wsLabToast === 'function') {
+    window._wsLabToast(actionLabel);
+  } else {
+    _wsShowLabToast(actionLabel);
+  }
+
+  console.warn(`[workspace-lab] BLOCKED write: "${actionLabel}" — lab mode active`);
+  return true;   // blocked — caller must return
+}
+
+/**
+ * Renders a non-blocking toast inside the workspace overlay.
+ * Falls back to console if workspace-root is not in DOM.
+ */
+function _wsShowLabToast(actionLabel) {
+  // Remove any existing lab toast
+  const old = document.getElementById('ws-lab-toast');
+  if (old) old.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'ws-lab-toast';
+  toast.setAttribute('role', 'alert');
+  toast.style.cssText = [
+    'position:fixed',
+    'bottom:90px',          // above bottom nav
+    'left:50%',
+    'transform:translateX(-50%)',
+    'z-index:99998',
+    'background:#1e1b4b',   // deep indigo — distinct from app toasts
+    'color:#e0e7ff',
+    'font-size:13px',
+    'font-weight:600',
+    'padding:12px 18px',
+    'border-radius:14px',
+    'box-shadow:0 4px 20px rgba(0,0,0,0.35)',
+    'max-width:calc(100vw - 32px)',
+    'text-align:center',
+    'line-height:1.5',
+    'pointer-events:none',
+    'animation:wsToastIn 0.2s ease',
+  ].join(';');
+
+  toast.innerHTML = `
+    <div style="font-size:16px;margin-bottom:4px;">⚗️ Lab · Read Only</div>
+    <div style="opacity:0.85;font-size:12px;">"${_wsEscape(actionLabel)}" is blocked in Workspace Lab.</div>
+    <div style="opacity:0.6;font-size:11px;margin-top:4px;">Use the kitchen app for real actions.</div>
+  `;
+
+  // Inject toast animation if not already present
+  if (!document.getElementById('ws-lab-toast-style')) {
+    const s = document.createElement('style');
+    s.id = 'ws-lab-toast-style';
+    s.textContent = '@keyframes wsToastIn{from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+    document.head.appendChild(s);
+  }
+
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.transition = 'opacity 0.3s ease';
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 350);
+  }, 3000);
+}
+
+// Expose lab toast as a named function for external callers
+window._wsLabToast = _wsShowLabToast;
 
 function _wsIsEnabled() {
   try {
@@ -1196,7 +1335,10 @@ document.addEventListener('DOMContentLoaded', function() {
     return; // <-- live app: nothing below runs
   }
 
-  console.log('[workspace-v002] enabled — activating router and intercepts');
+  const _labMsg = _wsIsLabMode()
+    ? ' | LAB MODE — writes blocked (_wsIsLabMode()=true)'
+    : ' | production mode — writes enabled';
+  console.log('[workspace-v003-lab-safety] enabled — activating router and intercepts' + _labMsg);
 
   // Inject workspace CSS (only when enabled)
   if (!document.getElementById('ws-styles')) wsInjectStyles();
