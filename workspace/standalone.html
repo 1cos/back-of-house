@@ -6,734 +6,646 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>BOH OS — Workspace</title>
 <style>
-/* ── Tokens ─────────────────────────────────────────────────────────────── */
 :root{
-  --bg-base:#eff6ff; --bg-mid:#dbeafe; --bg-accent:#e0f2fe;
-  --surface:#ffffff; --surface-glass:rgba(255,255,255,.72);
-  --surface-raised:rgba(255,255,255,.94);
-  --text-primary:#1e3a5f; --text-secondary:#3b6ea8;
-  --text-muted:#7a9cc4; --text-inverse:#ffffff;
-  --text-tab:#4a6fa5; --text-tab-active:#1e3a5f;
-  --blue-900:#1e3a5f; --blue-700:#1d4ed8; --blue-600:#2563eb;
-  --blue-500:#3b82f6; --blue-400:#60a5fa;
-  --blue-200:#bfdbfe; --blue-100:#dbeafe; --blue-50:#eff6ff;
-  --ok:#16a34a; --ok-bg:#f0fdf4; --ok-border:#bbf7d0;
-  --warn:#d97706; --warn-bg:#fffbeb; --warn-border:#fde68a;
-  --danger:#dc2626; --danger-bg:#fef2f2; --danger-border:#fecaca;
-  --info:#2563eb; --info-bg:#eff6ff; --info-border:#bfdbfe;
-  --border:rgba(37,99,235,.12); --border-tab:rgba(37,99,235,.16);
-  --border-strong:rgba(37,99,235,.26);
-  --shadow-xs:0 1px 3px rgba(30,58,95,.07);
-  --shadow-sm:0 2px 6px rgba(30,58,95,.09);
-  --shadow-md:0 6px 20px rgba(30,58,95,.12);
-  --shadow-lg:0 12px 40px rgba(30,58,95,.16);
-  --shadow-glass:0 4px 24px rgba(30,58,95,.08),inset 0 1px 0 rgba(255,255,255,.7);
-  --r-sm:8px; --r-md:12px; --r-lg:18px; --r-xl:24px; --r-pill:999px;
-  --font-sans:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Arial,sans-serif;
-  --font-mono:'SF Mono','Fira Code',monospace;
-  --topbar-h:56px; --tabbar-h:44px;
+  --bg:#eff6ff;--bg2:#dbeafe;--bg3:#e0f2fe;
+  --surf:#fff;--surf-g:rgba(255,255,255,.75);--surf-r:rgba(255,255,255,.95);
+  --tx:#1e3a5f;--tx2:#3b6ea8;--txm:#7a9cc4;--txi:#fff;
+  --b9:#1e3a5f;--b7:#1d4ed8;--b6:#2563eb;--b5:#3b82f6;--b4:#60a5fa;
+  --b2:#bfdbfe;--b1:#dbeafe;--b0:#eff6ff;
+  --ok:#16a34a;--ok-bg:#f0fdf4;--ok-bd:#bbf7d0;
+  --wn:#d97706;--wn-bg:#fffbeb;--wn-bd:#fde68a;
+  --er:#dc2626;--er-bg:#fef2f2;--er-bd:#fecaca;
+  --in:#2563eb;--in-bg:#eff6ff;--in-bd:#bfdbfe;
+  --bd:rgba(37,99,235,.11);--bd2:rgba(37,99,235,.22);--bd-tab:rgba(37,99,235,.14);
+  --sh0:0 1px 3px rgba(30,58,95,.06);
+  --sh1:0 2px 8px rgba(30,58,95,.09);
+  --sh2:0 6px 24px rgba(30,58,95,.12);
+  --sh3:0 14px 48px rgba(30,58,95,.17);
+  --shg:0 4px 24px rgba(30,58,95,.07),inset 0 1px 0 rgba(255,255,255,.8);
+  --r1:8px;--r2:14px;--r3:20px;--rp:999px;
+  --ff:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Arial,sans-serif;
+  --fm:'SF Mono','Fira Code',monospace;
+  --th:56px;--tbh:46px
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;font-family:var(--font-sans);font-size:15px;
-  color:var(--text-primary);background:var(--bg-base);
-  -webkit-font-smoothing:antialiased;overscroll-behavior:none}
-button{cursor:pointer;border:none;background:none;font-family:inherit}
+html,body{height:100%;font-family:var(--ff);font-size:15px;color:var(--tx);
+  background:var(--bg);-webkit-font-smoothing:antialiased;overscroll-behavior:none}
+button{cursor:pointer;border:none;background:none;font-family:inherit;color:inherit}
 input,select,textarea{font-family:inherit}
 
-/* ── App shell ────────────────────────────────────────────────────────────── */
-#ws-app{display:flex;flex-direction:column;height:100dvh;overflow:hidden;
-  background:linear-gradient(150deg,var(--bg-base) 0%,var(--bg-mid) 60%,var(--bg-accent) 100%)}
+/* ── Shell ────────────────────────────────────────────────────────────────── */
+#app{display:flex;flex-direction:column;height:100dvh;overflow:hidden;
+  background:linear-gradient(148deg,var(--bg) 0%,var(--bg2) 58%,var(--bg3) 100%)}
 
-/* ── TOP BAR ─────────────────────────────────────────────────────────────── */
-#ws-topbar{
-  flex-shrink:0;height:var(--topbar-h);
+/* ── TOPBAR ───────────────────────────────────────────────────────────────── */
+#topbar{
+  flex-shrink:0;height:var(--th);
   display:flex;align-items:center;gap:12px;padding:0 20px;
-  background:var(--surface-glass);
-  backdrop-filter:blur(24px) saturate(1.8);
-  -webkit-backdrop-filter:blur(24px) saturate(1.8);
-  border-bottom:1px solid var(--border);
-  box-shadow:var(--shadow-sm);z-index:100
+  background:rgba(239,246,255,.82);
+  backdrop-filter:blur(28px) saturate(1.9);
+  -webkit-backdrop-filter:blur(28px) saturate(1.9);
+  border-bottom:1px solid var(--bd);box-shadow:var(--sh1);z-index:100
 }
-.topbar-brand{display:flex;align-items:center;gap:10px;flex-shrink:0;min-width:160px}
-.brand-mark{
-  width:32px;height:32px;border-radius:9px;
-  background:linear-gradient(135deg,var(--blue-600),var(--blue-400));
+.t-brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.t-mark{
+  width:34px;height:34px;border-radius:10px;
+  background:linear-gradient(135deg,var(--b6) 0%,var(--b4) 100%);
   display:flex;align-items:center;justify-content:center;
-  font-size:16px;font-weight:700;color:#fff;
-  box-shadow:0 2px 8px rgba(37,99,235,.35);flex-shrink:0
+  font-size:18px;font-weight:800;color:#fff;
+  box-shadow:0 2px 10px rgba(37,99,235,.38);flex-shrink:0
 }
-.brand-text{display:flex;flex-direction:column;line-height:1}
-.brand-name{font-size:15px;font-weight:700;color:var(--blue-700);letter-spacing:-.03em}
-.brand-sub{font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.1em;text-transform:uppercase;margin-top:1px}
+.t-words{display:flex;flex-direction:column;line-height:1.1}
+.t-name{font-size:15px;font-weight:700;color:var(--b7);letter-spacing:-.03em}
+.t-sub{font-size:10px;font-weight:600;color:var(--txm);letter-spacing:.1em;text-transform:uppercase}
 
-.topbar-search{
-  flex:1;max-width:360px;
-  display:flex;align-items:center;gap:8px;
-  background:var(--surface-raised);border:1px solid var(--border);
-  border-radius:var(--r-pill);padding:7px 14px;
-  color:var(--text-muted);font-size:13px;cursor:text;
-  transition:border-color .15s,box-shadow .15s
+.t-search{
+  flex:1;max-width:340px;
+  display:flex;align-items:center;gap:7px;
+  background:var(--surf-r);border:1px solid var(--bd);border-radius:var(--rp);
+  padding:7px 14px;color:var(--txm);font-size:13px;cursor:text;
+  transition:border-color .15s,box-shadow .15s;margin:0 auto
 }
-.topbar-search:hover{border-color:var(--border-strong);box-shadow:var(--shadow-xs)}
-.search-icon{font-size:14px;opacity:.7}
+.t-search:hover{border-color:var(--bd2);box-shadow:var(--sh0)}
 
-.topbar-right{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
+.t-right{display:flex;align-items:center;gap:9px;flex-shrink:0;margin-left:auto}
+
+/* Lang pills */
+.lang-grp{
+  display:flex;gap:1px;
+  background:rgba(219,234,254,.6);border:1px solid var(--b2);
+  border-radius:var(--rp);padding:3px
+}
+.lbtn{
+  font-size:11px;font-weight:700;padding:4px 9px;
+  border-radius:var(--rp);color:var(--txm);letter-spacing:.05em;
+  transition:all .13s
+}
+.lbtn:hover{background:var(--b1);color:var(--b6)}
+.lbtn.on{background:var(--b6);color:#fff;box-shadow:0 1px 5px rgba(37,99,235,.35)}
 
 /* Role pill */
+.role-wrap{position:relative;display:flex}
 .role-pill{
-  display:flex;align-items:center;gap:6px;
-  background:var(--blue-50);border:1px solid var(--blue-200);
-  border-radius:var(--r-pill);padding:5px 12px 5px 8px;
-  cursor:pointer;transition:all .12s
+  display:flex;align-items:center;gap:7px;
+  background:var(--b0);border:1px solid var(--b2);border-radius:var(--rp);
+  padding:5px 11px 5px 7px;cursor:pointer;transition:all .13s
 }
-.role-pill:hover{background:var(--blue-100);border-color:var(--blue-400)}
-.role-avatar{
-  width:22px;height:22px;border-radius:50%;
-  background:var(--blue-600);color:#fff;
-  font-size:10px;font-weight:700;
+.role-pill:hover{background:var(--b1);border-color:var(--b4)}
+.role-av{
+  width:24px;height:24px;border-radius:50%;
+  background:var(--b6);color:#fff;
+  font-size:10px;font-weight:800;letter-spacing:-.02em;
   display:flex;align-items:center;justify-content:center;flex-shrink:0
 }
-.role-name{font-size:12px;font-weight:600;color:var(--blue-700)}
-.role-select-hidden{
-  position:absolute;opacity:0;width:100%;height:100%;
-  top:0;left:0;cursor:pointer
+.role-nm{font-size:12px;font-weight:600;color:var(--b7)}
+.role-arr{font-size:10px;color:var(--txm);margin-left:1px}
+.role-sel{
+  position:absolute;inset:0;opacity:0;width:100%;
+  cursor:pointer;border:none;background:none
 }
-.role-wrapper{position:relative}
 
-/* Lang switcher */
-.lang-switcher{display:flex;gap:2px;background:var(--blue-50);
-  border:1px solid var(--blue-200);border-radius:var(--r-pill);padding:3px}
-.lang-btn{
-  font-size:11px;font-weight:700;padding:4px 8px;
-  border-radius:var(--r-pill);color:var(--text-muted);
-  letter-spacing:.04em;transition:all .12s
-}
-.lang-btn:hover{background:var(--blue-100);color:var(--blue-600)}
-.lang-btn.active{background:var(--blue-600);color:#fff;box-shadow:0 1px 4px rgba(37,99,235,.3)}
-
-/* Demo badge */
-.demo-badge{
-  font-size:9px;font-weight:700;letter-spacing:.1em;
-  color:var(--warn);background:var(--warn-bg);
-  border:1px solid var(--warn-border);border-radius:var(--r-pill);
-  padding:3px 8px;flex-shrink:0
+.demo-tag{
+  font-size:9px;font-weight:800;letter-spacing:.1em;
+  color:var(--wn);background:var(--wn-bg);
+  border:1px solid var(--wn-bd);border-radius:var(--rp);
+  padding:3px 9px;flex-shrink:0
 }
 
 /* ── TAB BAR ─────────────────────────────────────────────────────────────── */
-#ws-tabbar{
-  flex-shrink:0;height:var(--tabbar-h);
-  background:rgba(239,246,255,.88);
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border-bottom:1px solid var(--border);
+#tabbar{
+  flex-shrink:0;height:var(--tbh);
+  background:rgba(235,244,255,.72);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--bd);
   overflow:hidden;position:relative
 }
-.tabbar-inner{
+/* fade right edge so + button has clean space */
+#tabbar::after{
+  content:'';position:absolute;right:44px;top:0;bottom:0;
+  width:28px;background:linear-gradient(to right,transparent,rgba(235,244,255,.9));
+  pointer-events:none;z-index:1
+}
+.tb-inner{
   display:flex;align-items:stretch;height:100%;
   overflow-x:auto;overflow-y:hidden;
-  scrollbar-width:none;-ms-overflow-style:none;
-  padding:0 6px;gap:2px
+  scrollbar-width:none;padding:0 4px;gap:2px
 }
-.tabbar-inner::-webkit-scrollbar{display:none}
+.tb-inner::-webkit-scrollbar{display:none}
 
-/* single tab */
-.ws-tab{
+/* individual tab */
+.tab{
   display:flex;align-items:center;gap:5px;
-  padding:0 12px 0 10px;min-width:100px;max-width:200px;
+  padding:0 11px;min-width:90px;max-width:195px;
   height:100%;flex-shrink:0;
-  background:transparent;color:var(--text-tab);
-  font-size:13px;cursor:pointer;user-select:none;
+  color:var(--tx2);font-size:13px;
+  cursor:pointer;user-select:none;
   border-bottom:2px solid transparent;
-  border-radius:var(--r-sm) var(--r-sm) 0 0;
-  transition:background .12s,color .12s,border-color .12s;
+  border-radius:var(--r1) var(--r1) 0 0;
+  transition:background .13s,color .13s,border-color .13s;
   position:relative
 }
-.ws-tab:hover{background:rgba(255,255,255,.55);color:var(--text-primary)}
-.ws-tab.active{
-  background:var(--surface);color:var(--text-tab-active);
-  font-weight:600;border-bottom-color:var(--blue-600);
-  box-shadow:0 -1px 0 0 rgba(37,99,235,.15) inset,
-             0 2px 8px rgba(30,58,95,.06)
+.tab:hover{background:rgba(255,255,255,.5);color:var(--tx)}
+
+/* ACTIVE TAB — more glass, stronger signal */
+.tab.on{
+  background:rgba(255,255,255,.96);
+  color:var(--b9);font-weight:600;
+  border-bottom-color:var(--b6);
+  box-shadow:
+    0 -2px 12px rgba(37,99,235,.08),
+    0 1px 0 0 rgba(255,255,255,.95),
+    inset 0 1px 0 rgba(255,255,255,1);
+  z-index:2
 }
-.tab-icon{font-size:14px;flex-shrink:0}
-.tab-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-.tab-close{
+.tab-ico{font-size:14px;flex-shrink:0;opacity:.8}
+.tab.on .tab-ico{opacity:1}
+.tab-lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.tab-x{
   flex-shrink:0;width:18px;height:18px;
   border-radius:50%;font-size:10px;
-  color:var(--text-muted);opacity:0;
+  color:var(--txm);
   display:flex;align-items:center;justify-content:center;
-  transition:all .12s
+  opacity:0;transition:all .13s;margin-left:1px
 }
-.ws-tab:hover .tab-close{opacity:1}
-.ws-tab.active .tab-close{opacity:.6}
-.tab-close:hover{opacity:1!important;background:var(--danger-bg);color:var(--danger)}
-.tab-new{
-  flex-shrink:0;width:38px;height:100%;
-  font-size:20px;color:var(--text-muted);
+.tab:hover .tab-x,.tab.on .tab-x{opacity:.65}
+.tab-x:hover{opacity:1!important;background:var(--er-bg);color:var(--er)}
+.tab-plus{
+  flex-shrink:0;width:42px;height:100%;
+  font-size:21px;font-weight:300;color:var(--txm);
   display:flex;align-items:center;justify-content:center;
-  border-radius:var(--r-sm);margin:auto 2px;
-  transition:all .12s
+  border-radius:var(--r1);
+  transition:all .13s;z-index:2;position:relative
 }
-.tab-new:hover{color:var(--blue-600);background:rgba(255,255,255,.6)}
-
-/* fade edge on right */
-#ws-tabbar::after{
-  content:'';position:absolute;right:46px;top:0;bottom:0;
-  width:32px;background:linear-gradient(to right,transparent,rgba(239,246,255,.9));
-  pointer-events:none
-}
+.tab-plus:hover{color:var(--b6);background:rgba(255,255,255,.6)}
 
 /* ── WORKSPACE ────────────────────────────────────────────────────────────── */
-#ws-workspace{
+#workspace{
   flex:1;overflow-y:auto;
-  padding:32px 28px 48px;
+  padding:36px 28px 52px;
   scroll-behavior:smooth;position:relative
 }
-@media(max-width:640px){#ws-workspace{padding:18px 14px 36px}}
+@media(max-width:640px){#workspace{padding:20px 14px 40px}}
+.pi{width:100%;max-width:1100px;margin:0 auto}
 
-/* ── Shared page layout ───────────────────────────────────────────────────── */
-.page-inner{width:100%;max-width:1100px;margin:0 auto}
-
-.page-header{margin-bottom:28px}
-.page-header-row{display:flex;align-items:center;justify-content:space-between;
+/* ── Shared ───────────────────────────────────────────────────────────────── */
+.ph{margin-bottom:28px}
+.ph-row{display:flex;align-items:center;justify-content:space-between;
   gap:12px;flex-wrap:wrap;margin-bottom:4px}
-.page-title{font-size:26px;font-weight:700;color:var(--text-primary);
-  letter-spacing:-.025em;line-height:1.15}
-.page-subtitle{font-size:13px;color:var(--text-secondary);margin-top:5px}
+.ptitle{font-size:26px;font-weight:700;letter-spacing:-.025em;line-height:1.15}
+.psub{font-size:13px;color:var(--tx2);margin-top:4px}
 
-.section{
-  background:var(--surface-glass);
+.sec{
+  background:var(--surf-g);
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border:1px solid var(--border);border-radius:var(--r-lg);
-  padding:22px 24px;margin-bottom:16px;box-shadow:var(--shadow-glass)
+  border:1px solid var(--bd);border-radius:var(--r3);
+  padding:22px 24px;margin-bottom:14px;box-shadow:var(--shg)
 }
-.section-title{
-  font-size:11px;font-weight:700;color:var(--text-muted);
-  letter-spacing:.07em;text-transform:uppercase;margin-bottom:16px
-}
+.sec-h{font-size:11px;font-weight:700;color:var(--txm);
+  letter-spacing:.07em;text-transform:uppercase;margin-bottom:16px}
 
-.demo-note{
-  display:flex;align-items:center;gap:8px;
-  font-size:11px;color:var(--text-muted);
-  padding:8px 0 0;margin-top:4px
-}
-.demo-dot{width:5px;height:5px;border-radius:50%;background:var(--warn);flex-shrink:0}
+.note{display:flex;align-items:center;gap:7px;
+  font-size:11px;color:var(--txm);padding:6px 0}
+.nd{width:5px;height:5px;border-radius:50%;background:var(--wn);flex-shrink:0}
 
-/* ── Badges ───────────────────────────────────────────────────────────────── */
-.badge{display:inline-flex;align-items:center;font-size:11px;font-weight:600;
-  padding:3px 9px;border-radius:var(--r-pill);white-space:nowrap}
-.badge-ok    {background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok-border)}
-.badge-warn  {background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-border)}
-.badge-danger{background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border)}
-.badge-info  {background:var(--info-bg);color:var(--info);border:1px solid var(--info-border)}
+/* Badge */
+.bdg{display:inline-flex;align-items:center;font-size:11px;font-weight:600;
+  padding:3px 9px;border-radius:var(--rp);white-space:nowrap}
+.b-ok  {background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok-bd)}
+.b-wn  {background:var(--wn-bg);color:var(--wn);border:1px solid var(--wn-bd)}
+.b-er  {background:var(--er-bg);color:var(--er);border:1px solid var(--er-bd)}
+.b-in  {background:var(--in-bg);color:var(--in);border:1px solid var(--in-bd)}
 
-/* ── Buttons ──────────────────────────────────────────────────────────────── */
-.btn-primary{
-  background:var(--blue-600);color:#fff;
-  font-size:13px;font-weight:600;padding:9px 18px;
-  border-radius:var(--r-md);transition:all .12s;white-space:nowrap
-}
-.btn-primary:hover{background:var(--blue-700);transform:translateY(-1px);box-shadow:var(--shadow-md)}
-.btn-primary:active{transform:none;box-shadow:none}
-.btn-secondary{
-  background:var(--surface-raised);color:var(--text-secondary);
-  font-size:13px;font-weight:500;padding:9px 16px;
-  border-radius:var(--r-md);border:1px solid var(--border);transition:all .12s
-}
-.btn-secondary:hover{background:var(--blue-100);color:var(--blue-600)}
+/* Buttons */
+.btnp{background:var(--b6);color:#fff;font-size:13px;font-weight:600;
+  padding:9px 18px;border-radius:var(--r2);transition:all .12s;white-space:nowrap}
+.btnp:hover{background:var(--b7);transform:translateY(-1px);box-shadow:var(--sh2)}
+.btnp:active{transform:none;box-shadow:none}
+.btns{background:var(--surf-r);color:var(--tx2);font-size:13px;font-weight:500;
+  padding:9px 16px;border-radius:var(--r2);border:1px solid var(--bd);transition:all .12s}
+.btns:hover{background:var(--b1);color:var(--b6)}
 
-/* ════════════════════════════════════════════════════════════════════════════
-   HOME PAGE
-   ════════════════════════════════════════════════════════════════════════════ */
-.home-greeting{margin-bottom:36px}
-.greeting-eyebrow{
-  font-size:11px;font-weight:600;letter-spacing:.1em;
-  text-transform:uppercase;color:var(--text-muted);margin-bottom:8px
-}
-.greeting-text{
-  font-size:32px;font-weight:700;color:var(--blue-900);
-  letter-spacing:-.035em;line-height:1.15
-}
-.greeting-sub{font-size:15px;color:var(--text-secondary);margin-top:6px}
+/* ════ HOME ═══════════════════════════════════════════════════════════════ */
+.greet{margin-bottom:40px}
+.greet-ey{font-size:11px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--txm);margin-bottom:9px}
+.greet-h{font-size:33px;font-weight:700;color:var(--b9);
+  letter-spacing:-.04em;line-height:1.12}
+.greet-s{font-size:15px;color:var(--tx2);margin-top:6px}
 
-/* Desktop: 3-col, tablet: 2-col, mobile: 1-col */
-.home-grid{
-  display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:16px;margin-bottom:28px
-}
-@media(max-width:900px){.home-grid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:560px){.home-grid{grid-template-columns:1fr}}
+.hgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px}
+@media(max-width:920px){.hgrid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.hgrid{grid-template-columns:1fr}}
 
-.home-card{
-  display:flex;flex-direction:column;gap:0;
-  background:var(--surface-glass);
+.hcard{
+  display:flex;flex-direction:column;
+  background:var(--surf-g);
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  border:1px solid var(--border);border-radius:var(--r-xl);
-  padding:0;text-align:left;cursor:pointer;
-  box-shadow:var(--shadow-glass);
-  transition:all .22s cubic-bezier(.34,1.25,.64,1);
-  overflow:hidden
+  border:1px solid var(--bd);border-radius:var(--r3);
+  text-align:left;cursor:pointer;overflow:hidden;
+  box-shadow:var(--shg);
+  transition:transform .22s cubic-bezier(.34,1.3,.64,1),
+             box-shadow .22s,border-color .22s
 }
-.home-card:hover{
-  transform:translateY(-3px);
-  box-shadow:0 16px 48px rgba(30,58,95,.14);
-  border-color:var(--blue-400)
-}
-.home-card:active{transform:translateY(0);box-shadow:var(--shadow-sm)}
+.hcard:hover{transform:translateY(-3px);box-shadow:var(--sh3);border-color:var(--b4)}
+.hcard:active{transform:translateY(0);box-shadow:var(--sh1)}
 
-.home-card-top{
-  padding:22px 22px 16px;
-  display:flex;align-items:flex-start;justify-content:space-between;gap:12px
-}
-.home-card-icon{
-  font-size:28px;width:52px;height:52px;
+.hcard-top{padding:22px 22px 14px;display:flex;align-items:flex-start;justify-content:space-between}
+.hcard-ico{font-size:28px;width:52px;height:52px;
   display:flex;align-items:center;justify-content:center;
-  background:var(--blue-50);border:1px solid var(--blue-100);
-  border-radius:var(--r-lg);flex-shrink:0
-}
-.home-card-arrow{font-size:18px;color:var(--text-muted);transition:transform .15s,color .15s}
-.home-card:hover .home-card-arrow{transform:translate(2px,-2px);color:var(--blue-500)}
-
-.home-card-body{padding:0 22px 22px}
-.home-card-title{font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:5px}
-.home-card-desc{font-size:12px;color:var(--text-muted);line-height:1.55}
-
-/* Pinned status strip at bottom of card */
-.home-card-status{
-  border-top:1px solid var(--border);
-  padding:9px 22px;
-  font-size:11px;font-weight:500;color:var(--text-muted);
+  background:var(--b0);border:1px solid var(--b1);border-radius:var(--r2)}
+.hcard-arr{font-size:17px;color:var(--txm);transition:transform .15s,color .15s}
+.hcard:hover .hcard-arr{transform:translate(2px,-2px);color:var(--b5)}
+.hcard-body{padding:0 22px 18px;flex:1}
+.hcard-title{font-size:16px;font-weight:700;color:var(--tx);margin-bottom:5px}
+.hcard-desc{font-size:12px;color:var(--txm);line-height:1.58}
+.hcard-foot{
+  border-top:1px solid var(--bd);padding:9px 22px;
+  font-size:11px;font-weight:500;color:var(--txm);
   display:flex;align-items:center;gap:6px;
-  background:rgba(239,246,255,.4)
+  background:rgba(239,246,255,.38)
 }
-.status-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.status-ok{background:var(--ok)}
-.status-warn{background:var(--warn)}
-.status-info{background:var(--info)}
+.sdot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.s-ok{background:var(--ok)}.s-wn{background:var(--wn)}.s-in{background:var(--in)}
 
-/* ════════════════════════════════════════════════════════════════════════════
-   BOT CENTER
-   ════════════════════════════════════════════════════════════════════════════ */
-.pipeline-list{display:flex;flex-direction:column;gap:8px}
-.pipeline-item{
-  display:flex;align-items:center;gap:12px;
-  padding:12px 16px;
-  background:var(--surface-raised);border:1px solid var(--border);
-  border-radius:var(--r-md)
-}
-.pipeline-step{
-  width:26px;height:26px;border-radius:50%;
-  background:var(--blue-100);color:var(--blue-700);
-  font-size:11px;font-weight:700;
-  display:flex;align-items:center;justify-content:center;flex-shrink:0
-}
-.pipeline-body{flex:1;min-width:0}
-.pipeline-name{display:block;font-size:13px;font-weight:500;
-  color:var(--text-primary);font-family:var(--font-mono);margin-bottom:1px}
-.pipeline-meta{font-size:11px;color:var(--text-muted)}
+/* ════ BOTS ═══════════════════════════════════════════════════════════════ */
+.pipelist{display:flex;flex-direction:column;gap:8px}
+.pitem{display:flex;align-items:center;gap:12px;
+  padding:12px 16px;background:var(--surf-r);
+  border:1px solid var(--bd);border-radius:var(--r2)}
+.pstep{width:26px;height:26px;border-radius:50%;
+  background:var(--b1);color:var(--b7);font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.pbody{flex:1;min-width:0}
+.pname{display:block;font-size:13px;font-weight:500;
+  color:var(--tx);font-family:var(--fm);margin-bottom:1px}
+.pmeta{font-size:11px;color:var(--txm)}
 
-.obs-list{display:flex;flex-direction:column;gap:8px}
-.obs-item{
-  display:flex;align-items:flex-start;gap:10px;
-  padding:11px 14px;border-radius:var(--r-md);
-  border:1px solid var(--border);background:var(--surface-raised);
-  font-size:13px;line-height:1.5
-}
-.obs-warn{border-color:var(--warn-border);background:var(--warn-bg)}
-.obs-info{border-color:var(--info-border);background:var(--info-bg)}
+.obslist{display:flex;flex-direction:column;gap:8px}
+.obs{display:flex;align-items:flex-start;gap:10px;
+  padding:11px 14px;border-radius:var(--r2);
+  border:1px solid var(--bd);background:var(--surf-r);
+  font-size:13px;line-height:1.5}
+.obs-wn{border-color:var(--wn-bd);background:var(--wn-bg)}
+.obs-in{border-color:var(--in-bd);background:var(--in-bg)}
 
-/* ════════════════════════════════════════════════════════════════════════════
-   RECIPE
-   ════════════════════════════════════════════════════════════════════════════ */
-.recipe-layout{display:grid;grid-template-columns:1fr 1.4fr;gap:16px}
-@media(max-width:720px){.recipe-layout{grid-template-columns:1fr}}
+/* ════ RECIPE ════════════════════════════════════════════════════════════ */
+.rlayout{display:grid;grid-template-columns:1fr 1.45fr;gap:16px}
+@media(max-width:740px){.rlayout{grid-template-columns:1fr}}
 
-.bom-row{
-  display:grid;grid-template-columns:1fr auto;gap:16px;
-  padding:9px 2px;border-bottom:1px solid var(--border);align-items:center
-}
-.bom-row:last-child{border-bottom:none}
-.bom-item{font-size:13px;color:var(--text-primary)}
-.bom-qty{font-size:12px;font-weight:600;font-family:var(--font-mono);
-  color:var(--blue-600);white-space:nowrap}
-.bom-header{
-  display:grid;grid-template-columns:1fr auto;gap:16px;
-  padding:0 2px 8px;border-bottom:1px solid var(--border);margin-bottom:2px;
-  font-size:10px;font-weight:700;color:var(--text-muted);
-  text-transform:uppercase;letter-spacing:.06em
-}
+.bom-hd{display:grid;grid-template-columns:1fr auto;gap:14px;
+  padding:0 2px 9px;border-bottom:1px solid var(--bd);margin-bottom:2px;
+  font-size:10px;font-weight:700;color:var(--txm);
+  text-transform:uppercase;letter-spacing:.06em}
+.brow{display:grid;grid-template-columns:1fr auto;gap:14px;
+  padding:8px 2px;border-bottom:1px solid var(--bd);align-items:center}
+.brow:last-child{border-bottom:none}
+.bitem{font-size:13px;color:var(--tx)}
+.bqty{font-size:12px;font-weight:600;font-family:var(--fm);color:var(--b6);white-space:nowrap}
 
-.steps-list{display:flex;flex-direction:column;gap:12px}
-.step-item{display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.55}
-.step-num{
-  width:24px;height:24px;border-radius:50%;
-  background:var(--blue-600);color:#fff;
-  font-size:11px;font-weight:700;
-  display:flex;align-items:center;justify-content:center;
-  flex-shrink:0;margin-top:1px
-}
+.slist{display:flex;flex-direction:column;gap:12px}
+.sitem{display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.58}
+.snum{width:24px;height:24px;border-radius:50%;
+  background:var(--b6);color:#fff;font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
 
-/* ════════════════════════════════════════════════════════════════════════════
-   INVENTORY
-   ════════════════════════════════════════════════════════════════════════════ */
-.inv-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
-@media(max-width:560px){.inv-stats{grid-template-columns:1fr 1fr}}
-.inv-stat{
-  background:var(--surface-glass);backdrop-filter:blur(10px);
-  border:1px solid var(--border);border-radius:var(--r-lg);
-  padding:16px 18px;box-shadow:var(--shadow-glass)
-}
-.inv-stat-label{font-size:10px;color:var(--text-muted);text-transform:uppercase;
-  letter-spacing:.06em;margin-bottom:6px;display:block}
-.inv-stat-value{font-size:20px;font-weight:700;color:var(--text-primary)}
-.val-ok{color:var(--ok)}.val-bad{color:var(--danger);font-size:13px!important}
+/* ════ INVENTORY ════════════════════════════════════════════════════════ */
+.istats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+@media(max-width:560px){.istats{grid-template-columns:1fr 1fr}}
+.istat{background:var(--surf-g);backdrop-filter:blur(10px);
+  border:1px solid var(--bd);border-radius:var(--r2);
+  padding:16px 18px;box-shadow:var(--shg)}
+.ilbl{font-size:10px;color:var(--txm);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:5px;display:block}
+.ival{font-size:20px;font-weight:700;color:var(--tx)}
+.v-ok{color:var(--ok)}.v-er{color:var(--er);font-size:13px!important}
 
-.movements-list{display:flex;flex-direction:column;gap:6px}
-.movement-row{
-  display:grid;grid-template-columns:90px 62px 1fr;
+.mlist{display:flex;flex-direction:column;gap:6px}
+.mrow{display:grid;grid-template-columns:90px 62px 1fr;
   align-items:center;gap:12px;
-  padding:10px 14px;background:var(--surface-raised);
-  border:1px solid var(--border);border-radius:var(--r-md);font-size:13px
-}
-@media(max-width:480px){.movement-row{grid-template-columns:70px 55px 1fr;gap:8px}}
-.m-date{font-size:11px;color:var(--text-muted);font-family:var(--font-mono)}
-.m-qty{font-weight:700;font-family:var(--font-mono)}
-.qty-pos{color:var(--ok)}.qty-neg{color:var(--danger)}
-.m-meta{display:flex;flex-direction:column;gap:1px;min-width:0}
-.m-source{font-weight:500;font-size:13px;color:var(--text-primary)}
-.m-note{font-size:11px;color:var(--text-muted)}
+  padding:10px 14px;background:var(--surf-r);
+  border:1px solid var(--bd);border-radius:var(--r2);font-size:13px}
+@media(max-width:480px){.mrow{grid-template-columns:70px 52px 1fr;gap:8px}}
+.md{font-size:11px;color:var(--txm);font-family:var(--fm)}
+.mq{font-weight:700;font-family:var(--fm)}
+.qp{color:var(--ok)}.qn{color:var(--er)}
+.mm{display:flex;flex-direction:column;gap:1px;min-width:0}
+.ms{font-weight:500;font-size:13px;color:var(--tx)}
+.mn{font-size:11px;color:var(--txm)}
 
-/* ════════════════════════════════════════════════════════════════════════════
-   JOURNAL
-   ════════════════════════════════════════════════════════════════════════════ */
-.filter-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
-.chip{
-  font-size:12px;font-weight:500;padding:5px 13px;
-  border-radius:var(--r-pill);border:1px solid var(--border);
-  color:var(--text-secondary);background:var(--surface-raised);
-  cursor:pointer;transition:all .12s
-}
-.chip:hover{border-color:var(--blue-400);color:var(--blue-600)}
-.chip.active{background:var(--blue-600);color:#fff;border-color:var(--blue-600)}
+/* ════ JOURNAL ══════════════════════════════════════════════════════════ */
+.frow{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.chip{font-size:12px;font-weight:500;padding:5px 13px;
+  border-radius:var(--rp);border:1px solid var(--bd);
+  color:var(--tx2);background:var(--surf-r);cursor:pointer;transition:all .12s}
+.chip:hover{border-color:var(--b4);color:var(--b6)}
+.chip.on{background:var(--b6);color:#fff;border-color:var(--b6)}
 
-.j-entries{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
-.j-entry{
-  background:var(--surface-glass);backdrop-filter:blur(10px);
-  border:1px solid var(--border);border-radius:var(--r-lg);
-  padding:16px 20px;transition:box-shadow .12s
-}
-.j-entry:hover{box-shadow:var(--shadow-md)}
-.j-entry.sev-ok  {border-left:3px solid var(--ok)}
-.j-entry.sev-warn{border-left:3px solid var(--warn)}
-.j-meta{display:flex;align-items:center;gap:5px;margin-bottom:6px;flex-wrap:wrap}
-.j-cat{font-size:10px;font-weight:700;color:var(--text-secondary);letter-spacing:.06em}
-.j-dot{font-size:9px;color:var(--text-muted)}
-.j-time{font-size:11px;color:var(--text-muted);font-family:var(--font-mono)}
-.j-author{font-size:11px;color:var(--text-muted)}
-.j-title{font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:4px}
-.j-body{font-size:13px;color:var(--text-secondary);line-height:1.55}
+.jlist{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.jent{background:var(--surf-g);backdrop-filter:blur(10px);
+  border:1px solid var(--bd);border-radius:var(--r2);
+  padding:16px 20px;transition:box-shadow .13s}
+.jent:hover{box-shadow:var(--sh2)}
+.jent.sv-ok{border-left:3px solid var(--ok)}
+.jent.sv-wn{border-left:3px solid var(--wn)}
+.jmeta{display:flex;align-items:center;gap:5px;margin-bottom:6px;flex-wrap:wrap}
+.jcat{font-size:10px;font-weight:700;color:var(--tx2);letter-spacing:.06em}
+.jdot{font-size:9px;color:var(--txm)}
+.jtm{font-size:11px;color:var(--txm);font-family:var(--fm)}
+.jau{font-size:11px;color:var(--txm)}
+.jtit{font-size:15px;font-weight:600;color:var(--tx);margin-bottom:4px}
+.jbod{font-size:13px;color:var(--tx2);line-height:1.55}
 
-/* ════════════════════════════════════════════════════════════════════════════
-   MODAL (small actions only)
-   ════════════════════════════════════════════════════════════════════════════ */
-.modal-backdrop{
+/* ════ MODAL ════════════════════════════════════════════════════════════ */
+.mbk{
   position:absolute;inset:0;
-  background:rgba(30,58,95,.32);
+  background:rgba(30,58,95,.3);
   backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);
   display:flex;align-items:flex-end;justify-content:center;
-  z-index:200;min-height:300px
+  z-index:200;min-height:240px
 }
-.modal-backdrop.hidden{display:none}
-.modal-sheet{
-  background:var(--surface);
-  border-radius:var(--r-xl) var(--r-xl) 0 0;
-  width:100%;max-width:520px;
-  box-shadow:var(--shadow-lg);
-  animation:slideUp .26s cubic-bezier(.34,1.4,.64,1)
-}
-@media(min-width:600px){.modal-sheet{border-radius:var(--r-xl);margin:auto;animation:popIn .24s cubic-bezier(.34,1.4,.64,1)}}
-@keyframes slideUp{from{transform:translateY(60px);opacity:0}to{transform:translateY(0);opacity:1}}
-@keyframes popIn{from{transform:scale(.93);opacity:0}to{transform:scale(1);opacity:1}}
-.modal-head{display:flex;align-items:center;justify-content:space-between;
-  padding:18px 22px 14px;border-bottom:1px solid var(--border)}
-.modal-title{font-size:16px;font-weight:600;color:var(--text-primary)}
-.modal-x{width:28px;height:28px;border-radius:50%;
-  background:var(--bg-mid);color:var(--text-muted);font-size:12px;
+.mbk.hi{display:none}
+@media(min-width:600px){.mbk{align-items:center;padding:24px}}
+.msh{background:var(--surf);border-radius:var(--r3) var(--r3) 0 0;
+  width:100%;max-width:520px;box-shadow:var(--sh3);
+  animation:sUp .26s cubic-bezier(.34,1.45,.64,1)}
+@media(min-width:600px){.msh{border-radius:var(--r3);animation:pIn .22s cubic-bezier(.34,1.45,.64,1)}}
+@keyframes sUp{from{transform:translateY(56px);opacity:0}to{transform:none;opacity:1}}
+@keyframes pIn{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}
+.mhd{display:flex;align-items:center;justify-content:space-between;
+  padding:18px 22px 14px;border-bottom:1px solid var(--bd)}
+.mt{font-size:16px;font-weight:600}
+.mx{width:28px;height:28px;border-radius:50%;
+  background:var(--bg2);color:var(--txm);font-size:12px;
   display:flex;align-items:center;justify-content:center;transition:all .12s}
-.modal-x:hover{background:var(--danger-bg);color:var(--danger)}
-.modal-body{padding:18px 22px;display:flex;flex-direction:column;gap:12px}
-.modal-foot{display:flex;justify-content:flex-end;gap:8px;
-  padding:14px 22px 22px;border-top:1px solid var(--border)}
-.form-lbl{font-size:11px;font-weight:700;color:var(--text-secondary);
+.mx:hover{background:var(--er-bg);color:var(--er)}
+.mbody{padding:18px 22px;display:flex;flex-direction:column;gap:12px}
+.mfoot{display:flex;justify-content:flex-end;gap:8px;
+  padding:14px 22px 22px;border-top:1px solid var(--bd)}
+.flbl{font-size:11px;font-weight:700;color:var(--tx2);
   text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px}
-.form-in{width:100%;background:var(--bg-base);border:1px solid var(--border-strong);
-  border-radius:var(--r-sm);padding:9px 12px;font-size:13px;color:var(--text-primary);
-  outline:none;transition:border-color .12s,box-shadow .12s}
-.form-in:focus{border-color:var(--blue-500);box-shadow:0 0 0 3px rgba(59,130,246,.14)}
-.form-ta{resize:vertical;min-height:80px}
+.fin{width:100%;background:var(--bg);border:1px solid var(--bd2);
+  border-radius:var(--r1);padding:9px 12px;font-size:13px;color:var(--tx);
+  outline:none;transition:border-color .13s,box-shadow .13s}
+.fin:focus{border-color:var(--b5);box-shadow:0 0 0 3px rgba(59,130,246,.14)}
+.fta{resize:vertical;min-height:80px}
 
-/* ════════════════════════════════════════════════════════════════════════════
-   YES CHEF SHEET
-   ════════════════════════════════════════════════════════════════════════════ */
+/* ════ YES CHEF ═════════════════════════════════════════════════════════ */
 #ycs{
   position:absolute;inset:0;
   display:flex;align-items:center;justify-content:center;
-  z-index:300;pointer-events:none;opacity:0;
-  transition:opacity .2s
+  z-index:300;pointer-events:none;opacity:0;transition:opacity .2s
 }
-#ycs.show{pointer-events:all;opacity:1}
-.ycs-bg{
-  position:absolute;inset:0;
-  background:rgba(30,58,95,.45);backdrop-filter:blur(8px);
-  -webkit-backdrop-filter:blur(8px)
+#ycs.on{pointer-events:all;opacity:1}
+.yb{position:absolute;inset:0;background:rgba(30,58,95,.42);
+  backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px)}
+.yc{
+  position:relative;background:var(--surf);border-radius:var(--r3);
+  width:88%;max-width:360px;
+  padding:46px 36px 50px;text-align:center;box-shadow:var(--sh3);
+  transform:scale(.86) translateY(18px);
+  transition:transform .3s cubic-bezier(.34,1.5,.64,1)
 }
-.ycs-card{
-  position:relative;background:var(--surface);
-  border-radius:var(--r-xl);width:90%;max-width:360px;
-  padding:44px 36px 48px;text-align:center;
-  box-shadow:var(--shadow-lg);
-  transform:scale(.88) translateY(16px);transition:transform .28s cubic-bezier(.34,1.5,.64,1)
-}
-#ycs.show .ycs-card{transform:scale(1) translateY(0)}
-.ycs-icon{font-size:52px;margin-bottom:14px}
-.ycs-title{font-size:24px;font-weight:700;color:var(--text-primary);margin-bottom:10px}
-.ycs-msg{font-size:14px;color:var(--text-secondary);margin-bottom:28px;line-height:1.55}
-.ycs-btn{width:100%;max-width:220px;padding:13px 24px;font-size:15px}
+#ycs.on .yc{transform:scale(1) translateY(0)}
+.yi{font-size:54px;margin-bottom:14px}
+.yh{font-size:25px;font-weight:700;color:var(--tx);margin-bottom:10px}
+.ym{font-size:14px;color:var(--tx2);margin-bottom:28px;line-height:1.55}
 </style>
 </head>
 <body>
-<div id="ws-app">
-  <header id="ws-topbar"></header>
-  <nav    id="ws-tabbar" role="tablist"></nav>
-  <main   id="ws-workspace" role="main" tabindex="-1" style="position:relative"></main>
+<div id="app">
+  <header id="topbar"></header>
+  <nav id="tabbar" role="tablist"></nav>
+  <main id="workspace" role="main" tabindex="-1" style="position:relative"></main>
 </div>
 
 <script>
-/* ══ TRANSLATIONS ══════════════════════════════════════════════════════════ */
+/* ══ i18n ══════════════════════════════════════════════════════════════════ */
 const TR={
 it:{
-  'topbar.search':'Cerca...',
-  'role.executive':'Executive Chef','role.lead':'Sous Chef',
-  'role.coordinator':'Coordinatore','role.cook':'Cuoco',
-  'role.dish_crew':'Dish Crew','role.viewer':'Ospite',
-  'role.label':'Ruolo',
-  'tab.home':'Home','tab.bot_center':'Bot Center',
-  'tab.daily_journal':'Diario','tab.recipe':'Ricetta: {name}',
-  'tab.inventory':'Dispensa: {name}','tab.new_page':'Nuova pagina',
-  'home.morning':'Buongiorno, {n}.','home.afternoon':'Buon pomeriggio, {n}.',
-  'home.evening':'Buonasera, {n}.',
-  'home.sub':'Cosa lavoriamo oggi?',
-  'home.eyebrow':'Zenos on the Square · Weatherford TX',
-  'card.bots.t':'Bot Center','card.bots.d':'Pipeline POS · deduction log · avvisi sistema',
-  'card.bots.s':'Pipeline OK · 5 bot · 02:13 CDT',
-  'card.journal.t':'Diario operativo','card.journal.d':'Log condiviso · manutenzione · eventi servizio',
-  'card.journal.s':'4 voci oggi',
-  'card.recipe.t':'Ricetta: Tiramisu','card.recipe.d':'BOM · procedura Pastry · 10 porzioni',
-  'card.recipe.s':'Ultima modifica: 08/07',
-  'card.inv.t':'Dispensa: Caesar','card.inv.d':'Stock · carichi · modifier depletion 60gg',
-  'card.inv.s':'Stock: 2.4 kg · 312 uses/60gg',
-  'bots.title':'Bot Center','bots.sub':'Pipeline POS — esecuzione sequenziale nightly',
-  'bots.pipeline':'Pipeline nightly · 2026-07-08',
-  'bots.last_run':'Ultima esecuzione','bots.observations':'Osservazioni',
-  'bots.status.ok':'OK','bots.status.warn':'Attenzione',
-  'bots.status.error':'Errore','bots.status.pending':'In attesa',
-  'recipe.bom':'Ingredienti (BOM)','recipe.steps':'Procedura',
-  'recipe.station':'Stazione: {s}','recipe.batch':'Batch da {n} pezzi',
-  'recipe.note':'Dati demo — nessuna query DB in questo prototipo',
-  'inv.title':'Dispensa','inv.stock':'Stock attuale',
-  'inv.loaded':'Caricato oggi','inv.deducted':'Scaricato POS (60gg)',
-  'inv.movements':'Movimenti recenti','inv.note':'Dati demo — nessuna query DB',
-  'journal.title':'Diario operativo',
-  'journal.sub':'Log condiviso — servizio, manutenzione, eventi',
-  'journal.new':'Nuova voce','journal.all':'Tutto',
-  'j.service':'Servizio','j.maintenance':'Manutenzione','j.kitchen':'Cucina',
-  'j.staff':'Staff','j.incident':'Incidente','j.purchase':'Acquisto',
-  'j.form.title':'Titolo','j.form.cat':'Categoria','j.form.body':'Note',
-  'j.form.save':'Salva voce','j.form.cancel':'Annulla',
-  'ycs.title':'Sì Chef! ✅','ycs.close':'Chiudi',
-  'demo':'Prototipo — nessun dato reale',
+  search:'Cerca...', demo:'Prototipo — nessun dato reale',
+  eyebrow:'Zenos on the Square · Weatherford TX',
+  morning:'Buongiorno, {n}.', afternoon:'Buon pomeriggio, {n}.', evening:'Buonasera, {n}.',
+  today:'Cosa lavoriamo oggi?',
+  role:'Ruolo', lbl_ex:'Executive Chef', lbl_ld:'Sous Chef',
+  lbl_co:'Coordinatore', lbl_ck:'Cuoco', lbl_dc:'Dish Crew', lbl_vi:'Ospite',
+  th:'Home', tb:'Bot Center', tj:'Diario', tr:'Ricetta: {n}', ti:'Dispensa: {n}',
+  tnew:'Nuova pagina',
+  ch_bo:'Bot Center', cd_bo:'Pipeline POS · deduction log · avvisi sistema', cs_bo:'Pipeline OK · 5 bot · 02:13 CDT',
+  ch_jo:'Diario operativo', cd_jo:'Log condiviso · manutenzione · eventi servizio', cs_jo:'4 voci oggi',
+  ch_re:'Ricetta: Tiramisu', cd_re:'BOM · procedura Pastry · 10 porzioni', cs_re:'Ultima modifica: 08/07',
+  ch_in:'Dispensa: Caesar', cd_in:'Stock · carichi · modifier depletion 60gg', cs_in:'Stock: 2.4 kg · 312 uses/60gg',
+  bt:'Bot Center', bsub:'Pipeline POS — esecuzione sequenziale nightly',
+  bpipe:'Pipeline nightly · 2026-07-08', blast:'Ultima esecuzione', bobs:'Osservazioni',
+  bok:'OK', bwn:'Attenzione', ber:'Errore', bpd:'In attesa',
+  rbom:'Ingredienti (BOM)', rsteps:'Procedura', rsta:'Stazione: {n}', rbatch:'Batch da {n} pezzi',
+  rnote:'Dati demo — nessuna query DB in questo prototipo',
+  istock:'Stock attuale', iloaded:'Caricato oggi', ideduct:'Scaricato POS (60gg)',
+  imovs:'Movimenti recenti', inote:'Dati demo — nessuna query DB',
+  jtit:'Diario operativo', jsub:'Log condiviso — servizio, manutenzione, eventi',
+  jnew:'Nuova voce', jall:'Tutto',
+  cservice:'Servizio', cmaint:'Manutenzione', ckitch:'Cucina',
+  cstaff:'Staff', cinci:'Incidente', cpurch:'Acquisto',
+  ft:'Titolo', fc:'Categoria', fb:'Note', fsave:'Salva voce', fcancel:'Annulla',
+  yct:'Sì Chef! ✅', ycclose:'Chiudi',
 },
 en:{
-  'topbar.search':'Search...',
-  'role.executive':'Executive Chef','role.lead':'Sous Chef',
-  'role.coordinator':'Coordinator','role.cook':'Cook',
-  'role.dish_crew':'Dish Crew','role.viewer':'Viewer',
-  'role.label':'Role',
-  'tab.home':'Home','tab.bot_center':'Bot Center',
-  'tab.daily_journal':'Journal','tab.recipe':'Recipe: {name}',
-  'tab.inventory':'Pantry: {name}','tab.new_page':'New page',
-  'home.morning':'Good morning, {n}.','home.afternoon':'Good afternoon, {n}.',
-  'home.evening':'Good evening, {n}.',
-  'home.sub':'What are we working on today?',
-  'home.eyebrow':'Zenos on the Square · Weatherford TX',
-  'card.bots.t':'Bot Center','card.bots.d':'POS pipeline · deduction log · system alerts',
-  'card.bots.s':'Pipeline OK · 5 bots · 02:13 CDT',
-  'card.journal.t':'Operations Journal','card.journal.d':'Shared log · maintenance · service events',
-  'card.journal.s':'4 entries today',
-  'card.recipe.t':'Recipe: Tiramisu','card.recipe.d':'BOM · Pastry procedure · 10 servings',
-  'card.recipe.s':'Last edited: 08/07',
-  'card.inv.t':'Pantry: Caesar','card.inv.d':'Stock · loads · modifier depletion 60d',
-  'card.inv.s':'Stock: 2.4 kg · 312 uses/60d',
-  'bots.title':'Bot Center','bots.sub':'POS Pipeline — sequential nightly execution',
-  'bots.pipeline':'Nightly pipeline · 2026-07-08',
-  'bots.last_run':'Last run','bots.observations':'Observations',
-  'bots.status.ok':'OK','bots.status.warn':'Warning',
-  'bots.status.error':'Error','bots.status.pending':'Pending',
-  'recipe.bom':'Ingredients (BOM)','recipe.steps':'Procedure',
-  'recipe.station':'Station: {s}','recipe.batch':'Batch of {n}',
-  'recipe.note':'Demo data — no DB query in this prototype',
-  'inv.title':'Pantry','inv.stock':'Current stock',
-  'inv.loaded':'Loaded today','inv.deducted':'POS deducted (60d)',
-  'inv.movements':'Recent movements','inv.note':'Demo data — no DB query',
-  'journal.title':'Operations Journal',
-  'journal.sub':'Shared log — service, maintenance, events',
-  'journal.new':'New entry','journal.all':'All',
-  'j.service':'Service','j.maintenance':'Maintenance','j.kitchen':'Kitchen',
-  'j.staff':'Staff','j.incident':'Incident','j.purchase':'Purchase',
-  'j.form.title':'Title','j.form.cat':'Category','j.form.body':'Notes',
-  'j.form.save':'Save entry','j.form.cancel':'Cancel',
-  'ycs.title':'Yes Chef! ✅','ycs.close':'Close',
-  'demo':'Prototype — no real data',
+  search:'Search...', demo:'Prototype — no real data',
+  eyebrow:'Zenos on the Square · Weatherford TX',
+  morning:'Good morning, {n}.', afternoon:'Good afternoon, {n}.', evening:'Good evening, {n}.',
+  today:'What are we working on today?',
+  role:'Role', lbl_ex:'Executive Chef', lbl_ld:'Sous Chef',
+  lbl_co:'Coordinator', lbl_ck:'Cook', lbl_dc:'Dish Crew', lbl_vi:'Viewer',
+  th:'Home', tb:'Bot Center', tj:'Journal', tr:'Recipe: {n}', ti:'Pantry: {n}',
+  tnew:'New page',
+  ch_bo:'Bot Center', cd_bo:'POS pipeline · deduction log · system alerts', cs_bo:'Pipeline OK · 5 bots · 02:13 CDT',
+  ch_jo:'Operations Journal', cd_jo:'Shared log · maintenance · service events', cs_jo:'4 entries today',
+  ch_re:'Recipe: Tiramisu', cd_re:'BOM · Pastry procedure · 10 servings', cs_re:'Last edited: 08/07',
+  ch_in:'Pantry: Caesar', cd_in:'Stock · loads · modifier depletion 60d', cs_in:'Stock: 2.4 kg · 312 uses/60d',
+  bt:'Bot Center', bsub:'POS Pipeline — sequential nightly execution',
+  bpipe:'Nightly pipeline · 2026-07-08', blast:'Last run', bobs:'Observations',
+  bok:'OK', bwn:'Warning', ber:'Error', bpd:'Pending',
+  rbom:'Ingredients (BOM)', rsteps:'Procedure', rsta:'Station: {n}', rbatch:'Batch of {n}',
+  rnote:'Demo data — no DB query in this prototype',
+  istock:'Current stock', iloaded:'Loaded today', ideduct:'POS deducted (60d)',
+  imovs:'Recent movements', inote:'Demo data — no DB query',
+  jtit:'Operations Journal', jsub:'Shared log — service, maintenance, events',
+  jnew:'New entry', jall:'All',
+  cservice:'Service', cmaint:'Maintenance', ckitch:'Kitchen',
+  cstaff:'Staff', cinci:'Incident', cpurch:'Purchase',
+  ft:'Title', fc:'Category', fb:'Notes', fsave:'Save entry', fcancel:'Cancel',
+  yct:'Yes Chef! ✅', ycclose:'Close',
 },
 es:{
-  'topbar.search':'Buscar...',
-  'role.executive':'Chef Ejecutivo','role.lead':'Sous Chef',
-  'role.coordinator':'Coordinador','role.cook':'Cocinero',
-  'role.dish_crew':'Equipo Platos','role.viewer':'Visitante',
-  'role.label':'Rol',
-  'tab.home':'Inicio','tab.bot_center':'Centro Bot',
-  'tab.daily_journal':'Diario','tab.recipe':'Receta: {name}',
-  'tab.inventory':'Despensa: {name}','tab.new_page':'Nueva página',
-  'home.morning':'Buenos días, {n}.','home.afternoon':'Buenas tardes, {n}.',
-  'home.evening':'Buenas noches, {n}.',
-  'home.sub':'¿En qué trabajamos hoy?',
-  'home.eyebrow':'Zenos on the Square · Weatherford TX',
-  'card.bots.t':'Centro Bot','card.bots.d':'Pipeline POS · log deducciones · alertas sistema',
-  'card.bots.s':'Pipeline OK · 5 bots · 02:13 CDT',
-  'card.journal.t':'Diario operativo','card.journal.d':'Registro compartido · mantenimiento · eventos',
-  'card.journal.s':'4 entradas hoy',
-  'card.recipe.t':'Receta: Tiramisu','card.recipe.d':'BOM · procedimiento Pastelería · 10 porciones',
-  'card.recipe.s':'Última edición: 08/07',
-  'card.inv.t':'Despensa: Caesar','card.inv.d':'Stock · cargas · modifier depletion 60d',
-  'card.inv.s':'Stock: 2.4 kg · 312 usos/60d',
-  'bots.title':'Centro Bot','bots.sub':'Pipeline POS — ejecución secuencial nocturna',
-  'bots.pipeline':'Pipeline nocturna · 2026-07-08',
-  'bots.last_run':'Última ejecución','bots.observations':'Observaciones',
-  'bots.status.ok':'OK','bots.status.warn':'Atención',
-  'bots.status.error':'Error','bots.status.pending':'Pendiente',
-  'recipe.bom':'Ingredientes (BOM)','recipe.steps':'Procedimiento',
-  'recipe.station':'Estación: {s}','recipe.batch':'Batch de {n} porciones',
-  'recipe.note':'Datos demo — sin consulta DB en este prototipo',
-  'inv.title':'Despensa','inv.stock':'Stock actual',
-  'inv.loaded':'Cargado hoy','inv.deducted':'Deducido POS (60d)',
-  'inv.movements':'Movimientos recientes','inv.note':'Datos demo — sin consulta DB',
-  'journal.title':'Diario de Operaciones',
-  'journal.sub':'Registro compartido — servicio, mantenimiento, eventos',
-  'journal.new':'Nueva entrada','journal.all':'Todo',
-  'j.service':'Servicio','j.maintenance':'Mantenimiento','j.kitchen':'Cocina',
-  'j.staff':'Personal','j.incident':'Incidente','j.purchase':'Compra',
-  'j.form.title':'Título','j.form.cat':'Categoría','j.form.body':'Notas',
-  'j.form.save':'Guardar entrada','j.form.cancel':'Cancelar',
-  'ycs.title':'¡Sí Chef! ✅','ycs.close':'Cerrar',
-  'demo':'Prototipo — sin datos reales',
+  search:'Buscar...', demo:'Prototipo — sin datos reales',
+  eyebrow:'Zenos on the Square · Weatherford TX',
+  morning:'Buenos días, {n}.', afternoon:'Buenas tardes, {n}.', evening:'Buenas noches, {n}.',
+  today:'¿En qué trabajamos hoy?',
+  role:'Rol', lbl_ex:'Chef Ejecutivo', lbl_ld:'Sous Chef',
+  lbl_co:'Coordinador', lbl_ck:'Cocinero', lbl_dc:'Equipo Platos', lbl_vi:'Visitante',
+  th:'Inicio', tb:'Centro Bot', tj:'Diario', tr:'Receta: {n}', ti:'Despensa: {n}',
+  tnew:'Nueva página',
+  ch_bo:'Centro Bot', cd_bo:'Pipeline POS · log deducciones · alertas sistema', cs_bo:'Pipeline OK · 5 bots · 02:13 CDT',
+  ch_jo:'Diario operativo', cd_jo:'Registro compartido · mantenimiento · eventos', cs_jo:'4 entradas hoy',
+  ch_re:'Receta: Tiramisu', cd_re:'BOM · procedimiento Pastelería · 10 porciones', cs_re:'Última edición: 08/07',
+  ch_in:'Despensa: Caesar', cd_in:'Stock · cargas · modifier depletion 60d', cs_in:'Stock: 2.4 kg · 312 usos/60d',
+  bt:'Centro Bot', bsub:'Pipeline POS — ejecución secuencial nocturna',
+  bpipe:'Pipeline nocturna · 2026-07-08', blast:'Última ejecución', bobs:'Observaciones',
+  bok:'OK', bwn:'Atención', ber:'Error', bpd:'Pendiente',
+  rbom:'Ingredientes (BOM)', rsteps:'Procedimiento', rsta:'Estación: {n}', rbatch:'Batch de {n} porciones',
+  rnote:'Datos demo — sin consulta DB en este prototipo',
+  istock:'Stock actual', iloaded:'Cargado hoy', ideduct:'Deducido POS (60d)',
+  imovs:'Movimientos recientes', inote:'Datos demo — sin consulta DB',
+  jtit:'Diario de Operaciones', jsub:'Registro compartido — servicio, mantenimiento, eventos',
+  jnew:'Nueva entrada', jall:'Todo',
+  cservice:'Servicio', cmaint:'Mantenimiento', ckitch:'Cocina',
+  cstaff:'Personal', cinci:'Incidente', cpurch:'Compra',
+  ft:'Título', fc:'Categoría', fb:'Notas', fsave:'Guardar entrada', fcancel:'Cancelar',
+  yct:'¡Sí Chef! ✅', ycclose:'Cerrar',
 }
 };
 
-function getLang(){return sessionStorage.getItem('ws_lang')||'it'}
-function setLang(l){sessionStorage.setItem('ws_lang',l);renderAll()}
+/* lang stored in module-scope var + sessionStorage */
+let LANG = sessionStorage.getItem('ws_lang') || 'it';
+function setLang(l){ LANG=l; sessionStorage.setItem('ws_lang',l); renderAll(); }
 function t(k,p={}){
-  const s=TR[getLang()]?.[k]||TR.it[k]||k;
-  return s.replace(/\{(\w+)\}/g,(_,x)=>p[x]??'')
+  const s=(TR[LANG]||TR.it)[k]||(TR.it)[k]||k;
+  return s.replace(/\{(\w+)\}/g,(_,x)=>p[x]??'');
 }
 
-/* ══ PERMISSIONS ═══════════════════════════════════════════════════════════ */
+/* ══ PERMISSIONS ══════════════════════════════════════════════════════════ */
 const PERMS={
-  can_see_bots:['executive','lead'],
-  can_see_recipes:['executive','lead','coordinator','cook'],
-  can_see_inventory:['executive','lead','coordinator'],
-  can_see_journal:['executive','lead','coordinator','viewer'],
-  can_view_bom:['executive','lead'],
-  can_add_journal:['executive','lead','coordinator']
+  see_bots:['executive','lead'],
+  see_recipes:['executive','lead','coordinator','cook'],
+  see_inventory:['executive','lead','coordinator'],
+  see_journal:['executive','lead','coordinator','viewer'],
+  view_bom:['executive','lead'],
+  add_journal:['executive','lead','coordinator']
 };
 const ROLES=['executive','lead','coordinator','cook','dish_crew','viewer'];
-const ROLE_NAMES={executive:'Max',lead:'David',coordinator:'Tela',
-  cook:'Cole',dish_crew:'Austin',viewer:'Guest'};
-const ROLE_INITIALS={executive:'MZ',lead:'DV',coordinator:'TL',
-  cook:'CL',dish_crew:'AU',viewer:'GU'};
+const RNAME={executive:'Max',lead:'David',coordinator:'Tela',cook:'Cole',dish_crew:'Austin',viewer:'Guest'};
+const RINIT={executive:'MZ',lead:'DV',coordinator:'TL',cook:'CL',dish_crew:'AU',viewer:'GU'};
 
-function getRole(){return sessionStorage.getItem('ws_role')||'executive'}
-function setRole(r){sessionStorage.setItem('ws_role',r);renderAll()}
-function can(p){return(PERMS[p]||[]).includes(getRole())}
+let ROLE = sessionStorage.getItem('ws_role') || 'executive';
+function setRole(r){ ROLE=r; sessionStorage.setItem('ws_role',r); renderAll(); }
+function can(p){ return (PERMS[p]||[]).includes(ROLE); }
 
-/* ══ TAB MANAGER ═══════════════════════════════════════════════════════════ */
-let _tabs=[],_aid=null;
+/* ══ TAB MANAGER ══════════════════════════════════════════════════════════ */
+/*
+  Singleton tabs (one per type): home, bot_center, daily_journal
+  Entity tabs (keyed by id):     recipe:X, inventory:X
+  Clicking a card that is already open → activates existing tab (no duplicate)
+*/
+let TABS=[], AID=null;
 
-function _save(){
-  sessionStorage.setItem('ws_tabs',JSON.stringify(_tabs));
-  sessionStorage.setItem('ws_aid',_aid||'')
-}
-function _load(){
-  try{
-    _tabs=JSON.parse(sessionStorage.getItem('ws_tabs')||'[]');
-    _aid=sessionStorage.getItem('ws_aid')||null;
-    if(_aid&&!_tabs.find(x=>x.id===_aid))_aid=_tabs[0]?.id||null
-  }catch{_tabs=[];_aid=null}
-}
-function _key(type,p={}){
-  if(type==='home')return'home';
-  if(type==='bot_center')return'bot_center';
-  if(type==='daily_journal')return'daily_journal';
-  return`${type}:${p.id||p.name||''}`
+function _tabKey(type, params){
+  if(type==='home')         return 'home';
+  if(type==='bot_center')   return 'bot_center';
+  if(type==='daily_journal') return 'daily_journal';
+  /* entity types: keyed by id or name */
+  return type + ':' + (params.id || params.name || '');
 }
 
-function openTab(type,p={}){
-  const title=t('tab.'+type,{name:p.name||''});
-  const key=_key(type,p);
-  const ex=_tabs.find(x=>_key(x.type,x.p)===key);
-  if(ex){_aid=ex.id;_save();renderAll();return ex.id}
-  if(_tabs.length>=10){
-    const old=_tabs.find(x=>x.type!=='home');
-    if(old)_tabs.splice(_tabs.indexOf(old),1)
+function openTab(type, params){
+  params = params || {};
+  const key = _tabKey(type, params);
+  const existing = TABS.find(function(x){ return _tabKey(x.type,x.params)===key; });
+  if(existing){
+    /* save current scroll before switching */
+    _saveScroll();
+    AID = existing.id;
+    _persist();
+    renderAll();
+    return existing.id;
   }
-  const id='t'+Date.now();
-  _tabs.push({id,type,title,p,scroll:0});
-  _aid=id;_save();renderAll();return id
+  /* evict oldest non-home if at limit */
+  if(TABS.length >= 10){
+    var old = TABS.find(function(x){ return x.type!=='home'; });
+    if(old) TABS.splice(TABS.indexOf(old),1);
+  }
+  _saveScroll();
+  var id = 't' + Date.now();
+  var title = _tabTitle(type, params);
+  TABS.push({id:id, type:type, title:title, params:params, scroll:0});
+  AID = id;
+  _persist();
+  renderAll();
+  return id;
 }
-function closeTab(id,ev){
-  if(ev){ev.stopPropagation()}
-  const i=_tabs.findIndex(x=>x.id===id);if(i<0)return;
-  if(_aid===id){const n=_tabs[i+1]||_tabs[i-1]||null;_aid=n?.id||null}
-  _tabs.splice(i,1);_save();renderAll()
+
+function closeTab(id){
+  var i = TABS.findIndex(function(x){ return x.id===id; });
+  if(i<0) return;
+  if(AID===id){
+    var next = TABS[i+1] || TABS[i-1] || null;
+    AID = next ? next.id : null;
+  }
+  TABS.splice(i,1);
+  _persist();
+  renderAll();
 }
+
 function activateTab(id){
-  if(!_tabs.find(x=>x.id===id))return;
-  // save current scroll before switching
-  const ws=document.getElementById('ws-workspace');
-  const cur=_tabs.find(x=>x.id===_aid);
-  if(cur)cur.scroll=ws?ws.scrollTop:0;
-  _aid=id;_save();renderAll()
+  if(!TABS.find(function(x){ return x.id===id; })) return;
+  _saveScroll();
+  AID = id;
+  _persist();
+  renderAll();
 }
-function getActiveTab(){return _tabs.find(x=>x.id===_aid)||null}
+
+function _saveScroll(){
+  var cur = TABS.find(function(x){ return x.id===AID; });
+  if(cur){
+    var ws = document.getElementById('workspace');
+    if(ws) cur.scroll = ws.scrollTop;
+  }
+}
+
+function _tabTitle(type, p){
+  if(type==='home')          return t('th');
+  if(type==='bot_center')    return t('tb');
+  if(type==='daily_journal') return t('tj');
+  if(type==='recipe')        return t('tr',{n:p.name||''});
+  if(type==='inventory')     return t('ti',{n:p.name||''});
+  return type;
+}
+
+function _persist(){
+  try{
+    sessionStorage.setItem('ws_tabs', JSON.stringify(TABS));
+    sessionStorage.setItem('ws_aid', AID||'');
+  }catch(e){}
+}
+
+function _restoreTabs(){
+  try{
+    var raw = sessionStorage.getItem('ws_tabs');
+    TABS = raw ? JSON.parse(raw) : [];
+    AID  = sessionStorage.getItem('ws_aid') || null;
+    if(AID && !TABS.find(function(x){ return x.id===AID; })){
+      AID = TABS.length ? TABS[0].id : null;
+    }
+  }catch(e){ TABS=[]; AID=null; }
+}
 
 /* ══ PAGE DATA ════════════════════════════════════════════════════════════ */
-const BOT_DATA=[
-  {name:'bot-pos-cleaner',       s:'ok',  time:'02:05 CDT',rows:247},
-  {name:'bot-direct-deduction',  s:'ok',  time:'02:07 CDT',rows:8},
-  {name:'bot-bom-chain-deduction',s:'ok', time:'02:09 CDT',rows:3},
-  {name:'bot-modifier-depletion',s:'ok',  time:'02:11 CDT',rows:4},
-  {name:'bot-stock-consolidator',s:'warn',time:'02:13 CDT',rows:12}
+var BOT_DATA=[
+  {name:'bot-pos-cleaner',        s:'ok',  time:'02:05 CDT', rows:247},
+  {name:'bot-direct-deduction',   s:'ok',  time:'02:07 CDT', rows:8},
+  {name:'bot-bom-chain-deduction',s:'ok',  time:'02:09 CDT', rows:3},
+  {name:'bot-modifier-depletion', s:'ok',  time:'02:11 CDT', rows:4},
+  {name:'bot-stock-consolidator', s:'warn',time:'02:13 CDT', rows:12}
 ];
-const OBS_DATA=[
-  {t:'warn',msg:'Spring Mix: unità g vs buste — consolidator skip (non critico).'},
-  {t:'info',msg:'Parsley: prep_type=checklist → skip silenzioso da tutti i bot.'},
-  {t:'info',msg:'Edible Flower: BOM inconsistency non-blocking — open.'}
+var OBS_DATA=[
+  {tp:'wn', msg:'Spring Mix: unità g vs buste — consolidator skip (non critico).'},
+  {tp:'in', msg:'Parsley: prep_type=checklist → skip silenzioso da tutti i bot.'},
+  {tp:'in', msg:'Edible Flower: BOM inconsistency non-blocking — open.'}
 ];
-const BOM=[
+var BOM=[
   {i:'Savoiardi',q:'400g'},{i:'Mascarpone',q:'500g'},{i:'Tuorli',q:'6 pz'},
   {i:'Heavy Cream',q:'300ml'},{i:'Zucchero',q:'120g'},{i:'Espresso',q:'300ml'},
   {i:'Cacao in polvere',q:'30g'},{i:'Kahlúa',q:'60ml'}
 ];
-const STEPS=[
+var STEPS=[
   'Monta i tuorli con lo zucchero fino a ottenere un composto chiaro e spumoso.',
   'Incorpora il mascarpone ai tuorli montati — mescola delicatamente con la marisa.',
   'Monta la panna semi-ferma e incorporala al composto in due riprese.',
@@ -742,400 +654,391 @@ const STEPS=[
   'Spolverizza cacao in polvere sulla superficie.',
   'Riposa in frigo minimo 4 ore — ideale overnight.'
 ];
-const MOVS=[
-  {d:'2026-07-08',q:'-74g',qc:'qty-neg',src:'POS modifier drain',note:'4 Caesar salads'},
-  {d:'2026-07-07',q:'-296g',qc:'qty-neg',src:'POS modifier drain',note:'16 uses'},
-  {d:'2026-07-06',q:'+2.4kg',qc:'qty-pos',src:"Hardie's invoice",note:'Lot #HI-44021'},
-  {d:'2026-07-05',q:'-370g',qc:'qty-neg',src:'POS modifier drain',note:'20 uses'}
+var MOVS=[
+  {d:'2026-07-08',q:'-74g', qc:'qn', src:'POS modifier drain', note:'4 Caesar salads'},
+  {d:'2026-07-07',q:'-296g',qc:'qn', src:'POS modifier drain', note:'16 uses'},
+  {d:'2026-07-06',q:'+2.4kg',qc:'qp',src:"Hardie's invoice",   note:'Lot #HI-44021'},
+  {d:'2026-07-05',q:'-370g',qc:'qn', src:'POS modifier drain', note:'20 uses'}
 ];
-const CAT_ICON={service:'🍽️',maintenance:'🔧',kitchen:'👨‍🍳',staff:'👥',incident:'⚠️',purchase:'📦'};
-let JENTRIES=[
-  {id:1,time:'21:30',cat:'service', auth:'David',  sev:'ok',
+var CAT_ICO={service:'🍽️',maintenance:'🔧',kitchen:'👨‍🍳',staff:'👥',incident:'⚠️',purchase:'📦'};
+var JDATA=[
+  {id:1,time:'21:30',cat:'service',   auth:'David', sv:'ok',
    title:'52 bills — record luglio',
    body:'Servizio pulito. Brussels finiti alle 21:15 — avvisare Tela per ordine extra venerdì.'},
-  {id:2,time:'19:05',cat:'maintenance',auth:'Tela', sev:'ok',
+  {id:2,time:'19:05',cat:'maintenance',auth:'Tela',  sv:'ok',
    title:'Lavastoviglie riparata — Hobart',
    body:'Tecnico Hobart alle 18:30. Braccio superiore sostituito. OK per servizio.'},
-  {id:3,time:'15:40',cat:'kitchen',auth:'Colton', sev:'warn',
+  {id:3,time:'15:40',cat:'kitchen',   auth:'Colton',sv:'wn',
    title:'Arrabbiata finita a pranzo',
    body:'Batch 3150g esaurito. Aggiunto in prep list per domani mattina.'},
-  {id:4,time:'10:20',cat:'purchase',auth:'Tela',  sev:'',
+  {id:4,time:'10:20',cat:'purchase',  auth:'Tela',  sv:'',
    title:"Hardie's ricevuto — #HI-44021",
    body:"Consegna OK. Caesar Dressing 4×2.4kg. Pecorino 1kg mancante — reso segnalato."}
 ];
 
-/* ══ PAGE RENDERERS ════════════════════════════════════════════════════════ */
+/* ══ PAGE RENDERERS ═══════════════════════════════════════════════════════ */
+var ICO={home:'⌂',bot_center:'🤖',recipe:'📋',inventory:'📦',daily_journal:'📓'};
+
 function badge(s){
-  const m={ok:'badge-ok',warn:'badge-warn',error:'badge-danger',pending:'badge-info'};
-  return`<span class="badge ${m[s]||'badge-info'}">${t('bots.status.'+s)}</span>`
+  var m={ok:'b-ok',warn:'b-wn',error:'b-er',pending:'b-in'};
+  var lbl={ok:t('bok'),warn:t('bwn'),error:t('ber'),pending:t('bpd')};
+  return '<span class="bdg '+(m[s]||'b-in')+'">'+(lbl[s]||s)+'</span>';
 }
 
-function renderHome(){
-  const h=new Date().getHours();
-  const gk=h<12?'morning':h<18?'afternoon':'evening';
-  const n=ROLE_NAMES[getRole()]||'Chef';
-  const cards=[
-    {key:'bots',  type:'bot_center',   perm:'can_see_bots',   icon:'🤖',sd:'status-ok',  p:{}},
-    {key:'journal',type:'daily_journal',perm:'can_see_journal',icon:'📓',sd:'status-info',p:{}},
-    {key:'recipe',type:'recipe',       perm:'can_see_recipes', icon:'📋',sd:'status-ok',  p:{id:'tiramisu',name:'Tiramisu'}},
-    {key:'inv',   type:'inventory',    perm:'can_see_inventory',icon:'📦',sd:'status-info',p:{id:'caesar',name:'Caesar Dressing'}},
-  ].filter(c=>can(c.perm));
+/* HOME */
+function pageHome(){
+  var h=new Date().getHours();
+  var gk=h<12?'morning':h<18?'afternoon':'evening';
+  var n=RNAME[ROLE]||'Chef';
+  var cards=[
+    {key:'bo',type:'bot_center',   perm:'see_bots',      ico:'🤖', sd:'s-ok', p:{}},
+    {key:'jo',type:'daily_journal',perm:'see_journal',   ico:'📓', sd:'s-in', p:{}},
+    {key:'re',type:'recipe',       perm:'see_recipes',   ico:'📋', sd:'s-ok', p:{id:'tiramisu',name:'Tiramisu'}},
+    {key:'in',type:'inventory',    perm:'see_inventory', ico:'📦', sd:'s-in', p:{id:'caesar',name:'Caesar Dressing'}}
+  ].filter(function(c){ return can(c.perm); });
 
-  return`<div class="page-inner">
-    <div class="home-greeting">
-      <p class="greeting-eyebrow">${t('home.eyebrow')}</p>
-      <h1 class="greeting-text">${t('home.'+gk,{n})}</h1>
-      <p class="greeting-sub">${t('home.sub')}</p>
-    </div>
-    <div class="home-grid">
-      ${cards.map(c=>`
-        <button class="home-card" onclick="openTab('${c.type}',${JSON.stringify(c.p)})">
-          <div class="home-card-top">
-            <div class="home-card-icon">${c.icon}</div>
-            <span class="home-card-arrow">↗</span>
-          </div>
-          <div class="home-card-body">
-            <p class="home-card-title">${t('card.'+c.key+'.t')}</p>
-            <p class="home-card-desc">${t('card.'+c.key+'.d')}</p>
-          </div>
-          <div class="home-card-status">
-            <span class="status-dot ${c.sd}"></span>${t('card.'+c.key+'.s')}
-          </div>
-        </button>`).join('')}
-    </div>
-    <p class="demo-note"><span class="demo-dot"></span>${t('demo')}</p>
-  </div>`
+  var cardHTML = cards.map(function(c){
+    /* Build onclick using data-tab + data-params on the element, wired in afterRender */
+    return '<button class="hcard" data-tabtype="'+c.type+'" data-params=\''+JSON.stringify(c.p)+'\'>'
+      +'<div class="hcard-top"><div class="hcard-ico">'+c.ico+'</div>'
+      +'<span class="hcard-arr">↗</span></div>'
+      +'<div class="hcard-body">'
+      +'<p class="hcard-title">'+t('ch_'+c.key)+'</p>'
+      +'<p class="hcard-desc">'+t('cd_'+c.key)+'</p>'
+      +'</div>'
+      +'<div class="hcard-foot"><span class="sdot '+c.sd+'"></span>'+t('cs_'+c.key)+'</div>'
+      +'</button>';
+  }).join('');
+
+  return '<div class="pi"><div class="greet">'
+    +'<p class="greet-ey">'+t('eyebrow')+'</p>'
+    +'<h1 class="greet-h">'+t(gk,{n:n})+'</h1>'
+    +'<p class="greet-s">'+t('today')+'</p>'
+    +'</div>'
+    +'<div class="hgrid">'+cardHTML+'</div>'
+    +'<p class="note"><span class="nd"></span>'+t('demo')+'</p>'
+    +'</div>';
 }
 
-function renderBots(){
-  return`<div class="page-inner">
-    <div class="page-header">
-      <div class="page-header-row">
-        <h2 class="page-title">${t('bots.title')}</h2>
-      </div>
-      <p class="page-subtitle">${t('bots.sub')}</p>
-    </div>
-    <div class="section">
-      <p class="section-title">${t('bots.pipeline')}</p>
-      <div class="pipeline-list">
-        ${BOT_DATA.map((b,i)=>`
-          <div class="pipeline-item">
-            <div class="pipeline-step">${i+1}</div>
-            <div class="pipeline-body">
-              <span class="pipeline-name">${b.name}</span>
-              <span class="pipeline-meta">${t('bots.last_run')}: ${b.time} · ${b.rows} rows</span>
-            </div>
-            ${badge(b.s)}
-          </div>`).join('')}
-      </div>
-    </div>
-    <div class="section">
-      <p class="section-title">${t('bots.observations')}</p>
-      <div class="obs-list">
-        ${OBS_DATA.map(o=>`
-          <div class="obs-item obs-${o.t}">
-            <span>${o.t==='warn'?'⚠️':'ℹ️'}</span>
-            <span>${o.msg}</span>
-          </div>`).join('')}
-      </div>
-    </div>
-    <p class="demo-note"><span class="demo-dot"></span>${t('demo')}</p>
-  </div>`
+function homeAfterRender(){
+  var ws=document.getElementById('workspace');
+  ws.querySelectorAll('.hcard').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var type  = btn.dataset.tabtype;
+      var p     = JSON.parse(btn.dataset.params||'{}');
+      openTab(type, p);
+    });
+  });
 }
 
-function renderRecipe(){
-  const showBom=can('can_view_bom');
-  return`<div class="page-inner">
-    <div class="page-header">
-      <div class="page-header-row">
-        <h2 class="page-title">Tiramisu</h2>
-        <span class="badge badge-info">${t('recipe.station',{s:'Pastry'})}</span>
-      </div>
-      <p class="page-subtitle">${t('recipe.batch',{n:10})}</p>
-    </div>
-    <div class="recipe-layout">
-      ${showBom?`
-      <div class="section">
-        <p class="section-title">${t('recipe.bom')}</p>
-        <div class="bom-header"><span>Ingrediente</span><span>Qtà batch</span></div>
-        ${BOM.map(r=>`<div class="bom-row"><span class="bom-item">${r.i}</span><span class="bom-qty">${r.q}</span></div>`).join('')}
-      </div>`:
-      `<div class="section"><p class="section-title">${t('recipe.bom')}</p>
-       <p style="font-size:13px;color:var(--text-muted);padding:4px 0">Non disponibile per questo ruolo.</p></div>`}
-      <div class="section">
-        <p class="section-title">${t('recipe.steps')}</p>
-        <ol class="steps-list">
-          ${STEPS.map((s,i)=>`
-            <li class="step-item">
-              <span class="step-num">${i+1}</span>
-              <span>${s}</span>
-            </li>`).join('')}
-        </ol>
-      </div>
-    </div>
-    <p class="demo-note"><span class="demo-dot"></span>${t('recipe.note')}</p>
-  </div>`
+/* BOTS */
+function pageBots(){
+  var rows=BOT_DATA.map(function(b,i){
+    return '<div class="pitem">'
+      +'<div class="pstep">'+(i+1)+'</div>'
+      +'<div class="pbody">'
+      +'<span class="pname">'+b.name+'</span>'
+      +'<span class="pmeta">'+t('blast')+': '+b.time+' · '+b.rows+' rows</span>'
+      +'</div>'+badge(b.s)+'</div>';
+  }).join('');
+  var obs=OBS_DATA.map(function(o){
+    return '<div class="obs obs-'+o.tp+'">'
+      +(o.tp==='wn'?'⚠️':'ℹ️')
+      +' '+o.msg+'</div>';
+  }).join('');
+  return '<div class="pi"><div class="ph">'
+    +'<h2 class="ptitle">'+t('bt')+'</h2>'
+    +'<p class="psub">'+t('bsub')+'</p></div>'
+    +'<div class="sec"><p class="sec-h">'+t('bpipe')+'</p>'
+    +'<div class="pipelist">'+rows+'</div></div>'
+    +'<div class="sec"><p class="sec-h">'+t('bobs')+'</p>'
+    +'<div class="obslist">'+obs+'</div></div>'
+    +'<p class="note"><span class="nd"></span>'+t('demo')+'</p></div>';
 }
 
-function renderInventory(){
-  return`<div class="page-inner">
-    <div class="page-header">
-      <h2 class="page-title">Caesar Dressing</h2>
-      <p class="page-subtitle">${t('inv.title')} · acquistato pronto</p>
-    </div>
-    <div class="inv-stats">
-      <div class="inv-stat">
-        <span class="inv-stat-label">${t('inv.stock')}</span>
-        <span class="inv-stat-value">2.4 kg</span>
-      </div>
-      <div class="inv-stat">
-        <span class="inv-stat-label">${t('inv.loaded')}</span>
-        <span class="inv-stat-value val-ok" style="font-size:13px">— (acquistato, no prep)</span>
-      </div>
-      <div class="inv-stat">
-        <span class="inv-stat-label">${t('inv.deducted')}</span>
-        <span class="inv-stat-value val-bad">23.1 kg · 312 uses</span>
-      </div>
-    </div>
-    <div class="section">
-      <p class="section-title">${t('inv.movements')}</p>
-      <div class="movements-list">
-        ${MOVS.map(m=>`
-          <div class="movement-row">
-            <span class="m-date">${m.d}</span>
-            <span class="m-qty ${m.qc}">${m.q}</span>
-            <div class="m-meta">
-              <span class="m-source">${m.src}</span>
-              <span class="m-note">${m.note}</span>
-            </div>
-          </div>`).join('')}
-      </div>
-    </div>
-    <p class="demo-note"><span class="demo-dot"></span>${t('inv.note')}</p>
-  </div>`
+/* RECIPE */
+function pageRecipe(){
+  var showBom=can('view_bom');
+  var bomHTML= showBom
+    ? '<div class="sec"><p class="sec-h">'+t('rbom')+'</p>'
+      +'<div class="bom-hd"><span>Ingrediente</span><span>Qtà</span></div>'
+      +BOM.map(function(r){ return '<div class="brow"><span class="bitem">'+r.i+'</span><span class="bqty">'+r.q+'</span></div>'; }).join('')
+      +'</div>'
+    : '<div class="sec"><p class="sec-h">'+t('rbom')+'</p>'
+      +'<p style="font-size:13px;color:var(--txm)">Non disponibile per questo ruolo.</p></div>';
+  var stepsHTML='<div class="sec"><p class="sec-h">'+t('rsteps')+'</p>'
+    +'<ol class="slist">'
+    +STEPS.map(function(s,i){ return '<li class="sitem"><span class="snum">'+(i+1)+'</span><span>'+s+'</span></li>'; }).join('')
+    +'</ol></div>';
+  return '<div class="pi"><div class="ph">'
+    +'<div class="ph-row">'
+    +'<h2 class="ptitle">Tiramisu</h2>'
+    +'<span class="bdg b-in">'+t('rsta',{n:'Pastry'})+'</span>'
+    +'</div><p class="psub">'+t('rbatch',{n:10})+'</p></div>'
+    +'<div class="rlayout">'+bomHTML+stepsHTML+'</div>'
+    +'<p class="note"><span class="nd"></span>'+t('rnote')+'</p></div>';
 }
 
-function renderJournal(){
-  const cats=['service','maintenance','kitchen','staff','purchase'];
-  const entryHTML=entries=>`
-    <div class="j-entries" id="jlist">
-      ${entries.map(e=>`
-        <div class="j-entry sev-${e.sev}" data-cat="${e.cat}">
-          <div class="j-meta">
-            <span>${CAT_ICON[e.cat]||'📝'}</span>
-            <span class="j-cat">${t('j.'+e.cat).toUpperCase()}</span>
-            <span class="j-dot">·</span>
-            <span class="j-time">${e.time}</span>
-            <span class="j-dot">·</span>
-            <span class="j-author">${e.auth}</span>
-          </div>
-          <h4 class="j-title">${e.title}</h4>
-          ${e.body?`<p class="j-body">${e.body}</p>`:''}
-        </div>`).join('')}
-    </div>`;
-
-  return`<div class="page-inner">
-    <div class="page-header">
-      <div class="page-header-row">
-        <h2 class="page-title">${t('journal.title')}</h2>
-        ${can('can_add_journal')?`<button class="btn-primary" onclick="openJModal()">+ ${t('journal.new')}</button>`:''}
-      </div>
-      <p class="page-subtitle">${t('journal.sub')}</p>
-    </div>
-    <div class="filter-row">
-      <button class="chip active" onclick="filterJ('all',this)">${t('journal.all')}</button>
-      ${cats.map(c=>`<button class="chip" onclick="filterJ('${c}',this)">${t('j.'+c)}</button>`).join('')}
-    </div>
-    ${entryHTML(JENTRIES)}
-    <p class="demo-note"><span class="demo-dot"></span>${t('demo')}</p>
-  </div>
-  <!-- Modal: small action — correct usage -->
-  <div class="modal-backdrop hidden" id="jmodal" onclick="if(event.target===this)closeJModal()">
-    <div class="modal-sheet">
-      <div class="modal-head">
-        <span class="modal-title">${t('journal.new')}</span>
-        <button class="modal-x" onclick="closeJModal()">✕</button>
-      </div>
-      <div class="modal-body">
-        <div>
-          <label class="form-lbl">${t('j.form.title')}</label>
-          <input class="form-in" id="jt" type="text" placeholder="Es. Lavastoviglie riparata">
-        </div>
-        <div>
-          <label class="form-lbl">${t('j.form.cat')}</label>
-          <select class="form-in" id="jc">
-            ${cats.map(c=>`<option value="${c}">${t('j.'+c)}</option>`).join('')}
-          </select>
-        </div>
-        <div>
-          <label class="form-lbl">${t('j.form.body')}</label>
-          <textarea class="form-in form-ta" id="jb" rows="3" placeholder="Dettagli..."></textarea>
-        </div>
-      </div>
-      <div class="modal-foot">
-        <button class="btn-secondary" onclick="closeJModal()">${t('j.form.cancel')}</button>
-        <button class="btn-primary" onclick="saveJEntry()">${t('j.form.save')}</button>
-      </div>
-    </div>
-  </div>`
+/* INVENTORY */
+function pageInventory(){
+  var rows=MOVS.map(function(m){
+    return '<div class="mrow">'
+      +'<span class="md">'+m.d+'</span>'
+      +'<span class="mq '+m.qc+'">'+m.q+'</span>'
+      +'<div class="mm"><span class="ms">'+m.src+'</span><span class="mn">'+m.note+'</span></div>'
+      +'</div>';
+  }).join('');
+  return '<div class="pi"><div class="ph">'
+    +'<h2 class="ptitle">Caesar Dressing</h2>'
+    +'<p class="psub">'+t('istock')+' · acquistato pronto</p></div>'
+    +'<div class="istats">'
+    +'<div class="istat"><span class="ilbl">'+t('istock')+'</span><span class="ival">2.4 kg</span></div>'
+    +'<div class="istat"><span class="ilbl">'+t('iloaded')+'</span><span class="ival v-ok" style="font-size:12px">— (no prep task)</span></div>'
+    +'<div class="istat"><span class="ilbl">'+t('ideduct')+'</span><span class="ival v-er">23.1 kg · 312 uses</span></div>'
+    +'</div>'
+    +'<div class="sec"><p class="sec-h">'+t('imovs')+'</p>'
+    +'<div class="mlist">'+rows+'</div></div>'
+    +'<p class="note"><span class="nd"></span>'+t('inote')+'</p></div>';
 }
 
-function filterJ(f,btn){
-  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
-  btn.classList.add('active');
-  document.querySelectorAll('.j-entry').forEach(e=>{
-    e.style.display=(f==='all'||e.dataset.cat===f)?'':'none'
-  })
+/* JOURNAL */
+function pageJournal(){
+  var cats=['service','maintenance','kitchen','staff','purchase'];
+  var entryHTML = function(list){
+    return list.map(function(e){
+      return '<div class="jent sv-'+e.sv+'" data-cat="'+e.cat+'">'
+        +'<div class="jmeta">'
+        +(CAT_ICO[e.cat]||'📝')
+        +' <span class="jcat">'+t('c'+e.cat.substring(0,5)).toUpperCase()+'</span>'
+        +' <span class="jdot">·</span>'
+        +' <span class="jtm">'+e.time+'</span>'
+        +' <span class="jdot">·</span>'
+        +' <span class="jau">'+e.auth+'</span>'
+        +'</div>'
+        +'<h4 class="jtit">'+e.title+'</h4>'
+        +(e.body?'<p class="jbod">'+e.body+'</p>':'')
+        +'</div>';
+    }).join('');
+  };
+  var chipHTML = '<button class="chip on" data-f="all">'+t('jall')+'</button>'
+    +cats.map(function(c){
+      var ck='c'+c.substring(0,5);
+      return '<button class="chip" data-f="'+c+'">'+t(ck)+'</button>';
+    }).join('');
+  var addBtn = can('add_journal')
+    ? '<button class="btnp" id="jnew-btn">+ '+t('jnew')+'</button>' : '';
+  var modalCats = cats.map(function(c){
+    return '<option value="'+c+'">'+t('c'+c.substring(0,5))+'</option>';
+  }).join('');
+  return '<div class="pi"><div class="ph">'
+    +'<div class="ph-row"><h2 class="ptitle">'+t('jtit')+'</h2>'+addBtn+'</div>'
+    +'<p class="psub">'+t('jsub')+'</p></div>'
+    +'<div class="frow" id="jfilter">'+chipHTML+'</div>'
+    +'<div class="jlist" id="jlist">'+entryHTML(JDATA)+'</div>'
+    +'<p class="note"><span class="nd"></span>'+t('demo')+'</p></div>'
+    /* modal */
+    +'<div class="mbk hi" id="jmod" onclick="if(event.target===this)closeJ()">'
+    +'<div class="msh">'
+    +'<div class="mhd"><span class="mt">'+t('jnew')+'</span>'
+    +'<button class="mx" onclick="closeJ()">✕</button></div>'
+    +'<div class="mbody">'
+    +'<div><label class="flbl">'+t('ft')+'</label>'
+    +'<input class="fin" id="jt" type="text" placeholder="Es. Lavastoviglie riparata"></div>'
+    +'<div><label class="flbl">'+t('fc')+'</label>'
+    +'<select class="fin" id="jcat">'+modalCats+'</select></div>'
+    +'<div><label class="flbl">'+t('fb')+'</label>'
+    +'<textarea class="fin fta" id="jb" rows="3" placeholder="Dettagli..."></textarea></div>'
+    +'</div>'
+    +'<div class="mfoot">'
+    +'<button class="btns" onclick="closeJ()">'+t('fcancel')+'</button>'
+    +'<button class="btnp" onclick="saveJ()">'+t('fsave')+'</button>'
+    +'</div></div></div>';
 }
-function openJModal(){document.getElementById('jmodal')?.classList.remove('hidden')}
-function closeJModal(){document.getElementById('jmodal')?.classList.add('hidden')}
-function saveJEntry(){
-  const title=document.getElementById('jt')?.value.trim();
-  if(!title)return;
-  const cat=document.getElementById('jc')?.value||'service';
-  const body=document.getElementById('jb')?.value.trim()||'';
-  const now=new Date();
-  const time=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
-  JENTRIES.unshift({id:Date.now(),time,cat,auth:'Max (demo)',sev:'',title,body});
-  closeJModal();
-  // re-render journal content only
-  const ws=document.getElementById('ws-workspace');
-  const list=ws?.querySelector('#jlist');
-  if(list){
-    list.outerHTML=`<div class="j-entries" id="jlist">${JENTRIES.map(e=>`
-      <div class="j-entry sev-${e.sev}" data-cat="${e.cat}">
-        <div class="j-meta">
-          <span>${CAT_ICON[e.cat]||'📝'}</span>
-          <span class="j-cat">${t('j.'+e.cat).toUpperCase()}</span>
-          <span class="j-dot">·</span>
-          <span class="j-time">${e.time}</span>
-          <span class="j-dot">·</span>
-          <span class="j-author">${e.auth}</span>
-        </div>
-        <h4 class="j-title">${e.title}</h4>
-        ${e.body?`<p class="j-body">${e.body}</p>`:''}
-      </div>`).join('')}
-    </div>`
+
+function journalAfterRender(){
+  var ws=document.getElementById('workspace');
+  /* filter chips */
+  ws.querySelectorAll('#jfilter .chip').forEach(function(chip){
+    chip.addEventListener('click',function(){
+      ws.querySelectorAll('#jfilter .chip').forEach(function(c){ c.classList.remove('on'); });
+      chip.classList.add('on');
+      var f=chip.dataset.f;
+      ws.querySelectorAll('.jent').forEach(function(e){
+        e.style.display=(f==='all'||e.dataset.cat===f)?'':'none';
+      });
+    });
+  });
+  /* new entry btn */
+  var btn=ws.querySelector('#jnew-btn');
+  if(btn) btn.addEventListener('click', openJ);
+}
+
+function openJ(){ document.getElementById('jmod')?.classList.remove('hi'); }
+function closeJ(){ document.getElementById('jmod')?.classList.add('hi'); }
+function saveJ(){
+  var title=(document.getElementById('jt')?.value||'').trim();
+  if(!title) return;
+  var cat  = document.getElementById('jcat')?.value || 'service';
+  var body = (document.getElementById('jb')?.value || '').trim();
+  var now  = new Date();
+  var time = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  JDATA.unshift({id:Date.now(),time:time,cat:cat,auth:'Max (demo)',sv:'',title:title,body:body});
+  closeJ();
+  /* re-render only the list without losing scroll */
+  var listEl=document.getElementById('jlist');
+  if(listEl){
+    listEl.innerHTML=JDATA.map(function(e){
+      return '<div class="jent sv-'+e.sv+'" data-cat="'+e.cat+'">'
+        +'<div class="jmeta">'+(CAT_ICO[e.cat]||'📝')
+        +' <span class="jcat">'+t('c'+e.cat.substring(0,5)).toUpperCase()+'</span>'
+        +' <span class="jdot">·</span>'
+        +' <span class="jtm">'+e.time+'</span>'
+        +' <span class="jdot">·</span>'
+        +' <span class="jau">'+e.auth+'</span></div>'
+        +'<h4 class="jtit">'+e.title+'</h4>'
+        +(e.body?'<p class="jbod">'+e.body+'</p>':'')
+        +'</div>';
+    }).join('');
   }
   document.getElementById('jt').value='';
   document.getElementById('jb').value='';
-  showYCS(`"${title}" salvato nel diario.`);
+  showYCS('"'+title+'" salvato nel diario.');
 }
 
+/* YES CHEF */
 function showYCS(msg){
-  let el=document.getElementById('ycs');
+  var ws=document.getElementById('workspace');
+  var el=document.getElementById('ycs');
   if(!el){
-    el=document.createElement('div');el.id='ycs';
-    el.innerHTML=`<div class="ycs-bg" onclick="hideYCS()"></div>
-      <div class="ycs-card">
-        <div class="ycs-icon">✅</div>
-        <h2 class="ycs-title" id="ycs-title"></h2>
-        <p class="ycs-msg" id="ycs-msg"></p>
-        <button class="btn-primary ycs-btn" onclick="hideYCS()"></button>
-      </div>`;
-    document.getElementById('ws-workspace').appendChild(el)
+    el=document.createElement('div'); el.id='ycs';
+    el.innerHTML='<div class="yb" onclick="hideYCS()"></div>'
+      +'<div class="yc">'
+      +'<div class="yi">✅</div>'
+      +'<h2 class="yh" id="yh"></h2>'
+      +'<p class="ym" id="ym"></p>'
+      +'<button class="btnp" style="margin:0 auto;display:block;min-width:180px;padding:13px" onclick="hideYCS()" id="yb"></button>'
+      +'</div>';
+    ws.appendChild(el);
   }
-  el.querySelector('#ycs-title').textContent=t('ycs.title');
-  el.querySelector('#ycs-msg').textContent=msg;
-  el.querySelector('.ycs-btn').textContent=t('ycs.close');
-  requestAnimationFrame(()=>el.classList.add('show'))
+  document.getElementById('yh').textContent=t('yct');
+  document.getElementById('ym').textContent=msg;
+  document.getElementById('yb').textContent=t('ycclose');
+  requestAnimationFrame(function(){ el.classList.add('on'); });
 }
-function hideYCS(){document.getElementById('ycs')?.classList.remove('show')}
+function hideYCS(){ var el=document.getElementById('ycs'); if(el) el.classList.remove('on'); }
 
-/* ══ RENDERERS MAP ═════════════════════════════════════════════════════════ */
-const PAGES={
-  home:renderHome,
-  bot_center:renderBots,
-  recipe:renderRecipe,
-  inventory:renderInventory,
-  daily_journal:renderJournal
+/* ══ PAGE MAP ═════════════════════════════════════════════════════════════ */
+var PAGES={
+  home:         {render:pageHome,      after:homeAfterRender},
+  bot_center:   {render:pageBots,      after:null},
+  recipe:       {render:pageRecipe,    after:null},
+  inventory:    {render:pageInventory, after:null},
+  daily_journal:{render:pageJournal,   after:journalAfterRender}
 };
-const TAB_ICONS={home:'⌂',bot_center:'🤖',recipe:'📋',inventory:'📦',daily_journal:'📓'};
 
-/* ══ SHELL RENDERERS ═══════════════════════════════════════════════════════ */
+/* ══ SHELL RENDERERS ══════════════════════════════════════════════════════ */
 function renderTopBar(){
-  const lang=getLang();
-  const role=getRole();
-  const rn=ROLE_NAMES[role]||'Chef';
-  const ri=ROLE_INITIALS[role]||'?';
-  document.getElementById('ws-topbar').innerHTML=`
-    <div class="topbar-brand">
-      <div class="brand-mark">B</div>
-      <div class="brand-text">
-        <span class="brand-name">BOH OS</span>
-        <span class="brand-sub">Workspace</span>
-      </div>
-    </div>
-    <div class="topbar-search">
-      <span class="search-icon">⌕</span>
-      <span style="font-size:13px">${t('topbar.search')}</span>
-    </div>
-    <div class="topbar-right">
-      <div class="lang-switcher">
-        ${['it','en','es'].map(l=>`
-          <button class="lang-btn${l===lang?' active':''}" onclick="setLang('${l}')">${l.toUpperCase()}</button>
-        `).join('')}
-      </div>
-      <div class="role-wrapper">
-        <div class="role-pill">
-          <div class="role-avatar">${ri}</div>
-          <span class="role-name">${rn}</span>
-          <span style="font-size:11px;color:var(--text-muted);margin-left:2px">▾</span>
-          <select class="role-select-hidden" onchange="setRole(this.value)">
-            ${ROLES.map(r=>`<option value="${r}"${r===role?' selected':''}>${t('role.'+r)}</option>`).join('')}
-          </select>
-        </div>
-      </div>
-      <span class="demo-badge">DEMO</span>
-    </div>`;
+  var rn=RNAME[ROLE]||'Chef', ri=RINIT[ROLE]||'?';
+  var langBtns=['it','en','es'].map(function(l){
+    return '<button class="lbtn'+(l===LANG?' on':'')+'" data-l="'+l+'">'+l.toUpperCase()+'</button>';
+  }).join('');
+  var roleOpts=ROLES.map(function(r){
+    return '<option value="'+r+'"'+(r===ROLE?' selected':'')+'>'+t('lbl_'+r.substring(0,2))+'</option>';
+  }).join('');
+
+  document.getElementById('topbar').innerHTML=
+    '<div class="t-brand">'
+    +'<div class="t-mark">B</div>'
+    +'<div class="t-words"><span class="t-name">BOH OS</span><span class="t-sub">Workspace</span></div>'
+    +'</div>'
+    +'<div class="t-search"><span style="opacity:.6">⌕</span><span>'+t('search')+'</span></div>'
+    +'<div class="t-right">'
+    +'<div class="lang-grp" id="lang-grp">'+langBtns+'</div>'
+    +'<div class="role-wrap">'
+    +'<div class="role-pill">'
+    +'<div class="role-av">'+ri+'</div>'
+    +'<span class="role-nm">'+rn+'</span>'
+    +'<span class="role-arr">▾</span>'
+    +'<select class="role-sel" id="role-sel">'+roleOpts+'</select>'
+    +'</div></div>'
+    +'<span class="demo-tag">DEMO</span>'
+    +'</div>';
+
+  /* wire lang buttons via event delegation on the group */
+  document.getElementById('lang-grp').addEventListener('click', function(e){
+    var btn = e.target.closest('[data-l]');
+    if(btn) setLang(btn.dataset.l);
+  });
+  document.getElementById('role-sel').addEventListener('change', function(e){
+    setRole(e.target.value);
+  });
 }
 
 function renderTabBar(){
-  const tabs=_tabs;const aid=_aid;
-  document.getElementById('ws-tabbar').innerHTML=`
-    <div class="tabbar-inner">
-      ${tabs.map(tab=>`
-        <div class="ws-tab${tab.id===aid?' active':''}"
-             role="tab" aria-selected="${tab.id===aid}"
-             onclick="activateTab('${tab.id}')">
-          <span class="tab-icon">${TAB_ICONS[tab.type]||'📄'}</span>
-          <span class="tab-title">${tab.title}</span>
-          ${tab.type!=='home'?`
-            <button class="tab-close"
-              onclick="closeTab('${tab.id}',event)"
-              title="Chiudi">✕</button>`:''}
-        </div>`).join('')}
-      <button class="tab-new" onclick="openTab('home',{})" title="${t('tab.new_page')}">+</button>
-    </div>`;
-  requestAnimationFrame(()=>{
-    document.querySelector('.ws-tab.active')?.scrollIntoView({inline:'nearest',block:'nearest',behavior:'smooth'})
-  })
+  var inner = TABS.map(function(tab){
+    var on = tab.id===AID;
+    return '<div class="tab'+(on?' on':'')+'" data-tid="'+tab.id+'" role="tab" aria-selected="'+(on?'true':'false')+'">'
+      +'<span class="tab-ico">'+(ICO[tab.type]||'📄')+'</span>'
+      +'<span class="tab-lbl">'+tab.title+'</span>'
+      +(tab.type!=='home'
+        ? '<button class="tab-x" data-close="'+tab.id+'" title="Chiudi">✕</button>'
+        : '')
+      +'</div>';
+  }).join('');
+  inner += '<button class="tab-plus" id="tab-plus" title="'+t('tnew')+'">+</button>';
+
+  var tbEl=document.getElementById('tabbar');
+  tbEl.innerHTML='<div class="tb-inner" id="tb-inner">'+inner+'</div>';
+
+  /* Wire via event delegation — avoids onclick= attribute encoding issues */
+  document.getElementById('tb-inner').addEventListener('click', function(e){
+    /* close button */
+    var closeBtn=e.target.closest('[data-close]');
+    if(closeBtn){ e.stopPropagation(); closeTab(closeBtn.dataset.close); return; }
+    /* new tab */
+    if(e.target.closest('#tab-plus')){ openTab('home',{}); return; }
+    /* activate tab */
+    var tabEl=e.target.closest('[data-tid]');
+    if(tabEl) activateTab(tabEl.dataset.tid);
+  });
+
+  /* scroll active into view */
+  requestAnimationFrame(function(){
+    var el=document.querySelector('.tab.on');
+    if(el) el.scrollIntoView({inline:'nearest',block:'nearest',behavior:'smooth'});
+  });
 }
 
 function renderWorkspace(){
-  const tab=getActiveTab();
-  const ws=document.getElementById('ws-workspace');
-  if(!tab){ws.innerHTML='';return}
-  const fn=PAGES[tab.type];
-  ws.innerHTML=fn?fn(tab.p||{}):`<div style="padding:40px;color:var(--text-muted)">Pagina non trovata: ${tab.type}</div>`;
-  ws.scrollTop=tab.scroll||0;
-  ws.onscroll=()=>{
-    const cur=_tabs.find(x=>x.id===_aid);
-    if(cur)cur.scroll=ws.scrollTop
-  }
+  var tab=TABS.find(function(x){ return x.id===AID; });
+  var ws=document.getElementById('workspace');
+  if(!tab){ ws.innerHTML=''; return; }
+  var page=PAGES[tab.type];
+  ws.innerHTML = page ? page.render(tab.params||{}) : '<p style="padding:40px;color:var(--txm)">Pagina non trovata.</p>';
+  /* restore scroll */
+  ws.scrollTop = tab.scroll || 0;
+  /* save scroll on scroll */
+  ws.onscroll = function(){
+    var cur=TABS.find(function(x){ return x.id===AID; });
+    if(cur) cur.scroll=ws.scrollTop;
+  };
+  /* after-render hooks */
+  if(page && page.after) page.after();
 }
 
 function renderAll(){
   renderTopBar();
   renderTabBar();
-  renderWorkspace()
+  renderWorkspace();
 }
 
-/* ══ INIT ══════════════════════════════════════════════════════════════════ */
-document.addEventListener('DOMContentLoaded',()=>{
-  _load();
-  if(_tabs.length===0)openTab('home',{});
-  else renderAll()
+/* ══ INIT ═════════════════════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', function(){
+  LANG = sessionStorage.getItem('ws_lang') || 'it';
+  ROLE = sessionStorage.getItem('ws_role') || 'executive';
+  _restoreTabs();
+  if(TABS.length===0) openTab('home', {});
+  else renderAll();
 });
 </script>
 </body>
