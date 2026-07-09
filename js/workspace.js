@@ -180,29 +180,8 @@ window.wsBack = function() {
   }
 };
 
-// Handle browser back/forward
-window.addEventListener('popstate', function(e) {
-  const hash = location.hash;
-  if (hash && hash.startsWith('#/')) {
-    const route = hash.slice(1); // remove leading #
-    WS.active  = true;
-    WS.route   = route;
-    WS.payload = null;
-    try { _wsRender(); } catch (err) { _wsShowError(err); }
-  } else if (WS.active) {
-    // Back pressed with no more WS hash → close
-    WS.active = false;
-    WS.route  = null;
-    const root = document.getElementById('workspace-root');
-    if (root) { root.innerHTML = ''; root.style.display = 'none'; }
-    document.body.style.overflow = '';
-  }
-});
-
-// ESC to close
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape' && WS.active) closeWorkspace();
-});
+// popstate and keydown listeners are registered inside the DOMContentLoaded
+// guard above — they only activate when workspace is explicitly enabled.
 
 /* ══ ERROR HELPERS ═══════════════════════════════════════════════════════════ */
 
@@ -667,44 +646,90 @@ window.wsNotesSave = async function(id) {
   }
 };
 
-/* ══ INTERCEPT PREP CARD CLICK ═══════════════════════════════════════════════
-   Replace the prepOpenRecipe call on the card name with openWorkspace.
-   The old recipeModal is still available if workspace is disabled.
+/* ══ WORKSPACE ACTIVATION GUARD ═════════════════════════════════════════════
+   Workspace is DISABLED by default on the live Brigade app.
+   It activates ONLY when explicitly enabled via:
+     - URL query:       ?workspace=1
+     - localStorage:    localStorage.setItem('bohWorkspace','1')
+     - Programmatic:    wsActivate()
+
+   This keeps the live operational UI completely unchanged.
+   The Workspace refactor is a separate laboratory, not a live feature.
    ─────────────────────────────────────────────────────────────────────────── */
 
-// Override window.prepOpenRecipe after prep.js has defined it.
-// We wait for DOMContentLoaded so prep.js has already run.
-document.addEventListener('DOMContentLoaded', function() {
-  const _originalPrepOpenRecipe = window.prepOpenRecipe;
+function _wsIsEnabled() {
+  try {
+    if (new URLSearchParams(location.search).get('workspace') === '1') return true;
+    if (localStorage.getItem('bohWorkspace') === '1') return true;
+  } catch(e) {}
+  return false;
+}
 
+/**
+ * Explicitly enable the workspace.
+ * Call from console or dev tools: wsActivate()
+ */
+window.wsActivate = function() {
+  try { localStorage.setItem('bohWorkspace', '1'); } catch(e) {}
+  console.log('[workspace] activated — reload to apply');
+  location.reload();
+};
+
+/**
+ * Disable the workspace and return to default live behavior.
+ */
+window.wsDeactivate = function() {
+  try { localStorage.removeItem('bohWorkspace'); } catch(e) {}
+  console.log('[workspace] deactivated — reload to apply');
+  location.reload();
+};
+
+/* ── Side effects run ONLY when workspace is enabled ── */
+document.addEventListener('DOMContentLoaded', function() {
+  if (!_wsIsEnabled()) {
+    console.log('[workspace] disabled (default). To enable: wsActivate() or ?workspace=1');
+    return; // <-- live app: nothing below runs
+  }
+
+  console.log('[workspace] enabled — activating router and intercepts');
+
+  // Intercept prep card click
+  const _originalPrepOpenRecipe = window.prepOpenRecipe;
   window.prepOpenRecipe = function(id) {
     const task = (typeof tasks !== 'undefined' && tasks[id]);
-
-    // Open workspace detail page
-    if (task) {
-      openWorkspace('/prep/' + id, task);
-      return;
-    }
-
-    // Fallback to original if task not found
-    if (typeof _originalPrepOpenRecipe === 'function') {
-      _originalPrepOpenRecipe(id);
-    }
+    if (task) { openWorkspace('/prep/' + id, task); return; }
+    if (typeof _originalPrepOpenRecipe === 'function') _originalPrepOpenRecipe(id);
   };
-});
 
-/* ══ INIT: check URL hash on page load ══════════════════════════════════════ */
-document.addEventListener('DOMContentLoaded', function() {
+  // Browser back/forward
+  window.addEventListener('popstate', function(e) {
+    const hash = location.hash;
+    if (hash && hash.startsWith('#/')) {
+      const route = hash.slice(1);
+      WS.active = true; WS.route = route; WS.payload = null;
+      try { _wsRender(); } catch (err) { _wsShowError(err); }
+    } else if (WS.active) {
+      WS.active = false; WS.route = null;
+      const root = document.getElementById('workspace-root');
+      if (root) { root.innerHTML = ''; root.style.display = 'none'; }
+      document.body.style.overflow = '';
+    }
+  });
+
+  // ESC to close
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && WS.active) closeWorkspace();
+  });
+
+  // Check URL hash on page load
   const hash = location.hash;
   if (hash && hash.startsWith('#/')) {
-    // Wait for app init() to complete before opening workspace
     const waitForInit = setInterval(function() {
       if (typeof tasks !== 'undefined' && Object.keys(tasks).length > 0) {
         clearInterval(waitForInit);
         openWorkspace(hash.slice(1));
       }
     }, 100);
-    // Give up after 5s
     setTimeout(() => clearInterval(waitForInit), 5000);
   }
 });
