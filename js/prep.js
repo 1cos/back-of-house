@@ -807,7 +807,16 @@ function cardButton(i){
     const lbl2 = lbls[lang2] || lbls.en;
     return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:14px;font-weight:600;background:transparent;color:#059669;border:1.5px solid #bbf7d0;letter-spacing:0.02em;">${lbl2}</button>`;
   }
-  if (_ct2 === 'WATCH')       return '';                       // dati incerti non critici
+  if (_ct2 === 'WATCH') {
+    // WATCH = dati incerti ma recipe_id presente — bottone discreto se il cuoco vuole procedere
+    if (i.recipe_id || i.ingredient_id) {
+      const lang3 = window.user?.lang||'en';
+      const lbls3 = {it:'Preparo ugualmente',en:'Prep anyway',es:'Preparar igual'};
+      const lbl3 = lbls3[lang3] || lbls3.en;
+      return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:14px;font-weight:600;background:transparent;color:#64748b;border:1.5px solid #cbd5e1;letter-spacing:0.02em;">${lbl3}</button>`;
+    }
+    return ''; // nessun recipe_id → davvero niente da fare
+  }
   if (_ct2 === 'BLOCKED')     return '';                       // setup mancante
   if (_ct2 === 'CHEF_REVIEW') return '';                       // nessun dato
   if (_ct2 === 'COUNT_FIRST') return '';                       // Save count è nel card block
