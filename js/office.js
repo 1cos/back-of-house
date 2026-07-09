@@ -5380,8 +5380,23 @@ window.dqLoad = async function() {
           var isPhysical = physicalUnits.indexOf(ptUnit) >= 0;
           if (!isPhysical) return;
 
-          // ── REGOLA 1: pezzi/pz → fix meccanico sicuro (1 porzione = 1 pezzo) ──
+          // ── REGOLA 1: pezzi/pz → Safe Fix SOLO se serving_unit='porzione' esplicita
+          // serving_unit NULL → Review con ipotesi da confermare
           if (ptUnit==='pezzi'||ptUnit==='pz') {
+            var suLow = (r.serving_unit||'').toLowerCase().trim();
+            var isPorzione = (suLow==='porzione'||suLow==='portion');
+            if (!isPorzione) {
+              var rNote = suLow
+                ? 'prep_task.unit=\'pezzi\' ma serving_unit=\'' + r.serving_unit + '\' (ambigua)'
+                : 'prep_task.unit=\'pezzi\' ma serving_unit non impostata — quanti pezzi per vendita POS?';
+              if (parseInt(r.base_servings,10)===1 && r.serving_weight_g) {
+                rNote += ' · base_servings=1, ' + r.serving_weight_g + 'g — probabile 1 pz per porzione, conferma richiesta';
+              }
+              review.push({ recipe:r, pt:pt, soldQty:soldQty, fromTask:true, note:rNote,
+                suggestReview:{ unit:'pezzi', qty:1, reason:'Conferma se 1 vendita POS = 1 pezzo dalla prep' }
+              });
+              return;
+            }
             safeFix.push({ recipe:r, pt:pt, soldQty:soldQty,
               autoFix:true, needsDecision:false, fixType:'pezzi',
               suggestedUnit:'pezzi', suggestedQty:1,
@@ -5410,12 +5425,19 @@ window.dqLoad = async function() {
             return;
           }
 
-          // ── REGOLA 4: serving_weight_g noto → fix meccanico con grammi ──
+          // ── REGOLA 4: serving_weight_g noto → Safe Fix SOLO se serving_unit='porzione' ──
           if ((ptUnit==='g'||ptUnit==='kg') && r.serving_weight_g) {
-            safeFix.push({ recipe:r, pt:pt, soldQty:soldQty,
-              autoFix:true, needsDecision:false, fixType:'grammi',
-              suggestedUnit:'g', suggestedQty:r.serving_weight_g,
-              issue:'serving_unit=\'porzione\' — allineo a ' + r.serving_weight_g + 'g' });
+            var suLow4 = (r.serving_unit||'').toLowerCase().trim();
+            if (suLow4==='porzione'||suLow4==='portion') {
+              safeFix.push({ recipe:r, pt:pt, soldQty:soldQty,
+                autoFix:true, needsDecision:false, fixType:'grammi',
+                suggestedUnit:'g', suggestedQty:r.serving_weight_g,
+                issue:'serving_unit=\'porzione\' — allineo a ' + r.serving_weight_g + 'g' });
+            } else {
+              review.push({ recipe:r, pt:pt, soldQty:soldQty, fromTask:true,
+                note:'prep_task.unit=\'' + ptUnit + '\', serving_weight_g=' + r.serving_weight_g + 'g — serving_unit non impostata, da confermare'
+              });
+            }
             return;
           }
 
@@ -5640,7 +5662,12 @@ window.dqConfirmSafeFix = async function(idx) {
       p_approved_by: approvedBy
     });
     if (rpcErr) throw rpcErr;
-    if (!result || !result.success) { if(typeof showScToast==='function') showScToast('\u26a0\ufe0f ' + (result&&result.error||'errore')); return; }
+    if (!result || !result.success) {
+      var isStale2 = result && (result.error==='record_changed'||result.error==='no_rows_affected');
+      if(typeof showScToast==='function') showScToast(isStale2 ? 'Record non piu valido — ricarico...' : '⚠️ ' + (result&&result.error||'errore'));
+      if (isStale2) setTimeout(function(){ dqLoad(); }, 800);
+      return;
+    }
     var fixedItem = window._dqData.safeFix.splice(idx, 1)[0];
     fixedItem.note = '\u2705 Fix applicato — serving_unit=' + item.suggestedUnit;
     if (!window._dqData.ok) window._dqData.ok = [];
@@ -5763,20 +5790,24 @@ function dqBlockingRow(item, idx) {
 
 // ── Riga Review ──
 function dqReviewRow(item, idx) {
-  var r = item.recipe;
-  return '<div style="margin:10px 12px;background:rgba(255,255,255,0.85);border-radius:14px;padding:14px;box-shadow:0 1px 4px rgba(217,119,6,0.08);border:1px solid rgba(217,119,6,0.18);">' +
-    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
-      '<span style="font-size:14px;font-weight:700;color:#1e3a5f;flex:1;">' + r.title + '</span>' +
-      '<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;">' + Math.round(item.soldQty) + ' venduti/30gg</span>' +
-    '</div>' +
+  var r = item.recipe, pt = item.pt;
+  var mainNote = item.note || 'Nessun prep_task collegato — il bot non scarica questa ricetta';
+  var ptBadge = pt ? '<span style="background:#fce7f3;color:#9d174d;padding:1px 6px;border-radius:6px;margin-right:4px;">prep: ' + pt.name + ' (' + (pt.unit||'?') + ')</span>' : '';
+  var suggestBlock = item.suggestReview
+    ? '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:7px 10px;font-size:11px;color:#92400e;margin-bottom:8px;"><b>Ipotesi:</b> ' + item.suggestReview.reason + '<br><span style="color:#6b7280;">Proposta: ' + item.suggestReview.qty + ' ' + item.suggestReview.unit + ' — da confermare con Max</span></div>'
+    : '';
+  var soldBadge = item.soldQty > 0
+    ? '<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;">' + Math.round(item.soldQty) + ' venduti/30gg</span>'
+    : '<span style="background:#f1f5f9;color:#94a3b8;font-size:10px;padding:2px 7px;border-radius:10px;">0 venduti</span>';
+  return '<div style="margin:10px 12px;background:rgba(255,255,255,0.85);border-radius:14px;padding:14px;border:1px solid rgba(217,119,6,0.18);">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:14px;font-weight:700;color:#1e3a5f;flex:1;">' + r.title + '</span>' + soldBadge + '</div>' +
     '<div style="font-size:11px;color:#6b7280;margin-bottom:8px;">' +
       '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:6px;margin-right:4px;">POS: ' + (r.pos_name||'').split('|')[0] + '</span>' +
-      '<span style="background:#f1f5f9;color:#64748b;padding:1px 6px;border-radius:6px;">' + (r.menu_group||'no group') + '</span>' +
+      ptBadge + '<span style="background:#f1f5f9;color:#64748b;padding:1px 6px;border-radius:6px;">' + (r.menu_group||'no group') + '</span>' +
     '</div>' +
-    '<div style="font-size:12px;color:#92400e;background:rgba(245,158,11,0.08);border-radius:8px;padding:6px 10px;margin-bottom:10px;">' +
-      '&#x1F7E1; Nessun prep_task collegato &mdash; il bot non scarica questa ricetta' +
-    '</div>' +
-    '<button onclick="dqOpenRecipe(\'' + r.id + '\')" style="width:100%;height:36px;border-radius:10px;background:#d97706;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;">Apri ricetta</button>' +
+    '<div style="font-size:12px;color:#92400e;background:rgba(245,158,11,0.08);border-radius:8px;padding:6px 10px;margin-bottom:8px;">' + mainNote + '</div>' +
+    suggestBlock +
+    '<button onclick="dqOpenRecipe('' + r.id + '')" style="width:100%;height:36px;border-radius:10px;background:#d97706;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;">Apri ricetta</button>' +
   '</div>';
 }
 
@@ -5953,10 +5984,10 @@ window.dqConfirmApply = async function(idx) {
 
     // RPC ritorna jsonb: {success, affected, error?, recipe_name}
     if (!result || !result.success) {
-      var errMsg = result && result.error === 'record_changed'
-        ? '⚠️ Record cambiato nel frattempo — ricarica e riprova'
-        : '⚠️ Fix non applicato: ' + (result && result.error ? result.error : 'errore sconosciuto');
+      var isStale = result && (result.error==='record_changed'||result.error==='no_rows_affected');
+      var errMsg = isStale ? 'Record non piu valido — ricarico...' : '⚠️ Fix non applicato: ' + (result && result.error ? result.error : 'errore sconosciuto');
       if(typeof showScToast==='function') showScToast(errMsg);
+      if (isStale) setTimeout(function(){ dqLoad(); }, 800);
       return;
     }
 
