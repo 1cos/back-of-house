@@ -47,122 +47,244 @@ input,select,textarea{font-family:inherit}
   border-bottom:1px solid var(--bd);box-shadow:var(--sh1);z-index:100
 }
 
-/* Brand — compact */
-.t-brand{display:flex;align-items:center;gap:8px;flex-shrink:0;text-decoration:none}
-.t-mark{
-  width:30px;height:30px;border-radius:9px;
+/* Brand */
+.t-brand{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.t-mark{width:30px;height:30px;border-radius:9px;
   background:linear-gradient(135deg,var(--b6) 0%,var(--b4) 100%);
   display:flex;align-items:center;justify-content:center;
   font-size:16px;font-weight:800;color:#fff;
-  box-shadow:0 2px 8px rgba(37,99,235,.35);flex-shrink:0
-}
+  box-shadow:0 2px 8px rgba(37,99,235,.35);flex-shrink:0}
 .t-words{display:flex;flex-direction:column;line-height:1}
 .t-name{font-size:14px;font-weight:700;color:var(--b7);letter-spacing:-.03em}
 .t-sub{font-size:9px;font-weight:500;color:var(--txm);letter-spacing:.05em}
 
 /* Search */
-.t-search{
-  flex:1;max-width:300px;
+.t-search{flex:1;max-width:280px;
   display:flex;align-items:center;gap:7px;
   background:var(--surf-r);border:1px solid var(--bd);border-radius:var(--rp);
-  padding:6px 13px;color:var(--txm);font-size:13px;cursor:text;
-  transition:border-color .15s,box-shadow .15s
-}
+  padding:6px 12px;color:var(--txm);font-size:13px;cursor:text;
+  transition:border-color .15s,box-shadow .15s}
 .t-search:hover{border-color:var(--bd2);box-shadow:var(--sh0)}
 
 /* Right cluster */
-.t-right{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
+.t-right{display:flex;align-items:center;gap:7px;flex-shrink:0;margin-left:auto}
 
-/* Online pills — desktop only */
-.online-pills{display:flex;align-items:center;gap:-4px;flex-shrink:0}
-@media(max-width:640px){.online-pills{display:none}}
+/* ── CHEF AI BUTTON ──────────────────────────────────────────── */
+.chef-ai-btn{
+  display:flex;align-items:center;gap:6px;
+  background:linear-gradient(135deg,rgba(37,99,235,.12),rgba(96,165,250,.12));
+  border:1px solid rgba(37,99,235,.25);border-radius:var(--rp);
+  padding:5px 12px 5px 8px;cursor:pointer;
+  transition:all .15s;flex-shrink:0
+}
+.chef-ai-btn:hover{
+  background:linear-gradient(135deg,rgba(37,99,235,.2),rgba(96,165,250,.18));
+  border-color:var(--b5);box-shadow:0 0 0 3px rgba(37,99,235,.1)
+}
+.chef-ai-btn.active{
+  background:var(--b6);border-color:var(--b7);
+  box-shadow:0 2px 12px rgba(37,99,235,.35)
+}
+.chef-ai-btn.active .cai-label{color:#fff}
+.chef-ai-btn.active .cai-status{color:rgba(255,255,255,.75)}
+.cai-av{
+  width:24px;height:24px;border-radius:50%;
+  background:var(--b6);display:flex;align-items:center;justify-content:center;
+  font-size:13px;flex-shrink:0;border:1.5px solid rgba(255,255,255,.5)
+}
+.chef-ai-btn.active .cai-av{background:#fff;border-color:rgba(37,99,235,.3)}
+.cai-text{display:flex;flex-direction:column;line-height:1.1}
+.cai-label{font-size:12px;font-weight:700;color:var(--b7);letter-spacing:-.01em}
+.cai-status{font-size:10px;color:var(--txm)}
+@media(max-width:640px){.cai-text{display:none}}
+
+/* ── ONLINE PILLS ────────────────────────────────────────────── */
+.online-pills{display:flex;align-items:center;flex-shrink:0}
+@media(max-width:700px){.online-pills{display:none}}
 .op-av{
   width:26px;height:26px;border-radius:50%;
-  border:2px solid rgba(239,246,255,.9);
+  border:2px solid rgba(239,246,255,.95);
   display:flex;align-items:center;justify-content:center;
   font-size:10px;font-weight:700;color:#fff;
-  cursor:default;position:relative;
-  transition:transform .12s;flex-shrink:0
+  cursor:default;position:relative;transition:transform .12s;flex-shrink:0
 }
 .op-av:hover{transform:scale(1.15);z-index:10}
 .op-av+.op-av{margin-left:-6px}
 .op-tooltip{
   position:absolute;bottom:calc(100% + 6px);left:50%;
-  transform:translateX(-50%);
-  background:var(--b9);color:#fff;
-  font-size:10px;font-weight:500;
-  padding:3px 8px;border-radius:var(--r1);white-space:nowrap;
+  transform:translateX(-50%);white-space:nowrap;
+  background:var(--b9);color:#fff;font-size:10px;font-weight:500;
+  padding:3px 8px;border-radius:var(--r1);
   pointer-events:none;opacity:0;transition:opacity .15s;z-index:20
 }
 .op-av:hover .op-tooltip{opacity:1}
-.online-count{font-size:11px;font-weight:600;color:var(--txm);margin-left:6px;
-  display:none}
-@media(max-width:640px){.online-count{display:block}}
+.online-n{font-size:11px;font-weight:600;color:var(--txm);
+  margin-left:6px;display:none}
+@media(max-width:700px){.online-n{display:block}}
 
 /* Demo tag */
-.demo-tag{
-  font-size:9px;font-weight:800;letter-spacing:.1em;
+.demo-tag{font-size:9px;font-weight:800;letter-spacing:.1em;
   color:var(--wn);background:var(--wn-bg);
   border:1px solid var(--wn-bd);border-radius:var(--rp);
-  padding:2px 8px;flex-shrink:0
-}
+  padding:2px 8px;flex-shrink:0}
 
-/* User menu button + dropdown */
+/* User menu */
 .usr-wrap{position:relative}
-.usr-btn{
-  display:flex;align-items:center;gap:6px;
+.usr-btn{display:flex;align-items:center;gap:6px;
   background:var(--b0);border:1px solid var(--b2);border-radius:var(--rp);
-  padding:4px 10px 4px 5px;cursor:pointer;transition:all .13s
-}
+  padding:4px 10px 4px 5px;cursor:pointer;transition:all .13s}
 .usr-btn:hover{background:var(--b1);border-color:var(--b4)}
-.usr-av{
-  width:26px;height:26px;border-radius:50%;
+.usr-av{width:26px;height:26px;border-radius:50%;
   background:var(--b6);color:#fff;
   font-size:10px;font-weight:800;
-  display:flex;align-items:center;justify-content:center;flex-shrink:0
-}
+  display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .usr-name{font-size:12px;font-weight:600;color:var(--b7)}
 .usr-arr{font-size:10px;color:var(--txm);margin-left:1px;transition:transform .13s}
 .usr-wrap.open .usr-arr{transform:rotate(180deg)}
-
-/* Dropdown */
-.usr-menu{
-  position:absolute;top:calc(100% + 6px);right:0;
+.usr-menu{position:absolute;top:calc(100% + 6px);right:0;
   background:var(--surf);border:1px solid var(--bd2);
   border-radius:var(--r2);box-shadow:var(--sh3);
-  min-width:200px;z-index:300;
-  animation:pIn .18s cubic-bezier(.34,1.4,.64,1);
-  overflow:hidden
-}
+  min-width:210px;z-index:300;
+  animation:pIn .18s cubic-bezier(.34,1.4,.64,1);overflow:hidden}
 .usr-menu.hi{display:none}
 .um-section{padding:6px 0;border-bottom:1px solid var(--bd)}
 .um-section:last-child{border-bottom:none}
 .um-lbl{font-size:10px;font-weight:700;color:var(--txm);
   letter-spacing:.07em;text-transform:uppercase;padding:6px 14px 2px}
-.um-item{
-  display:flex;align-items:center;gap:9px;
+.um-item{display:flex;align-items:center;gap:9px;
   padding:9px 14px;font-size:13px;color:var(--tx);
-  cursor:pointer;transition:background .1s;text-align:left;width:100%
-}
+  cursor:pointer;transition:background .1s;text-align:left;width:100%}
 .um-item:hover{background:var(--b0)}
 .um-item-ico{font-size:15px;width:18px;text-align:center;flex-shrink:0}
-.um-item.active{color:var(--b6);font-weight:600}
-/* Language selector inside menu */
 .um-lang{display:flex;gap:4px;padding:8px 14px}
-.um-lbtn{
-  flex:1;font-size:12px;font-weight:600;padding:5px 8px;
+.um-lbtn{flex:1;font-size:12px;font-weight:600;padding:5px 8px;
   border-radius:var(--r1);border:1px solid var(--bd);
-  color:var(--txm);text-align:center;cursor:pointer;transition:all .12s
-}
+  color:var(--txm);text-align:center;cursor:pointer;transition:all .12s}
 .um-lbtn:hover{border-color:var(--b4);color:var(--b6)}
 .um-lbtn.on{background:var(--b6);color:#fff;border-color:var(--b6)}
-/* Role selector inside menu */
-.um-role-sel{
-  margin:4px 14px 8px;width:calc(100% - 28px);
+.um-role-sel{margin:4px 14px 8px;width:calc(100% - 28px);
   background:var(--bg);border:1px solid var(--bd2);border-radius:var(--r1);
-  padding:7px 10px;font-size:12px;color:var(--tx);outline:none
+  padding:7px 10px;font-size:12px;color:var(--tx);outline:none}
+
+/* ── CHEF AI DRAWER ──────────────────────────────────────────── */
+#cai-overlay{
+  position:fixed;inset:0;z-index:400;
+  pointer-events:none;display:flex;justify-content:flex-end
+}
+#cai-overlay.open{pointer-events:all}
+.cai-backdrop{
+  position:absolute;inset:0;
+  background:rgba(30,58,95,.18);
+  opacity:0;transition:opacity .22s;cursor:pointer
+}
+#cai-overlay.open .cai-backdrop{opacity:1}
+
+.cai-drawer{
+  position:relative;width:340px;max-width:90vw;height:100%;
+  background:rgba(248,252,255,.97);
+  backdrop-filter:blur(24px) saturate(1.6);
+  -webkit-backdrop-filter:blur(24px) saturate(1.6);
+  border-left:1px solid var(--bd2);
+  box-shadow:var(--sh3);
+  display:flex;flex-direction:column;
+  transform:translateX(100%);
+  transition:transform .26s cubic-bezier(.34,1.3,.64,1)
+}
+#cai-overlay.open .cai-drawer{transform:translateX(0)}
+
+@media(max-width:640px){
+  #cai-overlay{align-items:flex-end;justify-content:center}
+  .cai-drawer{
+    width:100%;max-width:100%;height:85dvh;
+    border-left:none;border-top:1px solid var(--bd2);
+    border-radius:var(--r3) var(--r3) 0 0;
+    transform:translateY(100%)
+  }
+  #cai-overlay.open .cai-drawer{transform:translateY(0)}
 }
 
+.cai-head{
+  display:flex;align-items:center;gap:10px;
+  padding:16px 18px;
+  border-bottom:1px solid var(--bd);flex-shrink:0
+}
+.cai-head-av{
+  width:36px;height:36px;border-radius:50%;
+  background:var(--b6);display:flex;align-items:center;justify-content:center;
+  font-size:18px;flex-shrink:0;
+  box-shadow:0 2px 8px rgba(37,99,235,.3)
+}
+.cai-head-info{flex:1;min-width:0}
+.cai-head-name{font-size:15px;font-weight:700;color:var(--tx);margin-bottom:1px}
+.cai-head-ctx{font-size:11px;color:var(--txm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cai-close{width:28px;height:28px;border-radius:50%;
+  background:var(--bg2);color:var(--txm);font-size:12px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .12s;flex-shrink:0}
+.cai-close:hover{background:var(--er-bg);color:var(--er)}
+
+.cai-body{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:10px}
+
+/* Status card */
+.cai-status-card{
+  background:var(--surf-g);border:1px solid var(--b2);
+  border-radius:var(--r2);padding:14px 16px
+}
+.cai-st-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.cai-st-dot{width:8px;height:8px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 0 3px rgba(22,163,74,.2);flex-shrink:0}
+.cai-st-lbl{font-size:13px;font-weight:600;color:var(--tx)}
+.cai-st-sub{font-size:12px;color:var(--txm);line-height:1.5}
+
+/* Messages */
+.cai-msg{display:flex;gap:8px;align-items:flex-start}
+.cai-msg-av{width:26px;height:26px;border-radius:50%;
+  background:var(--b6);display:flex;align-items:center;justify-content:center;
+  font-size:13px;flex-shrink:0;margin-top:2px}
+.cai-bubble{
+  background:var(--surf);border:1px solid var(--bd);
+  border-radius:0 var(--r2) var(--r2) var(--r2);
+  padding:10px 13px;font-size:13px;color:var(--tx);
+  line-height:1.55;max-width:calc(100% - 38px)
+}
+.cai-msg.usr{flex-direction:row-reverse}
+.cai-msg.usr .cai-bubble{
+  background:var(--b6);color:#fff;
+  border-radius:var(--r2) 0 var(--r2) var(--r2);border-color:var(--b7)
+}
+
+/* Input row */
+.cai-foot{
+  padding:12px 16px;border-top:1px solid var(--bd);flex-shrink:0;
+  display:flex;gap:8px;align-items:flex-end
+}
+.cai-input{
+  flex:1;background:var(--bg);border:1px solid var(--bd2);
+  border-radius:var(--r2);padding:9px 12px;
+  font-size:13px;color:var(--tx);outline:none;resize:none;
+  max-height:100px;overflow-y:auto;
+  transition:border-color .13s,box-shadow .13s;font-family:var(--ff)
+}
+.cai-input:focus{border-color:var(--b5);box-shadow:0 0 0 3px rgba(59,130,246,.13)}
+.cai-send{
+  width:38px;height:38px;border-radius:var(--r2);
+  background:var(--b6);color:#fff;font-size:16px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .12s;flex-shrink:0
+}
+.cai-send:hover{background:var(--b7);transform:scale(1.05)}
+.cai-send:active{transform:scale(.97)}
+
+/* Suggestions chips */
+.cai-suggestions{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.sug{
+  font-size:11px;padding:5px 11px;border-radius:var(--rp);
+  border:1px solid var(--b2);background:var(--b0);color:var(--b6);
+  cursor:pointer;transition:all .12s;font-weight:500
+}
+.sug:hover{background:var(--b1);border-color:var(--b4)}
+
+/* ── END TOPBAR CSS ──────────────────────────────────────────── */
 /* ── TAB BAR ─────────────────────────────────────────────────────────────── */
 #tabbar{
   flex-shrink:0;height:var(--tbh);
@@ -600,6 +722,25 @@ it:{
   fadderr:'Inserisci un titolo.',
   um_lang:'Lingua', um_role:'Ruolo', um_logout:'Esci',
   tj_short:'Diario',
+  /* Chef AI */
+  cai_duty:'in servizio', online_n:'online',
+  cai_ctx_prefix:'Contesto: ', cai_ctx_home:'Home workspace',
+  cai_ctx_bots:'Bot Center — pipeline', cai_ctx_journal:'Diario operativo',
+  cai_ctx_recipe:'Ricetta', cai_ctx_inv:'Dispensa',
+  cai_greeting:'Ciao! Sono Chef AI. Come posso aiutarti?',
+  cai_placeholder:'Chiedi qualcosa...',
+  cai_thinking:'Chef AI sta pensando...',
+  cai_suggestions:'Pipeline di stanotte|Dimmi le deduzioni|Come va il Diario?|Mostrami la ricetta',
+  cai_r_bots:'La pipeline di stanotte è andata bene — 5 bot eseguiti, 1 warning su Spring Mix (g vs buste). Non è critico, ma vale la pena sistemarlo.',
+  cai_r_journal:'Nel diario di oggi ci sono 4 voci: dishwasher leak (Tela sta gestendo), balsamic batch fatto da Colton, delivery Hardie\'s, Preston fuori per malattia.',
+  cai_r_recipe:'Tiramisu — batch da 10 pezzi. Mascarpone 500g, Savoiardi 400g, Tuorli 6 pz. Procedura in 7 step. Samantha l\'ha fatto stanotte.',
+  cai_r_inv:'Caesar Dressing — 2.4 kg in stock, acquistato pronto (no prep task). 23.1 kg scaricati in 60gg da modifier. Ultima consegna ieri da Hardie\'s.',
+  cai_r1:'Sto guardando i dati disponibili. In questo prototipo non ho accesso al DB reale — nella versione production leggo tutto da Supabase.',
+  cai_r2:'Nella workspace puoi spostarti tra le tab senza perdere contesto. Clicca una card dalla Home per aprire una nuova tab.',
+  cai_r3:'Il sistema è in modalità demo. Quando ti connetterai al DB reale, potrò rispondere con dati reali su ricette, stock, vendite e bot.',
+  cai_r4:'Puoi aprire più tab contemporaneamente — Bot Center, Diario, Ricetta — e passare dall\'una all\'altra. Lo scroll viene salvato per tab.',
+  /* User menu extra */
+  um_profile:'Profilo', um_notif:'Notifiche', um_quiet:'Quiet hours', um_pin:'Cambia PIN',
   yct:'Sì Chef! ✅', ycclose:'Chiudi',
 },
 en:{
@@ -636,6 +777,25 @@ en:{
   fadderr:'Please enter a title.',
   um_lang:'Language', um_role:'Role', um_logout:'Log out',
   tj_short:'Journal',
+  /* Chef AI */
+  cai_duty:'on duty', online_n:'online',
+  cai_ctx_prefix:'Context: ', cai_ctx_home:'Home workspace',
+  cai_ctx_bots:'Bot Center — pipeline', cai_ctx_journal:'Operations Journal',
+  cai_ctx_recipe:'Recipe', cai_ctx_inv:'Pantry',
+  cai_greeting:'Hey! I\'m Chef AI. How can I help?',
+  cai_placeholder:'Ask something...',
+  cai_thinking:'Chef AI is thinking...',
+  cai_suggestions:'Tonight\'s pipeline|Tell me deductions|How\'s the Journal?|Show me the recipe',
+  cai_r_bots:'Tonight\'s pipeline ran well — 5 bots, 1 warning on Spring Mix (g vs buste). Non-critical, worth fixing before next run.',
+  cai_r_journal:'Today\'s journal has 4 entries: dishwasher leak (Tela handling), Balsamic batch by Colton, Hardie\'s delivery, Preston called out sick.',
+  cai_r_recipe:'Tiramisu — batch of 10. Mascarpone 500g, Savoiardi 400g, Egg yolks 6 pz. 7-step procedure. Samantha made a batch last night.',
+  cai_r_inv:'Caesar Dressing — 2.4 kg in stock, purchased ready (no prep task). 23.1 kg deducted over 60d by modifier. Last delivery from Hardie\'s yesterday.',
+  cai_r1:'Looking at available data. In this prototype I don\'t have access to the real DB — in production I read from Supabase.',
+  cai_r2:'In the workspace you can switch between tabs without losing context. Click a Home card to open a new tab.',
+  cai_r3:'System is in demo mode. When connected to the real DB, I can answer with live data on recipes, stock, sales and bots.',
+  cai_r4:'You can keep multiple tabs open — Bot Center, Journal, Recipe — and switch between them. Scroll position is saved per tab.',
+  /* User menu extra */
+  um_profile:'Profile', um_notif:'Notifications', um_quiet:'Quiet hours', um_pin:'Change PIN',
   yct:'Yes Chef! ✅', ycclose:'Close',
 },
 es:{
@@ -672,6 +832,25 @@ es:{
   fadderr:'Por favor ingresa un título.',
   um_lang:'Idioma', um_role:'Rol', um_logout:'Cerrar sesión',
   tj_short:'Diario',
+  /* Chef AI */
+  cai_duty:'en servicio', online_n:'en línea',
+  cai_ctx_prefix:'Contexto: ', cai_ctx_home:'Inicio workspace',
+  cai_ctx_bots:'Centro Bot — pipeline', cai_ctx_journal:'Diario de operaciones',
+  cai_ctx_recipe:'Receta', cai_ctx_inv:'Despensa',
+  cai_greeting:'¡Hola! Soy Chef AI. ¿Cómo puedo ayudarte?',
+  cai_placeholder:'Pregunta algo...',
+  cai_thinking:'Chef AI está pensando...',
+  cai_suggestions:'Pipeline de esta noche|Dame las deducciones|¿Cómo va el Diario?|Muéstrame la receta',
+  cai_r_bots:'La pipeline de esta noche fue bien — 5 bots, 1 warning en Spring Mix (g vs buste). No crítico, pero vale la pena arreglarlo.',
+  cai_r_journal:'El diario de hoy tiene 4 entradas: fuga lavaplatos (Tela gestionando), batch Balsámico por Colton, entrega Hardie\'s, Preston enfermo.',
+  cai_r_recipe:'Tiramisu — batch de 10. Mascarpone 500g, Savoiardi 400g, Yemas 6 pz. Procedimiento en 7 pasos. Samantha hizo un batch anoche.',
+  cai_r_inv:'Caesar Dressing — 2.4 kg en stock, comprado listo (sin prep task). 23.1 kg deducidos en 60d por modifier. Última entrega ayer de Hardie\'s.',
+  cai_r1:'Revisando datos disponibles. En este prototipo no tengo acceso a la BD real — en producción leo de Supabase.',
+  cai_r2:'En el workspace puedes cambiar entre tabs sin perder contexto. Haz clic en una tarjeta del Inicio para abrir una nueva tab.',
+  cai_r3:'El sistema está en modo demo. Cuando se conecte a la BD real, podré responder con datos en vivo.',
+  cai_r4:'Puedes tener varias tabs abiertas — Centro Bot, Diario, Receta — y cambiar entre ellas. El scroll se guarda por tab.',
+  /* User menu extra */
+  um_profile:'Perfil', um_notif:'Notificaciones', um_quiet:'Horas silenciosas', um_pin:'Cambiar PIN',
   yct:'¡Sí Chef! ✅', ycclose:'Cerrar',
 }
 };
@@ -1322,69 +1501,79 @@ var PAGES={
 function renderTopBar(){
   var rn=RNAME[ROLE]||'Chef', ri=RINIT[ROLE]||'?';
 
-  /* Online users demo (3 always visible; in real app from presence channel) */
-  var ONLINE=[
-    {init:'MZ',name:'Max',    col:'#2563eb', role:'Executive Chef'},
-    {init:'TL',name:'Tela',   col:'#0891b2', role:'Coordinator'},
-    {init:'DV',name:'David',  col:'#059669', role:'Sous Chef'},
-    {init:'CL',name:'Cole',   col:'#7c3aed', role:'Saucier'}
+  /* Online users demo — Chef AI first, then real brigade members, exclude self */
+  var ONLINE_ALL=[
+    {init:'🤖',name:'Chef AI',   col:'#2563eb', role:t('cai_duty'), ai:true},
+    {init:'MZ',name:'Max',       col:'#1d4ed8', role:'Executive Chef', ai:false},
+    {init:'TL',name:'Tela',      col:'#0891b2', role:'Coordinator',    ai:false},
+    {init:'DV',name:'David',     col:'#059669', role:'Sous Chef',      ai:false},
+    {init:'CL',name:'Cole',      col:'#7c3aed', role:'Saucier',        ai:false}
   ];
-  /* show only others */
-  var others=ONLINE.filter(function(u){ return u.init!==ri; });
+  var others=ONLINE_ALL.filter(function(u){ return !u.ai && u.init!==ri; });
   var pillsHTML=others.map(function(u){
     return '<div class="op-av" style="background:'+u.col+'">'
       +u.init
       +'<span class="op-tooltip">'+u.name+' · '+u.role+'</span>'
       +'</div>';
   }).join('');
-  var countHTML='<span class="online-count">'+others.length+' online</span>';
 
-  /* User menu HTML */
-  var roleOpts=ROLES.map(function(r){
-    return '<option value="'+r+'"'+(r===ROLE?' selected':'')+'>'+t('lbl_'+r.substring(0,2))+'</option>';
-  }).join('');
+  /* Language buttons */
   var langBtns=['it','en','es'].map(function(l){
     return '<button class="um-lbtn'+(l===LANG?' on':'')+'" data-uml="'+l+'">'+l.toUpperCase()+'</button>';
+  }).join('');
+  /* Role options */
+  var roleOpts=ROLES.map(function(r){
+    return '<option value="'+r+'"'+(r===ROLE?' selected':'')+'>'+t('lbl_'+r.substring(0,2))+'</option>';
   }).join('');
 
   document.getElementById('topbar').innerHTML=
     /* Brand */
     '<div class="t-brand">'
     +'<div class="t-mark">B</div>'
-    +'<div class="t-words">'
-    +'<span class="t-name">Brigade</span>'
-    +'<span class="t-sub">by BOH OS</span>'
-    +'</div></div>'
+    +'<div class="t-words"><span class="t-name">Brigade</span><span class="t-sub">by BOH OS</span></div>'
+    +'</div>'
     /* Search */
-    +'<div class="t-search"><span style="opacity:.55;font-size:14px">⌕</span>'
-    +'<span>'+t('search')+'</span></div>'
-    /* Right cluster */
+    +'<div class="t-search"><span style="opacity:.5;font-size:14px">⌕</span><span>'+t('search')+'</span></div>'
+    /* Right */
     +'<div class="t-right">'
-    /* Online pills (desktop) + count (mobile) */
+    /* Chef AI button */
+    +'<button class="chef-ai-btn" id="cai-topbar-btn">'
+    +'<div class="cai-av">🤖</div>'
+    +'<div class="cai-text"><span class="cai-label">Chef AI</span>'
+    +'<span class="cai-status" id="cai-status-txt">'+t('cai_duty')+'</span>'
+    +'</div>'
+    +'</button>'
+    /* Online pills */
     +'<div class="online-pills">'+pillsHTML+'</div>'
-    +countHTML
+    +'<span class="online-n">'+others.length+' '+t('online_n')+'</span>'
     /* Demo badge */
     +'<span class="demo-tag">DEMO</span>'
-    /* User button */
+    /* User menu */
     +'<div class="usr-wrap" id="usr-wrap">'
     +'<button class="usr-btn" id="usr-btn">'
     +'<div class="usr-av">'+ri+'</div>'
     +'<span class="usr-name">'+rn+'</span>'
     +'<span class="usr-arr">▾</span>'
     +'</button>'
-    /* Dropdown */
     +'<div class="usr-menu hi" id="usr-menu">'
     /* User info */
     +'<div class="um-section">'
     +'<p class="um-lbl">'+rn+'</p>'
     +'<p style="font-size:11px;color:var(--txm);padding:2px 14px 6px">'+t('lbl_'+ROLE.substring(0,2))+'</p>'
     +'</div>'
+    /* Profile items */
+    +'<div class="um-section">'
+    +'<button class="um-item"><span class="um-item-ico">👤</span>'+t('um_profile')+'</button>'
+    +'<button class="um-item"><span class="um-item-ico">🔕</span>'+t('um_notif')+'</button>'
+    +'<button class="um-item"><span class="um-item-ico">🕙</span>'+t('um_quiet')+'</button>'
+    +'<button class="um-item"><span class="um-item-ico">🔑</span>'+t('um_pin')+'</button>'
+    +'</div>'
     /* Language */
     +'<div class="um-section">'
     +'<p class="um-lbl">'+t('um_lang')+'</p>'
     +'<div class="um-lang" id="um-lang-btns">'+langBtns+'</div>'
     +'</div>'
-    /* Role (demo) */
+    /* Role demo */
     +'<div class="um-section">'
     +'<p class="um-lbl">'+t('um_role')+' (demo)</p>'
     +'<select class="um-role-sel" id="um-role-sel">'+roleOpts+'</select>'
@@ -1394,35 +1583,35 @@ function renderTopBar(){
     +'<button class="um-item"><span class="um-item-ico">↩</span>'+t('um_logout')+'</button>'
     +'</div>'
     +'</div>' /* /usr-menu */
-    +'</div>' /* /usr-wrap */
-    +'</div>'; /* /t-right */
+    +'</div>'; /* /usr-wrap */
 
-  /* ── Wire user menu toggle ── */
+  /* ── Wire user menu ── */
   var btn=document.getElementById('usr-btn');
   var wrap=document.getElementById('usr-wrap');
   var menu=document.getElementById('usr-menu');
 
   btn.addEventListener('click',function(e){
     e.stopPropagation();
-    var open=!menu.classList.contains('hi');
-    if(open){ menu.classList.add('hi'); wrap.classList.remove('open'); }
-    else     { menu.classList.remove('hi'); wrap.classList.add('open'); }
+    var isOpen=!menu.classList.contains('hi');
+    if(isOpen){ menu.classList.add('hi'); wrap.classList.remove('open'); }
+    else       { menu.classList.remove('hi'); wrap.classList.add('open'); }
   });
-  document.addEventListener('click',function umClose(){
-    menu.classList.add('hi'); wrap.classList.remove('open');
-  });
+  /* close on outside click — use one-time-ish named handler to avoid stacking */
+  document._usrMenuClose && document.removeEventListener('click',document._usrMenuClose);
+  document._usrMenuClose=function(){ menu.classList.add('hi'); wrap.classList.remove('open'); };
+  document.addEventListener('click', document._usrMenuClose);
   menu.addEventListener('click',function(e){ e.stopPropagation(); });
 
-  /* ── Wire language buttons ── */
+  /* ── Wire language ── */
   document.getElementById('um-lang-btns').addEventListener('click',function(e){
-    var b=e.target.closest('[data-uml]');
-    if(!b) return;
-    setLang(b.dataset.uml);
+    var b=e.target.closest('[data-uml]'); if(b) setLang(b.dataset.uml);
   });
+  /* ── Wire role ── */
+  document.getElementById('um-role-sel').addEventListener('change',function(e){ setRole(e.target.value); });
 
-  /* ── Wire role select ── */
-  document.getElementById('um-role-sel').addEventListener('change',function(e){
-    setRole(e.target.value);
+  /* ── Wire Chef AI button ── */
+  document.getElementById('cai-topbar-btn').addEventListener('click',function(e){
+    e.stopPropagation(); toggleChefAI();
   });
 }
 
@@ -1485,6 +1674,139 @@ function renderAll(){
 }
 
 /* ══ INIT ═════════════════════════════════════════════════════════════════ */
+
+/* ══ CHEF AI DRAWER ════════════════════════════════════════════════════════ */
+var CAI_OPEN = false;
+var CAI_HISTORY = [];
+
+/* Context per tab type — in futuro leggerà la tab attiva */
+function caiContext(){
+  var tab = TABS.find(function(x){ return x.id===AID; });
+  if(!tab) return t('cai_ctx_home');
+  var ctx = {
+    home:          t('cai_ctx_home'),
+    bot_center:    t('cai_ctx_bots'),
+    recipe:        t('cai_ctx_recipe') + (tab.params&&tab.params.name?' — '+tab.params.name:''),
+    inventory:     t('cai_ctx_inv')    + (tab.params&&tab.params.name?' — '+tab.params.name:''),
+    daily_journal: t('cai_ctx_journal')
+  };
+  return ctx[tab.type] || tab.title;
+}
+
+function toggleChefAI(){
+  if(CAI_OPEN) closeChefAI(); else openChefAI();
+}
+
+function openChefAI(){
+  CAI_OPEN=true;
+  var ov=document.getElementById('cai-overlay');
+  ov.classList.add('open');
+  /* update context */
+  var ctx=caiContext();
+  var ctxEl=document.getElementById('cai-ctx');
+  if(ctxEl) ctxEl.textContent=t('cai_ctx_prefix')+ctx;
+  /* update topbar button */
+  var btn=document.getElementById('cai-topbar-btn');
+  if(btn) btn.classList.add('active');
+  /* init body if empty */
+  var body=document.getElementById('cai-body');
+  if(body && CAI_HISTORY.length===0){
+    caiAddMsg('ai', t('cai_greeting'));
+    /* suggestions */
+    var sugs=t('cai_suggestions').split('|');
+    var sugHTML='<div class="cai-suggestions">'
+      +sugs.map(function(s){return '<button class="sug">'+s.trim()+'</button>';}).join('')
+      +'</div>';
+    body.insertAdjacentHTML('beforeend', sugHTML);
+    body.querySelectorAll('.sug').forEach(function(b){
+      b.addEventListener('click',function(){
+        caiSend(b.textContent.trim());
+        b.closest('.cai-suggestions')?.remove();
+      });
+    });
+  }
+  /* wire close */
+  document.getElementById('cai-close-btn').onclick=closeChefAI;
+  document.getElementById('cai-backdrop').onclick=closeChefAI;
+  /* wire send */
+  var inp=document.getElementById('cai-input');
+  var snd=document.getElementById('cai-send-btn');
+  if(inp){
+    inp.placeholder=t('cai_placeholder');
+    inp.onkeydown=function(e){
+      if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();caiSendFromInput();}
+    };
+  }
+  if(snd) snd.onclick=caiSendFromInput;
+  /* focus input */
+  setTimeout(function(){ document.getElementById('cai-input')?.focus(); }, 300);
+}
+
+function closeChefAI(){
+  CAI_OPEN=false;
+  document.getElementById('cai-overlay').classList.remove('open');
+  var btn=document.getElementById('cai-topbar-btn');
+  if(btn) btn.classList.remove('active');
+}
+
+function caiAddMsg(role, text){
+  var body=document.getElementById('cai-body');
+  if(!body) return;
+  CAI_HISTORY.push({role:role,text:text});
+  var isAI=(role==='ai');
+  var html='<div class="cai-msg'+(isAI?'':' usr')+'">'
+    +(isAI?'<div class="cai-msg-av">🤖</div>':'')
+    +'<div class="cai-bubble">'+text.replace(/\n/g,'<br>')+'</div>'
+    +(isAI?'':'<div class="cai-msg-av" style="background:var(--b6)">'+RINIT[ROLE]+'</div>')
+    +'</div>';
+  body.insertAdjacentHTML('beforeend', html);
+  body.scrollTop=body.scrollHeight;
+}
+
+function caiSendFromInput(){
+  var inp=document.getElementById('cai-input');
+  if(!inp) return;
+  var msg=(inp.value||'').trim();
+  if(!msg) return;
+  inp.value='';
+  caiSend(msg);
+}
+
+/* Demo responses — no real AI in prototype */
+var CAI_DEMO_REPLIES = null;
+function caiGetDemoReply(q){
+  if(!CAI_DEMO_REPLIES){
+    CAI_DEMO_REPLIES = [
+      t('cai_r1'), t('cai_r2'), t('cai_r3'), t('cai_r4')
+    ];
+  }
+  /* simple keyword matching */
+  q=q.toLowerCase();
+  if(q.indexOf('bot')>=0||q.indexOf('pipeline')>=0) return t('cai_r_bots');
+  if(q.indexOf('journal')>=0||q.indexOf('diario')>=0) return t('cai_r_journal');
+  if(q.indexOf('tiramisu')>=0||q.indexOf('ricett')>=0||q.indexOf('recipe')>=0) return t('cai_r_recipe');
+  if(q.indexOf('caesar')>=0||q.indexOf('dispensa')>=0||q.indexOf('pantry')>=0) return t('cai_r_inv');
+  /* default cycle */
+  var i=CAI_HISTORY.filter(function(m){return m.role==='user';}).length;
+  return CAI_DEMO_REPLIES[i % CAI_DEMO_REPLIES.length];
+}
+
+function caiSend(msg){
+  caiAddMsg('user', msg);
+  /* typing indicator */
+  var body=document.getElementById('cai-body');
+  var typing=document.createElement('div');
+  typing.className='cai-msg'; typing.id='cai-typing';
+  typing.innerHTML='<div class="cai-msg-av">🤖</div>'
+    +'<div class="cai-bubble" style="opacity:.6">'+t('cai_thinking')+'</div>';
+  body.appendChild(typing); body.scrollTop=body.scrollHeight;
+  /* simulate response */
+  setTimeout(function(){
+    typing.remove();
+    caiAddMsg('ai', caiGetDemoReply(msg));
+  }, 900 + Math.random()*600);
+}
+
 document.addEventListener('DOMContentLoaded', function(){
   LANG = sessionStorage.getItem('ws_lang') || 'it';
   ROLE = sessionStorage.getItem('ws_role') || 'executive';
@@ -1493,5 +1815,25 @@ document.addEventListener('DOMContentLoaded', function(){
   else renderAll();
 });
 </script>
+
+<!-- ── CHEF AI DRAWER ──────────────────────────────────────── -->
+<div id="cai-overlay">
+  <div class="cai-backdrop" id="cai-backdrop"></div>
+  <div class="cai-drawer" id="cai-drawer">
+    <div class="cai-head">
+      <div class="cai-head-av">🤖</div>
+      <div class="cai-head-info">
+        <div class="cai-head-name">Chef AI</div>
+        <div class="cai-head-ctx" id="cai-ctx">...</div>
+      </div>
+      <button class="cai-close" id="cai-close-btn">✕</button>
+    </div>
+    <div class="cai-body" id="cai-body"></div>
+    <div class="cai-foot">
+      <textarea class="cai-input" id="cai-input" rows="1" placeholder=""></textarea>
+      <button class="cai-send" id="cai-send-btn">↑</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
