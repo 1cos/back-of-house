@@ -124,6 +124,40 @@ async function loadTodayLogs(){
 function getTodayLogsFor(itemName){
   return window._todayLogs[itemName]||[];
 }
+
+// ── RECENT KITCHEN COUNTS ─────────────────────────────────────────────────
+// Carica i prep_stock_counts delle ultime 24h in window._recentCounts
+// Struttura: { [prep_task_id]: { ...row } }
+// La UI usa questi per dare priorità al count reale rispetto alla bot suggestion
+window._recentCounts = window._recentCounts || {};
+async function loadRecentCounts() {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data } = await supa
+      .from('prep_stock_counts')
+      .select('id,prep_task_id,counted_qty,unit,counted_by,counted_at,reconcile_status,reconciled_qty,reconciled_note,expires_at,prev_bot_stock,prev_bot_suggestion,prev_suggested_by')
+      .gte('counted_at', cutoff)
+      .order('counted_at', { ascending: false });
+    window._recentCounts = {};
+    for (const row of (data || [])) {
+      // Per ogni task_id teniamo solo il count più recente (order DESC già fatto)
+      if (!window._recentCounts[row.prep_task_id]) {
+        window._recentCounts[row.prep_task_id] = row;
+      }
+    }
+  } catch(e) {
+    window._recentCounts = {};
+  }
+}
+
+// Helper: ritorna il count recente valido per un task (non expired)
+function getValidCount(taskId) {
+  const row = window._recentCounts[taskId];
+  if (!row) return null;
+  // Controlla expires_at
+  if (row.expires_at && new Date(row.expires_at) < new Date()) return null;
+  return row;
+}
 function fmtLogTime(isoStr){
   try{
     return new Date(isoStr).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'America/Chicago'});
@@ -790,6 +824,15 @@ function classifyCard(i) {
   if (i.prep_type === 'checklist') return 'TRUSTED';
   // Dati strutturali mancanti → BLOCKED
   if (!i.recipe_id && !i.ingredient_id) return 'BLOCKED';
+
+  // ── Priorità 0: kitchen count recente e reconciled ────────────
+  // Se esiste un count nelle ultime 24h con reconcile_status valorizzato,
+  // la card usa quello — ignora bot suggestion sospette
+  const validCount = getValidCount(i.id);
+  if (validCount && validCount.reconcile_status) {
+    return 'COUNT_RECONCILED';
+  }
+
   // Bot non ancora girato → TRUSTED
   if (!i.suggested_note) return 'TRUSTED';
 
@@ -939,6 +982,35 @@ function buildChefAiNote(i, cardType) {
     return m ? m[1] : null;
   }
 
+  // ── COUNT RECONCILED — kitchen count recente e valido ────────
+  if (cardType === 'COUNT_RECONCILED') {
+    const row = getValidCount(i.id);
+    if (row) {
+      const countedHuman = humanQty(parseFloat(row.counted_qty), row.unit || unit);
+      const countedBy = (row.counted_by || 'kitchen').trim().split(/\s+/)[0];
+      if (row.reconcile_status === 'sufficient') {
+        return {
+          headline: chef + ', ' + name + ' — stock confirmed by ' + countedBy + '.',
+          body: row.reconciled_note || ('Stock confirmed: ' + countedHuman + '. Enough for today.'),
+          action: 'No urgent prep needed.'
+        };
+      }
+      if (row.reconcile_status === 'prep_more') {
+        return {
+          headline: chef + ', ' + name + ' needs some more prep.',
+          body: row.reconciled_note || ('Stock confirmed: ' + countedHuman + '.'),
+          action: null
+        };
+      }
+      // manual_review
+      return {
+        headline: chef + ', ' + name + ' — count saved.',
+        body: row.reconciled_note || ('Stock confirmed: ' + countedHuman + '. Chef will review the final prep amount.'),
+        action: null
+      };
+    }
+  }
+
   // ── COUNT FIRST ─────────────────────────────────────────────
   if (cardType === 'COUNT_FIRST') {
     const { unit: kUnit, hint } = kitchenCountUnit(i);
@@ -1065,6 +1137,9 @@ function renderChefAiBlock(i, cardType) {
       red:    { emoji: '🔴', label: 'Do first',     bg: 'rgba(220,38,38,0.08)',   border: '#fca5a5', color: '#dc2626' },
       '':     { emoji: '⚪', label: 'Watch',        bg: 'rgba(100,116,139,0.06)', border: '#e2e8f0', color: '#64748b' },
     },
+    COUNT_RECONCILED: { emoji: '✅', label: 'Count confirmed', bg: 'rgba(5,150,105,0.08)', border: '#bbf7d0', color: '#059669' },
+    COUNT_RECONCILED_MORE: { emoji: '🟠', label: 'Prep more', bg: 'rgba(217,119,6,0.08)', border: '#fde68a', color: '#d97706' },
+    COUNT_RECONCILED_REVIEW: { emoji: '🔵', label: 'Count saved', bg: 'rgba(37,99,235,0.08)', border: '#bfdbfe', color: '#1d4ed8' },
     STAGED_CHECK: { emoji: '🟡', label: 'Check staged stock',  bg: 'rgba(234,179,8,0.08)',   border: '#fef08a', color: '#854d0e' },
     LARGE_BATCH:  { emoji: '🟠', label: 'Large batch — verify', bg: 'rgba(217,119,6,0.1)',   border: '#fde68a', color: '#b45309' },
     COUNT_FIRST:  { emoji: '🔴', label: 'Count first',          bg: 'rgba(220,38,38,0.08)',  border: '#fca5a5', color: '#dc2626' },
@@ -1076,6 +1151,13 @@ function renderChefAiBlock(i, cardType) {
     const note = i.suggested_note || '';
     const col = note.includes('|') ? note.split('|')[0] : '';
     statusCfg = statusMap.TRUSTED[col] || statusMap.TRUSTED[''];
+  } else if (cardType === 'COUNT_RECONCILED') {
+    // Scegli sub-stato da reconcile_status
+    const row = getValidCount(i.id);
+    const rs = row?.reconcile_status || 'manual_review';
+    statusCfg = rs === 'sufficient'     ? statusMap.COUNT_RECONCILED
+              : rs === 'prep_more'      ? statusMap.COUNT_RECONCILED_MORE
+              : statusMap.COUNT_RECONCILED_REVIEW;
   } else {
     statusCfg = statusMap[cardType] || statusMap.BLOCKED;
   }
@@ -1185,43 +1267,114 @@ window.saveKitchenCount = async function(id) {
   const prevBy    = it.suggested_by || null;
   const userName  = window.user?.name || 'unknown';
 
-  // Salva in prep_stock_counts
-  await supa.from('prep_stock_counts').insert({
-    prep_task_id:       id,
-    counted_qty:        val,
-    unit:               unit,
-    counted_by:         userName,
-    source:             'kitchen_count',
-    prev_bot_stock:     prevStock,
+  // 1. Salva in prep_stock_counts — NON in prep_tasks.suggested_*
+  const { data: countRows, error: countErr } = await supa.from('prep_stock_counts').insert({
+    prep_task_id:        id,
+    counted_qty:         val,
+    unit:                unit,
+    counted_by:          userName,
+    source:              'kitchen_count',
+    prev_bot_stock:      prevStock,
     prev_bot_suggestion: prevSugg,
-    prev_suggested_by:  prevBy
-  });
+    prev_suggested_by:   prevBy
+  }).select('id');
 
-  // Aggiorna current_stock sul task (non distruttivo — il vecchio valore è in prep_stock_counts)
+  const countId = countRows?.[0]?.id || null;
+
+  // 2. Aggiorna current_stock (loggato in prev_bot_stock — non distruttivo)
   await supa.from('prep_tasks').update({ current_stock: val }).eq('id', id);
-
-  // Aggiorna locale
   tasks[id].current_stock = val;
   if (items) {
     const idx = items.findIndex(x => x.id === id);
     if (idx >= 0) items[idx].current_stock = val;
   }
 
-  // Feedback visivo inline — sostituisce la card COUNT_FIRST con conferma
+  // 3. Mostra feedback immediato "saving..."
   const cardEl = document.querySelector('[data-audit-id="' + id + '"]');
-  if (cardEl) {
-    const confirmQty = humanQty(val, unit) || val + ' ' + unit;
-    const msg = val > 0
-      ? `Stock confirmed: ${confirmQty}. Chef AI will update the prep suggestion next run.`
-      : `Stock confirmed: 0. You may need to prep today. Chef will review.`;
-    const confirmBlock = cardEl.querySelector('.chef-ai-card-block');
-    if (confirmBlock) {
-      confirmBlock.innerHTML = `
-        <div style="margin-top:6px;">
-          <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.08);border:1px solid #bbf7d0;border-radius:20px;padding:3px 9px;">✅ Count saved</span>
-          <div style="font-size:13px;font-weight:600;color:#1e3a5f;margin-top:6px;">${msg}</div>
-        </div>`;
+  const confirmBlock = cardEl?.querySelector('.chef-ai-card-block');
+  if (confirmBlock) {
+    confirmBlock.innerHTML = '<div style="margin-top:8px;font-size:13px;color:#64748b;">⏳ Chef AI is reconciling the count…</div>';
+  }
+
+  // 4. Chiama il reconciler on-demand
+  let reconcilerResult = null;
+  if (countId) {
+    try {
+      const resp = await fetch(
+        `${SUPABASE_URL}/functions/v1/bot-prep-count-reconciler`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
+          body: JSON.stringify({ prep_task_id: id, count_id: countId })
+        }
+      );
+      if (resp.ok) reconcilerResult = await resp.json();
+    } catch(e) {
+      // Reconciler fallito — mostra comunque "count saved"
     }
+  }
+
+  // 5. Aggiorna _recentCounts locale con il risultato del reconciler
+  if (reconcilerResult?.ok) {
+    window._recentCounts[id] = {
+      id:                countId,
+      prep_task_id:      id,
+      counted_qty:       val,
+      unit:              unit,
+      counted_by:        userName,
+      counted_at:        new Date().toISOString(),
+      reconcile_status:  reconcilerResult.reconcile_status,
+      reconciled_qty:    reconcilerResult.reconciled_qty,
+      reconciled_note:   reconcilerResult.reconciled_note,
+      expires_at:        reconcilerResult.expires_at,
+      prev_bot_stock:    prevStock,
+      prev_bot_suggestion: prevSugg,
+      prev_suggested_by: prevBy,
+    };
+  }
+
+  // 6. Aggiorna card inline con il risultato
+  if (confirmBlock) {
+    const confirmQty = humanQty(val, unit) || val + ' ' + unit;
+    let statusEmoji = '✅';
+    let statusLabel = 'Count confirmed';
+    let msg = reconcilerResult?.reconciled_note
+      || (val > 0
+        ? 'Stock confirmed: ' + confirmQty + '. Chef AI will update the prep suggestion next run.'
+        : 'Stock confirmed: 0. You may need to prep today. Chef will review.');
+    // Colore in base al reconcile_status
+    const rs = reconcilerResult?.reconcile_status;
+    const statusColor = rs === 'sufficient' ? '#059669'
+                      : rs === 'prep_more'   ? '#d97706'
+                      : '#1d4ed8';
+    const statusBg    = rs === 'sufficient' ? 'rgba(5,150,105,0.08)'
+                      : rs === 'prep_more'   ? 'rgba(217,119,6,0.08)'
+                      : 'rgba(37,99,235,0.08)';
+    const statusBorder = rs === 'sufficient' ? '#bbf7d0'
+                       : rs === 'prep_more'   ? '#fde68a'
+                       : '#bfdbfe';
+    if (rs === 'prep_more') { statusEmoji = '🟠'; statusLabel = 'Prep more'; }
+    else if (rs === 'manual_review') { statusEmoji = '🔵'; statusLabel = 'Count saved'; }
+
+    // Debug da mostrare nei Details
+    const debugHtml = isAdmin() ? `
+      <details style="margin-top:8px;">
+        <summary style="font-size:10px;font-weight:600;color:#94a3b8;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">Details ↓</summary>
+        <div style="margin-top:4px;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:11px;color:#64748b;line-height:1.7;font-family:monospace;">
+          <div>Bot stock before: ${prevStock} ${unit}</div>
+          <div>Bot suggestion: ${prevSugg || '—'} ${unit}</div>
+          <div>Kitchen count: ${val} ${unit}</div>
+          <div>Reconcile: ${rs || 'pending'}</div>
+          <div>Counted by: ${userName}</div>
+        </div>
+      </details>` : '';
+
+    confirmBlock.innerHTML = `
+      <div style="margin-top:6px;">
+        <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${statusColor};background:${statusBg};border:1px solid ${statusBorder};border-radius:20px;padding:3px 9px;">${statusEmoji} ${statusLabel}</span>
+        <div style="font-size:13px;font-weight:600;color:#1e3a5f;margin-top:6px;">${msg}</div>
+        ${debugHtml}
+      </div>`;
   }
 };
 
@@ -1611,7 +1764,7 @@ async function suggestedSave(id, modal){
     return;
   }
   _finishTask(id, qty);
-  loadItemAlerts();loadStepsMap();loadTodayLogs();
+  loadItemAlerts();loadStepsMap();loadTodayLogs();loadRecentCounts();
 }
 
 async function detailSave(id, btn, isSuggested){
@@ -1647,6 +1800,7 @@ async function detailSave(id, btn, isSuggested){
   _finishTask(id, qty);
   await loadItemAlerts();
   await loadStepsMap();
+loadRecentCounts();
   setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
 }
 
@@ -1705,7 +1859,7 @@ async function quickSave(id){
     return;
   }
   _finishTask(id, addQty);
-  loadItemAlerts();loadStepsMap();loadTodayLogs();
+  loadItemAlerts();loadStepsMap();loadTodayLogs();loadRecentCounts();
 }
 
 async function saveWip(id, note){
