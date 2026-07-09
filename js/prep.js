@@ -791,15 +791,28 @@ function cardButton(i){
     const seeLabel = {it:'VEDI STEPS',en:'SEE STEPS',es:'VER PASOS'}[lang]||'SEE STEPS';
     return `<button onclick="prepSeeSteps(${JSON.stringify(iid)})" style="height:40px;padding:0 18px;border-radius:10px;font-size:13px;font-weight:600;background:#378add;color:white;border:none;white-space:nowrap;flex-shrink:0;">${seeLabel}</button>`;
   }
-  // START solo su card actionable — NO su Looks okay (green) e WATCH
-  const _ct2 = classifyCard(i);
+  // ── Bottone per card type ──────────────────────────────────────
+  // START: solo su card di produzione reale (red/yellow TRUSTED)
+  // COUNT_FIRST / STAGED_CHECK: Save count è già nel renderChefAiBlock — nessun bottone extra
+  // LARGE_BATCH: "Start normal batch" — azione esplicita, non generica
+  // WATCH / BLOCKED / CHEF_REVIEW / green: nessun bottone
+  const _ct2     = classifyCard(i);
   const _botCol2 = (i.suggested_note||'').split('|')[0];
-  const _isGreenOk = (_ct2 === 'TRUSTED' && _botCol2 === 'green');
-  const _isWatch   = (_ct2 === 'WATCH');
-  const _isBlocked = (_ct2 === 'BLOCKED' || _ct2 === 'CHEF_REVIEW');
-  if (_isGreenOk || _isWatch || _isBlocked) {
-    return ''; // nessun bottone — queste card non sono actionable
+
+  // Nessun bottone
+  if (_ct2 === 'TRUSTED' && _botCol2 === 'green') return '';  // Looks okay
+  if (_ct2 === 'WATCH')       return '';                       // dati incerti non critici
+  if (_ct2 === 'BLOCKED')     return '';                       // setup mancante
+  if (_ct2 === 'CHEF_REVIEW') return '';                       // nessun dato
+  if (_ct2 === 'COUNT_FIRST') return '';                       // Save count è nel card block
+  if (_ct2 === 'STAGED_CHECK') return '';                      // Save count è nel card block
+
+  // LARGE_BATCH: label diversa per evitare "Start full batch" inconsapevole
+  if (_ct2 === 'LARGE_BATCH') {
+    return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:14px;font-weight:700;background:#b45309;color:white;border:none;letter-spacing:0.03em;">Start normal batch</button>`;
   }
+
+  // DO_FIRST (red TRUSTED) / PREP_TODAY (yellow TRUSTED) / COUNT_RECONCILED → START
   return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START</button>`;
 }
 
