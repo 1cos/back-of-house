@@ -975,6 +975,14 @@ function fmtAvgDaily(avgDaily) {
   return (Number.isInteger(n) ? n : n) + ' portions/day';
 }
 
+// ── FORMAT avg_daily_g — SEMPRE in grammi assoluti, indipendente da prep_task.unit ──
+// avg_daily_g è sempre grammi. Non usare humanQty(avgDailyG, prep_unit).
+function fmtMassG(grams) {
+  if (!grams || grams <= 0) return null;
+  if (grams >= 1000) return (grams / 1000).toFixed(2).replace(/\.?0+$/, '') + ' kg';
+  return Math.round(grams) + ' g';
+}
+
 // ── HUMANIZE QTY per display ──
 function humanQty(qty, unit) {
   if (!qty || qty <= 0) return null;
@@ -1011,8 +1019,9 @@ function buildChefAiNote(i, cardType) {
   const stockHuman    = (stock > 0) ? humanQty(stock, unit) : null;
   // avgDaily = porzioni POS/giorno | avgDailyG = consumo g/giorno dal bot
   const expectedToday = avgDaily ? fmtAvgDaily(avgDaily) : null;
+  // fmtMassG: tratta avgDailyG SEMPRE come grammi assoluti — non dipende da prep_task.unit
   const botUsageToday = (avgDailyG && unit !== 'pezzi' && unit !== 'pz')
-    ? '~' + humanQty(avgDailyG, unit) + '/day' : null;
+    ? '~' + fmtMassG(avgDailyG) + '/day' : null;
 
   function goodThroughDay() {
     const rawEN = note.split('|')[2] || '';
@@ -1251,7 +1260,8 @@ function renderChefAiBlock(i, cardType) {
   const unit = i.unit || '';
   const stockHuman = (stock > 0) ? humanQty(stock, unit) : null;
   const avgDailyHuman = avgDaily ? fmtAvgDaily(avgDaily) : null;  // "N portions/day"
-  const botUsageHuman = avgDailyG ? humanQty(avgDailyG, unit) + '/day' : null; // "460 g/day"
+  // fmtMassG: avgDailyG è SEMPRE grammi assoluti — non dipendere da prep_task.unit
+  const botUsageHuman = avgDailyG ? fmtMassG(avgDailyG) + '/day' : null; // "460 g/day" o "1.45 kg/day"
   const suggHuman = humanQty(qty, unit);
 
   let numbersHtml = '';
