@@ -1,4 +1,4 @@
-// ── BOH WORKSPACE ROUTER ──────────────────────────────────────────────────────
+// ── BOH WORKSPACE ROUTER — workspace-v002 ─────────────────────────────────────
 // ⚠️  PRODUCTION SAFETY:
 //     This module is EXPERIMENTAL. It must remain DISABLED by default in production.
 //     Do NOT activate globally without explicit approval from Chef Max.
@@ -17,11 +17,15 @@
 //   Back/forward via history.pushState + popstate.
 //   Modals remain for quick actions only.
 //
-// Phase 1 routes:
+// Phase 1 routes (workspace-v001):
 //   /prep/:prep_task_id   → Prep Detail page
+//
+// Phase 2 routes (workspace-v002):
+//   /recipe/:recipe_id    → Recipe Workspace Page
 //
 // Versioning: workspace-v001 (Phase 1), workspace-v002 (Phase 2)...
 //   Live boh-v### bumps only for hotfixes, not for workspace features.
+//   Workspace builds are labeled workspace-v00N, not boh-v### releases.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /* ══ STATE ═══════════════════════════════════════════════════════════════════ */
@@ -137,7 +141,7 @@ function _wsRender() {
   // Build page title
   const title = handler.title ? handler.title(params, WS.payload) : 'Detail';
 
-  // Render page HTML
+  // Render page HTML (may be a loading skeleton while async fetch runs)
   let pageHTML;
   try {
     pageHTML = handler.renderer(params, WS.payload);
@@ -146,7 +150,7 @@ function _wsRender() {
     pageHTML = _wsErrorHTML(err);
   }
 
-  // Assemble shell
+  // Assemble shell with debug badge
   root.innerHTML = `
     <div class="ws-shell" id="ws-shell">
       <div class="ws-header" id="ws-header">
@@ -154,7 +158,9 @@ function _wsRender() {
           <span class="ws-back-icon">‹</span>
         </button>
         <div class="ws-header-title" id="ws-header-title">${_wsEscape(title)}</div>
-        <div class="ws-header-actions" id="ws-header-actions"></div>
+        <div class="ws-header-actions" id="ws-header-actions">
+          <span class="ws-lab-badge">WORKSPACE LAB</span>
+        </div>
       </div>
       <div class="ws-page" id="ws-page">
         ${pageHTML}
@@ -207,7 +213,7 @@ function _wsShowError(err) {
       <div class="ws-header">
         <button class="ws-back-btn" onclick="wsBack()">‹</button>
         <div class="ws-header-title">Error</div>
-        <div></div>
+        <div class="ws-header-actions"><span class="ws-lab-badge">WORKSPACE LAB</span></div>
       </div>
       <div class="ws-page" style="padding:24px 16px">
         ${_wsErrorHTML(err)}
@@ -315,6 +321,23 @@ function wsInjectStyles() {
       flex-shrink: 0;
     }
 
+    /* ── WORKSPACE LAB debug badge ── */
+    /* Visible ONLY when workspace is active — tells Max he's in the lab, not live */
+    .ws-lab-badge {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: #ffffff;
+      background: #7c3aed;
+      border-radius: 6px;
+      padding: 3px 7px;
+      line-height: 1;
+      opacity: 0.85;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
     /* ── Page scroll area ── */
     .ws-page {
       flex: 1;
@@ -324,7 +347,7 @@ function wsInjectStyles() {
       padding: 16px 14px 100px; /* bottom pad clears bottom nav */
     }
 
-    /* ── Prep Detail page ── */
+    /* ── Shared section components ── */
     .wsp-section {
       background: rgba(255,255,255,0.75);
       backdrop-filter: blur(12px);
@@ -370,6 +393,7 @@ function wsInjectStyles() {
     .wsp-tag.red    { background: rgba(220,38,38,0.08); border-color: rgba(220,38,38,0.2); color: #dc2626; }
     .wsp-tag.purple { background: rgba(124,58,237,0.08);border-color: rgba(124,58,237,0.2);color: #7c3aed; }
     .wsp-tag.gray   { background: rgba(100,116,139,0.08);border-color:rgba(100,116,139,0.2);color:#475569; }
+    .wsp-tag.teal   { background: rgba(20,184,166,0.08); border-color: rgba(20,184,166,0.2); color: #0d9488; }
 
     .wsp-row {
       display: flex;
@@ -470,8 +494,158 @@ function wsInjectStyles() {
       font-family: inherit;
       line-height: 1.5;
       transition: border-color 0.12s;
+      box-sizing: border-box;
     }
     .wsp-note-area:focus { border-color: #2563eb; background: #fff; }
+
+    /* ── Loading spinner ── */
+    .ws-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 24px;
+      color: #7a9cc4;
+    }
+    .ws-spinner {
+      width: 32px; height: 32px;
+      border: 3px solid rgba(37,99,235,0.15);
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: wsSpin 0.7s linear infinite;
+      margin-bottom: 14px;
+    }
+    @keyframes wsSpin { to { transform: rotate(360deg); } }
+
+    /* ── Recipe page specific ── */
+    .wsr-yield-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(124,58,237,0.08);
+      border: 1px solid rgba(124,58,237,0.2);
+      border-radius: 10px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #7c3aed;
+      width: 100%;
+      box-sizing: border-box;
+      justify-content: center;
+      margin-bottom: 4px;
+    }
+
+    .wsr-bom-row {
+      display: flex;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(30,58,95,0.06);
+      gap: 12px;
+    }
+    .wsr-bom-row:last-child { border-bottom: none; }
+    .wsr-bom-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .wsr-bom-name {
+      flex: 1;
+      font-size: 15px;
+      font-weight: 500;
+      color: #1e3a5f;
+      line-height: 1.3;
+    }
+    .wsr-bom-name.sub-recipe {
+      color: #7c3aed;
+      font-style: italic;
+    }
+    .wsr-bom-qty {
+      font-size: 15px;
+      font-weight: 800;
+      color: #2563eb;
+      white-space: nowrap;
+    }
+    .wsr-bom-unit {
+      font-size: 12px;
+      font-weight: 500;
+      color: #94a3b8;
+      margin-left: 2px;
+    }
+
+    .wsr-step-card {
+      background: white;
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 4px rgba(30,58,95,0.07);
+    }
+    .wsr-step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #1e3a5f, #2563eb);
+      color: white;
+      font-size: 13px;
+      font-weight: 800;
+      flex-shrink: 0;
+      margin-right: 10px;
+      float: left;
+    }
+    .wsr-step-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1e3a5f;
+      margin-bottom: 6px;
+    }
+    .wsr-step-text {
+      font-size: 14px;
+      color: #334155;
+      line-height: 1.65;
+      clear: left;
+    }
+    .wsr-step-timer {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(37,99,235,0.08);
+      border: 1px solid rgba(37,99,235,0.18);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #2563eb;
+      margin-top: 8px;
+    }
+
+    .wsr-debug-section {
+      background: rgba(100,116,139,0.05);
+      border: 1px dashed rgba(100,116,139,0.25);
+      border-radius: 12px;
+      padding: 12px;
+      margin-top: 12px;
+      font-size: 11px;
+      color: #64748b;
+      font-family: monospace;
+      line-height: 1.6;
+    }
+    .wsr-debug-section summary {
+      cursor: pointer;
+      font-weight: 700;
+      color: #94a3b8;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      list-style: none;
+      padding: 2px 0;
+    }
+    .wsr-debug-section summary::-webkit-details-marker { display: none; }
+    .wsr-debug-section summary::before { content: '▶ '; font-size: 9px; }
+    .wsr-debug-section[open] summary::before { content: '▼ '; }
   `;
   document.head.appendChild(style);
 }
@@ -500,7 +674,6 @@ wsRegisterRoute('/prep/:id', function renderPrepDetail(params, payload) {
   if (hasSug) {
     const parts = sugNote.split('|');
     pillColor   = parts[0] || 'gray';
-    // Try to get English label from parts[2] (en), fallback to parts[1] (it)
     const userLang = (typeof user !== 'undefined' && user?.lang) || 'it';
     pillLabel   = (userLang === 'en' ? parts[2] : userLang === 'es' ? parts[3] : parts[1]) || parts[1] || '';
     botNote     = parts.slice(4).join('|') || '';
@@ -577,7 +750,7 @@ wsRegisterRoute('/prep/:id', function renderPrepDetail(params, payload) {
     <div class="wsp-section" style="padding:12px 14px;">
       <div class="wsp-section-title">Recipe</div>
       <button class="wsp-open-recipe-btn" onclick="wsPrepOpenRecipe(${JSON.stringify(params.id)})">
-        <span>📋 View recipe & procedure</span>
+        <span>📋 View recipe &amp; procedure</span>
         <span style="opacity:0.5;font-size:18px;">›</span>
       </button>
     </div>` : ''}
@@ -611,13 +784,323 @@ wsRegisterRoute('/prep/:id', function renderPrepDetail(params, payload) {
   }
 });
 
+/* ══ PHASE 2: RECIPE WORKSPACE PAGE ═════════════════════════════════════════
+   workspace-v002
+   Route: /recipe/:recipe_id
+   Renders: title, station, yield, procedure (steps), BOM, linked prep task.
+   Async: shows loading skeleton → fetches data → re-renders in place.
+   Safety: every fetch is wrapped in try/catch.
+   NO DB writes. NO schema changes. NO recipe modal changes.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+// ── Ingredient emoji icons (shared with recipe-modal.js pattern) ──────────
+const _WS_ING_ICONS = {
+  potato:'🥔',butter:'🧈',cream:'🥛',rosemary:'🌿',thyme:'🌿',salt:'🧂',
+  pepper:'⚫',garlic:'🧄',oil:'🫒',egg:'🥚',flour:'🌾',milk:'🥛',
+  cheese:'🧀',tomato:'🍅',lemon:'🍋',orange:'🍊',onion:'🧅',carrot:'🥕',
+  water:'💧',wine:'🍷',stock:'🍲',demi:'🍲',broth:'🍲',sugar:'🍬',
+  chocolate:'🍫',parmesan:'🧀',pecorino:'🧀',mozzarella:'🧀',ricotta:'🧀',
+  beef:'🥩',chicken:'🍗',salmon:'🐟',shrimp:'🦐',lobster:'🦞',scallop:'🐚',
+  pasta:'🍝',rice:'🍚',bread:'🍞',truffle:'🍄',mushroom:'🍄',spinach:'🥬',
+  arugula:'🥬',fennel:'🌿',basil:'🌿',bacon:'🥓',prosciutto:'🍖',
+  sausage:'🌭',calamari:'🦑',tuna:'🐟',anchov:'🐟',pear:'🍐',
+  asparagus:'🌿',broccoli:'🥦',brussels:'🥦',bean:'🫘',corn:'🌽',
+};
+function _wsIngIcon(name) {
+  if (!name) return '🥄';
+  const n = name.toLowerCase();
+  for (const [k, v] of Object.entries(_WS_ING_ICONS)) if (n.includes(k)) return v;
+  return '🥄';
+}
+
+function _wsFmtQty(qty) {
+  if (qty === null || qty === undefined || qty === '') return '';
+  const raw = parseFloat(qty);
+  if (isNaN(raw)) return String(qty);
+  if (raw >= 100) return Math.round(raw).toString();
+  if (raw >= 10)  return (Math.round(raw * 10) / 10).toFixed(1).replace(/\.0$/, '');
+  return (Math.round(raw * 100) / 100).toFixed(2).replace(/\.?0+$/, '');
+}
+
+function _wsFmtTimer(seconds) {
+  if (!seconds || seconds <= 0) return null;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const rm = m % 60;
+    return rm ? `${h}h ${rm}min` : `${h}h`;
+  }
+  return s ? `${m}min ${s}s` : `${m}min`;
+}
+
+/**
+ * Build the Recipe Workspace Page HTML from fetched data.
+ * Called after async fetch completes.
+ */
+function _wsRenderRecipeContent(recipeId, data) {
+  const { rec, bomRows, recipeSteps, linkedPrepTask } = data;
+
+  if (!rec) {
+    return `<div style="text-align:center;padding:48px 16px;color:#7a9cc4;">
+      <div style="font-size:40px;margin-bottom:12px;">📖</div>
+      <div style="font-size:16px;font-weight:700;color:#1e3a5f;">Recipe not found</div>
+      <div style="font-size:12px;margin-top:6px;color:#94a3b8;">ID: ${_wsEscape(recipeId)}</div>
+    </div>`;
+  }
+
+  const cat = rec.menu_group || rec.category || linkedPrepTask?.category || '';
+  const catClean = cat.replace(' Station', '');
+
+  // ── Yield / Resa ─────────────────────────────────────────────────────────
+  let yieldText = '';
+  if (rec.base_servings && rec.yield_text) {
+    yieldText = `${rec.base_servings} portions · ${rec.yield_text}`;
+  } else if (rec.base_servings) {
+    yieldText = `${rec.base_servings} portion${rec.base_servings !== 1 ? 's' : ''}`;
+  } else if (rec.yield_text) {
+    yieldText = rec.yield_text;
+  } else if (rec.base_weight_g) {
+    yieldText = `${rec.base_weight_g}g`;
+  }
+
+  // ── BOM HTML ─────────────────────────────────────────────────────────────
+  let bomHTML = '';
+  if (bomRows.length > 0) {
+    const rows = bomRows.map(b => {
+      const isSubRecipe = b.component_type === 'RECIPE';
+      const name = isSubRecipe
+        ? (b.recipes?.title || 'Sub-recipe')
+        : (b.ingredients?.name || 'Ingredient');
+      const icon = isSubRecipe ? '📋' : _wsIngIcon(name);
+      return `
+        <div class="wsr-bom-row">
+          <div class="wsr-bom-icon">${icon}</div>
+          <div class="wsr-bom-name${isSubRecipe ? ' sub-recipe' : ''}">${_wsEscape(name)}${isSubRecipe ? ' ↗' : ''}</div>
+          <div>
+            <span class="wsr-bom-qty">${_wsFmtQty(b.quantity)}</span>
+            <span class="wsr-bom-unit">${_wsEscape(b.unit || '')}</span>
+          </div>
+        </div>`;
+    }).join('');
+    bomHTML = `
+      <div class="wsp-section">
+        <div class="wsp-section-title">🧂 Ingredients / BOM (${bomRows.length})</div>
+        ${rows}
+      </div>`;
+  }
+
+  // ── Recipe Steps HTML ─────────────────────────────────────────────────────
+  let stepsHTML = '';
+  if (recipeSteps.length > 0) {
+    const stepCards = recipeSteps.map((s, i) => {
+      const timerFmt = s.timer_seconds ? _wsFmtTimer(s.timer_seconds) : null;
+      return `
+        <div class="wsr-step-card">
+          <div class="wsr-step-title">
+            <span class="wsr-step-num">${i + 1}</span>
+            ${s.title ? _wsEscape(s.title) : `Step ${i + 1}`}
+          </div>
+          ${s.content ? `<div class="wsr-step-text">${_wsEscape(s.content)}</div>` : ''}
+          ${timerFmt ? `<div class="wsr-step-timer">⏱ ${timerFmt}</div>` : ''}
+        </div>`;
+    }).join('');
+    stepsHTML = `
+      <div class="wsp-section">
+        <div class="wsp-section-title">📋 Procedure (${recipeSteps.length} steps)</div>
+        ${stepCards}
+      </div>`;
+  }
+
+  // ── Notes ─────────────────────────────────────────────────────────────────
+  let notesHTML = '';
+  if (rec.notes || linkedPrepTask?.note) {
+    const noteText = rec.notes || linkedPrepTask?.note || '';
+    notesHTML = `
+      <div class="wsp-section">
+        <div class="wsp-section-title">📝 Notes</div>
+        <div style="font-size:14px;color:#334155;line-height:1.65;">${_wsEscape(noteText)}</div>
+      </div>`;
+  }
+
+  // ── Linked prep task ──────────────────────────────────────────────────────
+  let linkedPrepHTML = '';
+  if (linkedPrepTask) {
+    const stockVal = linkedPrepTask.current_stock != null ? parseFloat(linkedPrepTask.current_stock) : null;
+    linkedPrepHTML = `
+      <div class="wsp-section">
+        <div class="wsp-section-title">🔗 Linked Prep Task</div>
+        <div class="wsp-row">
+          <span class="wsp-row-label">Task</span>
+          <span class="wsp-row-value">${_wsEscape(linkedPrepTask.name)}</span>
+        </div>
+        ${stockVal != null ? `<div class="wsp-row"><span class="wsp-row-label">Current stock</span><span class="wsp-row-value">${stockVal} ${_wsEscape(linkedPrepTask.unit || '')}</span></div>` : ''}
+        ${linkedPrepTask.suggested_qty != null ? `<div class="wsp-row"><span class="wsp-row-label">Bot suggestion</span><span class="wsp-row-value">${parseFloat(linkedPrepTask.suggested_qty)} ${_wsEscape(linkedPrepTask.unit || '')}</span></div>` : ''}
+        <button class="wsp-open-recipe-btn" style="margin-top:10px;" onclick="openWorkspace('/prep/${_wsEscape(String(linkedPrepTask.id))}')">
+          <span>← View prep task</span>
+          <span style="opacity:0.5;font-size:18px;">›</span>
+        </button>
+      </div>`;
+  }
+
+  // ── Debug section (admin only, collapsed) ─────────────────────────────────
+  let debugHTML = '';
+  if (typeof isAdmin === 'function' && isAdmin()) {
+    const debugFields = [
+      ['recipe_id', rec.id],
+      ['menu_group', rec.menu_group],
+      ['category', rec.category],
+      ['base_servings', rec.base_servings],
+      ['base_weight_g', rec.base_weight_g],
+      ['serving_weight_g', rec.serving_weight_g],
+      ['serving_qty', rec.serving_qty],
+      ['serving_unit', rec.serving_unit],
+      ['yield_text', rec.yield_text],
+      ['shelf_life_days', rec.shelf_life_days],
+      ['prep_type', rec.prep_type],
+      ['pos_name', rec.pos_name],
+    ].filter(([, v]) => v !== null && v !== undefined && v !== '');
+    const debugRows = debugFields.map(([k, v]) =>
+      `<div><span style="color:#94a3b8;">${k}:</span> <span style="color:#475569;">${_wsEscape(String(v))}</span></div>`
+    ).join('');
+    debugHTML = `
+      <details class="wsr-debug-section">
+        <summary>Admin / Debug</summary>
+        <div style="margin-top:8px;">${debugRows}</div>
+      </details>`;
+  }
+
+  // ── Assemble full page ────────────────────────────────────────────────────
+  return `
+    <!-- ── Recipe header ── -->
+    <div class="wsp-section">
+      <div class="wsp-name">${_wsEscape(rec.title || 'Untitled Recipe')}</div>
+      <div class="wsp-meta">
+        ${catClean ? `<span class="wsp-tag gray">${_wsEscape(catClean)}</span>` : ''}
+        ${rec.prep_type ? `<span class="wsp-tag teal">${_wsEscape(rec.prep_type)}</span>` : ''}
+        ${bomRows.length > 0 ? `<span class="wsp-tag green">BOM ✓</span>` : ''}
+        ${recipeSteps.length > 0 ? `<span class="wsp-tag">${recipeSteps.length} steps</span>` : ''}
+      </div>
+      ${yieldText ? `<div class="wsr-yield-badge" style="margin-top:12px;">🍽️ ${_wsEscape(yieldText)}</div>` : ''}
+      ${rec.shelf_life_days ? `<div style="text-align:center;font-size:12px;color:#7a9cc4;margin-top:4px;">📅 Shelf life: ${rec.shelf_life_days} day${rec.shelf_life_days !== 1 ? 's' : ''}</div>` : ''}
+      ${debugHTML}
+    </div>
+
+    <!-- ── BOM ── -->
+    ${bomHTML}
+
+    <!-- ── Steps / Procedure ── -->
+    ${stepsHTML}
+
+    <!-- ── Notes ── -->
+    ${notesHTML}
+
+    <!-- ── Linked prep task ── -->
+    ${linkedPrepHTML}
+
+    ${!bomHTML && !stepsHTML ? `
+    <div style="text-align:center;padding:32px 16px;color:#94a3b8;">
+      <div style="font-size:32px;margin-bottom:10px;">📭</div>
+      <div style="font-size:14px;font-weight:600;color:#7a9cc4;">No BOM or procedure yet</div>
+      <div style="font-size:12px;margin-top:4px;">Add ingredients and steps in the recipe editor.</div>
+    </div>` : ''}
+  `;
+}
+
+wsRegisterRoute('/recipe/:id', function renderRecipePage(params, payload) {
+  // Return loading skeleton immediately; afterRender will fetch and replace
+  return `
+    <div class="ws-loading" id="ws-recipe-loading">
+      <div class="ws-spinner"></div>
+      <div style="font-size:14px;font-weight:600;">Loading recipe…</div>
+    </div>`;
+}, {
+  title: function(params, payload) {
+    // Title updates after fetch in afterRender
+    return payload?.title || 'Recipe';
+  },
+  afterRender: async function(el, params, payload) {
+    // Fetch recipe data and replace loading skeleton
+    const recipeId = params.id;
+    try {
+      if (typeof supa === 'undefined') {
+        throw new Error('Supabase client (supa) not available');
+      }
+
+      // ── Fetch recipe record ───────────────────────────────────────────────
+      const { data: rec, error: recErr } = await supa
+        .from('recipes')
+        .select('*')
+        .eq('id', recipeId)
+        .maybeSingle();
+      if (recErr) throw new Error('Recipe fetch failed: ' + recErr.message);
+
+      // ── Fetch BOM (PostgREST cap: safe since filter on parent_recipe_id) ──
+      let bomRows = [];
+      if (rec) {
+        const { data: bom } = await supa
+          .from('recipe_bom')
+          .select('quantity, unit, component_type, sort_order, item_id, sub_recipe_id, ingredients(name), recipes!recipe_bom_sub_recipe_id_fkey(title)')
+          .eq('parent_recipe_id', recipeId)
+          .order('sort_order');
+        bomRows = bom || [];
+      }
+
+      // ── Fetch recipe steps ────────────────────────────────────────────────
+      let recipeSteps = [];
+      if (rec) {
+        const { data: rs } = await supa
+          .from('recipe_steps')
+          .select('step_number, title, content, timer_seconds')
+          .eq('recipe_id', recipeId)
+          .order('step_number');
+        recipeSteps = rs || [];
+      }
+
+      // ── Fetch linked prep task (recipe_id FK) ────────────────────────────
+      let linkedPrepTask = null;
+      if (rec) {
+        const { data: pt } = await supa
+          .from('prep_tasks')
+          .select('id, name, category, unit, current_stock, suggested_qty, note')
+          .eq('recipe_id', recipeId)
+          .eq('archived', false)
+          .maybeSingle();
+        linkedPrepTask = pt || null;
+      }
+
+      // ── Update header title ───────────────────────────────────────────────
+      const headerTitle = document.getElementById('ws-header-title');
+      if (headerTitle && rec?.title) {
+        headerTitle.textContent = rec.title;
+      }
+
+      // ── Replace loading skeleton with full content ─────────────────────────
+      const content = _wsRenderRecipeContent(recipeId, { rec, bomRows, recipeSteps, linkedPrepTask });
+      el.innerHTML = content;
+
+    } catch (err) {
+      console.error('[workspace] recipe fetch failed', err);
+      el.innerHTML = _wsErrorHTML(err);
+    }
+  }
+});
+
 /* ══ WORKSPACE ACTIONS (called from within workspace page HTML) ══════════════ */
 
 window.wsPrepOpenRecipe = function(id) {
   const task = (typeof tasks !== 'undefined' && tasks[id]);
   if (!task) return;
-  // Phase 1: fall back to existing recipeModal
-  if (typeof recipeModal !== 'undefined') {
+
+  // workspace-v002: if workspace is active, open Recipe Workspace Page
+  // In normal live mode: fall back to existing recipeModal (unchanged)
+  if (_wsIsEnabled() && task.recipe_id) {
+    openWorkspace('/recipe/' + task.recipe_id, { title: task.name });
+    return;
+  }
+
+  // Fallback: original modal behavior — live mode always lands here
+  if (window.recipeModal && typeof window.recipeModal.open === 'function') {
     recipeModal.open(task.recipe_id || null, id);
   }
 };
@@ -706,12 +1189,12 @@ document.addEventListener('DOMContentLoaded', function() {
     return; // <-- live app: nothing below runs
   }
 
-  console.log('[workspace] enabled — activating router and intercepts');
+  console.log('[workspace-v002] enabled — activating router and intercepts');
 
   // Inject workspace CSS (only when enabled)
   if (!document.getElementById('ws-styles')) wsInjectStyles();
 
-  // Intercept prep card click
+  // Intercept prep card click → Prep Detail page
   const _originalPrepOpenRecipe = window.prepOpenRecipe;
   window.prepOpenRecipe = function(id) {
     const task = (typeof tasks !== 'undefined' && tasks[id]);
