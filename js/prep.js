@@ -1510,7 +1510,8 @@ function renderM(){
 
       // Chef AI card block — sostituisce botPill con sistema nuovo
       // classifyCard e renderChefAiBlock definiti sopra nella sezione CHEF AI CARD SYSTEM
-      const botPill = isWip ? '' : '<div class="chef-ai-card-block">' + renderChefAiBlock(i, cardType) + '</div>';
+      const _ct = classifyCard(i); // FIX boh-v605: cardType was undefined in map scope
+      const botPill = isWip ? '' : '<div class="chef-ai-card-block">' + renderChefAiBlock(i, _ct) + '</div>';
 
       // Today log strip — ultimi log di oggi per questo item
       let todayLogStrip = '';
