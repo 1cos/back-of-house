@@ -800,7 +800,13 @@ function cardButton(i){
   const _botCol2 = (i.suggested_note||'').split('|')[0];
 
   // Nessun bottone
-  if (_ct2 === 'TRUSTED' && _botCol2 === 'green') return '';  // Looks okay
+  if (_ct2 === 'TRUSTED' && _botCol2 === 'green') {
+    // Looks okay — bottone discreto "Log anyway" per chi ha fatto prep ugualmente
+    const lang2 = window.user?.lang||'en';
+    const lbls = {it:'Preparo ugualmente',en:'Prep anyway',es:'Preparar igual'};
+    const lbl2 = lbls[lang2] || lbls.en;
+    return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:14px;font-weight:600;background:transparent;color:#059669;border:1.5px solid #bbf7d0;letter-spacing:0.02em;">${lbl2}</button>`;
+  }
   if (_ct2 === 'WATCH')       return '';                       // dati incerti non critici
   if (_ct2 === 'BLOCKED')     return '';                       // setup mancante
   if (_ct2 === 'CHEF_REVIEW') return '';                       // nessun dato

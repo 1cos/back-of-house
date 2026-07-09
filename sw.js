@@ -1,4 +1,4 @@
-const CACHE_NAME = 'boh-v613';
+const CACHE_NAME = 'boh-v614';
 // ↑ Incrementa questo questo numero ad ogni deploy — es. v31, v32...
 // Il browser vede la versione diversa e aggiorna automaticamente
 
@@ -13,28 +13,11 @@ self.addEventListener('activate', e => {
       Promise.all(
         keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
       )
-    ).then(() => clients.claim()) // prendi controllo di tutte le tab aperte
+    ).then(() => self.clients.claim())
   );
 });
 
-self.addEventListener('push', e => {
-  const data = e.data?.json() || {};
-  const title = data.title || 'Back of House';
-  const body = data.body || '';
-  e.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: '/back-of-house/icon-192.png',
-      badge: '/back-of-house/icon-192.png',
-      vibrate: [100, 50, 100],
-      data: { url: '/back-of-house/' }
-    })
-  );
-});
-
-self.addEventListener('notificationclick', e => {
-  e.notification.close();
-  e.waitUntil(
-    clients.openWindow(e.notification.data?.url || '/back-of-house/')
-  );
+self.addEventListener('fetch', e => {
+  // Non intercettare — passa tutto al network
+  // (strategia: sempre fresh, nessuna cache offline)
 });
