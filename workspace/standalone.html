@@ -871,6 +871,7 @@ it:{
   um_profile:'Profilo', um_notif:'Notifiche', um_quiet:'Quiet hours', um_pin:'Cambia PIN',
   um_online:'Online adesso',
   srch_placeholder:'Cerca...',  srch_open:'Apri',  srch_noResults:'Nessun risultato per "{q}"',
+  tp:'Vendite',
   yct:'Sì Chef! ✅', ycclose:'Chiudi',
 },
 en:{
@@ -928,6 +929,7 @@ en:{
   um_profile:'Profile', um_notif:'Notifications', um_quiet:'Quiet hours', um_pin:'Change PIN',
   um_online:'Online now',
   srch_placeholder:'Search...',  srch_open:'Open',  srch_noResults:'No results for "{q}"',
+  tp:'Sales',
   yct:'Yes Chef! ✅', ycclose:'Close',
 },
 es:{
@@ -985,6 +987,7 @@ es:{
   um_profile:'Perfil', um_notif:'Notificaciones', um_quiet:'Horas silenciosas', um_pin:'Cambiar PIN',
   um_online:'En línea ahora',
   srch_placeholder:'Buscar...',  srch_open:'Abrir',  srch_noResults:'Sin resultados para "{q}"',
+  tp:'Ventas',
   yct:'¡Sí Chef! ✅', ycclose:'Cerrar',
 }
 };
@@ -2044,6 +2047,9 @@ function buildSearchIndex(){
     {tabType:'inventory',     params:{id:'caesar',name:'Caesar Dressing'},
      ico:'📦', title:t('ti',{n:'Caesar Dressing'}), sub:'Stock: 2.4 kg · 312 uses/60gg',
      kw:['caesar','dressing','dispensa','pantry','despensa','salad','insalata']},
+    {tabType:'pos',           params:{},
+     ico:'📊', title:t('tp')||'Vendite', sub:t('bsub')||'Sales dashboard · modifier depletion',
+     kw:['vendite','sales','pos','revenue','dashboard','modifier','depletion','modifiers','modifer','cassa','incasso']},
   ];
 }
 
