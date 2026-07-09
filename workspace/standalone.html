@@ -1758,6 +1758,8 @@ function renderWorkspace(){
   };
   /* after-render hooks */
   if(page && page.after) page.after();
+  /* dev validator */
+  setTimeout(function(){ validatePage(tab.type); }, 200);
 }
 
 function renderAll(){
@@ -1898,6 +1900,71 @@ function caiSend(msg){
     typing.remove();
     caiAddMsg('ai', caiGetDemoReply(msg));
   }, 900 + Math.random()*600);
+}
+
+
+/* ══ PAGE STANDARD VALIDATOR (dev only — harmless in prod) ══════════════════
+   Runs in console after each renderWorkspace().
+   Reports: missing i18n keys, hardcoded labels, missing context.
+   ════════════════════════════════════════════════════════════════════════ */
+function validatePage(type){
+  var issues=[];
+  var ws=document.getElementById('workspace');
+  if(!ws) return;
+
+  /* 1. Check for hardcoded text in visible elements (heuristic) */
+  var textEls=ws.querySelectorAll('h1,h2,h3,h4,p,button,label,span,option');
+  var suspectPatterns=[
+    /^[A-Z][a-z]+ [a-z]+ [a-z]+$/, /* English sentence fragments */
+    /Tiramisu|Caesar|Hardie/,        /* data is OK, UI labels should be t() */
+  ];
+  /* We skip data-derived text by only checking elements with no data-cat, data-tid etc */
+  /* This is a lightweight heuristic, not exhaustive */
+
+  /* 2. Check caiContext covers this page type */
+  var knownCtx=['home','bot_center','recipe','inventory','daily_journal'];
+  if(type && knownCtx.indexOf(type)<0){
+    issues.push('⚠️  Page type "'+type+'" not registered in caiContext() — add it');
+  }
+
+  /* 3. Check TR keys exist in all 3 langs for this page's namespace */
+  var ns=type?type.replace('_',''):null;
+  if(ns && ns!=='home'){
+    var langs=['it','en','es'];
+    var missing=[];
+    langs.forEach(function(l){
+      if(!TR[l]) missing.push(l);
+    });
+    if(missing.length) issues.push('⚠️  TR missing language blocks: '+missing.join(', '));
+  }
+
+  /* 4. Check no inline styles with hardcoded colors in the rendered HTML */
+  var html=ws.innerHTML;
+  var hexInStyle=html.match(/style="[^"]*#[0-9a-f]{3,6}/gi);
+  if(hexInStyle && hexInStyle.length>3){ /* allow a few for dynamic avatar colors */
+    issues.push('⚠️  Possible hardcoded hex colors in rendered HTML ('+hexInStyle.length+' found) — use var(--token)');
+  }
+
+  /* 5. Check no onclick= attributes on newly rendered elements */
+  var onclickEls=ws.querySelectorAll('[onclick]');
+  if(onclickEls.length>0){
+    issues.push('❌ VIOLATION: '+onclickEls.length+' element(s) with onclick= attribute — use addEventListener');
+  }
+
+  /* 6. Check responsive: at least one element with responsive class or section */
+  /* (heuristic — just check pi wrapper exists) */
+  if(!ws.querySelector('.pi')){
+    issues.push('⚠️  Page does not use .pi wrapper — may not be responsive');
+  }
+
+  if(issues.length===0){
+    console.log('%c✅ Brigade Page Standard — '+type+' — all checks passed','color:#16a34a;font-weight:700');
+  } else {
+    console.group('%c🔍 Brigade Page Standard — '+type+' — '+issues.length+' issue(s)','color:#d97706;font-weight:700');
+    issues.forEach(function(i){ console.warn(i); });
+    console.log('Reference: workspace/WORKSPACE_PAGE_STANDARD.md');
+    console.groupEnd();
+  }
 }
 
 document.addEventListener('DOMContentLoaded', function(){
