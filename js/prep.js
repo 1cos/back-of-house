@@ -1456,11 +1456,15 @@ window.saveKitchenCount = async function(id) {
         </div>
       </details>` : '';
 
+    // Bottone START — sempre visibile dopo count, così il cuoco può subito fare prep
+    const startBtnHtml = `<button onclick="prepStart(${JSON.stringify(id)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;margin-top:10px;">START</button>`;
+
     confirmBlock.innerHTML = `
       <div style="margin-top:6px;">
         <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${statusColor};background:${statusBg};border:1px solid ${statusBorder};border-radius:20px;padding:3px 9px;">${statusEmoji} ${statusLabel}</span>
         <div style="font-size:13px;font-weight:600;color:#1e3a5f;margin-top:6px;">${msg}</div>
         ${debugHtml}
+        ${startBtnHtml}
       </div>`;
   }
 };
