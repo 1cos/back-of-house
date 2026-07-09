@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#dbeafe">
+  <title>BOH OS — Workspace</title>
+
+  <!-- No service worker for prototype — keeps cache clean -->
+
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/shell.css">
+
+  <style>
+    /* Inline: critical above-the-fold shell */
+    body { background: #eff6ff; }
+    #ws-app { visibility: hidden; }
+    #ws-app.ready { visibility: visible; }
+  </style>
+</head>
+<body>
+
+<div id="ws-app">
+
+  <!-- ① Top Bar -->
+  <header id="ws-topbar" role="banner"></header>
+
+  <!-- ② Tab Bar -->
+  <nav id="ws-tabbar" role="tablist" aria-label="Open pages"></nav>
+
+  <!-- ③ Workspace -->
+  <main id="ws-workspace" role="main" tabindex="-1"></main>
+
+</div>
+
+<script type="module">
+  import { init } from './js/app.js';
+  document.addEventListener('DOMContentLoaded', () => {
+    init();
+    document.getElementById('ws-app').classList.add('ready');
+  });
+</script>
+
+</body>
+</html>
