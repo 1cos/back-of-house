@@ -895,13 +895,20 @@ function _wsRenderRecipeContent(recipeId, data) {
   if (recipeSteps.length > 0) {
     const stepCards = recipeSteps.map((s, i) => {
       const timerFmt = s.timer_seconds ? _wsFmtTimer(s.timer_seconds) : null;
+      // instruction column: use user lang (en/it/es), fallback chain en→it→es
+      const userLang = (typeof user !== 'undefined' && user?.lang) || 'en';
+      const instruction = s['instruction_' + userLang]
+        || s.instruction_en
+        || s.instruction_it
+        || s.instruction_es
+        || '';
       return `
         <div class="wsr-step-card">
           <div class="wsr-step-title">
             <span class="wsr-step-num">${i + 1}</span>
             ${s.title ? _wsEscape(s.title) : `Step ${i + 1}`}
           </div>
-          ${s.content ? `<div class="wsr-step-text">${_wsEscape(s.content)}</div>` : ''}
+          ${instruction ? `<div class="wsr-step-text">${_wsEscape(instruction)}</div>` : ''}
           ${timerFmt ? `<div class="wsr-step-timer">⏱ ${timerFmt}</div>` : ''}
         </div>`;
     }).join('');
@@ -1051,7 +1058,7 @@ wsRegisterRoute('/recipe/:id', function renderRecipePage(params, payload) {
       if (rec) {
         const { data: rs } = await supa
           .from('recipe_steps')
-          .select('step_number, title, content, timer_seconds')
+          .select('step_number, title, instruction_en, instruction_it, instruction_es, timer_seconds')
           .eq('recipe_id', recipeId)
           .order('step_number');
         recipeSteps = rs || [];
