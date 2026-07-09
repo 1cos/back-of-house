@@ -846,87 +846,108 @@ function humanQty(qty, unit) {
 }
 
 // ── CHEF AI NOTE — testo della card basato sul tipo ──
+// Regola status/testo COERENTE:
+//   🟢 Looks okay  → stock sufficiente, NO prep needed, usa batch esistente
+//   🟠 Prep today  → quantità affidabile, PRODUCI oggi
+//   🔴 Do first    → urgente e affidabile, PRODUCI subito
+//   🔴 Count first → stock sospetto, CONTA prima di qualsiasi azione
+//   ⚠️ Needs setup → problema strutturale, solo admin/office
 function buildChefAiNote(i, cardType) {
   const chef = chefGreeting();
   const name = i.name;
-  const stock = parseFloat(i.current_stock);
-  const qty = parseFloat(i.suggested_qty) || 0;
-  const unit = i.unit || '';
+  const stock = parseFloat(i.current_stock) || 0;
+  const qty   = parseFloat(i.suggested_qty) || 0;
+  const unit  = i.unit || '';
   const { avgDaily } = parseSourcesNumbers(i);
-  const note = i.suggested_note || '';
+  const note     = i.suggested_note || '';
   const botColor = note.includes('|') ? note.split('|')[0] : null;
 
+  // Helpers
+  const qtyHuman      = humanQty(qty, unit);
+  const stockHuman    = (stock > 0) ? humanQty(stock, unit) : null;
+  const expectedToday = avgDaily ? humanQty(Math.ceil(avgDaily), unit) : null;
+
+  // Estrai "good through [day]" dall'EN del note (parte [2])
+  function goodThroughDay() {
+    const rawEN = note.split('|')[2] || '';
+    const m = rawEN.match(/good through (\w+)/i) || rawEN.match(/enough through (\w+)/i);
+    return m ? m[1] : null;
+  }
+
+  // ── COUNT FIRST ──────────────────────────────────────────────
   if (cardType === 'COUNT_FIRST') {
+    // Tono: chiede collaborazione, non comanda
+    const stockSays = stock === 0 ? 'zero' : stockHuman;
     return {
       headline: chef + ', Chef AI is not sure about this count.',
-      body: 'The system thinks we have 0 — but that seems off. Can you count before prepping more?',
+      body: `The system shows ${stockSays} for ${name} — but that may not be right. Can you do a quick count before prepping more?`,
       action: null
     };
   }
 
+  // ── BLOCKED ──────────────────────────────────────────────────
   if (cardType === 'BLOCKED') {
     return {
       headline: 'Needs setup',
-      body: 'Missing recipe or ingredient link. Chef review needed.',
+      body: 'Missing recipe or ingredient link. Chef review needed in L\'Ufficio.',
       action: null
     };
   }
 
-  // TRUSTED — costruisce testo contestuale
-  const qtyHuman = humanQty(qty, unit);
-  const stockHuman = humanQty(stock, unit);
-  const expectedToday = avgDaily ? humanQty(Math.ceil(avgDaily), unit) : null;
+  // ── TRUSTED: nessun dato bot ancora ──────────────────────────
+  if (!botColor) {
+    let body = stockHuman ? `Stock: ${stockHuman}.` : 'No stock count available.';
+    return {
+      headline: chef + ', ' + name + ' — no suggestion yet.',
+      body,
+      action: null
+    };
+  }
 
+  // ── TRUSTED 🟢 Looks okay ────────────────────────────────────
+  // green = stock sufficiente, NON serve prep adesso
   if (botColor === 'green') {
-    const parts = note.split('|');
-    // Estrai "arrivi a [giorno]" o "good through [day]"
-    const rawEN = parts[2] || '';
-    const dayMatch = rawEN.match(/good through (\w+)/i);
-    const goodThrough = dayMatch ? dayMatch[1] : null;
-
-    let body = '';
-    if (avgDaily && avgDaily > 0) body += `Avg daily: ~${expectedToday}.`;
-    if (stockHuman) body += (body ? ' ' : '') + `Stock: ${stockHuman}.`;
-    if (goodThrough) body += (body ? ' ' : '') + `Enough through ${goodThrough}.`;
-    if (!body) body = 'Stock looks good for today.';
-
+    const goodThrough = goodThroughDay();
+    const nums = [];
+    if (avgDaily && avgDaily > 0) nums.push(`Avg daily: ~${expectedToday}`);
+    if (stockHuman)                nums.push(`Stock: ${stockHuman}`);
+    if (goodThrough)               nums.push(`Enough through ${goodThrough}`);
+    const body = nums.length ? nums.join(' · ') + '.' : 'Stock looks good for today.';
     return {
       headline: chef + ', ' + name + ' looks okay for today.',
       body,
-      action: null
+      action: 'No prep needed. Use existing batch.'   // azione = rassicurante, non "Make X"
     };
   }
 
+  // ── TRUSTED 🟠 Prep today ─────────────────────────────────────
+  // yellow = stock basso ma affidabile, quantità sensata
   if (botColor === 'yellow') {
-    const parts = note.split('|');
-    const rawEN = parts[2] || '';
-    const dayMatch = rawEN.match(/good through (\w+)/i);
-    const goodThrough = dayMatch ? dayMatch[1] : null;
-
-    let body = '';
-    if (avgDaily && avgDaily > 0) body += `Avg daily: ~${expectedToday}.`;
-    if (stockHuman && stock > 0) body += (body ? ' ' : '') + `Stock: ${stockHuman}.`;
-    if (goodThrough) body += (body ? ' ' : '') + `Enough through ${goodThrough}.`;
-    if (!body && stock > 0) body = 'Running a bit low. Keep an eye on it.';
-    if (!body) body = 'Consider prepping today or tomorrow.';
-
+    const goodThrough = goodThroughDay();
+    const nums = [];
+    if (avgDaily && avgDaily > 0) nums.push(`Avg daily: ~${expectedToday}`);
+    if (stockHuman)                nums.push(`Stock: ${stockHuman}`);
+    if (goodThrough)               nums.push(`Good through ${goodThrough}`);
+    const body = nums.length ? nums.join(' · ') + '.' : 'Stock is getting low.';
     return {
-      headline: chef + ', ' + name + ' is running low.',
+      headline: chef + ', ' + name + ' needs prep today.',
       body,
-      action: qtyHuman ? 'Consider making ' + qtyHuman + ' today.' : null
+      action: qtyHuman ? 'Make about ' + qtyHuman + ' today.' : 'Prep when you can.'
     };
   }
 
+  // ── TRUSTED 🔴 Do first ───────────────────────────────────────
+  // red = urgente, dati affidabili (già passato classifyCard, non è COUNT_FIRST)
   if (botColor === 'red') {
-    let body = '';
-    if (avgDaily && avgDaily > 0) body += `Avg daily: ~${expectedToday}.`;
-    if (stockHuman && stock > 0) body += (body ? ' ' : '') + `Stock: ${stockHuman}.`;
-    if (!body && stock === 0) body = 'Stock is at zero.';
-
+    const nums = [];
+    if (avgDaily && avgDaily > 0) nums.push(`Avg daily: ~${expectedToday}`);
+    if (stockHuman)                nums.push(`Stock: ${stockHuman}`);
+    if (!stockHuman)               nums.push('Stock is at zero');
+    const body = nums.join(' · ') + '.';
     return {
-      headline: chef + ', ' + name + ' needs to be prepped today.',
+      headline: chef + ', ' + name + ' is out or critical — prep now.',
       body,
-      action: qtyHuman ? 'Make ' + qtyHuman + '.' : 'Prep today.'
+      action: qtyHuman ? 'Make ' + qtyHuman + ' first thing.' : 'Prep this first.'
     };
   }
 
@@ -942,15 +963,21 @@ function renderChefAiBlock(i, cardType) {
   const { headline, body, action } = buildChefAiNote(i, cardType);
   const iid = i.id;
 
-  // STATUS PILL
+  // STATUS PILL — label coerenti con buildChefAiNote
+  // 🟢 Looks okay  → non serve prep
+  // 🟠 Prep today  → produci, quantità affidabile
+  // 🔴 Do first    → urgente affidabile
+  // 🔴 Count first → conta prima
+  // ⚠️ Needs setup → problema strutturale
   const statusMap = {
     TRUSTED: {
-      green:  { emoji: '🟢', label: 'Looks okay',  bg: 'rgba(5,150,105,0.08)',   border: '#bbf7d0', color: '#059669' },
-      yellow: { emoji: '🟠', label: 'Prep today',  bg: 'rgba(217,119,6,0.08)',   border: '#fde68a', color: '#d97706' },
-      red:    { emoji: '🔴', label: 'Do first',    bg: 'rgba(220,38,38,0.08)',   border: '#fca5a5', color: '#dc2626' },
+      green:  { emoji: '🟢', label: 'Looks okay',  bg: 'rgba(5,150,105,0.08)',  border: '#bbf7d0', color: '#059669' },
+      yellow: { emoji: '🟠', label: 'Prep today',  bg: 'rgba(217,119,6,0.08)',  border: '#fde68a', color: '#d97706' },
+      red:    { emoji: '🔴', label: 'Do first',    bg: 'rgba(220,38,38,0.08)',  border: '#fca5a5', color: '#dc2626' },
+      '':     { emoji: '⚪', label: 'Watch',       bg: 'rgba(100,116,139,0.06)', border: '#e2e8f0', color: '#64748b' },
     },
-    COUNT_FIRST: { emoji: '🔴', label: 'Count first', bg: 'rgba(220,38,38,0.08)', border: '#fca5a5', color: '#dc2626' },
-    BLOCKED:     { emoji: '⚠️', label: 'Needs setup', bg: 'rgba(100,100,100,0.06)', border: '#e2e8f0', color: '#64748b' },
+    COUNT_FIRST: { emoji: '🔴', label: 'Count first', bg: 'rgba(220,38,38,0.08)',   border: '#fca5a5', color: '#dc2626' },
+    BLOCKED:     { emoji: '⚠️',  label: 'Needs setup', bg: 'rgba(100,100,100,0.06)', border: '#e2e8f0', color: '#64748b' },
   };
 
   let statusCfg;
