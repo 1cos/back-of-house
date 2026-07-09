@@ -1023,11 +1023,7 @@ function buildChefAiNote(i, cardType) {
 
   const qtyHuman      = humanQty(qty, unit);
   const stockHuman    = (stock > 0) ? humanQty(stock, unit) : null;
-  // avgDaily = porzioni POS/giorno | avgDailyG = consumo g/giorno dal bot
-  const expectedToday = avgDaily ? fmtAvgDaily(avgDaily) : null;
-  // fmtMassG: avgDailyG è sempre grammi assoluti — isPieceUnit copre pezzi/pz/piece/pieces/pcs/ea/each
-  const botUsageToday = (avgDailyG && !isPieceUnit(unit))
-    ? '~' + fmtMassG(avgDailyG) + '/day' : null;
+  // expectedToday / botUsageToday non usati nel body (numeri sono in numbersHtml) — rimossi
 
   function goodThroughDay() {
     const rawEN = note.split('|')[2] || '';
@@ -1084,14 +1080,11 @@ function buildChefAiNote(i, cardType) {
   // ── STAGED_CHECK ────────────────────────────────────────────
   // Vendite basse + stock ready-to-sell=0 → controlla batch staged prima
   if (cardType === 'STAGED_CHECK') {
-    const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
-    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
-    const body = nums.length ? nums.join(' · ') + '.' : 'Sales are low right now.';
+    // Stats (Avg sales / Bot usage / Stock) are shown in numbersHtml — body = operational text only
     const { unit: kUnit } = kitchenCountUnit(i);
     return {
       headline: chef + ', ' + name + ' — check staged stock first.',
-      body: body + ' Before prepping more, check the seasoned and par-cooked stock. Use what you have, rotate batches.',
+      body: 'Before prepping more, check the seasoned and par-cooked stock. Use what you have, rotate batches.',
       action: 'Use seasoned first, then par-cooked. No fresh prep unless both are low.',
       countUnit: kUnit,
       isStaged: true
@@ -1100,16 +1093,10 @@ function buildChefAiNote(i, cardType) {
 
   // ── LARGE BATCH ─────────────────────────────────────────────
   if (cardType === 'LARGE_BATCH') {
-    const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
-    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
-    if (stockHuman)                nums.push('Stock: ' + stockHuman);
-    const body = nums.length
-      ? nums.join(' · ') + '.'
-      : 'This is a large batch suggestion.';
+    // Stats in numbersHtml — body = operational warning only
     return {
       headline: chef + ', ' + name + ' may need a large batch today.',
-      body: body + ' Chef AI suggests ' + (qtyHuman || qty + ' ' + unit) + ', but that is a large amount — please verify with Chef before making the full batch.',
+      body: 'Chef AI suggests ' + (qtyHuman || qty + ' ' + unit) + ' — that is a large amount. Verify with Chef before making the full batch.',
       action: 'Make normal batch first / Check with Chef.'
     };
   }
@@ -1117,15 +1104,10 @@ function buildChefAiNote(i, cardType) {
   // ── WATCH ───────────────────────────────────────────────────
   // Uncertain ma non critico — non interrompere la cucina
   if (cardType === 'WATCH') {
-    const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
-    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
-    if (stockHuman)                nums.push('Stock: ' + stockHuman);
-    const body = (nums.length ? nums.join(' · ') + '. ' : '') +
-      'Only check this if you are already working on it today.';
+    // Stats in numbersHtml — body = status text only
     return {
       headline: chef + ', ' + name + ' — low data, no action needed.',
-      body,
+      body: 'Only check this if you are already working on it today.',
       action: null
     };
   }
@@ -1160,16 +1142,12 @@ function buildChefAiNote(i, cardType) {
 
   // ── 🟢 Looks okay ────────────────────────────────────────────
   if (botColor === 'green') {
+    // Stats (Avg sales / Bot usage / In stock) shown in numbersHtml
+    // "Enough through X" stays in body — it's the key operational message for green cards
     const goodThrough = goodThroughDay();
-    const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
-    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
-    if (stockHuman)                nums.push('Stock: ' + stockHuman);
-    if (goodThrough)               nums.push('Enough through ' + goodThrough);
-    const body = nums.length ? nums.join(' · ') + '.' : 'Stock looks good for today.';
     return {
       headline: chef + ', ' + name + ' looks okay for today.',
-      body,
+      body: goodThrough ? 'Enough through ' + goodThrough + '.' : 'Stock looks good for today.',
       action: 'No prep needed. Use existing batch.'
     };
   }
@@ -1177,14 +1155,10 @@ function buildChefAiNote(i, cardType) {
   // ── 🟠 Prep today ────────────────────────────────────────────
   // "Good through Wednesday" rimosso dalla card principale — va solo nei Details
   if (botColor === 'yellow') {
-    const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
-    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
-    if (stockHuman)                nums.push('Stock: ' + stockHuman);
-    const body = nums.length ? nums.join(' · ') + '.' : 'Stock is getting low.';
+    // Stats in numbersHtml — body = status fallback only
     return {
       headline: chef + ', ' + name + ' needs prep today.',
-      body,
+      body: 'Stock is getting low.',
       action: qtyHuman ? 'Make about ' + qtyHuman + ' today.' : 'Prep when you can.'
     };
   }
@@ -1192,15 +1166,10 @@ function buildChefAiNote(i, cardType) {
   // ── 🔴 Do first ──────────────────────────────────────────────
   // Tono: sous-chef calmo, non sirena
   if (botColor === 'red') {
-    const nums = [];
-    if (avgDaily && avgDaily > 0) nums.push('Avg sales: ~' + expectedToday);
-    if (botUsageToday) nums.push('Bot usage: ' + botUsageToday);
-    if (stockHuman)                nums.push('Stock: ' + stockHuman);
-    if (!stockHuman)               nums.push('Stock is at zero');
-    const body = nums.join(' · ') + '.';
+    // Stats in numbersHtml — body = status fallback for when stock info isn't in numbersHtml
     return {
       headline: chef + ', I would start ' + name + ' early today.',
-      body,
+      body: stockHuman ? 'Running low.' : 'Stock is at zero.',
       action: qtyHuman ? 'Make ' + qtyHuman + ' first thing.' : 'Prep this first.'
     };
   }
