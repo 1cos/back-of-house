@@ -983,6 +983,12 @@ function fmtMassG(grams) {
   return Math.round(grams) + ' g';
 }
 
+// ── isPieceUnit — unità contabili, Bot usage non ha senso in grammi ──
+// Copre varianti EN/IT/abbrev per evitare falsi negativi
+function isPieceUnit(u) {
+  return ['pezzi','pz','piece','pieces','pcs','ea','each'].includes(String(u||'').toLowerCase().trim());
+}
+
 // ── HUMANIZE QTY per display ──
 function humanQty(qty, unit) {
   if (!qty || qty <= 0) return null;
@@ -1019,8 +1025,8 @@ function buildChefAiNote(i, cardType) {
   const stockHuman    = (stock > 0) ? humanQty(stock, unit) : null;
   // avgDaily = porzioni POS/giorno | avgDailyG = consumo g/giorno dal bot
   const expectedToday = avgDaily ? fmtAvgDaily(avgDaily) : null;
-  // fmtMassG: tratta avgDailyG SEMPRE come grammi assoluti — non dipende da prep_task.unit
-  const botUsageToday = (avgDailyG && unit !== 'pezzi' && unit !== 'pz')
+  // fmtMassG: avgDailyG è sempre grammi assoluti — isPieceUnit copre pezzi/pz/piece/pieces/pcs/ea/each
+  const botUsageToday = (avgDailyG && !isPieceUnit(unit))
     ? '~' + fmtMassG(avgDailyG) + '/day' : null;
 
   function goodThroughDay() {
@@ -1268,8 +1274,8 @@ function renderChefAiBlock(i, cardType) {
   const nums = [];
   if (avgDailyHuman) nums.push(`<span>Avg sales: <b>${avgDailyHuman}</b></span>`);
   // Bot usage — mostra solo se è significativo e diverso dalle porzioni
-  // (non mostrare su pezzi puri dove avg_daily_g è già le porzioni)
-  if (botUsageHuman && unit !== 'pezzi' && unit !== 'pz')
+  // isPieceUnit: non mostrare Bot usage su unità contabili (pezzi/pz/piece/pieces/pcs/ea/each)
+  if (botUsageHuman && !isPieceUnit(unit))
     nums.push(`<span>Bot usage: <b>~${botUsageHuman}</b></span>`);
   if (stockHuman)    nums.push(`<span>In stock: <b>${stockHuman}</b></span>`);
   if (suggHuman && (cardType === 'TRUSTED') && (i.suggested_note||'').split('|')[0] !== 'green')
