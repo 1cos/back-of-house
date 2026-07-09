@@ -1783,7 +1783,8 @@ function openDoneSheet(id){
   if(it.suggested_qty && parseFloat(it.suggested_qty)>0){
     const sqRaw = parseFloat(it.suggested_qty);
     const sqUnit = it.unit||tr('prep_portions');
-    const sqLabel = sqRaw+' '+sqUnit;
+    // Mostra in unità leggibili — 37800 g → "37.8 kg", non crudo
+    const sqLabel = humanQty(sqRaw, sqUnit) || (sqRaw+' '+sqUnit);
     const modal=document.createElement('div');
     modal.className='fixed inset-0 z-50 flex items-end';
     modal.style.background='rgba(0,0,0,0.35)';
@@ -1814,9 +1815,12 @@ function openDoneSheetCustom(id){
   const NATIVE_UNITS = ['nests','buste','cup','filetto','mazzi']; // unità fisiche native non-g non-pz
   const defaultPezzi = PIECE_UNITS.includes(taskUnit);
   const defaultNative = NATIVE_UNITS.includes(taskUnit); // nests, buste, cup, ecc.
-  const defQty = it.suggested_qty!=null ? parseFloat(it.suggested_qty) : (it.average_qty!=null ? parseFloat(it.average_qty) : 0);
+  const _rawQty = it.suggested_qty!=null ? parseFloat(it.suggested_qty) : (it.average_qty!=null ? parseFloat(it.average_qty) : 0);
+  // Per grammi ≥1000: default in kg (es. 37800g → 37.8 kg) — più leggibile in cucina
+  const _autoKg = taskUnit === 'g' && _rawQty >= 1000;
+  const defQty = _autoKg ? parseFloat((_rawQty / 1000).toFixed(2)) : _rawQty;
   // defUnit: usa sempre l'unità del prep_task se riconosciuta, fallback g
-  const defUnit = defaultNative ? taskUnit : (defaultPezzi ? 'pz' : 'g');
+  const defUnit = defaultNative ? taskUnit : (defaultPezzi ? 'pz' : (_autoKg ? 'kg' : 'g'));
   // Etichetta leggibile per unità native
   const nativeLabel = taskUnit === 'nests' ? 'Nests' : taskUnit === 'buste' ? 'Buste' : taskUnit === 'cup' ? 'Cup' : taskUnit === 'filetto' ? 'Filetto' : taskUnit;
   // Today log banner
@@ -1838,16 +1842,33 @@ function openDoneSheetCustom(id){
           ${tr('prep_pieces')}
         </button>
       </div>`
-    : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
-        <button id="dsc-btn-g-${it.id}" onclick="dscSelect('${it.id}','g')"
-          style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid ${defaultPezzi?'#e2e8f0':'#059669'};background:${defaultPezzi?'#f8fafc':'#059669'};color:${defaultPezzi?'#94a3b8':'#fff'};">
-          ${tr('prep_grams')}
-        </button>
-        <button id="dsc-btn-pz-${it.id}" onclick="dscSelect('${it.id}','pz')"
-          style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid ${defaultPezzi?'#059669':'#e2e8f0'};background:${defaultPezzi?'#059669':'#f8fafc'};color:${defaultPezzi?'#fff':'#94a3b8'};">
-          ${tr('prep_pieces')}
-        </button>
-      </div>`;
+    : _autoKg
+      // Grammi grandi → 3 colonne: kg (attivo), g, pz
+      ? `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+          <button id="dsc-btn-native-${it.id}" onclick="dscSelect('${it.id}','kg')"
+            style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid #059669;background:#059669;color:#fff;">
+            kg
+          </button>
+          <button id="dsc-btn-g-${it.id}" onclick="dscSelect('${it.id}','g')"
+            style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid #e2e8f0;background:#f8fafc;color:#94a3b8;">
+            ${tr('prep_grams')}
+          </button>
+          <button id="dsc-btn-pz-${it.id}" onclick="dscSelect('${it.id}','pz')"
+            style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid #e2e8f0;background:#f8fafc;color:#94a3b8;">
+            ${tr('prep_pieces')}
+          </button>
+        </div>`
+      // Default: 2 colonne (g o pz attivo)
+      : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+          <button id="dsc-btn-g-${it.id}" onclick="dscSelect('${it.id}','g')"
+            style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid ${defaultPezzi?'#e2e8f0':'#059669'};background:${defaultPezzi?'#f8fafc':'#059669'};color:${defaultPezzi?'#94a3b8':'#fff'};">
+            ${tr('prep_grams')}
+          </button>
+          <button id="dsc-btn-pz-${it.id}" onclick="dscSelect('${it.id}','pz')"
+            style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid ${defaultPezzi?'#059669':'#e2e8f0'};background:${defaultPezzi?'#059669':'#f8fafc'};color:${defaultPezzi?'#fff':'#94a3b8'};">
+            ${tr('prep_pieces')}
+          </button>
+        </div>`;
   const sheet=document.createElement('div');
   sheet.className='fixed inset-0 z-50 flex items-end';
   sheet.style.background='rgba(0,0,0,0.5)';

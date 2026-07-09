@@ -1,4 +1,4 @@
-const CACHE_NAME = 'boh-v614';
+const CACHE_NAME = 'boh-v615';
 // ↑ Incrementa questo questo numero ad ogni deploy — es. v31, v32...
 // Il browser vede la versione diversa e aggiorna automaticamente
 
@@ -7,7 +7,6 @@ self.addEventListener('install', e => {
 });
 
 self.addEventListener('activate', e => {
-  // Cancella tutte le cache vecchie
   e.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
@@ -18,6 +17,5 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Non intercettare — passa tutto al network
-  // (strategia: sempre fresh, nessuna cache offline)
+  // Non intercettare — sempre fresh
 });
