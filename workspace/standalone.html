@@ -303,10 +303,11 @@ input,select,textarea{font-family:inherit}
   /* Topbar padding tighter */
   #topbar{gap:6px;padding:0 10px}
 
-  /* Brand: hide "by BOH OS" subtitle, keep name */
+  /* Brand: hide word + subtitle, keep only B mark */
   .t-sub{display:none}
-  /* Shrink brand gap */
-  .t-brand{gap:6px}
+  .t-name{display:none}
+  .t-words{display:none}
+  .t-brand{gap:0}
 
   /* Search: narrower pill, flex shrinks */
   .t-search{max-width:none;flex:1;min-width:0;padding:6px 10px;font-size:12px}
@@ -745,6 +746,60 @@ input,select,textarea{font-family:inherit}
 }
 .j-empty-ico{font-size:36px;margin-bottom:10px}
 
+
+/* ── SEARCH ──────────────────────────────────────────────────────────────── */
+/* Override static .t-search from topbar block with input-capable version */
+.t-search{position:relative}
+.t-search-ico{opacity:.5;font-size:14px;flex-shrink:0;color:var(--txm)}
+.t-search-input{
+  flex:1;border:none;outline:none;background:transparent;
+  font-size:13px;color:var(--tx);font-family:var(--ff);
+  min-width:0;padding:0
+}
+.t-search-input::placeholder{color:var(--txm)}
+.t-search-clear{
+  font-size:11px;color:var(--txm);cursor:pointer;
+  width:17px;height:17px;border-radius:50%;
+  background:var(--bg2);display:none;
+  align-items:center;justify-content:center;flex-shrink:0;
+  transition:all .12s
+}
+.t-search-clear:hover{background:var(--er-bg);color:var(--er)}
+.t-search-clear.vis{display:flex}
+.t-search.focused{
+  border-color:var(--b5);
+  box-shadow:0 0 0 3px rgba(59,130,246,.12);
+  max-width:360px
+}
+/* Dropdown */
+.search-drop{
+  position:absolute;top:calc(100% + 7px);left:0;right:0;
+  background:var(--surf);border:1px solid var(--bd2);
+  border-radius:var(--r2);box-shadow:var(--sh3);
+  z-index:500;overflow:hidden;
+  animation:pIn .15s cubic-bezier(.34,1.4,.64,1)
+}
+.search-drop.hi{display:none}
+.search-result{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px;cursor:pointer;transition:background .1s
+}
+.search-result:hover{background:var(--b0)}
+.search-result+.search-result{border-top:1px solid var(--bd)}
+.sr-ico{font-size:16px;width:22px;text-align:center;flex-shrink:0}
+.sr-body{flex:1;min-width:0}
+.sr-title{font-size:13px;font-weight:600;color:var(--tx)}
+.sr-sub{font-size:11px;color:var(--txm)}
+.sr-action{font-size:11px;color:var(--b6);font-weight:500;flex-shrink:0}
+.search-empty{
+  padding:16px 14px;font-size:13px;color:var(--txm);text-align:center
+}
+@media(max-width:640px){
+  .t-search{padding:6px 10px}
+  .t-search.focused{max-width:none}
+  .t-search-input{font-size:12px}
+}
+
 </style>
 </head>
 <body>
@@ -815,6 +870,7 @@ it:{
   /* User menu extra */
   um_profile:'Profilo', um_notif:'Notifiche', um_quiet:'Quiet hours', um_pin:'Cambia PIN',
   um_online:'Online adesso',
+  srch_placeholder:'Cerca...',  srch_open:'Apri',  srch_noResults:'Nessun risultato per "{q}"',
   yct:'Sì Chef! ✅', ycclose:'Chiudi',
 },
 en:{
@@ -871,6 +927,7 @@ en:{
   /* User menu extra */
   um_profile:'Profile', um_notif:'Notifications', um_quiet:'Quiet hours', um_pin:'Change PIN',
   um_online:'Online now',
+  srch_placeholder:'Search...',  srch_open:'Open',  srch_noResults:'No results for "{q}"',
   yct:'Yes Chef! ✅', ycclose:'Close',
 },
 es:{
@@ -927,6 +984,7 @@ es:{
   /* User menu extra */
   um_profile:'Perfil', um_notif:'Notificaciones', um_quiet:'Horas silenciosas', um_pin:'Cambiar PIN',
   um_online:'En línea ahora',
+  srch_placeholder:'Buscar...',  srch_open:'Abrir',  srch_noResults:'Sin resultados para "{q}"',
   yct:'¡Sí Chef! ✅', ycclose:'Cerrar',
 }
 };
@@ -1609,7 +1667,7 @@ function renderTopBar(){
     +'<div class="t-words"><span class="t-name">Brigade</span><span class="t-sub">by BOH OS</span></div>'
     +'</div>'
     /* Search */
-    +'<div class="t-search"><span style="opacity:.5;font-size:14px">⌕</span><span>'+t('search')+'</span></div>'
+    +'<div class="t-search" id="t-search-wrap">'    +'<span class="t-search-ico">⌕</span>'    +'<input class="t-search-input" id="t-search-input"'    +' placeholder="'+t('srch_placeholder')+'" autocomplete="off" spellcheck="false">'    +'<button class="t-search-clear" id="t-search-clear" tabindex="-1">✕</button>'    +'<div class="search-drop hi" id="search-drop"></div>'    +'</div>'
     /* Right */
     +'<div class="t-right">'
     /* Chef AI button */
@@ -1706,6 +1764,7 @@ function renderTopBar(){
   document.getElementById('cai-topbar-btn').addEventListener('click',function(e){
     e.stopPropagation(); toggleChefAI();
   });
+  wireSearch();
 }
 
 function renderTabBar(){
@@ -1965,6 +2024,136 @@ function validatePage(type){
     console.log('Reference: workspace/WORKSPACE_PAGE_STANDARD.md');
     console.groupEnd();
   }
+}
+
+
+/* ══ GLOBAL SEARCH ════════════════════════════════════════════════════════ */
+var _searchIdx = null;
+
+function buildSearchIndex(){
+  return [
+    {tabType:'bot_center',    params:{},
+     ico:'🤖', title:t('tb'),   sub:t('bsub'),
+     kw:['bot','pipeline','deduction','bots','centro bot','bot center','modifier','consolidator']},
+    {tabType:'daily_journal', params:{},
+     ico:'📓', title:t('jtit'), sub:t('jsub'),
+     kw:['journal','diario','log','diario operativo','operations journal','maintenance','servizio','service']},
+    {tabType:'recipe',        params:{id:'tiramisu',name:'Tiramisu'},
+     ico:'📋', title:t('tr',{n:'Tiramisu'}), sub:'Pastry · 10 pz',
+     kw:['tiramisu','dessert','pastry','mascarpone','ricetta','recipe','receta','savoiardi']},
+    {tabType:'inventory',     params:{id:'caesar',name:'Caesar Dressing'},
+     ico:'📦', title:t('ti',{n:'Caesar Dressing'}), sub:'Stock: 2.4 kg · 312 uses/60gg',
+     kw:['caesar','dressing','dispensa','pantry','despensa','salad','insalata']},
+  ];
+}
+
+function scoreResult(entry, q){
+  q = q.toLowerCase().trim();
+  var score = 0;
+  entry.kw.forEach(function(k){
+    k = k.toLowerCase();
+    if(k === q)          score += 100;
+    else if(k.startsWith(q)) score += 60;
+    else if(k.indexOf(q) >= 0) score += 30;
+  });
+  var title = entry.title.toLowerCase();
+  if(title === q)          score += 80;
+  else if(title.startsWith(q)) score += 50;
+  else if(title.indexOf(q) >= 0) score += 20;
+  return score;
+}
+
+function wireSearch(){
+  var wrap  = document.getElementById('t-search-wrap');
+  var input = document.getElementById('t-search-input');
+  var clear = document.getElementById('t-search-clear');
+  var drop  = document.getElementById('search-drop');
+  if(!wrap || !input || !drop) return;
+
+  _searchIdx = null; /* rebuild on lang change */
+
+  input.addEventListener('focus', function(){ wrap.classList.add('focused'); });
+
+  input.addEventListener('blur', function(){
+    setTimeout(function(){ wrap.classList.remove('focused'); hideDrop(); }, 200);
+  });
+
+  input.addEventListener('input', function(){
+    var q = input.value.trim();
+    clear.classList.toggle('vis', q.length > 0);
+    if(!q){ hideDrop(); return; }
+    showDrop(q);
+  });
+
+  input.addEventListener('keydown', function(e){
+    if(e.key === 'Escape'){
+      input.value = ''; clear.classList.remove('vis');
+      hideDrop(); input.blur();
+    }
+    if(e.key === 'Enter'){
+      var first = drop.querySelector('.search-result');
+      if(first) first.click();
+    }
+  });
+
+  clear.addEventListener('mousedown', function(e){ e.preventDefault(); });
+  clear.addEventListener('click', function(){
+    input.value = ''; clear.classList.remove('vis'); hideDrop(); input.focus();
+  });
+}
+
+function showDrop(q){
+  if(!_searchIdx) _searchIdx = buildSearchIndex();
+  var drop = document.getElementById('search-drop');
+  if(!drop) return;
+
+  var seen = {};
+  var results = _searchIdx
+    .map(function(e){ return {e:e, s:scoreResult(e,q)}; })
+    .filter(function(r){ return r.s > 0; })
+    .sort(function(a,b){ return b.s - a.s; })
+    .filter(function(r){
+      var key = r.e.tabType + ':' + (r.e.params.id || '');
+      if(seen[key]) return false; seen[key] = true; return true;
+    })
+    .slice(0, 5);
+
+  if(!results.length){
+    drop.innerHTML = '<div class="search-empty">'+t('srch_noResults',{q:q})+'</div>';
+    drop.classList.remove('hi'); return;
+  }
+
+  drop.innerHTML = results.map(function(r){
+    var e = r.e;
+    var ps = encodeURIComponent(JSON.stringify(e.params));
+    return '<div class="search-result" data-tt="'+e.tabType+'" data-ps="'+ps+'">'
+      +'<span class="sr-ico">'+e.ico+'</span>'
+      +'<div class="sr-body">'
+      +'<div class="sr-title">'+e.title+'</div>'
+      +'<div class="sr-sub">'+e.sub+'</div>'
+      +'</div>'
+      +'<span class="sr-action">'+t('srch_open')+' →</span>'
+      +'</div>';
+  }).join('');
+
+  drop.querySelectorAll('.search-result').forEach(function(el){
+    el.addEventListener('mousedown', function(e){ e.preventDefault(); });
+    el.addEventListener('click', function(){
+      var tt = el.dataset.tt;
+      var ps = JSON.parse(decodeURIComponent(el.dataset.ps||'{}'));
+      var inp = document.getElementById('t-search-input');
+      if(inp){ inp.value=''; document.getElementById('t-search-clear')?.classList.remove('vis'); }
+      hideDrop();
+      openTab(tt, ps);
+    });
+  });
+
+  drop.classList.remove('hi');
+}
+
+function hideDrop(){
+  var drop = document.getElementById('search-drop');
+  if(drop) drop.classList.add('hi');
 }
 
 document.addEventListener('DOMContentLoaded', function(){
