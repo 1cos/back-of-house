@@ -983,26 +983,30 @@ function buildChefAiNote(i, cardType) {
   }
 
   // ── COUNT RECONCILED — kitchen count recente e valido ────────
+  // Priorità assoluta: se esiste count valido, la card usa quello.
+  // headline = messaggio corto. body = nota del reconciler (no duplicati).
+  // action = solo se c'è qualcosa da fare.
   if (cardType === 'COUNT_RECONCILED') {
     const row = getValidCount(i.id);
     if (row) {
       const countedHuman = humanQty(parseFloat(row.counted_qty), row.unit || unit);
-      const countedBy = (row.counted_by || 'kitchen').trim().split(/\s+/)[0];
+      // reconciled_note è già il testo completo prodotto dal bot ("Stock confirmed: X. ...")
+      // Non ripetere info nell'headline — headline è solo il contesto personale
       if (row.reconcile_status === 'sufficient') {
         return {
-          headline: chef + ', ' + name + ' — stock confirmed by ' + countedBy + '.',
-          body: row.reconciled_note || ('Stock confirmed: ' + countedHuman + '. Enough for today.'),
-          action: 'No urgent prep needed.'
+          headline: chef + ', ' + name + ' — count confirmed.',
+          body: row.reconciled_note || ('Stock confirmed: ' + countedHuman + '. Enough for today — no urgent prep needed.'),
+          action: null  // "no urgent prep" è già nel body, non serve ripeterlo
         };
       }
       if (row.reconcile_status === 'prep_more') {
         return {
-          headline: chef + ', ' + name + ' needs some more prep.',
+          headline: chef + ', ' + name + ' needs a bit more prep.',
           body: row.reconciled_note || ('Stock confirmed: ' + countedHuman + '.'),
-          action: null
+          action: null  // la qty da fare è già nel reconciled_note
         };
       }
-      // manual_review
+      // manual_review — Chef deve decidere
       return {
         headline: chef + ', ' + name + ' — count saved.',
         body: row.reconciled_note || ('Stock confirmed: ' + countedHuman + '. Chef will review the final prep amount.'),
@@ -1138,7 +1142,7 @@ function renderChefAiBlock(i, cardType) {
       '':     { emoji: '⚪', label: 'Watch',        bg: 'rgba(100,116,139,0.06)', border: '#e2e8f0', color: '#64748b' },
     },
     COUNT_RECONCILED: { emoji: '✅', label: 'Count confirmed', bg: 'rgba(5,150,105,0.08)', border: '#bbf7d0', color: '#059669' },
-    COUNT_RECONCILED_MORE: { emoji: '🟠', label: 'Prep more', bg: 'rgba(217,119,6,0.08)', border: '#fde68a', color: '#d97706' },
+    COUNT_RECONCILED_MORE: { emoji: '🟠', label: 'Prep today', bg: 'rgba(217,119,6,0.08)', border: '#fde68a', color: '#d97706' },
     COUNT_RECONCILED_REVIEW: { emoji: '🔵', label: 'Count saved', bg: 'rgba(37,99,235,0.08)', border: '#bfdbfe', color: '#1d4ed8' },
     STAGED_CHECK: { emoji: '🟡', label: 'Check staged stock',  bg: 'rgba(234,179,8,0.08)',   border: '#fef08a', color: '#854d0e' },
     LARGE_BATCH:  { emoji: '🟠', label: 'Large batch — verify', bg: 'rgba(217,119,6,0.1)',   border: '#fde68a', color: '#b45309' },
