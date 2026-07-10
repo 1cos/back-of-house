@@ -590,3 +590,129 @@ Non continuare a svilupparlo finché Max non lo richiede esplicitamente.
 - `bot-modifier-depletion` go-live fissato a `2026-07-09 07:00:00+00`
 - Verificare nella prossima sessione se ha girato: `SELECT * FROM bot_runs WHERE bot_name='bot-modifier-depletion' ORDER BY started_at DESC LIMIT 5`
 - Se non ha girato, triggerarlo manualmente
+
+
+---
+
+## Sessione 9 lug 2026 (sera) — New Shell Lab · v008a
+
+### Decisione architetturale principale
+
+> **La nuova shell non deve copiare la vecchia app.**
+> Ogni modulo va ripensato da zero partendo dal flusso operativo reale dello chef,
+> non dalla struttura del database.
+
+Questa frase è la guardia anti-CRUD. Se un modulo sembra un form con 40 campi, è sbagliato.
+
+---
+
+### Stato produzione (invariato, solo hotfix)
+
+- **`back-of-house/brigade-main`** — boh-v620, stabile
+- I ragazzi continuano a testare in cucina
+- Nessuna modifica alla produzione durante questa sessione
+- bot-modifier-depletion: go-live `2026-07-09 07:00 UTC` — **verificare se ha girato**
+  ```sql
+  SELECT bot_name, status, started_at, rows_written
+  FROM bot_runs WHERE bot_name = 'bot-modifier-depletion'
+  ORDER BY started_at DESC LIMIT 5;
+  ```
+
+---
+
+### Nuova Shell Lab — stato attuale
+
+**File:** `brigade-dev/brigade-main/shell.html`
+**URL:** `https://1cos.github.io/brigade-dev/shell.html`
+**Version indicator:** `SHELL_VERSION = 'v008a'` (visibile nel banner pill)
+**Cache buster:** aggiungere `?v=008a` all'URL per forzare reload su Safari
+
+**Baseline grafica congelata** — non toccare senza richiesta esplicita:
+- spacing, topbar, tab bar, card density
+- Bot Center layout e fetch live
+- Diario layout e filtri
+- `+` menu behavior
+- Home card layout
+
+**Regola di sviluppo confermata:**
+1. un modulo alla volta
+2. build mock/layout → test iPhone → approvazione → freeze
+3. poi e solo poi: dati live read-only
+4. mai toccare ciò che è già approvato
+
+---
+
+### Moduli completati ✅
+
+| Modulo | Stato | Note |
+|---|---|---|
+| Shell base | ✅ Congelato | Topbar, tab system Safari-style, version indicator |
+| Tab system | ✅ Congelato | No duplicati, close→fallback Home, `+` menu, sessionStorage restore |
+| Home | ✅ Congelato | Card Bot Center, Diario, Vendite (filtrate per permesso) |
+| Bot Center | ✅ Congelato | 8 card pipeline, live read-only da `bot_runs`, warning chips, header aggregato |
+| Diario | ✅ Congelato (mock) | Card con severity border, section counters, form glass, filtri role-based |
+
+**Bot Center — dettagli live:**
+- Supabase anon key in `SUPABASE_URL` / `SUPABASE_KEY` (in shell.html)
+- `botsAfterRender()` fa GET su `bot_runs` — solo lettura, nessuna scrittura
+- Mapping: `success→ok`, `warning→warn`, `failed/error→error`, assente→`idle`
+- `NIGHTLY_BOT_MAP`: 6 bot nightly (`pos-touchbistro-bot`, `pos-cleaner`, `bot-direct-deduction`, `bot-bom-chain-deduction`, `bot-modifier-depletion`, `bot-stock-consolidator`)
+- Fallback gracioso se fetch fallisce — mock rimane, nota soft
+
+**Diario — ancora mock/in-memory:**
+- `JDATA` array hardcoded, `saveJEntry()` scrive solo in RAM
+- DB non ancora collegato — questo è v009 (dopo Ricette)
+
+---
+
+### Roadmap moduli (in ordine)
+
+```
+1. 🟨 Ricette          ← PROSSIMO — progettazione prima del codice
+2. 🔲 Inventory / Dispensa
+3. 🔲 Sales / Vendite
+4. 🔲 Office / Tell Chef
+5. 🔲 Chat / Chef AI
+```
+
+**Per ogni modulo: prima si progetta la pagina (qual è il flusso operativo reale?),
+poi si costruisce il layout mock, poi si collega il DB.**
+
+---
+
+### Prossima sessione — Ricette (design first)
+
+**Non iniziare a scrivere codice prima di aver risposto a queste domande:**
+
+1. Quali tab deve avere una ricetta?
+   — Proposta: Overview · Procedura · BOM · Costing · Prep · History
+2. Cosa uno chef vede nei primi 5 secondi?
+   — Nome ricetta, stazione, batch size, stato (attiva/archivio)
+3. Come si naviga: Ricetta → Prep → Ingrediente → Vendite?
+   — Senza modal. Ogni passaggio apre una nuova tab.
+4. Come si cerca una ricetta?
+   — Barra ricerca + filtri stazione (Grill, Pasta, Salad, Pastry...)
+5. La lista ricette: come deve essere organizzata?
+   — Proposta: Preferite · Recenti · Per stazione
+
+**Bot Center inventory audit (riferimento per futuro):**
+Vedi sessione precedente — 42 Edge Functions catalogate in 6 categorie.
+Bot Center v007+ mostra solo Nightly Pipeline. Le altre categorie (Prep, Chef AI, Invoice, Integrations) sono future sezioni separate.
+
+---
+
+### Push history questa sessione
+
+| Tag | Contenuto |
+|---|---|
+| `new-shell-v005` | Tab system: closeTab fallback, restore validation, `+` menu, AID guard |
+| `new-shell-v005a` | `+` menu patch: ICO pos, home fuori candidates, backdrop iOS |
+| `new-shell-v006` | Bot Center layout: header operativo, 8 card, expand, osservazioni |
+| `new-shell-v006a` | Bot Center polish: nomi 2 righe, warning label soft |
+| `new-shell-v007` | Bot Center live read-only: fetch `bot_runs`, fallback gracioso |
+| `new-shell-v007a` | Live data density: padding, warn pill chip, right column |
+| `new-shell-v007b` | Version indicator: `SHELL_VERSION`, banner pill, footer note |
+| `new-shell-v007c` | Expanded border: `--b3` (undefined→nero) → `--b2` (azzurro) |
+| `new-shell-v008` | Diario layout: severity bar, section counters, form glass |
+| `new-shell-v008a` | Diario polish: rimossa inner `jsv` bar, `border-left` diretto |
+
