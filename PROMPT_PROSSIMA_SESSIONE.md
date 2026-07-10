@@ -501,3 +501,92 @@ DELETE FROM stock_movements WHERE source = 'pos_modifier_drain';
 - La Dispensa Beta: Sprint 8 (search, warning filter, sorting, feedback list)
 - Recipe DQ: rimangono ricette in Review/Blocking da processare una per una con Max
 - 7shifts sync: ancora bloccato su JWT
+
+
+---
+
+## Sessione 9 lug 2026 (pomeriggio) — New Shell Lab
+
+### Direzione confermata
+
+**La nuova app è la New Brigade Shell**, non il Workspace Router nella vecchia app.
+Il Workspace Router (js/workspace.js, workspace-v001/v002/v003) è **parcheggiato**.
+La produzione (`back-of-house/brigade-main`) rimane **intatta per una settimana** — solo hotfix.
+
+### Setup infrastruttura
+
+**Tre track separati e protetti:**
+
+| Track | Repo/Branch | URL | Stato |
+|---|---|---|---|
+| 🟢 Produzione cucina | `back-of-house/brigade-main` | `https://1cos.github.io/back-of-house/` | boh-v613, solo hotfix |
+| 🧪 Workspace Router (parcheggiato) | `brigade-dev/brigade-main` (index.html) | `https://1cos.github.io/brigade-dev/` | workspace-v003, fermo |
+| 🎨 **New Shell Lab** | `brigade-dev/brigade-main` (shell.html) | `https://1cos.github.io/brigade-dev/shell.html` | **progetto principale** |
+
+**Branch:**
+- `back-of-house/brigade-main` — produzione, non toccare
+- `back-of-house/workspace-router-refactor` — Workspace Router parcheggiato
+- `back-of-house/new-brigade-shell-ui` — branch della shell nuova (fonte di recupero)
+- `brigade-dev/brigade-main` — lab deployment (shell.html qui)
+
+**Tag di sicurezza:**
+- `prod-safe-boh-v613` → `01712337ee7c` (produzione al momento del freeze)
+- `workspace-lab-v002` → `978930a27e10` (Workspace Router al momento del freeze)
+- `new-shell-v001-baseline` → `0453fe32c2a2` (shell v10 recuperata, con banner)
+- `new-shell-v002-sales-placeholder` → `072bf3419777`
+- `new-shell-v003-shell-polish` → `de24e64790a1`
+- `new-shell-v004-density-polish` → `8a3a5a7fc1d8` ← **baseline visiva approvata**
+
+### New Brigade Shell — stato attuale (new-shell-v004)
+
+**File:** `brigade-dev/brigade-main/shell.html` (unico file, self-contained, ~98KB)
+**Fonte originale:** `workspace/standalone.html` @ commit `46bca381` (v10, 9 luglio)
+
+**Funzionalità presenti e funzionanti:**
+- Brigade topbar (brand, search, Chef AI button, user/lang menu)
+- Tab system Safari/Chrome (open, close, switch, scroll preservation, sessionStorage, max 10)
+- Home con quick-action cards (Bot Center, Diario, Recipe, Inventory)
+- Diario operativo — timeline, form inline, categorie, filtro ruolo
+- Bot Center — lista pipeline con stati
+- Recipe page (placeholder)
+- Inventory page (placeholder)
+- Sales/Vendite (placeholder con chips — `pageSales()`, route `pos`)
+- Global search (score-based, dropdown, IT/EN/ES)
+- Chef AI drawer (demo replies, contesto per pagina)
+- i18n IT/EN/ES completo con `t(key)`
+- Safe-area iPhone (env(safe-area-inset-*))
+- -webkit-tap-highlight-color:transparent globale
+- Zero DB writes (saveJEntry usa JDATA in-memory)
+
+**CSS baseline congelata (non toccare senza richiesta esplicita):**
+- spacing, topbar, tab bar, card density → frozen su v004
+- workspace padding: 24px 28px 52px desktop / 14px 14px 48px mobile
+- .hcard-top: 16px 18px 10px
+- .pgp-chip: font 13px, padding 7px 14px
+
+**Metodo di lavoro confermato:**
+> un pezzo piccolo → push → test su iPhone → approvazione → prossimo pezzo
+
+**Prossima sessione — possibili prossimi pezzi (Max decide l'ordine):**
+1. Home page: decidere il contenuto definitivo (non aggiungere card a caso)
+2. Diario: migliorare UX del form o della timeline
+3. Bot Center: mostrare dati reali dal DB (bot_runs)
+4. Recipe page: costruire la pagina vera (BOM + steps dal DB)
+5. Search: ampliare l'indice con dati reali
+6. Qualsiasi altra cosa Max vuole provare
+
+**Regola assoluta:** Non aggiungere mai una feature senza approvazione esplicita di Max.
+Non riempire la Home di bottoni. La shell deve respirare.
+
+### Workspace Router — cosa rimane (parcheggiato)
+
+`js/workspace.js` su `back-of-house/brigade-main` contiene workspace-v003-lab-safety.
+È disabilitato di default nella live. Non eliminarlo — potrebbe servire per integrazioni future.
+Non continuare a svilupparlo finché Max non lo richiede esplicitamente.
+
+### Produzione live — stato bot (9 luglio 2026)
+
+**boh-v613** in produzione. Bot pipeline funzionante:
+- `bot-modifier-depletion` go-live fissato a `2026-07-09 07:00:00+00`
+- Verificare nella prossima sessione se ha girato: `SELECT * FROM bot_runs WHERE bot_name='bot-modifier-depletion' ORDER BY started_at DESC LIMIT 5`
+- Se non ha girato, triggerarlo manualmente
