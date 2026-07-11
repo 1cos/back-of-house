@@ -910,3 +910,159 @@ suggested_qty = MAX(fabbisogno - current_stock, 0) arrotondato al batch più vic
 4. **CHICKEN CAESAR SALADE recipe:** orfana e mai venduta. BOM usa `Grill Chicken` come ITEM raw invece di sub-recipe Diced Grilled Chicken. Da archiviare o correggere in sessione futura separata.
 5. **bot-preplist-builder cron:** da disattivare solo dopo Sprint B attivo e verificato.
 
+
+
+
+---
+
+## Sessione 11 lug 2026 (pomeriggio) — Prep Suggester sperimentale · Step 1
+
+### Obiettivo Step 1 (in corso, non concluso)
+Dimostrare che il nuovo motore produce **suggestion credibili** su cui i cuochi possano fare affidamento.
+Non sostituire ancora il Prep Builder live. Non scrivere `suggested_qty`. Non deployare UI.
+
+---
+
+### Regola coverage approvata
+
+```
+coverage_days = min_cover_days  (se > 0)
+             altrimenti 1
+```
+
+Fonte: `prep_tasks.min_cover_days` — unico campo esplicito e verificabile nel DB.
+**Non usare:** `expected_duration_days`, `shelf_life_days`, `prep_frequency_days` come orizzonte.
+Questi descrivono durata/frequenza, non la finestra che la cucina vuole coprire.
+
+---
+
+### Distinzione fabbisogno netto vs vincolo produttivo
+
+```
+net_requirement = MAX(avg_daily × coverage_days − current_stock, 0)
+
+planned_output:
+  se base_servings > 1 (batch fisso):
+    planned = CEIL(net_req / base_servings) × base_servings
+  se scalabile per porzione:
+    planned = CEIL(net_req)
+```
+
+Arrabbiata: `net_requirement = 1.690kg` ma `planned_output = null` — conflitto tra
+`base_weight_g = 3.150kg` e `base_servings = null` → production constraint non determinabile.
+
+---
+
+### Fix PATH B — bot-direct-deduction v5
+
+**Bug identificato:** recipe ibride con BOM RECIPE + prep_task finale diretto non
+attivavano PATH B perché il blocco PATH A terminava con `continue` incondizionato.
+
+**Fix deployato:** `HYBRID_PARENT_ALLOWLIST` — 7 recipe ibride verificate con dry-run.
+Commit: `6f1774aec6adb71f5361f98ca0592a584469cfc9`
+
+**Allowlist:**
+```javascript
+const HYBRID_PARENT_ALLOWLIST = new Set([
+  'dcaa616a-1fcb-41b6-957d-6036bfdc0729', // Salmon Cakes       → Salmon cakes (3 pz)
+  'dbdc80fd-142f-4ca1-8f83-7bcebe19ee63', // Artichoke          → Artichoke (2 pz)
+  '4429c13f-8811-4e50-b9cc-77c8c9128da3', // Chicken Parmesan   → Chicken Parmesan (1 pz)
+  '876ed092-6c9a-4c4b-b851-575aeba71231', // Lobster Fettucine  → Thaw Lobster (1 pz)
+  '146ff381-49ba-46e1-b413-aea7bce1f265', // Scallops Chefs Way → Scallops (4 pz)
+  '9e4ea921-93dc-4aaa-b2f2-2ff476dc3a08', // Italian Marble Cake → Cremino (1 pz)
+  '5c3cc880-baa9-48aa-b280-6de57001578f', // Limoncello Cake    → Mimosa (1 pz)
+])
+```
+
+**Escluse dall'allowlist (richiedono decisione Max):**
+Wagyu Ribeye, Wagyu Tomahawk, Meatball Appetizer, Brussel Sprouts, Fried Calamari, ADD SHRIMP.
+
+**Verifica post-deploy:** 16 nuove righe PATH B per ciascuna delle date 7/6 e 7/9.
+Zero overlap con PATH A. Zero errori. bot-direct-deduction Supabase versione 8 ACTIVE.
+
+---
+
+### Stato Prep Suggester sperimentale — risultati checkpoint
+
+**Fonte consumo:** `stock_deductions` PATH B (`direct_parent_prep_task`) — 2 service days (7/6 Mon, 7/9 Thu).
+
+| Prep | Stock | 7/6 | 7/9 | Avg/day | Cov | Net req | Planned | Conf | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| Artichoke (pt261) | 4 pz | 6 | 8 | 7.0 | 2 | 10.0 | 10 pz | MEDIUM | prep_today |
+| Salmon cakes (pt277) | 0 pz | 18 | 12 | 15.0 | 2 | 30.0 | 39 pz (3b) | MEDIUM | do_first |
+| Scallops (pt279) | 0 pz | 24 | 28 | 26.0 | 2 | 52.0 | 52 pz | MEDIUM | do_first |
+| Thaw Lobster (pt296) | 0 pz | 8 | 6 | 7.0 | 2 | 14.0 | 14 pz | MEDIUM | do_first |
+| Cremino (pt341) | 38 pz | 5 | 9 | 7.0 | 2 | 0 | — | MEDIUM | looks_ok |
+| Mimosa (pt350) | 100 pz | 3 | 5 | 4.0 | 2 | 0 | — | MEDIUM | looks_ok |
+| Chicken Parmesan (pt452) | 0 pz | 3 | 9 | 6.0 | 2 | 12.0 | 12 pz | LOW | do_first |
+
+**Regole status:**
+- `net_requirement = 0` → `looks_ok`
+- `net_requirement > 0` e `stock > 0` → `prep_today`
+- `net_requirement > 0` e `stock = 0` → `do_first`
+- stock non verificabile → `count_first`
+
+**Regola confidence con soli 2 service days:** max MEDIUM.
+`HIGH` richiede almeno una settimana completa con dati per ogni giorno della settimana.
+
+**Salmon Cakes — vecchio vs nuovo:**
+- Vecchio (bot-preplist-builder): 117 pezzi — storia 30gg × serving_qty × 7gg di orizzonte. Sovrastimato ~3-4×.
+- Nuovo (PATH B 2 days): 39 pezzi (3 batch × 13) — 15 pz/day reali × coverage 2gg.
+
+---
+
+### Limite attuale: dati insufficienti in stock_deductions
+
+`stock_deductions` contiene solo i service days 7/6 e 7/9 (primo import post-pipeline).
+Lo storico POS reale parte dal 9 giugno ma non è ancora stato processato dalla nuova pipeline.
+
+**Cambio menu operativo: 2026-06-27.** I dati pre-27 giugno appartengono al menu precedente
+e devono essere pesati con autorità inferiore o esclusi per alcune prep.
+
+---
+
+### Non fatto in questa sessione — confermato
+
+- Nessun deploy del Prep Suggester (nessuna scrittura `suggested_qty`)
+- Nessuna modifica alle suggestion live (`prep_tasks.suggested_note` invariato)
+- Nessuna modifica UI
+- bot-preplist-builder cron ancora attivo (da disattivare solo dopo Sprint B verificato)
+
+---
+
+### Prossima sessione — forecast operativo (PROGETTARE, non implementare)
+
+La cucina non produce per "oggi". Lavora per **finestre operative**:
+
+- **Lunedì–martedì:** produzione principale per coprire i giorni infrasettimanali.
+- **Giovedì–venerdì mattina:** produzione principale per coprire venerdì sera e sabato.
+- **Venerdì e sabato** = domanda più alta rispetto ai giorni infrasettimanali.
+- Gli altri giorni servono principalmente per integrazioni e correzioni.
+
+**Obiettivo della prossima sessione:** leggere tutto lo storico POS dal 9 giugno,
+separare weekday e weekend, mostrare la distribuzione reale per 5–10 prep principali,
+**prima di proporre la formula definitiva**. Non implementare ancora.
+
+**Analisi da eseguire — solo lettura, nessuna scrittura:**
+
+1. **Storico per singolo giorno della settimana**
+   Per ogni prep: lunedì vs altri lunedì, venerdì vs altri venerdì, sabato vs altri sabati.
+   Calcolare: media, valore recente, min, max.
+   Non eliminare il picco più alto (rappresenta un rischio reale in cucina) — ridurne il peso.
+
+2. **Due profili di domanda**
+   - `weekday_profile`: lunedì–giovedì
+   - `weekend_profile`: venerdì–sabato
+   Utile quando i campioni dello stesso giorno sono pochi.
+
+3. **Finestra che la produzione deve coprire**
+   Dipende dal giorno in cui si prepara.
+   Esempio giovedì mattina: `stock + produzione` deve coprire giovedì restante + venerdì + sabato.
+   Esempio lunedì: `stock + produzione` deve coprire lunedì + martedì + parte mercoledì/giovedì.
+
+4. **Shelf life e conservazione** — arriveranno dopo il forecast.
+   Prima si studia la domanda, poi si incrociano i vincoli di durata.
+
+**Gate prossima sessione:** mostrare la distribuzione della domanda, non proporre la formula.
+La formula viene proposta solo dopo che Max vede e approva i dati.
+
