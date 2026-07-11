@@ -1,10 +1,11 @@
 // bot-direct-deduction — Station 3 del TouchBistro POS Bot
 // Legge pos_daily_clean → calcola scarichi diretti → scrive stock_deductions
-// v4 — direct_parent_prep_task:
-//   Se la recipe POS non ha BOM RECIPE, ma ha un prep_task collegato via
-//   prep_tasks.recipe_id, scarica direttamente quel prep_task (se plausibile).
-//   Protezioni: unità non plausibili (g/kg con serving_qty <= 5) e unità
-//   contenitore (buste/bag/case/box) vengono saltate con observation.
+// v5 — hybrid_allowlist:
+//   PATH B ora si attiva anche per recipe che hanno BOM RECIPE, purché siano
+//   in HYBRID_PARENT_ALLOWLIST (recipe ibride verificate manualmente dove
+//   PATH A scarica sub-prep di supporto e PATH B scarica il prodotto finale).
+//   Le recipe non in allowlist continuano col comportamento v4 (PATH A → continue).
+//   Protezioni invariate: unità non plausibili e contenitore saltate con observation.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -16,6 +17,21 @@ const PIECE_UNITS   = new Set(['pezzi','pz','each','ea','nests','pcs','pieces'])
 const WEIGHT_UNITS  = new Set(['g','kg'])
 const VOLUME_UNITS  = new Set(['ml','l','oz','lb'])
 const CONTAINER_UNITS = new Set(['buste','bag','case','box','carton','sacchi'])
+
+// ── Allowlist recipe ibride verificate (v5) ────────────────────────────────
+// Recipe che hanno sia BOM RECIPE (sub-prep di supporto) sia un prep_task
+// finale diretto. PATH A scarica le sub-prep; PATH B scarica il prodotto
+// assemblato. Entrambi sono stock distinti — non è una doppia deduction.
+// Non aggiungere recipe qui senza audit esplicito del dry-run.
+const HYBRID_PARENT_ALLOWLIST = new Set([
+  'dcaa616a-1fcb-41b6-957d-6036bfdc0729', // Salmon Cakes       → Salmon cakes (3 pz)
+  'dbdc80fd-142f-4ca1-8f83-7bcebe19ee63', // Artichoke          → Artichoke (2 pz)
+  '4429c13f-8811-4e50-b9cc-77c8c9128da3', // Chicken Parmesan   → Chicken Parmesan (1 pz)
+  '876ed092-6c9a-4c4b-b851-575aeba71231', // Lobster Fettucine  → Thaw Lobster (1 pz)
+  '146ff381-49ba-46e1-b413-aea7bce1f265', // Scallops Chefs Way → Scallops (4 pz)
+  '9e4ea921-93dc-4aaa-b2f2-2ff476dc3a08', // Italian Marble Cake → Cremino (1 pz)
+  '5c3cc880-baa9-48aa-b280-6de57001578f', // Limoncello Cake    → Mimosa (1 pz)
+])
 
 // Se unit è peso/volume, la serving_qty deve essere >= questa soglia per essere plausibile
 const MIN_PLAUSIBLE_WEIGHT_QTY = 5   // g o ml: sotto 5 = placeholder
@@ -254,7 +270,12 @@ Deno.serve(async (req) => {
             metadata: { pos_item_name: posItemName, recipe_id: row.recipe_id, portions_sold: portions }
           })
         }
-        continue // STOP — non cercare parent prep task se BOM esiste
+        // v5: se la recipe è in allowlist, non fare continue —
+        // scendi a PATH B per scaricare anche il prodotto finale assemblato.
+        if (!HYBRID_PARENT_ALLOWLIST.has(row.recipe_id)) {
+          continue // STOP — non cercare parent prep task se BOM esiste
+        }
+        // else: recipe ibrida verificata → prosegui a PATH B
       }
 
       // ── PATH B: direct_parent_prep_task (nuovo v4) ────────────────────────
@@ -436,3 +457,4 @@ Deno.serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
 })
+
