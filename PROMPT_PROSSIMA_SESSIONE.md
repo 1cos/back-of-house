@@ -767,3 +767,146 @@ Quantità  │  Durata  │  Scarto
 2. Collegare Storico a dati DB reali (prep_log + bot_runs)
 3. Ricette: lista ricette (Home delle ricette, non solo Tiramisu)
 
+
+---
+
+## Sessione 11 lug 2026 — Bot check & Prep task audit
+
+### Produzione (back-of-house/brigade-main, boh-v620, invariato)
+
+Nessun push frontend in questa sessione. Solo DB.
+
+---
+
+### Audit pipeline POS — Add Chicken / Meatballs
+
+**Contesto:** Nelle screenshot della preplist, "Cube Grilled Chicken" e "Meatballs" mostravano `Bot stock: — / Bot suggestion: —`. Audit completo eseguito.
+
+#### Risultato Meatballs
+
+- `prep_task 479` (Meatball Sauce), `480` (Meatballs), `481` (Meatball Appetizer): tutti con `current_stock = NULL`
+- Il bot-preplist-builder salta i task con `current_stock IS NULL`
+- I bot POS funzionano correttamente: `stock_deductions` del 9 lug mostra 75 pz Meatballs e 1500g Meatball Sauce scaricati via BOM chain
+- Il consolidator non aggiorna `prep_tasks.current_stock` (snapshot-only finché non promosso)
+- **Pending:** impostare un `current_stock` iniziale su questi task per sbloccare i suggerimenti. Da fare con Max in sessione separata (quanto stima in stock adesso?).
+
+#### Risultato Add Chicken / Cube Grilled Chicken
+
+Vedi sezione sotto.
+
+---
+
+### Correzione chirurgica: Cube → Diced Grilled Chicken
+
+#### Diagnosi
+
+**Cube Grilled Chicken (prep_task 242):**
+- `prep_type = 'checklist'`, `recipe_id = null`, nessun BOM che lo referenzia
+- `current_stock = 12.995g` — contatore grezzo cumulativo: somma di tutti i DONE dal 24 giu al 9 lug (mai sottratto nulla, nessuna deduction POS, nessun bot)
+- Non reale come stock disponibile
+- Il Consolidator non lo ha mai scritto; il DONE flow accumula senza sottrazioni
+- Chris produce il pollo ogni 2-7 giorni e lo registrava su questo task legacy
+
+**Diced Grilled Chicken (prep_task 473):**
+- `prep_type = 'finale'`, `recipe_id = d4e1cd5f`, categoria Pasta Station
+- `current_stock = 5.944g` — reale: accumulo DONE (3.654 + 2.290g) dopo che il Consolidator v7 del 6 lug ha resettato a 0 (loaded 750 − deducted 1300 = negativo → 0)
+- È l'unica prep autorevole per il pollo tagliato
+- Il flusso corretto è: `POS "Add chicken" → recipe add chicken → BOM RECIPE Diced Grilled Chicken (100g) → prep_task 473`
+
+**Mappa POS Caesar:**
+- "Chicken Caesar Salad" non esiste come voce POS attiva — mai venduta
+- L'unica Caesar attiva è `Mini Caesar Salad` (358 vendute dal 9 giu), BOM senza pollo
+- Il pollo arriva come modifier opzionale "Add chicken" (~6% delle Mini Caesar)
+- Già scaricato correttamente via recipe "add chicken" → BOM → Diced Grilled Chicken
+- "CHICKEN CAESAR SALADE" (recipe) è orfana, mai venduta, BOM usa `Grill Chicken` come ITEM raw — irrilevante per operazioni correnti
+
+#### Modifiche eseguite (11 lug 2026)
+
+```sql
+-- Cube Grilled Chicken: archiviato
+UPDATE prep_tasks SET archived = true WHERE id = 242;
+
+-- Diced Grilled Chicken: nota operativa
+UPDATE prep_tasks
+SET note = 'Usa questo task per registrare tutta la produzione di grilled chicken tagliato. Sostituisce il vecchio task "Cube Grilled Chicken".'
+WHERE id = 473;
+```
+
+#### Stato post-modifica verificato
+
+| Task | id | archived | current_stock | note |
+|---|---|---|---|---|
+| Cube Grilled Chicken | 242 | **true** | 12.995g (intatto) | null |
+| Diced Grilled Chicken | 473 | false | 5.944g (invariato) | nota operativa presente |
+
+- `prep_log` Cube: 6 produzioni storiche preservate integralmente (Samantha + Chris, 24 giu → 9 lug)
+- I 12.995g di Cube **non trasferiti** a Diced (erano produzione storica cumulativa, non stock reale)
+- Chris vede solo Diced Grilled Chicken in Pasta Station (Cube filtrato da `init.js` via `!i.archived`)
+
+#### Regola confermata
+
+```
+POS "Add chicken"
+  → recipe add chicken (pos_name match)
+  → BOM RECIPE: Diced Grilled Chicken 100g
+  → prep_task 473 (Pasta Station, unica prep autorevole)
+```
+
+**Non fare mai:** `pos_name = 'Add chicken'` su Diced Grilled Chicken.
+Add chicken è il *consumatore* POS della prep, non il nome POS della prep stessa.
+Impostarlo causerebbe double-counting e confusione semantica nel bot.
+
+---
+
+### Architettura bot-preplist-builder — stato accertato
+
+**Fermo dal 28 giugno** (ultima entry in `bot_preplist_log`). Il cron gira ancora (0 9 UTC) ma produce 0 task — probabile errore silenzioso dopo i cambiamenti della pipeline POS nuova.
+
+**È ancora l'unico writer** di `prep_tasks.suggested_qty` e `prep_tasks.suggested_note`. La UI (`classifyCard` in `prep.js`) legge solo questi campi:
+- `suggested_note = NULL` → card classificata **WATCH** (regola R7)
+- Ecco perché tutte le card nuove mostrano la pill grigia "Watch"
+
+`computePrepBotDecision()` in `prep.js` è **solo il pannello Audit** (bottone "Audit" nella card) — spiega il suggerimento già scritto, non lo calcola. Non è un sostituto del builder.
+
+**Il builder v17/v38 non fa BOM traversal.** Processa solo recipe con `pos_name` diretto in `pos_sales_by_item`. Sub-recipe come Diced Grilled Chicken (consumata via BOM da "add chicken") sono invisibili al builder anche quando girava.
+
+**Non patchare il builder** aggiungendo `pos_name = 'Add chicken'` a Diced — vedi regola sopra.
+
+**Non riattivare** il builder senza prima costruire Sprint B.
+
+---
+
+### Sprint B — Prep Suggester (prossimo intervento autonomo)
+
+**Obiettivo:** sostituire bot-preplist-builder con un suggester che legge `stock_deductions` (pipeline POS nuova) e fa BOM traversal completo.
+
+**Dati già disponibili:**
+- `stock_deductions`: 1.300g/giorno di Diced Grilled Chicken (date 6 e 9 lug), da "Add chicken" via BOM
+- `pos_production_daily`: ~18 porzioni/giorno "add chicken" / "Diced Grilled Chicken" (alias instabile nel canonical_name — da normalizzare)
+- `min_cover_days = 1`, `expected_duration_days = 4` su prep_task 473
+
+**Logica attesa:**
+```
+consumo_giornaliero = SUM(stock_deductions.quantity WHERE target = prep_task)
+                    + SUM via BOM chain da tutti i parent POS
+fabbisogno = consumo_giornaliero × min_cover_days × safety_buffer
+suggested_qty = MAX(fabbisogno - current_stock, 0) arrotondato al batch più vicino
+```
+
+**Scrive su:** `prep_tasks.suggested_qty`, `prep_tasks.suggested_note`, `prep_tasks.sources_json`
+**Non tocca:** `current_stock` (scritto solo dal DONE flow)
+
+**Prerequisiti prima di Sprint B:**
+1. Normalizzare `pos_production_daily.canonical_name` per Add Chicken (ora ha sia "add chicken" sia "Diced Grilled Chicken" come alias — instabile dal 7 lug)
+2. Impostare `current_stock` iniziale su Meatballs/Meatball Sauce/Meatball Appetizer (task 479/480/481) — chiedere a Max la stima attuale
+
+---
+
+### Pending aperto da questa sessione
+
+1. **Meatballs current_stock:** chiedere a Max → quanto stima in stock di Meatball Appetizer (pz), Meatballs (pz), Meatball Sauce (g) adesso? Poi impostare i valori iniziali manualmente.
+2. **canonical_name instabile:** `pos_production_daily` usa due nomi diversi per lo stesso prodotto (Add chicken / Diced Grilled Chicken) — da normalizzare prima di Sprint B.
+3. **Sprint B — Prep Suggester:** progettare e costruire. Vedi logica sopra.
+4. **CHICKEN CAESAR SALADE recipe:** orfana e mai venduta. BOM usa `Grill Chicken` come ITEM raw invece di sub-recipe Diced Grilled Chicken. Da archiviare o correggere in sessione futura separata.
+5. **bot-preplist-builder cron:** da disattivare solo dopo Sprint B attivo e verificato.
+
