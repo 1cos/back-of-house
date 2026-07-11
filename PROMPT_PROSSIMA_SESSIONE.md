@@ -716,3 +716,54 @@ Bot Center v007+ mostra solo Nightly Pipeline. Le altre categorie (Prep, Chef AI
 | `new-shell-v008` | Diario layout: severity bar, section counters, form glass |
 | `new-shell-v008a` | Diario polish: rimossa inner `jsv` bar, `border-left` diretto |
 
+
+
+---
+
+## Sessione 10 lug 2026 — New Shell Lab · v011
+
+### new-shell-v011 — Recipe Storico tab
+
+**Modulo:** Tab Storico della Recipe page.
+**Stato:** ✅ pushato su `brigade-dev/brigade-main/shell.html`
+
+**Cosa è stato fatto:**
+- CSS Storico completo (`.r-hentry`, `.r-hhead`, `.r-hstats`, `.r-hstat`, `.r-hdelta`, `.r-hnote`, `.r-hcompare`, `.r-hsec`)
+- Mock data `RECIPE_HISTORY` (3 produzioni Tiramisu: Ieri·Samantha·20pz·42min, 8lug·Samantha·18pz·47min·scarto2, 5lug·Todd·10pz·38min)
+- Funzione `_renderHist()` — genera card dalla mock data, zero DB
+- i18n IT/EN/ES completo (12 stringhe: rh_lbl_qty/dur/waste, rh_no_waste, rh_unit_min, rh_note_lbl, rh_compare_up/dn/eq, rh_delta_under/over, rh_empty, rh_sec_recent)
+- `SHELL_VERSION` → `v011`
+- Zero DB writes, zero modifiche a Driver/Ingredienti/Prep/timer/topbar/Bot Center/Diario/produzione
+
+**Struttura card per ogni produzione:**
+```
+[Data]                    [Person pill]
+─────────────────────────────────────
+Quantità  │  Durata  │  Scarto
+  20 vasch │  42 min  │  —
+─────────────────────────────────────
+📝 Nota operativa (se presente)
+─────────────────────────────────────
++N vs precedente (se non è il più vecchio)
+```
+
+**Logica delta:**
+- `delta vs expected_qty` → chip colorato inline (−2 arancio / +N verde)
+- `compare vs precedente` → riga in fondo alla card (testo leggibile)
+- `scarto > 0` → bordo card arancio + valore in rosso
+
+**Cosa testare su iPhone:**
+1. Apri Recipe → tab Storico → vedi 3 card Tiramisu
+2. Card 1: 20 vasch, 42 min, scarto —, no nota → nessun bordo warn
+3. Card 2: 18 vasch, 47 min, scarto 2 → bordo arancio + delta −2 + nota crema
+4. Card 3: 10 vasch, 38 min, scarto — + nota cacao
+5. Cambia lingua IT/EN/ES → label colonne e note cambiano
+6. Driver, Ingredienti, Prep, timer, topbar → invariati
+
+**Non modificato:** Driver, Ingredienti, Prep, timer, topbar, tab workspace, Bot Center, Diario, produzione, sw.js prod.
+
+**Prossima sessione — opzioni:**
+1. Inventory / Dispensa (prossimo modulo)
+2. Collegare Storico a dati DB reali (prep_log + bot_runs)
+3. Ricette: lista ricette (Home delle ricette, non solo Tiramisu)
+
