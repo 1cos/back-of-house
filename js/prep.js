@@ -241,103 +241,70 @@ function _fmtSuggQty(qty, unit) {
 // Interfaccia pubblica: renderSuggBlock(sugg, i) → HTML string
 // ─────────────────────────────────────────────────────────────────────────────
 function renderSuggBlock(sugg, i) {
-  const lang = window.user?.lang || 'it';
+  // ── Card chiusa v1 — mostra solo: Stock DB + Consumo medio + Segnala al Chef
+  // Nessuna quantità consigliata, nessun reason, nessuna confidence.
+  // Il dettaglio compare al livello successivo (apertura prep).
 
-  // ── STATUS CONFIG ──────────────────────────────────────────────────────
-  const statusMap = {
-    do_first:   { emoji: '🔴', label: 'Da fare prima', bg: 'rgba(220,38,38,0.08)',   border: '#fca5a5', color: '#dc2626' },
-    prep_today: { emoji: '🟠', label: 'Prepara oggi',  bg: 'rgba(217,119,6,0.08)',   border: '#fde68a', color: '#d97706' },
-    looks_ok:   { emoji: '🟢', label: 'Va bene',       bg: 'rgba(5,150,105,0.08)',   border: '#bbf7d0', color: '#059669' },
-    count_first:{ emoji: '🔵', label: 'Conta prima',   bg: 'rgba(37,99,235,0.08)',   border: '#bfdbfe', color: '#1d4ed8' },
-  };
-  const st = statusMap[sugg.status] || statusMap['looks_ok'];
-  const statusPill = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${st.color};background:${st.bg};border:1px solid ${st.border};border-radius:20px;padding:3px 9px;letter-spacing:0.02em;">${st.emoji} ${st.label}</span>`;
-
-  // ── QUANTITÀ PRINCIPALE ────────────────────────────────────────────────
-  let qtyLine = '';
-  const status = sugg.status;
-  const net = parseFloat(sugg.net_requirement);
-  const planned = sugg.planned_output !== null && sugg.planned_output !== undefined ? parseFloat(sugg.planned_output) : null;
   const outUnit = sugg.output_unit || i.unit || '';
 
-  if (status === 'count_first') {
-    qtyLine = '<div style="font-size:15px;font-weight:700;color:#1e3a5f;margin-top:6px;">Conta lo stock</div>';
-  } else if (status === 'looks_ok') {
-    const nReq = isNaN(net) ? null : net;
-    if (!nReq || nReq === 0) {
-      qtyLine = '<div style="font-size:14px;font-weight:600;color:#059669;margin-top:6px;">Stock sufficiente</div>';
+  // ── STOCK DB ──────────────────────────────────────────────────────────
+  function fmtStockDB(sugg, unit) {
+    const stock = sugg.current_stock;
+    if (stock === null || stock === undefined) return 'non verificato';
+    const n = parseFloat(stock);
+    if (isNaN(n)) return 'non verificato';
+    const u = (unit || '').toLowerCase();
+    if (u === 'g') {
+      if (n >= 1000) {
+        const kg = n / 1000;
+        // "13,4 kg" — usa locale IT per virgola decimale
+        return kg.toLocaleString('it-IT', {minimumFractionDigits:0, maximumFractionDigits:1}) + ' kg';
+      }
+      return Math.round(n) + ' g';
     }
-  } else {
-    // do_first / prep_today — mostra quantità
-    if (planned !== null && planned > 0) {
-      const pStr = _fmtSuggQty(planned, outUnit);
-      if (pStr) qtyLine = `<div style="font-size:16px;font-weight:800;color:#1e3a5f;margin-top:6px;">Prepara ${pStr}</div>`;
-    } else if (!isNaN(net) && net > 0) {
-      const nStr = _fmtSuggQty(net, outUnit);
-      if (nStr) qtyLine = `<div style="font-size:15px;font-weight:700;color:#374151;margin-top:6px;">Serve circa ${nStr}</div>`;
-    }
+    if (['pezzi','pz'].includes(u)) return Math.round(n) + ' ' + (n === 1 ? 'pezzo' : 'pezzi');
+    if (u === 'nests') return Math.round(n) + ' nests';
+    if (u === 'kg') return n.toLocaleString('it-IT', {minimumFractionDigits:0, maximumFractionDigits:1}) + ' kg';
+    return n + (unit ? ' ' + unit : '');
   }
+  const stockLabel = fmtStockDB(sugg, outUnit);
 
-  // ── REASON (solo testo IT, no prefisso colore) ─────────────────────────
-  let reasonHtml = '';
-  const reasonIT = _parseSuggReasonIT(sugg.reason);
-  // Mostra reason solo se non è già ovvia dal contesto
-  // Per count_first mostriamo il reason come nota soft
-  // Per looks_ok non mostrare reason (la quantità basta)
-  if (status !== 'looks_ok' && reasonIT) {
-    // Tronca a 80 char per non appesantire la card
-    const short = reasonIT.length > 100 ? reasonIT.slice(0, 100) + '…' : reasonIT;
-    reasonHtml = `<div style="font-size:12px;color:#64748b;margin-top:4px;line-height:1.4;">${short}</div>`;
+  // ── CONSUMO MEDIO: forecast_components[0].forecast_qty ────────────────
+  // Usa il forecast del solo giorno target, non la somma della finestra.
+  function fmtAvgDailyFromComponents(sugg, unit) {
+    try {
+      const dbg = sugg.debug_json || {};
+      const comps = dbg.forecast_components;
+      if (!comps || !comps.length) return null;
+      const qty = parseFloat(comps[0].forecast_qty);
+      if (isNaN(qty) || qty <= 0) return null;
+      const u = (unit || '').toLowerCase();
+      if (u === 'g') {
+        // Sempre in kg/giorno per coerenza visiva nella lista
+        const kg = qty / 1000;
+        return kg.toLocaleString('it-IT', {minimumFractionDigits:0, maximumFractionDigits:1}) + ' kg/giorno';
+      }
+      if (['pezzi','pz'].includes(u)) return Math.round(qty) + ' pezzi/giorno';
+      if (u === 'nests') return Math.round(qty) + ' nests/giorno';
+      if (u === 'kg') return qty.toLocaleString('it-IT', {minimumFractionDigits:0, maximumFractionDigits:1}) + ' kg/giorno';
+      return qty + (unit ? ' ' + unit : '') + '/giorno';
+    } catch(e) { return null; }
   }
+  const avgDailyLabel = fmtAvgDailyFromComponents(sugg, outUnit);
 
-  // ── CONFIDENCE LOW pill ────────────────────────────────────────────────
-  let confPill = '';
-  if (sugg.confidence === 'low') {
-    confPill = '<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;color:#b45309;background:rgba(217,119,6,0.08);border:1px solid #fde68a;border-radius:12px;padding:2px 7px;margin-left:6px;">Stima da verificare</span>';
-  }
+  // ── SEGNALA AL CHEF ───────────────────────────────────────────────────
+  const iid = i.id;
+  const segnalaBtn = `<div style="margin-top:6px;">
+    <button onclick="event.stopPropagation();segnalaChef(${JSON.stringify(iid)})" style="font-size:11px;font-weight:600;color:#64748b;background:none;border:none;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent;text-decoration:underline;text-underline-offset:2px;">Segnala al Chef</button>
+  </div>`;
 
-  // ── ZERO UNVERIFIED note ───────────────────────────────────────────────
-  let zeroNote = '';
-  const dbg = sugg.debug_json || {};
-  const zeroUnv = dbg.zero_unverified === true;
-  const stockVerif = dbg.stock_verification === 'suggested';
-  if ((zeroUnv || stockVerif) && status !== 'count_first' && status !== 'looks_ok') {
-    zeroNote = '<div style="font-size:11px;color:#92400e;background:rgba(251,191,36,0.12);border-radius:6px;padding:3px 8px;margin-top:5px;display:inline-block;">⚡ Verifica rapida consigliata</div>';
-  }
+  // ── ASSEMBLA ──────────────────────────────────────────────────────────
+  const stockRow  = `<div style="font-size:13px;color:#475569;margin-top:5px;"><span style="font-weight:500;color:#94a3b8;">Stock DB:</span> <span style="font-weight:600;color:#1e3a5f;">${stockLabel}</span></div>`;
+  const avgRow    = avgDailyLabel
+    ? `<div style="font-size:13px;color:#475569;margin-top:3px;"><span style="font-weight:500;color:#94a3b8;">Consumo medio:</span> <span style="font-weight:600;color:#1e3a5f;">${avgDailyLabel}</span></div>`
+    : '';
 
-  // ── DETTAGLIO ESPANDIBILE ──────────────────────────────────────────────
-  const stock   = sugg.current_stock !== null ? parseFloat(sugg.current_stock) : null;
-  const forecast = sugg.forecast !== null ? parseFloat(sugg.forecast) : null;
-  const covDays = sugg.coverage_days ?? '—';
-  const demSrc  = sugg.demand_source || '—';
-  const stSrc   = sugg.stock_source || '—';
-
-  const stockStr   = stock !== null ? _fmtSuggQty(stock, outUnit) || '0' : '—';
-  const forecastStr = forecast !== null ? _fmtSuggQty(forecast, outUnit) || '—' : '—';
-  const netStr     = (!isNaN(net) && net > 0) ? _fmtSuggQty(net, outUnit) || '0' : '0';
-  const planStr    = (planned !== null && planned > 0) ? _fmtSuggQty(planned, outUnit) || '—' : '—';
-
-  const detailRows = [
-    ['Stock usato', stockStr],
-    ['Fonte stock', stSrc],
-    ['Forecast', forecastStr],
-    ['Copertura', covDays + ' giorn' + (covDays === 1 ? 'o' : 'i')],
-    ['Fabbisogno netto', netStr],
-    ['Output pianificato', planStr],
-    ['Fonte domanda', demSrc],
-  ].map(([k,v]) => `<div style="display:flex;gap:8px;"><span style="color:#94a3b8;min-width:130px;">${k}</span><span style="color:#374151;font-weight:500;">${v}</span></div>`).join('');
-
-  const detailsHtml = `
-    <details style="margin-top:8px;">
-      <summary style="font-size:11px;color:#94a3b8;cursor:pointer;user-select:none;list-style:none;-webkit-tap-highlight-color:transparent;">
-        <span style="font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:0.5px;text-transform:uppercase;">Dettaglio ↓</span>
-      </summary>
-      <div style="margin-top:6px;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:11px;line-height:1.8;">
-        ${detailRows}
-      </div>
-    </details>`;
-
-  return `<div style="margin-top:6px;">${statusPill}${confPill ? '<span>' + confPill + '</span>' : ''}${qtyLine}${reasonHtml}${zeroNote}${detailsHtml}</div>`;
+  return `<div style="margin-top:4px;">${stockRow}${avgRow}${segnalaBtn}</div>`;
 }
 
 function getValidCount(taskId) {
@@ -947,6 +914,11 @@ function cardBorderColor(i){
   if(i.prep_type==='checklist') return '#94a3b8';
   // Colore bordo dal cardType calcolato, non solo dal pill
   const ct = classifyCard(i);
+  // Step 2: SUGG_* card types
+  if(ct==='SUGG_DO_FIRST')    return '#dc2626'; // rosso
+  if(ct==='SUGG_PREP_TODAY')  return '#2563eb'; // blu
+  if(ct==='SUGG_LOOKS_OK')    return '#16a34a'; // verde
+  if(ct==='SUGG_COUNT_FIRST') return '#ca8a04'; // giallo
   if(ct==='COUNT_FIRST') return '#dc2626';
   if(ct==='STAGED_CHECK') return '#ca8a04';
   if(ct==='LARGE_BATCH')  return '#d97706';
@@ -1012,6 +984,20 @@ function cardButton(i){
   if (_ct2 === 'CHEF_REVIEW') return '';                       // nessun dato
   if (_ct2 === 'COUNT_FIRST') return '';                       // Save count è nel card block
   if (_ct2 === 'STAGED_CHECK') return '';                      // Save count è nel card block
+
+  // ── Step 2: SUGG_* card types ─────────────────────────────────────────
+  if (_ct2 === 'SUGG_COUNT_FIRST') {
+    // CONTA PRIMA: apre il count input inline nel chef-ai-card-block e focalizza
+    return `<button onclick="event.stopPropagation();prepContaPrima(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#ca8a04;color:white;border:none;letter-spacing:0.03em;">CONTA PRIMA</button>`;
+  }
+  if (_ct2 === 'SUGG_LOOKS_OK') {
+    // Looks ok — bottone discreto per chi vuole loggare ugualmente
+    return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:14px;font-weight:600;background:transparent;color:#059669;border:1.5px solid #bbf7d0;letter-spacing:0.02em;">Preparo ugualmente</button>`;
+  }
+  if (_ct2 === 'SUGG_DO_FIRST' || _ct2 === 'SUGG_PREP_TODAY') {
+    return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START</button>`;
+  }
+  // ─────────────────────────────────────────────────────────────────────
 
   // LARGE_BATCH: label diversa per evitare "Start full batch" inconsapevole
   if (_ct2 === 'LARGE_BATCH') {
@@ -1732,9 +1718,9 @@ function renderM(){
       // Step 2: score basato su sugg.status (priorità su suggested_note)
       const _sg = (window._suggestions || {})[i.id];
       if (_sg) {
-        if (_sg.status === 'do_first')    return 4;
-        if (_sg.status === 'count_first') return 3;
-        if (_sg.status === 'prep_today')  return 3;
+        if (_sg.status === 'do_first')    return 5; // massima priorità
+        if (_sg.status === 'prep_today')  return 4;
+        if (_sg.status === 'count_first') return 3; // separato da prep_today
         if (_sg.status === 'looks_ok')    return 2;
       }
       // Fallback: Urgenza da bot (suggested_note)
@@ -1917,7 +1903,186 @@ function renderM(){
   }
 }
 
+
+// ── CONTA PRIMA — apre il count input inline e lo focalizza ──────────────────
+// Chiamato dal bottone CONTA PRIMA su card SUGG_COUNT_FIRST.
+// Inietta il count input nel chef-ai-card-block se non presente,
+// poi scrolla e focalizza il campo — nessuna apertura ricetta, nessun START.
+window.prepContaPrima = function(id) {
+  const it = tasks[id];
+  if (!it) return;
+
+  // 1. Trova il chef-ai-card-block della card
+  const card = document.querySelector('[data-audit-id="' + id + '"]');
+  if (!card) return;
+  const block = card.querySelector('.chef-ai-card-block');
+  if (!block) return;
+
+  // 2. Se il count input è già nel DOM, focalizza direttamente
+  let inp = document.getElementById('count-input-' + id);
+  if (inp) {
+    inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => inp.focus(), 300);
+    return;
+  }
+
+  // 3. Inietta il count input inline nel blocco esistente
+  const { unit: kUnit, hint: kHint } = (typeof kitchenCountUnit === 'function')
+    ? kitchenCountUnit(it)
+    : { unit: it.unit || 'units', hint: '' };
+  const displayUnit = kUnit || it.unit || 'units';
+  const hintSpan = kHint ? `<span style="font-size:11px;color:#94a3b8;margin-left:4px;">${kHint}</span>` : '';
+  const isPiecesUnit = ['pezzi','pz','pieces'].includes((kUnit||'').toLowerCase());
+  const question = isPiecesUnit ? 'Quanti ne abbiamo?' : 'Quanto ne abbiamo?';
+
+  const countHtml = `<div id="conta-prima-block-${id}" style="margin-top:10px;padding:10px 12px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
+    <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:8px;">${question}</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <input
+        id="count-input-${id}"
+        type="number"
+        min="0"
+        step="0.5"
+        placeholder="0"
+        style="width:80px;height:40px;border:2px solid #2563eb;border-radius:10px;font-size:18px;font-weight:700;text-align:center;color:#1e3a5f;background:#fff;outline:none;"
+        onclick="event.stopPropagation();"
+        onfocus="this.style.borderColor='#2563eb';"
+        onblur="this.style.borderColor='#2563eb';"
+      >
+      <span style="font-size:13px;color:#64748b;font-weight:500;">${displayUnit}${hintSpan}</span>
+      <button
+        onclick="event.stopPropagation();saveKitchenCount(${JSON.stringify(id)})"
+        style="height:40px;padding:0 16px;border-radius:10px;font-size:13px;font-weight:700;background:#1e3a5f;color:white;border:none;cursor:pointer;flex-shrink:0;-webkit-tap-highlight-color:transparent;"
+      >Salva</button>
+    </div>
+  </div>`;
+
+  block.insertAdjacentHTML('beforeend', countHtml);
+  inp = document.getElementById('count-input-' + id);
+  if (inp) {
+    inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => inp.focus(), 300);
+  }
+};
+
 // ── AZIONI CARD ──
+
+// ── SEGNALA AL CHEF — mini sheet con 3 opzioni rapide ────────────────────────
+// Scrive su chef_reports (stesso flusso Tell Chef) senza aprire il modal completo.
+// Nessuna nuova tabella.
+window.segnalaChef = function(id) {
+  const it = tasks[id];
+  if (!it) return;
+  const nome = it.name || 'Prep';
+
+  // Rimuovi eventuali sheet precedenti
+  const existing = document.getElementById('segnalaChefSheet');
+  if (existing) existing.remove();
+
+  const sheet = document.createElement('div');
+  sheet.id = 'segnalaChefSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(15,23,42,0.45);display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;';
+
+  sheet.innerHTML = `
+    <div style="width:100%;max-width:448px;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 32px rgba(30,58,95,0.15);padding:20px 16px 36px;">
+      <div style="font-size:13px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Segnala al Chef · ${nome}</div>
+      <div id="segnalaOpzioni" style="display:flex;flex-direction:column;gap:8px;">
+        <button data-opt="Stock DB sbagliato"     style="text-align:left;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">📦 Stock DB sbagliato</button>
+        <button data-opt="Consumo medio sbagliato" style="text-align:left;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">📊 Consumo medio sbagliato</button>
+        <button data-opt="Altro"                   style="text-align:left;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">💬 Altro</button>
+      </div>
+      <div id="segnalaNota" style="display:none;margin-top:12px;">
+        <textarea id="segnalaNotaText" placeholder="Nota opzionale…" style="width:100%;min-height:60px;border:1.5px solid #e2e8f0;border-radius:10px;padding:10px;font-size:14px;font-family:inherit;resize:none;outline:none;color:#1e3a5f;box-sizing:border-box;" onfocus="this.style.borderColor='#2563eb'" onblur="this.style.borderColor='#e2e8f0'"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button id="segnalaInvia" style="flex:1;height:42px;border-radius:10px;font-size:14px;font-weight:700;background:#1e3a5f;color:white;border:none;cursor:pointer;">Invia</button>
+          <button id="segnalaAnnulla" style="height:42px;padding:0 16px;border-radius:10px;font-size:14px;color:#64748b;background:#f1f5f9;border:none;cursor:pointer;">Annulla</button>
+        </div>
+      </div>
+    </div>`;
+
+  // Chiudi toccando il backdrop
+  sheet.addEventListener('click', e => { if (e.target === sheet) sheet.remove(); });
+
+  // Stato interno
+  let selectedOpt = '';
+  let sending = false;
+
+  // Opzioni rapide
+  sheet.querySelectorAll('[data-opt]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      selectedOpt = btn.dataset.opt;
+      // Highlight selezione
+      sheet.querySelectorAll('[data-opt]').forEach(b => b.style.background = '#f1f5f9');
+      btn.style.background = '#dbeafe';
+      // Mostra campo nota + bottone invia
+      sheet.querySelector('#segnalaNota').style.display = 'block';
+      sheet.querySelector('#segnalaNotaText').focus();
+    });
+  });
+
+  // Annulla
+  sheet.querySelector('#segnalaAnnulla').addEventListener('click', e => {
+    e.stopPropagation();
+    sheet.remove();
+  });
+
+  // Invia
+  sheet.querySelector('#segnalaInvia').addEventListener('click', async e => {
+    e.stopPropagation();
+    if (sending || !selectedOpt) return;
+    sending = true;
+    const btn = sheet.querySelector('#segnalaInvia');
+    btn.disabled = true; btn.textContent = '…';
+
+    const nota = (sheet.querySelector('#segnalaNotaText').value || '').trim();
+    const msg = '[' + nome + '] ' + selectedOpt + (nota ? ': ' + nota : '');
+    const u = window.user || {};
+
+    try {
+      const payload = {
+        user_name: u.name || 'Unknown',
+        station: u.default_station || null,
+        message: msg,
+        status: 'new'
+      };
+      const res = await supa.from('chef_reports').insert([payload]).select().single();
+      if (res.error) throw res.error;
+
+      // Scrivi anche in office_items se disponibile (stesso pattern tellChefSend)
+      if (typeof officeWriteItem === 'function') {
+        try {
+          const reportId = res.data ? res.data.id : null;
+          const stLabel = payload.station ? payload.station.replace(' Station','') : '';
+          officeWriteItem({
+            source: 'tell_chef',
+            source_id: reportId ? String(reportId) : null,
+            from_user: payload.user_name,
+            priority: 'blue',
+            title: (stLabel ? stLabel + ' · ' : '') + payload.user_name,
+            body: msg
+          });
+        } catch(oe) { /* non bloccante */ }
+      }
+
+      sheet.remove();
+      // Feedback toast minimo
+      const toast = document.createElement('div');
+      toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1e3a5f;color:#fff;font-size:13px;font-weight:600;padding:10px 20px;border-radius:20px;z-index:400;box-shadow:0 4px 16px rgba(0,0,0,0.2);';
+      toast.textContent = 'Segnalato ✓';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2200);
+    } catch(err) {
+      btn.disabled = false;
+      btn.textContent = 'Invia';
+      btn.style.background = '#dc2626';
+      setTimeout(() => { btn.style.background = '#1e3a5f'; }, 1500);
+    }
+  });
+
+  document.body.appendChild(sheet);
+};
+
 
 // OPEN RECIPE — sola lettura, senza avviare la prep
 window.prepOpenRecipe = function(id){
