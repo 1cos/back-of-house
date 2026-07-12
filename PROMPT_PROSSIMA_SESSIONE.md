@@ -1066,3 +1066,137 @@ separare weekday e weekend, mostrare la distribuzione reale per 5–10 prep prin
 **Gate prossima sessione:** mostrare la distribuzione della domanda, non proporre la formula.
 La formula viene proposta solo dopo che Max vede e approva i dati.
 
+
+
+
+---
+
+## Sessione 12 lug 2026 — Prep Audit + Backfill storico deductions
+
+### Produzione (back-of-house/brigade-main, boh-v621, invariato)
+
+Nessun push frontend. Solo DB e audit operativo.
+
+---
+
+### Task 1 — Audit prep attive (156 task non archiviati)
+
+Estratta lista completa delle prep attive con: ID, nome, stazione, unità, prep_type, min_cover_days, expected_duration_days, recipe collegata, base_servings, base_weight_g.
+
+Scopo: base operativa per la classificazione manuale di Max prima di costruire il Prep Suggester.
+
+**Scheda classificazione proposta per ogni prep:**
+
+| Campo | Valori |
+|---|---|
+| Produzione | Giornaliera / Stock / Weekend / Evento |
+| Conservazione | Frigo / Freezer |
+| Congelabile | Sì / No |
+| Shelf life reale | giorni |
+| Lotto minimo | quantità + unità |
+| Lotto preferito | quantità + unità |
+| Criticità | Alta / Media / Bassa |
+
+**Stato:** lista consegnata a Max. Classificazione da completare nelle sessioni successive. Non aggiungere questi campi al DB finché Max non ha classificato tutte le prep.
+
+---
+
+### Piano Prep Suggester — versione corretta (non ancora implementata)
+
+Il piano è stato discusso e corretto in più iterazioni. Stato al termine sessione:
+
+**Approvato:**
+- Schema `prep_suggestions_daily` con `target_date` + `calculated_at` separati, UNIQUE(target_date, prep_task_id)
+- Campi audit: `history_start_date`, `history_end_date`, `same_weekday_samples`, `profile_samples`, `service_days`
+- Gerarchia domanda: `stock_deductions` → `reconstructed_pos_bom` → `direct_pos_fallback`
+- `dry_run=true` non scrive mai sulla tabella
+- Classificazione prep su comportamento operativo (non solo unità): `quantitative_prep` / `stock_check` / `station_setup` / `operational_action`
+
+**Quattro residui ancora da correggere nel piano (da affrontare PRIMA del codice):**
+
+1. **2026-06-27 è già nel nuovo menu** — tutte le date dal 27 giugno in avanti hanno piena autorità. Nessun peso ridotto.
+
+2. **`count_first` non dipende da `prep_log`** — la verifica stock deve seguire la lineage: `prep_stock_counts` valido → stock ricostruibile con lineage completo → `current_stock` con origine affidabile → altrimenti `count_first`. Il `prep_log` prova produzione, non stock attuale.
+
+3. **Confidence su sei condizioni** (non solo service_days): campioni disponibili, affidabilità stock, unità misurabile, batch_constraint, conflitti nella resa, demand_source. I service_days sono solo una delle sei.
+
+4. **Zero giornaliero solo con percorso domanda valido** — se non esiste mapping POS/BOM per la prep, l'assenza di consumo in un giorno non diventa zero: deve diventare `no_demand_path`. Zero si inserisce solo quando il percorso domanda esiste e quel giorno il piatto non è stato venduto.
+
+**Non implementare il Suggester finché questi quattro residui non sono risolti nel piano.**
+
+---
+
+### Backfill storico deductions — COMPLETATO
+
+**Problema:** il bot-pos-cleaner v5 richiede `business_date` nel body (obbligatorio). Nelle sessioni precedenti aveva processato solo 2 date (06/07 e 09/07). Le altre 9 date avevano dati POS raw in `pos_sales_by_item` ma mancavano di `pos_daily_clean` e `stock_deductions`.
+
+**Eseguito:** backfill idempotente di 9 date mancanti in ordine cronologico. Per ogni data: `bot-pos-cleaner` → `bot-direct-deduction` → `bot-bom-chain-deduction`. Gate di verifica `bot_runs.status='success'` dopo ogni bot.
+
+**Risultato finale — 11 date operative complete (2026-06-27 → 2026-07-10):**
+
+| Data | DOW | Clean | direct_recipe | bom_chain | Totale |
+|---|---|---|---|---|---|
+| 2026-06-27 | Sat | 203 | 120 | 124 | 244 |
+| 2026-06-29 | Mon | 137 | 117 | 112 | 229 |
+| 2026-06-30 | Tue | 157 | 111 | 112 | 223 |
+| 2026-07-01 | Wed | 150 | 112 | 123 | 235 |
+| 2026-07-02 | Thu | 206 | 109 | 118 | 227 |
+| 2026-07-03 | Fri | 208 | 125 | 143 | 268 |
+| 2026-07-06 | Mon | 146 | 114 | 117 | 231 |
+| 2026-07-07 | Tue | 142 | 112 | 99 | 211 |
+| 2026-07-08 | Wed | 137 | 103 | 85 | 188 |
+| 2026-07-09 | Thu | 166 | 119 | 132 | 251 |
+| 2026-07-10 | Fri | 217 | 118 | 124 | 242 |
+
+**Copertura DOW:** ogni giorno della settimana ha almeno 1 campione (sabato 1, tutti gli altri 2). Venerdì ha 2 campioni (03/07 e 10/07).
+
+**Anomalie risolte:**
+- `2026-07-06` cleaner_status=null nel gate: run originale v4 salvava `run_date` come data di esecuzione, non business_date. Dati in `pos_daily_clean` corretti (146 righe). Nessun impatto.
+- `2026-07-09` bom_chain=0: tutte le run precedenti erano `dry_run=true`. Eseguito live durante backfill → 132 righe scritte.
+
+**Nota `bom_chain` per 07/07 e 07/08 (99 e 85 righe vs ~120 delle altre date):** valori più bassi ma coerenti con il volume POS di quei giorni (clean_rows 142 e 137, giorni infrasettimanali tranquilli). Non è un'anomalia.
+
+---
+
+### Audit bot-pos-cleaner / bot-direct-deduction / bot-bom-chain-deduction
+
+Codice letto live. Comportamento confermato:
+
+**bot-pos-cleaner v5:**
+- `business_date` OBBLIGATORIO nel body (errore 400 se manca)
+- `dry_run=false` → DELETE + INSERT su `pos_daily_clean` (idempotente per data)
+- Scrive anche `commis_observations` e `bot_runs`
+- Non tocca `stock_deductions`
+
+**bot-direct-deduction v8:**
+- `business_date` opzionale (default=oggi se manca — passare sempre esplicitamente nel backfill)
+- No `dry_run` — scrive sempre
+- DELETE + INSERT su `stock_deductions` WHERE `source='direct_recipe'` E `business_date=X` (solo proprie righe)
+- Pipeline guard: nessuno
+
+**bot-bom-chain-deduction v8 (v4_safety):**
+- `business_date` opzionale (default=oggi)
+- `dry_run=true/false` supportato
+- DELETE + INSERT su `stock_deductions` WHERE `source='bom_chain'` (solo proprie righe, dentro `if !dryRun`)
+- **Pipeline guard obbligatorio:** blocca se `bot-direct-deduction` non ha `status='success'` per la stessa `run_date`
+
+---
+
+### PENDING PROSSIMA SESSIONE
+
+**Priorità 1 — Prep Suggester (progettazione, non codice)**
+Correggere i quattro residui del piano (sopra) e ottenere approvazione di Max prima di scrivere migration o Edge Function.
+
+**Priorità 2 — Classificazione prep operativa**
+Max deve classificare le 156 prep con la scheda (Produzione / Conservazione / Congelabile / Shelf life reale / Lotto minimo / Lotto preferito / Criticità). Questa classificazione diventa la configurazione del Suggester.
+
+**Backlog invariato:**
+- 3 warning Consolidator (Spring mix g vs buste, Spaghetti pz vs nests, Parsley pinch vs g)
+- Asparagus pt_unit (decisione pendente: g o kg)
+- CITRONETTE deduction=0 (verifica plausibility guard)
+- Meatballs current_stock: chiedere a Max stima attuale (pz Appetizer, pz Meatballs, g Sauce)
+- Dish Crew Home Fase 2
+- Rename Manager → Coordinator
+- 7shifts sync (JWT auth)
+- Sales: rimuovere tab Oggi
+- La Dispensa Beta polish
