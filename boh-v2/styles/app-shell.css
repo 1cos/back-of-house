@@ -1,0 +1,98 @@
+/* BOH OS v2 — App Shell
+   Task 003A: authenticated shell layout.
+   Primary target: iPhone portrait.
+   All values use tokens from tokens.css.
+   No navigation styles. No card styles. No login styles.
+   ------------------------------------------------------------------ */
+
+/* ── Shell root ──────────────────────────────────────────────────────
+   Fills the full viewport. Stacks header + main vertically.
+   Accounts for iOS safe areas at top and bottom.                     */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: var(--bg-base);
+  padding-top:    var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left:   var(--safe-left);
+  padding-right:  var(--safe-right);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────
+   Fixed at the top so it remains visible while content scrolls.     */
+.app-shell__header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: var(--sp-3) var(--sp-4);
+  min-height: 52px;
+  /* Prevent header from shrinking below its natural size. */
+  flex-shrink: 0;
+}
+
+/* ── Identity block (app name + mode label) ─────────────────────────
+   Stacked vertically on the leading side.                            */
+.app-shell__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-shell__app-name {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.app-shell__mode-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* ── User name ───────────────────────────────────────────────────────
+   Trailing side of the header. Truncates if the name is long.       */
+.app-shell__user {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  /* Truncation: prevents overflow from long names. */
+  max-width: 40%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  /* Readable by assistive technology via textContent. */
+}
+
+/* ── Main content area ───────────────────────────────────────────────
+   Grows to fill all available space below the header.
+   Handles its own vertical scrolling.                                */
+.app-shell__main {
+  flex: 1;
+  overflow-y: auto;
+  /* Smooth momentum scrolling on iOS. */
+  -webkit-overflow-scrolling: touch;
+  padding: var(--sp-4);
+}
+
+/* ── Router outlet ───────────────────────────────────────────────────
+   #app-content is the target element for the router.
+   No minimum height is imposed; pages define their own layout.       */
+#app-content {
+  width: 100%;
+}
