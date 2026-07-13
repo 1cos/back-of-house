@@ -44,4 +44,12 @@ export const en = {
   'station_prep.status_in_progress': 'In progress',
   'station_prep.status_to_do':       'To do',
   'station_prep.status_ready':       'Ready',
+
+  // ── Station Prep — Bot suggestion statuses ───────────────────────────
+  'station_prep.suggestion_do_first':      'DO FIRST',
+  'station_prep.suggestion_do_today':      'DO TODAY',
+  'station_prep.suggestion_looks_good':    'LOOKS GOOD',
+  'station_prep.suggestion_count_first':   'COUNT FIRST',
+  'station_prep.suggestion_check_tomorrow':'CHECK TOMORROW',
+  'station_prep.suggestion_check':         'CHECK',
 };
