@@ -110,10 +110,12 @@ function mountShell(user) {
 
   // Set up Station Mode navigation: registers all five routes, mounts
   // the bottom navigation, and manages active state.
+  // user is passed so station-home can display identity without importing app-state.
   setupStationNavigation({
     router,
     mountElement: navMount,
     translate:    t,
+    user,
   });
 
   // Navigate to the initial route.

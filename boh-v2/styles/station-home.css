@@ -1,0 +1,115 @@
+/* BOH OS v2 — Station Home
+   Task 003D: identity and shift entry screen.
+   Primary target: iPhone portrait.
+   All values use tokens from tokens.css.
+   No new tokens. No !important. No inline styles. No animation.
+   ------------------------------------------------------------------ */
+
+/* ── Page root ────────────────────────────────────────────────────────
+   Vertical stack with generous iPhone-friendly padding.
+   No content is hidden behind the bottom navigation because the
+   App Shell main area already handles its own scroll within the flex
+   column, and bottom-navigation is sticky outside the scroll area.   */
+.station-home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-6) var(--sp-4) var(--sp-8);
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+/* ── Greeting ─────────────────────────────────────────────────────────
+   Small label above the name — sets context before the identity.     */
+.station-home__greeting {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* ── User name ────────────────────────────────────────────────────────
+   Large, prominent. The primary identity anchor on this screen.      */
+.station-home__name {
+  font-family: var(--font-sans);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  /* Prevent overflow on very long names. */
+  overflow-wrap: break-word;
+}
+
+/* ── Station card ─────────────────────────────────────────────────────
+   Surface card containing the station label and station name.        */
+.station-home__station-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-4) var(--sp-5);
+}
+
+/* ── Station label ────────────────────────────────────────────────────
+   Small uppercase descriptor — "Your station".                       */
+.station-home__station-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Station name ─────────────────────────────────────────────────────
+   The actual station value — large enough to read at a glance.       */
+.station-home__station-name {
+  font-family: var(--font-sans);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
+  overflow-wrap: break-word;
+}
+
+/* ── Primary action button ────────────────────────────────────────────
+   Full-width. Anchor for the shift entry. Pushes to the bottom of
+   the flex column with margin-top: auto so it stays at the base of
+   the content area regardless of content height.                     */
+.station-home__open-today {
+  margin-top: auto;
+  width: 100%;
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--accent);
+  color: var(--surface);
+  border: none;
+  border-radius: var(--r-md);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  /* Minimum touch target. */
+  min-height: 52px;
+  box-sizing: border-box;
+}
+
+/* ── Button disabled state ───────────────────────────────────────────
+   Native disabled attribute is set on the element.                   */
+.station-home__open-today:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+/* ── Button focus-visible ────────────────────────────────────────────
+   Clear keyboard focus ring.                                          */
+.station-home__open-today:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

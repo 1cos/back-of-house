@@ -1,11 +1,12 @@
 // BOH OS v2 — Station Mode Navigation Controller
 // Task 003C: registers five station routes and manages bottom navigation state.
-// No window writes. No storage. No Supabase. No browser history.
+// Task 003D: station-home uses createStationHome; user passed via options.
+// No window writes. No storage. No Supabase. No browser history. No app-state import.
 
 import { createBottomNavigation } from '../../components/navigation/bottom-navigation.js';
+import { createStationHome } from './station-home.js';
 
 // ── Route map ─────────────────────────────────────────────────────────
-// Maps each navigation item ID to its registered router route name.
 
 const ROUTE_MAP = {
   home:     'station-home',
@@ -16,8 +17,6 @@ const ROUTE_MAP = {
 };
 
 // ── Navigation items ──────────────────────────────────────────────────
-// All five items are enabled. Icons match the existing set from 003B.
-// Labels come from the translate function supplied by the caller.
 
 function buildItems(translate) {
   return [
@@ -30,13 +29,8 @@ function buildItems(translate) {
 }
 
 // ── Placeholder renderer ──────────────────────────────────────────────
-// Returns an HTML string matching the existing scaffold-card style.
-// Visible text comes from translate().
 
 function scaffoldPage(label) {
-  // label is already a translated string — inserted as text content
-  // via the scaffold-title element. The router contract expects an HTML string;
-  // the text is escaped by setting it through a temporary element.
   const escaped = label
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -46,7 +40,6 @@ function scaffoldPage(label) {
 }
 
 // ── Navigation render ─────────────────────────────────────────────────
-// Clears mountElement and appends exactly one Bottom Navigation.
 
 function renderNav({ mountElement, items, activeItem, onSelect, translate }) {
   mountElement.innerHTML = '';
@@ -68,12 +61,13 @@ function renderNav({ mountElement, items, activeItem, onSelect, translate }) {
  * @param {{
  *   router:       { register: Function, navigate: Function },
  *   mountElement: HTMLElement,
- *   translate:    (key: string) => string
+ *   translate:    (key: string) => string,
+ *   user:         { name?: string, defaultStation?: string }
  * }} options
  * @returns {{ currentItem: () => string }}
  */
-export function setupStationNavigation({ router, mountElement, translate }) {
-  // ── Guard: fail fast for developer errors ─────────────────────────
+export function setupStationNavigation({ router, mountElement, translate, user }) {
+  // ── Guards ─────────────────────────────────────────────────────────
   if (!router || typeof router.register !== 'function' || typeof router.navigate !== 'function') {
     throw new Error('setupStationNavigation: router must be the BOH OS router object.');
   }
@@ -84,22 +78,11 @@ export function setupStationNavigation({ router, mountElement, translate }) {
     throw new Error('setupStationNavigation: translate must be a function.');
   }
 
-  // ── Register routes ────────────────────────────────────────────────
-  router.register('station-home',     () => scaffoldPage(translate('nav.home')));
-  router.register('station-prep',     () => scaffoldPage(translate('nav.prep')));
-  router.register('station-recipes',  () => scaffoldPage(translate('nav.recipes')));
-  router.register('station-chat',     () => scaffoldPage(translate('nav.chat')));
-  router.register('station-schedule', () => scaffoldPage(translate('nav.schedule')));
-
   // ── Active state ───────────────────────────────────────────────────
   let _activeItem = 'home';
-
   const items = buildItems(translate);
 
   // ── Select handler ─────────────────────────────────────────────────
-  // Called only for enabled items (enforced by the component).
-  // Maps item ID → route, navigates, updates active state on success.
-
   function handleSelect(id) {
     const routeName = ROUTE_MAP[id];
     if (!routeName) return;
@@ -108,16 +91,56 @@ export function setupStationNavigation({ router, mountElement, translate }) {
 
     if (navigated) {
       _activeItem = id;
-      // Rerender the navigation with updated active item.
       renderNav({ mountElement, items, activeItem: _activeItem, onSelect: handleSelect, translate });
     }
-    // If navigation returns false, keep previous active item and do not rerender.
   }
 
-  // ── Initial render ─────────────────────────────────────────────────
+  // ── Station Home renderer ─────────────────────────────────────────
+  // The router contract: renderer() → HTML string → outlet.innerHTML.
+  // createStationHome returns a DOM element; we serialize it to string.
+  // Dynamic values (user.name, defaultStation) were set via textContent
+  // inside the component, so they are safe in the serialized output.
+  //
+  // The onOpenToday callback is lost when innerHTML is injected.
+  // We rewire it via event delegation on the shell element (.app-shell),
+  // which is mountElement.parentElement and is available at setup time.
+  // Delegation survives repeated outlet re-renders.
+
+  router.register('station-home', () => {
+    const wrapper = document.createElement('div');
+    wrapper.appendChild(
+      createStationHome({
+        user,
+        translate,
+        onOpenToday: () => {},   // no-op: interaction handled by delegation below
+      })
+    );
+    return wrapper.innerHTML;
+  });
+
+  // ── Delegated listener for Open Today ────────────────────────────
+  // Attached once to the shell — survives router re-renders of the outlet.
+  // The shell is mountElement.parentElement (div.app-shell).
+  const shell = mountElement.parentElement;
+  if (shell) {
+    shell.addEventListener('click', (e) => {
+      const btn = e.target.closest('.station-home__open-today');
+      if (btn && !btn.disabled) {
+        handleSelect('prep');
+      }
+    });
+  }
+
+  // ── Remaining placeholder routes ──────────────────────────────────
+  router.register('station-prep',     () => scaffoldPage(translate('nav.prep')));
+  router.register('station-recipes',  () => scaffoldPage(translate('nav.recipes')));
+  router.register('station-chat',     () => scaffoldPage(translate('nav.chat')));
+  router.register('station-schedule', () => scaffoldPage(translate('nav.schedule')));
+
+  // ── Initial navigation render ─────────────────────────────────────
   renderNav({ mountElement, items, activeItem: _activeItem, onSelect: handleSelect, translate });
 
-  // ── Public interface ───────────────────────────────────────────────
+  // ── Public interface ──────────────────────────────────────────────
   return {
     currentItem() {
       return _activeItem;
