@@ -1,10 +1,10 @@
 // BOH OS v2 — Station Home component
 // Task 003D: identity and shift entry screen.
+// Task 003E: onOpenToday wired directly; no serialization workaround needed.
 // Returns a single DOM element. Does not mount itself.
 // No router import. No Supabase. No app-state. No window writes.
 
 // ── Time-based greeting ───────────────────────────────────────────────
-// Private to this module. Uses the local device clock.
 
 /**
  * Returns the appropriate greeting translation key for the current hour.
@@ -16,8 +16,8 @@
  */
 function greetingKey() {
   const hour = new Date().getHours();
-  if (hour < 12)  return 'station_home.good_morning';
-  if (hour < 18)  return 'station_home.good_afternoon';
+  if (hour < 12) return 'station_home.good_morning';
+  if (hour < 18) return 'station_home.good_afternoon';
   return 'station_home.good_evening';
 }
 
@@ -37,11 +37,11 @@ export function createStationHome({ user, translate, onOpenToday }) {
   const hasStation = typeof user.defaultStation === 'string' &&
                      user.defaultStation.trim().length > 0;
 
-  // ── Root ────────────────────────────────────────────────────────────
+  // ── Root ─────────────────────────────────────────────────────────────
   const section = document.createElement('section');
   section.className = 'station-home';
 
-  // ── Greeting ─────────────────────────────────────────────────────────
+  // ── Greeting ──────────────────────────────────────────────────────────
   const greeting = document.createElement('p');
   greeting.className = 'station-home__greeting';
   greeting.textContent = translate(greetingKey());
@@ -49,13 +49,12 @@ export function createStationHome({ user, translate, onOpenToday }) {
   // ── User name ─────────────────────────────────────────────────────────
   const nameEl = document.createElement('h1');
   nameEl.className = 'station-home__name';
-  // Fallback to generic greeting if name is missing.
   const displayName = typeof user.name === 'string' && user.name.trim().length > 0
     ? user.name
     : translate('station_home.greeting_fallback');
   nameEl.textContent = displayName;
 
-  // ── Station card ──────────────────────────────────────────────────────
+  // ── Station card ───────────────────────────────────────────────────────
   const card = document.createElement('div');
   card.className = 'station-home__station-card';
 
@@ -65,7 +64,6 @@ export function createStationHome({ user, translate, onOpenToday }) {
 
   const stationName = document.createElement('span');
   stationName.className = 'station-home__station-name';
-  // textContent — never innerHTML.
   stationName.textContent = hasStation
     ? user.defaultStation
     : translate('station_home.station_unassigned');
@@ -73,14 +71,13 @@ export function createStationHome({ user, translate, onOpenToday }) {
   card.appendChild(stationLabel);
   card.appendChild(stationName);
 
-  // ── Primary action ────────────────────────────────────────────────────
+  // ── Primary action ─────────────────────────────────────────────────────
   const btn = document.createElement('button');
   btn.className = 'station-home__open-today';
   btn.type = 'button';
   btn.textContent = translate('station_home.open_today');
 
   if (!hasStation) {
-    // Native disabled — no click events, focusable but inert.
     btn.disabled = true;
   } else {
     btn.addEventListener('click', () => {
@@ -88,7 +85,7 @@ export function createStationHome({ user, translate, onOpenToday }) {
     });
   }
 
-  // ── Assemble ──────────────────────────────────────────────────────────
+  // ── Assemble ───────────────────────────────────────────────────────────
   section.appendChild(greeting);
   section.appendChild(nameEl);
   section.appendChild(card);

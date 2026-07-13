@@ -1,6 +1,7 @@
 // BOH OS v2 — Station Mode Navigation Controller
 // Task 003C: registers five station routes and manages bottom navigation state.
 // Task 003D: station-home uses createStationHome; user passed via options.
+// Task 003E: station-home renderer returns HTMLElement directly (DOM-first router).
 // No window writes. No storage. No Supabase. No browser history. No app-state import.
 
 import { createBottomNavigation } from '../../components/navigation/bottom-navigation.js';
@@ -95,43 +96,17 @@ export function setupStationNavigation({ router, mountElement, translate, user }
     }
   }
 
-  // ── Station Home renderer ─────────────────────────────────────────
-  // The router contract: renderer() → HTML string → outlet.innerHTML.
-  // createStationHome returns a DOM element; we serialize it to string.
-  // Dynamic values (user.name, defaultStation) were set via textContent
-  // inside the component, so they are safe in the serialized output.
-  //
-  // The onOpenToday callback is lost when innerHTML is injected.
-  // We rewire it via event delegation on the shell element (.app-shell),
-  // which is mountElement.parentElement and is available at setup time.
-  // Delegation survives repeated outlet re-renders.
+  // ── Register routes ────────────────────────────────────────────────
+  // station-home: returns an HTMLElement directly.
+  // The router appends it to the outlet; JS listeners are preserved.
+  router.register('station-home', () =>
+    createStationHome({
+      user,
+      translate,
+      onOpenToday: () => handleSelect('prep'),
+    })
+  );
 
-  router.register('station-home', () => {
-    const wrapper = document.createElement('div');
-    wrapper.appendChild(
-      createStationHome({
-        user,
-        translate,
-        onOpenToday: () => {},   // no-op: interaction handled by delegation below
-      })
-    );
-    return wrapper.innerHTML;
-  });
-
-  // ── Delegated listener for Open Today ────────────────────────────
-  // Attached once to the shell — survives router re-renders of the outlet.
-  // The shell is mountElement.parentElement (div.app-shell).
-  const shell = mountElement.parentElement;
-  if (shell) {
-    shell.addEventListener('click', (e) => {
-      const btn = e.target.closest('.station-home__open-today');
-      if (btn && !btn.disabled) {
-        handleSelect('prep');
-      }
-    });
-  }
-
-  // ── Remaining placeholder routes ──────────────────────────────────
   router.register('station-prep',     () => scaffoldPage(translate('nav.prep')));
   router.register('station-recipes',  () => scaffoldPage(translate('nav.recipes')));
   router.register('station-chat',     () => scaffoldPage(translate('nav.chat')));

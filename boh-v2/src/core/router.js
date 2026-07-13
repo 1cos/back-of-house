@@ -1,8 +1,8 @@
 // BOH OS v2 — Router
 // In-memory page registry. No URL changes. No history. No window writes.
-// Pages are renderers: () => string (HTML to inject into the content area).
+// Renderers may return an HTMLElement or an HTML string.
 
-/** @type {Map<string, () => string>} */
+/** @type {Map<string, () => HTMLElement | string>} */
 const _pages = new Map();
 
 /** @type {string | null} */
@@ -23,10 +23,10 @@ function init(outlet) {
 
 /**
  * Registers a named page with its renderer function.
- * The renderer must return an HTML string.
+ * The renderer must return an HTMLElement or an HTML string.
  *
  * @param {string} name
- * @param {() => string} renderer
+ * @param {() => HTMLElement | string} renderer
  */
 function register(name, renderer) {
   _pages.set(name, renderer);
@@ -43,15 +43,25 @@ function navigate(name) {
   const renderer = _pages.get(name);
   if (!renderer || !_outlet) return false;
 
+  const result = renderer();
+
+  if (result instanceof HTMLElement) {
+    _outlet.innerHTML = '';
+    _outlet.appendChild(result);
+  } else if (typeof result === 'string') {
+    _outlet.innerHTML = result;
+  } else {
+    return false;
+  }
+
   _current = name;
-  _outlet.innerHTML = renderer();
   return true;
 }
 
 /**
  * Returns the name of the currently active page, or null.
  *
- * @returns {string | null}
+ * @returns {string | null}\
  */
 function current() {
   return _current;
