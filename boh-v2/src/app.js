@@ -1,6 +1,7 @@
 // BOH OS v2 — app bootstrap
 // Task 003A: authenticated App Shell replaces login screen on success.
-// Task 003B: mounts bottom navigation inside the shell nav mount target.
+// Task 003B: bottom navigation mount target provided by App Shell.
+// Task 003C: station navigation delegated to setupStationNavigation().
 // No global state. No window writes. No storage APIs.
 
 import { t } from './core/i18n.js';
@@ -9,7 +10,7 @@ import { authenticateWithPin } from './services/auth-service.js';
 import { setCurrentUser, getCurrentUser } from './core/app-state.js';
 import { router } from './core/router.js';
 import { createAppShell } from './components/app-shell/app-shell.js';
-import { createBottomNavigation } from './components/navigation/bottom-navigation.js';
+import { setupStationNavigation } from './modes/station/station-navigation.js';
 
 const root = document.getElementById('app');
 
@@ -83,25 +84,11 @@ checkSupabaseConnection().then((result) => {
   }
 });
 
-// ── Navigation item definitions ───────────────────────────────────────
-// Icons use Unicode characters — no external library.
-// Label and aria-label text comes from en.js via t().
-
-function navItems() {
-  return [
-    { id: 'home',     label: t('nav.home'),     icon: '\u2302', disabled: false },
-    { id: 'prep',     label: t('nav.prep'),     icon: '\u29d6', disabled: true  },
-    { id: 'recipes',  label: t('nav.recipes'),  icon: '\u2318', disabled: true  },
-    { id: 'chat',     label: t('nav.chat'),     icon: '\u2709', disabled: true  },
-    { id: 'schedule', label: t('nav.schedule'), icon: '\u25a6', disabled: true  },
-  ];
-}
-
 // ── Shell transition ──────────────────────────────────────────────────
 // Called exactly once after a successful login.
 // Replaces the login screen with the App Shell.
-// Initializes the router against the new #app-content outlet.
-// Mounts the bottom navigation once into the shell nav mount target.
+// Initializes the router exactly once against #app-content.
+// Delegates route registration and navigation state to setupStationNavigation.
 
 function mountShell(user) {
   const shell = createAppShell({
@@ -114,36 +101,23 @@ function mountShell(user) {
   root.innerHTML = '';
   root.appendChild(shell);
 
-  // The outlet now exists inside the shell — initialize router against it.
+  // Initialize router exactly once against the new outlet.
   const outlet = root.querySelector('#app-content');
   router.init(outlet);
 
-  // Register the station-home placeholder route.
-  router.register('station-home', () => `
-    <div class="scaffold-card">
-      <h1 class="scaffold-title">Station Home</h1>
-    </div>
-  `);
-
-  router.navigate('station-home');
-
-  // ── Mount bottom navigation ─────────────────────────────────────────
-  // The nav goes into .app-shell__nav-mount, not inside #app-content.
+  // Locate the bottom navigation mount target provided by the App Shell.
   const navMount = root.querySelector('.app-shell__nav-mount');
 
-  const nav = createBottomNavigation({
-    items:      navItems(),
-    activeItem: 'home',
-    navLabel:   t('nav.primary'),
-    onSelect: (id) => {
-      if (id === 'home') {
-        router.navigate('station-home');
-      }
-      // Disabled items do not call onSelect (enforced in the component).
-    },
+  // Set up Station Mode navigation: registers all five routes, mounts
+  // the bottom navigation, and manages active state.
+  setupStationNavigation({
+    router,
+    mountElement: navMount,
+    translate:    t,
   });
 
-  navMount.appendChild(nav);
+  // Navigate to the initial route.
+  router.navigate('station-home');
 }
 
 // ── PIN submission logic ───────────────────────────────────────────────
