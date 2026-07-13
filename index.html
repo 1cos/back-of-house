@@ -520,7 +520,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       </div>
       <div class="relative mb-2">
         <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;color:#94a3b8;pointer-events:none;">🔍</span>
-        <input id="prepSearch" type="search" placeholder="Cerca prep..." autocomplete="off" autocorrect="off" spellcheck="false"
+        <input id="prepSearch" type="search" placeholder="Search prep..." autocomplete="off" autocorrect="off" spellcheck="false"
           style="width:100%;padding:8px 12px 8px 32px;border:1px solid #e2e8f0;border-radius:12px;font-size:13px;background:rgba(255,255,255,0.85);backdrop-filter:blur(8px);outline:none;-webkit-appearance:none;"
           oninput="window._prepSearchQuery=this.value;renderM();">
       </div>
@@ -584,7 +584,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         </div>
       </div>
       <div class="mb-2">
-        <input id="recipeSearch" placeholder="Cerca ricetta..." class="w-full px-3 py-2 rounded-xl bg-white border text-sm" oninput="renderRecipes()">
+        <input id="recipeSearch" placeholder="Search recipe..." class="w-full px-3 py-2 rounded-xl bg-white border text-sm" oninput="renderRecipes()">
       </div>
       <div id="recipeCats" class="flex gap-2 overflow-x-auto scrollbar-hide pb-2"></div>
       <div id="recipeGrid" class="grid grid-cols-2 gap-2.5 mt-2 pb-4"></div>
@@ -675,7 +675,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       </div>
       <div id="schedLastSync" style="font-size:11px;color:#94a3b8;margin-bottom:12px;text-align:right;"></div>
       <div id="schedContent" style="display:flex;flex-direction:column;gap:10px;">
-        <div style="text-align:center;color:#94a3b8;padding:40px 0;font-size:14px;">Premi Sincronizza per caricare la schedule</div>
+        <div style="text-align:center;color:#94a3b8;padding:40px 0;font-size:14px;">Press Sync to load the schedule</div>
       </div>
     </section>
 

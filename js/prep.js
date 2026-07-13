@@ -251,7 +251,7 @@ window._showWipResolutionSheet = function(id) {
     // Toast conferma
     const toast = document.createElement('div');
     toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1e3a5f;color:#fff;font-size:13px;font-weight:600;padding:10px 20px;border-radius:20px;z-index:400;';
-    toast.textContent = 'Segnalato al Chef ✓';
+    toast.textContent = 'Reported to Chef ✓';
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2200);
   });
@@ -1858,7 +1858,7 @@ function renderChefAiBlock(i, cardType) {
     const sugg = (window._suggestions || {})[i.id];
     if (sugg) return renderSuggBlock(sugg, i);
     // sugg non trovato (race condition) → placeholder minimo
-    return '<div style="margin-top:4px;font-size:12px;color:#94a3b8;">Caricamento...</div>';
+    return '<div style="margin-top:4px;font-size:12px;color:#94a3b8;">Loading...</div>';
   }
   // ── SUGG_UNAVAILABLE: run caricata ma prep non ha riga — NON fallback legacy ─
   if (cardType === 'SUGG_UNAVAILABLE') {
