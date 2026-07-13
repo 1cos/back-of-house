@@ -1,9 +1,10 @@
 // BOH OS v2 — app bootstrap
-// Task 002B: adds Supabase connection diagnostic.
-// No global state. No window writes.
+// Task 002C: minimal PIN login flow.
+// No global state. No window writes. No storage APIs.
 
 import { t } from './core/i18n.js';
 import { checkSupabaseConnection } from './core/supabase-client.js';
+import { authenticateWithPin } from './services/auth-service.js';
 
 const root = document.getElementById('app');
 
@@ -13,28 +14,59 @@ if (!root) {
   );
 }
 
-// Render scaffold immediately — diagnostic runs after.
+// ── Render shell immediately ─────────────────────────────────────────
+
 root.innerHTML = `
   <header class="app-header">
     <span class="app-name">${t('app.name')}</span>
     <span class="app-mode">${t('mode.station')}</span>
   </header>
   <main class="app-main">
-    <div class="scaffold-card">
-      <h1 class="scaffold-title">${t('foundation.title')}</h1>
-      <p class="scaffold-body">${t('foundation.body')}</p>
+    <div class="login-card">
+
+      <h1 class="login-title">${t('auth.title')}</h1>
+
+      <label class="login-label" for="pin-input">${t('auth.pin_label')}</label>
+      <input
+        id="pin-input"
+        class="pin-input"
+        type="password"
+        inputmode="numeric"
+        maxlength="4"
+        autocomplete="off"
+        autofocus
+        aria-label="${t('auth.pin_label')}"
+      >
+
+      <p class="login-error" role="alert" aria-live="polite"></p>
+
+      <button id="pin-submit" class="btn-primary" type="button">
+        ${t('auth.continue')}
+      </button>
+
       <span
         class="status-dot"
         data-status="pending"
         aria-label="Checking data connection"
         role="status"
       ></span>
+
     </div>
   </main>
 `;
 
-// Run diagnostic without blocking render.
-const dot = root.querySelector('.status-dot');
+// ── DOM references ───────────────────────────────────────────────────
+
+const pinInput  = root.querySelector('#pin-input');
+const pinSubmit = root.querySelector('#pin-submit');
+const errorEl   = root.querySelector('.login-error');
+const dot       = root.querySelector('.status-dot');
+const loginCard = root.querySelector('.login-card');
+
+// Track in-flight submission to prevent duplicates.
+let submitting = false;
+
+// ── Connection diagnostic (non-blocking) ─────────────────────────────
 
 checkSupabaseConnection().then((result) => {
   if (result.ok) {
@@ -44,4 +76,66 @@ checkSupabaseConnection().then((result) => {
     dot.dataset.status = 'unavailable';
     dot.setAttribute('aria-label', 'Data connection unavailable');
   }
+});
+
+// ── PIN submission logic ─────────────────────────────────────────────
+
+function setSubmitting(active) {
+  submitting = active;
+  pinInput.disabled  = active;
+  pinSubmit.disabled = active;
+  pinSubmit.textContent = active ? t('auth.checking') : t('auth.continue');
+}
+
+function showError(message) {
+  errorEl.textContent = message;
+  pinInput.value = '';
+  pinInput.focus();
+}
+
+function clearError() {
+  errorEl.textContent = '';
+}
+
+async function handleSubmit() {
+  if (submitting) return;
+
+  const pin = pinInput.value;
+
+  clearError();
+  setSubmitting(true);
+
+  const result = await authenticateWithPin(pin);
+
+  if (result.ok) {
+    // Replace card content with authenticated confirmation.
+    // Name is inserted by replacing the {name} token in the translated string.
+    const welcomeText = t('auth.welcome').replace('{name}', result.user.name);
+    loginCard.innerHTML = `
+      <p class="auth-welcome">${welcomeText}</p>
+      <p class="auth-ready">${t('auth.ready')}</p>
+    `;
+    return;
+  }
+
+  setSubmitting(false);
+
+  if (result.reason === 'USER_NOT_FOUND' || result.reason === 'INVALID_PIN') {
+    showError(t('auth.invalid_pin'));
+  } else {
+    showError(t('auth.connection_error'));
+  }
+}
+
+// ── Event listeners ──────────────────────────────────────────────────
+
+pinSubmit.addEventListener('click', handleSubmit);
+
+pinInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') handleSubmit();
+});
+
+// Auto-submit when 4th digit is entered.
+pinInput.addEventListener('input', () => {
+  if (pinInput.value.length === 4) handleSubmit();
 });

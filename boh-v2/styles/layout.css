@@ -1,5 +1,5 @@
 /* BOH OS v2 — Layout
-   Full-height shell, header, main content, scaffold card.
+   Full-height shell, header, main content, scaffold card, login card.
    Mobile-safe padding. No component library.
    ------------------------------------------------------------------ */
 
@@ -48,7 +48,7 @@
   padding: var(--sp-6) var(--sp-5);
 }
 
-/* ── Scaffold card ─────────────────────────────────────────────────── */
+/* ── Scaffold card (Task 002A legacy) ──────────────────────────────── */
 .scaffold-card {
   width: 100%;
   max-width: 360px;
@@ -71,4 +71,129 @@
   font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.6;
+}
+
+/* ── Login card ────────────────────────────────────────────────────── */
+.login-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.login-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.login-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* ── PIN input ─────────────────────────────────────────────────────── */
+.pin-input {
+  width: 100%;
+  padding: var(--sp-3) var(--sp-4);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-align: center;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  outline: none;
+  transition: border-color 0.15s;
+  -webkit-appearance: none;
+}
+
+.pin-input:focus {
+  border-color: var(--accent);
+}
+
+.pin-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Primary button ────────────────────────────────────────────────── */
+.btn-primary {
+  width: 100%;
+  padding: var(--sp-3) var(--sp-4);
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-primary:active {
+  opacity: 0.85;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Error message ─────────────────────────────────────────────────── */
+.login-error {
+  margin: 0;
+  min-height: 18px;
+  font-size: 13px;
+  color: var(--danger);
+  text-align: center;
+}
+
+/* ── Authenticated confirmation ────────────────────────────────────── */
+.auth-welcome {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.auth-ready {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* ── Status dot ────────────────────────────────────────────────────── */
+.status-dot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin: var(--sp-2) auto 0;
+  background: var(--border);
+  transition: background 0.3s;
+}
+
+.status-dot[data-status="pending"] {
+  background: var(--border);
+}
+
+.status-dot[data-status="ready"] {
+  background: var(--ok);
+}
+
+.status-dot[data-status="unavailable"] {
+  background: var(--danger);
 }
