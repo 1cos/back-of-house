@@ -69,5 +69,12 @@ export const en = {
   'station_prep.detail_not_available':    'Not available',
   'station_prep.detail_not_recorded':     'Not recorded',
   'station_prep.detail_no_explanation':   'No explanation available',
+
+  // ── Station Prep — Made today logs (Task 004K) ────────────────────────
+  'station_prep.detail_made_today':           'Made today',
+  'station_prep.detail_nothing_made_today':   'Nothing made today',
+  'station_prep.detail_quantity_not_recorded':'Quantity not recorded',
+  'station_prep.detail_user_not_recorded':    'User not recorded',
+  'station_prep.detail_time_not_available':   'Time not available',
 };
 

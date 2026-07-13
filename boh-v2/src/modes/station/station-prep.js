@@ -5,6 +5,7 @@
 // Task 004F: operational sorting by suggestion priority then name ascending.
 // Task 004G: groups sorted tasks into five priority sections.
 // Task 004H: collapsible task detail panel (expand/collapse, no new DB query).
+// Task 004K: shows today's production logs inside each expanded task detail.
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
 
@@ -149,19 +150,110 @@ function groupedTasks(sorted, suggestionsMap) {
   return groups;
 }
 
+// ── Time formatting ───────────────────────────────────────────────────
+
+/**
+ * Converts a createdAt ISO string to a local device time string (HH:MM AM/PM).
+ * Returns the time_not_available fallback key string when missing or invalid.
+ * Private — used only by buildMadeToday.
+ *
+ * @param {unknown} createdAt
+ * @returns {string | null}  — formatted time string, or null to signal fallback
+ */
+function formatLocalTime(createdAt) {
+  if (!createdAt) return null;
+  const d = new Date(createdAt);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+// ── Made today section builder ────────────────────────────────────────
+
+/**
+ * Builds the "Made today" section for the detail panel.
+ * Uses only log entries already loaded by the component.
+ * No database query. No writes.
+ *
+ * @param {Array<object> | undefined} logs   — entries from logsByTaskName[task.name]
+ * @param {(key: string) => string} translate
+ * @returns {HTMLElement}
+ */
+function buildMadeToday(logs, translate) {
+  const section = document.createElement('div');
+  section.className = 'station-prep__detail-made-today';
+
+  // Section label
+  const sectionLabel = document.createElement('span');
+  sectionLabel.className = 'station-prep__detail-label';
+  sectionLabel.textContent = translate('station_prep.detail_made_today');
+  section.appendChild(sectionLabel);
+
+  if (!logs || logs.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'station-prep__detail-value';
+    empty.textContent = translate('station_prep.detail_nothing_made_today');
+    section.appendChild(empty);
+    return section;
+  }
+
+  // One card per log entry, in createdAt ascending order (preserved from service).
+  for (const log of logs) {
+    const card = document.createElement('div');
+    card.className = 'station-prep__log-entry';
+
+    // Quantity + unit
+    const qtyEl = document.createElement('span');
+    qtyEl.className = 'station-prep__log-qty';
+    if (log.quantity !== null && log.quantity !== undefined) {
+      let text = String(log.quantity);
+      if (log.unit !== null && log.unit !== undefined) {
+        text += ' ' + log.unit;
+      }
+      qtyEl.textContent = text;
+    } else {
+      qtyEl.textContent = translate('station_prep.detail_quantity_not_recorded');
+    }
+
+    // User name
+    const userEl = document.createElement('span');
+    userEl.className = 'station-prep__log-user';
+    if (typeof log.userName === 'string' && log.userName.trim().length > 0) {
+      userEl.textContent = log.userName;
+    } else {
+      userEl.textContent = translate('station_prep.detail_user_not_recorded');
+    }
+
+    // Local time
+    const timeEl = document.createElement('span');
+    timeEl.className = 'station-prep__log-time';
+    const formatted = formatLocalTime(log.createdAt);
+    timeEl.textContent = formatted !== null
+      ? formatted
+      : translate('station_prep.detail_time_not_available');
+
+    card.appendChild(qtyEl);
+    card.appendChild(userEl);
+    card.appendChild(timeEl);
+    section.appendChild(card);
+  }
+
+  return section;
+}
+
 // ── Detail panel builder ──────────────────────────────────────────────
 
 /**
  * Builds the hidden detail panel for a task.
- * Uses only suggestion data already loaded by the page.
+ * Uses only suggestion and log data already loaded by the page.
  * No database query. No writes.
  *
  * @param {string} panelId   — unique ID referenced by the expand button
  * @param {object|null} suggestion
+ * @param {Array<object> | undefined} logs   — today's log entries for this task
  * @param {(key: string) => string} translate
  * @returns {HTMLElement}
  */
-function buildDetailPanel(panelId, suggestion, translate) {
+function buildDetailPanel(panelId, suggestion, logs, translate) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__task-detail';
   panel.id = panelId;
@@ -225,6 +317,9 @@ function buildDetailPanel(panelId, suggestion, translate) {
   }
   addRow('station_prep.detail_why_this_amount', whyVal);
 
+  // 4. Made today — today's production log entries
+  panel.appendChild(buildMadeToday(logs, translate));
+
   return panel;
 }
 
@@ -283,7 +378,7 @@ function createExpandController() {
 
 // ── Task row builder ──────────────────────────────────────────────────
 
-function buildTaskRow(task, suggestion, translate, expandController, panelId) {
+function buildTaskRow(task, suggestion, logs, translate, expandController, panelId) {
   const item = document.createElement('li');
   item.className = 'station-prep__task';
 
@@ -347,7 +442,7 @@ function buildTaskRow(task, suggestion, translate, expandController, panelId) {
   metaRow.appendChild(stateEl);
 
   // ── Detail panel (hidden by default) ──
-  const detailPanel = buildDetailPanel(panelId, suggestion, translate);
+  const detailPanel = buildDetailPanel(panelId, suggestion, logs, translate);
 
   item.appendChild(topRow);
   item.appendChild(metaRow);
@@ -370,7 +465,7 @@ function buildTaskRow(task, suggestion, translate, expandController, panelId) {
  * @param {{ nextId: () => string }} idGen
  * @returns {HTMLElement|null}
  */
-function buildGroup(sectionKey, tasks, suggestionsMap, translate, expandController, idGen) {
+function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expandController, idGen) {
   if (tasks.length === 0) return null;
 
   const group = document.createElement('section');
@@ -398,8 +493,9 @@ function buildGroup(sectionKey, tasks, suggestionsMap, translate, expandControll
 
   for (const task of tasks) {
     const suggestion = suggestionsMap[task.id] ?? null;
+    const logs = logsMap[task.name] ?? undefined;
     const panelId = idGen.nextId();
-    list.appendChild(buildTaskRow(task, suggestion, translate, expandController, panelId));
+    list.appendChild(buildTaskRow(task, suggestion, logs, translate, expandController, panelId));
   }
 
   group.appendChild(headingRow);
@@ -412,18 +508,19 @@ function buildGroup(sectionKey, tasks, suggestionsMap, translate, expandControll
 
 /**
  * Creates the Station Prep page DOM element.
- * Calls fetchTasks then fetchSuggestions asynchronously;
- * updates its own DOM when both complete.
+ * Calls fetchTasks, then fetchSuggestions and fetchLogs in parallel,
+ * then renders when all three complete.
  *
  * @param {{
  *   stationName:      string | null | undefined,
  *   translate:        (key: string) => string,
  *   fetchTasks:       (station: string) => Promise<{ ok: boolean, tasks: Array }>,
- *   fetchSuggestions: (ids: number[]) => Promise<{ ok: boolean, suggestions: Object }>
+ *   fetchSuggestions: (ids: number[]) => Promise<{ ok: boolean, suggestions: Object }>,
+ *   fetchLogs:        (names: string[]) => Promise<{ ok: boolean, logsByTaskName: Object }>
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions }) {
+export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs }) {
   const section = document.createElement('section');
   section.className = 'station-prep';
 
@@ -481,13 +578,24 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
       return;
     }
 
-    const taskIds = taskResult.tasks.map((t) => t.id);
+    const taskIds   = taskResult.tasks.map((t) => t.id);
+    const taskNames = taskResult.tasks.map((t) => t.name);
 
-    fetchSuggestions(taskIds).then((sugResult) => {
+    // Suggestions and logs load in parallel after tasks are available.
+    Promise.all([
+      fetchSuggestions(taskIds),
+      fetchLogs(taskNames),
+    ]).then(([sugResult, logResult]) => {
       if (!section.isConnected) return;
 
+      // Suggestion failure → empty map (existing behavior).
       const suggestionsMap = (sugResult.ok && sugResult.suggestions)
         ? sugResult.suggestions
+        : {};
+
+      // Log failure → empty map; does not produce a page-level error.
+      const logsMap = (logResult.ok && logResult.logsByTaskName)
+        ? logResult.logsByTaskName
         : {};
 
       content.innerHTML = '';
@@ -519,7 +627,7 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
 
       // Render non-empty sections in approved order.
       for (const key of SECTION_KEYS) {
-        const groupEl = buildGroup(key, groups[key], suggestionsMap, translate, expandController, idGen);
+        const groupEl = buildGroup(key, groups[key], suggestionsMap, logsMap, translate, expandController, idGen);
         if (groupEl) content.appendChild(groupEl);
       }
     });
