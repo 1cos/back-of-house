@@ -1,0 +1,46 @@
+/* BOH OS v2 — Design Tokens
+   Only tokens consumed by this scaffold are defined here.
+   Do not add tokens for components that do not yet exist.
+   ------------------------------------------------------------------ */
+
+:root {
+  /* ── Typography ─────────────────────────────────────────────────── */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+               'Helvetica Neue', Arial, sans-serif;
+
+  /* ── Backgrounds ─────────────────────────────────────────────────── */
+  --bg-base:    #eff6ff;   /* page background */
+
+  /* ── Surfaces ─────────────────────────────────────────────────────── */
+  --surface:    #ffffff;   /* cards, panels */
+
+  /* ── Text ────────────────────────────────────────────────────────── */
+  --text-primary:   #1e3a5f;
+  --text-secondary: #3b6ea8;
+
+  /* ── Border ──────────────────────────────────────────────────────── */
+  --border: rgba(37, 99, 235, 0.13);
+
+  /* ── Accent ──────────────────────────────────────────────────────── */
+  --accent: #2563eb;   /* blue-600 */
+
+  /* ── Spacing scale ───────────────────────────────────────────────── */
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* ── Border radius scale ─────────────────────────────────────────── */
+  --r-sm:  8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+
+  /* ── Safe area (iOS) ──────────────────────────────────────────────── */
+  --safe-top:    env(safe-area-inset-top,    0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left,   0px);
+  --safe-right:  env(safe-area-inset-right,  0px);
+}
