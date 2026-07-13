@@ -1,11 +1,12 @@
 // BOH OS v2 — app bootstrap
-// Task 002D: session state via app-state.js.
+// Task 002F: router skeleton — navigate to station-home after login.
 // No global state. No window writes. No storage APIs.
 
 import { t } from './core/i18n.js';
 import { checkSupabaseConnection } from './core/supabase-client.js';
 import { authenticateWithPin } from './services/auth-service.js';
-import { setCurrentUser, getCurrentUser } from './core/app-state.js';
+import { setCurrentUser } from './core/app-state.js';
+import { router } from './core/router.js';
 
 const root = document.getElementById('app');
 
@@ -16,13 +17,14 @@ if (!root) {
 }
 
 // ── Render shell immediately ─────────────────────────────────────────
+// The shell is permanent. Only the <main> content area changes.
 
 root.innerHTML = `
   <header class="app-header">
     <span class="app-name">${t('app.name')}</span>
     <span class="app-mode">${t('mode.station')}</span>
   </header>
-  <main class="app-main">
+  <main id="app-content" class="app-main">
     <div class="login-card">
 
       <h1 class="login-title">${t('auth.title')}</h1>
@@ -56,13 +58,23 @@ root.innerHTML = `
   </main>
 `;
 
+// ── Router setup ─────────────────────────────────────────────────────
+
+const appContent = root.querySelector('#app-content');
+router.init(appContent);
+
+router.register('station-home', () => `
+  <div class="scaffold-card">
+    <h1 class="scaffold-title">Station Home</h1>
+  </div>
+`);
+
 // ── DOM references ───────────────────────────────────────────────────
 
 const pinInput  = root.querySelector('#pin-input');
 const pinSubmit = root.querySelector('#pin-submit');
 const errorEl   = root.querySelector('.login-error');
 const dot       = root.querySelector('.status-dot');
-const loginCard = root.querySelector('.login-card');
 
 // Track in-flight submission to prevent duplicates.
 let submitting = false;
@@ -109,17 +121,8 @@ async function handleSubmit() {
   const result = await authenticateWithPin(pin);
 
   if (result.ok) {
-    // Store user in app state — available to all modules via getCurrentUser().
     setCurrentUser(result.user);
-
-    // Read name from state, not from the login result directly.
-    const user = getCurrentUser();
-    const welcomeText = t('auth.welcome').replace('{name}', user.name);
-
-    loginCard.innerHTML = `
-      <p class="auth-welcome">${welcomeText}</p>
-      <p class="auth-ready">${t('auth.ready')}</p>
-    `;
+    router.navigate('station-home');
     return;
   }
 
