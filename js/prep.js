@@ -389,81 +389,103 @@ async function loadRecentCounts() {
 
 // Helper: ritorna il count recente valido per un task (non expired)
 
-// ── PREP SUGGESTIONS DAILY (v625 — fonte unica, niente fallback legacy) ──────
+// ── PREP SUGGESTIONS DAILY (v625a — fonte unica, niente fallback legacy) ─────
 // Carica le suggestion del bot-prep-suggester per la data operativa valida.
 //
-// REGOLA SICUREZZA DATE:
-// - Solo date <= oggi in CDT (mai suggestion future LAB)
-// - Solo run con almeno MIN_FULL_RUN_ROWS righe (filtra run parziali/test)
-// - Se nessuna data valida → window._suggestions = {} + _suggestionsNoData = true
-// - MAI fallback ai campi legacy suggested_qty/note
+// REGOLA SELEZIONE DATE:
+// - Solo date <= oggi CDT (mai run LAB future)
+// - La data valida ha >= _SUGG_MIN_ROWS righe (filtra run parziali/test da 1-9 righe)
+// - Finestra massima 7 giorni (no rischio di prendere run stale lontane)
+// - Se nessuna data valida → _suggestionsNoData=true, zero fallback legacy
 //
-// NIENTE getNextServiceDate() — questa funzione cercava date future che possono
-// essere run LAB. La source operativa è sempre l'ultima run full <= oggi.
+// REGOLA FALLBACK:
+// - Prep CON riga nella data → usa sempre il nuovo status
+// - Prep SENZA riga nella data → mostra "Suggerimento non disponibile" (non legacy)
+// - Errore di rete → silenzioso, non fallback legacy
 
-const _SUGG_MIN_ROWS = 50; // soglia run "full" — la full run ha 105 righe, le test 1-9
+const _SUGG_MIN_ROWS = 50; // full run ~94-105 righe; run parziali/test 1-9
 
-window._suggestions = {};
+window._suggestions     = {};
 window._suggestionsDate = null;
-window._suggestionsNoData = false;
+window._suggestionsNoData  = false; // true = run non trovata (mostra banner)
+window._suggestionsError   = false; // true = errore rete (silenzioso)
 
 async function loadSuggestions() {
+  window._suggestionsNoData = false;
+  window._suggestionsError  = false;
+
   try {
-    // Data CDT corrente (America/Chicago)
-    const tz = 'America/Chicago';
+    // Data operativa corrente (CDT)
     const todayCDT = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit'
-    }).format(new Date()); // 'YYYY-MM-DD'
+      timeZone: 'America/Chicago',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date());
 
-    // Cerca ultima suggestion_date con >= MIN_FULL_RUN_ROWS righe, non futura
-    const { data: dates, error: dErr } = await supa
+    // Finestra 7 giorni: nessun rischio di run stale lontane
+    const d7ago = (() => {
+      const d = new Date(todayCDT + 'T12:00:00');
+      d.setDate(d.getDate() - 7);
+      return d.toISOString().slice(0,10);
+    })();
+
+    // Fetch suggestion_date + prep_task_id per contare le righe per data
+    const { data: allRows, error: fetchErr } = await supa
       .from('prep_suggestions_daily')
-      .select('suggestion_date')
+      .select('suggestion_date, prep_task_id')
       .lte('suggestion_date', todayCDT)
-      .order('suggestion_date', { ascending: false })
-      .limit(200); // carica tutte le recenti e filtra lato JS
+      .gte('suggestion_date', d7ago)
+      .limit(2000); // 7gg × 120 prep = 840 max, ampio margine
 
-    if (dErr) throw dErr;
+    if (fetchErr) throw fetchErr;
 
-    // Aggrega per data e trova la prima con >= soglia
+    // Aggrega per data
     const counts = {};
-    (dates || []).forEach(r => {
+    (allRows || []).forEach(r => {
       counts[r.suggestion_date] = (counts[r.suggestion_date] || 0) + 1;
     });
 
+    // Più recente con >= soglia
     const validDate = Object.entries(counts)
       .filter(([, n]) => n >= _SUGG_MIN_ROWS)
-      .sort(([a], [b]) => b.localeCompare(a)) // più recente prima
-    [0]?.[0] || null;
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([d]) => d)[0] || null;
 
     if (!validDate) {
-      console.warn('[Prep Suggester] Nessuna run operativa valida trovata (soglia:', _SUGG_MIN_ROWS, 'righe)');
-      window._suggestions = {};
+      console.warn('[Prep Suggester] Nessuna run valida | date:', JSON.stringify(counts),
+        '| soglia:', _SUGG_MIN_ROWS);
+      window._suggestions     = {};
       window._suggestionsDate = null;
       window._suggestionsNoData = true;
       if (typeof renderM === 'function') renderM();
       return;
     }
 
-    window._suggestionsDate = validDate;
-    window._suggestionsNoData = false;
-
+    // Carica tutte le suggestion per la data selezionata
     const { data, error } = await supa
       .from('prep_suggestions_daily')
       .select('prep_task_id,status,confidence,net_requirement,planned_output,output_unit,minimum_increment,current_stock,stock_source,stock_unit,forecast,coverage_days,demand_source,reason,production_constraint_quality,debug_json')
       .eq('suggestion_date', validDate);
 
     if (error) throw error;
-    window._suggestions = {};
+
+    window._suggestions     = {};
+    window._suggestionsDate = validDate;
     (data || []).forEach(row => {
       window._suggestions[row.prep_task_id] = row;
     });
 
-    console.log('[Prep Suggester] Loaded', Object.keys(window._suggestions).length, 'suggestions for', validDate);
+    console.log('[Prep Suggester] ✓', Object.keys(window._suggestions).length,
+      'suggestions per', validDate);
+
+    // Aggiorna badge Admin se presente
+    const badge = document.getElementById('_suggDateBadge');
+    if (badge) badge.textContent = '📊 Suggerimenti: ' + validDate;
+
   } catch(e) {
-    console.warn('[Prep Suggester] loadSuggestions failed:', e);
-    window._suggestions = {};
-    window._suggestionsNoData = false; // non mostrare banner per errori di rete
+    console.warn('[Prep Suggester] Errore rete:', e.message || e);
+    window._suggestions     = {};
+    window._suggestionsDate = null;
+    window._suggestionsError = true;
   }
 }
 
@@ -1313,6 +1335,7 @@ function cardBorderColor(i){
   if(ct==='SUGG_COUNT_FIRST') return '#ca8a04'; // giallo
   if(ct==='SUGG_DEFER')       return '#16a34a'; // verde (ricontrolla domani = OK per oggi)
   if(ct==='SUGG_VERIFY')      return '#94a3b8'; // grigio (no data)
+  if(ct==='SUGG_UNAVAILABLE') return '#e2e8f0'; // grigio chiaro (non monitorata)
   if(ct==='COUNT_FIRST') return '#dc2626';
   if(ct==='STAGED_CHECK') return '#ca8a04';
   if(ct==='LARGE_BATCH')  return '#d97706';
@@ -1392,6 +1415,9 @@ function cardButton(i){
   if (_ct2 === 'SUGG_VERIFY') {
     return ''; // nessun bottone per VERIFICA — no action su dati incerti
   }
+  if (_ct2 === 'SUGG_UNAVAILABLE') {
+    return ''; // nessun bottone — prep non monitorata
+  }
   // ─────────────────────────────────────────────────────────────────────
 
   // LARGE_BATCH: label diversa per evitare "Start full batch" inconsapevole
@@ -1433,7 +1459,7 @@ function classifyCard(i) {
   // Checklist: sempre trusted
   if (i.prep_type === 'checklist') return 'TRUSTED';
 
-  // ── Step 2 (v625): se esiste una suggestion dal nuovo bot, usa SEMPRE quella ──
+  // ── v625a: se esiste una suggestion dal nuovo bot, usa SEMPRE quella ──────
   // MAI fallback a suggested_qty/note legacy per card con suggestion presente.
   const _sugg = (window._suggestions || {})[i.id];
   if (_sugg) {
@@ -1444,9 +1470,16 @@ function classifyCard(i) {
     if (s === 'count_first')       return 'SUGG_COUNT_FIRST';
     if (s === 'defer_to_tomorrow') return 'SUGG_DEFER';
     if (s === 'no_demand_path')    return 'SUGG_VERIFY';
-    if (s === 'out_of_scope')      return 'SUGG_VERIFY'; // checklist classificato dal bot
-    // Qualsiasi altro status sconosciuto → VERIFY (mai fallback legacy)
-    return 'SUGG_VERIFY';
+    if (s === 'out_of_scope')      return 'SUGG_VERIFY';
+    return 'SUGG_VERIFY'; // status sconosciuto → mai fallback legacy
+  }
+
+  // ── Suggestions caricate ma questa prep non ha riga ──────────────────────
+  // Non usare suggested_qty/note legacy per decisione card.
+  // La run è avvenuta ma non ha coperto questa prep (es. checklist, archiviata nel mezzo).
+  // Mostra placeholder neutro — il cuoco sa che è "non monitorata oggi".
+  if (window._suggestionsDate !== null && !window._suggestionsError) {
+    return 'SUGG_UNAVAILABLE';
   }
   // ─────────────────────────────────────────────────────────────────────
   // Dati strutturali mancanti → BLOCKED
@@ -1791,12 +1824,24 @@ function buildChefAiNote(i, cardType) {
 
 // ── RENDER CHEF AI BLOCK (dentro la card) ──
 function renderChefAiBlock(i, cardType) {
-  // ── v625: tutti i tipi SUGG_* → renderSuggBlock (nessun fallback legacy) ──
+  // ── v625a: tutti i tipi SUGG_* → renderSuggBlock (nessun fallback legacy) ──
   if (cardType && cardType.startsWith('SUGG_')) {
     const sugg = (window._suggestions || {})[i.id];
     if (sugg) return renderSuggBlock(sugg, i);
-    // sugg non trovato (race condition) → mostra placeholder minimo
-    return '<div style="margin-top:4px;font-size:12px;color:#94a3b8;">Caricamento suggerimento...</div>';
+    // sugg non trovato (race condition) → placeholder minimo
+    return '<div style="margin-top:4px;font-size:12px;color:#94a3b8;">Caricamento...</div>';
+  }
+  // ── SUGG_UNAVAILABLE: run caricata ma prep non ha riga — NON fallback legacy ─
+  if (cardType === 'SUGG_UNAVAILABLE') {
+    const isAdmin_ = typeof isAdmin === 'function' ? isAdmin() : false;
+    const lang = window.user?.lang || 'en';
+    const label = lang==='it' ? 'Suggerimento non disponibile per oggi' :
+                  lang==='es' ? 'Sugerencia no disponible hoy' :
+                  'No suggestion available today';
+    const hint  = isAdmin_
+      ? '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">Admin: prep non inclusa nell\'ultima run bot</div>'
+      : '';
+    return `<div style="margin-top:4px;"><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#94a3b8;background:rgba(100,116,139,0.06);border:1px solid #e2e8f0;border-radius:20px;padding:3px 9px;">⚪ ${label}</span>${hint}</div>`;
   }
   // ─────────────────────────────────────────────────────────────────────
   const { headline, body, action } = buildChefAiNote(i, cardType);
@@ -2084,24 +2129,55 @@ window._prepViewAll = window._prepViewAll || false;
 
 // Controlla se una card è visibile nel default feed
 function isActionableCard(i) {
-  // Step 2: suggestion-based actionability
+  // v625a: suggestion-based actionability
   const _sgAct = (window._suggestions || {})[i.id];
-  if (_sgAct) return _sgAct.status !== 'looks_ok';
+  if (_sgAct) {
+    // looks_ok e defer_to_tomorrow → nascosti di default (stock ok)
+    return _sgAct.status !== 'looks_ok' && _sgAct.status !== 'defer_to_tomorrow';
+  }
 
+  // Suggerimenti caricati ma prep non ha riga → SUGG_UNAVAILABLE → nascosta
+  if (window._suggestionsDate !== null && !window._suggestionsError) return false;
+
+  // Fallback legacy (solo se nessuna run caricata)
   const ct = classifyCard(i);
   if (ct === 'TRUSTED') {
     const col = (i.suggested_note||'').split('|')[0];
-    if (col === 'green') return false; // Looks okay — nascosta per default
-    return true; // red, yellow, no-note → actionable
+    if (col === 'green') return false;
+    return true;
   }
-  if (ct === 'WATCH')      return false;
-  if (ct === 'BLOCKED')    return false;
+  if (ct === 'WATCH')       return false;
+  if (ct === 'BLOCKED')     return false;
   if (ct === 'CHEF_REVIEW') return false;
-  // COUNT_FIRST, STAGED_CHECK, LARGE_BATCH, COUNT_RECONCILED → sempre visibili
   return true;
 }
 
 function renderM(){
+  // ── v625a: badge Admin suggestion_date ─────────────────────────────────
+  if (typeof isAdmin === 'function' && isAdmin()) {
+    let badge = document.getElementById('_suggDateBadge');
+    if (!badge) {
+      // Prima volta: crea badge e inseriscilo sopra la griglia
+      badge = document.createElement('div');
+      badge.id = '_suggDateBadge';
+      badge.style.cssText = 'font-size:10px;font-weight:700;color:#7c3aed;background:rgba(124,58,237,0.07);border:0.5px solid rgba(124,58,237,0.2);border-radius:6px;padding:2px 8px;margin-bottom:4px;display:inline-block;';
+      const grid = document.getElementById('prepGrid') || document.getElementById('prep-grid');
+      if (grid && grid.parentNode) {
+        grid.parentNode.insertBefore(badge, grid);
+      }
+    }
+    if (window._suggestionsDate) {
+      badge.textContent = '📊 Bot: ' + window._suggestionsDate + ' · ' + Object.keys(window._suggestions||{}).length + ' prep';
+      badge.style.display = 'inline-block';
+    } else if (window._suggestionsNoData) {
+      badge.textContent = '⚠️ Bot: nessuna run valida oggi';
+      badge.style.color = '#ca8a04';
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+  // ───────────────────────────────────────────────────────────────────────
   const _pq=(window._prepSearchQuery||'').toLowerCase().trim();
   const base=items.filter(i=>{
     if(station!=='All'&&i.category!==station) return false;
