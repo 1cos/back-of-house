@@ -1,5 +1,6 @@
 // BOH OS v2 — Prep Suggestions Read Service
 // Task 004C: loads the latest valid prep suggestions for a list of prep task IDs.
+// Task 004C.1: Phase 1 uses paginated reads (500 rows/page) instead of a fixed limit.
 // Read-only. No writes. No window. No storage. No mock data. No legacy fallback.
 
 import { supabase } from '../core/supabase-client.js';
@@ -36,9 +37,7 @@ function localDateDaysAgo(daysAgo) {
 
 const MIN_ROWS_FOR_VALID_RUN = 50;
 const SEARCH_WINDOW_DAYS     = 7;
-// Row limit for Phase 1: at most 7 dates × (expected max tasks per date).
-// 700 is generous enough to evaluate all runs in the window without select('*').
-const PHASE1_ROW_LIMIT = 700;
+const PHASE1_PAGE_SIZE       = 500;
 
 // ── Empty successful result ────────────────────────────────────────────
 
@@ -74,32 +73,57 @@ export async function fetchPrepSuggestions(prepTaskIds) {
     return { ...EMPTY_SUCCESS };
   }
 
-  // ── Phase 1: find the most recent valid run ────────────────────────
-  const today      = toLocalDateString(new Date());
-  const sevenAgo   = localDateDaysAgo(SEARCH_WINDOW_DAYS);
+  // ── Phase 1: find the most recent valid run (paginated) ───────────
+  // Retrieve the full 7-day window using 500-row pages so no partial run
+  // can hide an older valid run. Pagination stops when a page returns
+  // fewer than PHASE1_PAGE_SIZE rows (including zero). Any page error
+  // aborts immediately — partial data is never used.
 
-  let phase1Data;
-  try {
-    const { data, error } = await supabase
-      .from('prep_suggestions_daily')
-      .select('suggestion_date, prep_task_id')
-      .gte('suggestion_date', sevenAgo)
-      .lte('suggestion_date', today)
-      .order('suggestion_date', { ascending: false })
-      .limit(PHASE1_ROW_LIMIT);
+  const today    = toLocalDateString(new Date());
+  const sevenAgo = localDateDaysAgo(SEARCH_WINDOW_DAYS);
 
-    if (error) {
+  const allPhase1Rows = [];
+  let pageIndex = 0;
+
+  while (true) {
+    const rangeStart = pageIndex * PHASE1_PAGE_SIZE;
+    const rangeEnd   = rangeStart + PHASE1_PAGE_SIZE - 1;
+
+    let pageData;
+    try {
+      const { data, error } = await supabase
+        .from('prep_suggestions_daily')
+        .select('suggestion_date, prep_task_id')
+        .gte('suggestion_date', sevenAgo)
+        .lte('suggestion_date', today)
+        .order('suggestion_date', { ascending: false })
+        .range(rangeStart, rangeEnd);
+
+      if (error) {
+        return { ok: false, reason: 'CONNECTION_ERROR', suggestionDate: null, suggestions: {} };
+      }
+
+      pageData = data;
+    } catch {
       return { ok: false, reason: 'CONNECTION_ERROR', suggestionDate: null, suggestions: {} };
     }
 
-    phase1Data = data;
-  } catch {
-    return { ok: false, reason: 'CONNECTION_ERROR', suggestionDate: null, suggestions: {} };
+    for (const row of pageData) {
+      allPhase1Rows.push(row);
+    }
+
+    // A page shorter than the page size means there are no more rows.
+    if (pageData.length < PHASE1_PAGE_SIZE) {
+      break;
+    }
+
+    pageIndex += 1;
   }
 
-  // Count rows per date in memory; select most recent date with ≥ 50 rows.
+  // Count rows per date in memory using the complete window.
+  // Select the most recent date with ≥ 50 rows.
   const countsByDate = new Map();
-  for (const row of phase1Data) {
+  for (const row of allPhase1Rows) {
     const d = row.suggestion_date;
     countsByDate.set(d, (countsByDate.get(d) ?? 0) + 1);
   }
@@ -107,7 +131,7 @@ export async function fetchPrepSuggestions(prepTaskIds) {
   // Dates arrive descending from the query; iterate in that order.
   let validDate = null;
   const seenDates = [];
-  for (const row of phase1Data) {
+  for (const row of allPhase1Rows) {
     const d = row.suggestion_date;
     if (!seenDates.includes(d)) {
       seenDates.push(d);
