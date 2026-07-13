@@ -197,7 +197,7 @@ function buildDetailPanel(panelId, suggestion, translate) {
   }
   addRow('station_prep.detail_prepare_today', prepTodayVal);
 
-  // 2. Recorded stock — suggestion.currentStock + stockUnit
+  // 2. In stock — suggestion.currentStock + stockUnit
   const stockVal = document.createElement('span');
   stockVal.className = 'station-prep__detail-value';
   if (suggestion !== null &&
@@ -211,7 +211,7 @@ function buildDetailPanel(panelId, suggestion, translate) {
   } else {
     stockVal.textContent = translate('station_prep.detail_not_recorded');
   }
-  addRow('station_prep.detail_recorded_stock', stockVal);
+  addRow('station_prep.detail_in_stock', stockVal);
 
   // 3. Why — reason (non-empty string only)
   const whyVal = document.createElement('span');
@@ -223,7 +223,7 @@ function buildDetailPanel(panelId, suggestion, translate) {
   } else {
     whyVal.textContent = translate('station_prep.detail_no_explanation');
   }
-  addRow('station_prep.detail_why', whyVal);
+  addRow('station_prep.detail_why_this_amount', whyVal);
 
   return panel;
 }
@@ -527,3 +527,4 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
 
   return section;
 }
+
