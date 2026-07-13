@@ -4,6 +4,84 @@
 
 ---
 
+## STATO CORRENTE — 13 Luglio 2026 (fine sessione)
+
+### Prep Database Audit & Cleanup — COMPLETATO
+
+**Sessione maratona: tutte le 10 stazioni completate in una sola sessione.**
+
+#### Modifiche globali applicate su tutte le stazioni
+- `base_servings` rimosso da tutte le ricette di tipo supporto/prep (si va a peso via BOM)
+- `base_servings` mantenuto SOLO per dessert contati in pezzi (Cheesecake 24, Cremino 12, Limoncello 12, Mint Bavarese 15, Panna Cotta 10, Tiramisu 10, Creme Brulee 16)
+- `serving_weight_g` rimosso dove fuorviante (eccezione: Meatballs 56g, Spinach 80g/cup, pasta fresca nests)
+- `expected_duration_days` allineato su prep_tasks per tutte le prep
+- `shelf_life_days` allineato su recipes per tutte le ricette
+
+#### Anomalie risolte
+- **Truffle Butter** — ricetta TRUFFLE BUTTER creata (id: 0564433e, 496g, 24 porzioni, 20g/serving, shelf 7gg), prep_task scollegato da Truffle Fettuccine, BOM Truffle Fettuccine aggiornato
+- **Demi** — rinominata da "DEMI FOR RAVIOLI" a "DEMI", shelf 9gg
+- **Ragu** — rinominato da "MK-RAGU" a "RAGU", shelf 9gg, base_servings rimosso
+- **Pomodoro Sauce** — base_weight_g corretto da 3532 a 3500g, yield_text allineato
+- **Thaw Lobster** — scollegato da ricetta "Lobster Fettucine" (piatto finito), shelf 3gg. BOM Lobster Fettucine: Lobster Tail aggiornato da 4.5oz a 1 each
+- **Scallops** — ingrediente aggiornato measure_type=each, avg_unit_weight_g=45g. BOM Scallops Chefs Way: 266g → 4 each. BOM Scallops Asparagus Gnocchi: aggiunto 3 each + 1 pz Diced Butter
+- **Porterhouse** — scollegato da "Ribeye Steaks", collegato a "Porterhouse alla Fiorentina"
+- **Wagyu duplicati** — Wagyu Ribeye Portioned (id 478) e Wagyu Tomahawk Portioned (id 477) archiviati. Versioni con pos_name (id 319, 320) mantenute
+- **Flowers** (id 455) — archiviata (prep inutile)
+- **Basil Flowers** — → checklist (10 punte basilico in acqua fresca ogni giorno)
+- **Honey, Olives, Walnuts, Cocoa Powder, Mint Liquid, Powder Sugar** — → checklist (refill)
+- **Lemon Zest, Orange Supreme** — → checklist daily_reset (prep fresca giornaliera)
+- **Arrabbiata** — base_weight_g 3150→3300g
+- **Cacio e Pepe** — shelf life 7→9gg
+- **Mushrooms** — shelf life 30→7gg (FREEZER→FRIDGE dopo scongelamento)
+- **Soffritto Livornese** — base_weight_g NULL→866g, shelf 3gg post-scongelamento, menu_group Bases
+- **Texana Soup** — shelf life 5→7gg
+- **Grilled Chicken** — 15kg produzione sabato aggiunti a current_stock (ora 19,831g), prep_log registrato
+- **Gnocchi** — prep_type NULL→finale, shelf 7→30gg (congelati)
+- **Gnocco Dough** — base_weight_g NULL→2008g, shelf 1→2gg
+- **Spinach** — serving_weight_g 60→80g (1 cup = 80g, confermato da Kitchen Production Model)
+
+#### Shelf life aggiornate per stazione
+**Saucier:** Arrabbiata 7gg, Brisket 7gg post-apertura/FREEZER, Cacio e Pepe 9gg, Demi 9gg, Mash Potato 2gg/FRIDGE, Mushrooms 7gg/FREEZER→FRIDGE, Pomodoro 7gg, Ragu 9gg/FREEZER opzionale, Soffritto 3gg post-scongelamento, Texana Soup 7gg, Thyme Butter 30gg/FRIDGE, Truffle Butter 7gg/FRIDGE
+
+**Oven:** Artichoke 3gg, Brussels Sprouts Par Cook 6gg/FRIDGE, Brussels Sprouts RTS 3gg, Calamari 3gg, Chicken Parmesan 2gg, Croutons 30gg/AMBIENT, Onion Rings 3gg, Rosemary Potatoes 4gg, Salmon Cakes 6gg, Thaw Salmon 3gg
+
+**Pasta:** Bacon Crumbs 7gg, Diced Butter 7gg, Grilled Chicken 15gg/sottovuoto, Pancetta 5gg, Rosemary Oil 15gg/FRIDGE, Shrimp 3gg, Thaw Lobster 3gg/scollegato
+
+**Sauté:** Asparagus 4gg, Meatball Appetizer 7gg, Meatball Sauce 5gg, Meatballs 5gg, Risotto Base 4gg, Salmon Aioli 15gg/sottovuoto, Salmoriglio 4gg, Scallops 4gg, Sicilian Mix 4gg, Siciliana Cartoccio 3gg
+
+**Fresh Pasta:** Fettuccine 30gg/FREEZER, Gnocchi 30gg/FREEZER, Gnocco Dough 2gg, Maccheroni 30gg/FREEZER, Spaghetti 30gg/FREEZER, Pecorino 7gg/sottovuoto, Parmesan 7gg/sottovuoto
+
+**Table Side:** Branzino Tableside 3gg, Filet Branzino 30gg/FREEZER, Filets 7gg/FRIDGE, NY Strip 7gg/FRIDGE, Ribeye 7gg/FRIDGE, Salmon Filets 30gg/FREEZER, Tomahawk 30gg/FREEZER, Wagyu Ribeye 30gg/FREEZER
+
+**Salad:** Bruschetta 7gg, Cantaloupe 3gg, Chop Romaine 2gg, Halved Tomatoes 3gg, Watermelon 3gg
+
+**Pastry:** Berry Coulis 7gg, Brownies 30gg/FREEZER, Cheesecake 10gg/FRIDGE, Cremino 30gg/FREEZER, GF Sponge Cake 30gg/FRIDGE, Mint Bavarese 30gg/FREEZER, Limoncello Cake 30gg/FREEZER
+
+#### Pipeline bot — stato attuale
+- **bot-preplist-builder v46** (edge v71) — LEGACY, ancora attivo, scrive su prep_tasks.suggested_qty
+- **bot-prep-suggester v5** (edge v4) — NUOVO, scrive su prep_suggestions_daily (tabella separata)
+- **bot-nightly-orchestrator v3** — orchestra pipeline POS: pos-cleaner→direct-deduction→bom-chain-deduction→modifier-depletion→stock-consolidator
+- `dry_run: true` ancora attivo — NON flippare a false senza revisione
+
+#### Regole confermate questa sessione
+- `base_servings` fuorviante per prep di supporto — rimosso sistematicamente
+- `base_servings` mantenuto per dessert in pezzi (bot lo usa per calcolare quanti pezzi per batch)
+- `serving_weight_g` mantenuto SOLO dove il bot lo usa per calcolo consumo: Meatballs (56g), Spinach (80g/cup), pasta fresca nests
+- Ingrediente Scallops: measure_type=each, avg_unit_weight_g=45g (U-10 = ~45g/pezzo)
+- Lobster Tail nel BOM: 1 each (non 4.5oz)
+
+#### Prossimi passi
+1. Pomodoro Sauce base_weight_g confermato 3500g — verificare se il bot suggerisce correttamente dopo aggiornamento
+2. Schema additivo prep_tasks (9 colonne: ux_family, production_mode, storage_method, freezable, preferred_batch_qty/unit, minimum_batch_qty/unit, operational_criticality) — ancora da implementare, nessuna migrazione eseguita
+3. Tabella daily_tasks — proposta approvata architetturalmente, nessuna implementazione
+4. current_stock source of truth — proposta separata ancora aperta
+5. bot-preplist-builder v46 → dual-write con bot-prep-suggester prima del cutover
+6. Scallops shelf life: DB dice 4gg prep_task, documento dice 4-5gg — confermato 4gg
+7. Thaw Branzino — non trovato come prep task, verificare se esiste o va creato
+
+
+---
+
 ## STATO CORRENTE — 8 Luglio 2026 (fine sessione)
 
 ### Live
