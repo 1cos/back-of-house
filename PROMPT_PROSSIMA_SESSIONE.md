@@ -1598,3 +1598,152 @@ Non toccare CONSTRAINT_OVERRIDES esistenti (già corretti per Arrabbiata e Pomod
 Non modificare UI o cron legacy.
 Testare con run LAB su prep_task_ids=[233, 304] prima di full run.
 
+
+
+---
+
+## Sessione 13 lug 2026 (continuazione) — Classificazione Famiglie + Tabella Laterale + Shell v018
+
+### Produzione live (invariata)
+- **boh-v624** su `back-of-house/brigade-main`
+- Nessuna modifica a `prep_tasks`, suggestion engine, o live app
+
+---
+
+### Classificazione prep_tasks — COMPLETATA ✅
+
+**Schema approvato:**
+- `production_family`: `weekly_batch | daily_fresh | frozen_production | vendor_driven | opportunistic | NULL`
+- `work_type`: `quantitative_prep | operational_action | stock_check | station_setup | cleaning`
+- Regola semantica: `stock_check`, `station_setup`, `cleaning` → `production_family` MUST be NULL
+- `operational_action` può avere famiglia o NULL
+- `NULL family` = famiglia non applicabile (non = non classificato)
+
+**Distribuzione finale (153 prep attive):**
+
+| production_family | n |
+|---|---|
+| `weekly_batch` | 42 |
+| `daily_fresh` | 39 |
+| `vendor_driven` | 31 |
+| `frozen_production` | 10 |
+| `opportunistic` | 2 |
+| NULL (non applicabile) | 29 |
+
+**NULL breakdown (29):**
+- `stock_check`: 21 · `station_setup`: 6 · `cleaning`: 1 · `operational_action`: 1 (id=283 Tempura, decisione Max)
+
+**Decisioni puntuali:**
+- Basil id=454 → `canonical_station = 'Executive Chef'` (cross-station, non salad-specific)
+- Arugola id=453 → `canonical_station = 'Garde Manger'` (salad-specific)
+- Tempura id=283 → `production_family=NULL, work_type='operational_action'`, `prep_type` invariato, warning presente
+- Confit tomatoes id=451 → `daily_fresh`, confidence MEDIUM (no base_weight_g)
+- Brisket id=285 → `vendor_driven`, warning shelf_life conflict (pt=14d vs recipe=5d)
+- Chopped dark/white choc 337/338 → `weekly_batch`, confidence MEDIUM (no recipe_id)
+- Shaved Parm id=371 → `daily_fresh`, confidence MEDIUM (7d shelf ma texture migliore fresca)
+- Salad Station = 33 record (conteggio autorevole attuale — non creare né riattivare per raggiungere 34)
+
+**Diff v1→v2: 41 righe modificate** (40 solo family, 1 anche work_type: id=270 Gf bread)
+
+---
+
+### Tabella `prep_task_classifications` — CREATA E POPOLATA ✅
+
+**Architettura:** tabella laterale one-to-one (mai ALTER/UPDATE su `prep_tasks`).
+Zero eventi Realtime su `prep_tasks`. Zero modifiche live app.
+
+**Schema:**
+```sql
+CREATE TABLE prep_task_classifications (
+  prep_task_id           bigint       PRIMARY KEY,
+  production_family      text         NULL,
+  work_type              text         NOT NULL,
+  canonical_station      text         NULL,
+  family_confidence      text         NULL,  -- 'HIGH' | 'MEDIUM'
+  classification_warning text         NULL,
+  classified_at          timestamptz  NOT NULL DEFAULT now(),
+  classified_by          text         NOT NULL,
+  CONSTRAINT fk_ptc_prep_task FOREIGN KEY (prep_task_id) REFERENCES prep_tasks(id) ON DELETE CASCADE
+);
+```
+
+**4 constraint idempotenti:** `chk_ptc_production_family`, `chk_ptc_work_type`, `chk_ptc_family_confidence`, `chk_ptc_family_wt_semantic`
+
+**Popolamento:**
+- UPSERT 153 righe, `classified_by='audit_2026_07_13_v2'`
+- 7 controlli pre-UPSERT verificati in DB (tutti 0): mapping_rows=153, distinct_ids=153, duplicate_ids=0, archived_in_mapping=0, active_missing=0, nonexistent_ids=0, semantic_violations=0
+- 5 post-check verificati in DB: batch_rows=153 ✅, classified_active_preps=153 ✅, active_missing=0 ✅, batch_linked_to_archived=0 ✅, semantic_violations=0 ✅, prep_tasks_active=153 ✅ (INVARIATO)
+
+**RLS:** OFF (coerente con `prep_tasks`). Policy futura proposta (non applicata):
+```sql
+ALTER TABLE prep_task_classifications ENABLE ROW LEVEL SECURITY;
+CREATE POLICY ptc_anon_select ON prep_task_classifications FOR SELECT TO anon USING (true);
+-- No INSERT/UPDATE/DELETE per anon — solo service_role
+```
+
+**Rollback A (dati):** `DELETE FROM prep_task_classifications WHERE classified_by='audit_2026_07_13_v2'`
+**Rollback B (struttura):** `DROP TABLE IF EXISTS prep_task_classifications`
+
+**Pattern LEFT JOIN per Workspace:**
+```sql
+SELECT pt.*, ptc.production_family, ptc.work_type, ptc.canonical_station,
+       ptc.family_confidence, ptc.classification_warning
+FROM prep_tasks pt
+LEFT JOIN prep_task_classifications ptc ON ptc.prep_task_id = pt.id
+WHERE pt.archived IS NOT TRUE ORDER BY pt.category, pt.name;
+```
+
+---
+
+### New Shell Lab — Prep Families page (shell v018) ✅
+
+**File:** `brigade-dev/brigade-main/shell.html`
+**Commit:** `213ab71fa525` — "shell v018 — prep_families page: real DB data, 153 prep, LEFT JOIN, read-only"
+**SHA:** `4459c1a39dffd777a1e6fb7f25e8b9072c42a2ff`
+
+**Funzionalità:**
+- `pagePrepFamilies()` — skeleton sincrono con loading spinner
+- `prepFamiliesAfterRender()` — due fetch paralleli (`Promise.all`): `prep_tasks` + `prep_task_classifications`, LEFT JOIN in JS
+- `_pfRenderBody(data)` — partiziona 153 record in 7 gruppi:
+  - 5 famiglie di produzione (weekly_batch, daily_fresh, frozen_production, vendor_driven, opportunistic)
+  - "Operational / No Production Family" (29 record, suddivisi per work_type: Stock Checks, Setup, Cleaning, Operational Action)
+  - "Unclassified" (prep senza riga in prep_task_classifications — LEFT JOIN NULL)
+- `_pfOperationalSection()` — sub-gruppi per work_type con label esplicite
+- `_pfShowMock()` — fallback se Supabase irraggiungibile (usa KS mock esistente)
+- `_pfCache` — evita re-fetch mentre il tab è aperto
+- CSS iniettato (70 regole, token `--bd/--tx/--b6/--ok/--wn/--er`, responsive 600px)
+- i18n IT/EN/ES completo
+- Aggiunto a PAGE_MAP, home cards, bottom bar, tab label switch
+
+**QA verificato:**
+- Zero write requests (nessun POST/PATCH/DELETE in codice `_pf*`)
+- `_kitchenInitState()` mock intatto (fallback separato)
+- `pageKitchen()`, `pagePrepGallery()` invariati
+
+---
+
+### Regole confermata questa sessione
+
+- `production_family IS NULL` = famiglia non applicabile (non = non classificato)
+- `production_family valorizzata` = famiglia applicabile (fonte di verità unica, no booleano aggiuntivo)
+- `work_type` NON può essere `NOT NULL DEFAULT` su `prep_tasks` (i 90 archiviati resterebbero NULL)
+- Architettura laterale (tabella separata) preferita ad ALTER TABLE su tabella operativa live
+- Impact audit confermato: nuovi campi `select(*)` arrivano in JS ma nessun codice live li legge → zero impatto UI
+
+---
+
+### Pending prossima sessione
+
+**Immediato:**
+1. **Saucier Cadence v3 deploy** — pseudocode approvato, pronto per implementazione in `bot-prep-suggester`
+2. **Shell Lab: Prossimo modulo** — decidere con Max dopo aver visto la Prep Families page (Inventory, Sales, oppure collegare Diario al DB)
+
+**Backlog invariato (vedi sessioni precedenti):**
+- 3 warning Consolidator (Spring mix, Spaghetti, Parsley)
+- Asparagus pt_unit (g vs kg)
+- Meatballs current_stock (chiedere a Max stima)
+- Dish Crew Home Fase 2
+- Rename Manager → Coordinator
+- 7shifts sync (JWT auth)
+- Sales: rimuovere tab Oggi
+- RLS hardening su `prep_task_classifications` (futura sessione)
