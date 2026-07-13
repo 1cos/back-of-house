@@ -64,9 +64,7 @@ var _officeFolders = [
 ];
 
 window.openOffice = function() {
-  console.log('[Ufficio] step 1 — start');
   if (typeof hideAdminMenu === 'function') hideAdminMenu();
-  console.log('[Ufficio] step 2 — hideAdminMenu done');
   document.getElementById('dqPanel')?.remove();
   document.getElementById('dispensaPanel')?.remove();
   document.getElementById('invSetupPanel')?.remove();
@@ -75,14 +73,12 @@ window.openOffice = function() {
   if (existing) existing.remove();
   var existingOv = document.getElementById('officeOverlay');
   if (existingOv) existingOv.remove();
-  console.log('[Ufficio] step 3 — cleanup done');
 
   var overlay = document.createElement('div');
   overlay.id = 'officeOverlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:299;background:rgba(0,0,0,0.3);';
   overlay.onclick = function() { officeStopRealtime(); overlay.remove(); document.getElementById('officeModal')?.remove(); };
   document.body.appendChild(overlay);
-  console.log('[Ufficio] step 4 — overlay appended');
 
   var modal = document.createElement('div');
   modal.id = 'officeModal';
@@ -105,7 +101,6 @@ window.openOffice = function() {
     '</div>';
 
   document.body.appendChild(modal);
-  console.log('[Ufficio] step 5 — modal appended, calling officeLoadHome');
   officeLoadHome();
   officeStartRealtime();
 };
@@ -5816,7 +5811,7 @@ function dqReviewRow(item, idx) {
     '</div>' +
     '<div style="font-size:12px;color:#92400e;background:rgba(245,158,11,0.08);border-radius:8px;padding:6px 10px;margin-bottom:8px;">' + mainNote + '</div>' +
     suggestBlock +
-    '<button onclick="dqOpenRecipe('' + r.id + '')" style="width:100%;height:36px;border-radius:10px;background:#d97706;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;">Apri ricetta</button>' +
+    '<button onclick="dqOpenRecipe(\' + r.id + \')" style="width:100%;height:36px;border-radius:10px;background:#d97706;color:white;font-size:12px;font-weight:600;border:none;cursor:pointer;">Apri ricetta</button>' +
   '</div>';
 }
 
