@@ -2,10 +2,13 @@
 // Task 003C: registers five station routes and manages bottom navigation state.
 // Task 003D: station-home uses createStationHome; user passed via options.
 // Task 003E: station-home renderer returns HTMLElement directly (DOM-first router).
+// Task 004B: station-prep uses createStationPrep with real service.
 // No window writes. No storage. No Supabase. No browser history. No app-state import.
 
 import { createBottomNavigation } from '../../components/navigation/bottom-navigation.js';
 import { createStationHome } from './station-home.js';
+import { createStationPrep } from './station-prep.js';
+import { fetchStationPrepTasks } from '../../services/station-prep-service.js';
 
 // ── Route map ─────────────────────────────────────────────────────────
 
@@ -97,8 +100,8 @@ export function setupStationNavigation({ router, mountElement, translate, user }
   }
 
   // ── Register routes ────────────────────────────────────────────────
-  // station-home: returns an HTMLElement directly.
-  // The router appends it to the outlet; JS listeners are preserved.
+
+  // station-home: real Station Home (HTMLElement).
   router.register('station-home', () =>
     createStationHome({
       user,
@@ -107,7 +110,16 @@ export function setupStationNavigation({ router, mountElement, translate, user }
     })
   );
 
-  router.register('station-prep',     () => scaffoldPage(translate('nav.prep')));
+  // station-prep: real Prep page (HTMLElement).
+  // user.defaultStation may be null/undefined — createStationPrep handles it.
+  router.register('station-prep', () =>
+    createStationPrep({
+      stationName: user.defaultStation ?? null,
+      translate,
+      fetchTasks:  fetchStationPrepTasks,
+    })
+  );
+
   router.register('station-recipes',  () => scaffoldPage(translate('nav.recipes')));
   router.register('station-chat',     () => scaffoldPage(translate('nav.chat')));
   router.register('station-schedule', () => scaffoldPage(translate('nav.schedule')));

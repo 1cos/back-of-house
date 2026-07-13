@@ -1,0 +1,138 @@
+/* BOH OS v2 — Station Prep page
+   Task 004B: read-only prep task list.
+   Primary target: iPhone portrait.
+   All values use tokens from tokens.css.
+   No new tokens. No !important. No inline styles. No animation.
+   ------------------------------------------------------------------ */
+
+/* ── Page root ────────────────────────────────────────────────────────
+   Vertical stack. Bottom padding ensures content clears the sticky
+   bottom navigation bar (approx 56px + safe area).                   */
+.station-prep {
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-4) var(--sp-4) calc(var(--sp-8) + 56px);
+  min-height: 100%;
+  box-sizing: border-box;
+  gap: var(--sp-4);
+}
+
+/* ── Header ───────────────────────────────────────────────────────────*/
+.station-prep__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.station-prep__title {
+  font-family: var(--font-sans);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.station-prep__subtitle {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ── Content area ────────────────────────────────────────────────────*/
+.station-prep__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* ── Task count ───────────────────────────────────────────────────────*/
+.station-prep__count {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Task list ────────────────────────────────────────────────────────*/
+.station-prep__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* ── Task row ─────────────────────────────────────────────────────────
+   Surface card. Name on the left, status on the right.               */
+.station-prep__task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-3) var(--sp-4);
+  min-height: 44px;
+}
+
+.station-prep__task-name {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  /* Prevent overflow from very long names. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.station-prep__task-status {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Loading state ────────────────────────────────────────────────────*/
+.station-prep__loading {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ── Empty state ──────────────────────────────────────────────────────*/
+.station-prep__empty {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ── Error state ──────────────────────────────────────────────────────*/
+.station-prep__error {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ── Unassigned state ────────────────────────────────────────────────*/
+.station-prep__unassigned {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}

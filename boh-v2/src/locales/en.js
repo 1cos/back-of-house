@@ -33,4 +33,15 @@ export const en = {
   'station_home.your_station':      'Your station',
   'station_home.station_unassigned':'Station not assigned',
   'station_home.open_today':        'Open Today',
+
+  // ── Station Prep ────────────────────────────────────────────────────
+  'station_prep.title':              'Prep',
+  'station_prep.loading':            'Loading prep\u2026',
+  'station_prep.task_count':         '{count} active prep tasks',
+  'station_prep.empty':              'No prep tasks assigned to this station.',
+  'station_prep.error':              'Unable to load prep. Try again later.',
+  'station_prep.station_unassigned': 'Station not assigned.',
+  'station_prep.status_in_progress': 'In progress',
+  'station_prep.status_to_do':       'To do',
+  'station_prep.status_ready':       'Ready',
 };
