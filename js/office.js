@@ -65,6 +65,13 @@ var _officeFolders = [
 
 window.openOffice = function() {
   if (typeof hideAdminMenu === 'function') hideAdminMenu();
+  // Chiudi dqPanel (Recipe Data Quality) se aperto — ha z-index:500/600 > officeModal:300
+  document.getElementById('dqPanel')?.remove();
+  document.querySelector('[id^="dqOverlay"]')?.remove();
+  // Chiudi anche i panel generici a z-index alto che potrebbero coprire l'Ufficio
+  document.getElementById('dispensaPanel')?.remove();
+  document.getElementById('invSetupPanel')?.remove();
+  document.getElementById('invSetupOverlay')?.remove();
   var existing = document.getElementById('officeModal');
   if (existing) existing.remove();
   var existingOv = document.getElementById('officeOverlay');
