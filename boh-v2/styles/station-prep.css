@@ -1,5 +1,6 @@
 /* BOH OS v2 — Station Prep page
    Task 004B: read-only prep task list.
+   Task 004E: suggestion status pill styling.
    Primary target: iPhone portrait.
    All values use tokens from tokens.css.
    No new tokens. No !important. No inline styles. No animation.
@@ -71,12 +72,14 @@
 }
 
 /* ── Task row ─────────────────────────────────────────────────────────
-   Surface card. Name on the left, status on the right.               */
+   Wrapping flex row. Name may wrap; pill, qty, and state flex-shrink
+   to stay inline. Works at 320px viewport width without horizontal
+   scrolling.                                                          */
 .station-prep__task {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
@@ -89,13 +92,92 @@
   font-size: 15px;
   font-weight: 500;
   color: var(--text-primary);
-  /* Prevent overflow from very long names. */
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  /* Name takes all available space and may wrap on very long strings. */
+  flex: 1 1 100%;
   min-width: 0;
+  word-break: break-word;
 }
 
+/* ── Bot suggestion status pill ───────────────────────────────────────
+   Base pill style. Color and weight are set per-status below via the
+   data-suggestion-status attribute. Visible text is always uppercase
+   because it comes from the translation strings.
+   Pill never wraps internally.                                        */
+.station-prep__task-bot-status {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px var(--sp-2);
+  border-radius: var(--r-sm);
+  border-width: 1px;
+  border-style: solid;
+  white-space: nowrap;
+  flex-shrink: 0;
+  /* Default (matches check — neutral) */
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: var(--border);
+}
+
+/* do-first — strongest urgency: solid accent background */
+.station-prep__task-bot-status[data-suggestion-status="do-first"] {
+  color: var(--surface);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* do-today — medium urgency: accent text, light border */
+.station-prep__task-bot-status[data-suggestion-status="do-today"] {
+  color: var(--accent);
+  background: transparent;
+  border-color: var(--accent);
+}
+
+/* looks-good — positive: primary text, subtle border */
+.station-prep__task-bot-status[data-suggestion-status="looks-good"] {
+  color: var(--text-primary);
+  background: transparent;
+  border-color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* count-first — attention, distinct from do-today: secondary text,
+   dashed border to signal action-before-decision                     */
+.station-prep__task-bot-status[data-suggestion-status="count-first"] {
+  color: var(--text-primary);
+  background: transparent;
+  border-color: var(--text-primary);
+  border-style: dashed;
+}
+
+/* check-tomorrow — deferred: muted secondary, no fill */
+.station-prep__task-bot-status[data-suggestion-status="check-tomorrow"] {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: var(--border);
+  font-weight: 400;
+}
+
+/* check — neutral fallback: lightest treatment */
+.station-prep__task-bot-status[data-suggestion-status="check"] {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: var(--border);
+  font-weight: 400;
+}
+
+/* ── Suggested quantity ───────────────────────────────────────────────*/
+.station-prep__task-qty {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Operational task state ───────────────────────────────────────────*/
 .station-prep__task-status {
   font-family: var(--font-sans);
   font-size: 12px;
@@ -103,6 +185,7 @@
   color: var(--text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 /* ── Loading state ────────────────────────────────────────────────────*/

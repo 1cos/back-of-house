@@ -1,6 +1,7 @@
 // BOH OS v2 — Station Prep page component
 // Task 004B: read-only list of active prep tasks for the user's station.
 // Task 004D: merges bot suggestions into each task row.
+// Task 004E: adds data-suggestion-status attribute for CSS styling.
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
 
@@ -43,6 +44,30 @@ function suggestionStatusKey(status) {
   }
 }
 
+/**
+ * Maps a raw bot suggestion status string to the data-suggestion-status
+ * attribute value. Derives from the same switch as suggestionStatusKey
+ * so styling never depends on translated text.
+ *
+ * @param {string|null|undefined} status
+ * @returns {string}
+ */
+function suggestionStatusAttr(status) {
+  switch (status) {
+    case 'DO_FIRST':          return 'do-first';
+    case 'PREP_TODAY':
+    case 'DO_TODAY':          return 'do-today';
+    case 'LOOKS_OK':
+    case 'LOOKS_GOOD':        return 'looks-good';
+    case 'COUNT_FIRST':       return 'count-first';
+    case 'DEFER_TO_TOMORROW':
+    case 'DEFER':             return 'check-tomorrow';
+    case 'VERIFY':
+    case 'UNAVAILABLE':       return 'check';
+    default:                  return 'check';
+  }
+}
+
 // ── Task row builder ──────────────────────────────────────────────────
 
 /**
@@ -62,12 +87,14 @@ function buildTaskRow(task, suggestion, translate) {
   nameEl.className = 'station-prep__task-name';
   nameEl.textContent = task.name;
 
-  // Bot suggestion status.
+  // Bot suggestion status pill.
+  const rawStatus = suggestion ? suggestion.status : null;
   const botStatusEl = document.createElement('span');
   botStatusEl.className = 'station-prep__task-bot-status';
-  botStatusEl.textContent = translate(
-    suggestionStatusKey(suggestion ? suggestion.status : null)
-  );
+  // data-suggestion-status drives CSS styling; derived from the same
+  // switch as the translation key — never from the visible label text.
+  botStatusEl.dataset.suggestionStatus = suggestionStatusAttr(rawStatus);
+  botStatusEl.textContent = translate(suggestionStatusKey(rawStatus));
 
   // Planned quantity — shown only when plannedOutput is not null.
   const qtyEl = document.createElement('span');
@@ -154,16 +181,9 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
   content.appendChild(loadingEl);
 
   // ── Async data-loading sequence ────────────────────────────────────────
-  // 1. Load tasks.
-  // 2. On success + non-empty: collect IDs, load suggestions.
-  // 3. Merge suggestions into rows (fallback to CHECK on suggestion failure).
-  // Loading state remains until both requests have settled.
-
   fetchTasks(stationName).then((taskResult) => {
-    // Async safety: stop if navigated away.
     if (!section.isConnected) return;
 
-    // Task loading failed.
     if (!taskResult.ok) {
       content.innerHTML = '';
       const errorEl = document.createElement('p');
@@ -173,7 +193,6 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
       return;
     }
 
-    // No tasks for this station.
     if (taskResult.tasks.length === 0) {
       content.innerHTML = '';
       const emptyEl = document.createElement('p');
@@ -183,30 +202,23 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
       return;
     }
 
-    // Collect numeric task IDs for the suggestion request.
     const taskIds = taskResult.tasks.map((t) => t.id);
 
-    // Load suggestions for the collected IDs.
     fetchSuggestions(taskIds).then((sugResult) => {
-      // Async safety: stop if navigated away.
       if (!section.isConnected) return;
 
-      // On suggestion failure, suggestions object is empty — rows fall back to CHECK.
       const suggestionsMap = (sugResult.ok && sugResult.suggestions)
         ? sugResult.suggestions
         : {};
 
-      // Clear loading indicator.
       content.innerHTML = '';
 
-      // Task count.
       const countEl = document.createElement('p');
       countEl.className = 'station-prep__count';
       countEl.textContent = translate('station_prep.task_count')
         .replace('{count}', String(taskResult.tasks.length));
       content.appendChild(countEl);
 
-      // Task list — order preserved from service (name ascending).
       const list = document.createElement('ul');
       list.className = 'station-prep__list';
 
@@ -217,9 +229,7 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
 
       content.appendChild(list);
     });
-    // No .catch(): fetchSuggestions never throws for normal failures.
   });
-  // No .catch(): fetchTasks never throws for normal failures.
 
   return section;
 }
