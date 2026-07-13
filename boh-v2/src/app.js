@@ -1,8 +1,9 @@
 // BOH OS v2 — app bootstrap
-// Task 002A: render static scaffold only.
-// No global state. No window writes. No data fetching.
+// Task 002B: adds Supabase connection diagnostic.
+// No global state. No window writes.
 
 import { t } from './core/i18n.js';
+import { checkSupabaseConnection } from './core/supabase-client.js';
 
 const root = document.getElementById('app');
 
@@ -12,6 +13,7 @@ if (!root) {
   );
 }
 
+// Render scaffold immediately — diagnostic runs after.
 root.innerHTML = `
   <header class="app-header">
     <span class="app-name">${t('app.name')}</span>
@@ -21,6 +23,25 @@ root.innerHTML = `
     <div class="scaffold-card">
       <h1 class="scaffold-title">${t('foundation.title')}</h1>
       <p class="scaffold-body">${t('foundation.body')}</p>
+      <span
+        class="status-dot"
+        data-status="pending"
+        aria-label="Checking data connection"
+        role="status"
+      ></span>
     </div>
   </main>
 `;
+
+// Run diagnostic without blocking render.
+const dot = root.querySelector('.status-dot');
+
+checkSupabaseConnection().then((result) => {
+  if (result.ok) {
+    dot.dataset.status = 'ready';
+    dot.setAttribute('aria-label', 'Data connection ready');
+  } else {
+    dot.dataset.status = 'unavailable';
+    dot.setAttribute('aria-label', 'Data connection unavailable');
+  }
+});
