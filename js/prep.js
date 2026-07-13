@@ -65,7 +65,7 @@ function _wipAgeLabel(minutes) {
   if (h === 0) return m + 'm';
   if (h < 24) return h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
   const d = Math.floor(h / 24);
-  return d + (d === 1 ? ' giorno' : ' giorni');
+  return d + (d === 1 ? ' day' : ' days');
 }
 
 // Giorno operativo: Zenos apre alle 11:00 CDT, considera "giorno precedente"
@@ -108,8 +108,8 @@ function _checkAndShowWipBanner() {
   banner.style.cssText = 'position:sticky;top:0;z-index:50;background:#fff7ed;border-bottom:1.5px solid #fb923c;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px;';
 
   const countText = totalWarning === 1
-    ? '1 prep aperta dal turno precedente'
-    : totalWarning + ' prep aperte dal turno precedente';
+    ? '1 prep left open from previous shift'
+    : totalWarning + ' preps left open from previous shift';
 
   banner.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;">
@@ -160,13 +160,13 @@ window._showWipResolutionSheet = function(id) {
   let infoLine = '';
   if (isLegacy) {
     infoLine = `<div style="background:#fef3c7;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#92400e;">
-      ⚠️ Prep aperta — orario di inizio non disponibile (sessione precedente all'aggiornamento)
+      ⚠️ Open prep — start time unavailable (session before last update)
     </div>`;
   } else {
     const byStr = startedBy ? ` · ${startedBy}` : '';
     const atStr = startedAt ? ` · ${startedAt}` : '';
     infoLine = `<div style="background:#fff7ed;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#9a3412;">
-      🟠 Aperta${byStr}${atStr}${ageStr ? ' · ' + ageStr + ' fa' : ''}
+      🟠 Open${byStr}${atStr}${ageStr ? ' · ' + ageStr + ' ago' : ''}
     </div>`;
   }
 
@@ -179,10 +179,10 @@ window._showWipResolutionSheet = function(id) {
       <div style="font-size:13px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Prep · ${it.name}</div>
       ${infoLine}
       <div style="display:flex;flex-direction:column;gap:8px;">
-        <button id="wipDoneBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:15px;font-weight:700;color:#fff;background:#059669;border:none;cursor:pointer;">✅ Ho finito</button>
-        <button id="wipContinueBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:15px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">▶ Continua</button>
-        <button id="wipPassBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:15px;font-weight:600;color:#1e40af;background:#eff6ff;border:none;cursor:pointer;">🔁 Passa al turno</button>
-        ${isLegacy ? '<button id="wipNotWipBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:14px;font-weight:600;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;cursor:pointer;">✖ Non è in lavorazione</button>' : ''}
+        <button id="wipDoneBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:15px;font-weight:700;color:#fff;background:#059669;border:none;cursor:pointer;">✅ I'm done</button>
+        <button id="wipContinueBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:15px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">▶ Continue</button>
+        <button id="wipPassBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:15px;font-weight:600;color:#1e40af;background:#eff6ff;border:none;cursor:pointer;">🔁 Pass to next shift</button>
+        ${isLegacy ? '<button id="wipNotWipBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:14px;font-weight:600;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;cursor:pointer;">✖ Not in progress</button>' : ''}
       </div>
     </div>`;
 
@@ -2305,11 +2305,11 @@ function renderM(){
         const _isLegacy = !i.in_progress_at && !_startTimes[i.id];
         const _isPrev   = _isPrevShift(i);
         if (_isLegacy) {
-          badge = '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#854f0b;background:#fef3c7;border:0.5px solid #fcd34d;border-radius:8px;padding:3px 8px;cursor:pointer;" onclick="event.stopPropagation();window._showWipResolutionSheet('+JSON.stringify(i.id)+')">⚠️ Aperta — orario non disponibile</span></div>';
+          badge = '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#854f0b;background:#fef3c7;border:0.5px solid #fcd34d;border-radius:8px;padding:3px 8px;cursor:pointer;" onclick="event.stopPropagation();window._showWipResolutionSheet('+JSON.stringify(i.id)+')">⚠️ Open — start time unavailable</span></div>';
         } else if (_isPrev) {
-          badge = '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#9a3412;background:#fff7ed;border:0.5px solid #fb923c;border-radius:8px;padding:3px 8px;cursor:pointer;" onclick="event.stopPropagation();window._showWipResolutionSheet('+JSON.stringify(i.id)+')">🟠 Prep aperta da ' + _wipAgeLabel(_ageMin) + '</span></div>';
+          badge = '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#9a3412;background:#fff7ed;border:0.5px solid #fb923c;border-radius:8px;padding:3px 8px;cursor:pointer;" onclick="event.stopPropagation();window._showWipResolutionSheet('+JSON.stringify(i.id)+')">🟠 Open since ' + _wipAgeLabel(_ageMin) + '</span></div>';
         } else if (_ageMin !== null && _ageMin >= 60) {
-          badge = '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:600;color:#185fa5;background:rgba(55,138,221,0.10);border:0.5px solid rgba(55,138,221,0.3);border-radius:8px;padding:3px 8px;">🟠 Prep aperta da ' + _wipAgeLabel(_ageMin) + '</span></div>';
+          badge = '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:600;color:#185fa5;background:rgba(55,138,221,0.10);border:0.5px solid rgba(55,138,221,0.3);border-radius:8px;padding:3px 8px;">🟠 Open since ' + _wipAgeLabel(_ageMin) + '</span></div>';
         } else {
           badge = '<div style="margin-top:4px;"><span style="font-size:10px;font-weight:600;color:#185fa5;background:rgba(55,138,221,0.12);padding:2px 6px;border-radius:6px;">'+tr('inProgress')+'</span></div>';
         }
