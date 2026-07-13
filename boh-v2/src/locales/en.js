@@ -16,4 +16,12 @@ export const en = {
   'auth.connection_error': 'Unable to connect. Try again.',
   'auth.welcome':          'Welcome, {name}',
   'auth.ready':            'Your BOH OS session is ready.',
+
+  // ── Navigation ──────────────────────────────────────────────────────
+  'nav.primary':  'Primary navigation',
+  'nav.home':     'Home',
+  'nav.prep':     'Prep',
+  'nav.recipes':  'Recipes',
+  'nav.chat':     'Chat',
+  'nav.schedule': 'Schedule',
 };

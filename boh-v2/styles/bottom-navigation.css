@@ -1,0 +1,96 @@
+/* BOH OS v2 — Bottom Navigation
+   Task 003B: Station Mode mobile bottom navigation.
+   Primary target: iPhone portrait.
+   All values use tokens from tokens.css.
+   No new color tokens. No !important. No inline styles.
+   ------------------------------------------------------------------ */
+
+/* ── Nav bar ─────────────────────────────────────────────────────────
+   Sticks to the bottom of the App Shell (.app-shell uses flex-column).
+   Accounts for iPhone home-indicator safe area.                       */
+.bottom-nav {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  /* Safe area padding at the bottom for iPhone home indicator. */
+  padding-bottom: var(--safe-bottom);
+  /* Prevent the bar from shrinking when main content is tall. */
+  flex-shrink: 0;
+  /* Keep the bar on top of page content when scrolling. */
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  /* Full width of the shell. */
+  width: 100%;
+}
+
+/* ── Individual item (button) ────────────────────────────────────────
+   Five equal-width items. Stack icon above label.
+   Touch target: minimum 44 × 44 px (Apple HIG).                      */
+.bottom-nav__item {
+  /* Equal width: each item takes 1/5 of the bar. */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  /* Minimum touch target height (Apple HIG). */
+  min-height: 56px;
+  padding: var(--sp-2) var(--sp-1);
+  /* Reset button defaults. */
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  /* Default (inactive, enabled) color. */
+  color: var(--text-secondary);
+  /* Smooth color transition for state changes. */
+  transition: color 0.15s ease;
+}
+
+/* ── Active state ────────────────────────────────────────────────────
+   Applied via aria-current="page".                                    */
+.bottom-nav__item[aria-current="page"] {
+  color: var(--accent);
+}
+
+/* ── Disabled state ──────────────────────────────────────────────────
+   Native disabled attribute — items are not interactive.              */
+.bottom-nav__item:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+/* ── Focus-visible ───────────────────────────────────────────────────
+   Clear keyboard focus ring that respects the accent color.           */
+.bottom-nav__item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--r-sm);
+}
+
+/* ── Icon ────────────────────────────────────────────────────────────
+   Unicode character displayed above the label.
+   Hidden from assistive technology via aria-hidden on the element.    */
+.bottom-nav__icon {
+  font-size: 20px;
+  line-height: 1;
+  /* Prevent icon from taking extra space. */
+  display: block;
+}
+
+/* ── Label ───────────────────────────────────────────────────────────
+   Short text below the icon. Clamps to one line on narrow screens.    */
+.bottom-nav__label {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  letter-spacing: 0.01em;
+}

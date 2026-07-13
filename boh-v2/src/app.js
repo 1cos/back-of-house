@@ -1,5 +1,6 @@
 // BOH OS v2 — app bootstrap
 // Task 003A: authenticated App Shell replaces login screen on success.
+// Task 003B: mounts bottom navigation inside the shell nav mount target.
 // No global state. No window writes. No storage APIs.
 
 import { t } from './core/i18n.js';
@@ -8,6 +9,7 @@ import { authenticateWithPin } from './services/auth-service.js';
 import { setCurrentUser, getCurrentUser } from './core/app-state.js';
 import { router } from './core/router.js';
 import { createAppShell } from './components/app-shell/app-shell.js';
+import { createBottomNavigation } from './components/navigation/bottom-navigation.js';
 
 const root = document.getElementById('app');
 
@@ -59,10 +61,10 @@ renderLogin();
 
 // ── DOM references ────────────────────────────────────────────────────
 
-function getPinInput()  { return root.querySelector('#pin-input');    }
-function getPinSubmit() { return root.querySelector('#pin-submit');   }
-function getErrorEl()   { return root.querySelector('.login-error');  }
-function getDot()       { return root.querySelector('.status-dot');   }
+function getPinInput()  { return root.querySelector('#pin-input');   }
+function getPinSubmit() { return root.querySelector('#pin-submit');  }
+function getErrorEl()   { return root.querySelector('.login-error'); }
+function getDot()       { return root.querySelector('.status-dot');  }
 
 // Track in-flight submission to prevent duplicates.
 let submitting = false;
@@ -81,10 +83,25 @@ checkSupabaseConnection().then((result) => {
   }
 });
 
+// ── Navigation item definitions ───────────────────────────────────────
+// Icons use Unicode characters — no external library.
+// Label and aria-label text comes from en.js via t().
+
+function navItems() {
+  return [
+    { id: 'home',     label: t('nav.home'),     icon: '\u2302', disabled: false },
+    { id: 'prep',     label: t('nav.prep'),     icon: '\u29d6', disabled: true  },
+    { id: 'recipes',  label: t('nav.recipes'),  icon: '\u2318', disabled: true  },
+    { id: 'chat',     label: t('nav.chat'),     icon: '\u2709', disabled: true  },
+    { id: 'schedule', label: t('nav.schedule'), icon: '\u25a6', disabled: true  },
+  ];
+}
+
 // ── Shell transition ──────────────────────────────────────────────────
 // Called exactly once after a successful login.
 // Replaces the login screen with the App Shell.
 // Initializes the router against the new #app-content outlet.
+// Mounts the bottom navigation once into the shell nav mount target.
 
 function mountShell(user) {
   const shell = createAppShell({
@@ -109,6 +126,28 @@ function mountShell(user) {
   `);
 
   router.navigate('station-home');
+
+  // ── Mount bottom navigation ─────────────────────────────────────────
+  // The nav goes into .app-shell__nav-mount, not inside #app-content.
+  const navMount = root.querySelector('.app-shell__nav-mount');
+
+  // Build items array; attach the aria-label as a side-channel property.
+  // The component reads _navLabel off the array to set aria-label on <nav>.
+  const items = navItems();
+  items._navLabel = t('nav.primary');
+
+  const nav = createBottomNavigation({
+    items,
+    activeItem: 'home',
+    onSelect: (id) => {
+      if (id === 'home') {
+        router.navigate('station-home');
+      }
+      // Disabled items do not call onSelect (enforced in the component).
+    },
+  });
+
+  navMount.appendChild(nav);
 }
 
 // ── PIN submission logic ───────────────────────────────────────────────
