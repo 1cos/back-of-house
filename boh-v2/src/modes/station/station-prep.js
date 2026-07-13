@@ -2,6 +2,7 @@
 // Task 004B: read-only list of active prep tasks for the user's station.
 // Task 004D: merges bot suggestions into each task row.
 // Task 004E: adds data-suggestion-status attribute for CSS styling.
+// Task 004F: operational sorting by suggestion priority then name ascending.
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
 
@@ -68,6 +69,69 @@ function suggestionStatusAttr(status) {
   }
 }
 
+// ── Operational sorting ───────────────────────────────────────────────
+
+/**
+ * Returns the numeric sort priority for a raw suggestion status.
+ * Lower number = higher in the list.
+ * In-progress override is applied at the comparator level, not here.
+ *
+ * @param {string|null|undefined} status
+ * @returns {number}
+ */
+function suggestionPriority(status) {
+  switch (status) {
+    case 'DO_FIRST':          return 1;
+    case 'PREP_TODAY':        return 2;
+    case 'DO_TODAY':          return 3;
+    case 'COUNT_FIRST':       return 4;
+    case 'VERIFY':            return 5;
+    case 'UNAVAILABLE':       return 6;
+    // missing / unknown
+    default:                  return 7;
+    case 'LOOKS_OK':
+    case 'LOOKS_GOOD':        return 8;
+    case 'DEFER_TO_TOMORROW': return 9;
+    case 'DEFER':             return 10;
+  }
+}
+
+/**
+ * Returns a sorted copy of the tasks array using operational kitchen order.
+ * Does not mutate the original array or the suggestions object.
+ *
+ * Sort key (primary to tertiary):
+ *   1. inProgress === true → always last
+ *   2. suggestion priority (numeric, lower = higher)
+ *   3. task name ascending, case-insensitive
+ *
+ * @param {Array<object>} tasks
+ * @param {Object} suggestionsMap  — keyed by task.id
+ * @returns {Array<object>}
+ */
+function sortedTasks(tasks, suggestionsMap) {
+  return tasks.slice().sort((a, b) => {
+    // In-progress tasks always sink to the bottom.
+    const aInProgress = a.inProgress === true;
+    const bInProgress = b.inProgress === true;
+    if (aInProgress !== bInProgress) {
+      return aInProgress ? 1 : -1;
+    }
+
+    // Within the same in-progress bucket, sort by suggestion priority.
+    const aSuggestion = suggestionsMap[a.id] ?? null;
+    const bSuggestion = suggestionsMap[b.id] ?? null;
+    const aPriority = suggestionPriority(aSuggestion ? aSuggestion.status : null);
+    const bPriority = suggestionPriority(bSuggestion ? bSuggestion.status : null);
+    if (aPriority !== bPriority) {
+      return aPriority - bPriority;
+    }
+
+    // Tie-break: task name ascending, case-insensitive.
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  });
+}
+
 // ── Task row builder ──────────────────────────────────────────────────
 
 /**
@@ -91,8 +155,6 @@ function buildTaskRow(task, suggestion, translate) {
   const rawStatus = suggestion ? suggestion.status : null;
   const botStatusEl = document.createElement('span');
   botStatusEl.className = 'station-prep__task-bot-status';
-  // data-suggestion-status drives CSS styling; derived from the same
-  // switch as the translation key — never from the visible label text.
   botStatusEl.dataset.suggestionStatus = suggestionStatusAttr(rawStatus);
   botStatusEl.textContent = translate(suggestionStatusKey(rawStatus));
 
@@ -222,7 +284,10 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
       const list = document.createElement('ul');
       list.className = 'station-prep__list';
 
-      for (const task of taskResult.tasks) {
+      // Sort into operational kitchen order without mutating the originals.
+      const ordered = sortedTasks(taskResult.tasks, suggestionsMap);
+
+      for (const task of ordered) {
         const suggestion = suggestionsMap[task.id] ?? null;
         list.appendChild(buildTaskRow(task, suggestion, translate));
       }
