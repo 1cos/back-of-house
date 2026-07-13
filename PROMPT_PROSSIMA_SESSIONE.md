@@ -1368,3 +1368,155 @@ Per salse Chef-approved con shelf_life_days >= 4:
 
 La prossima prep nel gap CONSTRAINT_MISSING da decidere con Max.
 
+
+
+---
+
+## Sessione 13 lug 2026 (continuazione) — Saucier Production Cadence v3
+
+### Pseudocode approvato — pronto per deploy prossima sessione
+
+**SAUCIER PRODUCTION CADENCE v3 — policy approvata da Max 13/07/2026**
+
+#### Costanti
+
+```
+BUFFER = 1.10
+
+CADENCE:
+  shelf_life_days >= 4  →  TWICE_WEEKLY
+  shelf_life_days <  4  →  THREE_TIMES_WEEKLY
+
+COVER_DOWS (TWICE_WEEKLY):
+  Mon → [Mon, Tue, Wed, Thu]   (4 service days)
+  Tue → [Tue, Wed, Thu]        (3 service days)
+  Thu → [Thu, Fri, Sat]        (3 service days)
+  Fri → [Fri, Sat]             (2 service days)
+
+COVER_DOWS (THREE_TIMES_WEEKLY):
+  Mon → [Mon, Tue]
+  Wed → [Wed, Thu]
+  Fri → [Fri, Sat]
+
+SHORTAGE_COVER_DOWS (TWICE_WEEKLY):
+  Wed → [Wed, Thu]
+  Sat → [Sat]
+
+SHORTAGE_COVER_DOWS (THREE_TIMES_WEEKLY):
+  Tue → [Tue], Thu → [Thu], Sat → [Sat]
+```
+
+#### Formula core
+
+```
+required_until_next = SUM(dow_avg[d] FOR d IN cover_dows) × 1.10
+shortage_ratio      = current_stock / required_until_next
+net_requirement     = MAX(required_until_next - current_stock, 0)
+planned_output      = CEIL(net_requirement / min_increment) × min_increment
+
+shortage_ratio < 1.0  → produzione necessaria
+shortage_ratio >= 1.0 → looks_ok
+```
+
+#### Stati output
+
+| Status | Significato | Task |
+|---|---|---|
+| `prep_today` | shortage_ratio < 1.0 in finestra | ✅ |
+| `do_first` | shortage override (fuori finestra, stock esaurito) | ✅ |
+| `defer_to_tomorrow` | stock regge oggi, bot ricalcola domani con dati reali | ❌ |
+| `looks_ok` | stock sufficiente | ❌ |
+| `count_first` | current_stock NULL | ❌ |
+| `no_demand_path` | nessuna deduction storica | ❌ |
+
+**`defer_to_tomorrow`**: il bot non crea task. Domani ricalcola con stock reale aggiornato. Non è un impegno definitivo — è "ricontrolla domani".
+
+#### Logica first_day (TWICE_WEEKLY)
+
+```
+shortage_ratio < 1.0 → prep_today
+
+shortage_ratio >= 1.0 → controlla se lo stock regge fino al second_day:
+  cost_today    = dow_avg[today_dow]
+  stock_eod     = current_stock - cost_today
+  req_from_tomorrow = required_until_next(COVER_DOWS[tomorrow_dow]) × 1.10
+  IF stock_eod >= req_from_tomorrow → defer_to_tomorrow
+  ELSE                              → prep_today
+```
+
+#### Shortage override
+
+```
+Fuori finestra (Wed/Sat per TWICE_WEEKLY):
+  - se net_req > 0 → do_first, ma copre SOLO fino alla prossima finestra normale
+  - non usare target fisso di 2 giorni
+  Esempio: Arrabbiata finisce mercoledì →
+    cover_dows = [Wed, Thu] → produce mercoledì per coprire mer+gio
+    giovedì rientra in finestra B normale
+```
+
+#### Confidence + stock non verificato
+
+```
+stock_source = 'db_snapshot_unverified':
+  shortage_ratio < 1.05  → confidence LOW + flag_recount=TRUE
+                            (mostra "Verifica stock prima di produrre")
+  shortage_ratio >= 1.05 → demote di un livello (high→medium, medium→low)
+
+stock_source = 'prep_stock_counts':
+  confidence da sample_count (>=4 high, >=2 medium, else low)
+```
+
+#### Demand: avg_by_dow
+
+```
+- Calcolo runtime da stock_deductions (no nuova colonna in prep_tasks)
+- Raggruppa per DOW, calcola media per DOW
+- Fallback a global_avg se un DOW non ha campioni
+- Salvato in debug_json: dow_avg, dow_sample_counts, history_start, history_end
+```
+
+#### rank_station (distribuzione carico)
+
+```
+- Ordina per shortage_ratio ASC (più urgente prima)
+- today_group:    status IN (prep_today, do_first)
+- deferred_group: status == defer_to_tomorrow
+- Controllo sicurezza: se stock_eod < 0 → promuovi deferred a today
+- Output: { today: [...], deferred: [...], ok: [...] }
+```
+
+#### Esempio verificabile — Lunedì (dati reali)
+
+```
+Arrabbiata (pt 233) — stock=0g — shortage_ratio=0.00
+  cover [Mon,Tue,Wed,Thu]: required = (4063+4800+4363+5394)×1.10 = 20.482g
+  net_req=20.482 → batches=CEIL(20.482/3150)=7 → planned=22.050g
+  → prep_today / LOW / flag_recount=TRUE
+
+Pomodoro (pt 304) — stock=13.400g — shortage_ratio=0.996
+  cover [Mon,Tue,Wed,Thu]: required = (3363+2838+2675+3350)×1.10 = 13.448g
+  shortage_ratio=0.996 < 1.0 → sarebbe prep_today
+  BUT first_day check:
+    stock_eod = 13.400 - 3.363 = 10.037g
+    req_from_tue = (2838+2675+3350)×1.10 = 9.749g
+    10.037 >= 9.749 → defer_to_tomorrow
+
+OUTPUT lunedì:
+  OGGI:   Arrabbiata  7 latte / 22.050g  [LOW, verifica stock]
+  DOMANI: Pomodoro    —                  [ricalcola martedì]
+```
+
+#### Tre punti già risolti nel pseudocode (no decisioni Max)
+
+1. `THREE_TIMES_WEEKLY` non ha `defer_to_tomorrow` — first_day unico, shortage_ratio >= 1.0 → looks_ok diretto.
+2. `stock_eod` usa `dow_avg[today_dow]` come proxy — approssimazione consapevole. Bot di domani usa dato reale.
+3. `flag_recount` è nota aggiuntiva nel reason, non blocca la suggestion.
+
+#### Prossima sessione: deploy
+
+Implementare `cadence_suggestion` + `avg_by_dow` + `rank_station` in `bot-prep-suggester`.
+Non toccare CONSTRAINT_OVERRIDES esistenti (già corretti per Arrabbiata e Pomodoro).
+Non modificare UI o cron legacy.
+Testare con run LAB su prep_task_ids=[233, 304] prima di full run.
+
