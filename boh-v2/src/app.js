@@ -131,14 +131,10 @@ function mountShell(user) {
   // The nav goes into .app-shell__nav-mount, not inside #app-content.
   const navMount = root.querySelector('.app-shell__nav-mount');
 
-  // Build items array; attach the aria-label as a side-channel property.
-  // The component reads _navLabel off the array to set aria-label on <nav>.
-  const items = navItems();
-  items._navLabel = t('nav.primary');
-
   const nav = createBottomNavigation({
-    items,
+    items:      navItems(),
     activeItem: 'home',
+    navLabel:   t('nav.primary'),
     onSelect: (id) => {
       if (id === 'home') {
         router.navigate('station-home');

@@ -9,15 +9,18 @@
  * @param {{
  *   items:      Array<{ id: string, label: string, icon: string, disabled: boolean }>,
  *   activeItem: string,
- *   onSelect:   (id: string) => void
+ *   onSelect:   (id: string) => void,
+ *   navLabel:   string
  * }} options
  * @returns {HTMLElement}
  */
-export function createBottomNavigation({ items, activeItem, onSelect }) {
+export function createBottomNavigation({ items, activeItem, onSelect, navLabel }) {
   // ── Root: semantic nav ───────────────────────────────────────────────
   const nav = document.createElement('nav');
   nav.className = 'bottom-nav';
-  nav.setAttribute('aria-label', items._navLabel || '');
+  // navLabel is supplied by the caller as a pre-translated string.
+  // Fall back to empty string if missing or not a string — do not throw.
+  nav.setAttribute('aria-label', typeof navLabel === 'string' ? navLabel : '');
 
   // ── Items ────────────────────────────────────────────────────────────
   for (const item of items) {
