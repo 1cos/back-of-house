@@ -14,7 +14,9 @@ At the start of a new session, before writing any code:
 
 ## Current state summary
 
-Sprint 004 (Station Prep) is **complete**. The Station Prep page is live and functional:
+Foundation, login, App Shell, Station navigation, Station Home, and Station Prep Tasks 004A through 004G are complete.
+
+The Station Prep page is live and functional:
 
 - Loads active prep tasks for the user's default station from `prep_tasks`.
 - Loads bot suggestions from `prep_suggestions_daily` (two-phase paginated query, valid run ≥ 50 rows, last 7 days).
@@ -26,6 +28,14 @@ Sprint 004 (Station Prep) is **complete**. The Station Prep page is live and fun
 - Empty sections not rendered.
 
 Recipes, Chat, and Schedule are still scaffold placeholders.
+
+---
+
+## Next action
+
+Wait for **Task 004H — Station Prep Collapsible Task Detail**.
+
+Do not begin Sprint 005 or Station Recipes until Task 004H is completed and approved.
 
 ---
 
@@ -66,42 +76,6 @@ Before any task:
 
 ---
 
-## What to build next
-
-The natural continuation is **Sprint 005 — Station Recipes**.
-
-Suggested task sequence:
-
-### 005A — Recipe Read Service
-Create `boh-v2/src/services/station-recipe-service.js`.
-
-- Export `fetchStationRecipes(stationName)`.
-- Query `recipes` table filtered by station or category relevant to the user's station.
-- Return `{ ok: true, recipes: [...] }` or `{ ok: false, reason: 'CONNECTION_ERROR', recipes: [] }`.
-- Fields: `id`, `name`, `category`, `procedure_en`, `recipe_id` (or equivalent key fields).
-- Read-only. No writes. No mock data.
-
-### 005B — Station Recipes Page
-Create `boh-v2/src/modes/station/station-recipes.js` and `boh-v2/styles/station-recipes.css`.
-
-- Replace the Recipes scaffold placeholder with a real read-only recipe list.
-- Component API: `createStationRecipes({ stationName, translate, fetchRecipes })`.
-- Show: recipe name, category.
-- Page states: loading, success, empty, error, station not assigned.
-- Async safety via `isConnected`.
-
-### 005C — Recipe Detail View
-Expand the Recipes page to show recipe steps when a recipe is tapped.
-
-- Read `recipe_steps` for the selected `recipe_id`.
-- Steps contain technique only (no quantities — quantities live in `recipe_bom`).
-- No BOM display in this sprint.
-
-### Alternative: Sprint 005 — Chat (Tell Chef)
-If Recipes is deprioritised, the next sprint could be **Station Chat** — the Tell Chef input that creates entries in the `tell_chef_reports` table (the only write operation in the app so far).
-
----
-
 ## Key database tables referenced so far
 
 | Table | Used by |
@@ -134,8 +108,6 @@ Existing namespaces:
 - `nav.*` — bottom navigation
 - `station_home.*` — Station Home page
 - `station_prep.*` — Station Prep page
-
-Next namespace to add: `station_recipes.*`
 
 All keys go in `boh-v2/src/locales/en.js`. No Italian or Spanish in boh-v2 (multilingual support deferred).
 

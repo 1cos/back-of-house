@@ -12,6 +12,27 @@ The Station Prep page is fully functional: it loads tasks and bot suggestions, m
 
 ---
 
+## Next Task
+
+**Task 004H — Station Prep Collapsible Task Detail**
+
+Scope:
+
+- Keep the existing Station Prep sectioned list.
+- Allow one prep task row to expand and collapse.
+- Display only suggestion data already loaded by the page.
+- Do not add a database query.
+- Do not add writes.
+- Do not add Start.
+- Do not add Done.
+- Do not add Count.
+- Do not add Recipe navigation.
+- Do not begin Station Recipes.
+
+Sprint 005 (Station Recipes) does not begin until Task 004H is completed and approved.
+
+---
+
 ## Completed Tasks
 
 | Task | Description | Commit |
