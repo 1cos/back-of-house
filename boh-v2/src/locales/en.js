@@ -59,4 +59,14 @@ export const en = {
   'station_prep.section_check':       'Check',
   'station_prep.section_looks_good':  'Looks good',
   'station_prep.section_in_progress': 'In progress',
+
+  // ── Station Prep — Collapsible detail (Task 004H) ────────────────────
+  'station_prep.expand_details':     'Show details for {name}',
+  'station_prep.collapse_details':   'Hide details for {name}',
+  'station_prep.detail_prepare_today':  'Prepare today',
+  'station_prep.detail_recorded_stock': 'Recorded stock',
+  'station_prep.detail_why':            'Why',
+  'station_prep.detail_not_available':  'Not available',
+  'station_prep.detail_not_recorded':   'Not recorded',
+  'station_prep.detail_no_explanation': 'No explanation available',
 };
