@@ -308,6 +308,91 @@ function buildShell(title, category, pills, botPill, tabs){
 }
 
 // ── STEP RENDERER (condiviso tra recipe_steps e prep_steps) ──
+// ── v624: CHEF AI STEP 1 — mostra dati già calcolati da prep_suggestions_daily ──
+// Non inventa numeri, non fa previsioni, non parla di "copertura fino a venerdì".
+// Solo i campi strutturati già presenti nel DB.
+function buildChefAiStep1Block(prepSugg, prepTask) {
+  // Non mostrare se non c'è sugg e non c'è nemmeno suggested_qty legacy
+  if (!prepSugg && !(prepTask && prepTask.suggested_qty)) return '';
+
+  const unit = (prepSugg && prepSugg.output_unit) || (prepTask && prepTask.unit) || '';
+  const lang = window.lang || 'en';
+
+  function fmtVal(val, u) {
+    if (val === null || val === undefined) return '—';
+    const n = parseFloat(val);
+    if (isNaN(n)) return '—';
+    const ul = (u || '').toLowerCase();
+    if (ul === 'g') {
+      if (n >= 1000) return (n/1000).toLocaleString('it-IT',{maximumFractionDigits:1}) + ' kg';
+      return Math.round(n) + ' g';
+    }
+    if (['pezzi','pz'].includes(ul)) return Math.round(n) + ' ' + (n===1?'pezzo':'pezzi');
+    if (ul === 'kg') return n.toLocaleString('it-IT',{maximumFractionDigits:1}) + ' kg';
+    return n + (u ? ' ' + u : '');
+  }
+
+  let rows = [];
+
+  if (prepSugg) {
+    // Fonte strutturata: prep_suggestions_daily
+    const stockVal = fmtVal(prepSugg.current_stock, unit);
+    const forecastVal = prepSugg.forecast ? fmtVal(prepSugg.forecast, unit) : null;
+    const netVal = fmtVal(prepSugg.net_requirement, unit);
+    const plannedVal = prepSugg.planned_output != null ? fmtVal(prepSugg.planned_output, unit) : fmtVal(prepSugg.net_requirement, unit);
+
+    rows.push(['Stock stimato', stockVal]);
+    if (forecastVal) rows.push(['Consumo previsto', forecastVal]);
+    rows.push(['Fabbisogno finestra', netVal]);
+    rows.push(['Quantità suggerita', '<strong>' + plannedVal + '</strong>']);
+
+    // Avviso batch conflicting/missing
+    const isBatchUncertain = prepSugg.confidence === 'conflicting' || prepSugg.confidence === 'missing';
+    const batchNote = isBatchUncertain
+      ? '<div style="margin-top:8px;font-size:12px;color:#854f0b;background:#fef3c7;border-radius:8px;padding:8px 10px;">La quantità necessaria è stimata, ma la ricetta non può ancora essere scalata automaticamente.</div>'
+      : '';
+
+    const rowsHtml = rows.map(([label, val]) =>
+      `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
+        <span style="color:#94a3b8;">${label}</span>
+        <span style="color:#1e3a5f;">${val}</span>
+      </div>`
+    ).join('<div style="height:1px;background:#f1f5f9;margin:0;"></div>');
+
+    const prepTaskId = prepTask && prepTask.id;
+    return `<div style="margin:12px 16px 0;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #bfdbfe;border-radius:14px;padding:14px 14px 12px;">
+      <div style="font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:0.6px;margin-bottom:10px;">👨‍🍳 CHEF AI</div>
+      ${rowsHtml}
+      ${batchNote}
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button onclick="document.getElementById('rmOverlay')?.querySelector('.rm-tab[data-tab=\'ingredients\']')?.click()" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:700;background:#1e3a5f;color:#fff;border:none;cursor:pointer;">Apri ricetta</button>
+        <button onclick="document.getElementById('rmOverlay')?.remove();setTimeout(()=>window.segnalaChef&&window.segnalaChef(${JSON.stringify(prepTaskId)}),100)" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:600;color:#64748b;background:#f1f5f9;border:none;cursor:pointer;">Segnala problema</button>
+      </div>
+    </div>`;
+
+  } else if (prepTask && prepTask.suggested_qty) {
+    // Fallback legacy: solo suggested_qty (bot-preplist-builder)
+    const sqVal = fmtVal(prepTask.suggested_qty, unit);
+    const stockVal = fmtVal(prepTask.current_stock, unit);
+    return `<div style="margin:12px 16px 0;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #bfdbfe;border-radius:14px;padding:14px 14px 12px;">
+      <div style="font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:0.6px;margin-bottom:10px;">👨‍🍳 CHEF AI</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
+        <span style="color:#94a3b8;">Stock stimato</span><span style="color:#1e3a5f;">${stockVal}</span>
+      </div>
+      <div style="height:1px;background:#f1f5f9;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
+        <span style="color:#94a3b8;">Quantità suggerita</span><span style="color:#1e3a5f;"><strong>${sqVal}</strong></span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button onclick="document.getElementById('rmOverlay')?.querySelector('.rm-tab[data-tab=\'ingredients\']')?.click()" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:700;background:#1e3a5f;color:#fff;border:none;cursor:pointer;">Apri ricetta</button>
+        <button onclick="document.getElementById('rmOverlay')?.remove();setTimeout(()=>window.segnalaChef&&window.segnalaChef(${JSON.stringify(prepTask.id)}),100)" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:600;color:#64748b;background:#f1f5f9;border:none;cursor:pointer;">Segnala problema</button>
+      </div>
+    </div>`;
+  }
+
+  return '';
+}
+
 function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal, bomRows, scaleFactor){
   if(!steps||steps.length===0) return `<div class="rm-empty"><div class="rm-empty-icon">👨‍🍳</div>${t('noSteps')}</div>`;
   const step=steps[currentStep];
@@ -470,6 +555,20 @@ window.recipeModal={
       prepTask=pt;
     }
 
+    // ── v624: Carica prep_suggestions_daily per Chef AI Step 1 (non bloccante)
+    let prepSugg=null;
+    if(prepTaskId){
+      try{
+        const{data:sd}=await supa.from('prep_suggestions_daily')
+          .select('status,confidence,net_requirement,planned_output,output_unit,current_stock,forecast,coverage_days,demand_source,debug_json')
+          .eq('prep_task_id',prepTaskId)
+          .order('target_date',{ascending:false})
+          .limit(1)
+          .maybeSingle();
+        prepSugg=sd||null;
+      }catch(e){}
+    }
+
     // ── Carica prep_steps (per task senza ricetta o con steps operativi)
     let prepSteps=[];
     if(prepTaskId){
@@ -546,6 +645,8 @@ window.recipeModal={
 
       overlay.innerHTML=buildShell(title,category,pills,botPill,tabs);
       document.body.appendChild(overlay);
+      // v624: Chef AI Step 1 — inietta blocco dati sopra il body del modal
+      {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}}
       overlay.addEventListener('click',e=>{if(e.target===overlay)closeFn();});
 
       // bot pill → salta a ingredienti con porzioni suggerite
@@ -640,6 +741,8 @@ window.recipeModal={
       }
       overlay.innerHTML=buildShell(title,category,pills,botPill,[]);
       document.body.appendChild(overlay);
+      // v624: Chef AI Step 1
+      {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}}
       overlay.addEventListener('click',e=>{if(e.target===overlay)closeFn();});
       overlay.querySelector('.rm-close').addEventListener('click',closeFn);
 
@@ -654,6 +757,8 @@ window.recipeModal={
     // ── MODALITÀ 3 & 4: Nota semplice o bare ──────────
     overlay.innerHTML=buildShell(title,category,pills,botPill,[]);
     document.body.appendChild(overlay);
+    // v624: Chef AI Step 1
+    {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}}
     overlay.addEventListener('click',e=>{if(e.target===overlay)closeFn();});
     overlay.querySelector('.rm-close').addEventListener('click',closeFn);
 

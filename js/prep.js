@@ -41,6 +41,240 @@ window._taskStep = {};
 window._taskStepTotal = {};
 var _startTimes = {}; // traccia quando il cuoco ha premuto START per ogni task
 
+// ─────────────────────────────────────────────────────────────────────────────
+// v624 — PREP REMINDER SYSTEM
+// Fonte autorevole: prep_tasks.in_progress_at (DB, persistente tra sessioni)
+// _startTimes è il fallback locale per la sessione corrente
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Calcola quante ore fa è stato premuto START per una prep
+function _wipAgeMinutes(task) {
+  // 1. Fonte preferita: in_progress_at dal DB
+  const ts = task.in_progress_at || (_startTimes[task.id] && _startTimes[task.id].toISOString());
+  if (!ts) return null;
+  const startMs = new Date(ts).getTime();
+  if (isNaN(startMs)) return null;
+  return Math.round((Date.now() - startMs) / 60000);
+}
+
+// Ritorna testo human-readable dell'età: "1h 12m", "3h", "2 giorni"
+function _wipAgeLabel(minutes) {
+  if (minutes === null) return null;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return m + 'm';
+  if (h < 24) return h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
+  const d = Math.floor(h / 24);
+  return d + (d === 1 ? ' giorno' : ' giorni');
+}
+
+// Giorno operativo: Zenos apre alle 11:00 CDT, considera "giorno precedente"
+// se la prep è stata avviata prima delle 11:00 CDT di oggi
+function _isPrevShift(task) {
+  const ts = task.in_progress_at || (_startTimes[task.id] && _startTimes[task.id].toISOString());
+  if (!ts) return false; // in_progress_at NULL → legacy zombie, gestito separatamente
+  const startMs = new Date(ts).getTime();
+  if (isNaN(startMs)) return false;
+  const ageMin = (Date.now() - startMs) / 60000;
+  return ageMin >= 8 * 60; // 8 ore = sicuramente turno precedente
+}
+
+// Banner "N prep ancora aperte dal turno precedente" — un solo elemento in cima
+function _checkAndShowWipBanner() {
+  const existing = document.getElementById('v624WipBanner');
+  if (existing) existing.remove();
+
+  const allTasks = Object.values(window.tasks || {});
+  const prevShiftWips = allTasks.filter(t =>
+    t.in_progress &&
+    !t.archived &&
+    t.prep_type !== 'checklist' &&
+    _isPrevShift(t)
+  );
+  // Legacy zombies: in_progress=true ma in_progress_at=NULL
+  const legacyWips = allTasks.filter(t =>
+    t.in_progress &&
+    !t.archived &&
+    t.prep_type !== 'checklist' &&
+    !t.in_progress_at &&
+    !(_startTimes[t.id]) // non è una sessione corrente
+  );
+
+  const totalWarning = prevShiftWips.length + legacyWips.length;
+  if (totalWarning === 0) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'v624WipBanner';
+  banner.style.cssText = 'position:sticky;top:0;z-index:50;background:#fff7ed;border-bottom:1.5px solid #fb923c;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px;';
+
+  const countText = totalWarning === 1
+    ? '1 prep aperta dal turno precedente'
+    : totalWarning + ' prep aperte dal turno precedente';
+
+  banner.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:18px;">🟠</span>
+      <span style="font-size:13px;font-weight:700;color:#9a3412;">${countText}</span>
+    </div>
+    <button onclick="document.getElementById('v624WipBanner').remove()" style="font-size:12px;color:#9a3412;background:none;border:none;padding:4px 8px;font-weight:600;cursor:pointer;">OK</button>`;
+
+  // Inserisci sopra la grid prep
+  const grid = document.getElementById('prepGrid') || document.getElementById('prep-grid');
+  if (grid && grid.parentNode) {
+    grid.parentNode.insertBefore(banner, grid);
+  }
+}
+
+// Avvia il tick ogni 60s per aggiornare i badge in-progress
+let _wipTickInterval = null;
+function _startWipTick() {
+  if (_wipTickInterval) return;
+  _wipTickInterval = setInterval(() => {
+    const hasWip = Object.values(window.tasks || {}).some(t => t.in_progress && t.prep_type !== 'checklist');
+    if (hasWip) renderM();
+  }, 60000);
+}
+
+// Sheet "Prep ereditata dal turno" — una alla volta, aperta dal cuoco
+window._showWipResolutionSheet = function(id) {
+  const it = (window.tasks || {})[id];
+  if (!it) return;
+
+  const existing = document.getElementById('v624WipSheet');
+  if (existing) existing.remove();
+
+  const ageMin = _wipAgeMinutes(it);
+  const ageStr = ageMin !== null ? _wipAgeLabel(ageMin) : null;
+  const startedBy = it.in_progress_by || null;
+  const startedAt = it.in_progress_at
+    ? new Date(it.in_progress_at).toLocaleString('it-IT', {
+        hour: '2-digit', minute: '2-digit',
+        day: '2-digit', month: 'short',
+        timeZone: 'America/Chicago'
+      })
+    : null;
+
+  const isLegacy = !it.in_progress_at;
+
+  // Riga info turno
+  let infoLine = '';
+  if (isLegacy) {
+    infoLine = `<div style="background:#fef3c7;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#92400e;">
+      ⚠️ Prep aperta — orario di inizio non disponibile (sessione precedente all'aggiornamento)
+    </div>`;
+  } else {
+    const byStr = startedBy ? ` · ${startedBy}` : '';
+    const atStr = startedAt ? ` · ${startedAt}` : '';
+    infoLine = `<div style="background:#fff7ed;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#9a3412;">
+      🟠 Aperta${byStr}${atStr}${ageStr ? ' · ' + ageStr + ' fa' : ''}
+    </div>`;
+  }
+
+  const sheet = document.createElement('div');
+  sheet.id = 'v624WipSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(15,23,42,0.5);display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;';
+
+  sheet.innerHTML = `
+    <div style="width:100%;max-width:448px;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 32px rgba(30,58,95,0.18);padding:22px 16px 40px;">
+      <div style="font-size:13px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Prep · ${it.name}</div>
+      ${infoLine}
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button id="wipDoneBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:15px;font-weight:700;color:#fff;background:#059669;border:none;cursor:pointer;">✅ Ho finito</button>
+        <button id="wipContinueBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:15px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">▶ Continua</button>
+        <button id="wipPassBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:15px;font-weight:600;color:#1e40af;background:#eff6ff;border:none;cursor:pointer;">🔁 Passa al turno</button>
+        ${isLegacy ? '<button id="wipNotWipBtn" style="text-align:left;padding:14px 16px;border-radius:14px;font-size:14px;font-weight:600;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;cursor:pointer;">✖ Non è in lavorazione</button>' : ''}
+      </div>
+    </div>`;
+
+  // Backdrop
+  sheet.addEventListener('click', e => { if (e.target === sheet) sheet.remove(); });
+  document.body.appendChild(sheet);
+
+  // HO FINITO → flusso DONE normale
+  document.getElementById('wipDoneBtn').addEventListener('click', () => {
+    sheet.remove();
+    if (typeof window.prepDone === 'function') window.prepDone(id);
+  });
+
+  // CONTINUA → chiude sheet; se stato legacy (in_progress_at=NULL) regolarizza il timestamp
+  document.getElementById('wipContinueBtn').addEventListener('click', async () => {
+    sheet.remove();
+    if (isLegacy) {
+      // Regolarizza lo stato: scrive in_progress_at + in_progress_by, NO nuovo prep_log
+      const _now = new Date().toISOString();
+      const _uname = (window.user && window.user.name) || null;
+      const { error } = await supa.from('prep_tasks').update({
+        in_progress:    true,
+        in_progress_at: _now,
+        in_progress_by: _uname
+      }).eq('id', id);
+      if (!error) {
+        tasks[id].in_progress_at = _now;
+        tasks[id].in_progress_by = _uname;
+        _startTimes[id] = new Date(_now);
+        renderM();
+      }
+    }
+  });
+
+  // PASSA AL TURNO → segnala in chef_reports + office_items, prep resta in_progress
+  document.getElementById('wipPassBtn').addEventListener('click', async () => {
+    const u = window.user || {};
+    const byStr = startedBy ? startedBy : 'cuoco precedente';
+    const atStr = startedAt ? ' alle ' + startedAt : '';
+    const passedBy = u.name || 'Unknown';
+    const msg = '[' + it.name + '] Prep ereditata dal turno · iniziata da ' + byStr + atStr + '. Passata da ' + passedBy + '. Verificare quanto è stato prodotto.';
+
+    try {
+      const res = await supa.from('chef_reports').insert([{
+        user_name: passedBy,
+        station: it.category || null,
+        message: msg,
+        status: 'new'
+      }]).select().single();
+
+      if (typeof officeWriteItem === 'function') {
+        try {
+          officeWriteItem({
+            source: 'tell_chef',
+            source_id: res.data ? String(res.data.id) : null,
+            from_user: passedBy,
+            priority: 'yellow',
+            title: (it.category ? it.category.replace(' Station','') + ' · ' : '') + it.name,
+            body: msg
+          });
+        } catch(oe) { /* non bloccante */ }
+      }
+    } catch(e) { /* non bloccante */ }
+
+    sheet.remove();
+    // Toast conferma
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1e3a5f;color:#fff;font-size:13px;font-weight:600;padding:10px 20px;border-radius:20px;z-index:400;';
+    toast.textContent = 'Segnalato al Chef ✓';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2200);
+  });
+
+  // NON È IN LAVORAZIONE (solo legacy) → pulisce zombie senza prep_log
+  const notWipBtn = document.getElementById('wipNotWipBtn');
+  if (notWipBtn) {
+    notWipBtn.addEventListener('click', async () => {
+      sheet.remove();
+      await supa.from('prep_tasks').update({
+        in_progress: false,
+        in_progress_at: null,
+        in_progress_by: null
+      }).eq('id', id);
+      tasks[id].in_progress = false;
+      tasks[id].in_progress_at = null;
+      tasks[id].in_progress_by = null;
+      renderM();
+    });
+  }
+};
+// ─── END PREP REMINDER SYSTEM ─────────────────────────────────────────────
+
 // Chiamato da recipe-modal.js quando l'utente naviga tra gli step
 window.prepOnStepChange = function(prepTaskId, currentStep, totalSteps){
   if(!prepTaskId) return;
@@ -292,19 +526,13 @@ function renderSuggBlock(sugg, i) {
   }
   const avgDailyLabel = fmtAvgDailyFromComponents(sugg, outUnit);
 
-  // ── SEGNALA AL CHEF ───────────────────────────────────────────────────
-  const iid = i.id;
-  const segnalaBtn = `<div style="margin-top:6px;">
-    <button onclick="event.stopPropagation();segnalaChef(${JSON.stringify(iid)})" style="font-size:11px;font-weight:600;color:#64748b;background:none;border:none;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent;text-decoration:underline;text-underline-offset:2px;">Segnala al Chef</button>
-  </div>`;
-
-  // ── ASSEMBLA ──────────────────────────────────────────────────────────
-  const stockRow  = `<div style="font-size:13px;color:#475569;margin-top:5px;"><span style="font-weight:500;color:#94a3b8;">Stock DB:</span> <span style="font-weight:600;color:#1e3a5f;">${stockLabel}</span></div>`;
-  const avgRow    = avgDailyLabel
-    ? `<div style="font-size:13px;color:#475569;margin-top:3px;"><span style="font-weight:500;color:#94a3b8;">Consumo medio:</span> <span style="font-weight:600;color:#1e3a5f;">${avgDailyLabel}</span></div>`
+  // ── ASSEMBLA — card chiusa v624: solo Stock + Consumo medio (no Segnala al Chef)
+  const stockRow = `<div style="font-size:13px;color:#475569;margin-top:5px;"><span style="font-weight:500;color:#94a3b8;">Stock</span> <span style="font-weight:600;color:#1e3a5f;">${stockLabel}</span></div>`;
+  const avgRow   = avgDailyLabel
+    ? `<div style="font-size:13px;color:#475569;margin-top:3px;"><span style="font-weight:500;color:#94a3b8;">Consumo medio</span> <span style="font-weight:600;color:#1e3a5f;">${avgDailyLabel}</span></div>`
     : '';
 
-  return `<div style="margin-top:4px;">${stockRow}${avgRow}${segnalaBtn}</div>`;
+  return `<div style="margin-top:4px;">${stockRow}${avgRow}</div>`;
 }
 
 function getValidCount(taskId) {
@@ -430,7 +658,7 @@ async function computePrepBotDecision(taskId) {
   // 1. Fetch prep_task con join recipe (stesso join del bot) + campi run
   const { data: rows } = await supa
     .from('prep_tasks')
-    .select('id,name,category,prep_type,unit,current_stock,recipe_id,ingredient_id,pack_label,min_cover_days,expected_duration_days,suggested_qty,suggested_note,suggested_by,suggested_at,recipes:recipe_id(id,title,pos_name,base_weight_g,base_servings,shelf_life_days,serving_weight_g,serving_unit,serving_qty)')
+    .select('id,name,category,prep_type,unit,current_stock,recipe_id,ingredient_id,pack_label,min_cover_days,expected_duration_days,suggested_qty,suggested_note,suggested_by,suggested_at,in_progress,in_progress_at,in_progress_by,recipes:recipe_id(id,title,pos_name,base_weight_g,base_servings,shelf_life_days,serving_weight_g,serving_unit,serving_qty)')
     .eq('id', taskId)
     .limit(1);
 
@@ -1788,9 +2016,22 @@ function renderM(){
       const isUrgent = !i.in_progress && i.prep_type!=='checklist' && (botColor==='red' || (_sgUrgent && _sgUrgent.status === 'do_first'));
       const nameColor = isWip?'#1e40af':isUrgent?'#991b1b':'#0f172a';
 
-      const badge = isWip
-        ? '<span style="font-size:10px;font-weight:600;color:#185fa5;background:rgba(55,138,221,0.12);padding:2px 6px;border-radius:6px;">'+tr('inProgress')+'</span>'
-        : ''; // URGENT badge rimosso — bordo colorato è sufficiente
+      // v624: badge WIP con eta' da in_progress_at (DB) o _startTimes (locale)
+      let badge = '';
+      if (isWip) {
+        const _ageMin = _wipAgeMinutes(i);
+        const _isLegacy = !i.in_progress_at && !_startTimes[i.id];
+        const _isPrev   = _isPrevShift(i);
+        if (_isLegacy) {
+          badge = '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#854f0b;background:#fef3c7;border:0.5px solid #fcd34d;border-radius:8px;padding:3px 8px;cursor:pointer;" onclick="event.stopPropagation();window._showWipResolutionSheet('+JSON.stringify(i.id)+')">⚠️ Aperta — orario non disponibile</span></div>';
+        } else if (_isPrev) {
+          badge = '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#9a3412;background:#fff7ed;border:0.5px solid #fb923c;border-radius:8px;padding:3px 8px;cursor:pointer;" onclick="event.stopPropagation();window._showWipResolutionSheet('+JSON.stringify(i.id)+')">🟠 Prep aperta da ' + _wipAgeLabel(_ageMin) + '</span></div>';
+        } else if (_ageMin !== null && _ageMin >= 60) {
+          badge = '<div style="margin-top:4px;"><span style="font-size:11px;font-weight:600;color:#185fa5;background:rgba(55,138,221,0.10);border:0.5px solid rgba(55,138,221,0.3);border-radius:8px;padding:3px 8px;">🟠 Prep aperta da ' + _wipAgeLabel(_ageMin) + '</span></div>';
+        } else {
+          badge = '<div style="margin-top:4px;"><span style="font-size:10px;font-weight:600;color:#185fa5;background:rgba(55,138,221,0.12);padding:2px 6px;border-radius:6px;">'+tr('inProgress')+'</span></div>';
+        }
+      }
 
       // Chef AI card block — sostituisce botPill con sistema nuovo
       // classifyCard e renderChefAiBlock definiti sopra nella sezione CHEF AI CARD SYSTEM
@@ -1901,6 +2142,11 @@ function renderM(){
     const b = document.getElementById('prepShowAllBanner');
     if (b) b.remove();
   }
+
+  // v624: avvia tick per aggiornare badge età WIP ogni minuto
+  _startWipTick();
+  // v624: mostra banner "N prep aperte dal turno precedente" se necessario
+  _checkAndShowWipBanner();
 }
 
 
@@ -1987,9 +2233,9 @@ window.segnalaChef = function(id) {
     <div style="width:100%;max-width:448px;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 32px rgba(30,58,95,0.15);padding:20px 16px 36px;">
       <div style="font-size:13px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Segnala al Chef · ${nome}</div>
       <div id="segnalaOpzioni" style="display:flex;flex-direction:column;gap:8px;">
-        <button data-opt="Stock DB sbagliato"     style="text-align:left;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">📦 Stock DB sbagliato</button>
-        <button data-opt="Consumo medio sbagliato" style="text-align:left;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">📊 Consumo medio sbagliato</button>
-        <button data-opt="Altro"                   style="text-align:left;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">💬 Altro</button>
+        <button data-opt="Stock errato"    style="text-align:left;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">📦 Stock errato</button>
+        <button data-opt="Consumo errato"  style="text-align:left;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">📊 Consumo errato</button>
+        <button data-opt="Altro"           style="text-align:left;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600;color:#1e3a5f;background:#f1f5f9;border:none;cursor:pointer;">💬 Altro</button>
       </div>
       <div id="segnalaNota" style="display:none;margin-top:12px;">
         <textarea id="segnalaNotaText" placeholder="Nota opzionale…" style="width:100%;min-height:60px;border:1.5px solid #e2e8f0;border-radius:10px;padding:10px;font-size:14px;font-family:inherit;resize:none;outline:none;color:#1e3a5f;box-sizing:border-box;" onfocus="this.style.borderColor='#2563eb'" onblur="this.style.borderColor='#e2e8f0'"></textarea>
@@ -2094,19 +2340,52 @@ window.prepOpenRecipe = function(id){
 };
 
 // START — primo avvio: apre ricetta, segna in_progress
+// v624: Race condition fix — await DB write, rollback locale se fallisce.
+// Causa confermata nel codice: race condition tra update START fire-and-forget
+// e update DONE awaited. I dati legacy sono compatibili con questo comportamento.
 window.prepStart = async function(id){
   const it = tasks[id];
   if(!it) return;
   // Se già in progress → SEE STEPS
   if(it.in_progress){ prepSeeSteps(id); return; }
-  // Segna in_progress nel DB (optimistic) + traccia orario start
-  tasks[id].in_progress = true;
-  _startTimes[id] = new Date();
-  supa.from('prep_tasks').update({in_progress:true}).eq('id',id).then(()=>{}).catch(()=>{});
+
+  // Snapshot stato precedente per rollback
+  const _prevState = {
+    in_progress:    it.in_progress,
+    in_progress_at: it.in_progress_at || null,
+    in_progress_by: it.in_progress_by || null
+  };
+
+  // Aggiorna RAM e UI ottimisticamente
+  const _startNow = new Date();
+  _startTimes[id] = _startNow;
+  tasks[id].in_progress    = true;
+  tasks[id].in_progress_at = _startNow.toISOString();
+  tasks[id].in_progress_by = (window.user && window.user.name) || null;
   renderM();
-  // Apre il recipe modal con tracking dello step (funziona anche senza recipe_id)
-  if(typeof recipeModal!=='undefined'){
-    recipeModal.open(it.recipe_id||null, id);
+
+  // Scrivi sul DB — await + controllo { error } esplicito
+  try {
+    const { error } = await supa.from('prep_tasks').update({
+      in_progress:    true,
+      in_progress_at: _startNow.toISOString(),
+      in_progress_by: (window.user && window.user.name) || null
+    }).eq('id', id);
+    if (error) throw error;
+  } catch(err) {
+    // Rollback RAM e UI — non aprire la ricetta
+    tasks[id].in_progress    = _prevState.in_progress;
+    tasks[id].in_progress_at = _prevState.in_progress_at;
+    tasks[id].in_progress_by = _prevState.in_progress_by;
+    delete _startTimes[id];
+    renderM();
+    _prepSaveError(it.name, (err && err.message) || 'START non confermato dal DB');
+    return;
+  }
+
+  // DB confermato — apre il recipe modal
+  if(typeof recipeModal !== 'undefined'){
+    recipeModal.open(it.recipe_id || null, id);
   }
 };
 
@@ -2330,7 +2609,7 @@ async function suggestedSave(id, modal){
   delete _startTimes[id];
   const [logRes, updRes] = await Promise.all([
     supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:'',user_name:user.name,is_suggested_qty:true,started_at:_sSt.toISOString(),duration_minutes:_sDur}),
-    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}).eq('id',id)
+    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}).eq('id',id)
   ]);
   if(logRes.error || updRes.error){
     _prepSaveError(it.name, (updRes.error||logRes.error).message);
@@ -2361,8 +2640,8 @@ async function detailSave(id, btn, isSuggested){
     return;
   }
   const stockUpdate = qty > 0
-    ? {need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}
-    : {need_tomorrow:false,in_progress:false,suggested_note:null,suggested_qty:null};
+    ? {need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}
+    : {need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,suggested_note:null,suggested_qty:null};
   const updRes = await supa.from('prep_tasks').update(stockUpdate).eq('id',id);
   if(updRes.error){
     btn.textContent=tr('prep_done'); btn.disabled=false;
@@ -2381,6 +2660,8 @@ loadRecentCounts();
 function _finishTask(id, qty){
   tasks[id].need_tomorrow=false;
   tasks[id].in_progress=false;
+  tasks[id].in_progress_at=null;
+  tasks[id].in_progress_by=null;
   if(qty > 0) tasks[id].current_stock=(parseFloat(tasks[id].current_stock)||0)+qty;
   tasks[id].suggested_note=null;
   tasks[id].suggested_qty=null;
@@ -2401,7 +2682,8 @@ window.noNeed = async function(id) {
   var _nSt = _startTimes[id] || _nNow;
   var _nDur = Math.round((_nNow - _nSt) / 60000);
   delete _startTimes[id];
-  await supa.from('prep_log').insert({
+  // v624: controlla { error } esplicitamente — non ignorare silenziosamente
+  const logRes = await supa.from('prep_log').insert({
     item: it.name,
     station: it.category || tr('generale'),
     qty: 0, unit: 'no_need', container: '',
@@ -2409,9 +2691,24 @@ window.noNeed = async function(id) {
     started_at: _nSt.toISOString(),
     duration_minutes: _nDur
   });
-  await supa.from('prep_tasks').update({need_tomorrow: false, in_progress: false}).eq('id', id);
+  if (logRes.error) {
+    _prepSaveError(it.name, logRes.error.message);
+    return;
+  }
+  const updRes = await supa.from('prep_tasks').update({
+    need_tomorrow: false, in_progress: false,
+    in_progress_at: null, in_progress_by: null
+  }).eq('id', id);
+  if (updRes.error) {
+    // prep_log scritto ma tasks non resettato — mostra errore, non aggiornare RAM
+    _prepSaveError(it.name, updRes.error.message);
+    return;
+  }
+  // DB confermato — aggiorna RAM
   tasks[id].need_tomorrow = false;
   tasks[id].in_progress = false;
+  tasks[id].in_progress_at = null;
+  tasks[id].in_progress_by = null;
   delete _taskStep[id];
   delete _taskStepTotal[id];
   renderM(); renderS(); renderHomeStations();
@@ -2425,7 +2722,7 @@ async function quickSave(id){
   const addQty = it.suggested_qty ? parseFloat(it.suggested_qty) : qty;
   const [logRes, updRes] = await Promise.all([
     supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit:'kg',container:'1/4 pan',user_name:user.name,is_suggested_qty:false}),
-    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,current_stock:(parseFloat(it.current_stock)||0)+addQty,suggested_note:null,suggested_qty:null}).eq('id',id)
+    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,current_stock:(parseFloat(it.current_stock)||0)+addQty,suggested_note:null,suggested_qty:null}).eq('id',id)
   ]);
   if(logRes.error || updRes.error){
     _prepSaveError(it.name, (updRes.error||logRes.error).message);
