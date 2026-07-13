@@ -389,55 +389,81 @@ async function loadRecentCounts() {
 
 // Helper: ritorna il count recente valido per un task (non expired)
 
-// ── PREP SUGGESTIONS DAILY (Step 2) ─────────────────────────────────────────
-// Carica le suggestion del bot-prep-suggester per la data operativa corrente.
-// Fallback silenzioso: se la query fallisce, window._suggestions = {} e
-// il rendering usa il vecchio sistema (suggested_note su prep_tasks).
+// ── PREP SUGGESTIONS DAILY (v625 — fonte unica, niente fallback legacy) ──────
+// Carica le suggestion del bot-prep-suggester per la data operativa valida.
+//
+// REGOLA SICUREZZA DATE:
+// - Solo date <= oggi in CDT (mai suggestion future LAB)
+// - Solo run con almeno MIN_FULL_RUN_ROWS righe (filtra run parziali/test)
+// - Se nessuna data valida → window._suggestions = {} + _suggestionsNoData = true
+// - MAI fallback ai campi legacy suggested_qty/note
+//
+// NIENTE getNextServiceDate() — questa funzione cercava date future che possono
+// essere run LAB. La source operativa è sempre l'ultima run full <= oggi.
 
-// Calcola il prossimo giorno di servizio valido (salta domenica e closed_dates)
-// closed_dates deve essere già caricata in window._closedDates (Set di 'YYYY-MM-DD')
-function getNextServiceDate() {
-  const tz = 'America/Chicago';
-  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz,
-    year: 'numeric', month: '2-digit', day: '2-digit' });
-  // Oggi in CDT
-  const todayStr = fmt.format(new Date()); // 'YYYY-MM-DD'
-  const closed = window._closedDates || new Set();
-  let d = new Date(todayStr + 'T12:00:00'); // mezzogiorno locale per evitare DST edge
-  // Massimo 7 giorni di lookahead
-  for (let i = 0; i < 7; i++) {
-    const iso = fmt.format(d); // 'YYYY-MM-DD'
-    const dow = d.getDay(); // 0=domenica
-    if (dow !== 0 && !closed.has(iso)) return iso;
-    d.setDate(d.getDate() + 1);
-  }
-  return todayStr; // safety fallback
-}
+const _SUGG_MIN_ROWS = 50; // soglia run "full" — la full run ha 105 righe, le test 1-9
 
 window._suggestions = {};
 window._suggestionsDate = null;
+window._suggestionsNoData = false;
 
 async function loadSuggestions() {
   try {
-    // Carica closed_dates se non ancora disponibili
-    if (!window._closedDates) {
-      const { data: cdRows } = await supa.from('closed_dates').select('date');
-      window._closedDates = new Set((cdRows || []).map(r => r.date));
+    // Data CDT corrente (America/Chicago)
+    const tz = 'America/Chicago';
+    const todayCDT = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date()); // 'YYYY-MM-DD'
+
+    // Cerca ultima suggestion_date con >= MIN_FULL_RUN_ROWS righe, non futura
+    const { data: dates, error: dErr } = await supa
+      .from('prep_suggestions_daily')
+      .select('suggestion_date')
+      .lte('suggestion_date', todayCDT)
+      .order('suggestion_date', { ascending: false })
+      .limit(200); // carica tutte le recenti e filtra lato JS
+
+    if (dErr) throw dErr;
+
+    // Aggrega per data e trova la prima con >= soglia
+    const counts = {};
+    (dates || []).forEach(r => {
+      counts[r.suggestion_date] = (counts[r.suggestion_date] || 0) + 1;
+    });
+
+    const validDate = Object.entries(counts)
+      .filter(([, n]) => n >= _SUGG_MIN_ROWS)
+      .sort(([a], [b]) => b.localeCompare(a)) // più recente prima
+    [0]?.[0] || null;
+
+    if (!validDate) {
+      console.warn('[Prep Suggester] Nessuna run operativa valida trovata (soglia:', _SUGG_MIN_ROWS, 'righe)');
+      window._suggestions = {};
+      window._suggestionsDate = null;
+      window._suggestionsNoData = true;
+      if (typeof renderM === 'function') renderM();
+      return;
     }
-    const targetDate = getNextServiceDate();
-    window._suggestionsDate = targetDate;
+
+    window._suggestionsDate = validDate;
+    window._suggestionsNoData = false;
+
     const { data, error } = await supa
       .from('prep_suggestions_daily')
-      .select('prep_task_id,status,confidence,net_requirement,planned_output,output_unit,current_stock,stock_source,forecast,coverage_days,demand_source,reason,debug_json')
-      .eq('suggestion_date', targetDate);
+      .select('prep_task_id,status,confidence,net_requirement,planned_output,output_unit,minimum_increment,current_stock,stock_source,stock_unit,forecast,coverage_days,demand_source,reason,production_constraint_quality,debug_json')
+      .eq('suggestion_date', validDate);
+
     if (error) throw error;
     window._suggestions = {};
     (data || []).forEach(row => {
       window._suggestions[row.prep_task_id] = row;
     });
+
+    console.log('[Prep Suggester] Loaded', Object.keys(window._suggestions).length, 'suggestions for', validDate);
   } catch(e) {
-    console.warn('[Prep Suggester] loadSuggestions failed, using fallback:', e);
+    console.warn('[Prep Suggester] loadSuggestions failed:', e);
     window._suggestions = {};
+    window._suggestionsNoData = false; // non mostrare banner per errori di rete
   }
 }
 
@@ -470,69 +496,207 @@ function _fmtSuggQty(qty, unit) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RENDER SUGGESTION BLOCK — sostituisce renderChefAiBlock quando esiste una
-// riga in prep_suggestions_daily per questo task.
+// RENDER SUGGESTION BLOCK v625 — fonte unica: prep_suggestions_daily
+// Nessun fallback a suggested_qty/note legacy.
+// Gestisce tutti i status: do_first, prep_today, looks_ok, count_first,
+//   defer_to_tomorrow, no_demand_path, out_of_scope, operational actions.
 // Interfaccia pubblica: renderSuggBlock(sugg, i) → HTML string
 // ─────────────────────────────────────────────────────────────────────────────
 function renderSuggBlock(sugg, i) {
-  // ── Card chiusa v1 — mostra solo: Stock DB + Consumo medio + Segnala al Chef
-  // Nessuna quantità consigliata, nessun reason, nessuna confidence.
-  // Il dettaglio compare al livello successivo (apertura prep).
+  const lang     = window.user?.lang || 'en';
+  const isAdmin_ = typeof isAdmin === 'function' ? isAdmin() : false;
+  const outUnit  = sugg.output_unit || sugg.stock_unit || i.unit || '';
+  const status   = sugg.status || 'no_demand_path';
+  const conf     = sugg.confidence || 'low';
+  const pq       = sugg.production_constraint_quality || 'missing';
 
-  const outUnit = sugg.output_unit || i.unit || '';
-
-  // ── STOCK DB ──────────────────────────────────────────────────────────
-  function fmtStockDB(sugg, unit) {
-    const stock = sugg.current_stock;
-    if (stock === null || stock === undefined) return 'non verificato';
-    const n = parseFloat(stock);
-    if (isNaN(n)) return 'non verificato';
+  // ── Helpers ──
+  function _fmtN(n, unit) {
+    if (n === null || n === undefined || isNaN(parseFloat(n))) return null;
+    const v = parseFloat(n);
+    if (v <= 0) return null;
     const u = (unit || '').toLowerCase();
     if (u === 'g') {
-      if (n >= 1000) {
-        const kg = n / 1000;
-        // "13,4 kg" — usa locale IT per virgola decimale
-        return kg.toLocaleString('it-IT', {minimumFractionDigits:0, maximumFractionDigits:1}) + ' kg';
-      }
-      return Math.round(n) + ' g';
+      if (v >= 1000) return (v / 1000).toLocaleString('it-IT', {minimumFractionDigits:0, maximumFractionDigits:1}) + ' kg';
+      return Math.round(v) + ' g';
     }
-    if (['pezzi','pz'].includes(u)) return Math.round(n) + ' ' + (n === 1 ? 'pezzo' : 'pezzi');
-    if (u === 'nests') return Math.round(n) + ' nests';
-    if (u === 'kg') return n.toLocaleString('it-IT', {minimumFractionDigits:0, maximumFractionDigits:1}) + ' kg';
-    return n + (unit ? ' ' + unit : '');
+    if (u === 'kg') return v.toLocaleString('it-IT', {minimumFractionDigits:0, maximumFractionDigits:1}) + ' kg';
+    if (['pezzi','pz'].includes(u)) { const ni=Math.round(v); return ni + ' ' + (ni===1?'pezzo':'pezzi'); }
+    if (u === 'nests') return Math.round(v) + ' nests';
+    if (u === 'cup')   return Math.round(v) + ' cup' + (v > 1 ? 's' : '');
+    return Math.round(v) + (unit ? ' ' + unit : '');
   }
-  const stockLabel = fmtStockDB(sugg, outUnit);
 
-  // ── CONSUMO MEDIO: forecast_components[0].forecast_qty ────────────────
-  // Usa il forecast del solo giorno target, non la somma della finestra.
-  function fmtAvgDailyFromComponents(sugg, unit) {
+  function _fmtStock(sugg, unit) {
+    const n = sugg.current_stock;
+    if (n === null || n === undefined) return null;
+    const v = parseFloat(n);
+    if (isNaN(v)) return null;
+    const u = (unit || '').toLowerCase();
+    if (u === 'g') {
+      if (v === 0) return '0 g';
+      if (v >= 1000) return (v/1000).toLocaleString('it-IT',{minimumFractionDigits:0,maximumFractionDigits:1})+' kg';
+      return Math.round(v) + ' g';
+    }
+    if (['pezzi','pz'].includes(u)) { const ni=Math.round(v); return ni + ' ' + (ni===1?'pezzo':'pezzi'); }
+    if (u === 'kg') return v.toLocaleString('it-IT',{minimumFractionDigits:0,maximumFractionDigits:1})+' kg';
+    if (u === 'nests') return Math.round(v) + ' nests';
+    if (u === 'cup')   return Math.round(v) + ' cups';
+    return v + (unit ? ' ' + unit : '');
+  }
+
+  // ── Testo reason: campo reason è "color|it|en|es"
+  function _reasonText(sugg) {
+    const r = sugg.reason || '';
+    const parts = r.split('|');
+    if (parts.length >= 4) {
+      if (lang === 'it') return parts[1];
+      if (lang === 'es') return parts[3];
+      return parts[2]; // EN default
+    }
+    return r;
+  }
+
+  // ── Consumo medio dal primo forecast_component ──
+  function _avgDailyLabel(sugg, unit) {
     try {
-      const dbg = sugg.debug_json || {};
-      const comps = dbg.forecast_components;
+      const comps = (sugg.debug_json || {}).forecast_components;
       if (!comps || !comps.length) return null;
       const qty = parseFloat(comps[0].forecast_qty);
       if (isNaN(qty) || qty <= 0) return null;
       const u = (unit || '').toLowerCase();
-      if (u === 'g') {
-        // Sempre in kg/giorno per coerenza visiva nella lista
-        const kg = qty / 1000;
-        return kg.toLocaleString('it-IT', {minimumFractionDigits:0, maximumFractionDigits:1}) + ' kg/giorno';
-      }
-      if (['pezzi','pz'].includes(u)) return Math.round(qty) + ' pezzi/giorno';
-      if (u === 'nests') return Math.round(qty) + ' nests/giorno';
-      if (u === 'kg') return qty.toLocaleString('it-IT', {minimumFractionDigits:0, maximumFractionDigits:1}) + ' kg/giorno';
-      return qty + (unit ? ' ' + unit : '') + '/giorno';
+      if (u === 'g') { const kg=qty/1000; return kg.toLocaleString('it-IT',{minimumFractionDigits:0,maximumFractionDigits:1})+' kg/giorno'; }
+      if (['pezzi','pz'].includes(u)) return Math.round(qty)+' pz/giorno';
+      if (u === 'nests') return Math.round(qty)+' nests/giorno';
+      if (u === 'cup')   return qty.toFixed(1)+' cups/giorno';
+      return qty + (unit?' '+unit:'')+'/giorno';
     } catch(e) { return null; }
   }
-  const avgDailyLabel = fmtAvgDailyFromComponents(sugg, outUnit);
 
-  // ── ASSEMBLA — card chiusa v624: solo Stock + Consumo medio (no Segnala al Chef)
-  const stockRow = `<div style="font-size:13px;color:#475569;margin-top:5px;"><span style="font-weight:500;color:#94a3b8;">Stock</span> <span style="font-weight:600;color:#1e3a5f;">${stockLabel}</span></div>`;
-  const avgRow   = avgDailyLabel
-    ? `<div style="font-size:13px;color:#475569;margin-top:3px;"><span style="font-weight:500;color:#94a3b8;">Consumo medio</span> <span style="font-weight:600;color:#1e3a5f;">${avgDailyLabel}</span></div>`
-    : '';
+  // ── STATUS CONFIG ──
+  // Label e colori per ogni status — Station View vede label semplice, Chef View confidence
+  const STATUS_MAP = {
+    do_first:          { emoji:'🔴', label:'FAI PRIMA',            bg:'rgba(220,38,38,0.08)',   border:'#fca5a5', color:'#dc2626' },
+    prep_today:        { emoji:'🟠', label:'FAI OGGI',             bg:'rgba(234,88,12,0.08)',   border:'#fdba74', color:'#ea580c' },
+    looks_ok:          { emoji:'🟢', label:'SEMBRA OK',            bg:'rgba(22,163,74,0.08)',   border:'#bbf7d0', color:'#16a34a' },
+    count_first:       { emoji:'🟡', label:'CONTA PRIMA',          bg:'rgba(202,138,4,0.08)',   border:'#fde68a', color:'#ca8a04' },
+    defer_to_tomorrow: { emoji:'🟢', label:'RICONTROLLA DOMANI',   bg:'rgba(22,163,74,0.06)',   border:'#d1fae5', color:'#059669' },
+    no_demand_path:    { emoji:'⚪', label:'VERIFICA',             bg:'rgba(100,116,139,0.06)', border:'#e2e8f0', color:'#64748b' },
+    out_of_scope:      { emoji:'⚪', label:'N/A',                  bg:'rgba(100,116,139,0.06)', border:'#e2e8f0', color:'#64748b' },
+  };
+  const sc = STATUS_MAP[status] || STATUS_MAP['no_demand_path'];
 
-  return `<div style="margin-top:4px;">${stockRow}${avgRow}</div>`;
+  // ── Determina se è un'azione operativa (non produzione) ──
+  // Thaw Salmon (413), Thaw Lobster (296): work_type=operational_action nella classifications
+  // Identificato dal debug_json.demand_path o dalla combinazione status+constraint
+  const isThaw = i.name && /thaw/i.test(i.name);
+  const isPorterhouse = i.name && /porterhouse/i.test(i.name);
+  const isOperational = isThaw || (isPorterhouse && status !== 'looks_ok' && pq === 'missing');
+
+  // ── Calcola planned output da mostrare ──
+  let displayQty = null;
+  let displayLabel = null;
+
+  if (isThaw && sugg.net_requirement != null) {
+    // Operational action: usa net_requirement in pezzi, non planned_output
+    const nr = parseFloat(sugg.net_requirement);
+    if (!isNaN(nr) && nr > 0) {
+      displayQty = Math.ceil(nr) + ' pz';
+      displayLabel = 'SCONGELA · ' + displayQty;
+    }
+  } else if (isPorterhouse && sugg.net_requirement != null) {
+    const nr = parseFloat(sugg.net_requirement);
+    if (!isNaN(nr) && nr > 0) {
+      displayQty = Math.ceil(nr) + ' pz';
+      displayLabel = 'SCONGELA E PROCESSA · ' + displayQty;
+    }
+  } else if (sugg.planned_output != null && parseFloat(sugg.planned_output) > 0) {
+    // Produzione normale: usa planned_output
+    displayQty = _fmtN(sugg.planned_output, outUnit);
+    if (displayQty) {
+      // Calcola batch se c'è minimum_increment
+      const mi = sugg.minimum_increment ? parseFloat(sugg.minimum_increment) : null;
+      const po = parseFloat(sugg.planned_output);
+      if (mi && mi > 0 && pq === 'valid_fixed_batch') {
+        const batches = Math.round(po / mi);
+        if (batches > 1) {
+          displayLabel = batches + ' batch · ' + displayQty;
+        } else {
+          displayLabel = '1 batch · ' + displayQty;
+        }
+      } else {
+        displayLabel = displayQty;
+      }
+    }
+  }
+
+  // ── BLOCKED preps — status do_first/prep_today senza planned_output ──
+  // (Citronnette, Ranch, Asparagus, Spinach: constraint_quality missing/conflicting)
+  const isBlocked = (status === 'do_first' || status === 'prep_today') &&
+                    (pq === 'missing' || pq === 'conflicting') &&
+                    !displayLabel && !isOperational;
+
+  if (isBlocked) {
+    displayLabel = null; // Non inventare quantità
+  }
+
+  // ── Assembla stock line ──
+  const stockStr = _fmtStock(sugg, outUnit);
+  const stockUnverified = sugg.stock_source === 'db_snapshot_unverified';
+
+  // ── RENDER HTML ──
+
+  // Pill status
+  const pillHtml = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${sc.color};background:${sc.bg};border:1px solid ${sc.border};border-radius:20px;padding:3px 9px;letter-spacing:0.02em;">${sc.emoji} ${isOperational ? (isThaw ? 'SCONGELA' : 'PROCESSA') : sc.label}</span>`;
+
+  // Quantità azione (bold, visibile a tutti)
+  let actionQtyHtml = '';
+  if (displayLabel) {
+    const aqColor = isOperational ? '#1e40af' : (status === 'do_first' ? '#dc2626' : '#ea580c');
+    actionQtyHtml = `<div style="font-size:15px;font-weight:800;color:${aqColor};margin-top:5px;letter-spacing:-0.01em;">${displayLabel}</div>`;
+  } else if (isBlocked) {
+    // Blocked: nessuna quantità — solo VERIFICA
+    actionQtyHtml = `<div style="font-size:12px;font-weight:600;color:#64748b;margin-top:5px;">VERIFICA · ${lang==='es'?'datos insuficientes':lang==='it'?'dati insufficienti':'data not complete'}</div>`;
+  }
+
+  // Reason text (solo per stati che richiedono spiegazione)
+  let reasonHtml = '';
+  const showReason = status !== 'looks_ok' && status !== 'defer_to_tomorrow' && status !== 'out_of_scope';
+  if (showReason) {
+    const rt = _reasonText(sugg);
+    if (rt) {
+      // Tronca a prima parte significativa (prima del " — pochi dati" se troppo lunga)
+      const shortRt = rt.length > 120 ? rt.slice(0, 117) + '…' : rt;
+      reasonHtml = `<div style="font-size:12px;color:#475569;margin-top:3px;line-height:1.4;">${shortRt}</div>`;
+    }
+  }
+
+  // Stock row
+  let stockHtml = '';
+  if (stockStr !== null) {
+    const srcLabel = stockUnverified ? ' <span style="font-size:10px;color:#94a3b8;">(non verificato)</span>' : '';
+    stockHtml = `<div style="font-size:13px;color:#475569;margin-top:5px;"><span style="font-weight:500;color:#94a3b8;">Stock</span> <span style="font-weight:600;color:#1e3a5f;">${stockStr}</span>${srcLabel}</div>`;
+  }
+
+  // Consumo medio (da forecast_components) — solo per stati di produzione
+  let avgHtml = '';
+  if (status !== 'looks_ok' && status !== 'defer_to_tomorrow' && status !== 'no_demand_path' && status !== 'out_of_scope') {
+    const al = _avgDailyLabel(sugg, outUnit);
+    if (al) {
+      avgHtml = `<div style="font-size:13px;color:#475569;margin-top:3px;"><span style="font-weight:500;color:#94a3b8;">Consumo medio</span> <span style="font-weight:600;color:#1e3a5f;">${al}</span></div>`;
+    }
+  }
+
+  // Confidence (solo Chef/Admin view)
+  let confHtml = '';
+  if (isAdmin_ && conf) {
+    const confColor = conf==='high'?'#059669':conf==='medium'?'#d97706':'#94a3b8';
+    const flagRc = sugg.debug_json?.flag_recount;
+    const rcNote = flagRc ? ' · <span style="color:#ca8a04;font-weight:700;">⚠ verifica stock</span>' : '';
+    confHtml = `<div style="margin-top:4px;font-size:10px;color:${confColor};font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">${conf} confidence${rcNote}</div>`;
+  }
+
+  return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${reasonHtml}${stockHtml}${avgHtml}${confHtml}</div>`;
 }
 
 function getValidCount(taskId) {
@@ -1142,11 +1306,13 @@ function cardBorderColor(i){
   if(i.prep_type==='checklist') return '#94a3b8';
   // Colore bordo dal cardType calcolato, non solo dal pill
   const ct = classifyCard(i);
-  // Step 2: SUGG_* card types
+  // Step 2 (v625): SUGG_* card types
   if(ct==='SUGG_DO_FIRST')    return '#dc2626'; // rosso
-  if(ct==='SUGG_PREP_TODAY')  return '#2563eb'; // blu
+  if(ct==='SUGG_PREP_TODAY')  return '#ea580c'; // arancio
   if(ct==='SUGG_LOOKS_OK')    return '#16a34a'; // verde
   if(ct==='SUGG_COUNT_FIRST') return '#ca8a04'; // giallo
+  if(ct==='SUGG_DEFER')       return '#16a34a'; // verde (ricontrolla domani = OK per oggi)
+  if(ct==='SUGG_VERIFY')      return '#94a3b8'; // grigio (no data)
   if(ct==='COUNT_FIRST') return '#dc2626';
   if(ct==='STAGED_CHECK') return '#ca8a04';
   if(ct==='LARGE_BATCH')  return '#d97706';
@@ -1215,15 +1381,16 @@ function cardButton(i){
 
   // ── Step 2: SUGG_* card types ─────────────────────────────────────────
   if (_ct2 === 'SUGG_COUNT_FIRST') {
-    // CONTA PRIMA: apre il count input inline nel chef-ai-card-block e focalizza
     return `<button onclick="event.stopPropagation();prepContaPrima(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#ca8a04;color:white;border:none;letter-spacing:0.03em;">CONTA PRIMA</button>`;
   }
-  if (_ct2 === 'SUGG_LOOKS_OK') {
-    // Looks ok — bottone discreto per chi vuole loggare ugualmente
+  if (_ct2 === 'SUGG_LOOKS_OK' || _ct2 === 'SUGG_DEFER') {
     return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:14px;font-weight:600;background:transparent;color:#059669;border:1.5px solid #bbf7d0;letter-spacing:0.02em;">Preparo ugualmente</button>`;
   }
   if (_ct2 === 'SUGG_DO_FIRST' || _ct2 === 'SUGG_PREP_TODAY') {
     return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START</button>`;
+  }
+  if (_ct2 === 'SUGG_VERIFY') {
+    return ''; // nessun bottone per VERIFICA — no action su dati incerti
   }
   // ─────────────────────────────────────────────────────────────────────
 
@@ -1266,15 +1433,20 @@ function classifyCard(i) {
   // Checklist: sempre trusted
   if (i.prep_type === 'checklist') return 'TRUSTED';
 
-  // ── Step 2: se esiste una suggestion per questa data, usala ──────────
+  // ── Step 2 (v625): se esiste una suggestion dal nuovo bot, usa SEMPRE quella ──
+  // MAI fallback a suggested_qty/note legacy per card con suggestion presente.
   const _sugg = (window._suggestions || {})[i.id];
   if (_sugg) {
     const s = _sugg.status;
-    if (s === 'do_first')   return 'SUGG_DO_FIRST';
-    if (s === 'prep_today') return 'SUGG_PREP_TODAY';
-    if (s === 'looks_ok')   return 'SUGG_LOOKS_OK';
-    if (s === 'count_first')return 'SUGG_COUNT_FIRST';
-    // out_of_scope o sconosciuto → fallback al vecchio sistema
+    if (s === 'do_first')          return 'SUGG_DO_FIRST';
+    if (s === 'prep_today')        return 'SUGG_PREP_TODAY';
+    if (s === 'looks_ok')          return 'SUGG_LOOKS_OK';
+    if (s === 'count_first')       return 'SUGG_COUNT_FIRST';
+    if (s === 'defer_to_tomorrow') return 'SUGG_DEFER';
+    if (s === 'no_demand_path')    return 'SUGG_VERIFY';
+    if (s === 'out_of_scope')      return 'SUGG_VERIFY'; // checklist classificato dal bot
+    // Qualsiasi altro status sconosciuto → VERIFY (mai fallback legacy)
+    return 'SUGG_VERIFY';
   }
   // ─────────────────────────────────────────────────────────────────────
   // Dati strutturali mancanti → BLOCKED
@@ -1619,10 +1791,12 @@ function buildChefAiNote(i, cardType) {
 
 // ── RENDER CHEF AI BLOCK (dentro la card) ──
 function renderChefAiBlock(i, cardType) {
-  // ── Step 2: card type SUGG_* → usa renderSuggBlock ───────────────────
+  // ── v625: tutti i tipi SUGG_* → renderSuggBlock (nessun fallback legacy) ──
   if (cardType && cardType.startsWith('SUGG_')) {
     const sugg = (window._suggestions || {})[i.id];
     if (sugg) return renderSuggBlock(sugg, i);
+    // sugg non trovato (race condition) → mostra placeholder minimo
+    return '<div style="margin-top:4px;font-size:12px;color:#94a3b8;">Caricamento suggerimento...</div>';
   }
   // ─────────────────────────────────────────────────────────────────────
   const { headline, body, action } = buildChefAiNote(i, cardType);
@@ -2011,9 +2185,12 @@ function renderM(){
       const isWip = i.in_progress;
       // URGENT solo se il bot dice red — mai sui checklist
       const botColor = i.suggested_note && i.suggested_note.includes('|') ? i.suggested_note.split('|')[0] : null;
-      // Step 2: isUrgent include anche SUGG_DO_FIRST
+      // v625: isUrgent include SUGG_DO_FIRST e SUGG_PREP_TODAY
       const _sgUrgent = (window._suggestions || {})[i.id];
-      const isUrgent = !i.in_progress && i.prep_type!=='checklist' && (botColor==='red' || (_sgUrgent && _sgUrgent.status === 'do_first'));
+      const isUrgent = !i.in_progress && i.prep_type!=='checklist' && (
+        botColor==='red' ||
+        (_sgUrgent && (_sgUrgent.status === 'do_first' || _sgUrgent.status === 'prep_today'))
+      );
       const nameColor = isWip?'#1e40af':isUrgent?'#991b1b':'#0f172a';
 
       // v624: badge WIP con eta' da in_progress_at (DB) o _startTimes (locale)
@@ -3074,6 +3251,7 @@ function _chefAiPrepPanelHtml(a, prepName){
     +'</div>'
   +'</div>';
 }
+
 
 
 
