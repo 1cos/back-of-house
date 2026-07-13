@@ -3,17 +3,12 @@
 // Task 004D: merges bot suggestions into each task row.
 // Task 004E: adds data-suggestion-status attribute for CSS styling.
 // Task 004F: operational sorting by suggestion priority then name ascending.
+// Task 004G: groups sorted tasks into five priority sections.
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
 
 // ── Task state label ──────────────────────────────────────────────────
 
-/**
- * Resolves the translation key for the task's current operational state.
- *
- * @param {{ inProgress: boolean|null, needTomorrow: boolean|null }} task
- * @returns {string}
- */
 function taskStateKey(task) {
   if (task.inProgress === true) return 'station_prep.status_in_progress';
   if (task.needTomorrow === true) return 'station_prep.status_to_do';
@@ -22,13 +17,6 @@ function taskStateKey(task) {
 
 // ── Suggestion status mapping ─────────────────────────────────────────
 
-/**
- * Maps a raw bot suggestion status string to its translation key.
- * Unknown or missing statuses fall back to CHECK.
- *
- * @param {string|null|undefined} status
- * @returns {string}
- */
 function suggestionStatusKey(status) {
   switch (status) {
     case 'DO_FIRST':          return 'station_prep.suggestion_do_first';
@@ -45,14 +33,6 @@ function suggestionStatusKey(status) {
   }
 }
 
-/**
- * Maps a raw bot suggestion status string to the data-suggestion-status
- * attribute value. Derives from the same switch as suggestionStatusKey
- * so styling never depends on translated text.
- *
- * @param {string|null|undefined} status
- * @returns {string}
- */
 function suggestionStatusAttr(status) {
   switch (status) {
     case 'DO_FIRST':          return 'do-first';
@@ -71,14 +51,6 @@ function suggestionStatusAttr(status) {
 
 // ── Operational sorting ───────────────────────────────────────────────
 
-/**
- * Returns the numeric sort priority for a raw suggestion status.
- * Lower number = higher in the list.
- * In-progress override is applied at the comparator level, not here.
- *
- * @param {string|null|undefined} status
- * @returns {number}
- */
 function suggestionPriority(status) {
   switch (status) {
     case 'DO_FIRST':          return 1;
@@ -87,7 +59,6 @@ function suggestionPriority(status) {
     case 'COUNT_FIRST':       return 4;
     case 'VERIFY':            return 5;
     case 'UNAVAILABLE':       return 6;
-    // missing / unknown
     default:                  return 7;
     case 'LOOKS_OK':
     case 'LOOKS_GOOD':        return 8;
@@ -96,69 +67,103 @@ function suggestionPriority(status) {
   }
 }
 
-/**
- * Returns a sorted copy of the tasks array using operational kitchen order.
- * Does not mutate the original array or the suggestions object.
- *
- * Sort key (primary to tertiary):
- *   1. inProgress === true → always last
- *   2. suggestion priority (numeric, lower = higher)
- *   3. task name ascending, case-insensitive
- *
- * @param {Array<object>} tasks
- * @param {Object} suggestionsMap  — keyed by task.id
- * @returns {Array<object>}
- */
 function sortedTasks(tasks, suggestionsMap) {
   return tasks.slice().sort((a, b) => {
-    // In-progress tasks always sink to the bottom.
     const aInProgress = a.inProgress === true;
     const bInProgress = b.inProgress === true;
-    if (aInProgress !== bInProgress) {
-      return aInProgress ? 1 : -1;
-    }
+    if (aInProgress !== bInProgress) return aInProgress ? 1 : -1;
 
-    // Within the same in-progress bucket, sort by suggestion priority.
-    const aSuggestion = suggestionsMap[a.id] ?? null;
-    const bSuggestion = suggestionsMap[b.id] ?? null;
-    const aPriority = suggestionPriority(aSuggestion ? aSuggestion.status : null);
-    const bPriority = suggestionPriority(bSuggestion ? bSuggestion.status : null);
-    if (aPriority !== bPriority) {
-      return aPriority - bPriority;
-    }
+    const aSug = suggestionsMap[a.id] ?? null;
+    const bSug = suggestionsMap[b.id] ?? null;
+    const aPri = suggestionPriority(aSug ? aSug.status : null);
+    const bPri = suggestionPriority(bSug ? bSug.status : null);
+    if (aPri !== bPri) return aPri - bPri;
 
-    // Tie-break: task name ascending, case-insensitive.
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
   });
 }
 
-// ── Task row builder ──────────────────────────────────────────────────
+// ── Section assignment ────────────────────────────────────────────────
+
+// Five section keys in render order.
+const SECTION_KEYS = [
+  'do_first',
+  'do_today',
+  'check',
+  'looks_good',
+  'in_progress',
+];
+
+// Maps section key → its translation key.
+const SECTION_LABEL_KEY = {
+  do_first:    'station_prep.section_do_first',
+  do_today:    'station_prep.section_do_today',
+  check:       'station_prep.section_check',
+  looks_good:  'station_prep.section_looks_good',
+  in_progress: 'station_prep.section_in_progress',
+};
 
 /**
- * Builds a single task row <li> element.
+ * Returns the section key for a task.
+ * inProgress === true always → 'in_progress', overriding suggestion status.
  *
  * @param {object} task
- * @param {object|null} suggestion  — null when unavailable or failed
- * @param {(key: string) => string} translate
- * @returns {HTMLElement}
+ * @param {object|null} suggestion
+ * @returns {string}
  */
+function taskSectionKey(task, suggestion) {
+  if (task.inProgress === true) return 'in_progress';
+  const status = suggestion ? suggestion.status : null;
+  switch (status) {
+    case 'DO_FIRST':                        return 'do_first';
+    case 'PREP_TODAY':
+    case 'DO_TODAY':                        return 'do_today';
+    case 'LOOKS_OK':
+    case 'LOOKS_GOOD':
+    case 'DEFER_TO_TOMORROW':
+    case 'DEFER':                           return 'looks_good';
+    case 'COUNT_FIRST':
+    case 'VERIFY':
+    case 'UNAVAILABLE':
+    default:                                return 'check';
+  }
+}
+
+/**
+ * Groups the sorted tasks array into section buckets.
+ * Preserves sorted order within each bucket.
+ * Does not mutate the input array or suggestions object.
+ *
+ * @param {Array<object>} sorted   — already sorted via sortedTasks()
+ * @param {Object} suggestionsMap
+ * @returns {Object}  — { do_first: [], do_today: [], check: [], looks_good: [], in_progress: [] }
+ */
+function groupedTasks(sorted, suggestionsMap) {
+  const groups = {};
+  for (const key of SECTION_KEYS) groups[key] = [];
+  for (const task of sorted) {
+    const suggestion = suggestionsMap[task.id] ?? null;
+    groups[taskSectionKey(task, suggestion)].push(task);
+  }
+  return groups;
+}
+
+// ── Task row builder ──────────────────────────────────────────────────
+
 function buildTaskRow(task, suggestion, translate) {
   const item = document.createElement('li');
   item.className = 'station-prep__task';
 
-  // Task name — textContent, never innerHTML.
   const nameEl = document.createElement('span');
   nameEl.className = 'station-prep__task-name';
   nameEl.textContent = task.name;
 
-  // Bot suggestion status pill.
   const rawStatus = suggestion ? suggestion.status : null;
   const botStatusEl = document.createElement('span');
   botStatusEl.className = 'station-prep__task-bot-status';
   botStatusEl.dataset.suggestionStatus = suggestionStatusAttr(rawStatus);
   botStatusEl.textContent = translate(suggestionStatusKey(rawStatus));
 
-  // Planned quantity — shown only when plannedOutput is not null.
   const qtyEl = document.createElement('span');
   qtyEl.className = 'station-prep__task-qty';
   if (suggestion !== null && suggestion.plannedOutput !== null &&
@@ -167,22 +172,68 @@ function buildTaskRow(task, suggestion, translate) {
     if (suggestion.outputUnit !== null && suggestion.outputUnit !== undefined) {
       qtyText += ' ' + suggestion.outputUnit;
     }
-    qtyEl.textContent = qtyText;   // textContent — never innerHTML
+    qtyEl.textContent = qtyText;
   }
 
-  // Task state label (In progress / To do / Ready).
   const stateEl = document.createElement('span');
   stateEl.className = 'station-prep__task-status';
   stateEl.textContent = translate(taskStateKey(task));
 
   item.appendChild(nameEl);
   item.appendChild(botStatusEl);
-  if (qtyEl.textContent.length > 0) {
-    item.appendChild(qtyEl);
-  }
+  if (qtyEl.textContent.length > 0) item.appendChild(qtyEl);
   item.appendChild(stateEl);
 
   return item;
+}
+
+// ── Section group builder ─────────────────────────────────────────────
+
+/**
+ * Builds one section.station-prep__group element for a section key.
+ * Returns null when the tasks array is empty (section is not rendered).
+ *
+ * @param {string} sectionKey
+ * @param {Array<object>} tasks
+ * @param {Object} suggestionsMap
+ * @param {(key: string) => string} translate
+ * @returns {HTMLElement|null}
+ */
+function buildGroup(sectionKey, tasks, suggestionsMap, translate) {
+  if (tasks.length === 0) return null;
+
+  const group = document.createElement('section');
+  group.className = 'station-prep__group';
+  group.dataset.section = sectionKey;
+
+  // Heading row: label + count.
+  const headingRow = document.createElement('div');
+  headingRow.className = 'station-prep__group-heading';
+
+  const label = document.createElement('h2');
+  label.className = 'station-prep__group-label';
+  label.textContent = translate(SECTION_LABEL_KEY[sectionKey]);
+
+  const count = document.createElement('span');
+  count.className = 'station-prep__group-count';
+  count.textContent = String(tasks.length);
+
+  headingRow.appendChild(label);
+  headingRow.appendChild(count);
+
+  // Task list.
+  const list = document.createElement('ul');
+  list.className = 'station-prep__list';
+
+  for (const task of tasks) {
+    const suggestion = suggestionsMap[task.id] ?? null;
+    list.appendChild(buildTaskRow(task, suggestion, translate));
+  }
+
+  group.appendChild(headingRow);
+  group.appendChild(list);
+
+  return group;
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -201,11 +252,9 @@ function buildTaskRow(task, suggestion, translate) {
  * @returns {HTMLElement}
  */
 export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions }) {
-  // ── Root ─────────────────────────────────────────────────────────────
   const section = document.createElement('section');
   section.className = 'station-prep';
 
-  // ── Header ────────────────────────────────────────────────────────────
   const header = document.createElement('header');
   header.className = 'station-prep__header';
 
@@ -221,12 +270,10 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
   header.appendChild(subtitle);
   section.appendChild(header);
 
-  // ── Content area ──────────────────────────────────────────────────────
   const content = document.createElement('div');
   content.className = 'station-prep__content';
   section.appendChild(content);
 
-  // ── Missing station: skip both service calls, show message ────────────
   if (!stationName || typeof stationName !== 'string' || stationName.trim().length === 0) {
     subtitle.textContent = '';
     const msg = document.createElement('p');
@@ -236,13 +283,11 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
     return section;
   }
 
-  // ── Loading state (shown until both requests complete) ─────────────────
   const loadingEl = document.createElement('p');
   loadingEl.className = 'station-prep__loading';
   loadingEl.textContent = translate('station_prep.loading');
   content.appendChild(loadingEl);
 
-  // ── Async data-loading sequence ────────────────────────────────────────
   fetchTasks(stationName).then((taskResult) => {
     if (!section.isConnected) return;
 
@@ -275,24 +320,22 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
 
       content.innerHTML = '';
 
+      // Total count — unchanged from 004F.
       const countEl = document.createElement('p');
       countEl.className = 'station-prep__count';
       countEl.textContent = translate('station_prep.task_count')
         .replace('{count}', String(taskResult.tasks.length));
       content.appendChild(countEl);
 
-      const list = document.createElement('ul');
-      list.className = 'station-prep__list';
-
-      // Sort into operational kitchen order without mutating the originals.
+      // Sort then group, without mutating originals.
       const ordered = sortedTasks(taskResult.tasks, suggestionsMap);
+      const groups  = groupedTasks(ordered, suggestionsMap);
 
-      for (const task of ordered) {
-        const suggestion = suggestionsMap[task.id] ?? null;
-        list.appendChild(buildTaskRow(task, suggestion, translate));
+      // Render non-empty sections in approved order.
+      for (const key of SECTION_KEYS) {
+        const groupEl = buildGroup(key, groups[key], suggestionsMap, translate);
+        if (groupEl) content.appendChild(groupEl);
       }
-
-      content.appendChild(list);
     });
   });
 

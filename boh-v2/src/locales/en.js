@@ -52,4 +52,11 @@ export const en = {
   'station_prep.suggestion_count_first':   'COUNT FIRST',
   'station_prep.suggestion_check_tomorrow':'CHECK TOMORROW',
   'station_prep.suggestion_check':         'CHECK',
+
+  // ── Station Prep — Section headings ──────────────────────────────────
+  'station_prep.section_do_first':    'Do first',
+  'station_prep.section_do_today':    'Do today',
+  'station_prep.section_check':       'Check',
+  'station_prep.section_looks_good':  'Looks good',
+  'station_prep.section_in_progress': 'In progress',
 };

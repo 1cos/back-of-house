@@ -1,14 +1,13 @@
 /* BOH OS v2 — Station Prep page
    Task 004B: read-only prep task list.
    Task 004E: suggestion status pill styling.
+   Task 004G: priority section groups.
    Primary target: iPhone portrait.
    All values use tokens from tokens.css.
    No new tokens. No !important. No inline styles. No animation.
    ------------------------------------------------------------------ */
 
-/* ── Page root ────────────────────────────────────────────────────────
-   Vertical stack. Bottom padding ensures content clears the sticky
-   bottom navigation bar (approx 56px + safe area).                   */
+/* ── Page root ────────────────────────────────────────────────────────*/
 .station-prep {
   display: flex;
   flex-direction: column;
@@ -47,10 +46,10 @@
 .station-prep__content {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--sp-5);
 }
 
-/* ── Task count ───────────────────────────────────────────────────────*/
+/* ── Total task count ─────────────────────────────────────────────────*/
 .station-prep__count {
   font-family: var(--font-sans);
   font-size: 12px;
@@ -59,6 +58,50 @@
   margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* ── Section group ────────────────────────────────────────────────────
+   Each visible priority section.                                      */
+.station-prep__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* ── Group heading row ────────────────────────────────────────────────
+   Section name on the left, task count on the right.                 */
+.station-prep__group-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.station-prep__group-label {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+/* In-progress section is visually quieter than Do first. */
+.station-prep__group[data-section="in_progress"] .station-prep__group-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.station-prep__group-count {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ── Task list ────────────────────────────────────────────────────────*/
@@ -73,8 +116,7 @@
 
 /* ── Task row ─────────────────────────────────────────────────────────
    Wrapping flex row. Name may wrap; pill, qty, and state flex-shrink
-   to stay inline. Works at 320px viewport width without horizontal
-   scrolling.                                                          */
+   to stay inline. Works at 320px without horizontal scrolling.       */
 .station-prep__task {
   display: flex;
   align-items: flex-start;
@@ -92,17 +134,12 @@
   font-size: 15px;
   font-weight: 500;
   color: var(--text-primary);
-  /* Name takes all available space and may wrap on very long strings. */
   flex: 1 1 100%;
   min-width: 0;
   word-break: break-word;
 }
 
-/* ── Bot suggestion status pill ───────────────────────────────────────
-   Base pill style. Color and weight are set per-status below via the
-   data-suggestion-status attribute. Visible text is always uppercase
-   because it comes from the translation strings.
-   Pill never wraps internally.                                        */
+/* ── Bot suggestion status pill ───────────────────────────────────────*/
 .station-prep__task-bot-status {
   font-family: var(--font-sans);
   font-size: 11px;
@@ -114,27 +151,23 @@
   border-style: solid;
   white-space: nowrap;
   flex-shrink: 0;
-  /* Default (matches check — neutral) */
   color: var(--text-secondary);
   background: transparent;
   border-color: var(--border);
 }
 
-/* do-first — strongest urgency: solid accent background */
 .station-prep__task-bot-status[data-suggestion-status="do-first"] {
   color: var(--surface);
   background: var(--accent);
   border-color: var(--accent);
 }
 
-/* do-today — medium urgency: accent text, light border */
 .station-prep__task-bot-status[data-suggestion-status="do-today"] {
   color: var(--accent);
   background: transparent;
   border-color: var(--accent);
 }
 
-/* looks-good — positive: primary text, subtle border */
 .station-prep__task-bot-status[data-suggestion-status="looks-good"] {
   color: var(--text-primary);
   background: transparent;
@@ -142,8 +175,6 @@
   font-weight: 500;
 }
 
-/* count-first — attention, distinct from do-today: secondary text,
-   dashed border to signal action-before-decision                     */
 .station-prep__task-bot-status[data-suggestion-status="count-first"] {
   color: var(--text-primary);
   background: transparent;
@@ -151,7 +182,6 @@
   border-style: dashed;
 }
 
-/* check-tomorrow — deferred: muted secondary, no fill */
 .station-prep__task-bot-status[data-suggestion-status="check-tomorrow"] {
   color: var(--text-secondary);
   background: transparent;
@@ -159,7 +189,6 @@
   font-weight: 400;
 }
 
-/* check — neutral fallback: lightest treatment */
 .station-prep__task-bot-status[data-suggestion-status="check"] {
   color: var(--text-secondary);
   background: transparent;
