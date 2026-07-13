@@ -1273,3 +1273,98 @@ Nota: il gross_forecast differisce da 8.862,5g perché quella era per lunedì+ma
 
 Passare alla prep successiva nella lista gap CONSTRAINT_MISSING (da decidere con Max quale).
 
+
+
+---
+
+## Sessione 13 lug 2026 (continuazione) — Pomodoro Sauce + SAUCE TWICE-WEEKLY CADENCE
+
+### Pomodoro Sauce — CHIUSA ✅
+
+**SELECT live pre-modifica — 2026-07-13 00:14 CDT:**
+`base_weight_g=3500`, `base_servings=NULL` (già corretto), `yield_text='3500g per batch'`, `shelf_life_days=7`.
+Anomalia "3532 vs 6122" era basata su snapshot vecchio — non valida.
+
+**Decisione Max:**
+- Ricetta a peso. 1 batch = 3.500g finali.
+- `base_weight_g=3500` è l'unica fonte autorevole.
+- Le quantità per piatto vivono nel `recipe_bom` (non toccato).
+- Le porzioni ottenibili sono calcolate, non salvate.
+
+**Modifiche eseguite (2026-07-13 00:14 CDT):**
+```sql
+UPDATE recipes SET yield_text = NULL, base_servings = NULL
+WHERE id = '498a2cf2-e425-4f08-8f5c-0edca4ca6f9e'
+  AND base_weight_g = 3500 AND yield_text = '3500g per batch';
+```
+- `yield_text`: `'3500g per batch'` → `NULL`
+- `base_servings`: già NULL → confermato NULL
+- `base_weight_g=3500` invariato
+- `recipe_bom` non toccato (9 righe: 3kg Canned Tomatoes, 577g Water, 461g Onions, 115g Carrots, 115g EVOO, 87g Basil, 58g Celery, 1g Salt)
+
+**Rollback:**
+```sql
+UPDATE recipes SET yield_text = '3500g per batch' WHERE id = '498a2cf2-e425-4f08-8f5c-0edca4ca6f9e';
+```
+
+**CONSTRAINT_OVERRIDE aggiornato — bot-prep-suggester v7 (deploy 13/07):**
+```js
+// da:
+304: { quality: 'missing', increment: null, unit: 'g' }
+// a:
+304: { quality: 'valid_fixed_batch', increment: 3500, unit: 'g' }
+```
+Rimossa anche la penalty `confChecks[4]=false` per taskId===304 (era temporanea per stato conflicting — ora superata).
+
+**Rollback codice:**
+Riga 304 in CONSTRAINT_OVERRIDES: `valid_fixed_batch/3500 → missing/null`. Riaggiungere `if(taskId===304) confChecks[4]=false`.
+
+**Regola documentata:**
+> Pomodoro Sauce: 1 batch = 3.500g finali.
+> `base_weight_g = 3500`, `CONSTRAINT_OVERRIDE = valid_fixed_batch, increment = 3500g`.
+> BOM: 3kg Canned Tomatoes + soffritto + acqua = ~4.414g crudi → 3.500g finiti (riduzione ~21%).
+
+**Verifica run mirata LAB (suggestion_date=2026-07-16, prep_task_id=304) — 2026-07-13 00:17 CDT:**
+
+| Campo | Valore |
+|---|---|
+| `gross_forecast` (Gio+Ven) | **6.175g** (Gio 3.350 + Ven 2.825 — dow_match, 2 campioni/DOW) |
+| `stock_source` | `db_snapshot_unverified` (current_stock=13.400g — non verificato fisicamente) |
+| `net_requirement` | **0g** (13.400g > 6.175g — stock sufficiente) |
+| `minimum_increment` | **3.500g** ✅ |
+| `planned_output` | **0g** (looks_ok — nessuna produzione necessaria per giovedì+venerdì) |
+| `planned_batches` | **0** |
+| `confidence` | **medium** (confScore 5/6: dow_match ok, constraint ok, stock non verificato fisicamente) |
+| `status` | **looks_ok** ✅ |
+
+Nota: con 13.400g in casa e ~3.100g/giorno di consumo medio, il Pomodoro copre ~4,3 giorni. Corretto: `looks_ok` per una finestra di 2 giorni.
+
+---
+
+### SAUCE TWICE-WEEKLY CADENCE — regola documentata (non ancora implementata)
+
+**Regola approvata da Max (13/07/2026) — da applicare prep per prep su conferma:**
+
+```
+SAUCE TWICE-WEEKLY CADENCE
+Per salse Chef-approved con shelf_life_days >= 4:
+  - Produzione lunedì: copre lunedì–giovedì
+  - Produzione giovedì: copre venerdì–sabato
+  - Venerdì mattina: fallback se produzione giovedì mancata o stock reale insufficiente
+  - Martedì/mercoledì: nessuna suggestion salvo shortage o evento speciale
+```
+
+**Distinzione fondamentale:**
+- `shelf_life_days` = durata sicura del prodotto (campo DB, invariato)
+- `production_cadence` = quando vogliamo produrre (logica futura nel bot, non ancora implementata)
+
+**Implementazione futura:** il bot-prep-suggester dovrà leggere un campo `production_cadence` (da aggiungere a `prep_tasks` o a una tabella dedicata) per determinare se oggi è un giorno di produzione per questa prep. Se non è un giorno di cadenza e lo stock è sufficiente → `looks_ok` anche con net_requirement > 0.
+
+**Non applicare a tutte le salse senza conferma prep per prep.** Arrabbiata e Pomodoro sono le prime candidate. Salse successive da decidere con Max.
+
+---
+
+### Prep successiva da compilare
+
+La prossima prep nel gap CONSTRAINT_MISSING da decidere con Max.
+
