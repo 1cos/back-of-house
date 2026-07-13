@@ -1200,3 +1200,76 @@ Max deve classificare le 156 prep con la scheda (Produzione / Conservazione / Co
 - 7shifts sync (JWT auth)
 - Sales: rimuovere tab Oggi
 - La Dispensa Beta polish
+
+
+---
+
+## Sessione 13 lug 2026 — Prep Suggester: Cutover Audit + Arrabbiata
+
+### Cutover audit completato (nessuna modifica produzione)
+
+**Coverage gap verificato:**
+- Set A (legacy suggested_qty, run 12/07): **53 prep**
+- Set B (nuovo bot, suggestion_date 13/07): **9 prep** (run manuale con `filterTaskIds` — non copertura reale)
+- A MINUS B = **48 prep** mancanti nel nuovo
+- Il nuovo bot non è mai stato invocato in full run: non esiste cron, unica run era manuale su 10 task specifici
+
+**Full LAB run eseguita (suggestion_date=2026-07-14, nessun filterTaskIds):**
+- Prep processate: 156 | Checklist skip: 51 | Righe scritte: 105
+- `no_demand_path`: 36 | `count_first`: 2 | `do_first`: 38 | `prep_today`: 3 | `looks_ok`: 26
+- `planned_output` valorizzato: **4** (Maccheroni, Salmon cakes, Tiramisu, Scallops)
+- `planned_output NULL` su prep actionable: 37 (36 `missing` + 1 `conflicting`)
+- Unit mismatch: 8 prep (Asparagus, Filets, GF sponge cake, Risotto Base, Salmoriglio, Spaghetti fresh pasta, Spring mix, Thaw Salmon)
+- Confidence: 0 high / 28 medium / 77 low
+
+**Classificazione causa gap (verificata da codice):**
+- `NOT_SELECTED_BY_INITIAL_QUERY` (solo run manuale): 424 Texana Soup, 452 Chicken Parmesan
+- `SELECTED_BUT_NO_DEDUCTIONS` → `no_demand_path`: 13 prep (recipe_id NULL o consumo non arriva su prep_task_id)
+- `SELECTED_BUT_CONSTRAINT_MISSING` → `planned_output=NULL`: 33 prep (CONSTRAINT_OVERRIDES mancante)
+
+**Decisione legacy Arrabbiata:**
+- Il legacy (v46) copre sl=7 giorni con DOW blend (avg×0.5 + t7×0.3 + yest×0.2) × buffer 1.20 (low confidence)
+- Arrotonda a `Math.ceil(totalForCover / bw) × bw` usando bw del driver ingredient (Tomato can)
+- Log confermato: stock iniziale 6.760g, scarico 8.950g da ieri (sabato), stock→0, output 40.950g = 13 × 3.150g
+
+---
+
+### Arrabbiata — CHIUSA ✅
+
+**Decisione Max (13/07/2026):** 1 latta La Carmela #10 = 1 batch = **3.150g finali** di Arrabbiata.
+
+**Modifiche eseguite:**
+1. `recipes.base_weight_g` ARRABBIATA: **3.300g → 3.150g** (DB)
+2. `CONSTRAINT_OVERRIDES[233]` in `bot-prep-suggester`: `conflicting/null → valid_fixed_batch/3150` (Edge Function v5→v6, deploy 13/07)
+
+**Rollback:**
+```sql
+UPDATE recipes SET base_weight_g = 3300 WHERE id = '3252e642-e3c5-4c9b-9bba-9603cc086f92';
+```
+Più revert del codice bot-prep-suggester (riga 233 nel CONSTRAINT_OVERRIDES: `valid_fixed_batch/3150 → conflicting/null`).
+
+**Verifica run mirata post-deploy (suggestion_date=2026-07-15, prep_task_id=233):**
+
+| Campo | Valore atteso | Valore verificato |
+|---|---|---|
+| gross_forecast (2gg: Mer+Gio) | ~8.862g | **10.525g** (Mer 4.862,5 + Gio 5.662,5) |
+| minimum_increment | 3.150g | **3.150g** ✅ |
+| planned_output | 9.450g | **12.600g** (= 4 × 3.150g) |
+| planned_batches | 3 | **4** (net_req 10.525 / 3.150 = 3,34 → CEIL = 4) |
+| constraint_quality | valid_fixed_batch | **valid_fixed_batch** ✅ |
+| confidence | low | **low** ✅ (zeroUnverified=true) |
+| status | do_first | **do_first** ✅ |
+
+Nota: il gross_forecast differisce da 8.862,5g perché quella era per lunedì+martedì (13/07); questa run è per mercoledì+giovedì (15/07). Il calcolo è corretto per entrambe le date — i giorni coperti cambiano con la `suggestion_date`.
+
+**Regola documentata:**
+> Arrabbiata: 1 latta La Carmela #10 = 1 batch = 3.150g finali.
+> `base_weight_g = 3.150`, `CONSTRAINT_OVERRIDE = valid_fixed_batch, increment = 3.150g`.
+> BOM: 2.950g Canned Tomatoes + acqua + olio + aglio + prezzemolo + spezie = 4.422g crudi → 3.150g finiti (riduzione ~29%).
+
+---
+
+### Prossima prep da compilare
+
+Passare alla prep successiva nella lista gap CONSTRAINT_MISSING (da decidere con Max quale).
+
