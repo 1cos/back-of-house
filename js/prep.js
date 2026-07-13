@@ -518,11 +518,9 @@ function _fmtSuggQty(qty, unit) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RENDER SUGGESTION BLOCK v625 — fonte unica: prep_suggestions_daily
-// Nessun fallback a suggested_qty/note legacy.
-// Gestisce tutti i status: do_first, prep_today, looks_ok, count_first,
-//   defer_to_tomorrow, no_demand_path, out_of_scope, operational actions.
-// Interfaccia pubblica: renderSuggBlock(sugg, i) → HTML string
+// RENDER SUGGESTION BLOCK v626 — Station View: natural kitchen English
+// Chef/Admin View: retains technical detail (confidence, reason, stock source)
+// No backend, no DB, no bot logic changes — UI text only.
 // ─────────────────────────────────────────────────────────────────────────────
 function renderSuggBlock(sugg, i) {
   const lang     = window.user?.lang || 'en';
@@ -532,7 +530,7 @@ function renderSuggBlock(sugg, i) {
   const conf     = sugg.confidence || 'low';
   const pq       = sugg.production_constraint_quality || 'missing';
 
-  // ── Helpers ──
+  // ── Format helpers (unchanged) ──
   function _fmtN(n, unit) {
     if (n === null || n === undefined || isNaN(parseFloat(n))) return null;
     const v = parseFloat(n);
@@ -567,19 +565,19 @@ function renderSuggBlock(sugg, i) {
     return v + (unit ? ' ' + unit : '');
   }
 
-  // ── Testo reason: campo reason è "color|it|en|es"
-  function _reasonText(sugg) {
+  // ── Raw reason from DB (for Admin/Chef view only) ──
+  function _rawReasonText(sugg) {
     const r = sugg.reason || '';
     const parts = r.split('|');
     if (parts.length >= 4) {
       if (lang === 'it') return parts[1];
       if (lang === 'es') return parts[3];
-      return parts[2]; // EN default
+      return parts[2];
     }
     return r;
   }
 
-  // ── Consumo medio dal primo forecast_component ──
+  // ── Average daily from forecast_components ──
   function _avgDailyLabel(sugg, unit) {
     try {
       const comps = (sugg.debug_json || {}).forecast_components;
@@ -587,138 +585,167 @@ function renderSuggBlock(sugg, i) {
       const qty = parseFloat(comps[0].forecast_qty);
       if (isNaN(qty) || qty <= 0) return null;
       const u = (unit || '').toLowerCase();
-      if (u === 'g') { const kg=qty/1000; return kg.toLocaleString('it-IT',{minimumFractionDigits:0,maximumFractionDigits:1})+' kg/giorno'; }
-      if (['pezzi','pz'].includes(u)) return Math.round(qty)+' pz/giorno';
-      if (u === 'nests') return Math.round(qty)+' nests/giorno';
-      if (u === 'cup')   return qty.toFixed(1)+' cups/giorno';
-      return qty + (unit?' '+unit:'')+'/giorno';
+      if (u === 'g') { const kg=qty/1000; return kg.toLocaleString('it-IT',{minimumFractionDigits:0,maximumFractionDigits:1})+' kg/day'; }
+      if (['pezzi','pz'].includes(u)) return Math.round(qty)+' pcs/day';
+      if (u === 'nests') return Math.round(qty)+' nests/day';
+      if (u === 'cup')   return qty.toFixed(1)+' cups/day';
+      return qty + (unit?' '+unit:'')+'/day';
     } catch(e) { return null; }
   }
 
-  // ── STATUS CONFIG ──
-  // Label e colori per ogni status — Station View vede label semplice, Chef View confidence
+  // ── STATUS CONFIG — Station View uses English labels ──
   const STATUS_MAP = {
-    do_first:          { emoji:'🔴', label:'FAI PRIMA',            bg:'rgba(220,38,38,0.08)',   border:'#fca5a5', color:'#dc2626' },
-    prep_today:        { emoji:'🟠', label:'FAI OGGI',             bg:'rgba(234,88,12,0.08)',   border:'#fdba74', color:'#ea580c' },
-    looks_ok:          { emoji:'🟢', label:'SEMBRA OK',            bg:'rgba(22,163,74,0.08)',   border:'#bbf7d0', color:'#16a34a' },
-    count_first:       { emoji:'🟡', label:'CONTA PRIMA',          bg:'rgba(202,138,4,0.08)',   border:'#fde68a', color:'#ca8a04' },
-    defer_to_tomorrow: { emoji:'🟢', label:'RICONTROLLA DOMANI',   bg:'rgba(22,163,74,0.06)',   border:'#d1fae5', color:'#059669' },
-    no_demand_path:    { emoji:'⚪', label:'VERIFICA',             bg:'rgba(100,116,139,0.06)', border:'#e2e8f0', color:'#64748b' },
-    out_of_scope:      { emoji:'⚪', label:'N/A',                  bg:'rgba(100,116,139,0.06)', border:'#e2e8f0', color:'#64748b' },
+    do_first:          { emoji:'🔴', label:'DO FIRST',         bg:'rgba(220,38,38,0.08)',   border:'#fca5a5', color:'#dc2626' },
+    prep_today:        { emoji:'🟠', label:'DO TODAY',         bg:'rgba(234,88,12,0.08)',   border:'#fdba74', color:'#ea580c' },
+    looks_ok:          { emoji:'🟢', label:'LOOKS GOOD',       bg:'rgba(22,163,74,0.08)',   border:'#bbf7d0', color:'#16a34a' },
+    count_first:       { emoji:'🟡', label:'COUNT FIRST',      bg:'rgba(202,138,4,0.08)',   border:'#fde68a', color:'#ca8a04' },
+    defer_to_tomorrow: { emoji:'🟢', label:'CHECK TOMORROW',   bg:'rgba(22,163,74,0.06)',   border:'#d1fae5', color:'#059669' },
+    no_demand_path:    { emoji:'⚪', label:'CHECK',            bg:'rgba(100,116,139,0.06)', border:'#e2e8f0', color:'#64748b' },
+    out_of_scope:      { emoji:'⚪', label:'N/A',              bg:'rgba(100,116,139,0.06)', border:'#e2e8f0', color:'#64748b' },
   };
   const sc = STATUS_MAP[status] || STATUS_MAP['no_demand_path'];
 
-  // ── Determina se è un'azione operativa (non produzione) ──
-  // Thaw Salmon (413), Thaw Lobster (296): work_type=operational_action nella classifications
-  // Identificato dal debug_json.demand_path o dalla combinazione status+constraint
+  // ── Operational action detection (unchanged) ──
   const isThaw = i.name && /thaw/i.test(i.name);
   const isPorterhouse = i.name && /porterhouse/i.test(i.name);
   const isOperational = isThaw || (isPorterhouse && status !== 'looks_ok' && pq === 'missing');
 
-  // ── Calcola planned output da mostrare ──
+  // ── Planned output calculation (unchanged logic) ──
   let displayQty = null;
   let displayLabel = null;
 
   if (isThaw && sugg.net_requirement != null) {
-    // Operational action: usa net_requirement in pezzi, non planned_output
     const nr = parseFloat(sugg.net_requirement);
     if (!isNaN(nr) && nr > 0) {
-      displayQty = Math.ceil(nr) + ' pz';
-      displayLabel = 'SCONGELA · ' + displayQty;
+      displayQty = Math.ceil(nr) + ' pcs';
+      displayLabel = 'THAW · ' + displayQty;
     }
   } else if (isPorterhouse && sugg.net_requirement != null) {
     const nr = parseFloat(sugg.net_requirement);
     if (!isNaN(nr) && nr > 0) {
-      displayQty = Math.ceil(nr) + ' pz';
-      displayLabel = 'SCONGELA E PROCESSA · ' + displayQty;
+      displayQty = Math.ceil(nr) + ' pcs';
+      displayLabel = 'THAW & PORTION · ' + displayQty;
     }
   } else if (sugg.planned_output != null && parseFloat(sugg.planned_output) > 0) {
-    // Produzione normale: usa planned_output
     displayQty = _fmtN(sugg.planned_output, outUnit);
     if (displayQty) {
-      // Calcola batch se c'è minimum_increment
       const mi = sugg.minimum_increment ? parseFloat(sugg.minimum_increment) : null;
       const po = parseFloat(sugg.planned_output);
       if (mi && mi > 0 && pq === 'valid_fixed_batch') {
         const batches = Math.round(po / mi);
-        if (batches > 1) {
-          displayLabel = batches + ' batch · ' + displayQty;
-        } else {
-          displayLabel = '1 batch · ' + displayQty;
-        }
+        displayLabel = batches + (batches === 1 ? ' batch' : ' batches') + ' · ' + displayQty;
       } else {
         displayLabel = displayQty;
       }
     }
   }
 
-  // ── BLOCKED preps — status do_first/prep_today senza planned_output ──
-  // (Citronnette, Ranch, Asparagus, Spinach: constraint_quality missing/conflicting)
+  // ── Blocked preps (Citronnette, Ranch, Asparagus, Spinach) ──
   const isBlocked = (status === 'do_first' || status === 'prep_today') &&
                     (pq === 'missing' || pq === 'conflicting') &&
                     !displayLabel && !isOperational;
 
-  if (isBlocked) {
-    displayLabel = null; // Non inventare quantità
-  }
+  if (isBlocked) displayLabel = null;
 
-  // ── Assembla stock line ──
   const stockStr = _fmtStock(sugg, outUnit);
   const stockUnverified = sugg.stock_source === 'db_snapshot_unverified';
+  const flagRc = !!(sugg.debug_json?.flag_recount);
 
-  // ── RENDER HTML ──
+  // ── STATION VIEW description — short, operational English ──
+  // Replaces raw DB reason text for non-admin users.
+  function _stationDesc(status, isBlocked, isOperational) {
+    if (isOperational) {
+      return isThaw
+        ? 'Check the freezer and thaw what you need for tonight.'
+        : 'Check the freezer and portion what you need for tonight.';
+    }
+    if (isBlocked) return 'Check current levels and prep as needed.';
+    switch(status) {
+      case 'do_first':
+        return 'Current stock is running low.\nPrepare this before service.';
+      case 'prep_today':
+        return 'Current stock is running low.\nPlease check the cooler before preparing more.';
+      case 'looks_ok':
+        return 'Current stock should be enough.\nNo production needed today.';
+      case 'count_first':
+        return 'The recorded stock may not be accurate.\nPlease count what\'s in the cooler before preparing more.';
+      case 'defer_to_tomorrow':
+        return 'Current stock should cover today.\nThe system will check again tomorrow morning.';
+      case 'no_demand_path':
+        return 'The system doesn\'t have enough information to make a recommendation.';
+      default:
+        return null;
+    }
+  }
 
-  // Pill status
-  const pillHtml = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${sc.color};background:${sc.bg};border:1px solid ${sc.border};border-radius:20px;padding:3px 9px;letter-spacing:0.02em;">${sc.emoji} ${isOperational ? (isThaw ? 'SCONGELA' : 'PROCESSA') : sc.label}</span>`;
+  // ── RENDER ──
 
-  // Quantità azione (bold, visibile a tutti)
+  // Pill
+  const pillLabel = isOperational ? (isThaw ? 'THAW' : 'PORTION') : sc.label;
+  const pillHtml = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${sc.color};background:${sc.bg};border:1px solid ${sc.border};border-radius:20px;padding:3px 9px;letter-spacing:0.02em;">${sc.emoji} ${pillLabel}</span>`;
+
+  // Quantity line (bold, always shown when available)
   let actionQtyHtml = '';
   if (displayLabel) {
     const aqColor = isOperational ? '#1e40af' : (status === 'do_first' ? '#dc2626' : '#ea580c');
     actionQtyHtml = `<div style="font-size:15px;font-weight:800;color:${aqColor};margin-top:5px;letter-spacing:-0.01em;">${displayLabel}</div>`;
   } else if (isBlocked) {
-    // Blocked: nessuna quantità — solo VERIFICA
-    actionQtyHtml = `<div style="font-size:12px;font-weight:600;color:#64748b;margin-top:5px;">VERIFICA · ${lang==='es'?'datos insuficientes':lang==='it'?'dati insufficienti':'data not complete'}</div>`;
+    actionQtyHtml = `<div style="font-size:12px;font-weight:600;color:#64748b;margin-top:5px;">CHECK — no quantity available</div>`;
   }
 
-  // Reason text (solo per stati che richiedono spiegazione)
-  let reasonHtml = '';
-  const showReason = status !== 'looks_ok' && status !== 'defer_to_tomorrow' && status !== 'out_of_scope';
-  if (showReason) {
-    const rt = _reasonText(sugg);
-    if (rt) {
-      // Tronca a prima parte significativa (prima del " — pochi dati" se troppo lunga)
-      const shortRt = rt.length > 120 ? rt.slice(0, 117) + '…' : rt;
-      reasonHtml = `<div style="font-size:12px;color:#475569;margin-top:3px;line-height:1.4;">${shortRt}</div>`;
+  // Description — Station View: plain English. Chef/Admin: raw DB reason.
+  let descHtml = '';
+  if (status !== 'out_of_scope') {
+    if (isAdmin_) {
+      // Chef/Admin: show raw DB reason (technical, multilingual)
+      if (status !== 'looks_ok' && status !== 'defer_to_tomorrow') {
+        const rt = _rawReasonText(sugg);
+        if (rt) {
+          const shortRt = rt.length > 140 ? rt.slice(0, 137) + '…' : rt;
+          descHtml = `<div style="font-size:12px;color:#475569;margin-top:3px;line-height:1.4;">${shortRt}</div>`;
+        }
+      }
+    } else {
+      // Station View: natural kitchen English
+      const desc = _stationDesc(status, isBlocked, isOperational);
+      if (desc) {
+        const lines = desc.split('\n');
+        descHtml = lines.map((l, idx) =>
+          `<div style="font-size:13px;color:${idx===0?'#334155':'#64748b'};margin-top:${idx===0?'5':'2'}px;line-height:1.4;">${l}</div>`
+        ).join('');
+      }
     }
   }
 
-  // Stock row
-  let stockHtml = '';
-  if (stockStr !== null) {
-    const srcLabel = stockUnverified ? ' <span style="font-size:10px;color:#94a3b8;">(non verificato)</span>' : '';
-    stockHtml = `<div style="font-size:13px;color:#475569;margin-top:5px;"><span style="font-weight:500;color:#94a3b8;">Stock</span> <span style="font-weight:600;color:#1e3a5f;">${stockStr}</span>${srcLabel}</div>`;
+  // ⚠ Verify stock — shown to ALL users when flag_recount=true
+  let rcHtml = '';
+  if (flagRc) {
+    rcHtml = `<div style="margin-top:5px;font-size:12px;font-weight:700;color:#ca8a04;">⚠ Verify stock before starting</div>`;
   }
 
-  // Consumo medio (da forecast_components) — solo per stati di produzione
+  // Recorded stock row (label changed from "Stock" → "Recorded stock")
+  let stockHtml = '';
+  if (stockStr !== null) {
+    stockHtml = `<div style="font-size:13px;color:#475569;margin-top:5px;"><span style="font-weight:500;color:#94a3b8;">Recorded stock</span> <span style="font-weight:600;color:#1e3a5f;">${stockStr}</span></div>`;
+  }
+
+  // Average usage row (renamed from "Consumo medio" / "Average sales"; hidden in Station View for looks_ok/defer/no_demand)
   let avgHtml = '';
   if (status !== 'looks_ok' && status !== 'defer_to_tomorrow' && status !== 'no_demand_path' && status !== 'out_of_scope') {
     const al = _avgDailyLabel(sugg, outUnit);
     if (al) {
-      avgHtml = `<div style="font-size:13px;color:#475569;margin-top:3px;"><span style="font-weight:500;color:#94a3b8;">Consumo medio</span> <span style="font-weight:600;color:#1e3a5f;">${al}</span></div>`;
+      avgHtml = `<div style="font-size:13px;color:#475569;margin-top:3px;"><span style="font-weight:500;color:#94a3b8;">Average usage</span> <span style="font-weight:600;color:#1e3a5f;">${al}</span></div>`;
     }
   }
 
-  // Confidence (solo Chef/Admin view)
+  // Confidence — Admin/Chef only. Station View sees only ⚠ Verify stock (above).
   let confHtml = '';
   if (isAdmin_ && conf) {
     const confColor = conf==='high'?'#059669':conf==='medium'?'#d97706':'#94a3b8';
-    const flagRc = sugg.debug_json?.flag_recount;
-    const rcNote = flagRc ? ' · <span style="color:#ca8a04;font-weight:700;">⚠ verifica stock</span>' : '';
-    confHtml = `<div style="margin-top:4px;font-size:10px;color:${confColor};font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">${conf} confidence${rcNote}</div>`;
+    confHtml = `<div style="margin-top:4px;font-size:10px;color:${confColor};font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">${conf} confidence</div>`;
   }
 
-  return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${reasonHtml}${stockHtml}${avgHtml}${confHtml}</div>`;
+  return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${descHtml}${rcHtml}${stockHtml}${avgHtml}${confHtml}</div>`;
 }
 
 function getValidCount(taskId) {
@@ -1404,13 +1431,13 @@ function cardButton(i){
 
   // ── Step 2: SUGG_* card types ─────────────────────────────────────────
   if (_ct2 === 'SUGG_COUNT_FIRST') {
-    return `<button onclick="event.stopPropagation();prepContaPrima(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#ca8a04;color:white;border:none;letter-spacing:0.03em;">CONTA PRIMA</button>`;
+    return `<button onclick="event.stopPropagation();prepContaPrima(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#ca8a04;color:white;border:none;letter-spacing:0.03em;">COUNT FIRST</button>`;
   }
   if (_ct2 === 'SUGG_LOOKS_OK' || _ct2 === 'SUGG_DEFER') {
     return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:14px;font-weight:600;background:transparent;color:#059669;border:1.5px solid #bbf7d0;letter-spacing:0.02em;">Preparo ugualmente</button>`;
   }
   if (_ct2 === 'SUGG_DO_FIRST' || _ct2 === 'SUGG_PREP_TODAY') {
-    return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START</button>`;
+    return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START PREP</button>`;
   }
   if (_ct2 === 'SUGG_VERIFY') {
     return ''; // nessun bottone per VERIFICA — no action su dati incerti
@@ -1426,7 +1453,7 @@ function cardButton(i){
   }
 
   // DO_FIRST (red TRUSTED) / PREP_TODAY (yellow TRUSTED) / COUNT_RECONCILED → START
-  return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START</button>`;
+  return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START PREP</button>`;
 }
 
 // ── CHEF AI CARD SYSTEM ──────────────────────────────────────────────────────
@@ -2106,7 +2133,7 @@ window.saveKitchenCount = async function(id) {
       </details>` : '';
 
     // Bottone START — sempre visibile dopo count, così il cuoco può subito fare prep
-    const startBtnHtml = `<button onclick="prepStart(${JSON.stringify(id)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;margin-top:10px;">START</button>`;
+    const startBtnHtml = `<button onclick="prepStart(${JSON.stringify(id)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;margin-top:10px;">START PREP</button>`;
 
     confirmBlock.innerHTML = `
       <div style="margin-top:6px;">
@@ -3327,6 +3354,7 @@ function _chefAiPrepPanelHtml(a, prepName){
     +'</div>'
   +'</div>';
 }
+
 
 
 
