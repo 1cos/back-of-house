@@ -523,8 +523,10 @@ function _fmtSuggQty(qty, unit) {
 // No backend, no DB, no bot logic changes — UI text only.
 // ─────────────────────────────────────────────────────────────────────────────
 function renderSuggBlock(sugg, i) {
-  const lang     = window.user?.lang || 'en';
-  const isAdmin_ = typeof isAdmin === 'function' ? isAdmin() : false;
+  const lang       = window.user?.lang || 'en';
+  const isAdmin_   = typeof isAdmin === 'function' ? isAdmin() : false;
+  const isSupervisor_ = typeof isSupervisor === 'function' ? isSupervisor() : false;
+  const isChefView = isAdmin_ || isSupervisor_; // full technical detail for chef/admin/supervisor
   const outUnit  = sugg.output_unit || sugg.stock_unit || i.unit || '';
   const status   = sugg.status || 'no_demand_path';
   const conf     = sugg.confidence || 'low';
@@ -696,8 +698,8 @@ function renderSuggBlock(sugg, i) {
   // Description — Station View: plain English. Chef/Admin: raw DB reason.
   let descHtml = '';
   if (status !== 'out_of_scope') {
-    if (isAdmin_) {
-      // Chef/Admin: show raw DB reason (technical, multilingual)
+    if (isChefView) {
+      // Chef/Admin/Supervisor: show raw DB reason (technical, multilingual)
       if (status !== 'looks_ok' && status !== 'defer_to_tomorrow') {
         const rt = _rawReasonText(sugg);
         if (rt) {
@@ -738,9 +740,9 @@ function renderSuggBlock(sugg, i) {
     }
   }
 
-  // Confidence — Admin/Chef only. Station View sees only ⚠ Verify stock (above).
+  // Confidence — Chef/Admin/Supervisor only. Station View sees only ⚠ Verify stock.
   let confHtml = '';
-  if (isAdmin_ && conf) {
+  if (isChefView && conf) {
     const confColor = conf==='high'?'#059669':conf==='medium'?'#d97706':'#94a3b8';
     confHtml = `<div style="margin-top:4px;font-size:10px;color:${confColor};font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">${conf} confidence</div>`;
   }
@@ -3354,6 +3356,7 @@ function _chefAiPrepPanelHtml(a, prepName){
     +'</div>'
   +'</div>';
 }
+
 
 
 

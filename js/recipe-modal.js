@@ -308,15 +308,14 @@ function buildShell(title, category, pills, botPill, tabs){
 }
 
 // ── STEP RENDERER (condiviso tra recipe_steps e prep_steps) ──
-// ── v624: CHEF AI STEP 1 — mostra dati già calcolati da prep_suggestions_daily ──
-// Non inventa numeri, non fa previsioni, non parla di "copertura fino a venerdì".
-// Solo i campi strutturati già presenti nel DB.
+// ── v627: CHEF AI STEP 1 ─────────────────────────────────────────────────────
+// Mostra dati strutturati da prep_suggestions_daily.
+// Labels EN only. "Open recipe" rimosso — sostituito con "START PREP".
+// "Reported stock" / "Suggested amount" come da spec.
 function buildChefAiStep1Block(prepSugg, prepTask) {
-  // Non mostrare se non c'è sugg e non c'è nemmeno suggested_qty legacy
   if (!prepSugg && !(prepTask && prepTask.suggested_qty)) return '';
 
   const unit = (prepSugg && prepSugg.output_unit) || (prepTask && prepTask.unit) || '';
-  const lang = window.lang || 'en';
 
   function fmtVal(val, u) {
     if (val === null || val === undefined) return '—';
@@ -324,34 +323,34 @@ function buildChefAiStep1Block(prepSugg, prepTask) {
     if (isNaN(n)) return '—';
     const ul = (u || '').toLowerCase();
     if (ul === 'g') {
-      if (n >= 1000) return (n/1000).toLocaleString('it-IT',{maximumFractionDigits:1}) + ' kg';
+      if (n >= 1000) return (n/1000).toLocaleString('en-US',{maximumFractionDigits:1}) + ' kg';
       return Math.round(n) + ' g';
     }
-    if (['pezzi','pz'].includes(ul)) return Math.round(n) + ' ' + (n===1?'pezzo':'pezzi');
-    if (ul === 'kg') return n.toLocaleString('it-IT',{maximumFractionDigits:1}) + ' kg';
+    if (['pezzi','pz'].includes(ul)) { const ni=Math.round(n); return ni + (ni===1?' piece':' pieces'); }
+    if (ul === 'kg') return n.toLocaleString('en-US',{maximumFractionDigits:1}) + ' kg';
+    if (ul === 'nests') return Math.round(n) + ' nests';
+    if (ul === 'cup') return Math.round(n) + (n===1?' cup':' cups');
     return n + (u ? ' ' + u : '');
   }
 
-  let rows = [];
+  const prepTaskId = prepTask && prepTask.id;
 
   if (prepSugg) {
-    // Fonte strutturata: prep_suggestions_daily
-    const stockVal = fmtVal(prepSugg.current_stock, unit);
-    const forecastVal = prepSugg.forecast ? fmtVal(prepSugg.forecast, unit) : null;
-    const netVal = fmtVal(prepSugg.net_requirement, unit);
-    const plannedVal = prepSugg.planned_output != null ? fmtVal(prepSugg.planned_output, unit) : fmtVal(prepSugg.net_requirement, unit);
+    const pq = prepSugg.production_constraint_quality || 'missing';
+    const stockVal   = fmtVal(prepSugg.current_stock, unit);
+    const plannedVal = prepSugg.planned_output != null
+      ? fmtVal(prepSugg.planned_output, unit)
+      : fmtVal(prepSugg.net_requirement, unit);
 
-    rows.push(['Stock stimato', stockVal]);
-    if (forecastVal) rows.push(['Consumo previsto', forecastVal]);
-    rows.push(['Fabbisogno finestra', netVal]);
-    rows.push(['Quantità suggerita', '<strong>' + plannedVal + '</strong>']);
-
-    // Avviso batch conflicting/missing
-    const isBatchUncertain = prepSugg.confidence === 'conflicting' || prepSugg.confidence === 'missing';
-    const batchNote = isBatchUncertain
-      ? '<div style="margin-top:8px;font-size:12px;color:#854f0b;background:#fef3c7;border-radius:8px;padding:8px 10px;">La quantità necessaria è stimata, ma la ricetta non può ancora essere scalata automaticamente.</div>'
+    // Batch note when constraint missing/conflicting
+    const batchNote = (pq === 'missing' || pq === 'conflicting')
+      ? '<div style="margin-top:8px;font-size:12px;color:#854f0b;background:#fef3c7;border-radius:8px;padding:8px 10px;">Quantity is an estimate — recipe cannot be auto-scaled yet.</div>'
       : '';
 
+    const rows = [
+      ['Recorded stock', stockVal],
+      ['Suggested amount', '<strong>' + plannedVal + '</strong>'],
+    ];
     const rowsHtml = rows.map(([label, val]) =>
       `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
         <span style="color:#94a3b8;">${label}</span>
@@ -359,33 +358,32 @@ function buildChefAiStep1Block(prepSugg, prepTask) {
       </div>`
     ).join('<div style="height:1px;background:#f1f5f9;margin:0;"></div>');
 
-    const prepTaskId = prepTask && prepTask.id;
     return `<div style="margin:12px 16px 0;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #bfdbfe;border-radius:14px;padding:14px 14px 12px;">
-      <div style="font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:0.6px;margin-bottom:10px;">👨‍🍳 CHEF AI</div>
+      <div style="font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:0.6px;margin-bottom:10px;">🤖 PREP SUGGESTION</div>
       ${rowsHtml}
       ${batchNote}
       <div style="display:flex;gap:8px;margin-top:12px;">
-        <button onclick="document.getElementById('rmOverlay')?.querySelector('.rm-tab[data-tab=\'ingredients\']')?.click()" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:700;background:#1e3a5f;color:#fff;border:none;cursor:pointer;">Apri ricetta</button>
-        <button onclick="document.getElementById('rmOverlay')?.remove();setTimeout(()=>window.segnalaChef&&window.segnalaChef(${JSON.stringify(prepTaskId)}),100)" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:600;color:#64748b;background:#f1f5f9;border:none;cursor:pointer;">Segnala problema</button>
+        <button onclick="(function(){var o=document.getElementById('rmOverlay');if(o){var t=o.querySelector('.rm-tab[data-tab=\'ingredients\']');if(t)t.click();else o.querySelector('.rm-tab')?.click();}})()" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:700;background:#059669;color:#fff;border:none;cursor:pointer;">START PREP</button>
+        <button onclick="document.getElementById('rmOverlay')?.remove();setTimeout(()=>window.segnalaChef&&window.segnalaChef(${JSON.stringify(prepTaskId)}),100)" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:600;color:#64748b;background:#f1f5f9;border:none;cursor:pointer;">REPORT AN ISSUE</button>
       </div>
     </div>`;
 
   } else if (prepTask && prepTask.suggested_qty) {
-    // Fallback legacy: solo suggested_qty (bot-preplist-builder)
-    const sqVal = fmtVal(prepTask.suggested_qty, unit);
+    // Legacy fallback: bot-preplist-builder
+    const sqVal    = fmtVal(prepTask.suggested_qty, unit);
     const stockVal = fmtVal(prepTask.current_stock, unit);
     return `<div style="margin:12px 16px 0;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #bfdbfe;border-radius:14px;padding:14px 14px 12px;">
-      <div style="font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:0.6px;margin-bottom:10px;">👨‍🍳 CHEF AI</div>
+      <div style="font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:0.6px;margin-bottom:10px;">🤖 PREP SUGGESTION</div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
-        <span style="color:#94a3b8;">Stock stimato</span><span style="color:#1e3a5f;">${stockVal}</span>
+        <span style="color:#94a3b8;">Recorded stock</span><span style="color:#1e3a5f;">${stockVal}</span>
       </div>
       <div style="height:1px;background:#f1f5f9;"></div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
-        <span style="color:#94a3b8;">Quantità suggerita</span><span style="color:#1e3a5f;"><strong>${sqVal}</strong></span>
+        <span style="color:#94a3b8;">Suggested amount</span><span style="color:#1e3a5f;"><strong>${sqVal}</strong></span>
       </div>
       <div style="display:flex;gap:8px;margin-top:12px;">
-        <button onclick="document.getElementById('rmOverlay')?.querySelector('.rm-tab[data-tab=\'ingredients\']')?.click()" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:700;background:#1e3a5f;color:#fff;border:none;cursor:pointer;">Apri ricetta</button>
-        <button onclick="document.getElementById('rmOverlay')?.remove();setTimeout(()=>window.segnalaChef&&window.segnalaChef(${JSON.stringify(prepTask.id)}),100)" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:600;color:#64748b;background:#f1f5f9;border:none;cursor:pointer;">Segnala problema</button>
+        <button onclick="(function(){var o=document.getElementById('rmOverlay');if(o){var t=o.querySelector('.rm-tab[data-tab=\'ingredients\']');if(t)t.click();else o.querySelector('.rm-tab')?.click();}})()" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:700;background:#059669;color:#fff;border:none;cursor:pointer;">START PREP</button>
+        <button onclick="document.getElementById('rmOverlay')?.remove();setTimeout(()=>window.segnalaChef&&window.segnalaChef(${JSON.stringify(prepTask.id)}),100)" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:600;color:#64748b;background:#f1f5f9;border:none;cursor:pointer;">REPORT AN ISSUE</button>
       </div>
     </div>`;
   }
@@ -560,9 +558,9 @@ window.recipeModal={
     if(prepTaskId){
       try{
         const{data:sd}=await supa.from('prep_suggestions_daily')
-          .select('status,confidence,net_requirement,planned_output,output_unit,current_stock,forecast,coverage_days,demand_source,debug_json')
+          .select('status,confidence,net_requirement,planned_output,output_unit,minimum_increment,current_stock,stock_source,forecast,coverage_days,production_constraint_quality,demand_source,debug_json,suggestion_date')
           .eq('prep_task_id',prepTaskId)
-          .order('target_date',{ascending:false})
+          .order('suggestion_date',{ascending:false})
           .limit(1)
           .maybeSingle();
         prepSugg=sd||null;
@@ -610,16 +608,34 @@ window.recipeModal={
     if(rec?.base_servings) pills.push(`🍽️ ${rec.base_servings} ${t('servings').toLowerCase()}`);
     if(rec?.shelf_life_days) pills.push(`📅 ${rec.shelf_life_days} ${rec.shelf_life_days===1?t('day'):t('days')}`);
 
-    // Bot pill suggested portions
+    // v627: bot pill — prefer new prepSugg.planned_output over legacy suggested_qty
     let suggestedPortions=null;
-    if(prepTask?.suggested_qty && rec?.serving_weight_g){
+    let _pillLabel='';
+    const _bwgPill = rec?.base_weight_g ? parseFloat(rec.base_weight_g) : null;
+    const _bsPill  = rec?.base_servings  ? parseFloat(rec.base_servings)  : null;
+
+    if(prepSugg && prepSugg.planned_output != null){
+      const po=parseFloat(prepSugg.planned_output);
+      const pq=prepSugg.production_constraint_quality||'missing';
+      if(!isNaN(po)&&po>0&&(pq==='valid_fixed_batch'||pq==='valid_scalable')){
+        if(_bwgPill&&_bwgPill>0){
+          // Weight-based: show batches
+          const batches=Math.round(po/_bwgPill);
+          suggestedPortions=Math.round((po/_bwgPill)*(_bsPill||1)); // internal: servings unit for scaler
+          _pillLabel=`🤖 ${batches} batch${batches===1?'':'es'} today`;
+        } else {
+          suggestedPortions=Math.round(po);
+          _pillLabel=`🤖 ${suggestedPortions} ${prepSugg.output_unit||'pcs'} today`;
+        }
+      }
+    } else if(prepTask?.suggested_qty && rec?.serving_weight_g){
       const sqG=parseFloat(prepTask.suggested_qty), swG=parseFloat(rec.serving_weight_g);
-      if(sqG>0&&swG>0) suggestedPortions=Math.round(sqG/swG);
-    } else if(prepTask?.suggested_qty && rec?.base_weight_g && rec?.base_servings){
-      const sqG=parseFloat(prepTask.suggested_qty), bwG=parseFloat(rec.base_weight_g), bs=parseFloat(rec.base_servings);
-      if(sqG>0&&bwG>0) suggestedPortions=Math.round((sqG/bwG)*bs);
+      if(sqG>0&&swG>0){suggestedPortions=Math.round(sqG/swG);_pillLabel=`🤖 ${suggestedPortions} ${t('servings').toLowerCase()} today`;}
+    } else if(prepTask?.suggested_qty && _bwgPill && _bsPill){
+      const sqG=parseFloat(prepTask.suggested_qty);
+      if(sqG>0&&_bwgPill>0){suggestedPortions=Math.round((sqG/_bwgPill)*_bsPill);_pillLabel=`🤖 ${suggestedPortions} ${t('servings').toLowerCase()} today`;}
     }
-    const botPill=suggestedPortions?`<span class="rm-sub-pill rm-bot-pill" id="rmBotPill" data-portions="${suggestedPortions}">🤖 ${suggestedPortions} ${t('servings').toLowerCase()} today</span>`:'';
+    const botPill=suggestedPortions&&_pillLabel?`<span class="rm-sub-pill rm-bot-pill" id="rmBotPill" data-portions="${suggestedPortions}">${_pillLabel}</span>`:'';
 
     const overlay=document.createElement('div');
     overlay.id='rmOverlay';
@@ -640,8 +656,35 @@ window.recipeModal={
       }
 
       let activeTab=hasRecipeSteps?'steps':'ingredients';
-      let scaleFactor=1;
       const baseServings=rec.base_servings||1;
+      const baseWeightG=rec.base_weight_g?parseFloat(rec.base_weight_g):null;
+
+      // ── v627: AUTO-SCALE to planned_output from suggestion ──
+      // Weight-based recipe (base_weight_g present, no base_servings or base_servings=1):
+      //   scale_factor = planned_output / base_weight_g
+      // Discrete recipe (base_servings meaningful):
+      //   scale_factor = planned_output / base_servings (planned in same unit as base_servings)
+      // Fallback: scale_factor = 1 (opens at 1 batch)
+      let scaleFactor = 1;
+      let _initialServings = baseServings; // what the servings selector shows on open
+      if(prepSugg && prepSugg.planned_output != null){
+        const po = parseFloat(prepSugg.planned_output);
+        const pq = prepSugg.production_constraint_quality || 'missing';
+        const isValidConstraint = pq === 'valid_fixed_batch' || pq === 'valid_scalable';
+        if(!isNaN(po) && po > 0 && isValidConstraint){
+          if(baseWeightG && baseWeightG > 0){
+            // Weight-based: scale = planned_output_g / base_weight_g
+            scaleFactor = po / baseWeightG;
+            _initialServings = Math.max(1, Math.round(scaleFactor * baseServings));
+          } else if(baseServings > 1){
+            // Discrete: planned_output is in pieces, scale by serving count
+            scaleFactor = po / baseServings;
+            _initialServings = Math.max(1, Math.round(po));
+          }
+          // Cap at sane value to prevent runaway scaling
+          if(scaleFactor > 50) { scaleFactor = 1; _initialServings = baseServings; }
+        }
+      }
 
       overlay.innerHTML=buildShell(title,category,pills,botPill,tabs);
       document.body.appendChild(overlay);
@@ -663,9 +706,15 @@ window.recipeModal={
         }
       });
 
-      // Attiva tab giusta
+      // Attiva tab giusta — inizia su ingredients tab con scale già applicato
       overlay.querySelectorAll('.rm-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));
-      renderTab(activeTab);
+      if(activeTab==='ingredients'){
+        // Apri direttamente con il scale suggerito
+        const body=document.getElementById('rmBody');
+        if(body){body.innerHTML=buildIngredients(bomRows,scaleFactor,baseServings);bindIngredients(_initialServings);}
+      } else {
+        renderTab(activeTab);
+      }
 
       overlay.querySelectorAll('.rm-tab').forEach(btn=>{
         btn.addEventListener('click',()=>{
@@ -685,7 +734,12 @@ window.recipeModal={
 
       function buildIngredients(bom,factor,base){
         if(!bom||bom.length===0) return `<div class="rm-empty"><div class="rm-empty-icon">📋</div>${t('noIng').replace('\n','<br>')}</div>`;
-        return `<div class="rm-servings"><span class="rm-servings-label">${t('servings')}</span><div class="rm-stepper"><button class="rm-step-btn" id="rmMinus">−</button><input type="number" class="rm-servings-val" id="rmServVal" min="1" max="9999" inputmode="numeric" value="${Math.round(factor*base)||base}"><button class="rm-step-btn" id="rmPlus">+</button></div></div><div class="rm-ing-list" id="rmIngList">${renderIngList(bom,factor)}</div>`;
+        // v627: label reflects batch vs pieces
+        const _bwg = rec && rec.base_weight_g ? parseFloat(rec.base_weight_g) : null;
+        const _bs  = base || 1;
+        const _selectorLabel = _bwg && _bwg > 0 ? 'Batches' : (_bs > 1 ? 'Pieces' : 'Servings');
+        const _displayVal = Math.round(factor * _bs) || _bs;
+        return `<div class="rm-servings"><span class="rm-servings-label">${_selectorLabel}</span><div class="rm-stepper"><button class="rm-step-btn" id="rmMinus">−</button><input type="number" class="rm-servings-val" id="rmServVal" min="1" max="9999" inputmode="numeric" value="${_displayVal}"><button class="rm-step-btn" id="rmPlus">+</button></div></div><div class="rm-ing-list" id="rmIngList">${renderIngList(bom,factor)}</div>`;
       }
       function renderIngList(bom,factor){
         return bom.map(b=>{
@@ -791,6 +845,7 @@ function closeModal(prepTaskId){
 }
 
 })();
+
 
 
 
