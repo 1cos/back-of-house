@@ -1,10 +1,11 @@
 // BOH OS v2 — app bootstrap
-// Task 002C: minimal PIN login flow.
+// Task 002D: session state via app-state.js.
 // No global state. No window writes. No storage APIs.
 
 import { t } from './core/i18n.js';
 import { checkSupabaseConnection } from './core/supabase-client.js';
 import { authenticateWithPin } from './services/auth-service.js';
+import { setCurrentUser, getCurrentUser } from './core/app-state.js';
 
 const root = document.getElementById('app');
 
@@ -108,9 +109,13 @@ async function handleSubmit() {
   const result = await authenticateWithPin(pin);
 
   if (result.ok) {
-    // Replace card content with authenticated confirmation.
-    // Name is inserted by replacing the {name} token in the translated string.
-    const welcomeText = t('auth.welcome').replace('{name}', result.user.name);
+    // Store user in app state — available to all modules via getCurrentUser().
+    setCurrentUser(result.user);
+
+    // Read name from state, not from the login result directly.
+    const user = getCurrentUser();
+    const welcomeText = t('auth.welcome').replace('{name}', user.name);
+
     loginCard.innerHTML = `
       <p class="auth-welcome">${welcomeText}</p>
       <p class="auth-ready">${t('auth.ready')}</p>
