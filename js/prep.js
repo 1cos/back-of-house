@@ -2885,6 +2885,8 @@ async function suggestedSave(id, modal){
   const qty=parseFloat(it.suggested_qty)||1;
   const unit=it.unit||tr('prep_portions');
   modal.remove();
+  // Se il Done è stato avviato in-flow dal modal ricetta, chiudi anche l'overlay
+  if(window._rmDonePending && typeof window._rmOverlayCleanup==='function') window._rmOverlayCleanup();
   var _sNow = new Date();
   var _sSt = _startTimes[id] || _sNow;
   var _sDur = Math.round((_sNow - _sSt) / 60000);
@@ -2931,6 +2933,8 @@ async function detailSave(id, btn, isSuggested){
     return;
   }
   sheet.remove();
+  // Se il Done è stato avviato in-flow dal modal ricetta, chiudi anche l'overlay
+  if(window._rmDonePending===id && typeof window._rmOverlayCleanup==='function') window._rmOverlayCleanup();
   _finishTask(id, qty);
   await loadItemAlerts();
   await loadStepsMap();

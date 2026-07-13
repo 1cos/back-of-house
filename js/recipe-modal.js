@@ -531,7 +531,13 @@ function bindStepEvents(steps, getCurrentStep, setCurrentStep, prepTaskId, total
       if(prepTaskId&&typeof window.prepOnStepChange==='function') window.prepOnStepChange(prepTaskId,cur+1,totalSteps);
       renderFn();
     } else {
-      closeModalFn();
+      // Ultimo step — avvia quantity sheet in-flow invece di chiudere e basta
+      if(prepTaskId && typeof window.openDoneSheet==='function'){
+        window._rmDonePending=prepTaskId;
+        window.openDoneSheet(prepTaskId);
+      } else {
+        closeModalFn();
+      }
     }
   });
 }
@@ -823,14 +829,20 @@ window.recipeModal={
         ${noteText?`<div class="rm-bare-note">${noteText}</div>`:`<div class="rm-empty"><div class="rm-empty-icon">✅</div></div>`}
         <button class="rm-bare-done" id="rmBareDoneBtn">${t('doneBtn')}</button>
       </div>`;
-    // Bind DONE button — prima apre done sheet, poi chiude modal
+    // Bind DONE button — apre quantity sheet IN-FLOW senza chiudere il modal prima
     document.getElementById('rmBareDoneBtn')?.addEventListener('click', ()=>{
-      // Chiudi overlay immediatamente senza aspettare animazione
-      var o=document.getElementById('rmOverlay');
-      if(o) o.remove();
-      // NON killare timer globali: restano nella timer bar
-      // Poi apri done sheet
-      if(prepTaskId && typeof window.prepDone==='function') window.prepDone(prepTaskId);
+      if(prepTaskId && typeof window.openDoneSheet==='function'){
+        // Apri il quantity sheet sopra il modal — l'utente inserisce la qty
+        // openDoneSheet chiude se stesso + salva; poi chiudiamo anche l'overlay
+        var _origFinish=window._finishTask;
+        // Patch one-shot: dopo il save chiude anche l'overlay
+        window._rmDonePending=prepTaskId;
+        window.openDoneSheet(prepTaskId);
+        // L'overlay verrà rimosso da _rmOverlayCleanup dopo il salvataggio
+      } else {
+        var o=document.getElementById('rmOverlay');
+        if(o) o.remove();
+      }
     });
   },
   close: function(prepTaskId){ closeModal(prepTaskId); }
@@ -843,6 +855,13 @@ function closeModal(prepTaskId){
   var o=document.getElementById('rmOverlay');
   if(o){o.style.opacity='0';o.style.transition='opacity .2s';setTimeout(function(){o.remove();},200);}
 }
+
+// Chiude l'overlay residuo dopo il salvataggio dal Done sheet in-flow
+window._rmOverlayCleanup = function(){
+  window._rmDonePending=null;
+  var o=document.getElementById('rmOverlay');
+  if(o){o.style.opacity='0';o.style.transition='opacity .15s';setTimeout(function(){o.remove();},150);}
+};
 
 })();
 
