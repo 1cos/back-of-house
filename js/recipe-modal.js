@@ -314,73 +314,121 @@ function buildShell(title, category, pills, botPill, tabs){
 // "Reported stock" / "Suggested amount" come da spec.
 function buildChefAiStep1Block(prepSugg, prepTask) {
   // Only show when we have a fresh suggestion from prep_suggestions_daily.
-  // Legacy suggested_qty (bot-preplist-builder) is no longer surfaced — PROMPT_PROSSIMA_SESSIONE rule.
+  // Legacy suggested_qty (bot-preplist-builder) is no longer surfaced.
   if (!prepSugg) return '';
 
-  const unit = prepSugg.output_unit || (prepTask && prepTask.unit) || '';
-  const prepTaskId = prepTask && prepTask.id;
+  var unit = prepSugg.output_unit || (prepTask && prepTask.unit) || '';
+  var prepTaskId = prepTask ? (prepTask.id || null) : null;
 
   function fmtVal(val, u) {
-    if (val === null || val === undefined) return '—';
-    const n = parseFloat(val);
-    if (isNaN(n)) return '—';
-    const ul = (u || '').toLowerCase();
+    if (val === null || val === undefined) return '\u2014';
+    var n = parseFloat(val);
+    if (isNaN(n)) return '\u2014';
+    var ul = (u || '').toLowerCase();
     if (ul === 'g') {
       if (n >= 1000) return (n/1000).toLocaleString('en-US',{maximumFractionDigits:1}) + ' kg';
       return Math.round(n) + ' g';
     }
-    if (['pezzi','pz'].includes(ul)) { const ni=Math.round(n); return ni + (ni===1?' piece':' pieces'); }
+    if (['pezzi','pz'].includes(ul)) { var ni=Math.round(n); return ni + (ni===1?' piece':' pieces'); }
     if (ul === 'kg') return n.toLocaleString('en-US',{maximumFractionDigits:1}) + ' kg';
     if (ul === 'nests') return Math.round(n) + ' nests';
     if (ul === 'cup') return Math.round(n) + (n===1?' cup':' cups');
     return n + (u ? ' ' + u : '');
   }
 
-  const pq = prepSugg.production_constraint_quality || 'missing';
-  const stockVal   = fmtVal(prepSugg.current_stock, unit);
-  const plannedVal = prepSugg.planned_output != null
+  var pq = prepSugg.production_constraint_quality || 'missing';
+  var stockVal   = fmtVal(prepSugg.current_stock, unit);
+  var plannedVal = prepSugg.planned_output != null
     ? fmtVal(prepSugg.planned_output, unit)
     : fmtVal(prepSugg.net_requirement, unit);
+  var batchWarning = (pq === 'missing' || pq === 'conflicting');
 
-  const batchNote = (pq === 'missing' || pq === 'conflicting')
-    ? '<div style="margin-top:8px;font-size:12px;color:#854f0b;background:#fef3c7;border-radius:8px;padding:8px 10px;">Quantity is an estimate — batch size not yet defined.</div>'
-    : '';
+  // Store sheet data keyed by taskId — never embedded in HTML attributes
+  var taskKey = 'pt_' + (prepTaskId || 'none');
+  window._rmSuggData = window._rmSuggData || {};
+  window._rmSuggData[taskKey] = { stockVal: stockVal, plannedVal: plannedVal, batchWarning: batchWarning, prepTaskId: prepTaskId };
 
-  const rowsHtml = [
-    ['Stock', stockVal],
-    ['Prepare today', '<strong>' + plannedVal + '</strong>'],
-  ].map(([label, val]) =>
-    `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
-      <span style="color:#94a3b8;">${label}</span>
-      <span style="color:#1e3a5f;">${val}</span>
-    </div>`
-  ).join('<div style="height:1px;background:#f1f5f9;margin:0;"></div>');
-
-  // Sheet HTML injected into body when user taps "View details"
-  // Closed by tapping backdrop or × button — does not affect recipe modal scroll position
-  const sheetHtml = JSON.stringify(
-    `<div id="rmSuggSheet" onclick="if(event.target===this)this.remove()" style="position:fixed;inset:0;z-index:9500;background:rgba(15,23,42,0.55);display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;">
-      <div style="width:100%;max-width:480px;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 32px rgba(30,58,95,0.18);padding:20px 18px 40px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-          <div style="font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:0.6px;">PREP SUGGESTION</div>
-          <button onclick="document.getElementById('rmSuggSheet')?.remove()" style="font-size:20px;color:#94a3b8;background:none;border:none;cursor:pointer;padding:0 4px;line-height:1;">×</button>
-        </div>
-        ${rowsHtml}
-        ${batchNote}
-        <div style="margin-top:14px;text-align:center;">
-          <button onclick="document.getElementById('rmSuggSheet')?.remove();setTimeout(()=>window.segnalaChef&&window.segnalaChef(${JSON.stringify(prepTaskId)}),80)" style="font-size:12px;color:#94a3b8;background:none;border:none;cursor:pointer;text-decoration:underline;padding:4px 8px;">Report an issue</button>
-        </div>
-      </div>
-    </div>`
-  );
-
-  // Compact bar — always visible below tabs, never pushes recipe content
-  return `<div id="rmChefAiBar" style="margin:8px 16px 0;padding:9px 12px;background:rgba(219,234,254,0.45);border:1px solid #bfdbfe;border-radius:12px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent;" onclick="(function(){var s=document.getElementById('rmSuggSheet');if(s){s.remove();return;}var el=document.createElement('div');el.innerHTML=${sheetHtml};document.body.appendChild(el.firstChild);})()">
-    <span style="font-size:12px;font-weight:600;color:#1d4ed8;">Prep Suggestion · Stock ${stockVal} / Prepare ${plannedVal}</span>
-    <span style="font-size:10px;color:#93c5fd;font-weight:500;white-space:nowrap;margin-left:8px;">View details ↓</span>
-  </div>`;
+  // Compact bar — text content only, click handler bound via addEventListener
+  return '<div id="rmChefAiBar" data-task-key="' + taskKey + '" style="margin:8px 16px 0;padding:9px 12px;background:rgba(219,234,254,0.45);border:1px solid #bfdbfe;border-radius:12px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent;">'
+    + '<span style="font-size:12px;font-weight:600;color:#1d4ed8;">Prep Suggestion \u00b7 Stock ' + stockVal + ' / Prepare ' + plannedVal + '</span>'
+    + '<span style="font-size:10px;color:#93c5fd;font-weight:500;white-space:nowrap;margin-left:8px;">View details \u2193</span>'
+    + '</div>';
 }
 
+// Bind click on rmChefAiBar — called once after DOM insertion
+// Opens suggestion sheet via pure DOM construction — zero inline JS, zero innerHTML with dynamic content
+function _bindRmChefAiBar() {
+  var bar = document.getElementById('rmChefAiBar');
+  if (!bar || bar._rmBound) return;
+  bar._rmBound = true;
+  bar.addEventListener('click', function() {
+    var existing = document.getElementById('rmSuggSheet');
+    if (existing) { existing.remove(); return; }
+
+    var taskKey  = bar.dataset.taskKey || '';
+    var d        = (window._rmSuggData || {})[taskKey] || {};
+    var stockVal    = d.stockVal    || '\u2014';
+    var plannedVal  = d.plannedVal  || '\u2014';
+    var batchWarn   = !!d.batchWarning;
+    var prepTaskId  = d.prepTaskId  || null;
+
+    var sheet = document.createElement('div');
+    sheet.id = 'rmSuggSheet';
+    sheet.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(15,23,42,0.55);display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;';
+    sheet.addEventListener('click', function(e){ if(e.target===sheet) sheet.remove(); });
+
+    var inner = document.createElement('div');
+    inner.style.cssText = 'width:100%;max-width:480px;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 32px rgba(30,58,95,0.18);padding:20px 18px 40px;';
+
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;';
+    var hdrT = document.createElement('div');
+    hdrT.style.cssText = 'font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:0.6px;';
+    hdrT.textContent = 'PREP SUGGESTION';
+    var closeX = document.createElement('button');
+    closeX.style.cssText = 'font-size:20px;color:#94a3b8;background:none;border:none;cursor:pointer;padding:0 4px;line-height:1;';
+    closeX.textContent = '\u00d7';
+    closeX.addEventListener('click', function(e){ e.stopPropagation(); sheet.remove(); });
+    hdr.appendChild(hdrT); hdr.appendChild(closeX);
+
+    function makeRow(label, value, bold) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;';
+      var l = document.createElement('span'); l.style.color='#94a3b8'; l.textContent=label;
+      var v = document.createElement('span'); v.style.color='#1e3a5f'; if(bold) v.style.fontWeight='700'; v.textContent=value;
+      row.appendChild(l); row.appendChild(v); return row;
+    }
+    var sep = document.createElement('div'); sep.style.cssText='height:1px;background:#f1f5f9;';
+
+    inner.appendChild(hdr);
+    inner.appendChild(makeRow('Stock', stockVal, false));
+    inner.appendChild(sep);
+    inner.appendChild(makeRow('Prepare today', plannedVal, true));
+
+    if (batchWarn) {
+      var bw = document.createElement('div');
+      bw.style.cssText = 'margin-top:8px;font-size:12px;color:#854f0b;background:#fef3c7;border-radius:8px;padding:8px 10px;';
+      bw.textContent = 'Quantity is an estimate \u2014 batch size not yet defined.';
+      inner.appendChild(bw);
+    }
+
+    var rWrap = document.createElement('div'); rWrap.style.cssText='margin-top:14px;text-align:center;';
+    var rBtn  = document.createElement('button');
+    rBtn.style.cssText='font-size:12px;color:#94a3b8;background:none;border:none;cursor:pointer;text-decoration:underline;padding:4px 8px;';
+    rBtn.textContent = 'Report an issue';
+    rBtn.addEventListener('click', function(e){
+      e.stopPropagation();
+      sheet.remove();
+      if (prepTaskId && typeof window.segnalaChef === 'function') {
+        setTimeout(function(){ window.segnalaChef(prepTaskId); }, 80);
+      }
+    });
+    rWrap.appendChild(rBtn);
+    inner.appendChild(rWrap);
+    sheet.appendChild(inner);
+    document.body.appendChild(sheet);
+  });
+}
 function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal, bomRows, scaleFactor){
   if(!steps||steps.length===0) return `<div class="rm-empty"><div class="rm-empty-icon">👨‍🍳</div>${t('noSteps')}</div>`;
   const step=steps[currentStep];
@@ -680,7 +728,7 @@ window.recipeModal={
       overlay.innerHTML=buildShell(title,category,pills,botPill,tabs);
       document.body.appendChild(overlay);
       // v624: Chef AI Step 1 — inietta blocco dati sopra il body del modal
-      {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}}
+      {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}_bindRmChefAiBar();}
       overlay.addEventListener('click',e=>{if(e.target===overlay)closeFn();});
 
       // bot pill → salta a ingredienti con porzioni suggerite
@@ -787,7 +835,7 @@ window.recipeModal={
       overlay.innerHTML=buildShell(title,category,pills,botPill,[]);
       document.body.appendChild(overlay);
       // v624: Chef AI Step 1
-      {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}}
+      {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}_bindRmChefAiBar();}
       overlay.addEventListener('click',e=>{if(e.target===overlay)closeFn();});
       overlay.querySelector('.rm-close').addEventListener('click',closeFn);
 
@@ -803,7 +851,7 @@ window.recipeModal={
     overlay.innerHTML=buildShell(title,category,pills,botPill,[]);
     document.body.appendChild(overlay);
     // v624: Chef AI Step 1
-    {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}}
+    {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}_bindRmChefAiBar();}
     overlay.addEventListener('click',e=>{if(e.target===overlay)closeFn();});
     overlay.querySelector('.rm-close').addEventListener('click',closeFn);
 
