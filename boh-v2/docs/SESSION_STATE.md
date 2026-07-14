@@ -11,7 +11,7 @@
 
 Station Prep supports:
 
-- live task loading by default station
+- active task loading by default station
 - latest valid bot suggestions
 - priority sections (Do first / Do today / Check / Looks good / In progress)
 - collapsible task details
@@ -20,11 +20,17 @@ Station Prep supports:
 - Complete Prep quantity form
 - physical stock counts (inserts prep_stock_counts, updates current_stock)
 - count reconciliation (invokes bot-prep-count-reconciler, applies returned fields)
+- Work in progress metadata (Started by, Started at, Elapsed)
+- previous-shift WIP detection (tasks open ≥ 8 hours)
+- previous-shift WIP resolution actions:
+  - I finished it → existing Complete Prep flow
+  - Continue this prep → refreshes in_progress_at and in_progress_by through existing Start service
+  - Pass to this shift → inserts a handoff report into chef_reports
 - local post-write updates without refetching
 
-**Station Prep now supports the core kitchen workflow:**
+**Station Prep now supports the complete core kitchen workflow:**
 
-**Review → Start → Complete → Count → Reconcile**
+**Review → Start → Complete → Count → Reconcile → Resolve previous-shift WIP**
 
 Recipes, Chat, and Schedule remain scaffold placeholders.
 
@@ -42,7 +48,12 @@ Recipes, Chat, and Schedule remain scaffold placeholders.
    - latest valid bot suggestions
    - today production logs
    - recent physical counts
-8. Tasks are grouped into: Do first / Do today / Check / Looks good / In progress
+8. Tasks are grouped into:
+   - Do first
+   - Do today
+   - Check
+   - Looks good
+   - In progress
 9. User expands one task
 10. Eligible task can be started
 11. Successful Start moves the task to In progress
@@ -58,35 +69,43 @@ Recipes, Chat, and Schedule remain scaffold placeholders.
     - updates prep_tasks.current_stock
     - invokes bot-prep-count-reconciler
 16. Reconciliation fields appear in Last physical count
-17. Partial write and reconciliation failures are surfaced safely
-18. No page reload or data refetch is required after Start, Complete, or Count
+17. In-progress detail shows:
+    - Started by
+    - Started at
+    - Elapsed
+18. A task open for at least 8 hours is marked as previous-shift WIP
+19. Previous-shift WIP offers:
+    - I finished it → existing Complete Prep flow
+    - Continue this prep → refreshes in_progress_at and in_progress_by through existing Start service
+    - Pass to this shift → inserts a handoff report into chef_reports
+20. No page reload or data refetch is required after Start, Complete, Count, Continue, or Pass
 
 ---
 
 ## Next Task
 
-**Task 004Y — Station Prep WIP Detail**
+**Task 004AG — Admin Station Selector for Users Without a Default Station**
 
 Scope recommendation:
 
-- Display in-progress metadata already loaded on each task
-- Show started by, started at, and elapsed time
-- Use local device time
-- No database query
-- No writes
-- No timer interval yet
-- No handoff action
-- No previous-shift resolution
+- Apply only to admin and executive-chef roles
+- When defaultStation is missing, show a station selector instead of Station not assigned
+- Load station names from active prep_tasks through a dedicated read service
+- Selecting a station loads that station's Prep page
+- No database update to users.default_station
+- Staff without a default station must continue seeing Station not assigned
+- Mobile-first
+- No Executive Chef dashboard yet
 
 **Do not begin Station Recipes yet.**
 
 Recommended sequence:
 
-- 004Y — Display WIP metadata
-- 004Z — Previous-shift WIP detection
-- 004AA — WIP resolution UI
-- then close Station Prep core
-- only after approval, begin Station Recipes
+- 004AG — Station list read service
+- 004AH — Admin station selector component
+- 004AI — Connect selector to Station Home and Prep
+- then verify Station Mode end-to-end on iPhone
+- only after Max approval, begin Station Recipes
 
 ---
 
@@ -131,6 +150,14 @@ Recommended sequence:
 | 004V | Connect Physical Count to Station Prep | `389ce4ce8a3c63fc7ed12244e892bc466fc448fb` |
 | 004W | Physical Count Reconciler Service | `911dd8e0a5a226a0ce7a67e42d426b9f963b27a2` |
 | 004X | Automatically Reconcile Saved Physical Count | `9dff54a2ab7c3f6de70b0fc0c6ad888c9d40c71d` |
+| 004Y | Station Prep WIP Detail | `3850b22b534920cb50ff5f4b8046047bac07ea03` |
+| 004Z | Previous-Shift WIP Detection | `7f2ee8eabdf6c92b5503c07c06c23739b6e7c923` |
+| 004AA | Previous-Shift WIP Resolution Panel | `e50122fa19fb7a3096fe3c9678beb6eb769c08b5` |
+| 004AB | Connect "I Finished It" to Complete Prep | `51973fb9be97ec8b8a69e423260620a74e704380` |
+| 004AC | Connect "Continue This Prep" to Start Service | `2f12473576e031c7434a7c343450dec446839665` |
+| 004AD | Audit Existing "Pass to This Shift" Production Flow | audit only — no commit |
+| 004AE | Previous-Shift Prep Pass Service | `f5cb5fb385ff5b3ed2f833823ecec8333c6f2667` |
+| 004AF | Connect "Pass to This Shift" to Handoff Service | `26d87639377c460407ed79f37403070304a1ed5c` |
 
 ---
 
@@ -169,6 +196,7 @@ boh-v2/
       prep-count-service.js
       prep-count-write-service.js
       prep-log-service.js
+      prep-pass-service.js
       prep-start-service.js
       prep-suggestion-service.js
       station-prep-service.js
@@ -213,7 +241,7 @@ boh-v2/
 - Five registered routes: `station-home`, `station-prep`, `station-recipes`, `station-chat`, `station-schedule`.
 - Recipes, Chat, Schedule → scaffold string renderers (placeholder).
 - Station Home and Station Prep → `HTMLElement` renderers (real components).
-- Services injected into `createStationPrep`: `fetchStationPrepTasks`, `fetchPrepSuggestions`, `fetchTodayPrepLogs`, `fetchRecentPrepCounts`, `startPrepTask`, `completePrepTask`, `savePrepCount`, `reconcilePrepCount`, and `currentUser`.
+- Services injected into `createStationPrep`: `fetchStationPrepTasks`, `fetchPrepSuggestions`, `fetchTodayPrepLogs`, `fetchRecentPrepCounts`, `startPrepTask`, `completePrepTask`, `savePrepCount`, `reconcilePrepCount`, `passPrepToShift`, and `currentUser`.
 
 ### Station Prep data flow
 - `fetchStationPrepTasks(stationName)` → `prep_tasks`, filters `category = stationName`, `archived = false`, ordered `name ASC`.
@@ -233,12 +261,18 @@ boh-v2/
 - `prep-count-form.js` is a reusable UI-only count form (no Supabase import).
 - `prep-count-write-service.js` owns count insert and `current_stock` update.
 - `prep-count-reconciler-service.js` owns the `bot-prep-count-reconciler` Edge Function invocation.
-- `station-navigation.js` injects all services including `reconcileCount` into `createStationPrep`.
+- `prep-pass-service.js` owns the `chef_reports` handoff insert for previous-shift WIP.
+- Station Prep does not write to `office_items` for WIP handoff.
+- Pass to this shift intentionally leaves `prep_tasks` unchanged.
+- `bot-tell-chef-reader` processes the handoff report later through its existing schedule.
+- `station-navigation.js` injects all services including `passTask` into `createStationPrep`.
 - Station Prep UI does not duplicate Supabase queries, writes, or Edge Function calls.
 - Successful writes update local page state and trigger a local rerender without refetching.
 - Successful Count writes update local task and count state.
 - Partial Count results update only the current task detail DOM without a full rerender.
 - Reconciliation retry and polling are not implemented.
+- WIP resolution uses existing services rather than parallel duplicate flows.
+- Elapsed time is calculated only when the detail renders; no live timer interval exists.
 
 ### Station Prep local state
 - `workingTasks`: mutable array of shallow-copied task objects. Original `fetchTasks` result never mutated.
@@ -247,6 +281,7 @@ boh-v2/
 - `suggestionsMap`: read-only throughout the page lifecycle.
 - `render()` is called after each successful Start, Complete, or full Count; creates a fresh `expandController` (all panels collapsed).
 - Partial Count results replace only the Last physical count section in the currently expanded task detail.
+- Pass to this shift does not call `render()` and does not modify any local working copy.
 
 ### Station Prep sorting and sections (004F + 004G)
 - Sort: `inProgress === true` always last; then suggestion priority (DO_FIRST=1 … DEFER=10, missing=7); then name ascending case-insensitive.
@@ -272,7 +307,7 @@ No new tokens introduced since 002A. All components use only these.
 ## Current Limitations
 
 - No Recipe navigation from Prep.
-- No recipe procedure or steps.
+- No recipe procedure or procedural steps.
 - No persistent session across reload.
 - No Italian or Spanish locale.
 - Home, Recipes, Chat, and Schedule remain placeholders except Station Home and Prep.
@@ -282,10 +317,14 @@ No new tokens introduced since 002A. All components use only these.
 - Count service is sequential rather than transactional: `prep_stock_counts` insert may succeed while `prep_tasks.current_stock` update fails; the UI exposes this partial failure safely.
 - Reconciler failures are not retried automatically.
 - No Realtime synchronization between multiple devices.
-- No previous-shift WIP resolution flow.
-- No recipe timer or procedural step integration.
-- No production handoff workflow.
-- No station summary progress metrics beyond existing section counts.
+- WIP elapsed time does not update live while the detail remains open.
+- Pass to this shift writes `chef_reports` only.
+- Pass to this shift does not write `office_items`.
+- Pass to this shift does not modify `prep_tasks`.
+- Kitchen Display does not read WIP handoff reports.
+- Admin or Executive Chef users without `default_station` still see Station not assigned.
+- No admin station selector yet.
+- No station-level progress dashboard beyond existing section counts.
 
 ---
 
@@ -322,4 +361,4 @@ No new tokens introduced since 002A. All components use only these.
 - `app.js` bootstrap comment still references 003C as last task; update when next structural change lands.
 - Recipes, Chat, Schedule routes still use `scaffoldPage()` string renderers.
 - No AbortController — navigating away is safe via `isConnected` checks but requests are not cancelled.
-- `station-prep.js` uses `.catch()` on the `completeTask` and `saveCount`/`reconcileCount` promise chains.
+- `station-prep.js` uses `.catch()` on the `completeTask`, `saveCount`/`reconcileCount`, and `passTask` promise chains.
