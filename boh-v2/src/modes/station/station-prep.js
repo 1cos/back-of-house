@@ -1030,13 +1030,13 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
 const PREVIOUS_SHIFT_MINUTES = 480;
 
 function buildWipSection(task, translate, currentUser, startTask, onSuccess, passTask, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl) {
-  const section = document.createElement('div');
-  section.className = 'station-prep__detail-wip';
+  const wipSection = document.createElement('div');
+  wipSection.className = 'station-prep__detail-wip';
 
   const heading = document.createElement('h3');
   heading.className = 'station-prep__detail-wip-heading';
   heading.textContent = translate('station_prep.detail_work_in_progress');
-  section.appendChild(heading);
+  wipSection.appendChild(heading);
 
   // Parse timestamp and current time once — reused for elapsed display and
   // previous-shift detection. No second Date construction.
@@ -1054,7 +1054,7 @@ function buildWipSection(task, translate, currentUser, startTask, onSuccess, pas
     warning.className = 'station-prep__detail-wip-previous-shift';
     warning.setAttribute('role', 'status');
     warning.textContent = translate('station_prep.detail_previous_shift');
-    section.appendChild(warning);
+    wipSection.appendChild(warning);
   }
 
   function addRow(labelKey, valueText) {
@@ -1068,7 +1068,7 @@ function buildWipSection(task, translate, currentUser, startTask, onSuccess, pas
     value.textContent = valueText;
     row.appendChild(label);
     row.appendChild(value);
-    section.appendChild(row);
+    wipSection.appendChild(row);
   }
 
   // Started by
@@ -1101,10 +1101,10 @@ function buildWipSection(task, translate, currentUser, startTask, onSuccess, pas
   // Resolution panel — appears after Elapsed, only for previous-shift WIP.
   // Reuses startedAtValid and elapsedMinutes already calculated above.
   if (startedAtValid && elapsedMinutes >= PREVIOUS_SHIFT_MINUTES) {
-    section.appendChild(buildWipResolutionPanel({ translate, task, currentUser, startTask, onSuccess, passTask, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }));
+    wipSection.appendChild(buildWipResolutionPanel({ translate, task, currentUser, startTask, onSuccess, passTask, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }));
   }
 
-  return section;
+  return wipSection;
 }
 
 // ── Detail panel builder ──────────────────────────────────────────────
