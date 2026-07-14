@@ -940,7 +940,7 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
     ? _fmtTrustQty(parseFloat(sugg.current_stock), taskUnit)
     : null;
   const stockUnver = sugg && sugg.stock_source === 'db_snapshot_unverified';
-  const stockWarning = stockUnver ? `<span style="font-size:10px;color:#ca8a04;margin-left:4px;">\u26a0 unverified</span>` : '';
+  const stockWarning = ''; // no technical badge for cooks — verification shown in contextStr
   const availableStr = stockVal !== null
     ? `<span style="color:#1e3a5f;font-weight:700;">${stockVal}</span>${stockWarning}`
     : NA;
@@ -962,7 +962,7 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
 
   // Context sentence
   let contextStr = '';
-  if (status === 'count_first' || (stockUnver && (status === 'do_first' || status === 'prep_today'))) {
+  if (status === 'count_first' || stockUnver) {
     contextStr = `<div style="font-size:11px;color:#92400e;margin-top:4px;">Please verify the actual stock before preparing.</div>`;
   } else if (sugg && sugg.suggestion_date) {
     // Day-of-week context
