@@ -8,7 +8,7 @@ This session is exclusively for:
 
 `boh-v2/`
 
-Do not read or modify production Brigade unless an explicit task requires schema verification.
+Do not read or modify production Brigade unless an explicit task requires schema or flow verification.
 
 ---
 
@@ -36,15 +36,15 @@ Station Mode for kitchen staff, mobile-first for iPhone.
 
 ## Current status
 
-Foundation, login, App Shell, Station Home, and the basic Station Prep Start → Complete workflow are complete.
+Foundation, login, App Shell, Station Home, and the Station Prep workflow through Start, Complete, Count, and Reconcile are complete.
 
 ---
 
 ## Next action
 
-Wait for **Task 004R — Station Prep Physical Count Read Service**.
+Wait for **Task 004Y — Station Prep WIP Detail**.
 
-Do not begin implementation until Task 004R is supplied.
+Do not begin implementation until Task 004Y is supplied.
 
 **Do not begin Station Recipes.**
 
