@@ -13,6 +13,7 @@
 // Task 004V: Count button in every expanded detail; mounts prep-count form; connects to savePrepCount.
 // Task 004X: reconcileCount called after saveCount when count exists; local count updated with reconciliation fields.
 // Task 004Y: WIP detail section shown inside expanded panel for in-progress tasks (inProgress === true).
+// Task 004Z: previous-shift warning inside WIP section when elapsed >= 480 minutes.
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
 
@@ -717,7 +718,9 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
   return { btn, containerRef };
 }
 
-// ── WIP section builder (Task 004Y) ──────────────────────────────────
+// ── WIP section builder (Task 004Y, updated Task 004Z) ───────────────
+
+const PREVIOUS_SHIFT_MINUTES = 480;
 
 function buildWipSection(task, translate) {
   const section = document.createElement('div');
@@ -727,6 +730,25 @@ function buildWipSection(task, translate) {
   heading.className = 'station-prep__detail-wip-heading';
   heading.textContent = translate('station_prep.detail_work_in_progress');
   section.appendChild(heading);
+
+  // Parse timestamp and current time once — reused for elapsed display and
+  // previous-shift detection. No second Date construction.
+  const startedAt = task.inProgressAt ? new Date(task.inProgressAt) : null;
+  const startedAtValid = startedAt !== null && !isNaN(startedAt.getTime());
+  const now = new Date();
+  const elapsedMinutes = startedAtValid
+    ? Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 60000))
+    : null;
+
+  // Previous-shift warning — appears after heading, before Started by.
+  // Shown only when elapsed >= PREVIOUS_SHIFT_MINUTES and timestamp is valid.
+  if (startedAtValid && elapsedMinutes >= PREVIOUS_SHIFT_MINUTES) {
+    const warning = document.createElement('p');
+    warning.className = 'station-prep__detail-wip-previous-shift';
+    warning.setAttribute('role', 'status');
+    warning.textContent = translate('station_prep.detail_previous_shift');
+    section.appendChild(warning);
+  }
 
   function addRow(labelKey, valueText) {
     const row = document.createElement('div');
@@ -748,22 +770,15 @@ function buildWipSection(task, translate) {
     : translate('station_prep.detail_user_not_recorded');
   addRow('station_prep.detail_started_by', startedBy);
 
-  // Started at
-  const startedAt = task.inProgressAt ? new Date(task.inProgressAt) : null;
-  const startedAtValid = startedAt !== null && !isNaN(startedAt.getTime());
+  // Started at — reuses startedAt already parsed above.
   const startedAtText = startedAtValid
     ? startedAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
     : translate('station_prep.detail_time_not_available');
   addRow('station_prep.detail_started_at', startedAtText);
 
-  // Elapsed
+  // Elapsed — reuses elapsedMinutes already calculated above.
   let elapsedText;
   if (startedAtValid) {
-    const now = new Date();
-    const elapsedMinutes = Math.max(
-      0,
-      Math.floor((now.getTime() - startedAt.getTime()) / 60000)
-    );
     if (elapsedMinutes < 60) {
       elapsedText = elapsedMinutes + ' min';
     } else {

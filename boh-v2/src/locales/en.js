@@ -135,5 +135,8 @@ export const en = {
   'station_prep.detail_started_at':            'Started at',
   'station_prep.detail_elapsed':               'Elapsed',
   'station_prep.detail_elapsed_not_available': 'Elapsed time not available',
+
+  // ── Station Prep — Previous-shift WIP warning (Task 004Z) ────────────
+  'station_prep.detail_previous_shift': 'Started in a previous shift',
 };
 

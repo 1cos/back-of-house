@@ -633,3 +633,22 @@
   align-items: baseline;
   min-width: 0;
 }
+
+/* ── Previous-shift WIP warning (Task 004Z) ──────────────────────────
+   Shown inside the Work in progress section when elapsed >= 480 min.
+   Appears after WIP heading, before Started by row.
+   role="status" set in JS. Visible text is the primary signal —
+   no color-only indicator. Mobile-first. Readable at 320px.
+   No new colors. No horizontal scrolling. No animation.              */
+.station-prep__detail-wip-previous-shift {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-left: 3px solid var(--text-secondary);
+  padding: var(--sp-1) var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
