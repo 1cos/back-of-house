@@ -2683,6 +2683,52 @@ window.prepDone = function(id){
   openDoneSheet(id);
 };
 
+// ── PREP QTY UNIT CONVERSION ──────────────────────────────────────────────────
+// Converte qty dall'unità scelta dal cuoco all'unità nativa del prep task
+// prima di aggiornare current_stock. Il prep_log conserva l'unità originale.
+//
+// Restituisce { ok: true, value: number } oppure { ok: false, error: string }.
+//
+// Regole:
+//   kg  ↔  g  : conversione peso sicura
+//   stessa unità : pass-through
+//   pz/pezzi/each/pieces : alias normalizzati a "pz"
+//   pezzi ↔ grammi, nests ↔ altro : errore — non indovinare mai
+//
+// Non è un sistema generale di conversione. Unità non gestite (oz, lb, fl_oz)
+// restituiscono errore esplicito invece di conversioni implicite.
+function convertPrepQtyToTaskUnit(qty, inputUnit, taskUnit) {
+  const n = parseFloat(qty);
+  if (isNaN(n) || n < 0) return { ok: false, error: 'Invalid quantity' };
+  const inp = (inputUnit || '').toLowerCase().trim();
+  const tsk = (taskUnit  || '').toLowerCase().trim();
+  // Normalizza tutti gli alias di "pezzi" in 'pz'
+  const PIECE_NORM = { pz:'pz', pezzi:'pz', each:'pz', pieces:'pz', pcs:'pz', piece:'pz' };
+  const normInp = PIECE_NORM[inp] || inp;
+  const normTsk = PIECE_NORM[tsk] || tsk;
+  if (!normTsk) return { ok: false, error: 'Task unit is missing' };
+  // Unità input vuota o già uguale alla task unit → pass-through
+  if (!normInp || normInp === normTsk) return { ok: true, value: n };
+  // Conversioni peso
+  if (normInp === 'kg' && normTsk === 'g')  return { ok: true, value: n * 1000 };
+  if (normInp === 'g'  && normTsk === 'kg') return { ok: true, value: n / 1000 };
+  // Unità fisiche contabili (non interconvertibili con peso o tra loro)
+  const PHYSICAL = ['nests','cup','buste','mazzi','filetto','cartocci'];
+  const inpIsPhys = PHYSICAL.includes(normInp);
+  const tskIsPhys = PHYSICAL.includes(normTsk);
+  const inpIsPz   = normInp === 'pz';
+  const tskIsPz   = normTsk === 'pz';
+  const inpIsWt   = normInp === 'g' || normInp === 'kg';
+  const tskIsWt   = normTsk === 'g' || normTsk === 'kg';
+  if (inpIsPz   && tskIsWt)    return { ok: false, error: 'Cannot convert pieces to ' + tsk };
+  if (inpIsWt   && tskIsPz)    return { ok: false, error: 'Cannot convert ' + inp + ' to pieces' };
+  if (inpIsPhys && !tskIsPhys) return { ok: false, error: 'Cannot convert ' + inp + ' to ' + tsk };
+  if (tskIsPhys && !inpIsPhys) return { ok: false, error: 'Cannot convert ' + inp + ' to ' + tsk };
+  if (inpIsPz   && tskIsPhys)  return { ok: false, error: 'Cannot convert pieces to ' + tsk };
+  if (inpIsPhys && tskIsPz)    return { ok: false, error: 'Cannot convert ' + inp + ' to pieces' };
+  return { ok: false, error: 'Unsupported unit conversion: ' + inp + ' → ' + tsk };
+}
+
 // ── DONE SHEET ──
 // ── TODAY LOG HELPERS ──
 function buildTodayLogBanner(tlogs){
@@ -2923,8 +2969,18 @@ async function detailSave(id, btn, isSuggested){
     _prepSaveError(it.name, logRes.error.message);
     return;
   }
-  const stockUpdate = qty > 0
-    ? {need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}
+  // v636: converti qty nell'unità nativa del task prima di aggiornare current_stock.
+  // Il prep_log conserva qty e unit come inseriti dal cuoco.
+  const _taskUnit = (it.unit || '').toLowerCase().trim();
+  const _convResult = convertPrepQtyToTaskUnit(qty, unit, _taskUnit);
+  if (!_convResult.ok) {
+    if (btn) { btn.textContent = tr('prep_done'); btn.disabled = false; }
+    _prepSaveError(it.name, 'This quantity cannot be converted to the stock unit for this prep. Please check the selected unit.');
+    return;
+  }
+  const qtyForStock = _convResult.value;
+  const stockUpdate = qtyForStock > 0
+    ? {need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,current_stock:(parseFloat(it.current_stock)||0)+qtyForStock,suggested_note:null,suggested_qty:null}
     : {need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,suggested_note:null,suggested_qty:null};
   const updRes = await supa.from('prep_tasks').update(stockUpdate).eq('id',id);
   if(updRes.error){
@@ -2935,7 +2991,7 @@ async function detailSave(id, btn, isSuggested){
   sheet.remove();
   // Se il Done è stato avviato in-flow dal modal ricetta, chiudi anche l'overlay
   if(window._rmDonePending===id && typeof window._rmOverlayCleanup==='function') window._rmOverlayCleanup();
-  _finishTask(id, qty);
+  _finishTask(id, qtyForStock);
   await loadItemAlerts();
   await loadStepsMap();
 loadRecentCounts();
