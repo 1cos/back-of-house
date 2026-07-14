@@ -50,4 +50,60 @@ Do not begin implementation until Task 004Y is supplied.
 
 ---
 
+## DO NOT
+
+Do not:
+
+- modify JavaScript
+- modify CSS
+- modify HTML
+- modify translations
+- modify services
+- modify database queries
+- implement Task 004Y
+- implement WIP actions
+- implement Recipes
+- modify production Brigade
+- create additional documentation
+- change completed-task commit hashes
+- remove previously completed task history
+
+---
+
+## QA
+
+Verify:
+
+1. Exactly two files modified
+2. No files created
+3. No application code changed
+4. All seven new completed tasks are recorded
+5. All seven commit hashes are copied accurately
+6. Count and reconciliation flow is described factually
+7. Current limitations are factual
+8. 004Y is the immediate next task
+9. Station Recipes are explicitly deferred
+10. NEXT_SESSION_PROMPT.md tells Claude to wait
+11. Both documents are in English
+12. Production Brigade remains unchanged
+
+---
+
+## OUTPUT
+
+Return exactly:
+
+1. Files modified
+2. Completed tasks added
+3. Current Station Prep status
+4. Next task recorded
+5. QA results
+6. Commit hash
+7. Live document paths
+8. Confirmation to open a new Claude session
+
+Do not begin Task 004Y.
+
+---
+
 ## If this conversation accumulates several completed tasks or becomes long, stop and request a new Claude session.
