@@ -138,5 +138,11 @@ export const en = {
 
   // ── Station Prep — Previous-shift WIP warning (Task 004Z) ────────────
   'station_prep.detail_previous_shift': 'Started in a previous shift',
+
+  // ── Station Prep — WIP resolution panel (Task 004AA) ─────────────────
+  'station_prep.wip_resolution_title':      'What should happen with this prep?',
+  'station_prep.wip_resolution_finished':   'I finished it',
+  'station_prep.wip_resolution_continue':   'Continue this prep',
+  'station_prep.wip_resolution_pass_shift': 'Pass to this shift',
 };
 

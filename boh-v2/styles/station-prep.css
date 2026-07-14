@@ -652,3 +652,71 @@
   overflow-wrap: break-word;
   word-break: break-word;
 }
+
+/* ── WIP resolution panel (Task 004AA) ───────────────────────────────
+   Appears inside the Work in progress section after the Elapsed row,
+   only for previous-shift WIP (elapsedMinutes >= 480).
+   Mobile-first. Full-width buttons. Touch target >= 44px.
+   Readable at 320px. No horizontal scrolling. No new colors.
+   Visible text is the primary signal. No icons, no emoji.
+   Visual hierarchy: finished (strongest) > continue > pass (quieter). */
+.station-prep__wip-resolution {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+
+.station-prep__wip-resolution-heading {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--sp-2);
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.station-prep__wip-resolution-btn {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-2);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.station-prep__wip-resolution-btn:last-child {
+  margin-bottom: 0;
+}
+
+/* I finished it — strongest action: solid border, stronger weight */
+.station-prep__wip-resolution-btn--finished {
+  color: var(--text-primary);
+  background: transparent;
+  border: 2px solid var(--text-primary);
+  font-weight: 700;
+}
+
+/* Continue this prep — standard secondary */
+.station-prep__wip-resolution-btn--continue {
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+/* Pass to this shift — quiet secondary */
+.station-prep__wip-resolution-btn--pass {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  font-weight: 400;
+}

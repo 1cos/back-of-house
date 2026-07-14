@@ -718,7 +718,36 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
   return { btn, containerRef };
 }
 
-// ── WIP section builder (Task 004Y, updated Task 004Z) ───────────────
+// ── WIP resolution panel builder (Task 004AA) ───────────────────────
+
+function buildWipResolutionPanel(translate) {
+  const panel = document.createElement('div');
+  panel.className = 'station-prep__wip-resolution';
+
+  const panelHeading = document.createElement('h4');
+  panelHeading.className = 'station-prep__wip-resolution-heading';
+  panelHeading.textContent = translate('station_prep.wip_resolution_title');
+  panel.appendChild(panelHeading);
+
+  function addAction(key, cssClass) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'station-prep__wip-resolution-btn ' + cssClass;
+    btn.textContent = translate(key);
+    btn.addEventListener('click', function () {
+      // No-op: action will be connected in a later task.
+    });
+    panel.appendChild(btn);
+  }
+
+  addAction('station_prep.wip_resolution_finished',   'station-prep__wip-resolution-btn--finished');
+  addAction('station_prep.wip_resolution_continue',   'station-prep__wip-resolution-btn--continue');
+  addAction('station_prep.wip_resolution_pass_shift', 'station-prep__wip-resolution-btn--pass');
+
+  return panel;
+}
+
+// ── WIP section builder (Task 004Y, updated Task 004Z, 004AA) ────────
 
 const PREVIOUS_SHIFT_MINUTES = 480;
 
@@ -790,6 +819,12 @@ function buildWipSection(task, translate) {
     elapsedText = translate('station_prep.detail_elapsed_not_available');
   }
   addRow('station_prep.detail_elapsed', elapsedText);
+
+  // Resolution panel — appears after Elapsed, only for previous-shift WIP.
+  // Reuses startedAtValid and elapsedMinutes already calculated above.
+  if (startedAtValid && elapsedMinutes >= PREVIOUS_SHIFT_MINUTES) {
+    section.appendChild(buildWipResolutionPanel(translate));
+  }
 
   return section;
 }
