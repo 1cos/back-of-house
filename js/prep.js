@@ -356,6 +356,10 @@ async function loadTodayLogs(){
   }catch(e){}
   // Carica suggestion Step 2 in parallelo (fallback silenzioso se fallisce)
   await loadSuggestions();
+  // Carica daily trust data Step 3 — non-blocking, errori non bloccano render
+  loadDailyTrustData().then(() => {
+    if(typeof renderM==='function') renderM();
+  }).catch(() => {}); // already handled inside loadDailyTrustData
   if(typeof renderM==='function') renderM();
 }
 function getTodayLogsFor(itemName){
@@ -463,19 +467,25 @@ async function loadSuggestions() {
     // Carica tutte le suggestion per la data selezionata
     const { data, error } = await supa
       .from('prep_suggestions_daily')
-      .select('prep_task_id,status,confidence,net_requirement,planned_output,output_unit,minimum_increment,current_stock,stock_source,stock_unit,forecast,coverage_days,demand_source,reason,production_constraint_quality,debug_json')
+      .select('prep_task_id,status,confidence,net_requirement,planned_output,output_unit,minimum_increment,current_stock,stock_source,stock_unit,forecast,coverage_days,demand_source,reason,production_constraint_quality,debug_json,history_end_date,generated_at')
       .eq('suggestion_date', validDate);
 
     if (error) throw error;
 
     window._suggestions     = {};
     window._suggestionsDate = validDate;
+    // Derive pipeline business_date from history_end_date of the freshest rows
+    let _maxHistEnd = null;
     (data || []).forEach(row => {
       window._suggestions[row.prep_task_id] = row;
+      if (row.history_end_date && (!_maxHistEnd || row.history_end_date > _maxHistEnd)) {
+        _maxHistEnd = row.history_end_date;
+      }
     });
+    window._suggestionsHistoryEnd = _maxHistEnd; // e.g. "2026-07-13"
 
     console.log('[Prep Suggester] ✓', Object.keys(window._suggestions).length,
-      'suggestions per', validDate);
+      'suggestions per', validDate, '| deduction date:', _maxHistEnd);
 
     // Aggiorna badge Admin se presente
     const badge = document.getElementById('_suggDateBadge');
@@ -487,6 +497,136 @@ async function loadSuggestions() {
     window._suggestionsDate = null;
     window._suggestionsError = true;
   }
+}
+
+// ── DAILY TRUST DATA LOADER ──────────────────────────────────────────────────
+// Loads "Prepared yesterday" and "Used last night" in one batch, per prep_task_id.
+// Called once per page load, results stored in window._dailyTrustData.
+// Non-blocking: if either query fails, the Trust View shows "Not available" per item.
+
+window._dailyTrustData = {};
+
+async function loadDailyTrustData() {
+  try {
+    const tz = 'America/Chicago';
+    // Yesterday in CDT (YYYY-MM-DD)
+    const nowCDT = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+    const prevDate = new Date(nowCDT + 'T12:00:00');
+    prevDate.setDate(prevDate.getDate() - 1);
+    const yesterdayCDT = prevDate.toISOString().slice(0, 10);
+
+    // CDT midnight boundaries for yesterday (UTC offsets: -06:00 summer / -05:00 winter)
+    // Use fixed -05:00 offset (CDT midnight = 05:00 UTC) — safe for America/Chicago
+    const ydayStart = yesterdayCDT + 'T00:00:00';
+    const ydayEnd   = nowCDT + 'T00:00:00';
+    // Convert CDT midnight to UTC: CDT = UTC-5 in summer
+    const ydayStartUTC = new Date(ydayStart + '-05:00').toISOString();
+    const ydayEndUTC   = new Date(ydayEnd   + '-05:00').toISOString();
+
+    // Deduction business_date: prefer history_end_date from the active suggestion run
+    const deductionDate = window._suggestionsHistoryEnd || yesterdayCDT;
+
+    // Run both queries in parallel
+    const [logRes, dedRes] = await Promise.all([
+      // Query A: production logged yesterday (CDT local day)
+      supa
+        .from('prep_log')
+        .select('prep_task_id,qty,unit')
+        .not('prep_task_id', 'is', null)
+        .gt('qty', 0)
+        .neq('unit', 'no_need')
+        .eq('is_demo', false)
+        .gte('created_at', ydayStartUTC)
+        .lt('created_at',  ydayEndUTC),
+
+      // Query B: pipeline deductions for the relevant business_date
+      supa
+        .from('stock_deductions')
+        .select('prep_task_id,quantity,unit,source')
+        .not('prep_task_id', 'is', null)
+        .eq('business_date', deductionDate)
+    ]);
+
+    // Build lookup by prep_task_id — tasks[] already loaded at this point
+    const trustMap = {};
+
+    // Process Query A: aggregate prepared qty per task in native unit
+    (logRes.data || []).forEach(row => {
+      const tid = row.prep_task_id;
+      const task = (window.tasks || {})[tid];
+      const taskUnit = (task?.unit || '').toLowerCase().trim();
+      if (!taskUnit) return; // can't normalize without task unit
+
+      const conv = convertPrepQtyToTaskUnit(row.qty, row.unit, taskUnit);
+      if (!conv.ok) {
+        console.warn('[Trust] Incompatible unit for prep_log id, task', tid, ':', row.unit, '→', taskUnit, conv.error);
+        if (!trustMap[tid]) trustMap[tid] = { prepared: null, used: null, unit: taskUnit, preparedOk: false, usedOk: false, preparedIncompat: true };
+        else trustMap[tid].preparedIncompat = true;
+        return;
+      }
+
+      if (!trustMap[tid]) trustMap[tid] = { prepared: 0, used: null, unit: taskUnit, preparedOk: true, usedOk: false, preparedIncompat: false };
+      if (trustMap[tid].preparedOk) trustMap[tid].prepared = (trustMap[tid].prepared || 0) + conv.value;
+    });
+
+    // Process Query B: aggregate used qty per task
+    (dedRes.data || []).forEach(row => {
+      const tid = row.prep_task_id;
+      const task = (window.tasks || {})[tid];
+      const taskUnit = (task?.unit || '').toLowerCase().trim();
+      if (!taskUnit) return;
+
+      // Special case: stock_deductions uses 'each' for spaghetti nests
+      const dedUnit = (row.unit || '').toLowerCase().trim();
+      const effectiveUnit = (dedUnit === 'each' && taskUnit === 'nests') ? 'nests' : dedUnit;
+
+      const conv = convertPrepQtyToTaskUnit(row.quantity, effectiveUnit, taskUnit);
+      if (!conv.ok) {
+        console.warn('[Trust] Incompatible deduction unit for task', tid, ':', effectiveUnit, '→', taskUnit, conv.error);
+        if (!trustMap[tid]) trustMap[tid] = { prepared: null, used: null, unit: taskUnit, preparedOk: false, usedOk: false };
+        trustMap[tid].usedIncompat = true;
+        return;
+      }
+
+      if (!trustMap[tid]) trustMap[tid] = { prepared: null, used: 0, unit: taskUnit, preparedOk: false, usedOk: true };
+      if (!trustMap[tid].usedIncompat) {
+        trustMap[tid].used = (trustMap[tid].used || 0) + conv.value;
+        trustMap[tid].usedOk = true;
+      }
+    });
+
+    // Mark missing data as null (not zero) when query succeeded but no rows found
+    // We know which task IDs exist — tasks with no log row → prepared=null if not in trustMap
+    // (handled in renderTrustBlock: absent from map = query OK but no data = null display)
+
+    window._dailyTrustData = trustMap;
+    window._dailyTrustDate = { prepared: yesterdayCDT, used: deductionDate };
+    console.log('[Trust] ✓ loaded', Object.keys(trustMap).length, 'tasks | prep date:', yesterdayCDT, '| deduction date:', deductionDate);
+
+  } catch (e) {
+    console.warn('[Trust] loader failed:', e.message || e);
+    window._dailyTrustData = {};
+    window._dailyTrustError = true;
+    // Non-blocking: prep page and suggestion cards still render normally
+  }
+}
+
+// Helper — format a numeric quantity in native prep task units for the Trust View
+function _fmtTrustQty(value, unit) {
+  if (value === null || value === undefined) return null;
+  const n = parseFloat(value);
+  if (isNaN(n)) return null;
+  const u = (unit || '').toLowerCase();
+  if (u === 'g') {
+    if (n === 0) return '0 g';
+    if (n >= 1000) return (n / 1000).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + ' kg';
+    return Math.round(n) + ' g';
+  }
+  if (u === 'nests') return Math.round(n) + (n === 1 ? ' nest' : ' nests');
+  if (['pezzi','pz'].includes(u)) return Math.round(n) + (Math.round(n) === 1 ? ' pc' : ' pcs');
+  if (u === 'cup') return n.toFixed(1) + ' cups';
+  if (u === 'kg') return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + ' kg';
+  return parseFloat(n.toFixed(2)) + (unit ? ' ' + unit : '');
 }
 
 // Helper — estrae testo IT dal formato "color|it|en|es" o testo puro
@@ -747,7 +887,110 @@ function renderSuggBlock(sugg, i) {
     confHtml = `<div style="margin-top:4px;font-size:10px;color:${confColor};font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">${conf} confidence</div>`;
   }
 
-  return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${descHtml}${rcHtml}${stockHtml}${avgHtml}${confHtml}</div>`;
+  // ── TRUST VIEW BLOCK ──
+  const trustHtml = _renderTrustBlock(i, sugg, status, outUnit);
+
+  return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${descHtml}${rcHtml}${stockHtml}${avgHtml}${confHtml}${trustHtml}</div>`;
+}
+
+// ── TRUST VIEW BLOCK ─────────────────────────────────────────────────────────
+// Renders the Yesterday/Used/Available/Suggested compact block inside the SUGG_ card.
+// All values come from pre-loaded window._dailyTrustData (batched, not per-card queries).
+function _renderTrustBlock(task, sugg, status, outUnit) {
+  const tid = task && task.id;
+  if (!tid) return '';
+
+  // Do not render trust block for operational/thaw tasks or no_demand_path
+  if (status === 'no_demand_path' || status === 'out_of_scope') return '';
+
+  const trust = (window._dailyTrustData || {})[tid];
+  const taskUnit = (task && task.unit) || outUnit || '';
+  const NA = '<span style="color:#94a3b8;font-style:italic;">Not available</span>';
+
+  // Prepared yesterday
+  let preparedStr;
+  if (window._dailyTrustError) {
+    preparedStr = NA;
+  } else if (!trust || trust.preparedIncompat) {
+    preparedStr = NA; // incompatible unit — don't show false zero
+  } else if (trust.preparedOk && trust.prepared !== null) {
+    const v = _fmtTrustQty(trust.prepared, taskUnit);
+    preparedStr = v !== null ? `<span style="color:#059669;font-weight:700;">+${v}</span>` : (trust.prepared === 0 ? `<span style="color:#64748b;font-weight:600;">0 ${taskUnit}</span>` : NA);
+  } else {
+    // Query ran but no rows for this task = real zero production
+    preparedStr = `<span style="color:#64748b;font-weight:600;">0 ${taskUnit}</span>`;
+  }
+
+  // Used last night
+  let usedStr;
+  if (window._dailyTrustError) {
+    usedStr = NA;
+  } else if (!trust || trust.usedIncompat) {
+    usedStr = NA;
+  } else if (trust.usedOk && trust.used !== null) {
+    const v = _fmtTrustQty(trust.used, taskUnit);
+    usedStr = v !== null ? `<span style="color:#dc2626;font-weight:700;">\u2212${v}</span>` : (trust.used === 0 ? `<span style="color:#64748b;font-weight:600;">0 ${taskUnit}</span>` : NA);
+  } else {
+    // No deduction rows = real zero used
+    usedStr = `<span style="color:#64748b;font-weight:600;">0 ${taskUnit}</span>`;
+  }
+
+  // Available now (from suggestion's current_stock snapshot — same as stockHtml but reformatted)
+  const stockVal = sugg && sugg.current_stock !== null && sugg.current_stock !== undefined
+    ? _fmtTrustQty(parseFloat(sugg.current_stock), taskUnit)
+    : null;
+  const stockUnver = sugg && sugg.stock_source === 'db_snapshot_unverified';
+  const stockWarning = stockUnver ? `<span style="font-size:10px;color:#ca8a04;margin-left:4px;">\u26a0 unverified</span>` : '';
+  const availableStr = stockVal !== null
+    ? `<span style="color:#1e3a5f;font-weight:700;">${stockVal}</span>${stockWarning}`
+    : NA;
+
+  // Suggested today
+  let suggestedStr;
+  if (status === 'looks_ok' || status === 'defer_to_tomorrow') {
+    suggestedStr = '<span style="color:#059669;font-weight:600;">No additional prep</span>';
+  } else if (status === 'count_first') {
+    suggestedStr = '<span style="color:#ca8a04;font-weight:600;">Count first</span>';
+  } else if (sugg && sugg.planned_output !== null && parseFloat(sugg.planned_output) > 0) {
+    const po = _fmtTrustQty(parseFloat(sugg.planned_output), outUnit || taskUnit);
+    suggestedStr = po ? `<span style="color:#dc2626;font-weight:700;">Prepare ${po}</span>` : NA;
+  } else if (status === 'do_first' || status === 'prep_today') {
+    suggestedStr = '<span style="color:#dc2626;font-weight:600;">Check stock</span>';
+  } else {
+    suggestedStr = '<span style="color:#94a3b8;font-style:italic;">Suggestion unavailable</span>';
+  }
+
+  // Context sentence
+  let contextStr = '';
+  if (status === 'count_first' || (stockUnver && (status === 'do_first' || status === 'prep_today'))) {
+    contextStr = `<div style="font-size:11px;color:#92400e;margin-top:4px;">Please verify the actual stock before preparing.</div>`;
+  } else if (sugg && sugg.suggestion_date) {
+    // Day-of-week context
+    const dow = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(sugg.suggestion_date + 'T12:00:00').getDay()];
+    contextStr = `<div style="font-size:11px;color:#64748b;margin-top:4px;">Based on recorded stock and expected ${dow} demand.</div>`;
+  }
+
+  const row = (label, val) =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #f1f5f9;">` +
+    `<span style="font-size:11px;color:#94a3b8;font-weight:500;">${label}</span>` +
+    `<span style="font-size:13px;">${val}</span></div>`;
+
+  const headerRow = (label) =>
+    `<div style="font-size:9px;font-weight:800;color:#94a3b8;letter-spacing:0.08em;text-transform:uppercase;margin-top:6px;margin-bottom:1px;">${label}</div>`;
+
+  const html =
+    `<div style="margin-top:8px;border-top:1px solid #e2e8f0;padding-top:6px;">` +
+    headerRow('YESTERDAY') +
+    row('Prepared', preparedStr) +
+    row('Used', usedStr) +
+    headerRow('AVAILABLE NOW') +
+    row('', availableStr) +
+    headerRow('SUGGESTED TODAY') +
+    row('', suggestedStr) +
+    contextStr +
+    `</div>`;
+
+  return html;
 }
 
 function getValidCount(taskId) {
