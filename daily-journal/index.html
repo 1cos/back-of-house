@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="Daily Operations Journal v0.2 — Chat-first management log">
+  <title>Daily Operations Journal</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ========================================================
+     HEADER
+========================================================= -->
+<header class="header" role="banner">
+  <div class="header-inner">
+    <div class="header-brand">Daily Ops <span>Journal</span></div>
+
+    <!-- Main navigation -->
+    <nav class="main-nav" role="tablist" aria-label="Main navigation">
+      <button class="main-tab active" data-view="chat" role="tab" aria-selected="true">
+        💬 Chat
+      </button>
+      <button class="main-tab" data-view="journal" role="tab" aria-selected="false">
+        📋 Journal
+      </button>
+    </nav>
+
+    <div class="header-spacer"></div>
+
+    <!-- User picker -->
+    <div class="user-picker">
+      <div class="header-user-avatar" id="user-avatar" aria-hidden="true">MX</div>
+      <label for="user-select" class="visually-hidden">Current user</label>
+      <select id="user-select" aria-label="Switch user">
+        <option value="max">Max — Kitchen</option>
+        <option value="bo">Bo — Front of House</option>
+        <option value="zeno">Zeno — GM</option>
+        <option value="monica">Monica — Admin</option>
+        <option value="mike">Mike — Management</option>
+      </select>
+    </div>
+  </div>
+</header>
+
+<!-- ========================================================
+     APP BODY
+========================================================= -->
+<div class="app-body">
+
+  <!-- ==================================================
+       CHAT VIEW
+  =================================================== -->
+  <div id="view-chat" role="tabpanel" aria-label="Group Chat" style="display:flex">
+
+    <!-- Chat header -->
+    <div class="chat-header">
+      <div class="chat-group-icon" aria-hidden="true">🍽</div>
+      <div>
+        <div class="chat-group-name">Zeno's Operations</div>
+        <div class="chat-group-sub">
+          <div class="member-avatars" aria-hidden="true">
+            <div class="member-avatar-sm" style="background:#2563eb">M</div>
+            <div class="member-avatar-sm" style="background:#7c3aed">B</div>
+            <div class="member-avatar-sm" style="background:#0891b2">Z</div>
+            <div class="member-avatar-sm" style="background:#d97706">M</div>
+            <div class="member-avatar-sm" style="background:#16a34a">M</div>
+          </div>
+          5 members
+        </div>
+      </div>
+    </div>
+
+    <!-- Messages feed -->
+    <div class="chat-feed" id="chat-feed" role="log" aria-live="polite" aria-label="Messages"></div>
+
+    <!-- Composer -->
+    <div class="composer" role="form" aria-label="Send message">
+      <div class="composer-plus-wrap">
+        <button class="composer-plus-btn" id="chat-plus-btn" aria-label="Attachments and actions" aria-haspopup="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+        </button>
+        <!-- Plus menu -->
+        <div class="plus-menu" id="chat-plus-menu" role="menu" aria-label="Message actions">
+          <button class="plus-menu-item" data-action="photo" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
+            Photo
+          </button>
+          <button class="plus-menu-item" data-action="file" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
+            File
+          </button>
+          <button class="plus-menu-item" data-action="quick-update" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
+            Quick update
+          </button>
+          <button class="plus-menu-item" data-action="create-case" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/></svg>
+            Create case manually
+          </button>
+        </div>
+      </div>
+
+      <div class="composer-input-wrap">
+        <label for="chat-input" class="visually-hidden">Message</label>
+        <textarea
+          id="chat-input"
+          class="composer-input"
+          placeholder="Message Zeno's Operations"
+          rows="1"
+          aria-label="Message text"
+        ></textarea>
+      </div>
+
+      <button class="composer-voice-btn" aria-label="Voice message (not available in mockup)">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/>
+        </svg>
+      </button>
+      <button class="composer-send-btn" id="chat-send-btn" aria-label="Send message">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/>
+        </svg>
+      </button>
+    </div>
+
+  </div><!-- #view-chat -->
+
+
+  <!-- ==================================================
+       JOURNAL VIEW
+  =================================================== -->
+  <div id="view-journal" role="tabpanel" aria-label="Journal" style="display:none">
+
+    <!-- Journal secondary nav -->
+    <nav class="journal-subnav" role="tablist" aria-label="Journal sections">
+      <button class="journal-tab active" data-section="feed" role="tab" aria-selected="true">Feed</button>
+      <button class="journal-tab" data-section="tasks" role="tab" aria-selected="false">Tasks</button>
+      <button class="journal-tab" data-section="cases" role="tab" aria-selected="false">
+        Cases
+        <span class="badge" id="cases-badge">4</span>
+      </button>
+    </nav>
+
+    <!-- Journal header actions (add entry / reflection) -->
+    <div class="journal-header-actions" id="journal-header-actions">
+      <button class="btn btn-secondary btn-sm" id="btn-reflection">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"/></svg>
+        Shift Reflection
+      </button>
+      <button class="btn btn-primary btn-sm" id="btn-add-entry">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        Add Entry
+      </button>
+    </div>
+
+    <!-- Feed section -->
+    <div id="section-feed">
+      <div id="filter-bar" class="filters-bar" role="group" aria-label="Filter by category"></div>
+      <div id="journal-feed" role="feed" aria-label="Journal entries"></div>
+    </div>
+
+    <!-- Tasks section -->
+    <div id="section-tasks" style="display:none">
+      <div id="task-filter-bar" class="task-filter-bar" role="group" aria-label="Task filter"></div>
+      <div id="task-list" role="list" aria-label="Tasks"></div>
+    </div>
+
+    <!-- Cases section -->
+    <div id="section-cases" style="display:none">
+      <div id="cases-list" aria-label="Open cases"></div>
+    </div>
+
+  </div><!-- #view-journal -->
+
+</div><!-- .app-body -->
+
+
+<!-- ========================================================
+     MODAL — AI REVIEW
+========================================================= -->
+<div class="modal-overlay" id="modal-ai-review" role="dialog" aria-modal="true" aria-labelledby="review-title-h">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="review-title-h">✦ AI Suggestions</h2>
+      <button class="modal-close" id="btn-close-review" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" id="review-body">
+      <!-- populated by chat.js -->
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-review-save-original">Save original only</button>
+      <button class="btn btn-ghost" id="btn-cancel-review">Cancel</button>
+      <button class="btn btn-primary" id="btn-review-save-selected">Save selected</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ========================================================
+     MODAL — ADD ENTRY
+========================================================= -->
+<div class="modal-overlay" id="modal-add-entry" role="dialog" aria-modal="true" aria-labelledby="ae-title-h">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="ae-title-h">New Entry</h2>
+      <button class="modal-close" id="btn-close-entry" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="ae-category">Category</label>
+          <select id="ae-category">
+            <option value="">— Select —</option>
+            <option>Service</option><option>Kitchen</option><option>Front of House</option>
+            <option>Staff</option><option>Equipment</option><option>Maintenance</option>
+            <option>Purchasing</option><option>Event</option><option>Incident</option>
+            <option>Catering</option><option>Admin</option><option>Communication</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="ae-status">Status</label>
+          <select id="ae-status">
+            <option>Open</option><option>In progress</option>
+            <option>Waiting</option><option>Resolved</option><option>Closed</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="ae-title">Title <span class="text-muted">(optional)</span></label>
+        <input type="text" id="ae-title" placeholder="Brief title">
+      </div>
+      <div class="form-group">
+        <label for="ae-description">Description</label>
+        <textarea id="ae-description" rows="4" placeholder="What happened? What should the next manager know?"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="ae-assignto">Assign to <span class="text-muted">(optional)</span></label>
+        <input type="text" id="ae-assignto" placeholder="Name or role">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-cancel-entry">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-entry">Save Entry</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ========================================================
+     MODAL — SHIFT REFLECTION
+========================================================= -->
+<div class="modal-overlay" id="modal-reflection" role="dialog" aria-modal="true" aria-labelledby="ref-title-h">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="ref-title-h">Shift Reflection</h2>
+      <button class="modal-close" id="btn-close-reflection" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="ref-perspective">Perspective</label>
+        <select id="ref-perspective">
+          <option>Kitchen</option><option>Front of House</option>
+          <option>General Management</option><option>Admin</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>How did the shift feel?</label>
+        <div class="mood-row" role="group" aria-label="Shift feel">
+          <button type="button" class="mood-btn" data-feel="Slow">😴 Slow</button>
+          <button type="button" class="mood-btn" data-feel="Steady">👍 Steady</button>
+          <button type="button" class="mood-btn" data-feel="Busy">🔥 Busy</button>
+          <button type="button" class="mood-btn" data-feel="Very busy">🌊 Very busy</button>
+          <button type="button" class="mood-btn" data-feel="Unusual">⚡ Unusual</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>What influenced the shift?</label>
+        <div class="check-grid" role="group">
+          <label class="check-item"><input type="checkbox" value="Large party"> Large party</label>
+          <label class="check-item"><input type="checkbox" value="Sudden rush"> Sudden rush</label>
+          <label class="check-item"><input type="checkbox" value="Cancellation"> Cancellation</label>
+          <label class="check-item"><input type="checkbox" value="Staffing issue"> Staffing issue</label>
+          <label class="check-item"><input type="checkbox" value="Reservation issue"> Reservation</label>
+          <label class="check-item"><input type="checkbox" value="Kitchen issue"> Kitchen issue</label>
+          <label class="check-item"><input type="checkbox" value="Equipment issue"> Equipment</label>
+          <label class="check-item"><input type="checkbox" value="Weather"> Weather</label>
+          <label class="check-item"><input type="checkbox" value="Event"> Event</label>
+          <label class="check-item"><input type="checkbox" value="Nothing unusual"> Nothing unusual</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="ref-well">What went well?</label>
+        <textarea id="ref-well" rows="2" placeholder="What actually worked tonight?"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="ref-nowell">What did not go well?</label>
+        <textarea id="ref-nowell" rows="2" placeholder="Issues, misses, breakdowns — no judgment, just facts."></textarea>
+      </div>
+      <div class="form-group">
+        <label for="ref-nextmgr">For the next manager</label>
+        <textarea id="ref-nextmgr" rows="2" placeholder="Handoff — pending tasks, guests, equipment…"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Follow-up needed?</label>
+        <div class="mood-row" role="radiogroup">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;">
+            <input type="radio" name="ref-followup" id="ref-followup-no" value="no" checked> No
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;">
+            <input type="radio" name="ref-followup" id="ref-followup-yes" value="yes"> Yes
+          </label>
+        </div>
+        <div class="followup-extras" id="ref-followup-extras">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="ref-assign">Assign to</label>
+              <input type="text" id="ref-assign" placeholder="Name or role">
+            </div>
+            <div class="form-group">
+              <label for="ref-priority">Priority</label>
+              <select id="ref-priority">
+                <option>Low</option><option>Medium</option><option>High</option><option>Urgent</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-cancel-reflection">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-reflection">Save Reflection</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ========================================================
+     MODAL — ADD UPDATE
+========================================================= -->
+<div class="modal-overlay" id="modal-add-update" role="dialog" aria-modal="true" aria-labelledby="upd-title-h">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="upd-title-h">Add Update</h2>
+      <button class="modal-close" id="btn-close-update" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="upd-text">Update</label>
+        <textarea id="upd-text" rows="4" placeholder="What happened next?"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-cancel-update">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-update">Save Update</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ========================================================
+     MODAL — CHANGE STATUS
+========================================================= -->
+<div class="modal-overlay" id="modal-change-status" role="dialog" aria-modal="true" aria-labelledby="cs-title-h">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="cs-title-h">Change Status</h2>
+      <button class="modal-close" id="btn-close-status" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="cs-status">New Status</label>
+        <select id="cs-status">
+          <option>Open</option><option>In progress</option>
+          <option>Waiting</option><option>Resolved</option><option>Closed</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-cancel-status">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-status">Save Status</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ========================================================
+     MODAL — CREATE CASE
+========================================================= -->
+<div class="modal-overlay" id="modal-add-case" role="dialog" aria-modal="true" aria-labelledby="cc-title-h">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="cc-title-h">New Case</h2>
+      <button class="modal-close" id="btn-close-case" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="cc-title">Case title</label>
+        <input type="text" id="cc-title" placeholder="Brief title for this issue">
+      </div>
+      <div class="form-group">
+        <label for="cc-category">Category</label>
+        <select id="cc-category">
+          <option>Equipment</option><option>Incident</option><option>Catering</option>
+          <option>Staff</option><option>Maintenance</option><option>Admin</option>
+          <option>Service</option><option>Kitchen</option><option>Purchasing</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="cc-description">Description</label>
+        <textarea id="cc-description" rows="3" placeholder="What's the issue? Who's involved?"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-cancel-case">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-case">Create Case</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ========================================================
+     TOAST CONTAINER
+========================================================= -->
+<div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+
+
+<!-- ========================================================
+     FOOTER
+========================================================= -->
+<footer class="app-footer">
+  Daily Operations Journal — Mockup v0.2 Chat-first &nbsp;·&nbsp;
+  <button id="btn-reset-demo">Reset demo data</button>
+</footer>
+
+
+<script type="module" src="app.js"></script>
+<script>
+  // Register isolated service worker for this subfolder
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw-journal.js', { scope: './' })
+      .catch(err => console.log('[DOJ SW]', err));
+  }
+</script>
+
+</body>
+</html>
