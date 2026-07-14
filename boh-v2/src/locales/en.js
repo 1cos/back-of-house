@@ -81,5 +81,15 @@ export const en = {
   'station_prep.start':       'Start',
   'station_prep.starting':    'Starting\u2026',
   'station_prep.start_error': 'Unable to start this prep. Try again.',
+
+  // ── Station Prep — Complete Prep Form (Task 004O) ─────────────────────
+  'station_prep.complete_form_title':          'Complete prep',
+  'station_prep.complete_form_fallback_task':  'Prep task',
+  'station_prep.complete_form_quantity':       'Quantity completed',
+  'station_prep.complete_form_unit':           'Unit',
+  'station_prep.complete_form_confirm':        'Confirm',
+  'station_prep.complete_form_cancel':         'Cancel',
+  'station_prep.complete_form_quantity_error': 'Enter a quantity greater than zero.',
+  'station_prep.complete_form_unit_error':     'Enter a unit.',
 };
 
