@@ -108,4 +108,14 @@ export const en = {
   'station_prep.detail_reconciliation':      'Reconciliation',
   'station_prep.detail_reconciled_quantity': 'Reconciled quantity',
   'station_prep.detail_reconciliation_note': 'Reconciliation note',
+
+  // ── Station Prep — Physical Count Form (Task 004T) ────────────────────
+  'station_prep.count_form_title':          'Count stock',
+  'station_prep.count_form_fallback_task':  'Prep task',
+  'station_prep.count_form_quantity':       'Physical quantity',
+  'station_prep.count_form_unit':           'Unit',
+  'station_prep.count_form_confirm':        'Save count',
+  'station_prep.count_form_cancel':         'Cancel',
+  'station_prep.count_form_quantity_error': 'Enter a quantity of zero or greater.',
+  'station_prep.count_form_unit_error':     'Enter a unit.',
 };
