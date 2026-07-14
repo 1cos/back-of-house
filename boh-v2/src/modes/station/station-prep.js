@@ -15,10 +15,12 @@
 // Task 004Y: WIP detail section shown inside expanded panel for in-progress tasks (inProgress === true).
 // Task 004Z: previous-shift warning inside WIP section when elapsed >= 480 minutes.
 // Returns an HTMLElement immediately; loads data asynchronously.
+// Task 004AI: canChooseStation, fetchStations, onStationSelect injected for admin selector.
 // No router import. No app-state import. No Supabase import. No window writes.
 
 import { createCompletePrepForm } from '../../components/prep/complete-prep-form.js';
 import { createPrepCountForm } from '../../components/prep/prep-count-form.js';
+import { createStationSelector } from '../../components/station/station-selector.js';
 
 // ── Task state label ──────────────────────────────────────────────────
 
@@ -1399,7 +1401,90 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, saveCount, reconcileCount, passTask, currentUser }) {
+/**
+ * Creates the Station Prep page DOM element.
+ *
+ * @param {{
+ *   stationName:      string | null | undefined,
+ *   canChooseStation: boolean,
+ *   translate:        (key: string) => string,
+ *   fetchStations:    () => Promise<{ ok: boolean, stations: string[] }>,
+ *   onStationSelect:  (stationName: string) => void,
+ *   fetchTasks:       Function,
+ *   fetchSuggestions: Function,
+ *   fetchLogs:        Function,
+ *   fetchCounts:      Function,
+ *   startTask:        Function,
+ *   completeTask:     Function,
+ *   saveCount:        Function,
+ *   reconcileCount:   Function,
+ *   passTask:         Function,
+ *   currentUser:      object
+ * }} options
+ * @returns {HTMLElement}
+ */
+export function createStationPrep({ stationName, canChooseStation, translate, fetchStations, onStationSelect, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, saveCount, reconcileCount, passTask, currentUser }) {
+  // ── Selector branch: eligible role, no station yet ────────────────
+  const hasStation = typeof stationName === 'string' && stationName.trim().length > 0;
+  const showSelector = !hasStation && canChooseStation === true;
+
+  if (showSelector) {
+    const section = document.createElement('section');
+    section.className = 'station-prep';
+
+    const header = document.createElement('header');
+    header.className = 'station-prep__header';
+
+    const title = document.createElement('h1');
+    title.className = 'station-prep__title';
+    title.textContent = translate('station_prep.title');
+
+    header.appendChild(title);
+    section.appendChild(header);
+
+    const content = document.createElement('div');
+    content.className = 'station-prep__content';
+    section.appendChild(content);
+
+    const loadingEl = document.createElement('p');
+    loadingEl.className = 'station-prep__selector-loading';
+    loadingEl.textContent = translate('station_selector.loading');
+    content.appendChild(loadingEl);
+
+    // Fetch stations exactly once for this component instance.
+    // None of the task-related services are called before selection.
+    fetchStations().then((result) => {
+      if (!section.isConnected) return;
+      content.innerHTML = '';
+
+      if (!result.ok) {
+        const errEl = document.createElement('p');
+        errEl.className = 'station-prep__selector-error';
+        errEl.setAttribute('role', 'alert');
+        errEl.textContent = translate('station_selector.error');
+        content.appendChild(errEl);
+        return;
+      }
+
+      const selectorEl = createStationSelector({
+        stations:  result.stations,
+        translate,
+        onSelect:  onStationSelect,
+      });
+      content.appendChild(selectorEl);
+    }).catch(() => {
+      if (!section.isConnected) return;
+      content.innerHTML = '';
+      const errEl = document.createElement('p');
+      errEl.className = 'station-prep__selector-error';
+      errEl.setAttribute('role', 'alert');
+      errEl.textContent = translate('station_selector.error');
+      content.appendChild(errEl);
+    });
+
+    return section;
+  }
+
   const section = document.createElement('section');
   section.className = 'station-prep';
 

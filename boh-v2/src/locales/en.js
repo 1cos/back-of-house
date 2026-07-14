@@ -158,6 +158,11 @@ export const en = {
   'station_selector.title':       'Choose a station',
   'station_selector.description': 'Select the station you want to view.',
   'station_selector.empty':       'No stations available.',
+
+  // ── Station Selector — async states (Task 004AI) ──────────────────────
+  'station_selector.loading': 'Loading stations…',
+  'station_selector.error':   'Unable to load stations. Try again later.',
 };
+
 
 

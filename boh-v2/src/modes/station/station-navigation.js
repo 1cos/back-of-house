@@ -11,6 +11,8 @@
 // Task 004V: station-prep receives savePrepCount as saveCount for physical count write.
 // Task 004X: station-prep receives reconcilePrepCount as reconcileCount for post-count reconciliation.
 // Task 004AF: station-prep receives passPrepToShift as passTask for WIP handoff.
+// Task 004AI: admin/executive-chef role detection, session-local station selection,
+//             fetchAvailableStations injected into Station Home and Prep.
 // No window writes. No storage. No Supabase. No browser history. No app-state import.
 
 import { createBottomNavigation } from '../../components/navigation/bottom-navigation.js';
@@ -25,6 +27,7 @@ import { reconcilePrepCount } from '../../services/prep-count-reconciler-service
 import { startPrepTask } from '../../services/prep-start-service.js';
 import { completePrepTask } from '../../services/prep-complete-service.js';
 import { passPrepToShift } from '../../services/prep-pass-service.js';
+import { fetchAvailableStations } from '../../services/station-list-service.js';
 
 // ── Route map ─────────────────────────────────────────────────────────
 
@@ -72,6 +75,30 @@ function renderNav({ mountElement, items, activeItem, onSelect, translate }) {
   mountElement.appendChild(nav);
 }
 
+// ── Role normalization ────────────────────────────────────────────────
+
+/**
+ * Normalizes a raw user role string to a canonical snake_case value.
+ * Returns null for any invalid / missing input.
+ *
+ * Examples:
+ *   "Admin"           → "admin"
+ *   "Executive Chef"  → "executive_chef"
+ *   "executive-chef"  → "executive_chef"
+ *
+ * @param {unknown} raw
+ * @returns {string | null}
+ */
+function normalizeRole(raw) {
+  if (typeof raw !== 'string') return null;
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+}
+
+const CHOOSER_ROLES = new Set(['admin', 'executive_chef']);
+
 // ── Public API ────────────────────────────────────────────────────────
 
 /**
@@ -82,7 +109,7 @@ function renderNav({ mountElement, items, activeItem, onSelect, translate }) {
  *   router:       { register: Function, navigate: Function },
  *   mountElement: HTMLElement,
  *   translate:    (key: string) => string,
- *   user:         { name?: string, defaultStation?: string }
+ *   user:         { name?: string, defaultStation?: string, role?: string }
  * }} options
  * @returns {{ currentItem: () => string }}
  */
@@ -96,6 +123,25 @@ export function setupStationNavigation({ router, mountElement, translate, user }
   }
   if (typeof translate !== 'function') {
     throw new Error('setupStationNavigation: translate must be a function.');
+  }
+
+  // ── Role eligibility ───────────────────────────────────────────────
+  const role = normalizeRole(user.role ?? null);
+  const canChooseStation = CHOOSER_ROLES.has(role);
+
+  // ── Session-local selected station ────────────────────────────────
+  // Initial value: trimmed defaultStation when present, otherwise null.
+  // Never written to user, storage, URL, or window.
+  const defaultStation =
+    (typeof user.defaultStation === 'string' && user.defaultStation.trim().length > 0)
+      ? user.defaultStation.trim()
+      : null;
+
+  let _selectedStation = defaultStation;
+
+  // Returns the effective station for the current session.
+  function effectiveStation() {
+    return _selectedStation;
   }
 
   // ── Active state ───────────────────────────────────────────────────
@@ -115,23 +161,42 @@ export function setupStationNavigation({ router, mountElement, translate, user }
     }
   }
 
+  // ── Station selection callback ─────────────────────────────────────
+  // Called by Station Home or Station Prep when an eligible user picks a station.
+  function handleStationSelect(stationName) {
+    if (typeof stationName !== 'string' || stationName.trim().length === 0) return;
+    _selectedStation = stationName.trim();
+    // Navigate to Prep and mark it active.
+    const navigated = router.navigate('station-prep');
+    if (navigated) {
+      _activeItem = 'prep';
+      renderNav({ mountElement, items, activeItem: _activeItem, onSelect: handleSelect, translate });
+    }
+  }
+
   // ── Register routes ────────────────────────────────────────────────
 
   // station-home: real Station Home (HTMLElement).
   router.register('station-home', () =>
     createStationHome({
       user,
+      stationName:      effectiveStation(),
+      canChooseStation,
       translate,
-      onOpenToday: () => handleSelect('prep'),
+      fetchStations:    fetchAvailableStations,
+      onStationSelect:  handleStationSelect,
+      onOpenToday:      () => handleSelect('prep'),
     })
   );
 
   // station-prep: real Prep page (HTMLElement).
-  // user.defaultStation may be null/undefined — createStationPrep handles it.
   router.register('station-prep', () =>
     createStationPrep({
-      stationName:      user.defaultStation ?? null,
+      stationName:      effectiveStation(),
+      canChooseStation,
       translate,
+      fetchStations:    fetchAvailableStations,
+      onStationSelect:  handleStationSelect,
       fetchTasks:       fetchStationPrepTasks,
       fetchSuggestions: fetchPrepSuggestions,
       fetchLogs:        fetchTodayPrepLogs,
@@ -159,4 +224,3 @@ export function setupStationNavigation({ router, mountElement, translate, user }
     },
   };
 }
-
