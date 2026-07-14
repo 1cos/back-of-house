@@ -342,17 +342,13 @@ function buildChefAiStep1Block(prepSugg, prepTask) {
     ? fmtVal(prepSugg.planned_output, unit)
     : fmtVal(prepSugg.net_requirement, unit);
 
-  // Compact summary line shown in the collapsed header
-  const summaryText = 'Prep Suggestion · Stock ' + stockVal + ' / Prepare ' + plannedVal;
-
-  // Batch note shown inside details when constraint is missing/conflicting
   const batchNote = (pq === 'missing' || pq === 'conflicting')
     ? '<div style="margin-top:8px;font-size:12px;color:#854f0b;background:#fef3c7;border-radius:8px;padding:8px 10px;">Quantity is an estimate — batch size not yet defined.</div>'
     : '';
 
   const rowsHtml = [
     ['Stock', stockVal],
-    ['Prepare', '<strong>' + plannedVal + '</strong>'],
+    ['Prepare today', '<strong>' + plannedVal + '</strong>'],
   ].map(([label, val]) =>
     `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
       <span style="color:#94a3b8;">${label}</span>
@@ -360,20 +356,29 @@ function buildChefAiStep1Block(prepSugg, prepTask) {
     </div>`
   ).join('<div style="height:1px;background:#f1f5f9;margin:0;"></div>');
 
-  return `<details style="margin:10px 16px 0;" id="rmSuggDetails">
-    <summary style="list-style:none;cursor:pointer;padding:10px 12px;background:rgba(219,234,254,0.5);border:1px solid #bfdbfe;border-radius:12px;font-size:12px;font-weight:600;color:#1d4ed8;display:flex;align-items:center;justify-content:space-between;-webkit-tap-highlight-color:transparent;">
-      <span>${summaryText}</span>
-      <span style="font-size:10px;color:#93c5fd;font-weight:500;">View details ↓</span>
-    </summary>
-    <div style="margin-top:6px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #bfdbfe;border-radius:12px;padding:12px 14px;">
-      ${rowsHtml}
-      ${batchNote}
-      <div style="display:flex;gap:8px;margin-top:10px;">
-        <button onclick="(function(){var o=document.getElementById('rmOverlay');if(o){var t=o.querySelector('.rm-tab[data-tab=\'ingredients\']');if(t)t.click();else o.querySelector('.rm-tab')?.click();}})()" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:700;background:#059669;color:#fff;border:none;cursor:pointer;">START PREP</button>
-        <button onclick="document.getElementById('rmOverlay')?.remove();setTimeout(()=>window.segnalaChef&&window.segnalaChef(${JSON.stringify(prepTaskId)}),100)" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:600;color:#64748b;background:#f1f5f9;border:none;cursor:pointer;">REPORT AN ISSUE</button>
+  // Sheet HTML injected into body when user taps "View details"
+  // Closed by tapping backdrop or × button — does not affect recipe modal scroll position
+  const sheetHtml = JSON.stringify(
+    `<div id="rmSuggSheet" onclick="if(event.target===this)this.remove()" style="position:fixed;inset:0;z-index:9500;background:rgba(15,23,42,0.55);display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;">
+      <div style="width:100%;max-width:480px;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 32px rgba(30,58,95,0.18);padding:20px 18px 40px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:0.6px;">PREP SUGGESTION</div>
+          <button onclick="document.getElementById('rmSuggSheet')?.remove()" style="font-size:20px;color:#94a3b8;background:none;border:none;cursor:pointer;padding:0 4px;line-height:1;">×</button>
+        </div>
+        ${rowsHtml}
+        ${batchNote}
+        <div style="margin-top:14px;text-align:center;">
+          <button onclick="document.getElementById('rmSuggSheet')?.remove();setTimeout(()=>window.segnalaChef&&window.segnalaChef(${JSON.stringify(prepTaskId)}),80)" style="font-size:12px;color:#94a3b8;background:none;border:none;cursor:pointer;text-decoration:underline;padding:4px 8px;">Report an issue</button>
+        </div>
       </div>
-    </div>
-  </details>`;
+    </div>`
+  );
+
+  // Compact bar — always visible below tabs, never pushes recipe content
+  return `<div id="rmChefAiBar" style="margin:8px 16px 0;padding:9px 12px;background:rgba(219,234,254,0.45);border:1px solid #bfdbfe;border-radius:12px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;-webkit-tap-highlight-color:transparent;" onclick="(function(){var s=document.getElementById('rmSuggSheet');if(s){s.remove();return;}var el=document.createElement('div');el.innerHTML=${sheetHtml};document.body.appendChild(el.firstChild);})()">
+    <span style="font-size:12px;font-weight:600;color:#1d4ed8;">Prep Suggestion · Stock ${stockVal} / Prepare ${plannedVal}</span>
+    <span style="font-size:10px;color:#93c5fd;font-weight:500;white-space:nowrap;margin-left:8px;">View details ↓</span>
+  </div>`;
 }
 
 function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal, bomRows, scaleFactor){
@@ -640,7 +645,8 @@ window.recipeModal={
         currentStep=Math.min(window._taskStep[prepTaskId],Math.max(0,totalSteps-1));
       }
 
-      let activeTab=hasRecipeSteps?'steps':'ingredients';
+      // Always open on Ingredients when available — never preserve previous tab state across modal opens
+      let activeTab = hasBom ? 'ingredients' : (hasRecipeSteps ? 'steps' : 'notes');
       const baseServings=rec.base_servings||1;
       const baseWeightG=rec.base_weight_g?parseFloat(rec.base_weight_g):null;
 
@@ -831,6 +837,8 @@ function closeModal(prepTaskId){
   // Ferma interval locali ma NON cancella _timerState: timer bar continua
   Object.keys(timers).forEach(function(k){ clearInterval(timers[k].interval); delete timers[k]; });
   if(prepTaskId&&typeof window.prepOnModalClose==='function') window.prepOnModalClose(prepTaskId);
+  // Close suggestion sheet if open
+  document.getElementById('rmSuggSheet')?.remove();
   var o=document.getElementById('rmOverlay');
   if(o){o.style.opacity='0';o.style.transition='opacity .2s';setTimeout(function(){o.remove();},200);}
 }
@@ -838,6 +846,7 @@ function closeModal(prepTaskId){
 // Chiude l'overlay residuo dopo il salvataggio dal Done sheet in-flow
 window._rmOverlayCleanup = function(){
   window._rmDonePending=null;
+  document.getElementById('rmSuggSheet')?.remove();
   var o=document.getElementById('rmOverlay');
   if(o){o.style.opacity='0';o.style.transition='opacity .15s';setTimeout(function(){o.remove();},150);}
 };

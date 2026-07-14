@@ -1455,13 +1455,33 @@ window.toggleAuditPanel = async function(taskId) {
     // ── Run header ──
     const pillColors = {
       green:  { bg: '#f0fdf4', border: '#bbf7d0', color: '#3b6d11', label: '🟢 OK' },
-      yellow: { bg: '#fffbeb', border: '#fde68a', color: '#854f0b', label: '🟡 Controlla' },
-      red:    { bg: '#fef2f2', border: '#fca5a5', color: '#a32d2d', label: '🔴 Prepara' }
+      yellow: { bg: '#fffbeb', border: '#fde68a', color: '#854f0b', label: '🟡 Review required' },
+      red:    { bg: '#fef2f2', border: '#fca5a5', color: '#a32d2d', label: '🔴 Prep today' }
     };
     const pc = pillColors[data.botPill] || pillColors['green'];
 
+    // Authoritative suggested quantity: prefer prep_suggestions_daily (new bot) over legacy builder
+    const _newSugg = (window._suggestions || {})[taskId];
+    function _fmtDetailsQty(n, u) {
+      if (n === null || n === undefined || isNaN(parseFloat(n))) return null;
+      const v = parseFloat(n);
+      const ul = (u || '').toLowerCase();
+      if (ul === 'g') { return v >= 1000 ? (v/1000).toLocaleString('en-US',{maximumFractionDigits:1}) + ' kg' : Math.round(v) + ' g'; }
+      if (ul === 'kg') return v.toLocaleString('en-US',{maximumFractionDigits:1}) + ' kg';
+      if (['pezzi','pz'].includes(ul)) { const ni=Math.round(v); return ni + (ni===1?' piece':' pieces'); }
+      if (ul === 'nests') return Math.round(v) + ' nests';
+      if (ul === 'cup') return Math.round(v) + ' cup' + (v > 1 ? 's' : '');
+      return v + (u ? ' ' + u : '');
+    }
+    const _authQtyStr = _newSugg
+      ? _fmtDetailsQty(
+          _newSugg.planned_output != null ? _newSugg.planned_output : _newSugg.net_requirement,
+          _newSugg.output_unit || data.unit
+        )
+      : null;
+
     const runHeader = `<div style="background:#f8fafc;border:0.5px solid #e2e8f0;border-radius:8px;padding:7px 10px;margin-bottom:10px;">
-      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Last bot run</div>
+      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Last production run</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
         <div>
           <div style="font-size:11px;color:#334155;font-weight:500;">${data.runAt}</div>
@@ -1470,7 +1490,7 @@ window.toggleAuditPanel = async function(taskId) {
         ${data.botPill ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px;background:${pc.bg};border:0.5px solid ${pc.border};color:${pc.color};">${pc.label}</span>` : ''}
       </div>
       ${data.botNoteEN ? `<div style="font-size:11px;color:#475569;margin-top:4px;font-style:italic;">"${data.botNoteEN}"</div>` : ''}
-      ${data.suggestedQty != null ? `<div style="font-size:11px;color:#185fa5;font-weight:700;margin-top:2px;">→ Suggerisce: ${data.suggestedQty} ${data.unit}</div>` : ''}
+      ${_authQtyStr ? `<div style="font-size:11px;color:#185fa5;font-weight:700;margin-top:2px;">Suggested today: ${_authQtyStr}</div>` : ''}
     </div>`;
 
     // ── Percorso del bot ──
