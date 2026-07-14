@@ -6,6 +6,7 @@
 // Task 004G: groups sorted tasks into five priority sections.
 // Task 004H: collapsible task detail panel (expand/collapse, no new DB query).
 // Task 004K: shows today's production logs inside each expanded task detail.
+// Task 004M: Start button inside expanded detail; connects to startPrepTask service.
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
 
@@ -240,20 +241,110 @@ function buildMadeToday(logs, translate) {
   return section;
 }
 
+// ── Start button builder ──────────────────────────────────────────────
+
+/**
+ * Builds a Start button for an eligible task (not already in progress).
+ *
+ * Eligibility: task.inProgress !== true
+ * The button appears only inside the expanded detail panel.
+ * If currentUser.name is missing/empty the button is rendered disabled.
+ *
+ * @param {{
+ *   task:        object,               — working copy of the task
+ *   currentUser: object,
+ *   translate:   (key: string) => string,
+ *   startTask:   Function,
+ *   section:     HTMLElement,           — root section for isConnected checks
+ *   onSuccess:   (result: object) => void,
+ *   detailEl:    HTMLElement,           — detail panel to insert error into
+ * }} opts
+ * @returns {HTMLElement}
+ */
+function buildStartButton({ task, currentUser, translate, startTask, section, onSuccess, detailEl }) {
+  const userName = (currentUser && typeof currentUser.name === 'string')
+    ? currentUser.name.trim()
+    : '';
+  const canStart = userName.length > 0;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'station-prep__start-btn';
+  btn.textContent = translate('station_prep.start');
+  if (!canStart) btn.disabled = true;
+
+  // Per-button submission guard (prevents duplicate clicks).
+  let submitting = false;
+
+  btn.addEventListener('click', () => {
+    if (submitting || !canStart) return;
+    submitting = true;
+
+    // 1. Remove any previous inline start error for this task.
+    const prevErr = detailEl.querySelector('.station-prep__start-error');
+    if (prevErr) prevErr.remove();
+
+    // 2. Disable button and show Starting… label.
+    btn.disabled = true;
+    btn.textContent = translate('station_prep.starting');
+
+    // 3. Call service.
+    startTask({ prepTaskId: task.id, startedBy: userName })
+      .then((result) => {
+        // 4. Disconnected-page safety.
+        if (!section.isConnected) return;
+
+        if (result.ok) {
+          onSuccess(result);
+        } else {
+          // Failure: restore button and show inline error.
+          submitting = false;
+          btn.disabled = false;
+          btn.textContent = translate('station_prep.start');
+
+          // Only one error per task.
+          const existing = detailEl.querySelector('.station-prep__start-error');
+          if (existing) existing.remove();
+
+          const errEl = document.createElement('p');
+          errEl.className = 'station-prep__start-error';
+          errEl.setAttribute('role', 'alert');
+          errEl.textContent = translate('station_prep.start_error');
+          detailEl.appendChild(errEl);
+        }
+      })
+      .catch(() => {
+        // Unexpected throw (should not happen — service catches internally).
+        if (!section.isConnected) return;
+        submitting = false;
+        btn.disabled = false;
+        btn.textContent = translate('station_prep.start');
+      });
+  });
+
+  return btn;
+}
+
 // ── Detail panel builder ──────────────────────────────────────────────
 
 /**
  * Builds the hidden detail panel for a task.
  * Uses only suggestion and log data already loaded by the page.
- * No database query. No writes.
+ * Appends a Start button when the task is not already in progress.
+ * No database query. No writes (Start button delegates to startTask).
  *
- * @param {string} panelId   — unique ID referenced by the expand button
+ * @param {string} panelId
+ * @param {object} task             — mutable working copy
  * @param {object|null} suggestion
- * @param {Array<object> | undefined} logs   — today's log entries for this task
+ * @param {Array<object>|undefined} logs
  * @param {(key: string) => string} translate
+ * @param {Function} startTask
+ * @param {object} currentUser
+ * @param {HTMLElement} section     — root section for isConnected checks
+ * @param {(result: object) => void} onSuccess
  * @returns {HTMLElement}
  */
-function buildDetailPanel(panelId, suggestion, logs, translate) {
+function buildDetailPanel(panelId, task, suggestion, logs, translate, startTask, currentUser, section, onSuccess) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__task-detail';
   panel.id = panelId;
@@ -320,6 +411,19 @@ function buildDetailPanel(panelId, suggestion, logs, translate) {
   // 4. Made today — today's production log entries
   panel.appendChild(buildMadeToday(logs, translate));
 
+  // 5. Start button — only for tasks not already in progress
+  if (task.inProgress !== true) {
+    panel.appendChild(buildStartButton({
+      task,
+      currentUser,
+      translate,
+      startTask,
+      section,
+      onSuccess,
+      detailEl: panel,
+    }));
+  }
+
   return panel;
 }
 
@@ -378,7 +482,7 @@ function createExpandController() {
 
 // ── Task row builder ──────────────────────────────────────────────────
 
-function buildTaskRow(task, suggestion, logs, translate, expandController, panelId) {
+function buildTaskRow(task, suggestion, logs, translate, expandController, panelId, startTask, currentUser, section, onSuccess) {
   const item = document.createElement('li');
   item.className = 'station-prep__task';
 
@@ -442,7 +546,7 @@ function buildTaskRow(task, suggestion, logs, translate, expandController, panel
   metaRow.appendChild(stateEl);
 
   // ── Detail panel (hidden by default) ──
-  const detailPanel = buildDetailPanel(panelId, suggestion, logs, translate);
+  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, translate, startTask, currentUser, section, onSuccess);
 
   item.appendChild(topRow);
   item.appendChild(metaRow);
@@ -465,7 +569,7 @@ function buildTaskRow(task, suggestion, logs, translate, expandController, panel
  * @param {{ nextId: () => string }} idGen
  * @returns {HTMLElement|null}
  */
-function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expandController, idGen) {
+function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess) {
   if (tasks.length === 0) return null;
 
   const group = document.createElement('section');
@@ -495,7 +599,7 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expan
     const suggestion = suggestionsMap[task.id] ?? null;
     const logs = logsMap[task.name] ?? undefined;
     const panelId = idGen.nextId();
-    list.appendChild(buildTaskRow(task, suggestion, logs, translate, expandController, panelId));
+    list.appendChild(buildTaskRow(task, suggestion, logs, translate, expandController, panelId, startTask, currentUser, section, onSuccess));
   }
 
   group.appendChild(headingRow);
@@ -516,11 +620,13 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expan
  *   translate:        (key: string) => string,
  *   fetchTasks:       (station: string) => Promise<{ ok: boolean, tasks: Array }>,
  *   fetchSuggestions: (ids: number[]) => Promise<{ ok: boolean, suggestions: Object }>,
- *   fetchLogs:        (names: string[]) => Promise<{ ok: boolean, logsByTaskName: Object }>
+ *   fetchLogs:        (names: string[]) => Promise<{ ok: boolean, logsByTaskName: Object }>,
+ *   startTask:        (opts: object) => Promise<object>,
+ *   currentUser:      object
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs }) {
+export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, startTask, currentUser }) {
   const section = document.createElement('section');
   section.className = 'station-prep';
 
@@ -598,38 +704,60 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
         ? logResult.logsByTaskName
         : {};
 
-      content.innerHTML = '';
+      // Mutable local working copies — do not mutate arrays or objects from fetchTasks.
+      // Each object is a shallow copy; only updated task is replaced after successful Start.
+      let workingTasks = taskResult.tasks.map((t) => Object.assign({}, t));
 
-      // Expand controller — one per component instance, destroyed with content.innerHTML = ''.
-      // Navigating away destroys the section element; expansion state is gone.
-      // Returning to Prep creates a new component instance — all collapsed.
-      const expandController = createExpandController();
+      // ── Render function ───────────────────────────────────────────
+      // Called on initial load and after any successful Start.
+      // Always collapses all panels (new expandController per render).
+      function render() {
+        content.innerHTML = '';
 
-      // Panel ID generator — unique within this component instance.
-      let idSeq = 0;
-      const idGen = {
-        nextId() {
-          idSeq += 1;
-          return 'prep-detail-' + idSeq;
-        },
-      };
+        // Fresh expand controller — all panels collapsed.
+        const expandController = createExpandController();
 
-      // Total count — unchanged from 004F.
-      const countEl = document.createElement('p');
-      countEl.className = 'station-prep__count';
-      countEl.textContent = translate('station_prep.task_count')
-        .replace('{count}', String(taskResult.tasks.length));
-      content.appendChild(countEl);
+        // Fresh panel ID generator.
+        let idSeq = 0;
+        const idGen = {
+          nextId() {
+            idSeq += 1;
+            return 'prep-detail-' + idSeq;
+          },
+        };
 
-      // Sort then group, without mutating originals.
-      const ordered = sortedTasks(taskResult.tasks, suggestionsMap);
-      const groups  = groupedTasks(ordered, suggestionsMap);
+        // Total count.
+        const countEl = document.createElement('p');
+        countEl.className = 'station-prep__count';
+        countEl.textContent = translate('station_prep.task_count')
+          .replace('{count}', String(workingTasks.length));
+        content.appendChild(countEl);
 
-      // Render non-empty sections in approved order.
-      for (const key of SECTION_KEYS) {
-        const groupEl = buildGroup(key, groups[key], suggestionsMap, logsMap, translate, expandController, idGen);
-        if (groupEl) content.appendChild(groupEl);
+        // Sort then group using current working copies.
+        const ordered = sortedTasks(workingTasks, suggestionsMap);
+        const groups  = groupedTasks(ordered, suggestionsMap);
+
+        // onSuccess: update only the matching working task, then rerender.
+        function onSuccess(result) {
+          workingTasks = workingTasks.map((t) => {
+            if (t.id !== result.task.id) return t;
+            return Object.assign({}, t, {
+              inProgress:   result.task.inProgress,
+              inProgressAt: result.task.inProgressAt,
+              inProgressBy: result.task.inProgressBy,
+            });
+          });
+          if (section.isConnected) render();
+        }
+
+        // Render non-empty sections in approved order.
+        for (const key of SECTION_KEYS) {
+          const groupEl = buildGroup(key, groups[key], suggestionsMap, logsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess);
+          if (groupEl) content.appendChild(groupEl);
+        }
       }
+
+      render();
     });
   });
 

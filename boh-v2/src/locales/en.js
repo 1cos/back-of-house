@@ -76,5 +76,10 @@ export const en = {
   'station_prep.detail_quantity_not_recorded':'Quantity not recorded',
   'station_prep.detail_user_not_recorded':    'User not recorded',
   'station_prep.detail_time_not_available':   'Time not available',
+
+  // ── Station Prep — Start action (Task 004M) ───────────────────────────
+  'station_prep.start':       'Start',
+  'station_prep.starting':    'Starting\u2026',
+  'station_prep.start_error': 'Unable to start this prep. Try again.',
 };
 

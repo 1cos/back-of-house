@@ -5,6 +5,7 @@
 // Task 004B: station-prep uses createStationPrep with real service.
 // Task 004D: station-prep receives fetchPrepSuggestions for suggestion merging.
 // Task 004K: station-prep receives fetchTodayPrepLogs for today's production log display.
+// Task 004M: station-prep receives startPrepTask and currentUser for Start action.
 // No window writes. No storage. No Supabase. No browser history. No app-state import.
 
 import { createBottomNavigation } from '../../components/navigation/bottom-navigation.js';
@@ -13,6 +14,7 @@ import { createStationPrep } from './station-prep.js';
 import { fetchStationPrepTasks } from '../../services/station-prep-service.js';
 import { fetchPrepSuggestions } from '../../services/prep-suggestion-service.js';
 import { fetchTodayPrepLogs } from '../../services/prep-log-service.js';
+import { startPrepTask } from '../../services/prep-start-service.js';
 
 // ── Route map ─────────────────────────────────────────────────────────
 
@@ -123,6 +125,8 @@ export function setupStationNavigation({ router, mountElement, translate, user }
       fetchTasks:       fetchStationPrepTasks,
       fetchSuggestions: fetchPrepSuggestions,
       fetchLogs:        fetchTodayPrepLogs,
+      startTask:        startPrepTask,
+      currentUser:      user,
     })
   );
 
