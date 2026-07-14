@@ -5,7 +5,7 @@
 
 import { USERS, analyzeMessage } from './data.js';
 import { toast, openModal, closeModal } from './modal.js';
-import { interpretJournalMessage, JOURNAL_AI_MODE } from './journal-ai.js';
+import { interpretJournalMessage, JOURNAL_AI_MODE, AI_FAILURE, _keywordFallback, JOURNAL_AI_TIMEOUT_MS } from './journal-ai.js';
 
 let _state = null;
 let _save  = null;
@@ -48,6 +48,9 @@ export function renderChat() {
   feed.querySelectorAll('.ai-ignore-btn').forEach(btn => {
     btn.addEventListener('click', () => ignoreSuggestions(btn.dataset.msgId));
   });
+  feed.querySelectorAll('.ai-retry-btn').forEach(btn => {
+    btn.addEventListener('click', () => retryAI(btn.dataset.msgId));
+  });
   feed.querySelectorAll('.linked-item-tag').forEach(btn => {
     btn.addEventListener('click', () => {
       const type = btn.dataset.type;
@@ -86,28 +89,59 @@ function msgHtml(msg, currentUser) {
         </button>`
       ).join('')}</div>` : '';
 
-  // AI card
+  // ── AI card ──────────────────────────────────────────────────────────────────
   let aiCardHtml = '';
   if (ai && ai.analyzing) {
-    // Still waiting for AI response
+    // Waiting for AI response
     aiCardHtml = `
       <div class="ai-card${isMine ? ' ai-card-mine' : ''} ai-card-analyzing">
         <span class="ai-label">✦ Analyzing…</span>
+        <span class="ai-summary" style="color:var(--text-3);font-size:11px;">up to 35s</span>
       </div>`;
-  } else if (ai && ai.analyzed && !ai.ignored && !ai.accepted) {
-    const count = ai.suggestions.filter(s => s.active).length;
-    const sourceLabel = ai.source === 'mock'
-      ? `<span class="ai-fallback-label">keyword fallback</span>` : '';
+
+  } else if (ai && ai.pending) {
+    // Timeout or network failure — honest, no fake suggestions
+    const isTimeout = ai.failureType === 'timeout';
+    const label     = isTimeout ? 'AI timed out — message saved' : 'AI unreachable — message saved';
     aiCardHtml = `
-      <div class="ai-card${isMine ? ' ai-card-mine' : ''}">
-        <span class="ai-label" aria-label="AI organized this message">✦ AI organized this message</span>
-        <span class="ai-summary">${count} suggestion${count !== 1 ? 's' : ''} ${sourceLabel}</span>
+      <div class="ai-card${isMine ? ' ai-card-mine' : ''} ai-card-pending" role="status">
+        <span class="ai-label ai-label-warn">⚠ ${label}</span>
+        <span class="ai-summary">Review manually or try again later</span>
         <div class="ai-actions">
-          <button class="ai-review-btn btn-ai" data-msg-id="${msg.id}">Review</button>
-          <button class="ai-accept-btn btn-ai btn-ai-accept" data-msg-id="${msg.id}">Accept all</button>
-          <button class="ai-ignore-btn btn-ai btn-ai-ignore" data-msg-id="${msg.id}">Ignore</button>
+          <button class="ai-retry-btn btn-ai" data-msg-id="${msg.id}" aria-label="Retry AI analysis">Retry</button>
+          <button class="ai-ignore-btn btn-ai btn-ai-ignore" data-msg-id="${msg.id}" aria-label="Dismiss">Dismiss</button>
         </div>
       </div>`;
+
+  } else if (ai && ai.analyzed && !ai.ignored && !ai.accepted) {
+    const isKeyword = ai.source === 'keyword';
+    const activeCount = (ai.suggestions || []).filter(s => s.active).length;
+
+    if (isKeyword) {
+      // Keyword-only extraction — clearly labeled, no accept-all
+      aiCardHtml = `
+        <div class="ai-card${isMine ? ' ai-card-mine' : ''} ai-card-keyword" role="status">
+          <span class="ai-label ai-label-warn">⚠ Keyword extraction only</span>
+          <span class="ai-summary">AI was unavailable — categories detected, no semantic analysis</span>
+          <div class="ai-actions">
+            <button class="ai-review-btn btn-ai" data-msg-id="${msg.id}">Review</button>
+            <button class="ai-ignore-btn btn-ai btn-ai-ignore" data-msg-id="${msg.id}">Dismiss</button>
+          </div>
+        </div>`;
+    } else {
+      // Real AI success
+      aiCardHtml = `
+        <div class="ai-card${isMine ? ' ai-card-mine' : ''}">
+          <span class="ai-label" aria-label="AI organized this message">✦ AI organized this message</span>
+          <span class="ai-summary">${activeCount} suggestion${activeCount !== 1 ? 's' : ''}</span>
+          <div class="ai-actions">
+            <button class="ai-review-btn btn-ai" data-msg-id="${msg.id}">Review</button>
+            <button class="ai-accept-btn btn-ai btn-ai-accept" data-msg-id="${msg.id}">Accept all</button>
+            <button class="ai-ignore-btn btn-ai btn-ai-ignore" data-msg-id="${msg.id}">Ignore</button>
+          </div>
+        </div>`;
+    }
+
   } else if (ai && ai.accepted && linked.length > 0) {
     aiCardHtml = `
       <div class="ai-card ai-card-done${isMine ? ' ai-card-mine' : ''}">
@@ -182,18 +216,18 @@ export async function sendMessage(text) {
   _save(_state);
   renderChat();
 
-  // Call real AI bridge (falls back to keyword mock on failure)
+  // ── Call real AI bridge (35s timeout, honest failure handling) ──────────────
+  const openCases = (_state.cases || []).filter(c => c.status !== 'Resolved' && c.status !== 'Closed');
   let aiResult;
   try {
     const result = await interpretJournalMessage({
-      message: text.trim(),
-      author: { name: author.name, role: author.role, dept: author.dept || author.role },
-      openCases: (_state.cases || []).filter(c => c.status !== 'Resolved' && c.status !== 'Closed'),
-      tasks: (_state.tasks || []).filter(t => t.status !== 'Done' && t.status !== 'Dismissed'),
-      recentMessages: (_state.messages || []).slice(-5).map(m => ({ authorId: m.authorId, text: m.text })),
+      message:      text.trim(),
+      author:       { name: author.name, role: author.role, dept: author.dept || author.role },
+      openCases,
+      tasks:        (_state.tasks || []).filter(t => t.status !== 'Done' && t.status !== 'Dismissed'),
     });
 
-    // Normalize live suggestions to v0.2 format
+    // Success — normalize suggestions to v0.2 format
     const suggestions = (result.suggestions || []).map(s => ({
       id:            s.id || `sug-${msgId}-${Math.random().toString(36).slice(2,6)}`,
       type:          _mapSuggestionType(s.type),
@@ -201,7 +235,7 @@ export async function sendMessage(text) {
       category:      s.category || 'Communication',
       assignTo:      s.assignTo || null,
       dueDateText:   s.dueDateText || null,
-      relatedCaseId: _resolveRelatedCase(s.relatedCaseId),
+      relatedCaseId: _resolveRelatedCase(s.relatedCaseId, openCases),
       statusHint:    s.statusHint || null,
       confidence:    s.confidence || 0.8,
       details:       s.details || null,
@@ -209,33 +243,66 @@ export async function sendMessage(text) {
     }));
 
     aiResult = {
-      analyzed:  true,
-      analyzing: false,
-      accepted:  false,
-      ignored:   false,
+      analyzed:     true,
+      analyzing:    false,
+      accepted:     false,
+      ignored:      false,
       suggestions,
-      source:    result.source || 'live',
-      summary:   result.summary || null,
+      source:       result.source || 'live',
+      summary:      result.summary || null,
+      uncertainties: result.uncertainties || [],
     };
+
   } catch (err) {
-    // Absolute last-resort fallback — never lose the message
-    const fallback = analyzeMessage(text);
-    aiResult = {
-      analyzed:  true,
-      analyzing: false,
-      accepted:  false,
-      ignored:   false,
-      suggestions: fallback.suggestions.map((s, i) => ({
-        id:            `sug-err-${i}`,
-        type:          s.type || 'communication',
-        title:         `Note: ${text.slice(0, 50)}`,
-        category:      s.category || 'Communication',
-        assignTo:      null, dueDateText: null, relatedCaseId: null,
-        statusHint:    null, confidence: 0.3, details: null, active: true,
-      })),
-      source: 'mock',
-      summary: null,
-    };
+    // ── Failure path: distinguish type and respond honestly ──────────────────
+    const failureType = err.failureType || AI_FAILURE.NETWORK;
+    const isComplex   = text.trim().length > 50;
+
+    if (failureType === AI_FAILURE.TIMEOUT || failureType === AI_FAILURE.NETWORK) {
+      // For network/timeout: message saved, AI marked PENDING — no fake suggestions.
+      // User sees "AI couldn't reach the server" and can retry manually.
+      aiResult = {
+        analyzed:     false,
+        analyzing:    false,
+        pending:      true,          // new state: pending retry
+        failureType,
+        accepted:     false,
+        ignored:      false,
+        suggestions:  [],
+        source:       'pending',
+        summary:      null,
+      };
+    } else if (isComplex) {
+      // Complex message + bad_json/http_error: save pending, don't guess
+      aiResult = {
+        analyzed:     false,
+        analyzing:    false,
+        pending:      true,
+        failureType,
+        accepted:     false,
+        ignored:      false,
+        suggestions:  [],
+        source:       'pending',
+        summary:      null,
+      };
+    } else {
+      // Short/simple message + non-timeout error: keyword extraction as explicit fallback
+      // Suggestions are inactive (active:false) and labeled clearly as keyword-only.
+      const kw = _keywordFallback(text, author, openCases);
+      aiResult = {
+        analyzed:     true,
+        analyzing:    false,
+        pending:      false,
+        failureType,
+        accepted:     false,
+        ignored:      false,
+        suggestions:  kw.suggestions.map(s => ({ ...s, active: false })),
+        source:       'keyword',
+        summary:      null,
+      };
+    }
+
+    console.warn(`[JournalAI] ${failureType}: ${err.message}`);
   }
 
   // Update the message in state
@@ -259,10 +326,10 @@ function _mapSuggestionType(type) {
   return map[type] || 'communication';
 }
 
-function _resolveRelatedCase(caseIdFromAI) {
+function _resolveRelatedCase(caseIdFromAI, openCases) {
   if (!caseIdFromAI) return null;
-  // Verify the case actually exists in state
-  const found = (_state.cases || []).find(c => c.id === caseIdFromAI);
+  const cases = openCases || (_state.cases || []).filter(c => c.status !== 'Resolved' && c.status !== 'Closed');
+  const found = cases.find(c => c.id === caseIdFromAI);
   return found ? found.id : null;
 }
 
@@ -394,6 +461,49 @@ function applySuggestion(sug, sourceMsg) {
   }
 
   return null;
+}
+
+/* --- Retry AI (for pending/timeout messages) --------------- */
+async function retryAI(msgId) {
+  const msg = _state.messages.find(m => m.id === msgId);
+  if (!msg) return;
+
+  // Reset to analyzing state
+  msg.aiResult = { analyzed: false, analyzing: true, pending: false, accepted: false, ignored: false, suggestions: [], source: null };
+  _save(_state);
+  renderChat();
+
+  const author = userById(msg.authorId);
+  const openCases = (_state.cases || []).filter(c => c.status !== 'Resolved' && c.status !== 'Closed');
+
+  try {
+    const result = await interpretJournalMessage({
+      message:   msg.text,
+      author:    { name: author.name, role: author.role, dept: author.dept || author.role },
+      openCases,
+      tasks:     (_state.tasks || []).filter(t => t.status !== 'Done' && t.status !== 'Dismissed'),
+    });
+    const suggestions = (result.suggestions || []).map(s => ({
+      id:            s.id || `sug-retry-${Date.now()}-${Math.random().toString(36).slice(2,5)}`,
+      type:          _mapSuggestionType(s.type),
+      title:         s.title || 'Untitled',
+      category:      s.category || 'Communication',
+      assignTo:      s.assignTo || null,
+      dueDateText:   s.dueDateText || null,
+      relatedCaseId: _resolveRelatedCase(s.relatedCaseId, openCases),
+      statusHint:    s.statusHint || null,
+      confidence:    s.confidence || 0.8,
+      details:       s.details || null,
+      active:        true,
+    }));
+    msg.aiResult = { analyzed: true, analyzing: false, pending: false, accepted: false, ignored: false, suggestions, source: result.source || 'live', summary: result.summary || null };
+  } catch (err) {
+    const failureType = err.failureType || AI_FAILURE.NETWORK;
+    msg.aiResult = { analyzed: false, analyzing: false, pending: true, failureType, accepted: false, ignored: false, suggestions: [], source: 'pending', summary: null };
+    console.warn(`[JournalAI retry] ${failureType}: ${err.message}`);
+  }
+  _save(_state);
+  renderChat();
 }
 
 /* --- Ignore suggestions ------------------------------------ */

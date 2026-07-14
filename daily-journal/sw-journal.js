@@ -1,7 +1,8 @@
-/* Daily Operations Journal — Service Worker
+/* Daily Operations Journal — Service Worker v2
    Scoped to /back-of-house/daily-journal/
-   Separate from Brigade sw.js — no conflict */
-const CACHE_NAME = 'doj-v0.2';
+   Separate from Brigade sw.js — no conflict.
+   Cache name bumped to doj-v2.0 to force fresh fetch of journal-ai.js v2. */
+const CACHE_NAME = 'doj-v2.0';
 self.addEventListener('install', e => { self.skipWaiting(); });
 self.addEventListener('activate', e => {
   e.waitUntil(
@@ -10,5 +11,5 @@ self.addEventListener('activate', e => {
     ).then(() => self.clients.claim())
   );
 });
-// Pass-through fetch — no offline caching for now (AI calls need network)
+// Pass-through fetch — no offline caching (AI calls must reach the network)
 self.addEventListener('fetch', e => {});

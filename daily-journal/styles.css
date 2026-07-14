@@ -370,6 +370,27 @@ body {
   vertical-align: middle; margin-left: 2px;
 }
 
+/* Pending / timeout state */
+.ai-card-pending {
+  background: var(--orange-lt);
+  border-color: rgba(217,119,6,.25);
+}
+.ai-card-pending .ai-label { color: var(--orange); }
+
+/* Keyword-only extraction state */
+.ai-card-keyword {
+  background: var(--surface-2);
+  border-color: var(--border);
+  opacity: .92;
+}
+.ai-card-keyword .ai-label { color: var(--text-2); }
+
+/* Warning label variant */
+.ai-label-warn {
+  color: var(--orange);
+  font-weight: 700;
+}
+
 /* Composer */
 .composer {
   background: var(--surface);
