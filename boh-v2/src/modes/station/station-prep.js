@@ -12,6 +12,7 @@
 // Task 004S: loads recent physical counts in parallel; displays Last physical count in expanded detail.
 // Task 004V: Count button in every expanded detail; mounts prep-count form; connects to savePrepCount.
 // Task 004X: reconcileCount called after saveCount when count exists; local count updated with reconciliation fields.
+// Task 004Y: WIP detail section shown inside expanded panel for in-progress tasks (inProgress === true).
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
 
@@ -716,6 +717,68 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
   return { btn, containerRef };
 }
 
+// ── WIP section builder (Task 004Y) ──────────────────────────────────
+
+function buildWipSection(task, translate) {
+  const section = document.createElement('div');
+  section.className = 'station-prep__detail-wip';
+
+  const heading = document.createElement('h3');
+  heading.className = 'station-prep__detail-wip-heading';
+  heading.textContent = translate('station_prep.detail_work_in_progress');
+  section.appendChild(heading);
+
+  function addRow(labelKey, valueText) {
+    const row = document.createElement('div');
+    row.className = 'station-prep__detail-row station-prep__detail-wip-row';
+    const label = document.createElement('span');
+    label.className = 'station-prep__detail-label';
+    label.textContent = translate(labelKey);
+    const value = document.createElement('span');
+    value.className = 'station-prep__detail-value';
+    value.textContent = valueText;
+    row.appendChild(label);
+    row.appendChild(value);
+    section.appendChild(row);
+  }
+
+  // Started by
+  const startedBy = (typeof task.inProgressBy === 'string' && task.inProgressBy.trim().length > 0)
+    ? task.inProgressBy.trim()
+    : translate('station_prep.detail_user_not_recorded');
+  addRow('station_prep.detail_started_by', startedBy);
+
+  // Started at
+  const startedAt = task.inProgressAt ? new Date(task.inProgressAt) : null;
+  const startedAtValid = startedAt !== null && !isNaN(startedAt.getTime());
+  const startedAtText = startedAtValid
+    ? startedAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+    : translate('station_prep.detail_time_not_available');
+  addRow('station_prep.detail_started_at', startedAtText);
+
+  // Elapsed
+  let elapsedText;
+  if (startedAtValid) {
+    const now = new Date();
+    const elapsedMinutes = Math.max(
+      0,
+      Math.floor((now.getTime() - startedAt.getTime()) / 60000)
+    );
+    if (elapsedMinutes < 60) {
+      elapsedText = elapsedMinutes + ' min';
+    } else {
+      const hours = Math.floor(elapsedMinutes / 60);
+      const minutes = elapsedMinutes % 60;
+      elapsedText = hours + ' hr ' + minutes + ' min';
+    }
+  } else {
+    elapsedText = translate('station_prep.detail_elapsed_not_available');
+  }
+  addRow('station_prep.detail_elapsed', elapsedText);
+
+  return section;
+}
+
 // ── Detail panel builder ──────────────────────────────────────────────
 
 function buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
@@ -779,13 +842,18 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
   // 5. Last physical count
   panel.appendChild(buildLastPhysicalCount(count, translate));
 
+  // 6. Work in progress — only for in-progress tasks
+  if (task.inProgress === true) {
+    panel.appendChild(buildWipSection(task, translate));
+  }
+
   // ── Cross-form coordination refs ──
   // completeFormRef: Complete button exposes its formContainer here so Count can remove it.
   // countFormRef:    Count button exposes its containerRef here so Complete can remove it.
   const completeFormRef = { container: null, btn: null };
   const countFormRef    = { container: null, btn: null };
 
-  // 6. Start — non-in-progress only
+  // 7. Start — non-in-progress only
   if (task.inProgress !== true) {
     panel.appendChild(buildStartButton({ task, currentUser, translate, startTask, section, onSuccess, detailEl: panel }));
   }
@@ -807,6 +875,7 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
   }
 
   // 8. Count — every task
+
   const { btn: countBtn, containerRef } = buildCountButton({
     task,
     currentUser,

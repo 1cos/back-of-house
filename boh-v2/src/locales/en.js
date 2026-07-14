@@ -128,5 +128,12 @@ export const en = {
   'station_prep.count_reconciling':                'Reconciling count…',
   'station_prep.count_reconciliation_pending':     'Count saved. Reconciliation is pending.',
   'station_prep.count_partial_reconciliation_error': 'Count was recorded, but stock and reconciliation were not updated. Tell the Chef.',
+
+  // ── Station Prep — Work in progress detail (Task 004Y) ───────────────
+  'station_prep.detail_work_in_progress':      'Work in progress',
+  'station_prep.detail_started_by':            'Started by',
+  'station_prep.detail_started_at':            'Started at',
+  'station_prep.detail_elapsed':               'Elapsed',
+  'station_prep.detail_elapsed_not_available': 'Elapsed time not available',
 };
 
