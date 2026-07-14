@@ -477,3 +477,79 @@
   word-break: break-word;   /* long partial-failure text wraps safely */
 }
 
+/* ── Count button (Task 004V) ────────────────────────────────────────
+   Appears inside the expanded task detail only, for every task.
+   Visually distinct from Start (accent fill) and Complete (border/transparent).
+   Uses text-secondary border to avoid introducing new colors.
+   Touch target: 44 × 44 px minimum.
+   No animation. No icons. No inline styles. No !important.            */
+.station-prep__count-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-4);
+  margin-top: var(--sp-2);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  align-self: flex-start;
+  box-sizing: border-box;
+}
+
+.station-prep__count-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.station-prep__count-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.station-prep__count-btn[hidden] {
+  display: none;
+}
+
+/* ── Count form container (Task 004V) ────────────────────────────────
+   Wraps the Prep Count form inside the expanded task detail.
+   Fits at 320px without horizontal scrolling.                         */
+.station-prep__count-form-container {
+  margin-top: var(--sp-3);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ── Count submission feedback (Task 004V) ───────────────────────────
+   Saving count… and error messages appear inside the count form
+   container. Long partial-failure text wraps safely at 320px.
+   No !important. No inline styles. No animation.                      */
+
+/* Saving count… — role="status" set in JS */
+.station-prep__count-submitting {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: var(--sp-2) 0 0;
+  line-height: 1.4;
+}
+
+/* Full failure — role="alert" set in JS */
+.station-prep__count-error {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  border-left: 3px solid var(--text-secondary);
+  padding-left: var(--sp-2);
+  margin: var(--sp-2) 0 0;
+  line-height: 1.5;
+  word-break: break-word;
+}

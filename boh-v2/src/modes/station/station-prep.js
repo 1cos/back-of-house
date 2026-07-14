@@ -10,10 +10,12 @@
 // Task 004P: Complete button for in-progress tasks; mounts Complete Prep form in expanded detail.
 // Task 004Q: Complete Prep form connected to completePrepTask service; local state updated on success.
 // Task 004S: loads recent physical counts in parallel; displays Last physical count in expanded detail.
+// Task 004V: Count button in every expanded detail; mounts prep-count form; connects to savePrepCount.
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
 
 import { createCompletePrepForm } from '../../components/prep/complete-prep-form.js';
+import { createPrepCountForm } from '../../components/prep/prep-count-form.js';
 
 // ── Task state label ──────────────────────────────────────────────────
 
@@ -93,7 +95,6 @@ function sortedTasks(tasks, suggestionsMap) {
 
 // ── Section assignment ────────────────────────────────────────────────
 
-// Five section keys in render order.
 const SECTION_KEYS = [
   'do_first',
   'do_today',
@@ -102,7 +103,6 @@ const SECTION_KEYS = [
   'in_progress',
 ];
 
-// Maps section key → its translation key.
 const SECTION_LABEL_KEY = {
   do_first:    'station_prep.section_do_first',
   do_today:    'station_prep.section_do_today',
@@ -111,14 +111,6 @@ const SECTION_LABEL_KEY = {
   in_progress: 'station_prep.section_in_progress',
 };
 
-/**
- * Returns the section key for a task.
- * inProgress === true always → 'in_progress', overriding suggestion status.
- *
- * @param {object} task
- * @param {object|null} suggestion
- * @returns {string}
- */
 function taskSectionKey(task, suggestion) {
   if (task.inProgress === true) return 'in_progress';
   const status = suggestion ? suggestion.status : null;
@@ -137,15 +129,6 @@ function taskSectionKey(task, suggestion) {
   }
 }
 
-/**
- * Groups the sorted tasks array into section buckets.
- * Preserves sorted order within each bucket.
- * Does not mutate the input array or suggestions object.
- *
- * @param {Array<object>} sorted   — already sorted via sortedTasks()
- * @param {Object} suggestionsMap
- * @returns {Object}  — { do_first: [], do_today: [], check: [], looks_good: [], in_progress: [] }
- */
 function groupedTasks(sorted, suggestionsMap) {
   const groups = {};
   for (const key of SECTION_KEYS) groups[key] = [];
@@ -158,14 +141,6 @@ function groupedTasks(sorted, suggestionsMap) {
 
 // ── Time formatting ───────────────────────────────────────────────────
 
-/**
- * Converts an ISO timestamp string to a local device time string (HH:MM AM/PM).
- * Returns null when missing or invalid.
- * Private — used by buildMadeToday and buildLastPhysicalCount.
- *
- * @param {unknown} isoString
- * @returns {string | null}  — formatted time string, or null to signal fallback
- */
 function formatLocalTime(isoString) {
   if (!isoString) return null;
   const d = new Date(isoString);
@@ -175,20 +150,10 @@ function formatLocalTime(isoString) {
 
 // ── Made today section builder ────────────────────────────────────────
 
-/**
- * Builds the "Made today" section for the detail panel.
- * Uses only log entries already loaded by the component.
- * No database query. No writes.
- *
- * @param {Array<object> | undefined} logs   — entries from logsByTaskName[task.name]
- * @param {(key: string) => string} translate
- * @returns {HTMLElement}
- */
 function buildMadeToday(logs, translate) {
   const section = document.createElement('div');
   section.className = 'station-prep__detail-made-today';
 
-  // Section label
   const sectionLabel = document.createElement('span');
   sectionLabel.className = 'station-prep__detail-label';
   sectionLabel.textContent = translate('station_prep.detail_made_today');
@@ -202,12 +167,10 @@ function buildMadeToday(logs, translate) {
     return section;
   }
 
-  // One card per log entry, in createdAt ascending order (preserved from service).
   for (const log of logs) {
     const card = document.createElement('div');
     card.className = 'station-prep__log-entry';
 
-    // Quantity + unit
     const qtyEl = document.createElement('span');
     qtyEl.className = 'station-prep__log-qty';
     if (log.quantity !== null && log.quantity !== undefined) {
@@ -220,7 +183,6 @@ function buildMadeToday(logs, translate) {
       qtyEl.textContent = translate('station_prep.detail_quantity_not_recorded');
     }
 
-    // User name
     const userEl = document.createElement('span');
     userEl.className = 'station-prep__log-user';
     if (typeof log.userName === 'string' && log.userName.trim().length > 0) {
@@ -229,7 +191,6 @@ function buildMadeToday(logs, translate) {
       userEl.textContent = translate('station_prep.detail_user_not_recorded');
     }
 
-    // Local time
     const timeEl = document.createElement('span');
     timeEl.className = 'station-prep__log-time';
     const formatted = formatLocalTime(log.createdAt);
@@ -248,26 +209,15 @@ function buildMadeToday(logs, translate) {
 
 // ── Last physical count section builder ──────────────────────────────
 
-/**
- * Builds the "Last physical count" section for the detail panel.
- * Uses only count data already loaded by the component; no database query.
- * No writes. Does not interpret reconcileStatus. Does not mutate the count object.
- *
- * @param {object | null | undefined} count  — entry from countsByPrepTaskId[task.id], or null
- * @param {(key: string) => string} translate
- * @returns {HTMLElement}
- */
 function buildLastPhysicalCount(count, translate) {
   const section = document.createElement('div');
   section.className = 'station-prep__detail-last-count';
 
-  // Section label
   const sectionLabel = document.createElement('span');
   sectionLabel.className = 'station-prep__detail-label';
   sectionLabel.textContent = translate('station_prep.detail_last_physical_count');
   section.appendChild(sectionLabel);
 
-  // No valid count fallback
   if (!count) {
     const empty = document.createElement('span');
     empty.className = 'station-prep__detail-value';
@@ -276,21 +226,17 @@ function buildLastPhysicalCount(count, translate) {
     return section;
   }
 
-  // ── Row builder helper (private to this function) ──
   function addRow(labelText, valueEl) {
     const row = document.createElement('div');
     row.className = 'station-prep__detail-row';
-
     const label = document.createElement('span');
     label.className = 'station-prep__detail-label';
     label.textContent = labelText;
-
     row.appendChild(label);
     row.appendChild(valueEl);
     section.appendChild(row);
   }
 
-  // 1. Counted quantity + unit
   const qtyEl = document.createElement('span');
   qtyEl.className = 'station-prep__detail-value';
   if (count.countedQuantity !== null && count.countedQuantity !== undefined) {
@@ -304,7 +250,6 @@ function buildLastPhysicalCount(count, translate) {
   }
   addRow(translate('station_prep.detail_prepare_today'), qtyEl);
 
-  // 2. Counted by
   const byEl = document.createElement('span');
   byEl.className = 'station-prep__detail-value';
   if (typeof count.countedBy === 'string' && count.countedBy.trim().length > 0) {
@@ -314,7 +259,6 @@ function buildLastPhysicalCount(count, translate) {
   }
   addRow(translate('station_prep.detail_counted_by'), byEl);
 
-  // 3. Counted at — local device time only, no raw ISO
   const timeEl = document.createElement('span');
   timeEl.className = 'station-prep__detail-value';
   const formattedTime = formatLocalTime(count.countedAt);
@@ -323,15 +267,13 @@ function buildLastPhysicalCount(count, translate) {
     : translate('station_prep.detail_time_not_available');
   addRow(translate('station_prep.detail_counted_at'), timeEl);
 
-  // 4. Reconciliation status — omit when missing or empty
   if (typeof count.reconcileStatus === 'string' && count.reconcileStatus.length > 0) {
     const rsEl = document.createElement('span');
     rsEl.className = 'station-prep__detail-value';
-    rsEl.textContent = count.reconcileStatus;   // displayed unchanged, no interpretation
+    rsEl.textContent = count.reconcileStatus;
     addRow(translate('station_prep.detail_reconciliation'), rsEl);
   }
 
-  // 5. Reconciled quantity — omit when null
   if (count.reconciledQuantity !== null && count.reconciledQuantity !== undefined) {
     const rqEl = document.createElement('span');
     rqEl.className = 'station-prep__detail-value';
@@ -343,11 +285,10 @@ function buildLastPhysicalCount(count, translate) {
     addRow(translate('station_prep.detail_reconciled_quantity'), rqEl);
   }
 
-  // 6. Reconciliation note — omit when missing or empty string
   if (typeof count.reconciledNote === 'string' && count.reconciledNote.length > 0) {
     const rnEl = document.createElement('span');
     rnEl.className = 'station-prep__detail-value station-prep__detail-value--note';
-    rnEl.textContent = count.reconciledNote;    // displayed exactly, original text preserved
+    rnEl.textContent = count.reconciledNote;
     addRow(translate('station_prep.detail_reconciliation_note'), rnEl);
   }
 
@@ -356,24 +297,6 @@ function buildLastPhysicalCount(count, translate) {
 
 // ── Start button builder ──────────────────────────────────────────────
 
-/**
- * Builds a Start button for an eligible task (not already in progress).
- *
- * Eligibility: task.inProgress !== true
- * The button appears only inside the expanded detail panel.
- * If currentUser.name is missing/empty the button is rendered disabled.
- *
- * @param {{
- *   task:        object,               — working copy of the task
- *   currentUser: object,
- *   translate:   (key: string) => string,
- *   startTask:   Function,
- *   section:     HTMLElement,           — root section for isConnected checks
- *   onSuccess:   (result: object) => void,
- *   detailEl:    HTMLElement,           — detail panel to insert error into
- * }} opts
- * @returns {HTMLElement}
- */
 function buildStartButton({ task, currentUser, translate, startTask, section, onSuccess, detailEl }) {
   const userName = (currentUser && typeof currentUser.name === 'string')
     ? currentUser.name.trim()
@@ -386,39 +309,29 @@ function buildStartButton({ task, currentUser, translate, startTask, section, on
   btn.textContent = translate('station_prep.start');
   if (!canStart) btn.disabled = true;
 
-  // Per-button submission guard (prevents duplicate clicks).
   let submitting = false;
 
   btn.addEventListener('click', () => {
     if (submitting || !canStart) return;
     submitting = true;
 
-    // 1. Remove any previous inline start error for this task.
     const prevErr = detailEl.querySelector('.station-prep__start-error');
     if (prevErr) prevErr.remove();
 
-    // 2. Disable button and show Starting… label.
     btn.disabled = true;
     btn.textContent = translate('station_prep.starting');
 
-    // 3. Call service.
     startTask({ prepTaskId: task.id, startedBy: userName })
       .then((result) => {
-        // 4. Disconnected-page safety.
         if (!section.isConnected) return;
-
         if (result.ok) {
           onSuccess(result);
         } else {
-          // Failure: restore button and show inline error.
           submitting = false;
           btn.disabled = false;
           btn.textContent = translate('station_prep.start');
-
-          // Only one error per task.
           const existing = detailEl.querySelector('.station-prep__start-error');
           if (existing) existing.remove();
-
           const errEl = document.createElement('p');
           errEl.className = 'station-prep__start-error';
           errEl.setAttribute('role', 'alert');
@@ -427,7 +340,6 @@ function buildStartButton({ task, currentUser, translate, startTask, section, on
         }
       })
       .catch(() => {
-        // Unexpected throw (should not happen — service catches internally).
         if (!section.isConnected) return;
         submitting = false;
         btn.disabled = false;
@@ -440,14 +352,6 @@ function buildStartButton({ task, currentUser, translate, startTask, section, on
 
 // ── Log sort helper ───────────────────────────────────────────────────
 
-/**
- * Returns a new sorted array of log entries by createdAt ascending.
- * Logs with missing/invalid createdAt remain after valid-dated logs,
- * preserving their relative order among each other.
- *
- * @param {Array<object>} logs
- * @returns {Array<object>}
- */
 function sortedLogs(logs) {
   return logs.slice().sort((a, b) => {
     const da = a.createdAt ? new Date(a.createdAt) : null;
@@ -464,22 +368,10 @@ function sortedLogs(logs) {
 // ── Complete button builder ───────────────────────────────────────────
 
 /**
- * Builds the Complete button and its form lifecycle for one in-progress task.
- * Connected to completePrepTask service (Task 004Q).
- * Missing currentUser.name disables the button; no write is attempted.
- *
- * @param {{
- *   task:              object,               — mutable working copy
- *   currentUser:       object,
- *   translate:         (key: string) => string,
- *   completeTask:      Function,
- *   section:           HTMLElement,          — root section for isConnected checks
- *   onCompleteSuccess: (result: object) => void,
- *   detailEl:          HTMLElement,
- * }} opts
- * @returns {HTMLElement}
+ * Opening Complete removes any open Count form.
+ * countFormRef: { container, btn } — the Count button/container for this detail.
  */
-function buildCompleteButton({ task, currentUser, translate, completeTask, section, onCompleteSuccess, detailEl }) {
+function buildCompleteButton({ task, currentUser, translate, completeTask, section, onCompleteSuccess, detailEl, countFormRef }) {
   const userName = (currentUser && typeof currentUser.name === 'string')
     ? currentUser.name.trim()
     : '';
@@ -493,8 +385,6 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
 
   let formContainer = null;
   let submitting = false;
-
-  // ── Feedback helpers ──
 
   function clearFeedback() {
     if (!formContainer) return;
@@ -538,11 +428,20 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
     btn.hidden = false;
   }
 
-  // ── Complete button click: mount form ──
   btn.addEventListener('click', () => {
     if (!canComplete) return;
 
-    // Remove any previous form before mounting a new one.
+    // Remove any open Count form and its feedback.
+    if (countFormRef.container && countFormRef.container.parentNode) {
+      countFormRef.container.remove();
+      countFormRef.container = null;
+    }
+    const prevCountFb = detailEl.querySelector(
+      '.station-prep__count-submitting, .station-prep__count-error'
+    );
+    if (prevCountFb) prevCountFb.remove();
+    if (countFormRef.btn) countFormRef.btn.hidden = false;
+
     if (formContainer && formContainer.parentNode) {
       formContainer.remove();
     }
@@ -555,11 +454,8 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
       translate,
 
       onConfirm: ({ quantity, unit }) => {
-        // Prevent duplicate submission.
         if (submitting) return;
         submitting = true;
-
-        // Remove previous feedback, disable controls, show Completing…
         clearFeedback();
         setFormDisabled(true);
         showSubmitting();
@@ -577,21 +473,15 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
           completedBy: userName,
         }).then((result) => {
           if (!section.isConnected) return;
-
           if (result.ok) {
-            // Full success — onCompleteSuccess triggers rerender which destroys this form.
             onCompleteSuccess({ ok: true, log: result.log, task: result.task });
           } else if (result.log !== null) {
-            // Partial failure: log was written, task not updated.
             submitting = false;
             setFormDisabled(false);
             clearFeedback();
-            // Append the returned log locally without updating task.
             onCompleteSuccess({ ok: false, log: result.log, task: null });
-            // Show partial error inside the still-open form.
             showError('station_prep.complete_partial_error');
           } else {
-            // Full failure: nothing written.
             submitting = false;
             setFormDisabled(false);
             clearFeedback();
@@ -606,9 +496,7 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
         });
       },
 
-      onCancel: () => {
-        removeForm();
-      },
+      onCancel: () => { removeForm(); },
     });
 
     formContainer = document.createElement('div');
@@ -620,54 +508,174 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
   return btn;
 }
 
-// ── Detail panel builder ──────────────────────────────────────────────
+// ── Count button builder ──────────────────────────────────────────────
 
 /**
- * Builds the hidden detail panel for a task.
- * Uses only suggestion, log, and count data already loaded by the page.
- * Appends a Start button when the task is not already in progress.
- * No database query. No writes (Start/Complete buttons delegate to services).
- *
- * @param {string} panelId
- * @param {object} task             — mutable working copy
- * @param {object|null} suggestion
- * @param {Array<object>|undefined} logs
- * @param {object|null} count       — entry from countsByPrepTaskId, or null
- * @param {(key: string) => string} translate
- * @param {Function} startTask
- * @param {object} currentUser
- * @param {HTMLElement} section     — root section for isConnected checks
- * @param {(result: object) => void} onSuccess
- * @param {Function} completeTask
- * @param {(result: object) => void} onCompleteSuccess
- * @returns {HTMLElement}
+ * Count button appears for every task (in-progress or not).
+ * Opening Count removes any open Complete form.
+ * completeFormRef: { container, btn } — the Complete form/button for this detail.
+ * Returns { btn, containerRef } so the detail builder can wire cross-references.
  */
-function buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
+function buildCountButton({ task, currentUser, translate, saveCount, section, onCountSuccess, detailEl, completeFormRef }) {
+  const userName = (currentUser && typeof currentUser.name === 'string')
+    ? currentUser.name.trim()
+    : '';
+  const canCount = userName.length > 0;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'station-prep__count-btn';
+  btn.textContent = translate('station_prep.count');
+  if (!canCount) btn.disabled = true;
+
+  // containerRef is shared with the detail builder so Complete can reach this.
+  const containerRef = { container: null };
+
+  let submitting = false;
+
+  function clearCountFeedback() {
+    const prev = detailEl.querySelector(
+      '.station-prep__count-submitting, .station-prep__count-error'
+    );
+    if (prev) prev.remove();
+  }
+
+  function setCountFormDisabled(disabled) {
+    if (!containerRef.container) return;
+    containerRef.container.querySelectorAll('input, button').forEach((el) => {
+      el.disabled = disabled;
+    });
+  }
+
+  function showCountSubmitting() {
+    clearCountFeedback();
+    const el = document.createElement('p');
+    el.className = 'station-prep__count-submitting';
+    el.setAttribute('role', 'status');
+    el.textContent = translate('station_prep.count_saving');
+    if (containerRef.container) containerRef.container.appendChild(el);
+  }
+
+  function showCountError(msgKey) {
+    clearCountFeedback();
+    const el = document.createElement('p');
+    el.className = 'station-prep__count-error';
+    el.setAttribute('role', 'alert');
+    el.textContent = translate(msgKey);
+    if (containerRef.container) containerRef.container.appendChild(el);
+  }
+
+  function removeCountForm() {
+    clearCountFeedback();
+    if (containerRef.container && containerRef.container.parentNode) {
+      containerRef.container.remove();
+    }
+    containerRef.container = null;
+    submitting = false;
+    btn.hidden = false;
+  }
+
+  btn.addEventListener('click', () => {
+    if (!canCount) return;
+
+    // Remove any open Complete form and its feedback.
+    if (completeFormRef.container && completeFormRef.container.parentNode) {
+      completeFormRef.container.remove();
+      completeFormRef.container = null;
+    }
+    const prevCompleteFb = detailEl.querySelector(
+      '.station-prep__complete-submitting, .station-prep__complete-error'
+    );
+    if (prevCompleteFb) prevCompleteFb.remove();
+    if (completeFormRef.btn) completeFormRef.btn.hidden = false;
+
+    // Remove previous Count form + feedback.
+    clearCountFeedback();
+    if (containerRef.container && containerRef.container.parentNode) {
+      containerRef.container.remove();
+    }
+    submitting = false;
+    btn.hidden = true;
+
+    const form = createPrepCountForm({
+      taskName:    task.name,
+      defaultUnit: task.unit ?? null,
+      translate,
+
+      onConfirm: ({ countedQuantity, unit }) => {
+        if (submitting) return;
+        submitting = true;
+        clearCountFeedback();
+        setCountFormDisabled(true);
+        showCountSubmitting();
+
+        saveCount({
+          prepTaskId:     task.id,
+          countedQuantity,
+          unit,
+          countedBy:      userName,
+        }).then((result) => {
+          if (!section.isConnected) return;
+
+          if (result.ok) {
+            onCountSuccess({ ok: true, count: result.count, task: result.task });
+          } else if (result.count !== null) {
+            submitting = false;
+            setCountFormDisabled(false);
+            clearCountFeedback();
+            onCountSuccess({ ok: false, count: result.count, task: null });
+            showCountError('station_prep.count_partial_error');
+          } else {
+            submitting = false;
+            setCountFormDisabled(false);
+            clearCountFeedback();
+            showCountError('station_prep.count_error');
+          }
+        }).catch(() => {
+          if (!section.isConnected) return;
+          submitting = false;
+          setCountFormDisabled(false);
+          clearCountFeedback();
+          showCountError('station_prep.count_error');
+        });
+      },
+
+      onCancel: () => { removeCountForm(); },
+    });
+
+    const newContainer = document.createElement('div');
+    newContainer.className = 'station-prep__count-form-container';
+    newContainer.appendChild(form);
+    containerRef.container = newContainer;
+    detailEl.appendChild(newContainer);
+  });
+
+  return { btn, containerRef };
+}
+
+// ── Detail panel builder ──────────────────────────────────────────────
+
+function buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__task-detail';
   panel.id = panelId;
   panel.hidden = true;
 
-  // ── Row builder helper ──
   function addRow(labelKey, valueEl) {
     const row = document.createElement('div');
     row.className = 'station-prep__detail-row';
-
     const label = document.createElement('span');
     label.className = 'station-prep__detail-label';
     label.textContent = translate(labelKey);
-
     row.appendChild(label);
     row.appendChild(valueEl);
     panel.appendChild(row);
   }
 
-  // 1. Prepare today — plannedOutput + outputUnit
+  // 1. Prepare today
   const prepTodayVal = document.createElement('span');
   prepTodayVal.className = 'station-prep__detail-value';
-  if (suggestion !== null &&
-      suggestion.plannedOutput !== null &&
-      suggestion.plannedOutput !== undefined) {
+  if (suggestion !== null && suggestion.plannedOutput !== null && suggestion.plannedOutput !== undefined) {
     let text = String(suggestion.plannedOutput);
     if (suggestion.outputUnit !== null && suggestion.outputUnit !== undefined) {
       text += ' ' + suggestion.outputUnit;
@@ -678,12 +686,10 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
   }
   addRow('station_prep.detail_prepare_today', prepTodayVal);
 
-  // 2. In stock — suggestion.currentStock + stockUnit
+  // 2. In stock — always from suggestion, never replaced by physical count
   const stockVal = document.createElement('span');
   stockVal.className = 'station-prep__detail-value';
-  if (suggestion !== null &&
-      suggestion.currentStock !== null &&
-      suggestion.currentStock !== undefined) {
+  if (suggestion !== null && suggestion.currentStock !== null && suggestion.currentStock !== undefined) {
     let text = String(suggestion.currentStock);
     if (suggestion.stockUnit !== null && suggestion.stockUnit !== undefined) {
       text += ' ' + suggestion.stockUnit;
@@ -694,40 +700,36 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
   }
   addRow('station_prep.detail_in_stock', stockVal);
 
-  // 3. Why — reason (non-empty string only)
+  // 3. Why
   const whyVal = document.createElement('span');
   whyVal.className = 'station-prep__detail-value station-prep__detail-value--reason';
-  if (suggestion !== null &&
-      typeof suggestion.reason === 'string' &&
-      suggestion.reason.trim().length > 0) {
+  if (suggestion !== null && typeof suggestion.reason === 'string' && suggestion.reason.trim().length > 0) {
     whyVal.textContent = suggestion.reason;
   } else {
     whyVal.textContent = translate('station_prep.detail_no_explanation');
   }
   addRow('station_prep.detail_why_this_amount', whyVal);
 
-  // 4. Made today — today's production log entries
+  // 4. Made today
   panel.appendChild(buildMadeToday(logs, translate));
 
-  // 5. Last physical count — read-only count data loaded at page level
+  // 5. Last physical count
   panel.appendChild(buildLastPhysicalCount(count, translate));
 
-  // 6. Start button — only for tasks not already in progress
+  // ── Cross-form coordination refs ──
+  // completeFormRef: Complete button exposes its formContainer here so Count can remove it.
+  // countFormRef:    Count button exposes its containerRef here so Complete can remove it.
+  const completeFormRef = { container: null, btn: null };
+  const countFormRef    = { container: null, btn: null };
+
+  // 6. Start — non-in-progress only
   if (task.inProgress !== true) {
-    panel.appendChild(buildStartButton({
-      task,
-      currentUser,
-      translate,
-      startTask,
-      section,
-      onSuccess,
-      detailEl: panel,
-    }));
+    panel.appendChild(buildStartButton({ task, currentUser, translate, startTask, section, onSuccess, detailEl: panel }));
   }
 
-  // 7. Complete button — only for tasks already in progress
+  // 7. Complete — in-progress only
   if (task.inProgress === true) {
-    panel.appendChild(buildCompleteButton({
+    const completeBtn = buildCompleteButton({
       task,
       currentUser,
       translate,
@@ -735,30 +737,45 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
       section,
       onCompleteSuccess,
       detailEl: panel,
-    }));
+      countFormRef,
+    });
+    completeFormRef.btn = completeBtn;
+    panel.appendChild(completeBtn);
   }
+
+  // 8. Count — every task
+  const { btn: countBtn, containerRef } = buildCountButton({
+    task,
+    currentUser,
+    translate,
+    saveCount,
+    section,
+    onCountSuccess,
+    detailEl: panel,
+    completeFormRef,
+  });
+  // Wire countFormRef so Complete can access Count's container and button.
+  countFormRef.btn = countBtn;
+  // Proxy container so Complete reads/writes the live value from containerRef.
+  Object.defineProperty(countFormRef, 'container', {
+    get() { return containerRef.container; },
+    set(v) { containerRef.container = v; },
+    configurable: true,
+  });
+  panel.appendChild(countBtn);
 
   return panel;
 }
 
 // ── Expand/collapse controller ────────────────────────────────────────
 
-/**
- * Creates a private expand/collapse controller for one component instance.
- * Tracks the currently open panel. Expansion state lives in closure only.
- * No storage. No window writes.
- *
- * @returns {{ toggle: (button: HTMLButtonElement, panelId: string, taskName: string, translate: Function) => void }}
- */
 function createExpandController() {
-  // { button, panelId } of the currently open task, or null.
   let current = null;
 
   function collapse(btn, panelId) {
     const panel = document.getElementById(panelId);
     if (panel) panel.hidden = true;
     btn.setAttribute('aria-expanded', 'false');
-    // Update chevron class
     const chevron = btn.querySelector('.station-prep__chevron');
     if (chevron) chevron.classList.remove('station-prep__chevron--open');
   }
@@ -766,21 +783,16 @@ function createExpandController() {
   return {
     toggle(button, panelId, taskName, translate) {
       const isOpen = button.getAttribute('aria-expanded') === 'true';
-
-      // Close the currently open task (if different).
       if (current && current.panelId !== panelId) {
         collapse(current.button, current.panelId);
         current = null;
       }
-
       if (isOpen) {
-        // Collapse this task.
         collapse(button, panelId);
         current = null;
         button.setAttribute('aria-label',
           translate('station_prep.expand_details').replace('{name}', taskName));
       } else {
-        // Expand this task.
         const panel = document.getElementById(panelId);
         if (panel) panel.hidden = false;
         button.setAttribute('aria-expanded', 'true');
@@ -796,11 +808,10 @@ function createExpandController() {
 
 // ── Task row builder ──────────────────────────────────────────────────
 
-function buildTaskRow(task, suggestion, logs, count, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
+function buildTaskRow(task, suggestion, logs, count, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess) {
   const item = document.createElement('li');
   item.className = 'station-prep__task';
 
-  // ── Top row: name + expand button ──
   const topRow = document.createElement('div');
   topRow.className = 'station-prep__task-top';
 
@@ -808,7 +819,6 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
   nameEl.className = 'station-prep__task-name';
   nameEl.textContent = task.name;
 
-  // Expand/collapse button
   const expandBtn = document.createElement('button');
   expandBtn.className = 'station-prep__expand-btn';
   expandBtn.type = 'button';
@@ -819,7 +829,7 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
 
   const chevron = document.createElement('span');
   chevron.className = 'station-prep__chevron';
-  chevron.textContent = '\u203a'; // ›
+  chevron.textContent = '\u203a';
   chevron.setAttribute('aria-hidden', 'true');
   expandBtn.appendChild(chevron);
 
@@ -830,7 +840,6 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
   topRow.appendChild(nameEl);
   topRow.appendChild(expandBtn);
 
-  // ── Meta row: status pill + qty + state ──
   const metaRow = document.createElement('div');
   metaRow.className = 'station-prep__task-meta';
 
@@ -842,8 +851,7 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
 
   const qtyEl = document.createElement('span');
   qtyEl.className = 'station-prep__task-qty';
-  if (suggestion !== null && suggestion.plannedOutput !== null &&
-      suggestion.plannedOutput !== undefined) {
+  if (suggestion !== null && suggestion.plannedOutput !== null && suggestion.plannedOutput !== undefined) {
     let qtyText = String(suggestion.plannedOutput);
     if (suggestion.outputUnit !== null && suggestion.outputUnit !== undefined) {
       qtyText += ' ' + suggestion.outputUnit;
@@ -859,8 +867,7 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
   if (qtyEl.textContent.length > 0) metaRow.appendChild(qtyEl);
   metaRow.appendChild(stateEl);
 
-  // ── Detail panel (hidden by default) ──
-  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess);
+  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess);
 
   item.appendChild(topRow);
   item.appendChild(metaRow);
@@ -871,28 +878,13 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
 
 // ── Section group builder ─────────────────────────────────────────────
 
-/**
- * Builds one section.station-prep__group element for a section key.
- * Returns null when the tasks array is empty (section is not rendered).
- *
- * @param {string} sectionKey
- * @param {Array<object>} tasks
- * @param {Object} suggestionsMap
- * @param {Object} logsMap
- * @param {Object} countsMap       — countsByPrepTaskId from fetchCounts result
- * @param {(key: string) => string} translate
- * @param {object} expandController
- * @param {{ nextId: () => string }} idGen
- * @returns {HTMLElement|null}
- */
-function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
+function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess) {
   if (tasks.length === 0) return null;
 
   const group = document.createElement('section');
   group.className = 'station-prep__group';
   group.dataset.section = sectionKey;
 
-  // Heading row: label + count.
   const headingRow = document.createElement('div');
   headingRow.className = 'station-prep__group-heading';
 
@@ -907,7 +899,6 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
   headingRow.appendChild(label);
   headingRow.appendChild(count);
 
-  // Task list.
   const list = document.createElement('ul');
   list.className = 'station-prep__list';
 
@@ -916,7 +907,7 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
     const logs       = logsMap[task.name] ?? undefined;
     const taskCount  = countsMap[task.id] ?? null;
     const panelId    = idGen.nextId();
-    list.appendChild(buildTaskRow(task, suggestion, logs, taskCount, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess));
+    list.appendChild(buildTaskRow(task, suggestion, logs, taskCount, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess));
   }
 
   group.appendChild(headingRow);
@@ -929,23 +920,22 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
 
 /**
  * Creates the Station Prep page DOM element.
- * Calls fetchTasks, then fetchSuggestions, fetchLogs, and fetchCounts in
- * parallel, then renders when all three complete.
  *
  * @param {{
  *   stationName:      string | null | undefined,
  *   translate:        (key: string) => string,
- *   fetchTasks:       (station: string) => Promise<{ ok: boolean, tasks: Array }>,
- *   fetchSuggestions: (ids: number[]) => Promise<{ ok: boolean, suggestions: Object }>,
- *   fetchLogs:        (names: string[]) => Promise<{ ok: boolean, logsByTaskName: Object }>,
- *   fetchCounts:      (ids: number[]) => Promise<{ ok: boolean, countsByPrepTaskId: Object }>,
- *   startTask:        (opts: object) => Promise<object>,
- *   completeTask:     (opts: object) => Promise<object>,
+ *   fetchTasks:       Function,
+ *   fetchSuggestions: Function,
+ *   fetchLogs:        Function,
+ *   fetchCounts:      Function,
+ *   startTask:        Function,
+ *   completeTask:     Function,
+ *   saveCount:        Function,
  *   currentUser:      object
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, currentUser }) {
+export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, saveCount, currentUser }) {
   const section = document.createElement('section');
   section.className = 'station-prep';
 
@@ -1006,8 +996,6 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
     const taskIds   = taskResult.tasks.map((t) => t.id);
     const taskNames = taskResult.tasks.map((t) => t.name);
 
-    // Suggestions, logs, and counts load in parallel after tasks are available.
-    // Loading state remains visible until all three complete.
     Promise.all([
       fetchSuggestions(taskIds),
       fetchLogs(taskNames),
@@ -1015,38 +1003,35 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
     ]).then(([sugResult, logResult, countResult]) => {
       if (!section.isConnected) return;
 
-      // Suggestion failure → empty map (existing behavior).
       const suggestionsMap = (sugResult.ok && sugResult.suggestions)
         ? sugResult.suggestions
         : {};
 
-      // Log failure → empty map; does not produce a page-level error.
       const logsMap = (logResult.ok && logResult.logsByTaskName)
         ? logResult.logsByTaskName
         : {};
 
-      // Count failure → empty map; does not produce a page-level error.
-      // Tasks still render with the no-count fallback in each detail panel.
-      const countsMap = (countResult.ok && countResult.countsByPrepTaskId)
+      const fetchedCountsMap = (countResult.ok && countResult.countsByPrepTaskId)
         ? countResult.countsByPrepTaskId
         : {};
 
-      // Mutable local working copies — do not mutate arrays or objects from services.
+      // Mutable local working copies — originals never mutated.
       let workingTasks   = taskResult.tasks.map((t) => Object.assign({}, t));
       let workingLogsMap = Object.assign({}, logsMap);
 
-      // countsMap is read-only throughout the page lifecycle; it is not mutated.
+      // Local copy of counts — shallow-copy each entry so originals are not mutated.
+      let workingCountsMap = {};
+      for (const [id, cnt] of Object.entries(fetchedCountsMap)) {
+        workingCountsMap[id] = Object.assign({}, cnt);
+      }
 
-      // ── Render function ───────────────────────────────────────────
-      // Called on initial load and after any successful Start or Complete.
-      // Always collapses all panels (new expandController per render).
+      // suggestionsMap is read-only throughout the page lifecycle.
+
       function render() {
         content.innerHTML = '';
 
-        // Fresh expand controller — all panels collapsed.
         const expandController = createExpandController();
 
-        // Fresh panel ID generator.
         let idSeq = 0;
         const idGen = {
           nextId() {
@@ -1055,18 +1040,15 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
           },
         };
 
-        // Total count.
         const countEl = document.createElement('p');
         countEl.className = 'station-prep__count';
         countEl.textContent = translate('station_prep.task_count')
           .replace('{count}', String(workingTasks.length));
         content.appendChild(countEl);
 
-        // Sort then group using current working copies.
         const ordered = sortedTasks(workingTasks, suggestionsMap);
         const groups  = groupedTasks(ordered, suggestionsMap);
 
-        // onSuccess (Start): update only the matching working task, then rerender.
         function onSuccess(result) {
           workingTasks = workingTasks.map((t) => {
             if (t.id !== result.task.id) return t;
@@ -1079,11 +1061,7 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
           if (section.isConnected) render();
         }
 
-        // onCompleteSuccess: called by buildCompleteButton after service resolves.
-        // result.ok === true  → full success: update task + append log + rerender.
-        // result.ok === false + result.log !== null → partial: append log only (no rerender).
         function onCompleteSuccess(result) {
-          // Always append the returned log if present (full and partial success).
           if (result.log) {
             const taskName = result.log.taskName;
             const existing = workingLogsMap[taskName]
@@ -1094,9 +1072,7 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
               [taskName]: sortedLogs([...existing, newLog]),
             });
           }
-
           if (result.ok && result.task) {
-            // Full success: update task working copy and rerender.
             workingTasks = workingTasks.map((t) => {
               if (t.id !== result.task.id) return t;
               return Object.assign({}, t, {
@@ -1109,12 +1085,41 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
             });
             if (section.isConnected) render();
           }
-          // Partial failure: log appended above, no rerender — form stays open.
         }
 
-        // Render non-empty sections in approved order.
+        function onCountSuccess(result) {
+          // Store count locally — do not mutate result.count.
+          if (result.count !== null && result.count !== undefined) {
+            const localCount = {
+              prepTaskId:         result.count.prepTaskId,
+              countedQuantity:    result.count.countedQuantity,
+              unit:               result.count.unit,
+              countedBy:          result.count.countedBy,
+              countedAt:          result.count.countedAt,
+              expiresAt:          null,
+              reconcileStatus:    null,
+              reconciledQuantity: null,
+              reconciledNote:     null,
+            };
+            // Replace (not mutate) — create a new map object.
+            workingCountsMap = Object.assign({}, workingCountsMap, {
+              [result.count.prepTaskId]: localCount,
+            });
+          }
+
+          if (result.ok && result.task) {
+            // Update local task currentStock only.
+            workingTasks = workingTasks.map((t) => {
+              if (t.id !== result.task.id) return t;
+              return Object.assign({}, t, { currentStock: result.task.currentStock });
+            });
+            if (section.isConnected) render();
+          }
+          // Partial/full failure: count stored above (if present); form stays open.
+        }
+
         for (const key of SECTION_KEYS) {
-          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, countsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess);
+          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, workingCountsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess);
           if (groupEl) content.appendChild(groupEl);
         }
       }

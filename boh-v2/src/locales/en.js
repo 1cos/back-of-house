@@ -118,4 +118,10 @@ export const en = {
   'station_prep.count_form_cancel':         'Cancel',
   'station_prep.count_form_quantity_error': 'Enter a quantity of zero or greater.',
   'station_prep.count_form_unit_error':     'Enter a unit.',
+
+  // ── Station Prep — Count action (Task 004V) ───────────────────────────
+  'station_prep.count':               'Count stock',
+  'station_prep.count_saving':        'Saving count\u2026',
+  'station_prep.count_error':         'Unable to save this count. Try again.',
+  'station_prep.count_partial_error': 'Count was recorded, but the prep stock was not updated. Tell the Chef.',
 };
