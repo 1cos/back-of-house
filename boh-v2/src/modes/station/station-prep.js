@@ -718,9 +718,9 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
   return { btn, containerRef };
 }
 
-// ── WIP resolution panel builder (Task 004AA) ───────────────────────
+// ── WIP resolution panel builder (Task 004AA, updated Task 004AB) ────
 
-function buildWipResolutionPanel(translate) {
+function buildWipResolutionPanel({ translate, task, currentUser, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__wip-resolution';
 
@@ -729,20 +729,170 @@ function buildWipResolutionPanel(translate) {
   panelHeading.textContent = translate('station_prep.wip_resolution_title');
   panel.appendChild(panelHeading);
 
-  function addAction(key, cssClass) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'station-prep__wip-resolution-btn ' + cssClass;
-    btn.textContent = translate(key);
-    btn.addEventListener('click', function () {
-      // No-op: action will be connected in a later task.
-    });
-    panel.appendChild(btn);
+  // ── "I finished it" — connected to existing Complete Prep form flow ──
+  const userName = (currentUser && typeof currentUser.name === 'string')
+    ? currentUser.name.trim()
+    : '';
+  const canFinish = userName.length > 0;
+
+  const finishedBtn = document.createElement('button');
+  finishedBtn.type = 'button';
+  finishedBtn.className = 'station-prep__wip-resolution-btn station-prep__wip-resolution-btn--finished';
+  finishedBtn.textContent = translate('station_prep.wip_resolution_finished');
+  if (!canFinish) finishedBtn.disabled = true;
+
+  let finishedFormContainer = null;
+  let finishedSubmitting = false;
+
+  function clearFinishedFeedback() {
+    if (!finishedFormContainer) return;
+    const prev = finishedFormContainer.querySelector(
+      '.station-prep__complete-submitting, .station-prep__complete-error'
+    );
+    if (prev) prev.remove();
   }
 
-  addAction('station_prep.wip_resolution_finished',   'station-prep__wip-resolution-btn--finished');
-  addAction('station_prep.wip_resolution_continue',   'station-prep__wip-resolution-btn--continue');
-  addAction('station_prep.wip_resolution_pass_shift', 'station-prep__wip-resolution-btn--pass');
+  function setFinishedFormDisabled(disabled) {
+    if (!finishedFormContainer) return;
+    finishedFormContainer.querySelectorAll('input, button').forEach(function (el) {
+      el.disabled = disabled;
+    });
+  }
+
+  function showFinishedSubmitting() {
+    clearFinishedFeedback();
+    const el = document.createElement('p');
+    el.className = 'station-prep__complete-submitting';
+    el.setAttribute('role', 'status');
+    el.textContent = translate('station_prep.completing');
+    finishedFormContainer.appendChild(el);
+  }
+
+  function showFinishedError(msgKey) {
+    clearFinishedFeedback();
+    const el = document.createElement('p');
+    el.className = 'station-prep__complete-error';
+    el.setAttribute('role', 'alert');
+    el.textContent = translate(msgKey);
+    finishedFormContainer.appendChild(el);
+  }
+
+  function removeFinishedForm() {
+    if (finishedFormContainer && finishedFormContainer.parentNode) {
+      finishedFormContainer.remove();
+    }
+    finishedFormContainer = null;
+    finishedSubmitting = false;
+    finishedBtn.hidden = false;
+    // Restore the normal Complete button if it exists.
+    if (completeFormRef.btn) completeFormRef.btn.hidden = false;
+  }
+
+  finishedBtn.addEventListener('click', function () {
+    if (!canFinish) return;
+
+    // Remove any open Count form and Count feedback.
+    if (countFormRef.container && countFormRef.container.parentNode) {
+      countFormRef.container.remove();
+      countFormRef.container = null;
+    }
+    const prevCountFb = detailEl.querySelector(
+      '.station-prep__count-submitting, .station-prep__count-error'
+    );
+    if (prevCountFb) prevCountFb.remove();
+    if (countFormRef.btn) countFormRef.btn.hidden = false;
+
+    // Remove any open Complete form and Complete feedback.
+    if (completeFormRef.container && completeFormRef.container.parentNode) {
+      completeFormRef.container.remove();
+      completeFormRef.container = null;
+    }
+    const prevCompleteFb = detailEl.querySelector(
+      '.station-prep__complete-submitting, .station-prep__complete-error'
+    );
+    if (prevCompleteFb) prevCompleteFb.remove();
+    if (completeFormRef.btn) completeFormRef.btn.hidden = true;
+
+    finishedBtn.hidden = true;
+
+    const form = createCompletePrepForm({
+      taskName:    task.name,
+      defaultUnit: task.unit ?? null,
+      translate,
+
+      onConfirm: function ({ quantity, unit }) {
+        if (finishedSubmitting) return;
+        finishedSubmitting = true;
+        clearFinishedFeedback();
+        setFinishedFormDisabled(true);
+        showFinishedSubmitting();
+
+        completeTask({
+          prepTask: {
+            id:           task.id,
+            name:         task.name,
+            station:      task.station,
+            currentStock: task.currentStock,
+            inProgressAt: task.inProgressAt,
+          },
+          quantity,
+          unit,
+          completedBy: userName,
+        }).then(function (result) {
+          if (!section.isConnected) return;
+          if (result.ok) {
+            onCompleteSuccess({ ok: true, log: result.log, task: result.task });
+          } else if (result.log !== null) {
+            finishedSubmitting = false;
+            setFinishedFormDisabled(false);
+            clearFinishedFeedback();
+            onCompleteSuccess({ ok: false, log: result.log, task: null });
+            showFinishedError('station_prep.complete_partial_error');
+          } else {
+            finishedSubmitting = false;
+            setFinishedFormDisabled(false);
+            clearFinishedFeedback();
+            showFinishedError('station_prep.complete_error');
+          }
+        }).catch(function () {
+          if (!section.isConnected) return;
+          finishedSubmitting = false;
+          setFinishedFormDisabled(false);
+          clearFinishedFeedback();
+          showFinishedError('station_prep.complete_error');
+        });
+      },
+
+      onCancel: function () { removeFinishedForm(); },
+    });
+
+    finishedFormContainer = document.createElement('div');
+    finishedFormContainer.className = 'station-prep__complete-form-container station-prep__wip-resolution-form';
+    finishedFormContainer.appendChild(form);
+    detailEl.appendChild(finishedFormContainer);
+  });
+
+  panel.appendChild(finishedBtn);
+
+  // ── "Continue this prep" — no-op until connected in a later task ──
+  const continueBtn = document.createElement('button');
+  continueBtn.type = 'button';
+  continueBtn.className = 'station-prep__wip-resolution-btn station-prep__wip-resolution-btn--continue';
+  continueBtn.textContent = translate('station_prep.wip_resolution_continue');
+  continueBtn.addEventListener('click', function () {
+    // No-op: action will be connected in a later task.
+  });
+  panel.appendChild(continueBtn);
+
+  // ── "Pass to this shift" — no-op until connected in a later task ──
+  const passBtn = document.createElement('button');
+  passBtn.type = 'button';
+  passBtn.className = 'station-prep__wip-resolution-btn station-prep__wip-resolution-btn--pass';
+  passBtn.textContent = translate('station_prep.wip_resolution_pass_shift');
+  passBtn.addEventListener('click', function () {
+    // No-op: action will be connected in a later task.
+  });
+  panel.appendChild(passBtn);
 
   return panel;
 }
@@ -751,7 +901,7 @@ function buildWipResolutionPanel(translate) {
 
 const PREVIOUS_SHIFT_MINUTES = 480;
 
-function buildWipSection(task, translate) {
+function buildWipSection(task, translate, currentUser, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl) {
   const section = document.createElement('div');
   section.className = 'station-prep__detail-wip';
 
@@ -823,7 +973,7 @@ function buildWipSection(task, translate) {
   // Resolution panel — appears after Elapsed, only for previous-shift WIP.
   // Reuses startedAtValid and elapsedMinutes already calculated above.
   if (startedAtValid && elapsedMinutes >= PREVIOUS_SHIFT_MINUTES) {
-    section.appendChild(buildWipResolutionPanel(translate));
+    section.appendChild(buildWipResolutionPanel({ translate, task, currentUser, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }));
   }
 
   return section;
@@ -892,16 +1042,19 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
   // 5. Last physical count
   panel.appendChild(buildLastPhysicalCount(count, translate));
 
-  // 6. Work in progress — only for in-progress tasks
-  if (task.inProgress === true) {
-    panel.appendChild(buildWipSection(task, translate));
-  }
-
   // ── Cross-form coordination refs ──
+  // Created before WIP section so the resolution panel's "I finished it"
+  // button can coordinate with the normal Complete button and Count form.
   // completeFormRef: Complete button exposes its formContainer here so Count can remove it.
   // countFormRef:    Count button exposes its containerRef here so Complete can remove it.
   const completeFormRef = { container: null, btn: null };
   const countFormRef    = { container: null, btn: null };
+
+  // 6. Work in progress — only for in-progress tasks.
+  // Refs passed so the resolution panel can coordinate form state.
+  if (task.inProgress === true) {
+    panel.appendChild(buildWipSection(task, translate, currentUser, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, panel));
+  }
 
   // 7. Start — non-in-progress only
   if (task.inProgress !== true) {
