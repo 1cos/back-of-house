@@ -10,6 +10,7 @@
 // Task 004S: station-prep receives fetchRecentPrepCounts as fetchCounts for physical count display.
 // Task 004V: station-prep receives savePrepCount as saveCount for physical count write.
 // Task 004X: station-prep receives reconcilePrepCount as reconcileCount for post-count reconciliation.
+// Task 004AF: station-prep receives passPrepToShift as passTask for WIP handoff.
 // No window writes. No storage. No Supabase. No browser history. No app-state import.
 
 import { createBottomNavigation } from '../../components/navigation/bottom-navigation.js';
@@ -23,6 +24,7 @@ import { savePrepCount } from '../../services/prep-count-write-service.js';
 import { reconcilePrepCount } from '../../services/prep-count-reconciler-service.js';
 import { startPrepTask } from '../../services/prep-start-service.js';
 import { completePrepTask } from '../../services/prep-complete-service.js';
+import { passPrepToShift } from '../../services/prep-pass-service.js';
 
 // ── Route map ─────────────────────────────────────────────────────────
 
@@ -138,6 +140,7 @@ export function setupStationNavigation({ router, mountElement, translate, user }
       completeTask:     completePrepTask,
       saveCount:        savePrepCount,
       reconcileCount:   reconcilePrepCount,
+      passTask:         passPrepToShift,
       currentUser:      user,
     })
   );

@@ -148,5 +148,10 @@ export const en = {
   // ── Station Prep — Continue this prep feedback (Task 004AC) ──────────
   'station_prep.wip_resolution_continuing':    'Continuing…',
   'station_prep.wip_resolution_continue_error': 'Unable to continue this prep. Try again.',
+
+  // ── Station Prep — Pass to this shift feedback (Task 004AF) ─────────
+  'station_prep.wip_resolution_passing':      'Passing…',
+  'station_prep.wip_resolution_pass_success': 'Handoff sent to the Chef.',
+  'station_prep.wip_resolution_pass_error':   'Unable to send this handoff. Try again.',
 };
 

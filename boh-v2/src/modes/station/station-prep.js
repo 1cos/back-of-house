@@ -718,9 +718,9 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
   return { btn, containerRef };
 }
 
-// ── WIP resolution panel builder (Task 004AA, updated Task 004AB, 004AC) ─
+// ── WIP resolution panel builder (Task 004AA, updated Task 004AB, 004AC, 004AF) ─
 
-function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSuccess, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }) {
+function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSuccess, passTask, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__wip-resolution';
 
@@ -940,24 +940,94 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
 
   panel.appendChild(continueBtn);
 
-  // ── "Pass to this shift" — no-op until connected in a later task ──
+  // ── "Pass to this shift" — connected to passPrepToShift service ──
+  const canPass = userName.length > 0;
+
   const passBtn = document.createElement('button');
   passBtn.type = 'button';
   passBtn.className = 'station-prep__wip-resolution-btn station-prep__wip-resolution-btn--pass';
   passBtn.textContent = translate('station_prep.wip_resolution_pass_shift');
+  if (!canPass) passBtn.disabled = true;
+
+  // Disable Pass while a Complete or Count form is open.
+  function isPassBlocked() {
+    return (completeFormRef.container !== null) || (countFormRef.container !== null);
+  }
+
+  // Once passed successfully, the button stays disabled for this DOM lifecycle.
+  let passDone = false;
+  let passSubmitting = false;
+
+  function clearPassFeedback() {
+    const prev = panel.querySelector('.station-prep__wip-pass-feedback');
+    if (prev) prev.remove();
+  }
+
   passBtn.addEventListener('click', function () {
-    // No-op: action will be connected in a later task.
+    if (!canPass) return;
+    if (passSubmitting) return;
+    if (passDone) return;
+    if (isPassBlocked()) return;
+
+    passSubmitting = true;
+    passBtn.disabled = true;
+    clearPassFeedback();
+    passBtn.textContent = translate('station_prep.wip_resolution_passing');
+
+    passTask({
+      prepTaskId: task.id,
+      taskName:   task.name,
+      station:    task.station,
+      startedBy:  task.inProgressBy,
+      startedAt:  task.inProgressAt,
+      passedBy:   userName,
+    }).then(function (result) {
+      if (!section.isConnected) return;
+      if (result.ok) {
+        passDone = true;
+        passBtn.textContent = translate('station_prep.wip_resolution_pass_shift');
+        // Button stays disabled (passDone = true prevents re-entry).
+        clearPassFeedback();
+        const okEl = document.createElement('p');
+        okEl.className = 'station-prep__wip-pass-feedback';
+        okEl.setAttribute('role', 'status');
+        okEl.textContent = translate('station_prep.wip_resolution_pass_success');
+        panel.appendChild(okEl);
+      } else {
+        passSubmitting = false;
+        passBtn.disabled = false;
+        passBtn.textContent = translate('station_prep.wip_resolution_pass_shift');
+        clearPassFeedback();
+        const errEl = document.createElement('p');
+        errEl.className = 'station-prep__wip-pass-feedback';
+        errEl.setAttribute('role', 'alert');
+        errEl.textContent = translate('station_prep.wip_resolution_pass_error');
+        panel.appendChild(errEl);
+      }
+    }).catch(function () {
+      if (!section.isConnected) return;
+      passSubmitting = false;
+      passBtn.disabled = false;
+      passBtn.textContent = translate('station_prep.wip_resolution_pass_shift');
+      clearPassFeedback();
+      const errEl = document.createElement('p');
+      errEl.className = 'station-prep__wip-pass-feedback';
+      errEl.setAttribute('role', 'alert');
+      errEl.textContent = translate('station_prep.wip_resolution_pass_error');
+      panel.appendChild(errEl);
+    });
   });
+
   panel.appendChild(passBtn);
 
   return panel;
 }
 
-// ── WIP section builder (Task 004Y, updated Task 004Z, 004AA, 004AC) ──────
+// ── WIP section builder (Task 004Y, updated Task 004Z, 004AA, 004AC, 004AF) ─
 
 const PREVIOUS_SHIFT_MINUTES = 480;
 
-function buildWipSection(task, translate, currentUser, startTask, onSuccess, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl) {
+function buildWipSection(task, translate, currentUser, startTask, onSuccess, passTask, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl) {
   const section = document.createElement('div');
   section.className = 'station-prep__detail-wip';
 
@@ -1029,7 +1099,7 @@ function buildWipSection(task, translate, currentUser, startTask, onSuccess, com
   // Resolution panel — appears after Elapsed, only for previous-shift WIP.
   // Reuses startedAtValid and elapsedMinutes already calculated above.
   if (startedAtValid && elapsedMinutes >= PREVIOUS_SHIFT_MINUTES) {
-    section.appendChild(buildWipResolutionPanel({ translate, task, currentUser, startTask, onSuccess, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }));
+    section.appendChild(buildWipResolutionPanel({ translate, task, currentUser, startTask, onSuccess, passTask, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }));
   }
 
   return section;
@@ -1037,7 +1107,7 @@ function buildWipSection(task, translate, currentUser, startTask, onSuccess, com
 
 // ── Detail panel builder ──────────────────────────────────────────────
 
-function buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
+function buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__task-detail';
   panel.id = panelId;
@@ -1109,7 +1179,7 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
   // 6. Work in progress — only for in-progress tasks.
   // Refs passed so the resolution panel can coordinate form state.
   if (task.inProgress === true) {
-    panel.appendChild(buildWipSection(task, translate, currentUser, startTask, onSuccess, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, panel));
+    panel.appendChild(buildWipSection(task, translate, currentUser, startTask, onSuccess, passTask, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, panel));
   }
 
   // 7. Start — non-in-progress only
@@ -1200,7 +1270,7 @@ function createExpandController() {
 
 // ── Task row builder ──────────────────────────────────────────────────
 
-function buildTaskRow(task, suggestion, logs, count, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
+function buildTaskRow(task, suggestion, logs, count, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
   const item = document.createElement('li');
   item.className = 'station-prep__task';
 
@@ -1259,7 +1329,7 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
   if (qtyEl.textContent.length > 0) metaRow.appendChild(qtyEl);
   metaRow.appendChild(stateEl);
 
-  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess);
+  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess);
 
   item.appendChild(topRow);
   item.appendChild(metaRow);
@@ -1270,7 +1340,7 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
 
 // ── Section group builder ─────────────────────────────────────────────
 
-function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
+function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
   if (tasks.length === 0) return null;
 
   const group = document.createElement('section');
@@ -1299,7 +1369,7 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
     const logs       = logsMap[task.name] ?? undefined;
     const taskCount  = countsMap[task.id] ?? null;
     const panelId    = idGen.nextId();
-    list.appendChild(buildTaskRow(task, suggestion, logs, taskCount, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess));
+    list.appendChild(buildTaskRow(task, suggestion, logs, taskCount, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess));
   }
 
   group.appendChild(headingRow);
@@ -1324,11 +1394,12 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
  *   completeTask:     Function,
  *   saveCount:        Function,
  *   reconcileCount:   Function,
+ *   passTask:         Function,
  *   currentUser:      object
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, saveCount, reconcileCount, currentUser }) {
+export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, saveCount, reconcileCount, passTask, currentUser }) {
   const section = document.createElement('section');
   section.className = 'station-prep';
 
@@ -1570,7 +1641,7 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
         }
 
         for (const key of SECTION_KEYS) {
-          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, workingCountsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess);
+          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, workingCountsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess);
           if (groupEl) content.appendChild(groupEl);
         }
       }
