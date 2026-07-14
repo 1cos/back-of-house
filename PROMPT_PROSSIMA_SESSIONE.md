@@ -4,6 +4,124 @@
 
 ---
 
+## STATO CORRENTE — 14 Luglio 2026 (fine sessione)
+
+### Nuova Nightly Pipeline (6 step) — LIVE ✅
+
+**Il cutover dal builder legacy alla nuova pipeline per le suggestion è avvenuto.**
+Backend: la nuova pipeline è ora l'unica a girare in automatico ogni notte via cron.
+Frontend: **non ancora aggiornato** — task aperto, vedi sotto.
+
+#### Componenti live confermati
+
+| Componente | Versione | Stato |
+|---|---|---|
+| `bot-pipeline-worker` | v4 (Edge deployment 4) | ACTIVE — legge/scrive `bot_pipeline_jobs`, 6 step |
+| `complete_pipeline_step` (RPC) | v2 | 6 nomi step, soglia completamento `>=6` |
+| `fail_pipeline_step` (RPC) | v2 | 6 nomi step |
+| `bot-prep-suggester` | v12b (Edge deployment 13) | ACTIVE — vero tracciamento in `bot_runs`, `generated_at`/`bot_run_id` reali su ogni riga scritta |
+| `pg_cron jobid=17` (`pipeline-worker-tick`) | — | `schedule='* * * * *'`, **`dry_run:false`** (cambiato oggi), `active=true` |
+| `bot-preplist-builder` (legacy) | v46 (Edge v71) | **ANCORA ATTIVO** — cron `0 9 * * *` (04:00 CDT), unico writer di `prep_tasks.current_stock` |
+
+**Pipeline order (invariato):**
+```
+1. bot-pos-cleaner
+2. bot-direct-deduction
+3. bot-bom-chain-deduction
+4. bot-modifier-depletion
+5. bot-stock-consolidator
+6. bot-prep-suggester  ← nuovo step, aggiunto oggi
+```
+
+**Mapping business_date → suggestion_date (nuovo, nel worker v4):**
+Funzione `computeSuggestionDate()` — primo giorno operativo dopo `business_date`, timezone America/Chicago, salta domenica + `closed_dates`, max 14 tentativi, errore esplicito se non trova nulla entro 14gg. Deterministica, non usa l'orologio di sistema, non usa il fallback interno `nextServiceDay()` del suggester.
+
+#### Recovery storico completato (10-13 luglio)
+
+| Data | Cleaner/Direct/BOM | Modifier | Consolidator | Suggester | Note |
+|---|---|---|---|---|---|
+| 2026-07-10 | ✅ live (rerun manuale sessioni precedenti) | ✅ 4 righe | ✅ 139 snapshot | ✅ suggestion_date=11/07, 94 righe | run_id reali in `bot_runs` |
+| 2026-07-11 | ✅ live | ✅ 4 righe | ✅ 161 snapshot | ✅ suggestion_date=13/07, 94 righe | run_id reali |
+| 2026-07-12 | — | — | — | — | **domenica, chiuso — nessun job, comportamento corretto per design** (`gmail-touchbistro-import` non crea job se `sales_rows=0`) |
+| 2026-07-13 | ✅ live | ✅ 4 righe | ✅ 159 snapshot | ✅ suggestion_date=14/07, 94 righe (105 totali in tabella, 11 residue da prep checklist/archiviate — comportamento noto, non un bug) | primo test end-to-end completo del sesto step |
+
+**⚠️ Nota da chiudere in una sessione futura:** i job in `bot_pipeline_jobs` per il 10/07 e 11/07 restano formalmente `status='failed', current_step_index=1` — perché il recovery è stato eseguito con chiamate dirette ai singoli bot (come richiesto per non rilanciare Cleaner/Direct/BOM), non tramite le RPC di avanzamento della coda. I **dati reali sono completi e corretti**, ma la riga di stato della coda non riflette questo. Non bloccante (`claim_next_pipeline_job` seleziona solo `status='pending'`), ma visivamente fuorviante se qualcuno guarda `bot_pipeline_jobs` per quelle due date.
+
+#### Enqueue automatico — confermato con prova di codice
+
+`gmail-touchbistro-import` (edge v33) chiama `enqueue_pipeline_job()` dopo ogni import CSV riuscito con `sales_rows > 0`. Non crea job se `sales_rows=0` (comportamento corretto per domeniche/giorni chiusi). Il campo `dry_run:true` scritto nel metadata del job (`bot_pipeline_jobs.metadata.dry_run`) è **cosmetico/informativo** — non controlla il comportamento reale del worker, che legge `dry_run` solo dal proprio payload cron. Non ancora allineato (task esplicitamente rimandato a una sessione separata, come da istruzione "se preferisci separarlo in un deploy successivo, dichiaralo esplicitamente e non toccarlo").
+
+#### Verifiche di sicurezza superate oggi
+
+- `prep_tasks.current_stock` **non toccato** da nessuno dei 6 step nuovi — confermato nel codice (`bot-stock-consolidator` dichiara esplicitamente `"current_stock NOT updated"` nella propria risposta)
+- Ultimo scarico `current_stock` resta quello del builder legacy, oggi 04:00:01 CDT (91 task aggiornati)
+- `bot-nightly-orchestrator` **non riattivato** — confermato architettura superata (falliva per timeout `net.http_post` su chain sincrona lunga, sostituito dal queue worker il 10/07)
+- Nessuna modifica a UI/frontend in questa sessione
+
+---
+
+### 🔴 TASK APERTO — Frontend Trust View + Legacy Suggestion Retirement
+
+**Non ancora iniziato.** Richiesto da Max a fine sessione, da riprendere dalla prossima sessione.
+
+**Obiettivo:** dare ai cuochi una card semplice con il filo logico:
+```
+Added yesterday
+− Used last night
+= Available now
+→ Prep suggested
+```
+Esempio target:
+```
+Added yesterday: 2.5 kg
+Used last night: 1.3 kg
+Available now: 1.2 kg
+Prep suggested: 2.8 kg
+Based on Tuesday demand and current stock.
+```
+
+**Regola architetturale confermata da Max per questo task:**
+- Il vecchio `bot-preplist-builder` **resta attivo solo per lo scarico di `current_stock`** — non spegnerlo, non toccare la sua logica
+- Le sue suggestion (`suggested_qty`, `suggested_note`, `suggested_at`, `suggested_by`, `sources_json`) **non devono più essere mostrate né usate come fallback** nel frontend operativo
+- `prep_suggestions_daily` diventa l'**unica fonte** di suggestion visibile ai cuochi
+- Se non esiste una suggestion fresca/valida → messaggio "Suggestion unavailable — check stock before preparing", **mai** un fallback silenzioso al vecchio bot
+- Zero deve significare zero reale — dato mancante deve mostrare "Not available", mai zero
+
+**Prima regola del task (non ancora eseguita):** AUDIT delle 4 fonti prima di toccare qualsiasi frontend:
+1. **Added yesterday** ← verificare se ricostruibile da `prep_log` (match per `prep_task_id` o solo nome/recipe? conversione unità? esclusione checklist/zero?)
+2. **Used last night** ← verificare fonte corretta tra `stock_deductions` / `stock_movements` / `stock_daily_snapshot`, evitare doppio conteggio tra direct/BOM/modifier
+3. **Available now** ← verificare se `prep_tasks.current_stock` è davvero la fonte corretta e aggiornata
+4. **Prep suggested** ← solo `prep_suggestions_daily`, run valida più recente, `generated_at`/`bot_run_id` reali (ora possibile grazie al fix di oggi su v12b)
+
+Poi: verifica numerica su 7 prep reali (Texana Soup, Mash Potato, Spaghetti, Diced Grilled Chicken, Panna Cotta, Garlic Oil, Pancetta) con tabella di controllo `previous stock + added − used ± altri movimenti = current stock`. Se la formula non torna con dati reali, dichiararlo esplicitamente — non inventare il numero mancante.
+
+Poi: mappa di ogni fallback legacy in `js/prep.js` (campo `suggested_*`, uso in `classifyCard()`, stock pill, card expansion).
+
+Solo se l'audit conferma dati affidabili → proporre diff chirurgico del frontend (card trust block, testo in inglese semplice, niente nomi di bot, niente termini tecnici, niente food cost).
+
+**Verdetto atteso a fine task:** `READY TO REMOVE LEGACY SUGGESTIONS FROM FRONTEND` oppure `STOP — TRUST DATA NOT YET RELIABLE`.
+
+**Non fare push finché Chef Max non approva esplicitamente — vale anche per questo task.**
+
+---
+
+### Pending invariato da sessioni precedenti (non toccato oggi)
+
+- 3 warning Consolidator (Spring mix g vs buste, Spaghetti pz vs nests, Parsley pinch vs g)
+- Asparagus pt_unit (decisione g vs kg)
+- Meatballs current_stock iniziale (chiedere a Max stima attuale)
+- Dish Crew Home Fase 2
+- Rename Manager → Coordinator
+- 7shifts sync (JWT auth)
+- Sales: rimuovere tab "Oggi"
+- RLS hardening su `prep_task_classifications`
+- Saucier Production Cadence v3 (pseudocode approvato, non ancora implementato in `bot-prep-suggester`)
+- Retry mirato di un singolo step fallito nella pipeline (RPC dedicata, non ancora costruita — oggi un fallimento allo step 6 richiede intervento manuale)
+- Allineamento metadata `dry_run` in `gmail-touchbistro-import` (cosmetico, non bloccante, rimandato esplicitamente)
+
+
+---
+
 ## STATO CORRENTE — 13 Luglio 2026 (fine sessione)
 
 ### Prep Database Audit & Cleanup — COMPLETATO
