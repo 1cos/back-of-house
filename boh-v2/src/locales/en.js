@@ -124,4 +124,9 @@ export const en = {
   'station_prep.count_saving':        'Saving count\u2026',
   'station_prep.count_error':         'Unable to save this count. Try again.',
   'station_prep.count_partial_error': 'Count was recorded, but the prep stock was not updated. Tell the Chef.',
+  // ── Station Prep — Count reconciliation (Task 004X) ──────────────────
+  'station_prep.count_reconciling':                'Reconciling count…',
+  'station_prep.count_reconciliation_pending':     'Count saved. Reconciliation is pending.',
+  'station_prep.count_partial_reconciliation_error': 'Count was recorded, but stock and reconciliation were not updated. Tell the Chef.',
 };
+

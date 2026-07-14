@@ -11,6 +11,7 @@
 // Task 004Q: Complete Prep form connected to completePrepTask service; local state updated on success.
 // Task 004S: loads recent physical counts in parallel; displays Last physical count in expanded detail.
 // Task 004V: Count button in every expanded detail; mounts prep-count form; connects to savePrepCount.
+// Task 004X: reconcileCount called after saveCount when count exists; local count updated with reconciliation fields.
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
 
@@ -516,7 +517,7 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
  * completeFormRef: { container, btn } — the Complete form/button for this detail.
  * Returns { btn, containerRef } so the detail builder can wire cross-references.
  */
-function buildCountButton({ task, currentUser, translate, saveCount, section, onCountSuccess, detailEl, completeFormRef }) {
+function buildCountButton({ task, currentUser, translate, saveCount, reconcileCount, section, onCountSuccess, detailEl, completeFormRef }) {
   const userName = (currentUser && typeof currentUser.name === 'string')
     ? currentUser.name.trim()
     : '';
@@ -547,19 +548,34 @@ function buildCountButton({ task, currentUser, translate, saveCount, section, on
     });
   }
 
-  function showCountSubmitting() {
+  function showCountSubmitting(msgKey) {
     clearCountFeedback();
     const el = document.createElement('p');
     el.className = 'station-prep__count-submitting';
     el.setAttribute('role', 'status');
-    el.textContent = translate('station_prep.count_saving');
+    el.textContent = translate(msgKey || 'station_prep.count_saving');
     if (containerRef.container) containerRef.container.appendChild(el);
+  }
+
+  function updateCountSubmitting(msgKey) {
+    const existing = containerRef.container
+      ? containerRef.container.querySelector('.station-prep__count-submitting')
+      : null;
+    if (existing) {
+      existing.textContent = translate(msgKey);
+    } else {
+      showCountSubmitting(msgKey);
+    }
   }
 
   function showCountError(msgKey) {
     clearCountFeedback();
     const el = document.createElement('p');
-    el.className = 'station-prep__count-error';
+    // Partial-reconciliation-failure gets an additional modifier class for
+    // visual distinction from the simple stock-update-failure message.
+    el.className = msgKey === 'station_prep.count_partial_reconciliation_error'
+      ? 'station-prep__count-error station-prep__count-error--reconcile'
+      : 'station-prep__count-error';
     el.setAttribute('role', 'alert');
     el.textContent = translate(msgKey);
     if (containerRef.container) containerRef.container.appendChild(el);
@@ -605,6 +621,9 @@ function buildCountButton({ task, currentUser, translate, saveCount, section, on
       onConfirm: ({ countedQuantity, unit }) => {
         if (submitting) return;
         submitting = true;
+        // Remove page-level pending notice from any prior successful Count.
+        const prevPending = section.querySelector('.station-prep__reconcile-pending');
+        if (prevPending) prevPending.remove();
         clearCountFeedback();
         setCountFormDisabled(true);
         showCountSubmitting();
@@ -617,20 +636,64 @@ function buildCountButton({ task, currentUser, translate, saveCount, section, on
         }).then((result) => {
           if (!section.isConnected) return;
 
-          if (result.ok) {
-            onCountSuccess({ ok: true, count: result.count, task: result.task });
-          } else if (result.count !== null) {
-            submitting = false;
-            setCountFormDisabled(false);
-            clearCountFeedback();
-            onCountSuccess({ ok: false, count: result.count, task: null });
-            showCountError('station_prep.count_partial_error');
-          } else {
+          // Full failure — no count was inserted.
+          if (result.count === null || result.count === undefined) {
             submitting = false;
             setCountFormDisabled(false);
             clearCountFeedback();
             showCountError('station_prep.count_error');
+            return;
           }
+
+          // Count was inserted (full success or partial write failure).
+          // Switch status message and call reconciler — form stays disabled.
+          updateCountSubmitting('station_prep.count_reconciling');
+
+          reconcileCount({
+            prepTaskId: result.count.prepTaskId,
+            countId:    result.count.id,
+          }).then((reconcileResult) => {
+            if (!section.isConnected) return;
+
+            const saveOk = result.ok === true;
+
+            // Notify parent with both saveCount and reconcileCount results.
+            onCountSuccess({
+              saveOk,
+              saveTask:     result.task,    // non-null only when saveOk === true
+              count:        result.count,   // never mutated
+              reconcileOk:  reconcileResult.ok,
+              reconciliation: reconcileResult.reconciliation,
+              // Ref to form helpers for partial-path DOM update.
+              _formHelpers: {
+                submitting:       () => { submitting = false; },
+                enableForm:       () => setCountFormDisabled(false),
+                clearFeedback:    () => clearCountFeedback(),
+                showError:        (key) => showCountError(key),
+                containerRef,
+                detailEl,
+              },
+            });
+          }).catch(() => {
+            if (!section.isConnected) return;
+            // Reconciler threw unexpectedly — treat as reconciliation failure.
+            const saveOk = result.ok === true;
+            onCountSuccess({
+              saveOk,
+              saveTask:       result.task,
+              count:          result.count,
+              reconcileOk:    false,
+              reconciliation: null,
+              _formHelpers: {
+                submitting:    () => { submitting = false; },
+                enableForm:    () => setCountFormDisabled(false),
+                clearFeedback: () => clearCountFeedback(),
+                showError:     (key) => showCountError(key),
+                containerRef,
+                detailEl,
+              },
+            });
+          });
         }).catch(() => {
           if (!section.isConnected) return;
           submitting = false;
@@ -655,7 +718,7 @@ function buildCountButton({ task, currentUser, translate, saveCount, section, on
 
 // ── Detail panel builder ──────────────────────────────────────────────
 
-function buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess) {
+function buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__task-detail';
   panel.id = panelId;
@@ -749,6 +812,7 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
     currentUser,
     translate,
     saveCount,
+    reconcileCount,
     section,
     onCountSuccess,
     detailEl: panel,
@@ -808,7 +872,7 @@ function createExpandController() {
 
 // ── Task row builder ──────────────────────────────────────────────────
 
-function buildTaskRow(task, suggestion, logs, count, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess) {
+function buildTaskRow(task, suggestion, logs, count, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
   const item = document.createElement('li');
   item.className = 'station-prep__task';
 
@@ -867,7 +931,7 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
   if (qtyEl.textContent.length > 0) metaRow.appendChild(qtyEl);
   metaRow.appendChild(stateEl);
 
-  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess);
+  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess);
 
   item.appendChild(topRow);
   item.appendChild(metaRow);
@@ -878,7 +942,7 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
 
 // ── Section group builder ─────────────────────────────────────────────
 
-function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess) {
+function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
   if (tasks.length === 0) return null;
 
   const group = document.createElement('section');
@@ -907,7 +971,7 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
     const logs       = logsMap[task.name] ?? undefined;
     const taskCount  = countsMap[task.id] ?? null;
     const panelId    = idGen.nextId();
-    list.appendChild(buildTaskRow(task, suggestion, logs, taskCount, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess));
+    list.appendChild(buildTaskRow(task, suggestion, logs, taskCount, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess));
   }
 
   group.appendChild(headingRow);
@@ -931,11 +995,12 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
  *   startTask:        Function,
  *   completeTask:     Function,
  *   saveCount:        Function,
+ *   reconcileCount:   Function,
  *   currentUser:      object
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, saveCount, currentUser }) {
+export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, saveCount, reconcileCount, currentUser }) {
   const section = document.createElement('section');
   section.className = 'station-prep';
 
@@ -1088,38 +1153,96 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
         }
 
         function onCountSuccess(result) {
-          // Store count locally — do not mutate result.count.
-          if (result.count !== null && result.count !== undefined) {
-            const localCount = {
-              prepTaskId:         result.count.prepTaskId,
-              countedQuantity:    result.count.countedQuantity,
-              unit:               result.count.unit,
-              countedBy:          result.count.countedBy,
-              countedAt:          result.count.countedAt,
-              expiresAt:          null,
-              reconcileStatus:    null,
-              reconciledQuantity: null,
-              reconciledNote:     null,
-            };
-            // Replace (not mutate) — create a new map object.
+          // result shape (from 004X buildCountButton):
+          //   saveOk, saveTask, count, reconcileOk, reconciliation, _formHelpers
+
+          const { saveOk, saveTask, count: savedCount, reconcileOk, reconciliation, _formHelpers } = result;
+          const { submitting: resetSubmitting, enableForm, clearFeedback, showError, containerRef: fRef, detailEl: fPanel } = _formHelpers;
+
+          // Build local count — never mutate savedCount or reconciliation.
+          const localCount = savedCount ? {
+            prepTaskId:         savedCount.prepTaskId,
+            countedQuantity:    savedCount.countedQuantity,
+            unit:               savedCount.unit,
+            countedBy:          savedCount.countedBy,
+            countedAt:          savedCount.countedAt,
+            expiresAt:          reconcileOk && reconciliation ? (reconciliation.expiresAt          ?? null) : null,
+            reconcileStatus:    reconcileOk && reconciliation ? (reconciliation.reconcileStatus    ?? null) : null,
+            reconciledQuantity: reconcileOk && reconciliation ? (reconciliation.reconciledQuantity ?? null) : null,
+            reconciledNote:     reconcileOk && reconciliation ? (reconciliation.reconciledNote     ?? null) : null,
+          } : null;
+
+          // Always store inserted count (if present) — do not mutate original map.
+          if (localCount) {
             workingCountsMap = Object.assign({}, workingCountsMap, {
-              [result.count.prepTaskId]: localCount,
+              [savedCount.prepTaskId]: localCount,
             });
           }
 
-          if (result.ok && result.task) {
-            // Update local task currentStock only.
-            workingTasks = workingTasks.map((t) => {
-              if (t.id !== result.task.id) return t;
-              return Object.assign({}, t, { currentStock: result.task.currentStock });
-            });
-            if (section.isConnected) render();
+          if (saveOk) {
+            // ── Full Count success ──────────────────────────────────────
+            // Update local task stock.
+            if (saveTask) {
+              workingTasks = workingTasks.map((t) => {
+                if (t.id !== saveTask.id) return t;
+                return Object.assign({}, t, { currentStock: saveTask.currentStock });
+              });
+            }
+
+            if (reconcileOk) {
+              // Full success + reconcile success → rerender.
+              if (section.isConnected) render();
+            } else {
+              // Full success + reconcile failure → rerender + show pending notice.
+              if (section.isConnected) {
+                render();
+                // Append page-level pending notice above task sections.
+                const countElRef = content.querySelector('.station-prep__count');
+                const noticeEl = document.createElement('p');
+                noticeEl.className = 'station-prep__reconcile-pending';
+                noticeEl.setAttribute('role', 'status');
+                noticeEl.textContent = translate('station_prep.count_reconciliation_pending');
+                if (countElRef && countElRef.nextSibling) {
+                  content.insertBefore(noticeEl, countElRef.nextSibling);
+                } else {
+                  content.appendChild(noticeEl);
+                }
+              }
+            }
+          } else {
+            // ── Partial Count write (stock not updated) ──────────────────
+            // Form stays open; re-enable controls.
+            resetSubmitting();
+            enableForm();
+            clearFeedback();
+
+            if (reconcileOk) {
+              // Partial write + reconcile success.
+              // Update DOM Last physical count section in the currently expanded detail.
+              if (section.isConnected && localCount) {
+                const lastCountSection = fPanel.querySelector('.station-prep__detail-last-count');
+                if (lastCountSection) {
+                  const newSection = buildLastPhysicalCount(localCount, translate);
+                  lastCountSection.parentNode.replaceChild(newSection, lastCountSection);
+                }
+              }
+              showError('station_prep.count_partial_error');
+            } else {
+              // Partial write + reconcile failure.
+              if (section.isConnected && localCount) {
+                const lastCountSection = fPanel.querySelector('.station-prep__detail-last-count');
+                if (lastCountSection) {
+                  const newSection = buildLastPhysicalCount(localCount, translate);
+                  lastCountSection.parentNode.replaceChild(newSection, lastCountSection);
+                }
+              }
+              showError('station_prep.count_partial_reconciliation_error');
+            }
           }
-          // Partial/full failure: count stored above (if present); form stays open.
         }
 
         for (const key of SECTION_KEYS) {
-          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, workingCountsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, onCountSuccess);
+          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, workingCountsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess);
           if (groupEl) content.appendChild(groupEl);
         }
       }
@@ -1130,3 +1253,4 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
 
   return section;
 }
+

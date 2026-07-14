@@ -553,3 +553,50 @@
   line-height: 1.5;
   word-break: break-word;
 }
+
+
+/* ── Reconciling count… status (Task 004X) ───────────────────────────
+   Appears inside the count form container while reconciliation runs.
+   Same visual as Saving count… (reuses class pattern).
+   role="status" set in JS.                                            */
+.station-prep__count-reconciling {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: var(--sp-2) 0 0;
+  line-height: 1.4;
+}
+
+/* ── Page-level reconciliation-pending notice (Task 004X) ────────────
+   Non-blocking notice shown above task sections when Count succeeded
+   but reconciliation did not complete.
+   role="status" set in JS. Task list remains fully usable below.
+   Fits at 320px without horizontal scrolling.                         */
+.station-prep__reconcile-pending {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-left: 3px solid var(--border);
+  padding-left: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* ── Partial reconciliation-failure error (Task 004X) ────────────────
+   Shows when Count insert succeeded but both stock and reconciliation
+   updates failed. Visually distinct from simple partial-count error
+   via dashed border style. role="alert" set in JS.                    */
+.station-prep__count-error--reconcile {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  border-left: 3px dashed var(--text-secondary);
+  padding-left: var(--sp-2);
+  margin: var(--sp-2) 0 0;
+  line-height: 1.5;
+  word-break: break-word;
+}
