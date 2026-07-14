@@ -1,6 +1,6 @@
 # BOH OS v2 — New Claude Session
 
-## Read first
+Read first:
 
 `boh-v2/docs/SESSION_STATE.md`
 
@@ -38,8 +38,6 @@ Station Mode for kitchen staff, mobile-first for iPhone.
 
 Foundation, login, App Shell, Station Home, and the basic Station Prep Start → Complete workflow are complete.
 
-Station Prep is operational: tasks load by station, bot suggestions merge, sections render, tasks expand with detail, Start marks in progress, Complete records production and clears in-progress state. All post-write updates are local — no page reload required.
-
 ---
 
 ## Next action
@@ -52,6 +50,4 @@ Do not begin implementation until Task 004R is supplied.
 
 ---
 
-## If the session grows long
-
-If this conversation accumulates several completed tasks or becomes long, stop and request a new Claude session.
+## If this conversation accumulates several completed tasks or becomes long, stop and request a new Claude session.
