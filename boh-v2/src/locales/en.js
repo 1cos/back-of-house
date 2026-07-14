@@ -153,5 +153,11 @@ export const en = {
   'station_prep.wip_resolution_passing':      'Passing…',
   'station_prep.wip_resolution_pass_success': 'Handoff sent to the Chef.',
   'station_prep.wip_resolution_pass_error':   'Unable to send this handoff. Try again.',
+
+  // ── Station Selector (Task 004AH) ────────────────────────────────────
+  'station_selector.title':       'Choose a station',
+  'station_selector.description': 'Select the station you want to view.',
+  'station_selector.empty':       'No stations available.',
 };
+
 
