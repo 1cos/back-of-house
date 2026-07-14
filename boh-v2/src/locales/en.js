@@ -82,6 +82,9 @@ export const en = {
   'station_prep.starting':    'Starting\u2026',
   'station_prep.start_error': 'Unable to start this prep. Try again.',
 
+  // ── Station Prep — Complete action (Task 004P) ────────────────────────
+  'station_prep.complete': 'Complete',
+
   // ── Station Prep — Complete Prep Form (Task 004O) ─────────────────────
   'station_prep.complete_form_title':          'Complete prep',
   'station_prep.complete_form_fallback_task':  'Prep task',

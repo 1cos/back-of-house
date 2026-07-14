@@ -406,3 +406,45 @@
   line-height: 1.4;
 }
 
+/* ── Complete button (Task 004P) ─────────────────────────────────────
+   Appears inside the expanded task detail only, for in-progress tasks.
+   Visually distinct from Start (outlined/secondary style).
+   Touch target: 44 × 44 px minimum. Full-width on iPhone.
+   No animation. No icons. No inline styles. No !important.            */
+.station-prep__complete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-4);
+  margin-top: var(--sp-3);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.station-prep__complete-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.station-prep__complete-btn[hidden] {
+  display: none;
+}
+
+/* ── Completion form container (Task 004P) ───────────────────────────
+   Wraps the Complete Prep form inside the expanded task detail.
+   Fits at 320px without horizontal scrolling.                         */
+.station-prep__complete-form-container {
+  margin-top: var(--sp-3);
+  width: 100%;
+  box-sizing: border-box;
+}
+

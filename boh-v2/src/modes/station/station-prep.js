@@ -7,8 +7,11 @@
 // Task 004H: collapsible task detail panel (expand/collapse, no new DB query).
 // Task 004K: shows today's production logs inside each expanded task detail.
 // Task 004M: Start button inside expanded detail; connects to startPrepTask service.
+// Task 004P: Complete button for in-progress tasks; mounts Complete Prep form in expanded detail.
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
+
+import { createCompletePrepForm } from '../../components/prep/complete-prep-form.js';
 
 // ── Task state label ──────────────────────────────────────────────────
 
@@ -325,6 +328,72 @@ function buildStartButton({ task, currentUser, translate, startTask, section, on
   return btn;
 }
 
+// ── Complete button builder ───────────────────────────────────────────
+
+/**
+ * Builds the Complete button and its form lifecycle for one in-progress task.
+ * The button is only rendered for tasks where task.inProgress === true.
+ * Clicking Complete mounts the form inside the detail panel and hides the button.
+ * Cancel removes the form and restores the button.
+ * Confirm is a safe no-op in this task (database integration is a later task).
+ *
+ * @param {{
+ *   task:      object,
+ *   translate: (key: string) => string,
+ *   detailEl:  HTMLElement,
+ * }} opts
+ * @returns {HTMLElement}
+ */
+function buildCompleteButton({ task, translate, detailEl }) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'station-prep__complete-btn';
+  btn.textContent = translate('station_prep.complete');
+
+  // Container for the mounted form — created fresh each time Complete is pressed.
+  // Stored on the closure so repeated clicks remove any previous instance first.
+  let formContainer = null;
+
+  function removeForm() {
+    if (formContainer && formContainer.parentNode) {
+      formContainer.remove();
+    }
+    formContainer = null;
+    btn.hidden = false;
+  }
+
+  btn.addEventListener('click', () => {
+    // Remove any previous form for this task before mounting a new one.
+    if (formContainer && formContainer.parentNode) {
+      formContainer.remove();
+    }
+
+    // Hide the button while the form is open.
+    btn.hidden = true;
+
+    // Build the form using the existing component.
+    const form = createCompletePrepForm({
+      taskName:    task.name,
+      defaultUnit: task.unit ?? null,
+      translate,
+      onConfirm:   () => {
+        // Safe no-op. Database integration is Task 004Q.
+      },
+      onCancel:    () => {
+        removeForm();
+      },
+    });
+
+    formContainer = document.createElement('div');
+    formContainer.className = 'station-prep__complete-form-container';
+    formContainer.appendChild(form);
+
+    detailEl.appendChild(formContainer);
+  });
+
+  return btn;
+}
+
 // ── Detail panel builder ──────────────────────────────────────────────
 
 /**
@@ -420,6 +489,15 @@ function buildDetailPanel(panelId, task, suggestion, logs, translate, startTask,
       startTask,
       section,
       onSuccess,
+      detailEl: panel,
+    }));
+  }
+
+  // 6. Complete button — only for tasks already in progress
+  if (task.inProgress === true) {
+    panel.appendChild(buildCompleteButton({
+      task,
+      translate,
       detailEl: panel,
     }));
   }
