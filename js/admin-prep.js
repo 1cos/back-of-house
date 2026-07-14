@@ -57,77 +57,50 @@ async function openPrepEditor(prep=null){
     if(recs) window.SHOP_RECIPES = recs;
   }
 
-  // Carica closing_checks esistenti per questa prep (stazioni che controllano)
-  let existingCheckStations = [];
-  if(!isNew && prep.id){
-    const {data:cc} = await supa.from('closing_checks')
-      .select('station')
-      .eq('prep_task_id', prep.id)
-      .eq('archived', false);
-    existingCheckStations = (cc||[]).map(r=>r.station);
-  }
-
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   const currentRecipeId = prep ? (prep.recipe_id||null) : null;
 
-  const checkStationsHTML = STATION_OPTIONS.map(s=>{
-    const checked = existingCheckStations.includes(s) ? 'checked' : '';
-    return `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;">
-      <input type="checkbox" class="pepCheckStation" value="${s}" ${checked}
-        style="width:16px;height:16px;accent-color:#059669;cursor:pointer;">
-      <span style="font-size:13px;color:#1e293b;">${s.replace(' Station','')}</span>
-    </label>`;
-  }).join('');
-
   modal.innerHTML = `
     <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] flex flex-col">
       <div class="p-4 border-b flex items-center justify-between">
-        <h3 class="font-bold">${isNew?tr('adminNewPrep'):tr('adminEditPrep')}</h3>
+        <h3 class="font-bold">${isNew ? 'New Prep' : 'Edit Prep'}</h3>
         <button onclick="this.closest('.fixed').remove()" class="text-slate-400 text-xl">✕</button>
       </div>
       <div class="p-4 overflow-auto space-y-3 text-sm flex-1" style="-webkit-overflow-scrolling:touch;overscroll-behavior:contain;">
         <div>
-          <label class="text-xs font-semibold text-slate-500 mb-1 block">Nome preparazione</label>
-          <input id="pepName" placeholder="es. Salsa Arrabbiata" class="w-full px-3 py-2.5 border rounded-xl" value="${prep?.name||''}">
+          <label class="text-xs font-semibold text-slate-500 mb-1 block">Prep name</label>
+          <input id="pepName" placeholder="e.g. Arrabbiata Sauce" class="w-full px-3 py-2.5 border rounded-xl" value="${prep?.name||''}">
         </div>
         <div>
-          <label class="text-xs font-semibold text-slate-500 mb-1 block">🍳 Stazione che produce</label>
+          <label class="text-xs font-semibold text-slate-500 mb-1 block">🍳 Station</label>
           <select id="pepStation" class="w-full px-3 py-2.5 border rounded-xl bg-white">
             ${STATION_OPTIONS.map(s=>`<option ${(prep?.category||'Oven Station')===s?'selected':''}>${s}</option>`).join('')}
           </select>
-          <p class="text-[10px] text-slate-400 mt-1">Chi prepara questo item la mattina.</p>
         </div>
         <div>
-          <label class="text-xs font-semibold text-slate-500 mb-1 block">👁 Stazioni che controllano la sera</label>
-          <div style="border:1px solid #e2e8f0;border-radius:12px;padding:8px 12px;max-height:180px;overflow-y:auto;">
-            ${checkStationsHTML}
-          </div>
-          <p class="text-[10px] text-slate-400 mt-1">Seleziona una o più stazioni che devono verificare questo item nel check serale.</p>
-        </div>
-        <div>
-          <label class="text-xs font-semibold text-slate-500 mb-1 block">Collega ricetta</label>
+          <label class="text-xs font-semibold text-slate-500 mb-1 block">Link Recipe</label>
           <select id="pepRecipe" class="w-full px-3 py-2.5 border rounded-xl bg-white">
             <option value="">— nessuna ricetta —</option>
             ${(window.SHOP_RECIPES||[]).map(r=>`<option value="${r.id}" ${currentRecipeId==r.id?'selected':''}>${r.title}</option>`).join('')}
           </select>
         </div>
         <div>
-          <label class="text-xs font-semibold text-slate-500 mb-1 block">Nota / Procedimento rapido</label>
-          <textarea id="pepNote" class="w-full px-3 py-2.5 border rounded-xl h-24 resize-none" placeholder="${tr('adminProcedurePlaceholder')}">${prep?.note||''}</textarea>
-          <p class="text-[10px] text-slate-400 mt-1">Se colleghi una ricetta, questa nota viene ignorata al tap.</p>
+          <label class="text-xs font-semibold text-slate-500 mb-1 block">Quick Note / Procedure</label>
+          <textarea id="pepNote" class="w-full px-3 py-2.5 border rounded-xl h-24 resize-none" placeholder="Short procedure or note visible when no recipe is linked.">${prep?.note||''}</textarea>
+          <p class="text-[10px] text-slate-400 mt-1">Ignored when a recipe is linked.</p>
         </div>
         ${!isNew?`<div>
-          <label class="text-xs font-semibold text-slate-500 mb-1 block">Durata attesa (giorni)</label>
-          <input id="pepDuration" type="number" min="1" max="30" placeholder="es. 3" class="w-full px-3 py-2.5 border rounded-xl" value="${prep?.expected_duration_days||''}">
+          <label class="text-xs font-semibold text-slate-500 mb-1 block">Expected Shelf Life (days)</label>
+          <input id="pepDuration" type="number" min="1" max="30" placeholder="e.g. 3" class="w-full px-3 py-2.5 border rounded-xl" value="${prep?.expected_duration_days||''}">
         </div>`:''}
         ${!isNew?`<div>
           <div class="flex items-center justify-between mb-2">
-            <label class="text-xs font-semibold text-slate-500">Steps sequenziali</label>
-            <button type="button" id="pepAddStep" class="text-xs font-semibold text-white bg-slate-800 px-3 py-1.5 rounded-lg">+ Aggiungi step</button>
+            <label class="text-xs font-semibold text-slate-500">Steps</label>
+            <button type="button" id="pepAddStep" class="text-xs font-semibold text-white bg-slate-800 px-3 py-1.5 rounded-lg">+ Add Step</button>
           </div>
           <div id="pepStepsList" class="space-y-2"></div>
-          <p class="text-[10px] text-slate-400 mt-1">Se aggiungi steps, la nota viene ignorata al tap. Gli steps sono sequenziali: step 2 si sblocca solo dopo step 1.</p>
+          <p class="text-[10px] text-slate-400 mt-1">Steps are sequential. When steps are present, the quick note is ignored.</p>
         </div>`:''}
         ${!isNew?`<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:16px;margin-top:4px;">
           <div style="font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.05em;margin-bottom:12px;">🤖 BOT CONFIG</div>
@@ -174,14 +147,12 @@ async function openPrepEditor(prep=null){
             </div>
             <div id="pepServingCalc" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:8px 12px;font-size:12px;color:#1e40af;"></div>
           </div>
-          <div id="pepBotReasoning" style="margin-top:12px;border-top:1px solid #e2e8f0;padding-top:12px;">
-            <div style="font-size:11px;color:#94a3b8;text-align:center;padding:8px 0;">Caricamento ragionamento bot...</div>
-          </div>
+
         </div>`:''}
       </div>
       <div class="p-4 border-t flex gap-2">
-        <button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl text-sm">Annulla</button>
-        <button id="pepSave" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold text-sm">Salva</button>
+        <button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl text-sm">Cancel</button>
+        <button id="pepSave" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold text-sm">Save</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
@@ -256,125 +227,7 @@ async function openPrepEditor(prep=null){
     }
   }
 
-  // ── BOT REASONING — read-only, reads trusted sources only ──
-  // Source 1: prep_tasks.suggested_note / suggested_qty / suggested_at / suggested_by (real bot)
-  // Source 2: bot_debug_runs (trusted simulation from bot-preplist-sim)
-  // NO independent quantity calculation. No formulas. No pos_sales_by_item queries.
-  if(!isNew && prep) {
-    (async () => {
-      try {
-        const servCalcEl = modal.querySelector('#pepServingCalc');
-        const reasonEl   = modal.querySelector('#pepBotReasoning');
-        if(!reasonEl) return;
 
-        // Show serving calc if available (purely informational, read from recipe)
-        if(servCalcEl && prep.recipe_id) {
-          const {data: rf} = await supa.from('recipes')
-            .select('base_weight_g,base_servings,serving_weight_g,shelf_life_days')
-            .eq('id', prep.recipe_id).single();
-          if(rf) {
-            const bw = parseFloat(rf.base_weight_g || 0);
-            const bs = parseInt(rf.base_servings || 0);
-            const sw = parseFloat(rf.serving_weight_g || 0);
-            const unit = (prep.unit || 'g').toLowerCase();
-            if(unit === 'g') {
-              const servG = sw > 0 ? sw : (bw > 0 && bs > 0 ? Math.round(bw / bs) : 0);
-              if(servG > 0) {
-                servCalcEl.style.display = 'block';
-                const batchStr = bw > 0 && bs > 0
-                  ? ` · batch ${bw >= 1000 ? (bw/1000).toFixed(1)+'kg' : bw+'g'} / ${bs} servings`
-                  : '';
-                servCalcEl.innerHTML = `<span style="font-weight:700;">1 serving = ${servG}g</span>${batchStr}`;
-              }
-            }
-          }
-        }
-
-        let html = '';
-        html += '<div style="font-size:11px;font-weight:700;color:#475569;letter-spacing:0.05em;margin-bottom:8px;">🤖 Risultato bot reale</div>';
-
-        // ── SOURCE 1: Real bot result from prep_tasks ──
-        const noteRaw   = prep.suggested_note || '';
-        const noteParts = noteRaw.split('|');
-        const hasNote   = noteRaw.includes('|') && noteParts.length >= 2;
-        const noteColor = noteParts[0] || '';
-        const noteIT    = noteParts[1] || '';
-        const noteEN    = noteParts[2] || '';
-        const noteES    = noteParts[3] || '';
-
-        if(hasNote) {
-          const nc = noteColor === 'red' ? '#dc2626' : noteColor === 'yellow' ? '#d97706' : '#059669';
-          const nb = noteColor === 'red' ? '#fef2f2' : noteColor === 'yellow' ? '#fffbeb' : '#f0fdf4';
-          const runAt = prep.suggested_at
-            ? (() => {
-                try {
-                  const d = new Date(prep.suggested_at);
-                  const cdt = new Date(d.getTime() - 5*60*60*1000);
-                  return cdt.toISOString().slice(0,10) + ' ' +
-                    String(cdt.getUTCHours()).padStart(2,'0') + ':' +
-                    String(cdt.getUTCMinutes()).padStart(2,'0') + ' CDT';
-                } catch(e) { return prep.suggested_at; }
-              })()
-            : '—';
-          const sugQty = prep.suggested_qty != null ? prep.suggested_qty + ' ' + (prep.unit || '') : '—';
-          html += `
-            <div style="background:${nb};border:1px solid ${nc}40;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
-              <div style="font-size:10px;font-weight:700;color:${nc};letter-spacing:0.05em;margin-bottom:4px;">${noteColor.toUpperCase()} — logicSource: real_bot_v41_result</div>
-              <div style="font-size:13px;color:${nc};font-weight:700;margin-bottom:4px;">${noteIT || noteEN || '—'}</div>
-              <div style="font-size:11px;color:#64748b;">Suggested qty: <b>${sugQty}</b> · Run: ${runAt} · By: ${prep.suggested_by || '—'}</div>
-            </div>`;
-        } else {
-          html += '<div style="color:#94a3b8;font-size:12px;margin-bottom:10px;">Il bot non ha ancora girato per questa prep.<br><span style="font-size:11px;">Il bot gira ogni notte alle 4:00 AM CDT.</span></div>';
-        }
-
-        // ── SOURCE 2: Trusted simulation from bot_debug_runs ──
-        html += '<div style="font-size:11px;font-weight:700;color:#475569;letter-spacing:0.05em;margin-bottom:6px;">📊 Simulazione trusted (bot_debug_sim_v6)</div>';
-        try {
-          const {data: simRows} = await supa.from('bot_debug_runs')
-            .select('*')
-            .eq('task_name', prep.name)
-            .order('sim_date', {ascending: false})
-            .limit(1);
-          const sim = simRows && simRows.length ? simRows[0] : null;
-          if(sim) {
-            const pc = sim.pill === 'red' ? '#dc2626' : sim.pill === 'yellow' ? '#d97706' : '#059669';
-            const fmtV = (n, u) => {
-              if(n === null || n === undefined) return '—';
-              const v = parseFloat(n); if(isNaN(v)) return '—';
-              const ul = (u||'').toLowerCase();
-              if(['pezzi','pz','nests','buste','cartocci','cup'].includes(ul)) {
-                const num = v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
-                return ['nests','cup','buste','cartocci'].includes(ul) ? num+' '+u : num;
-              }
-              return v >= 1000 ? (v/1000).toFixed(1).replace(/\.0$/,'')+'kg' : Math.round(v)+'g';
-            };
-            html += `
-              <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;">
-                <div style="font-size:12px;font-weight:700;color:${pc};margin-bottom:6px;">${(sim.pill||'').toUpperCase()} · ${sim.suggestion_text || '—'}</div>
-                <table style="width:100%;font-size:11px;border-collapse:collapse;">
-                  <tr><td style="color:#64748b;padding:2px 0;">Stock reale</td><td style="text-align:right;font-weight:600;">${fmtV(sim.current_stock,sim.unit)}</td></tr>
-                  <tr><td style="color:#64748b;padding:2px 0;">Venduto ieri</td><td style="text-align:right;color:#dc2626;">${sim.sold_yesterday ? '−'+fmtV(sim.sold_yesterday,sim.unit) : '—'}</td></tr>
-                  <tr><td style="color:#64748b;padding:2px 0;">Stock presunto</td><td style="text-align:right;font-weight:700;">${fmtV(sim.stock_presunto,sim.unit)}</td></tr>
-                  <tr><td style="color:#64748b;padding:2px 0;">Fabbisogno</td><td style="text-align:right;">${fmtV(sim.fabbisogno_raw,sim.unit)}</td></tr>
-                  <tr><td style="color:#64748b;padding:2px 0;">Percorso</td><td style="text-align:right;font-size:10px;color:#94a3b8;">${sim.percorso || '—'}</td></tr>
-                  <tr><td style="color:#64748b;padding:2px 0;">Sim date</td><td style="text-align:right;color:#94a3b8;">${sim.sim_date || '—'}</td></tr>
-                </table>
-              </div>`;
-          } else {
-            html += '<div style="color:#94a3b8;font-size:12px;">Nessun dato di simulazione.<br><span style="font-size:11px;">Esegui Bot Debug per dettagli: Admin → Bot Debug → Aggiorna simulazione.</span></div>';
-          }
-        } catch(simErr) {
-          html += `<div style="color:#94a3b8;font-size:11px;">Errore caricamento sim: ${simErr.message}</div>`;
-        }
-
-        reasonEl.innerHTML = html;
-
-      } catch(e) {
-        const reasonEl = modal.querySelector('#pepBotReasoning');
-        if(reasonEl) reasonEl.innerHTML = `<div style="font-size:11px;color:#94a3b8;">Errore: ${e.message}</div>`;
-      }
-    })();
-  }
 
     // ── GESTIONE STEPS ──
   let pepSteps = [];
@@ -393,7 +246,7 @@ async function openPrepEditor(prep=null){
     const list = modal.querySelector('#pepStepsList');
     if(!list) return;
     if(!pepSteps.length){
-      list.innerHTML = '<div class="text-xs text-slate-400 text-center py-2">'+tr('adminNoSteps')+'</div>';
+      list.innerHTML = '<div class="text-xs text-slate-400 text-center py-2">No steps added yet.</div>';
       return;
     }
     list.innerHTML = pepSteps.map((s,idx)=>`
@@ -432,9 +285,6 @@ async function openPrepEditor(prep=null){
     const note = modal.querySelector('#pepNote').value.trim() || null;
     const duration = modal.querySelector('#pepDuration')?.value ? parseInt(modal.querySelector('#pepDuration').value) : null;
 
-    // Stazioni check selezionate
-    const selectedCheckStations = Array.from(modal.querySelectorAll('.pepCheckStation:checked')).map(cb=>cb.value);
-
     const btn = modal.querySelector('#pepSave');
     btn.disabled = true; btn.textContent = 'Salvataggio...';
     try{
@@ -472,7 +322,7 @@ async function openPrepEditor(prep=null){
         await supa.from('prep_steps').delete().eq('prep_task_id', prep.id);
         if(pepSteps.length > 0){
           const invalid = pepSteps.find(s=>!s.title.trim());
-          if(invalid){ alert('Ogni step deve avere un titolo.'); btn.disabled=false; btn.textContent=tr('saveBtn'); return; }
+          if(invalid){ alert('Each step must have a title.'); btn.disabled=false; btn.textContent='Save'; return; }
           const toInsert = pepSteps.map((s,i)=>({
             prep_task_id: prep.id,
             sort_order: i,
@@ -485,26 +335,8 @@ async function openPrepEditor(prep=null){
         }
       }
 
-      // Sincronizza closing_checks:
-      // 1. Rimuovi le stazioni deselezionate
-      if(!isNew){
-        const toRemove = existingCheckStations.filter(s=>!selectedCheckStations.includes(s));
-        for(const s of toRemove){
-          await supa.from('closing_checks')
-            .update({archived:true})
-            .eq('prep_task_id', prepId)
-            .eq('station', s);
-        }
-      }
-      // 2. Aggiungi le stazioni nuove
-      const toAdd = selectedCheckStations.filter(s=>!existingCheckStations.includes(s));
-      for(const s of toAdd){
-        await supa.from('closing_checks').insert({
-          name, station: s, prep_task_id: prepId, archived: false
-        });
-      }
-      // 3. Aggiorna nome se cambiato (su tutte le closing_checks collegate)
-      if(!isNew && name !== prep.name){
+      // closing_checks: update name only if prep was renamed (preserve station links)
+      if(!isNew && prep && name !== prep.name){
         await supa.from('closing_checks')
           .update({name})
           .eq('prep_task_id', prepId)
@@ -515,8 +347,8 @@ async function openPrepEditor(prep=null){
       await init();
       if(typeof renderRecipes === 'function') renderRecipes();
     }catch(e){
-      alert(tr('errorPrefix') +e.message);
-      btn.disabled=false; btn.textContent=tr('saveBtn');
+      alert('Error: '+e.message);
+      btn.disabled=false; btn.textContent='Save';
     }
   };
 }
