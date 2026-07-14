@@ -7,6 +7,7 @@
 // Task 004K: station-prep receives fetchTodayPrepLogs for today's production log display.
 // Task 004M: station-prep receives startPrepTask and currentUser for Start action.
 // Task 004Q: station-prep receives completePrepTask for Complete action.
+// Task 004S: station-prep receives fetchRecentPrepCounts as fetchCounts for physical count display.
 // No window writes. No storage. No Supabase. No browser history. No app-state import.
 
 import { createBottomNavigation } from '../../components/navigation/bottom-navigation.js';
@@ -15,6 +16,7 @@ import { createStationPrep } from './station-prep.js';
 import { fetchStationPrepTasks } from '../../services/station-prep-service.js';
 import { fetchPrepSuggestions } from '../../services/prep-suggestion-service.js';
 import { fetchTodayPrepLogs } from '../../services/prep-log-service.js';
+import { fetchRecentPrepCounts } from '../../services/prep-count-service.js';
 import { startPrepTask } from '../../services/prep-start-service.js';
 import { completePrepTask } from '../../services/prep-complete-service.js';
 
@@ -127,6 +129,7 @@ export function setupStationNavigation({ router, mountElement, translate, user }
       fetchTasks:       fetchStationPrepTasks,
       fetchSuggestions: fetchPrepSuggestions,
       fetchLogs:        fetchTodayPrepLogs,
+      fetchCounts:      fetchRecentPrepCounts,
       startTask:        startPrepTask,
       completeTask:     completePrepTask,
       currentUser:      user,

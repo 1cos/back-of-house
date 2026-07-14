@@ -99,5 +99,13 @@ export const en = {
   'station_prep.complete_form_cancel':         'Cancel',
   'station_prep.complete_form_quantity_error': 'Enter a quantity greater than zero.',
   'station_prep.complete_form_unit_error':     'Enter a unit.',
-};
 
+  // ── Station Prep — Last physical count (Task 004S) ────────────────────
+  'station_prep.detail_last_physical_count': 'Last physical count',
+  'station_prep.detail_no_recent_count':     'No recent physical count',
+  'station_prep.detail_counted_by':          'Counted by',
+  'station_prep.detail_counted_at':          'Counted at',
+  'station_prep.detail_reconciliation':      'Reconciliation',
+  'station_prep.detail_reconciled_quantity': 'Reconciled quantity',
+  'station_prep.detail_reconciliation_note': 'Reconciliation note',
+};

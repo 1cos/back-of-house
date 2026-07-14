@@ -9,6 +9,7 @@
 // Task 004M: Start button inside expanded detail; connects to startPrepTask service.
 // Task 004P: Complete button for in-progress tasks; mounts Complete Prep form in expanded detail.
 // Task 004Q: Complete Prep form connected to completePrepTask service; local state updated on success.
+// Task 004S: loads recent physical counts in parallel; displays Last physical count in expanded detail.
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
 
@@ -158,16 +159,16 @@ function groupedTasks(sorted, suggestionsMap) {
 // ── Time formatting ───────────────────────────────────────────────────
 
 /**
- * Converts a createdAt ISO string to a local device time string (HH:MM AM/PM).
- * Returns the time_not_available fallback key string when missing or invalid.
- * Private — used only by buildMadeToday.
+ * Converts an ISO timestamp string to a local device time string (HH:MM AM/PM).
+ * Returns null when missing or invalid.
+ * Private — used by buildMadeToday and buildLastPhysicalCount.
  *
- * @param {unknown} createdAt
+ * @param {unknown} isoString
  * @returns {string | null}  — formatted time string, or null to signal fallback
  */
-function formatLocalTime(createdAt) {
-  if (!createdAt) return null;
-  const d = new Date(createdAt);
+function formatLocalTime(isoString) {
+  if (!isoString) return null;
+  const d = new Date(isoString);
   if (isNaN(d.getTime())) return null;
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
@@ -240,6 +241,114 @@ function buildMadeToday(logs, translate) {
     card.appendChild(userEl);
     card.appendChild(timeEl);
     section.appendChild(card);
+  }
+
+  return section;
+}
+
+// ── Last physical count section builder ──────────────────────────────
+
+/**
+ * Builds the "Last physical count" section for the detail panel.
+ * Uses only count data already loaded by the component; no database query.
+ * No writes. Does not interpret reconcileStatus. Does not mutate the count object.
+ *
+ * @param {object | null | undefined} count  — entry from countsByPrepTaskId[task.id], or null
+ * @param {(key: string) => string} translate
+ * @returns {HTMLElement}
+ */
+function buildLastPhysicalCount(count, translate) {
+  const section = document.createElement('div');
+  section.className = 'station-prep__detail-last-count';
+
+  // Section label
+  const sectionLabel = document.createElement('span');
+  sectionLabel.className = 'station-prep__detail-label';
+  sectionLabel.textContent = translate('station_prep.detail_last_physical_count');
+  section.appendChild(sectionLabel);
+
+  // No valid count fallback
+  if (!count) {
+    const empty = document.createElement('span');
+    empty.className = 'station-prep__detail-value';
+    empty.textContent = translate('station_prep.detail_no_recent_count');
+    section.appendChild(empty);
+    return section;
+  }
+
+  // ── Row builder helper (private to this function) ──
+  function addRow(labelText, valueEl) {
+    const row = document.createElement('div');
+    row.className = 'station-prep__detail-row';
+
+    const label = document.createElement('span');
+    label.className = 'station-prep__detail-label';
+    label.textContent = labelText;
+
+    row.appendChild(label);
+    row.appendChild(valueEl);
+    section.appendChild(row);
+  }
+
+  // 1. Counted quantity + unit
+  const qtyEl = document.createElement('span');
+  qtyEl.className = 'station-prep__detail-value';
+  if (count.countedQuantity !== null && count.countedQuantity !== undefined) {
+    let text = String(count.countedQuantity);
+    if (count.unit !== null && count.unit !== undefined) {
+      text += ' ' + count.unit;
+    }
+    qtyEl.textContent = text;
+  } else {
+    qtyEl.textContent = translate('station_prep.detail_quantity_not_recorded');
+  }
+  addRow(translate('station_prep.detail_prepare_today'), qtyEl);
+
+  // 2. Counted by
+  const byEl = document.createElement('span');
+  byEl.className = 'station-prep__detail-value';
+  if (typeof count.countedBy === 'string' && count.countedBy.trim().length > 0) {
+    byEl.textContent = count.countedBy;
+  } else {
+    byEl.textContent = translate('station_prep.detail_user_not_recorded');
+  }
+  addRow(translate('station_prep.detail_counted_by'), byEl);
+
+  // 3. Counted at — local device time only, no raw ISO
+  const timeEl = document.createElement('span');
+  timeEl.className = 'station-prep__detail-value';
+  const formattedTime = formatLocalTime(count.countedAt);
+  timeEl.textContent = formattedTime !== null
+    ? formattedTime
+    : translate('station_prep.detail_time_not_available');
+  addRow(translate('station_prep.detail_counted_at'), timeEl);
+
+  // 4. Reconciliation status — omit when missing or empty
+  if (typeof count.reconcileStatus === 'string' && count.reconcileStatus.length > 0) {
+    const rsEl = document.createElement('span');
+    rsEl.className = 'station-prep__detail-value';
+    rsEl.textContent = count.reconcileStatus;   // displayed unchanged, no interpretation
+    addRow(translate('station_prep.detail_reconciliation'), rsEl);
+  }
+
+  // 5. Reconciled quantity — omit when null
+  if (count.reconciledQuantity !== null && count.reconciledQuantity !== undefined) {
+    const rqEl = document.createElement('span');
+    rqEl.className = 'station-prep__detail-value';
+    let rqText = String(count.reconciledQuantity);
+    if (count.unit !== null && count.unit !== undefined) {
+      rqText += ' ' + count.unit;
+    }
+    rqEl.textContent = rqText;
+    addRow(translate('station_prep.detail_reconciled_quantity'), rqEl);
+  }
+
+  // 6. Reconciliation note — omit when missing or empty string
+  if (typeof count.reconciledNote === 'string' && count.reconciledNote.length > 0) {
+    const rnEl = document.createElement('span');
+    rnEl.className = 'station-prep__detail-value station-prep__detail-value--note';
+    rnEl.textContent = count.reconciledNote;    // displayed exactly, original text preserved
+    addRow(translate('station_prep.detail_reconciliation_note'), rnEl);
   }
 
   return section;
@@ -515,14 +624,15 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
 
 /**
  * Builds the hidden detail panel for a task.
- * Uses only suggestion and log data already loaded by the page.
+ * Uses only suggestion, log, and count data already loaded by the page.
  * Appends a Start button when the task is not already in progress.
- * No database query. No writes (Start button delegates to startTask).
+ * No database query. No writes (Start/Complete buttons delegate to services).
  *
  * @param {string} panelId
  * @param {object} task             — mutable working copy
  * @param {object|null} suggestion
  * @param {Array<object>|undefined} logs
+ * @param {object|null} count       — entry from countsByPrepTaskId, or null
  * @param {(key: string) => string} translate
  * @param {Function} startTask
  * @param {object} currentUser
@@ -532,7 +642,7 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
  * @param {(result: object) => void} onCompleteSuccess
  * @returns {HTMLElement}
  */
-function buildDetailPanel(panelId, task, suggestion, logs, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
+function buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__task-detail';
   panel.id = panelId;
@@ -599,7 +709,10 @@ function buildDetailPanel(panelId, task, suggestion, logs, translate, startTask,
   // 4. Made today — today's production log entries
   panel.appendChild(buildMadeToday(logs, translate));
 
-  // 5. Start button — only for tasks not already in progress
+  // 5. Last physical count — read-only count data loaded at page level
+  panel.appendChild(buildLastPhysicalCount(count, translate));
+
+  // 6. Start button — only for tasks not already in progress
   if (task.inProgress !== true) {
     panel.appendChild(buildStartButton({
       task,
@@ -612,7 +725,7 @@ function buildDetailPanel(panelId, task, suggestion, logs, translate, startTask,
     }));
   }
 
-  // 6. Complete button — only for tasks already in progress
+  // 7. Complete button — only for tasks already in progress
   if (task.inProgress === true) {
     panel.appendChild(buildCompleteButton({
       task,
@@ -683,7 +796,7 @@ function createExpandController() {
 
 // ── Task row builder ──────────────────────────────────────────────────
 
-function buildTaskRow(task, suggestion, logs, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
+function buildTaskRow(task, suggestion, logs, count, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
   const item = document.createElement('li');
   item.className = 'station-prep__task';
 
@@ -747,7 +860,7 @@ function buildTaskRow(task, suggestion, logs, translate, expandController, panel
   metaRow.appendChild(stateEl);
 
   // ── Detail panel (hidden by default) ──
-  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess);
+  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess);
 
   item.appendChild(topRow);
   item.appendChild(metaRow);
@@ -765,12 +878,14 @@ function buildTaskRow(task, suggestion, logs, translate, expandController, panel
  * @param {string} sectionKey
  * @param {Array<object>} tasks
  * @param {Object} suggestionsMap
+ * @param {Object} logsMap
+ * @param {Object} countsMap       — countsByPrepTaskId from fetchCounts result
  * @param {(key: string) => string} translate
  * @param {object} expandController
  * @param {{ nextId: () => string }} idGen
  * @returns {HTMLElement|null}
  */
-function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
+function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
   if (tasks.length === 0) return null;
 
   const group = document.createElement('section');
@@ -798,9 +913,10 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expan
 
   for (const task of tasks) {
     const suggestion = suggestionsMap[task.id] ?? null;
-    const logs = logsMap[task.name] ?? undefined;
-    const panelId = idGen.nextId();
-    list.appendChild(buildTaskRow(task, suggestion, logs, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess));
+    const logs       = logsMap[task.name] ?? undefined;
+    const taskCount  = countsMap[task.id] ?? null;
+    const panelId    = idGen.nextId();
+    list.appendChild(buildTaskRow(task, suggestion, logs, taskCount, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess));
   }
 
   group.appendChild(headingRow);
@@ -813,8 +929,8 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expan
 
 /**
  * Creates the Station Prep page DOM element.
- * Calls fetchTasks, then fetchSuggestions and fetchLogs in parallel,
- * then renders when all three complete.
+ * Calls fetchTasks, then fetchSuggestions, fetchLogs, and fetchCounts in
+ * parallel, then renders when all three complete.
  *
  * @param {{
  *   stationName:      string | null | undefined,
@@ -822,13 +938,14 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expan
  *   fetchTasks:       (station: string) => Promise<{ ok: boolean, tasks: Array }>,
  *   fetchSuggestions: (ids: number[]) => Promise<{ ok: boolean, suggestions: Object }>,
  *   fetchLogs:        (names: string[]) => Promise<{ ok: boolean, logsByTaskName: Object }>,
+ *   fetchCounts:      (ids: number[]) => Promise<{ ok: boolean, countsByPrepTaskId: Object }>,
  *   startTask:        (opts: object) => Promise<object>,
  *   completeTask:     (opts: object) => Promise<object>,
  *   currentUser:      object
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, startTask, completeTask, currentUser }) {
+export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, currentUser }) {
   const section = document.createElement('section');
   section.className = 'station-prep';
 
@@ -889,11 +1006,13 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
     const taskIds   = taskResult.tasks.map((t) => t.id);
     const taskNames = taskResult.tasks.map((t) => t.name);
 
-    // Suggestions and logs load in parallel after tasks are available.
+    // Suggestions, logs, and counts load in parallel after tasks are available.
+    // Loading state remains visible until all three complete.
     Promise.all([
       fetchSuggestions(taskIds),
       fetchLogs(taskNames),
-    ]).then(([sugResult, logResult]) => {
+      fetchCounts(taskIds),
+    ]).then(([sugResult, logResult, countResult]) => {
       if (!section.isConnected) return;
 
       // Suggestion failure → empty map (existing behavior).
@@ -906,11 +1025,17 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
         ? logResult.logsByTaskName
         : {};
 
-      // Mutable local working copies — do not mutate arrays or objects from fetchTasks/fetchLogs.
-      // Each task object is a shallow copy; only the updated task is replaced on success.
-      // workingLogsMap is a mutable shallow copy of logsMap; each log array is copied before append.
+      // Count failure → empty map; does not produce a page-level error.
+      // Tasks still render with the no-count fallback in each detail panel.
+      const countsMap = (countResult.ok && countResult.countsByPrepTaskId)
+        ? countResult.countsByPrepTaskId
+        : {};
+
+      // Mutable local working copies — do not mutate arrays or objects from services.
       let workingTasks   = taskResult.tasks.map((t) => Object.assign({}, t));
       let workingLogsMap = Object.assign({}, logsMap);
+
+      // countsMap is read-only throughout the page lifecycle; it is not mutated.
 
       // ── Render function ───────────────────────────────────────────
       // Called on initial load and after any successful Start or Complete.
@@ -989,7 +1114,7 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
 
         // Render non-empty sections in approved order.
         for (const key of SECTION_KEYS) {
-          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess);
+          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, countsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess);
           if (groupEl) content.appendChild(groupEl);
         }
       }
@@ -1000,4 +1125,3 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
 
   return section;
 }
-
