@@ -2938,7 +2938,7 @@ async function suggestedSave(id, modal){
   var _sDur = Math.round((_sNow - _sSt) / 60000);
   delete _startTimes[id];
   const [logRes, updRes] = await Promise.all([
-    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:'',user_name:user.name,is_suggested_qty:true,started_at:_sSt.toISOString(),duration_minutes:_sDur}),
+    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:'',user_name:user.name,is_suggested_qty:true,started_at:_sSt.toISOString(),duration_minutes:_sDur,prep_task_id:id}),
     supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}).eq('id',id)
   ]);
   if(logRes.error || updRes.error){
@@ -2963,7 +2963,7 @@ async function detailSave(id, btn, isSuggested){
   var _dSt = _startTimes[id] || _dNow;
   var _dDur = Math.round((_dNow - _dSt) / 60000);
   delete _startTimes[id];
-  const logRes = await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name,is_suggested_qty:!!isSuggested,started_at:_dSt.toISOString(),duration_minutes:_dDur});
+  const logRes = await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name,is_suggested_qty:!!isSuggested,started_at:_dSt.toISOString(),duration_minutes:_dDur,prep_task_id:id});
   if(logRes.error){
     btn.textContent=tr('prep_done'); btn.disabled=false;
     _prepSaveError(it.name, logRes.error.message);
@@ -3031,7 +3031,8 @@ window.noNeed = async function(id) {
     qty: 0, unit: 'no_need', container: '',
     user_name: user.name,
     started_at: _nSt.toISOString(),
-    duration_minutes: _nDur
+    duration_minutes: _nDur,
+    prep_task_id: id
   });
   if (logRes.error) {
     _prepSaveError(it.name, logRes.error.message);
@@ -3063,7 +3064,7 @@ async function quickSave(id){
   const qty=it.average_qty||1;
   const addQty = it.suggested_qty ? parseFloat(it.suggested_qty) : qty;
   const [logRes, updRes] = await Promise.all([
-    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit:'kg',container:'1/4 pan',user_name:user.name,is_suggested_qty:false}),
+    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit:'kg',container:'1/4 pan',user_name:user.name,is_suggested_qty:false,prep_task_id:id}),
     supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,current_stock:(parseFloat(it.current_stock)||0)+addQty,suggested_note:null,suggested_qty:null}).eq('id',id)
   ]);
   if(logRes.error || updRes.error){
@@ -3120,7 +3121,7 @@ async function feedSave(id,qty,btn){
   const it=tasks[id];
   btn.disabled=true; btn.innerHTML=tr('prep_saved');
   btn.classList.add('bg-emerald-600','text-white','border-emerald-600');
-  await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty:parseFloat(qty),unit:'kg',container:'1/4 pan',user_name:user.name});
+  await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty:parseFloat(qty),unit:'kg',container:'1/4 pan',user_name:user.name,prep_task_id:id});
   await supa.from('prep_tasks').update({need_tomorrow:false}).eq('id',id);
   tasks[id].need_tomorrow=false;
   setTimeout(()=>{document.getElementById('feed').scrollBy({top:window.innerHeight*0.8,behavior:'smooth'});renderM();renderS();renderHomeStations();},600);
@@ -3416,6 +3417,7 @@ function _chefAiPrepPanelHtml(a, prepName){
     +'</div>'
   +'</div>';
 }
+
 
 
 

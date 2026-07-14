@@ -198,7 +198,8 @@ window.focusDone = async function(id) {
     container: it.container || '',
     user_name: user ? user.name : '',
     started_at: startedAt ? startedAt.toISOString() : null,
-    duration_minutes: durationMinutes
+    duration_minutes: durationMinutes,
+    prep_task_id: id
   });
   await supa.from('prep_tasks').update({need_tomorrow: false, in_progress: false}).eq('id', id);
   tasks[id].need_tomorrow = false;
@@ -327,6 +328,7 @@ window.focusLoadStation = function(station) {
   buildFocusList();
   renderFocusFeed();
 };
+
 
 
 
