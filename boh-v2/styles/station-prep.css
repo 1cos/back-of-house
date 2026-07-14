@@ -669,3 +669,29 @@
 .station-prep__wip-resolution-form {
   margin-top: var(--sp-3);
 }
+
+/* ── "Continue this prep" disabled state (Task 004AC) ───────────────
+   Shown while submitting or when currentUser.name is unavailable.
+   Opacity signals unavailability — no color-only indicator.
+   Touch target preserved (min-height from base rule unchanged).      */
+.station-prep__wip-resolution-btn--continue:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Continue inline error (Task 004AC) ─────────────────────────────
+   Single inline error inside the WIP resolution panel on failure.
+   role="alert" set in JS. Visible text is primary signal.
+   No new colors. No horizontal scrolling at 320px.                   */
+.station-prep__wip-continue-error {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  border-left: 3px solid var(--text-secondary);
+  padding: var(--sp-1) var(--sp-2);
+  margin: var(--sp-2) 0 0;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}

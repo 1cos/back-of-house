@@ -144,5 +144,9 @@ export const en = {
   'station_prep.wip_resolution_finished':   'I finished it',
   'station_prep.wip_resolution_continue':   'Continue this prep',
   'station_prep.wip_resolution_pass_shift': 'Pass to this shift',
+
+  // ── Station Prep — Continue this prep feedback (Task 004AC) ──────────
+  'station_prep.wip_resolution_continuing':    'Continuing…',
+  'station_prep.wip_resolution_continue_error': 'Unable to continue this prep. Try again.',
 };
 

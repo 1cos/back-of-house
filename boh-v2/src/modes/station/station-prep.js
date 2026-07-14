@@ -718,9 +718,9 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
   return { btn, containerRef };
 }
 
-// ── WIP resolution panel builder (Task 004AA, updated Task 004AB) ────
+// ── WIP resolution panel builder (Task 004AA, updated Task 004AB, 004AC) ─
 
-function buildWipResolutionPanel({ translate, task, currentUser, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }) {
+function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSuccess, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__wip-resolution';
 
@@ -874,14 +874,70 @@ function buildWipResolutionPanel({ translate, task, currentUser, completeTask, s
 
   panel.appendChild(finishedBtn);
 
-  // ── "Continue this prep" — no-op until connected in a later task ──
+  // ── "Continue this prep" — connected to existing startTask service ──
+  const canContinue = userName.length > 0;
+
   const continueBtn = document.createElement('button');
   continueBtn.type = 'button';
   continueBtn.className = 'station-prep__wip-resolution-btn station-prep__wip-resolution-btn--continue';
   continueBtn.textContent = translate('station_prep.wip_resolution_continue');
+  if (!canContinue) continueBtn.disabled = true;
+
+  // Disable Continue while a Complete or Count form is open.
+  // Uses the shared mutable refs — evaluated at click time (closure).
+  function isContinueBlocked() {
+    return (completeFormRef.container !== null) || (countFormRef.container !== null);
+  }
+
+  let continueSubmitting = false;
+
+  function clearContinueError() {
+    const prev = panel.querySelector('.station-prep__wip-continue-error');
+    if (prev) prev.remove();
+  }
+
   continueBtn.addEventListener('click', function () {
-    // No-op: action will be connected in a later task.
+    if (!canContinue) return;
+    if (continueSubmitting) return;
+    if (isContinueBlocked()) return;
+
+    continueSubmitting = true;
+    continueBtn.disabled = true;
+    clearContinueError();
+    continueBtn.textContent = translate('station_prep.wip_resolution_continuing');
+
+    startTask({
+      prepTaskId: task.id,
+      startedBy:  userName,
+    }).then(function (result) {
+      if (!section.isConnected) return;
+      if (result.ok) {
+        onSuccess(result);
+      } else {
+        continueSubmitting = false;
+        continueBtn.disabled = false;
+        continueBtn.textContent = translate('station_prep.wip_resolution_continue');
+        clearContinueError();
+        const errEl = document.createElement('p');
+        errEl.className = 'station-prep__wip-continue-error';
+        errEl.setAttribute('role', 'alert');
+        errEl.textContent = translate('station_prep.wip_resolution_continue_error');
+        panel.appendChild(errEl);
+      }
+    }).catch(function () {
+      if (!section.isConnected) return;
+      continueSubmitting = false;
+      continueBtn.disabled = false;
+      continueBtn.textContent = translate('station_prep.wip_resolution_continue');
+      clearContinueError();
+      const errEl = document.createElement('p');
+      errEl.className = 'station-prep__wip-continue-error';
+      errEl.setAttribute('role', 'alert');
+      errEl.textContent = translate('station_prep.wip_resolution_continue_error');
+      panel.appendChild(errEl);
+    });
   });
+
   panel.appendChild(continueBtn);
 
   // ── "Pass to this shift" — no-op until connected in a later task ──
@@ -897,11 +953,11 @@ function buildWipResolutionPanel({ translate, task, currentUser, completeTask, s
   return panel;
 }
 
-// ── WIP section builder (Task 004Y, updated Task 004Z, 004AA) ────────
+// ── WIP section builder (Task 004Y, updated Task 004Z, 004AA, 004AC) ──────
 
 const PREVIOUS_SHIFT_MINUTES = 480;
 
-function buildWipSection(task, translate, currentUser, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl) {
+function buildWipSection(task, translate, currentUser, startTask, onSuccess, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl) {
   const section = document.createElement('div');
   section.className = 'station-prep__detail-wip';
 
@@ -973,7 +1029,7 @@ function buildWipSection(task, translate, currentUser, completeTask, section, on
   // Resolution panel — appears after Elapsed, only for previous-shift WIP.
   // Reuses startedAtValid and elapsedMinutes already calculated above.
   if (startedAtValid && elapsedMinutes >= PREVIOUS_SHIFT_MINUTES) {
-    section.appendChild(buildWipResolutionPanel({ translate, task, currentUser, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }));
+    section.appendChild(buildWipResolutionPanel({ translate, task, currentUser, startTask, onSuccess, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, detailEl }));
   }
 
   return section;
@@ -1053,7 +1109,7 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
   // 6. Work in progress — only for in-progress tasks.
   // Refs passed so the resolution panel can coordinate form state.
   if (task.inProgress === true) {
-    panel.appendChild(buildWipSection(task, translate, currentUser, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, panel));
+    panel.appendChild(buildWipSection(task, translate, currentUser, startTask, onSuccess, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, panel));
   }
 
   // 7. Start — non-in-progress only
