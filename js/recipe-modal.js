@@ -313,9 +313,12 @@ function buildShell(title, category, pills, botPill, tabs){
 // Labels EN only. "Open recipe" rimosso — sostituito con "START PREP".
 // "Reported stock" / "Suggested amount" come da spec.
 function buildChefAiStep1Block(prepSugg, prepTask) {
-  if (!prepSugg && !(prepTask && prepTask.suggested_qty)) return '';
+  // Only show when we have a fresh suggestion from prep_suggestions_daily.
+  // Legacy suggested_qty (bot-preplist-builder) is no longer surfaced — PROMPT_PROSSIMA_SESSIONE rule.
+  if (!prepSugg) return '';
 
-  const unit = (prepSugg && prepSugg.output_unit) || (prepTask && prepTask.unit) || '';
+  const unit = prepSugg.output_unit || (prepTask && prepTask.unit) || '';
+  const prepTaskId = prepTask && prepTask.id;
 
   function fmtVal(val, u) {
     if (val === null || val === undefined) return '—';
@@ -333,62 +336,44 @@ function buildChefAiStep1Block(prepSugg, prepTask) {
     return n + (u ? ' ' + u : '');
   }
 
-  const prepTaskId = prepTask && prepTask.id;
+  const pq = prepSugg.production_constraint_quality || 'missing';
+  const stockVal   = fmtVal(prepSugg.current_stock, unit);
+  const plannedVal = prepSugg.planned_output != null
+    ? fmtVal(prepSugg.planned_output, unit)
+    : fmtVal(prepSugg.net_requirement, unit);
 
-  if (prepSugg) {
-    const pq = prepSugg.production_constraint_quality || 'missing';
-    const stockVal   = fmtVal(prepSugg.current_stock, unit);
-    const plannedVal = prepSugg.planned_output != null
-      ? fmtVal(prepSugg.planned_output, unit)
-      : fmtVal(prepSugg.net_requirement, unit);
+  // Compact summary line shown in the collapsed header
+  const summaryText = 'Prep Suggestion · Stock ' + stockVal + ' / Prepare ' + plannedVal;
 
-    // Batch note when constraint missing/conflicting
-    const batchNote = (pq === 'missing' || pq === 'conflicting')
-      ? '<div style="margin-top:8px;font-size:12px;color:#854f0b;background:#fef3c7;border-radius:8px;padding:8px 10px;">Quantity is an estimate — recipe cannot be auto-scaled yet.</div>'
-      : '';
+  // Batch note shown inside details when constraint is missing/conflicting
+  const batchNote = (pq === 'missing' || pq === 'conflicting')
+    ? '<div style="margin-top:8px;font-size:12px;color:#854f0b;background:#fef3c7;border-radius:8px;padding:8px 10px;">Quantity is an estimate — batch size not yet defined.</div>'
+    : '';
 
-    const rows = [
-      ['Recorded stock', stockVal],
-      ['Suggested amount', '<strong>' + plannedVal + '</strong>'],
-    ];
-    const rowsHtml = rows.map(([label, val]) =>
-      `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
-        <span style="color:#94a3b8;">${label}</span>
-        <span style="color:#1e3a5f;">${val}</span>
-      </div>`
-    ).join('<div style="height:1px;background:#f1f5f9;margin:0;"></div>');
+  const rowsHtml = [
+    ['Stock', stockVal],
+    ['Prepare', '<strong>' + plannedVal + '</strong>'],
+  ].map(([label, val]) =>
+    `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
+      <span style="color:#94a3b8;">${label}</span>
+      <span style="color:#1e3a5f;">${val}</span>
+    </div>`
+  ).join('<div style="height:1px;background:#f1f5f9;margin:0;"></div>');
 
-    return `<div style="margin:12px 16px 0;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #bfdbfe;border-radius:14px;padding:14px 14px 12px;">
-      <div style="font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:0.6px;margin-bottom:10px;">🤖 PREP SUGGESTION</div>
+  return `<details style="margin:10px 16px 0;" id="rmSuggDetails">
+    <summary style="list-style:none;cursor:pointer;padding:10px 12px;background:rgba(219,234,254,0.5);border:1px solid #bfdbfe;border-radius:12px;font-size:12px;font-weight:600;color:#1d4ed8;display:flex;align-items:center;justify-content:space-between;-webkit-tap-highlight-color:transparent;">
+      <span>${summaryText}</span>
+      <span style="font-size:10px;color:#93c5fd;font-weight:500;">View details ↓</span>
+    </summary>
+    <div style="margin-top:6px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #bfdbfe;border-radius:12px;padding:12px 14px;">
       ${rowsHtml}
       ${batchNote}
-      <div style="display:flex;gap:8px;margin-top:12px;">
+      <div style="display:flex;gap:8px;margin-top:10px;">
         <button onclick="(function(){var o=document.getElementById('rmOverlay');if(o){var t=o.querySelector('.rm-tab[data-tab=\'ingredients\']');if(t)t.click();else o.querySelector('.rm-tab')?.click();}})()" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:700;background:#059669;color:#fff;border:none;cursor:pointer;">START PREP</button>
         <button onclick="document.getElementById('rmOverlay')?.remove();setTimeout(()=>window.segnalaChef&&window.segnalaChef(${JSON.stringify(prepTaskId)}),100)" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:600;color:#64748b;background:#f1f5f9;border:none;cursor:pointer;">REPORT AN ISSUE</button>
       </div>
-    </div>`;
-
-  } else if (prepTask && prepTask.suggested_qty) {
-    // Legacy fallback: bot-preplist-builder
-    const sqVal    = fmtVal(prepTask.suggested_qty, unit);
-    const stockVal = fmtVal(prepTask.current_stock, unit);
-    return `<div style="margin:12px 16px 0;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #bfdbfe;border-radius:14px;padding:14px 14px 12px;">
-      <div style="font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:0.6px;margin-bottom:10px;">🤖 PREP SUGGESTION</div>
-      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
-        <span style="color:#94a3b8;">Recorded stock</span><span style="color:#1e3a5f;">${stockVal}</span>
-      </div>
-      <div style="height:1px;background:#f1f5f9;"></div>
-      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;color:#475569;">
-        <span style="color:#94a3b8;">Suggested amount</span><span style="color:#1e3a5f;"><strong>${sqVal}</strong></span>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:12px;">
-        <button onclick="(function(){var o=document.getElementById('rmOverlay');if(o){var t=o.querySelector('.rm-tab[data-tab=\'ingredients\']');if(t)t.click();else o.querySelector('.rm-tab')?.click();}})()" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:700;background:#059669;color:#fff;border:none;cursor:pointer;">START PREP</button>
-        <button onclick="document.getElementById('rmOverlay')?.remove();setTimeout(()=>window.segnalaChef&&window.segnalaChef(${JSON.stringify(prepTask.id)}),100)" style="flex:1;height:38px;border-radius:10px;font-size:13px;font-weight:600;color:#64748b;background:#f1f5f9;border:none;cursor:pointer;">REPORT AN ISSUE</button>
-      </div>
-    </div>`;
-  }
-
-  return '';
+    </div>
+  </details>`;
 }
 
 function renderStepView(steps, currentStep, prepTaskId, totalSteps, closeModal, bomRows, scaleFactor){
@@ -634,12 +619,6 @@ window.recipeModal={
           _pillLabel=`🤖 ${suggestedPortions} ${prepSugg.output_unit||'pcs'} today`;
         }
       }
-    } else if(prepTask?.suggested_qty && rec?.serving_weight_g){
-      const sqG=parseFloat(prepTask.suggested_qty), swG=parseFloat(rec.serving_weight_g);
-      if(sqG>0&&swG>0){suggestedPortions=Math.round(sqG/swG);_pillLabel=`🤖 ${suggestedPortions} ${t('servings').toLowerCase()} today`;}
-    } else if(prepTask?.suggested_qty && _bwgPill && _bsPill){
-      const sqG=parseFloat(prepTask.suggested_qty);
-      if(sqG>0&&_bwgPill>0){suggestedPortions=Math.round((sqG/_bwgPill)*_bsPill);_pillLabel=`🤖 ${suggestedPortions} ${t('servings').toLowerCase()} today`;}
     }
     const botPill=suggestedPortions&&_pillLabel?`<span class="rm-sub-pill rm-bot-pill" id="rmBotPill" data-portions="${suggestedPortions}">${_pillLabel}</span>`:'';
 
