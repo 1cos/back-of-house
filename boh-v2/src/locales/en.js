@@ -85,6 +85,11 @@ export const en = {
   // ── Station Prep — Complete action (Task 004P) ────────────────────────
   'station_prep.complete': 'Complete',
 
+  // ── Station Prep — Complete submission feedback (Task 004Q) ───────────
+  'station_prep.completing':            'Completing\u2026',
+  'station_prep.complete_error':        'Unable to complete this prep. Try again.',
+  'station_prep.complete_partial_error':'Production was recorded, but the prep status was not updated. Tell the Chef.',
+
   // ── Station Prep — Complete Prep Form (Task 004O) ─────────────────────
   'station_prep.complete_form_title':          'Complete prep',
   'station_prep.complete_form_fallback_task':  'Prep task',

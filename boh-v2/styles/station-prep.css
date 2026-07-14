@@ -448,3 +448,32 @@
   box-sizing: border-box;
 }
 
+/* ── Complete submission feedback (Task 004Q) ─────────────────────────
+   Completing… status and error/partial-error messages appear inside
+   the completion form container.
+   Long partial-failure text wraps safely at 320px.
+   No !important. No inline styles. No animation.                       */
+
+/* Completing… — role="status" set in JS */
+.station-prep__complete-submitting {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: var(--sp-2) 0 0;
+  line-height: 1.4;
+}
+
+/* Full failure and partial failure — role="alert" set in JS */
+.station-prep__complete-error {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  border-left: 3px solid var(--accent);
+  padding-left: var(--sp-2);
+  margin: var(--sp-2) 0 0;
+  line-height: 1.5;
+  word-break: break-word;   /* long partial-failure text wraps safely */
+}
+

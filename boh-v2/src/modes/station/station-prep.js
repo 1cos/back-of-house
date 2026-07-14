@@ -8,6 +8,7 @@
 // Task 004K: shows today's production logs inside each expanded task detail.
 // Task 004M: Start button inside expanded detail; connects to startPrepTask service.
 // Task 004P: Complete button for in-progress tasks; mounts Complete Prep form in expanded detail.
+// Task 004Q: Complete Prep form connected to completePrepTask service; local state updated on success.
 // Returns an HTMLElement immediately; loads data asynchronously.
 // No router import. No app-state import. No Supabase import. No window writes.
 
@@ -328,58 +329,175 @@ function buildStartButton({ task, currentUser, translate, startTask, section, on
   return btn;
 }
 
+// ── Log sort helper ───────────────────────────────────────────────────
+
+/**
+ * Returns a new sorted array of log entries by createdAt ascending.
+ * Logs with missing/invalid createdAt remain after valid-dated logs,
+ * preserving their relative order among each other.
+ *
+ * @param {Array<object>} logs
+ * @returns {Array<object>}
+ */
+function sortedLogs(logs) {
+  return logs.slice().sort((a, b) => {
+    const da = a.createdAt ? new Date(a.createdAt) : null;
+    const db = b.createdAt ? new Date(b.createdAt) : null;
+    const aValid = da && !isNaN(da.getTime());
+    const bValid = db && !isNaN(db.getTime());
+    if (aValid && bValid) return da.getTime() - db.getTime();
+    if (aValid) return -1;
+    if (bValid) return 1;
+    return 0;
+  });
+}
+
 // ── Complete button builder ───────────────────────────────────────────
 
 /**
  * Builds the Complete button and its form lifecycle for one in-progress task.
- * The button is only rendered for tasks where task.inProgress === true.
- * Clicking Complete mounts the form inside the detail panel and hides the button.
- * Cancel removes the form and restores the button.
- * Confirm is a safe no-op in this task (database integration is a later task).
+ * Connected to completePrepTask service (Task 004Q).
+ * Missing currentUser.name disables the button; no write is attempted.
  *
  * @param {{
- *   task:      object,
- *   translate: (key: string) => string,
- *   detailEl:  HTMLElement,
+ *   task:              object,               — mutable working copy
+ *   currentUser:       object,
+ *   translate:         (key: string) => string,
+ *   completeTask:      Function,
+ *   section:           HTMLElement,          — root section for isConnected checks
+ *   onCompleteSuccess: (result: object) => void,
+ *   detailEl:          HTMLElement,
  * }} opts
  * @returns {HTMLElement}
  */
-function buildCompleteButton({ task, translate, detailEl }) {
+function buildCompleteButton({ task, currentUser, translate, completeTask, section, onCompleteSuccess, detailEl }) {
+  const userName = (currentUser && typeof currentUser.name === 'string')
+    ? currentUser.name.trim()
+    : '';
+  const canComplete = userName.length > 0;
+
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'station-prep__complete-btn';
   btn.textContent = translate('station_prep.complete');
+  if (!canComplete) btn.disabled = true;
 
-  // Container for the mounted form — created fresh each time Complete is pressed.
-  // Stored on the closure so repeated clicks remove any previous instance first.
   let formContainer = null;
+  let submitting = false;
+
+  // ── Feedback helpers ──
+
+  function clearFeedback() {
+    if (!formContainer) return;
+    const prev = formContainer.querySelector(
+      '.station-prep__complete-submitting, .station-prep__complete-error'
+    );
+    if (prev) prev.remove();
+  }
+
+  function setFormDisabled(disabled) {
+    if (!formContainer) return;
+    formContainer.querySelectorAll('input, button').forEach((el) => {
+      el.disabled = disabled;
+    });
+  }
+
+  function showSubmitting() {
+    clearFeedback();
+    const el = document.createElement('p');
+    el.className = 'station-prep__complete-submitting';
+    el.setAttribute('role', 'status');
+    el.textContent = translate('station_prep.completing');
+    formContainer.appendChild(el);
+  }
+
+  function showError(msgKey) {
+    clearFeedback();
+    const el = document.createElement('p');
+    el.className = 'station-prep__complete-error';
+    el.setAttribute('role', 'alert');
+    el.textContent = translate(msgKey);
+    formContainer.appendChild(el);
+  }
 
   function removeForm() {
     if (formContainer && formContainer.parentNode) {
       formContainer.remove();
     }
     formContainer = null;
+    submitting = false;
     btn.hidden = false;
   }
 
+  // ── Complete button click: mount form ──
   btn.addEventListener('click', () => {
-    // Remove any previous form for this task before mounting a new one.
+    if (!canComplete) return;
+
+    // Remove any previous form before mounting a new one.
     if (formContainer && formContainer.parentNode) {
       formContainer.remove();
     }
-
-    // Hide the button while the form is open.
+    submitting = false;
     btn.hidden = true;
 
-    // Build the form using the existing component.
     const form = createCompletePrepForm({
       taskName:    task.name,
       defaultUnit: task.unit ?? null,
       translate,
-      onConfirm:   () => {
-        // Safe no-op. Database integration is Task 004Q.
+
+      onConfirm: ({ quantity, unit }) => {
+        // Prevent duplicate submission.
+        if (submitting) return;
+        submitting = true;
+
+        // Remove previous feedback, disable controls, show Completing…
+        clearFeedback();
+        setFormDisabled(true);
+        showSubmitting();
+
+        completeTask({
+          prepTask: {
+            id:           task.id,
+            name:         task.name,
+            station:      task.station,
+            currentStock: task.currentStock,
+            inProgressAt: task.inProgressAt,
+          },
+          quantity,
+          unit,
+          completedBy: userName,
+        }).then((result) => {
+          if (!section.isConnected) return;
+
+          if (result.ok) {
+            // Full success — onCompleteSuccess triggers rerender which destroys this form.
+            onCompleteSuccess({ ok: true, log: result.log, task: result.task });
+          } else if (result.log !== null) {
+            // Partial failure: log was written, task not updated.
+            submitting = false;
+            setFormDisabled(false);
+            clearFeedback();
+            // Append the returned log locally without updating task.
+            onCompleteSuccess({ ok: false, log: result.log, task: null });
+            // Show partial error inside the still-open form.
+            showError('station_prep.complete_partial_error');
+          } else {
+            // Full failure: nothing written.
+            submitting = false;
+            setFormDisabled(false);
+            clearFeedback();
+            showError('station_prep.complete_error');
+          }
+        }).catch(() => {
+          if (!section.isConnected) return;
+          submitting = false;
+          setFormDisabled(false);
+          clearFeedback();
+          showError('station_prep.complete_error');
+        });
       },
-      onCancel:    () => {
+
+      onCancel: () => {
         removeForm();
       },
     });
@@ -387,7 +505,6 @@ function buildCompleteButton({ task, translate, detailEl }) {
     formContainer = document.createElement('div');
     formContainer.className = 'station-prep__complete-form-container';
     formContainer.appendChild(form);
-
     detailEl.appendChild(formContainer);
   });
 
@@ -411,9 +528,11 @@ function buildCompleteButton({ task, translate, detailEl }) {
  * @param {object} currentUser
  * @param {HTMLElement} section     — root section for isConnected checks
  * @param {(result: object) => void} onSuccess
+ * @param {Function} completeTask
+ * @param {(result: object) => void} onCompleteSuccess
  * @returns {HTMLElement}
  */
-function buildDetailPanel(panelId, task, suggestion, logs, translate, startTask, currentUser, section, onSuccess) {
+function buildDetailPanel(panelId, task, suggestion, logs, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__task-detail';
   panel.id = panelId;
@@ -497,7 +616,11 @@ function buildDetailPanel(panelId, task, suggestion, logs, translate, startTask,
   if (task.inProgress === true) {
     panel.appendChild(buildCompleteButton({
       task,
+      currentUser,
       translate,
+      completeTask,
+      section,
+      onCompleteSuccess,
       detailEl: panel,
     }));
   }
@@ -560,7 +683,7 @@ function createExpandController() {
 
 // ── Task row builder ──────────────────────────────────────────────────
 
-function buildTaskRow(task, suggestion, logs, translate, expandController, panelId, startTask, currentUser, section, onSuccess) {
+function buildTaskRow(task, suggestion, logs, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
   const item = document.createElement('li');
   item.className = 'station-prep__task';
 
@@ -624,7 +747,7 @@ function buildTaskRow(task, suggestion, logs, translate, expandController, panel
   metaRow.appendChild(stateEl);
 
   // ── Detail panel (hidden by default) ──
-  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, translate, startTask, currentUser, section, onSuccess);
+  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, translate, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess);
 
   item.appendChild(topRow);
   item.appendChild(metaRow);
@@ -647,7 +770,7 @@ function buildTaskRow(task, suggestion, logs, translate, expandController, panel
  * @param {{ nextId: () => string }} idGen
  * @returns {HTMLElement|null}
  */
-function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess) {
+function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess) {
   if (tasks.length === 0) return null;
 
   const group = document.createElement('section');
@@ -677,7 +800,7 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expan
     const suggestion = suggestionsMap[task.id] ?? null;
     const logs = logsMap[task.name] ?? undefined;
     const panelId = idGen.nextId();
-    list.appendChild(buildTaskRow(task, suggestion, logs, translate, expandController, panelId, startTask, currentUser, section, onSuccess));
+    list.appendChild(buildTaskRow(task, suggestion, logs, translate, expandController, panelId, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess));
   }
 
   group.appendChild(headingRow);
@@ -700,11 +823,12 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, translate, expan
  *   fetchSuggestions: (ids: number[]) => Promise<{ ok: boolean, suggestions: Object }>,
  *   fetchLogs:        (names: string[]) => Promise<{ ok: boolean, logsByTaskName: Object }>,
  *   startTask:        (opts: object) => Promise<object>,
+ *   completeTask:     (opts: object) => Promise<object>,
  *   currentUser:      object
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, startTask, currentUser }) {
+export function createStationPrep({ stationName, translate, fetchTasks, fetchSuggestions, fetchLogs, startTask, completeTask, currentUser }) {
   const section = document.createElement('section');
   section.className = 'station-prep';
 
@@ -782,12 +906,14 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
         ? logResult.logsByTaskName
         : {};
 
-      // Mutable local working copies — do not mutate arrays or objects from fetchTasks.
-      // Each object is a shallow copy; only updated task is replaced after successful Start.
-      let workingTasks = taskResult.tasks.map((t) => Object.assign({}, t));
+      // Mutable local working copies — do not mutate arrays or objects from fetchTasks/fetchLogs.
+      // Each task object is a shallow copy; only the updated task is replaced on success.
+      // workingLogsMap is a mutable shallow copy of logsMap; each log array is copied before append.
+      let workingTasks   = taskResult.tasks.map((t) => Object.assign({}, t));
+      let workingLogsMap = Object.assign({}, logsMap);
 
       // ── Render function ───────────────────────────────────────────
-      // Called on initial load and after any successful Start.
+      // Called on initial load and after any successful Start or Complete.
       // Always collapses all panels (new expandController per render).
       function render() {
         content.innerHTML = '';
@@ -815,7 +941,7 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
         const ordered = sortedTasks(workingTasks, suggestionsMap);
         const groups  = groupedTasks(ordered, suggestionsMap);
 
-        // onSuccess: update only the matching working task, then rerender.
+        // onSuccess (Start): update only the matching working task, then rerender.
         function onSuccess(result) {
           workingTasks = workingTasks.map((t) => {
             if (t.id !== result.task.id) return t;
@@ -828,9 +954,42 @@ export function createStationPrep({ stationName, translate, fetchTasks, fetchSug
           if (section.isConnected) render();
         }
 
+        // onCompleteSuccess: called by buildCompleteButton after service resolves.
+        // result.ok === true  → full success: update task + append log + rerender.
+        // result.ok === false + result.log !== null → partial: append log only (no rerender).
+        function onCompleteSuccess(result) {
+          // Always append the returned log if present (full and partial success).
+          if (result.log) {
+            const taskName = result.log.taskName;
+            const existing = workingLogsMap[taskName]
+              ? workingLogsMap[taskName].slice()
+              : [];
+            const newLog = Object.assign({}, result.log);
+            workingLogsMap = Object.assign({}, workingLogsMap, {
+              [taskName]: sortedLogs([...existing, newLog]),
+            });
+          }
+
+          if (result.ok && result.task) {
+            // Full success: update task working copy and rerender.
+            workingTasks = workingTasks.map((t) => {
+              if (t.id !== result.task.id) return t;
+              return Object.assign({}, t, {
+                currentStock: result.task.currentStock,
+                needTomorrow: result.task.needTomorrow,
+                inProgress:   result.task.inProgress,
+                inProgressAt: result.task.inProgressAt,
+                inProgressBy: result.task.inProgressBy,
+              });
+            });
+            if (section.isConnected) render();
+          }
+          // Partial failure: log appended above, no rerender — form stays open.
+        }
+
         // Render non-empty sections in approved order.
         for (const key of SECTION_KEYS) {
-          const groupEl = buildGroup(key, groups[key], suggestionsMap, logsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess);
+          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, translate, expandController, idGen, startTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess);
           if (groupEl) content.appendChild(groupEl);
         }
       }
