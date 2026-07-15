@@ -286,3 +286,41 @@ Tab dedicata visibile a brigata + Max con highlights operativi.
 - Dati disponibili nel DB (pos_production_daily, messages, prep_log)
 - UI da costruire — sessione dedicata
 
+
+---
+
+## Auth — Brigade Session System (2026-07-15)
+
+### Scelta: Edge Function gateway per il login, non RPC diretta da anon
+
+**Motivo:** La `brigade_login` RPC era accessibile da anon. Qualsiasi chiamante con l'anon key poteva tentare PIN infiniti (rate limit bypasabile cambiando User-Agent). L'EF `brigade-login` è l'unico entry point: estrae l'IP lato server (non dal client), applica rate limit multi-bucket (install + network + global), e chiama il RPC solo con service_role.
+
+**Cosa NON abbiamo fatto:** Supabase Auth per il personale di cucina. La brigata usa PIN 4 cifre — nessun email/password. Il sistema sessioni è custom (brigade_sessions table).
+
+### Scelta: bcrypt per i PIN (cost 10), colonna pin plaintext nullificata
+
+**Motivo:** Il PIN era in chiaro nella tabella users. Con RLS "public read" (oggi rimossa), qualsiasi anon poteva fare `SELECT pin FROM users` e ottenere tutti i PIN. La migrazione ha hashed 28/28 PIN server-side in blocco (non aspettando i login individuali).
+
+**Rollback:** La colonna pin è nullable (non droppata ancora). Per ripristinare: aggiungere NOT NULL e scrivere i PIN. Tuttavia i valori plaintext sono stati azzerati — servirebbero reset PIN uno per uno via `brigade_reset_pin`.
+
+### Scelta: Rate limit multi-bucket (install + network)
+
+**Soglie scelte per una cucina con ~5 device condividendo un IP pubblico:**
+- install bucket: 10 fail/15min → cooldown (per device, più restrittivo)
+- net bucket: 40 fail/15min → cooldown (tolera 4 device × 10 sbagliati ciascuno senza bloccare il ristorante)
+- global: 500 fail/60min → solo log (failsafe estremo)
+
+**Chiave:** HMAC(pepper, ip + date) per il bucket net — rotazione giornaliera, pepper server-side, non reversibile dall'esterno.
+
+### Scelta: Sessione opaca con token 256-bit, hash sha256 in DB
+
+**Motivo:** Nessun JWT — un JWT firmato con il service_role secret sarebbe equivalente al service key stesso. Il token opaco è generato con `gen_random_bytes(32)`, solo lo sha256 viene salvato. Se il DB viene compromesso, i token in uso non sono recuperabili.
+
+### Scelta: Absolute session lifetime 7 giorni + sliding 12h
+
+**Motivo:** Un cuoco non deve riautenticarsi ogni giorno se usa l'app continuamente (sliding). Ma dopo 7 giorni, il PIN va reinserito per sicurezza anche in caso di uso continuo. La formula: `expires_at = LEAST(now+12h, absolute_expires_at)`.
+
+### NON fatto: Server-side identity per admin writes su users
+
+Le operazioni `saveNewUser`, `saveEditUser`, `toggleUserActive` usano ancora `anon_insert_users` / `anon_update_users` policy. Sono admin-gated nella UI ma non nel DB. Tech debt documentato — da wrappare in RPCs SECURITY DEFINER in una sessione futura.
+
