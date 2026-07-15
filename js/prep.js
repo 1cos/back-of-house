@@ -895,21 +895,19 @@ function renderSuggBlock(sugg, i) {
   // ── TRUST VIEW BLOCK ──
   const trustHtml = _renderTrustBlock(i, sugg, status, outUnit);
 
-  // ── STOCK COUNT BUTTON — SUGG_VERIFY only (Sprint #2A) ──────────────────
-  // Shown only when the bot has no demand path for this prep.
-  // Not shown for any other card type in this sprint.
-  let stockCountBtnHtml = '';
-  if (status === 'no_demand_path' || status === 'out_of_scope') {
-    const iid2 = i.id;
-    stockCountBtnHtml = `<div style="margin-top:10px;">
-      <button
-        onclick="event.stopPropagation();openStockCountSheet(${JSON.stringify(iid2)})"
-        style="width:100%;height:42px;border-radius:12px;font-size:13px;font-weight:700;background:transparent;color:#64748b;border:1.5px solid #cbd5e1;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;"
-      >📦 Stock Count</button>
-    </div>`;
-  }
+  // ── ALIGN STOCK BUTTON — Sprint #2B: all SUGG_* states with managed stock ──
+  // Available on every prep card that maintains current_stock.
+  // Excluded only when the concept genuinely does not apply (checklist handled
+  // at the card level; out_of_scope preps still have stock so included here).
+  const iid2 = i.id;
+  const alignStockBtnHtml = `<div style="margin-top:10px;">
+    <button
+      onclick="event.stopPropagation();openStockCountSheet(${JSON.stringify(iid2)})"
+      style="width:100%;height:42px;border-radius:12px;font-size:13px;font-weight:700;background:transparent;color:#64748b;border:1.5px solid #cbd5e1;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;"
+    >📦 Align Stock</button>
+  </div>`;
 
-  return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${descHtml}${rcHtml}${stockHtml}${avgHtml}${confHtml}${trustHtml}${stockCountBtnHtml}</div>`;
+  return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${descHtml}${rcHtml}${stockHtml}${avgHtml}${confHtml}${trustHtml}${alignStockBtnHtml}</div>`;
 }
 
 // ── TRUST VIEW BLOCK ─────────────────────────────────────────────────────────
@@ -1612,6 +1610,35 @@ window.toggleAllAudit = function(){
   }
   renderM();
 };
+
+// ── ALIGN STOCK BUTTON — Sprint #2B ──────────────────────────────────────────
+// Returns an "Align Stock" link for any prep card with managed current_stock.
+// Excluded: checklist (no stock), BLOCKED (no recipe), SUGG_UNAVAILABLE (not monitored),
+// and in_progress cards (handled separately).
+// SUGG_* cards already include the Align Stock button inside renderSuggBlock —
+// this function covers legacy (non-SUGG_*) card types only.
+function alignStockBtn(i) {
+  if (!i) return '';
+  // Checklist tasks have no quantitative stock
+  if (i.prep_type === 'checklist') return '';
+  const _ct = classifyCard(i);
+  // No managed stock for these card types
+  if (_ct === 'BLOCKED')          return '';
+  if (_ct === 'SUGG_UNAVAILABLE') return '';
+  // SUGG_* cards already have Align Stock inside renderSuggBlock — no duplicate
+  if (_ct && _ct.startsWith('SUGG_')) return '';
+  // All other card types (TRUSTED, COUNT_FIRST, STAGED_CHECK, LARGE_BATCH, WATCH,
+  // CHEF_REVIEW, COUNT_RECONCILED) with a prep that has a recipe_id or ingredient_id
+  // benefit from Align Stock.
+  if (!i.recipe_id && !i.ingredient_id) return '';
+  const iid = i.id;
+  return `<div style="margin-top:6px;">
+    <button
+      onclick="event.stopPropagation();openStockCountSheet(${JSON.stringify(iid)})"
+      style="width:100%;height:38px;border-radius:10px;font-size:12px;font-weight:700;background:transparent;color:#94a3b8;border:1px solid #e2e8f0;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;"
+    >📦 Align Stock</button>
+  </div>`;
+}
 
 // ── COLORE BORDO card ──
 function cardBorderColor(i){
@@ -2639,6 +2666,7 @@ function renderM(){
             +'</div>'
           +'</div>'
           +(btnBelow?'<div style="margin-top:10px;padding-bottom:4px;">'+btn+'</div>':'')
+        +(btnBelow && !isWip ? alignStockBtn(i) : '')
         +'</div>'
         +'<div class=\"audit-detail\" style=\"display:none;\"></div>'
         +'<div class=\"chef-ai-panel\" id=\"chef-ai-panel-'+iid+'\" style=\"display:none;\"></div>'
@@ -4001,7 +4029,7 @@ window.openStockCountSheet = function(id) {
       <!-- Header -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
         <div>
-          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Stock Count</div>
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">ALIGN STOCK</div>
           <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-top:2px;">${it.name || 'Prep'}</div>
         </div>
         <button onclick="document.getElementById('stockCountSheet').remove()" style="width:32px;height:32px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
@@ -4015,7 +4043,7 @@ window.openStockCountSheet = function(id) {
 
       <!-- Input -->
       <div style="margin-bottom:8px;">
-        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;">Counted on hand</div>
+        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;">Actual quantity on hand</div>
         <div style="display:flex;align-items:center;gap:10px;">
           <input
             id="stockCountInput-${id}"
@@ -4035,7 +4063,7 @@ window.openStockCountSheet = function(id) {
 
       <!-- Disclaimer -->
       <div style="font-size:11px;color:#94a3b8;margin-bottom:20px;line-height:1.5;">
-        Enter the total quantity physically on hand — not an amount to add.
+        If Brigade doesn't match what you physically have, update it here.
       </div>
 
       <!-- Save button -->
@@ -4044,7 +4072,7 @@ window.openStockCountSheet = function(id) {
         disabled
         onclick="event.stopPropagation();window._scSave(${JSON.stringify(id)})"
         style="width:100%;height:50px;border-radius:14px;font-size:15px;font-weight:700;background:#94a3b8;color:white;border:none;cursor:not-allowed;letter-spacing:0.03em;transition:background 0.15s;-webkit-tap-highlight-color:transparent;"
-      >Save Count</button>
+      >SAVE ACTUAL STOCK</button>
 
       <!-- Result area (populated after save) -->
       <div id="stockCountResult-${id}" style="margin-top:12px;"></div>
@@ -4101,7 +4129,7 @@ window._scSave = async function(id) {
   btn.disabled = true;
   btn.style.background = '#94a3b8';
   btn.style.cursor = 'not-allowed';
-  btn.textContent = 'Saving…';
+  btn.textContent = 'Aligning…';
   if (res) res.innerHTML = '';
 
   // Brigade session token from sessionStorage
@@ -4132,7 +4160,7 @@ window._scSave = async function(id) {
       btn.disabled = false;
       btn.style.background = '#1e3a5f';
       btn.style.cursor = 'pointer';
-      btn.textContent = 'Save Count';
+      btn.textContent = 'SAVE ACTUAL STOCK';
     }
     if (res) res.innerHTML = '<div style="font-size:13px;color:#dc2626;margin-top:4px;">Network error. Please try again.</div>';
     return;
@@ -4144,7 +4172,7 @@ window._scSave = async function(id) {
       btn.disabled = false;
       btn.style.background = '#1e3a5f';
       btn.style.cursor = 'pointer';
-      btn.textContent = 'Save Count';
+      btn.textContent = 'SAVE ACTUAL STOCK';
     }
     const errMsg = result?.error || 'Unknown error';
     if (res) res.innerHTML = `<div style="font-size:13px;color:#dc2626;margin-top:4px;">Could not save count: ${errMsg}</div>`;
@@ -4195,7 +4223,7 @@ window._scSave = async function(id) {
   // ── Build result UI ───────────────────────────────────────────────────────
   const confirmedRow = `
     <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px 12px;margin-top:4px;">
-      <div style="font-size:12px;font-weight:700;color:#059669;">✅ Stock Count confirmed</div>
+      <div style="font-size:12px;font-weight:700;color:#059669;">✅ Stock aligned successfully.</div>
       <div style="font-size:14px;font-weight:700;color:#1e3a5f;margin-top:4px;">${newStockHuman} on hand</div>
       <div style="font-size:11px;color:#64748b;margin-top:2px;">Counted by ${countedBy} at ${timeStr} CDT</div>
     </div>`;
@@ -4227,7 +4255,7 @@ window._scSave = async function(id) {
 
   if (res) res.innerHTML = confirmedRow + suggestionRow;
   if (btn) {
-    btn.textContent = 'Saved ✓';
+    btn.textContent = 'Aligned ✓';
     btn.style.background = '#059669';
     btn.disabled = true;
   }
