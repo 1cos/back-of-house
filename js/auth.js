@@ -50,8 +50,27 @@ async function saveNewPIN(btn){
 }
 
 // ── GESTIONE UTENTI (solo admin) ──
+
+// ── BRIGADE ADMIN API HELPER ───────────────────────────────────────────────
+// All user management mutations go through the brigade-user-admin Edge Function.
+// Never write to public.users directly from the browser.
+async function _adminApi(action, params) {
+  const token = sessionStorage.getItem('brigade_token');
+  if(!token) throw new Error('no_session');
+  const url = (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : window.SUPABASE_URL) + '/functions/v1/brigade-user-admin';
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({brigade_token: token, action, ...params})
+  });
+  const data = await resp.json();
+  if(!resp.ok || !data.ok) throw new Error(data.error || 'admin_api_error');
+  return data;
+}
+
 async function openUserManager(){
-  const{data:users_list}=await supa.from('users_public').select('*').order('name');
+  const result=await _adminApi('list_users',{}).catch(()=>({users:[]}));
+  const users_list=result.users||[];
   const modal=document.createElement('div');
   modal.className='fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML=`
@@ -130,17 +149,18 @@ async function saveNewUser(btn){
   if(!name){err.textContent='Nome obbligatorio';err.classList.remove('hidden');return}
   if(!/^\d{4}$/.test(pin)){err.textContent='PIN deve essere 4 cifre numeriche';err.classList.remove('hidden');return}
   btn.disabled=true; btn.textContent='Creazione...';
-  const newUser={name,pin,lang,role,active:true,is_admin:role==='admin'};
-  if(station) newUser.default_station=station;
-  const{error}=await supa.from('users').insert(newUser);
-  if(error){err.textContent='Errore: '+error.message;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Crea';return}
+  try {
+    await _adminApi('create_user',{name,pin,lang,role,default_station:station||undefined});
+  } catch(e) {err.textContent='Errore: '+e.message;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Crea';return}
   btn.closest('.fixed').remove();
   document.querySelector('.fixed')?.remove();
   openUserManager();
 }
 
 async function openEditUser(userId){
-  const{data:u}=await supa.from('users_public').select('*').eq('id',userId).single();
+  let u;
+  try { const _r = await _adminApi('get_user',{user_id:userId}); u=_r.user; } catch(e){return;}
+  if(!u) return;
   if(!u) return;
   const STATIONS=['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Tableside','Freezer'];
   const modal=document.createElement('div');
@@ -188,16 +208,22 @@ async function saveEditUser(userId, btn){
   if(!name){err.textContent='Nome obbligatorio';err.classList.remove('hidden');return}
   if(pin&&!/^\d{4}$/.test(pin)){err.textContent='PIN deve essere 4 cifre numeriche';err.classList.remove('hidden');return}
   btn.disabled=true; btn.textContent='Salvataggio...';
-  const updates={name,lang,role,default_station,is_admin:role==='admin'};
-  if(pin) updates.pin=pin;
-  const{error}=await supa.from('users').update(updates).eq('id',userId);
-  if(error){err.textContent='Errore: '+error.message;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return}
-  if(user && String(user.id)===String(userId)){
-    user={...user,...updates};
-    if(user.lang) user.lang=normalizeLang(user.lang);
-    applyLang();
-    updateTopBarAvatar();
+  // If a new PIN is supplied, reset it via the secure RPC (session-validated, audit-logged)
+  if(pin){
+    const{data:pinRes}=await supa.rpc('brigade_reset_pin',{
+      p_token:sessionStorage.getItem('brigade_token'),
+      p_target_id:userId, p_new_pin:pin
+    });
+    if(!pinRes?.ok){err.textContent='PIN error: '+(pinRes?.error||'failed');err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return}
   }
+  try {
+    const updated = await _adminApi('edit_user',{user_id:userId,name,lang,role,default_station});
+    if(user && String(user.id)===String(userId)){
+      user={...user,...updated.user};
+      if(user.lang) user.lang=normalizeLang(user.lang);
+      applyLang(); updateTopBarAvatar();
+    }
+  } catch(e){err.textContent='Errore: '+e.message;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return}
   btn.closest('.fixed').remove();
   document.querySelector('.fixed')?.remove();
   openUserManager();
@@ -253,7 +279,9 @@ window.confirmResetPIN = async(userId, btn) => {
 };
 
 async function toggleUserActive(userId, currentlyActive){
-  await supa.from('users').update({active:!currentlyActive}).eq('id',userId);
+  try {
+    await _adminApi('toggle_active',{user_id:userId, active:!currentlyActive});
+  } catch(e) { showScToast('Errore: '+e.message); return; }
   document.querySelector('.fixed')?.remove();
   openUserManager();
 }
@@ -398,7 +426,7 @@ function changeAvatar(){
       const reader=new FileReader();
       reader.onload=async(ev)=>{
         const url=ev.target.result;
-        await supa.from('users').update({photo_url:url}).eq('id',user.id);
+        await _adminApi('update_photo',{user_id:user.id, photo_url:url}).catch(()=>{});
         user.photo_url=url;
         if(av) av.innerHTML=`<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
         updateTopBarAvatar();
@@ -413,7 +441,7 @@ function changeAvatar(){
     const{data:urlData}=supa.storage.from('avatars').getPublicUrl(path);
     const url=urlData?.publicUrl;
     if(!url) return;
-    await supa.from('users').update({photo_url:url}).eq('id',user.id);
+    await _adminApi('update_photo',{user_id:user.id, photo_url:url}).catch(()=>{});
     user.photo_url=url;
     if(av) av.innerHTML=`<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
     updateTopBarAvatar();
