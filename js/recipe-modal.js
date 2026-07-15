@@ -36,6 +36,38 @@ const L = {
 };
 function t(key){ const lang=window.user?.lang||'en'; return (L[key]||{})[lang]||(L[key]||{}).en||key; }
 
+// ── PREP SCROLL LOCK — shared, owner-tracked ─────────────────────────────────
+// Defined outside IIFE so prep.js can call it without depending on recipe-modal load order.
+window._prepScrollOwners = window._prepScrollOwners || [];
+window._prepScrollSavedY = window._prepScrollSavedY || 0;
+
+window.lockPrepScroll = function(owner) {
+  if (!window._prepScrollOwners.includes(owner)) {
+    window._prepScrollOwners.push(owner);
+  }
+  if (window._prepScrollOwners.length === 1) {
+    window._prepScrollSavedY = window.scrollY || window.pageYOffset || 0;
+    document.body.style.position = 'fixed';
+    document.body.style.top = '-' + window._prepScrollSavedY + 'px';
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.overflow = 'hidden';
+  }
+};
+
+window.unlockPrepScroll = function(owner) {
+  window._prepScrollOwners = (window._prepScrollOwners || []).filter(function(o){ return o !== owner; });
+  if (window._prepScrollOwners.length === 0) {
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.left = '';
+    document.body.style.right = '';
+    document.body.style.overflow = '';
+    window.scrollTo(0, window._prepScrollSavedY || 0);
+    window._prepScrollSavedY = 0;
+  }
+};
+
 const STYLE=`<style id="rmStyle">
 #rmOverlay{position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:flex-end;justify-content:center;animation:rmFadeIn .2s ease;}
 @keyframes rmFadeIn{from{opacity:0}to{opacity:1}}
@@ -109,6 +141,9 @@ const STYLE=`<style id="rmStyle">
 .rm-bare-body{flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:24px 18px;}
 .rm-bare-note{background:white;border-radius:20px;padding:24px;box-shadow:0 2px 8px rgba(30,58,95,0.08);font-size:18px;color:#334155;line-height:1.7;flex:1;margin-bottom:20px;}
 .rm-bare-done{width:100%;height:58px;border-radius:18px;background:linear-gradient(135deg,#059669,#10b981);color:white;font-size:18px;font-weight:700;border:none;cursor:pointer;box-shadow:0 4px 16px rgba(5,150,105,0.3);}
+/* ── DONE FOOTER — ingredienti senza steps ── */
+#rmDoneFooter{flex-shrink:0;padding:12px 18px 16px;background:#f0f4f8;border-top:0.5px solid rgba(30,58,95,0.1);}
+#rmDoneFooter button{width:100%;height:54px;border-radius:16px;background:linear-gradient(135deg,#059669,#10b981);color:white;font-size:16px;font-weight:700;border:none;cursor:pointer;box-shadow:0 4px 16px rgba(5,150,105,0.25);letter-spacing:0.02em;}
 </style>`;
 
 // ── INGREDIENT ICONS ──────────────────────────────────────
@@ -569,10 +604,9 @@ function bindStepEvents(steps, getCurrentStep, setCurrentStep, prepTaskId, total
       if(prepTaskId&&typeof window.prepOnStepChange==='function') window.prepOnStepChange(prepTaskId,cur+1,totalSteps);
       renderFn();
     } else {
-      // Ultimo step — avvia quantity sheet in-flow invece di chiudere e basta
+      // Ultimo step — chiudi recipe overlay PRIMA di aprire DONE sheet
       if(prepTaskId && typeof window.openDoneSheet==='function'){
-        window._rmDonePending=prepTaskId;
-        window.openDoneSheet(prepTaskId);
+        _transitionToDone(prepTaskId);
       } else {
         closeModalFn();
       }
@@ -585,6 +619,7 @@ window.recipeModal={
   open: async function(recipeId, prepTaskId){
     document.getElementById('rmOverlay')?.remove();
     if(!document.getElementById('rmStyle')) document.head.insertAdjacentHTML('beforeend',STYLE);
+    window.lockPrepScroll('recipe-modal');
     // NON killare timer globali: restano attivi nella timer bar
     Object.keys(timers).forEach(function(k){
       if(!window._timerState[k]){ clearInterval(timers[k].interval); delete timers[k]; }
@@ -764,6 +799,18 @@ window.recipeModal={
       });
       overlay.querySelector('.rm-close').addEventListener('click',closeFn);
 
+      // ── DONE footer — visible when recipe has BOM but no steps ──
+      if(hasBom && !hasRecipeSteps && prepTaskId){
+        const doneFooter=document.createElement('div');
+        doneFooter.id='rmDoneFooter';
+        doneFooter.innerHTML='<button id="rmIngDoneBtn">✓ Done — log quantity</button>';
+        const rmSheet=overlay.querySelector('#rmSheet');
+        if(rmSheet) rmSheet.appendChild(doneFooter);
+        doneFooter.querySelector('#rmIngDoneBtn').addEventListener('click',()=>{
+          _transitionToDone(prepTaskId);
+        });
+      }
+
       function renderTab(tab){
         const body=document.getElementById('rmBody');
         if(tab==='ingredients'){body.innerHTML=buildIngredients(bomRows,scaleFactor,baseServings);bindIngredients();}
@@ -865,20 +912,40 @@ window.recipeModal={
     // Bind DONE button — apre quantity sheet IN-FLOW senza chiudere il modal prima
     document.getElementById('rmBareDoneBtn')?.addEventListener('click', ()=>{
       if(prepTaskId && typeof window.openDoneSheet==='function'){
-        // Apri il quantity sheet sopra il modal — l'utente inserisce la qty
-        // openDoneSheet chiude se stesso + salva; poi chiudiamo anche l'overlay
-        var _origFinish=window._finishTask;
-        // Patch one-shot: dopo il save chiude anche l'overlay
-        window._rmDonePending=prepTaskId;
-        window.openDoneSheet(prepTaskId);
-        // L'overlay verrà rimosso da _rmOverlayCleanup dopo il salvataggio
+        _transitionToDone(prepTaskId);
       } else {
-        var o=document.getElementById('rmOverlay');
-        if(o) o.remove();
+        closeFn();
       }
     });
   },
   close: function(prepTaskId){ closeModal(prepTaskId); }
+};
+
+// ── TRANSITION: recipe overlay → DONE sheet ──────────────────────────────────
+// Inside IIFE — has access to timers (local interval handles).
+// Deterministic: removes overlay immediately (no fade), then opens DONE sheet.
+function _transitionToDone(prepTaskId) {
+  // 1. Stop local timer intervals (global _timerState preserved — timer bar continues)
+  Object.keys(timers).forEach(function(k){ clearInterval(timers[k].interval); delete timers[k]; });
+  // 2. Fire step-sync callback
+  if (prepTaskId && typeof window.prepOnModalClose === 'function') window.prepOnModalClose(prepTaskId);
+  // 3. Remove sub-overlays
+  document.getElementById('rmSuggSheet')?.remove();
+  // 4. Remove recipe overlay immediately (no fade — user is transitioning to DONE)
+  var o = document.getElementById('rmOverlay');
+  if (o) o.remove();
+  // 5. Unlock recipe-modal scroll owner (DONE sheet will acquire its own owner)
+  window.unlockPrepScroll('recipe-modal');
+  // 6. Clear pending flag — cleanup is done here, not by _rmOverlayCleanup
+  window._rmDonePending = null;
+  // 7. Open DONE sheet synchronously (DOM is clean)
+  if (prepTaskId && typeof window.openDoneSheet === 'function') {
+    window.openDoneSheet(prepTaskId);
+  }
+}
+// Expose for MODALITÀ 2 (prep_steps) and bare DONE buttons via window reference
+window._transitionRecipeToDone = function(prepTaskId, _unusedCloseModalFn) {
+  _transitionToDone(prepTaskId);
 };
 
 function closeModal(prepTaskId){
@@ -887,6 +954,7 @@ function closeModal(prepTaskId){
   if(prepTaskId&&typeof window.prepOnModalClose==='function') window.prepOnModalClose(prepTaskId);
   // Close suggestion sheet if open
   document.getElementById('rmSuggSheet')?.remove();
+  window.unlockPrepScroll('recipe-modal');
   var o=document.getElementById('rmOverlay');
   if(o){o.style.opacity='0';o.style.transition='opacity .2s';setTimeout(function(){o.remove();},200);}
 }
