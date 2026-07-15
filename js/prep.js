@@ -3077,7 +3077,12 @@ function openDoneSheetCustom(id){
   const WHOLE_UNITS  = ['pezzi','pz','each','pieces','pcs','batch','squeezer','porzioni','checklist']; // always integers
   const defaultPezzi = WHOLE_UNITS.includes(taskUnit);
   const defaultNative = NATIVE_UNITS.includes(taskUnit); // nests, buste, etc.
-  const _rawQty = it.suggested_qty!=null ? parseFloat(it.suggested_qty) : (it.average_qty!=null ? parseFloat(it.average_qty) : 0);
+  // Pre-fill qty: use suggested_qty → average_qty → planned_output from suggestion → 0
+  const _suggPlanned = ((window._suggestions || {})[it.id] || {}).planned_output;
+  const _rawQty = it.suggested_qty!=null ? parseFloat(it.suggested_qty)
+    : it.average_qty!=null ? parseFloat(it.average_qty)
+    : _suggPlanned!=null ? parseFloat(_suggPlanned)
+    : 0;
   // Per grammi ≥1000: default in kg (es. 37800g → 37.8 kg) — più leggibile in cucina
   const _autoKg = taskUnit === 'g' && _rawQty >= 1000;
   const defQty = _autoKg ? parseFloat((_rawQty / 1000).toFixed(2)) : _rawQty;
@@ -3144,7 +3149,7 @@ function openDoneSheetCustom(id){
     <div style="font-size:13px;color:#6b7280;margin-bottom:${tlogs.length>0?'12':'20'}px;">${tlogs.length>0?tr('prep_already_today'):tr('prep_how_much')}</div>
     <input id="dsc-qty-${it.id}" type="number" inputmode="${_inputmode}" value="${isNaN(defQty)?'':defQty}" placeholder="0"
       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-      style="width:100%;font-size:32px;font-weight:700;color:#1e3a5f;text-align:center;border:none;border-bottom:2px solid #1e3a5f;outline:none;padding:8px 0;margin-bottom:24px;background:transparent;-webkit-user-select:auto;">
+      style="width:100%;font-size:32px;font-weight:700;color:#1e3a5f;text-align:center;border:none;border-bottom:2px solid #1e3a5f;outline:none;padding:12px 0;margin-bottom:24px;background:transparent;-webkit-user-select:auto;-webkit-tap-highlight-color:transparent;touch-action:manipulation;min-height:56px;">
     <input type="hidden" id="dsc-unit-${it.id}" value="${defUnit}">
     ${btnGrid}
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;">
@@ -3228,11 +3233,20 @@ async function suggestedSave(id, modal){
     _prepSaveError(it.name, (updRes.error||logRes.error).message);
     return;
   }
-  // Evict from suggestions cache immediately
-  if(window._suggestions && window._suggestions[id]) delete window._suggestions[id];
   _finishTask(id, qty);
   loadItemAlerts();loadStepsMap();loadTodayLogs();loadRecentCounts();
-  if(typeof loadSuggestions === 'function') loadSuggestions();
+  // Mark today's suggestion as looks_ok in DB → card disappears based on server state
+  const _todayCDTss = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Chicago', year:'numeric', month:'2-digit', day:'2-digit'
+  }).format(new Date());
+  supa.from('prep_suggestions_daily')
+    .update({ status: 'looks_ok' })
+    .eq('prep_task_id', id)
+    .eq('suggestion_date', _todayCDTss)
+    .then(({ error }) => {
+      if (error) console.warn('[DONE] Could not update suggestion status:', error.message);
+      if (typeof loadSuggestions === 'function') loadSuggestions();
+    });
 }
 
 async function detailSave(id, btn, isSuggested){
@@ -3283,14 +3297,28 @@ async function detailSave(id, btn, isSuggested){
   window.unlockPrepScroll('done-confirm'); // safety: clear any stale confirm owner
   if(sheet) sheet.remove();
   window._rmDonePending = null;
-  // Immediately evict this task from the suggestions cache so renderM shows no suggestion
-  if(window._suggestions && window._suggestions[id]) delete window._suggestions[id];
   _finishTask(id, qtyForStock);
+  // Mark today's suggestion as looks_ok in the DB so the card disappears correctly.
+  // This is NOT a client-side mask — it writes to the authoritative table so that
+  // loadSuggestions() re-reads 'looks_ok' and isActionableCard() returns false.
+  // The bot will recalculate at 4AM CDT with the updated stock; until then, 'looks_ok'
+  // accurately reflects that production occurred and no further action is needed today.
+  const _todayCDT = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Chicago', year:'numeric', month:'2-digit', day:'2-digit'
+  }).format(new Date());
+  supa.from('prep_suggestions_daily')
+    .update({ status: 'looks_ok' })
+    .eq('prep_task_id', id)
+    .eq('suggestion_date', _todayCDT)
+    .then(({ error }) => {
+      if (error) console.warn('[DONE] Could not update suggestion status:', error.message);
+      // Always reload suggestions after the update (success or failure)
+      // On success: re-reads 'looks_ok' → card hidden. On failure: re-reads old status.
+      if (typeof loadSuggestions === 'function') loadSuggestions();
+    });
   await loadItemAlerts();
   await loadStepsMap();
   loadRecentCounts();
-  // Refresh suggestions so the card disappears or reprioritizes after stock update
-  if(typeof loadSuggestions === 'function') loadSuggestions();
   setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
 }
 
