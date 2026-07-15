@@ -679,6 +679,16 @@ window.recipeModal={
     const hasPrepSteps = prepSteps.length>0;
     const hasNote = prepTask?.note && prepTask.note.trim().length>0;
 
+    // ── Resolved steps: prep_steps take precedence over recipe_steps ──────────
+    // prep_steps = kitchen-specific operational instructions for this prep task
+    // recipe_steps = generic recipe method (how to cook the dish)
+    // Rule: if the task has its own prep_steps, those are the authoritative step source.
+    // Never concatenate both; they describe overlapping production at different granularities.
+    const resolvedSteps = hasPrepSteps ? prepSteps : recipeSteps;
+    const hasResolvedSteps = resolvedSteps.length > 0;
+    // Update hasRecipeSteps-dependent logic to use resolvedSteps
+    const hasStepsForTab = hasResolvedSteps;
+
     const title = rec?.title || prepTask?.name || '';
     const category = rec?.menu_group||rec?.category||prepTask?.category||'';
 
@@ -716,20 +726,20 @@ window.recipeModal={
     const closeFn=()=>closeModal(prepTaskId);
 
     // ── MODALITÀ 1: Ricetta completa ──────────────────
-    if(hasRecipe && (hasBom||hasRecipeSteps)){
+    if(hasRecipe && (hasBom||hasStepsForTab)){
       const tabs=[];
       if(hasBom) tabs.push({key:'ingredients',label:t('ingredients')});
-      if(hasRecipeSteps) tabs.push({key:'steps',label:t('steps')});
+      if(hasStepsForTab) tabs.push({key:'steps',label:t('steps')});
       tabs.push({key:'notes',label:t('notes')});
 
-      const totalSteps=recipeSteps.length;
+      const totalSteps=resolvedSteps.length;
       let currentStep=0;
       if(prepTaskId&&window._taskStep&&window._taskStep[prepTaskId]!==undefined){
         currentStep=Math.min(window._taskStep[prepTaskId],Math.max(0,totalSteps-1));
       }
 
       // Always open on Ingredients when available — never preserve previous tab state across modal opens
-      let activeTab = hasBom ? 'ingredients' : (hasRecipeSteps ? 'steps' : 'notes');
+      let activeTab = hasBom ? 'ingredients' : (hasStepsForTab ? 'steps' : 'notes');
       const baseServings=rec.base_servings||1;
       const baseWeightG=rec.base_weight_g?parseFloat(rec.base_weight_g):null;
 
@@ -800,7 +810,7 @@ window.recipeModal={
       overlay.querySelector('.rm-close').addEventListener('click',closeFn);
 
       // ── DONE footer — visible when recipe has BOM but no steps ──
-      if(hasBom && !hasRecipeSteps && prepTaskId){
+      if(hasBom && !hasStepsForTab && prepTaskId){
         const doneFooter=document.createElement('div');
         doneFooter.id='rmDoneFooter';
         doneFooter.innerHTML='<button id="rmIngDoneBtn">✓ Done — log quantity</button>';
@@ -814,7 +824,7 @@ window.recipeModal={
       function renderTab(tab){
         const body=document.getElementById('rmBody');
         if(tab==='ingredients'){body.innerHTML=buildIngredients(bomRows,scaleFactor,baseServings);bindIngredients();}
-        else if(tab==='steps'){body.innerHTML=renderStepView(recipeSteps,currentStep,prepTaskId,totalSteps,closeFn,bomRows,scaleFactor);bindStepEvents(recipeSteps,()=>currentStep,s=>{currentStep=s;},prepTaskId,totalSteps,()=>renderTab('steps'),closeFn,()=>bomRows,()=>scaleFactor);}
+        else if(tab==='steps'){body.innerHTML=renderStepView(resolvedSteps,currentStep,prepTaskId,totalSteps,closeFn,bomRows,scaleFactor);bindStepEvents(resolvedSteps,()=>currentStep,s=>{currentStep=s;},prepTaskId,totalSteps,()=>renderTab('steps'),closeFn,()=>bomRows,()=>scaleFactor);}
         else body.innerHTML=buildNotes(rec);
       }
 
@@ -841,7 +851,7 @@ window.recipeModal={
           // Se siamo nel tab steps, aggiorna anche il testo degli steps con il nuovo scaleFactor
           if(activeTab==='steps'){
             const body=document.getElementById('rmBody');
-            if(body){body.innerHTML=renderStepView(recipeSteps,currentStep,prepTaskId,totalSteps,closeFn,bomRows,scaleFactor);bindStepEvents(recipeSteps,()=>currentStep,s=>{currentStep=s;},prepTaskId,totalSteps,()=>renderTab('steps'),closeFn,()=>bomRows,()=>scaleFactor);}
+            if(body){body.innerHTML=renderStepView(resolvedSteps,currentStep,prepTaskId,totalSteps,closeFn,bomRows,scaleFactor);bindStepEvents(resolvedSteps,()=>currentStep,s=>{currentStep=s;},prepTaskId,totalSteps,()=>renderTab('steps'),closeFn,()=>bomRows,()=>scaleFactor);}
           }
         }
         document.getElementById('rmMinus')?.addEventListener('click',()=>update(servings-1));
@@ -921,8 +931,37 @@ window.recipeModal={
   close: function(prepTaskId){ closeModal(prepTaskId); }
 };
 
-// ── TRANSITION: recipe overlay → DONE sheet ──────────────────────────────────
-// Inside IIFE — has access to timers (local interval handles).
+// ── DEBUG HELPER — physical device QA only ────────────────────────────────────
+// Usage: prepDebugState() in browser console
+// Returns current prep workflow state for validation on iPhone.
+// Non-intrusive: no visible UI, no continuous logging.
+window.prepDebugState = function() {
+  var overlays = {
+    rmOverlay:      !!document.getElementById('rmOverlay'),
+    doneSheet:      !!document.querySelector('[data-prep-done-sheet]'),
+    wipSheet:       !!document.getElementById('v624WipSheet'),
+    confirmPopup:   !!document.getElementById('_dscConfirmCancel'),
+    suggSheet:      !!document.getElementById('rmSuggSheet'),
+  };
+  var doneSheetEl = document.querySelector('[data-prep-done-sheet]');
+  var doneTaskId  = doneSheetEl ? doneSheetEl.getAttribute('data-prep-done-sheet') : null;
+  var qtyInput    = doneTaskId ? document.getElementById('dsc-qty-' + doneTaskId) : null;
+  var scrollOwners = window._prepScrollOwners || [];
+  return {
+    scrollLock: {
+      owners:      scrollOwners.slice(),
+      locked:      scrollOwners.length > 0,
+      bodyPosition: document.body.style.position,
+      bodyTop:      document.body.style.top,
+      savedScrollY: window._prepScrollSavedY,
+    },
+    overlays: overlays,
+    activeTaskId:   doneTaskId,
+    qtyFieldValue:  qtyInput ? qtyInput.value : null,
+    qtyInputmode:   qtyInput ? qtyInput.getAttribute('inputmode') : null,
+    timerKeys:      Object.keys(window._timerState || {}),
+  };
+};
 // Deterministic: removes overlay immediately (no fade), then opens DONE sheet.
 function _transitionToDone(prepTaskId) {
   // 1. Stop local timer intervals (global _timerState preserved — timer bar continues)
