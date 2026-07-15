@@ -2,11 +2,13 @@
 // Task 003A: authenticated App Shell replaces login screen on success.
 // Task 003B: bottom navigation mount target provided by App Shell.
 // Task 003C: station navigation delegated to setupStationNavigation().
-// No global state. No window writes. No storage APIs.
+// Session restore: on page load, restoreSession() checks for an existing
+// brigade_token so returning users skip the PIN screen.
+// No global state. No window writes.
 
 import { t } from './core/i18n.js';
 import { checkSupabaseConnection } from './core/supabase-client.js';
-import { authenticateWithPin } from './services/auth-service.js';
+import { authenticateWithPin, restoreSession } from './services/auth-service.js';
 import { setCurrentUser, getCurrentUser } from './core/app-state.js';
 import { router } from './core/router.js';
 import { createAppShell } from './components/app-shell/app-shell.js';
@@ -21,7 +23,6 @@ if (!root) {
 }
 
 // ── Login screen ──────────────────────────────────────────────────────
-// Rendered initially. Replaced on successful authentication.
 
 function renderLogin() {
   root.innerHTML = `
@@ -58,8 +59,6 @@ function renderLogin() {
   `;
 }
 
-renderLogin();
-
 // ── DOM references ────────────────────────────────────────────────────
 
 function getPinInput()  { return root.querySelector('#pin-input');   }
@@ -72,23 +71,21 @@ let submitting = false;
 
 // ── Connection diagnostic (non-blocking) ──────────────────────────────
 
-checkSupabaseConnection().then((result) => {
-  const dot = getDot();
-  if (!dot) return;   // already replaced by shell — ignore
-  if (result.ok) {
-    dot.dataset.status = 'ready';
-    dot.setAttribute('aria-label', 'Data connection ready');
-  } else {
-    dot.dataset.status = 'unavailable';
-    dot.setAttribute('aria-label', 'Data connection unavailable');
-  }
-});
+function runConnectionDiagnostic() {
+  checkSupabaseConnection().then((result) => {
+    const dot = getDot();
+    if (!dot) return;   // already replaced by shell — ignore
+    if (result.ok) {
+      dot.dataset.status = 'ready';
+      dot.setAttribute('aria-label', 'Data connection ready');
+    } else {
+      dot.dataset.status = 'unavailable';
+      dot.setAttribute('aria-label', 'Data connection unavailable');
+    }
+  });
+}
 
 // ── Shell transition ──────────────────────────────────────────────────
-// Called exactly once after a successful login.
-// Replaces the login screen with the App Shell.
-// Initializes the router exactly once against #app-content.
-// Delegates route registration and navigation state to setupStationNavigation.
 
 function mountShell(user) {
   const shell = createAppShell({
@@ -97,20 +94,14 @@ function mountShell(user) {
     userName:  user.name,
   });
 
-  // Replace login screen with App Shell.
   root.innerHTML = '';
   root.appendChild(shell);
 
-  // Initialize router exactly once against the new outlet.
   const outlet = root.querySelector('#app-content');
   router.init(outlet);
 
-  // Locate the bottom navigation mount target provided by the App Shell.
   const navMount = root.querySelector('.app-shell__nav-mount');
 
-  // Set up Station Mode navigation: registers all five routes, mounts
-  // the bottom navigation, and manages active state.
-  // user is passed so station-home can display identity without importing app-state.
   setupStationNavigation({
     router,
     mountElement: navMount,
@@ -118,7 +109,6 @@ function mountShell(user) {
     user,
   });
 
-  // Navigate to the initial route.
   router.navigate('station-home');
 }
 
@@ -179,7 +169,6 @@ async function handleSubmit() {
 }
 
 // ── Event wiring ──────────────────────────────────────────────────────
-// Uses event delegation on root to survive the DOM replacement in mountShell.
 
 root.addEventListener('click', (e) => {
   if (e.target && e.target.id === 'pin-submit') handleSubmit();
@@ -196,3 +185,19 @@ root.addEventListener('input', (e) => {
     handleSubmit();
   }
 });
+
+// ── Session restore ───────────────────────────────────────────────────
+// Runs once on boot. If a valid brigade_token is in sessionStorage,
+// skip the PIN screen. If not, render login and run diagnostics.
+
+(async function boot() {
+  const restored = await restoreSession();
+  if (restored.ok) {
+    setCurrentUser(restored.user);
+    mountShell(restored.user);
+    return;
+  }
+  // No valid session — show PIN screen and check connectivity.
+  renderLogin();
+  runConnectionDiagnostic();
+})();
