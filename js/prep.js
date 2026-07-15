@@ -187,17 +187,20 @@ window._showWipResolutionSheet = function(id) {
     </div>`;
 
   // Backdrop
-  sheet.addEventListener('click', e => { if (e.target === sheet) sheet.remove(); });
+  sheet.addEventListener('click', e => { if (e.target === sheet) { window.unlockPrepScroll('wip-sheet'); sheet.remove(); } });
   document.body.appendChild(sheet);
+  window.lockPrepScroll('wip-sheet');
 
   // HO FINITO → flusso DONE normale
   document.getElementById('wipDoneBtn').addEventListener('click', () => {
+    window.unlockPrepScroll('wip-sheet');
     sheet.remove();
     if (typeof window.prepDone === 'function') window.prepDone(id);
   });
 
   // CONTINUA → chiude sheet; se stato legacy (in_progress_at=NULL) regolarizza il timestamp
   document.getElementById('wipContinueBtn').addEventListener('click', async () => {
+    window.unlockPrepScroll('wip-sheet');
     sheet.remove();
     if (isLegacy) {
       // Regolarizza lo stato: scrive in_progress_at + in_progress_by, NO nuovo prep_log
@@ -247,6 +250,7 @@ window._showWipResolutionSheet = function(id) {
       }
     } catch(e) { /* non bloccante */ }
 
+    window.unlockPrepScroll('wip-sheet');
     sheet.remove();
     // Toast conferma
     const toast = document.createElement('div');
@@ -260,6 +264,7 @@ window._showWipResolutionSheet = function(id) {
   const notWipBtn = document.getElementById('wipNotWipBtn');
   if (notWipBtn) {
     notWipBtn.addEventListener('click', async () => {
+      window.unlockPrepScroll('wip-sheet');
       sheet.remove();
       await supa.from('prep_tasks').update({
         in_progress: false,
@@ -2377,15 +2382,11 @@ window.saveKitchenCount = async function(id) {
         </div>
       </details>` : '';
 
-    // Bottone START — sempre visibile dopo count, così il cuoco può subito fare prep
-    const startBtnHtml = `<button onclick="prepStart(${JSON.stringify(id)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;margin-top:10px;">START PREP</button>`;
-
     confirmBlock.innerHTML = `
       <div style="margin-top:6px;">
         <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${statusColor};background:${statusBg};border:1px solid ${statusBorder};border-radius:20px;padding:3px 9px;">${statusEmoji} ${statusLabel}</span>
         <div style="font-size:13px;font-weight:600;color:#1e3a5f;margin-top:6px;">${msg}</div>
         ${debugHtml}
-        ${startBtnHtml}
       </div>`;
   }
   // Re-render la card così il bottone START è correttamente nel DOM
@@ -3010,18 +3011,28 @@ window.doneSheetConfirm = function(id, btn){
     return `${l.user_name}: ${Number.isInteger(q)?q:parseFloat(q.toFixed(1))} ${l.unit||''}`;
   }).join(' · ');
   const popup = document.createElement('div');
-  popup.className = 'fixed inset-0 z-[70] bg-black/60 flex items-center justify-center p-4';
+  popup.style.cssText = 'position:fixed;inset:0;z-index:10100;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:16px;';
   popup.innerHTML = `<div style="background:#fff;border-radius:20px;padding:22px 20px;max-width:320px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:slideUp .2s ease">
     <div style="font-size:28px;text-align:center;margin-bottom:8px;">⚠️</div>
     <div style="font-size:16px;font-weight:700;color:#1e3a5f;text-align:center;margin-bottom:8px;">${tasks[id]?.name||''}</div>
     <div style="font-size:12px;color:#6b7280;text-align:center;margin-bottom:14px;">${prevSummary}</div>
     <div style="font-size:14px;color:#374151;text-align:center;margin-bottom:18px;">Add <b style="color:#059669">${qty} ${unit}</b> more?</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-      <button onclick="this.closest('.fixed').remove()" style="height:46px;border-radius:14px;background:#f1f5f9;color:#64748b;font-size:14px;font-weight:600;border:none;">Cancel</button>
-      <button onclick="this.closest('.fixed').remove();detailSave('${id}',null,false)" style="height:46px;border-radius:14px;background:#059669;color:white;font-size:14px;font-weight:600;border:none;">Yes, add it</button>
+      <button id="_dscConfirmCancel" style="height:46px;border-radius:14px;background:#f1f5f9;color:#64748b;font-size:14px;font-weight:600;border:none;">Cancel</button>
+      <button id="_dscConfirmYes" style="height:46px;border-radius:14px;background:#059669;color:white;font-size:14px;font-weight:600;border:none;">Yes, add it</button>
     </div>
   </div>`;
   document.body.appendChild(popup);
+  window.lockPrepScroll('done-confirm');
+  popup.querySelector('#_dscConfirmCancel').addEventListener('click', function() {
+    window.unlockPrepScroll('done-confirm');
+    popup.remove();
+  });
+  popup.querySelector('#_dscConfirmYes').addEventListener('click', function() {
+    window.unlockPrepScroll('done-confirm');
+    popup.remove();
+    detailSave(id, null, false);
+  });
 };
 
 function openDoneSheet(id){
@@ -3036,22 +3047,23 @@ function openDoneSheet(id){
     // Mostra in unità leggibili — 37800 g → "37.8 kg", non crudo
     const sqLabel = humanQty(sqRaw, sqUnit) || (sqRaw+' '+sqUnit);
     const modal=document.createElement('div');
-    modal.className='fixed inset-0 flex items-end';modal.style.zIndex='1000';
+    modal.className='fixed inset-0 flex items-end';modal.style.zIndex='10000';
     modal.style.background='rgba(0,0,0,0.35)';
     modal.innerHTML=`<div style="background:rgba(255,255,255,0.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:24px 24px 0 0;border-top:0.5px solid rgba(5,150,105,0.3);padding:20px 16px 28px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
       <div style="width:36px;height:4px;background:rgba(5,150,105,0.2);border-radius:2px;margin:0 auto 16px;"></div>
       <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">${it.name}</div>
       ${todayBanner}
       <div style="font-size:13px;color:#6b7280;margin-bottom:18px;">${tlogs.length>0?tr('prep_already_today'):tr('prep_how_much')}</div>
-      <button onclick="suggestedSave('${it.id}',this.closest('.fixed'))" style="width:100%;height:52px;border-radius:16px;background:#059669;color:white;font-size:15px;font-weight:600;border:none;margin-bottom:10px;">
+      <button onclick="suggestedSave('${it.id}',this.closest('[style*=z-index]'))" style="width:100%;height:52px;border-radius:16px;background:#059669;color:white;font-size:15px;font-weight:600;border:none;margin-bottom:10px;">
         ✅ ${sqLabel} — ${tr('prep_suggested_label')}
       </button>
-      <button onclick="this.closest('.fixed').remove();openDoneSheetCustom('${it.id}')" style="width:100%;height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:14px;border:0.5px solid rgba(59,130,246,0.2);">
+      <button onclick="window.unlockPrepScroll('done-sheet');this.closest('[style*=z-index]').remove();openDoneSheetCustom('${it.id}')" style="width:100%;height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:14px;border:0.5px solid rgba(59,130,246,0.2);">
         ${tr('prep_custom_qty')}
       </button>
     </div>`;
-    modal.onclick=e=>{if(e.target===modal)modal.remove();};
+    modal.onclick=e=>{if(e.target===modal){window.unlockPrepScroll('done-sheet');modal.remove();}};
     document.body.appendChild(modal);
+    window.lockPrepScroll('done-sheet');
   } else {
     openDoneSheetCustom(id);
   }
@@ -3119,26 +3131,57 @@ function openDoneSheetCustom(id){
             ${tr('prep_pieces')}
           </button>
         </div>`;
+  // inputmode: numeric for whole units (pezzi, nests, buste, cup), decimal for weight
+  const _inputmode = (defaultPezzi || defaultNative) ? 'numeric' : 'decimal';
   const sheet=document.createElement('div');
-  sheet.className='fixed inset-0 flex items-end';sheet.style.zIndex='1000';
+  sheet.className='fixed inset-0 flex items-end';sheet.style.zIndex='10000';
   sheet.style.background='rgba(0,0,0,0.5)';
   sheet.innerHTML=`<div style="background:#fff;border-radius:24px 24px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
     <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 20px;"></div>
     <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:6px;">${it.name}</div>
     ${todayBanner}
     <div style="font-size:13px;color:#6b7280;margin-bottom:${tlogs.length>0?'12':'20'}px;">${tlogs.length>0?tr('prep_already_today'):tr('prep_how_much')}</div>
-    <input id="dsc-qty-${it.id}" type="number" inputmode="decimal" value="${isNaN(defQty)?0:defQty}" placeholder="0"
-      style="width:100%;font-size:32px;font-weight:700;color:#1e3a5f;text-align:center;border:none;border-bottom:2px solid #1e3a5f;outline:none;padding:8px 0;margin-bottom:24px;background:transparent;">
+    <input id="dsc-qty-${it.id}" type="number" inputmode="${_inputmode}" value="${isNaN(defQty)?'':defQty}" placeholder="0"
+      autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+      style="width:100%;font-size:32px;font-weight:700;color:#1e3a5f;text-align:center;border:none;border-bottom:2px solid #1e3a5f;outline:none;padding:8px 0;margin-bottom:24px;background:transparent;-webkit-user-select:auto;">
     <input type="hidden" id="dsc-unit-${it.id}" value="${defUnit}">
     ${btnGrid}
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;">
-      <button onclick="this.closest('.fixed').remove()" style="height:46px;border-radius:14px;background:#f1f5f9;color:#64748b;font-size:14px;border:none;">${tr('prep_cancel')}</button>
+      <button id="dsc-cancel-${it.id}" style="height:46px;border-radius:14px;background:#f1f5f9;color:#64748b;font-size:14px;border:none;">${tr('prep_cancel')}</button>
       <button onclick="doneSheetConfirm('${it.id}',this)" style="height:46px;border-radius:14px;background:#1e3a5f;color:white;font-size:14px;font-weight:600;border:none;">${tr('prep_done')}</button>
     </div>
   </div>`;
-  sheet.onclick=e=>{if(e.target===sheet)sheet.remove();};
+  sheet.onclick=e=>{if(e.target===sheet){window.unlockPrepScroll('done-sheet');sheet.remove();}};
   document.body.appendChild(sheet);
-  setTimeout(()=>{const inp=document.getElementById('dsc-qty-'+it.id); if(inp){inp.focus();inp.select();}},150);
+  window.lockPrepScroll('done-sheet');
+  // iOS keyboard: bind to the input element directly — do not preventDefault on any touch event.
+  // Use readystatechange trick: schedule focus after the slideUp animation (250ms) completes,
+  // but only as a hint — iOS will open keyboard reliably on direct user tap regardless.
+  const _dscInp = document.getElementById('dsc-qty-'+it.id);
+  if (_dscInp) {
+    // Select all on focus, but never suppress the keyboard — no .select() in touchstart
+    _dscInp.addEventListener('focus', function() {
+      // On iOS, select() after focus may not open keyboard if called during animation.
+      // Use a rAF to let the browser settle first.
+      requestAnimationFrame(function() { try { _dscInp.select(); } catch(e){} });
+    });
+    // Preserve value on blur — do not reset to 1 if user entered a valid number
+    _dscInp.addEventListener('blur', function() {
+      var v = parseFloat(_dscInp.value);
+      if (isNaN(v) || v < 0) { _dscInp.value = isNaN(defQty) ? '' : defQty; }
+      // Do NOT force to 1 — preserve what the user typed
+    });
+    // Auto-focus after animation completes (enhancement only — direct tap always works)
+    setTimeout(function() { try { _dscInp.focus(); } catch(e){} }, 280);
+  }
+  // Cancel button — needs unlock
+  const _cancelBtn = document.getElementById('dsc-cancel-'+it.id);
+  if (_cancelBtn) {
+    _cancelBtn.addEventListener('click', function() {
+      window.unlockPrepScroll('done-sheet');
+      sheet.remove();
+    });
+  }
 }
 
 window.dscSelect = function(id, unit){
@@ -3173,9 +3216,9 @@ async function suggestedSave(id, modal){
   const it=tasks[id];
   const qty=parseFloat(it.suggested_qty)||1;
   const unit=it.unit||tr('prep_portions');
+  window.unlockPrepScroll('done-sheet');
+  window._rmDonePending = null;
   modal.remove();
-  // Se il Done è stato avviato in-flow dal modal ricetta, chiudi anche l'overlay
-  if(window._rmDonePending && typeof window._rmOverlayCleanup==='function') window._rmOverlayCleanup();
   var _sNow = new Date();
   var _sSt = _startTimes[id] || _sNow;
   var _sDur = Math.round((_sNow - _sSt) / 60000);
@@ -3231,9 +3274,11 @@ async function detailSave(id, btn, isSuggested){
     _prepSaveError(it.name, updRes.error.message);
     return;
   }
+  window.unlockPrepScroll('done-sheet');
+  window.unlockPrepScroll('done-confirm'); // safety: clear any stale confirm owner
   sheet.remove();
-  // Se il Done è stato avviato in-flow dal modal ricetta, chiudi anche l'overlay
-  if(window._rmDonePending===id && typeof window._rmOverlayCleanup==='function') window._rmOverlayCleanup();
+  // _rmDonePending was already cleared by _transitionRecipeToDone — no overlay cleanup needed
+  window._rmDonePending = null;
   _finishTask(id, qtyForStock);
   await loadItemAlerts();
   await loadStepsMap();
