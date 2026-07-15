@@ -310,3 +310,22 @@ here and marks the matching `invoice_warnings` row resolved.
 | Internal naming | Domain-based (INV-*, DOC-*, ALT-*) | Self-documenting in source; chef never sees them anyway |
 | Approve blocking | Never blocked | Open questions migrate to home banner; that IS postponement (BIOS-011) |
 | Assign Task target | Role first, then optionally person | Flexible attribution without forcing a name |
+
+---
+
+## ⚠️ Auth-related warnings da monitorare (post boh-v657)
+
+### record-prep-production → HTTP 400 (rilevato 15/07/2026)
+
+Nei log EF si vedono diverse chiamate a `record-prep-production` con risposta 400. La causa probabile è che alcuni path nel JS chiamano l'EF senza `brigade_token` (path legacy o prep task che non hanno ancora la sessione aggiornata). Da investigare: trovare da quale pagina/funzione partono e aggiornare.
+
+EF `record-prep-production` v2 ritorna 400 per: `missing_client_key`, `invalid_unit`, `invalid_prep_task_id`, `missing_or_invalid_token`.
+
+### bot-prep-suggester → HTTP 401 (rilevato 15/07/2026)
+
+Il bot ora richiede un Brigade session token valido per le chiamate browser. Alcune chiamate esistenti da `prep.js` potrebbero passare senza token (path vecchi pre-auth). Da verificare: se il bot viene chiamato server-to-server da `record-prep-production` EF, il token viene passato attraverso correttamente. Se viene chiamato direttamente dal browser (path legacy), fallisce 401.
+
+### BOH v2 auth-service.js → chiama brigade_login RPC diretta (anon)
+
+`boh-v2/src/services/auth-service.js` usa `supabase.rpc('brigade_login', ...)` con la anon key. La RPC è revocata da anon → CONNECTION_ERROR in BOH v2. Se BOH v2 è attivo in produzione e Max ne ha bisogno, aggiornare `auth-service.js` per chiamare la `brigade-login` Edge Function invece.
+
