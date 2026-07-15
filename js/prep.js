@@ -895,7 +895,21 @@ function renderSuggBlock(sugg, i) {
   // ── TRUST VIEW BLOCK ──
   const trustHtml = _renderTrustBlock(i, sugg, status, outUnit);
 
-  return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${descHtml}${rcHtml}${stockHtml}${avgHtml}${confHtml}${trustHtml}</div>`;
+  // ── STOCK COUNT BUTTON — SUGG_VERIFY only (Sprint #2A) ──────────────────
+  // Shown only when the bot has no demand path for this prep.
+  // Not shown for any other card type in this sprint.
+  let stockCountBtnHtml = '';
+  if (status === 'no_demand_path' || status === 'out_of_scope') {
+    const iid2 = i.id;
+    stockCountBtnHtml = `<div style="margin-top:10px;">
+      <button
+        onclick="event.stopPropagation();openStockCountSheet(${JSON.stringify(iid2)})"
+        style="width:100%;height:42px;border-radius:12px;font-size:13px;font-weight:700;background:transparent;color:#64748b;border:1.5px solid #cbd5e1;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;"
+      >📦 Stock Count</button>
+    </div>`;
+  }
+
+  return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${descHtml}${rcHtml}${stockHtml}${avgHtml}${confHtml}${trustHtml}${stockCountBtnHtml}</div>`;
 }
 
 // ── TRUST VIEW BLOCK ─────────────────────────────────────────────────────────
@@ -3943,3 +3957,380 @@ function _chefAiPrepPanelHtml(a, prepName){
 
 
 
+
+
+// ── FRESH STOCK COUNT — Sprint #2A (SUGG_VERIFY only) ────────────────────────
+//
+// openStockCountSheet(id): bottom sheet per inserire il conteggio fisico.
+// saveStockCount(id, clientKey): chiama record-prep-stock-count EF (sessione
+//   Brigade → RPC atomico → reconciler server-to-server). Risposta unica.
+// retryReconcile(id, countId): riprova solo la riconciliazione per un count
+//   già salvato. Non chiama il RPC, non aggiorna current_stock.
+//
+// SCOPE: solo SUGG_VERIFY (no_demand_path / out_of_scope).
+// Non tocca saveKitchenCount, prepContaPrima, classifyCard, cardButton,
+// record_prep_production, né altri card type.
+
+window.openStockCountSheet = function(id) {
+  const it = tasks[id];
+  if (!it) return;
+
+  // Rimuovi eventuali sheet precedenti
+  const existing = document.getElementById('stockCountSheet');
+  if (existing) existing.remove();
+
+  const { unit: kUnit } = (typeof kitchenCountUnit === 'function')
+    ? kitchenCountUnit(it)
+    : { unit: it.unit || 'units' };
+  const displayUnit = kUnit || it.unit || 'units';
+
+  // Current recorded stock human-readable
+  const curStock = it.current_stock;
+  const curStockStr = (curStock === null || curStock === undefined)
+    ? 'Not yet counted'
+    : (typeof humanQty === 'function')
+      ? (humanQty(parseFloat(curStock), it.unit) || curStock + ' ' + (it.unit || ''))
+      : curStock + ' ' + (it.unit || '');
+
+  const sheet = document.createElement('div');
+  sheet.id = 'stockCountSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(15,23,42,0.55);display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;';
+
+  sheet.innerHTML = `
+    <div id="stockCountSheetInner" style="width:100%;max-width:448px;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 32px rgba(30,58,95,0.18);padding:20px 16px 40px;">
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Stock Count</div>
+          <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-top:2px;">${it.name || 'Prep'}</div>
+        </div>
+        <button onclick="document.getElementById('stockCountSheet').remove()" style="width:32px;height:32px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+      </div>
+
+      <!-- Current recorded stock -->
+      <div style="background:#f8fafc;border-radius:12px;padding:12px 14px;margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">Current recorded stock</div>
+        <div style="font-size:15px;font-weight:700;color:#1e3a5f;" id="stockCountPrevVal">${curStockStr}</div>
+      </div>
+
+      <!-- Input -->
+      <div style="margin-bottom:8px;">
+        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;">Counted on hand</div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <input
+            id="stockCountInput-${id}"
+            type="number"
+            min="0"
+            step="0.1"
+            placeholder="0"
+            style="width:100px;height:52px;border:2px solid #cbd5e1;border-radius:12px;font-size:22px;font-weight:700;text-align:center;color:#1e3a5f;background:#fff;outline:none;"
+            onclick="event.stopPropagation();"
+            onfocus="this.style.borderColor='#2563eb';"
+            onblur="this.style.borderColor='#cbd5e1';"
+            oninput="window._scValidate(${JSON.stringify(id)})"
+          >
+          <span style="font-size:15px;color:#64748b;font-weight:600;">${displayUnit}</span>
+        </div>
+      </div>
+
+      <!-- Disclaimer -->
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:20px;line-height:1.5;">
+        Enter the total quantity physically on hand — not an amount to add.
+      </div>
+
+      <!-- Save button -->
+      <button
+        id="stockCountSaveBtn-${id}"
+        disabled
+        onclick="event.stopPropagation();window._scSave(${JSON.stringify(id)})"
+        style="width:100%;height:50px;border-radius:14px;font-size:15px;font-weight:700;background:#94a3b8;color:white;border:none;cursor:not-allowed;letter-spacing:0.03em;transition:background 0.15s;-webkit-tap-highlight-color:transparent;"
+      >Save Count</button>
+
+      <!-- Result area (populated after save) -->
+      <div id="stockCountResult-${id}" style="margin-top:12px;"></div>
+    </div>`;
+
+  document.body.appendChild(sheet);
+
+  // Close on backdrop tap
+  sheet.addEventListener('click', (e) => {
+    if (e.target === sheet) sheet.remove();
+  });
+
+  // Focus input
+  const inp = document.getElementById('stockCountInput-' + id);
+  if (inp) setTimeout(() => inp.focus(), 300);
+};
+
+// Validate input → enable/disable Save button
+window._scValidate = function(id) {
+  const inp = document.getElementById('stockCountInput-' + id);
+  const btn = document.getElementById('stockCountSaveBtn-' + id);
+  if (!inp || !btn) return;
+  const val = parseFloat(inp.value);
+  const valid = !isNaN(val) && val >= 0;
+  btn.disabled = !valid;
+  btn.style.background = valid ? '#1e3a5f' : '#94a3b8';
+  btn.style.cursor     = valid ? 'pointer'  : 'not-allowed';
+};
+
+// Main save function — called when "Save Count" is pressed
+window._scSave = async function(id) {
+  const it  = tasks[id];
+  if (!it) return;
+
+  const inp = document.getElementById('stockCountInput-' + id);
+  const btn = document.getElementById('stockCountSaveBtn-' + id);
+  const res = document.getElementById('stockCountResult-' + id);
+  if (!inp || !btn) return;
+
+  const val = parseFloat(inp.value);
+  if (isNaN(val) || val < 0) return;
+
+  const { unit: kUnit } = (typeof kitchenCountUnit === 'function')
+    ? kitchenCountUnit(it)
+    : { unit: it.unit || 'units' };
+
+  // Generate client_key once per submission — stored on the button so retries reuse it
+  if (!btn.dataset.clientKey) {
+    btn.dataset.clientKey = crypto.randomUUID();
+  }
+  const clientKey = btn.dataset.clientKey;
+
+  // Disable button, show loading
+  btn.disabled = true;
+  btn.style.background = '#94a3b8';
+  btn.style.cursor = 'not-allowed';
+  btn.textContent = 'Saving…';
+  if (res) res.innerHTML = '';
+
+  // Brigade session token from sessionStorage
+  const brigadeToken = sessionStorage.getItem('brigade_token') || '';
+
+  let result = null;
+  try {
+    const resp = await fetch(
+      SUPABASE_URL + '/functions/v1/record-prep-stock-count',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + brigadeToken,
+        },
+        body: JSON.stringify({
+          prep_task_id: id,
+          qty:          val,
+          unit:         kUnit || it.unit || 'g',
+          client_key:   clientKey,
+        }),
+      }
+    );
+    result = await resp.json();
+  } catch (e) {
+    // Network error
+    if (btn) {
+      btn.disabled = false;
+      btn.style.background = '#1e3a5f';
+      btn.style.cursor = 'pointer';
+      btn.textContent = 'Save Count';
+    }
+    if (res) res.innerHTML = '<div style="font-size:13px;color:#dc2626;margin-top:4px;">Network error. Please try again.</div>';
+    return;
+  }
+
+  if (!result || !result.ok) {
+    // Hard failure — count was not saved
+    if (btn) {
+      btn.disabled = false;
+      btn.style.background = '#1e3a5f';
+      btn.style.cursor = 'pointer';
+      btn.textContent = 'Save Count';
+    }
+    const errMsg = result?.error || 'Unknown error';
+    if (res) res.innerHTML = `<div style="font-size:13px;color:#dc2626;margin-top:4px;">Could not save count: ${errMsg}</div>`;
+    return;
+  }
+
+  // ── Count saved (or duplicate_skipped — same net result) ──────────────────
+  const newStock   = result.new_stock;
+  const taskUnit   = result.task_unit || it.unit || '';
+  const countedBy  = result.counted_by || (window.user?.name || '');
+  const countedAt  = result.counted_at ? new Date(result.counted_at) : new Date();
+  const countId    = result.count_id;
+
+  // Update local state immediately from server-confirmed values
+  tasks[id].current_stock = newStock;
+  if (items) {
+    const idx = items.findIndex(x => x.id === id);
+    if (idx >= 0) items[idx].current_stock = newStock;
+  }
+
+  // Format CDT timestamp
+  const timeStr = countedAt.toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Chicago'
+  });
+
+  // Human-readable new stock
+  const newStockHuman = (typeof humanQty === 'function')
+    ? (humanQty(parseFloat(newStock), taskUnit) || newStock + ' ' + taskUnit)
+    : newStock + ' ' + taskUnit;
+
+  // Update _recentCounts for card re-render
+  const reconciler = result.reconciler;
+  window._recentCounts = window._recentCounts || {};
+  window._recentCounts[id] = {
+    id:               countId,
+    prep_task_id:     id,
+    counted_qty:      val,
+    unit:             kUnit || it.unit || '',
+    counted_by:       countedBy,
+    counted_at:       result.counted_at || new Date().toISOString(),
+    reconcile_status: reconciler?.reconcile_status || (result.reconcile_ok ? 'manual_review' : 'pending'),
+    reconciled_qty:   reconciler?.reconciled_qty   || null,
+    reconciled_note:  reconciler?.reconciled_note  || null,
+    expires_at:       reconciler?.expires_at       || null,
+    prev_bot_stock:   result.previous_stock,
+  };
+
+  // ── Build result UI ───────────────────────────────────────────────────────
+  const confirmedRow = `
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px 12px;margin-top:4px;">
+      <div style="font-size:12px;font-weight:700;color:#059669;">✅ Stock Count confirmed</div>
+      <div style="font-size:14px;font-weight:700;color:#1e3a5f;margin-top:4px;">${newStockHuman} on hand</div>
+      <div style="font-size:11px;color:#64748b;margin-top:2px;">Counted by ${countedBy} at ${timeStr} CDT</div>
+    </div>`;
+
+  let suggestionRow = '';
+  if (result.reconcile_ok && reconciler) {
+    const rs = reconciler.reconcile_status;
+    if (rs === 'sufficient') {
+      suggestionRow = `<div style="margin-top:8px;font-size:13px;color:#059669;font-weight:600;">✓ Enough for today — no urgent prep needed.</div>`;
+    } else if (rs === 'prep_more' && reconciler.reconciled_qty) {
+      const prepHuman = (typeof humanQty === 'function')
+        ? (humanQty(parseFloat(reconciler.reconciled_qty), taskUnit) || reconciler.reconciled_qty + ' ' + taskUnit)
+        : reconciler.reconciled_qty + ' ' + taskUnit;
+      suggestionRow = `<div style="margin-top:8px;font-size:13px;color:#d97706;font-weight:600;">🟠 Prep about ${prepHuman} more today.</div>`;
+    } else {
+      suggestionRow = `<div style="margin-top:8px;font-size:13px;color:#64748b;">${reconciler.reconciled_note || 'Chef will review.'}</div>`;
+    }
+  } else if (!result.reconcile_ok) {
+    // Reconciler failed — show retry link
+    suggestionRow = `
+      <div style="margin-top:8px;font-size:12px;color:#94a3b8;">
+        Chef AI suggestion will update on the next run.
+        <span
+          onclick="event.stopPropagation();window._scRetry(${JSON.stringify(id)}, ${JSON.stringify(countId)})"
+          style="color:#2563eb;text-decoration:underline;cursor:pointer;margin-left:4px;"
+        >Retry now</span>
+      </div>`;
+  }
+
+  if (res) res.innerHTML = confirmedRow + suggestionRow;
+  if (btn) {
+    btn.textContent = 'Saved ✓';
+    btn.style.background = '#059669';
+    btn.disabled = true;
+  }
+
+  // Reload live prep task + suggestion from DB, then re-render card
+  try {
+    const [taskRows, suggRows] = await Promise.all([
+      supa.from('prep_tasks')
+          .select('id,name,unit,current_stock,suggested_qty,suggested_note,suggested_by,in_progress,in_progress_at,in_progress_by,recipe_id,ingredient_id,sources_json,min_cover_days')
+          .eq('id', id)
+          .limit(1),
+      supa.from('prep_suggestions_daily')
+          .select('prep_task_id,status,confidence,net_requirement,planned_output,output_unit,minimum_increment,current_stock,stock_source,production_constraint_quality,reason,debug_json,suggestion_date,forecast,forecast_unit')
+          .eq('prep_task_id', id)
+          .order('generated_at', { ascending: false })
+          .limit(1),
+    ]);
+
+    if (taskRows.data && taskRows.data.length) {
+      const fresh = taskRows.data[0];
+      tasks[id] = { ...tasks[id], ...fresh };
+      if (items) {
+        const idx2 = items.findIndex(x => x.id === id);
+        if (idx2 >= 0) items[idx2] = { ...items[idx2], ...fresh };
+      }
+    }
+    if (suggRows.data && suggRows.data.length) {
+      window._suggestions = window._suggestions || {};
+      window._suggestions[id] = suggRows.data[0];
+    }
+  } catch (_) {
+    // Live reload failed — local state already updated above, card will render from that
+  }
+
+  if (typeof renderM === 'function') renderM();
+};
+
+// Retry reconciliation only — does NOT update stock, does NOT insert new count row
+window._scRetry = async function(id, countId) {
+  const resEl = document.getElementById('stockCountResult-' + id);
+  if (resEl) resEl.innerHTML = '<div style="font-size:12px;color:#64748b;margin-top:8px;">⏳ Retrying Chef AI…</div>';
+
+  const brigadeToken = sessionStorage.getItem('brigade_token') || '';
+
+  let result = null;
+  try {
+    const resp = await fetch(
+      SUPABASE_URL + '/functions/v1/record-prep-stock-count',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + brigadeToken,
+        },
+        body: JSON.stringify({
+          retry_reconcile: true,
+          count_id: countId,
+        }),
+      }
+    );
+    result = await resp.json();
+  } catch (e) {
+    if (resEl) resEl.innerHTML = '<div style="font-size:12px;color:#dc2626;margin-top:8px;">Retry failed — please try again later.</div>';
+    return;
+  }
+
+  if (!result?.ok || !result?.reconcile_ok) {
+    const errMsg = result?.reconcile_error || 'unknown';
+    if (resEl) resEl.innerHTML = `<div style="font-size:12px;color:#94a3b8;margin-top:8px;">Retry failed (${errMsg}). Chef AI will update on the next run.</div>`;
+    return;
+  }
+
+  // Reconciler succeeded — update _recentCounts and re-render
+  const reconciler = result.reconciler;
+  if (reconciler && window._recentCounts?.[id]) {
+    window._recentCounts[id].reconcile_status = reconciler.reconcile_status;
+    window._recentCounts[id].reconciled_qty   = reconciler.reconciled_qty;
+    window._recentCounts[id].reconciled_note  = reconciler.reconciled_note;
+    window._recentCounts[id].expires_at       = reconciler.expires_at;
+  }
+
+  const rs = reconciler?.reconcile_status;
+  let msg = '';
+  const taskUnit = tasks[id]?.unit || '';
+  if (rs === 'sufficient') {
+    msg = '<div style="margin-top:8px;font-size:13px;color:#059669;font-weight:600;">✓ Enough for today — no urgent prep needed.</div>';
+  } else if (rs === 'prep_more' && reconciler?.reconciled_qty) {
+    const prepHuman = (typeof humanQty === 'function')
+      ? (humanQty(parseFloat(reconciler.reconciled_qty), taskUnit) || reconciler.reconciled_qty + ' ' + taskUnit)
+      : reconciler.reconciled_qty + ' ' + taskUnit;
+    msg = `<div style="margin-top:8px;font-size:13px;color:#d97706;font-weight:600;">🟠 Prep about ${prepHuman} more today.</div>`;
+  } else {
+    msg = `<div style="margin-top:8px;font-size:13px;color:#64748b;">${reconciler?.reconciled_note || 'Chef will review.'}</div>`;
+  }
+
+  // Keep the confirmed row, update the suggestion row only
+  const confirmedEl = resEl?.querySelector('div[style*="f0fdf4"]');
+  if (resEl) {
+    // Remove old suggestion row(s) after confirmed block
+    const children = Array.from(resEl.children);
+    children.slice(1).forEach(c => c.remove());
+    resEl.insertAdjacentHTML('beforeend', msg);
+  }
+
+  if (typeof renderM === 'function') renderM();
+};
