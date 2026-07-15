@@ -7,15 +7,21 @@ document.querySelectorAll('.lang-btn').forEach(b=>b.onclick=()=>{
 
 // ── PIN LOGIN ──
 let pinBuffer = '';
+// Submission guard — prevents duplicate requests from one PIN entry
+// (iOS can fire touchend + click on the same tap; setTimeout + double-tap also possible)
+let _pinSubmitting = false;
+let _pinActiveReqId = null; // only the response matching this ID is acted on
 
 function pinPress(digit){
   if(pinBuffer.length >= 4) return;
+  if(_pinSubmitting) return; // guard: ignore input while request in flight
   pinBuffer += digit;
   updatePinDots();
   if(pinBuffer.length === 4) setTimeout(()=>attemptPinLogin(), 150);
 }
 
 function pinDel(){
+  if(_pinSubmitting) return; // guard: ignore delete while request in flight
   pinBuffer = pinBuffer.slice(0,-1);
   updatePinDots();
 }
@@ -45,6 +51,18 @@ function updatePinDots(){
 })();
 
 async function attemptPinLogin(){
+  // ── Submission guard — one active request at a time ──
+  if(_pinSubmitting){
+    console.info('[LOGIN]', { stage: 'guard_blocked_duplicate' });
+    return;
+  }
+  _pinSubmitting = true;
+  // Assign a unique ID to this request; stale responses from a previous
+  // request (e.g. double-tap race) will be silently discarded.
+  const _thisReqId = Math.random().toString(36).slice(2, 10);
+  _pinActiveReqId = _thisReqId;
+  console.info('[LOGIN]', { stage: 'submitting', reqId: _thisReqId });
+
   const err = document.getElementById('err');
   err.classList.add('hidden');
   const _loginUrl = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)
@@ -65,14 +83,23 @@ async function attemptPinLogin(){
     _loginStage = 'parsed';
   } catch(e) {
     // Network failure or JSON parse error — NOT a wrong PIN
-    console.info('[LOGIN]', { stage: _loginStage, error: e?.name, msg: e?.message });
+    console.info('[LOGIN]', { stage: _loginStage, error: e?.name, msg: e?.message, reqId: _thisReqId });
+    if(_pinActiveReqId !== _thisReqId){ _pinSubmitting=false; return; }
     _showLoginError('service');
     pinBuffer=''; updatePinDots();
+    _pinSubmitting = false;
+    return;
+  }
+  // ── Stale response guard — discard if a newer request is active ──────────
+  if(_pinActiveReqId !== _thisReqId){
+    console.info('[LOGIN]', { stage: 'stale_response_discarded', reqId: _thisReqId });
+    _pinSubmitting = false;
     return;
   }
   // ── Stage 2: Response check ────────────────────────────────────────────────
   console.info('[LOGIN]', {
     stage: 'response_parsed',
+    reqId: _thisReqId,
     httpStatus: loginRaw.status,
     ok: loginData?.ok === true,
     hasToken: typeof loginData?.token === 'string',
@@ -80,40 +107,39 @@ async function attemptPinLogin(){
   });
   if(!loginRaw.ok){
     // HTTP error (4xx/5xx) — service issue, not wrong PIN
-    console.info('[LOGIN]', { stage: 'http_error', status: loginRaw.status });
+    console.info('[LOGIN]', { stage: 'http_error', status: loginRaw.status, reqId: _thisReqId });
     _showLoginError('service');
     pinBuffer=''; updatePinDots();
+    _pinSubmitting = false;
     return;
   }
   if(!loginData || !loginData.ok){
     // Server returned ok:false → credentials invalid or cooldown
     const reason = loginData?.error || 'invalid_credentials';
-    console.info('[LOGIN]', { stage: 'credentials_failed', reason });
+    console.info('[LOGIN]', { stage: 'credentials_failed', reason, reqId: _thisReqId });
     _showLoginError('pin');
+    // _pinSubmitting reset in _showLoginError after 600ms (when pinBuffer is cleared)
     return;
   }
   // ── Stage 3: Store session ─────────────────────────────────────────────────
   try {
     sessionStorage.setItem('brigade_token', loginData.token);
-    console.info('[LOGIN]', { stage: 'session_stored', hasToken: true });
+    console.info('[LOGIN]', { stage: 'session_stored', hasToken: true, reqId: _thisReqId });
   } catch(storageErr) {
     // sessionStorage unavailable (private browsing, storage full, security policy)
-    console.warn('[LOGIN]', { stage: 'storage_failed', error: storageErr?.name });
-    // Proceed anyway — the session will not survive a page reload, but the current
-    // page session works via the in-memory loginData.token (held in closure).
-    // Show a non-blocking warning instead of "Incorrect PIN".
+    console.warn('[LOGIN]', { stage: 'storage_failed', error: storageErr?.name, reqId: _thisReqId });
     _showLoginError('storage');
-    // Still attempt doLogin so the user can work in this session:
   }
   // ── Stage 4: Enter app ────────────────────────────────────────────────────
   try {
-    console.info('[LOGIN]', { stage: 'doLogin_start', user: loginData?.user?.name });
+    console.info('[LOGIN]', { stage: 'doLogin_start', user: loginData?.user?.name, reqId: _thisReqId });
     doLogin(loginData.user);
-    console.info('[LOGIN]', { stage: 'doLogin_complete' });
+    console.info('[LOGIN]', { stage: 'doLogin_complete', reqId: _thisReqId });
   } catch(loginErr) {
-    console.error('[LOGIN]', { stage: 'doLogin_failed', error: loginErr?.name, msg: loginErr?.message });
+    console.error('[LOGIN]', { stage: 'doLogin_failed', error: loginErr?.name, msg: loginErr?.message, reqId: _thisReqId });
     _showLoginError('service');
   }
+  _pinSubmitting = false;
 }
 
 // Centralized login error display — distinguishes PIN error from service error
@@ -125,7 +151,7 @@ function _showLoginError(type) {
     err.classList.remove('hidden');
     const dots = document.getElementById('pinDots');
     if(dots){ dots.style.animation = 'shake .3s ease'; }
-    setTimeout(()=>{ if(dots)dots.style.animation=''; pinBuffer=''; updatePinDots(); err.classList.add('hidden'); }, 600);
+    setTimeout(()=>{ if(dots)dots.style.animation=''; pinBuffer=''; updatePinDots(); err.classList.add('hidden'); _pinSubmitting=false; }, 600);
   } else if(type === 'storage') {
     // Warn but don't block — user is logged in, just session won't survive reload
     // Show a brief info toast instead of blocking error
