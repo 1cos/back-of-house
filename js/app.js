@@ -231,7 +231,7 @@ function doLogin(profile){
     else greetEl.textContent=tr('goodNight');
   }
   // Ricarica photo_url dal DB
-  supa.from('users').select('photo_url').eq('id', user.id).single().then(({data})=>{
+  supa.from('users_public').select('photo_url').eq('id', user.id).single().then(({data})=>{
     if(data?.photo_url) user.photo_url = data.photo_url;
     updateTopBarAvatar();
   });
