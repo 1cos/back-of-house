@@ -6,276 +6,74 @@
 
 ---
 
-## STATO CORRENTE — 15 Luglio 2026 (fine sessione)
+## STATO CORRENTE — 15 Luglio 2026 (fine sessione — auth hardening)
 
-### Meatball Assembly Model — Shadow Build completato ✅
+### ✅ Brigade Session Auth — completato e funzionante
 
-**Lavoro interamente nel perimetro shadow — zero impatto sulla produzione live.**
-
-Questa sessione è la quarta consecutiva sul sistema Meatball Appetizer. Non ha toccato il routing POS, gli stock, il frontend, né i dati operativi. Tutto ciò che è stato costruito resta silenzioso dietro il feature flag `off`.
+Login Brigade ora è protetto da una sessione server-side opaca. Max è entrato da iPhone con successo al termine di questa sessione.
 
 ---
 
-#### Architettura deployata — componenti shadow
+#### Architettura auth deployata
 
-| Componente | Tipo | Versione | Stato |
-|---|---|---|---|
-| `prep_tasks.stock_role` | Schema (colonna) | Migration `add_stock_role_to_prep_tasks` | LIVE, DEFAULT NULL, nessuna riga assegnata |
-| `feature_flags` | Tabella | Migration | LIVE, flag=`off` |
-| `meatball_assembly_log` | Tabella | Migration | LIVE, 0 righe reali |
-| `meatball_shadow_routing_log` | Tabella | Migration + extend | LIVE, 14 righe SQL + 2 righe da bot reale |
-| `meatball_shadow_suggestions` | Tabella | Migration | LIVE, 1 riga da bot reale |
-| `meatball_backfill_staging` | Tabella | Migration | LIVE, 14 righe dry-run (non authoritative) |
-| `assemble_meatball_bags` | RPC PostgreSQL | Migration | LIVE ma bloccata da flag=off |
-| `apply_prep_stock_drain` | RPC PostgreSQL | v3 | LIVE, gestisce NULL stock correttamente |
-| `bot-direct-deduction` | Edge Function | **v11** (`v11_meatball_shadow`) | LIVE, legge flag, scrive shadow routing row quando shadow |
-| `bot-prep-suggester` | Edge Function | **v15** (`v14_meatball_shadow` code) | LIVE, legge flag, scrive shadow suggestion row quando shadow |
-
-#### Test controllati eseguiti questa sessione
-
-| Test | Risultato |
+| Layer | Stato |
 |---|---|
-| 11 SQL tests per `assemble_meatball_bags` (NULL check, insufficiency, 12 bags, idempotency, shadow mode) | ✅ 11/11 PASS |
-| 4 scenari shadow forecast (NULL cascades, no_assembly_needed, blocked, ready) | ✅ 4/4 PASS |
-| Run reale bot-direct-deduction v11 in shadow su 2026-07-13 | ✅ shadow_row_written=true, pt479/pt480 invariati |
-| Retry del bot-direct-deduction (seconda run) | ✅ secondo shadow row scritto (bot_run_id diverso, corretto) |
-| Mismatch detection test | ✅ routing_match=false rilevato correttamente |
-| Run reale bot-prep-suggester v15 in shadow su business_date=2026-07-13 | ✅ shadow_written=true, prep_suggestions_daily invariata |
+| `brigade_login` RPC | SECURITY DEFINER, bcrypt-only (no plaintext fallback). REVOCATA da anon/authenticated — solo service_role. |
+| `brigade_validate_session` RPC | anon/authenticated/service_role. Sliding 12h + absolute 7 giorni. |
+| `brigade_logout` / `brigade_change_pin` / `brigade_reset_pin` | SECURITY DEFINER, anon/service_role. Reset PIN revoca sessioni target. |
+| `brigade-login` Edge Function | v4 (con structured logging per reqId). Rate limit multi-bucket (install+net+global). Unico entry point per il PIN. |
+| `brigade_sessions` | token_hash (sha256), expires_at (sliding 12h), absolute_expires_at (7gg), invalidated_at. |
+| `brigade_login_attempts` | bucket_type (install/net/global), pepper-hashed identifiers, advisory lock per concorrenza. |
+| `brigade_admin_audit_log` | Immutabile, service_role only. Ogni admin op loggata. |
+| `brigade-user-admin` EF | v1. Tutte le write su users passano da qui. |
+| `record-prep-production` EF | v2. Session-validated, chiama bot server-to-server. |
+| `bot-prep-suggester` EF | v15. Richiede Brigade session token (o service_role Authorization). |
+| PIN migration | 28/28 utenti attivi migrati a bcrypt. Colonna pin = NULL per tutti. |
 
-#### Valori shadow dalla run reale del suggester
+#### DB — oggetti nuovi
 
-- `suggestion_date = 2026-07-14` (calcolato dal worker: business_date 2026-07-13 → +1 → giovedì 14/07)
-- `forecast_bags = 42.17` (cover Thu+Fri+Sat per giovedì: avg 18+23+20 × 1.10)
-- `shadow_status = count_finished_bags`
-- `blocking_reason = "pt481.current_stock IS NULL — physical count of finished bags required"`
-- `confidence = medium`
-- Tutte le colonne downstream (`bags_to_assemble`, `meatballs_required`, ecc.) = NULL (corretto, propagazione NULL)
+- `brigade_sessions` — sessioni opache con dual expiry
+- `brigade_login_attempts` — rate limit multi-bucket
+- `brigade_admin_audit_log` — audit immutabile
+- `users.pin_hash text` — bcrypt hash
+- `users.pin` — colonna nullable, NULL per tutti (da droppare in manutenzione futura)
+- `users_public` view — safe read per anon (no pin, no pin_hash, no auth_id)
+- RPCs: `brigade_login`, `brigade_validate_session`, `brigade_logout`, `brigade_change_pin`, `brigade_reset_pin`, `brigade_check_and_record_attempt`, `brigade_generate_pin_hash`, `brigade_cleanup_login_attempts`
 
-#### Stato live invariato
+#### RLS su users
 
-| Item | Valore |
-|---|---|
-| `feature_flags.meatball_assembly_model_enabled` | **off** |
-| `prep_tasks.stock_role` (pt479, 480, 481) | **NULL** (non assegnato) |
-| `prep_tasks.current_stock` (pt479, 480, 481) | **NULL** (mai toccato) |
-| `stock_deductions` pt481 | **0 righe** |
-| `prep_suggestions_daily` pt479, 480, 481 (2026-07-15) | **count_first / count_first / no_demand_path** (invariati) |
-| `assemble_meatball_bags` RPC | **bloccata da flag=off** |
-| sw.js | **boh-v658** (non toccato) |
-
----
-
-### Pipeline recovery 2026-07-15 — completata ✅
-
-Risolti durante questa sessione:
-
-**Root cause:** `bot-stock-drain` falliva a step 5 con `null value in column "stock_before" violates not-null constraint` per Meatball Sauce (pt479) e Meatballs (pt480) — entrambi avevano `current_stock=NULL`.
-
-**Fix:** RPC `apply_prep_stock_drain` v3 — NULL stock = skip (`skipped_unknown_stock`), non coercione a 0. Il NULL semantico è preservato.
-
-**Recovery:** job `a5c5f740` resettato da `failed` a `pending` a `current_step_index=5`, worker self-advancing ha completato step 5 (59 drain) + step 6 (94 suggestion) in sequenza automatica.
-
-**Semantic fix successivo:** la v2 dell'RPC aveva usato coercione NULL→0, producendo suggestion errate. Fix v3 + ripristino dati:
-- `prep_tasks.current_stock` pt479/480 → NULL
-- `prep_stock_drain_log` 2 righe corrotte → eliminate
-- `prep_suggestions_daily` pt479/480 (2026-07-15) → corrette a `count_first`
-
----
-
-### Meatball Production Model Audit — completato
-
-Auditati in dettaglio l'intera architettura BOM, il flusso POS, il ciclo assembly, le deductions. Risultati chiave:
-
-- **Flusso attuale (PATH A):** POS "Meatball Appetizer" → BOM → pt479 (100g sauce) + pt480 (5pz meatballs) per ogni ordine. Confermato corretto su 14 date, zero discrepanze.
-- **Flusso proposto:** POS → pt481 (1 bag/order, finished stock); assembly DONE → decrementa pt480 + pt304 (85g) + pt291 (15g).
-- **162 pz non è un vincolo fisso** — tutti gli ingredienti BOM sono in grammi, ricetta scalabile a qualsiasi N.
-- **pt479 Meatball Sauce** = phantom node (BOM reference, no physical stock), candidato a `stock_role='phantom_non_stocked'`.
-- **Backfill matematicamente verificato:** proposed_bags × 5 = actual_pt480 su 14/14 date.
-
----
-
-### 🔴 PROSSIMO STEP — Attivazione shadow mode (Max deve decidere quando)
-
-Per attivare la shadow mode live (con le prossime run nightly automatiche):
-
-```sql
-UPDATE feature_flags
-SET state = 'shadow', updated_by = 'max', updated_at = now()
-WHERE flag_name = 'meatball_assembly_model_enabled';
-```
-
-**Cosa succede dopo:**
-- Bot-direct-deduction: scrive shadow routing row per ogni business_date che include ordini Meatball Appetizer
-- Bot-prep-suggester: scrive shadow suggestion row per ogni suggestion_date
-- Zero impatto sul routing POS, zero impatto sugli stock, zero impatto sul frontend
-- I dati si accumulano in `meatball_shadow_routing_log` e `meatball_shadow_suggestions`
-
-**Per monitorare la shadow mode:**
-```sql
--- Routing shadow (confronto tra proposta pt481 e actual pt479/pt480)
-SELECT business_date, proposed_pt481_deduction, current_pt479_deduction,
-       current_pt480_deduction, routing_match, mismatch_reason
-FROM meatball_shadow_routing_log
-WHERE bot_run_id IS NOT NULL
-ORDER BY business_date DESC;
-
--- Assembly shadow forecast
-SELECT suggestion_date, shadow_status, forecast_bags, bags_to_assemble,
-       meatballs_required, pomodoro_required_g, demi_required_g,
-       blocking_reason, confidence
-FROM meatball_shadow_suggestions
-ORDER BY suggestion_date DESC;
-```
-
-**Per il cutover (quando Max decide):**
-Vedi sequenza dettagliata in sessione del 15 luglio (Meatball Production Model Audit, §14 Physical-Count Cutover Checklist).
-
----
-
-### Pending invariato da sessioni precedenti
-
-- Saucier Production Cadence v3 (pseudocode approvato, da implementare in bot-prep-suggester)
-- 3 warning Consolidator (Spring mix, Spaghetti, Parsley)
-- Asparagus pt_unit (g vs kg)
-- Dish Crew Home Fase 2
-- Rename Manager → Coordinator
-- 7shifts sync (JWT auth)
-- Sales: rimuovere tab Oggi
-- RLS hardening su prep_task_classifications
-- Trust View frontend (prep card con filo logico Added/Used/Available/Suggested)
-- bot-preplist-builder legacy: ancora gira ogni notte, non spegnere finché non approvato da Max
-- 3 pipeline jobs con status='failed' per date 10/07 e 11/07 (dati reali corretti, solo status fuorviante)
-
----
-
-### Versioni bot live (fine sessione)
-
-| Bot | Versione Edge | Versione codice | Note |
-|---|---|---|---|
-| bot-direct-deduction | 11 | v11_meatball_shadow | Legge flag, scrive shadow routing row |
-| bot-prep-suggester | 15 | v14_meatball_shadow | Legge flag, scrive shadow suggestion row |
-| bot-pipeline-worker | 6 | v6 self-advancing | 7 step, cron jobid=17 disabled (intenzionale) |
-| bot-stock-drain | 2 | v1 | Usa apply_prep_stock_drain v3 |
-| bot-stock-consolidator | invariato | v10 | |
-| bot-bom-chain-deduction | invariato | v4_safety | |
-| bot-preplist-builder | invariato | v46 | Legacy, ancora attivo, scrive suggested_qty |
-
-
-## STATO CORRENTE — 14 Luglio 2026 (fine sessione)
-
-### Nuova Nightly Pipeline (6 step) — LIVE ✅
-
-**Il cutover dal builder legacy alla nuova pipeline per le suggestion è avvenuto.**
-Backend: la nuova pipeline è ora l'unica a girare in automatico ogni notte via cron.
-Frontend: **non ancora aggiornato** — task aperto, vedi sotto.
-
-#### Componenti live confermati
-
-| Componente | Versione | Stato |
+| Policy | Cmd | Condition |
 |---|---|---|
-| `bot-pipeline-worker` | v4 (Edge deployment 4) | ACTIVE — legge/scrive `bot_pipeline_jobs`, 6 step |
-| `complete_pipeline_step` (RPC) | v2 | 6 nomi step, soglia completamento `>=6` |
-| `fail_pipeline_step` (RPC) | v2 | 6 nomi step |
-| `bot-prep-suggester` | v12b (Edge deployment 13) | ACTIVE — vero tracciamento in `bot_runs`, `generated_at`/`bot_run_id` reali su ogni riga scritta |
-| `pg_cron jobid=17` (`pipeline-worker-tick`) | — | `schedule='* * * * *'`, **`dry_run:false`** (cambiato oggi), `active=true` |
-| `bot-preplist-builder` (legacy) | v46 (Edge v71) | **ANCORA ATTIVO** — cron `0 9 * * *` (04:00 CDT), unico writer di `prep_tasks.current_stock` |
+| `Users see own profile` | SELECT | `auth.uid() = auth_id` (solo Max via dashboard Supabase) |
+| `authenticated_users_update_own` | UPDATE | `auth.uid() = auth_id` |
+| `anon_insert_users` | INSERT | true (admin-gated in UI — tech debt da wrappare in RPC) |
+| `anon_update_users` | UPDATE | true (idem) |
 
-**Pipeline order (invariato):**
-```
-1. bot-pos-cleaner
-2. bot-direct-deduction
-3. bot-bom-chain-deduction
-4. bot-modifier-depletion
-5. bot-stock-consolidator
-6. bot-prep-suggester  ← nuovo step, aggiunto oggi
-```
+Nota: anon non può SELECT da users diretta (no public read policy). Usa `users_public` view.
 
-**Mapping business_date → suggestion_date (nuovo, nel worker v4):**
-Funzione `computeSuggestionDate()` — primo giorno operativo dopo `business_date`, timezone America/Chicago, salta domenica + `closed_dates`, max 14 tentativi, errore esplicito se non trova nulla entro 14gg. Deterministica, non usa l'orologio di sistema, non usa il fallback interno `nextServiceDay()` del suggester.
+#### JS — cambiamenti app.js / auth.js
 
-#### Recovery storico completato (10-13 luglio)
+- `attemptPinLogin()` → chiama `brigade-login` EF via fetch, stage-by-stage logging console.info
+- `_showLoginError(type)` → distingue 'pin' | 'service' | 'storage'
+- `_restoreSession` IIFE → valida token esistente in sessionStorage al page load
+- `window.brigadeLogout()` → invalida sessione server-side
+- `_ensureInstallId()` → genera/mantiene install_id in localStorage
+- `_adminApi(action, params)` → tutte le write su users via brigade-user-admin EF
+- `saveNewUser`, `saveEditUser`, `toggleUserActive`, `changeAvatar` → ora via _adminApi
 
-| Data | Cleaner/Direct/BOM | Modifier | Consolidator | Suggester | Note |
-|---|---|---|---|---|---|
-| 2026-07-10 | ✅ live (rerun manuale sessioni precedenti) | ✅ 4 righe | ✅ 139 snapshot | ✅ suggestion_date=11/07, 94 righe | run_id reali in `bot_runs` |
-| 2026-07-11 | ✅ live | ✅ 4 righe | ✅ 161 snapshot | ✅ suggestion_date=13/07, 94 righe | run_id reali |
-| 2026-07-12 | — | — | — | — | **domenica, chiuso — nessun job, comportamento corretto per design** (`gmail-touchbistro-import` non crea job se `sales_rows=0`) |
-| 2026-07-13 | ✅ live | ✅ 4 righe | ✅ 159 snapshot | ✅ suggestion_date=14/07, 94 righe (105 totali in tabella, 11 residue da prep checklist/archiviate — comportamento noto, non un bug) | primo test end-to-end completo del sesto step |
+#### Pending / Tech Debt
 
-**⚠️ Nota da chiudere in una sessione futura:** i job in `bot_pipeline_jobs` per il 10/07 e 11/07 restano formalmente `status='failed', current_step_index=1` — perché il recovery è stato eseguito con chiamate dirette ai singoli bot (come richiesto per non rilanciare Cleaner/Direct/BOM), non tramite le RPC di avanzamento della coda. I **dati reali sono completi e corretti**, ma la riga di stato della coda non riflette questo. Non bloccante (`claim_next_pipeline_job` seleziona solo `status='pending'`), ma visivamente fuorviante se qualcuno guarda `bot_pipeline_jobs` per quelle due date.
+- Siciliana iPhone test: **awaiting physical confirmation** dal device (il login funziona, il flusso prod non è stato eseguito ancora)
+- `record-prep-production` → 400 nei log recenti: da investigare (probabilmente brigade_token mancante nei vecchi path)
+- `users.pin` column: da droppare con `ALTER TABLE users DROP COLUMN pin` dopo 48h monitoraggio
+- Admin write ops (saveNewUser etc.) ancora con anon_insert/update policy — da wrappare in RPCs service_side in futuro
+- `bot-prep-suggester` → 401 in alcuni log: da verificare se i path che chiamano senza token sono deprecati o attivi
 
-#### Enqueue automatico — confermato con prova di codice
+#### Versione live
 
-`gmail-touchbistro-import` (edge v33) chiama `enqueue_pipeline_job()` dopo ogni import CSV riuscito con `sales_rows > 0`. Non crea job se `sales_rows=0` (comportamento corretto per domeniche/giorni chiusi). Il campo `dry_run:true` scritto nel metadata del job (`bot_pipeline_jobs.metadata.dry_run`) è **cosmetico/informativo** — non controlla il comportamento reale del worker, che legge `dry_run` solo dal proprio payload cron. Non ancora allineato (task esplicitamente rimandato a una sessione separata, come da istruzione "se preferisci separarlo in un deploy successivo, dichiaralo esplicitamente e non toccarlo").
-
-#### Verifiche di sicurezza superate oggi
-
-- `prep_tasks.current_stock` **non toccato** da nessuno dei 6 step nuovi — confermato nel codice (`bot-stock-consolidator` dichiara esplicitamente `"current_stock NOT updated"` nella propria risposta)
-- Ultimo scarico `current_stock` resta quello del builder legacy, oggi 04:00:01 CDT (91 task aggiornati)
-- `bot-nightly-orchestrator` **non riattivato** — confermato architettura superata (falliva per timeout `net.http_post` su chain sincrona lunga, sostituito dal queue worker il 10/07)
-- Nessuna modifica a UI/frontend in questa sessione
+**boh-v657** — sw.js commit `99cfb2902222`
 
 ---
-
-### 🔴 TASK APERTO — Frontend Trust View + Legacy Suggestion Retirement
-
-**Non ancora iniziato.** Richiesto da Max a fine sessione, da riprendere dalla prossima sessione.
-
-**Obiettivo:** dare ai cuochi una card semplice con il filo logico:
-```
-Added yesterday
-− Used last night
-= Available now
-→ Prep suggested
-```
-Esempio target:
-```
-Added yesterday: 2.5 kg
-Used last night: 1.3 kg
-Available now: 1.2 kg
-Prep suggested: 2.8 kg
-Based on Tuesday demand and current stock.
-```
-
-**Regola architetturale confermata da Max per questo task:**
-- Il vecchio `bot-preplist-builder` **resta attivo solo per lo scarico di `current_stock`** — non spegnerlo, non toccare la sua logica
-- Le sue suggestion (`suggested_qty`, `suggested_note`, `suggested_at`, `suggested_by`, `sources_json`) **non devono più essere mostrate né usate come fallback** nel frontend operativo
-- `prep_suggestions_daily` diventa l'**unica fonte** di suggestion visibile ai cuochi
-- Se non esiste una suggestion fresca/valida → messaggio "Suggestion unavailable — check stock before preparing", **mai** un fallback silenzioso al vecchio bot
-- Zero deve significare zero reale — dato mancante deve mostrare "Not available", mai zero
-
-**Prima regola del task (non ancora eseguita):** AUDIT delle 4 fonti prima di toccare qualsiasi frontend:
-1. **Added yesterday** ← verificare se ricostruibile da `prep_log` (match per `prep_task_id` o solo nome/recipe? conversione unità? esclusione checklist/zero?)
-2. **Used last night** ← verificare fonte corretta tra `stock_deductions` / `stock_movements` / `stock_daily_snapshot`, evitare doppio conteggio tra direct/BOM/modifier
-3. **Available now** ← verificare se `prep_tasks.current_stock` è davvero la fonte corretta e aggiornata
-4. **Prep suggested** ← solo `prep_suggestions_daily`, run valida più recente, `generated_at`/`bot_run_id` reali (ora possibile grazie al fix di oggi su v12b)
-
-Poi: verifica numerica su 7 prep reali (Texana Soup, Mash Potato, Spaghetti, Diced Grilled Chicken, Panna Cotta, Garlic Oil, Pancetta) con tabella di controllo `previous stock + added − used ± altri movimenti = current stock`. Se la formula non torna con dati reali, dichiararlo esplicitamente — non inventare il numero mancante.
-
-Poi: mappa di ogni fallback legacy in `js/prep.js` (campo `suggested_*`, uso in `classifyCard()`, stock pill, card expansion).
-
-Solo se l'audit conferma dati affidabili → proporre diff chirurgico del frontend (card trust block, testo in inglese semplice, niente nomi di bot, niente termini tecnici, niente food cost).
-
-**Verdetto atteso a fine task:** `READY TO REMOVE LEGACY SUGGESTIONS FROM FRONTEND` oppure `STOP — TRUST DATA NOT YET RELIABLE`.
-
-**Non fare push finché Chef Max non approva esplicitamente — vale anche per questo task.**
-
----
-
-### Pending invariato da sessioni precedenti (non toccato oggi)
-
-- 3 warning Consolidator (Spring mix g vs buste, Spaghetti pz vs nests, Parsley pinch vs g)
-- Asparagus pt_unit (decisione g vs kg)
-- Meatballs current_stock iniziale (chiedere a Max stima attuale)
-- Dish Crew Home Fase 2
-- Rename Manager → Coordinator
-- 7shifts sync (JWT auth)
-- Sales: rimuovere tab "Oggi"
-- RLS hardening su `prep_task_classifications`
-- Saucier Production Cadence v3 (pseudocode approvato, non ancora implementato in `bot-prep-suggester`)
-- Retry mirato di un singolo step fallito nella pipeline (RPC dedicata, non ancora costruita — oggi un fallimento allo step 6 richiede intervento manuale)
-- Allineamento metadata `dry_run` in `gmail-touchbistro-import` (cosmetico, non bloccante, rimandato esplicitamente)
-
 
 ---
 
