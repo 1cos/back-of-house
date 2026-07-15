@@ -5,19 +5,24 @@ let recipeLinks={}; // ora su Supabase in prep_tasks.recipe_id
 let closingItems=[]; // closing_checks separati da prep_tasks
 
 async function init(){
-  const{data}=await supa.from('prep_tasks').select('*').order('name');
+  // Parallel load — prep_tasks, closing_checks, recipes in one round-trip
+  const [ptRes, ccRes, recRes] = await Promise.all([
+    supa.from('prep_tasks').select('*').order('name'),
+    supa.from('closing_checks').select('*').eq('archived',false).order('name'),
+    supa.from('recipes').select('*').order('title').then(r=>r).catch(()=>({data:null}))
+  ]);
+  const{data}=ptRes;
   items=(data||[]).filter(i=>!i.archived); tasks={};
   items.forEach(i=>tasks[i.id]=i);
   window._taskNames={}; items.forEach(i=>window._taskNames[i.id]=i.name);
   // Carica closing_checks separati
-  const{data:closingData}=await supa.from('closing_checks').select('*').eq('archived',false).order('name');
-  closingItems=closingData||[];
+  closingItems=ccRes.data||[];
   // carica recipe links da prep_tasks
   recipeLinks={};
   items.forEach(i=>{ if(i.recipe_id) recipeLinks[i.id]=i.recipe_id; });
   closingAnswers={};
   try{
-    const{data:recs}=await supa.from('recipes').select('*').order('title');
+    const recs=recRes.data;
     if(recs) SHOP_RECIPES=recs.map(r=>({...r,ingredients:typeof r.ingredients==='string'?JSON.parse(r.ingredients):(r.ingredients||[]),yield:r.yield_text,prep_time:r.prep_time_minutes}));
   }catch(e){}
   const KITCHEN_STATIONS = ['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Table Side','Freezer'];
