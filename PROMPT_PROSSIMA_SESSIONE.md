@@ -4,6 +4,163 @@
 
 ---
 
+---
+
+## STATO CORRENTE — 15 Luglio 2026 (fine sessione)
+
+### Meatball Assembly Model — Shadow Build completato ✅
+
+**Lavoro interamente nel perimetro shadow — zero impatto sulla produzione live.**
+
+Questa sessione è la quarta consecutiva sul sistema Meatball Appetizer. Non ha toccato il routing POS, gli stock, il frontend, né i dati operativi. Tutto ciò che è stato costruito resta silenzioso dietro il feature flag `off`.
+
+---
+
+#### Architettura deployata — componenti shadow
+
+| Componente | Tipo | Versione | Stato |
+|---|---|---|---|
+| `prep_tasks.stock_role` | Schema (colonna) | Migration `add_stock_role_to_prep_tasks` | LIVE, DEFAULT NULL, nessuna riga assegnata |
+| `feature_flags` | Tabella | Migration | LIVE, flag=`off` |
+| `meatball_assembly_log` | Tabella | Migration | LIVE, 0 righe reali |
+| `meatball_shadow_routing_log` | Tabella | Migration + extend | LIVE, 14 righe SQL + 2 righe da bot reale |
+| `meatball_shadow_suggestions` | Tabella | Migration | LIVE, 1 riga da bot reale |
+| `meatball_backfill_staging` | Tabella | Migration | LIVE, 14 righe dry-run (non authoritative) |
+| `assemble_meatball_bags` | RPC PostgreSQL | Migration | LIVE ma bloccata da flag=off |
+| `apply_prep_stock_drain` | RPC PostgreSQL | v3 | LIVE, gestisce NULL stock correttamente |
+| `bot-direct-deduction` | Edge Function | **v11** (`v11_meatball_shadow`) | LIVE, legge flag, scrive shadow routing row quando shadow |
+| `bot-prep-suggester` | Edge Function | **v15** (`v14_meatball_shadow` code) | LIVE, legge flag, scrive shadow suggestion row quando shadow |
+
+#### Test controllati eseguiti questa sessione
+
+| Test | Risultato |
+|---|---|
+| 11 SQL tests per `assemble_meatball_bags` (NULL check, insufficiency, 12 bags, idempotency, shadow mode) | ✅ 11/11 PASS |
+| 4 scenari shadow forecast (NULL cascades, no_assembly_needed, blocked, ready) | ✅ 4/4 PASS |
+| Run reale bot-direct-deduction v11 in shadow su 2026-07-13 | ✅ shadow_row_written=true, pt479/pt480 invariati |
+| Retry del bot-direct-deduction (seconda run) | ✅ secondo shadow row scritto (bot_run_id diverso, corretto) |
+| Mismatch detection test | ✅ routing_match=false rilevato correttamente |
+| Run reale bot-prep-suggester v15 in shadow su business_date=2026-07-13 | ✅ shadow_written=true, prep_suggestions_daily invariata |
+
+#### Valori shadow dalla run reale del suggester
+
+- `suggestion_date = 2026-07-14` (calcolato dal worker: business_date 2026-07-13 → +1 → giovedì 14/07)
+- `forecast_bags = 42.17` (cover Thu+Fri+Sat per giovedì: avg 18+23+20 × 1.10)
+- `shadow_status = count_finished_bags`
+- `blocking_reason = "pt481.current_stock IS NULL — physical count of finished bags required"`
+- `confidence = medium`
+- Tutte le colonne downstream (`bags_to_assemble`, `meatballs_required`, ecc.) = NULL (corretto, propagazione NULL)
+
+#### Stato live invariato
+
+| Item | Valore |
+|---|---|
+| `feature_flags.meatball_assembly_model_enabled` | **off** |
+| `prep_tasks.stock_role` (pt479, 480, 481) | **NULL** (non assegnato) |
+| `prep_tasks.current_stock` (pt479, 480, 481) | **NULL** (mai toccato) |
+| `stock_deductions` pt481 | **0 righe** |
+| `prep_suggestions_daily` pt479, 480, 481 (2026-07-15) | **count_first / count_first / no_demand_path** (invariati) |
+| `assemble_meatball_bags` RPC | **bloccata da flag=off** |
+| sw.js | **boh-v658** (non toccato) |
+
+---
+
+### Pipeline recovery 2026-07-15 — completata ✅
+
+Risolti durante questa sessione:
+
+**Root cause:** `bot-stock-drain` falliva a step 5 con `null value in column "stock_before" violates not-null constraint` per Meatball Sauce (pt479) e Meatballs (pt480) — entrambi avevano `current_stock=NULL`.
+
+**Fix:** RPC `apply_prep_stock_drain` v3 — NULL stock = skip (`skipped_unknown_stock`), non coercione a 0. Il NULL semantico è preservato.
+
+**Recovery:** job `a5c5f740` resettato da `failed` a `pending` a `current_step_index=5`, worker self-advancing ha completato step 5 (59 drain) + step 6 (94 suggestion) in sequenza automatica.
+
+**Semantic fix successivo:** la v2 dell'RPC aveva usato coercione NULL→0, producendo suggestion errate. Fix v3 + ripristino dati:
+- `prep_tasks.current_stock` pt479/480 → NULL
+- `prep_stock_drain_log` 2 righe corrotte → eliminate
+- `prep_suggestions_daily` pt479/480 (2026-07-15) → corrette a `count_first`
+
+---
+
+### Meatball Production Model Audit — completato
+
+Auditati in dettaglio l'intera architettura BOM, il flusso POS, il ciclo assembly, le deductions. Risultati chiave:
+
+- **Flusso attuale (PATH A):** POS "Meatball Appetizer" → BOM → pt479 (100g sauce) + pt480 (5pz meatballs) per ogni ordine. Confermato corretto su 14 date, zero discrepanze.
+- **Flusso proposto:** POS → pt481 (1 bag/order, finished stock); assembly DONE → decrementa pt480 + pt304 (85g) + pt291 (15g).
+- **162 pz non è un vincolo fisso** — tutti gli ingredienti BOM sono in grammi, ricetta scalabile a qualsiasi N.
+- **pt479 Meatball Sauce** = phantom node (BOM reference, no physical stock), candidato a `stock_role='phantom_non_stocked'`.
+- **Backfill matematicamente verificato:** proposed_bags × 5 = actual_pt480 su 14/14 date.
+
+---
+
+### 🔴 PROSSIMO STEP — Attivazione shadow mode (Max deve decidere quando)
+
+Per attivare la shadow mode live (con le prossime run nightly automatiche):
+
+```sql
+UPDATE feature_flags
+SET state = 'shadow', updated_by = 'max', updated_at = now()
+WHERE flag_name = 'meatball_assembly_model_enabled';
+```
+
+**Cosa succede dopo:**
+- Bot-direct-deduction: scrive shadow routing row per ogni business_date che include ordini Meatball Appetizer
+- Bot-prep-suggester: scrive shadow suggestion row per ogni suggestion_date
+- Zero impatto sul routing POS, zero impatto sugli stock, zero impatto sul frontend
+- I dati si accumulano in `meatball_shadow_routing_log` e `meatball_shadow_suggestions`
+
+**Per monitorare la shadow mode:**
+```sql
+-- Routing shadow (confronto tra proposta pt481 e actual pt479/pt480)
+SELECT business_date, proposed_pt481_deduction, current_pt479_deduction,
+       current_pt480_deduction, routing_match, mismatch_reason
+FROM meatball_shadow_routing_log
+WHERE bot_run_id IS NOT NULL
+ORDER BY business_date DESC;
+
+-- Assembly shadow forecast
+SELECT suggestion_date, shadow_status, forecast_bags, bags_to_assemble,
+       meatballs_required, pomodoro_required_g, demi_required_g,
+       blocking_reason, confidence
+FROM meatball_shadow_suggestions
+ORDER BY suggestion_date DESC;
+```
+
+**Per il cutover (quando Max decide):**
+Vedi sequenza dettagliata in sessione del 15 luglio (Meatball Production Model Audit, §14 Physical-Count Cutover Checklist).
+
+---
+
+### Pending invariato da sessioni precedenti
+
+- Saucier Production Cadence v3 (pseudocode approvato, da implementare in bot-prep-suggester)
+- 3 warning Consolidator (Spring mix, Spaghetti, Parsley)
+- Asparagus pt_unit (g vs kg)
+- Dish Crew Home Fase 2
+- Rename Manager → Coordinator
+- 7shifts sync (JWT auth)
+- Sales: rimuovere tab Oggi
+- RLS hardening su prep_task_classifications
+- Trust View frontend (prep card con filo logico Added/Used/Available/Suggested)
+- bot-preplist-builder legacy: ancora gira ogni notte, non spegnere finché non approvato da Max
+- 3 pipeline jobs con status='failed' per date 10/07 e 11/07 (dati reali corretti, solo status fuorviante)
+
+---
+
+### Versioni bot live (fine sessione)
+
+| Bot | Versione Edge | Versione codice | Note |
+|---|---|---|---|
+| bot-direct-deduction | 11 | v11_meatball_shadow | Legge flag, scrive shadow routing row |
+| bot-prep-suggester | 15 | v14_meatball_shadow | Legge flag, scrive shadow suggestion row |
+| bot-pipeline-worker | 6 | v6 self-advancing | 7 step, cron jobid=17 disabled (intenzionale) |
+| bot-stock-drain | 2 | v1 | Usa apply_prep_stock_drain v3 |
+| bot-stock-consolidator | invariato | v10 | |
+| bot-bom-chain-deduction | invariato | v4_safety | |
+| bot-preplist-builder | invariato | v46 | Legacy, ancora attivo, scrive suggested_qty |
+
+
 ## STATO CORRENTE — 14 Luglio 2026 (fine sessione)
 
 ### Nuova Nightly Pipeline (6 step) — LIVE ✅
