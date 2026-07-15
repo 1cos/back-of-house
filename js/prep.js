@@ -3247,17 +3247,28 @@ async function suggestedSave(id, modal){
   const _ck2 = crypto.randomUUID ? crypto.randomUUID() : (
     'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)})
   );
-  const rpcRes2 = await supa.rpc('record_prep_production', {
-    p_prep_task_id:id, p_qty:qty, p_unit:unit,
-    p_user_name:user.name, p_station:it.category||tr('generale'),
-    p_started_at:_sSt.toISOString(), p_duration_min:_sDur,
-    p_is_suggested:true, p_client_key:_ck2
-  });
-  if(rpcRes2.error || !rpcRes2.data?.ok){
-    _prepSaveError(it.name, rpcRes2.error?.message || rpcRes2.data?.error || 'Save failed');
+  const _efUrl2 = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/record-prep-production';
+  const _efTok2 = sessionStorage.getItem('brigade_token');
+  let rpcRes2Raw, rpcRes2;
+  try {
+    rpcRes2Raw = await fetch(_efUrl2, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        brigade_token:_efTok2, prep_task_id:id, qty:qty, unit:unit,
+        station:it.category||tr('generale'),
+        started_at:_sSt.toISOString(), duration_min:_sDur,
+        is_suggested:true, client_key:_ck2
+      })
+    });
+    rpcRes2 = await rpcRes2Raw.json();
+  } catch(e) { _prepSaveError(it.name, 'Network error saving production'); return; }
+  if(!rpcRes2Raw.ok || !rpcRes2?.ok){
+    if(rpcRes2Raw.status===401){_prepSaveError(it.name,'Session expired. Please sign in again.');return;}
+    _prepSaveError(it.name, rpcRes2?.error || 'Save failed');
     return;
   }
-  const _ns2 = rpcRes2.data.new_stock;
+  const _ns2 = rpcRes2.new_stock;
   tasks[id].current_stock=_ns2; tasks[id].in_progress=false;
   tasks[id].in_progress_at=null; tasks[id].in_progress_by=null;
   tasks[id].need_tomorrow=false; tasks[id].suggested_note=null; tasks[id].suggested_qty=null;
@@ -3299,29 +3310,37 @@ async function detailSave(id, btn, isSuggested){
     'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)})
   );
 
-  // Call atomic RPC: validates unit, inserts prep_log, increments stock — all in one transaction
-  const rpcRes = await supa.rpc('record_prep_production', {
-    p_prep_task_id: id,
-    p_qty:          qty,
-    p_unit:         unit,
-    p_user_name:    user.name,
-    p_station:      it.category || tr('generale'),
-    p_started_at:   _dSt.toISOString(),
-    p_duration_min: _dDur,
-    p_is_suggested: !!isSuggested,
-    p_client_key:   _clientKey
-  });
-
-  if(rpcRes.error){
+  // Call production Edge Function: validates session server-side, derives user identity, calls RPC via service role
+  const _efUrl = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/record-prep-production';
+  const _efTok = sessionStorage.getItem('brigade_token');
+  let rpcRaw, rpcData;
+  try {
+    rpcRaw = await fetch(_efUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        brigade_token: _efTok,
+        prep_task_id:  id,
+        qty:           qty,
+        unit:          unit,
+        station:       it.category || tr('generale'),
+        started_at:    _dSt.toISOString(),
+        duration_min:  _dDur,
+        is_suggested:  !!isSuggested,
+        client_key:    _clientKey
+      })
+    });
+    rpcData = await rpcRaw.json();
+  } catch(e) {
     if(btn){btn.textContent=tr('prep_done'); btn.disabled=false;}
-    _prepSaveError(it.name, rpcRes.error.message);
+    _prepSaveError(it.name, 'Network error saving production');
     return;
   }
 
-  const rpcData = rpcRes.data;
-  if(!rpcData || !rpcData.ok){
+  if(!rpcRaw.ok || !rpcData?.ok){
     if(btn){btn.textContent=tr('prep_done'); btn.disabled=false;}
-    _prepSaveError(it.name, (rpcData && rpcData.error) || 'Production save failed');
+    if(rpcRaw.status===401){_prepSaveError(it.name,'Session expired — please sign in again.');return;}
+    _prepSaveError(it.name, rpcData?.error || 'Production save failed');
     return;
   }
 
