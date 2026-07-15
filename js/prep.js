@@ -805,6 +805,32 @@ function renderSuggBlock(sugg, i) {
   const stockUnverified = sugg.stock_source === 'db_snapshot_unverified';
   const flagRc = !!(sugg.debug_json?.flag_recount);
 
+  // ── STOCK VERIFIED FLAG (Sprint #2D) ─────────────────────────────────────
+  // True when ALL of:
+  //   1. A valid physical count exists in _recentCounts (not expired)
+  //   2. Live stock satisfies the demand window (new_net <= 0)
+  //      new_net = MAX(gross_demand - live_stock, 0)
+  //   3. Not an operational/thaw task (those have separate flow)
+  //
+  // When true: replace urgency pill + warning messages with confidence state.
+  // Does NOT change any data, RPC, suggestion engine or DONE flow.
+  const _svCnt = (window._recentCounts || {})[i && i.id];
+  const _svCntValid = _svCnt && (!_svCnt.expires_at || new Date(_svCnt.expires_at) > new Date());
+  const _svLive = _liveStockForRec;  // live prep_tasks.current_stock
+  const _svGross = sugg && sugg.forecast != null
+    ? parseFloat(sugg.forecast)
+    : (sugg && sugg.net_requirement != null ? parseFloat(sugg.net_requirement) : null);
+  const _svNet = (_svLive !== null && _svGross !== null)
+    ? Math.max(0, _svGross - _svLive)
+    : null;
+  // Stock verified = count exists + remaining demand is zero
+  const _stockVerifiedOk = !!(
+    _svCntValid &&
+    _svNet !== null &&
+    _svNet <= 0 &&
+    !isOperational   // thaw/portion tasks have their own operational flow
+  );
+
   // ── STATION VIEW description — short, operational English ──
   // Replaces raw DB reason text for non-admin users.
   function _stationDesc(status, isBlocked, isOperational) {
@@ -834,22 +860,32 @@ function renderSuggBlock(sugg, i) {
 
   // ── RENDER ──
 
-  // Pill
-  const pillLabel = isOperational ? (isThaw ? 'THAW' : 'PORTION') : sc.label;
-  const pillHtml = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${sc.color};background:${sc.bg};border:1px solid ${sc.border};border-radius:20px;padding:3px 9px;letter-spacing:0.02em;">${sc.emoji} ${pillLabel}</span>`;
+  // Pill — overridden to 🟢 STOCK VERIFIED when physical count satisfies demand
+  let pillLabel, pillHtml;
+  if (_stockVerifiedOk) {
+    pillLabel = 'STOCK VERIFIED';
+    pillHtml = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#059669;background:rgba(5,150,105,0.08);border:1px solid #bbf7d0;border-radius:20px;padding:3px 9px;letter-spacing:0.02em;">🟢 ${pillLabel}</span>`;
+  } else {
+    pillLabel = isOperational ? (isThaw ? 'THAW' : 'PORTION') : sc.label;
+    pillHtml = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${sc.color};background:${sc.bg};border:1px solid ${sc.border};border-radius:20px;padding:3px 9px;letter-spacing:0.02em;">${sc.emoji} ${pillLabel}</span>`;
+  }
 
-  // Quantity line (bold, always shown when available)
+  // Quantity line — suppressed when stock verified covers full demand
   let actionQtyHtml = '';
-  if (displayLabel) {
+  if (_stockVerifiedOk) {
+    actionQtyHtml = ''; // no urgent batch label when stock is confirmed sufficient
+  } else if (displayLabel) {
     const aqColor = isOperational ? '#1e40af' : (status === 'do_first' ? '#dc2626' : '#ea580c');
     actionQtyHtml = `<div style="font-size:15px;font-weight:800;color:${aqColor};margin-top:5px;letter-spacing:-0.01em;">${displayLabel}</div>`;
   } else if (isBlocked) {
     actionQtyHtml = `<div style="font-size:12px;font-weight:600;color:#64748b;margin-top:5px;">CHECK — no quantity available</div>`;
   }
 
-  // Description — Station View: plain English. Chef/Admin: raw DB reason.
+  // Description — replaced with positive message when stock verified
   let descHtml = '';
-  if (status !== 'out_of_scope') {
+  if (_stockVerifiedOk) {
+    descHtml = `<div style="font-size:13px;color:#059669;margin-top:5px;line-height:1.4;font-weight:600;">✅ Physical stock verified.</div>`;
+  } else if (status !== 'out_of_scope') {
     if (isChefView) {
       // Chef/Admin/Supervisor: show raw DB reason (technical, multilingual)
       if (status !== 'looks_ok' && status !== 'defer_to_tomorrow') {
@@ -871,9 +907,9 @@ function renderSuggBlock(sugg, i) {
     }
   }
 
-  // ⚠ Verify stock — shown to ALL users when flag_recount=true
+  // ⚠ Verify stock — shown when flag_recount=true, suppressed when stock already verified
   let rcHtml = '';
-  if (flagRc) {
+  if (flagRc && !_stockVerifiedOk) {
     rcHtml = `<div style="margin-top:5px;font-size:12px;font-weight:700;color:#ca8a04;">⚠ Verify stock before starting</div>`;
   }
 
@@ -933,7 +969,13 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
   const NA = '<span style="color:#94a3b8;font-style:italic;">Usage data unavailable</span>';
   // Label per "query ok, nessun record trovato" (zero reale, non mancanza di dati)
   const NO_PRODUCTION = '<span style="color:#64748b;font-style:italic;">No production recorded</span>';
-  const NO_USAGE = '<span style="color:#64748b;font-style:italic;">No usage recorded</span>';
+  // When no usage is recorded after a verified stock count, it's because the nightly
+  // reconciliation hasn't run yet for the current business date — not a data error.
+  const _cnt2 = (window._recentCounts || {})[tid];
+  const _cnt2Valid = _cnt2 && (!_cnt2.expires_at || new Date(_cnt2.expires_at) > new Date());
+  const NO_USAGE = _cnt2Valid
+    ? '<span style="color:#94a3b8;font-style:italic;">Will update after nightly reconciliation.</span>'
+    : '<span style="color:#64748b;font-style:italic;">No usage recorded</span>';
 
   // Prepared yesterday
   let preparedStr;
@@ -1027,9 +1069,12 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
     suggestedStr = '<span style="color:#94a3b8;font-style:italic;">Suggestion unavailable</span>';
   }
 
-  // Context sentence
+  // Context sentence — suppressed or updated when stock is verified
   let contextStr = '';
-  if (status === 'count_first' || stockUnver) {
+  if (_stockVerifiedOk) {
+    // Stock verified: no warning message needed
+    contextStr = '';
+  } else if (status === 'count_first' || stockUnver) {
     contextStr = `<div style="font-size:11px;color:#92400e;margin-top:4px;">Please verify the actual stock before preparing.</div>`;
   } else if (sugg && sugg.suggestion_date) {
     // Day-of-week context
