@@ -3225,28 +3225,34 @@ async function suggestedSave(id, modal){
   var _sSt = _startTimes[id] || _sNow;
   var _sDur = Math.round((_sNow - _sSt) / 60000);
   delete _startTimes[id];
-  const [logRes, updRes] = await Promise.all([
-    supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:'',user_name:user.name,is_suggested_qty:true,started_at:_sSt.toISOString(),duration_minutes:_sDur,prep_task_id:id}),
-    supa.from('prep_tasks').update({need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,current_stock:(parseFloat(it.current_stock)||0)+qty,suggested_note:null,suggested_qty:null}).eq('id',id)
-  ]);
-  if(logRes.error || updRes.error){
-    _prepSaveError(it.name, (updRes.error||logRes.error).message);
+  const _ck2 = crypto.randomUUID ? crypto.randomUUID() : (
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)})
+  );
+  const rpcRes2 = await supa.rpc('record_prep_production', {
+    p_prep_task_id:id, p_qty:qty, p_unit:unit,
+    p_user_name:user.name, p_station:it.category||tr('generale'),
+    p_started_at:_sSt.toISOString(), p_duration_min:_sDur,
+    p_is_suggested:true, p_client_key:_ck2
+  });
+  if(rpcRes2.error || !rpcRes2.data?.ok){
+    _prepSaveError(it.name, rpcRes2.error?.message || rpcRes2.data?.error || 'Save failed');
     return;
   }
-  _finishTask(id, qty);
-  loadItemAlerts();loadStepsMap();loadTodayLogs();loadRecentCounts();
-  // Mark today's suggestion as looks_ok in DB → card disappears based on server state
-  const _todayCDTss = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago', year:'numeric', month:'2-digit', day:'2-digit'
-  }).format(new Date());
-  supa.from('prep_suggestions_daily')
-    .update({ status: 'looks_ok' })
-    .eq('prep_task_id', id)
-    .eq('suggestion_date', _todayCDTss)
-    .then(({ error }) => {
-      if (error) console.warn('[DONE] Could not update suggestion status:', error.message);
-      if (typeof loadSuggestions === 'function') loadSuggestions();
-    });
+  const _ns2 = rpcRes2.data.new_stock;
+  tasks[id].current_stock=_ns2; tasks[id].in_progress=false;
+  tasks[id].in_progress_at=null; tasks[id].in_progress_by=null;
+  tasks[id].need_tomorrow=false; tasks[id].suggested_note=null; tasks[id].suggested_qty=null;
+  delete _taskStep[id]; delete _taskStepTotal[id];
+  releaseWakeLock(); showConfetti(); renderM(); renderS(); renderHomeStations();
+  loadItemAlerts(); loadStepsMap(); loadTodayLogs(); loadRecentCounts();
+  const _td2=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  const _bu2=(typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/bot-prep-suggester';
+  const _bk2=(typeof SUPABASE_ANON_KEY!=='undefined'?SUPABASE_ANON_KEY:window.SUPABASE_ANON_KEY);
+  fetch(_bu2,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_bk2},
+    body:JSON.stringify({dry_run:false,prep_task_ids:[id],suggestion_date:_td2})
+  }).then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(()=>{if(typeof loadSuggestions==='function')loadSuggestions().then(()=>renderM());})
+    .catch(err=>{console.warn('[DONE] Bot recalc failed (suggested):',err);renderM();});
 }
 
 async function detailSave(id, btn, isSuggested){
@@ -3267,59 +3273,106 @@ async function detailSave(id, btn, isSuggested){
   var _dSt = _startTimes[id] || _dNow;
   var _dDur = Math.round((_dNow - _dSt) / 60000);
   delete _startTimes[id];
-  const logRes = await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name,is_suggested_qty:!!isSuggested,started_at:_dSt.toISOString(),duration_minutes:_dDur,prep_task_id:id});
-  if(logRes.error){
+
+  // Generate a client-side idempotency key to prevent duplicate submissions
+  // (e.g. double-tap on DONE button)
+  const _clientKey = crypto.randomUUID ? crypto.randomUUID() : (
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)})
+  );
+
+  // Call atomic RPC: validates unit, inserts prep_log, increments stock — all in one transaction
+  const rpcRes = await supa.rpc('record_prep_production', {
+    p_prep_task_id: id,
+    p_qty:          qty,
+    p_unit:         unit,
+    p_user_name:    user.name,
+    p_station:      it.category || tr('generale'),
+    p_started_at:   _dSt.toISOString(),
+    p_duration_min: _dDur,
+    p_is_suggested: !!isSuggested,
+    p_client_key:   _clientKey
+  });
+
+  if(rpcRes.error){
     if(btn){btn.textContent=tr('prep_done'); btn.disabled=false;}
-    _prepSaveError(it.name, logRes.error.message);
+    _prepSaveError(it.name, rpcRes.error.message);
     return;
   }
-  // v636: converti qty nell'unità nativa del task prima di aggiornare current_stock.
-  // Il prep_log conserva qty e unit come inseriti dal cuoco.
-  const _taskUnit = (it.unit || '').toLowerCase().trim();
-  const _convResult = convertPrepQtyToTaskUnit(qty, unit, _taskUnit);
-  if (!_convResult.ok) {
-    if (btn) { btn.textContent = tr('prep_done'); btn.disabled = false; }
-    // Do NOT unlock scroll here — DONE sheet is still visible, user can correct unit
-    _prepSaveError(it.name, 'This quantity cannot be converted to the stock unit for this prep. Please check the selected unit.');
-    return;
-  }
-  const qtyForStock = _convResult.value;
-  const stockUpdate = qtyForStock > 0
-    ? {need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,current_stock:(parseFloat(it.current_stock)||0)+qtyForStock,suggested_note:null,suggested_qty:null}
-    : {need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,suggested_note:null,suggested_qty:null};
-  const updRes = await supa.from('prep_tasks').update(stockUpdate).eq('id',id);
-  if(updRes.error){
+
+  const rpcData = rpcRes.data;
+  if(!rpcData || !rpcData.ok){
     if(btn){btn.textContent=tr('prep_done'); btn.disabled=false;}
-    _prepSaveError(it.name, updRes.error.message);
+    _prepSaveError(it.name, (rpcData && rpcData.error) || 'Production save failed');
     return;
   }
+
+  // If duplicate detected (same client_key), silently succeed — production already saved
+  const _qtyForStock = rpcData.qty_native || qty;
+  const _newStock    = rpcData.new_stock;
+  const _isDuplicate = rpcData.duplicate_skipped;
+
   window.unlockPrepScroll('done-sheet');
-  window.unlockPrepScroll('done-confirm'); // safety: clear any stale confirm owner
+  window.unlockPrepScroll('done-confirm');
   if(sheet) sheet.remove();
   window._rmDonePending = null;
-  _finishTask(id, qtyForStock);
-  // Mark today's suggestion as looks_ok in the DB so the card disappears correctly.
-  // This is NOT a client-side mask — it writes to the authoritative table so that
-  // loadSuggestions() re-reads 'looks_ok' and isActionableCard() returns false.
-  // The bot will recalculate at 4AM CDT with the updated stock; until then, 'looks_ok'
-  // accurately reflects that production occurred and no further action is needed today.
+
+  // Update local RAM with authoritative stock from server
+  tasks[id].current_stock    = _newStock;
+  tasks[id].in_progress      = false;
+  tasks[id].in_progress_at   = null;
+  tasks[id].in_progress_by   = null;
+  tasks[id].need_tomorrow    = false;
+  tasks[id].suggested_note   = null;
+  tasks[id].suggested_qty    = null;
+  delete _taskStep[id];
+  delete _taskStepTotal[id];
+  releaseWakeLock();
+  if(!_isDuplicate) showConfetti();
+  renderM();renderS();renderHomeStations();
+
+  // Recalculate suggestion via the authoritative bot engine.
+  // The bot reads current_stock from prep_tasks (just updated by the RPC) and
+  // computes the real new status. This may yield looks_ok (sufficient stock),
+  // do_first (still short), or prep_today — the engine decides, not the client.
   const _todayCDT = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Chicago', year:'numeric', month:'2-digit', day:'2-digit'
   }).format(new Date());
-  supa.from('prep_suggestions_daily')
-    .update({ status: 'looks_ok' })
-    .eq('prep_task_id', id)
-    .eq('suggestion_date', _todayCDT)
-    .then(({ error }) => {
-      if (error) console.warn('[DONE] Could not update suggestion status:', error.message);
-      // Always reload suggestions after the update (success or failure)
-      // On success: re-reads 'looks_ok' → card hidden. On failure: re-reads old status.
-      if (typeof loadSuggestions === 'function') loadSuggestions();
+
+  // Show a temporary "updating recommendation" state on the card
+  if(window._suggestions && window._suggestions[id]){
+    window._suggestions[id] = Object.assign({}, window._suggestions[id], {
+      _recalculating: true
     });
+    renderM();
+  }
+
+  // Invoke bot-prep-suggester for this one task — async, non-blocking
+  const _botUrl = (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : window.SUPABASE_URL) + '/functions/v1/bot-prep-suggester';
+  const _botKey = (typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : window.SUPABASE_ANON_KEY);
+  fetch(_botUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _botKey },
+    body: JSON.stringify({ dry_run: false, prep_task_ids: [id], suggestion_date: _todayCDT })
+  }).then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(() => {
+      // Bot recalculated — reload fresh suggestions and re-render
+      if(typeof loadSuggestions === 'function') loadSuggestions().then(()=>{renderM();});
+    })
+    .catch(err => {
+      // Bot call failed — production was already saved (atomic RPC succeeded)
+      // Clear _recalculating flag and show honest state: production saved, suggestion stale
+      if(window._suggestions && window._suggestions[id]){
+        delete window._suggestions[id]._recalculating;
+      }
+      console.warn('[DONE] Bot recalc failed, production was saved:', err);
+      // Re-render with stale suggestion visible — do NOT force status
+      renderM();
+    });
+
   await loadItemAlerts();
   await loadStepsMap();
   loadRecentCounts();
-  setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
+  setTimeout(()=>{renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
 }
 
 // Shared cleanup dopo DONE
