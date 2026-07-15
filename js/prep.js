@@ -3155,24 +3155,20 @@ function openDoneSheetCustom(id){
   sheet.onclick=e=>{if(e.target===sheet){window.unlockPrepScroll('done-sheet');sheet.remove();}};
   document.body.appendChild(sheet);
   window.lockPrepScroll('done-sheet');
-  // iOS keyboard: bind to the input element directly — do not preventDefault on any touch event.
-  // Use readystatechange trick: schedule focus after the slideUp animation (250ms) completes,
-  // but only as a hint — iOS will open keyboard reliably on direct user tap regardless.
+  // iOS keyboard: call select() synchronously inside the focus handler.
+  // rAF-deferred select() exits the user-gesture window on iOS Safari,
+  // causing the keyboard to be dismissed. Synchronous is the correct approach.
   const _dscInp = document.getElementById('dsc-qty-'+it.id);
   if (_dscInp) {
-    // Select all on focus, but never suppress the keyboard — no .select() in touchstart
     _dscInp.addEventListener('focus', function() {
-      // On iOS, select() after focus may not open keyboard if called during animation.
-      // Use a rAF to let the browser settle first.
-      requestAnimationFrame(function() { try { _dscInp.select(); } catch(e){} });
+      try { _dscInp.select(); } catch(e){}
     });
-    // Preserve value on blur — do not reset to 1 if user entered a valid number
+    // Preserve value on blur — do not reset to default if user entered a valid number
     _dscInp.addEventListener('blur', function() {
       var v = parseFloat(_dscInp.value);
       if (isNaN(v) || v < 0) { _dscInp.value = isNaN(defQty) ? '' : defQty; }
-      // Do NOT force to 1 — preserve what the user typed
     });
-    // Auto-focus after animation completes (enhancement only — direct tap always works)
+    // Auto-focus after slideUp animation completes (enhancement — direct tap always works)
     setTimeout(function() { try { _dscInp.focus(); } catch(e){} }, 280);
   }
   // Cancel button — needs unlock
@@ -3232,8 +3228,11 @@ async function suggestedSave(id, modal){
     _prepSaveError(it.name, (updRes.error||logRes.error).message);
     return;
   }
+  // Evict from suggestions cache immediately
+  if(window._suggestions && window._suggestions[id]) delete window._suggestions[id];
   _finishTask(id, qty);
   loadItemAlerts();loadStepsMap();loadTodayLogs();loadRecentCounts();
+  if(typeof loadSuggestions === 'function') loadSuggestions();
 }
 
 async function detailSave(id, btn, isSuggested){
@@ -3283,12 +3282,15 @@ async function detailSave(id, btn, isSuggested){
   window.unlockPrepScroll('done-sheet');
   window.unlockPrepScroll('done-confirm'); // safety: clear any stale confirm owner
   if(sheet) sheet.remove();
-  // _rmDonePending was already cleared by _transitionRecipeToDone — no overlay cleanup needed
   window._rmDonePending = null;
+  // Immediately evict this task from the suggestions cache so renderM shows no suggestion
+  if(window._suggestions && window._suggestions[id]) delete window._suggestions[id];
   _finishTask(id, qtyForStock);
   await loadItemAlerts();
   await loadStepsMap();
-loadRecentCounts();
+  loadRecentCounts();
+  // Refresh suggestions so the card disappears or reprioritizes after stock update
+  if(typeof loadSuggestions === 'function') loadSuggestions();
   setTimeout(()=>{renderM();renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
 }
 
