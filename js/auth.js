@@ -33,11 +33,18 @@ async function saveNewPIN(btn){
   if(!current||!newPin||!confirm){err.textContent='Compila tutti i campi';err.classList.remove('hidden');return}
   if(!/^\d{4}$/.test(newPin)){err.textContent='Il PIN deve essere 4 cifre';err.classList.remove('hidden');return}
   if(newPin!==confirm){err.textContent='I PIN non coincidono';err.classList.remove('hidden');return}
-  if(current!==String(user.pin)){err.textContent='PIN attuale errato';err.classList.remove('hidden');return}
+  const token=sessionStorage.getItem('brigade_token');
+  if(!token){err.textContent='Sessione scaduta — rieffettua il login';err.classList.remove('hidden');return}
   btn.disabled=true; btn.textContent='Salvataggio...';
-  const{error}=await supa.from('users').update({pin:newPin}).eq('id',user.id);
-  if(error){err.textContent='Errore: '+error.message;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return}
-  user.pin=newPin;
+  const{data:res,error}=await supa.rpc('brigade_change_pin',{
+    p_token: token,
+    p_current_pin: current,
+    p_new_pin: newPin
+  });
+  if(error||!res||!res.ok){
+    const msg=res?.error==='wrong_current_pin'?'PIN attuale errato':(res?.error||error?.message||'Errore');
+    err.textContent=msg;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return;
+  }
   btn.closest('.fixed').remove();
   showScToast('✓ PIN aggiornato');
 }
@@ -229,10 +236,20 @@ window.confirmResetPIN = async(userId, btn) => {
     err.style.display='block';
     return;
   }
+  const token=sessionStorage.getItem('brigade_token');
+  if(!token){err.textContent='Sessione scaduta';err.style.display='block';return;}
   btn.textContent='...'; btn.disabled=true;
-  const{error}=await supa.from('users').update({pin}).eq('id',userId);
+  const{data:res,error}=await supa.rpc('brigade_reset_pin',{
+    p_token: token,
+    p_target_id: userId,
+    p_new_pin: pin
+  });
   btn.closest('.fixed').remove();
-  showScToast(error ? '✗ Errore: '+error.message : '✓ PIN aggiornato');
+  if(error||!res||!res.ok){
+    showScToast('✗ Errore: '+(res?.error||error?.message||'unknown'));
+  } else {
+    showScToast('✓ PIN aggiornato');
+  }
 };
 
 async function toggleUserActive(userId, currentlyActive){
