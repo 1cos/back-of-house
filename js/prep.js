@@ -3346,49 +3346,69 @@ async function detailSave(id, btn, isSuggested){
   delete _taskStep[id];
   delete _taskStepTotal[id];
   releaseWakeLock();
+  // Confetti: only when production was actually saved (not a duplicate)
+  // Does NOT imply that the recommendation was resolved — it means stock was recorded.
   if(!_isDuplicate) showConfetti();
   renderM();renderS();renderHomeStations();
 
   // Recalculate suggestion via the authoritative bot engine.
   // Must pass the EXACT suggestion_date of the active card — not todayCDT or nextServiceDay().
-  // window._suggestionsDate is the date that loadSuggestions loaded, which is the same
-  // date shown on the card. Falling back to todayCDT only if no suggestion was loaded.
   const _cardSuggDate = window._suggestionsDate || (()=>{
     return new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/Chicago', year:'numeric', month:'2-digit', day:'2-digit'
     }).format(new Date());
   })();
+  const _qtyLabel = humanQty ? (humanQty(_qtyForStock, tasks[id]?.unit)||(_qtyForStock+' '+(tasks[id]?.unit||''))) : (_qtyForStock+' '+(tasks[id]?.unit||''));
+  const _taskName = tasks[id]?.name || '';
 
-  // Show a temporary "updating recommendation" state on the card
+  // Show "updating recommendation" on the card while bot runs
   if(window._suggestions && window._suggestions[id]){
-    window._suggestions[id] = Object.assign({}, window._suggestions[id], {
-      _recalculating: true
-    });
+    window._suggestions[id] = Object.assign({}, window._suggestions[id], { _recalculating: true });
     renderM();
   }
 
-  // Invoke bot-prep-suggester for this one task — async, non-blocking
-  const _botUrl = (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : window.SUPABASE_URL) + '/functions/v1/bot-prep-suggester';
-  const _botKey = (typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : window.SUPABASE_ANON_KEY);
-  fetch(_botUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _botKey },
-    body: JSON.stringify({ dry_run: false, prep_task_ids: [id], suggestion_date: _cardSuggDate })
-  }).then(r => r.ok ? r.json() : Promise.reject(r.status))
-    .then(() => {
-      // Bot recalculated — reload fresh suggestions and re-render
-      if(typeof loadSuggestions === 'function') loadSuggestions().then(()=>{renderM();});
-    })
-    .catch(err => {
-      // Bot call failed — production was already saved (atomic RPC succeeded)
-      // Clear _recalculating flag and show honest state: production saved, suggestion stale
-      if(window._suggestions && window._suggestions[id]){
-        delete window._suggestions[id]._recalculating;
-      }
-      console.warn('[DONE] Bot recalc failed, production was saved:', err);
-      // Re-render with stale suggestion visible — do NOT force status
-      renderM();
+  // Helper: show retry toast when bot fails — production is already saved, only recalc failed
+  function _showRecalcFailedToast(err) {
+    if(window._suggestions && window._suggestions[id]) delete window._suggestions[id]._recalculating;
+    console.warn('[DONE] Bot recalc failed, production was saved. Err:', err);
+    // Remove any existing retry toast
+    var _oldToast = document.getElementById('_recalcFailToast');
+    if(_oldToast) _oldToast.remove();
+    var _toast = document.createElement('div');
+    _toast.id = '_recalcFailToast';
+    _toast.style.cssText = 'position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:#1e3a5f;color:#fff;font-size:13px;font-weight:500;padding:10px 16px;border-radius:14px;z-index:10200;box-shadow:0 4px 16px rgba(0,0,0,0.25);display:flex;align-items:center;gap:10px;max-width:320px;width:90%;';
+    _toast.innerHTML = '<span>' + _qtyLabel + ' added. Recommendation could not refresh.</span>'
+      + '<button style="flex-shrink:0;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;font-size:12px;font-weight:700;padding:4px 10px;border-radius:8px;cursor:pointer;" id="_recalcRetryBtn">Retry</button>';
+    document.body.appendChild(_toast);
+    // Retry button only retries recalculation — never calls record_prep_production again
+    document.getElementById('_recalcRetryBtn').addEventListener('click', function() {
+      _toast.remove();
+      _runBotRecalc();
     });
+    setTimeout(function(){ if(_toast.parentNode) _toast.remove(); }, 12000);
+    renderM();
+  }
+
+  function _runBotRecalc() {
+    var _botUrl = (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : window.SUPABASE_URL) + '/functions/v1/bot-prep-suggester';
+    var _botKey = (typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : window.SUPABASE_ANON_KEY);
+    if(window._suggestions && window._suggestions[id]){
+      window._suggestions[id] = Object.assign({}, window._suggestions[id], { _recalculating: true });
+      renderM();
+    }
+    fetch(_botUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _botKey },
+      body: JSON.stringify({ dry_run: false, prep_task_ids: [id], suggestion_date: _cardSuggDate })
+    }).then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function() {
+        // Bot recalculated — reload fresh suggestions and re-render
+        if(typeof loadSuggestions === 'function') loadSuggestions().then(function(){ renderM(); });
+      })
+      .catch(function(err) { _showRecalcFailedToast(err); });
+  }
+
+  _runBotRecalc();
 
   await loadItemAlerts();
   await loadStepsMap();
