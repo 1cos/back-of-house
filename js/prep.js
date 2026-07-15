@@ -929,7 +929,11 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
 
   const trust = (window._dailyTrustData || {})[tid];
   const taskUnit = (task && task.unit) || outUnit || '';
+  // Label per "dato non disponibile" (query fallita o unità incompatibili)
   const NA = '<span style="color:#94a3b8;font-style:italic;">Usage data unavailable</span>';
+  // Label per "query ok, nessun record trovato" (zero reale, non mancanza di dati)
+  const NO_PRODUCTION = '<span style="color:#64748b;font-style:italic;">No production recorded</span>';
+  const NO_USAGE = '<span style="color:#64748b;font-style:italic;">No usage recorded</span>';
 
   // Prepared yesterday
   let preparedStr;
@@ -941,8 +945,8 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
     const v = _fmtTrustQty(trust.prepared, taskUnit);
     preparedStr = v !== null ? `<span style="color:#059669;font-weight:700;">+${v}</span>` : (trust.prepared === 0 ? `<span style="color:#64748b;font-weight:600;">0 ${taskUnit}</span>` : NA);
   } else {
-    // Query ran but no rows for this task = real zero production
-    preparedStr = `<span style="color:#64748b;font-weight:600;">0 ${taskUnit}</span>`;
+    // Query ran but no rows for this task = real zero production logged yesterday
+    preparedStr = NO_PRODUCTION;
   }
 
   // Used last night
@@ -955,8 +959,8 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
     const v = _fmtTrustQty(trust.used, taskUnit);
     usedStr = v !== null ? `<span style="color:#dc2626;font-weight:700;">\u2212${v}</span>` : (trust.used === 0 ? `<span style="color:#64748b;font-weight:600;">0 ${taskUnit}</span>` : NA);
   } else {
-    // No deduction rows = real zero used
-    usedStr = `<span style="color:#64748b;font-weight:600;">0 ${taskUnit}</span>`;
+    // No deduction rows = real zero consumption recorded for this date
+    usedStr = NO_USAGE;
   }
 
   // Available now — reads live prep_tasks.current_stock, not the suggestion snapshot.
@@ -976,25 +980,47 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
 
   // Suggested today — recalculated using live stock so the card stays accurate
   // after an Align Stock even before the bot reruns tonight.
+  //
+  // Correct calculation:
+  //   gross_demand = sugg.forecast (buffered demand for coverage window, bot-set)
+  //   new_net      = MAX(gross_demand - live_stock, 0)
+  //   new_planned  = CEIL(new_net / min_increment) × min_increment  [if valid_fixed_batch]
+  //                  or new_net rounded up  [otherwise]
+  //
+  // Do NOT subtract stock from planned_output (already batch-rounded).
+  // Batch rounding happens AFTER computing new_net.
   let suggestedStr;
   if (status === 'looks_ok' || status === 'defer_to_tomorrow') {
     suggestedStr = '<span style="color:#059669;font-weight:600;">No additional prep</span>';
   } else if (status === 'count_first') {
     suggestedStr = '<span style="color:#ca8a04;font-weight:600;">Count first</span>';
-  } else if (sugg && sugg.planned_output !== null && parseFloat(sugg.planned_output) > 0) {
-    const _po = parseFloat(sugg.planned_output);
-    // If live stock covers all or part of the planned output, recalculate remaining.
-    // liveStock is the same variable derived from task.current_stock above.
-    const _remaining = (liveStock !== null && liveStock > 0)
-      ? Math.max(0, _po - liveStock)
-      : _po;
-    if (_remaining <= 0) {
-      // Live stock covers the full planned output
+  } else if (sugg && (sugg.forecast != null || sugg.net_requirement != null)) {
+    // Use forecast (gross demand) as baseline — it is independent of the stale snapshot stock.
+    // Fall back to net_requirement if forecast is unavailable (older bot runs).
+    const _grossDemand = sugg.forecast != null ? parseFloat(sugg.forecast) : parseFloat(sugg.net_requirement || 0);
+    const _newNet = (liveStock !== null)
+      ? Math.max(0, _grossDemand - liveStock)
+      : _grossDemand;
+    if (_newNet <= 0) {
+      // Live stock covers the full demand window
       suggestedStr = '<span style="color:#059669;font-weight:600;">No additional prep</span>';
     } else {
-      const po = _fmtTrustQty(_remaining, outUnit || taskUnit);
+      // Apply batch rounding after computing new_net
+      const _minInc = sugg.minimum_increment ? parseFloat(sugg.minimum_increment) : 0;
+      const _pqv = sugg.production_constraint_quality;
+      let _newPlanned;
+      if (_minInc > 0 && _pqv === 'valid_fixed_batch') {
+        _newPlanned = Math.ceil(_newNet / _minInc) * _minInc;
+      } else {
+        _newPlanned = Math.ceil(_newNet);
+      }
+      const po = _fmtTrustQty(_newPlanned, outUnit || taskUnit);
       suggestedStr = po ? `<span style="color:#dc2626;font-weight:700;">Prepare ${po}</span>` : NA;
     }
+  } else if (sugg && sugg.planned_output !== null && parseFloat(sugg.planned_output) > 0) {
+    // Fallback: no forecast/net_requirement available — show planned_output as-is
+    const po = _fmtTrustQty(parseFloat(sugg.planned_output), outUnit || taskUnit);
+    suggestedStr = po ? `<span style="color:#dc2626;font-weight:700;">Prepare ${po}</span>` : NA;
   } else if (status === 'do_first' || status === 'prep_today') {
     suggestedStr = '<span style="color:#dc2626;font-weight:600;">Check stock</span>';
   } else {

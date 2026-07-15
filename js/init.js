@@ -49,6 +49,10 @@ async function init(){
   await loadItemAlerts();
   await ensureChiusuraStation();
   if(typeof loadTodayLogs==='function') await loadTodayLogs();
+  // Sprint #2C: load prep_stock_counts from DB on every page load.
+  // This ensures cross-device visibility of Align Stock history (counted_by, counted_at).
+  // Without this call, _recentCounts is empty for any device that did not submit the count.
+  if(typeof loadRecentCounts==='function') await loadRecentCounts();
   renderM(); renderS(); renderHomeStations();
   renderHomeStationItems();
   loadServiceUpdates();
