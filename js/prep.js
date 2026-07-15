@@ -3230,9 +3230,110 @@ function _prepSaveError(itemName, detail){
   setTimeout(()=>{ if(b && b.parentNode) b.remove(); }, 9000);
 }
 
+
+// ── PENDING RECALC STATE ───────────────────────────────────────────────────
+// When production saves but bot recalc is not confirmed, we persist a
+// pending state in localStorage keyed by prep_task_id + suggestion_date.
+// On page reload this state is read in renderM() to show "Production saved,
+// recalculation pending" and disable the DONE action to prevent duplicate submit.
+const _PENDING_NS = 'brigade_pending_recalc';
+
+function _setPendingRecalc(id, clientKey, qty, unit, newStock, suggDate) {
+  try {
+    var all = JSON.parse(localStorage.getItem(_PENDING_NS) || '{}');
+    all[String(id)] = { id, clientKey, qty, unit, newStock, suggDate, savedAt: Date.now() };
+    localStorage.setItem(_PENDING_NS, JSON.stringify(all));
+  } catch(e) { console.warn('[pending] set failed:', e); }
+}
+
+function _clearPendingRecalc(id) {
+  try {
+    var all = JSON.parse(localStorage.getItem(_PENDING_NS) || '{}');
+    delete all[String(id)];
+    localStorage.setItem(_PENDING_NS, JSON.stringify(all));
+  } catch(e) {}
+}
+
+function _getPendingRecalc(id) {
+  try {
+    var all = JSON.parse(localStorage.getItem(_PENDING_NS) || '{}');
+    return all[String(id)] || null;
+  } catch(e) { return null; }
+}
+
+// Show the pending-recalc card state and retry action
+function _showRecalcFailedCard(id, qty, unit, suggDate) {
+  var _qtyLabel = (typeof humanQty === 'function') ? (humanQty(qty, unit) || (qty + ' ' + (unit||''))) : (qty + ' ' + (unit||''));
+  if(window._suggestions && window._suggestions[id]) {
+    window._suggestions[id] = Object.assign({}, window._suggestions[id], { _pendingRecalc: true, _recalculating: false });
+  }
+  // Remove stale toast
+  var _old = document.getElementById('_recalcFailToast');
+  if(_old) _old.remove();
+  var _toast = document.createElement('div');
+  _toast.id = '_recalcFailToast';
+  _toast.style.cssText = 'position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:#1e3a5f;color:#fff;font-size:13px;font-weight:500;padding:10px 16px;border-radius:14px;z-index:10200;box-shadow:0 4px 16px rgba(0,0,0,0.25);display:flex;align-items:center;gap:10px;max-width:320px;width:90%;';
+  _toast.innerHTML = '<span>' + _qtyLabel + ' recorded. Recommendation refresh pending.</span>'
+    + '<button style="flex-shrink:0;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;font-size:12px;font-weight:700;padding:4px 10px;border-radius:8px;cursor:pointer;" id="_recalcRetryBtn">Retry</button>';
+  document.body.appendChild(_toast);
+  document.getElementById('_recalcRetryBtn').addEventListener('click', function() {
+    _toast.remove();
+    _retryRecalcOnly(id, suggDate);
+  });
+  // Auto-dismiss after 20s (persistent card prevents re-submission)
+  setTimeout(function(){ if(_toast.parentNode) _toast.remove(); }, 20000);
+  renderM();
+}
+
+// Retry recalculation only — never calls record-prep-production
+async function _retryRecalcOnly(id, suggDate) {
+  if(window._suggestions && window._suggestions[id]) {
+    window._suggestions[id] = Object.assign({}, window._suggestions[id], { _recalculating: true, _pendingRecalc: false });
+    renderM();
+  }
+  var _efUrl = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/record-prep-production';
+  var _efTok = sessionStorage.getItem('brigade_token');
+  try {
+    // Use a no-op retry: call the EF with the same client_key from pending state.
+    // Since the RPC is idempotent on client_key, it returns duplicate_skipped=true.
+    // The EF then calls the bot and returns suggestion_status.
+    var pending = _getPendingRecalc(id);
+    if(!pending) { console.warn('[retry] No pending state for', id); return; }
+    var retryResp = await fetch(_efUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        brigade_token:   _efTok,
+        prep_task_id:    id,
+        qty:             pending.qty,
+        unit:            pending.unit,
+        client_key:      pending.clientKey,   // same key → duplicate_skipped=true, no new stock write
+        suggestion_date: pending.suggDate || suggDate,
+        is_suggested:    false
+      })
+    });
+    var retryData = await retryResp.json();
+    if(retryData?.ok && retryData.suggestion_recalculated) {
+      _clearPendingRecalc(id);
+      if(window._suggestions && window._suggestions[id]) {
+        delete window._suggestions[id]._pendingRecalc;
+        delete window._suggestions[id]._recalculating;
+      }
+      const _done = retryData.suggestion_status && !['do_first','prep_today','count_first'].includes(retryData.suggestion_status);
+      if(_done) showConfetti();
+      if(typeof loadSuggestions === 'function') loadSuggestions().then(()=>renderM());
+    } else {
+      // Still failed — show card again
+      _showRecalcFailedCard(id, pending.qty, pending.unit, pending.suggDate || suggDate);
+    }
+  } catch(e) {
+    console.warn('[retry] recalc retry exception:', e);
+    _showRecalcFailedCard(id, _getPendingRecalc(id)?.qty || 0, _getPendingRecalc(id)?.unit || '', suggDate);
+  }
+}
+
 async function suggestedSave(id, modal){
   const it=tasks[id];
-  // Use active daily suggestion planned_output; fall back to legacy suggested_qty only if no suggestion
   const _ss = (window._suggestions || {})[id];
   const qty = _ss?.planned_output != null ? parseFloat(_ss.planned_output)
     : it.suggested_qty ? parseFloat(it.suggested_qty) : 1;
@@ -3244,9 +3345,13 @@ async function suggestedSave(id, modal){
   var _sSt = _startTimes[id] || _sNow;
   var _sDur = Math.round((_sNow - _sSt) / 60000);
   delete _startTimes[id];
+  // Stable client_key: generated once per logical production event.
+  // Network retries reuse the same key — idempotent. A new deliberate
+  // production press generates a new key via a fresh call.
   const _ck2 = crypto.randomUUID ? crypto.randomUUID() : (
     'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)})
   );
+  const _cardSuggDate2 = window._suggestionsDate || new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const _efUrl2 = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/record-prep-production';
   const _efTok2 = sessionStorage.getItem('brigade_token');
   let rpcRes2Raw, rpcRes2;
@@ -3258,7 +3363,8 @@ async function suggestedSave(id, modal){
         brigade_token:_efTok2, prep_task_id:id, qty:qty, unit:unit,
         station:it.category||tr('generale'),
         started_at:_sSt.toISOString(), duration_min:_sDur,
-        is_suggested:true, client_key:_ck2
+        is_suggested:true, client_key:_ck2,
+        suggestion_date:_cardSuggDate2  // EF handles bot recalc server-to-server
       })
     });
     rpcRes2 = await rpcRes2Raw.json();
@@ -3269,20 +3375,26 @@ async function suggestedSave(id, modal){
     return;
   }
   const _ns2 = rpcRes2.new_stock;
+  const _suggStatus2 = rpcRes2.suggestion_status;
+  const _suggRecalcd2 = rpcRes2.suggestion_recalculated;
   tasks[id].current_stock=_ns2; tasks[id].in_progress=false;
   tasks[id].in_progress_at=null; tasks[id].in_progress_by=null;
   tasks[id].need_tomorrow=false; tasks[id].suggested_note=null; tasks[id].suggested_qty=null;
   delete _taskStep[id]; delete _taskStepTotal[id];
-  releaseWakeLock(); showConfetti(); renderM(); renderS(); renderHomeStations();
+  releaseWakeLock();
+  // No immediate confetti — confetti only after authoritative bot says task is complete
+  if(_suggRecalcd2) {
+    const _done2 = _suggStatus2 && !['do_first','prep_today','count_first'].includes(_suggStatus2);
+    if(_done2) showConfetti();
+    if(typeof loadSuggestions==='function') loadSuggestions().then(()=>renderM());
+  } else {
+    // Production saved but bot recalc not confirmed — show pending state
+    _setPendingRecalc(id, _ck2, qty, unit, _ns2, _cardSuggDate2);
+    renderM();
+    _showRecalcFailedCard(id, qty, unit, _cardSuggDate2);
+  }
+  renderS(); renderHomeStations();
   loadItemAlerts(); loadStepsMap(); loadTodayLogs(); loadRecentCounts();
-  const _td2 = window._suggestionsDate || new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-  const _bu2=(typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/bot-prep-suggester';
-  const _bk2=(typeof SUPABASE_ANON_KEY!=='undefined'?SUPABASE_ANON_KEY:window.SUPABASE_ANON_KEY);
-  fetch(_bu2,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_bk2},
-    body:JSON.stringify({dry_run:false,prep_task_ids:[id],suggestion_date:_td2})
-  }).then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(()=>{if(typeof loadSuggestions==='function')loadSuggestions().then(()=>renderM());})
-    .catch(err=>{console.warn('[DONE] Bot recalc failed (suggested):',err);renderM();});
 }
 
 async function detailSave(id, btn, isSuggested){
@@ -3304,13 +3416,17 @@ async function detailSave(id, btn, isSuggested){
   var _dDur = Math.round((_dNow - _dSt) / 60000);
   delete _startTimes[id];
 
-  // Generate a client-side idempotency key to prevent duplicate submissions
-  // (e.g. double-tap on DONE button)
+  // Stable client_key: one key per logical production event.
+  // Same key = idempotent (retries/double-tap are safe).
+  // New deliberate save = new key from a fresh call.
   const _clientKey = crypto.randomUUID ? crypto.randomUUID() : (
     'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)})
   );
+  const _cardSuggDate = window._suggestionsDate || (()=>{
+    return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  })();
 
-  // Call production Edge Function: validates session server-side, derives user identity, calls RPC via service role
+  // Call production Edge Function: validates session, records production, calls bot server-to-server
   const _efUrl = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/record-prep-production';
   const _efTok = sessionStorage.getItem('brigade_token');
   let rpcRaw, rpcData;
@@ -3319,15 +3435,16 @@ async function detailSave(id, btn, isSuggested){
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
-        brigade_token: _efTok,
-        prep_task_id:  id,
-        qty:           qty,
-        unit:          unit,
-        station:       it.category || tr('generale'),
-        started_at:    _dSt.toISOString(),
-        duration_min:  _dDur,
-        is_suggested:  !!isSuggested,
-        client_key:    _clientKey
+        brigade_token:  _efTok,
+        prep_task_id:   id,
+        qty:            qty,
+        unit:           unit,
+        station:        it.category || tr('generale'),
+        started_at:     _dSt.toISOString(),
+        duration_min:   _dDur,
+        is_suggested:   !!isSuggested,
+        client_key:     _clientKey,
+        suggestion_date: _cardSuggDate  // EF handles bot recalc server-to-server; no direct bot call from browser
       })
     });
     rpcData = await rpcRaw.json();
@@ -3344,17 +3461,17 @@ async function detailSave(id, btn, isSuggested){
     return;
   }
 
-  // If duplicate detected (same client_key), silently succeed — production already saved
   const _qtyForStock = rpcData.qty_native || qty;
   const _newStock    = rpcData.new_stock;
   const _isDuplicate = rpcData.duplicate_skipped;
+  const _suggStatus  = rpcData.suggestion_status;     // authoritative from bot
+  const _suggRecalcd = rpcData.suggestion_recalculated;
 
   window.unlockPrepScroll('done-sheet');
   window.unlockPrepScroll('done-confirm');
   if(sheet) sheet.remove();
   window._rmDonePending = null;
 
-  // Update local RAM with authoritative stock from server
   tasks[id].current_stock    = _newStock;
   tasks[id].in_progress      = false;
   tasks[id].in_progress_at   = null;
@@ -3365,69 +3482,23 @@ async function detailSave(id, btn, isSuggested){
   delete _taskStep[id];
   delete _taskStepTotal[id];
   releaseWakeLock();
-  // Confetti: only when production was actually saved (not a duplicate)
-  // Does NOT imply that the recommendation was resolved — it means stock was recorded.
-  if(!_isDuplicate) showConfetti();
-  renderM();renderS();renderHomeStations();
 
-  // Recalculate suggestion via the authoritative bot engine.
-  // Must pass the EXACT suggestion_date of the active card — not todayCDT or nextServiceDay().
-  const _cardSuggDate = window._suggestionsDate || (()=>{
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Chicago', year:'numeric', month:'2-digit', day:'2-digit'
-    }).format(new Date());
-  })();
-  const _qtyLabel = humanQty ? (humanQty(_qtyForStock, tasks[id]?.unit)||(_qtyForStock+' '+(tasks[id]?.unit||''))) : (_qtyForStock+' '+(tasks[id]?.unit||''));
-  const _taskName = tasks[id]?.name || '';
-
-  // Show "updating recommendation" on the card while bot runs
-  if(window._suggestions && window._suggestions[id]){
-    window._suggestions[id] = Object.assign({}, window._suggestions[id], { _recalculating: true });
-    renderM();
-  }
-
-  // Helper: show retry toast when bot fails — production is already saved, only recalc failed
-  function _showRecalcFailedToast(err) {
-    if(window._suggestions && window._suggestions[id]) delete window._suggestions[id]._recalculating;
-    console.warn('[DONE] Bot recalc failed, production was saved. Err:', err);
-    // Remove any existing retry toast
-    var _oldToast = document.getElementById('_recalcFailToast');
-    if(_oldToast) _oldToast.remove();
-    var _toast = document.createElement('div');
-    _toast.id = '_recalcFailToast';
-    _toast.style.cssText = 'position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:#1e3a5f;color:#fff;font-size:13px;font-weight:500;padding:10px 16px;border-radius:14px;z-index:10200;box-shadow:0 4px 16px rgba(0,0,0,0.25);display:flex;align-items:center;gap:10px;max-width:320px;width:90%;';
-    _toast.innerHTML = '<span>' + _qtyLabel + ' added. Recommendation could not refresh.</span>'
-      + '<button style="flex-shrink:0;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;font-size:12px;font-weight:700;padding:4px 10px;border-radius:8px;cursor:pointer;" id="_recalcRetryBtn">Retry</button>';
-    document.body.appendChild(_toast);
-    // Retry button only retries recalculation — never calls record_prep_production again
-    document.getElementById('_recalcRetryBtn').addEventListener('click', function() {
-      _toast.remove();
-      _runBotRecalc();
-    });
-    setTimeout(function(){ if(_toast.parentNode) _toast.remove(); }, 12000);
-    renderM();
-  }
-
-  function _runBotRecalc() {
-    var _botUrl = (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : window.SUPABASE_URL) + '/functions/v1/bot-prep-suggester';
-    var _botKey = (typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : window.SUPABASE_ANON_KEY);
-    if(window._suggestions && window._suggestions[id]){
-      window._suggestions[id] = Object.assign({}, window._suggestions[id], { _recalculating: true });
-      renderM();
+  if(_suggRecalcd) {
+    // Server successfully recalculated the suggestion
+    // Confetti ONLY if the task is now non-actionable (truly done)
+    const _done = _suggStatus && !['do_first','prep_today','count_first'].includes(_suggStatus);
+    if(!_isDuplicate && _done) showConfetti();
+    if(typeof loadSuggestions === 'function') loadSuggestions().then(()=>{ renderM(); });
+  } else {
+    // Production saved (stock incremented), but bot recalc not confirmed.
+    // Persist pending state so page reload does not re-enable the DONE action.
+    if(!_isDuplicate) {
+      _setPendingRecalc(id, _clientKey, _qtyForStock, tasks[id]?.unit, _newStock, _cardSuggDate);
     }
-    fetch(_botUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _botKey },
-      body: JSON.stringify({ dry_run: false, prep_task_ids: [id], suggestion_date: _cardSuggDate })
-    }).then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function() {
-        // Bot recalculated — reload fresh suggestions and re-render
-        if(typeof loadSuggestions === 'function') loadSuggestions().then(function(){ renderM(); });
-      })
-      .catch(function(err) { _showRecalcFailedToast(err); });
+    renderM();
+    _showRecalcFailedCard(id, _qtyForStock, tasks[id]?.unit, _cardSuggDate);
   }
-
-  _runBotRecalc();
+  renderS(); renderHomeStations();
 
   await loadItemAlerts();
   await loadStepsMap();
@@ -3447,7 +3518,7 @@ function _finishTask(id, qty){
   delete _taskStep[id];
   delete _taskStepTotal[id];
   releaseWakeLock();
-  showConfetti();
+  // No immediate confetti here — only shown after authoritative bot recalc confirms completion
   renderM();renderS();renderHomeStations();
 }
 
