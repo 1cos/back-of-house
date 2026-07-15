@@ -49,7 +49,8 @@ async function attemptPinLogin(){
   err.classList.add('hidden');
   const _loginUrl = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)
                     + '/functions/v1/brigade-login';
-  let loginRaw, loginData;
+  let loginRaw, loginData, _loginStage = 'fetch';
+  // ── Stage 1: HTTP request ──────────────────────────────────────────────────
   try {
     loginRaw = await fetch(_loginUrl, {
       method: 'POST',
@@ -59,24 +60,90 @@ async function attemptPinLogin(){
         install_id: localStorage.getItem('brigade_install_id') || undefined
       })
     });
+    _loginStage = 'parse';
     loginData = await loginRaw.json();
+    _loginStage = 'parsed';
   } catch(e) {
-    err.textContent = tr('pin_invalid');
-    err.classList.remove('hidden');
+    // Network failure or JSON parse error — NOT a wrong PIN
+    console.info('[LOGIN]', { stage: _loginStage, error: e?.name, msg: e?.message });
+    _showLoginError('service');
     pinBuffer=''; updatePinDots();
     return;
   }
-  if(!loginRaw.ok || !loginData || !loginData.ok){
-    err.textContent = tr('pin_invalid');
-    err.classList.remove('hidden');
-    const dots = document.getElementById('pinDots');
-    dots.style.animation = 'shake .3s ease';
-    setTimeout(()=>{ dots.style.animation=''; pinBuffer=''; updatePinDots(); err.classList.add('hidden'); }, 600);
+  // ── Stage 2: Response check ────────────────────────────────────────────────
+  console.info('[LOGIN]', {
+    stage: 'response_parsed',
+    httpStatus: loginRaw.status,
+    ok: loginData?.ok === true,
+    hasToken: typeof loginData?.token === 'string',
+    hasUser: !!loginData?.user
+  });
+  if(!loginRaw.ok){
+    // HTTP error (4xx/5xx) — service issue, not wrong PIN
+    console.info('[LOGIN]', { stage: 'http_error', status: loginRaw.status });
+    _showLoginError('service');
+    pinBuffer=''; updatePinDots();
     return;
   }
-  // Store opaque token in sessionStorage (clears when tab closes)
-  sessionStorage.setItem('brigade_token', loginData.token);
-  doLogin(loginData.user);
+  if(!loginData || !loginData.ok){
+    // Server returned ok:false → credentials invalid or cooldown
+    const reason = loginData?.error || 'invalid_credentials';
+    console.info('[LOGIN]', { stage: 'credentials_failed', reason });
+    _showLoginError('pin');
+    return;
+  }
+  // ── Stage 3: Store session ─────────────────────────────────────────────────
+  try {
+    sessionStorage.setItem('brigade_token', loginData.token);
+    console.info('[LOGIN]', { stage: 'session_stored', hasToken: true });
+  } catch(storageErr) {
+    // sessionStorage unavailable (private browsing, storage full, security policy)
+    console.warn('[LOGIN]', { stage: 'storage_failed', error: storageErr?.name });
+    // Proceed anyway — the session will not survive a page reload, but the current
+    // page session works via the in-memory loginData.token (held in closure).
+    // Show a non-blocking warning instead of "Incorrect PIN".
+    _showLoginError('storage');
+    // Still attempt doLogin so the user can work in this session:
+  }
+  // ── Stage 4: Enter app ────────────────────────────────────────────────────
+  try {
+    console.info('[LOGIN]', { stage: 'doLogin_start', user: loginData?.user?.name });
+    doLogin(loginData.user);
+    console.info('[LOGIN]', { stage: 'doLogin_complete' });
+  } catch(loginErr) {
+    console.error('[LOGIN]', { stage: 'doLogin_failed', error: loginErr?.name, msg: loginErr?.message });
+    _showLoginError('service');
+  }
+}
+
+// Centralized login error display — distinguishes PIN error from service error
+function _showLoginError(type) {
+  const err = document.getElementById('err');
+  if(!err) return;
+  if(type === 'pin') {
+    err.textContent = tr('pin_invalid');  // "Incorrect PIN"
+    err.classList.remove('hidden');
+    const dots = document.getElementById('pinDots');
+    if(dots){ dots.style.animation = 'shake .3s ease'; }
+    setTimeout(()=>{ if(dots)dots.style.animation=''; pinBuffer=''; updatePinDots(); err.classList.add('hidden'); }, 600);
+  } else if(type === 'storage') {
+    // Warn but don't block — user is logged in, just session won't survive reload
+    // Show a brief info toast instead of blocking error
+    if(typeof showScToast === 'function'){
+      showScToast('⚠️ Session storage unavailable — refresh may require PIN again');
+    } else {
+      err.textContent = 'Warning: session may not persist across reloads';
+      err.classList.remove('hidden');
+      setTimeout(()=>err.classList.add('hidden'), 4000);
+    }
+  } else {
+    // Service error — not a wrong PIN
+    err.textContent = 'Login service error. Try again.';
+    err.classList.remove('hidden');
+    const dots = document.getElementById('pinDots');
+    if(dots){ dots.style.animation = 'shake .3s ease'; }
+    setTimeout(()=>{ if(dots)dots.style.animation=''; pinBuffer=''; updatePinDots(); err.classList.add('hidden'); }, 1200);
+  }
 }
 
 // ── SESSION RESTORE — validate existing token on page load ──
