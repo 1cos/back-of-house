@@ -28,14 +28,45 @@ function updatePinDots(){
   });
 }
 
+// ── INSTALLATION ID ──────────────────────────────────────────────────────
+// A random per-device identifier stored in localStorage.
+// Sent with login requests as an additional rate-limit signal.
+// NOT trusted as identity — the server uses it as one of two independent buckets.
+// Resetting it only bypasses the install bucket, not the network bucket.
+(function _ensureInstallId(){
+  if(!localStorage.getItem('brigade_install_id')){
+    const id = crypto.randomUUID ? crypto.randomUUID() : (
+      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+        const r=Math.random()*16|0; return(c==='x'?r:(r&0x3|0x8)).toString(16);
+      })
+    );
+    localStorage.setItem('brigade_install_id', id);
+  }
+})();
+
 async function attemptPinLogin(){
   const err = document.getElementById('err');
   err.classList.add('hidden');
-  const{data:result, error} = await supa.rpc('brigade_login', {
-    p_pin: pinBuffer,
-    p_user_agent: navigator.userAgent
-  });
-  if(error || !result || !result.ok){
+  const _loginUrl = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)
+                    + '/functions/v1/brigade-login';
+  let loginRaw, loginData;
+  try {
+    loginRaw = await fetch(_loginUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        pin: pinBuffer,
+        install_id: localStorage.getItem('brigade_install_id') || undefined
+      })
+    });
+    loginData = await loginRaw.json();
+  } catch(e) {
+    err.textContent = tr('pin_invalid');
+    err.classList.remove('hidden');
+    pinBuffer=''; updatePinDots();
+    return;
+  }
+  if(!loginRaw.ok || !loginData || !loginData.ok){
     err.textContent = tr('pin_invalid');
     err.classList.remove('hidden');
     const dots = document.getElementById('pinDots');
@@ -44,8 +75,8 @@ async function attemptPinLogin(){
     return;
   }
   // Store opaque token in sessionStorage (clears when tab closes)
-  sessionStorage.setItem('brigade_token', result.token);
-  doLogin(result.user);
+  sessionStorage.setItem('brigade_token', loginData.token);
+  doLogin(loginData.user);
 }
 
 // ── SESSION RESTORE — validate existing token on page load ──
