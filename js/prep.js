@@ -794,7 +794,14 @@ function renderSuggBlock(sugg, i) {
 
   if (isBlocked) displayLabel = null;
 
-  const stockStr = _fmtStock(sugg, outUnit);
+  // Recorded stock — reads live prep_tasks.current_stock (authoritative).
+  // _fmtStock reads sugg.current_stock (stale snapshot); replaced with live value.
+  const _liveStockForRec = (i && i.current_stock !== null && i.current_stock !== undefined)
+    ? parseFloat(i.current_stock) : null;
+  const _liveStockSugg = Object.assign({}, sugg, {
+    current_stock: _liveStockForRec !== null ? _liveStockForRec : sugg.current_stock
+  });
+  const stockStr = _fmtStock(_liveStockSugg, outUnit);
   const stockUnverified = sugg.stock_source === 'db_snapshot_unverified';
   const flagRc = !!(sugg.debug_json?.flag_recount);
 
@@ -922,7 +929,7 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
 
   const trust = (window._dailyTrustData || {})[tid];
   const taskUnit = (task && task.unit) || outUnit || '';
-  const NA = '<span style="color:#94a3b8;font-style:italic;">Not available</span>';
+  const NA = '<span style="color:#94a3b8;font-style:italic;">Usage data unavailable</span>';
 
   // Prepared yesterday
   let preparedStr;
@@ -952,9 +959,14 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
     usedStr = `<span style="color:#64748b;font-weight:600;">0 ${taskUnit}</span>`;
   }
 
-  // Available now (from suggestion's current_stock snapshot — same as stockHtml but reformatted)
-  const stockVal = sugg && sugg.current_stock !== null && sugg.current_stock !== undefined
-    ? _fmtTrustQty(parseFloat(sugg.current_stock), taskUnit)
+  // Available now — reads live prep_tasks.current_stock, not the suggestion snapshot.
+  // sugg.current_stock is a stale value captured at bot run time; task.current_stock
+  // is the authoritative live value updated by DONE, Align Stock, and POS drain.
+  const liveStock = (task && task.current_stock !== null && task.current_stock !== undefined)
+    ? parseFloat(task.current_stock)
+    : null;
+  const stockVal = liveStock !== null && !isNaN(liveStock)
+    ? _fmtTrustQty(liveStock, taskUnit)
     : null;
   const stockUnver = sugg && sugg.stock_source === 'db_snapshot_unverified';
   const stockWarning = ''; // no technical badge for cooks — verification shown in contextStr
@@ -962,15 +974,27 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
     ? `<span style="color:#1e3a5f;font-weight:700;">${stockVal}</span>${stockWarning}`
     : NA;
 
-  // Suggested today
+  // Suggested today — recalculated using live stock so the card stays accurate
+  // after an Align Stock even before the bot reruns tonight.
   let suggestedStr;
   if (status === 'looks_ok' || status === 'defer_to_tomorrow') {
     suggestedStr = '<span style="color:#059669;font-weight:600;">No additional prep</span>';
   } else if (status === 'count_first') {
     suggestedStr = '<span style="color:#ca8a04;font-weight:600;">Count first</span>';
   } else if (sugg && sugg.planned_output !== null && parseFloat(sugg.planned_output) > 0) {
-    const po = _fmtTrustQty(parseFloat(sugg.planned_output), outUnit || taskUnit);
-    suggestedStr = po ? `<span style="color:#dc2626;font-weight:700;">Prepare ${po}</span>` : NA;
+    const _po = parseFloat(sugg.planned_output);
+    // If live stock covers all or part of the planned output, recalculate remaining.
+    // liveStock is the same variable derived from task.current_stock above.
+    const _remaining = (liveStock !== null && liveStock > 0)
+      ? Math.max(0, _po - liveStock)
+      : _po;
+    if (_remaining <= 0) {
+      // Live stock covers the full planned output
+      suggestedStr = '<span style="color:#059669;font-weight:600;">No additional prep</span>';
+    } else {
+      const po = _fmtTrustQty(_remaining, outUnit || taskUnit);
+      suggestedStr = po ? `<span style="color:#dc2626;font-weight:700;">Prepare ${po}</span>` : NA;
+    }
   } else if (status === 'do_first' || status === 'prep_today') {
     suggestedStr = '<span style="color:#dc2626;font-weight:600;">Check stock</span>';
   } else {
@@ -995,6 +1019,20 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
   const headerRow = (label) =>
     `<div style="font-size:9px;font-weight:800;color:#94a3b8;letter-spacing:0.08em;text-transform:uppercase;margin-top:6px;margin-bottom:1px;">${label}</div>`;
 
+  // "Aligned by" row — shown if a valid physical stock count exists for this task
+  let alignedByHtml = '';
+  const _cnt = (window._recentCounts || {})[tid];
+  const _cntValid = _cnt && (!_cnt.expires_at || new Date(_cnt.expires_at) > new Date());
+  if (_cntValid && _cnt.counted_by) {
+    const _cntTime = _cnt.counted_at
+      ? new Date(_cnt.counted_at).toLocaleTimeString('en-US', {
+          hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Chicago'
+        })
+      : '';
+    const _alignLabel = 'Aligned by ' + _cnt.counted_by + (_cntTime ? ' · ' + _cntTime : '');
+    alignedByHtml = `<div style="font-size:10px;color:#059669;font-weight:600;margin-top:2px;letter-spacing:0.01em;">✅ ${_alignLabel}</div>`;
+  }
+
   const html =
     `<div style="margin-top:8px;border-top:1px solid #e2e8f0;padding-top:6px;">` +
     headerRow('YESTERDAY') +
@@ -1002,6 +1040,7 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
     row('Used', usedStr) +
     headerRow('AVAILABLE NOW') +
     row('', availableStr) +
+    alignedByHtml +
     headerRow('SUGGESTED TODAY') +
     row('', suggestedStr) +
     contextStr +
