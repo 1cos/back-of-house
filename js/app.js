@@ -31,12 +31,11 @@ function updatePinDots(){
 async function attemptPinLogin(){
   const err = document.getElementById('err');
   err.classList.add('hidden');
-  const{data:profile, error} = await supa.from('users')
-    .select('*')
-    .eq('pin', pinBuffer)
-    .eq('active', true)
-    .single();
-  if(error || !profile){
+  const{data:result, error} = await supa.rpc('brigade_login', {
+    p_pin: pinBuffer,
+    p_user_agent: navigator.userAgent
+  });
+  if(error || !result || !result.ok){
     err.textContent = tr('pin_invalid');
     err.classList.remove('hidden');
     const dots = document.getElementById('pinDots');
@@ -44,8 +43,34 @@ async function attemptPinLogin(){
     setTimeout(()=>{ dots.style.animation=''; pinBuffer=''; updatePinDots(); err.classList.add('hidden'); }, 600);
     return;
   }
-  doLogin(profile);
+  // Store opaque token in sessionStorage (clears when tab closes)
+  sessionStorage.setItem('brigade_token', result.token);
+  doLogin(result.user);
 }
+
+// ── SESSION RESTORE — validate existing token on page load ──
+// Called immediately; if valid, skips login screen entirely.
+(async function _restoreSession(){
+  const stored = sessionStorage.getItem('brigade_token');
+  if(!stored) return; // no session → show login screen normally
+  const{data:res, error} = await supa.rpc('brigade_validate_session', {p_token: stored});
+  if(error || !res || !res.ok){
+    sessionStorage.removeItem('brigade_token');
+    return; // expired/invalid → show login
+  }
+  doLogin(res.user);
+})();
+
+// ── BRIGADE LOGOUT — invalidates server session ──
+window.brigadeLogout = async function(){
+  const token = sessionStorage.getItem('brigade_token');
+  if(token){
+    await supa.rpc('brigade_logout', {p_token: token}).catch(()=>{});
+    sessionStorage.removeItem('brigade_token');
+  }
+  user = null;
+  location.reload();
+};
 
 // Register pin functions on window for HTML onclick
 window._pinPress = pinPress;
