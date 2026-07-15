@@ -3048,16 +3048,17 @@ function openDoneSheet(id){
     const sqLabel = humanQty(sqRaw, sqUnit) || (sqRaw+' '+sqUnit);
     const modal=document.createElement('div');
     modal.className='fixed inset-0 flex items-end';modal.style.zIndex='10000';
+    modal.setAttribute('data-prep-done-sheet', id);
     modal.style.background='rgba(0,0,0,0.35)';
     modal.innerHTML=`<div style="background:rgba(255,255,255,0.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:24px 24px 0 0;border-top:0.5px solid rgba(5,150,105,0.3);padding:20px 16px 28px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
       <div style="width:36px;height:4px;background:rgba(5,150,105,0.2);border-radius:2px;margin:0 auto 16px;"></div>
       <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">${it.name}</div>
       ${todayBanner}
       <div style="font-size:13px;color:#6b7280;margin-bottom:18px;">${tlogs.length>0?tr('prep_already_today'):tr('prep_how_much')}</div>
-      <button onclick="suggestedSave('${it.id}',this.closest('[style*=z-index]'))" style="width:100%;height:52px;border-radius:16px;background:#059669;color:white;font-size:15px;font-weight:600;border:none;margin-bottom:10px;">
+      <button onclick="var _m=this;while(_m&&!_m.style.zIndex)_m=_m.parentElement;suggestedSave('${it.id}',_m)" style="width:100%;height:52px;border-radius:16px;background:#059669;color:white;font-size:15px;font-weight:600;border:none;margin-bottom:10px;">
         ✅ ${sqLabel} — ${tr('prep_suggested_label')}
       </button>
-      <button onclick="window.unlockPrepScroll('done-sheet');this.closest('[style*=z-index]').remove();openDoneSheetCustom('${it.id}')" style="width:100%;height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:14px;border:0.5px solid rgba(59,130,246,0.2);">
+      <button onclick="window.unlockPrepScroll('done-sheet');var _m=this;while(_m&&!_m.style.zIndex)_m=_m.parentElement;if(_m)_m.remove();openDoneSheetCustom('${it.id}')" style="width:100%;height:44px;border-radius:14px;background:rgba(59,130,246,0.08);color:#1d4ed8;font-size:14px;border:0.5px solid rgba(59,130,246,0.2);">
         ${tr('prep_custom_qty')}
       </button>
     </div>`;
@@ -3072,11 +3073,10 @@ function openDoneSheet(id){
 function openDoneSheetCustom(id){
   const it=tasks[id];
   const taskUnit=(it.unit||'').toLowerCase();
-  const PIECE_UNITS = ['pezzi','pz','each','pieces','pcs'];
-  const WEIGHT_UNITS = ['g','kg','oz','lb'];
-  const NATIVE_UNITS = ['nests','buste','cup','filetto','mazzi']; // unità fisiche native non-g non-pz
-  const defaultPezzi = PIECE_UNITS.includes(taskUnit);
-  const defaultNative = NATIVE_UNITS.includes(taskUnit); // nests, buste, cup, ecc.
+  const NATIVE_UNITS = ['nests','buste','filetto','mazzi']; // native physical units (not cup — fractional cups are valid)
+  const WHOLE_UNITS  = ['pezzi','pz','each','pieces','pcs','batch','squeezer','porzioni','checklist']; // always integers
+  const defaultPezzi = WHOLE_UNITS.includes(taskUnit);
+  const defaultNative = NATIVE_UNITS.includes(taskUnit); // nests, buste, etc.
   const _rawQty = it.suggested_qty!=null ? parseFloat(it.suggested_qty) : (it.average_qty!=null ? parseFloat(it.average_qty) : 0);
   // Per grammi ≥1000: default in kg (es. 37800g → 37.8 kg) — più leggibile in cucina
   const _autoKg = taskUnit === 'g' && _rawQty >= 1000;
@@ -3131,10 +3131,11 @@ function openDoneSheetCustom(id){
             ${tr('prep_pieces')}
           </button>
         </div>`;
-  // inputmode: numeric for whole units (pezzi, nests, buste, cup), decimal for weight
+  // inputmode: numeric for whole-number units, decimal for weight and fractional volume (g/kg/cup/etc.)
   const _inputmode = (defaultPezzi || defaultNative) ? 'numeric' : 'decimal';
   const sheet=document.createElement('div');
   sheet.className='fixed inset-0 flex items-end';sheet.style.zIndex='10000';
+  sheet.setAttribute('data-prep-done-sheet', id);
   sheet.style.background='rgba(0,0,0,0.5)';
   sheet.innerHTML=`<div style="background:#fff;border-radius:24px 24px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;animation:slideUp .25s ease">
     <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 20px;"></div>
@@ -3236,14 +3237,18 @@ async function suggestedSave(id, modal){
 }
 
 async function detailSave(id, btn, isSuggested){
-  const sheet=btn.closest('.fixed');
-  const qtyInput=document.getElementById('dsc-qty-'+id)||sheet.querySelector('.ds-qty');
+  // btn may be null when called from doneSheetConfirm confirm path
+  // Find the DONE sheet by id — more robust than btn.closest()
+  const sheet = (btn && btn.closest && btn.closest('[data-prep-done-sheet]'))
+    || document.querySelector('[data-prep-done-sheet="'+id+'"]')
+    || document.querySelector('[data-prep-done-sheet]');
+  const qtyInput=document.getElementById('dsc-qty-'+id)||(sheet&&sheet.querySelector('.ds-qty'));
   const unitInput=document.getElementById('dsc-unit-'+id);
   const qty=parseFloat(qtyInput?qtyInput.value:NaN);
-  if(isNaN(qty)){qtyInput&&qtyInput.focus();return;}
-  const unit=unitInput?unitInput.value:(sheet.querySelector('.ds-unit')?sheet.querySelector('.ds-unit').value:'g');
+  if(isNaN(qty)||qty<=0){if(qtyInput)qtyInput.focus();return;}
+  const unit=unitInput?unitInput.value:(sheet&&sheet.querySelector('.ds-unit')?sheet.querySelector('.ds-unit').value:'g');
   const cont='';
-  btn.textContent='...'; btn.disabled=true;
+  if(btn){btn.textContent='...'; btn.disabled=true;}
   const it=tasks[id];
   var _dNow = new Date();
   var _dSt = _startTimes[id] || _dNow;
@@ -3251,7 +3256,7 @@ async function detailSave(id, btn, isSuggested){
   delete _startTimes[id];
   const logRes = await supa.from('prep_log').insert({item:it.name,station:it.category||tr('generale'),qty,unit,container:cont,user_name:user.name,is_suggested_qty:!!isSuggested,started_at:_dSt.toISOString(),duration_minutes:_dDur,prep_task_id:id});
   if(logRes.error){
-    btn.textContent=tr('prep_done'); btn.disabled=false;
+    if(btn){btn.textContent=tr('prep_done'); btn.disabled=false;}
     _prepSaveError(it.name, logRes.error.message);
     return;
   }
@@ -3261,6 +3266,7 @@ async function detailSave(id, btn, isSuggested){
   const _convResult = convertPrepQtyToTaskUnit(qty, unit, _taskUnit);
   if (!_convResult.ok) {
     if (btn) { btn.textContent = tr('prep_done'); btn.disabled = false; }
+    // Do NOT unlock scroll here — DONE sheet is still visible, user can correct unit
     _prepSaveError(it.name, 'This quantity cannot be converted to the stock unit for this prep. Please check the selected unit.');
     return;
   }
@@ -3270,13 +3276,13 @@ async function detailSave(id, btn, isSuggested){
     : {need_tomorrow:false,in_progress:false,in_progress_at:null,in_progress_by:null,suggested_note:null,suggested_qty:null};
   const updRes = await supa.from('prep_tasks').update(stockUpdate).eq('id',id);
   if(updRes.error){
-    btn.textContent=tr('prep_done'); btn.disabled=false;
+    if(btn){btn.textContent=tr('prep_done'); btn.disabled=false;}
     _prepSaveError(it.name, updRes.error.message);
     return;
   }
   window.unlockPrepScroll('done-sheet');
   window.unlockPrepScroll('done-confirm'); // safety: clear any stale confirm owner
-  sheet.remove();
+  if(sheet) sheet.remove();
   // _rmDonePending was already cleared by _transitionRecipeToDone — no overlay cleanup needed
   window._rmDonePending = null;
   _finishTask(id, qtyForStock);
