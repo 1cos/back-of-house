@@ -3037,12 +3037,22 @@ window.doneSheetConfirm = function(id, btn){
 
 function openDoneSheet(id){
   const it=tasks[id];
+  // Active daily suggestion is the authoritative quantity source.
+  // planned_output from window._suggestions overrides suggested_qty (legacy bot).
+  const _activeSugg = (window._suggestions || {})[id];
+  const _activePO   = _activeSugg?.planned_output != null ? parseFloat(_activeSugg.planned_output) : null;
   // Build today log banner if needed
   const tlogs = getTodayLogsFor(it.name);
   const todayBanner = tlogs.length > 0 ? buildTodayLogBanner(tlogs) : '';
 
-  if(it.suggested_qty && parseFloat(it.suggested_qty)>0){
-    const sqRaw = parseFloat(it.suggested_qty);
+  // Show one-tap suggested save only when there is an authoritative planned_output
+  // OR a legacy suggested_qty AND no active daily suggestion that overrides it.
+  const _suggestedQty = (_activePO != null)
+    ? _activePO                                        // NEW BOT: planned_output wins
+    : (it.suggested_qty ? parseFloat(it.suggested_qty) : 0); // LEGACY: only when no active suggestion
+
+  if(_suggestedQty > 0){
+    const sqRaw = _suggestedQty;
     const sqUnit = it.unit||tr('prep_portions');
     // Mostra in unità leggibili — 37800 g → "37.8 kg", non crudo
     const sqLabel = humanQty(sqRaw, sqUnit) || (sqRaw+' '+sqUnit);
@@ -3077,12 +3087,18 @@ function openDoneSheetCustom(id){
   const WHOLE_UNITS  = ['pezzi','pz','each','pieces','pcs','batch','squeezer','porzioni','checklist']; // always integers
   const defaultPezzi = WHOLE_UNITS.includes(taskUnit);
   const defaultNative = NATIVE_UNITS.includes(taskUnit); // nests, buste, etc.
-  // Pre-fill qty: use suggested_qty → average_qty → planned_output from suggestion → 0
-  const _suggPlanned = ((window._suggestions || {})[it.id] || {}).planned_output;
-  const _rawQty = it.suggested_qty!=null ? parseFloat(it.suggested_qty)
-    : it.average_qty!=null ? parseFloat(it.average_qty)
-    : _suggPlanned!=null ? parseFloat(_suggPlanned)
-    : 0;
+  // Qty precedence:
+  //   1. planned_output from active daily suggestion (new bot — overrides legacy field)
+  //   2. suggested_qty from prep_tasks ONLY when no active daily suggestion exists
+  //   3. average_qty as final legacy fallback
+  //   4. 0
+  const _activeSuggCus = (window._suggestions || {})[it.id];
+  const _suggPlanned = _activeSuggCus?.planned_output;
+  const _hasActiveSugg = _activeSuggCus != null;
+  const _rawQty = _suggPlanned != null ? parseFloat(_suggPlanned)           // 1. new bot
+    : (!_hasActiveSugg && it.suggested_qty != null) ? parseFloat(it.suggested_qty)  // 2. legacy only if no active sugg
+    : it.average_qty != null ? parseFloat(it.average_qty)                   // 3. average fallback
+    : 0;                                                                     // 4. empty
   // Per grammi ≥1000: default in kg (es. 37800g → 37.8 kg) — più leggibile in cucina
   const _autoKg = taskUnit === 'g' && _rawQty >= 1000;
   const defQty = _autoKg ? parseFloat((_rawQty / 1000).toFixed(2)) : _rawQty;
@@ -3216,7 +3232,10 @@ function _prepSaveError(itemName, detail){
 
 async function suggestedSave(id, modal){
   const it=tasks[id];
-  const qty=parseFloat(it.suggested_qty)||1;
+  // Use active daily suggestion planned_output; fall back to legacy suggested_qty only if no suggestion
+  const _ss = (window._suggestions || {})[id];
+  const qty = _ss?.planned_output != null ? parseFloat(_ss.planned_output)
+    : it.suggested_qty ? parseFloat(it.suggested_qty) : 1;
   const unit=it.unit||tr('prep_portions');
   window.unlockPrepScroll('done-sheet');
   window._rmDonePending = null;
@@ -3245,7 +3264,7 @@ async function suggestedSave(id, modal){
   delete _taskStep[id]; delete _taskStepTotal[id];
   releaseWakeLock(); showConfetti(); renderM(); renderS(); renderHomeStations();
   loadItemAlerts(); loadStepsMap(); loadTodayLogs(); loadRecentCounts();
-  const _td2=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  const _td2 = window._suggestionsDate || new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const _bu2=(typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/bot-prep-suggester';
   const _bk2=(typeof SUPABASE_ANON_KEY!=='undefined'?SUPABASE_ANON_KEY:window.SUPABASE_ANON_KEY);
   fetch(_bu2,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_bk2},
@@ -3331,12 +3350,14 @@ async function detailSave(id, btn, isSuggested){
   renderM();renderS();renderHomeStations();
 
   // Recalculate suggestion via the authoritative bot engine.
-  // The bot reads current_stock from prep_tasks (just updated by the RPC) and
-  // computes the real new status. This may yield looks_ok (sufficient stock),
-  // do_first (still short), or prep_today — the engine decides, not the client.
-  const _todayCDT = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago', year:'numeric', month:'2-digit', day:'2-digit'
-  }).format(new Date());
+  // Must pass the EXACT suggestion_date of the active card — not todayCDT or nextServiceDay().
+  // window._suggestionsDate is the date that loadSuggestions loaded, which is the same
+  // date shown on the card. Falling back to todayCDT only if no suggestion was loaded.
+  const _cardSuggDate = window._suggestionsDate || (()=>{
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Chicago', year:'numeric', month:'2-digit', day:'2-digit'
+    }).format(new Date());
+  })();
 
   // Show a temporary "updating recommendation" state on the card
   if(window._suggestions && window._suggestions[id]){
@@ -3352,7 +3373,7 @@ async function detailSave(id, btn, isSuggested){
   fetch(_botUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _botKey },
-    body: JSON.stringify({ dry_run: false, prep_task_ids: [id], suggestion_date: _todayCDT })
+    body: JSON.stringify({ dry_run: false, prep_task_ids: [id], suggestion_date: _cardSuggDate })
   }).then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(() => {
       // Bot recalculated — reload fresh suggestions and re-render
