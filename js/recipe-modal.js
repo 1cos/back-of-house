@@ -743,30 +743,41 @@ window.recipeModal={
       const baseServings=rec.base_servings||1;
       const baseWeightG=rec.base_weight_g?parseFloat(rec.base_weight_g):null;
 
-      // ── v627: AUTO-SCALE to planned_output from suggestion ──
-      // Weight-based recipe (base_weight_g present, no base_servings or base_servings=1):
-      //   scale_factor = planned_output / base_weight_g
-      // Discrete recipe (base_servings meaningful):
-      //   scale_factor = planned_output / base_servings (planned in same unit as base_servings)
-      // Fallback: scale_factor = 1 (opens at 1 batch)
+      // ── AUTO-SCALE to planned_output from suggestion ──────────────────────
+      // The card already shows the planned_output from window._suggestions[id].
+      // The modal must open at the same quantity the card shows — no re-calculation.
+      // Priority: use window._suggestions[id] first (same data the card used),
+      // then fall back to the freshly loaded prepSugg from DB if not available.
+      // Scaling rules:
+      //   Weight-based (base_weight_g set): scale = planned_output / base_weight_g
+      //   Piece/discrete (base_servings > 1): _initialServings = planned_output
+      //   Unit-based (base_servings null or 1): _initialServings = planned_output directly
+      //   Fallback: _initialServings = baseServings (= 1 if null)
+      const _cardSugg = prepTaskId ? (window._suggestions || {})[prepTaskId] : null;
+      const _activeSugg = _cardSugg || prepSugg; // prefer card's data for consistency
       let scaleFactor = 1;
-      let _initialServings = baseServings; // what the servings selector shows on open
-      if(prepSugg && prepSugg.planned_output != null){
-        const po = parseFloat(prepSugg.planned_output);
-        const pq = prepSugg.production_constraint_quality || 'missing';
+      let _initialServings = baseServings; // default: base_servings (may be 1)
+      if(_activeSugg && _activeSugg.planned_output != null){
+        const po = parseFloat(_activeSugg.planned_output);
+        const pq = _activeSugg.production_constraint_quality || 'missing';
         const isValidConstraint = pq === 'valid_fixed_batch' || pq === 'valid_scalable';
         if(!isNaN(po) && po > 0 && isValidConstraint){
           if(baseWeightG && baseWeightG > 0){
-            // Weight-based: scale = planned_output_g / base_weight_g
+            // Weight-based: scale factor drives ingredient amounts
             scaleFactor = po / baseWeightG;
             _initialServings = Math.max(1, Math.round(scaleFactor * baseServings));
           } else if(baseServings > 1){
-            // Discrete: planned_output is in pieces, scale by serving count
+            // Discrete recipe with meaningful servings count
             scaleFactor = po / baseServings;
             _initialServings = Math.max(1, Math.round(po));
+          } else {
+            // Unit-based or base_servings=null/1: planned_output IS the servings count
+            // This is the Siciliana case: base_servings=null, planned_output=3 → show 3
+            _initialServings = Math.max(1, Math.round(po));
+            scaleFactor = _initialServings / (baseServings || 1);
           }
           // Cap at sane value to prevent runaway scaling
-          if(scaleFactor > 50) { scaleFactor = 1; _initialServings = baseServings; }
+          if(scaleFactor > 50) { scaleFactor = 1; _initialServings = baseServings || 1; }
         }
       }
 
