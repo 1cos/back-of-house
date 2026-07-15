@@ -1,5 +1,6 @@
 // BOH OS v2 — Authentication service
-// Validates a 4-digit PIN against the existing `users` table.
+// Validates a 4-digit PIN via the brigade_login server RPC.
+// PIN column is bcrypt-hashed server-side; direct .eq('pin') queries no longer work.
 // No writes. No PIN in logs. No raw errors to the UI.
 
 import { supabase } from '../core/supabase-client.js';
@@ -20,29 +21,29 @@ export async function authenticateWithPin(pin) {
   }
 
   try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, name, role, lang, default_station')
-      .eq('pin', pin)
-      .eq('active', true)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc('brigade_login', {
+      p_pin:        pin,
+      p_user_agent: navigator.userAgent ?? '',
+    });
 
     if (error) {
       return { ok: false, reason: 'CONNECTION_ERROR' };
     }
 
-    if (!data) {
+    if (!data || !data.ok) {
       return { ok: false, reason: 'USER_NOT_FOUND' };
     }
+
+    const u = data.user;
 
     return {
       ok: true,
       user: {
-        id:             data.id,
-        name:           data.name,
-        role:           data.role   ?? 'staff',
-        language:       data.lang   ?? 'en',
-        defaultStation: data.default_station ?? null,
+        id:             u.id,
+        name:           u.name,
+        role:           u.role            ?? 'staff',
+        language:       u.lang            ?? 'en',
+        defaultStation: u.default_station ?? null,
       },
     };
   } catch {
