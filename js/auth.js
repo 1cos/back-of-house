@@ -51,7 +51,7 @@ async function saveNewPIN(btn){
 
 // ── GESTIONE UTENTI (solo admin) ──
 async function openUserManager(){
-  const{data:users_list}=await supa.from('users').select('*').order('name');
+  const{data:users_list}=await supa.from('users_public').select('*').order('name');
   const modal=document.createElement('div');
   modal.className='fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
   modal.innerHTML=`
@@ -140,7 +140,7 @@ async function saveNewUser(btn){
 }
 
 async function openEditUser(userId){
-  const{data:u}=await supa.from('users').select('*').eq('id',userId).single();
+  const{data:u}=await supa.from('users_public').select('*').eq('id',userId).single();
   if(!u) return;
   const STATIONS=['Oven Station','Fresh Pasta Station','Pasta Station','Sauté Station','Saucier Station','Plating Station','Salad Station','Pastry Station','Tableside','Freezer'];
   const modal=document.createElement('div');
@@ -273,7 +273,7 @@ async function checkBirthdays(){
   const todayDallas=getNowDallas();
   const mm=String(todayDallas.getMonth()+1).padStart(2,'0');
   const dd=String(todayDallas.getDate()).padStart(2,'0');
-  const{data}=await supa.from('users')
+  const{data}=await supa.from('users_public')
     .select('name,birth_date')
     .not('birth_date','is',null)
     .eq('active',true);
@@ -444,8 +444,10 @@ function startUsersRealtime(){
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'users'},(payload)=>{
       const updated=payload.new;
       if(!updated) return;
-      if(user && String(user.id)===String(updated.id)){
-        user={...user,...updated};
+      // Strip sensitive fields — should not be in payload with RLS, but enforce in client too
+      const{pin:_p, pin_hash:_ph, password_hash:_pw, auth_id:_ai, ...safeUpdated}=updated;
+      if(user && String(user.id)===String(safeUpdated.id)){
+        user={...user,...safeUpdated};
         if(user.lang) user.lang=normalizeLang(user.lang);
         applyLang();
         updateTopBarAvatar();
