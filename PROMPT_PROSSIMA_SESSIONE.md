@@ -1820,3 +1820,110 @@ WHERE pt.archived IS NOT TRUE ORDER BY pt.category, pt.name;
 - 7shifts sync (JWT auth)
 - Sales: rimuovere tab Oggi
 - RLS hardening su `prep_task_classifications` (futura sessione)
+
+
+---
+
+## Sessione 15 lug 2026 (pomeriggio) — Trust & Clean Sprint #1: DONE Flow Reliability
+
+### Produzione live
+- **boh-v662** su `back-of-house/brigade-main`
+- Nessuna modifica JS frontend. Solo DB (RPC) + sw.js bump.
+
+---
+
+### Root Cause Analysis — "Save failed" su Tempura
+
+**Problema segnalato:** tapping DONE su alcuni prep task restituiva banner rosso "Save failed" in modo inconsistente.
+
+**Diagnosi completa:**
+
+Tutti i 400 visibili nei log EF erano su **`record-prep-production` v2 e v3** — versioni precedenti all'auth session di questa mattina. Dopo il deploy di v4, l'unica causa rimanente di 400 era il seguente bug nel RPC PostgreSQL:
+
+**Quando un task ha `unit = 'checklist'` (es. Tempura id=283):**
+
+1. UI `openDoneSheetCustom()`: taskUnit='checklist' → `WHOLE_UNITS.includes('checklist')=true` → `defUnit='pz'` ✓
+2. `detailSave()` invia `p_unit='pz'` all'EF ✓
+3. EF v4 mappa `UNIT_ALIASES['checklist'] → 'pz'` (solo per l'input dell'utente) ✓
+4. EF chiama RPC con `p_unit='pz'`
+5. RPC: `v_inp = 'pz'` → normalizza a `'pz'` ✓
+6. RPC: `v_tsk = 'checklist'` → **NON era nella lista di normalizzazione** → restava `'checklist'` ✗
+7. `'pz' ≠ 'checklist'` → `unit_conversion_unsupported` → return `ok:false` → HTTP 400 → banner rosso
+
+**Task interessati:** solo Tempura (id=283, unit='checklist'). È l'unico task attivo con questa unità.
+
+---
+
+### Fix applicato
+
+**File modificato: PostgreSQL RPC `record_prep_production`**
+
+Una riga aggiunta nel normalizzatore del `v_tsk` (task unit side):
+
+```sql
+-- PRIMA (v_tsk normaliser incompleto):
+IF v_tsk IN ('pz','pezzi','each','pieces','pcs','piece') THEN v_tsk := 'pz'; END IF;
+
+-- DOPO (fix: 'checklist' aggiunto):
+IF v_tsk IN ('pz','pezzi','each','pieces','pcs','piece','checklist') THEN v_tsk := 'pz'; END IF;
+```
+
+Nessun'altra modifica. BOM, stock update, idempotency, log insert — invariati.
+
+**Effetto:** Tempura (e qualsiasi futuro task con `unit='checklist'`) ora completa DONE con successo. `v_tsk` diventa `'pz'`, matcha `v_inp='pz'`, `v_qty_native = p_qty` (pass-through), stock viene incrementato di `qty` pz, `in_progress=false`, `need_tomorrow=false`.
+
+---
+
+### Fix aggiuntivo
+
+**Tempura stuck in_progress=true**: il task era rimasto con `in_progress=true` (probabilmente da test durante la sessione auth di questa mattina). Resettato:
+
+```sql
+UPDATE prep_tasks SET in_progress=false, in_progress_at=NULL, in_progress_by=NULL
+WHERE id=283 AND in_progress=true;
+```
+
+---
+
+### Test eseguiti
+
+| Test case | Unità input | Unità task | Risultato atteso | Risultato reale |
+|---|---|---|---|---|
+| Tempura DONE | pz | checklist | ✅ pass (NUOVO) | ✅ pass |
+| Check Croutons DONE | g | g | ✅ pass | ✅ pass |
+| Arrabbiata DONE (kg input) | kg | g | ✅ conv ×1000 | ✅ (path ELSIF) |
+| Siciliana DONE | pz | pz | ✅ pass | ✅ pass |
+| Filet Branzino DONE | pz | pz | ✅ pass | ✅ pass |
+| Fettuccine DONE | nests | nests | ✅ pass | ✅ pass |
+| Brussels DONE | g | g | ✅ pass | ✅ pass |
+| pz input vs g task | pz | g | ❌ errore (corretto) | ❌ (corretto) |
+| g input vs pz task | g | pz | ❌ errore (corretto) | ❌ (corretto) |
+
+**Verifica via pg_proc:** `has_checklist_fix = true` su OID 22954 (versione attiva).
+
+---
+
+### Analisi completa 400 pre-fix
+
+I 400 nei log apparivano su `record-prep-production` **v2** (1784094460580 - 1784126264803 ms) e **v3** (1784129805160 ms). Tutti **prima** che v4 fosse l'unica versione servita su tutti i nodi edge Supabase. Dopo che tutti i device hanno ricaricato (con boh-v661 di stamattina), i 400 da "missing_or_invalid_token" su v2/v3 sono spariti. Il solo 400 rimanente era la situazione checklist di Tempura, ora risolto.
+
+---
+
+### Versioni
+
+| Componente | Versione |
+|---|---|
+| sw.js | **boh-v662** |
+| record_prep_production RPC | **aggiornato** (OID 22954, `has_checklist_fix=true`) |
+| record-prep-production EF | v4 (invariato) |
+
+---
+
+### Pending da questa sessione
+
+Nessun pending nuovo. Il resto del backlog (vedi sezioni precedenti) è invariato.
+
+**Prossimo sprint consigliato (Trust & Clean):**
+- Verificare in cucina che Tempura ora completi DONE senza banner rosso
+- Eventuale ulteriore audit del DONE flow se emergono nuovi casi
+
