@@ -1,23 +1,27 @@
 // BOH OS v2 — App Shell component
-// UI-06.5: Contained viewport model.
-//   - App Shell is a contained flex column sized to visualViewport.height.
-//   - Command Bar is the final flex child (not position:fixed).
+// UI-06.6: Visual viewport anchor model.
+//   - App Shell is position:fixed, anchored to the VISUAL viewport rect.
+//   - JS tracks visualViewport.height  → --app-visible-height
+//   - JS tracks visualViewport.offsetTop → --app-visible-top
+//   - Both resize and scroll events are coalesced through one rAF.
+//   - Result: the shell follows iOS when it pans the visual viewport
+//     to reveal the focused textarea, so nothing appears to jump.
 //   - Only .app-shell__main scrolls.
 //   - document/body cannot scroll while shell is mounted.
 //
-// Returns { shell, panelStripMount, workspaceOutlet }.
-// Also returns { destroy } to remove the visualViewport listener on logout.
+// Returns { shell, panelStripMount, workspaceOutlet, destroy }.
 
 /**
  * Creates the authenticated App Shell DOM element and wires the
- * visualViewport resize listener that keeps --app-visible-height current.
+ * visualViewport resize + scroll listeners that keep
+ * --app-visible-height and --app-visible-top current.
  *
  * @param {{ appName: string, modeLabel: string, userName: string }} options
  * @returns {{
  *   shell:            HTMLElement,
  *   panelStripMount:  HTMLElement,
  *   workspaceOutlet:  HTMLElement,
- *   destroy:          () => void,    // removes vv listener + rAF on logout
+ *   destroy:          () => void,    // removes vv listeners + rAF on logout
  * }}
  */
 export function createAppShell({ appName, modeLabel, userName }) {
@@ -64,65 +68,84 @@ export function createAppShell({ appName, modeLabel, userName }) {
   workspaceOutlet.className = 'app-shell__outlet';
   main.appendChild(workspaceOutlet);
 
-  // ── Command Bar slot ──────────────────────────────────────────────
-  // The command bar placeholder slot — app.js appends the real bar here.
-  // This is just the structural position; the bar element is appended by
-  // app.js via shell.appendChild(_commandBar.el) AFTER this function returns.
-  // The flex order is: header → panelStrip → main(flex:1) → commandBar.
-
   // ── Assemble ──────────────────────────────────────────────────────
   shell.appendChild(header);
   shell.appendChild(panelStripMount);
   shell.appendChild(main);
   // Command bar is appended by app.js after this returns.
 
-  // ── visualViewport height tracker ─────────────────────────────────
-  // Sets --app-visible-height on the shell element.
-  // This is the ONLY visualViewport interaction in the entire app.
-  // No scroll listener. No keyboard geometry. No offsets.
-  // Only HEIGHT is tracked, and only when it changes materially (> 20px).
+  // ── Visual Viewport tracker ───────────────────────────────────────
+  // Sets --app-visible-height and --app-visible-top on the shell element.
+  //
+  // --app-visible-height: visualViewport.height (rounded to integer px).
+  //   Controls the shell's height so the flex column fills exactly the
+  //   visible area.
+  //
+  // --app-visible-top: visualViewport.offsetTop (rounded to integer px).
+  //   Controls the shell's CSS top so it follows iOS when it pans the
+  //   visual viewport upward to reveal the focused textarea.
+  //   Without this, the shell stays at the layout viewport top while
+  //   iOS slides the visual viewport upward — the shell appears to jump.
+  //
+  // Both height and scroll events are coalesced through a single rAF.
+  // Values are compared against last-written integers; unchanged values
+  // are not re-applied (avoids redundant style writes during momentum
+  // scrolling inside .app-shell__main).
 
   const vv = window.visualViewport || null;
-  let _rafId     = null;
-  let _lastH     = -1;
-  const THRESHOLD = 20; // px — ignore tiny changes (address bar micro-collapse)
+  let _rafId  = null;
+  let _lastH  = -1;
+  let _lastT  = -1;   // last offsetTop written
 
-  function _applyHeight(h) {
-    shell.style.setProperty('--app-visible-height', h + 'px');
-  }
+  function _apply() {
+    _rafId = null;
 
-  function _onVVResize() {
-    if (_rafId !== null) return;
-    _rafId = requestAnimationFrame(() => {
-      _rafId = null;
-      const h = vv ? Math.round(vv.height) : window.innerHeight;
-      if (Math.abs(h - _lastH) < THRESHOLD) return; // sub-threshold → ignore
+    const h = vv ? Math.round(vv.height)    : window.innerHeight;
+    const t = vv ? Math.round(vv.offsetTop) : 0;
+
+    if (h !== _lastH) {
       _lastH = h;
-      _applyHeight(h);
-    });
+      shell.style.setProperty('--app-visible-height', h + 'px');
+    }
+    if (t !== _lastT) {
+      _lastT = t;
+      shell.style.setProperty('--app-visible-top', t + 'px');
+    }
   }
 
-  // Initialize immediately
-  const initialH = vv ? Math.round(vv.height) : window.innerHeight;
-  _lastH = initialH;
-  _applyHeight(initialH);
+  function _schedule() {
+    if (_rafId !== null) return;   // already queued
+    _rafId = requestAnimationFrame(_apply);
+  }
 
-  // Wire listener
+  // Initialize immediately (synchronous — no rAF needed at startup)
+  const initH = vv ? Math.round(vv.height)    : window.innerHeight;
+  const initT = vv ? Math.round(vv.offsetTop) : 0;
+  _lastH = initH;
+  _lastT = initT;
+  shell.style.setProperty('--app-visible-height', initH + 'px');
+  shell.style.setProperty('--app-visible-top',    initT + 'px');
+
+  // Wire listeners — both resize (keyboard open/close) and scroll
+  // (iOS panning the visual viewport to reveal the focused element)
   if (vv) {
-    vv.addEventListener('resize', _onVVResize);
+    vv.addEventListener('resize', _schedule);
+    vv.addEventListener('scroll', _schedule);
   } else {
-    window.addEventListener('resize', _onVVResize);
+    window.addEventListener('resize', _schedule);
   }
 
   // ── Destroy ───────────────────────────────────────────────────────
   function destroy() {
     if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
     if (vv) {
-      vv.removeEventListener('resize', _onVVResize);
+      vv.removeEventListener('resize', _schedule);
+      vv.removeEventListener('scroll', _schedule);
     } else {
-      window.removeEventListener('resize', _onVVResize);
+      window.removeEventListener('resize', _schedule);
     }
     shell.style.removeProperty('--app-visible-height');
+    shell.style.removeProperty('--app-visible-top');
   }
 
   return { shell, panelStripMount, workspaceOutlet, destroy };
