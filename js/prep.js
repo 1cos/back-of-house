@@ -969,6 +969,79 @@ function renderSuggBlock(sugg, i) {
     <div id="uss-form-${iid2}" style="display:none;"></div>
   </div>` : '';
 
+  // ── CLOSED CARD PILOT (boh-v676) ─────────────────────────────────────────
+  // Progressive disclosure for LOOKS GOOD and DO FIRST cards only.
+  // Closed state answers: status · on hand · what to do today.
+  // Details toggle expands all existing content inline — no modal, no sheet.
+  if ((status === 'looks_ok' || status === 'do_first') && !_stockVerifiedOk) {
+    const _iidPilot = i.id;
+
+    // On hand row — live stock, formatted
+    const _onHandVal = stockStr !== null ? stockStr : '—';
+    const _onHandColor = (status === 'do_first' && stockStr !== null && parseFloat(_liveStockSugg.current_stock) === 0)
+      ? '#dc2626' : '#1e3a5f';
+    const _onHandHtml = `<div style="margin-top:6px;display:flex;align-items:center;gap:6px;">` +
+      `<span style="font-size:12px;color:#94a3b8;font-weight:500;">On hand</span>` +
+      `<span style="font-size:14px;font-weight:700;color:${_onHandColor};">${_onHandVal}</span>` +
+      `</div>`;
+
+    // Prep today row — only for DO FIRST (with quantity)
+    let _prepTodayHtml = '';
+    if (status === 'do_first') {
+      const _ptVal = displayLabel || 'Check stock';
+      const _ptColor = '#dc2626';
+      _prepTodayHtml = `<div style="margin-top:4px;display:flex;align-items:center;gap:6px;">` +
+        `<span style="font-size:12px;color:#94a3b8;font-weight:500;">Prep today</span>` +
+        `<span style="font-size:14px;font-weight:800;color:${_ptColor};letter-spacing:-0.01em;">${_ptVal}</span>` +
+        `</div>`;
+    }
+
+    // Closed actions — Align Stock (secondary) + START PREP (primary, DO FIRST only)
+    const _alignClosedHtml = `<div style="margin-top:10px;">` +
+      `<button onclick="event.stopPropagation();openStockCountSheet(${JSON.stringify(_iidPilot)})" ` +
+      `style="width:100%;height:38px;border-radius:10px;font-size:12px;font-weight:700;background:transparent;color:#94a3b8;border:1px solid #e2e8f0;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;">` +
+      `📦 Align Stock</button></div>`;
+
+    const _startClosedHtml = status === 'do_first'
+      ? `<div style="margin-top:6px;">` +
+        `<button onclick="event.stopPropagation();prepStart(${JSON.stringify(_iidPilot)})" ` +
+        `style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;-webkit-tap-highlight-color:transparent;cursor:pointer;">` +
+        `START PREP</button></div>`
+      : '';
+
+    // Details section — all existing content collapsed
+    // Admin-only: audit + chefAi buttons (moved here from outer wrapper for pilot cards)
+    const _hasBotNote = !!(i.suggested_note && i.suggested_note.includes('|'));
+    const _adminDetailBtns = isAdmin_
+      ? `<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px;">` +
+        `<button class="audit-toggle-btn" onclick="event.stopPropagation();toggleAuditPanel(${JSON.stringify(_iidPilot)})" style="font-size:11px;font-weight:600;color:#7c3aed;background:rgba(124,58,237,0.08);border:0.5px solid rgba(124,58,237,0.25);border-radius:6px;padding:2px 8px;cursor:pointer;">🔍 Audit</button>` +
+        `<button class="chef-ai-prep-btn" onclick="event.stopPropagation();chefAiAuditPrep(${JSON.stringify(_iidPilot)})" style="font-size:11px;font-weight:700;color:#1e40af;background:linear-gradient(135deg,rgba(239,246,255,0.9),rgba(219,234,254,0.9));border:1px solid #93c5fd;border-radius:6px;padding:2px 8px;cursor:pointer;">🧠 Controlla prep</button>` +
+        (_hasBotNote ? `<button class="chef-ai-explain-btn" onclick="event.stopPropagation();chefAiExplainBot(${JSON.stringify(_iidPilot)})" style="font-size:11px;font-weight:700;color:#7c3aed;background:linear-gradient(135deg,rgba(245,243,255,0.9),rgba(237,233,254,0.9));border:1px solid #c4b5fd;border-radius:6px;padding:2px 8px;cursor:pointer;">📉 Spiega suggerimento bot</button>` : '') +
+        `</div>`
+      : '';
+    const _detailsInnerHtml =
+      (descHtml ? `<div style="margin-top:8px;">${descHtml}</div>` : '') +
+      (rcHtml   ? `<div style="margin-top:4px;">${rcHtml}</div>` : '') +
+      (avgHtml  ? `<div style="margin-top:4px;">${avgHtml}</div>` : '') +
+      (confHtml ? `<div style="margin-top:4px;">${confHtml}</div>` : '') +
+      (trustHtml? `<div style="margin-top:0;">${trustHtml}</div>` : '') +
+      (status === 'looks_ok'
+        ? `<div style="margin-top:8px;"><button onclick="event.stopPropagation();prepStart(${JSON.stringify(_iidPilot)})" style="width:100%;height:46px;border-radius:12px;font-size:14px;font-weight:600;background:transparent;color:#059669;border:1.5px solid #bbf7d0;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;">Prep anyway</button></div>`
+        : '') +
+      (useStockBtnHtml ? `<div style="margin-top:6px;">${useStockBtnHtml}</div>` : '') +
+      _adminDetailBtns;
+
+    const _detailsHtml = `<details style="margin-top:8px;" onclick="event.stopPropagation();">` +
+      `<summary style="list-style:none;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;outline:none;">` +
+      `<span style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.5px;text-transform:uppercase;">Details ↕</span>` +
+      `</summary>` +
+      `<div style="margin-top:6px;">${_detailsInnerHtml}</div>` +
+      `</details>`;
+
+    return `<div style="margin-top:4px;">${pillHtml}${_onHandHtml}${_prepTodayHtml}${_detailsHtml}${_alignClosedHtml}${_startClosedHtml}</div>`;
+  }
+  // ── END CLOSED CARD PILOT ─────────────────────────────────────────────────
+
   return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${descHtml}${rcHtml}${stockHtml}${avgHtml}${confHtml}${trustHtml}${alignStockBtnHtml}${useStockBtnHtml}</div>`;
 }
 
@@ -1898,9 +1971,15 @@ function cardButton(i){
     return `<button onclick="event.stopPropagation();prepContaPrima(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#ca8a04;color:white;border:none;letter-spacing:0.03em;">COUNT FIRST</button>`;
   }
   if (_ct2 === 'SUGG_LOOKS_OK' || _ct2 === 'SUGG_DEFER') {
+    // Closed card pilot (boh-v676): LOOKS_OK button lives inside renderSuggBlock
+    const _sg = (window._suggestions || {})[iid];
+    if (_sg && _sg.status === 'looks_ok') return '';
     return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:14px;font-weight:600;background:transparent;color:#059669;border:1.5px solid #bbf7d0;letter-spacing:0.02em;">Preparo ugualmente</button>`;
   }
   if (_ct2 === 'SUGG_DO_FIRST' || _ct2 === 'SUGG_PREP_TODAY') {
+    // Closed card pilot (boh-v676): DO_FIRST button lives inside renderSuggBlock
+    const _sg2 = (window._suggestions || {})[iid];
+    if (_sg2 && _sg2.status === 'do_first') return '';
     return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START PREP</button>`;
   }
   if (_ct2 === 'SUGG_VERIFY') {
@@ -2803,14 +2882,18 @@ function renderM(){
       }
 
       const stockPill = buildStockPill(i);
+      // Closed card pilot (boh-v676): suppress audit/chefAi buttons from outer wrapper
+      // for LOOKS GOOD and DO FIRST cards — they live inside Details instead.
+      const _sgPilot = (window._suggestions || {})[i.id];
+      const _isPilotCard = !!(_sgPilot && (_sgPilot.status === 'looks_ok' || _sgPilot.status === 'do_first'));
       // Audit toggle — solo admin, visibile sempre ma il panel si apre on-demand
-      const auditBtn = isAdmin()
+      const auditBtn = (isAdmin() && !_isPilotCard)
         ? '<div style="margin-top:6px;"><button class="audit-toggle-btn" onclick="event.stopPropagation();toggleAuditPanel('+JSON.stringify(iid)+')" style="font-size:11px;font-weight:600;color:#7c3aed;background:rgba(124,58,237,0.08);border:0.5px solid rgba(124,58,237,0.25);border-radius:6px;padding:2px 8px;cursor:pointer;">🔍 Audit</button></div>'
         : '';
 
       // Chef AI buttons — solo admin
       const hasBotNote = !!(i.suggested_note && i.suggested_note.includes('|'));
-      const chefAiBtns = isAdmin()
+      const chefAiBtns = (isAdmin() && !_isPilotCard)
         ? '<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap;">'
           + '<button class="chef-ai-prep-btn" onclick="event.stopPropagation();chefAiAuditPrep('+JSON.stringify(iid)+')" style="font-size:11px;font-weight:700;color:#1e40af;background:linear-gradient(135deg,rgba(239,246,255,0.9),rgba(219,234,254,0.9));border:1px solid #93c5fd;border-radius:6px;padding:2px 8px;cursor:pointer;">🧠 Controlla prep</button>'
           + (hasBotNote ? '<button class="chef-ai-explain-btn" onclick="event.stopPropagation();chefAiExplainBot('+JSON.stringify(iid)+')" style="font-size:11px;font-weight:700;color:#7c3aed;background:linear-gradient(135deg,rgba(245,243,255,0.9),rgba(237,233,254,0.9));border:1px solid #c4b5fd;border-radius:6px;padding:2px 8px;cursor:pointer;">📉 Spiega suggerimento bot</button>' : '')
