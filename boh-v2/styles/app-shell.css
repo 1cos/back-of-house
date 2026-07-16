@@ -1,8 +1,7 @@
 /* BOH OS v2 — App Shell
-   Task 003A: authenticated shell layout.
-   WS-01: panel strip mount point structural rule added.
-   WS-03.1: dual-outlet layout — workspace outlet and legacy router outlet
-             are siblings; exactly one is visible at a time.
+   WS-05: Bottom bar retired. Dual-outlet layout removed.
+          Single workspaceOutlet only.
+          Station Selector modal styles added.
    Primary target: iPhone portrait.
    All values use tokens from tokens.css.
    No navigation styles. No card styles. No login styles.
@@ -20,10 +19,11 @@
   padding-bottom: var(--safe-bottom);
   padding-left:   var(--safe-left);
   padding-right:  var(--safe-right);
+  position: relative; /* anchor for modal overlay */
 }
 
 /* ── Header ──────────────────────────────────────────────────────────
-   Fixed at the top so it remains visible while content scrolls.     */
+   Sticky at the top so it remains visible while content scrolls.    */
 .app-shell__header {
   position: sticky;
   top: 0;
@@ -79,7 +79,7 @@
   text-overflow: ellipsis;
 }
 
-/* ── Panel Strip mount point (WS-01) ─────────────────────────────────
+/* ── Panel Strip mount point ─────────────────────────────────────────
    Container for the workspace tab strip.
    Sits between the header and the main content area.
    Zero height when empty.                                            */
@@ -95,39 +95,87 @@
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: var(--sp-4);
-  /* Stack outlets so only the visible one takes space. */
-  display: flex;
-  flex-direction: column;
 }
 
-/* ── Content outlets (WS-03.1) ───────────────────────────────────────
-   Two sibling outlets inside .app-shell__main.
-   Only the one carrying .app-shell__outlet--visible is shown.
-   The hidden outlet is display:none — takes no space, receives no
-   pointer events, is not visible to screen readers.
-
-   Ownership:
-     #app-content          → WorkspaceManager (workspace panels)
-     #app-content-legacy   → router (Station Home, Prep, etc.)
-
-   Neither system ever writes to the other's outlet.                  */
+/* ── Single workspace outlet ─────────────────────────────────────────
+   Owned exclusively by WorkspaceManager.
+   Always visible — no surface switching needed in WS-05.            */
 .app-shell__outlet {
-  display: none;
-  width: 100%;
-}
-
-.app-shell__outlet--visible {
   display: block;
-}
-
-/* ── Legacy outlet structural alias ──────────────────────────────────
-   Preserves the #app-content-legacy selector used by the router.    */
-#app-content-legacy {
   width: 100%;
 }
 
-/* ── Workspace outlet structural alias ───────────────────────────────
-   Preserves the #app-content selector used by WorkspaceManager.     */
 #app-content {
   width: 100%;
+}
+
+/* ── Station Selector modal overlay ──────────────────────────────────
+   Full-screen backdrop. The card sits centred above the workspace.
+   z-index above the panel strip (z-index: 10) and header (z-index: 10). */
+.station-selector-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.48);
+  display: flex;
+  align-items: flex-end;   /* sheet slides up from bottom on mobile */
+  justify-content: center;
+  padding: var(--sp-4);
+  box-sizing: border-box;
+  /* Respect iOS safe areas inside the backdrop */
+  padding-bottom: max(var(--sp-4), var(--safe-bottom));
+}
+
+/* Card that contains the actual selector */
+.station-selector-modal__card {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  width: 100%;
+  max-width: 480px;
+  max-height: 80dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+}
+
+/* Dismiss (×) button in top-right of card */
+.station-selector-modal__dismiss {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 18px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  z-index: 1;
+}
+
+.station-selector-modal__dismiss:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.station-selector-modal__dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Loading state inside the modal */
+.station-selector-modal__loading {
+  padding: var(--sp-6) var(--sp-4);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  text-align: center;
 }

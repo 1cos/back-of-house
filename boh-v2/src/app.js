@@ -1,34 +1,29 @@
 // BOH OS v2 — app bootstrap
-// Task 003A: authenticated App Shell replaces login screen on success.
-// Task 003B: bottom navigation mount target provided by App Shell.
-// Task 003C: station navigation delegated to setupStationNavigation().
-// WS-01: App Shell returns { shell, panelStripMount, workspaceOutlet, legacyOutlet }.
-// WS-03: WorkspaceManager created; Home placeholder registered and opened.
-// WS-03.1: dual-outlet surface switching.
-// WS-04: station-prep renderer registered; openWorkspacePanel injected into
-//         setupStationNavigation so station selection opens workspace panels.
-//   - workspaceOutlet (#app-content)        → WorkspaceManager exclusive.
-//   - legacyOutlet    (#app-content-legacy) → router exclusive.
-//   - Only one outlet is visible at a time.
-//   - Activating a workspace panel shows workspaceOutlet, hides legacyOutlet.
-//   - Any legacy router.navigate() shows legacyOutlet, hides workspaceOutlet,
-//     and deactivates the workspace strip (no chip is marked active).
-// Session restore: on page load, restoreSession() checks for an existing
-// brigade_token so returning users skip the PIN screen.
-// No global state. No window writes.
+// WS-05: Bottom bar retired. WorkspaceManager is the sole navigation model.
+//
+// Login flow:
+//   authenticate() → mountShell(user)
+//                  → createWorkspaceManager({ outlet, panelStripMount, showAdd, onAdd })
+//                  → registerRenderer('home', ...)
+//                  → registerRenderer('station-prep', ...)
+//                  → openPanel('home', {})
+//                  → if station user + defaultStation:
+//                      openPanel('station-prep', { stationName })  ← lands here, not Home
+//                  → if admin/exec chef: Home is active, '+' opens Station Selector modal
+//
+// No bottom bar. No legacy router outlet. No dual-surface switching.
+// No global state. No window writes. No storage.
 
 import { t } from './core/i18n.js';
 import { checkSupabaseConnection } from './core/supabase-client.js';
 import { authenticateWithPin, restoreSession } from './services/auth-service.js';
 import { setCurrentUser, getCurrentUser, clearCurrentUser } from './core/app-state.js';
-import { router } from './core/router.js';
 import { createAppShell } from './components/app-shell/app-shell.js';
-import { setupStationNavigation } from './modes/station/station-navigation.js';
 import { createWorkspaceManager } from './core/workspace-manager.js';
+import { can } from './core/permissions.js';
+import { createStationSelector } from './components/station/station-selector.js';
 
-// ── WS-04: Prep services for the workspace station-prep renderer ──────
-// These are the same services used by station-navigation.js.
-// One canonical createStationPrep call; two wiring points (router + workspace).
+// ── Prep services for the station-prep renderer ───────────────────────
 import { createStationPrep } from './modes/station/station-prep.js';
 import { fetchStationPrepTasks } from './services/station-prep-service.js';
 import { fetchPrepSuggestions } from './services/prep-suggestion-service.js';
@@ -49,10 +44,6 @@ if (!root) {
 
 // ── Active WorkspaceManager reference ─────────────────────────────────
 let _workspaceManager = null;
-
-// ── Surface references (set in mountShell, cleared in teardownShell) ──
-let _workspaceOutlet = null;
-let _legacyOutlet    = null;
 
 // ── Login screen ──────────────────────────────────────────────────────
 
@@ -110,37 +101,9 @@ function runConnectionDiagnostic() {
   });
 }
 
-// ── Surface switching ──────────────────────────────────────────────────
-// Exactly one outlet is visible at any time.
-// Neither function touches the other system's outlet content.
-
-const VISIBLE_CLASS = 'app-shell__outlet--visible';
-
-/**
- * Show the workspace outlet; hide the legacy router outlet.
- * Called when a workspace panel is activated.
- */
-function showWorkspaceSurface() {
-  if (!_workspaceOutlet || !_legacyOutlet) return;
-  _workspaceOutlet.classList.add(VISIBLE_CLASS);
-  _legacyOutlet.classList.remove(VISIBLE_CLASS);
-}
-
-/**
- * Show the legacy router outlet; hide the workspace outlet.
- * Called when any legacy navigation item is selected.
- * Also deactivates the workspace strip's active indicator so no chip
- * appears falsely selected while legacy content is visible.
- */
-function showLegacySurface() {
-  if (!_workspaceOutlet || !_legacyOutlet) return;
-  _legacyOutlet.classList.add(VISIBLE_CLASS);
-  _workspaceOutlet.classList.remove(VISIBLE_CLASS);
-}
-
-// ── Home placeholder renderer (WS-03) ─────────────────────────────────
+// ── Home placeholder renderer ─────────────────────────────────────────
 // Synchronous, returns HTMLElement immediately.
-// Clearly temporary — will be replaced by the real Home Composition Engine.
+// Will be replaced by the real Home Composition Engine in a future session.
 
 function createHomePlaceholder() {
   const section = document.createElement('section');
@@ -159,61 +122,83 @@ function createHomePlaceholder() {
   return section;
 }
 
-// ── Patched router.navigate (WS-03.1) ─────────────────────────────────
-// Wraps the original router.navigate so that any legacy navigation
-// automatically switches the visible surface to the legacy outlet.
-// The WorkspaceManager's strip is re-rendered with no active chip
-// by deactivating the workspace manager's active state when legacy
-// surfaces take over.
-//
-// Implementation: we intercept at the router level so station-navigation.js
-// needs zero changes. The router's _outlet is already set to legacyOutlet;
-// this wrapper just keeps surfaces in sync.
+// ── Station Selector modal (executive chef / admin '+' button) ────────
+// The station-selector component takes a pre-loaded stations array, so we
+// fetch first, then render. The modal is an overlay — not a panel.
 
-const _originalNavigate = router.navigate.bind(router);
+function openStationSelectorModal(workspaceManager, shellEl) {
+  // Backdrop — full-screen overlay
+  const backdrop = document.createElement('div');
+  backdrop.className = 'station-selector-modal';
+  backdrop.setAttribute('role', 'dialog');
+  backdrop.setAttribute('aria-modal', 'true');
+  backdrop.setAttribute('aria-label', 'Select a station');
 
-function patchedNavigate(name) {
-  const result = _originalNavigate(name);
-  if (result) {
-    // A real page rendered — switch surface to legacy.
-    showLegacySurface();
-    // Deactivate the workspace strip (no panel appears highlighted)
-    // by telling the WorkspaceManager that no workspace panel is "current"
-    // from the user's perspective. We do this by stripping the active
-    // class from all chips. The WorkspaceManager's internal _activeId
-    // remains intact so re-activating a workspace panel still works.
-    // We reach this via a lightweight DOM update on the strip only.
-    _syncStripForLegacySurface();
+  function dismiss() {
+    if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
   }
-  return result;
-}
 
-/**
- * Walks the current strip DOM and removes the active class from all chips.
- * Called when legacy surface takes over. Does not touch WorkspaceManager
- * internal state — the manager still knows which panel is "logically active"
- * so it can re-mount it correctly when the user taps a chip.
- */
-function _syncStripForLegacySurface() {
-  const strip = root.querySelector('.ws-strip');
-  if (!strip) return;
-  strip.querySelectorAll('.ws-chip--active').forEach(chip => {
-    chip.classList.remove('ws-chip--active');
-    chip.setAttribute('aria-selected', 'false');
+  // Loading state while stations are fetched
+  const loadingEl = document.createElement('div');
+  loadingEl.className = 'station-selector-modal__loading';
+  loadingEl.textContent = 'Loading stations…';
+  backdrop.appendChild(loadingEl);
+
+  shellEl.appendChild(backdrop);
+
+  // Dismiss on backdrop click (outside the selector card)
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) dismiss();
+  });
+
+  // Fetch stations, then swap in the real selector
+  fetchAvailableStations().then((result) => {
+    if (!backdrop.isConnected) return;
+
+    backdrop.removeChild(loadingEl);
+
+    const stations = result.ok ? (result.stations ?? []) : [];
+
+    const selectorEl = createStationSelector({
+      stations,
+      translate: t,
+      onSelect: (stationName) => {
+        dismiss();
+        workspaceManager.openPanel('station-prep', { stationName });
+      },
+    });
+
+    // Wrap in a card so backdrop clicks don't propagate from the selector
+    const card = document.createElement('div');
+    card.className = 'station-selector-modal__card';
+    card.addEventListener('click', (e) => e.stopPropagation());
+
+    // Dismiss button
+    const dismissBtn = document.createElement('button');
+    dismissBtn.type = 'button';
+    dismissBtn.className = 'station-selector-modal__dismiss';
+    dismissBtn.setAttribute('aria-label', 'Close station selector');
+    dismissBtn.textContent = '×';
+    dismissBtn.addEventListener('click', dismiss);
+
+    card.appendChild(dismissBtn);
+    card.appendChild(selectorEl);
+    backdrop.appendChild(card);
   });
 }
 
-// ── Shell transition ──────────────────────────────────────────────────
+// ── Shell mount ───────────────────────────────────────────────────────
 
 function mountShell(user) {
-  // Destroy previous WorkspaceManager (logout → re-login in same tab).
+  // Destroy previous WorkspaceManager on logout → re-login.
   if (_workspaceManager) {
     _workspaceManager.destroy();
     _workspaceManager = null;
   }
 
-  // WS-01/WS-03.1: App Shell returns four named references.
-  const { shell, panelStripMount, workspaceOutlet, legacyOutlet } = createAppShell({
+  // WS-05: App Shell returns workspace-relevant references only.
+  // No navMount. No legacyOutlet. Single workspace outlet.
+  const { shell, panelStripMount, workspaceOutlet } = createAppShell({
     appName:   t('app.name'),
     modeLabel: t('mode.station'),
     userName:  user.name,
@@ -222,44 +207,35 @@ function mountShell(user) {
   root.innerHTML = '';
   root.appendChild(shell);
 
-  // Store surface references for switching.
-  _workspaceOutlet = workspaceOutlet;
-  _legacyOutlet    = legacyOutlet;
+  // Executive chef / admin: '+' control opens Station Selector modal.
+  // Station users: '+' hidden.
+  const isExecutiveChef = can('view_executive_mode', user);
 
-  // Router owns legacyOutlet exclusively.
-  router.init(legacyOutlet);
-  // Patch navigate so legacy navigations switch the surface automatically.
-  router.navigate = patchedNavigate;
-
-  const navMount = root.querySelector('.app-shell__nav-mount');
-
-  // ── WS-03: Bootstrap WorkspaceManager ───────────────────────────────
-  // WorkspaceManager owns workspaceOutlet exclusively.
-  // onPanelActivated: when the user taps a workspace chip, switch
-  // the visible surface to the workspace outlet.
+  // ── Create WorkspaceManager ──────────────────────────────────────
   _workspaceManager = createWorkspaceManager({
-    outlet:           workspaceOutlet,
+    outlet:          workspaceOutlet,
     panelStripMount,
-    showAdd:          false,  // WS-04.1: hidden until Station Selector modal is wired
-    onPanelActivated: (_panelId) => {
-      showWorkspaceSurface();
-    },
+    showAdd:         isExecutiveChef,
+    onAdd:           () => openStationSelectorModal(_workspaceManager, shell),
   });
+
+  // ── Register renderers ───────────────────────────────────────────
 
   _workspaceManager.registerRenderer('home', createHomePlaceholder);
 
-  // ── WS-04: station-prep renderer ──────────────────────────────────────
-  // One canonical renderer — uses the existing createStationPrep with all
-  // injected services unchanged. context.stationName is the station to load.
-  // canChooseStation is false here: the workspace panel already has a concrete
-  // station; the selector flow lives in Station Home (legacy outlet).
+  // station-prep renderer — skeleton-first pattern (createStationPrep returns
+  // a DOM element immediately and populates it asynchronously with isConnected guards).
   _workspaceManager.registerRenderer('station-prep', ({ stationName }) =>
     createStationPrep({
       stationName,
-      canChooseStation: false,
+      canChooseStation: false,  // station already resolved at panel-open time
       translate:        t,
       fetchStations:    fetchAvailableStations,
-      onStationSelect:  () => {},  // no-op: station already chosen at panel-open time
+      onStationSelect:  (newStation) => {
+        // If a station selector inside the prep panel fires (legacy path),
+        // open it as a new/existing workspace panel.
+        _workspaceManager.openPanel('station-prep', { stationName: newStation });
+      },
       fetchTasks:       fetchStationPrepTasks,
       fetchSuggestions: fetchPrepSuggestions,
       fetchLogs:        fetchTodayPrepLogs,
@@ -273,32 +249,22 @@ function mountShell(user) {
     })
   );
 
-  // Open Home — places the chip and mounts placeholder into workspaceOutlet.
-  // Does NOT switch the visible surface yet; legacy starts visible so
-  // Station Home loads normally after setupStationNavigation fires.
+  // ── Open Home (always first) ─────────────────────────────────────
+  // Home chip is always the leftmost item in the Panel Strip.
   _workspaceManager.openPanel('home', {});
 
-  // ── WS-04: workspace panel opener (injected into station-navigation) ──
-  // Allows handleStationSelect in station-navigation.js to open a workspace
-  // panel without importing WorkspaceManager directly.
-  function openWorkspacePanel(type, context) {
-    _workspaceManager.openPanel(type, context);
+  // ── WS-05: station-user auto-open ────────────────────────────────
+  // Station users with a defaultStation land directly on their prep panel.
+  // Executive chef / admin land on Home and choose stations via '+'.
+  const defaultStation =
+    typeof user.defaultStation === 'string' && user.defaultStation.trim().length > 0
+      ? user.defaultStation.trim()
+      : null;
+
+  if (defaultStation && !isExecutiveChef) {
+    // openPanel activates the new panel — user sees prep, not Home.
+    _workspaceManager.openPanel('station-prep', { stationName: defaultStation });
   }
-
-  // Station navigation wired to the legacy outlet via the router.
-  // WS-04: openWorkspacePanel passed so station selection opens workspace panels.
-  setupStationNavigation({
-    router,
-    mountElement:       navMount,
-    translate:          t,
-    user,
-    openWorkspacePanel,
-  });
-
-  // Initial legacy navigation — shows Station Home in legacyOutlet.
-  // legacyOutlet is already visible by default (set in app-shell.js).
-  // patchedNavigate is called here; it shows legacyOutlet and dims the strip.
-  router.navigate('station-home');
 }
 
 // ── Logout / cleanup ──────────────────────────────────────────────────
@@ -308,11 +274,7 @@ function teardownShell() {
     _workspaceManager.destroy();
     _workspaceManager = null;
   }
-  _workspaceOutlet = null;
-  _legacyOutlet    = null;
   clearCurrentUser();
-  // Restore the original navigate so the next mountShell gets a clean patch.
-  router.navigate = _originalNavigate;
 }
 
 // ── PIN submission logic ───────────────────────────────────────────────

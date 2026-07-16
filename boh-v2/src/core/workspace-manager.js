@@ -1,12 +1,10 @@
 // BOH OS v2 — WorkspaceManager
 // WS-02: implements the Workspace Engine v1.1 contract.
-// WS-03.1: adds optional onPanelActivated(panelId) hook so app.js can
-//           switch surface visibility when a workspace panel becomes active.
-//           This is a pure additive constructor option — no frozen API changes.
-// Spec: BOH_OS_V2_WORKSPACE_ENGINE.md v1.1
+// WS-05: onAdd callback accepted from caller (opens Station Selector modal).
+//        showAdd can be set per user role by the caller (app.js).
+//        All state is instance-scoped. No module-scope variables.
 //
-// All state is instance-scoped inside createWorkspaceManager().
-// No module-scope variables — multiple instances are safe.
+// Spec: BOH_OS_V2_WORKSPACE_ENGINE.md v1.1
 //
 // Rules enforced:
 //   - Home ID is 'panel-home'. Home always exists. Home cannot be closed.
@@ -60,11 +58,12 @@ function dedupeKey(type, context) {
  *   outlet:              HTMLElement,   // workspace panel content target (exclusive)
  *   panelStripMount:     HTMLElement,   // strip container
  *   onPanelActivated?:   (panelId: string) => void,  // optional hook, called after every activation
- *   showAdd?:            boolean,       // render the + control in the strip (default false = absent)
+ *   onAdd?:              () => void,    // called when the '+' control is tapped
+ *   showAdd?:            boolean,       // render the + control (default false)
  * }} options
  * @returns {WorkspaceManager}
  */
-export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivated, showAdd = false }) {
+export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivated, onAdd, showAdd = false }) {
   // ── Instance-scoped state ──────────────────────────────────────────
   /** @type {Array<{ id: string, type: string, title: string, context: object, dedupeKey: string }>} */
   let _panels = [];
@@ -110,9 +109,9 @@ export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivat
       activeId:   _activeId,
       onActivate: (id) => workspaceManager.activatePanel(id),
       onClose:    (id) => workspaceManager.closePanel(id),
-      onAdd:      () => { /* no-op until Station Selector modal is wired */ },
+      onAdd:      () => { if (typeof onAdd === 'function') onAdd(); },
       atLimit,
-      showAdd,   // controlled by caller; false = + absent from DOM
+      showAdd,
     });
 
     panelStripMount.innerHTML = '';
@@ -231,13 +230,8 @@ export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivat
       if (!panel) return;
 
       if (_activeId === panelId) {
-        // Panel is already logically active. The strip's visual active state
-        // may have been cleared externally (e.g. _syncStripForLegacySurface
-        // in app.js dims chips when legacy surface takes over). Re-render the
-        // strip and fire the activation hook so the surface bridge can reveal
-        // the workspace outlet. Do NOT re-mount the panel content — it is
-        // already in the outlet and re-calling the renderer is wasteful and
-        // potentially disruptive. This is an idempotent "reveal" operation.
+        // Panel is already logically active. Re-render strip and fire hook
+        // so any surface bridge remains in sync.
         _renderStrip();
         _notifyActivated(panelId);
         return;
@@ -253,6 +247,9 @@ export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivat
      * Closes a panel and activates the left-neighbor fallback.
      * No-op for Home. No-op if panelId is not in the registry.
      *
+     * Case A (closing active): activate left neighbor or Home.
+     * Case B (closing dormant): strip re-rendered only; active panel unchanged.
+     *
      * @param {string} panelId
      */
     closePanel(panelId) {
@@ -266,14 +263,12 @@ export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivat
       _panels.splice(idx, 1);
 
       if (!closingActive) {
-        // Dormant close: the user closed a background panel.
-        // The active panel and visible surface are unchanged.
-        // Only the strip needs re-rendering (one fewer chip).
+        // Dormant close (Case B): strip update only.
         _renderStrip();
         return;
       }
 
-      // Active close: activate the left neighbor, falling back to Home.
+      // Active close (Case A): left neighbor fallback or Home.
       const fallback = _panels[idx - 1] ?? _panels[0];
       _activeId = fallback.id;
       _mountPanel(fallback);
@@ -297,7 +292,7 @@ export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivat
      * Per spec v1.1 §2.3 and R-17.
      */
     destroy() {
-      outlet.innerHTML       = '';
+      outlet.innerHTML          = '';
       panelStripMount.innerHTML = '';
 
       _panels    = [];
