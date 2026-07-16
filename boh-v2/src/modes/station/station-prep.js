@@ -666,6 +666,16 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
     if (containerRef.container) containerRef.container.appendChild(el);
   }
 
+  // ── Idempotency context — scoped to this task's Count button closure ──
+  // Task OEE-D-B: owns pendingCountOp for STOCK_COUNT_RECORDED idempotency.
+  // Created in onConfirm when the user taps Count, retained through retriable
+  // failures so a retry reuses the same UUID. Cleared on confirmed success
+  // (including idempotent replay), definitive failure, and form cancel.
+  // Rule A: pendingCountOp === null → create fresh UUID + timestamp
+  // Rule B: same qty + unit → reuse (response-loss retry)
+  // Rule C: different qty or unit → create new (user changed the value)
+  let pendingCountOp = null;  // { id: string, occurredAt: string, qty: number, unit: string } | null
+
   function removeCountForm() {
     clearCountFeedback();
     if (containerRef.container && containerRef.container.parentNode) {
@@ -673,6 +683,7 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
     }
     containerRef.container = null;
     submitting = false;
+    pendingCountOp = null;  // Clear context on cancel
     btn.hidden = false;
   }
 
@@ -713,16 +724,43 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
         setCountFormDisabled(true);
         showCountSubmitting();
 
+        // ── Idempotency context lifecycle (Rules A / B / C) ──
+        if (pendingCountOp === null) {
+          // Rule A: First attempt — create fresh context.
+          pendingCountOp = {
+            id:         generateStartOperationUUID(),
+            occurredAt: new Date().toISOString(),
+            qty:        countedQuantity,
+            unit:       unit,
+          };
+        } else if (
+          pendingCountOp.qty !== countedQuantity ||
+          pendingCountOp.unit !== unit
+        ) {
+          // Rule C: Quantity or unit changed — new context needed.
+          pendingCountOp = {
+            id:         generateStartOperationUUID(),
+            occurredAt: new Date().toISOString(),
+            qty:        countedQuantity,
+            unit:       unit,
+          };
+        }
+        // Rule B: Same qty + unit → pendingCountOp unchanged (implicit reuse).
+
         saveCount({
-          prepTaskId:     task.id,
+          prepTaskId:        task.id,
           countedQuantity,
           unit,
-          countedBy:      userName,
+          countedBy:         userName,
+          clientOperationId: pendingCountOp.id,
+          occurredAt:        pendingCountOp.occurredAt,
         }).then((result) => {
           if (!section.isConnected) return;
 
           // Full failure — no count was inserted.
           if (result.count === null || result.count === undefined) {
+            // Definitive failure (no DB write occurred) — clear context.
+            pendingCountOp = null;
             submitting = false;
             setCountFormDisabled(false);
             clearCountFeedback();
@@ -741,6 +779,10 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
             if (!section.isConnected) return;
 
             const saveOk = result.ok === true;
+
+            // Count was recorded (save succeeded or partial) — operation is
+            // resolved. Clear pendingCountOp regardless of reconcile outcome.
+            pendingCountOp = null;
 
             // Notify parent with both saveCount and reconcileCount results.
             onCountSuccess({
@@ -762,6 +804,8 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
           }).catch(() => {
             if (!section.isConnected) return;
             // Reconciler threw unexpectedly — treat as reconciliation failure.
+            // Count was written, so operation is resolved. Clear context.
+            pendingCountOp = null;
             const saveOk = result.ok === true;
             onCountSuccess({
               saveOk,
@@ -780,6 +824,8 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
             });
           });
         }).catch(() => {
+          // Transport exception — server state unknown. Retain pendingCountOp
+          // so the next tap reuses the same UUID (response-loss retry).
           if (!section.isConnected) return;
           submitting = false;
           setCountFormDisabled(false);
