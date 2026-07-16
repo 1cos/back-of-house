@@ -5,6 +5,8 @@
 // WS-01: App Shell returns { shell, panelStripMount, workspaceOutlet, legacyOutlet }.
 // WS-03: WorkspaceManager created; Home placeholder registered and opened.
 // WS-03.1: dual-outlet surface switching.
+// WS-04: station-prep renderer registered; openWorkspacePanel injected into
+//         setupStationNavigation so station selection opens workspace panels.
 //   - workspaceOutlet (#app-content)        → WorkspaceManager exclusive.
 //   - legacyOutlet    (#app-content-legacy) → router exclusive.
 //   - Only one outlet is visible at a time.
@@ -23,6 +25,21 @@ import { router } from './core/router.js';
 import { createAppShell } from './components/app-shell/app-shell.js';
 import { setupStationNavigation } from './modes/station/station-navigation.js';
 import { createWorkspaceManager } from './core/workspace-manager.js';
+
+// ── WS-04: Prep services for the workspace station-prep renderer ──────
+// These are the same services used by station-navigation.js.
+// One canonical createStationPrep call; two wiring points (router + workspace).
+import { createStationPrep } from './modes/station/station-prep.js';
+import { fetchStationPrepTasks } from './services/station-prep-service.js';
+import { fetchPrepSuggestions } from './services/prep-suggestion-service.js';
+import { fetchTodayPrepLogs } from './services/prep-log-service.js';
+import { fetchRecentPrepCounts } from './services/prep-count-service.js';
+import { savePrepCountRpc } from './services/prep-count-rpc-service.js';
+import { reconcilePrepCount } from './services/prep-count-reconciler-service.js';
+import { startPrepTaskRpc } from './services/prep-start-rpc-service.js';
+import { completePrepTaskRpc } from './services/prep-complete-rpc-service.js';
+import { passPrepToShift } from './services/prep-pass-service.js';
+import { fetchAvailableStations } from './services/station-list-service.js';
 
 const root = document.getElementById('app');
 
@@ -223,26 +240,59 @@ function mountShell(user) {
   _workspaceManager = createWorkspaceManager({
     outlet:           workspaceOutlet,
     panelStripMount,
-    showAdd:          false,  // no caller wired until WS-04
+    showAdd:          true,   // WS-04: + visible for exec/admin users
     onPanelActivated: (_panelId) => {
       showWorkspaceSurface();
     },
   });
+
   _workspaceManager.registerRenderer('home', createHomePlaceholder);
+
+  // ── WS-04: station-prep renderer ──────────────────────────────────────
+  // One canonical renderer — uses the existing createStationPrep with all
+  // injected services unchanged. context.stationName is the station to load.
+  // canChooseStation is false here: the workspace panel already has a concrete
+  // station; the selector flow lives in Station Home (legacy outlet).
+  _workspaceManager.registerRenderer('station-prep', ({ stationName }) =>
+    createStationPrep({
+      stationName,
+      canChooseStation: false,
+      translate:        t,
+      fetchStations:    fetchAvailableStations,
+      onStationSelect:  () => {},  // no-op: station already chosen at panel-open time
+      fetchTasks:       fetchStationPrepTasks,
+      fetchSuggestions: fetchPrepSuggestions,
+      fetchLogs:        fetchTodayPrepLogs,
+      fetchCounts:      fetchRecentPrepCounts,
+      startTask:        startPrepTaskRpc,
+      completeTask:     completePrepTaskRpc,
+      saveCount:        savePrepCountRpc,
+      reconcileCount:   reconcilePrepCount,
+      passTask:         passPrepToShift,
+      currentUser:      user,
+    })
+  );
 
   // Open Home — places the chip and mounts placeholder into workspaceOutlet.
   // Does NOT switch the visible surface yet; legacy starts visible so
   // Station Home loads normally after setupStationNavigation fires.
   _workspaceManager.openPanel('home', {});
 
+  // ── WS-04: workspace panel opener (injected into station-navigation) ──
+  // Allows handleStationSelect in station-navigation.js to open a workspace
+  // panel without importing WorkspaceManager directly.
+  function openWorkspacePanel(type, context) {
+    _workspaceManager.openPanel(type, context);
+  }
+
   // Station navigation wired to the legacy outlet via the router.
-  // setupStationNavigation is unchanged — it calls router.navigate() which
-  // now calls patchedNavigate(), keeping surfaces coherent.
+  // WS-04: openWorkspacePanel passed so station selection opens workspace panels.
   setupStationNavigation({
     router,
-    mountElement: navMount,
-    translate:    t,
+    mountElement:       navMount,
+    translate:          t,
     user,
+    openWorkspacePanel,
   });
 
   // Initial legacy navigation — shows Station Home in legacyOutlet.

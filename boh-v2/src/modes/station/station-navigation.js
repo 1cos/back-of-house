@@ -15,6 +15,8 @@
 // Task 004AF: station-prep receives passPrepToShift as passTask for WIP handoff.
 // Task 004AI: admin/executive-chef role detection, session-local station selection,
 //             fetchAvailableStations injected into Station Home and Prep.
+// WS-04: openWorkspacePanel injected optionally from app.js so station selection
+//         opens a workspace panel without importing WorkspaceManager directly.
 // No window writes. No storage. No Supabase. No browser history. No app-state import.
 
 import { createBottomNavigation } from '../../components/navigation/bottom-navigation.js';
@@ -108,14 +110,15 @@ const CHOOSER_ROLES = new Set(['admin', 'executive_chef']);
  * navigation, and manages active state.
  *
  * @param {{
- *   router:       { register: Function, navigate: Function },
- *   mountElement: HTMLElement,
- *   translate:    (key: string) => string,
- *   user:         { name?: string, defaultStation?: string, role?: string }
+ *   router:              { register: Function, navigate: Function },
+ *   mountElement:        HTMLElement,
+ *   translate:           (key: string) => string,
+ *   user:                { name?: string, defaultStation?: string, role?: string },
+ *   openWorkspacePanel?: (type: string, context: object) => void,
  * }} options
  * @returns {{ currentItem: () => string }}
  */
-export function setupStationNavigation({ router, mountElement, translate, user }) {
+export function setupStationNavigation({ router, mountElement, translate, user, openWorkspacePanel }) {
   // ── Guards ─────────────────────────────────────────────────────────
   if (!router || typeof router.register !== 'function' || typeof router.navigate !== 'function') {
     throw new Error('setupStationNavigation: router must be the BOH OS router object.');
@@ -165,10 +168,24 @@ export function setupStationNavigation({ router, mountElement, translate, user }
 
   // ── Station selection callback ─────────────────────────────────────
   // Called by Station Home or Station Prep when an eligible user picks a station.
+  // WS-04: when openWorkspacePanel is provided, station selection opens a workspace
+  // panel instead of (or in addition to) navigating the legacy router.
+  // The legacy router navigate is preserved so the bottom-bar Prep path still works.
   function handleStationSelect(stationName) {
     if (typeof stationName !== 'string' || stationName.trim().length === 0) return;
     _selectedStation = stationName.trim();
-    // Navigate to Prep and mark it active.
+
+    if (typeof openWorkspacePanel === 'function') {
+      // WS-04 path: open/activate the station-prep workspace panel.
+      // The workspace surface switch is handled by the onPanelActivated bridge
+      // in app.js — no surface logic here.
+      openWorkspacePanel('station-prep', { stationName: _selectedStation });
+      // Do not navigate the legacy router in this path — the workspace outlet
+      // owns station panels in WS-04.
+      return;
+    }
+
+    // Legacy path: openWorkspacePanel not provided (unchanged behavior).
     const navigated = router.navigate('station-prep');
     if (navigated) {
       _activeItem = 'prep';
