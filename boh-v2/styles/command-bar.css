@@ -1,31 +1,37 @@
 /* BOH OS v2 — Command Bar
-   UI-06.1: visualViewport keyboard fix.
+   UI-06.2: Stable keyboard dock.
    ------------------------------------------------------------------
-   KEY CHANGE FROM UI-06:
-   The bar is still position:fixed bottom:0 in CSS.
-   In iOS Safari, position:fixed anchors to the LAYOUT viewport.
-   When the keyboard opens, JS overrides bar.style.bottom to:
-     layoutViewportHeight − (vv.offsetTop + vv.height)
-   which pins the bar to the VISUAL viewport bottom.
-   The CSS bottom:0 is the correct fallback for browsers/devices
-   without the keyboard issue (desktop, non-iOS).
+   KEY CHANGES FROM UI-06.1:
 
-   The scroll container (.app-shell__main) receives a dynamic
-   padding-bottom from JS rather than a static CSS override,
-   so it always clears the bar whether the keyboard is open or not.
+   1. Bar uses position:fixed; bottom:0 in CSS (keyboard-closed state).
+      When keyboard opens, JS switches to position:fixed; top:<px>
+      (top-anchored to visual viewport bottom - bar height).
+      This is stable across Prep scroll because vv.offsetTop is included
+      in the formula, so the bar doesn't move when Prep is scrolled.
+
+   2. .command-bar-dock sits below the bar, covering bar bottom → screen
+      bottom. Same background. Prevents page content showing through any
+      fractional gap during keyboard animation. JS mounts/unmounts it.
+
+   3. vv 'scroll' listener removed — it was causing oscillation.
+      Only vv 'resize' is needed; it fires on keyboard open/close/height.
+
+   4. padding-bottom on .app-shell__main is written only on resize
+      (not on every scroll), via a single rAF-coalesced write.
    ------------------------------------------------------------------ */
 
 /* ── Bar container ───────────────────────────────────────────────────
-   Fixed to viewport bottom. JS overrides bottom on keyboard open.   */
+   Keyboard closed: CSS bottom:0 positions it.
+   Keyboard open:   JS writes top:<px> and sets bottom:auto.          */
 .command-bar {
   position: fixed;
-  bottom: 0;               /* JS overrides this when keyboard is open */
+  bottom: 0;
   left: 0;
   right: 0;
-  z-index: 50;             /* above workspace panels, below sheets (200) */
+  z-index: 51;                        /* above dock (50) */
 
   display: flex;
-  align-items: flex-end;   /* tall textarea grows upward */
+  align-items: flex-end;
   gap: var(--sp-2);
 
   background: var(--surface);
@@ -33,13 +39,36 @@
   box-shadow: 0 -2px 16px rgba(30, 58, 95, 0.10);
 
   padding: var(--sp-2) var(--sp-3);
+  /* Safe-area padding only applies in bottom:0 (CSS) mode.
+     In top: mode the bar sits exactly at vv bottom; safe-area is
+     already accounted for by vv.height excluding it.               */
   padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom, 0px));
 
   box-sizing: border-box;
   width: 100%;
 }
 
-/* ── Icon buttons (+ and 🎙) ─────────────────────────────────────────
+/* Keyboard-open state applied by JS: bottom:auto is set inline.
+   CSS here is just documentation / reset baseline.                  */
+
+/* ── Dock scrim ──────────────────────────────────────────────────────
+   Sits between the bar's bottom edge and the physical screen bottom.
+   Prevents page content from showing through during keyboard animation.
+   JS mounts this when keyboard opens; removes it when keyboard closes.
+   z-index 50 — below the bar (51) but above workspace (panel strip 10). */
+.command-bar-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  /* top and bottom set by JS inline */
+  z-index: 50;
+  background: var(--surface);
+  /* Extend through safe-area at bottom */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
+}
+
+/* ── Icon buttons ────────────────────────────────────────────────────
    44×44 px minimum touch target (Apple HIG).                        */
 .command-bar__btn {
   flex-shrink: 0;
@@ -124,18 +153,16 @@
   overflow-y: auto;
 }
 
-/* ── Scroll container bottom clearance ───────────────────────────────
-   Static fallback for .app-shell__main. This is the CSS baseline
-   when JS has not yet applied dynamic padding-bottom.
-   JS sets padding-bottom inline on the scroll container to match
-   the actual bar height + keyboard offset. When JS is active this
-   rule is overridden by the inline style.                           */
+/* ── Scroll container clearance ──────────────────────────────────────
+   Static CSS baseline — active when keyboard is closed (bar at bottom:0).
+   Keyboard-open padding is set inline by JS (_applyScrollInset).
+   Inline style overrides this rule when keyboard is open.            */
 .app-shell__main {
   padding-bottom: calc(72px + max(var(--sp-4), env(safe-area-inset-bottom, 0px)));
 }
 
 /* ── Shared sheet backdrop ───────────────────────────────────────────
-   Appended to document.body. z-index above bar (50) and modals.    */
+   z-index 200 — above bar (51) and dock (50).                       */
 .cb-sheet-backdrop {
   position: fixed;
   inset: 0;
@@ -188,9 +215,7 @@
   color: var(--text-primary);
 }
 
-.cb-action-sheet__item--disabled {
-  opacity: 0.5;
-}
+.cb-action-sheet__item--disabled { opacity: 0.5; }
 
 .cb-action-sheet__badge {
   font-size: 11px;
@@ -289,11 +314,7 @@
   -webkit-appearance: none;
 }
 
-.cb-preview-sheet__btn--primary {
-  background: var(--accent);
-  color: #ffffff;
-}
-
+.cb-preview-sheet__btn--primary  { background: var(--accent); color: #ffffff; }
 .cb-preview-sheet__btn--secondary {
   background: var(--bg-base);
   color: var(--text-primary);
@@ -306,11 +327,10 @@
 }
 
 /* ── Mic "coming soon" toast ─────────────────────────────────────────
-   Anchored via JS-set --cb-bottom-inset so it tracks the bar.
-   Fallback uses 72px.                                               */
+   Non-blocking pill above the bar.                                   */
 .cb-mic-toast {
   position: fixed;
-  bottom: calc(var(--cb-mic-toast-bottom, 72px) + 8px);
+  bottom: 80px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 150;
