@@ -4,11 +4,15 @@
    ------------------------------------------------------------------ */
 
 /* ── App root ──────────────────────────────────────────────────────── */
+/* UI-06.5: #app is a contained viewport. height:100% matches html/body.
+   overflow:hidden prevents document scroll while authenticated shell
+   is mounted. Login screen works fine — it mounts inside #app and
+   .login-card uses its own intrinsic sizing.                          */
 #app {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
-  min-height: 100vh; /* fallback */
+  height: 100%;
+  overflow: hidden;
   padding-top: var(--safe-top);
   padding-bottom: var(--safe-bottom);
   padding-left: var(--safe-left);
