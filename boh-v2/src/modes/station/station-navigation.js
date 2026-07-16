@@ -7,7 +7,8 @@
 // Task 004K: station-prep receives fetchTodayPrepLogs for today's production log display.
 // Task 004M: station-prep receives startTask and currentUser for Start action.
 // Task OEE-B: startTask routes through rpc_oee_record_prep_start (prep-start-rpc-service.js).
-// Task 004Q: station-prep receives completePrepTask for Complete action.
+// Task 004Q: station-prep receives completeTask for Complete action.
+// Task OEE-C-B: completeTask routes through rpc_oee_record_prep_completion (prep-complete-rpc-service.js).
 // Task 004S: station-prep receives fetchRecentPrepCounts as fetchCounts for physical count display.
 // Task 004V: station-prep receives savePrepCount as saveCount for physical count write.
 // Task 004X: station-prep receives reconcilePrepCount as reconcileCount for post-count reconciliation.
@@ -26,7 +27,7 @@ import { fetchRecentPrepCounts } from '../../services/prep-count-service.js';
 import { savePrepCount } from '../../services/prep-count-write-service.js';
 import { reconcilePrepCount } from '../../services/prep-count-reconciler-service.js';
 import { startPrepTaskRpc } from '../../services/prep-start-rpc-service.js';
-import { completePrepTask } from '../../services/prep-complete-service.js';
+import { completePrepTaskRpc } from '../../services/prep-complete-rpc-service.js';
 import { passPrepToShift } from '../../services/prep-pass-service.js';
 import { fetchAvailableStations } from '../../services/station-list-service.js';
 
@@ -203,7 +204,7 @@ export function setupStationNavigation({ router, mountElement, translate, user }
       fetchLogs:        fetchTodayPrepLogs,
       fetchCounts:      fetchRecentPrepCounts,
       startTask:        startPrepTaskRpc,
-      completeTask:     completePrepTask,
+      completeTask:     completePrepTaskRpc,
       saveCount:        savePrepCount,
       reconcileCount:   reconcilePrepCount,
       passTask:         passPrepToShift,
