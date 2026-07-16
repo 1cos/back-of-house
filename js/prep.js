@@ -1077,6 +1077,34 @@ function _renderTrustBlock(task, sugg, status, outUnit) {
     suggestedStr = '<span style="color:#94a3b8;font-style:italic;">Suggestion unavailable</span>';
   }
 
+  // ── STOCK VERIFIED FLAG — computed locally (mirrors renderSuggBlock logic) ──
+  // _stockVerifiedOk was defined in renderSuggBlock but referenced here without
+  // being passed or redefined — that caused the ReferenceError (boh-v669 P0 fix).
+  // All required inputs are available in this function's scope:
+  //   task.id         → _recentCounts key
+  //   task/sugg       → live stock and gross demand
+  //   status          → isOperational derivation
+  const _svCntLocal = (window._recentCounts || {})[tid];
+  const _svCntLocalValid = _svCntLocal && (!_svCntLocal.expires_at || new Date(_svCntLocal.expires_at) > new Date());
+  const _svLiveLocal = liveStock; // already computed above from task.current_stock
+  const _svGrossLocal = sugg && sugg.forecast != null
+    ? parseFloat(sugg.forecast)
+    : (sugg && sugg.net_requirement != null ? parseFloat(sugg.net_requirement) : null);
+  const _svNetLocal = (_svLiveLocal !== null && _svGrossLocal !== null)
+    ? Math.max(0, _svGrossLocal - _svLiveLocal)
+    : null;
+  // isOperational: thaw tasks and blocked Porterhouse have a separate flow
+  const _isOperationalLocal = !!(
+    status === 'no_demand_path' || status === 'out_of_scope' ||
+    (task && task.name && /thaw/i.test(task.name))
+  );
+  const _stockVerifiedOk = !!(
+    _svCntLocalValid &&
+    _svNetLocal !== null &&
+    _svNetLocal <= 0 &&
+    !_isOperationalLocal
+  );
+
   // Context sentence — suppressed or updated when stock is verified
   let contextStr = '';
   if (_stockVerifiedOk) {
