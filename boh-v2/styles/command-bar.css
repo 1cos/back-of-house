@@ -1,44 +1,39 @@
 /* BOH OS v2 — Command Bar
-   UI-06.3: Zero-vibration capture-once keyboard dock.
+   UI-06.4: CSS-first. Zero JS keyboard positioning.
    ------------------------------------------------------------------
 
+   POSITIONING MODEL:
+   position: fixed; bottom: 0; left: 0; right: 0.
+
+   That is the complete keyboard model. iOS Safari raises position:fixed
+   elements when the software keyboard opens — in both browser and PWA
+   standalone mode — as long as JS is not simultaneously writing
+   inline bottom/top styles that fight it.
+
+   All previous attempts (UI-06.1 through UI-06.3) were actively
+   preventing the browser's correct native behavior. Removed.
+
+   SCROLL CONTAINER:
+   .app-shell__main gets a static bottom padding = Command Bar resting
+   height (≈ 60px) + safe-area inset. No JS writes to paddingBottom.
+
    NATIVE iOS ACCESSORY TOOLBAR:
-   The prev/next/Done bar that appears above the iOS keyboard is native
-   UI. It occupies ≈44px of the space between our Command Bar and the
-   keyboard face. We cannot remove it for a <textarea>. It IS included
-   in the space that vv.height surrenders when the keyboard opens —
-   i.e., dockHeight = window.innerHeight - vv.height covers both the
-   keyboard and the accessory bar. The dock fills this entire area with
-   the same background, hiding any page content behind it.
+   The prev/next/Done bar above the keyboard is native iOS UI. It sits
+   between our bar and the keyboard face. We cannot remove it for a
+   <textarea> and it is not the gap bug — the gap bug was our own JS
+   computing wrong coordinates.
 
-   WHAT IS THE VISIBLE SPACE BETWEEN BAR AND KEYBOARD:
-   - The native iOS input accessory toolbar (prev/next/Done).
-   - Our .command-bar-dock sits behind it with a matching background.
-   - From the user's perspective it looks like a solid extension of the
-     Command Bar. The accessory toolbar floats on top as native chrome.
-
-   POSITIONING MODEL (UI-06.3):
-   - Keyboard closed: bar is position:fixed; bottom:0 (CSS).
-   - Keyboard open:
-     bar.style.bottom = dockHeight (constant integer, set once)
-     dock: fixed, top=(layoutH - dockHeight), bottom=0 (constant)
-     scrollTarget.paddingBottom set once; never updated during scroll.
-   - Re-position ONLY if vv.height changes > 20px (keyboard type switch).
-   - All other vv 'resize' events are ignored (address bar micro-changes).
-
-   RESULT: zero writes to bar position during Prep scroll.
+   NO DOCK ELEMENT. No blank filler. No keyboard-height math.
    ------------------------------------------------------------------ */
 
 /* ── Bar container ───────────────────────────────────────────────────
-   Keyboard closed: CSS bottom:0.
-   Keyboard open:   JS sets bottom:<dockHeight>px (constant).
-   No top positioning — eliminates vv.offsetTop dependency.           */
+   Fixed at viewport bottom. iOS raises this above the keyboard.     */
 .command-bar {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  z-index: 51;
+  z-index: 50;
 
   display: flex;
   align-items: flex-end;
@@ -55,23 +50,13 @@
   width: 100%;
 }
 
-/* ── Dock scrim ──────────────────────────────────────────────────────
-   Sits between the bar and the screen bottom.
-   Covers native accessory toolbar area + any sub-pixel gap.
-   Position and height are set once by JS when keyboard opens.
-   z-index 50 — below bar (51), above workspace.                     */
-.command-bar-dock {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 50;
-  background: var(--surface);
-  /* top is set inline by JS */
+/* Optional visual state: focused textarea gives bar a mild highlight */
+.command-bar--focused {
+  box-shadow: 0 -2px 20px rgba(37, 99, 235, 0.12);
 }
 
 /* ── Icon buttons ────────────────────────────────────────────────────
-   44×44 px minimum touch target.                                     */
+   44×44 px minimum touch target (Apple HIG).                        */
 .command-bar__btn {
   flex-shrink: 0;
   width: 44px;
@@ -98,7 +83,7 @@
 .command-bar__btn--mic    { font-size: 19px; }
 
 /* ── Textarea ────────────────────────────────────────────────────────
-   1–3 line grow. 16px prevents iOS auto-zoom.                        */
+   1–3 line grow. 16px prevents iOS auto-zoom on focus.              */
 .command-bar__input {
   flex: 1;
   min-width: 0;
@@ -130,13 +115,15 @@
 }
 
 /* ── Scroll container clearance ──────────────────────────────────────
-   Static baseline when keyboard is closed.
-   Overridden by JS inline paddingBottom when keyboard is open.       */
+   Static. Bar resting height ≈ 60px plus safe-area.
+   Not changed by JS. Keyboard clearance is handled by the browser's
+   native position:fixed elevation behavior.                          */
 .app-shell__main {
   padding-bottom: calc(72px + max(var(--sp-4), env(safe-area-inset-bottom, 0px)));
 }
 
-/* ── Sheet backdrop ──────────────────────────────────────────────────  */
+/* ── Sheet backdrop ──────────────────────────────────────────────────
+   z-index 200 — above bar (50).                                      */
 .cb-sheet-backdrop {
   position: fixed;
   inset: 0;
@@ -182,8 +169,8 @@
   width: 100%; min-height: 52px; padding: var(--sp-3) var(--sp-4);
   box-sizing: border-box; margin-top: var(--sp-2); background: var(--bg-base);
   border: none; border-top: 1px solid var(--border); cursor: pointer;
-  -webkit-tap-highlight-color: transparent; font-family: var(--font-sans);
-  font-size: 17px; font-weight: 600; color: var(--accent);
+  -webkit-tap-highlight-color: transparent;
+  font-family: var(--font-sans); font-size: 17px; font-weight: 600; color: var(--accent);
 }
 .cb-action-sheet__cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
