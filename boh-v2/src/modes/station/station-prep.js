@@ -441,8 +441,13 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
   btn.textContent = translate('station_prep.complete');
   if (!canComplete) btn.disabled = true;
 
-  let formContainer = null;
-  let submitting = false;
+  let formContainer    = null;
+  let submitting       = false;
+  // OEE C-B: caller-owned operation context for idempotent retry.
+  // Created/replaced in onConfirm; cleared on success, definitive failure or cancel.
+  // Retained on uncertain transport failure so a retry reuses the same UUID.
+  // quantity+unit are stored to detect intentional changes between submissions.
+  let pendingCompleteOp = null;  // { id, occurredAt, quantity, unit } | null
 
   function clearFeedback() {
     if (!formContainer) return;
@@ -483,6 +488,7 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
     }
     formContainer = null;
     submitting = false;
+    pendingCompleteOp = null;  // form closed — discard pending context
     btn.hidden = false;
   }
 
@@ -514,35 +520,56 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
       onConfirm: ({ quantity, unit }) => {
         if (submitting) return;
         submitting = true;
+
+        // ── Operation context ────────────────────────────────────────────
+        // A: No context → create fresh UUID + timestamp.
+        // B: Context exists and qty+unit unchanged → reuse (response-loss retry).
+        // C: Context exists but qty or unit changed → new intentional operation.
+        const trimmedUnit = unit.trim();
+        if (pendingCompleteOp === null) {
+          pendingCompleteOp = {
+            id:         generateStartOperationUUID(),
+            occurredAt: new Date().toISOString(),
+            quantity,
+            unit:       trimmedUnit,
+          };
+        } else if (
+          pendingCompleteOp.quantity !== quantity ||
+          pendingCompleteOp.unit !== trimmedUnit
+        ) {
+          pendingCompleteOp = {
+            id:         generateStartOperationUUID(),
+            occurredAt: new Date().toISOString(),
+            quantity,
+            unit:       trimmedUnit,
+          };
+        }
+
         clearFeedback();
         setFormDisabled(true);
         showSubmitting();
 
         completeTask({
-          prepTask: {
-            id:           task.id,
-            name:         task.name,
-            station:      task.station,
-            currentStock: task.currentStock,
-            inProgressAt: task.inProgressAt,
-          },
+          prepTask:          { id: task.id, inProgressAt: task.inProgressAt },
           quantity,
           unit,
-          completedBy: userName,
+          completedBy:       userName,
+          clientOperationId: pendingCompleteOp.id,
+          occurredAt:        pendingCompleteOp.occurredAt,
         }).then((result) => {
           if (!section.isConnected) return;
           if (result.ok) {
+            pendingCompleteOp = null;
             onCompleteSuccess({ ok: true, log: result.log, task: result.task });
-          } else if (result.log !== null) {
-            submitting = false;
-            setFormDisabled(false);
-            clearFeedback();
-            onCompleteSuccess({ ok: false, log: result.log, task: null });
-            showError('station_prep.complete_partial_error');
           } else {
             submitting = false;
             setFormDisabled(false);
             clearFeedback();
+            if (result.retriable === true) {
+              // Retain pendingCompleteOp — same UUID on next tap.
+            } else {
+              pendingCompleteOp = null;
+            }
             showError('station_prep.complete_error');
           }
         }).catch(() => {
@@ -550,6 +577,7 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
           submitting = false;
           setFormDisabled(false);
           clearFeedback();
+          // Transport uncertain — retain pendingCompleteOp.
           showError('station_prep.complete_error');
         });
       },
@@ -796,8 +824,11 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
   finishedBtn.textContent = translate('station_prep.wip_resolution_finished');
   if (!canFinish) finishedBtn.disabled = true;
 
-  let finishedFormContainer = null;
-  let finishedSubmitting = false;
+  let finishedFormContainer  = null;
+  let finishedSubmitting     = false;
+  // OEE C-B: separate caller-owned context for WIP Finished — never shared with
+  // the normal Complete button's pendingCompleteOp.
+  let pendingFinishedOp      = null;  // { id, occurredAt, quantity, unit } | null
 
   function clearFinishedFeedback() {
     if (!finishedFormContainer) return;
@@ -838,6 +869,7 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
     }
     finishedFormContainer = null;
     finishedSubmitting = false;
+    pendingFinishedOp = null;  // form closed — discard pending context
     finishedBtn.hidden = false;
     // Restore the normal Complete button if it exists.
     if (completeFormRef.btn) completeFormRef.btn.hidden = false;
@@ -878,35 +910,53 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
       onConfirm: function ({ quantity, unit }) {
         if (finishedSubmitting) return;
         finishedSubmitting = true;
+
+        // ── Operation context (same rules as buildCompleteButton) ────────
+        const trimmedUnit = unit.trim();
+        if (pendingFinishedOp === null) {
+          pendingFinishedOp = {
+            id:         generateStartOperationUUID(),
+            occurredAt: new Date().toISOString(),
+            quantity,
+            unit:       trimmedUnit,
+          };
+        } else if (
+          pendingFinishedOp.quantity !== quantity ||
+          pendingFinishedOp.unit !== trimmedUnit
+        ) {
+          pendingFinishedOp = {
+            id:         generateStartOperationUUID(),
+            occurredAt: new Date().toISOString(),
+            quantity,
+            unit:       trimmedUnit,
+          };
+        }
+
         clearFinishedFeedback();
         setFinishedFormDisabled(true);
         showFinishedSubmitting();
 
         completeTask({
-          prepTask: {
-            id:           task.id,
-            name:         task.name,
-            station:      task.station,
-            currentStock: task.currentStock,
-            inProgressAt: task.inProgressAt,
-          },
+          prepTask:          { id: task.id, inProgressAt: task.inProgressAt },
           quantity,
           unit,
-          completedBy: userName,
+          completedBy:       userName,
+          clientOperationId: pendingFinishedOp.id,
+          occurredAt:        pendingFinishedOp.occurredAt,
         }).then(function (result) {
           if (!section.isConnected) return;
           if (result.ok) {
+            pendingFinishedOp = null;
             onCompleteSuccess({ ok: true, log: result.log, task: result.task });
-          } else if (result.log !== null) {
-            finishedSubmitting = false;
-            setFinishedFormDisabled(false);
-            clearFinishedFeedback();
-            onCompleteSuccess({ ok: false, log: result.log, task: null });
-            showFinishedError('station_prep.complete_partial_error');
           } else {
             finishedSubmitting = false;
             setFinishedFormDisabled(false);
             clearFinishedFeedback();
+            if (result.retriable === true) {
+              // Retain pendingFinishedOp — same UUID on next tap.
+            } else {
+              pendingFinishedOp = null;
+            }
             showFinishedError('station_prep.complete_error');
           }
         }).catch(function () {
@@ -914,6 +964,7 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
           finishedSubmitting = false;
           setFinishedFormDisabled(false);
           clearFinishedFeedback();
+          // Transport uncertain — retain pendingFinishedOp.
           showFinishedError('station_prep.complete_error');
         });
       },
