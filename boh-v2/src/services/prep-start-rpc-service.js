@@ -1,61 +1,42 @@
-// BOH OS v2 — Start Prep RPC service (OEE Session B)
-// Task OEE-B: routes PREP_STARTED through rpc_oee_record_prep_start.
+// BOH OS v2 — Start Prep RPC service (OEE Session B / B.1)
+// Task OEE-B:   routes PREP_STARTED through rpc_oee_record_prep_start.
+// Task OEE-B.1: client_operation_id and occurred_at are supplied by the caller,
+//               not generated inside this service.
 //
-// Replaces the direct Supabase table write in prep-start-service.js with an
-// atomic RPC call that also records the event in operational_events.
+// Contract:
+//   Input:  { prepTaskId, startedBy, clientOperationId, occurredAt }
+//           startedBy       — accepted for compatibility; not forwarded (server-resolved)
+//           clientOperationId — UUID v4 string; caller owns its lifecycle
+//           occurredAt      — ISO timestamp; caller captures it once per operation
+//   Output: { ok: true,  task: { id, inProgress, inProgressAt, inProgressBy }, retriable: false }
+//         | { ok: false, reason: 'INVALID_INPUT'|'TASK_NOT_FOUND'|'CONNECTION_ERROR',
+//             task: null, retriable: boolean }
 //
-// Contract preserved (identical to prep-start-service.js):
-//   Input:  { prepTaskId: number, startedBy: string }  (startedBy ignored — server-resolved)
-//   Output: { ok: true,  task: { id, inProgress, inProgressAt, inProgressBy } }
-//         | { ok: false, reason: 'INVALID_INPUT'|'TASK_NOT_FOUND'|'CONNECTION_ERROR', task: null }
+// retriable: true  — caller MUST retain clientOperationId/occurredAt for the next attempt.
+// retriable: false — caller may discard the operation context.
 //
-// Actor identity is resolved server-side from the brigade session token.
-// The startedBy parameter is accepted for interface compatibility but is not
-// forwarded to the RPC — the server reads the actor from the validated session.
-//
-// No UI. No DOM. No window writes. No storage writes.
+// No UI. No DOM. No window writes. No storage writes. No UUID generation.
 
-import { supabase }      from '../core/supabase-client.js';
+import { supabase }       from '../core/supabase-client.js';
 import { getStoredToken } from './auth-service.js';
 
-// ── UUID helper ───────────────────────────────────────────────────────────────
-// Returns a cryptographically random UUID v4.
-// Uses crypto.randomUUID() when available (Chrome 92+, Safari 15.4+, Firefox 95+).
-// Falls back to crypto.getRandomValues() for older environments.
-// Never uses Math.random() — not suitable as an idempotency key.
-
-function generateUUID() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  // Fallback using crypto.getRandomValues() — RFC 4122 v4 format.
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  // Set version (4) and variant bits.
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20, 32),
-  ].join('-');
-}
-
-// ── Input validation (mirrors prep-start-service.js) ─────────────────────────
+// ── Input validation ───────────────────────────────────────────────────────────
 
 function isValidTaskId(v) {
   return typeof v === 'number' && isFinite(v) && v > 0;
 }
 
-// ── Normalise RPC result → service result shape ───────────────────────────────
+function isValidOperationId(v) {
+  return typeof v === 'string' && v.length > 0;
+}
+
+// ── Result normalisation ───────────────────────────────────────────────────────
 
 function normalizeSuccess(rpcData) {
   const t = rpcData.task;
   return {
-    ok: true,
+    ok:        true,
+    retriable: false,
     task: {
       id:           t.id,
       inProgress:   t.in_progress,
@@ -70,52 +51,59 @@ function normalizeSuccess(rpcData) {
 /**
  * Marks one active prep task as in progress via rpc_oee_record_prep_start.
  *
- * Records one PREP_STARTED root event and five lifecycle transitions in
- * operational_events / operational_event_transitions.
+ * The caller (station-prep.js buildStartButton) owns the operation context:
+ *   clientOperationId — generated once when the user initiates Start
+ *   occurredAt        — ISO timestamp captured at that same moment
  *
- * The startedBy parameter is accepted for interface compatibility with the
- * existing startTask injection contract in station-prep.js, but is not
- * forwarded — actor identity is resolved server-side from the brigade session.
+ * These values must be reused for retries of the same unresolved operation.
+ * This service never generates them.
  *
- * @param {{ prepTaskId: unknown, startedBy: unknown }} options
+ * The result includes `retriable` to guide the caller's context management:
+ *   retriable: true  → retain clientOperationId/occurredAt for next attempt
+ *   retriable: false → discard; the operation either succeeded or cannot succeed
+ *
+ * @param {{
+ *   prepTaskId:        unknown,
+ *   startedBy:         unknown,   (accepted for compatibility; not forwarded)
+ *   clientOperationId: string,
+ *   occurredAt:        string
+ * }} options
  * @returns {Promise<
- *   { ok: true,  task: { id: number, inProgress: boolean, inProgressAt: string, inProgressBy: string } } |
- *   { ok: false, reason: 'INVALID_INPUT' | 'TASK_NOT_FOUND' | 'CONNECTION_ERROR', task: null }
+ *   { ok: true,  task: object, retriable: false } |
+ *   { ok: false, reason: 'INVALID_INPUT'|'TASK_NOT_FOUND'|'CONNECTION_ERROR',
+ *     task: null, retriable: boolean }
  * >}
  */
-export async function startPrepTaskRpc({ prepTaskId, startedBy: _startedBy } = {}) {
+export async function startPrepTaskRpc({
+  prepTaskId,
+  startedBy:        _startedBy,  // accepted; not forwarded — actor is server-resolved
+  clientOperationId,
+  occurredAt,
+} = {}) {
+
   // ── Input validation ──
   if (!isValidTaskId(prepTaskId)) {
-    return { ok: false, reason: 'INVALID_INPUT', task: null };
+    return { ok: false, reason: 'INVALID_INPUT', task: null, retriable: false };
+  }
+  if (!isValidOperationId(clientOperationId)) {
+    return { ok: false, reason: 'INVALID_INPUT', task: null, retriable: false };
   }
 
   // ── Session token ──
-  // Retrieved from sessionStorage via the proven auth-service path.
-  // If the token is absent, the session has expired — map to CONNECTION_ERROR
-  // so the existing error path in station-prep.js handles it without change.
   const token = getStoredToken();
   if (!token) {
-    return { ok: false, reason: 'CONNECTION_ERROR', task: null };
+    // Missing token means the session has definitely ended.
+    // A retry with the same UUID cannot succeed until the user re-authenticates,
+    // so this is treated as a definitive failure for context-clearing purposes.
+    // The caller maps CONNECTION_ERROR to the existing start_error message.
+    return { ok: false, reason: 'CONNECTION_ERROR', task: null, retriable: false };
   }
 
-  // ── Generate one immutable operation key for this Start action ──
-  // Generated once here — this is the point of intentional user submission.
-  // A retry of the same RPC call MUST reuse this key. Because this function
-  // is called once per button tap (station-prep.js guards against re-entry
-  // with its `submitting` flag), each button tap produces exactly one UUID
-  // and at most one network call per UUID.
-  const clientOperationId = generateUUID();
-  const occurredAt = new Date().toISOString();
-
   // ── Producer ID (install_id) ──
-  // auth-service.js already reads/writes brigade_install_id in localStorage.
-  // We read it directly here without adding new storage infrastructure.
-  // If unavailable (private browsing), pass null — the RPC accepts null.
   let producerId = null;
   try {
     producerId = localStorage.getItem('brigade_install_id') ?? null;
   } catch {
-    // localStorage unavailable — private browsing or sandboxed context.
     producerId = null;
   }
 
@@ -125,30 +113,48 @@ export async function startPrepTaskRpc({ prepTaskId, startedBy: _startedBy } = {
       p_token:               token,
       p_task_id:             prepTaskId,
       p_client_operation_id: clientOperationId,
-      p_occurred_at:         occurredAt,
+      p_occurred_at:         occurredAt ?? new Date().toISOString(),
       p_producer_id:         producerId,
     });
 
     if (error) {
-      return { ok: false, reason: 'CONNECTION_ERROR', task: null };
+      // Supabase transport or PostgREST error — the server may or may not have
+      // committed the operation. The caller must retain the operation context
+      // so a retry can use the same UUID and get an idempotent result.
+      return { ok: false, reason: 'CONNECTION_ERROR', task: null, retriable: true };
     }
 
     if (!data || data.ok === false) {
-      // Map RPC failure reasons to the existing service result contract.
       const reason = data?.reason ?? 'CONNECTION_ERROR';
+
       if (reason === 'TASK_NOT_FOUND') {
-        return { ok: false, reason: 'TASK_NOT_FOUND', task: null };
+        // Definitive: the task does not exist or is archived.
+        // Retrying with the same UUID will produce the same outcome.
+        return { ok: false, reason: 'TASK_NOT_FOUND', task: null, retriable: false };
       }
+
       if (reason === 'INVALID_INPUT') {
-        return { ok: false, reason: 'INVALID_INPUT', task: null };
+        // Definitive: the request is structurally invalid.
+        return { ok: false, reason: 'INVALID_INPUT', task: null, retriable: false };
       }
-      // AUTH_ERROR and all other failures → CONNECTION_ERROR
-      // (existing error handler shows the same start_error message for all non-OK results)
-      return { ok: false, reason: 'CONNECTION_ERROR', task: null };
+
+      if (reason === 'AUTH_ERROR') {
+        // Definitive: the session token has expired or been invalidated.
+        // Retrying before re-authentication cannot succeed.
+        // Map to CONNECTION_ERROR so the existing error message is shown.
+        return { ok: false, reason: 'CONNECTION_ERROR', task: null, retriable: false };
+      }
+
+      // Any other definitive RPC failure.
+      return { ok: false, reason: 'CONNECTION_ERROR', task: null, retriable: false };
     }
 
+    // Success — includes idempotent:true replay case.
     return normalizeSuccess(data);
+
   } catch {
-    return { ok: false, reason: 'CONNECTION_ERROR', task: null };
+    // Unhandled exception (e.g., network unreachable, JSON parse failure).
+    // Treat as retriable — the server state is unknown.
+    return { ok: false, reason: 'CONNECTION_ERROR', task: null, retriable: true };
   }
 }
