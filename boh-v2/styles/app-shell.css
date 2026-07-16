@@ -1,12 +1,13 @@
 /* BOH OS v2 — App Shell
    Task 003A: authenticated shell layout.
+   WS-01: panel strip mount point structural rule added.
    Primary target: iPhone portrait.
    All values use tokens from tokens.css.
    No navigation styles. No card styles. No login styles.
    ------------------------------------------------------------------ */
 
 /* ── Shell root ──────────────────────────────────────────────────────
-   Fills the full viewport. Stacks header + main vertically.
+   Fills the full viewport. Stacks header + strip + main vertically.
    Accounts for iOS safe areas at top and bottom.                     */
 .app-shell {
   display: flex;
@@ -79,8 +80,18 @@
   /* Readable by assistive technology via textContent. */
 }
 
+/* ── Panel Strip mount point (WS-01) ─────────────────────────────────
+   Container for the workspace tab strip.
+   Sits between the header and the main content area.
+   When empty (before WorkspaceManager mounts the strip), it occupies
+   zero height and has no visual presence.
+   The strip's own styles live in panel-strip.css.                    */
+.app-shell__panel-strip {
+  flex-shrink: 0;
+}
+
 /* ── Main content area ───────────────────────────────────────────────
-   Grows to fill all available space below the header.
+   Grows to fill all available space below the strip.
    Handles its own vertical scrolling.                                */
 .app-shell__main {
   flex: 1;

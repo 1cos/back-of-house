@@ -1,15 +1,17 @@
 // BOH OS v2 — App Shell component
 // Task 003A: authenticated shell structure.
 // Task 003B: adds bottom navigation mount target.
+// WS-01: adds panel strip mount point between header and main.
 // Returns a single DOM element. Does not mount itself.
 // Does not read app state. Does not query Supabase. No window writes.
 // Does not import or create the bottom navigation — only provides the mount point.
+// Does not import or create the WorkspaceManager — only provides the panelStripMount.
 
 /**
  * Creates the authenticated App Shell DOM element.
  *
  * @param {{ appName: string, modeLabel: string, userName: string }} options
- * @returns {HTMLElement}
+ * @returns {{ shell: HTMLElement, panelStripMount: HTMLElement }}
  */
 export function createAppShell({ appName, modeLabel, userName }) {
   // ── Root ────────────────────────────────────────────────────────────
@@ -42,6 +44,13 @@ export function createAppShell({ appName, modeLabel, userName }) {
   header.appendChild(identity);
   header.appendChild(userEl);
 
+  // ── Panel Strip mount point (WS-01) ──────────────────────────────────
+  // Positioned after the header, before the main content area.
+  // The WorkspaceManager mounts the rendered strip here.
+  // Initially empty — zero height until the first strip is rendered.
+  const panelStripMount = document.createElement('div');
+  panelStripMount.className = 'app-shell__panel-strip';
+
   // ── Main ────────────────────────────────────────────────────────────
   const main = document.createElement('main');
   main.className = 'app-shell__main';
@@ -59,8 +68,11 @@ export function createAppShell({ appName, modeLabel, userName }) {
 
   // ── Assemble ────────────────────────────────────────────────────────
   shell.appendChild(header);
+  shell.appendChild(panelStripMount);   // WS-01: strip lives here
   shell.appendChild(main);
   shell.appendChild(navMount);
 
-  return shell;
+  // Return both the shell element and the strip mount point so
+  // app.js can pass panelStripMount to createWorkspaceManager.
+  return { shell, panelStripMount };
 }

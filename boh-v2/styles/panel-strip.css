@@ -1,0 +1,176 @@
+/* BOH OS v2 — Panel Strip
+   WS-02: workspace tab strip.
+   Spec: BOH_OS_V2_WORKSPACE_ENGINE.md v1.1 §12.1
+   Primary target: iPhone portrait.
+   All values use tokens from tokens.css.
+   ------------------------------------------------------------------ */
+
+/* ── Strip container ─────────────────────────────────────────────────
+   Single horizontal row. Scrolls when chips overflow.
+   Never wraps to a second row.                                        */
+.ws-strip {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Smooth momentum scrolling on iOS. */
+  -webkit-overflow-scrolling: touch;
+  /* Snap per chip-group for precise swipe positioning. */
+  scroll-snap-type: x mandatory;
+  /* Hide scrollbar on WebKit — strip is a UI element, not a scroll document. */
+  scrollbar-width: none;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  /* Prevent strip from shrinking; height is determined by chip content. */
+  flex-shrink: 0;
+  /* Ensure the strip stays above outlet content. */
+  position: relative;
+  z-index: 9;
+}
+
+.ws-strip::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Chip group ───────────────────────────────────────────────────────
+   Wraps the activation button and (optional) close button.
+   scroll-snap-align ensures the group snaps on scroll.               */
+.ws-chip-group {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  scroll-snap-align: start;
+  flex-shrink: 0;
+}
+
+/* ── Activation chip (tab button) ─────────────────────────────────────
+   The tap target that activates a panel.
+   Mobile: min 80px, max 140px. Desktop: min 100px, max 200px.        */
+.ws-chip {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  min-width: 80px;
+  max-width: 140px;
+  min-height: 44px;  /* WCAG minimum touch target height */
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  outline-offset: -2px;
+  /* Smooth transition for active indicator. */
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.ws-chip:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+/* ── Active chip ──────────────────────────────────────────────────────
+   Filled background and primary text color.                           */
+.ws-chip--active {
+  background: var(--accent);
+  color: #ffffff;
+  border-right-color: var(--accent);
+}
+
+.ws-chip--active:focus-visible {
+  outline: 2px solid var(--text-primary);
+}
+
+/* ── Chip icon ────────────────────────────────────────────────────────
+   Emoji/glyph at 15px. Prevents shrink so label truncation is clean. */
+.ws-chip__icon {
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+/* ── Chip label ───────────────────────────────────────────────────────
+   Truncated by JS to 12 chars; the element itself clips any overflow. */
+.ws-chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Close button ─────────────────────────────────────────────────────
+   Sibling to the activation chip, NOT nested inside it.
+   44×44px touch target via padding expansion.                         */
+.ws-chip__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Visual footprint: 20×20 px symbol… */
+  width: 20px;
+  /* … but padded to a 44×44 tap target. */
+  padding: 0 12px;
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--text-secondary);
+  line-height: 1;
+  flex-shrink: 0;
+  outline-offset: -2px;
+}
+
+.ws-chip__close:hover {
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.ws-chip__close:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+/* ── Add button ───────────────────────────────────────────────────────
+   Same shape as a chip; always at the trailing end of the strip.
+   Hidden (aria-hidden + hidden attr) when at limit.                   */
+.ws-chip--add {
+  color: var(--accent);
+  min-width: 44px;
+  max-width: 44px;
+  font-size: 20px;
+  justify-content: center;
+  border-right: none;
+}
+
+.ws-chip--add:hover:not([hidden]) {
+  background: rgba(37, 99, 235, 0.06);
+}
+
+/* ── Limit notification ──────────────────────────────────────────────
+   Inline, inside the strip. Rendered when atLimit=true by panel-strip.js.
+   Disappears automatically on next strip re-render with atLimit=false. */
+.ws-strip__limit-notice {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-3);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Desktop / wider screens ─────────────────────────────────────────
+   Chips wider; no horizontal scroll (labels truncate instead).        */
+@media (min-width: 641px) {
+  .ws-chip {
+    min-width: 100px;
+    max-width: 200px;
+  }
+}

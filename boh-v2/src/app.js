@@ -2,6 +2,8 @@
 // Task 003A: authenticated App Shell replaces login screen on success.
 // Task 003B: bottom navigation mount target provided by App Shell.
 // Task 003C: station navigation delegated to setupStationNavigation().
+// WS-01: App Shell now returns { shell, panelStripMount }.
+// WS-03: WorkspaceManager created and Home panel opened after authentication.
 // Session restore: on page load, restoreSession() checks for an existing
 // brigade_token so returning users skip the PIN screen.
 // No global state. No window writes.
@@ -9,10 +11,11 @@
 import { t } from './core/i18n.js';
 import { checkSupabaseConnection } from './core/supabase-client.js';
 import { authenticateWithPin, restoreSession } from './services/auth-service.js';
-import { setCurrentUser, getCurrentUser } from './core/app-state.js';
+import { setCurrentUser, getCurrentUser, clearCurrentUser } from './core/app-state.js';
 import { router } from './core/router.js';
 import { createAppShell } from './components/app-shell/app-shell.js';
 import { setupStationNavigation } from './modes/station/station-navigation.js';
+import { createWorkspaceManager } from './core/workspace-manager.js';
 
 const root = document.getElementById('app');
 
@@ -21,6 +24,11 @@ if (!root) {
     'BOH OS v2: mount element #app not found. Check index.html.'
   );
 }
+
+// ── Active WorkspaceManager reference ─────────────────────────────────
+// Held here so destroy() can be called on logout/re-login.
+// null when no shell is mounted (login screen showing).
+let _workspaceManager = null;
 
 // ── Login screen ──────────────────────────────────────────────────────
 
@@ -85,10 +93,39 @@ function runConnectionDiagnostic() {
   });
 }
 
+// ── Home placeholder renderer (WS-03) ─────────────────────────────────
+// Synchronous, returns HTMLElement immediately.
+// Clearly temporary. Will be replaced by the real Home Composition Engine.
+
+function createHomePlaceholder() {
+  const section = document.createElement('section');
+  section.className = 'home-placeholder';
+
+  const heading = document.createElement('h2');
+  heading.className = 'home-placeholder__title';
+  heading.textContent = 'Home';
+
+  const body = document.createElement('p');
+  body.className = 'home-placeholder__body';
+  body.textContent = 'Workspace foundation active. Home panel coming soon.';
+
+  section.appendChild(heading);
+  section.appendChild(body);
+  return section;
+}
+
 // ── Shell transition ──────────────────────────────────────────────────
 
 function mountShell(user) {
-  const shell = createAppShell({
+  // Destroy any previous WorkspaceManager from a prior login cycle
+  // (handles logout → re-login in the same tab).
+  if (_workspaceManager) {
+    _workspaceManager.destroy();
+    _workspaceManager = null;
+  }
+
+  // WS-01: createAppShell now returns { shell, panelStripMount }.
+  const { shell, panelStripMount } = createAppShell({
     appName:   t('app.name'),
     modeLabel: t('mode.station'),
     userName:  user.name,
@@ -102,6 +139,13 @@ function mountShell(user) {
 
   const navMount = root.querySelector('.app-shell__nav-mount');
 
+  // ── WS-03: Bootstrap WorkspaceManager ───────────────────────────────
+  _workspaceManager = createWorkspaceManager({ outlet, panelStripMount });
+  _workspaceManager.registerRenderer('home', createHomePlaceholder);
+  _workspaceManager.openPanel('home', {});
+
+  // Station navigation remains fully operational (WS-04 not yet implemented).
+  // It continues to use the router directly.
   setupStationNavigation({
     router,
     mountElement: navMount,
@@ -110,6 +154,18 @@ function mountShell(user) {
   });
 
   router.navigate('station-home');
+}
+
+// ── Logout / cleanup ──────────────────────────────────────────────────
+// Called when re-rendering the login screen after logout.
+// Ensures WorkspaceManager state is fully reset before the login UI appears.
+
+function teardownShell() {
+  if (_workspaceManager) {
+    _workspaceManager.destroy();
+    _workspaceManager = null;
+  }
+  clearCurrentUser();
 }
 
 // ── PIN submission logic ───────────────────────────────────────────────
