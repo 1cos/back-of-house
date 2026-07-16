@@ -59,8 +59,9 @@ function renderLogin() {
         class="pin-input"
         type="password"
         inputmode="numeric"
+        pattern="[0-9]*"
         maxlength="4"
-        autocomplete="off"
+        autocomplete="one-time-code"
         autofocus
         aria-label="${t('auth.pin_label')}"
       >
