@@ -227,10 +227,21 @@ export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivat
      * @param {string} panelId
      */
     activatePanel(panelId) {
-      if (_activeId === panelId) return;
-
       const panel = _findById(panelId);
       if (!panel) return;
+
+      if (_activeId === panelId) {
+        // Panel is already logically active. The strip's visual active state
+        // may have been cleared externally (e.g. _syncStripForLegacySurface
+        // in app.js dims chips when legacy surface takes over). Re-render the
+        // strip and fire the activation hook so the surface bridge can reveal
+        // the workspace outlet. Do NOT re-mount the panel content — it is
+        // already in the outlet and re-calling the renderer is wasteful and
+        // potentially disruptive. This is an idempotent "reveal" operation.
+        _renderStrip();
+        _notifyActivated(panelId);
+        return;
+      }
 
       _activeId = panelId;
       _mountPanel(panel);
