@@ -240,7 +240,7 @@ function mountShell(user) {
   _workspaceManager = createWorkspaceManager({
     outlet:           workspaceOutlet,
     panelStripMount,
-    showAdd:          true,   // WS-04: + visible for exec/admin users
+    showAdd:          false,  // WS-04.1: hidden until Station Selector modal is wired
     onPanelActivated: (_panelId) => {
       showWorkspaceSurface();
     },

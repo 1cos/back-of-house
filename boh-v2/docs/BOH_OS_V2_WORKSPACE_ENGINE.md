@@ -114,7 +114,7 @@ Home only: Home has no CLOSED state. It transitions between ACTIVE and DORMANT o
 | ACTIVE → DORMANT | Another panel activated | Hide DOM node (v1: remove from outlet; future: detach to cache), update Panel Strip |
 | DORMANT → ACTIVE | `workspaceManager.activatePanel(id)` | Call renderer again (v1), mount DOM, update Panel Strip, set activeId |
 | ACTIVE → CLOSED | `workspaceManager.closePanel(id)` | Remove from registry, unmount DOM, activate left-neighbor fallback, update Panel Strip |
-| DORMANT → CLOSED | `workspaceManager.closePanel(id)` | Remove from registry (DOM already unmounted), activate left-neighbor fallback, update Panel Strip |
+| DORMANT → CLOSED | `workspaceManager.closePanel(id)` | Remove from registry (DOM already unmounted), **active panel unchanged**, Panel Strip re-rendered only (see §7 Case B) |
 
 ### 3.3 Renderer call contract
 
@@ -209,26 +209,45 @@ Canonical context key per type:
 
 ## 7. Close Behavior and Fallback
 
-When a panel is closed:
-1. It is removed from the registry.
+> **Amendment WS-04.1 (2026-07-16):** Dormant-close behavior added. The original rule applied the left-neighbor fallback unconditionally. The corrected rule keeps the current active panel when the closed panel is not active.
+
+When a panel is closed, two cases apply:
+
+**Case A — Closing the ACTIVE panel:**
+1. The panel is removed from the registry.
 2. Its DOM node is removed from the outlet.
-3. The WorkspaceManager selects the fallback panel and activates it.
-
-**Fallback selection rule:**
-
-Activate the panel immediately to the left of the closed panel in the registry array. If the closed panel was at index 0 (which cannot happen — Home is always at index 0 and cannot be closed), or if no left neighbor exists, activate Home.
-
-Home is always the final fallback. The fallback rule never leaves the workspace with no active panel.
+3. The left-neighbor is activated (falling back to Home).
 
 ```
-closed panel at registry index N
-  → activate panel at index N-1
+closed panel at registry index N  (was active)
+  → activate panels[N-1]
   → if N-1 does not exist → activate Home
 ```
 
-There is no history tracking. The WorkspaceManager does not record which panel was previously active. Fallback is determined entirely by the current registry order at the moment of close. This is spatially predictable: the panel visually to the left of the closed chip becomes the active panel. It cannot reference a deleted panel ID.
+**Case B — Closing a DORMANT panel:**
+1. The panel is removed from the registry.
+2. The currently active panel and visible surface are unchanged.
+3. The active panel's DOM is NOT remounted.
+4. `onPanelActivated` is NOT fired.
+5. Only the Panel Strip is re-rendered (one fewer chip).
 
-**Example:** Home → Saucier → Pastry → Journal (indices 0, 1, 2, 3). Closing Journal (index 3) activates Pastry (index 2). Closing Pastry activates Saucier. Closing Saucier activates Home.
+```
+closed panel at registry index N  (was dormant)
+  → remove from registry
+  → active panel unchanged
+  → strip re-rendered
+```
+
+**Examples:**
+
+```
+Home active:   [Home] Saucier  Pastry  → close Pastry  → Home active  (Case B)
+Saucier active: Home [Saucier] Pastry  → close Pastry  → Saucier active (Case B)
+Pastry active:  Home  Saucier [Pastry] → close Pastry  → Saucier active (Case A)
+Saucier active: Home [Saucier] Pastry  → close Saucier → Home active   (Case A)
+```
+
+Home is always the final fallback for Case A. Home cannot be closed. The fallback rule never leaves the workspace with no active panel.
 
 ---
 

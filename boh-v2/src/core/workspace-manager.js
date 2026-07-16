@@ -60,7 +60,7 @@ function dedupeKey(type, context) {
  *   outlet:              HTMLElement,   // workspace panel content target (exclusive)
  *   panelStripMount:     HTMLElement,   // strip container
  *   onPanelActivated?:   (panelId: string) => void,  // optional hook, called after every activation
- *   showAdd?:            boolean,       // show the + control in the strip (default false until WS-04)
+ *   showAdd?:            boolean,       // render the + control in the strip (default false = absent)
  * }} options
  * @returns {WorkspaceManager}
  */
@@ -110,9 +110,9 @@ export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivat
       activeId:   _activeId,
       onActivate: (id) => workspaceManager.activatePanel(id),
       onClose:    (id) => workspaceManager.closePanel(id),
-      onAdd:      () => { /* wired in WS-04 */ },
+      onAdd:      () => { /* no-op until Station Selector modal is wired */ },
       atLimit,
-      showAdd,   // false in WS-03; hides the + control entirely
+      showAdd,   // controlled by caller; false = + absent from DOM
     });
 
     panelStripMount.innerHTML = '';
@@ -261,10 +261,20 @@ export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivat
       const idx = _panels.findIndex(p => p.id === panelId);
       if (idx === -1) return;
 
-      const fallback = _panels[idx - 1] ?? _panels[0];
+      const closingActive = (panelId === _activeId);
 
       _panels.splice(idx, 1);
 
+      if (!closingActive) {
+        // Dormant close: the user closed a background panel.
+        // The active panel and visible surface are unchanged.
+        // Only the strip needs re-rendering (one fewer chip).
+        _renderStrip();
+        return;
+      }
+
+      // Active close: activate the left neighbor, falling back to Home.
+      const fallback = _panels[idx - 1] ?? _panels[0];
       _activeId = fallback.id;
       _mountPanel(fallback);
       _renderStrip();
