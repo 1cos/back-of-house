@@ -35,7 +35,7 @@ import { startPrepTaskRpc } from './services/prep-start-rpc-service.js';
 import { completePrepTaskRpc } from './services/prep-complete-rpc-service.js';
 import { passPrepToShift } from './services/prep-pass-service.js';
 import { fetchAvailableStations } from './services/station-list-service.js';
-
+import { createCommandBar } from './components/command-bar/command-bar.js';
 const root = document.getElementById('app');
 
 if (!root) {
@@ -44,6 +44,7 @@ if (!root) {
 
 // ── Active WorkspaceManager reference ─────────────────────────────────
 let _workspaceManager = null;
+let _commandBar = null;
 
 // ── Login screen ──────────────────────────────────────────────────────
 
@@ -190,7 +191,11 @@ function openStationSelectorModal(workspaceManager, shellEl) {
 // ── Shell mount ───────────────────────────────────────────────────────
 
 function mountShell(user) {
-  // Destroy previous WorkspaceManager on logout → re-login.
+  // Destroy previous WorkspaceManager and Command Bar on logout → re-login.
+  if (_commandBar) {
+    _commandBar.destroy();
+    _commandBar = null;
+  }
   if (_workspaceManager) {
     _workspaceManager.destroy();
     _workspaceManager = null;
@@ -265,6 +270,12 @@ function mountShell(user) {
     // openPanel activates the new panel — user sees prep, not Home.
     _workspaceManager.openPanel('station-prep', { stationName: defaultStation });
   }
+
+  // ── UI-06: Command Bar ────────────────────────────────────────────
+  // Mounted once per authenticated session, directly on the shell root.
+  // Fixed position — lives above all workspace content.
+  _commandBar = createCommandBar({ translate: t });
+  shell.appendChild(_commandBar.el);
 }
 
 

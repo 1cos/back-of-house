@@ -1,0 +1,342 @@
+/* BOH OS v2 — Command Bar
+   UI-06: Persistent bottom command input.
+   Fixed at the bottom of the viewport — stays above the iOS keyboard
+   because iOS raises position:fixed elements with the keyboard.
+   Primary target: iPhone portrait.
+   All values use tokens from tokens.css.
+   ------------------------------------------------------------------ */
+
+/* ── Bar container ───────────────────────────────────────────────────
+   Fixed to viewport bottom. Floats above content.
+   Stays above the keyboard on iOS.                                   */
+.command-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;                        /* above workspace, below modals (z:100) */
+
+  display: flex;
+  align-items: flex-end;              /* align to bottom so tall textarea grows up */
+  gap: var(--sp-2);
+
+  /* Floating card appearance */
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -2px 16px rgba(30, 58, 95, 0.10);
+
+  /* Horizontal padding + safe-area */
+  padding: var(--sp-2) var(--sp-3);
+  padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom, 0px));
+
+  /* Prevent the bar itself from shrinking its children */
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* ── Left (+) and right (mic) icon buttons ───────────────────────────
+   44×44 px minimum touch target (Apple HIG).                        */
+.command-bar__btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* Reset button */
+  background: none;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-secondary);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.command-bar__btn:active {
+  background: var(--bg-base);
+  color: var(--accent);
+}
+
+.command-bar__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Attach button: slightly heavier weight for the + glyph */
+.command-bar__btn--attach {
+  font-size: 24px;
+  font-weight: 300;
+  color: var(--accent);
+}
+
+/* Mic button */
+.command-bar__btn--mic {
+  font-size: 19px;
+}
+
+/* ── Textarea ────────────────────────────────────────────────────────
+   Grows from 1 to max 3 lines. Minimum height = 1 line.
+   Scrolls past 3 lines without resizing the bar further.            */
+.command-bar__input {
+  flex: 1;
+  min-width: 0;
+
+  /* Typography */
+  font-family: var(--font-sans);
+  font-size: 16px;           /* 16px prevents iOS auto-zoom on focus */
+  line-height: 1.4;
+  color: var(--text-primary);
+
+  /* Reset */
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-2) var(--sp-3);
+  box-sizing: border-box;
+  width: 100%;
+
+  resize: none;
+  overflow-y: hidden;        /* hidden until 3 lines, then auto via JS */
+
+  /* Single line initial height */
+  height: auto;
+  min-height: 40px;
+  max-height: 80px;          /* ≈3 lines × 1.4 lh × 16px + padding */
+
+  /* Remove default outline; we provide our own */
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.command-bar__input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.75;
+}
+
+.command-bar__input:focus {
+  border-color: var(--accent);
+  background: var(--surface);
+  overflow-y: auto;          /* allow scroll when at max height */
+}
+
+/* ── Bottom-padding shim for workspace content ───────────────────────
+   Applied to .app-shell__main so the last Prep card scrolls clear
+   of the fixed Command Bar.
+   Height = bar height (≈ 60 px) + extra breathing room.            */
+.app-shell__main {
+  padding-bottom: calc(72px + max(var(--sp-4), env(safe-area-inset-bottom, 0px)));
+}
+
+/* ── Shared sheet backdrop ───────────────────────────────────────────
+   Full-screen dimmed overlay; sheets slide up from the bottom.
+   Appended to document.body.                                         */
+.cb-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;              /* above Command Bar (50) and modals (100) */
+  background: rgba(0, 0, 0, 0.42);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: var(--sp-4);
+  padding-bottom: max(var(--sp-4), env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+}
+
+/* ── '+' action sheet ────────────────────────────────────────────────
+   Bottom sheet with disabled future actions.                        */
+.cb-action-sheet {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  width: 100%;
+  max-width: 480px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.20);
+}
+
+.cb-action-sheet__title {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: var(--sp-4) var(--sp-4) var(--sp-2);
+  margin: 0;
+}
+
+.cb-action-sheet__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 52px;
+  padding: var(--sp-3) var(--sp-4);
+  box-sizing: border-box;
+
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  text-align: left;
+  cursor: default;
+
+  font-family: var(--font-sans);
+  font-size: 17px;
+  color: var(--text-primary);
+}
+
+.cb-action-sheet__item--disabled {
+  opacity: 0.5;
+}
+
+.cb-action-sheet__badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  margin-left: var(--sp-3);
+}
+
+.cb-action-sheet__cancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  padding: var(--sp-3) var(--sp-4);
+  box-sizing: border-box;
+  margin-top: var(--sp-2);
+
+  background: var(--bg-base);
+  border: none;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+
+  font-family: var(--font-sans);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.cb-action-sheet__cancel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ── Command preview sheet ───────────────────────────────────────────
+   Confirms the command was received (no-op in phase 1).             */
+.cb-preview-sheet {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  width: 100%;
+  max-width: 480px;
+  padding: var(--sp-6) var(--sp-4) var(--sp-4);
+  box-sizing: border-box;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.20);
+}
+
+.cb-preview-sheet__heading {
+  font-family: var(--font-sans);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 var(--sp-3) 0;
+}
+
+.cb-preview-sheet__quote {
+  font-family: var(--font-sans);
+  font-size: 17px;
+  color: var(--text-primary);
+  border-left: 3px solid var(--accent);
+  margin: 0 0 var(--sp-4) 0;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-base);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  word-break: break-word;
+}
+
+.cb-preview-sheet__notice {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 var(--sp-5) 0;
+  line-height: 1.5;
+}
+
+.cb-preview-sheet__actions {
+  display: flex;
+  gap: var(--sp-3);
+}
+
+.cb-preview-sheet__btn {
+  flex: 1;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-4);
+  box-sizing: border-box;
+
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: var(--r-md);
+  border: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.cb-preview-sheet__btn--primary {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.cb-preview-sheet__btn--secondary {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.cb-preview-sheet__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Mic "coming soon" toast ─────────────────────────────────────────
+   Non-blocking — slides in above the Command Bar and auto-dismisses. */
+.cb-mic-toast {
+  position: fixed;
+  bottom: calc(72px + max(var(--sp-2), env(safe-area-inset-bottom, 0px)));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 150;
+
+  background: rgba(30, 58, 95, 0.90);
+  color: #ffffff;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: 20px;
+  white-space: nowrap;
+  pointer-events: none;
+
+  animation: cb-toast-in 0.2s ease;
+}
+
+@keyframes cb-toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

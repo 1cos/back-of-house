@@ -162,6 +162,23 @@ export const en = {
   // ── Station Selector — async states (Task 004AI) ──────────────────────
   'station_selector.loading': 'Loading stations…',
   'station_selector.error':   'Unable to load stations. Try again later.',
+
+  // ── Command Bar (UI-06) ──────────────────────────────────────────────
+  'command_bar.bar_label':      'Command input',
+  'command_bar.placeholder':    'How can I help?',
+  'command_bar.input_label':    'Type a command or question',
+  'command_bar.attach_label':   'Attach',
+  'command_bar.attach_photo':   'Take photo',
+  'command_bar.attach_image':   'Upload image',
+  'command_bar.attach_note':    'Add note',
+  'command_bar.coming_soon':    'Coming soon',
+  'command_bar.cancel':         'Cancel',
+  'command_bar.mic_label':      'Voice input',
+  'command_bar.mic_coming_soon':'Voice input coming soon.',
+  'command_bar.preview_title':  'Command received',
+  'command_bar.preview_notice': 'Command processing will be connected in a future phase.',
+  'command_bar.preview_close':  'Close',
+  'command_bar.preview_clear':  'Clear input',
 };
 
 
