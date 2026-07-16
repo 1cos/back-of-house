@@ -951,11 +951,17 @@ function renderSuggBlock(sugg, i) {
   </div>`;
 
   // ── USE STOCK — TEMPORARY ALLOWLIST (prep_task_id 327 = Berry Coulis only) ──
-  const useStockBtnHtml = (iid2 === 327) ? `<div style="margin-top:6px;">
+  // Inline expandable — no modal/sheet. _ussLastUsageLine reads from cache loaded at init.
+  const _ussLastLine2 = (iid2 === 327 && window._ussLastUsage && window._ussLastUsage[iid2])
+    ? window._ussLastUsage[iid2] : '';
+  const useStockBtnHtml = (iid2 === 327) ? `<div style="margin-top:6px;" id="uss-wrap-${iid2}">
+    ${_ussLastLine2}
     <button
-      onclick="event.stopPropagation();openUseStockSheet(${JSON.stringify(iid2)})"
+      id="uss-toggle-btn-${iid2}"
+      onclick="event.stopPropagation();_ussToggleInline(${iid2})"
       style="width:100%;height:42px;border-radius:12px;font-size:13px;font-weight:700;background:transparent;color:#dc2626;border:1.5px solid #fecaca;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;"
     >📉 Use Stock</button>
+    <div id="uss-form-${iid2}" style="display:none;"></div>
   </div>` : '';
 
   return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${descHtml}${rcHtml}${stockHtml}${avgHtml}${confHtml}${trustHtml}${alignStockBtnHtml}${useStockBtnHtml}</div>`;
@@ -1779,11 +1785,16 @@ function alignStockBtn(i) {
   if (!i.recipe_id && !i.ingredient_id) return '';
   const iid = i.id;
   // ── USE STOCK — TEMPORARY ALLOWLIST (prep_task_id 327 = Berry Coulis only) ──
-  const useStockHtml = (iid === 327) ? `<div style="margin-top:6px;">
+  const _ussLastLine = (iid === 327 && window._ussLastUsage && window._ussLastUsage[iid])
+    ? window._ussLastUsage[iid] : '';
+  const useStockHtml = (iid === 327) ? `<div style="margin-top:6px;" id="uss-wrap-${iid}">
+    ${_ussLastLine}
     <button
-      onclick="event.stopPropagation();openUseStockSheet(${JSON.stringify(iid)})"
+      id="uss-toggle-btn-${iid}"
+      onclick="event.stopPropagation();_ussToggleInline(${iid})"
       style="width:100%;height:38px;border-radius:10px;font-size:12px;font-weight:700;background:transparent;color:#dc2626;border:1px solid #fecaca;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;"
     >📉 Use Stock</button>
+    <div id="uss-form-${iid}" style="display:none;"></div>
   </div>` : '';
   return `<div style="margin-top:6px;">
     <button
@@ -2106,7 +2117,12 @@ function humanQty(qty, unit) {
   if (!qty || qty <= 0) return null;
   const u = (unit || '').toLowerCase().trim();
   if (u === 'g') {
-    if (qty >= 1000) return (qty / 1000).toFixed(1).replace(/\.0$/, '') + ' kg';
+    if (qty >= 1000) {
+      // Up to 2 decimal places, strip trailing zeros: 1050→"1.05 kg", 1500→"1.5 kg", 1000→"1 kg"
+      const kg = qty / 1000;
+      const s = kg.toFixed(2).replace(/\.?0+$/, '');
+      return s + ' kg';
+    }
     return Math.round(qty) + ' g';
   }
   if (['pezzi','pz'].includes(u)) return Math.ceil(qty) + ' ' + (qty === 1 ? 'piece' : 'pieces');
@@ -3589,7 +3605,7 @@ async function suggestedSave(id, modal){
     _showRecalcFailedCard(id, qty, unit, _cardSuggDate2);
   }
   renderS(); renderHomeStations();
-  loadItemAlerts(); loadStepsMap(); loadTodayLogs(); loadRecentCounts();
+  loadItemAlerts(); loadStepsMap(); loadTodayLogs(); loadRecentCounts(); window._ussLoadLastUsage(327);
 }
 
 async function detailSave(id, btn, isSuggested){
@@ -3697,7 +3713,7 @@ async function detailSave(id, btn, isSuggested){
 
   await loadItemAlerts();
   await loadStepsMap();
-  loadRecentCounts();
+  loadRecentCounts(); window._ussLoadLastUsage(327);
   setTimeout(()=>{renderS();renderHomeStations();if(!document.getElementById('vr').classList.contains('hidden'))loadReport('today');},300);
 }
 
@@ -3775,7 +3791,7 @@ async function quickSave(id){
     return;
   }
   _finishTask(id, addQty);
-  loadItemAlerts();loadStepsMap();loadTodayLogs();loadRecentCounts();
+  loadItemAlerts();loadStepsMap();loadTodayLogs();loadRecentCounts();window._ussLoadLastUsage(327);
 }
 
 async function saveWip(id, note){
@@ -4517,10 +4533,14 @@ window._scRetry = async function(id, countId) {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// USE STOCK — Manual Usage Sheet
-// record-stock-usage Edge Function → record_stock_usage RPC
-// entry_mode always forward_deduction (deficit_explanation not exposed to kitchen)
-// ALLOWLIST: prep_task_id 327 (Berry Coulis) only during runtime testing
+// ─────────────────────────────────────────────────────────────────────────────
+// USE STOCK — Inline Expandable Form (boh-v671)
+// Replaces the bottom sheet. The USE STOCK button expands a form inline inside
+// the card. On success: form collapses, card re-renders with precise stock,
+// permanent "Last usage" line loaded from stock_usage_log (not browser memory).
+//
+// ALLOWLIST: prep_task_id 327 (Berry Coulis) only.
+// entry_mode always forward_deduction.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const _USS_REASON_CODES = [
@@ -4536,125 +4556,119 @@ const _USS_REASON_CODES = [
   { code: 'other',              label: 'Other' },
 ];
 
-window.openUseStockSheet = function(id) {
+// Cache: window._ussLastUsage[taskId] = HTML string for the "Last usage" line.
+// Populated at init and after each successful save.
+window._ussLastUsage = window._ussLastUsage || {};
+
+// Load last usage from stock_usage_log for a task and cache the HTML line.
+// Call at page init and after each successful save.
+window._ussLoadLastUsage = async function(taskId) {
+  try {
+    const { data, error } = await supa
+      .from('stock_usage_log')
+      .select('qty_native, unit, reason_code, recorded_by, recorded_at')
+      .eq('prep_task_id', taskId)
+      .order('recorded_at', { ascending: false })
+      .limit(1);
+    if (error || !data || !data.length) {
+      window._ussLastUsage[taskId] = '';
+      return;
+    }
+    const row = data[0];
+    const qtyNative = parseFloat(row.qty_native);
+    const qtyHuman  = (typeof humanQty === 'function')
+      ? (humanQty(qtyNative, row.unit) || qtyNative + ' ' + row.unit)
+      : qtyNative + ' ' + row.unit;
+    const reasonLabel = (_USS_REASON_CODES.find(r => r.code === row.reason_code) || {}).label || row.reason_code;
+    const timeCDT = new Date(row.recorded_at).toLocaleTimeString('en-US', {
+      hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Chicago'
+    });
+    window._ussLastUsage[taskId] =
+      `<div style="font-size:11px;color:#94a3b8;margin-bottom:4px;padding:4px 6px;background:#fef2f2;border-radius:6px;">` +
+      `📉 Last: ${qtyHuman} · ${reasonLabel} · ${row.recorded_by} · ${timeCDT}</div>`;
+  } catch (_) {
+    window._ussLastUsage[taskId] = '';
+  }
+};
+
+// Toggle inline form open/closed on the card.
+// Uses data-audit-id card wrapper already in the DOM — does NOT re-render the whole list.
+window._ussToggleInline = function(id) {
+  const formDiv = document.getElementById('uss-form-' + id);
+  const toggleBtn = document.getElementById('uss-toggle-btn-' + id);
+  if (!formDiv) return;
+
+  const isOpen = formDiv.style.display !== 'none';
+  if (isOpen) {
+    formDiv.style.display = 'none';
+    formDiv.innerHTML = '';
+    if (toggleBtn) toggleBtn.textContent = '📉 Use Stock';
+    return;
+  }
+
+  // Build form HTML
   const it = tasks[id];
-  if (!it) return;
-
-  // Remove any existing sheet
-  const existing = document.getElementById('useStockSheet');
-  if (existing) existing.remove();
-
-  const displayUnit = it.unit || 'units';
-  const curStock = it.current_stock;
-  const curStockStr = (curStock === null || curStock === undefined)
-    ? 'Unknown'
-    : (typeof humanQty === 'function'
-        ? (humanQty(parseFloat(curStock), it.unit) || curStock + ' ' + displayUnit)
-        : curStock + ' ' + displayUnit);
-
+  const displayUnit = it ? (it.unit || 'g') : 'g';
   const reasonOptions = _USS_REASON_CODES.map(r =>
     `<option value="${r.code}">${r.label}</option>`
   ).join('');
 
-  const sheet = document.createElement('div');
-  sheet.id = 'useStockSheet';
-  sheet.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(15,23,42,0.55);display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;';
-
-  sheet.innerHTML = `
-    <div id="useStockSheetInner" style="width:100%;max-width:448px;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 32px rgba(30,58,95,0.18);padding:20px 16px 40px;">
-      <!-- Header -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-        <div>
-          <div style="font-size:11px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:0.5px;">USE STOCK</div>
-          <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-top:2px;">${it.name || 'Prep'}</div>
-        </div>
-        <button onclick="document.getElementById('useStockSheet').remove()" style="width:32px;height:32px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
-      </div>
-
-      <!-- Current available stock -->
-      <div style="background:#fef2f2;border-radius:12px;padding:12px 14px;margin-bottom:16px;">
-        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">Available stock</div>
-        <div style="font-size:15px;font-weight:700;color:#1e3a5f;" id="ussCurrentStock-${id}">${curStockStr}</div>
-      </div>
-
-      <!-- Quantity -->
-      <div style="margin-bottom:14px;">
-        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;">Quantity used</div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <input
-            id="ussQtyInput-${id}"
-            type="number"
-            min="0.1"
-            step="0.1"
-            placeholder="0"
-            style="width:100px;height:52px;border:2px solid #cbd5e1;border-radius:12px;font-size:22px;font-weight:700;text-align:center;color:#1e3a5f;background:#fff;outline:none;"
-            onclick="event.stopPropagation();"
-            onfocus="this.style.borderColor='#dc2626';"
-            onblur="this.style.borderColor='#cbd5e1';"
-            oninput="window._ussValidate(${JSON.stringify(id)})"
-          >
-          <span style="font-size:15px;color:#64748b;font-weight:600;">${displayUnit}</span>
-        </div>
-      </div>
-
-      <!-- Reason -->
-      <div style="margin-bottom:14px;">
-        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;">Reason</div>
-        <select
-          id="ussReasonSelect-${id}"
-          onchange="window._ussValidate(${JSON.stringify(id)})"
-          onclick="event.stopPropagation();"
-          style="width:100%;height:46px;border:2px solid #cbd5e1;border-radius:12px;font-size:14px;font-weight:600;color:#1e3a5f;background:#fff;padding:0 12px;outline:none;-webkit-appearance:auto;"
-        >
-          <option value="">Select reason…</option>
-          ${reasonOptions}
-        </select>
-      </div>
-
-      <!-- Note (optional) -->
-      <div style="margin-bottom:20px;">
-        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;">Note <span style="font-weight:400;color:#94a3b8;">(optional)</span></div>
+  formDiv.innerHTML = `
+    <div style="margin-top:8px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;padding:12px 12px 14px;">
+      <div style="font-size:11px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">Record usage</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
         <input
-          id="ussNoteInput-${id}"
-          type="text"
-          placeholder="e.g. tasted for specials menu"
-          maxlength="200"
-          onclick="event.stopPropagation();"
-          style="width:100%;height:44px;border:2px solid #cbd5e1;border-radius:12px;font-size:14px;color:#1e3a5f;background:#fff;padding:0 12px;outline:none;box-sizing:border-box;"
-          onfocus="this.style.borderColor='#94a3b8';"
-          onblur="this.style.borderColor='#cbd5e1';"
+          id="uss-qty-${id}"
+          type="number"
+          inputmode="decimal"
+          enterkeyhint="done"
+          min="0.1"
+          step="any"
+          placeholder="0"
+          autocomplete="off"
+          style="width:90px;height:48px;border:2px solid #fca5a5;border-radius:10px;font-size:20px;font-weight:700;text-align:center;color:#1e3a5f;background:#fff;outline:none;-webkit-appearance:none;appearance:none;"
+          oninput="window._ussValidateInline(${id})"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('uss-save-${id}')&&document.getElementById('uss-save-${id}').click();}"
         >
+        <span style="font-size:14px;color:#64748b;font-weight:600;">${displayUnit}</span>
       </div>
-
-      <!-- Save button -->
+      <select
+        id="uss-reason-${id}"
+        onchange="window._ussValidateInline(${id})"
+        style="width:100%;height:42px;border:2px solid #fca5a5;border-radius:10px;font-size:13px;font-weight:600;color:#1e3a5f;background:#fff;padding:0 10px;outline:none;-webkit-appearance:auto;margin-bottom:10px;"
+      >
+        <option value="">Select reason…</option>
+        ${reasonOptions}
+      </select>
       <button
-        id="ussSubmitBtn-${id}"
+        id="uss-save-${id}"
         disabled
-        onclick="event.stopPropagation();window._ussSave(${JSON.stringify(id)})"
-        style="width:100%;height:50px;border-radius:14px;font-size:15px;font-weight:700;background:#94a3b8;color:white;border:none;cursor:not-allowed;letter-spacing:0.03em;transition:background 0.15s;-webkit-tap-highlight-color:transparent;"
+        onclick="event.stopPropagation();window._ussSaveInline(${id})"
+        style="width:100%;height:42px;border-radius:10px;font-size:13px;font-weight:700;background:#94a3b8;color:#fff;border:none;cursor:not-allowed;letter-spacing:0.03em;-webkit-tap-highlight-color:transparent;transition:background 0.15s;"
       >SAVE USAGE</button>
-
-      <!-- Result area -->
-      <div id="ussResult-${id}" style="margin-top:12px;"></div>
+      <div id="uss-err-${id}" style="font-size:12px;color:#dc2626;margin-top:6px;display:none;"></div>
     </div>`;
 
-  document.body.appendChild(sheet);
+  formDiv.style.display = 'block';
+  if (toggleBtn) toggleBtn.textContent = '✕ Cancel';
 
-  // Close on backdrop tap
-  sheet.addEventListener('click', (e) => {
-    if (e.target === sheet) sheet.remove();
+  // Focus the qty input. Use requestAnimationFrame to ensure the element is
+  // painted before focus — critical for iPhone Safari numeric keyboard.
+  requestAnimationFrame(() => {
+    const inp = document.getElementById('uss-qty-' + id);
+    if (inp) {
+      inp.focus();
+      // Trigger a synthetic click as additional hint for iOS keyboard
+      inp.click();
+    }
   });
-
-  // Focus qty input
-  const inp = document.getElementById('ussQtyInput-' + id);
-  if (inp) setTimeout(() => inp.focus(), 300);
 };
 
-// Validate qty + reason → enable/disable Save
-window._ussValidate = function(id) {
-  const qtyInp = document.getElementById('ussQtyInput-' + id);
-  const sel    = document.getElementById('ussReasonSelect-' + id);
-  const btn    = document.getElementById('ussSubmitBtn-' + id);
+// Enable/disable save button
+window._ussValidateInline = function(id) {
+  const qtyInp = document.getElementById('uss-qty-' + id);
+  const sel    = document.getElementById('uss-reason-' + id);
+  const btn    = document.getElementById('uss-save-' + id);
   if (!qtyInp || !sel || !btn) return;
   const qty   = parseFloat(qtyInp.value);
   const valid = !isNaN(qty) && qty > 0 && sel.value !== '';
@@ -4663,36 +4677,30 @@ window._ussValidate = function(id) {
   btn.style.cursor     = valid ? 'pointer'  : 'not-allowed';
 };
 
-// Main save — calls record-stock-usage EF
-window._ussSave = async function(id) {
-  const it  = tasks[id];
+// Save inline — calls record-stock-usage EF
+window._ussSaveInline = async function(id) {
+  const it = tasks[id];
   if (!it) return;
 
-  const qtyInp  = document.getElementById('ussQtyInput-' + id);
-  const sel     = document.getElementById('ussReasonSelect-' + id);
-  const noteInp = document.getElementById('ussNoteInput-' + id);
-  const btn     = document.getElementById('ussSubmitBtn-' + id);
-  const res     = document.getElementById('ussResult-' + id);
+  const qtyInp = document.getElementById('uss-qty-' + id);
+  const sel    = document.getElementById('uss-reason-' + id);
+  const btn    = document.getElementById('uss-save-' + id);
+  const errDiv = document.getElementById('uss-err-' + id);
   if (!qtyInp || !sel || !btn) return;
 
   const qty        = parseFloat(qtyInp.value);
   const reasonCode = sel.value;
-  const noteVal    = (noteInp && noteInp.value.trim()) ? noteInp.value.trim() : null;
-
   if (isNaN(qty) || qty <= 0 || !reasonCode) return;
 
-  // Generate client_key once per submission — stored on button for idempotency
-  if (!btn.dataset.clientKey) {
-    btn.dataset.clientKey = crypto.randomUUID();
-  }
-  const clientKey = btn.dataset.clientKey;
+  // client_key stored on button — survives accidental double-tap
+  if (!btn.dataset.ck) btn.dataset.ck = crypto.randomUUID();
+  const clientKey = btn.dataset.ck;
 
-  // Disable immediately — prevent double-tap
   btn.disabled = true;
   btn.style.background = '#94a3b8';
   btn.style.cursor = 'not-allowed';
   btn.textContent = 'Saving…';
-  if (res) res.innerHTML = '';
+  if (errDiv) { errDiv.style.display = 'none'; errDiv.textContent = ''; }
 
   const brigadeToken = sessionStorage.getItem('brigade_token') || '';
   const efBase = (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : window.SUPABASE_URL);
@@ -4712,87 +4720,51 @@ window._ussSave = async function(id) {
         entry_mode:   'forward_deduction',
         reason_code:  reasonCode,
         client_key:   clientKey,
-        notes:        noteVal,
+        notes:        null,
       }),
     });
     result = await resp.json();
   } catch (e) {
-    // Network error — restore button
-    if (btn) {
-      btn.disabled = false;
-      btn.style.background = '#dc2626';
-      btn.style.cursor = 'pointer';
-      btn.textContent = 'SAVE USAGE';
-    }
-    if (res) res.innerHTML = '<div style="font-size:13px;color:#dc2626;margin-top:4px;">Network error. Please try again.</div>';
+    btn.disabled = false;
+    btn.style.background = '#dc2626';
+    btn.style.cursor = 'pointer';
+    btn.textContent = 'SAVE USAGE';
+    if (errDiv) { errDiv.textContent = 'Network error. Try again.'; errDiv.style.display = 'block'; }
     return;
   }
 
   if (!result || !result.ok) {
-    // Hard failure — restore button, show real error
-    if (btn) {
-      btn.disabled = false;
-      btn.style.background = '#dc2626';
-      btn.style.cursor = 'pointer';
-      btn.textContent = 'SAVE USAGE';
-    }
-    const errMsg = result?.error || 'Unknown error';
-    if (res) res.innerHTML = `<div style="font-size:13px;color:#dc2626;margin-top:4px;">Could not save: ${errMsg}</div>`;
+    btn.disabled = false;
+    btn.style.background = '#dc2626';
+    btn.style.cursor = 'pointer';
+    btn.textContent = 'SAVE USAGE';
+    if (errDiv) { errDiv.textContent = result?.error || 'Unknown error'; errDiv.style.display = 'block'; }
     return;
   }
 
-  // ── SUCCESS ───────────────────────────────────────────────────────────────
-  const stockAfter   = result.stock_after;
-  const stockBefore  = result.stock_before;
-  const qtyNative    = result.qty_native;
-  const taskUnit     = result.unit || it.unit || '';
-  const recordedBy   = result.recorded_by || (window.user?.name || '');
-  const isDuplicate  = result.duplicate_skipped === true;
-  const logId        = result.log_id;
+  // ── SUCCESS ──────────────────────────────────────────────────────────────
+  const stockAfter  = result.stock_after;
+  const qtyNative   = result.qty_native;
+  const taskUnit    = result.unit || it.unit || '';
+  const recordedBy  = result.recorded_by || (window.user?.name || '');
+  const isDuplicate = result.duplicate_skipped === true;
 
-  // Format human-readable quantities
   const qtyHuman   = (typeof humanQty === 'function')
     ? (humanQty(parseFloat(qtyNative), taskUnit) || qtyNative + ' ' + taskUnit)
     : qtyNative + ' ' + taskUnit;
-  const afterHuman = (typeof humanQty === 'function')
-    ? (humanQty(parseFloat(stockAfter), taskUnit) || stockAfter + ' ' + taskUnit)
-    : stockAfter + ' ' + taskUnit;
-
-  // CDT time
+  const reasonLabel = (_USS_REASON_CODES.find(r => r.code === reasonCode) || {}).label || reasonCode;
   const nowCDT = new Date().toLocaleTimeString('en-US', {
     hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Chicago'
   });
 
-  // Reason label
-  const reasonLabel = (_USS_REASON_CODES.find(r => r.code === reasonCode) || {}).label || reasonCode;
-
-  // Update local state immediately from server-confirmed stock_after
-  if (!isDuplicate) {
-    tasks[id].current_stock = stockAfter;
-    if (items) {
-      const idx = items.findIndex(x => x.id === id);
-      if (idx >= 0) items[idx].current_stock = stockAfter;
-    }
+  // Update local task state immediately with server-confirmed stock_after
+  tasks[id].current_stock = stockAfter;
+  if (typeof items !== 'undefined' && items) {
+    const idx = items.findIndex(x => x.id === id);
+    if (idx >= 0) items[idx].current_stock = stockAfter;
   }
 
-  // Result UI
-  if (res) {
-    res.innerHTML = `
-      <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:10px 12px;margin-top:4px;">
-        <div style="font-size:12px;font-weight:700;color:#dc2626;">📉 ${isDuplicate ? 'Already recorded.' : 'Usage recorded.'}</div>
-        <div style="font-size:14px;font-weight:700;color:#1e3a5f;margin-top:4px;">${qtyHuman} — ${reasonLabel}</div>
-        <div style="font-size:11px;color:#64748b;margin-top:2px;">By ${recordedBy} · ${nowCDT} CDT · log #${logId}</div>
-        <div style="font-size:11px;color:#64748b;margin-top:2px;">Stock now: ${afterHuman}</div>
-      </div>`;
-  }
-
-  if (btn) {
-    btn.textContent = isDuplicate ? 'Already saved ✓' : 'Saved ✓';
-    btn.style.background = '#059669';
-    btn.disabled = true;
-  }
-
-  // Reload live prep_tasks.current_stock from DB, then re-render card
+  // Reload live prep_tasks row from DB for accuracy
   try {
     const { data: freshRows } = await supa
       .from('prep_tasks')
@@ -4802,15 +4774,38 @@ window._ussSave = async function(id) {
     if (freshRows && freshRows.length) {
       const fresh = freshRows[0];
       tasks[id] = { ...tasks[id], ...fresh };
-      if (items) {
+      if (typeof items !== 'undefined' && items) {
         const idx2 = items.findIndex(x => x.id === id);
         if (idx2 >= 0) items[idx2] = { ...items[idx2], ...fresh };
       }
     }
-  } catch (_) {
-    // Live reload failed — local state already updated above
+  } catch (_) {}
+
+  // Refresh "Last usage" line from DB (cross-device: any device will see this after reload)
+  await window._ussLoadLastUsage(id);
+
+  // Show inline confirmation in the form div for 4 seconds, then collapse and re-render card
+  const formDiv = document.getElementById('uss-form-' + id);
+  if (formDiv) {
+    formDiv.innerHTML = `
+      <div style="margin-top:8px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;padding:10px 12px;">
+        <div style="font-size:12px;font-weight:700;color:#dc2626;">📉 ${isDuplicate ? 'Already recorded.' : 'Saved.'}</div>
+        <div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-top:3px;">${qtyHuman} · ${reasonLabel}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px;">${recordedBy} · ${nowCDT} CDT</div>
+      </div>`;
   }
 
-  if (typeof renderM === 'function') renderM();
+  // Collapse form and re-render card after brief confirmation display
+  setTimeout(() => {
+    const fd = document.getElementById('uss-form-' + id);
+    if (fd) { fd.style.display = 'none'; fd.innerHTML = ''; }
+    const tb = document.getElementById('uss-toggle-btn-' + id);
+    if (tb) tb.textContent = '📉 Use Stock';
+    if (typeof renderM === 'function') renderM();
+  }, 2500);
 };
+
+// Backwards-compat stub so any stale onclick="openUseStockSheet(x)" calls
+// (e.g. cached SW version) silently route to inline form
+window.openUseStockSheet = function(id) { window._ussToggleInline(id); };
 
