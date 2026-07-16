@@ -1,45 +1,73 @@
 /* BOH OS v2 — App Shell
-   WS-05: Bottom bar retired. Dual-outlet layout removed.
-          Single workspaceOutlet only.
-          Station Selector modal styles added.
-   Primary target: iPhone portrait.
-   All values use tokens from tokens.css.
-   No navigation styles. No card styles. No login styles.
+   UI-06.5: Contained viewport model.
+   ------------------------------------------------------------------
+   KEY CHANGE: App Shell is now a contained application viewport.
+   It occupies exactly visualViewport.height (set as --app-visible-height
+   by app-shell.js). The document/body cannot scroll.
+
+   Layout stack (flex column):
+     [header]          flex-shrink: 0
+     [panel strip]     flex-shrink: 0
+     [main]            flex: 1 1 auto; min-height: 0; overflow-y: auto
+     [command bar]     flex-shrink: 0  (appended by app.js)
+
+   When keyboard opens:
+     visualViewport.height shrinks → --app-visible-height shrinks
+     → App Shell shrinks → main shrinks → command bar stays visible
+     as the natural bottom row of the flex column.
+
+   No position:fixed on Command Bar.
+   No keyboard geometry.
+   No dock/scrim.
+   No scrollIntoView.
    ------------------------------------------------------------------ */
 
+/* ── Outer containment — prevent document scroll ─────────────────────
+   html/body/#app must not scroll. All scrolling happens inside main. */
+/* Note: body/html rules are in base.css and layout.css respectively.
+   The rule below reinforces #app containment for the authenticated shell.
+   Login screen works fine since it uses min-height on #app from layout.css
+   but does not mount the app-shell element. */
+
 /* ── Shell root ──────────────────────────────────────────────────────
-   Fills the full viewport. Stacks header + strip + main vertically.
-   Accounts for iOS safe areas at top and bottom.                     */
+   Contained app viewport. Height = visualViewport.height.
+   JS sets --app-visible-height on this element.                      */
 .app-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  height: var(--app-visible-height, 100dvh);      /* JS sets this */
+  max-height: var(--app-visible-height, 100dvh);
+  overflow: hidden;                                /* nothing escapes */
+
   background: var(--bg-base);
-  padding-top:    var(--safe-top);
-  padding-bottom: var(--safe-bottom);
-  padding-left:   var(--safe-left);
-  padding-right:  var(--safe-right);
-  position: relative; /* anchor for modal overlay */
+
+  /* Horizontal safe areas still apply */
+  padding-left:  var(--safe-left);
+  padding-right: var(--safe-right);
+
+  /* Top safe area: header handles it via its own padding */
+  /* Bottom safe area: command bar handles it via its own padding */
 }
 
 /* ── Header ──────────────────────────────────────────────────────────
-   Sticky at the top so it remains visible while content scrolls.    */
+   Sticky within the flex column (it's always at the top).
+   No position:sticky needed — it's the first flex child and
+   the shell has overflow:hidden.                                     */
 .app-shell__header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   padding: var(--sp-3) var(--sp-4);
+  /* Top safe area inset for PWA/notch */
+  padding-top: max(var(--sp-3), env(safe-area-inset-top, 0px));
   min-height: 52px;
-  flex-shrink: 0;
+  z-index: 10;
 }
 
-/* ── Identity block (app name + mode label) ─────────────────────────
-   Stacked vertically on the leading side.                            */
+/* ── Identity block ──────────────────────────────────────────────────  */
 .app-shell__identity {
   display: flex;
   flex-direction: column;
@@ -66,8 +94,7 @@
   white-space: nowrap;
 }
 
-/* ── User name ───────────────────────────────────────────────────────
-   Trailing side of the header. Truncates if the name is long.       */
+/* ── User name ───────────────────────────────────────────────────────  */
 .app-shell__user {
   font-family: var(--font-sans);
   font-size: 13px;
@@ -79,27 +106,27 @@
   text-overflow: ellipsis;
 }
 
-/* ── Panel Strip mount point ─────────────────────────────────────────
-   Container for the workspace tab strip.
-   Sits between the header and the main content area.
-   Zero height when empty.                                            */
+/* ── Panel Strip ─────────────────────────────────────────────────────
+   Does not scroll. Zero height when empty.                           */
 .app-shell__panel-strip {
   flex-shrink: 0;
 }
 
-/* ── Main content area ───────────────────────────────────────────────
-   Grows to fill all available space below the strip.
-   Handles its own vertical scrolling.                                */
+/* ── Main scroll area ────────────────────────────────────────────────
+   THE ONLY VERTICAL SCROLL SURFACE in the authenticated app.
+   flex: 1 1 auto; min-height: 0 are both required for the flex child
+   to shrink properly when the shell height shrinks.                  */
 .app-shell__main {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;        /* critical — without this, flex children don't shrink */
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: var(--sp-4);
+  /* Bottom padding clears the command bar height */
+  padding-bottom: calc(72px + max(var(--sp-4), env(safe-area-inset-bottom, 0px)));
 }
 
-/* ── Single workspace outlet ─────────────────────────────────────────
-   Owned exclusively by WorkspaceManager.
-   Always visible — no surface switching needed in WS-05.            */
+/* ── Workspace outlet ────────────────────────────────────────────────  */
 .app-shell__outlet {
   display: block;
   width: 100%;
@@ -110,23 +137,20 @@
 }
 
 /* ── Station Selector modal overlay ──────────────────────────────────
-   Full-screen backdrop. The card sits centred above the workspace.
-   z-index above the panel strip (z-index: 10) and header (z-index: 10). */
+   position:fixed relative to the viewport. z-index above panel strip. */
 .station-selector-modal {
   position: fixed;
   inset: 0;
   z-index: 100;
   background: rgba(0, 0, 0, 0.48);
   display: flex;
-  align-items: flex-end;   /* sheet slides up from bottom on mobile */
+  align-items: flex-end;
   justify-content: center;
   padding: var(--sp-4);
   box-sizing: border-box;
-  /* Respect iOS safe areas inside the backdrop */
   padding-bottom: max(var(--sp-4), var(--safe-bottom));
 }
 
-/* Card that contains the actual selector */
 .station-selector-modal__card {
   background: var(--surface);
   border-radius: var(--r-lg);
@@ -139,7 +163,6 @@
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
 }
 
-/* Dismiss (×) button in top-right of card */
 .station-selector-modal__dismiss {
   position: absolute;
   top: var(--sp-3);
@@ -161,17 +184,9 @@
   z-index: 1;
 }
 
-.station-selector-modal__dismiss:hover {
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
-}
+.station-selector-modal__dismiss:hover  { color: var(--text-primary); border-color: var(--text-secondary); }
+.station-selector-modal__dismiss:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.station-selector-modal__dismiss:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Loading state inside the modal */
 .station-selector-modal__loading {
   padding: var(--sp-6) var(--sp-4);
   font-family: var(--font-sans);
