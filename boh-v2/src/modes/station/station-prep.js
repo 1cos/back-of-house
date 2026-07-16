@@ -300,7 +300,28 @@ function buildLastPhysicalCount(count, translate) {
   return section;
 }
 
+// ── UUID helper (used only by buildStartButton) ───────────────────────────────
+// Generates a cryptographically random UUID v4.
+// Uses crypto.randomUUID() when available; falls back to crypto.getRandomValues().
+// Never uses Math.random() — not suitable as an idempotency key.
+
+function generateStartOperationUUID() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return [hex.slice(0,8), hex.slice(8,12), hex.slice(12,16), hex.slice(16,20), hex.slice(20,32)].join('-');
+}
+
 // ── Start button builder ──────────────────────────────────────────────
+// Task OEE-B.1: owns the operation context (clientOperationId + occurredAt)
+// for the PREP_STARTED action. Created once per intentional tap. Retained
+// through retriable failures so a retry reuses the same UUID. Cleared only
+// when the operation is confirmed (success or definitive failure).
 
 function buildStartButton({ task, currentUser, translate, startTask, section, onSuccess, detailEl }) {
   const userName = (currentUser && typeof currentUser.name === 'string')
@@ -314,11 +335,25 @@ function buildStartButton({ task, currentUser, translate, startTask, section, on
   btn.textContent = translate('station_prep.start');
   if (!canStart) btn.disabled = true;
 
-  let submitting = false;
+  // ── Idempotency state — scoped to this task's button closure ──
+  // pendingOp is created when the user initiates Start and cleared only
+  // after a confirmed result (success or definitive failure).
+  // It is never shared with other task buttons.
+  let submitting  = false;
+  let pendingOp   = null;  // { id: string, occurredAt: string } | null
 
   btn.addEventListener('click', () => {
     if (submitting || !canStart) return;
     submitting = true;
+
+    // Create the operation context on the first tap, or reuse it if the
+    // previous attempt ended with a retriable failure (pendingOp != null).
+    if (pendingOp === null) {
+      pendingOp = {
+        id:         generateStartOperationUUID(),
+        occurredAt: new Date().toISOString(),
+      };
+    }
 
     const prevErr = detailEl.querySelector('.station-prep__start-error');
     if (prevErr) prevErr.remove();
@@ -326,15 +361,31 @@ function buildStartButton({ task, currentUser, translate, startTask, section, on
     btn.disabled = true;
     btn.textContent = translate('station_prep.starting');
 
-    startTask({ prepTaskId: task.id, startedBy: userName })
+    startTask({
+      prepTaskId:        task.id,
+      startedBy:         userName,
+      clientOperationId: pendingOp.id,
+      occurredAt:        pendingOp.occurredAt,
+    })
       .then((result) => {
         if (!section.isConnected) return;
         if (result.ok) {
+          // Confirmed success (including idempotent replay).
+          pendingOp = null;
           onSuccess(result);
         } else {
           submitting = false;
           btn.disabled = false;
           btn.textContent = translate('station_prep.start');
+
+          if (result.retriable === true) {
+            // Retriable failure: keep pendingOp so the next tap reuses the same UUID.
+            // No new error message needed beyond the existing start_error text below.
+          } else {
+            // Definitive failure: the operation cannot succeed with this context.
+            pendingOp = null;
+          }
+
           const existing = detailEl.querySelector('.station-prep__start-error');
           if (existing) existing.remove();
           const errEl = document.createElement('p');
@@ -345,10 +396,12 @@ function buildStartButton({ task, currentUser, translate, startTask, section, on
         }
       })
       .catch(() => {
+        // Unhandled promise rejection — treat as retriable (server state unknown).
         if (!section.isConnected) return;
         submitting = false;
         btn.disabled = false;
         btn.textContent = translate('station_prep.start');
+        // Retain pendingOp — the next tap will reuse the same UUID.
       });
   });
 
