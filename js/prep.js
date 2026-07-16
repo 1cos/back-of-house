@@ -782,10 +782,12 @@ function renderSuggBlock(sugg, i) {
   };
   const sc = STATUS_MAP[status] || STATUS_MAP['no_demand_path'];
 
-  // ── Operational action detection (unchanged) ──
+  // ── Operational action detection ──
+  // isThaw: tasks whose name contains "thaw" (e.g. Thaw Salmon, Thaw Lobster)
+  // isPorterhouse heuristic REMOVED (boh-v673): Porterhouse is never frozen;
+  // the "THAW & PORTION" label was wrong. Porterhouse renders as a normal prep card.
   const isThaw = i.name && /thaw/i.test(i.name);
-  const isPorterhouse = i.name && /porterhouse/i.test(i.name);
-  const isOperational = isThaw || (isPorterhouse && status !== 'looks_ok' && pq === 'missing');
+  const isOperational = isThaw;
 
   // ── Planned output calculation (unchanged logic) ──
   let displayQty = null;
@@ -796,12 +798,6 @@ function renderSuggBlock(sugg, i) {
     if (!isNaN(nr) && nr > 0) {
       displayQty = Math.ceil(nr) + ' pcs';
       displayLabel = 'THAW · ' + displayQty;
-    }
-  } else if (isPorterhouse && sugg.net_requirement != null) {
-    const nr = parseFloat(sugg.net_requirement);
-    if (!isNaN(nr) && nr > 0) {
-      displayQty = Math.ceil(nr) + ' pcs';
-      displayLabel = 'THAW & PORTION · ' + displayQty;
     }
   } else if (sugg.planned_output != null && parseFloat(sugg.planned_output) > 0) {
     displayQty = _fmtN(sugg.planned_output, outUnit);
