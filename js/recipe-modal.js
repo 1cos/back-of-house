@@ -783,8 +783,10 @@ window.recipeModal={
 
       overlay.innerHTML=buildShell(title,category,pills,botPill,tabs);
       document.body.appendChild(overlay);
-      // v624: Chef AI Step 1 — inietta blocco dati sopra il body del modal
-      {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}_bindRmChefAiBar();}
+      // boh-v674: rmChefAiBlock is now rendered INSIDE rmBody (prepended before tab content)
+      // previously it was inserted between rmHeader and rmBody which caused it to be
+      // physically adjacent to the rm-tabs, making Notes taps land on rmChefAiBar.
+      const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);
       overlay.addEventListener('click',e=>{if(e.target===overlay)closeFn();});
 
       // bot pill → salta a ingredienti con porzioni suggerite
@@ -806,13 +808,14 @@ window.recipeModal={
       if(activeTab==='ingredients'){
         // Apri direttamente con il scale suggerito
         const body=document.getElementById('rmBody');
-        if(body){body.innerHTML=buildIngredients(bomRows,scaleFactor,baseServings);bindIngredients(_initialServings);}
+        if(body){body.innerHTML=(_caiHtml||'')+buildIngredients(bomRows,scaleFactor,baseServings);bindIngredients(_initialServings);if(_caiHtml)_bindRmChefAiBar();}
       } else {
         renderTab(activeTab);
       }
 
       overlay.querySelectorAll('.rm-tab').forEach(btn=>{
-        btn.addEventListener('click',()=>{
+        btn.addEventListener('click',(e)=>{
+          e.stopPropagation(); // boh-v674: prevent Notes tap from reaching rmChefAiBar
           activeTab=btn.dataset.tab;
           overlay.querySelectorAll('.rm-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));
           renderTab(activeTab);
@@ -834,9 +837,12 @@ window.recipeModal={
 
       function renderTab(tab){
         const body=document.getElementById('rmBody');
-        if(tab==='ingredients'){body.innerHTML=buildIngredients(bomRows,scaleFactor,baseServings);bindIngredients();}
-        else if(tab==='steps'){body.innerHTML=renderStepView(resolvedSteps,currentStep,prepTaskId,totalSteps,closeFn,bomRows,scaleFactor);bindStepEvents(resolvedSteps,()=>currentStep,s=>{currentStep=s;},prepTaskId,totalSteps,()=>renderTab('steps'),closeFn,()=>bomRows,()=>scaleFactor);}
-        else body.innerHTML=buildNotes(rec);
+        // boh-v674: caiHtml is prepended inside rmBody for every tab.
+        // This keeps the Chef AI bar inside the scrollable body area, never overlapping the tabs.
+        const _caiPrefix = _caiHtml || '';
+        if(tab==='ingredients'){body.innerHTML=_caiPrefix+buildIngredients(bomRows,scaleFactor,baseServings);bindIngredients();if(_caiPrefix)_bindRmChefAiBar();}
+        else if(tab==='steps'){body.innerHTML=_caiPrefix+renderStepView(resolvedSteps,currentStep,prepTaskId,totalSteps,closeFn,bomRows,scaleFactor);bindStepEvents(resolvedSteps,()=>currentStep,s=>{currentStep=s;},prepTaskId,totalSteps,()=>renderTab('steps'),closeFn,()=>bomRows,()=>scaleFactor);if(_caiPrefix)_bindRmChefAiBar();}
+        else{body.innerHTML=_caiPrefix+buildNotes(rec);if(_caiPrefix)_bindRmChefAiBar();}
       }
 
       function buildIngredients(bom,factor,base){
@@ -903,7 +909,8 @@ window.recipeModal={
       overlay.innerHTML=buildShell(title,category,pills,botPill,[]);
       document.body.appendChild(overlay);
       // v624: Chef AI Step 1
-      {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}_bindRmChefAiBar();}
+      // boh-v674: inject caiHtml inline in body (not between header and body)
+      {const _caiHtml2=buildChefAiStep1Block(prepSugg,prepTask);const _rmBody2=document.getElementById('rmBody');if(_rmBody2&&_caiHtml2){_rmBody2.innerHTML=_caiHtml2;_bindRmChefAiBar();}}
       overlay.addEventListener('click',e=>{if(e.target===overlay)closeFn();});
       overlay.querySelector('.rm-close').addEventListener('click',closeFn);
 
@@ -919,7 +926,8 @@ window.recipeModal={
     overlay.innerHTML=buildShell(title,category,pills,botPill,[]);
     document.body.appendChild(overlay);
     // v624: Chef AI Step 1
-    {const _caiHtml=buildChefAiStep1Block(prepSugg,prepTask);if(_caiHtml){const _caiEl=document.createElement('div');_caiEl.id='rmChefAiBlock';_caiEl.innerHTML=_caiHtml;const _rmSheet=overlay.querySelector('#rmSheet');if(_rmSheet){const _rmBody=overlay.querySelector('#rmBody');if(_rmBody)_rmSheet.insertBefore(_caiEl,_rmBody);}}_bindRmChefAiBar();}
+    // boh-v674: inject caiHtml inline in body (not between header and body)
+    {const _caiHtml3=buildChefAiStep1Block(prepSugg,prepTask);const _rmBody3=document.getElementById('rmBody');if(_rmBody3&&_caiHtml3){_rmBody3.innerHTML=_caiHtml3;_bindRmChefAiBar();}}
     overlay.addEventListener('click',e=>{if(e.target===overlay)closeFn();});
     overlay.querySelector('.rm-close').addEventListener('click',closeFn);
 
