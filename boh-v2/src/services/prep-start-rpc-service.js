@@ -2,6 +2,8 @@
 // Task OEE-B:   routes PREP_STARTED through rpc_oee_record_prep_start.
 // Task OEE-B.1: client_operation_id and occurred_at are supplied by the caller,
 //               not generated inside this service.
+// Task OEE-B.2B: strict validation of clientOperationId (UUID format) and occurredAt;
+//                no timestamp fallback; IDEMPOTENCY_KEY_CONFLICT mapped to retriable:false.
 //
 // Contract:
 //   Input:  { prepTaskId, startedBy, clientOperationId, occurredAt }
@@ -26,8 +28,20 @@ function isValidTaskId(v) {
   return typeof v === 'number' && isFinite(v) && v > 0;
 }
 
+// UUID v4 pattern — enforced at service boundary so the RPC never sees non-UUID strings.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function isValidOperationId(v) {
-  return typeof v === 'string' && v.length > 0;
+  return typeof v === 'string' && UUID_RE.test(v);
+}
+
+// occurredAt must be a non-empty string that parses as a real date.
+// Rejects undefined, null, empty string, and ISO-shaped strings that
+// evaluate to NaN (e.g. 'invalid').
+function isValidTimestamp(v) {
+  if (typeof v !== 'string' || v.length === 0) return false;
+  const d = new Date(v);
+  return !isNaN(d.getTime());
 }
 
 // ── Result normalisation ───────────────────────────────────────────────────────
@@ -88,6 +102,12 @@ export async function startPrepTaskRpc({
   if (!isValidOperationId(clientOperationId)) {
     return { ok: false, reason: 'INVALID_INPUT', task: null, retriable: false };
   }
+  if (!isValidTimestamp(occurredAt)) {
+    // occurredAt is required and must be a valid timestamp.
+    // The caller (buildStartButton / continueBtn closure) owns it.
+    // Never fall back to a new timestamp — that would defeat idempotency.
+    return { ok: false, reason: 'INVALID_INPUT', task: null, retriable: false };
+  }
 
   // ── Session token ──
   const token = getStoredToken();
@@ -113,7 +133,7 @@ export async function startPrepTaskRpc({
       p_token:               token,
       p_task_id:             prepTaskId,
       p_client_operation_id: clientOperationId,
-      p_occurred_at:         occurredAt ?? new Date().toISOString(),
+      p_occurred_at:         occurredAt,
       p_producer_id:         producerId,
     });
 
@@ -142,6 +162,13 @@ export async function startPrepTaskRpc({
         // Definitive: the session token has expired or been invalidated.
         // Retrying before re-authentication cannot succeed.
         // Map to CONNECTION_ERROR so the existing error message is shown.
+        return { ok: false, reason: 'CONNECTION_ERROR', task: null, retriable: false };
+      }
+
+      if (reason === 'IDEMPOTENCY_KEY_CONFLICT') {
+        // Definitive: this UUID was already used for a different operation.
+        // The caller must discard pendingOp — retrying with this UUID is wrong.
+        // Map to CONNECTION_ERROR so the existing start_error message is shown.
         return { ok: false, reason: 'CONNECTION_ERROR', task: null, retriable: false };
       }
 
