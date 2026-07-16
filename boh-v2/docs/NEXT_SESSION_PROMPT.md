@@ -1,164 +1,159 @@
 # BOH OS v2 — Next Session Prompt
 
-## Status at end of this session
+## OEE PHASE 1 STATUS: ✅ COMPLETE (2026-07-16)
 
-**OEE Sessions A + B + B.1 complete. DB live. All tests pass.**
-
-Session A applied fresh migrations to the DB:
-- `20260716_001_oee_phase1_schema.sql` — `operational_events`, `operational_event_transitions`, FK columns on `prep_log` and `prep_stock_counts`
-- `20260716_002_oee_phase1_rpcs.sql` — All three RPCs (see below)
-
-All three RPCs deployed, tested, production-grade:
-- `rpc_oee_record_prep_start(p_token, p_task_id, p_client_operation_id, p_occurred_at, p_producer_id)`
-- `rpc_oee_record_prep_completion(p_token, p_task_id, p_quantity, p_unit, p_client_operation_id, p_occurred_at, p_in_progress_at, p_is_suggested_qty, p_producer_id)`
-- `rpc_oee_record_stock_count(p_token, p_task_id, p_counted_quantity, p_unit, p_client_operation_id, p_occurred_at, p_producer_id)`
-
-Frontend:
-- `station-navigation.js` → `startTask: startPrepTaskRpc` ✅
-- `prep-start-rpc-service.js` → caller-owned `clientOperationId`/`occurredAt`, `retriable` flag ✅
-- `station-prep.js` → `buildStartButton` owns `pendingOp` context ✅
-
-DB state: `operational_events` = 0 rows, `operational_event_transitions` = 0 rows. Tasks 234, 244 restored.
+All three kitchen operations are routed through atomic, server-authoritative,
+idempotency-hardened Supabase RPCs. No Brigade production files were modified.
 
 ---
 
-## ⚠️ Known Bug: WIP panel "Continue" button
+## Active Routing Table
 
-In `station-prep.js`, `buildWipResolutionPanel`, the **"Continue this prep"** `continueBtn` calls:
-```js
-startTask({ prepTaskId: task.id, startedBy: userName })
-```
-It does **NOT** pass `clientOperationId` or `occurredAt`. This means the B.1 idempotency contract is violated for Continue.
-
-Fix needed: generate a `pendingContinueOp` closure variable (same pattern as `buildStartButton`) and pass it in the call. Confirm with Max before fixing — Session C priority.
-
----
-
-## Session C: Route PREP_COMPLETED through OEE RPC
-
-### Goal
-Wire `rpc_oee_record_prep_completion` into the frontend everywhere `completePrepTask` is called.
-
-### Current state
-`completePrepTask` (legacy `prep-complete-service.js`) is called from:
-1. `buildCompleteButton` in `station-prep.js` — main Complete button
-2. `buildWipResolutionPanel` finishedBtn in `station-prep.js` — "I finished it" in WIP panel
-
-Both use the old direct Supabase flow (no OEE, no session token, no idempotency).
-
-### New service: `prep-complete-rpc-service.js`
-
-Mirrors `prep-start-rpc-service.js` pattern:
-- Input: `{ prepTask, quantity, unit, clientOperationId, occurredAt }`
-- Returns: `{ ok: true, log, task, retriable: false }` or `{ ok: false, reason, retriable }`
-- Caller owns `clientOperationId` (UUID) + `occurredAt` (ISO timestamp)
-- Gets token from `getStoredToken()`
-- Calls `rpc_oee_record_prep_completion`
-- Normalises response to same shape as `completePrepTask` for drop-in compat
-
-### Changes to `station-prep.js` (`buildCompleteButton`)
-
-Add `pendingCompleteOp = null` closure variable.
-On `onConfirm` call: create `pendingCompleteOp` if null, or reuse on retry.
-Clear on success or definitive failure. Retain on retriable failure.
-
-### Changes to `station-navigation.js`
-
-Add import for `completeTask: completeTaskRpc` from new service.
-
-### WIP "I finished it" button
-
-Same pattern — add `pendingFinishedOp = null` closure.
-
-### Tests required (SQL-level)
-
-1. Invalid token → AUTH_ERROR
-2. Zero/negative qty → INVALID_INPUT
-3. Non-existent task → TASK_NOT_FOUND
-4. Valid completion → ok:true, log row inserted, prep_tasks updated, PREP_STOCK_UPDATED derived fact created
-5. Idempotent replay → ok:true, idempotent:true, no duplicate prep_log row, stock unchanged
-6. Server reads stock from DB (not client value)
-7. suggested_qty + suggested_note cleared; suggested_by + suggested_at preserved
-8. Duration calculation correct (10 min elapsed = duration_minutes:10)
-9. is_suggested_qty flag carried through
+| Operation | Frontend producer(s) | Service | RPC |
+|---|---|---|---|
+| PREP_STARTED | `buildStartButton` (Start btn) | `prep-start-rpc-service.js` | `rpc_oee_record_prep_start` |
+| PREP_STARTED | `continueBtn` (WIP Continue) | same service | same RPC |
+| PREP_COMPLETED | `buildCompleteButton` (Complete btn) | `prep-complete-rpc-service.js` | `rpc_oee_record_prep_completion` |
+| PREP_COMPLETED | `finishedBtn` (WIP "I finished it") | same service | same RPC |
+| STOCK_COUNT_RECORDED | `buildCountButton` (Count btn) | `prep-count-rpc-service.js` | `rpc_oee_record_stock_count` |
+| Reconciler | after saveCount returns ok:true | `prep-count-reconciler-service.js` | `bot-prep-count-reconciler` EF |
 
 ---
 
-## Session D: Route STOCK_COUNT_RECORDED through OEE RPC
+## Migration Inventory
 
-### Goal
-Wire `rpc_oee_record_stock_count` into the frontend.
-
-### Current state
-`savePrepCount` (legacy `prep-count-write-service.js`) is called from `buildCountButton`.
-
-### New service: `prep-count-rpc-service.js`
-
-Same pattern. Input: `{ prepTaskId, countedQuantity, unit, clientOperationId, occurredAt }`.
-Returns compatible shape to `savePrepCount`.
-
-### Changes to `buildCountButton` in `station-prep.js`
-
-Add `pendingCountOp` closure. Same pattern as Complete.
+| File | Deploys | Status |
+|---|---|---|
+| `20260716_001_oee_phase1_schema.sql` | `operational_events`, `operational_event_transitions`, FK cols on `prep_log`/`prep_stock_counts` | ✅ deployed |
+| `20260716_002_oee_phase1_rpcs.sql` | Original bodies of all 3 RPCs (no conflict detection) | ✅ deployed |
+| `20260716_003_oee_prep_start_idempotency_hardening.sql` | Hardens `rpc_oee_record_prep_start` — 6-field payload validation, `IDEMPOTENCY_KEY_CONFLICT` | ✅ deployed |
+| `20260716_004_oee_prep_completion_idempotency_hardening.sql` | Hardens `rpc_oee_record_prep_completion` — same pattern | ✅ deployed |
+| `20260716_005_oee_stock_count_idempotency_hardening.sql` | Hardens `rpc_oee_record_stock_count` — same pattern | ✅ deployed |
 
 ---
 
-## Session E: Fix WIP "Continue" + route through OEE
+## Key Commit Hashes (OEE Phase 1)
 
-Wire the `continueBtn` in `buildWipResolutionPanel` to also use `pendingContinueOp` + `startPrepTaskRpc`.
+| Commit | Change |
+|---|---|
+| `a02164d8bd18` | Migration 003 — PREP_STARTED idempotency |
+| `2649a1f7a8c4` | `prep-start-rpc-service.js` — UUID validation, no fallback, conflict mapping |
+| `28fc852f4425` | `station-prep.js` — `continueBtn` gets `pendingContinueOp` |
+| `bf3c4e85333d` | `prep-complete-rpc-service.js` (new) |
+| `0a2df744d4ea` | Migration 004 — PREP_COMPLETED idempotency |
+| `40d525cdfa68` | `station-navigation.js` — `completeTask: completePrepTaskRpc` |
+| `895da21324a0` | `station-prep.js` — `buildCompleteButton` + `finishedBtn` with `pendingCompleteOp`/`pendingFinishedOp` |
+| `313793ed627d` | `prep-count-rpc-service.js` (new) |
+| `84ce174ef47a` | `station-navigation.js` — `saveCount: savePrepCountRpc` |
+| `40cde5286d1f` | `station-prep.js` — `buildCountButton` with `pendingCountOp` (Rules A/B/C) |
+| `6d651b1e6406` | Migration 005 — STOCK_COUNT_RECORDED idempotency |
+| `ece129290ace` | `station-prep.js` — clear `pendingCountOp` before reconcileCount |
 
 ---
 
-## Key file paths
+## Behavior Guarantees
 
-```
-boh-v2/
-  migrations/
-    20260716_001_oee_phase1_schema.sql  ← deployed ✅
-    20260716_002_oee_phase1_rpcs.sql    ← deployed ✅
-  src/
-    services/
-      prep-start-rpc-service.js    ← live ✅ (B.1)
-      prep-complete-service.js     ← legacy, still in use
-      prep-count-write-service.js  ← legacy, still in use
-      prep-count-reconciler-service.js ← legacy, still in use
-    modes/station/
-      station-navigation.js        ← live ✅ (startTask → rpc)
-      station-prep.js              ← live ✅ (buildStartButton with pendingOp)
-```
+### Per-operation events
+- **PREP_STARTED** → 1 root event (`PREP_STARTED`, `event_role=root`)
+- **PREP_COMPLETED** → 1 root event (`PREP_COMPLETED`) + 1 derived fact (`PREP_STOCK_UPDATED`)
+- **STOCK_COUNT_RECORDED** → 1 root event (`STOCK_COUNT_RECORDED`) + 1 derived fact (`PREP_STOCK_VERIFIED`)
 
-## RPC return shape (for service normalization)
+### Transitions (all root events)
+5 rows in `operational_event_transitions`: `received → authorized → execution_started → execution_completed → completed`
 
-### rpc_oee_record_prep_start success
-```json
-{ "ok": true, "idempotent": false, "event_id": "uuid",
-  "task": { "id": 234, "in_progress": true, "in_progress_at": "...", "in_progress_by": "Max" } }
-```
+### Idempotency contract
+- Client owns `clientOperationId` (UUID v4) and `occurredAt` (ISO timestamp)
+- Same UUID + identical payload → `ok:true, idempotent:true` — no second write
+- Same UUID + different payload → `IDEMPOTENCY_KEY_CONFLICT` — no write, `retriable:false`
+- Matching rules enforced: `event_role`, `type`, `source_module`, `task_id` + operation-specific fields
+- Applied to both the pre-insert fast path and the concurrent UNIQUE-violation path
 
-### rpc_oee_record_prep_completion success
-```json
-{ "ok": true, "idempotent": false, "event_id": "uuid",
-  "log": { "item": "...", "station": "...", "qty": 500, "unit": "g",
-           "user_name": "Max", "started_at": "...", "duration_minutes": 10,
-           "is_suggested_qty": false, "created_at": "..." },
-  "task": { "id": 234, "current_stock": 500, "need_tomorrow": false,
-            "in_progress": false, "in_progress_at": null, "in_progress_by": null } }
-```
+### Atomic write guarantees
+- PREP_STARTED: `prep_tasks` update in same transaction as event
+- PREP_COMPLETED: `prep_log` insert + `prep_tasks` update in same transaction — no partial failure
+- STOCK_COUNT_RECORDED: `prep_stock_counts` insert (`ON CONFLICT DO NOTHING`) + `prep_tasks.current_stock` update in same transaction
 
-### rpc_oee_record_stock_count success
-```json
-{ "ok": true, "idempotent": false, "event_id": "uuid",
-  "count": { "id": 17, "prep_task_id": 244, "counted_qty": 15, "unit": "pz",
-             "counted_by": "Max", "source": "kitchen_count", "counted_at": "...",
-             "prev_bot_stock": 18, "prev_bot_suggestion": null, "prev_suggested_by": "..." },
-  "task": { "id": 244, "current_stock": 15 } }
-```
+### Reconciler boundary
+- Reconciler (`bot-prep-count-reconciler` EF) is called **after** `saveCount` confirms `ok:true`
+- `pendingCountOp` is cleared **before** calling the reconciler — reconciler failure does NOT require repeating saveCount
+- Reconciler writes to `prep_stock_counts.reconcile_status` etc. — does not write to `prep_tasks`
 
-## Session startup protocol
+### Retry-context lifecycle (all three operations)
+| Context var | Operation | Cleared on | Retained on |
+|---|---|---|---|
+| `pendingOp` | Start (normal btn) | success + definitive fail + form toggle clear | `retriable:true`, `.catch()` |
+| `pendingContinueOp` | Start (Continue btn) | success + definitive fail | `retriable:true`, `.catch()` |
+| `pendingCompleteOp` | Complete (normal btn) | success + definitive fail + cancel | `retriable:true`, `.catch()` |
+| `pendingFinishedOp` | Complete (WIP "finished") | success + definitive fail + cancel | `retriable:true`, `.catch()` |
+| `pendingCountOp` | Count | success (immediately after saveCount) + definitive fail + cancel | `.catch()` on saveCount |
+
+---
+
+## Active Service Files
+
+### OEE (active)
+- `prep-start-rpc-service.js` — `startPrepTaskRpc()`
+- `prep-complete-rpc-service.js` — `completePrepTaskRpc()`
+- `prep-count-rpc-service.js` — `savePrepCountRpc()`
+- `prep-count-reconciler-service.js` — `reconcilePrepCount()` (unchanged)
+
+### Legacy (retained, not active in main flow)
+- `prep-start-service.js` — replaced by RPC service; kept for reference
+- `prep-complete-service.js` — replaced by RPC service; kept for reference
+- `prep-count-write-service.js` — replaced by RPC service; kept for reference
+
+---
+
+## Retained Test Event IDs (in DB, do not delete)
+
+| Event ID | Type | Task | Purpose |
+|---|---|---|---|
+| `4803b734-672c-4f94-a9b7-1d496377aeb1` | PREP_STARTED | 234 | B.2B normal start + replay tests |
+| `f771bcd8-4f11-4bb8-953e-c9b7063919e3` | PREP_STARTED | 235 | B.2B Continue + cross-task conflict |
+| `5fe8ce4e-ab52-409f-9dba-779bfc587a51` | PREP_STARTED | 234 | B.2B null-occurredAt DB behavior |
+| `31862a4b-883f-4ec7-ae7e-cd48f758be5a` | PREP_COMPLETED | 234 | C-B normal complete + replay + conflict source |
+| `a736afba-c164-4c20-98b5-6b3246e03f1e` | PREP_COMPLETED | 234 | C-B unit conversion test (2kg) |
+| `ad176f9b-2d4d-4aa0-bbce-288aa2e0151e` | STOCK_COUNT_RECORDED | 244 | D-B.1 normal count + replay + conflict source |
+| `e4f55687-fb2d-4021-a9e1-18d583082220` | STOCK_COUNT_RECORDED | 244 | D-B.1 zero count valid |
+
+---
+
+## Known Limitations (Phase 2 scope)
+
+- No OEE history UI — events are stored but not surfaced to staff or chef
+- No failed-event persistence — rolled-back transactions leave no event trace
+- No reconciliation retry UI — if reconciler fails, the cook cannot retry from UI
+- No Communication Bus — OEE events do not yet trigger downstream notifications
+- No notification delivery from OEE events
+- No AI reasoning over OEE events (Chef AI does not read operational_events yet)
+- Live roles in DB are only `admin` and `staff` — no supervisor/coordinator
+- No "Yes Chef" proposal mechanism in OEE
+- Diagnostic metadata (`diag_flag`) computed but not surfaced in any UI
+
+---
+
+## Session Startup Protocol
 
 1. Read token from `/mnt/project/x_claude_GIthub.txt`
 2. Check live `boh-v???` from `sw.js`
 3. Read last 5 commits
 4. Read ALL `boh-v2/docs/*.md` files
-5. Read `boh-v2/src/modes/station/station-prep.js` (large file — critical)
-6. Read `boh-v2/src/services/prep-start-rpc-service.js` (reference pattern)
+5. Read `boh-v2/src/modes/station/station-prep.js` (large file — 1919 lines as of closeout)
+6. Read `boh-v2/src/services/prep-start-rpc-service.js` (canonical pattern for all three RPC services)
+
+---
+
+## Recommended Next Development Area
+
+**Dish Crew Home (Phase 2 — station visibility)**
+
+The dishwashers (`user.default_station === 'Dish Crew'`) need a simplified Home screen:
+topbar + alerts + Dish Crew station task list + birthdays + bottom bar.
+Phase 1 (station visibility filtering) is already complete in v332.
+Phase 2 requires the simplified layout component with no Focus Mode, no Recipes,
+no Closing, no Sales, no Operation Notes prompt.
+This is a concrete, kitchen-facing improvement that can be delivered in one session
+and directly improves daily usability for the dish crew.
+
+Do not begin OEE Phase 2 (Communication Bus, notifications, AI reasoning) before
+a product decision from Max.
