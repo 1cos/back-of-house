@@ -267,15 +267,6 @@ function mountShell(user) {
   }
 }
 
-// ── Logout / cleanup ──────────────────────────────────────────────────
-
-function teardownShell() {
-  if (_workspaceManager) {
-    _workspaceManager.destroy();
-    _workspaceManager = null;
-  }
-  clearCurrentUser();
-}
 
 // ── PIN submission logic ───────────────────────────────────────────────
 
