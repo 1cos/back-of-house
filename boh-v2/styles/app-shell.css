@@ -1,21 +1,24 @@
 /* BOH OS v2 — App Shell
-   UI-06.5: Contained viewport model.
+   UI-06.6: Visual viewport anchor model.
    ------------------------------------------------------------------
-   KEY CHANGE: App Shell is now a contained application viewport.
-   It occupies exactly visualViewport.height (set as --app-visible-height
-   by app-shell.js). The document/body cannot scroll.
+   KEY CHANGE from UI-06.5: App Shell is now position:fixed, anchored
+   to the visual viewport rect supplied by app-shell.js:
 
-   Layout stack (flex column):
+     top:    var(--app-visible-top)    ← visualViewport.offsetTop
+     height: var(--app-visible-height) ← visualViewport.height
+
+   When the keyboard opens, iOS changes visualViewport.offsetTop
+   (the visual viewport pans upward to reveal the focused textarea).
+   Because the shell is fixed to that top value, it follows the pan —
+   the user never sees the shell jump to the top of the screen.
+
+   The flex column layout is unchanged:
      [header]          flex-shrink: 0
      [panel strip]     flex-shrink: 0
      [main]            flex: 1 1 auto; min-height: 0; overflow-y: auto
      [command bar]     flex-shrink: 0  (appended by app.js)
 
-   When keyboard opens:
-     visualViewport.height shrinks → --app-visible-height shrinks
-     → App Shell shrinks → main shrinks → command bar stays visible
-     as the natural bottom row of the flex column.
-
+   Safe-area padding is kept exactly as before.
    No position:fixed on Command Bar.
    No keyboard geometry.
    No dock/scrim.
@@ -23,21 +26,22 @@
    ------------------------------------------------------------------ */
 
 /* ── Outer containment — prevent document scroll ─────────────────────
-   html/body/#app must not scroll. All scrolling happens inside main. */
-/* Note: body/html rules are in base.css and layout.css respectively.
-   The rule below reinforces #app containment for the authenticated shell.
-   Login screen works fine since it uses min-height on #app from layout.css
-   but does not mount the app-shell element. */
+   html/body/#app must not scroll. All scrolling happens inside main.
+   Note: body/html rules are in base.css and layout.css respectively. */
 
 /* ── Shell root ──────────────────────────────────────────────────────
-   Contained app viewport. Height = visualViewport.height.
-   JS sets --app-visible-height on this element.                      */
+   Fixed to the visual viewport rect. JS sets --app-visible-height
+   and --app-visible-top on this element.                            */
 .app-shell {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--app-visible-top, 0px);         /* JS sets this — follows visual viewport pan */
+  height: var(--app-visible-height, 100dvh); /* JS sets this — keyboard-aware height */
+  overflow: hidden;                           /* nothing escapes */
+
   display: flex;
   flex-direction: column;
-  height: var(--app-visible-height, 100dvh);      /* JS sets this */
-  max-height: var(--app-visible-height, 100dvh);
-  overflow: hidden;                                /* nothing escapes */
 
   background: var(--bg-base);
 
