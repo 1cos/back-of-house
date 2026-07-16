@@ -2,16 +2,21 @@
 // Task 003A: authenticated shell structure.
 // Task 003B: adds bottom navigation mount target.
 // WS-01: adds panel strip mount point between header and main.
+// WS-03.1: adds separate legacy router outlet (#app-content-legacy)
+//           so WorkspaceManager and router never share a DOM node.
 // Returns a single DOM element. Does not mount itself.
 // Does not read app state. Does not query Supabase. No window writes.
-// Does not import or create the bottom navigation — only provides the mount point.
-// Does not import or create the WorkspaceManager — only provides the panelStripMount.
 
 /**
  * Creates the authenticated App Shell DOM element.
  *
  * @param {{ appName: string, modeLabel: string, userName: string }} options
- * @returns {{ shell: HTMLElement, panelStripMount: HTMLElement }}
+ * @returns {{
+ *   shell:            HTMLElement,
+ *   panelStripMount:  HTMLElement,
+ *   workspaceOutlet:  HTMLElement,   // owned by WorkspaceManager
+ *   legacyOutlet:     HTMLElement,   // owned by the router
+ * }}
  */
 export function createAppShell({ appName, modeLabel, userName }) {
   // ── Root ────────────────────────────────────────────────────────────
@@ -38,16 +43,12 @@ export function createAppShell({ appName, modeLabel, userName }) {
 
   const userEl = document.createElement('div');
   userEl.className = 'app-shell__user';
-  // User name inserted as textContent — never innerHTML.
   userEl.textContent = userName;
 
   header.appendChild(identity);
   header.appendChild(userEl);
 
   // ── Panel Strip mount point (WS-01) ──────────────────────────────────
-  // Positioned after the header, before the main content area.
-  // The WorkspaceManager mounts the rendered strip here.
-  // Initially empty — zero height until the first strip is rendered.
   const panelStripMount = document.createElement('div');
   panelStripMount.className = 'app-shell__panel-strip';
 
@@ -55,24 +56,30 @@ export function createAppShell({ appName, modeLabel, userName }) {
   const main = document.createElement('main');
   main.className = 'app-shell__main';
 
-  const outlet = document.createElement('div');
-  outlet.id = 'app-content';
+  // Workspace outlet — WorkspaceManager writes here exclusively.
+  // Hidden by default; shown when a workspace panel is active.
+  const workspaceOutlet = document.createElement('div');
+  workspaceOutlet.id = 'app-content';
+  workspaceOutlet.className = 'app-shell__outlet app-shell__outlet--workspace';
 
-  main.appendChild(outlet);
+  // Legacy router outlet — the router writes here exclusively.
+  // Visible by default so Station Home loads as before.
+  const legacyOutlet = document.createElement('div');
+  legacyOutlet.id = 'app-content-legacy';
+  legacyOutlet.className = 'app-shell__outlet app-shell__outlet--legacy app-shell__outlet--visible';
+
+  main.appendChild(workspaceOutlet);
+  main.appendChild(legacyOutlet);
 
   // ── Bottom navigation mount target ───────────────────────────────────
-  // The App Shell provides the mount point only.
-  // The navigation component is created and appended by app.js.
   const navMount = document.createElement('div');
   navMount.className = 'app-shell__nav-mount';
 
   // ── Assemble ────────────────────────────────────────────────────────
   shell.appendChild(header);
-  shell.appendChild(panelStripMount);   // WS-01: strip lives here
+  shell.appendChild(panelStripMount);
   shell.appendChild(main);
   shell.appendChild(navMount);
 
-  // Return both the shell element and the strip mount point so
-  // app.js can pass panelStripMount to createWorkspaceManager.
-  return { shell, panelStripMount };
+  return { shell, panelStripMount, workspaceOutlet, legacyOutlet };
 }

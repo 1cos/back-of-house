@@ -1,5 +1,8 @@
 // BOH OS v2 — WorkspaceManager
 // WS-02: implements the Workspace Engine v1.1 contract.
+// WS-03.1: adds optional onPanelActivated(panelId) hook so app.js can
+//           switch surface visibility when a workspace panel becomes active.
+//           This is a pure additive constructor option — no frozen API changes.
 // Spec: BOH_OS_V2_WORKSPACE_ENGINE.md v1.1
 //
 // All state is instance-scoped inside createWorkspaceManager().
@@ -18,9 +21,9 @@
 
 import { renderPanelStrip } from '../components/workspace/panel-strip.js';
 
-const HOME_PANEL_ID = 'panel-home';
+const HOME_PANEL_ID   = 'panel-home';
 const HOME_PANEL_TYPE = 'home';
-const MAX_PANELS = 6;
+const MAX_PANELS      = 6;
 
 /**
  * Canonical deduplication key for a panel type + context.
@@ -54,24 +57,21 @@ function dedupeKey(type, context) {
  * Creates a WorkspaceManager instance.
  *
  * @param {{
- *   outlet:         HTMLElement,  // panel content target
- *   panelStripMount: HTMLElement, // strip container
+ *   outlet:              HTMLElement,   // workspace panel content target (exclusive)
+ *   panelStripMount:     HTMLElement,   // strip container
+ *   onPanelActivated?:   (panelId: string) => void,  // optional hook, called after every activation
+ *   showAdd?:            boolean,       // show the + control in the strip (default false until WS-04)
  * }} options
  * @returns {WorkspaceManager}
  */
-export function createWorkspaceManager({ outlet, panelStripMount }) {
+export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivated, showAdd = false }) {
   // ── Instance-scoped state ──────────────────────────────────────────
-  // No module-level variables. All state lives here.
-
   /** @type {Array<{ id: string, type: string, title: string, context: object, dedupeKey: string }>} */
   let _panels = [];
-
   /** @type {string | null} */
   let _activeId = null;
-
   /** @type {Record<string, (context: object) => HTMLElement>} */
   let _renderers = {};
-
   /** @type {number} */
   let _counter = 0;
 
@@ -92,13 +92,13 @@ export function createWorkspaceManager({ outlet, panelStripMount }) {
 
   function _titleForType(type, context) {
     switch (type) {
-      case 'home':           return 'Home';
-      case 'station-prep':   return context.stationName ?? 'Station';
-      case 'station-recipes':return `${context.stationName ?? 'Station'} Recipes`;
-      case 'recipe-detail':  return context.recipeName   ?? 'Recipe';
-      case 'journal':        return 'Journal';
-      case 'schedule':       return 'Schedule';
-      default:               return type;
+      case 'home':            return 'Home';
+      case 'station-prep':    return context.stationName ?? 'Station';
+      case 'station-recipes': return `${context.stationName ?? 'Station'} Recipes`;
+      case 'recipe-detail':   return context.recipeName   ?? 'Recipe';
+      case 'journal':         return 'Journal';
+      case 'schedule':        return 'Schedule';
+      default:                return type;
     }
   }
 
@@ -110,25 +110,22 @@ export function createWorkspaceManager({ outlet, panelStripMount }) {
       activeId:   _activeId,
       onActivate: (id) => workspaceManager.activatePanel(id),
       onClose:    (id) => workspaceManager.closePanel(id),
-      onAdd:      () => {
-        // Station Selector is wired in WS-04/WS-05.
-        // No-op until then — the + button is present but unconnected.
-      },
+      onAdd:      () => { /* wired in WS-04 */ },
       atLimit,
+      showAdd,   // false in WS-03; hides the + control entirely
     });
 
-    // Replace-not-patch: entire strip is rebuilt on every change.
     panelStripMount.innerHTML = '';
     panelStripMount.appendChild(el);
   }
 
-  /** Mounts a panel's DOM into the outlet, clearing any previous content. */
+  /** Mounts a panel's DOM into the workspace outlet. */
   function _mountPanel(panel) {
     const renderer = _renderers[panel.type];
     if (!renderer) {
       console.error(
         `WorkspaceManager: no renderer registered for type "${panel.type}". ` +
-        `Register it with workspaceManager.registerRenderer() before openPanel().`
+        `Call registerRenderer("${panel.type}", fn) before openPanel().`
       );
       outlet.innerHTML = '';
       return;
@@ -150,13 +147,19 @@ export function createWorkspaceManager({ outlet, panelStripMount }) {
     outlet.appendChild(el);
   }
 
+  /** Fires the optional activation hook after a panel becomes active. */
+  function _notifyActivated(panelId) {
+    if (typeof onPanelActivated === 'function') {
+      onPanelActivated(panelId);
+    }
+  }
+
   // ── Public API ─────────────────────────────────────────────────────
 
   const workspaceManager = {
     /**
      * Registers a renderer for the given panel type.
-     * Always overwrites a previous registration — this is the mechanism
-     * for replacing placeholder renderers with real implementations.
+     * Always overwrites a previous registration.
      *
      * @param {string} type
      * @param {(context: object) => HTMLElement} fn  MUST be synchronous.
@@ -167,27 +170,23 @@ export function createWorkspaceManager({ outlet, panelStripMount }) {
 
     /**
      * Opens a panel of the given type with the given context.
-     * If a panel with the same canonical key already exists, activates it.
-     * If at the panel limit, shows the inline strip notification and returns null.
-     * If the type has no registered renderer, returns null and logs an error.
-     *
-     * Home's fixed ID is always 'panel-home'.
+     * If a panel with the same canonical key exists, activates it.
+     * If at the limit, shows the inline strip notification and returns null.
+     * If no renderer is registered, returns null and logs an error.
      *
      * @param {string} type
      * @param {object} [context={}]
-     * @returns {string | null}  panelId on success, null on failure
+     * @returns {string | null}
      */
     openPanel(type, context = {}) {
       const key = dedupeKey(type, context);
 
-      // Deduplicate: if this exact panel already exists, activate it.
       const existing = _findByDedupeKey(key);
       if (existing) {
         workspaceManager.activatePanel(existing.id);
         return existing.id;
       }
 
-      // Renderer must exist before we create the panel descriptor.
       if (!_renderers[type]) {
         console.error(
           `WorkspaceManager: no renderer registered for type "${type}". ` +
@@ -196,15 +195,11 @@ export function createWorkspaceManager({ outlet, panelStripMount }) {
         return null;
       }
 
-      // Enforce panel limit.
       if (_panels.length >= MAX_PANELS) {
-        // Strip already shows the inline notice via atLimit=true in _renderStrip.
-        _renderStrip();
+        _renderStrip(); // show inline limit notice
         return null;
       }
 
-      // Build the panel descriptor.
-      // Home always gets the fixed ID; all others get a generated ID.
       const id = (type === HOME_PANEL_TYPE) ? HOME_PANEL_ID : _nextId(type);
 
       const panel = {
@@ -220,6 +215,7 @@ export function createWorkspaceManager({ outlet, panelStripMount }) {
 
       _mountPanel(panel);
       _renderStrip();
+      _notifyActivated(id);
 
       return id;
     },
@@ -239,16 +235,12 @@ export function createWorkspaceManager({ outlet, panelStripMount }) {
       _activeId = panelId;
       _mountPanel(panel);
       _renderStrip();
+      _notifyActivated(panelId);
     },
 
     /**
      * Closes a panel and activates the left-neighbor fallback.
-     * No-op for Home (Home cannot be closed).
-     * No-op if the panelId is not in the registry.
-     *
-     * Fallback order:
-     *   1. Left neighbor in the registry array (idx - 1).
-     *   2. Home (always present, always index 0).
+     * No-op for Home. No-op if panelId is not in the registry.
      *
      * @param {string} panelId
      */
@@ -258,15 +250,14 @@ export function createWorkspaceManager({ outlet, panelStripMount }) {
       const idx = _panels.findIndex(p => p.id === panelId);
       if (idx === -1) return;
 
-      // Select fallback BEFORE removing from registry.
       const fallback = _panels[idx - 1] ?? _panels[0];
 
       _panels.splice(idx, 1);
 
-      // Activate fallback.
       _activeId = fallback.id;
       _mountPanel(fallback);
       _renderStrip();
+      _notifyActivated(fallback.id);
     },
 
     /**
@@ -282,16 +273,12 @@ export function createWorkspaceManager({ outlet, panelStripMount }) {
      * Destroys the WorkspaceManager.
      * Resets ALL instance state to initial values.
      * Clears outlet DOM and Panel Strip DOM.
-     * Safe to call at any time. Safe to call createWorkspaceManager() again after.
-     *
      * Per spec v1.1 §2.3 and R-17.
      */
     destroy() {
-      // Clear DOM first.
-      outlet.innerHTML = '';
+      outlet.innerHTML       = '';
       panelStripMount.innerHTML = '';
 
-      // Reset all state — identical to pre-create() condition.
       _panels    = [];
       _activeId  = null;
       _renderers = {};

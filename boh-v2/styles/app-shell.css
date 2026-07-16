@@ -1,6 +1,8 @@
 /* BOH OS v2 — App Shell
    Task 003A: authenticated shell layout.
    WS-01: panel strip mount point structural rule added.
+   WS-03.1: dual-outlet layout — workspace outlet and legacy router outlet
+             are siblings; exactly one is visible at a time.
    Primary target: iPhone portrait.
    All values use tokens from tokens.css.
    No navigation styles. No card styles. No login styles.
@@ -33,7 +35,6 @@
   border-bottom: 1px solid var(--border);
   padding: var(--sp-3) var(--sp-4);
   min-height: 52px;
-  /* Prevent header from shrinking below its natural size. */
   flex-shrink: 0;
 }
 
@@ -72,20 +73,16 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--text-secondary);
-  /* Truncation: prevents overflow from long names. */
   max-width: 40%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  /* Readable by assistive technology via textContent. */
 }
 
 /* ── Panel Strip mount point (WS-01) ─────────────────────────────────
    Container for the workspace tab strip.
    Sits between the header and the main content area.
-   When empty (before WorkspaceManager mounts the strip), it occupies
-   zero height and has no visual presence.
-   The strip's own styles live in panel-strip.css.                    */
+   Zero height when empty.                                            */
 .app-shell__panel-strip {
   flex-shrink: 0;
 }
@@ -96,14 +93,41 @@
 .app-shell__main {
   flex: 1;
   overflow-y: auto;
-  /* Smooth momentum scrolling on iOS. */
   -webkit-overflow-scrolling: touch;
   padding: var(--sp-4);
+  /* Stack outlets so only the visible one takes space. */
+  display: flex;
+  flex-direction: column;
 }
 
-/* ── Router outlet ───────────────────────────────────────────────────
-   #app-content is the target element for the router.
-   No minimum height is imposed; pages define their own layout.       */
+/* ── Content outlets (WS-03.1) ───────────────────────────────────────
+   Two sibling outlets inside .app-shell__main.
+   Only the one carrying .app-shell__outlet--visible is shown.
+   The hidden outlet is display:none — takes no space, receives no
+   pointer events, is not visible to screen readers.
+
+   Ownership:
+     #app-content          → WorkspaceManager (workspace panels)
+     #app-content-legacy   → router (Station Home, Prep, etc.)
+
+   Neither system ever writes to the other's outlet.                  */
+.app-shell__outlet {
+  display: none;
+  width: 100%;
+}
+
+.app-shell__outlet--visible {
+  display: block;
+}
+
+/* ── Legacy outlet structural alias ──────────────────────────────────
+   Preserves the #app-content-legacy selector used by the router.    */
+#app-content-legacy {
+  width: 100%;
+}
+
+/* ── Workspace outlet structural alias ───────────────────────────────
+   Preserves the #app-content selector used by WorkspaceManager.     */
 #app-content {
   width: 100%;
 }

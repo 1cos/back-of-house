@@ -2,8 +2,15 @@
 // Task 003A: authenticated App Shell replaces login screen on success.
 // Task 003B: bottom navigation mount target provided by App Shell.
 // Task 003C: station navigation delegated to setupStationNavigation().
-// WS-01: App Shell now returns { shell, panelStripMount }.
-// WS-03: WorkspaceManager created and Home panel opened after authentication.
+// WS-01: App Shell returns { shell, panelStripMount, workspaceOutlet, legacyOutlet }.
+// WS-03: WorkspaceManager created; Home placeholder registered and opened.
+// WS-03.1: dual-outlet surface switching.
+//   - workspaceOutlet (#app-content)        → WorkspaceManager exclusive.
+//   - legacyOutlet    (#app-content-legacy) → router exclusive.
+//   - Only one outlet is visible at a time.
+//   - Activating a workspace panel shows workspaceOutlet, hides legacyOutlet.
+//   - Any legacy router.navigate() shows legacyOutlet, hides workspaceOutlet,
+//     and deactivates the workspace strip (no chip is marked active).
 // Session restore: on page load, restoreSession() checks for an existing
 // brigade_token so returning users skip the PIN screen.
 // No global state. No window writes.
@@ -20,24 +27,22 @@ import { createWorkspaceManager } from './core/workspace-manager.js';
 const root = document.getElementById('app');
 
 if (!root) {
-  throw new Error(
-    'BOH OS v2: mount element #app not found. Check index.html.'
-  );
+  throw new Error('BOH OS v2: mount element #app not found. Check index.html.');
 }
 
 // ── Active WorkspaceManager reference ─────────────────────────────────
-// Held here so destroy() can be called on logout/re-login.
-// null when no shell is mounted (login screen showing).
 let _workspaceManager = null;
+
+// ── Surface references (set in mountShell, cleared in teardownShell) ──
+let _workspaceOutlet = null;
+let _legacyOutlet    = null;
 
 // ── Login screen ──────────────────────────────────────────────────────
 
 function renderLogin() {
   root.innerHTML = `
     <div class="login-card">
-
       <h1 class="login-title">${t('auth.title')}</h1>
-
       <label class="login-label" for="pin-input">${t('auth.pin_label')}</label>
       <input
         id="pin-input"
@@ -49,20 +54,16 @@ function renderLogin() {
         autofocus
         aria-label="${t('auth.pin_label')}"
       >
-
       <p class="login-error" role="alert" aria-live="polite"></p>
-
       <button id="pin-submit" class="btn-primary" type="button">
         ${t('auth.continue')}
       </button>
-
       <span
         class="status-dot"
         data-status="pending"
         aria-label="Checking data connection"
         role="status"
       ></span>
-
     </div>
   `;
 }
@@ -74,7 +75,6 @@ function getPinSubmit() { return root.querySelector('#pin-submit');  }
 function getErrorEl()   { return root.querySelector('.login-error'); }
 function getDot()       { return root.querySelector('.status-dot');  }
 
-// Track in-flight submission to prevent duplicates.
 let submitting = false;
 
 // ── Connection diagnostic (non-blocking) ──────────────────────────────
@@ -82,7 +82,7 @@ let submitting = false;
 function runConnectionDiagnostic() {
   checkSupabaseConnection().then((result) => {
     const dot = getDot();
-    if (!dot) return;   // already replaced by shell — ignore
+    if (!dot) return;
     if (result.ok) {
       dot.dataset.status = 'ready';
       dot.setAttribute('aria-label', 'Data connection ready');
@@ -93,9 +93,37 @@ function runConnectionDiagnostic() {
   });
 }
 
+// ── Surface switching ──────────────────────────────────────────────────
+// Exactly one outlet is visible at any time.
+// Neither function touches the other system's outlet content.
+
+const VISIBLE_CLASS = 'app-shell__outlet--visible';
+
+/**
+ * Show the workspace outlet; hide the legacy router outlet.
+ * Called when a workspace panel is activated.
+ */
+function showWorkspaceSurface() {
+  if (!_workspaceOutlet || !_legacyOutlet) return;
+  _workspaceOutlet.classList.add(VISIBLE_CLASS);
+  _legacyOutlet.classList.remove(VISIBLE_CLASS);
+}
+
+/**
+ * Show the legacy router outlet; hide the workspace outlet.
+ * Called when any legacy navigation item is selected.
+ * Also deactivates the workspace strip's active indicator so no chip
+ * appears falsely selected while legacy content is visible.
+ */
+function showLegacySurface() {
+  if (!_workspaceOutlet || !_legacyOutlet) return;
+  _legacyOutlet.classList.add(VISIBLE_CLASS);
+  _workspaceOutlet.classList.remove(VISIBLE_CLASS);
+}
+
 // ── Home placeholder renderer (WS-03) ─────────────────────────────────
 // Synchronous, returns HTMLElement immediately.
-// Clearly temporary. Will be replaced by the real Home Composition Engine.
+// Clearly temporary — will be replaced by the real Home Composition Engine.
 
 function createHomePlaceholder() {
   const section = document.createElement('section');
@@ -114,18 +142,61 @@ function createHomePlaceholder() {
   return section;
 }
 
+// ── Patched router.navigate (WS-03.1) ─────────────────────────────────
+// Wraps the original router.navigate so that any legacy navigation
+// automatically switches the visible surface to the legacy outlet.
+// The WorkspaceManager's strip is re-rendered with no active chip
+// by deactivating the workspace manager's active state when legacy
+// surfaces take over.
+//
+// Implementation: we intercept at the router level so station-navigation.js
+// needs zero changes. The router's _outlet is already set to legacyOutlet;
+// this wrapper just keeps surfaces in sync.
+
+const _originalNavigate = router.navigate.bind(router);
+
+function patchedNavigate(name) {
+  const result = _originalNavigate(name);
+  if (result) {
+    // A real page rendered — switch surface to legacy.
+    showLegacySurface();
+    // Deactivate the workspace strip (no panel appears highlighted)
+    // by telling the WorkspaceManager that no workspace panel is "current"
+    // from the user's perspective. We do this by stripping the active
+    // class from all chips. The WorkspaceManager's internal _activeId
+    // remains intact so re-activating a workspace panel still works.
+    // We reach this via a lightweight DOM update on the strip only.
+    _syncStripForLegacySurface();
+  }
+  return result;
+}
+
+/**
+ * Walks the current strip DOM and removes the active class from all chips.
+ * Called when legacy surface takes over. Does not touch WorkspaceManager
+ * internal state — the manager still knows which panel is "logically active"
+ * so it can re-mount it correctly when the user taps a chip.
+ */
+function _syncStripForLegacySurface() {
+  const strip = root.querySelector('.ws-strip');
+  if (!strip) return;
+  strip.querySelectorAll('.ws-chip--active').forEach(chip => {
+    chip.classList.remove('ws-chip--active');
+    chip.setAttribute('aria-selected', 'false');
+  });
+}
+
 // ── Shell transition ──────────────────────────────────────────────────
 
 function mountShell(user) {
-  // Destroy any previous WorkspaceManager from a prior login cycle
-  // (handles logout → re-login in the same tab).
+  // Destroy previous WorkspaceManager (logout → re-login in same tab).
   if (_workspaceManager) {
     _workspaceManager.destroy();
     _workspaceManager = null;
   }
 
-  // WS-01: createAppShell now returns { shell, panelStripMount }.
-  const { shell, panelStripMount } = createAppShell({
+  // WS-01/WS-03.1: App Shell returns four named references.
+  const { shell, panelStripMount, workspaceOutlet, legacyOutlet } = createAppShell({
     appName:   t('app.name'),
     modeLabel: t('mode.station'),
     userName:  user.name,
@@ -134,18 +205,39 @@ function mountShell(user) {
   root.innerHTML = '';
   root.appendChild(shell);
 
-  const outlet = root.querySelector('#app-content');
-  router.init(outlet);
+  // Store surface references for switching.
+  _workspaceOutlet = workspaceOutlet;
+  _legacyOutlet    = legacyOutlet;
+
+  // Router owns legacyOutlet exclusively.
+  router.init(legacyOutlet);
+  // Patch navigate so legacy navigations switch the surface automatically.
+  router.navigate = patchedNavigate;
 
   const navMount = root.querySelector('.app-shell__nav-mount');
 
   // ── WS-03: Bootstrap WorkspaceManager ───────────────────────────────
-  _workspaceManager = createWorkspaceManager({ outlet, panelStripMount });
+  // WorkspaceManager owns workspaceOutlet exclusively.
+  // onPanelActivated: when the user taps a workspace chip, switch
+  // the visible surface to the workspace outlet.
+  _workspaceManager = createWorkspaceManager({
+    outlet:           workspaceOutlet,
+    panelStripMount,
+    showAdd:          false,  // no caller wired until WS-04
+    onPanelActivated: (_panelId) => {
+      showWorkspaceSurface();
+    },
+  });
   _workspaceManager.registerRenderer('home', createHomePlaceholder);
+
+  // Open Home — places the chip and mounts placeholder into workspaceOutlet.
+  // Does NOT switch the visible surface yet; legacy starts visible so
+  // Station Home loads normally after setupStationNavigation fires.
   _workspaceManager.openPanel('home', {});
 
-  // Station navigation remains fully operational (WS-04 not yet implemented).
-  // It continues to use the router directly.
+  // Station navigation wired to the legacy outlet via the router.
+  // setupStationNavigation is unchanged — it calls router.navigate() which
+  // now calls patchedNavigate(), keeping surfaces coherent.
   setupStationNavigation({
     router,
     mountElement: navMount,
@@ -153,19 +245,24 @@ function mountShell(user) {
     user,
   });
 
+  // Initial legacy navigation — shows Station Home in legacyOutlet.
+  // legacyOutlet is already visible by default (set in app-shell.js).
+  // patchedNavigate is called here; it shows legacyOutlet and dims the strip.
   router.navigate('station-home');
 }
 
 // ── Logout / cleanup ──────────────────────────────────────────────────
-// Called when re-rendering the login screen after logout.
-// Ensures WorkspaceManager state is fully reset before the login UI appears.
 
 function teardownShell() {
   if (_workspaceManager) {
     _workspaceManager.destroy();
     _workspaceManager = null;
   }
+  _workspaceOutlet = null;
+  _legacyOutlet    = null;
   clearCurrentUser();
+  // Restore the original navigate so the next mountShell gets a clean patch.
+  router.navigate = _originalNavigate;
 }
 
 // ── PIN submission logic ───────────────────────────────────────────────
@@ -184,10 +281,7 @@ function showError(message) {
   const errorEl = getErrorEl();
   const pinInput = getPinInput();
   if (errorEl) errorEl.textContent = message;
-  if (pinInput) {
-    pinInput.value = '';
-    pinInput.focus();
-  }
+  if (pinInput) { pinInput.value = ''; pinInput.focus(); }
 }
 
 function clearError() {
@@ -197,12 +291,10 @@ function clearError() {
 
 async function handleSubmit() {
   if (submitting) return;
-
   const pinInput = getPinInput();
   if (!pinInput) return;
 
   const pin = pinInput.value;
-
   clearError();
   setSubmitting(true);
 
@@ -243,8 +335,6 @@ root.addEventListener('input', (e) => {
 });
 
 // ── Session restore ───────────────────────────────────────────────────
-// Runs once on boot. If a valid brigade_token is in sessionStorage,
-// skip the PIN screen. If not, render login and run diagnostics.
 
 (async function boot() {
   const restored = await restoreSession();
@@ -253,7 +343,6 @@ root.addEventListener('input', (e) => {
     mountShell(restored.user);
     return;
   }
-  // No valid session — show PIN screen and check connectivity.
   renderLogin();
   runConnectionDiagnostic();
 })();
