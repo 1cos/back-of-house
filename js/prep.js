@@ -950,7 +950,15 @@ function renderSuggBlock(sugg, i) {
     >📦 Align Stock</button>
   </div>`;
 
-  return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${descHtml}${rcHtml}${stockHtml}${avgHtml}${confHtml}${trustHtml}${alignStockBtnHtml}</div>`;
+  // ── USE STOCK — TEMPORARY ALLOWLIST (prep_task_id 327 = Berry Coulis only) ──
+  const useStockBtnHtml = (iid2 === 327) ? `<div style="margin-top:6px;">
+    <button
+      onclick="event.stopPropagation();openUseStockSheet(${JSON.stringify(iid2)})"
+      style="width:100%;height:42px;border-radius:12px;font-size:13px;font-weight:700;background:transparent;color:#dc2626;border:1.5px solid #fecaca;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;"
+    >📉 Use Stock</button>
+  </div>` : '';
+
+  return `<div style="margin-top:4px;">${pillHtml}${actionQtyHtml}${descHtml}${rcHtml}${stockHtml}${avgHtml}${confHtml}${trustHtml}${alignStockBtnHtml}${useStockBtnHtml}</div>`;
 }
 
 // ── TRUST VIEW BLOCK ─────────────────────────────────────────────────────────
@@ -1742,12 +1750,19 @@ function alignStockBtn(i) {
   // benefit from Align Stock.
   if (!i.recipe_id && !i.ingredient_id) return '';
   const iid = i.id;
+  // ── USE STOCK — TEMPORARY ALLOWLIST (prep_task_id 327 = Berry Coulis only) ──
+  const useStockHtml = (iid === 327) ? `<div style="margin-top:6px;">
+    <button
+      onclick="event.stopPropagation();openUseStockSheet(${JSON.stringify(iid)})"
+      style="width:100%;height:38px;border-radius:10px;font-size:12px;font-weight:700;background:transparent;color:#dc2626;border:1px solid #fecaca;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;"
+    >📉 Use Stock</button>
+  </div>` : '';
   return `<div style="margin-top:6px;">
     <button
       onclick="event.stopPropagation();openStockCountSheet(${JSON.stringify(iid)})"
       style="width:100%;height:38px;border-radius:10px;font-size:12px;font-weight:700;background:transparent;color:#94a3b8;border:1px solid #e2e8f0;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;"
     >📦 Align Stock</button>
-  </div>`;
+  </div>${useStockHtml}`;
 }
 
 // ── COLORE BORDO card ──
@@ -4472,3 +4487,302 @@ window._scRetry = async function(id, countId) {
 
   if (typeof renderM === 'function') renderM();
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USE STOCK — Manual Usage Sheet
+// record-stock-usage Edge Function → record_stock_usage RPC
+// entry_mode always forward_deduction (deficit_explanation not exposed to kitchen)
+// ALLOWLIST: prep_task_id 327 (Berry Coulis) only during runtime testing
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _USS_REASON_CODES = [
+  { code: 'family_meal',        label: 'Family Meal' },
+  { code: 'staff_meal',         label: 'Staff Meal' },
+  { code: 'kitchen_test',       label: 'Kitchen Test' },
+  { code: 'recipe_development', label: 'Recipe Development' },
+  { code: 'tasting',            label: 'Tasting' },
+  { code: 'waste',              label: 'Waste' },
+  { code: 'spoilage',           label: 'Spoilage' },
+  { code: 'catering',           label: 'Catering' },
+  { code: 'transfer',           label: 'Transfer' },
+  { code: 'other',              label: 'Other' },
+];
+
+window.openUseStockSheet = function(id) {
+  const it = tasks[id];
+  if (!it) return;
+
+  // Remove any existing sheet
+  const existing = document.getElementById('useStockSheet');
+  if (existing) existing.remove();
+
+  const displayUnit = it.unit || 'units';
+  const curStock = it.current_stock;
+  const curStockStr = (curStock === null || curStock === undefined)
+    ? 'Unknown'
+    : (typeof humanQty === 'function'
+        ? (humanQty(parseFloat(curStock), it.unit) || curStock + ' ' + displayUnit)
+        : curStock + ' ' + displayUnit);
+
+  const reasonOptions = _USS_REASON_CODES.map(r =>
+    `<option value="${r.code}">${r.label}</option>`
+  ).join('');
+
+  const sheet = document.createElement('div');
+  sheet.id = 'useStockSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(15,23,42,0.55);display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;';
+
+  sheet.innerHTML = `
+    <div id="useStockSheetInner" style="width:100%;max-width:448px;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 32px rgba(30,58,95,0.18);padding:20px 16px 40px;">
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:0.5px;">USE STOCK</div>
+          <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-top:2px;">${it.name || 'Prep'}</div>
+        </div>
+        <button onclick="document.getElementById('useStockSheet').remove()" style="width:32px;height:32px;border-radius:50%;background:#f1f5f9;border:none;font-size:16px;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+      </div>
+
+      <!-- Current available stock -->
+      <div style="background:#fef2f2;border-radius:12px;padding:12px 14px;margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">Available stock</div>
+        <div style="font-size:15px;font-weight:700;color:#1e3a5f;" id="ussCurrentStock-${id}">${curStockStr}</div>
+      </div>
+
+      <!-- Quantity -->
+      <div style="margin-bottom:14px;">
+        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;">Quantity used</div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <input
+            id="ussQtyInput-${id}"
+            type="number"
+            min="0.1"
+            step="0.1"
+            placeholder="0"
+            style="width:100px;height:52px;border:2px solid #cbd5e1;border-radius:12px;font-size:22px;font-weight:700;text-align:center;color:#1e3a5f;background:#fff;outline:none;"
+            onclick="event.stopPropagation();"
+            onfocus="this.style.borderColor='#dc2626';"
+            onblur="this.style.borderColor='#cbd5e1';"
+            oninput="window._ussValidate(${JSON.stringify(id)})"
+          >
+          <span style="font-size:15px;color:#64748b;font-weight:600;">${displayUnit}</span>
+        </div>
+      </div>
+
+      <!-- Reason -->
+      <div style="margin-bottom:14px;">
+        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;">Reason</div>
+        <select
+          id="ussReasonSelect-${id}"
+          onchange="window._ussValidate(${JSON.stringify(id)})"
+          onclick="event.stopPropagation();"
+          style="width:100%;height:46px;border:2px solid #cbd5e1;border-radius:12px;font-size:14px;font-weight:600;color:#1e3a5f;background:#fff;padding:0 12px;outline:none;-webkit-appearance:auto;"
+        >
+          <option value="">Select reason…</option>
+          ${reasonOptions}
+        </select>
+      </div>
+
+      <!-- Note (optional) -->
+      <div style="margin-bottom:20px;">
+        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;">Note <span style="font-weight:400;color:#94a3b8;">(optional)</span></div>
+        <input
+          id="ussNoteInput-${id}"
+          type="text"
+          placeholder="e.g. tasted for specials menu"
+          maxlength="200"
+          onclick="event.stopPropagation();"
+          style="width:100%;height:44px;border:2px solid #cbd5e1;border-radius:12px;font-size:14px;color:#1e3a5f;background:#fff;padding:0 12px;outline:none;box-sizing:border-box;"
+          onfocus="this.style.borderColor='#94a3b8';"
+          onblur="this.style.borderColor='#cbd5e1';"
+        >
+      </div>
+
+      <!-- Save button -->
+      <button
+        id="ussSubmitBtn-${id}"
+        disabled
+        onclick="event.stopPropagation();window._ussSave(${JSON.stringify(id)})"
+        style="width:100%;height:50px;border-radius:14px;font-size:15px;font-weight:700;background:#94a3b8;color:white;border:none;cursor:not-allowed;letter-spacing:0.03em;transition:background 0.15s;-webkit-tap-highlight-color:transparent;"
+      >SAVE USAGE</button>
+
+      <!-- Result area -->
+      <div id="ussResult-${id}" style="margin-top:12px;"></div>
+    </div>`;
+
+  document.body.appendChild(sheet);
+
+  // Close on backdrop tap
+  sheet.addEventListener('click', (e) => {
+    if (e.target === sheet) sheet.remove();
+  });
+
+  // Focus qty input
+  const inp = document.getElementById('ussQtyInput-' + id);
+  if (inp) setTimeout(() => inp.focus(), 300);
+};
+
+// Validate qty + reason → enable/disable Save
+window._ussValidate = function(id) {
+  const qtyInp = document.getElementById('ussQtyInput-' + id);
+  const sel    = document.getElementById('ussReasonSelect-' + id);
+  const btn    = document.getElementById('ussSubmitBtn-' + id);
+  if (!qtyInp || !sel || !btn) return;
+  const qty   = parseFloat(qtyInp.value);
+  const valid = !isNaN(qty) && qty > 0 && sel.value !== '';
+  btn.disabled = !valid;
+  btn.style.background = valid ? '#dc2626' : '#94a3b8';
+  btn.style.cursor     = valid ? 'pointer'  : 'not-allowed';
+};
+
+// Main save — calls record-stock-usage EF
+window._ussSave = async function(id) {
+  const it  = tasks[id];
+  if (!it) return;
+
+  const qtyInp  = document.getElementById('ussQtyInput-' + id);
+  const sel     = document.getElementById('ussReasonSelect-' + id);
+  const noteInp = document.getElementById('ussNoteInput-' + id);
+  const btn     = document.getElementById('ussSubmitBtn-' + id);
+  const res     = document.getElementById('ussResult-' + id);
+  if (!qtyInp || !sel || !btn) return;
+
+  const qty        = parseFloat(qtyInp.value);
+  const reasonCode = sel.value;
+  const noteVal    = (noteInp && noteInp.value.trim()) ? noteInp.value.trim() : null;
+
+  if (isNaN(qty) || qty <= 0 || !reasonCode) return;
+
+  // Generate client_key once per submission — stored on button for idempotency
+  if (!btn.dataset.clientKey) {
+    btn.dataset.clientKey = crypto.randomUUID();
+  }
+  const clientKey = btn.dataset.clientKey;
+
+  // Disable immediately — prevent double-tap
+  btn.disabled = true;
+  btn.style.background = '#94a3b8';
+  btn.style.cursor = 'not-allowed';
+  btn.textContent = 'Saving…';
+  if (res) res.innerHTML = '';
+
+  const brigadeToken = sessionStorage.getItem('brigade_token') || '';
+  const efBase = (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : window.SUPABASE_URL);
+
+  let result = null;
+  try {
+    const resp = await fetch(efBase + '/functions/v1/record-stock-usage', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + brigadeToken,
+      },
+      body: JSON.stringify({
+        prep_task_id: id,
+        qty:          qty,
+        unit:         it.unit || 'g',
+        entry_mode:   'forward_deduction',
+        reason_code:  reasonCode,
+        client_key:   clientKey,
+        notes:        noteVal,
+      }),
+    });
+    result = await resp.json();
+  } catch (e) {
+    // Network error — restore button
+    if (btn) {
+      btn.disabled = false;
+      btn.style.background = '#dc2626';
+      btn.style.cursor = 'pointer';
+      btn.textContent = 'SAVE USAGE';
+    }
+    if (res) res.innerHTML = '<div style="font-size:13px;color:#dc2626;margin-top:4px;">Network error. Please try again.</div>';
+    return;
+  }
+
+  if (!result || !result.ok) {
+    // Hard failure — restore button, show real error
+    if (btn) {
+      btn.disabled = false;
+      btn.style.background = '#dc2626';
+      btn.style.cursor = 'pointer';
+      btn.textContent = 'SAVE USAGE';
+    }
+    const errMsg = result?.error || 'Unknown error';
+    if (res) res.innerHTML = `<div style="font-size:13px;color:#dc2626;margin-top:4px;">Could not save: ${errMsg}</div>`;
+    return;
+  }
+
+  // ── SUCCESS ───────────────────────────────────────────────────────────────
+  const stockAfter   = result.stock_after;
+  const stockBefore  = result.stock_before;
+  const qtyNative    = result.qty_native;
+  const taskUnit     = result.unit || it.unit || '';
+  const recordedBy   = result.recorded_by || (window.user?.name || '');
+  const isDuplicate  = result.duplicate_skipped === true;
+  const logId        = result.log_id;
+
+  // Format human-readable quantities
+  const qtyHuman   = (typeof humanQty === 'function')
+    ? (humanQty(parseFloat(qtyNative), taskUnit) || qtyNative + ' ' + taskUnit)
+    : qtyNative + ' ' + taskUnit;
+  const afterHuman = (typeof humanQty === 'function')
+    ? (humanQty(parseFloat(stockAfter), taskUnit) || stockAfter + ' ' + taskUnit)
+    : stockAfter + ' ' + taskUnit;
+
+  // CDT time
+  const nowCDT = new Date().toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Chicago'
+  });
+
+  // Reason label
+  const reasonLabel = (_USS_REASON_CODES.find(r => r.code === reasonCode) || {}).label || reasonCode;
+
+  // Update local state immediately from server-confirmed stock_after
+  if (!isDuplicate) {
+    tasks[id].current_stock = stockAfter;
+    if (items) {
+      const idx = items.findIndex(x => x.id === id);
+      if (idx >= 0) items[idx].current_stock = stockAfter;
+    }
+  }
+
+  // Result UI
+  if (res) {
+    res.innerHTML = `
+      <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:10px 12px;margin-top:4px;">
+        <div style="font-size:12px;font-weight:700;color:#dc2626;">📉 ${isDuplicate ? 'Already recorded.' : 'Usage recorded.'}</div>
+        <div style="font-size:14px;font-weight:700;color:#1e3a5f;margin-top:4px;">${qtyHuman} — ${reasonLabel}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px;">By ${recordedBy} · ${nowCDT} CDT · log #${logId}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px;">Stock now: ${afterHuman}</div>
+      </div>`;
+  }
+
+  if (btn) {
+    btn.textContent = isDuplicate ? 'Already saved ✓' : 'Saved ✓';
+    btn.style.background = '#059669';
+    btn.disabled = true;
+  }
+
+  // Reload live prep_tasks.current_stock from DB, then re-render card
+  try {
+    const { data: freshRows } = await supa
+      .from('prep_tasks')
+      .select('id,name,unit,current_stock,suggested_qty,suggested_note,suggested_by,in_progress,in_progress_at,in_progress_by,recipe_id,ingredient_id,sources_json,min_cover_days')
+      .eq('id', id)
+      .limit(1);
+    if (freshRows && freshRows.length) {
+      const fresh = freshRows[0];
+      tasks[id] = { ...tasks[id], ...fresh };
+      if (items) {
+        const idx2 = items.findIndex(x => x.id === id);
+        if (idx2 >= 0) items[idx2] = { ...items[idx2], ...fresh };
+      }
+    }
+  } catch (_) {
+    // Live reload failed — local state already updated above
+  }
+
+  if (typeof renderM === 'function') renderM();
+};
+
