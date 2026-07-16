@@ -133,36 +133,21 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
   let _scrollViewDone = false;
 
   function _onFocus() {
-    _scrollViewDone = false;
+    _scrollViewDone = true;  // no-op guard
     bar.classList.add('command-bar--focused');
 
     // Run diagnostics (dev only)
     _diagFired = false;
     setTimeout(_runDiagnostics, 600);
-
-    // Single scrollIntoView, only if input is actually below the visible area.
-    // Fires after keyboard has time to settle (500ms).
-    // Uses the bar element, not the textarea, so the whole bar is revealed.
-    setTimeout(() => {
-      if (document.activeElement !== textarea) return;
-      if (_scrollViewDone) return;
-      _scrollViewDone = true;
-      const rect = bar.getBoundingClientRect();
-      const vv   = window.visualViewport || null;
-      // Check if bar's bottom is below the visual viewport bottom
-      const vvBottom = vv ? vv.pageTop + vv.height : window.innerHeight;
-      if (rect.bottom > vvBottom - 4) {
-        bar.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
-    }, 500);
+    // UI-06.5: no scrollIntoView — bar is a static flex child of .app-shell.
+    // The shell shrinks with visualViewport.height; bar stays at the bottom
+    // naturally without any scrolling manipulation.
   }
 
   function _onBlur() {
     _scrollViewDone = false;
     bar.classList.remove('command-bar--focused');
-    // No position writes. CSS bottom:0 is always in effect.
   }
-
   // ── Mic toast ─────────────────────────────────────────────────────
   function _showMicToast() {
     const existing = document.querySelector('.cb-mic-toast');
@@ -330,3 +315,4 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
 
   return { el: bar, destroy };
 }
+
