@@ -24,7 +24,7 @@ const L = {
   finish:     { it:'✓ Fatto',      en:'✓ Done',      es:'✓ Listo'      },
   noIng:      { it:'Nessun ingrediente.\nAggiungi BOM per vederli.', en:'No ingredients linked.\nAdd BOM entries to see them.', es:'Sin ingredientes.\nAgrega entradas BOM.' },
   noSteps:    { it:'Nessuno step aggiunto.', en:'No steps added yet.', es:'Sin pasos agregados.' },
-  noNotes:    { it:'Nessuna nota.',           en:'No notes.',            es:'Sin notas.'           },
+  noNotes:    { it:'Nessuna nota.',           en:'No notes available.',  es:'Sin notas.'           },
   yieldLbl:   { it:'Resa',          en:'Yield',        es:'Rendimiento'   },
   shelfLbl:   { it:'Conservazione', en:'Shelf life',   es:'Conservación'  },
   equipLbl:   { it:'Attrezzatura',  en:'Equipment',    es:'Equipamiento'  },
@@ -891,7 +891,7 @@ window.recipeModal={
         if(rec.shelf_life_days) rows.push(['📅',`<strong>${t('shelfLbl')}:</strong> ${rec.shelf_life_days} ${rec.shelf_life_days===1?t('day'):t('days')}`]);
         if(rec.prep_time_minutes) rows.push(['⏱',`<strong>Prep:</strong> ${rec.prep_time_minutes} min`]);
         if(rec.equipment) rows.push(['🔧',`<strong>${t('equipLbl')}:</strong> ${rec.equipment}`]);
-        const procLang=(lang==='it'&&rec.procedure)?rec.procedure:(lang==='es'&&rec.procedure_es)?rec.procedure_es:(rec.procedure_en||rec.procedure||'');
+        const _lang=window.user?.lang||'en'; const procLang=(_lang==='it'&&rec.procedure)?rec.procedure:(_lang==='es'&&rec.procedure_es)?rec.procedure_es:(rec.procedure_en||rec.procedure||'');
         if(procLang) rows.push(['📝',procLang]);
         if(!rows.length) return `<div class="rm-empty"><div class="rm-empty-icon">📝</div>${t('noNotes')}</div>`;
         return `<div class="rm-notes-card">${rows.map(([icon,text])=>`<div class="rm-note-row"><span class="rm-note-icon">${icon}</span><div class="rm-note-text">${text}</div></div>`).join('')}</div>`;
