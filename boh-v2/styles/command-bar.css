@@ -1,40 +1,28 @@
 /* BOH OS v2 — Command Bar
-   UI-06.4: CSS-first. Zero JS keyboard positioning.
+   UI-06.5: Flex child of App Shell. Not position:fixed.
    ------------------------------------------------------------------
+   The Command Bar is now the final flex child of .app-shell.
+   It participates in normal flex layout:
+     flex-shrink: 0  → never shrinks
+     position: relative (or default static)
 
-   POSITIONING MODEL:
-   position: fixed; bottom: 0; left: 0; right: 0.
+   When the keyboard opens:
+     visualViewport.height shrinks → --app-visible-height shrinks
+     → .app-shell shrinks → .app-shell__main shrinks
+     → Command Bar stays as the natural bottom row
+     → no position math needed.
 
-   That is the complete keyboard model. iOS Safari raises position:fixed
-   elements when the software keyboard opens — in both browser and PWA
-   standalone mode — as long as JS is not simultaneously writing
-   inline bottom/top styles that fight it.
+   The .app-shell__main padding-bottom clears the Command Bar height
+   so the final Prep card is always reachable.
 
-   All previous attempts (UI-06.1 through UI-06.3) were actively
-   preventing the browser's correct native behavior. Removed.
-
-   SCROLL CONTAINER:
-   .app-shell__main gets a static bottom padding = Command Bar resting
-   height (≈ 60px) + safe-area inset. No JS writes to paddingBottom.
-
-   NATIVE iOS ACCESSORY TOOLBAR:
-   The prev/next/Done bar above the keyboard is native iOS UI. It sits
-   between our bar and the keyboard face. We cannot remove it for a
-   <textarea> and it is not the gap bug — the gap bug was our own JS
-   computing wrong coordinates.
-
-   NO DOCK ELEMENT. No blank filler. No keyboard-height math.
+   NO position:fixed. NO top/bottom offset. NO keyboard math.
+   NO dock/scrim. NO scrollIntoView.
    ------------------------------------------------------------------ */
 
 /* ── Bar container ───────────────────────────────────────────────────
-   Fixed at viewport bottom. iOS raises this above the keyboard.     */
+   Normal flex child — not positioned.                                */
 .command-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 50;
-
+  flex-shrink: 0;         /* never shrink */
   display: flex;
   align-items: flex-end;
   gap: var(--sp-2);
@@ -44,13 +32,14 @@
   box-shadow: 0 -2px 16px rgba(30, 58, 95, 0.10);
 
   padding: var(--sp-2) var(--sp-3);
+  /* Bottom safe area for iPhone home indicator */
   padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom, 0px));
 
   box-sizing: border-box;
   width: 100%;
 }
 
-/* Optional visual state: focused textarea gives bar a mild highlight */
+/* Optional: focused state styling */
 .command-bar--focused {
   box-shadow: 0 -2px 20px rgba(37, 99, 235, 0.12);
 }
@@ -83,7 +72,7 @@
 .command-bar__btn--mic    { font-size: 19px; }
 
 /* ── Textarea ────────────────────────────────────────────────────────
-   1–3 line grow. 16px prevents iOS auto-zoom on focus.              */
+   1–3 line grow. 16px prevents iOS auto-zoom.                        */
 .command-bar__input {
   flex: 1;
   min-width: 0;
@@ -114,16 +103,9 @@
   overflow-y: auto;
 }
 
-/* ── Scroll container clearance ──────────────────────────────────────
-   Static. Bar resting height ≈ 60px plus safe-area.
-   Not changed by JS. Keyboard clearance is handled by the browser's
-   native position:fixed elevation behavior.                          */
-.app-shell__main {
-  padding-bottom: calc(72px + max(var(--sp-4), env(safe-area-inset-bottom, 0px)));
-}
-
 /* ── Sheet backdrop ──────────────────────────────────────────────────
-   z-index 200 — above bar (50).                                      */
+   The Command Bar is no longer position:fixed, but sheets still need
+   to cover the entire viewport. They use position:fixed on body.    */
 .cb-sheet-backdrop {
   position: fixed;
   inset: 0;
