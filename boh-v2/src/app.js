@@ -36,6 +36,9 @@ import { completePrepTaskRpc } from './services/prep-complete-rpc-service.js';
 import { passPrepToShift } from './services/prep-pass-service.js';
 import { fetchAvailableStations } from './services/station-list-service.js';
 import { createCommandBar } from './components/command-bar/command-bar.js';
+
+// ── Home Panel ─────────────────────────────────────────────────────────
+import { createHomePanel } from './home/home-panel.js';
 const root = document.getElementById('app');
 
 if (!root) {
@@ -104,25 +107,31 @@ function runConnectionDiagnostic() {
   });
 }
 
-// ── Home placeholder renderer ─────────────────────────────────────────
-// Synchronous, returns HTMLElement immediately.
-// Will be replaced by the real Home Composition Engine in a future session.
+// ── Home renderer factory ─────────────────────────────────────────────
+// HOME-01: real Home panel. Returns HTMLElement immediately (skeleton-first).
+// Wraps createHomePanel so WorkspaceManager receives the synchronous element.
+// Per block lifecycle: skeleton is returned; fetches run asynchronously.
+//
+// destroy() is tracked so blocks are cleaned up on logout.
 
-function createHomePlaceholder() {
-  const section = document.createElement('section');
-  section.className = 'home-placeholder';
+let _homePanelDestroy = null;
 
-  const heading = document.createElement('h2');
-  heading.className = 'home-placeholder__title';
-  heading.textContent = 'Home';
-
-  const body = document.createElement('p');
-  body.className = 'home-placeholder__body';
-  body.textContent = 'Workspace foundation active. Home panel coming soon.';
-
-  section.appendChild(heading);
-  section.appendChild(body);
-  return section;
+function makeHomeRenderer(user) {
+  return function homeRenderer(/* context — unused for home */) {
+    // Destroy previous home panel instance if re-created on the same session
+    if (_homePanelDestroy) {
+      _homePanelDestroy();
+      _homePanelDestroy = null;
+    }
+    const { root, destroy } = createHomePanel({
+      user,
+      translate:  t,
+      openPanel:  (type, ctx) => _workspaceManager && _workspaceManager.openPanel(type, ctx),
+      can:        (perm, u) => can(perm, u ?? user),
+    });
+    _homePanelDestroy = destroy;
+    return root;
+  };
 }
 
 // ── Station Selector modal (executive chef / admin '+' button) ────────
@@ -233,7 +242,7 @@ function mountShell(user) {
 
   // ── Register renderers ───────────────────────────────────────────
 
-  _workspaceManager.registerRenderer('home', createHomePlaceholder);
+  _workspaceManager.registerRenderer('home', makeHomeRenderer(user));
 
   // station-prep renderer — skeleton-first pattern (createStationPrep returns
   // a DOM element immediately and populates it asynchronously with isConnected guards).
