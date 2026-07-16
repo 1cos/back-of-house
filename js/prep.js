@@ -969,48 +969,109 @@ function renderSuggBlock(sugg, i) {
     <div id="uss-form-${iid2}" style="display:none;"></div>
   </div>` : '';
 
-  // ── CLOSED CARD PILOT (boh-v676) ─────────────────────────────────────────
-  // Progressive disclosure for LOOKS GOOD and DO FIRST cards only.
+  // ── CLOSED CARD PILOT (boh-v677) ─────────────────────────────────────────
+  // Compact progressive disclosure for:
+  //   looks_ok     → LOOKS GOOD
+  //   do_first     → DO FIRST
+  //   prep_today   → DO TODAY
+  //   _stockVerifiedOk (any underlying status) → STOCK VERIFIED
+  //
+  // Intentionally frozen card types (PRODUCT REVIEW — do not include here):
+  //   count_first   → COUNT_FIRST        FROZEN FOR PRODUCT REVIEW
+  //   staged_check  → STAGED_CHECK       FROZEN FOR PRODUCT REVIEW
+  //   no_demand_path→ CHECK/VERIFY       FROZEN FOR PRODUCT REVIEW
+  //   out_of_scope  → N/A                FROZEN FOR PRODUCT REVIEW
+  //   (Brussels Sprouts Ready to Sell and similar STAGED_CHECK cards are FROZEN FOR PRODUCT REVIEW)
+  //
   // Closed state answers: status · on hand · what to do today.
   // Details toggle expands all existing content inline — no modal, no sheet.
-  if ((status === 'looks_ok' || status === 'do_first') && !_stockVerifiedOk) {
+
+  const _isPilotStatus = _stockVerifiedOk ||
+    status === 'looks_ok' || status === 'do_first' || status === 'prep_today';
+
+  if (_isPilotStatus) {
     const _iidPilot = i.id;
 
-    // On hand row — live stock, formatted
+    // ── On hand row — live stock, formatted ──────────────────────────────
     const _onHandVal = stockStr !== null ? stockStr : '—';
-    const _onHandColor = (status === 'do_first' && stockStr !== null && parseFloat(_liveStockSugg.current_stock) === 0)
+    // Red on-hand only when genuinely zero AND action is needed
+    const _onHandColor = ((status === 'do_first' || status === 'prep_today') &&
+                          stockStr !== null && parseFloat(_liveStockSugg.current_stock) === 0)
       ? '#dc2626' : '#1e3a5f';
     const _onHandHtml = `<div style="margin-top:6px;display:flex;align-items:center;gap:6px;">` +
       `<span style="font-size:12px;color:#94a3b8;font-weight:500;">On hand</span>` +
       `<span style="font-size:14px;font-weight:700;color:${_onHandColor};">${_onHandVal}</span>` +
       `</div>`;
 
-    // Prep today row — only for DO FIRST (with quantity)
-    let _prepTodayHtml = '';
-    if (status === 'do_first') {
+    // ── Today row ────────────────────────────────────────────────────────
+    let _todayHtml = '';
+    if (_stockVerifiedOk) {
+      // STOCK VERIFIED: no production needed
+      _todayHtml = `<div style="margin-top:4px;display:flex;align-items:center;gap:6px;">` +
+        `<span style="font-size:12px;color:#94a3b8;font-weight:500;">Today</span>` +
+        `<span style="font-size:13px;font-weight:700;color:#059669;">No prep</span>` +
+        `</div>`;
+    } else if (status === 'looks_ok') {
+      _todayHtml = `<div style="margin-top:4px;display:flex;align-items:center;gap:6px;">` +
+        `<span style="font-size:12px;color:#94a3b8;font-weight:500;">Today</span>` +
+        `<span style="font-size:13px;font-weight:700;color:#059669;">No prep</span>` +
+        `</div>`;
+    } else if (status === 'do_first' || status === 'prep_today') {
       const _ptVal = displayLabel || 'Check stock';
-      const _ptColor = '#dc2626';
-      _prepTodayHtml = `<div style="margin-top:4px;display:flex;align-items:center;gap:6px;">` +
+      const _ptColor = status === 'do_first' ? '#dc2626' : '#ea580c';
+      _todayHtml = `<div style="margin-top:4px;display:flex;align-items:center;gap:6px;">` +
         `<span style="font-size:12px;color:#94a3b8;font-weight:500;">Prep today</span>` +
         `<span style="font-size:14px;font-weight:800;color:${_ptColor};letter-spacing:-0.01em;">${_ptVal}</span>` +
         `</div>`;
     }
 
-    // Closed actions — Align Stock (secondary) + START PREP (primary, DO FIRST only)
+    // ── STOCK VERIFIED: compact count + usage lines ───────────────────────
+    // Shows: ✅ Aligned by [name] · [time]   and   − [used qty] (if available)
+    let _svInlineHtml = '';
+    if (_stockVerifiedOk) {
+      const _svCntPilot = (window._recentCounts || {})[_iidPilot];
+      const _svCntPilotValid = _svCntPilot && (!_svCntPilot.expires_at || new Date(_svCntPilot.expires_at) > new Date());
+      if (_svCntPilotValid && _svCntPilot.counted_by) {
+        const _svTime = _svCntPilot.counted_at
+          ? new Date(_svCntPilot.counted_at).toLocaleTimeString('en-US', {
+              hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Chicago'
+            })
+          : '';
+        _svInlineHtml += `<div style="margin-top:4px;font-size:11px;color:#059669;font-weight:600;">` +
+          `✅ Aligned by ${_svCntPilot.counted_by}${_svTime ? ' · ' + _svTime : ''}</div>`;
+      }
+      // Usage line — from _dailyTrustData if available and not an error
+      if (!window._dailyTrustError) {
+        const _svTrust = (window._dailyTrustData || {})[_iidPilot];
+        if (_svTrust && _svTrust.usedOk && _svTrust.used !== null && _svTrust.used > 0 && !_svTrust.usedIncompat) {
+          const _svUsedFmt = _fmtN(_svTrust.used, outUnit);
+          if (_svUsedFmt) {
+            _svInlineHtml += `<div style="margin-top:2px;font-size:11px;color:#64748b;">` +
+              `Used last night: <span style="font-weight:700;color:#dc2626;">−${_svUsedFmt}</span></div>`;
+          }
+        }
+      }
+    }
+
+    // ── Closed actions — Align Stock (secondary) + START PREP (primary, action states only) ──
     const _alignClosedHtml = `<div style="margin-top:10px;">` +
       `<button onclick="event.stopPropagation();openStockCountSheet(${JSON.stringify(_iidPilot)})" ` +
       `style="width:100%;height:38px;border-radius:10px;font-size:12px;font-weight:700;background:transparent;color:#94a3b8;border:1px solid #e2e8f0;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;">` +
       `📦 Align Stock</button></div>`;
 
-    const _startClosedHtml = status === 'do_first'
+    // Use Stock — preserved where already enabled (Berry Coulis allowlist)
+    const _useStockClosedHtml = useStockBtnHtml
+      ? `<div style="margin-top:6px;">${useStockBtnHtml}</div>` : '';
+
+    const _needsStartBtn = !_stockVerifiedOk && (status === 'do_first' || status === 'prep_today');
+    const _startClosedHtml = _needsStartBtn
       ? `<div style="margin-top:6px;">` +
         `<button onclick="event.stopPropagation();prepStart(${JSON.stringify(_iidPilot)})" ` +
         `style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;-webkit-tap-highlight-color:transparent;cursor:pointer;">` +
         `START PREP</button></div>`
       : '';
 
-    // Details section — all existing content collapsed
-    // Admin-only: audit + chefAi buttons (moved here from outer wrapper for pilot cards)
+    // ── Details — all verbose content collapsed inline ────────────────────
     const _hasBotNote = !!(i.suggested_note && i.suggested_note.includes('|'));
     const _adminDetailBtns = isAdmin_
       ? `<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px;">` +
@@ -1019,16 +1080,16 @@ function renderSuggBlock(sugg, i) {
         (_hasBotNote ? `<button class="chef-ai-explain-btn" onclick="event.stopPropagation();chefAiExplainBot(${JSON.stringify(_iidPilot)})" style="font-size:11px;font-weight:700;color:#7c3aed;background:linear-gradient(135deg,rgba(245,243,255,0.9),rgba(237,233,254,0.9));border:1px solid #c4b5fd;border-radius:6px;padding:2px 8px;cursor:pointer;">📉 Spiega suggerimento bot</button>` : '') +
         `</div>`
       : '';
+
     const _detailsInnerHtml =
       (descHtml ? `<div style="margin-top:8px;">${descHtml}</div>` : '') +
       (rcHtml   ? `<div style="margin-top:4px;">${rcHtml}</div>` : '') +
       (avgHtml  ? `<div style="margin-top:4px;">${avgHtml}</div>` : '') +
       (confHtml ? `<div style="margin-top:4px;">${confHtml}</div>` : '') +
       (trustHtml? `<div style="margin-top:0;">${trustHtml}</div>` : '') +
-      (status === 'looks_ok'
+      ((status === 'looks_ok' || (_stockVerifiedOk && status !== 'do_first' && status !== 'prep_today'))
         ? `<div style="margin-top:8px;"><button onclick="event.stopPropagation();prepStart(${JSON.stringify(_iidPilot)})" style="width:100%;height:46px;border-radius:12px;font-size:14px;font-weight:600;background:transparent;color:#059669;border:1.5px solid #bbf7d0;letter-spacing:0.02em;-webkit-tap-highlight-color:transparent;cursor:pointer;">Prep anyway</button></div>`
         : '') +
-      (useStockBtnHtml ? `<div style="margin-top:6px;">${useStockBtnHtml}</div>` : '') +
       _adminDetailBtns;
 
     const _detailsHtml = `<details style="margin-top:8px;" onclick="event.stopPropagation();">` +
@@ -1038,7 +1099,7 @@ function renderSuggBlock(sugg, i) {
       `<div style="margin-top:6px;">${_detailsInnerHtml}</div>` +
       `</details>`;
 
-    return `<div style="margin-top:4px;">${pillHtml}${_onHandHtml}${_prepTodayHtml}${_detailsHtml}${_alignClosedHtml}${_startClosedHtml}</div>`;
+    return `<div style="margin-top:4px;">${pillHtml}${_onHandHtml}${_todayHtml}${_svInlineHtml}${_detailsHtml}${_alignClosedHtml}${_useStockClosedHtml}${_startClosedHtml}</div>`;
   }
   // ── END CLOSED CARD PILOT ─────────────────────────────────────────────────
 
@@ -1963,23 +2024,24 @@ function cardButton(i){
   }
   if (_ct2 === 'BLOCKED')     return '';                       // setup mancante
   if (_ct2 === 'CHEF_REVIEW') return '';                       // nessun dato
-  if (_ct2 === 'COUNT_FIRST') return '';                       // Save count è nel card block
-  if (_ct2 === 'STAGED_CHECK') return '';                      // Save count è nel card block
+  if (_ct2 === 'COUNT_FIRST') return '';  // FROZEN FOR PRODUCT REVIEW — save count is in card block
+  if (_ct2 === 'STAGED_CHECK') return ''; // FROZEN FOR PRODUCT REVIEW — save count is in card block
 
   // ── Step 2: SUGG_* card types ─────────────────────────────────────────
   if (_ct2 === 'SUGG_COUNT_FIRST') {
+    // FROZEN FOR PRODUCT REVIEW — compact layout not applied to count-first cards
     return `<button onclick="event.stopPropagation();prepContaPrima(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#ca8a04;color:white;border:none;letter-spacing:0.03em;">COUNT FIRST</button>`;
   }
   if (_ct2 === 'SUGG_LOOKS_OK' || _ct2 === 'SUGG_DEFER') {
-    // Closed card pilot (boh-v676): LOOKS_OK button lives inside renderSuggBlock
+    // Closed card pilot (boh-v677): button lives inside renderSuggBlock
     const _sg = (window._suggestions || {})[iid];
     if (_sg && _sg.status === 'looks_ok') return '';
     return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:14px;font-weight:600;background:transparent;color:#059669;border:1.5px solid #bbf7d0;letter-spacing:0.02em;">Preparo ugualmente</button>`;
   }
   if (_ct2 === 'SUGG_DO_FIRST' || _ct2 === 'SUGG_PREP_TODAY') {
-    // Closed card pilot (boh-v676): DO_FIRST button lives inside renderSuggBlock
+    // Closed card pilot (boh-v677): button lives inside renderSuggBlock for do_first + prep_today
     const _sg2 = (window._suggestions || {})[iid];
-    if (_sg2 && _sg2.status === 'do_first') return '';
+    if (_sg2 && (_sg2.status === 'do_first' || _sg2.status === 'prep_today')) return '';
     return `<button onclick="prepStart(${JSON.stringify(iid)})" style="width:100%;height:46px;border-radius:12px;font-size:15px;font-weight:700;background:#1e3a5f;color:white;border:none;letter-spacing:0.03em;">START PREP</button>`;
   }
   if (_ct2 === 'SUGG_VERIFY') {
@@ -2882,10 +2944,17 @@ function renderM(){
       }
 
       const stockPill = buildStockPill(i);
-      // Closed card pilot (boh-v676): suppress audit/chefAi buttons from outer wrapper
-      // for LOOKS GOOD and DO FIRST cards — they live inside Details instead.
+      // Closed card pilot (boh-v677): suppress audit/chefAi buttons from outer wrapper
+      // for all compact pilot states — they live inside Details instead.
+      // Pilot states: looks_ok · do_first · prep_today · stockVerified (any underlying status)
       const _sgPilot = (window._suggestions || {})[i.id];
-      const _isPilotCard = !!(_sgPilot && (_sgPilot.status === 'looks_ok' || _sgPilot.status === 'do_first'));
+      const _svPilot = _sgPilot ? _computeStockVerified(i) : false;
+      const _isPilotCard = !!(_sgPilot && (
+        _svPilot ||
+        _sgPilot.status === 'looks_ok' ||
+        _sgPilot.status === 'do_first' ||
+        _sgPilot.status === 'prep_today'
+      ));
       // Audit toggle — solo admin, visibile sempre ma il panel si apre on-demand
       const auditBtn = (isAdmin() && !_isPilotCard)
         ? '<div style="margin-top:6px;"><button class="audit-toggle-btn" onclick="event.stopPropagation();toggleAuditPanel('+JSON.stringify(iid)+')" style="font-size:11px;font-weight:600;color:#7c3aed;background:rgba(124,58,237,0.08);border:0.5px solid rgba(124,58,237,0.25);border-radius:6px;padding:2px 8px;cursor:pointer;">🔍 Audit</button></div>'
