@@ -930,6 +930,10 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
   panel.appendChild(finishedBtn);
 
   // ── "Continue this prep" — connected to existing startTask service ──
+  // Task OEE-B.2B: owns pendingContinueOp context for idempotent retry.
+  // UUID + timestamp created on first tap, retained through retriable failures,
+  // cleared on confirmed success or definitive failure.
+  // Scoped to this WIP panel — never shared with other task buttons.
   const canContinue = userName.length > 0;
 
   const continueBtn = document.createElement('button');
@@ -944,7 +948,8 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
     return (completeFormRef.container !== null) || (countFormRef.container !== null);
   }
 
-  let continueSubmitting = false;
+  let continueSubmitting    = false;
+  let pendingContinueOp     = null;  // { id: string, occurredAt: string } | null
 
   function clearContinueError() {
     const prev = panel.querySelector('.station-prep__wip-continue-error');
@@ -957,21 +962,43 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
     if (isContinueBlocked()) return;
 
     continueSubmitting = true;
+
+    // Create operation context on first tap, or reuse if previous attempt was
+    // retriable (pendingContinueOp != null means server state is unknown).
+    if (pendingContinueOp === null) {
+      pendingContinueOp = {
+        id:         generateStartOperationUUID(),
+        occurredAt: new Date().toISOString(),
+      };
+    }
+
     continueBtn.disabled = true;
     clearContinueError();
     continueBtn.textContent = translate('station_prep.wip_resolution_continuing');
 
     startTask({
-      prepTaskId: task.id,
-      startedBy:  userName,
+      prepTaskId:        task.id,
+      startedBy:         userName,
+      clientOperationId: pendingContinueOp.id,
+      occurredAt:        pendingContinueOp.occurredAt,
     }).then(function (result) {
       if (!section.isConnected) return;
       if (result.ok) {
+        // Confirmed success (including idempotent replay).
+        pendingContinueOp = null;
         onSuccess(result);
       } else {
         continueSubmitting = false;
         continueBtn.disabled = false;
         continueBtn.textContent = translate('station_prep.wip_resolution_continue');
+
+        if (result.retriable === true) {
+          // Retriable failure: retain pendingContinueOp for next tap.
+        } else {
+          // Definitive failure: the operation cannot succeed with this context.
+          pendingContinueOp = null;
+        }
+
         clearContinueError();
         const errEl = document.createElement('p');
         errEl.className = 'station-prep__wip-continue-error';
@@ -980,6 +1007,7 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
         panel.appendChild(errEl);
       }
     }).catch(function () {
+      // Transport uncertainty — retain pendingContinueOp for next tap.
       if (!section.isConnected) return;
       continueSubmitting = false;
       continueBtn.disabled = false;
