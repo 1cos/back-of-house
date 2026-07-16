@@ -10,7 +10,7 @@
 // Task 004Q: station-prep receives completeTask for Complete action.
 // Task OEE-C-B: completeTask routes through rpc_oee_record_prep_completion (prep-complete-rpc-service.js).
 // Task 004S: station-prep receives fetchRecentPrepCounts as fetchCounts for physical count display.
-// Task 004V: station-prep receives savePrepCount as saveCount for physical count write.
+// Task OEE-D-B: saveCount routes through rpc_oee_record_stock_count (prep-count-rpc-service.js).
 // Task 004X: station-prep receives reconcilePrepCount as reconcileCount for post-count reconciliation.
 // Task 004AF: station-prep receives passPrepToShift as passTask for WIP handoff.
 // Task 004AI: admin/executive-chef role detection, session-local station selection,
@@ -24,7 +24,7 @@ import { fetchStationPrepTasks } from '../../services/station-prep-service.js';
 import { fetchPrepSuggestions } from '../../services/prep-suggestion-service.js';
 import { fetchTodayPrepLogs } from '../../services/prep-log-service.js';
 import { fetchRecentPrepCounts } from '../../services/prep-count-service.js';
-import { savePrepCount } from '../../services/prep-count-write-service.js';
+import { savePrepCountRpc } from '../../services/prep-count-rpc-service.js';
 import { reconcilePrepCount } from '../../services/prep-count-reconciler-service.js';
 import { startPrepTaskRpc } from '../../services/prep-start-rpc-service.js';
 import { completePrepTaskRpc } from '../../services/prep-complete-rpc-service.js';
@@ -205,7 +205,7 @@ export function setupStationNavigation({ router, mountElement, translate, user }
       fetchCounts:      fetchRecentPrepCounts,
       startTask:        startPrepTaskRpc,
       completeTask:     completePrepTaskRpc,
-      saveCount:        savePrepCount,
+      saveCount:        savePrepCountRpc,
       reconcileCount:   reconcilePrepCount,
       passTask:         passPrepToShift,
       currentUser:      user,
