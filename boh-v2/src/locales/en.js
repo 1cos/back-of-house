@@ -163,6 +163,26 @@ export const en = {
   'station_selector.loading': 'Loading stations…',
   'station_selector.error':   'Unable to load stations. Try again later.',
 
+  // ── Home Panel (HOME-01) ─────────────────────────────────────────────
+  'home.good_morning':                'Good morning',
+  'home.good_afternoon':              'Good afternoon',
+  'home.good_evening':                'Good evening',
+  'home.greeting_fallback':           'Welcome',
+  'home.block_error':                 'Unable to load. Pull down to refresh.',
+
+  // Station Focus
+  'home.station_focus_ready':         'Station looks ready',
+  'home.station_focus_open':          'Open station',
+  'home.station_focus_no_station':    'No station assigned',
+
+  // Station Overview
+  'home.station_overview_title':      'Kitchen',
+  'home.station_overview_empty':      'No station data available.',
+  'home.station_overview_urgent':     'urgent',
+  'home.station_overview_in_progress':'active',
+  'home.station_overview_ready':      'ready',
+  'home.station_overview_no_data':    'No prep data',
+
   // ── Command Bar (UI-06) ──────────────────────────────────────────────
   'command_bar.bar_label':      'Command input',
   'command_bar.placeholder':    'How can I help?',
