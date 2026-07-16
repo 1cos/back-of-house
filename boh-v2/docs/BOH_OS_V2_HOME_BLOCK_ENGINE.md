@@ -1,9 +1,10 @@
 # BOH OS v2 — Home Block Engine Specification
 
-> Version 1.0 · 2026-07-16  
-> Status: **PROPOSED — requires Max approval before implementation**  
+> Version 1.1 · 2026-07-16  
+> Status: **APPROVED FOR IMPLEMENTATION — pending Max sign-off on §15**  
 > Depends on: Workspace Engine v1.1, Home Composition Engine v1.0  
-> Scope: Architecture only. No code implementation. No UI. No colors.
+> Scope: Architecture only. No code implementation. No UI. No colors.  
+> Changes from v1.0: five corrections applied per architectural review — unified settlement protocol (`onBlockReady` only, `onBlockEmpty` removed); pseudocode demoted to illustrative and corrected (`_lastUrgencyScore`, `computeUrgency`, `destroy()` reset, renderer consistency); `home-data-service.js` retired in favour of `BLOCK_FETCHERS`; `canRender()` removed from mandatory contract; `BLOCK_RENDERERS` declared as object (not factory); `BLOCK_DEFINITIONS.permittedRoles` declared the executable authority for role gates. All other review notes deferred to Appendix A.
 
 ---
 
@@ -14,6 +15,8 @@ The Home Composition Engine (v1.0) defines **which blocks appear on Home** and i
 This document defines **what a block is** — the internal architecture every block must follow, the contract every block must honour, and the infrastructure every block receives. It is the block's constitution.
 
 Every future block, without exception, is built against this specification. No block may deviate from the contract defined here. When a new block is added, this document is the primary reference. If this document and the Composition Engine conflict, this document governs on matters of internal block behaviour; the Composition Engine governs on matters of composition and ordering.
+
+**Role gate authority.** Role gates written in the Home Composition Engine document are descriptive documentation only — they describe intent for human readers. The authoritative, executable role gate for each block is `BLOCK_DEFINITIONS[blockId].permittedRoles` defined in §10.2 of this document. When implementing a block, `permittedRoles` is the gate that is enforced at runtime. If the two ever differ, `permittedRoles` governs and the Composition Engine prose must be updated to match.
 
 ---
 
@@ -65,17 +68,23 @@ The fetch returned data that passes the block's `hasContent` check. The block re
 
 This is the display state where the block shows meaningful operational information.
 
+Settlement: the block calls `deps.onBlockReady(blockId, { hasContent: true, urgencyScore: result.urgencyScore })`.
+
 ### 2.4 EMPTY
 
-The fetch returned successfully, but the data does not meet the `hasContent` threshold (e.g., no urgent alerts, no handoffs). The block removes its root element from the DOM and signals its absence to the home panel renderer.
+The fetch returned successfully, but the data does not meet the `hasContent` threshold (e.g., no urgent alerts, no handoffs). The block removes its root element from the DOM and signals its settled state to the home panel renderer.
 
 An empty block is invisible. It does not show an empty-state message, a "nothing to show" placeholder, or any container whatsoever.
+
+Settlement: the block calls `deps.onBlockReady(blockId, { hasContent: false, urgencyScore: 0 })`, then removes its root element. This is the only settlement callback. There is no separate `onBlockEmpty` callback.
 
 ### 2.5 ERROR
 
 The fetch failed (network error, timeout, service error). The block renders a minimal, non-alarming error state in its root element. The error is local to the block. No other block is affected. Home does not fail.
 
 The error state contains: a brief human-readable message (via `t()`) and, if appropriate, a retry affordance. It does not show technical details (no error codes, no stack traces, no Supabase messages).
+
+Settlement: the block calls `deps.onBlockReady(blockId, { hasContent: true, urgencyScore: 0 })`. An error block counts as settled and counts as content — it occupies a slot in the layout.
 
 ### 2.6 DESTROYED
 
@@ -105,10 +114,16 @@ Destruction is triggered by the home panel renderer calling each mounted block's
                ▼               ▼                ▼
         ┌────────────┐  ┌────────────┐  ┌─────────────┐
         │   LOADED   │  │   EMPTY    │  │    ERROR    │
-        │ real content│  │root removed│  │error message│
+        │ onBlockReady│  │ onBlockReady│  │ onBlockReady│
+        │ hasContent: │  │ hasContent: │  │ hasContent: │
+        │    true    │  │    false   │  │    true    │
         └──────┬─────┘  └──────┬─────┘  └──────┬──────┘
                │               │                │
                └───────────────┴────────────────┘
+                               │
+                    all blocks settled
+                    (home panel renderer
+                     triggers reorder pass)
                                │
                            destroy()
                                │
@@ -118,6 +133,8 @@ Destruction is triggered by the home panel renderer calling each mounted block's
                     │                      │
                     └──────────────────────┘
 ```
+
+Every terminal state calls `deps.onBlockReady` exactly once. This is the settlement signal for the home panel renderer. There are no other settlement callbacks.
 
 ---
 
@@ -129,15 +146,15 @@ Every block MUST implement the following interface. No method is optional. The i
 
 The block factory function. Always named `createBlock` at the module level; the module filename determines which block it is.
 
-`deps` is the dependency object — see §8 for the complete dependency injection specification.
+`deps` is the dependency object — see §9 for the complete dependency injection specification.
 
 Returns a `BlockInstance` synchronously. The `BlockInstance` contains the root DOM element (already in skeleton state) and the methods below.
 
 ```
 BlockInstance {
-  root:       HTMLElement      ← the skeleton root, returned to the home renderer
-  destroy:    () → void
-  refresh:    () → void        ← triggers a re-fetch in place (§7)
+  root:    HTMLElement   ← the skeleton root, returned to the home renderer
+  destroy: () → void
+  refresh: () → void     ← triggers a re-fetch in place (§8)
 }
 ```
 
@@ -146,6 +163,8 @@ The `root` element is the only DOM the block owns. The home renderer mounts `roo
 ### 3.2 `destroy() → void`
 
 Called by the home panel renderer when Home is deactivated or the session ends. The block MUST:
+- Set its internal `destroyed` flag to `true`.
+- Set its internal `fetchInProgress` flag to `false`.
 - Cancel any in-flight fetch via `AbortController.abort()` (when AbortController is implemented).
 - Clear any `setTimeout` or `setInterval` timers.
 - Remove any event listeners attached to elements outside `root` (listeners on elements inside `root` are removed automatically when `root` is removed from the DOM).
@@ -155,7 +174,7 @@ The block MUST NOT:
 - Throw an error if `destroy()` is called more than once.
 - Mutate the DOM after `destroy()` is called.
 
-`destroy()` is always safe to call at any lifecycle stage.
+`destroy()` is always safe to call at any lifecycle stage. Setting `fetchInProgress = false` inside `destroy()` ensures that any settled fetch callbacks that fire after `destroy()` abort cleanly via the `destroyed` guard without leaving inconsistent flag state.
 
 ### 3.3 `refresh() → void`
 
@@ -167,19 +186,7 @@ Triggers a re-fetch and re-render of the block content in place, without rebuild
 - `destroy()` has already been called.
 - A fetch is already in progress.
 
-### 3.4 `canRender() → boolean`
-
-Returns `true` if the block believes it has content to show, based on its most recently fetched data. Returns `false` if the block is in EMPTY or CREATED state.
-
-Called by the home panel renderer after the initial fetch completes to decide whether to keep the block in the layout or remove it. The home renderer does not call `canRender()` during FETCHING — it waits for the fetch to complete.
-
-### 3.5 `urgencyScore() → number`
-
-Returns the block's current urgency modifier — a number ≤ 0 (see §3.1 of the Composition Engine for the modifier table). Returns 0 if the block has no urgent content or is in a pre-LOADED state.
-
-Called once per Home render, after all fetches complete, to allow the composition engine to reorder blocks by resolved priority. This method is synchronous and must not trigger a fetch.
-
-### 3.6 Internal method: `_fetch(signal) → Promise<void>`
+### 3.4 Internal method: `_fetch(signal) → Promise<void>`
 
 Not part of the public contract — internal to the block module. Called once from `createBlock()` immediately after returning the `BlockInstance`. Accepts an `AbortSignal` for cancellation (when AbortController is implemented).
 
@@ -188,17 +195,18 @@ Not part of the public contract — internal to the block module. Called once fr
 2. Evaluating `hasContent` on the result.
 3. Transitioning to LOADED, EMPTY, or ERROR.
 4. Calling `isConnected` before any DOM mutation.
-5. Calling the home panel renderer's `onBlockReady(blockId)` callback when the fetch completes (see §6.3).
+5. Storing the resolved urgency score in `_lastUrgencyScore`.
+6. Calling `deps.onBlockReady(blockId, { hasContent, urgencyScore })` exactly once, in all three terminal states.
 
-### 3.7 Internal method: `_renderContent(data) → void`
+### 3.5 Internal method: `_renderContent(data) → void`
 
 Not part of the public contract — internal to the block module. Called from `_fetch()` when the data is LOADED. Replaces the skeleton content of `root` with real content. Always guarded by `isConnected`.
 
-### 3.8 Internal method: `_renderError() → void`
+### 3.6 Internal method: `_renderError(deps) → void`
 
-Not part of the public contract — internal to the block module. Called from `_fetch()` on ERROR. Replaces the skeleton content with a minimal error message and optional retry affordance.
+Not part of the public contract — internal to the block module. Called from `_fetch()` on ERROR. Replaces the skeleton content with a minimal error message and optional retry affordance. Receives `deps` so the error renderer can call `deps.translate()`.
 
-### 3.9 Internal method: `_renderSkeleton() → void`
+### 3.7 Internal method: `_renderSkeleton() → void`
 
 Not part of the public contract — internal to the block module. Called from `createBlock()` to set the initial skeleton state. Also called from `refresh()` to reset the block to the loading state before re-fetching.
 
@@ -234,16 +242,17 @@ The `isConnected` guard is called immediately before `root.innerHTML = ''`. If t
 
 ### 4.4 Skeleton persistence on error
 
-On ERROR, the skeleton is replaced by the error state (via `_renderError()`). The error state uses the same root element. The skeleton is never shown simultaneously with the error state.
+On ERROR, the skeleton is replaced by the error state (via `_renderError(deps)`). The error state uses the same root element. The skeleton is never shown simultaneously with the error state.
 
 ### 4.5 Skeleton removal on empty
 
-On EMPTY, the root element is removed from the DOM entirely:
+On EMPTY, the root element is removed from the DOM entirely, after `onBlockReady` is called:
 ```
-if (root.isConnected) root.remove();
+deps.onBlockReady(blockId, { hasContent: false, urgencyScore: 0 })
+if (root.isConnected) root.remove()
 ```
 
-The composition engine is notified via `onBlockReady(blockId, { hasContent: false })`. The composition engine removes the block from the visual layout.
+`onBlockReady` is always called before `root.remove()`. This guarantees the home panel renderer can track settlement before the element disappears.
 
 ### 4.6 No skeleton flicker on fast fetches
 
@@ -261,29 +270,15 @@ This is the most important rule in this section. A block is the failure boundary
 
 ### 5.2 Error isolation mechanism
 
-Each block's `_fetch()` wraps its fetch service call in a try/catch. The catch handler calls `_renderError()`. Nothing leaks out of the block.
+Each block's `_fetch()` wraps its fetch service call in a try/catch. The catch handler calls `_renderError(deps)`. Nothing leaks out of the block.
 
-```
-async function _fetch(signal) {
-  try {
-    const data = await deps.fetchService(deps.user, signal);
-    if (!root.isConnected) return;
-    if (!hasContent(data)) {
-      onBlockReady(blockId, { hasContent: false });
-      if (root.isConnected) root.remove();
-      return;
-    }
-    _renderContent(data);
-    onBlockReady(blockId, { hasContent: true, urgencyScore: computeUrgency(data) });
-  } catch (err) {
-    if (!root.isConnected) return;
-    _renderError();
-    onBlockReady(blockId, { hasContent: true, urgencyScore: 0 });
-    // Error blocks count as "has content" — they occupy space and show a message.
-    // They do not contribute urgency.
-  }
-}
-```
+The control flow for all three terminal states is shown in the §10.5 illustrative pseudocode. The authoritative rules for each state are:
+
+- **LOADED**: `_lastUrgencyScore = result.urgencyScore`; render content; call `onBlockReady(blockId, { hasContent: true, urgencyScore: result.urgencyScore })`.
+- **EMPTY**: `_lastUrgencyScore = 0`; call `onBlockReady(blockId, { hasContent: false, urgencyScore: 0 })`; remove root.
+- **ERROR**: `_lastUrgencyScore = 0`; render error; call `onBlockReady(blockId, { hasContent: true, urgencyScore: 0 })`.
+
+In all three paths: `_lastUrgencyScore` is assigned before `onBlockReady` is called. `onBlockReady` is called exactly once. `isConnected` is checked before any DOM mutation.
 
 ### 5.3 Error state counts as content
 
@@ -334,34 +329,25 @@ A block in ERROR state may be retried by calling `refresh()`. There is no automa
 
 ### 6.1 All blocks fetch in parallel
 
-The home panel renderer launches all block fetches simultaneously using `Promise.allSettled`. No block waits for another block to complete before starting its own fetch. The first block to finish renders its content; others follow independently.
+The home panel renderer launches all block fetches simultaneously. No block waits for another block to complete before starting its own fetch. The first block to finish renders its content; others follow independently.
 
-`Promise.allSettled` (not `Promise.all`) is mandatory: a single fetch rejection must not cancel the remaining fetches.
-
-```
-// Inside the home panel renderer's async section:
-await Promise.allSettled(
-  mountedBlocks.map(block => block._fetchPromise)
-);
-// At this point, all blocks have settled (loaded, empty, or error).
-// The composition engine reorders by urgency score.
-```
+The home panel renderer tracks settlement by counting `onBlockReady` calls. When the count equals the number of mounted blocks, all blocks have settled and the post-load reorder pass fires. This is the settlement protocol — `onBlockReady` is its sole signal.
 
 ### 6.2 Progressive rendering
 
 Blocks do not wait for all fetches to complete before showing content. Each block transitions independently from FETCHING to LOADED/EMPTY/ERROR as its own fetch completes.
 
-The composition engine performs a final reorder pass after all fetches settle (§6.3), but the user sees content progressively — fast blocks appear first, slow blocks appear later within their skeleton bounds.
+The home panel renderer performs a final reorder pass after all `onBlockReady` calls have been received, but the user sees content progressively — fast blocks appear first, slow blocks appear later within their skeleton bounds.
 
 ### 6.3 The `onBlockReady` callback and post-load reorder
 
-Each block calls `onBlockReady(blockId, { hasContent, urgencyScore })` when its fetch settles.
+Each block calls `deps.onBlockReady(blockId, { hasContent, urgencyScore })` exactly once, in every terminal state (LOADED, EMPTY, or ERROR). This is the sole settlement signal.
 
 `onBlockReady` is injected into every block via `deps`. It is a function provided by the home panel renderer.
 
-After all blocks have called `onBlockReady`, the home panel renderer performs one final reorder: blocks that turned out to have higher urgency than their initial position may be visually promoted. This reorder is the only time the home layout changes after initial mount.
-
-In v1, this reorder is implemented by updating the CSS `order` property of each block's root element (if blocks are in a CSS flex column). No DOM node is moved. No block is re-rendered. The reorder is a style-only update.
+After all blocks have called `onBlockReady`, the home panel renderer:
+1. Removes from the layout any blocks where `hasContent: false` (their root elements are already gone — this is a layout cleanup pass only).
+2. Performs one reorder pass using the `urgencyScore` values received, updating the CSS `order` property of each remaining block's root element. No DOM node is moved. No block is re-rendered.
 
 ### 6.4 Lazy loading (future)
 
@@ -381,7 +367,7 @@ Because the contract slot (`signal` parameter) is defined now, adding AbortContr
 
 ### 6.6 Priority loading (future)
 
-In v1, all blocks have equal fetch priority. Future: blocks with `basePriority < 3` (greeting, urgent_alerts, station_focus) may be fetched first, with lower-priority blocks deferred until the high-priority blocks are LOADED or ERROR. Implementation: two phases in `Promise.allSettled`, high-priority first. No contract change required.
+In v1, all blocks have equal fetch priority. Future: blocks with `basePriority < 3` (greeting, urgent_alerts, station_focus) may be fetched first, with lower-priority blocks deferred until the high-priority blocks are LOADED or ERROR. Implementation: two phases, high-priority first. No contract change required.
 
 ---
 
@@ -437,8 +423,8 @@ Sequence:
 2. Block transitions back to FETCHING: `_renderSkeleton()` is called, replacing current content with the skeleton.
 3. `_fetch()` is called again (with a new AbortController when implemented).
 4. Block transitions to LOADED, EMPTY, or ERROR.
-5. If EMPTY: `root.remove()`. The home layout collapses to fill the gap.
-6. If LOADED: content is shown. If urgency changed, the block's new `urgencyScore()` is available — the home panel renderer may optionally trigger a reorder pass.
+5. If EMPTY: `onBlockReady(blockId, { hasContent: false, urgencyScore: 0 })` is called, then `root.remove()`. The home layout collapses to fill the gap.
+6. If LOADED: content is shown. The block's updated `_lastUrgencyScore` is available to the home panel renderer via `onBlockReady` — which may optionally trigger a reorder pass.
 
 ### 8.2 Who calls `refresh()`
 
@@ -485,10 +471,9 @@ deps {
 
   // ── Data service ────────────────────────────────────────────────
   fetchService: (user, signal?) → Promise<BlockRawData>
-    // Block-specific. Each block receives the fetch service that
-    // corresponds to its own data needs.
-    // The home-data-service.js injects the correct fetch function
-    // per block type. No block receives another block's fetch service.
+    // Block-specific. Each block receives the fetch function drawn from
+    // BLOCK_FETCHERS for its own blockId. No block receives another
+    // block's fetch service. The home panel renderer performs this wiring.
     // signal: AbortSignal (optional in v1, required when AbortController lands)
 
   // ── Navigation ──────────────────────────────────────────────────
@@ -498,15 +483,14 @@ deps {
     // Injected by the home panel renderer.
     // A block that never opens panels ignores this field.
 
-  // ── Composition callbacks ────────────────────────────────────────
+  // ── Settlement callback ──────────────────────────────────────────
   onBlockReady: (blockId: string, result: { hasContent: boolean, urgencyScore: number }) → void
-    // Called by the block when its fetch settles.
-    // The home panel renderer uses this to track completion and trigger reorder.
-
-  onBlockEmpty: (blockId: string) → void
-    // Called by the block when it transitions to EMPTY.
-    // The home panel renderer removes the block from the visual layout.
-    // Separate from onBlockReady for clarity; may be merged in a future version.
+    // Called by the block exactly once when its fetch settles, in all
+    // three terminal states: LOADED, EMPTY, and ERROR.
+    // This is the sole settlement signal. There is no other callback.
+    // hasContent: false → block is empty (root already removed by caller)
+    // hasContent: true  → block has content (LOADED or ERROR)
+    // urgencyScore: from result.urgencyScore on LOADED; 0 on EMPTY and ERROR
 
   // ── Cache ────────────────────────────────────────────────────────
   blockCache: {
@@ -552,9 +536,9 @@ deps {
 
 ### 9.5 Injecting `deps` — where it happens
 
-`deps` is assembled by the **home panel renderer** (`home-panel.js` — future file) for each block. The home panel renderer knows the current user, the workspace manager, the block cache, and the fetch service registry. It constructs a `deps` object tailored to each block type and passes it to `createBlock(deps)`.
+`deps` is assembled by the **home panel renderer** (`home-panel.js` — future file) for each block. The home panel renderer knows the current user, the workspace manager, the block cache, and the fetcher registry (`BLOCK_FETCHERS`). It constructs a `deps` object tailored to each block type — pulling the correct fetch function from `BLOCK_FETCHERS[blockId]` and assigning it to `deps.fetchService` — and passes the completed `deps` to `createBlock(deps)`.
 
-No block constructs its own `deps`. No block assembles its own fetch service. The home panel renderer is the only place where block wiring happens.
+No block constructs its own `deps`. No block reaches into `BLOCK_FETCHERS` directly. The home panel renderer is the only place where block wiring happens.
 
 ---
 
@@ -563,12 +547,14 @@ No block constructs its own `deps`. No block assembles its own fetch service. Th
 ### 10.1 Three registries, one per concern
 
 ```
-BLOCK_DEFINITIONS  ← what a block is (catalog metadata)
-BLOCK_FETCHERS     ← how a block gets its data
-BLOCK_RENDERERS    ← how a block displays its data
+BLOCK_DEFINITIONS  ← what a block is (catalog metadata, permittedRoles, timeout, cacheTTL)
+BLOCK_FETCHERS     ← how a block gets its data (one async function per block)
+BLOCK_RENDERERS    ← how a block displays its data (one renderer object per block)
 ```
 
-These are three separate objects, keyed by `blockId`. They are assembled in a single file: `home-block-registry.js` (future). Adding a block = adding one entry to each.
+These are three separate objects, keyed by `blockId`. They are assembled in a single file: `home-block-registry.js`. Adding a block = adding one entry to each registry inside the block's own module file in `blocks/`. No central service file is edited.
+
+`BLOCK_FETCHERS` is the only layer in the Home system that imports and calls Supabase. There is no separate monolithic data service file. Each block's fetcher function lives with or is registered by its block module. When a block is added, its fetcher is registered in `BLOCK_FETCHERS` — and that is the complete data-layer change required.
 
 ### 10.2 `BLOCK_DEFINITIONS`
 
@@ -582,13 +568,15 @@ BlockDefinition {
   basePriority:   number         // from Composition Engine §2
   sizeClass:      'XS'|'S'|'M'|'L'
   financialFlag:  boolean        // true = contains money data
-  permittedRoles: Set<string>    // roles that may see this block
+  permittedRoles: Set<string>    // THE AUTHORITATIVE EXECUTABLE ROLE GATE
+                                 // Role gates in the Composition Engine prose
+                                 // are descriptive only. This field governs at runtime.
   cacheTTL:       number | null  // ms, null = no cache
   timeout:        number         // ms, default BLOCK_FETCH_TIMEOUT_MS
 }
 ```
 
-`BLOCK_DEFINITIONS` is the source of truth for catalog metadata. The Composition Engine reads from it. Role presets reference block IDs that must exist in this registry.
+`BLOCK_DEFINITIONS` is the source of truth for catalog metadata. The home panel renderer reads `permittedRoles` here to determine which blocks to instantiate for a given user. Role presets in the Composition Engine reference block IDs that must exist in this registry.
 
 ### 10.3 `BLOCK_FETCHERS`
 
@@ -602,13 +590,15 @@ BlockFetcher: (user: UserContext, signal?: AbortSignal) → Promise<BlockRawData
 BlockRawData {
   hasContent:   boolean      // true if the block has something to show
   urgencyScore: number       // 0 or negative; see Composition Engine §3.1
+                             // this is the authoritative urgency value;
+                             // the block does not recompute it
   data:         object       // block-specific payload, already role-filtered
 }
 ```
 
-A fetcher is a pure async function. It has no side effects beyond network calls. It does not mutate DOM. It does not know about the block's root element.
+A fetcher is a pure async function. It has no side effects beyond network calls. It does not mutate DOM. It does not know about the block's root element. It computes and returns `urgencyScore` based on the data it fetched — this is the only place urgency is computed for that block. The block factory reads `result.urgencyScore` directly; it does not call any separate urgency computation function.
 
-Fetchers are the only place where Supabase is called for Home blocks. All Supabase imports live inside fetcher implementations. Fetchers are called by the home panel renderer, not by block modules directly.
+Fetchers are the only layer where Supabase is called for Home blocks. All Supabase imports live inside fetcher implementations, registered in `BLOCK_FETCHERS`. The home panel renderer pulls the correct fetcher from this registry and injects it as `deps.fetchService`. Fetchers are never called directly by block modules.
 
 ### 10.4 `BLOCK_RENDERERS`
 
@@ -617,20 +607,21 @@ BLOCK_RENDERERS: {
   [blockId: string]: BlockRenderer
 }
 
-BlockRenderer: (data: object, deps: deps) → {
-  skeleton:       () → HTMLElement
-  content:        (data: object) → HTMLElement
-  error:          () → HTMLElement
+BlockRenderer: {
+  skeleton: ()           → HTMLElement
+  content:  (data, deps) → HTMLElement
+  error:    (deps)       → HTMLElement
 }
 ```
 
-A renderer is a collection of three pure functions, each returning an `HTMLElement`. It does not hold state. It does not fetch data. It does not call network services. It transforms data into DOM.
+`BLOCK_RENDERERS[blockId]` is an **object**, not a factory function. It is stored directly in the registry and used directly by the block factory. There is no intermediate call to produce the renderer — the registry entry is the renderer.
 
-- `skeleton()` is called from `createBlock()` to produce the initial skeleton.
-- `content(data)` is called from `_renderContent()` when the fetch succeeds.
-- `error()` is called from `_renderError()` when the fetch fails.
+Each method is a synchronous pure function returning a valid `HTMLElement`:
+- `skeleton()` — no arguments; returns the loading skeleton structure.
+- `content(data, deps)` — receives the fetched `data` payload and `deps` (for `translate`, `can`, `openPanel`); returns the populated content element.
+- `error(deps)` — receives `deps` (for `translate`); returns the error element with the localised message and retry affordance.
 
-All three are synchronous. All three return valid `HTMLElement` values immediately.
+All three return `HTMLElement` immediately. None may return a Promise, null, or undefined.
 
 ### 10.5 The block factory
 
@@ -639,47 +630,62 @@ A fourth component lives alongside the registries: `createBlock(blockId, deps)` 
 This is the only function the home panel renderer calls to instantiate blocks. It is not a registry; it is the engine that reads from the registries.
 
 ```
+// Illustrative pseudocode — see formal contracts and rules for authority.
+// This pseudocode illustrates the intended control flow.
+// The formal contracts and rules in this specification are authoritative.
+
 createBlock(blockId, deps):
   definition = BLOCK_DEFINITIONS[blockId]
-  fetcher    = BLOCK_FETCHERS[blockId]
   renderer   = BLOCK_RENDERERS[blockId]
+  // Note: deps.fetchService is already wired by the home panel renderer
+  //       from BLOCK_FETCHERS[blockId] — the factory does not read BLOCK_FETCHERS directly.
 
-  if (!definition || !fetcher || !renderer):
-    // Unknown block — log error, return null
+  if (!definition || !renderer):
+    console.error('WorkspaceManager: unknown block type:', blockId)
     return null
 
   root = renderer.skeleton()
   root.dataset.blockId = blockId
   root.classList.add('home-block', `home-block--${blockId}`, 'block--loading')
 
-  controller = new AbortController()  // future: active; v1: signal unused
-  destroyed  = false
-  fetchInProgress = false
+  let controller      = new AbortController()   // future: active; v1: signal unused
+  let destroyed       = false
+  let fetchInProgress = false
+  let _lastUrgencyScore = 0                     // initialised to 0; assigned on every settle
 
   function _fetch():
     if (destroyed) return
     fetchInProgress = true
+
     Promise.race([
-      fetcher(deps.user, controller.signal),
-      timeout(definition.timeout)
+      deps.fetchService(deps.user, controller.signal),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), definition.timeout)
+      )
     ])
-    .then(result → {
+    .then(result => {
       fetchInProgress = false
       if (destroyed || !root.isConnected) return
+
       if (!result.hasContent):
-        deps.onBlockEmpty(blockId)
+        _lastUrgencyScore = 0
+        deps.onBlockReady(blockId, { hasContent: false, urgencyScore: 0 })
         root.remove()
         return
+
+      _lastUrgencyScore = result.urgencyScore
       root.innerHTML = ''
       root.appendChild(renderer.content(result.data, deps))
       root.classList.replace('block--loading', 'block--loaded')
       deps.onBlockReady(blockId, { hasContent: true, urgencyScore: result.urgencyScore })
     })
-    .catch(err → {
+    .catch(err => {
       fetchInProgress = false
       if (destroyed || !root.isConnected) return
+
+      _lastUrgencyScore = 0
       root.innerHTML = ''
-      root.appendChild(renderer.error())
+      root.appendChild(renderer.error(deps))
       root.classList.replace('block--loading', 'block--error')
       deps.onBlockReady(blockId, { hasContent: true, urgencyScore: 0 })
     })
@@ -689,7 +695,8 @@ createBlock(blockId, deps):
   return {
     root,
     destroy() {
-      destroyed = true
+      destroyed       = true
+      fetchInProgress = false    // tidy flag state before controller aborts
       controller.abort()
     },
     refresh() {
@@ -698,30 +705,26 @@ createBlock(blockId, deps):
       root.innerHTML = ''
       root.appendChild(renderer.skeleton())
       root.classList.replace('block--loaded', 'block--loading')
-      root.classList.replace('block--error', 'block--loading')
+      root.classList.replace('block--error',  'block--loading')
       _fetch()
-    },
-    canRender()     { return root.isConnected && root.classList.contains('block--loaded') },
-    urgencyScore()  { return _lastUrgencyScore }
+    }
   }
 ```
 
-This pseudocode is the implementation contract, not the final code. The actual implementation follows this logic exactly.
-
 ### 10.6 Registering a new block
 
-Adding a new block named `inventory_alert` (example):
+Adding a new block named `inventory_alert` (example). All three steps happen inside `blocks/inventory-alert.js`. No other file is modified.
 
 Step 1 — Definition:
 ```
 BLOCK_DEFINITIONS['inventory_alert'] = {
-  blockId:       'inventory_alert',
-  basePriority:  4,
-  sizeClass:     'S',
-  financialFlag: false,
+  blockId:        'inventory_alert',
+  basePriority:   4,
+  sizeClass:      'S',
+  financialFlag:  false,
   permittedRoles: new Set(['supervisor', 'admin', 'executive_chef', 'coordinator']),
-  cacheTTL:      null,
-  timeout:       BLOCK_FETCH_TIMEOUT_MS,
+  cacheTTL:       null,
+  timeout:        BLOCK_FETCH_TIMEOUT_MS,
 }
 ```
 
@@ -740,13 +743,13 @@ BLOCK_FETCHERS['inventory_alert'] = async (user, signal) => {
 Step 3 — Renderer:
 ```
 BLOCK_RENDERERS['inventory_alert'] = {
-  skeleton: () => { /* returns skeleton HTMLElement */ },
-  content:  (data) => { /* returns content HTMLElement */ },
-  error:    () => { /* returns error HTMLElement */ },
+  skeleton: ()           => { /* returns skeleton HTMLElement */ },
+  content:  (data, deps) => { /* returns content HTMLElement */ },
+  error:    (deps)       => { /* returns error HTMLElement with deps.translate('home.block_error') */ },
 }
 ```
 
-No other file is modified. The composition engine picks it up automatically.
+No other file is modified. The home panel renderer picks up the new block via the registries.
 
 ---
 
@@ -780,14 +783,14 @@ The `BLOCK_FETCH_TIMEOUT_MS` constant applies uniformly. External APIs that are 
 
 In v1, blocks are read-only (Home is read-only per Composition Engine §1.5). A future block may contain a form or a confirmation affordance. The contract accommodates this without changes:
 
-- The `content()` renderer returns an `HTMLElement` that contains interactive elements.
+- The `content(data, deps)` renderer returns an `HTMLElement` that contains interactive elements.
 - Event listeners are attached to elements inside `root` — never to `root` itself or to elements outside it.
 - `destroy()` removes any timers created by the interaction (no special handling for DOM listeners — they are removed when `root` is detached).
 - The block calls `deps.openPanel()` for any action that should open a new panel.
 
 ### 11.5 Blocks with multi-step loading (future)
 
-Some future blocks may have a two-phase fetch: a fast initial load (e.g., count of urgent items) followed by a slower detail load. The contract handles this as two sequential calls inside `_fetch()`. The block renders partial content after the first call, then updates in place after the second. `isConnected` is checked before each update.
+Some future blocks may have a two-phase fetch: a fast initial load (e.g., count of urgent items) followed by a slower detail load. The contract handles this as two sequential calls inside `_fetch()`. The block renders partial content after the first call, then updates in place after the second. `isConnected` is checked before each update. `onBlockReady` is called only after the final phase settles.
 
 ---
 
@@ -795,31 +798,37 @@ Some future blocks may have a two-phase fetch: a fast initial load (e.g., count 
 
 ```
 boh-v2/src/home/
-  home-panel.js             ← Home panel renderer (future — registered with WorkspaceManager)
-  home-block-registry.js    ← BLOCK_DEFINITIONS, BLOCK_FETCHERS, BLOCK_RENDERERS, createBlock
-  home-data-service.js      ← All Supabase fetches for Home blocks (imports supabase-client)
-  home-cache.js             ← In-memory block cache (session-scoped)
-  home-realtime.js          ← Realtime subscription manager (future)
+  home-panel.js           ← Home panel renderer: assembles deps per block,
+                             reads BLOCK_DEFINITIONS/BLOCK_FETCHERS/BLOCK_RENDERERS,
+                             calls createBlock(), tracks onBlockReady settlement,
+                             triggers post-load reorder pass
+  home-block-registry.js  ← exports BLOCK_DEFINITIONS, BLOCK_FETCHERS,
+                             BLOCK_RENDERERS, and createBlock()
+                             (imports all block modules to trigger registration)
+  home-cache.js           ← In-memory block cache (session-scoped)
+  home-realtime.js        ← Realtime subscription manager (future)
   blocks/
-    greeting.js             ← createBlock wrapper + renderer (no fetcher — data from deps.user)
-    urgent-alerts.js        ← fetcher + renderer
-    station-focus.js        ← fetcher + renderer
-    wip-handoffs.js         ← fetcher + renderer
-    low-stock.js            ← fetcher + renderer
-    kitchen-messages.js     ← fetcher + renderer
-    today-production.js     ← fetcher + renderer
-    team-status.js          ← fetcher + renderer
-    station-overview.js     ← fetcher + renderer
-    chef-ai-brief.js        ← fetcher + renderer
-    yesterday-recap.js      ← fetcher + renderer
-    upcoming-events.js      ← fetcher + renderer
-    delivery-expected.js    ← fetcher + renderer
-    birthdays.js            ← fetcher + renderer
-    equipment-alerts.js     ← fetcher + renderer
-    dish-crew-focus.js      ← fetcher + renderer
+    greeting.js           ← definition + renderer (no fetcher — data from deps.user)
+    urgent-alerts.js      ← definition + fetcher (imports supabase-client) + renderer
+    station-focus.js      ← definition + fetcher + renderer
+    wip-handoffs.js       ← definition + fetcher + renderer
+    low-stock.js          ← definition + fetcher + renderer
+    kitchen-messages.js   ← definition + fetcher + renderer
+    today-production.js   ← definition + fetcher + renderer
+    team-status.js        ← definition + fetcher + renderer
+    station-overview.js   ← definition + fetcher + renderer
+    chef-ai-brief.js      ← definition + fetcher + renderer
+    yesterday-recap.js    ← definition + fetcher + renderer
+    upcoming-events.js    ← definition + fetcher + renderer
+    delivery-expected.js  ← definition + fetcher + renderer
+    birthdays.js          ← definition + fetcher + renderer
+    equipment-alerts.js   ← definition + fetcher + renderer
+    dish-crew-focus.js    ← definition + fetcher + renderer
 ```
 
-Each file in `blocks/` exports exactly one thing: the registration call that adds its entries to the three registries. The registration call is made when the module is imported by `home-block-registry.js`. No block exports `createBlock` — that is the registry's domain.
+Each file in `blocks/` registers its own entries in `BLOCK_DEFINITIONS`, `BLOCK_FETCHERS`, and `BLOCK_RENDERERS` when it is imported. It does not export `createBlock` — that belongs to `home-block-registry.js`. It does not import from `home-data-service.js` — that file does not exist.
+
+`supabase-client.js` is imported only by fetcher implementations inside `blocks/` files. It is never imported by `home-panel.js`, `home-block-registry.js`, `home-cache.js`, or any renderer.
 
 ---
 
@@ -827,13 +836,13 @@ Each file in `blocks/` exports exactly one thing: the registration call that add
 
 These rules are the implementation contract. Every block must obey all of them.
 
-**BL-01.** Every block implements the full `BlockInstance` interface: `root`, `destroy()`, `refresh()`, `canRender()`, `urgencyScore()`.
+**BL-01.** Every block implements the `BlockInstance` interface: `root`, `destroy()`, `refresh()`.
 
 **BL-02.** `createBlock(deps)` MUST return a valid `HTMLElement` (the skeleton) synchronously. No block may return a Promise, null, or undefined.
 
 **BL-03.** Every async DOM mutation MUST be guarded by `root.isConnected` immediately before the mutation.
 
-**BL-04.** `destroy()` MUST be safe to call at any lifecycle stage, including before the fetch begins, and MUST be idempotent (safe to call multiple times).
+**BL-04.** `destroy()` MUST be safe to call at any lifecycle stage, including before the fetch begins, and MUST be idempotent (safe to call multiple times). `destroy()` MUST set `fetchInProgress = false` before calling `controller.abort()`.
 
 **BL-05.** A block MUST NOT import `supabase-client.js`, `app-state.js`, `workspace-manager.js`, or any other block module.
 
@@ -841,7 +850,7 @@ These rules are the implementation contract. Every block must obey all of them.
 
 **BL-07.** A block in ERROR state MUST NOT show technical error details. It shows only `t('home.block_error')` and an optional retry affordance.
 
-**BL-08.** A block transitions to EMPTY by calling `deps.onBlockEmpty(blockId)` and then `root.remove()`. It MUST NOT show an empty-state placeholder.
+**BL-08.** A block transitions to EMPTY by calling `deps.onBlockReady(blockId, { hasContent: false, urgencyScore: 0 })` first, then calling `root.remove()`. It MUST NOT show an empty-state placeholder. There is no `onBlockEmpty` callback.
 
 **BL-09.** A block's root element MUST carry `data-block-id`, `home-block`, `home-block--{blockId}`, and one of `block--loading`, `block--loaded`, or `block--error` class names at all times.
 
@@ -853,15 +862,21 @@ These rules are the implementation contract. Every block must obey all of them.
 
 **BL-13.** Event listeners attached during the LOADED state MUST be attached to elements inside `root`. Listeners attached to `root` itself must be removed in `destroy()`.
 
-**BL-14.** `urgencyScore()` is synchronous and MUST NOT trigger a fetch. It returns the urgency computed during the most recent settled fetch, or 0 if no fetch has settled.
+**BL-14.** `_lastUrgencyScore` MUST be initialised to `0` at block creation. It MUST be assigned `result.urgencyScore` in the LOADED path and `0` in the EMPTY and ERROR paths, before `onBlockReady` is called in each path.
 
 **BL-15.** A block in ERROR state counts as `hasContent: true`. It occupies a slot in the `HOME_MAX_BLOCKS` budget. It contributes `urgencyScore: 0`.
 
 **BL-16.** `refresh()` invalidates the block cache before re-fetching, regardless of whether the block uses caching.
 
-**BL-17.** Financial data (net_sales, food_cost, margins, invoice prices) MUST be stripped from rendered content for users where `deps.can('view_food_cost')` returns false. This check happens inside the block renderer, not in the fetcher.
+**BL-17.** Financial data (net_sales, food_cost, margins, invoice prices) MUST be stripped from rendered content for users where `deps.can('view_food_cost')` returns false. This check happens inside the block renderer (`content(data, deps)`), not in the fetcher. This allows the same fetcher to serve both admin and non-admin users.
 
-**BL-18.** A block's fetcher (in `BLOCK_FETCHERS`) is the only place where Supabase is called. The fetcher returns `BlockRawData`. The block renderer receives `data` from `BlockRawData` and never calls Supabase.
+**BL-18.** A block's fetcher (in `BLOCK_FETCHERS`) is the only place where Supabase is called for Home data. The fetcher computes and returns `urgencyScore` as part of `BlockRawData`. The block factory reads `result.urgencyScore` directly. There is no separate urgency computation step in the block factory.
+
+**BL-19.** `deps.onBlockReady` is called exactly once per fetch cycle, in every terminal state (LOADED, EMPTY, ERROR). It is the sole settlement signal. There is no other settlement callback in `deps`.
+
+**BL-20.** `BLOCK_RENDERERS[blockId]` is an object `{ skeleton, content, error }`. It is not a factory function. `skeleton()` takes no arguments. `content(data, deps)` takes the fetched data payload and deps. `error(deps)` takes deps for translation. No other signatures are valid.
+
+**BL-21.** `BLOCK_DEFINITIONS[blockId].permittedRoles` is the authoritative runtime role gate. The home panel renderer reads this field to decide whether to instantiate a block for a given user. Role gate descriptions in the Home Composition Engine are documentation, not enforcement.
 
 ---
 
@@ -872,7 +887,6 @@ This document does not define:
 - Visual design of skeleton states, content states, or error states.
 - CSS class names beyond the structural ones in BL-09.
 - The `home-panel.js` implementation (home panel renderer — separate task).
-- The `home-data-service.js` implementation (fetcher implementations — separate task).
 - Any specific block's data schema (defined in the Composition Engine §2).
 - Realtime subscription channel names or filter syntax.
 - Animation or transition between states.
@@ -885,18 +899,33 @@ This document does not define:
 Before implementation of any Home block:
 
 - [ ] Max confirms that a single block failure does not affect other blocks or Home.
-- [ ] Max confirms that empty blocks are silently absent (no placeholder, no "nothing to show").
-- [ ] Max confirms the 8-second timeout per block.
-- [ ] Max confirms that `refresh()` on an error block is the only retry mechanism (no auto-retry).
-- [ ] Max confirms the `HOME_BLOCK_TIMEOUT_MS = 8000` constant.
-- [ ] Max confirms that financial data stripping happens in the block renderer, not the fetcher (so fetcher is reusable for admin and non-admin).
+- [ ] Max confirms that empty blocks are silently absent — `onBlockReady(hasContent: false)` is called, then the root is removed. No placeholder.
+- [ ] Max confirms the 8-second timeout per block (`BLOCK_FETCH_TIMEOUT_MS = 8000`).
+- [ ] Max confirms that `refresh()` on an error block is the only retry mechanism — no auto-retry.
+- [ ] Max confirms that financial data stripping happens in `content(data, deps)` inside the renderer, not in the fetcher.
+- [ ] Max confirms that `BLOCK_FETCHERS` is the only data layer — there is no separate `home-data-service.js`.
 
 Implementation begins only after all six items above are checked.
 
 ---
 
-*End of Home Block Engine Specification.*  
+## Appendix A — Deferred Review Notes
+
+The following issues were identified in the v1.0 architectural review but do not affect the correctness of v1.1. They should be revisited before recipe panels or any block with non-trivial user interaction is implemented.
+
+**A1 — Role gate description drift.** Role gates are now formally defined in `BLOCK_DEFINITIONS.permittedRoles` (BL-21). The role gate prose in the Home Composition Engine §2 is documentation only. If a role gate changes, both must be updated together. A future session should consider generating the Composition Engine prose from the registry to eliminate the drift risk.
+
+**A2 — Error renderer receives `deps` but no `blockId`.** `error(deps)` currently cannot include the block name in its error message without `deps.blockId` being available. `deps.blockId` is already in the `deps` shape (§9.2), so this is not a gap, but it should be noted for any block that wants block-specific error text.
+
+**A3 — `greeting` block has no fetcher.** `greeting` reads from `deps.user` directly — its data arrives through `deps`, not through `deps.fetchService`. This is a legitimate special case (greeting data is already in memory, no network call needed). It must be documented explicitly when `greeting` is implemented: its `BLOCK_FETCHERS` entry is a synchronous function that constructs `BlockRawData` from `deps.user` without a network call. The factory treats it identically to any other block. No contract change needed.
+
+**A4 — `block--error` class has no associated ARIA role.** An error block should carry `role="alert"` or `aria-live="polite"` so screen readers announce the failure. This is a CSS/accessibility note for the implementation phase, not an architectural concern.
+
+---
+
+*End of Home Block Engine Specification v1.1.*  
 *Companion documents:*  
 *— `boh-v2/docs/BOH_OS_V2_WORKSPACE_ENGINE.md` v1.1*  
 *— `boh-v2/docs/BOH_OS_V2_HOME_COMPOSITION_ENGINE.md` v1.0*  
-*— `boh-v2/docs/WORKSPACE_ARCHITECTURE.md` v1.0*
+*— `boh-v2/docs/WORKSPACE_ARCHITECTURE.md` v1.0*  
+*Supersedes: `boh-v2/docs/BOH_OS_V2_HOME_BLOCK_ENGINE.md` v1.0*
