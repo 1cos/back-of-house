@@ -1,40 +1,45 @@
 /* BOH OS v2 — Command Bar
-   UI-06: Persistent bottom command input.
-   Fixed at the bottom of the viewport — stays above the iOS keyboard
-   because iOS raises position:fixed elements with the keyboard.
-   Primary target: iPhone portrait.
-   All values use tokens from tokens.css.
+   UI-06.1: visualViewport keyboard fix.
+   ------------------------------------------------------------------
+   KEY CHANGE FROM UI-06:
+   The bar is still position:fixed bottom:0 in CSS.
+   In iOS Safari, position:fixed anchors to the LAYOUT viewport.
+   When the keyboard opens, JS overrides bar.style.bottom to:
+     layoutViewportHeight − (vv.offsetTop + vv.height)
+   which pins the bar to the VISUAL viewport bottom.
+   The CSS bottom:0 is the correct fallback for browsers/devices
+   without the keyboard issue (desktop, non-iOS).
+
+   The scroll container (.app-shell__main) receives a dynamic
+   padding-bottom from JS rather than a static CSS override,
+   so it always clears the bar whether the keyboard is open or not.
    ------------------------------------------------------------------ */
 
 /* ── Bar container ───────────────────────────────────────────────────
-   Fixed to viewport bottom. Floats above content.
-   Stays above the keyboard on iOS.                                   */
+   Fixed to viewport bottom. JS overrides bottom on keyboard open.   */
 .command-bar {
   position: fixed;
-  bottom: 0;
+  bottom: 0;               /* JS overrides this when keyboard is open */
   left: 0;
   right: 0;
-  z-index: 50;                        /* above workspace, below modals (z:100) */
+  z-index: 50;             /* above workspace panels, below sheets (200) */
 
   display: flex;
-  align-items: flex-end;              /* align to bottom so tall textarea grows up */
+  align-items: flex-end;   /* tall textarea grows upward */
   gap: var(--sp-2);
 
-  /* Floating card appearance */
   background: var(--surface);
   border-top: 1px solid var(--border);
   box-shadow: 0 -2px 16px rgba(30, 58, 95, 0.10);
 
-  /* Horizontal padding + safe-area */
   padding: var(--sp-2) var(--sp-3);
   padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom, 0px));
 
-  /* Prevent the bar itself from shrinking its children */
   box-sizing: border-box;
   width: 100%;
 }
 
-/* ── Left (+) and right (mic) icon buttons ───────────────────────────
+/* ── Icon buttons (+ and 🎙) ─────────────────────────────────────────
    44×44 px minimum touch target (Apple HIG).                        */
 .command-bar__btn {
   flex-shrink: 0;
@@ -44,7 +49,6 @@
   align-items: center;
   justify-content: center;
 
-  /* Reset button */
   background: none;
   border: none;
   border-radius: 50%;
@@ -69,32 +73,27 @@
   outline-offset: 2px;
 }
 
-/* Attach button: slightly heavier weight for the + glyph */
 .command-bar__btn--attach {
   font-size: 24px;
   font-weight: 300;
   color: var(--accent);
 }
 
-/* Mic button */
 .command-bar__btn--mic {
   font-size: 19px;
 }
 
 /* ── Textarea ────────────────────────────────────────────────────────
-   Grows from 1 to max 3 lines. Minimum height = 1 line.
-   Scrolls past 3 lines without resizing the bar further.            */
+   1–3 line grow. 16px font prevents iOS auto-zoom on focus.         */
 .command-bar__input {
   flex: 1;
   min-width: 0;
 
-  /* Typography */
   font-family: var(--font-sans);
-  font-size: 16px;           /* 16px prevents iOS auto-zoom on focus */
+  font-size: 16px;
   line-height: 1.4;
   color: var(--text-primary);
 
-  /* Reset */
   background: var(--bg-base);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -103,14 +102,12 @@
   width: 100%;
 
   resize: none;
-  overflow-y: hidden;        /* hidden until 3 lines, then auto via JS */
+  overflow-y: hidden;
 
-  /* Single line initial height */
   height: auto;
   min-height: 40px;
-  max-height: 80px;          /* ≈3 lines × 1.4 lh × 16px + padding */
+  max-height: 80px;
 
-  /* Remove default outline; we provide our own */
   outline: none;
   -webkit-appearance: none;
   appearance: none;
@@ -124,24 +121,25 @@
 .command-bar__input:focus {
   border-color: var(--accent);
   background: var(--surface);
-  overflow-y: auto;          /* allow scroll when at max height */
+  overflow-y: auto;
 }
 
-/* ── Bottom-padding shim for workspace content ───────────────────────
-   Applied to .app-shell__main so the last Prep card scrolls clear
-   of the fixed Command Bar.
-   Height = bar height (≈ 60 px) + extra breathing room.            */
+/* ── Scroll container bottom clearance ───────────────────────────────
+   Static fallback for .app-shell__main. This is the CSS baseline
+   when JS has not yet applied dynamic padding-bottom.
+   JS sets padding-bottom inline on the scroll container to match
+   the actual bar height + keyboard offset. When JS is active this
+   rule is overridden by the inline style.                           */
 .app-shell__main {
   padding-bottom: calc(72px + max(var(--sp-4), env(safe-area-inset-bottom, 0px)));
 }
 
 /* ── Shared sheet backdrop ───────────────────────────────────────────
-   Full-screen dimmed overlay; sheets slide up from the bottom.
-   Appended to document.body.                                         */
+   Appended to document.body. z-index above bar (50) and modals.    */
 .cb-sheet-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 200;              /* above Command Bar (50) and modals (100) */
+  z-index: 200;
   background: rgba(0, 0, 0, 0.42);
   display: flex;
   align-items: flex-end;
@@ -151,8 +149,7 @@
   box-sizing: border-box;
 }
 
-/* ── '+' action sheet ────────────────────────────────────────────────
-   Bottom sheet with disabled future actions.                        */
+/* ── '+' action sheet ────────────────────────────────────────────────  */
 .cb-action-sheet {
   background: var(--surface);
   border-radius: var(--r-lg);
@@ -181,13 +178,11 @@
   min-height: 52px;
   padding: var(--sp-3) var(--sp-4);
   box-sizing: border-box;
-
   background: none;
   border: none;
   border-top: 1px solid var(--border);
   text-align: left;
   cursor: default;
-
   font-family: var(--font-sans);
   font-size: 17px;
   color: var(--text-primary);
@@ -218,13 +213,11 @@
   padding: var(--sp-3) var(--sp-4);
   box-sizing: border-box;
   margin-top: var(--sp-2);
-
   background: var(--bg-base);
   border: none;
   border-top: 1px solid var(--border);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-
   font-family: var(--font-sans);
   font-size: 17px;
   font-weight: 600;
@@ -236,8 +229,7 @@
   outline-offset: -2px;
 }
 
-/* ── Command preview sheet ───────────────────────────────────────────
-   Confirms the command was received (no-op in phase 1).             */
+/* ── Command preview sheet ───────────────────────────────────────────  */
 .cb-preview-sheet {
   background: var(--surface);
   border-radius: var(--r-lg);
@@ -286,7 +278,6 @@
   min-height: 44px;
   padding: var(--sp-2) var(--sp-4);
   box-sizing: border-box;
-
   font-family: var(--font-sans);
   font-size: 16px;
   font-weight: 600;
@@ -315,10 +306,11 @@
 }
 
 /* ── Mic "coming soon" toast ─────────────────────────────────────────
-   Non-blocking — slides in above the Command Bar and auto-dismisses. */
+   Anchored via JS-set --cb-bottom-inset so it tracks the bar.
+   Fallback uses 72px.                                               */
 .cb-mic-toast {
   position: fixed;
-  bottom: calc(72px + max(var(--sp-2), env(safe-area-inset-bottom, 0px)));
+  bottom: calc(var(--cb-mic-toast-bottom, 72px) + 8px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 150;

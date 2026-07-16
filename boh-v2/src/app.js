@@ -274,7 +274,10 @@ function mountShell(user) {
   // ── UI-06: Command Bar ────────────────────────────────────────────
   // Mounted once per authenticated session, directly on the shell root.
   // Fixed position — lives above all workspace content.
-  _commandBar = createCommandBar({ translate: t });
+  // UI-06.1: pass the real scroll container so the keyboard-inset logic
+  // can dynamically update its padding-bottom. workspaceOutlet.parentNode
+  // is .app-shell__main — the element with overflow-y:auto.
+  _commandBar = createCommandBar({ translate: t, scrollTarget: workspaceOutlet.parentNode });
   shell.appendChild(_commandBar.el);
 }
 

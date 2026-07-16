@@ -1,52 +1,58 @@
 // BOH OS v2 — Command Bar component
-// UI-06: Persistent bottom input bar for the BOH OS workspace.
+// UI-06: Persistent bottom command input bar.
+// UI-06.1: visualViewport keyboard fix for iOS Safari.
 //
-// Anatomy: [ + ]  [ How can I help?  ]  [ 🎙 ]
+// ROOT CAUSE OF ORIGINAL BUG:
+//   position:fixed anchors to the LAYOUT viewport in iOS Safari.
+//   When the software keyboard opens, the visual viewport shrinks but
+//   the layout viewport does NOT. So bottom:0 on a fixed element
+//   sits behind the keyboard. The "fixed rises with keyboard" assumption
+//   only holds in older iOS behaviour and is not reliable.
 //
-// Phase 1 scope (this task):
-//   - Visual shell and interaction container only.
-//   - No Supabase. No AI. No backend. No operational actions.
-//   - Submit → temporary command preview sheet (no-op).
-//   - '+' → temporary action sheet with disabled future entries.
-//   - Microphone → non-blocking "coming soon" toast.
-//   - Expand to 3 lines on focus.
-//   - Keyboard-safe on iPhone (bar stays above keyboard via position:fixed).
-//   - One instance per authenticated session. destroy() cleans up fully.
+// FIX (UI-06.1):
+//   Use window.visualViewport when available. On resize/scroll, compute:
+//     barBottom = layoutViewportHeight - (vv.offsetTop + vv.height)
+//   and apply it as `bar.style.bottom`. This pins the bar to the VISUAL
+//   viewport bottom — i.e., right above the keyboard at all times.
 //
-// Integration:
-//   - Mounted once at the App Shell level by app.js.
-//   - Receives all callbacks via dependency injection.
+//   The real scroll container (.app-shell__main) receives a CSS variable
+//   --cb-bottom-inset that matches the current bar height + keyboard offset,
+//   so the last Prep card is always reachable.
+//
+// ANATOMY: [ + ]  [ How can I help?  ]  [ 🎙 ]
+//
+// INVARIANTS:
+//   - One instance per authenticated session.
+//   - destroy() removes ALL listeners, overlays, inline styles, CSS vars.
+//   - No Supabase. No AI. No WorkspaceManager. No router.
+//   - All callbacks via dependency injection.
 //   - Returns { el, destroy }.
-//
-// No window writes. No storage. No router. No WorkspaceManager import.
 
 /**
  * Creates the Command Bar DOM element and wires all interaction.
  *
  * @param {{
- *   translate:   (key: string) => string,
- *   onSubmit?:   (text: string) => void,   // future: AI / command handler
- *   onAttach?:   () => void,               // future: attachment handler
- *   onMic?:      () => void,               // future: voice handler
+ *   translate:    (key: string) => string,
+ *   scrollTarget?: HTMLElement,  // the real scroll container; receives --cb-bottom-inset
+ *   onSubmit?:   (text: string) => void,
+ *   onAttach?:   () => void,
+ *   onMic?:      () => void,
  * }} options
  * @returns {{ el: HTMLElement, destroy: () => void }}
  */
-export function createCommandBar({ translate, onSubmit, onAttach, onMic }) {
-  // ── Overlays (action sheet, preview sheet, mic toast) ─────────────
-  // These are appended to document.body so they escape any overflow:hidden.
-  // destroy() removes all of them.
+export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, onMic }) {
+
+  // ── Overlays registry ─────────────────────────────────────────────
   const _overlays = new Set();
 
   function _addOverlay(el) {
     document.body.appendChild(el);
     _overlays.add(el);
   }
-
   function _removeOverlay(el) {
     if (el.parentNode) el.parentNode.removeChild(el);
     _overlays.delete(el);
   }
-
   function _removeAllOverlays() {
     for (const el of _overlays) {
       if (el.parentNode) el.parentNode.removeChild(el);
@@ -54,9 +60,143 @@ export function createCommandBar({ translate, onSubmit, onAttach, onMic }) {
     _overlays.clear();
   }
 
+  // ── Bar root ──────────────────────────────────────────────────────
+  const bar = document.createElement('div');
+  bar.className = 'command-bar';
+  bar.setAttribute('role', 'search');
+  bar.setAttribute('aria-label', translate('command_bar.bar_label'));
+
+  // ── Textarea auto-height ──────────────────────────────────────────
+  function _syncTextareaHeight() {
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
+  }
+
+  // ── visualViewport keyboard handling ─────────────────────────────
+  //
+  // STRATEGY:
+  //   Normal state  → bar.style.bottom = '' (CSS position:fixed bottom:0 owns it)
+  //   Keyboard open → bar.style.bottom = `${offsetFromLayoutBottom}px`
+  //
+  // layoutViewportHeight = window.innerHeight (the full layout viewport, fixed).
+  // vv.height      = the visible part of the layout viewport (shrinks with keyboard).
+  // vv.offsetTop   = how many px of the layout viewport are above the visual viewport
+  //                  (usually 0 on iPhone; non-zero when the page is scrolled above).
+  //
+  // The bar needs to sit at the BOTTOM of the visual viewport:
+  //   bar.style.bottom = (layoutViewportHeight - vv.offsetTop - vv.height) + 'px'
+  //
+  // When keyboard is fully closed: vv.offsetTop + vv.height ≈ window.innerHeight
+  // → bottom ≈ 0 → same as CSS default. Clean restore.
+  //
+  // Bottom inset for scroll container:
+  //   The bar's rendered height + the keyboard compensation.
+  //   We use bar.getBoundingClientRect().height after each update.
+
+  const vv = window.visualViewport || null;
+
+  function _getBarHeight() {
+    return bar.getBoundingClientRect().height || 60;
+  }
+
+  function _updateViewport() {
+    if (!vv) return;
+
+    const layoutH = window.innerHeight;
+    const keyboardOffset = Math.max(0, layoutH - vv.offsetTop - vv.height);
+
+    // Reposition bar above the keyboard
+    bar.style.bottom = keyboardOffset + 'px';
+
+    // Update scroll-container inset
+    const inset = _getBarHeight() + keyboardOffset;
+    _applyScrollInset(inset);
+  }
+
+  function _applyScrollInset(pxValue) {
+    // Set on the real scroll container if provided, otherwise fall back to bar's parent.
+    const target = scrollTarget || bar.parentNode;
+    if (!target) return;
+    target.style.setProperty('--cb-bottom-inset', pxValue + 'px');
+    // Also set padding-bottom directly so it works without the CSS var support
+    target.style.paddingBottom = `calc(${pxValue}px + max(var(--sp-4), env(safe-area-inset-bottom, 0px)))`;
+  }
+
+  function _resetViewport() {
+    bar.style.bottom = '';
+    const target = scrollTarget || bar.parentNode;
+    if (!target) return;
+    target.style.removeProperty('--cb-bottom-inset');
+    // Restore the static CSS padding-bottom (set in command-bar.css)
+    target.style.paddingBottom = '';
+  }
+
+  // Track whether keyboard is open to avoid double-resets
+  let _keyboardOpen = false;
+
+  function _onVVResize() {
+    if (!vv) return;
+    const layoutH = window.innerHeight;
+    const keyboardOffset = Math.max(0, layoutH - vv.offsetTop - vv.height);
+
+    if (keyboardOffset > 50) {
+      // Keyboard is open
+      _keyboardOpen = true;
+      _updateViewport();
+    } else {
+      // Keyboard closed
+      if (_keyboardOpen) {
+        _keyboardOpen = false;
+        _resetViewport();
+      }
+    }
+  }
+
+  // visualViewport scroll fires when the user pans inside the keyboard area
+  function _onVVScroll() {
+    if (_keyboardOpen) _updateViewport();
+  }
+
+  // Fallback for browsers without visualViewport
+  function _onWindowResize() {
+    if (vv) return; // handled by vv events
+    // No reliable keyboard detection without vv — do nothing to avoid jitter.
+    // The static CSS bottom:0 remains in effect.
+  }
+
+  // ── Focus / blur ──────────────────────────────────────────────────
+  // On focus: small delay to let the keyboard finish animating before
+  // scrollIntoView, so we don't fight the animation.
+
+  function _onFocus() {
+    if (vv) {
+      // The resize event will fire once the keyboard is up.
+      // scrollIntoView after a short delay so the bar is already repositioned.
+      setTimeout(() => {
+        if (document.activeElement === textarea) {
+          textarea.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      }, 350);
+    }
+  }
+
+  function _onBlur() {
+    // Blur fires BEFORE the keyboard fully closes.
+    // The visualViewport resize will fire when the keyboard is actually gone
+    // and _onVVResize will call _resetViewport() at the right time.
+    // No eager reset here — avoids layout flash.
+  }
+
+  // Wire viewport listeners
+  if (vv) {
+    vv.addEventListener('resize', _onVVResize);
+    vv.addEventListener('scroll', _onVVScroll);
+  } else {
+    window.addEventListener('resize', _onWindowResize);
+  }
+
   // ── Mic toast ─────────────────────────────────────────────────────
   function _showMicToast() {
-    // Remove any existing toast first
     const existing = document.querySelector('.cb-mic-toast');
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
 
@@ -67,9 +207,7 @@ export function createCommandBar({ translate, onSubmit, onAttach, onMic }) {
     toast.textContent = translate('command_bar.mic_coming_soon');
     _addOverlay(toast);
 
-    // Auto-dismiss after 2.5 s
-    const tid = setTimeout(() => _removeOverlay(toast), 2500);
-    toast._tid = tid;
+    setTimeout(() => _removeOverlay(toast), 2500);
   }
 
   // ── '+' action sheet ──────────────────────────────────────────────
@@ -134,10 +272,7 @@ export function createCommandBar({ translate, onSubmit, onAttach, onMic }) {
     const backdrop = document.createElement('div');
     backdrop.className = 'cb-sheet-backdrop';
 
-    function dismiss() {
-      _removeOverlay(backdrop);
-      // Clear the textarea when preview is explicitly dismissed via Close
-    }
+    function dismiss() { _removeOverlay(backdrop); }
 
     backdrop.addEventListener('click', (e) => {
       if (e.target === backdrop) dismiss();
@@ -171,9 +306,7 @@ export function createCommandBar({ translate, onSubmit, onAttach, onMic }) {
     closeBtn.type = 'button';
     closeBtn.className = 'cb-preview-sheet__btn cb-preview-sheet__btn--secondary';
     closeBtn.textContent = translate('command_bar.preview_close');
-    closeBtn.addEventListener('click', () => {
-      dismiss();
-    });
+    closeBtn.addEventListener('click', dismiss);
 
     const clearBtn = document.createElement('button');
     clearBtn.type = 'button';
@@ -181,7 +314,6 @@ export function createCommandBar({ translate, onSubmit, onAttach, onMic }) {
     clearBtn.textContent = translate('command_bar.preview_clear');
     clearBtn.addEventListener('click', () => {
       dismiss();
-      // Clear the textarea
       textarea.value = '';
       _syncTextareaHeight();
     });
@@ -194,19 +326,6 @@ export function createCommandBar({ translate, onSubmit, onAttach, onMic }) {
     _addOverlay(backdrop);
   }
 
-  // ── Textarea auto-height ──────────────────────────────────────────
-  // Shrinks/grows between 1 and 3 lines.
-  function _syncTextareaHeight() {
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
-  }
-
-  // ── Bar root ──────────────────────────────────────────────────────
-  const bar = document.createElement('div');
-  bar.className = 'command-bar';
-  bar.setAttribute('role', 'search');
-  bar.setAttribute('aria-label', translate('command_bar.bar_label'));
-
   // ── '+' button ────────────────────────────────────────────────────
   const attachBtn = document.createElement('button');
   attachBtn.type = 'button';
@@ -214,11 +333,7 @@ export function createCommandBar({ translate, onSubmit, onAttach, onMic }) {
   attachBtn.setAttribute('aria-label', translate('command_bar.attach_label'));
   attachBtn.textContent = '+';
   attachBtn.addEventListener('click', () => {
-    if (typeof onAttach === 'function') {
-      onAttach();
-    } else {
-      _showActionSheet();
-    }
+    if (typeof onAttach === 'function') { onAttach(); } else { _showActionSheet(); }
   });
 
   // ── Textarea ──────────────────────────────────────────────────────
@@ -232,6 +347,8 @@ export function createCommandBar({ translate, onSubmit, onAttach, onMic }) {
   textarea.setAttribute('spellcheck', 'false');
 
   textarea.addEventListener('input', _syncTextareaHeight);
+  textarea.addEventListener('focus', _onFocus);
+  textarea.addEventListener('blur',  _onBlur);
 
   textarea.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -245,26 +362,16 @@ export function createCommandBar({ translate, onSubmit, onAttach, onMic }) {
   micBtn.type = 'button';
   micBtn.className = 'command-bar__btn command-bar__btn--mic';
   micBtn.setAttribute('aria-label', translate('command_bar.mic_label'));
-  // Microphone unicode glyph — visually clear, no external dependency
   micBtn.textContent = '🎙';
   micBtn.addEventListener('click', () => {
-    if (typeof onMic === 'function') {
-      onMic();
-    } else {
-      _showMicToast();
-    }
+    if (typeof onMic === 'function') { onMic(); } else { _showMicToast(); }
   });
 
-  // ── Submit handler ────────────────────────────────────────────────
+  // ── Submit ────────────────────────────────────────────────────────
   function _handleSubmit() {
     const text = textarea.value.trim();
     if (!text) return;
-
-    if (typeof onSubmit === 'function') {
-      onSubmit(text);
-    } else {
-      _showPreview(text);
-    }
+    if (typeof onSubmit === 'function') { onSubmit(text); } else { _showPreview(text); }
   }
 
   // ── Assemble ──────────────────────────────────────────────────────
@@ -274,7 +381,21 @@ export function createCommandBar({ translate, onSubmit, onAttach, onMic }) {
 
   // ── destroy ───────────────────────────────────────────────────────
   function destroy() {
+    // Remove viewport listeners
+    if (vv) {
+      vv.removeEventListener('resize', _onVVResize);
+      vv.removeEventListener('scroll', _onVVScroll);
+    } else {
+      window.removeEventListener('resize', _onWindowResize);
+    }
+
+    // Reset scroll container styles
+    _resetViewport();
+
+    // Remove overlays
     _removeAllOverlays();
+
+    // Remove bar from DOM
     if (bar.parentNode) bar.parentNode.removeChild(bar);
   }
 
