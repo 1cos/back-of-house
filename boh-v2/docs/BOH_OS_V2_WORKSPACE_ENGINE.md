@@ -1,10 +1,11 @@
 # BOH OS v2 — Workspace Engine Specification
 
-> Version 1.0 · 2026-07-16  
+> Version 1.1 · 2026-07-16  
 > Author: Architecture session  
 > Status: **PROPOSED — requires Max approval before any implementation**  
 > Preceded by: `boh-v2/docs/WORKSPACE_ARCHITECTURE.md` v1.0 (2026-07-15)  
-> Scope: UI architecture only — no DB, no RPCs, no services, no business logic
+> Scope: UI architecture only — no DB, no RPCs, no services, no business logic  
+> Changes from v1.0: three architectural corrections applied per review (destroy() full reset; _prevId removed / left-neighbor fallback; renderer contract strengthened). All other review notes deferred to Appendix A.
 
 ---
 
@@ -60,7 +61,16 @@ During operation, the WorkspaceManager:
 
 On reload or close: all in-memory state is lost. No cleanup is needed — the browser handles it.
 
-On logout: `WorkspaceManager.destroy()` is called. It clears the registry, removes the DOM outlet contents, and removes the Panel Strip. The login screen replaces the shell.
+On logout: `WorkspaceManager.destroy()` is called. It performs a **complete reset** of all module-scope state:
+- Clears the outlet DOM contents.
+- Removes the Panel Strip from the DOM.
+- Resets `_state` to `{ panels: [], activeId: null }`.
+- Resets `_renderers` to `{}`.
+- Resets `_counter` to `0`.
+
+After `destroy()` returns, the module is in an identical state to before `createWorkspaceManager()` was first called. This makes it safe to call `createWorkspaceManager()` again in the same tab (logout → re-login flow) without any stale state from the previous session.
+
+The login screen replaces the shell after `destroy()` completes.
 
 ---
 
@@ -103,10 +113,41 @@ Home only: Home has no CLOSED state. It transitions between ACTIVE and DORMANT o
 | Open → ACTIVE | `workspaceManager.openPanel(type, context)` | Create PanelDescriptor, call renderer, mount DOM, update Panel Strip, set activeId |
 | ACTIVE → DORMANT | Another panel activated | Hide DOM node (v1: remove from outlet; future: detach to cache), update Panel Strip |
 | DORMANT → ACTIVE | `workspaceManager.activatePanel(id)` | Call renderer again (v1), mount DOM, update Panel Strip, set activeId |
-| ACTIVE → CLOSED | `workspaceManager.closePanel(id)` | Remove from registry, unmount DOM, activate fallback, update Panel Strip |
-| DORMANT → CLOSED | `workspaceManager.closePanel(id)` | Remove from registry (DOM already unmounted), update Panel Strip |
+| ACTIVE → CLOSED | `workspaceManager.closePanel(id)` | Remove from registry, unmount DOM, activate left-neighbor fallback, update Panel Strip |
+| DORMANT → CLOSED | `workspaceManager.closePanel(id)` | Remove from registry (DOM already unmounted), activate left-neighbor fallback, update Panel Strip |
 
 ### 3.3 Renderer call contract
+
+**Renderer functions MUST be synchronous.** A renderer MUST return a valid `HTMLElement` immediately — it MUST NOT return a `Promise`, `null`, or any other value. Returning `Promise<HTMLElement>` is a specification violation: the WorkspaceManager cannot append a Promise to the DOM, and the failure is silent with no error surfaced to the user or developer.
+
+The correct pattern for panels that require async data is the **skeleton-first pattern**:
+1. The renderer synchronously creates and returns a skeleton `HTMLElement` (loading state, spinner, or empty container).
+2. After returning, the renderer's async operations populate the skeleton.
+3. Every DOM mutation after an `await` MUST be guarded by `node.isConnected` before executing.
+
+```js
+// CORRECT — skeleton-first
+registerRenderer('station-prep', ({ stationName }) => {
+  const section = document.createElement('section');
+  section.className = 'station-prep';
+  section.textContent = 'Loading…';          // skeleton
+  fetchStationPrepTasks(stationName).then(tasks => {
+    if (!section.isConnected) return;        // isConnected guard mandatory
+    renderTasks(section, tasks);
+  });
+  return section;                            // synchronous return
+});
+
+// VIOLATION — async renderer
+registerRenderer('station-prep', async ({ stationName }) => {
+  const tasks = await fetchStationPrepTasks(stationName);
+  const section = document.createElement('section');
+  renderTasks(section, tasks);
+  return section;                            // returns Promise<HTMLElement> — never mounted
+});
+```
+
+`registerRenderer` always overwrites a previous registration for the same type. This is the intended mechanism for replacing placeholder renderers with real implementations as milestones progress.
 
 In v1, the renderer is called on every activation. This means:
 - Data is re-fetched from Supabase on every re-activation.
@@ -117,7 +158,7 @@ This is acceptable for v1 and matches current behavior. Future optimization: DOM
 
 ### 3.4 isConnected guard
 
-All async completions in all panel renderers MUST check `node.isConnected` before mutating the DOM. This is the existing pattern from `station-prep.js` and is mandatory for all future panels.
+All async completions in all panel renderers MUST check `node.isConnected` before mutating the DOM. This is the existing pattern from `station-prep.js` and is mandatory for all future panels. It is not optional even when the renderer author believes the panel will always be mounted — the WorkspaceManager may close or replace a panel while an async operation is in flight.
 
 ---
 
@@ -171,14 +212,23 @@ Canonical context key per type:
 When a panel is closed:
 1. It is removed from the registry.
 2. Its DOM node is removed from the outlet.
-3. The WorkspaceManager selects the fallback panel.
+3. The WorkspaceManager selects the fallback panel and activates it.
 
-**Fallback selection rule (in priority order):**
-1. The panel that was active immediately before this one (tracked in WorkspaceManager as `_previousActiveId`).
-2. The panel to the left of the closed panel in the registry.
-3. Home.
+**Fallback selection rule:**
+
+Activate the panel immediately to the left of the closed panel in the registry array. If the closed panel was at index 0 (which cannot happen — Home is always at index 0 and cannot be closed), or if no left neighbor exists, activate Home.
 
 Home is always the final fallback. The fallback rule never leaves the workspace with no active panel.
+
+```
+closed panel at registry index N
+  → activate panel at index N-1
+  → if N-1 does not exist → activate Home
+```
+
+There is no history tracking. The WorkspaceManager does not record which panel was previously active. Fallback is determined entirely by the current registry order at the moment of close. This is spatially predictable: the panel visually to the left of the closed chip becomes the active panel. It cannot reference a deleted panel ID.
+
+**Example:** Home → Saucier → Pastry → Journal (indices 0, 1, 2, 3). Closing Journal (index 3) activates Pastry (index 2). Closing Pastry activates Saucier. Closing Saucier activates Home.
 
 ---
 
@@ -189,7 +239,7 @@ Home is always the final fallback. The fallback rule never leaves the workspace 
 When the limit is reached:
 - The `+` control in the Panel Strip is hidden.
 - Any `openPanel()` call that would exceed the limit is refused.
-- The WorkspaceManager shows a brief non-modal notification: "Close a panel to open a new one." The notification is inserted inline in the Panel Strip — not a toast, not a modal.
+- The WorkspaceManager shows a brief non-modal notification: "Close a panel to open a new one." The notification is rendered as part of the Panel Strip `HTMLElement` when `atLimit=true` is passed to `renderPanelStrip`. It disappears automatically when any panel is closed and the strip re-renders with `atLimit=false`.
 
 Closing any panel re-enables the `+` control.
 
@@ -372,48 +422,76 @@ export function createWorkspaceManager({ outlet, panelStripMount }) → workspac
 **Internal state** (module-scope, not exported):
 ```js
 let _state = {
-  panels:    [],          // PanelDescriptor[]
-  activeId:  null,        // string | null
-  _prevId:   null,        // previous active (for close fallback)
+  panels:   [],     // PanelDescriptor[] — ordered registry
+  activeId: null,   // string | null — pointer into panels
 }
-let _renderers = {}       // { [type]: rendererFn }
-let _counter   = 0        // monotonic panel ID counter
+let _renderers = {} // { [type]: rendererFn } — registered panel renderers
+let _counter   = 0  // monotonic panel ID counter
 ```
+
+No history pointer. No `_prevId`. Fallback on close is computed from registry position at the moment of close — see §7.
+
+**`destroy()` resets all module-scope state to initial values:**
+```js
+function destroy() {
+  outlet.innerHTML = '';
+  panelStripMount.innerHTML = '';
+  _state     = { panels: [], activeId: null };
+  _renderers = {};
+  _counter   = 0;
+}
+```
+
+After `destroy()`, the module is safe for `createWorkspaceManager()` to be called again in the same tab. The renderer registry is cleared — all renderers must be re-registered on every `mountShell()` call. This is the designed behavior.
 
 **Public API:**
 
 ```js
 workspaceManager.registerRenderer(type, fn)
-  // fn(context) → HTMLElement
+  // fn(context) → HTMLElement  (MUST be synchronous — see §3.3)
+  // Always overwrites previous registration for the same type.
   // Must be called before openPanel(type, ...)
 
 workspaceManager.openPanel(type, context)
   // → panelId (string)
   // If duplicate: activates existing panel, returns its ID
-  // If at limit: shows inline notification, returns null
+  // If at limit: renders inline notification, returns null
   // If unknown type: silently ignores, returns null
 
 workspaceManager.closePanel(panelId)
   // No-op if panelId === 'panel-home'
   // No-op if panelId not in registry
-  // Selects fallback, activates it
+  // Removes panel, selects left-neighbor fallback, activates it
 
 workspaceManager.activatePanel(panelId)
   // No-op if already active
+  // No-op if panelId not in registry
   // Calls renderer, mounts DOM, updates Panel Strip
 
 workspaceManager.currentPanel()
   // → PanelDescriptor | null
 
 workspaceManager.destroy()
-  // Clears registry, removes outlet content, removes Panel Strip
+  // Resets all module-scope state (_state, _renderers, _counter) to initial values.
+  // Clears outlet DOM and Panel Strip DOM.
+  // Safe to call createWorkspaceManager() again after this.
 
 // Internal only (not exported):
 _renderPanelStrip()
-_selectFallback(closedId)
+_selectFallback(closedId)   // returns left neighbor ID, or 'panel-home'
 _isDuplicate(type, context)
 _dedupeKey(type, context)
 ```
+
+**`_selectFallback` implementation contract:**
+```js
+function _selectFallback(closedId) {
+  const idx = _state.panels.findIndex(p => p.id === closedId);
+  const neighbor = _state.panels[idx - 1];
+  return neighbor ? neighbor.id : 'panel-home';
+}
+```
+Called before the closed panel is removed from the registry, so `idx` is always valid.
 
 **PanelDescriptor:**
 ```js
@@ -522,13 +600,15 @@ function handleStationSelect(stationName) {
 }
 ```
 
-The `station-prep` renderer is registered:
+The `station-prep` renderer is registered using the skeleton-first pattern (see §3.3):
 ```js
 workspaceManager.registerRenderer('station-prep', ({ stationName }) => {
   return createStationPrep({
     stationName,
     // ... all existing injected services unchanged
   });
+  // createStationPrep already implements the skeleton-first pattern
+  // and guards all async mutations with isConnected — no change required
 });
 ```
 
@@ -549,7 +629,8 @@ SESSION START
      │
      ▼
 [WorkspaceManager.create]──────────────────────────────────────┐
-     │                                                          │
+     │   _state = { panels:[], activeId:null }                  │
+     │   _renderers = {}   _counter = 0                         │
      ▼                                                          │
 [open('home')]                                                  │
      │                                                          │
@@ -582,9 +663,19 @@ SESSION START
      │                                                          │
      ├── user taps × on chip ─────────────► [closePanel]        │
      │                                          │               │
+     │                                    [_selectFallback]     │
+     │                                    → left neighbor       │
+     │                                    → or Home             │
      │                                    [remove from registry]│
-     │                                    [select fallback]     │
      │                                    [activate fallback]   │
+     │                                                          │
+     ├── user logs out ───────────────────► [destroy()]         │
+     │                                    [_state reset]        │
+     │                                    [_renderers reset]    │
+     │                                    [_counter reset]      │
+     │                                    [DOM cleared]         │
+     │                                    → login screen        │
+     │                                    → safe for re-login   │
      │                                                          │
      └── user closes browser / reloads ──────────────────────► [death]
 ```
@@ -605,7 +696,7 @@ These rules are the implementation contract. Every one must be respected.
 
 **R-05.** Activating a panel is instant in v1. No animation required. Scroll position is not preserved across switch-away (re-render on activation).
 
-**R-06.** Closing a panel activates the fallback: previous active → left neighbor → Home.
+**R-06.** Closing a panel activates the left neighbor in the registry. If no left neighbor exists, Home is activated. There is no history-based fallback.
 
 **R-07.** Opening a duplicate panel (same type + canonical context) silently activates the existing one. No notification.
 
@@ -615,7 +706,7 @@ These rules are the implementation contract. Every one must be respected.
 
 **R-10.** The WorkspaceManager never calls `router.navigate()`. The router is used only during the WS-03/WS-04 transition period, and only by `station-navigation.js` for the bottom-bar paths. At WS-05, the router is retained as an internal mechanism but is no longer the primary navigation path.
 
-**R-11.** Panels know nothing about the WorkspaceManager. They accept services via injection. They return `HTMLElement`. The WorkspaceManager mounts and unmounts them — they never mount themselves.
+**R-11.** Panels know nothing about the WorkspaceManager. They accept services via injection. They return `HTMLElement` synchronously. The WorkspaceManager mounts and unmounts them — they never mount themselves.
 
 **R-12.** The WorkspaceManager does not know about Supabase, services, or prep tasks. It knows panel types, panel IDs, and renderers.
 
@@ -627,13 +718,15 @@ These rules are the implementation contract. Every one must be respected.
 
 **R-16.** Session restore is not implemented in v1. Reload means re-authenticate.
 
-**R-17.** `destroy()` is called on logout. It is not called on reload.
+**R-17.** `destroy()` is called on logout. It resets `_state`, `_renderers`, and `_counter` to initial values. It clears outlet DOM and Panel Strip DOM. It is not called on reload.
 
 **R-18.** The `+` button on mobile opens the Station Selector as a modal overlay. The Station Selector is not a panel.
 
 **R-19.** Panel chip labels are truncated to 12 characters on mobile, 24 characters on desktop. Full title available via `title` attribute for tooltip.
 
 **R-20.** No `localStorage` or `sessionStorage` in v1. All WorkspaceState is in-memory.
+
+**R-21.** Renderer functions MUST be synchronous and MUST return a valid `HTMLElement` immediately. Returning `Promise<HTMLElement>` or `null` is a specification violation. Async data loading uses the skeleton-first pattern: return skeleton immediately, populate asynchronously, guard every DOM mutation with `isConnected`.
 
 ---
 
@@ -647,11 +740,11 @@ The implementation sequence follows `WORKSPACE_ARCHITECTURE.md` §15 exactly, ex
 |---|---|---|---|
 | WS-01 | `app-shell.js` | Add `div.app-shell__panel-strip` mount point | XS |
 | WS-01 | `styles/app-shell.css` | Add `.app-shell__panel-strip` layout rule (height 0 in v1, no chips yet) | XS |
-| WS-02 | `src/core/workspace-manager.js` (NEW) | Full WorkspaceManager implementation + Home auto-open | M |
+| WS-02 | `src/core/workspace-manager.js` (NEW) | Full WorkspaceManager: panel registry, open/close/activate, left-neighbor fallback, destroy() full reset, skeleton-first renderer contract | M |
 | WS-02 | `src/components/workspace/panel-strip.js` (NEW) | `renderPanelStrip()` pure function | S |
 | WS-02 | `src/components/workspace/panel-icons.js` (NEW) | Icon map | XS |
 | WS-02 | `styles/panel-strip.css` (NEW) | Strip, chip, active state, close, add button styles | S |
-| WS-03 | `src/app.js` | Init WorkspaceManager, register home renderer, open Home panel | S |
+| WS-03 | `src/app.js` | Init WorkspaceManager, register home renderer (skeleton-first), open Home panel | S |
 
 After WS-03: Home chip appears in the Panel Strip alongside the still-functional bottom bar. Both navigation paths work. The app is fully usable.
 
@@ -723,5 +816,30 @@ Implementation begins only after all six items above are checked.
 
 ---
 
-*End of Workspace Engine Specification.*  
-*Companion document: `boh-v2/docs/WORKSPACE_ARCHITECTURE.md` v1.0 (2026-07-15)*
+## Appendix A — Future Review Notes
+
+The following issues were identified in the v1.0 architectural review but are deferred from this specification. They do not block implementation of WS-01 through WS-05. They should be revisited before recipe panels (WS-future) are implemented.
+
+**A1 — `openPanel` return value cannot distinguish failure reasons.**
+`openPanel` returns `null` for both "at limit" and "unknown type". Callers cannot distinguish them. No error is logged for unknown types. Risk: a typo in a panel type constant fails silently. Proposed fix when recipe panels are added: `console.error` on unknown type, or a structured return `{ panelId, error }`.
+
+**A2 — Close button accessibility and tap target.**
+The close `<span>` inside the chip `<button>` is not announced as a separate interactive element by screen readers. The 20×20px tap target is below WCAG minimum (44×44px). Proposed fix before kitchen staff use executive chef mode: replace the `<span>` with a sibling `<button>` element; expand tap target via CSS padding.
+
+**A3 — Panel ID format contains hyphens matching the type separator.**
+`panel-station-prep-2` cannot be reliably parsed to extract type or counter. Currently no code path needs to parse IDs — all lookups use the full ID. If any future tooling (debugging, session restore) ever needs to parse an ID, it will fail for hyphenated types. Proposed fix if needed: document IDs as opaque, or change separator to `:`.
+
+**A4 — `title` attribute tooltip is not available on iPhone.**
+The `title` attribute on chips provides the full station name on desktop hover but is never shown on iOS. Chips truncated to 12 characters may be ambiguous on mobile. Proposed fix: ensure no two active stations share the same 12-character prefix, or add a long-press label on mobile.
+
+**A5 — Panel limit notification text is hardcoded English in the current spec.**
+The notification "Close a panel to open a new one" should go through `t('workspace.limit_reached')` to respect user language preference (IT/EN/ES). Proposed fix before v1 ships to non-English kitchen staff.
+
+**A6 — Panels must not attach event listeners to the outlet element.**
+The spec prohibits panels from knowing about the outlet, but does not make this mechanically impossible. If any future panel attaches listeners to `outlet` directly, those listeners survive `destroy()` and fire in the next session. R-11 covers this implicitly; an explicit prohibition should be added if the pattern becomes a concern.
+
+---
+
+*End of Workspace Engine Specification v1.1.*  
+*Companion document: `boh-v2/docs/WORKSPACE_ARCHITECTURE.md` v1.0 (2026-07-15)*  
+*Supersedes: `boh-v2/docs/BOH_OS_V2_WORKSPACE_ENGINE.md` v1.0*
