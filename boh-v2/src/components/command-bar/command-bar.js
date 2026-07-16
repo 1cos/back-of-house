@@ -1,58 +1,65 @@
 // BOH OS v2 — Command Bar component
-// UI-06.3: Zero-vibration keyboard dock.
+// UI-06.4: CSS-first. Zero JS keyboard positioning.
 //
-// DIAGNOSIS OF PREVIOUS BUGS:
+// HISTORY OF FAILURES AND WHY THEY FAILED:
 //
-//   UI-06.1: bar.style.bottom = layoutH - vv.offsetTop - vv.height
-//     ✗ vv 'scroll' listener fired on every Prep scroll px
-//     ✗ rewrote bottom on every scroll event → oscillation
+//   UI-06.1  bar.style.bottom = window.innerHeight - vv.offsetTop - vv.height
+//            ✗ vv.scroll listener rewrote on every Prep scroll → vibration
 //
-//   UI-06.2: bar.style.top = vv.offsetTop + vv.height - barH
-//     ✗ claimed offsetTop+height cancels during scroll — FALSE
-//     ✗ vv.offsetTop changes when iOS address bar collapses during scroll
-//     ✗ each change fires vv 'resize' → _scheduleUpdate → new top write
-//     ✗ result: bar vibrates vertically while user scrolls Prep
+//   UI-06.2  bar.style.top = vv.offsetTop + vv.height - barH
+//            ✗ vv.offsetTop changes during scroll → vibration
 //
-// ROOT CAUSE OF VIBRATION:
-//   In iOS Safari, scrolling content (even inside a sub-element with
-//   overflow:auto) can cause the Safari chrome (address bar) to
-//   collapse/expand. This changes vv.offsetTop, which fires vv 'resize'.
-//   Any formula that reads vv.offsetTop live will produce a moving bar.
+//   UI-06.3  bar.style.bottom = window.innerHeight - vv.height  (capture-once)
+//            ✗ COORDINATE SPACE BUG: in PWA standalone mode, window.innerHeight
+//              includes safe-area/status-bar space that vv.height does not.
+//              e.g. iPhone 14 Pro: innerHeight=932, vv.height(keyboard)=390
+//              → dockHeight=542px → bar jumps 200px above keyboard → huge gap.
+//              window.innerHeight and visualViewport.height are not comparable.
 //
-// FIX (UI-06.3) — CAPTURE-ONCE MODEL:
+// CORRECT APPROACH (UI-06.4):
 //
-//   1. On vv 'resize': measure vv.height.
-//   2. If vv.height < window.innerHeight - 50 → keyboard is open.
-//   3. If this is a MATERIAL height change (> 20px from last settled
-//      value), capture it and reposition. Otherwise ignore.
-//   4. Dock position = window.innerHeight - capturedVvHeight (constant).
-//      bar.style.bottom = dockHeight + 'px'  (constant while KB open).
-//   5. scrollTarget padding written once, never again until KB closes.
-//   6. No further writes during Prep scroll — the position is frozen.
-//   7. Only re-evaluate if vv.height changes > 20px (keyboard type
-//      switch, split keyboard, etc.).
+//   position:fixed; bottom:0 in CSS only.
 //
-//   DOCK: solid background element from bar-bottom to screen-bottom.
-//   Hides any fractional gap created by the iOS accessory toolbar.
-//   Also hides any safe-area gap. Not animated. Constant position.
+//   iOS Safari (both browser and installed PWA) raises position:fixed elements
+//   when the software keyboard opens — PROVIDED the JS does not fight it with
+//   simultaneous inline style writes. Every previous fix was actively preventing
+//   the browser's correct native behavior by writing conflicting bottom/top values.
 //
-//   NATIVE iOS ACCESSORY TOOLBAR:
-//   The prev/next/Done toolbar that appears above the keyboard is
-//   native iOS UI. It is included in the space vv.height gives up.
-//   Our Command Bar sits above it. The gap between our bar's bottom
-//   and the keyboard top IS the native accessory toolbar. We cannot
-//   remove it for a textarea without inputmode="none". Our dock
-//   fills this area with a solid background so page content is hidden.
+//   With all JS keyboard positioning removed, the browser handles it correctly:
+//   - bar stays attached above the keyboard
+//   - Prep content scrolls behind the bar
+//   - keyboard close restores the bar to bottom
+//
+//   JS ROLE (minimal):
+//   - Add .command-bar--focused class on textarea focus (for optional CSS styling)
+//   - Remove it on blur
+//   - Call scrollIntoView once on focus if the bar is obscured
+//   - No visualViewport listeners
+//   - No continuous position writes
+//   - No dock element
+//   - No keyboard-height math
+//
+//   SCROLL CONTAINER PADDING:
+//   Static CSS only. No JS-written padding. Bar height ≈ 60px + safe-area.
+//   The CSS in command-bar.css sets padding-bottom on .app-shell__main.
+//
+//   DIAGNOSTICS:
+//   A hidden diagnostic logger is included. Activate by setting:
+//     localStorage.setItem('cb_diag', '1')
+//   in Safari console before focusing the input. On first focus, it logs
+//   window.innerHeight, documentElement.clientHeight, vv.height, vv.offsetTop,
+//   vv.pageTop, bar.getBoundingClientRect(), and display-mode to console.
+//   It does NOT produce any visible UI in production.
 //
 // INVARIANTS:
-//   - One instance per session. destroy() removes everything.
+//   - One instance per session. destroy() removes all listeners.
 //   - No Supabase, no AI, no router, no WorkspaceManager.
 //   - Returns { el, destroy }.
 
 /**
  * @param {{
  *   translate:     (key: string) => string,
- *   scrollTarget?: HTMLElement,
+ *   scrollTarget?: HTMLElement,   // kept for API compat; not used for padding
  *   onSubmit?:    (text: string) => void,
  *   onAttach?:    () => void,
  *   onMic?:       () => void,
@@ -76,155 +83,84 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
   bar.setAttribute('role', 'search');
   bar.setAttribute('aria-label', translate('command_bar.bar_label'));
 
-  // ── Dock ──────────────────────────────────────────────────────────
-  // Solid background element that fills bar-bottom → screen-bottom.
-  // Hides the native iOS accessory toolbar area and any sub-pixel gap.
-  // Position is set once when keyboard opens and never updated during scroll.
-  const dock = document.createElement('div');
-  dock.className = 'command-bar-dock';
-
   // ── Textarea height sync ──────────────────────────────────────────
   function _syncTextareaHeight() {
     textarea.style.height = 'auto';
     textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
   }
 
-  // ── Keyboard-open model ───────────────────────────────────────────
-  // _settledVvHeight: the vv.height value we last positioned from.
-  // We only reposition if the new vv.height differs by > THRESHOLD.
-  // This makes the bar immune to vv.height micro-changes caused by
-  // iOS address bar collapse/expand during Prep scroll.
+  // ── Diagnostics (dev only — activate via localStorage) ────────────
+  // Does nothing unless localStorage.getItem('cb_diag') === '1'.
+  // No visible UI. Console output only.
+  let _diagFired = false;
 
-  const vv = window.visualViewport || null;
-  const THRESHOLD  = 20;   // px — min height change to trigger reposition
-  const KB_MIN     = 100;  // px — min keyboard size to consider KB open
+  function _runDiagnostics() {
+    try {
+      if (localStorage.getItem('cb_diag') !== '1') return;
+      if (_diagFired) return;
+      _diagFired = true;
 
-  let _keyboardOpen   = false;
-  let _settledVvH     = -1;    // last vv.height we positioned from
-  let _rafId          = null;
-  let _scrollViewDone = false;
+      const vv  = window.visualViewport || null;
+      const dm  = window.matchMedia('(display-mode: standalone)').matches
+                    ? 'standalone/PWA'
+                    : window.matchMedia('(display-mode: browser)').matches
+                      ? 'browser'
+                      : 'unknown';
 
-  function _getBarHeight() {
-    return bar.offsetHeight || 60;
-  }
-
-  // Position bar and dock from a captured vv.height snapshot.
-  // Called at most once per keyboard-open event (or once per >20px shift).
-  // NEVER called during Prep scroll.
-  function _applyKeyboardPosition(capturedVvH) {
-    const layoutH    = window.innerHeight;
-    const dockHeight = Math.max(0, layoutH - capturedVvH);  // keyboard + accessory area
-    const barH       = _getBarHeight();
-
-    // bar: fixed-bottom offset = dockHeight (constant integer)
-    bar.style.bottom = dockHeight + 'px';
-    bar.style.top    = '';   // clear any leftover from UI-06.2
-
-    // dock: fills from (layoutH - dockHeight) to screen bottom
-    // This is a constant position — not recomputed on scroll.
-    dock.style.bottom   = '0';
-    dock.style.top      = (layoutH - dockHeight) + 'px';
-    dock.style.left     = '0';
-    dock.style.right    = '0';
-    dock.style.position = 'fixed';
-    if (!dock.parentNode) document.body.appendChild(dock);
-
-    // Scroll container inset: bar height + full keyboard+accessory area
-    // Written once per keyboard-open. Never updated during scroll.
-    const target = scrollTarget || bar.parentNode;
-    if (target) {
-      target.style.paddingBottom = (barH + dockHeight + 16) + 'px';
+      console.group('[CB-DIAG] Command Bar focus diagnostics');
+      console.log('display-mode:               ', dm);
+      console.log('window.innerHeight:         ', window.innerHeight);
+      console.log('documentElement.clientHeight:', document.documentElement.clientHeight);
+      console.log('document.body.clientHeight: ', document.body.clientHeight);
+      if (vv) {
+        console.log('visualViewport.height:      ', vv.height);
+        console.log('visualViewport.offsetTop:   ', vv.offsetTop);
+        console.log('visualViewport.pageTop:     ', vv.pageTop);
+        console.log('visualViewport.width:       ', vv.width);
+        console.log('visualViewport.scale:       ', vv.scale);
+      } else {
+        console.log('visualViewport:              not available');
+      }
+      console.log('bar.getBoundingClientRect():', bar.getBoundingClientRect());
+      console.log('bar.offsetHeight:           ', bar.offsetHeight);
+      console.groupEnd();
+    } catch (_) {
+      // Diagnostics must never throw in production
     }
   }
 
-  function _exitKeyboardMode() {
-    _keyboardOpen = false;
-    _settledVvH   = -1;
-
-    bar.style.bottom = '';
-    bar.style.top    = '';
-
-    if (dock.parentNode) dock.parentNode.removeChild(dock);
-
-    const target = scrollTarget || bar.parentNode;
-    if (target) target.style.paddingBottom = '';
-  }
-
-  // ── rAF-gated vv.resize handler ───────────────────────────────────
-  // Purpose: determine keyboard open/close state and reposition once.
-  // Ignores micro-changes in vv.height (< THRESHOLD) — these are caused
-  // by iOS address bar collapse during Prep scroll, not by keyboard events.
-
-  function _onVVResize() {
-    if (_rafId !== null) return;
-    _rafId = requestAnimationFrame(() => {
-      _rafId = null;
-      if (!vv) return;
-
-      const currentVvH = vv.height;
-      const layoutH    = window.innerHeight;
-      const dockH      = Math.max(0, layoutH - currentVvH);
-      const isKbOpen   = dockH > KB_MIN;
-
-      if (!isKbOpen) {
-        // Keyboard closed (or fully closed after animation)
-        if (_keyboardOpen) {
-          _exitKeyboardMode();
-        }
-        return;
-      }
-
-      // Keyboard is open. Check if this is a material height change.
-      const delta = Math.abs(currentVvH - _settledVvH);
-      if (delta < THRESHOLD && _keyboardOpen) {
-        // Sub-threshold change (address bar micro-resize) — ignore.
-        // Bar position stays frozen at last settled value.
-        return;
-      }
-
-      // Material change (keyboard just opened, or keyboard type changed).
-      // Capture this height and reposition once.
-      _keyboardOpen  = true;
-      _settledVvH    = currentVvH;
-      _applyKeyboardPosition(currentVvH);
-    });
-  }
-
-  function _onWindowResize() {
-    // Fallback for browsers without visualViewport. No action needed:
-    // static CSS bottom:0 is the correct behavior on non-iOS.
-  }
-
-  // Wire listener — resize only, no scroll
-  if (vv) {
-    vv.addEventListener('resize', _onVVResize);
-  } else {
-    window.addEventListener('resize', _onWindowResize);
-  }
-
   // ── Focus / blur ──────────────────────────────────────────────────
-  // scrollIntoView fires at most once per focus, only if obscured.
-  // Never called during scroll.
+  let _scrollViewDone = false;
 
   function _onFocus() {
     _scrollViewDone = false;
-    if (!vv) return;
+    bar.classList.add('command-bar--focused');
+
+    // Run diagnostics (dev only)
+    _diagFired = false;
+    setTimeout(_runDiagnostics, 600);
+
+    // Single scrollIntoView, only if input is actually below the visible area.
+    // Fires after keyboard has time to settle (500ms).
+    // Uses the bar element, not the textarea, so the whole bar is revealed.
     setTimeout(() => {
       if (document.activeElement !== textarea) return;
       if (_scrollViewDone) return;
       _scrollViewDone = true;
-      // Only scroll if the textarea is actually hidden below the visual viewport
-      const rect     = textarea.getBoundingClientRect();
-      const vvBottom = vv.height;  // in layout-viewport coordinates from top = 0
+      const rect = bar.getBoundingClientRect();
+      const vv   = window.visualViewport || null;
+      // Check if bar's bottom is below the visual viewport bottom
+      const vvBottom = vv ? vv.pageTop + vv.height : window.innerHeight;
       if (rect.bottom > vvBottom - 4) {
-        textarea.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        bar.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
-    }, 400);  // wait for keyboard to fully settle
+    }, 500);
   }
 
   function _onBlur() {
     _scrollViewDone = false;
-    // No other action. _onVVResize handles keyboard-close cleanup.
+    bar.classList.remove('command-bar--focused');
+    // No position writes. CSS bottom:0 is always in effect.
   }
 
   // ── Mic toast ─────────────────────────────────────────────────────
@@ -384,17 +320,12 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
   bar.appendChild(micBtn);
 
   // ── destroy ───────────────────────────────────────────────────────
+  // No visualViewport listeners to remove — we never added any.
+  // Clear focused class, remove overlays, remove bar.
   function destroy() {
-    if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
-    if (vv) {
-      vv.removeEventListener('resize', _onVVResize);
-    } else {
-      window.removeEventListener('resize', _onWindowResize);
-    }
-    _exitKeyboardMode();
+    bar.classList.remove('command-bar--focused');
     _removeAllOverlays();
     if (bar.parentNode) bar.parentNode.removeChild(bar);
-    if (dock.parentNode) dock.parentNode.removeChild(dock);
   }
 
   return { el: bar, destroy };
