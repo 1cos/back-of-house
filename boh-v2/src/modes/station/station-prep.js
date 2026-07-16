@@ -768,7 +768,13 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
             return;
           }
 
-          // Count was inserted (full success or partial write failure).
+          // Count was inserted — the physical stock count is now saved.
+          // Clear pendingCountOp here, before invoking the reconciler.
+          // The reconciler is a separate post-save operation. If it fails,
+          // the count and current_stock remain valid. The cook must not
+          // resubmit saveCount for a reconciliation failure.
+          pendingCountOp = null;
+
           // Switch status message and call reconciler — form stays disabled.
           updateCountSubmitting('station_prep.count_reconciling');
 
@@ -779,10 +785,6 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
             if (!section.isConnected) return;
 
             const saveOk = result.ok === true;
-
-            // Count was recorded (save succeeded or partial) — operation is
-            // resolved. Clear pendingCountOp regardless of reconcile outcome.
-            pendingCountOp = null;
 
             // Notify parent with both saveCount and reconcileCount results.
             onCountSuccess({
@@ -804,8 +806,7 @@ function buildCountButton({ task, currentUser, translate, saveCount, reconcileCo
           }).catch(() => {
             if (!section.isConnected) return;
             // Reconciler threw unexpectedly — treat as reconciliation failure.
-            // Count was written, so operation is resolved. Clear context.
-            pendingCountOp = null;
+            // Count was already written and pendingCountOp already cleared above.
             const saveOk = result.ok === true;
             onCountSuccess({
               saveOk,
