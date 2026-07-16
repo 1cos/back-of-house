@@ -667,6 +667,36 @@ function _fmtSuggQty(qty, unit) {
 // Chef/Admin View: retains technical detail (confidence, reason, stock source)
 // No backend, no DB, no bot logic changes — UI text only.
 // ─────────────────────────────────────────────────────────────────────────────
+// ── _computeStockVerified(i) — single source of truth for stock-verified state ──
+// Returns true when ALL of:
+//   1. A valid physical count exists in window._recentCounts (not expired)
+//   2. Live task.current_stock covers the gross demand (net ≤ 0)
+//   3. Task is not a thaw/operational task
+// Used by: cardBorderColor, renderM (isUrgent override), renderSuggBlock.
+// _renderTrustBlock has its own local copy (separate function scope, boh-v670 fix).
+function _computeStockVerified(i) {
+  if (!i) return false;
+  // Thaw tasks have a separate operational flow
+  if (i.name && /thaw/i.test(i.name)) return false;
+  // Must have a valid physical count
+  const _svCnt = (window._recentCounts || {})[i.id];
+  if (!_svCnt) return false;
+  if (_svCnt.expires_at && new Date(_svCnt.expires_at) <= new Date()) return false;
+  // Live stock from task (authoritative)
+  const _svLive = (i.current_stock !== null && i.current_stock !== undefined)
+    ? parseFloat(i.current_stock) : null;
+  if (_svLive === null || isNaN(_svLive)) return false;
+  // Gross demand from suggestion (forecast preferred over net_requirement)
+  const sugg = (window._suggestions || {})[i.id];
+  const _svGross = sugg && sugg.forecast != null
+    ? parseFloat(sugg.forecast)
+    : (sugg && sugg.net_requirement != null ? parseFloat(sugg.net_requirement) : null);
+  if (_svGross === null || isNaN(_svGross)) return false;
+  // Stock verified = live stock covers full demand
+  const _svNet = Math.max(0, _svGross - _svLive);
+  return _svNet <= 0;
+}
+
 function renderSuggBlock(sugg, i) {
   const lang       = window.user?.lang || 'en';
   const isAdmin_   = typeof isAdmin === 'function' ? isAdmin() : false;
@@ -805,31 +835,10 @@ function renderSuggBlock(sugg, i) {
   const stockUnverified = sugg.stock_source === 'db_snapshot_unverified';
   const flagRc = !!(sugg.debug_json?.flag_recount);
 
-  // ── STOCK VERIFIED FLAG (Sprint #2D) ─────────────────────────────────────
-  // True when ALL of:
-  //   1. A valid physical count exists in _recentCounts (not expired)
-  //   2. Live stock satisfies the demand window (new_net <= 0)
-  //      new_net = MAX(gross_demand - live_stock, 0)
-  //   3. Not an operational/thaw task (those have separate flow)
-  //
-  // When true: replace urgency pill + warning messages with confidence state.
-  // Does NOT change any data, RPC, suggestion engine or DONE flow.
-  const _svCnt = (window._recentCounts || {})[i && i.id];
-  const _svCntValid = _svCnt && (!_svCnt.expires_at || new Date(_svCnt.expires_at) > new Date());
-  const _svLive = _liveStockForRec;  // live prep_tasks.current_stock
-  const _svGross = sugg && sugg.forecast != null
-    ? parseFloat(sugg.forecast)
-    : (sugg && sugg.net_requirement != null ? parseFloat(sugg.net_requirement) : null);
-  const _svNet = (_svLive !== null && _svGross !== null)
-    ? Math.max(0, _svGross - _svLive)
-    : null;
-  // Stock verified = count exists + remaining demand is zero
-  const _stockVerifiedOk = !!(
-    _svCntValid &&
-    _svNet !== null &&
-    _svNet <= 0 &&
-    !isOperational   // thaw/portion tasks have their own operational flow
-  );
+  // ── STOCK VERIFIED FLAG — delegated to _computeStockVerified (boh-v672) ──
+  // Single source of truth shared with cardBorderColor and renderM.
+  // _liveStockForRec is already computed above from task.current_stock.
+  const _stockVerifiedOk = _computeStockVerified(i);
 
   // ── STATION VIEW description — short, operational English ──
   // Replaces raw DB reason text for non-admin users.
@@ -1808,6 +1817,10 @@ function alignStockBtn(i) {
 function cardBorderColor(i){
   if(i.in_progress) return '#2563eb';
   if(i.prep_type==='checklist') return '#94a3b8';
+  // Stock-verified overrides urgency border before classifyCard fires (boh-v672)
+  // When live stock covers demand and a physical count exists, the card is visually green
+  // regardless of the stale bot suggestion status (e.g. do_first from yesterday's run).
+  if(_computeStockVerified(i)) return '#16a34a'; // verde
   // Colore bordo dal cardType calcolato, non solo dal pill
   const ct = classifyCard(i);
   // Step 2 (v625): SUGG_* card types
@@ -2740,13 +2753,16 @@ function renderM(){
   grid.innerHTML=(stNote?`<div class="col-span-2 mb-2 px-3 py-2 rounded-xl text-[11px]" style="background:rgba(251,191,36,0.15);border-left:4px solid #f59e0b;color:#92400e;">${stNote}</div>`:'')+
     list.map(i=>{
       const iid = i.id;
-      const borderColor = cardBorderColor(i);
+      // Stock-verified computed once per card — shared with cardBorderColor and isUrgent (boh-v672)
+      const _cardSV = _computeStockVerified(i);
+      const borderColor = cardBorderColor(i);  // reads _computeStockVerified internally
       const isWip = i.in_progress;
-      // URGENT solo se il bot dice red — mai sui checklist
+      // URGENT solo se il bot dice red — mai sui checklist, mai se stock verificato
       const botColor = i.suggested_note && i.suggested_note.includes('|') ? i.suggested_note.split('|')[0] : null;
       // v625: isUrgent include SUGG_DO_FIRST e SUGG_PREP_TODAY
+      // boh-v672: suppress urgency styling when stock is verified (card is already green)
       const _sgUrgent = (window._suggestions || {})[i.id];
-      const isUrgent = !i.in_progress && i.prep_type!=='checklist' && (
+      const isUrgent = !_cardSV && !i.in_progress && i.prep_type!=='checklist' && (
         botColor==='red' ||
         (_sgUrgent && (_sgUrgent.status === 'do_first' || _sgUrgent.status === 'prep_today'))
       );
