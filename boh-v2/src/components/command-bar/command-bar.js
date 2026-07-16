@@ -1,59 +1,58 @@
 // BOH OS v2 — Command Bar component
-// UI-06.2: Stable keyboard dock for iOS Safari.
+// UI-06.3: Zero-vibration keyboard dock.
 //
-// ROOT CAUSE OF UI-06.1 GAP + JITTER:
+// DIAGNOSIS OF PREVIOUS BUGS:
 //
-//   1. bottom-anchoring is unstable during keyboard animation.
-//      bar.style.bottom = keyboardOffset means the bar's LOWER edge
-//      is keyboardOffset px above the layout-viewport bottom. But the
-//      keyboard's upper edge is also moving during animation. On any
-//      frame where vv.height sample lags behind the actual keyboard
-//      position, a fractional-pixel gap appears. Nothing fills it.
+//   UI-06.1: bar.style.bottom = layoutH - vv.offsetTop - vv.height
+//     ✗ vv 'scroll' listener fired on every Prep scroll px
+//     ✗ rewrote bottom on every scroll event → oscillation
 //
-//   2. visualViewport 'scroll' fires on every px the user scrolls
-//      the Prep list. vv.offsetTop changes on each scroll, which
-//      re-wrote bar.style.bottom on every scroll event → oscillation.
+//   UI-06.2: bar.style.top = vv.offsetTop + vv.height - barH
+//     ✗ claimed offsetTop+height cancels during scroll — FALSE
+//     ✗ vv.offsetTop changes when iOS address bar collapses during scroll
+//     ✗ each change fires vv 'resize' → _scheduleUpdate → new top write
+//     ✗ result: bar vibrates vertically while user scrolls Prep
 //
-//   3. _applyScrollInset() was called on every scroll event, causing
-//      layout thrash and potential cumulative padding growth.
+// ROOT CAUSE OF VIBRATION:
+//   In iOS Safari, scrolling content (even inside a sub-element with
+//   overflow:auto) can cause the Safari chrome (address bar) to
+//   collapse/expand. This changes vv.offsetTop, which fires vv 'resize'.
+//   Any formula that reads vv.offsetTop live will produce a moving bar.
 //
-//   4. No dock/scrim element: during keyboard animation frames the
-//      gap between bar bottom and keyboard top shows page content.
+// FIX (UI-06.3) — CAPTURE-ONCE MODEL:
 //
-// FIX (UI-06.2):
+//   1. On vv 'resize': measure vv.height.
+//   2. If vv.height < window.innerHeight - 50 → keyboard is open.
+//   3. If this is a MATERIAL height change (> 20px from last settled
+//      value), capture it and reposition. Otherwise ignore.
+//   4. Dock position = window.innerHeight - capturedVvHeight (constant).
+//      bar.style.bottom = dockHeight + 'px'  (constant while KB open).
+//   5. scrollTarget padding written once, never again until KB closes.
+//   6. No further writes during Prep scroll — the position is frozen.
+//   7. Only re-evaluate if vv.height changes > 20px (keyboard type
+//      switch, split keyboard, etc.).
 //
-//   POSITIONING: switch to `top` while keyboard is open.
-//     barTop = vv.offsetTop + vv.height - barHeight
-//   This is a layout-viewport-absolute position for the bar's top edge.
-//   It is stable across vv.offsetTop changes (Prep scroll) because
-//   offsetTop is already included in the formula. No re-write needed
-//   on scroll — only on resize (keyboard open/close/height change).
+//   DOCK: solid background element from bar-bottom to screen-bottom.
+//   Hides any fractional gap created by the iOS accessory toolbar.
+//   Also hides any safe-area gap. Not animated. Constant position.
 //
-//   DOCK SCRIM: a `position:fixed` element that sits below the bar,
-//   filling from bar bottom → screen bottom (full safe-area height).
-//   Same background as the bar. Covers any gap during animation.
-//   Inserted into document.body; removed when keyboard closes.
-//
-//   RAF COALESCING: resize events request a single rAF; multiple
-//   events in one frame collapse to one write.
-//
-//   JITTER GUARD: skip the write if new top differs < 1px from last.
-//
-//   SCROLL LISTENER REMOVED: vv 'scroll' is not needed and caused
-//   the oscillation. resize() covers all keyboard state changes.
+//   NATIVE iOS ACCESSORY TOOLBAR:
+//   The prev/next/Done toolbar that appears above the keyboard is
+//   native iOS UI. It is included in the space vv.height gives up.
+//   Our Command Bar sits above it. The gap between our bar's bottom
+//   and the keyboard top IS the native accessory toolbar. We cannot
+//   remove it for a textarea without inputmode="none". Our dock
+//   fills this area with a solid background so page content is hidden.
 //
 // INVARIANTS:
-//   - One instance per authenticated session.
-//   - destroy() removes ALL listeners, overlays, dock, inline styles.
-//   - No Supabase. No AI. No WorkspaceManager. No router.
+//   - One instance per session. destroy() removes everything.
+//   - No Supabase, no AI, no router, no WorkspaceManager.
 //   - Returns { el, destroy }.
 
 /**
- * Creates the Command Bar DOM element and wires all interaction.
- *
  * @param {{
  *   translate:     (key: string) => string,
- *   scrollTarget?: HTMLElement,  // the real scroll container (.app-shell__main)
+ *   scrollTarget?: HTMLElement,
  *   onSubmit?:    (text: string) => void,
  *   onAttach?:    () => void,
  *   onMic?:       () => void,
@@ -77,182 +76,161 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
   bar.setAttribute('role', 'search');
   bar.setAttribute('aria-label', translate('command_bar.bar_label'));
 
-  // ── Dock scrim ────────────────────────────────────────────────────
-  // Fills the space between bar's bottom edge and physical screen bottom
-  // while keyboard is open. Prevents page content showing through gaps
-  // during keyboard animation.
+  // ── Dock ──────────────────────────────────────────────────────────
+  // Solid background element that fills bar-bottom → screen-bottom.
+  // Hides the native iOS accessory toolbar area and any sub-pixel gap.
+  // Position is set once when keyboard opens and never updated during scroll.
   const dock = document.createElement('div');
   dock.className = 'command-bar-dock';
-  // Not added to DOM until keyboard opens.
 
-  // ── Textarea auto-height ──────────────────────────────────────────
+  // ── Textarea height sync ──────────────────────────────────────────
   function _syncTextareaHeight() {
     textarea.style.height = 'auto';
     textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
   }
 
-  // ── visualViewport keyboard handling ──────────────────────────────
-  //
-  // POSITIONING FORMULA (keyboard-open mode):
-  //   barTop = vv.offsetTop + vv.height - barHeight
-  //
-  //   bar.style.top  = barTop + 'px'
-  //   bar.style.bottom = 'auto'   (override the CSS bottom:0)
-  //
-  //   dock.style.top    = (barTop + barHeight) + 'px'
-  //   dock.style.bottom = '0'
-  //   dock.style.height = 'auto'   (stretches from dock top to 0)
-  //
-  // When keyboard closes:
-  //   bar.style.top = bar.style.bottom = ''  (CSS bottom:0 takes over)
-  //   dock removed from DOM
+  // ── Keyboard-open model ───────────────────────────────────────────
+  // _settledVvHeight: the vv.height value we last positioned from.
+  // We only reposition if the new vv.height differs by > THRESHOLD.
+  // This makes the bar immune to vv.height micro-changes caused by
+  // iOS address bar collapse/expand during Prep scroll.
 
   const vv = window.visualViewport || null;
+  const THRESHOLD  = 20;   // px — min height change to trigger reposition
+  const KB_MIN     = 100;  // px — min keyboard size to consider KB open
 
-  let _keyboardOpen  = false;
-  let _rafId         = null;
-  let _lastBarTop    = -1;          // jitter guard
-  let _scrollViewDone = false;      // scrollIntoView guard: fire at most once per focus
+  let _keyboardOpen   = false;
+  let _settledVvH     = -1;    // last vv.height we positioned from
+  let _rafId          = null;
+  let _scrollViewDone = false;
 
   function _getBarHeight() {
-    // Use offsetHeight (layout height, no sub-pixel issues).
     return bar.offsetHeight || 60;
   }
 
-  function _applyDock(barTop, barH) {
-    const dockTop = barTop + barH;
-    dock.style.top    = dockTop + 'px';
-    dock.style.left   = '0';
-    dock.style.right  = '0';
-    dock.style.bottom = '0';
+  // Position bar and dock from a captured vv.height snapshot.
+  // Called at most once per keyboard-open event (or once per >20px shift).
+  // NEVER called during Prep scroll.
+  function _applyKeyboardPosition(capturedVvH) {
+    const layoutH    = window.innerHeight;
+    const dockHeight = Math.max(0, layoutH - capturedVvH);  // keyboard + accessory area
+    const barH       = _getBarHeight();
+
+    // bar: fixed-bottom offset = dockHeight (constant integer)
+    bar.style.bottom = dockHeight + 'px';
+    bar.style.top    = '';   // clear any leftover from UI-06.2
+
+    // dock: fills from (layoutH - dockHeight) to screen bottom
+    // This is a constant position — not recomputed on scroll.
+    dock.style.bottom   = '0';
+    dock.style.top      = (layoutH - dockHeight) + 'px';
+    dock.style.left     = '0';
+    dock.style.right    = '0';
     dock.style.position = 'fixed';
     if (!dock.parentNode) document.body.appendChild(dock);
-  }
 
-  function _removeDock() {
-    if (dock.parentNode) dock.parentNode.removeChild(dock);
-  }
-
-  function _applyScrollInset(barH, keyboardH) {
+    // Scroll container inset: bar height + full keyboard+accessory area
+    // Written once per keyboard-open. Never updated during scroll.
     const target = scrollTarget || bar.parentNode;
-    if (!target) return;
-    // Total inset = bar height + keyboard height above layout-viewport bottom.
-    // We add sp-4 (16px) for visual breathing room.
-    const inset = barH + keyboardH + 16;
-    target.style.paddingBottom = inset + 'px';
-  }
-
-  function _resetScrollInset() {
-    const target = scrollTarget || bar.parentNode;
-    if (!target) return;
-    target.style.paddingBottom = '';
-  }
-
-  function _enterKeyboardMode() {
-    if (!vv) return;
-
-    const layoutH = window.innerHeight;
-    const barH    = _getBarHeight();
-    const kbH     = Math.max(0, layoutH - vv.offsetTop - vv.height);
-    const barTop  = Math.round(vv.offsetTop + vv.height - barH);
-
-    // Jitter guard: skip if < 1px change
-    if (Math.abs(barTop - _lastBarTop) < 1 && _keyboardOpen) return;
-    _lastBarTop = barTop;
-
-    // Switch bar from bottom-anchored to top-anchored
-    bar.style.bottom = 'auto';
-    bar.style.top    = barTop + 'px';
-
-    // Fill the gap below the bar
-    _applyDock(barTop, barH);
-
-    // Update scroll container
-    _applyScrollInset(barH, kbH);
+    if (target) {
+      target.style.paddingBottom = (barH + dockHeight + 16) + 'px';
+    }
   }
 
   function _exitKeyboardMode() {
-    _lastBarTop = -1;
-    // Restore CSS-driven bottom:0 positioning
-    bar.style.top    = '';
+    _keyboardOpen = false;
+    _settledVvH   = -1;
+
     bar.style.bottom = '';
-    // Remove dock
-    _removeDock();
-    // Restore scroll container
-    _resetScrollInset();
+    bar.style.top    = '';
+
+    if (dock.parentNode) dock.parentNode.removeChild(dock);
+
+    const target = scrollTarget || bar.parentNode;
+    if (target) target.style.paddingBottom = '';
   }
 
-  // ── rAF-coalesced viewport update ─────────────────────────────────
-  function _scheduleUpdate() {
-    if (_rafId !== null) return;  // already scheduled
+  // ── rAF-gated vv.resize handler ───────────────────────────────────
+  // Purpose: determine keyboard open/close state and reposition once.
+  // Ignores micro-changes in vv.height (< THRESHOLD) — these are caused
+  // by iOS address bar collapse during Prep scroll, not by keyboard events.
+
+  function _onVVResize() {
+    if (_rafId !== null) return;
     _rafId = requestAnimationFrame(() => {
       _rafId = null;
       if (!vv) return;
 
-      const layoutH = window.innerHeight;
-      const kbH     = Math.max(0, layoutH - vv.offsetTop - vv.height);
+      const currentVvH = vv.height;
+      const layoutH    = window.innerHeight;
+      const dockH      = Math.max(0, layoutH - currentVvH);
+      const isKbOpen   = dockH > KB_MIN;
 
-      if (kbH > 50) {
-        // Keyboard is open (or opening)
-        if (!_keyboardOpen) {
-          _keyboardOpen = true;
-        }
-        _enterKeyboardMode();
-      } else {
-        // Keyboard closed (or fully closed)
+      if (!isKbOpen) {
+        // Keyboard closed (or fully closed after animation)
         if (_keyboardOpen) {
-          _keyboardOpen = false;
           _exitKeyboardMode();
         }
+        return;
       }
+
+      // Keyboard is open. Check if this is a material height change.
+      const delta = Math.abs(currentVvH - _settledVvH);
+      if (delta < THRESHOLD && _keyboardOpen) {
+        // Sub-threshold change (address bar micro-resize) — ignore.
+        // Bar position stays frozen at last settled value.
+        return;
+      }
+
+      // Material change (keyboard just opened, or keyboard type changed).
+      // Capture this height and reposition once.
+      _keyboardOpen  = true;
+      _settledVvH    = currentVvH;
+      _applyKeyboardPosition(currentVvH);
     });
   }
 
-  function _onVVResize() {
-    _scheduleUpdate();
-  }
-
-  // Fallback for browsers without visualViewport
   function _onWindowResize() {
-    // No reliable keyboard detection — static CSS handles it.
+    // Fallback for browsers without visualViewport. No action needed:
+    // static CSS bottom:0 is the correct behavior on non-iOS.
   }
 
-  // ── Focus / blur ──────────────────────────────────────────────────
-  function _onFocus() {
-    _scrollViewDone = false;
-    if (vv) {
-      // After keyboard is up (≈300ms), scroll the textarea into view
-      // but only once per focus event and only if actually obscured.
-      setTimeout(() => {
-        if (document.activeElement !== textarea) return;
-        if (_scrollViewDone) return;
-        _scrollViewDone = true;
-        const rect = textarea.getBoundingClientRect();
-        const vvBottom = vv.offsetTop + vv.height;
-        if (rect.bottom > vvBottom - 4) {
-          textarea.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        }
-      }, 320);
-    }
-  }
-
-  function _onBlur() {
-    // Do nothing here. _scheduleUpdate handles keyboard close via resize.
-    _scrollViewDone = false;
-  }
-
-  // Wire viewport listener — resize only (no scroll)
+  // Wire listener — resize only, no scroll
   if (vv) {
     vv.addEventListener('resize', _onVVResize);
   } else {
     window.addEventListener('resize', _onWindowResize);
   }
 
+  // ── Focus / blur ──────────────────────────────────────────────────
+  // scrollIntoView fires at most once per focus, only if obscured.
+  // Never called during scroll.
+
+  function _onFocus() {
+    _scrollViewDone = false;
+    if (!vv) return;
+    setTimeout(() => {
+      if (document.activeElement !== textarea) return;
+      if (_scrollViewDone) return;
+      _scrollViewDone = true;
+      // Only scroll if the textarea is actually hidden below the visual viewport
+      const rect     = textarea.getBoundingClientRect();
+      const vvBottom = vv.height;  // in layout-viewport coordinates from top = 0
+      if (rect.bottom > vvBottom - 4) {
+        textarea.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }, 400);  // wait for keyboard to fully settle
+  }
+
+  function _onBlur() {
+    _scrollViewDone = false;
+    // No other action. _onVVResize handles keyboard-close cleanup.
+  }
+
   // ── Mic toast ─────────────────────────────────────────────────────
   function _showMicToast() {
     const existing = document.querySelector('.cb-mic-toast');
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
-
     const toast = document.createElement('div');
     toast.className = 'cb-mic-toast';
     toast.setAttribute('role', 'status');
@@ -289,13 +267,11 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
       btn.type = 'button';
       btn.className = 'cb-action-sheet__item cb-action-sheet__item--disabled';
       btn.disabled = true;
-      const labelSpan = document.createElement('span');
-      labelSpan.textContent = label;
+      const ls = document.createElement('span'); ls.textContent = label;
       const badge = document.createElement('span');
       badge.className = 'cb-action-sheet__badge';
       badge.textContent = translate('command_bar.coming_soon');
-      btn.appendChild(labelSpan);
-      btn.appendChild(badge);
+      btn.appendChild(ls); btn.appendChild(badge);
       sheet.appendChild(btn);
     }
 
@@ -305,7 +281,6 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
     cancelBtn.textContent = translate('command_bar.cancel');
     cancelBtn.addEventListener('click', dismiss);
     sheet.appendChild(cancelBtn);
-
     backdrop.appendChild(sheet);
     _addOverlay(backdrop);
   }
@@ -364,7 +339,7 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
     _addOverlay(backdrop);
   }
 
-  // ── '+' button ────────────────────────────────────────────────────
+  // ── Buttons ───────────────────────────────────────────────────────
   const attachBtn = document.createElement('button');
   attachBtn.type = 'button';
   attachBtn.className = 'command-bar__btn command-bar__btn--attach';
@@ -374,7 +349,6 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
     if (typeof onAttach === 'function') { onAttach(); } else { _showActionSheet(); }
   });
 
-  // ── Textarea ──────────────────────────────────────────────────────
   const textarea = document.createElement('textarea');
   textarea.className = 'command-bar__input';
   textarea.placeholder = translate('command_bar.placeholder');
@@ -383,7 +357,6 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
   textarea.setAttribute('autocomplete', 'off');
   textarea.setAttribute('autocorrect', 'off');
   textarea.setAttribute('spellcheck', 'false');
-
   textarea.addEventListener('input', _syncTextareaHeight);
   textarea.addEventListener('focus', _onFocus);
   textarea.addEventListener('blur',  _onBlur);
@@ -391,7 +364,6 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _handleSubmit(); }
   });
 
-  // ── Mic button ────────────────────────────────────────────────────
   const micBtn = document.createElement('button');
   micBtn.type = 'button';
   micBtn.className = 'command-bar__btn command-bar__btn--mic';
@@ -401,41 +373,28 @@ export function createCommandBar({ translate, scrollTarget, onSubmit, onAttach, 
     if (typeof onMic === 'function') { onMic(); } else { _showMicToast(); }
   });
 
-  // ── Submit ────────────────────────────────────────────────────────
   function _handleSubmit() {
     const text = textarea.value.trim();
     if (!text) return;
     if (typeof onSubmit === 'function') { onSubmit(text); } else { _showPreview(text); }
   }
 
-  // ── Assemble ──────────────────────────────────────────────────────
   bar.appendChild(attachBtn);
   bar.appendChild(textarea);
   bar.appendChild(micBtn);
 
   // ── destroy ───────────────────────────────────────────────────────
   function destroy() {
-    // Cancel any pending rAF
     if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
-
-    // Remove viewport listener
     if (vv) {
       vv.removeEventListener('resize', _onVVResize);
     } else {
       window.removeEventListener('resize', _onWindowResize);
     }
-
-    // Exit keyboard mode cleanly
     _exitKeyboardMode();
-
-    // Remove dock
-    _removeDock();
-
-    // Remove overlays
     _removeAllOverlays();
-
-    // Remove bar
     if (bar.parentNode) bar.parentNode.removeChild(bar);
+    if (dock.parentNode) dock.parentNode.removeChild(dock);
   }
 
   return { el: bar, destroy };
