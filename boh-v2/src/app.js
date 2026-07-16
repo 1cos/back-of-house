@@ -43,8 +43,9 @@ if (!root) {
 }
 
 // ── Active WorkspaceManager reference ─────────────────────────────────
-let _workspaceManager = null;
-let _commandBar = null;
+let _workspaceManager    = null;
+let _commandBar          = null;
+let _appShellDestroy     = null;  // UI-06.5: remove vv listener on logout
 
 // ── Login screen ──────────────────────────────────────────────────────
 
@@ -191,7 +192,11 @@ function openStationSelectorModal(workspaceManager, shellEl) {
 // ── Shell mount ───────────────────────────────────────────────────────
 
 function mountShell(user) {
-  // Destroy previous WorkspaceManager and Command Bar on logout → re-login.
+  // UI-06.5: Destroy previous shell, WorkspaceManager and Command Bar on logout.
+  if (_appShellDestroy) {
+    _appShellDestroy();
+    _appShellDestroy = null;
+  }
   if (_commandBar) {
     _commandBar.destroy();
     _commandBar = null;
@@ -203,7 +208,7 @@ function mountShell(user) {
 
   // WS-05: App Shell returns workspace-relevant references only.
   // No navMount. No legacyOutlet. Single workspace outlet.
-  const { shell, panelStripMount, workspaceOutlet } = createAppShell({
+  const { shell, panelStripMount, workspaceOutlet, destroy: shellDestroy } = createAppShell({
     appName:   t('app.name'),
     modeLabel: t('mode.station'),
     userName:  user.name,
@@ -211,6 +216,7 @@ function mountShell(user) {
 
   root.innerHTML = '';
   root.appendChild(shell);
+  _appShellDestroy = shellDestroy;
 
   // Executive chef / admin: '+' control opens Station Selector modal.
   // Station users: '+' hidden.
@@ -277,7 +283,8 @@ function mountShell(user) {
   // UI-06.1: pass the real scroll container so the keyboard-inset logic
   // can dynamically update its padding-bottom. workspaceOutlet.parentNode
   // is .app-shell__main — the element with overflow-y:auto.
-  _commandBar = createCommandBar({ translate: t, scrollTarget: workspaceOutlet.parentNode });
+  // UI-06.5: no scrollTarget — Command Bar is a flex child, not position:fixed.
+  _commandBar = createCommandBar({ translate: t });
   shell.appendChild(_commandBar.el);
 }
 
