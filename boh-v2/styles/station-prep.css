@@ -255,22 +255,42 @@
 /* ── Suggested quantity ───────────────────────────────────────────────*/
 .station-prep__task-qty {
   font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: -0.01em;
+}
+
+/* ── Operational task state (removed — expressed by section heading) ─*/
+/* .station-prep__task-status removed in UX Pass 1 */
+
+
+
+/* ── Current stock on card face ───────────────────────────────────────
+   Shown inline in meta row when currentStock is not null.
+   Secondary label style — doesn't compete with qty.                   */
+.station-prep__task-stock {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 400;
   color: var(--text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
-/* ── Operational task state ───────────────────────────────────────────*/
-.station-prep__task-status {
+/* ── Operational sentence ─────────────────────────────────────────────
+   One human-language line below the meta row.
+   Answers "what should I do?" without algorithm terminology.
+   Normal weight, secondary color — calm, not alarming.               */
+.station-prep__task-sentence {
   font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   color: var(--text-secondary);
-  white-space: nowrap;
-  flex-shrink: 0;
-  margin-left: auto;
+  margin: 0;
+  line-height: 1.4;
 }
 
 /* ── Detail panel ─────────────────────────────────────────────────────
