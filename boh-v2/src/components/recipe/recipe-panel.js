@@ -230,8 +230,7 @@ function _renderContent(root, context, translate) {
       data.bomRows.length > 0 ||
       data.recipeSteps.length > 0 ||
       data.prepSteps.length > 0 ||
-      (data.recipe?.procedure_en ?? '').trim().length > 0 ||
-      (data.recipe?.procedure    ?? '').trim().length > 0;
+      (data.recipe?.procedure_en ?? '').trim().length > 0;
 
     if (!recipeId || !hasAnyContent) {
       root.appendChild(_el('p', 'recipe-panel__empty-state', translate('recipe_panel.no_content')));
@@ -254,7 +253,7 @@ function _renderContent(root, context, translate) {
     body.appendChild(_buildProcedure(
       data.prepSteps,
       data.recipeSteps,
-      data.recipe?.procedure_en ?? data.recipe?.procedure ?? '',
+      data.recipe?.procedure_en ?? '',
       translate
     ));
 
