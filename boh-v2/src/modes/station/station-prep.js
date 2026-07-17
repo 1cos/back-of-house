@@ -1449,68 +1449,53 @@ function createExpandController() {
   };
 }
 
-// ── Card sentence helper ─────────────────────────────────────────────
-// Returns a locale key for the single operational sentence shown on the
-// card face. Derived from the overall task + suggestion state —
-// human language only, never algorithm labels.
-// Future event-based logic can replace this function without touching
-// the render contract (locale key → string is the only interface).
+// ── Card sentence — bot-authoritative ────────────────────────────────
+// Renders the single sentence shown on the card face.
+//
+// Source of truth: suggestion.reason (field from prep_suggestions_daily).
+// Format written by the bot: "color|it_text|en_text|es_text"
+// The EN segment (index 2) is a direct bot-authored human sentence.
+// The frontend extracts it; it never interprets or rewrites its meaning.
+//
+// Fallback hierarchy (only when bot text is absent):
+//   1. task.inProgress === true  → "In progress."     (operational fact, not a bot claim)
+//   2. suggestion null           → "No recommendation yet."
+//   3. reason null/empty, status === count_first
+//                                → "Count stock before starting."  (mirrors status label exactly)
+//   4. reason null/empty, any other status
+//                                → "Recommendation available."     (makes no claim about content)
+//
+// No status-based interpretation. No stock thresholds. No coverage inference.
 
-function _cardSentenceKey(task, suggestion) {
-  // In-progress takes priority over any suggestion.
+function _extractBotSentence(task, suggestion, translate) {
+  // In-progress is an operational fact from the task, not from the suggestion.
   if (task.inProgress === true) {
-    return 'station_prep.card_sentence_in_progress';
+    return translate('station_prep.card_sentence_in_progress');
   }
 
-  const status = suggestion ? suggestion.status : null;
+  // No suggestion at all.
+  if (!suggestion) {
+    return translate('station_prep.card_sentence_no_suggestion');
+  }
 
-  switch (status) {
-    case 'DO_FIRST': {
-      const hasStock = task.currentStock !== null && task.currentStock !== undefined && task.currentStock > 0;
-      return hasStock
-        ? 'station_prep.card_sentence_do_first_low_stock'
-        : 'station_prep.card_sentence_do_first_no_stock';
+  // Bot has a reason field — extract the EN segment.
+  if (typeof suggestion.reason === 'string' && suggestion.reason.trim().length > 0) {
+    const parts = suggestion.reason.split('|');
+    // parts[0] = color, parts[1] = it, parts[2] = en, parts[3] = es
+    const enText = parts[2];
+    if (typeof enText === 'string' && enText.trim().length > 0) {
+      return enText.trim();
     }
-    case 'PREP_TODAY':
-    case 'DO_TODAY': {
-      const hasQty = suggestion.plannedOutput !== null && suggestion.plannedOutput !== undefined;
-      return hasQty
-        ? 'station_prep.card_sentence_do_today_qty'
-        : 'station_prep.card_sentence_do_today';
-    }
-    case 'LOOKS_OK':
-    case 'LOOKS_GOOD':
-      return 'station_prep.card_sentence_looks_good';
-    case 'COUNT_FIRST':
-      return 'station_prep.card_sentence_count_first';
-    case 'DEFER_TO_TOMORROW':
-    case 'DEFER':
-    case 'VERIFY':
-    case 'UNAVAILABLE':
-      return 'station_prep.card_sentence_no_action';
-    default:
-      return 'station_prep.card_sentence_no_suggestion';
-  }
-}
-
-// ── Card sentence renderer ────────────────────────────────────────────
-// Builds the sentence string for card_sentence_do_today_qty by injecting
-// qty + unit into the locale template, or falls back to the plain key.
-
-function _buildCardSentence(task, suggestion, translate) {
-  const key = _cardSentenceKey(task, suggestion);
-
-  if (key === 'station_prep.card_sentence_do_today_qty') {
-    const qty  = String(suggestion.plannedOutput);
-    const unit = (suggestion.outputUnit !== null && suggestion.outputUnit !== undefined)
-      ? ' ' + suggestion.outputUnit
-      : '';
-    // Template: "Prepare {qty} today." — simple inline substitution
-    return translate('station_prep.card_sentence_do_today_qty')
-      .replace('{qty}', qty + unit);
   }
 
-  return translate(key);
+  // Reason field absent — safe status-aware fallback.
+  const status = suggestion.status ?? '';
+  if (status === 'COUNT_FIRST' || status === 'count_first') {
+    return translate('station_prep.card_sentence_count_first');
+  }
+
+  // Generic fallback — confirms a recommendation exists without claiming what it means.
+  return translate('station_prep.card_sentence_recommendation_available');
 }
 
 // ── Task row builder ──────────────────────────────────────────────────
@@ -1566,20 +1551,24 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
     qtyEl.textContent = qtyText;
   }
 
-  // Current stock — shown on card face only when a value exists.
-  // Gives the cook an immediate reference without opening the detail.
+  // Current stock — shown on card face using the same source as the detail panel:
+  // suggestion.currentStock + suggestion.stockUnit (bot-authoritative).
+  // Uses task.currentStock only as a fallback when no suggestion exists,
+  // in which case we also have no unit from the suggestion and omit the field.
   const stockEl = document.createElement('span');
   stockEl.className = 'station-prep__task-stock';
-  if (task.currentStock !== null && task.currentStock !== undefined) {
-    const stockText = String(task.currentStock) + (task.unit ? ' ' + task.unit : '');
+  const botStock     = suggestion !== null && suggestion.currentStock !== null && suggestion.currentStock !== undefined;
+  const botStockUnit = suggestion !== null && suggestion.stockUnit !== null && suggestion.stockUnit !== undefined;
+  if (botStock) {
+    const stockText = String(suggestion.currentStock) + (botStockUnit ? ' ' + suggestion.stockUnit : '');
     stockEl.textContent = translate('station_prep.card_stock_label').replace('{qty}', stockText);
   }
 
-  // Operational sentence — one human-language line that answers
-  // "what should I do?" without exposing algorithm terminology.
+  // Operational sentence — bot-authored text from suggestion.reason (EN segment).
+  // The frontend renders; it never interprets the meaning.
   const sentenceEl = document.createElement('p');
   sentenceEl.className = 'station-prep__task-sentence';
-  sentenceEl.textContent = _buildCardSentence(task, suggestion, translate);
+  sentenceEl.textContent = _extractBotSentence(task, suggestion, translate);
 
   metaRow.appendChild(botStatusEl);
   if (qtyEl.textContent.length > 0) metaRow.appendChild(qtyEl);
