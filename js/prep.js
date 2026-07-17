@@ -4340,10 +4340,26 @@ window.openStockCountSheet = function(id) {
   const existing = document.getElementById('stockCountSheet');
   if (existing) existing.remove();
 
-  const { unit: kUnit } = (typeof kitchenCountUnit === 'function')
-    ? kitchenCountUnit(it)
-    : { unit: it.unit || 'units' };
-  const displayUnit = kUnit || it.unit || 'units';
+  // ── ALIGN STOCK UNIT RULE (v685+) ──────────────────────────────────────────
+  // Unit is ALWAYS the native task unit — never auto-switched to kg.
+  // For g tasks: always show "Grams", always submit 'g'.
+  // This eliminates the g/kg ambiguity that caused the July 15 corruption.
+  // displayUnit and submitUnit are derived once here and stored on the sheet DOM.
+  const taskUnit = (it.unit || 'g').toLowerCase().trim();
+  const submitUnit = taskUnit; // frozen — never recalculated at save time
+  // Human label for display
+  const displayUnit = taskUnit === 'g' ? 'Grams'
+    : taskUnit === 'kg' ? 'kg'
+    : taskUnit === 'pz' || taskUnit === 'pezzi' ? 'pezzi'
+    : taskUnit === 'nests' ? 'Nests'
+    : taskUnit === 'cup' ? 'Cup'
+    : taskUnit === 'buste' ? 'Buste'
+    : taskUnit;
+  // Secondary conversion: shown live below input for g tasks (e.g. "4,292 g · 4.292 kg")
+  const showConversion = taskUnit === 'g';
+  // Plausibility threshold: warn if entered value seems implausibly large
+  // g tasks: > 50000g (50kg); kg tasks: > 50kg
+  const implausibleThreshold = taskUnit === 'g' ? 50000 : (taskUnit === 'kg' ? 50 : null);
 
   // Current recorded stock human-readable
   const curStock = it.current_stock;
@@ -4356,6 +4372,10 @@ window.openStockCountSheet = function(id) {
   const sheet = document.createElement('div');
   sheet.id = 'stockCountSheet';
   sheet.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(15,23,42,0.55);display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;';
+  // Store frozen submitUnit and plausibility threshold on the sheet element
+  // so _scSave reads from DOM instead of recalculating kitchenCountUnit.
+  sheet.dataset.submitUnit = submitUnit;
+  sheet.dataset.implausibleThreshold = implausibleThreshold !== null ? String(implausibleThreshold) : '';
 
   sheet.innerHTML = `
     <div id="stockCountSheetInner" style="width:100%;max-width:448px;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 32px rgba(30,58,95,0.18);padding:20px 16px 40px;">
@@ -4375,14 +4395,14 @@ window.openStockCountSheet = function(id) {
       </div>
 
       <!-- Input -->
-      <div style="margin-bottom:8px;">
+      <div style="margin-bottom:4px;">
         <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;">Actual quantity on hand</div>
         <div style="display:flex;align-items:center;gap:10px;">
           <input
             id="stockCountInput-${id}"
             type="number"
             min="0"
-            step="0.1"
+            step="${taskUnit === 'g' ? '1' : '0.1'}"
             placeholder="0"
             style="width:100px;height:52px;border:2px solid #cbd5e1;border-radius:12px;font-size:22px;font-weight:700;text-align:center;color:#1e3a5f;background:#fff;outline:none;"
             onclick="event.stopPropagation();"
@@ -4393,6 +4413,9 @@ window.openStockCountSheet = function(id) {
           <span style="font-size:15px;color:#64748b;font-weight:600;">${displayUnit}</span>
         </div>
       </div>
+
+      <!-- Secondary conversion (g tasks only — live updated by _scValidate) -->
+      ${showConversion ? `<div id="stockCountConv-${id}" style="font-size:11px;color:#94a3b8;margin-bottom:16px;min-height:16px;padding-left:2px;"></div>` : '<div style="margin-bottom:16px;"></div>'}
 
       <!-- Disclaimer -->
       <div style="font-size:11px;color:#94a3b8;margin-bottom:20px;line-height:1.5;">
@@ -4423,16 +4446,24 @@ window.openStockCountSheet = function(id) {
   if (inp) setTimeout(() => inp.focus(), 300);
 };
 
-// Validate input → enable/disable Save button
+// Validate input → enable/disable Save button + live secondary conversion
 window._scValidate = function(id) {
   const inp = document.getElementById('stockCountInput-' + id);
   const btn = document.getElementById('stockCountSaveBtn-' + id);
+  const conv = document.getElementById('stockCountConv-' + id);
   if (!inp || !btn) return;
   const val = parseFloat(inp.value);
   const valid = !isNaN(val) && val >= 0;
   btn.disabled = !valid;
   btn.style.background = valid ? '#1e3a5f' : '#94a3b8';
   btn.style.cursor     = valid ? 'pointer'  : 'not-allowed';
+  // Secondary conversion: "4292 g · 4.292 kg" (only for g tasks)
+  if (conv && valid) {
+    const kg = val / 1000;
+    conv.textContent = val.toLocaleString('en-US') + ' g · ' + kg.toFixed(3).replace(/\.?0+$/, '') + ' kg';
+  } else if (conv) {
+    conv.textContent = '';
+  }
 };
 
 // Main save function — called when "Save Count" is pressed
@@ -4448,9 +4479,28 @@ window._scSave = async function(id) {
   const val = parseFloat(inp.value);
   if (isNaN(val) || val < 0) return;
 
-  const { unit: kUnit } = (typeof kitchenCountUnit === 'function')
-    ? kitchenCountUnit(it)
-    : { unit: it.unit || 'units' };
+  // ── FROZEN UNIT — read from sheet DOM, not recalculated ────────────────────
+  // submitUnit was set once when openStockCountSheet() rendered the sheet.
+  // It is always the native task unit (g for g-tasks, kg for kg-tasks, etc.).
+  // Never dynamic — eliminates the display/submit divergence.
+  const sheet = document.getElementById('stockCountSheet');
+  const kUnit = (sheet && sheet.dataset.submitUnit) || (it.unit || 'g');
+
+  // ── PLAUSIBILITY GUARD ─────────────────────────────────────────────────────
+  // Warn before saving implausibly large quantities. Does not change the value.
+  const _threshold = sheet && sheet.dataset.implausibleThreshold
+    ? parseFloat(sheet.dataset.implausibleThreshold) : null;
+  if (_threshold !== null && val > _threshold) {
+    const _taskUnit = kUnit;
+    const _kgEquiv = _taskUnit === 'g' ? ' (' + (val / 1000).toFixed(3).replace(/\.?0+$/, '') + ' kg)' : '';
+    const _confirmed = window.confirm(
+      'You entered ' + val.toLocaleString('en-US') + ' ' + _taskUnit + _kgEquiv + '.\nIs that correct?'
+    );
+    if (!_confirmed) {
+      // Let user correct — do not proceed
+      return;
+    }
+  }
 
   // Generate client_key once per submission — stored on the button so retries reuse it
   if (!btn.dataset.clientKey) {
