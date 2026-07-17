@@ -145,11 +145,15 @@
   color: var(--text-primary);
   flex: 1 1 0;
   min-width: 0;
-  white-space: nowrap;
+  /* Two-line wrap — full name always visible; three+ lines clamp with ellipsis */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  padding-top: 12px;   /* align first line of text with expand-btn touch area */
-  line-height: 1.2;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  padding-top: 12px;   /* aligns first text line with expand-btn 44px touch area */
+  line-height: 1.3;
 }
 
 /* ── Expand/collapse button ───────────────────────────────────────────
