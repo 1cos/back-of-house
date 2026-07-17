@@ -33,6 +33,8 @@ import { savePrepCountRpc } from './services/prep-count-rpc-service.js';
 import { reconcilePrepCount } from './services/prep-count-reconciler-service.js';
 import { startPrepTaskRpc } from './services/prep-start-rpc-service.js';
 import { completePrepTaskRpc } from './services/prep-complete-rpc-service.js';
+import { markDoneViaEf, recordProductionViaEf } from './services/prep-production-ef-service.js';
+import { fetchHistoricalPrepCounts } from './services/prep-count-service.js';
 import { passPrepToShift } from './services/prep-pass-service.js';
 import { fetchAvailableStations } from './services/station-list-service.js';
 import { createCommandBar } from './components/command-bar/command-bar.js';
@@ -263,9 +265,12 @@ function mountShell(user) {
       fetchTasks:       fetchStationPrepTasks,
       fetchSuggestions: fetchPrepSuggestions,
       fetchLogs:        fetchTodayPrepLogs,
-      fetchCounts:      fetchRecentPrepCounts,
-      startTask:        startPrepTaskRpc,
-      completeTask:     completePrepTaskRpc,
+      fetchCounts:          fetchRecentPrepCounts,
+      fetchHistoricalCounts:fetchHistoricalPrepCounts,
+      startTask:            startPrepTaskRpc,
+      completeTask:         completePrepTaskRpc,
+      markDone:             markDoneViaEf,
+      recordProduction:     recordProductionViaEf,
       saveCount:        savePrepCountRpc,
       reconcileCount:   reconcilePrepCount,
       passTask:         passPrepToShift,
@@ -389,3 +394,4 @@ root.addEventListener('input', (e) => {
   renderLogin();
   runConnectionDiagnostic();
 })();
+

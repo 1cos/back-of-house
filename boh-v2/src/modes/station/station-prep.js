@@ -572,6 +572,170 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
   return btn;
 }
 
+
+// ── Record production button builder (Phase 3C/3E) ─────────────────────────
+// Used for both "Record production" (State A) and "Record more" (State C).
+// Semantics: in_progress_at = null (no WIP created or closed).
+//
+// labelKey: 'station_prep.record_production' | 'station_prep.record_more'
+//
+// Returns the button element. The caller is responsible for appending it.
+
+function buildRecordProductionButton({ task, currentUser, translate, recordProduction, section, onProductionSuccess, detailEl, labelKey, countFormRef }) {
+  const userName = (currentUser && typeof currentUser.name === 'string')
+    ? currentUser.name.trim()
+    : '';
+  const canRecord = userName.length > 0;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'station-prep__record-production-btn';
+  btn.textContent = translate(labelKey || 'station_prep.record_production');
+  if (!canRecord) btn.disabled = true;
+
+  let formContainer    = null;
+  let submitting       = false;
+  let pendingOp        = null;  // { id, occurredAt, quantity, unit } | null
+
+  function clearFeedback() {
+    if (!formContainer) return;
+    const prev = formContainer.querySelector(
+      '.station-prep__record-production-submitting, .station-prep__record-production-error'
+    );
+    if (prev) prev.remove();
+  }
+
+  function setFormDisabled(disabled) {
+    if (!formContainer) return;
+    formContainer.querySelectorAll('input, button').forEach((el) => {
+      el.disabled = disabled;
+    });
+  }
+
+  function showSubmitting() {
+    clearFeedback();
+    const el = document.createElement('p');
+    el.className = 'station-prep__record-production-submitting';
+    el.setAttribute('role', 'status');
+    el.textContent = translate('station_prep.completing');
+    formContainer.appendChild(el);
+  }
+
+  function showError(msgKey) {
+    clearFeedback();
+    const el = document.createElement('p');
+    el.className = 'station-prep__record-production-error';
+    el.setAttribute('role', 'alert');
+    el.textContent = translate(msgKey);
+    formContainer.appendChild(el);
+  }
+
+  function removeForm() {
+    if (formContainer && formContainer.parentNode) formContainer.remove();
+    formContainer = null;
+    submitting = false;
+    pendingOp = null;
+    btn.hidden = false;
+  }
+
+  btn.addEventListener('click', () => {
+    if (!canRecord) return;
+
+    // Remove any open Count form.
+    if (countFormRef && countFormRef.container && countFormRef.container.parentNode) {
+      countFormRef.container.remove();
+      countFormRef.container = null;
+    }
+    const prevCountFb = detailEl.querySelector(
+      '.station-prep__count-submitting, .station-prep__count-error'
+    );
+    if (prevCountFb) prevCountFb.remove();
+    if (countFormRef && countFormRef.btn) countFormRef.btn.hidden = false;
+
+    if (formContainer && formContainer.parentNode) formContainer.remove();
+    submitting = false;
+    btn.hidden = true;
+
+    const form = createCompletePrepForm({
+      taskName:    task.name,
+      defaultUnit: task.unit ?? null,
+      translate,
+
+      onConfirm: ({ quantity, unit }) => {
+        if (submitting) return;
+        submitting = true;
+
+        const trimmedUnit = unit.trim();
+
+        // Idempotency context: same rules as buildCompleteButton.
+        if (pendingOp === null) {
+          pendingOp = {
+            id:         generateStartOperationUUID(),
+            occurredAt: new Date().toISOString(),
+            quantity,
+            unit:       trimmedUnit,
+          };
+        } else if (pendingOp.quantity !== quantity || pendingOp.unit !== trimmedUnit) {
+          pendingOp = {
+            id:         generateStartOperationUUID(),
+            occurredAt: new Date().toISOString(),
+            quantity,
+            unit:       trimmedUnit,
+          };
+        }
+
+        clearFeedback();
+        setFormDisabled(true);
+        showSubmitting();
+
+        recordProduction({
+          taskId:            task.id,
+          quantity,
+          unit,
+          clientOperationId: pendingOp.id,
+          occurredAt:        pendingOp.occurredAt,
+        }).then((result) => {
+          if (!section.isConnected) return;
+          if (result.ok) {
+            pendingOp = null;
+            removeForm();
+            onProductionSuccess({
+              ok:                    true,
+              log:                   result.log,
+              task:                  result.task,
+              suggestion:            result.suggestion,
+              suggestionRecalculated:result.suggestionRecalculated,
+              warning:               result.warning,
+            });
+          } else {
+            submitting = false;
+            setFormDisabled(false);
+            clearFeedback();
+            if (result.retriable !== true) pendingOp = null;
+            showError('station_prep.complete_error');
+          }
+        }).catch(() => {
+          if (!section.isConnected) return;
+          submitting = false;
+          setFormDisabled(false);
+          clearFeedback();
+          // Retain pendingOp — transport uncertain.
+          showError('station_prep.complete_error');
+        });
+      },
+
+      onCancel: () => { removeForm(); },
+    });
+
+    formContainer = document.createElement('div');
+    formContainer.className = 'station-prep__record-production-form-container';
+    formContainer.appendChild(form);
+    detailEl.appendChild(formContainer);
+  });
+
+  return btn;
+}
+
 // ── Count button builder ──────────────────────────────────────────────
 
 /**
@@ -1266,7 +1430,7 @@ function buildWipSection(task, translate, currentUser, startTask, onSuccess, pas
 
 // ── Detail panel builder ──────────────────────────────────────────────
 
-function buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
+function buildDetailPanel(panelId, task, suggestion, logs, recentCount, historicalCount, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__task-detail';
   panel.id = panelId;
@@ -1317,7 +1481,7 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
   panel.appendChild(buildMadeToday(logs, translate));
 
   // 5. Last physical count
-  panel.appendChild(buildLastPhysicalCount(count, translate));
+  panel.appendChild(buildLastPhysicalCount(historicalCount, translate));
 
   // ── Cross-form coordination refs ──
   // Created before WIP section so the resolution panel's "I finished it"
@@ -1333,18 +1497,41 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
     panel.appendChild(buildWipSection(task, translate, currentUser, startTask, onSuccess, passTask, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, panel));
   }
 
-  // 7. Start — non-in-progress only
+  // 7. Start + Record production — non-in-progress only
+  // Phase 3: State A (not started) shows Start (primary) + Record production (secondary).
+  // Phase 3: State C (production recorded today) shows Record more instead.
+  const hasTodayLogs = Array.isArray(logs) && logs.length > 0;
   if (task.inProgress !== true) {
     panel.appendChild(buildStartButton({ task, currentUser, translate, startTask, section, onSuccess, detailEl: panel }));
+
+    // State A → "Record production"; State C → "Record more"
+    const recProdLabelKey = hasTodayLogs
+      ? 'station_prep.record_more'
+      : 'station_prep.record_production';
+
+    const recProdBtn = buildRecordProductionButton({
+      task,
+      currentUser,
+      translate,
+      recordProduction,
+      section,
+      onProductionSuccess,
+      detailEl: panel,
+      labelKey: recProdLabelKey,
+      countFormRef,
+    });
+    panel.appendChild(recProdBtn);
   }
 
-  // 7. Complete — in-progress only
+  // 7. Complete (Mark done) — in-progress only
+  // Phase 3: routes through markDone (→ record-prep-production-v2 EF with in_progress_at).
+  // buildCompleteButton accepts the same interface; markDone ignores completedBy (server-resolved).
   if (task.inProgress === true) {
     const completeBtn = buildCompleteButton({
       task,
       currentUser,
       translate,
-      completeTask,
+      completeTask: markDone,
       section,
       onCompleteSuccess,
       detailEl: panel,
@@ -1460,10 +1647,16 @@ function createExpandController() {
 //
 // No status-based interpretation. No stock thresholds. No coverage inference.
 
-function _extractBotSentence(task, suggestion, translate) {
+function _extractBotSentence(task, suggestion, translate, logs) {
   // In-progress is an operational fact from the task, not from the suggestion.
   if (task.inProgress === true) {
     return translate('station_prep.card_sentence_in_progress');
+  }
+
+  // Phase 3F: no suggestion + production logs today → suggestion refresh in progress.
+  // Show neutral "Updating recommendation…" instead of "No recommendation yet."
+  if (!suggestion && Array.isArray(logs) && logs.length > 0) {
+    return translate('station_prep.suggestion_updating');
   }
 
   // No suggestion at all.
@@ -1493,7 +1686,7 @@ function _extractBotSentence(task, suggestion, translate) {
 
 // ── Task row builder ──────────────────────────────────────────────────
 
-function buildTaskRow(task, suggestion, logs, count, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
+function buildTaskRow(task, suggestion, logs, recentCount, historicalCount, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
   const item = document.createElement('li');
   item.className = 'station-prep__task';
 
@@ -1561,13 +1754,13 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
   // The frontend renders; it never interprets the meaning.
   const sentenceEl = document.createElement('p');
   sentenceEl.className = 'station-prep__task-sentence';
-  sentenceEl.textContent = _extractBotSentence(task, suggestion, translate);
+  sentenceEl.textContent = _extractBotSentence(task, suggestion, translate, logs);
 
   metaRow.appendChild(botStatusEl);
   if (qtyEl.textContent.length > 0) metaRow.appendChild(qtyEl);
   if (stockEl.textContent.length > 0) metaRow.appendChild(stockEl);
 
-  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel);
+  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, recentCount, historicalCount, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel);
 
   item.appendChild(topRow);
   item.appendChild(metaRow);
@@ -1579,7 +1772,7 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
 
 // ── Section group builder ─────────────────────────────────────────────
 
-function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
+function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, recentCountsMap, historicalCountsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
   if (tasks.length === 0) return null;
 
   const group = document.createElement('section');
@@ -1604,11 +1797,12 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
   list.className = 'station-prep__list';
 
   for (const task of tasks) {
-    const suggestion = suggestionsMap[task.id] ?? null;
-    const logs       = logsMap[task.name] ?? undefined;
-    const taskCount  = countsMap[task.id] ?? null;
-    const panelId    = idGen.nextId();
-    list.appendChild(buildTaskRow(task, suggestion, logs, taskCount, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel));
+    const suggestion      = suggestionsMap[task.id] ?? null;
+    const logs            = logsMap[task.name] ?? undefined;
+    const recentTaskCount = recentCountsMap[task.id] ?? null;
+    const histTaskCount   = historicalCountsMap[task.id] ?? null;
+    const panelId         = idGen.nextId();
+    list.appendChild(buildTaskRow(task, suggestion, logs, recentTaskCount, histTaskCount, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel));
   }
 
   group.appendChild(headingRow);
@@ -1628,13 +1822,16 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
  *   fetchTasks:       Function,
  *   fetchSuggestions: Function,
  *   fetchLogs:        Function,
- *   fetchCounts:      Function,
- *   startTask:        Function,
- *   completeTask:     Function,
- *   saveCount:        Function,
- *   reconcileCount:   Function,
- *   passTask:         Function,
- *   currentUser:      object
+ *   fetchCounts:          Function,
+ *   fetchHistoricalCounts:Function,
+ *   startTask:            Function,
+ *   completeTask:         Function,
+ *   markDone:             Function,
+ *   recordProduction:     Function,
+ *   saveCount:            Function,
+ *   reconcileCount:       Function,
+ *   passTask:             Function,
+ *   currentUser:          object
  * }} options
  * @returns {HTMLElement}
  */
@@ -1650,17 +1847,20 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
  *   fetchTasks:       Function,
  *   fetchSuggestions: Function,
  *   fetchLogs:        Function,
- *   fetchCounts:      Function,
- *   startTask:        Function,
- *   completeTask:     Function,
- *   saveCount:        Function,
- *   reconcileCount:   Function,
- *   passTask:         Function,
- *   currentUser:      object
+ *   fetchCounts:          Function,
+ *   fetchHistoricalCounts:Function,
+ *   startTask:            Function,
+ *   completeTask:         Function,
+ *   markDone:             Function,
+ *   recordProduction:     Function,
+ *   saveCount:            Function,
+ *   reconcileCount:       Function,
+ *   passTask:             Function,
+ *   currentUser:          object
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, canChooseStation, translate, fetchStations, onStationSelect, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, saveCount, reconcileCount, passTask, currentUser, openPanel }) {
+export function createStationPrep({ stationName, canChooseStation, translate, fetchStations, onStationSelect, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, fetchHistoricalCounts, startTask, completeTask, markDone, recordProduction, saveCount, reconcileCount, passTask, currentUser, openPanel }) {
   // ── Selector branch: eligible role, no station yet ────────────────
   const hasStation = typeof stationName === 'string' && stationName.trim().length > 0;
   const showSelector = !hasStation && canChooseStation === true;
@@ -1786,12 +1986,11 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
       fetchSuggestions(taskIds),
       fetchLogs(taskNames),
       fetchCounts(taskIds),
-    ]).then(([sugResult, logResult, countResult]) => {
+      fetchHistoricalCounts ? fetchHistoricalCounts(taskIds) : Promise.resolve({ ok: true, countsByPrepTaskId: {} }),
+    ]).then(([sugResult, logResult, countResult, histCountResult]) => {
       if (!section.isConnected) return;
 
-      const suggestionsMap = (sugResult.ok && sugResult.suggestions)
-        ? sugResult.suggestions
-        : {};
+      // suggestionsMap replaced by workingSuggestionsMap (Phase 3B)
 
       const logsMap = (logResult.ok && logResult.logsByTaskName)
         ? logResult.logsByTaskName
@@ -1811,7 +2010,18 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
         workingCountsMap[id] = Object.assign({}, cnt);
       }
 
-      // suggestionsMap is read-only throughout the page lifecycle.
+      // Historical counts — physical count history, preserved after production supersedes live baseline.
+      const fetchedHistCounts = (histCountResult && histCountResult.ok && histCountResult.countsByPrepTaskId)
+        ? histCountResult.countsByPrepTaskId
+        : {};
+      let workingHistCountsMap = {};
+      for (const [id, cnt] of Object.entries(fetchedHistCounts)) {
+        workingHistCountsMap[id] = Object.assign({}, cnt);
+      }
+
+      // Phase 3B: workingSuggestionsMap — mutable, updated after each production event.
+      // Separate from the read-only initial snapshot so every rerender reads the fresh value.
+      let workingSuggestionsMap = Object.assign({}, (sugResult.ok && sugResult.suggestions) ? sugResult.suggestions : {});
 
       function render() {
         content.innerHTML = '';
@@ -1832,8 +2042,8 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
           .replace('{count}', String(workingTasks.length));
         content.appendChild(countEl);
 
-        const ordered = sortedTasks(workingTasks, suggestionsMap);
-        const groups  = groupedTasks(ordered, suggestionsMap);
+        const ordered = sortedTasks(workingTasks, workingSuggestionsMap);
+        const groups  = groupedTasks(ordered, workingSuggestionsMap);
 
         function onSuccess(result) {
           workingTasks = workingTasks.map((t) => {
@@ -1871,6 +2081,52 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
             });
             if (section.isConnected) render();
           }
+        }
+
+        // Phase 3: onProductionSuccess — handles Record production and Record more.
+        // Updates: workingLogsMap, workingTasks, workingSuggestionsMap.
+        // Phase 3F: if suggestion_recalculated=false, suppresses stale suggestion.
+        function onProductionSuccess(result) {
+          // 1. Append production log.
+          if (result.log && result.log.taskName) {
+            const taskName = result.log.taskName;
+            const existing = workingLogsMap[taskName]
+              ? workingLogsMap[taskName].slice()
+              : [];
+            workingLogsMap = Object.assign({}, workingLogsMap, {
+              [taskName]: sortedLogs([...existing, Object.assign({}, result.log)]),
+            });
+          }
+
+          // 2. Update task state from authoritative response.
+          if (result.task) {
+            workingTasks = workingTasks.map((t) => {
+              if (t.id !== result.task.id) return t;
+              return Object.assign({}, t, {
+                currentStock: result.task.currentStock,
+                needTomorrow: result.task.needTomorrow,
+                inProgress:   result.task.inProgress,
+                inProgressAt: result.task.inProgressAt,
+                inProgressBy: result.task.inProgressBy,
+              });
+            });
+          }
+
+          // 3. Update suggestion.
+          // Phase 3F: if suggestion_recalculated=false, remove stale suggestion.
+          // The card will show "Updating recommendation…" via the null path.
+          if (result.suggestionRecalculated && result.suggestion && result.task) {
+            workingSuggestionsMap = Object.assign({}, workingSuggestionsMap, {
+              [result.task.id]: result.suggestion,
+            });
+          } else if (!result.suggestionRecalculated && result.task) {
+            // Phase 3F: suppress stale suggestion — never show expired status pill.
+            const updated = Object.assign({}, workingSuggestionsMap);
+            delete updated[result.task.id];
+            workingSuggestionsMap = updated;
+          }
+
+          if (section.isConnected) render();
         }
 
         function onCountSuccess(result) {
@@ -1963,7 +2219,7 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
         }
 
         for (const key of SECTION_KEYS) {
-          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, workingCountsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel);
+          const groupEl = buildGroup(key, groups[key], workingSuggestionsMap, workingLogsMap, workingCountsMap, workingHistCountsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel);
           if (groupEl) content.appendChild(groupEl);
         }
       }
@@ -1974,4 +2230,5 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
 
   return section;
 }
+
 
