@@ -272,30 +272,8 @@ function buildLastPhysicalCount(count, translate) {
     : translate('station_prep.detail_time_not_available');
   addRow(translate('station_prep.detail_counted_at'), timeEl);
 
-  if (typeof count.reconcileStatus === 'string' && count.reconcileStatus.length > 0) {
-    const rsEl = document.createElement('span');
-    rsEl.className = 'station-prep__detail-value';
-    rsEl.textContent = count.reconcileStatus;
-    addRow(translate('station_prep.detail_reconciliation'), rsEl);
-  }
-
-  if (count.reconciledQuantity !== null && count.reconciledQuantity !== undefined) {
-    const rqEl = document.createElement('span');
-    rqEl.className = 'station-prep__detail-value';
-    let rqText = String(count.reconciledQuantity);
-    if (count.unit !== null && count.unit !== undefined) {
-      rqText += ' ' + count.unit;
-    }
-    rqEl.textContent = rqText;
-    addRow(translate('station_prep.detail_reconciled_quantity'), rqEl);
-  }
-
-  if (typeof count.reconciledNote === 'string' && count.reconciledNote.length > 0) {
-    const rnEl = document.createElement('span');
-    rnEl.className = 'station-prep__detail-value station-prep__detail-value--note';
-    rnEl.textContent = count.reconciledNote;
-    addRow(translate('station_prep.detail_reconciliation_note'), rnEl);
-  }
+  // Reconciliation status, quantity and note omitted —
+  // internal system fields not actionable for kitchen crew.
 
   return section;
 }
@@ -438,7 +416,7 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'station-prep__complete-btn';
-  btn.textContent = translate('station_prep.complete');
+  btn.textContent = translate('station_prep.mark_done');
   if (!canComplete) btn.disabled = true;
 
   let formContainer    = null;
@@ -868,7 +846,7 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
   const finishedBtn = document.createElement('button');
   finishedBtn.type = 'button';
   finishedBtn.className = 'station-prep__wip-resolution-btn station-prep__wip-resolution-btn--finished';
-  finishedBtn.textContent = translate('station_prep.wip_resolution_finished');
+  finishedBtn.textContent = translate('station_prep.mark_done');
   if (!canFinish) finishedBtn.disabled = true;
 
   let finishedFormContainer  = null;
@@ -1037,7 +1015,7 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
   const continueBtn = document.createElement('button');
   continueBtn.type = 'button';
   continueBtn.className = 'station-prep__wip-resolution-btn station-prep__wip-resolution-btn--continue';
-  continueBtn.textContent = translate('station_prep.wip_resolution_continue');
+  continueBtn.textContent = translate('station_prep.action_continue');
   if (!canContinue) continueBtn.disabled = true;
 
   // Disable Continue while a Complete or Count form is open.
@@ -1088,7 +1066,7 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
       } else {
         continueSubmitting = false;
         continueBtn.disabled = false;
-        continueBtn.textContent = translate('station_prep.wip_resolution_continue');
+        continueBtn.textContent = translate('station_prep.action_continue');
 
         if (result.retriable === true) {
           // Retriable failure: retain pendingContinueOp for next tap.
@@ -1109,7 +1087,7 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
       if (!section.isConnected) return;
       continueSubmitting = false;
       continueBtn.disabled = false;
-      continueBtn.textContent = translate('station_prep.wip_resolution_continue');
+      continueBtn.textContent = translate('station_prep.action_continue');
       clearContinueError();
       const errEl = document.createElement('p');
       errEl.className = 'station-prep__wip-continue-error';
@@ -1214,7 +1192,7 @@ function buildWipSection(task, translate, currentUser, startTask, onSuccess, pas
 
   const heading = document.createElement('h3');
   heading.className = 'station-prep__detail-wip-heading';
-  heading.textContent = translate('station_prep.detail_work_in_progress');
+  heading.textContent = translate('station_prep.detail_in_progress');
   wipSection.appendChild(heading);
 
   // Parse timestamp and current time once — reused for elapsed display and
@@ -1319,29 +1297,21 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
   }
   addRow('station_prep.detail_prepare_today', prepTodayVal);
 
-  // 2. In stock — always from suggestion, never replaced by physical count
-  const stockVal = document.createElement('span');
-  stockVal.className = 'station-prep__detail-value';
-  if (suggestion !== null && suggestion.currentStock !== null && suggestion.currentStock !== undefined) {
-    let text = String(suggestion.currentStock);
-    if (suggestion.stockUnit !== null && suggestion.stockUnit !== undefined) {
-      text += ' ' + suggestion.stockUnit;
-    }
-    stockVal.textContent = text;
-  } else {
-    stockVal.textContent = translate('station_prep.detail_not_recorded');
-  }
-  addRow('station_prep.detail_in_stock', stockVal);
+  // 2. In stock — shown on collapsed card face; not duplicated here.
 
-  // 3. Why
+  // 3. Why — extract EN segment from bot reason field (format: 'color|it|en|es')
   const whyVal = document.createElement('span');
   whyVal.className = 'station-prep__detail-value station-prep__detail-value--reason';
   if (suggestion !== null && typeof suggestion.reason === 'string' && suggestion.reason.trim().length > 0) {
-    whyVal.textContent = suggestion.reason;
+    const parts = suggestion.reason.split('|');
+    const enReason = parts[2];
+    whyVal.textContent = (typeof enReason === 'string' && enReason.trim().length > 0)
+      ? enReason.trim()
+      : suggestion.reason.trim(); // fallback: show full string if format unexpected
   } else {
     whyVal.textContent = translate('station_prep.detail_no_explanation');
   }
-  addRow('station_prep.detail_why_this_amount', whyVal);
+  addRow('station_prep.detail_why', whyVal);
 
   // 4. Made today
   panel.appendChild(buildMadeToday(logs, translate));
