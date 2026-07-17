@@ -171,9 +171,17 @@ export const en = {
   'home.block_error':                 'Unable to load. Pull down to refresh.',
 
   // Station Focus
-  'home.station_focus_ready':         'Station looks ready',
-  'home.station_focus_open':          'Open station',
-  'home.station_focus_no_station':    'No station assigned',
+  'home.station_focus_eyebrow':                    "Today's focus",
+  'home.station_focus_ready':                      'Station looks ready',
+  'home.station_focus_open':                       'Open station',
+  'home.station_focus_no_station':                 'No station assigned',
+
+  // Station Focus — narrative sentences (one per render, derived from operational state)
+  'home.station_focus_narrative_ready':            'Everything is ready for service.',
+  'home.station_focus_narrative_priority':         'Some prep needs to be done before service.',
+  'home.station_focus_narrative_in_progress':      'Prep is underway.',
+  'home.station_focus_narrative_on_schedule':      'Prep is on schedule.',
+  'home.station_focus_narrative_nothing_pending':  'Nothing urgent right now.',
 
   // Station Overview
   'home.station_overview_title':      'Kitchen',
