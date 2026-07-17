@@ -1773,14 +1773,28 @@ function buildTaskRow(task, suggestion, logs, recentCount, historicalCount, isUp
     qtyEl.textContent = qtyText;
   }
 
-  // Current stock — shown on card face using suggestion (bot-authoritative).
+  // Current stock — shown on card face.
+  // When isUpdating=true: use task.currentStock (authoritative from response.task
+  // after production succeeded). The suggestion has been removed from
+  // workingSuggestionsMap, so we must not read stock from it.
+  // When isUpdating=false: use suggestion.currentStock (bot-authoritative, normal path).
   const stockEl = document.createElement('span');
   stockEl.className = 'station-prep__task-stock';
-  const botStock     = !isUpdating && suggestion !== null && suggestion.currentStock !== null && suggestion.currentStock !== undefined;
-  const botStockUnit = !isUpdating && suggestion !== null && suggestion.stockUnit !== null && suggestion.stockUnit !== undefined;
-  if (botStock) {
-    const stockText = String(suggestion.currentStock) + (botStockUnit ? ' ' + suggestion.stockUnit : '');
-    stockEl.textContent = translate('station_prep.card_stock_label').replace('{qty}', stockText);
+  if (isUpdating) {
+    // Phase 3F: production succeeded — task.currentStock is authoritative.
+    const taskStock = task.currentStock;
+    const taskUnit  = task.unit ?? null;
+    if (taskStock !== null && taskStock !== undefined) {
+      const stockText = String(taskStock) + (taskUnit ? ' ' + taskUnit : '');
+      stockEl.textContent = translate('station_prep.card_stock_label').replace('{qty}', stockText);
+    }
+  } else {
+    const botStock     = suggestion !== null && suggestion.currentStock !== null && suggestion.currentStock !== undefined;
+    const botStockUnit = suggestion !== null && suggestion.stockUnit    !== null && suggestion.stockUnit    !== undefined;
+    if (botStock) {
+      const stockText = String(suggestion.currentStock) + (botStockUnit ? ' ' + suggestion.stockUnit : '');
+      stockEl.textContent = translate('station_prep.card_stock_label').replace('{qty}', stockText);
+    }
   }
 
   // Operational sentence.
@@ -2302,6 +2316,7 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
 
   return section;
 }
+
 
 
 
