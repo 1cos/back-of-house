@@ -145,6 +145,20 @@ export const en = {
   'station_prep.wip_resolution_continue':   'Continue this prep',
   'station_prep.wip_resolution_pass_shift': 'Pass to this shift',
 
+  // ── Station Prep — Card face operational sentence (UX Pass 1) ─────────
+  // One human-language sentence per card derived from the operational state.
+  // Never exposes algorithm terminology. {qty} is substituted inline.
+  'station_prep.card_stock_label':              'In stock: {qty}',
+  'station_prep.card_sentence_in_progress':     'In progress.',
+  'station_prep.card_sentence_do_first_low_stock': 'Prep needed — stock is running low.',
+  'station_prep.card_sentence_do_first_no_stock':  'Prep needed — no stock recorded.',
+  'station_prep.card_sentence_do_today_qty':    'Prepare {qty} today.',
+  'station_prep.card_sentence_do_today':        'Should be prepared today.',
+  'station_prep.card_sentence_looks_good':      'Current stock covers today.',
+  'station_prep.card_sentence_count_first':     'Count stock before starting.',
+  'station_prep.card_sentence_no_action':       'No action needed right now.',
+  'station_prep.card_sentence_no_suggestion':   'No recommendation yet.',
+
   // ── Station Prep — Continue this prep feedback (Task 004AC) ──────────
   'station_prep.wip_resolution_continuing':    'Continuing…',
   'station_prep.wip_resolution_continue_error': 'Unable to continue this prep. Try again.',
