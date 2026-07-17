@@ -1449,6 +1449,70 @@ function createExpandController() {
   };
 }
 
+// ── Card sentence helper ─────────────────────────────────────────────
+// Returns a locale key for the single operational sentence shown on the
+// card face. Derived from the overall task + suggestion state —
+// human language only, never algorithm labels.
+// Future event-based logic can replace this function without touching
+// the render contract (locale key → string is the only interface).
+
+function _cardSentenceKey(task, suggestion) {
+  // In-progress takes priority over any suggestion.
+  if (task.inProgress === true) {
+    return 'station_prep.card_sentence_in_progress';
+  }
+
+  const status = suggestion ? suggestion.status : null;
+
+  switch (status) {
+    case 'DO_FIRST': {
+      const hasStock = task.currentStock !== null && task.currentStock !== undefined && task.currentStock > 0;
+      return hasStock
+        ? 'station_prep.card_sentence_do_first_low_stock'
+        : 'station_prep.card_sentence_do_first_no_stock';
+    }
+    case 'PREP_TODAY':
+    case 'DO_TODAY': {
+      const hasQty = suggestion.plannedOutput !== null && suggestion.plannedOutput !== undefined;
+      return hasQty
+        ? 'station_prep.card_sentence_do_today_qty'
+        : 'station_prep.card_sentence_do_today';
+    }
+    case 'LOOKS_OK':
+    case 'LOOKS_GOOD':
+      return 'station_prep.card_sentence_looks_good';
+    case 'COUNT_FIRST':
+      return 'station_prep.card_sentence_count_first';
+    case 'DEFER_TO_TOMORROW':
+    case 'DEFER':
+    case 'VERIFY':
+    case 'UNAVAILABLE':
+      return 'station_prep.card_sentence_no_action';
+    default:
+      return 'station_prep.card_sentence_no_suggestion';
+  }
+}
+
+// ── Card sentence renderer ────────────────────────────────────────────
+// Builds the sentence string for card_sentence_do_today_qty by injecting
+// qty + unit into the locale template, or falls back to the plain key.
+
+function _buildCardSentence(task, suggestion, translate) {
+  const key = _cardSentenceKey(task, suggestion);
+
+  if (key === 'station_prep.card_sentence_do_today_qty') {
+    const qty  = String(suggestion.plannedOutput);
+    const unit = (suggestion.outputUnit !== null && suggestion.outputUnit !== undefined)
+      ? ' ' + suggestion.outputUnit
+      : '';
+    // Template: "Prepare {qty} today." — simple inline substitution
+    return translate('station_prep.card_sentence_do_today_qty')
+      .replace('{qty}', qty + unit);
+  }
+
+  return translate(key);
+}
+
 // ── Task row builder ──────────────────────────────────────────────────
 
 function buildTaskRow(task, suggestion, logs, count, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
@@ -1502,18 +1566,30 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
     qtyEl.textContent = qtyText;
   }
 
-  const stateEl = document.createElement('span');
-  stateEl.className = 'station-prep__task-status';
-  stateEl.textContent = translate(taskStateKey(task));
+  // Current stock — shown on card face only when a value exists.
+  // Gives the cook an immediate reference without opening the detail.
+  const stockEl = document.createElement('span');
+  stockEl.className = 'station-prep__task-stock';
+  if (task.currentStock !== null && task.currentStock !== undefined) {
+    const stockText = String(task.currentStock) + (task.unit ? ' ' + task.unit : '');
+    stockEl.textContent = translate('station_prep.card_stock_label').replace('{qty}', stockText);
+  }
+
+  // Operational sentence — one human-language line that answers
+  // "what should I do?" without exposing algorithm terminology.
+  const sentenceEl = document.createElement('p');
+  sentenceEl.className = 'station-prep__task-sentence';
+  sentenceEl.textContent = _buildCardSentence(task, suggestion, translate);
 
   metaRow.appendChild(botStatusEl);
   if (qtyEl.textContent.length > 0) metaRow.appendChild(qtyEl);
-  metaRow.appendChild(stateEl);
+  if (stockEl.textContent.length > 0) metaRow.appendChild(stockEl);
 
   const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess);
 
   item.appendChild(topRow);
   item.appendChild(metaRow);
+  item.appendChild(sentenceEl);
   item.appendChild(detailPanel);
 
   return item;
