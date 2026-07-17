@@ -63,8 +63,9 @@ export const en = {
   // ── Station Prep — Collapsible detail (Task 004H) ────────────────────
   'station_prep.expand_details':     'Show details for {name}',
   'station_prep.collapse_details':   'Hide details for {name}',
-  'station_prep.detail_prepare_today':    'Prepare today',
+  'station_prep.detail_prepare_today':    'Prepare',
   'station_prep.detail_in_stock':         'In stock',
+  'station_prep.detail_why':              'Why',
   'station_prep.detail_why_this_amount':  'Why this amount',
   'station_prep.detail_not_available':    'Not available',
   'station_prep.detail_not_recorded':     'Not recorded',
@@ -83,7 +84,8 @@ export const en = {
   'station_prep.start_error': 'Unable to start this prep. Try again.',
 
   // ── Station Prep — Complete action (Task 004P) ────────────────────────
-  'station_prep.complete': 'Complete',
+  'station_prep.complete':   'Complete',
+  'station_prep.mark_done':  'Mark done',
 
   // ── Station Prep — Complete submission feedback (Task 004Q) ───────────
   'station_prep.completing':            'Completing\u2026',
@@ -101,7 +103,7 @@ export const en = {
   'station_prep.complete_form_unit_error':     'Enter a unit.',
 
   // ── Station Prep — Last physical count (Task 004S) ────────────────────
-  'station_prep.detail_last_physical_count': 'Last physical count',
+  'station_prep.detail_last_physical_count': 'Last counted',
   'station_prep.detail_no_recent_count':     'No recent physical count',
   'station_prep.detail_counted_by':          'Counted by',
   'station_prep.detail_counted_at':          'Counted at',
@@ -131,6 +133,7 @@ export const en = {
 
   // ── Station Prep — Work in progress detail (Task 004Y) ───────────────
   'station_prep.detail_work_in_progress':      'Work in progress',
+  'station_prep.detail_in_progress':           'In progress',
   'station_prep.detail_started_by':            'Started by',
   'station_prep.detail_started_at':            'Started at',
   'station_prep.detail_elapsed':               'Elapsed',
@@ -143,6 +146,7 @@ export const en = {
   'station_prep.wip_resolution_title':      'What should happen with this prep?',
   'station_prep.wip_resolution_finished':   'I finished it',
   'station_prep.wip_resolution_continue':   'Continue this prep',
+  'station_prep.action_continue':           'Continue',
   'station_prep.wip_resolution_pass_shift': 'Pass to this shift',
 
   // ── Station Prep — Card face sentence (UX Pass 1 Trust Correction) ───────
