@@ -1866,6 +1866,7 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, recentCountsMap,
  *   completeTask:         Function,
  *   markDone:             Function,
  *   recordProduction:     Function,
+ *   refreshSuggestion:    Function,
  *   saveCount:            Function,
  *   reconcileCount:       Function,
  *   passTask:             Function,
@@ -1891,6 +1892,7 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, recentCountsMap,
  *   completeTask:         Function,
  *   markDone:             Function,
  *   recordProduction:     Function,
+ *   refreshSuggestion:    Function,
  *   saveCount:            Function,
  *   reconcileCount:       Function,
  *   passTask:             Function,
@@ -1898,7 +1900,7 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, recentCountsMap,
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, canChooseStation, translate, fetchStations, onStationSelect, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, fetchHistoricalCounts, startTask, markDone, recordProduction, saveCount, reconcileCount, passTask, currentUser, openPanel }) {
+export function createStationPrep({ stationName, canChooseStation, translate, fetchStations, onStationSelect, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, fetchHistoricalCounts, startTask, markDone, recordProduction, refreshSuggestion, saveCount, reconcileCount, passTask, currentUser, openPanel }) {
   // ── Selector branch: eligible role, no station yet ────────────────
   const hasStation = typeof stationName === 'string' && stationName.trim().length > 0;
   const showSelector = !hasStation && canChooseStation === true;
@@ -2171,24 +2173,28 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
             workingSuggestionsMap = updated;
             updatingTaskIds.add(result.task.id);
 
-            // Targeted re-read: poll fetchSuggestions once after 3s.
-            // The EF already called bot-prep-suggester server-side;
-            // by 3s the row should be written. No repeat of the production write.
+            // Phase 3E: call refresh-prep-suggestion EF after 3s.
+            // This triggers a targeted bot recalculation server-to-server
+            // and returns a fresh suggestion. No production is replayed.
+            // On failure the neutral updating state is preserved — no stale
+            // pill or old reason is ever restored.
             const retryTaskId = result.task.id;
             setTimeout(() => {
               if (!section.isConnected) return;
-              fetchSuggestions([retryTaskId]).then((freshResult) => {
+              refreshSuggestion(retryTaskId).then((refreshResult) => {
                 if (!section.isConnected) return;
-                if (freshResult.ok && freshResult.suggestions && freshResult.suggestions[retryTaskId]) {
+                if (refreshResult.ok && refreshResult.suggestion) {
+                  // Fresh suggestion confirmed — apply and leave updating state.
                   workingSuggestionsMap = Object.assign({}, workingSuggestionsMap, {
-                    [retryTaskId]: freshResult.suggestions[retryTaskId],
+                    [retryTaskId]: refreshResult.suggestion,
                   });
                   updatingTaskIds.delete(retryTaskId);
                   render();
                 }
-                // If still not available, updatingTaskIds entry remains.
-                // Next production event or page reload will clear it.
-              }).catch(() => { /* silent — updatingTaskIds remains */ });
+                // On failure: updatingTaskIds entry remains.
+                // No stale suggestion restored. No production replayed.
+                // Clears on next production event or page reload.
+              }).catch(() => { /* silent — neutral updating state persists */ });
             }, 3000);
           }
 
@@ -2296,6 +2302,7 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
 
   return section;
 }
+
 
 
 

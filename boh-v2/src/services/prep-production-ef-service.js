@@ -267,3 +267,62 @@ export async function recordProductionViaEf({ taskId, quantity, unit, clientOper
     isSuggestedQty:false,
   });
 }
+
+// ── Suggestion-only refresh ───────────────────────────────────────────
+// Calls refresh-prep-suggestion EF to trigger a targeted bot recalculation
+// for a single task and return the fresh suggestion.
+//
+// Used by station-prep.js when production_recorded=true but
+// suggestion_recalculated=false (Phase 3F recovery path).
+//
+// No production write. No stock write. No prep_log write.
+// The backend enforces suggestion_date server-side (America/Chicago).
+//
+// @param {number} taskId
+// @returns {Promise<
+//   { ok: true,  recalculated: true,  suggestion: object } |
+//   { ok: false, recalculated: false, suggestion: null,   warning: 'SUGGESTION_REFRESH_FAILED' }
+// >}
+
+const REFRESH_SUGGESTION_URL = 'https://ydqmumpytgrlceuinoqt.supabase.co/functions/v1/refresh-prep-suggestion';
+
+export async function refreshPrepSuggestionViaEf(taskId) {
+  const token = getStoredToken();
+  if (!token) {
+    return { ok: false, recalculated: false, suggestion: null, warning: 'SUGGESTION_REFRESH_FAILED' };
+  }
+
+  if (typeof taskId !== 'number' || !isFinite(taskId) || taskId <= 0) {
+    return { ok: false, recalculated: false, suggestion: null, warning: 'SUGGESTION_REFRESH_FAILED' };
+  }
+
+  let resp;
+  try {
+    resp = await fetch(REFRESH_SUGGESTION_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ brigade_token: token, task_id: taskId }),
+    });
+  } catch {
+    return { ok: false, recalculated: false, suggestion: null, warning: 'SUGGESTION_REFRESH_FAILED' };
+  }
+
+  let data;
+  try {
+    data = await resp.json();
+  } catch {
+    return { ok: false, recalculated: false, suggestion: null, warning: 'SUGGESTION_REFRESH_FAILED' };
+  }
+
+  if (!resp.ok || !data || data.ok !== true || !data.suggestion) {
+    return { ok: false, recalculated: false, suggestion: null, warning: 'SUGGESTION_REFRESH_FAILED' };
+  }
+
+  // Normalize using the same normalizer as record-prep-production-v2 response.
+  return {
+    ok:           true,
+    recalculated: true,
+    suggestion:   normalizeSuggestion(data.suggestion),
+    warning:      null,
+  };
+}
