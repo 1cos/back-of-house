@@ -112,7 +112,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2);
+  gap: 6px;
 }
 
 /* ── Task row ─────────────────────────────────────────────────────────
@@ -125,14 +125,14 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  padding: var(--sp-3) var(--sp-4);
-  gap: var(--sp-2);
+  padding: 10px 14px;
+  gap: 6px;
 }
 
 /* ── Top row: task name + expand button ──────────────────────────────*/
 .station-prep__task-top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--sp-2);
   min-height: 44px;
@@ -141,11 +141,15 @@
 .station-prep__task-name {
   font-family: var(--font-sans);
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-primary);
   flex: 1 1 0;
   min-width: 0;
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-top: 12px;   /* align first line of text with expand-btn touch area */
+  line-height: 1.2;
 }
 
 /* ── Expand/collapse button ───────────────────────────────────────────
@@ -164,6 +168,8 @@
   cursor: pointer;
   color: var(--text-secondary);
   border-radius: var(--r-sm);
+  /* Aligns chevron visually with first line of task name */
+  align-self: flex-start;
 }
 
 .station-prep__expand-btn:focus-visible {
@@ -192,7 +198,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--sp-2) var(--sp-3);
+  gap: 6px 10px;
 }
 
 /* ── Bot suggestion status pill ───────────────────────────────────────*/
@@ -277,7 +283,10 @@
   font-weight: 400;
   color: var(--text-secondary);
   white-space: nowrap;
-  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;   /* prevents stock from squeezing qty at 320px */
+  flex-shrink: 1;
 }
 
 /* ── Operational sentence ─────────────────────────────────────────────
@@ -291,6 +300,9 @@
   color: var(--text-secondary);
   margin: 0;
   line-height: 1.4;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
 }
 
 /* ── Detail panel ─────────────────────────────────────────────────────
