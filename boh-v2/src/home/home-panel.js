@@ -14,7 +14,7 @@
 // NO Supabase import here — Supabase is inside block fetchers only.
 // NO app-state import — user arrives via argument.
 
-import { BLOCK_DEFINITIONS, BLOCK_FETCHERS, BLOCK_RENDERERS, createBlock } from './home-block-registry.js';
+import { BLOCK_DEFINITIONS, BLOCK_FETCHERS, createBlock } from './home-block-registry.js';
 
 // ── Import block modules (side-effect: registers definitions/fetchers/renderers)
 import './blocks/greeting.js';
@@ -47,10 +47,16 @@ function _createBlockCache() {
  * based on BLOCK_DEFINITIONS.permittedRoles.
  *
  * HOME-01 composition:
- *   station user (staff/supervisor with defaultStation):
+ *   station user (staff with defaultStation):
  *     1. greeting  2. station_focus
- *   admin/executive_chef (view_executive_mode):
+ *   executive / admin / supervisor (view_executive_mode holders):
  *     1. greeting  2. station_overview
+ *
+ * Supervisor routing (explicit):
+ *   permissions.js: view_executive_mode includes supervisor.
+ *   Therefore: isExecutive=true for ALL supervisors, regardless of defaultStation.
+ *   A supervisor with a defaultStation gets station_overview, not station_focus.
+ *   This matches Composition Engine §5.3 and §5.4 (supervisors see the overview).
  *
  * @param {object} user
  * @param {(perm: string, user: object) => boolean} canFn
