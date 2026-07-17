@@ -278,6 +278,33 @@ function buildLastPhysicalCount(count, translate) {
   return section;
 }
 
+// ── Kitchen business date helper ─────────────────────────────────────────────
+// Returns the current business date string in YYYY-MM-DD format for
+// America/Chicago (CDT/CST), matching the server-side kitchen date used by
+// record-prep-production-v2 EF and bot-prep-suggester.
+// Used by hasProductionToday() to filter logs for State C detection.
+
+function kitchenBusinessDateString() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+}
+
+/**
+ * Returns true if the logs array contains at least one entry whose
+ * createdAt timestamp falls on the current kitchen business date in CDT.
+ *
+ * @param {Array<{createdAt: string|null}>} logs
+ * @returns {boolean}
+ */
+function hasProductionToday(logs) {
+  if (!Array.isArray(logs) || logs.length === 0) return false;
+  const today = kitchenBusinessDateString();
+  return logs.some((log) => {
+    if (!log.createdAt) return false;
+    const logDate = new Date(log.createdAt).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+    return logDate === today;
+  });
+}
+
 // ── UUID helper (used only by buildStartButton) ───────────────────────────────
 // Generates a cryptographically random UUID v4.
 // Uses crypto.randomUUID() when available; falls back to crypto.getRandomValues().
@@ -1430,7 +1457,7 @@ function buildWipSection(task, translate, currentUser, startTask, onSuccess, pas
 
 // ── Detail panel builder ──────────────────────────────────────────────
 
-function buildDetailPanel(panelId, task, suggestion, logs, recentCount, historicalCount, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
+function buildDetailPanel(panelId, task, suggestion, logs, recentCount, historicalCount, translate, startTask, passTask, currentUser, section, onSuccess, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__task-detail';
   panel.id = panelId;
@@ -1494,13 +1521,13 @@ function buildDetailPanel(panelId, task, suggestion, logs, recentCount, historic
   // 6. Work in progress — only for in-progress tasks.
   // Refs passed so the resolution panel can coordinate form state.
   if (task.inProgress === true) {
-    panel.appendChild(buildWipSection(task, translate, currentUser, startTask, onSuccess, passTask, completeTask, section, onCompleteSuccess, completeFormRef, countFormRef, panel));
+    panel.appendChild(buildWipSection(task, translate, currentUser, startTask, onSuccess, passTask, markDone, section, onCompleteSuccess, completeFormRef, countFormRef, panel));
   }
 
   // 7. Start + Record production — non-in-progress only
   // Phase 3: State A (not started) shows Start (primary) + Record production (secondary).
   // Phase 3: State C (production recorded today) shows Record more instead.
-  const hasTodayLogs = Array.isArray(logs) && logs.length > 0;
+  const hasTodayLogs = hasProductionToday(logs);
   if (task.inProgress !== true) {
     panel.appendChild(buildStartButton({ task, currentUser, translate, startTask, section, onSuccess, detailEl: panel }));
 
@@ -1655,7 +1682,7 @@ function _extractBotSentence(task, suggestion, translate, logs) {
 
   // Phase 3F: no suggestion + production logs today → suggestion refresh in progress.
   // Show neutral "Updating recommendation…" instead of "No recommendation yet."
-  if (!suggestion && Array.isArray(logs) && logs.length > 0) {
+  if (!suggestion && hasProductionToday(logs)) {
     return translate('station_prep.suggestion_updating');
   }
 
@@ -1686,7 +1713,7 @@ function _extractBotSentence(task, suggestion, translate, logs) {
 
 // ── Task row builder ──────────────────────────────────────────────────
 
-function buildTaskRow(task, suggestion, logs, recentCount, historicalCount, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
+function buildTaskRow(task, suggestion, logs, recentCount, historicalCount, isUpdating, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
   const item = document.createElement('li');
   item.className = 'station-prep__task';
 
@@ -1721,15 +1748,24 @@ function buildTaskRow(task, suggestion, logs, recentCount, historicalCount, tran
   const metaRow = document.createElement('div');
   metaRow.className = 'station-prep__task-meta';
 
-  const rawStatus = suggestion ? suggestion.status : null;
+  // Phase 3F: if isUpdating, show NO pill, NO qty, show "Updating recommendation…" sentence.
+  // isUpdating = true when production was recorded but suggestion not yet recalculated.
+  const rawStatus = (!isUpdating && suggestion) ? suggestion.status : null;
+
   const botStatusEl = document.createElement('span');
   botStatusEl.className = 'station-prep__task-bot-status';
-  botStatusEl.dataset.suggestionStatus = suggestionStatusAttr(rawStatus);
-  botStatusEl.textContent = translate(suggestionStatusKey(rawStatus));
+  if (isUpdating) {
+    // Phase 3F: hide pill entirely — no DO FIRST / PREP TODAY / CHECK label.
+    botStatusEl.hidden = true;
+    botStatusEl.dataset.suggestionStatus = 'updating';
+  } else {
+    botStatusEl.dataset.suggestionStatus = suggestionStatusAttr(rawStatus);
+    botStatusEl.textContent = translate(suggestionStatusKey(rawStatus));
+  }
 
   const qtyEl = document.createElement('span');
   qtyEl.className = 'station-prep__task-qty';
-  if (suggestion !== null && suggestion.plannedOutput !== null && suggestion.plannedOutput !== undefined) {
+  if (!isUpdating && suggestion !== null && suggestion.plannedOutput !== null && suggestion.plannedOutput !== undefined) {
     let qtyText = String(suggestion.plannedOutput);
     if (suggestion.outputUnit !== null && suggestion.outputUnit !== undefined) {
       qtyText += ' ' + suggestion.outputUnit;
@@ -1737,30 +1773,31 @@ function buildTaskRow(task, suggestion, logs, recentCount, historicalCount, tran
     qtyEl.textContent = qtyText;
   }
 
-  // Current stock — shown on card face using the same source as the detail panel:
-  // suggestion.currentStock + suggestion.stockUnit (bot-authoritative).
-  // Uses task.currentStock only as a fallback when no suggestion exists,
-  // in which case we also have no unit from the suggestion and omit the field.
+  // Current stock — shown on card face using suggestion (bot-authoritative).
   const stockEl = document.createElement('span');
   stockEl.className = 'station-prep__task-stock';
-  const botStock     = suggestion !== null && suggestion.currentStock !== null && suggestion.currentStock !== undefined;
-  const botStockUnit = suggestion !== null && suggestion.stockUnit !== null && suggestion.stockUnit !== undefined;
+  const botStock     = !isUpdating && suggestion !== null && suggestion.currentStock !== null && suggestion.currentStock !== undefined;
+  const botStockUnit = !isUpdating && suggestion !== null && suggestion.stockUnit !== null && suggestion.stockUnit !== undefined;
   if (botStock) {
     const stockText = String(suggestion.currentStock) + (botStockUnit ? ' ' + suggestion.stockUnit : '');
     stockEl.textContent = translate('station_prep.card_stock_label').replace('{qty}', stockText);
   }
 
-  // Operational sentence — bot-authored text from suggestion.reason (EN segment).
-  // The frontend renders; it never interprets the meaning.
+  // Operational sentence.
+  // Phase 3F: isUpdating → "Updating recommendation…" (no stale bot text shown).
   const sentenceEl = document.createElement('p');
   sentenceEl.className = 'station-prep__task-sentence';
-  sentenceEl.textContent = _extractBotSentence(task, suggestion, translate, logs);
+  if (isUpdating) {
+    sentenceEl.textContent = translate('station_prep.suggestion_updating');
+  } else {
+    sentenceEl.textContent = _extractBotSentence(task, suggestion, translate, logs);
+  }
 
   metaRow.appendChild(botStatusEl);
   if (qtyEl.textContent.length > 0) metaRow.appendChild(qtyEl);
   if (stockEl.textContent.length > 0) metaRow.appendChild(stockEl);
 
-  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, recentCount, historicalCount, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel);
+  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, recentCount, historicalCount, translate, startTask, passTask, currentUser, section, onSuccess, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel);
 
   item.appendChild(topRow);
   item.appendChild(metaRow);
@@ -1772,7 +1809,7 @@ function buildTaskRow(task, suggestion, logs, recentCount, historicalCount, tran
 
 // ── Section group builder ─────────────────────────────────────────────
 
-function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, recentCountsMap, historicalCountsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
+function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, recentCountsMap, historicalCountsMap, updatingIds, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
   if (tasks.length === 0) return null;
 
   const group = document.createElement('section');
@@ -1801,8 +1838,9 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, recentCountsMap,
     const logs            = logsMap[task.name] ?? undefined;
     const recentTaskCount = recentCountsMap[task.id] ?? null;
     const histTaskCount   = historicalCountsMap[task.id] ?? null;
+    const isUpdating      = updatingIds ? updatingIds.has(task.id) : false;
     const panelId         = idGen.nextId();
-    list.appendChild(buildTaskRow(task, suggestion, logs, recentTaskCount, histTaskCount, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel));
+    list.appendChild(buildTaskRow(task, suggestion, logs, recentTaskCount, histTaskCount, isUpdating, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel));
   }
 
   group.appendChild(headingRow);
@@ -1860,7 +1898,7 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, recentCountsMap,
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, canChooseStation, translate, fetchStations, onStationSelect, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, fetchHistoricalCounts, startTask, completeTask, markDone, recordProduction, saveCount, reconcileCount, passTask, currentUser, openPanel }) {
+export function createStationPrep({ stationName, canChooseStation, translate, fetchStations, onStationSelect, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, fetchHistoricalCounts, startTask, markDone, recordProduction, saveCount, reconcileCount, passTask, currentUser, openPanel }) {
   // ── Selector branch: eligible role, no station yet ────────────────
   const hasStation = typeof stationName === 'string' && stationName.trim().length > 0;
   const showSelector = !hasStation && canChooseStation === true;
@@ -2023,6 +2061,11 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
       // Separate from the read-only initial snapshot so every rerender reads the fresh value.
       let workingSuggestionsMap = Object.assign({}, (sugResult.ok && sugResult.suggestions) ? sugResult.suggestions : {});
 
+      // Phase 3F: updatingTaskIds — tasks whose production was recorded but suggestion
+      // has not yet been recalculated. These tasks must show NO status pill and no stale reason.
+      // A targeted re-read clears the entry when a fresh suggestion is confirmed.
+      let updatingTaskIds = new Set();
+
       function render() {
         content.innerHTML = '';
 
@@ -2085,7 +2128,8 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
 
         // Phase 3: onProductionSuccess — handles Record production and Record more.
         // Updates: workingLogsMap, workingTasks, workingSuggestionsMap.
-        // Phase 3F: if suggestion_recalculated=false, suppresses stale suggestion.
+        // Phase 3F: if suggestion_recalculated=false, removes stale suggestion,
+        //           marks task as 'updating', and schedules a targeted re-read.
         function onProductionSuccess(result) {
           // 1. Append production log.
           if (result.log && result.log.taskName) {
@@ -2098,7 +2142,7 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
             });
           }
 
-          // 2. Update task state from authoritative response.
+          // 2. Apply authoritative task state.
           if (result.task) {
             workingTasks = workingTasks.map((t) => {
               if (t.id !== result.task.id) return t;
@@ -2112,18 +2156,40 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
             });
           }
 
-          // 3. Update suggestion.
-          // Phase 3F: if suggestion_recalculated=false, remove stale suggestion.
-          // The card will show "Updating recommendation…" via the null path.
+          // 3. Apply or suppress suggestion.
           if (result.suggestionRecalculated && result.suggestion && result.task) {
+            // Fresh suggestion confirmed — apply and clear updating flag.
             workingSuggestionsMap = Object.assign({}, workingSuggestionsMap, {
               [result.task.id]: result.suggestion,
             });
+            updatingTaskIds.delete(result.task.id);
           } else if (!result.suggestionRecalculated && result.task) {
-            // Phase 3F: suppress stale suggestion — never show expired status pill.
+            // Phase 3F: remove stale suggestion, mark as updating.
+            // No pill, no old reason, no old status will be shown.
             const updated = Object.assign({}, workingSuggestionsMap);
             delete updated[result.task.id];
             workingSuggestionsMap = updated;
+            updatingTaskIds.add(result.task.id);
+
+            // Targeted re-read: poll fetchSuggestions once after 3s.
+            // The EF already called bot-prep-suggester server-side;
+            // by 3s the row should be written. No repeat of the production write.
+            const retryTaskId = result.task.id;
+            setTimeout(() => {
+              if (!section.isConnected) return;
+              fetchSuggestions([retryTaskId]).then((freshResult) => {
+                if (!section.isConnected) return;
+                if (freshResult.ok && freshResult.suggestions && freshResult.suggestions[retryTaskId]) {
+                  workingSuggestionsMap = Object.assign({}, workingSuggestionsMap, {
+                    [retryTaskId]: freshResult.suggestions[retryTaskId],
+                  });
+                  updatingTaskIds.delete(retryTaskId);
+                  render();
+                }
+                // If still not available, updatingTaskIds entry remains.
+                // Next production event or page reload will clear it.
+              }).catch(() => { /* silent — updatingTaskIds remains */ });
+            }, 3000);
           }
 
           if (section.isConnected) render();
@@ -2219,7 +2285,7 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
         }
 
         for (const key of SECTION_KEYS) {
-          const groupEl = buildGroup(key, groups[key], workingSuggestionsMap, workingLogsMap, workingCountsMap, workingHistCountsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel);
+          const groupEl = buildGroup(key, groups[key], workingSuggestionsMap, workingLogsMap, workingCountsMap, workingHistCountsMap, updatingTaskIds, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, onCompleteSuccess, markDone, recordProduction, onProductionSuccess, saveCount, reconcileCount, onCountSuccess, openPanel);
           if (groupEl) content.appendChild(groupEl);
         }
       }
@@ -2230,5 +2296,6 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
 
   return section;
 }
+
 
 

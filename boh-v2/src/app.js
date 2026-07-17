@@ -32,7 +32,7 @@ import { fetchRecentPrepCounts } from './services/prep-count-service.js';
 import { savePrepCountRpc } from './services/prep-count-rpc-service.js';
 import { reconcilePrepCount } from './services/prep-count-reconciler-service.js';
 import { startPrepTaskRpc } from './services/prep-start-rpc-service.js';
-import { completePrepTaskRpc } from './services/prep-complete-rpc-service.js';
+// completePrepTaskRpc no longer injected into station-prep UI (Phase 3B — all completions via markDoneViaEf)
 import { markDoneViaEf, recordProductionViaEf } from './services/prep-production-ef-service.js';
 import { fetchHistoricalPrepCounts } from './services/prep-count-service.js';
 import { passPrepToShift } from './services/prep-pass-service.js';
@@ -268,7 +268,6 @@ function mountShell(user) {
       fetchCounts:          fetchRecentPrepCounts,
       fetchHistoricalCounts:fetchHistoricalPrepCounts,
       startTask:            startPrepTaskRpc,
-      completeTask:         completePrepTaskRpc,
       markDone:             markDoneViaEf,
       recordProduction:     recordProductionViaEf,
       saveCount:        savePrepCountRpc,
@@ -394,4 +393,5 @@ root.addEventListener('input', (e) => {
   renderLogin();
   runConnectionDiagnostic();
 })();
+
 

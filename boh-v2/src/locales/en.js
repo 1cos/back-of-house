@@ -172,9 +172,10 @@ export const en = {
   'station_prep.open_recipe': 'Open recipe',
 
   // ── Station Prep — Production actions (Phase 3) ───────────────────────────
-  'station_prep.record_production':   'Record production',
-  'station_prep.record_more':         'Record more',
-  'station_prep.suggestion_updating': 'Updating recommendation…',
+  'station_prep.record_production':       'Record production',
+  'station_prep.record_more':             'Record more',
+  'station_prep.suggestion_updating':     'Updating recommendation…',
+  'station_prep.production_recorded':     'Production recorded',
 
   // ── Recipe Panel (Phase 2) ────────────────────────────────────────────
   'recipe_panel.aria_label':           'Recipe',
@@ -246,6 +247,7 @@ export const en = {
   'command_bar.preview_close':  'Close',
   'command_bar.preview_clear':  'Clear input',
 };
+
 
 
 
