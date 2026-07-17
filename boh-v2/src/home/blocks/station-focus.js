@@ -6,9 +6,10 @@
 // No supabase import here.
 //
 // Content rules (per Composition Engine §BLOCK: station_focus):
-//   - Station name header
+//   - Eyebrow label "Today's focus" + station name header
 //   - Up to 3 prep items ordered: do_first → in_progress → do_today
 //   - Each item: name + suggestion status label + quantity/unit if known
+//   - One narrative sentence derived from overall operational state
 //   - One action: "Open station" → deps.openPanel('station-prep', { stationName })
 //   - If no urgent prep: show calm "Station looks ready" text
 //   - Always shown for station users with defaultStation (never empty for them)
@@ -78,7 +79,7 @@ BLOCK_FETCHERS['station_focus'] = async (user /*, signal */) => {
     return {
       hasContent:   true,
       urgencyScore: hasUrgent ? -2 : 0,
-      data:         { stationName, items: sorted, noStation: false },
+      data:         { stationName, items: sorted, noStation: false, allItems: result.items },
     };
 
   } catch (_err) {
@@ -105,14 +106,20 @@ BLOCK_RENDERERS['station_focus'] = {
 
     const t = (key) => deps.translate(key);
 
-    // Station name header
+    // ── Header: eyebrow + station name ────────────────────────────
     const header = document.createElement('div');
     header.className = 'home-station-focus__header';
 
-    const stationLabel = document.createElement('span');
+    const eyebrow = document.createElement('p');
+    eyebrow.className = 'home-station-focus__eyebrow';
+    eyebrow.textContent = t('home.station_focus_eyebrow');
+    header.appendChild(eyebrow);
+
+    const stationLabel = document.createElement('p');
     stationLabel.className = 'home-station-focus__station-name';
     stationLabel.textContent = data.stationName ?? t('home.station_focus_no_station');
     header.appendChild(stationLabel);
+
     el.appendChild(header);
 
     if (data.noStation) {
@@ -123,7 +130,7 @@ BLOCK_RENDERERS['station_focus'] = {
       return el;
     }
 
-    // Prep items
+    // ── Prep items ────────────────────────────────────────────────
     if (data.items && data.items.length > 0) {
       const list = document.createElement('ul');
       list.className = 'home-station-focus__list';
@@ -163,7 +170,17 @@ BLOCK_RENDERERS['station_focus'] = {
       el.appendChild(calm);
     }
 
-    // "Open station" CTA
+    // ── Narrative sentence ─────────────────────────────────────────
+    // Derived from the overall operational state, not from individual counters.
+    // Returns a locale key that the renderer resolves — future event-based
+    // logic can replace _narrativeKey() without touching the UI contract.
+    const narrativeKey = _narrativeKey(data);
+    const narrative = document.createElement('p');
+    narrative.className = 'home-station-focus__narrative';
+    narrative.textContent = t(narrativeKey);
+    el.appendChild(narrative);
+
+    // ── Primary action ─────────────────────────────────────────────
     if (data.stationName) {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -188,6 +205,36 @@ BLOCK_RENDERERS['station_focus'] = {
     return el;
   },
 };
+
+// ── Narrative key ──────────────────────────────────────────────────────
+// Reads the overall operational state and returns the appropriate locale key.
+// State priority (descending):
+//   1. No items fetched at all → calm, nothing pending
+//   2. Any item is do_first   → priority work before service
+//   3. Any item is in_progress → active work underway, on track
+//   4. Items exist but none are do_first / in_progress → scheduled work ahead
+//   5. All visible items are looks_good → station is covered
+//
+// `data.allItems` carries the full unfiltered set (including looks_good).
+// `data.items` carries only the top-3 display slice (looks_good excluded).
+// The narrative reads `allItems` for the full picture.
+
+function _narrativeKey(data) {
+  const all = data.allItems ?? data.items ?? [];
+
+  if (all.length === 0) {
+    return 'home.station_focus_narrative_nothing_pending';
+  }
+
+  const hasUrgent     = all.some((t) => t.status === 'do_first');
+  const hasInProgress = all.some((t) => t.status === 'in_progress');
+  const allReady      = all.every((t) => t.status === 'looks_good' || t.status == null);
+
+  if (hasUrgent)     return 'home.station_focus_narrative_priority';
+  if (allReady)      return 'home.station_focus_narrative_ready';
+  if (hasInProgress) return 'home.station_focus_narrative_in_progress';
+  return 'home.station_focus_narrative_on_schedule';
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
