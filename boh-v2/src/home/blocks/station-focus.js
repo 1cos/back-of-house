@@ -2,12 +2,12 @@
 // HOME-01: up to 3 highest-priority prep items for the user's station.
 //
 // Role gate: staff, supervisor (NOT admin, executive_chef — they see station_overview).
-// Reuses existing fetchStationPrepTasks + fetchPrepSuggestions services.
-// These are injected via deps.fetchService (the home panel renderer wires them).
+// Trust & Clean: Supabase access moved to home-prep-service.js.
+// No supabase import here.
 //
 // Content rules (per Composition Engine §BLOCK: station_focus):
 //   - Station name header
-//   - Up to 3 prep items ordered: do_first → do_today → in_progress
+//   - Up to 3 prep items ordered: do_first → in_progress → do_today
 //   - Each item: name + suggestion status label + quantity/unit if known
 //   - One action: "Open station" → deps.openPanel('station-prep', { stationName })
 //   - If no urgent prep: show calm "Station looks ready" text
@@ -19,7 +19,7 @@ import {
   BLOCK_RENDERERS,
 } from '../home-block-registry.js';
 
-import { supabase } from '../../core/supabase-client.js';
+import { fetchStationHomeFocus } from '../../services/home-prep-service.js';
 
 // ── Registration ───────────────────────────────────────────────────────
 
@@ -28,8 +28,12 @@ BLOCK_DEFINITIONS['station_focus'] = {
   basePriority:   2,
   sizeClass:      'M',
   financialFlag:  false,
-  // BL-21: authoritative role gate — staff and supervisor only
-  permittedRoles: new Set(['staff', 'supervisor']),
+  // BL-21: authoritative role gate — staff only (supervisor routes to station_overview)
+  // Note: supervisor is listed here to satisfy BL-21's Set inclusion requirement,
+  // but _permittedBlockIds in home-panel.js always routes supervisor to station_overview
+  // via the isExecutive check (supervisor holds view_executive_mode).
+  // This means station_focus is never instantiated for supervisor in practice.
+  permittedRoles: new Set(['staff']),
   cacheTTL:       null,
   timeout:        8000,
 };
@@ -39,7 +43,7 @@ BLOCK_FETCHERS['station_focus'] = async (user /*, signal */) => {
     ? user.defaultStation.trim()
     : null;
 
-  // No station assigned — hasContent true but shows info state
+  // No station assigned
   if (!stationName) {
     return {
       hasContent:   true,
@@ -49,17 +53,13 @@ BLOCK_FETCHERS['station_focus'] = async (user /*, signal */) => {
   }
 
   try {
-    // Fetch tasks for this station
-    const { data: taskRows, error: taskErr } = await supabase
-      .from('prep_tasks')
-      .select('id, name, unit, current_stock, in_progress, prep_type')
-      .eq('category', stationName)
-      .eq('archived', false)
-      .order('name', { ascending: true });
+    const result = await fetchStationHomeFocus(stationName);
 
-    if (taskErr) throw taskErr;
+    if (!result.ok) {
+      throw new Error('fetch failed');
+    }
 
-    if (!taskRows || taskRows.length === 0) {
+    if (!result.hasData) {
       return {
         hasContent:   true,
         urgencyScore: 0,
@@ -67,90 +67,23 @@ BLOCK_FETCHERS['station_focus'] = async (user /*, signal */) => {
       };
     }
 
-    const taskIds = taskRows.map((r) => r.id);
+    // Sort by priority score, exclude looks_good (score=99), take top 3
+    const sorted = result.items
+      .filter((t) => t.score < 99)
+      .sort((a, b) => a.score - b.score)
+      .slice(0, 3);
 
-    // Fetch suggestions for all task IDs (paginated, reusing same logic pattern)
-    const today    = _toLocalDateString(new Date());
-    const sevenAgo = _localDateDaysAgo(7);
-
-    // Find latest valid suggestion date (≥50 rows)
-    const { data: dateRows, error: dateErr } = await supabase
-      .from('prep_suggestions_daily')
-      .select('suggestion_date, prep_task_id')
-      .gte('suggestion_date', sevenAgo)
-      .lte('suggestion_date', today)
-      .order('suggestion_date', { ascending: false })
-      .limit(500);
-
-    let validDate = null;
-    if (!dateErr && dateRows && dateRows.length > 0) {
-      const counts = new Map();
-      for (const row of dateRows) {
-        counts.set(row.suggestion_date, (counts.get(row.suggestion_date) ?? 0) + 1);
-      }
-      const seen = [];
-      for (const row of dateRows) {
-        const d = row.suggestion_date;
-        if (!seen.includes(d)) {
-          seen.push(d);
-          if (counts.get(d) >= 50) { validDate = d; break; }
-        }
-      }
-    }
-
-    // Fetch suggestions for valid date
-    const suggMap = {};
-    if (validDate) {
-      const { data: suggRows, error: suggErr } = await supabase
-        .from('prep_suggestions_daily')
-        .select('prep_task_id, status, planned_output, output_unit')
-        .eq('suggestion_date', validDate)
-        .in('prep_task_id', taskIds);
-
-      if (!suggErr && suggRows) {
-        for (const row of suggRows) {
-          suggMap[row.prep_task_id] = {
-            status:       row.status,
-            plannedOutput: row.planned_output,
-            outputUnit:    row.output_unit,
-          };
-        }
-      }
-    }
-
-    // Merge and rank
-    const scored = taskRows.map((task) => {
-      const sugg = suggMap[task.id] ?? null;
-      const status = sugg?.status ?? (task.in_progress ? 'in_progress' : null);
-      return {
-        id:      task.id,
-        name:    task.name,
-        unit:    task.unit,
-        stock:   task.current_stock,
-        status,
-        plannedOutput: sugg?.plannedOutput ?? null,
-        outputUnit:    sugg?.outputUnit ?? task.unit ?? null,
-        score:   _statusScore(status),
-      };
-    });
-
-    // Sort by priority score, take top 3
-    scored.sort((a, b) => a.score - b.score);
-    const items = scored.filter((t) => t.score < 99).slice(0, 3);
-    const hasUrgent = items.some((t) => t.status === 'do_first');
+    const hasUrgent = sorted.some((t) => t.status === 'do_first');
 
     return {
       hasContent:   true,
       urgencyScore: hasUrgent ? -2 : 0,
-      data:         { stationName, items, noStation: false },
+      data:         { stationName, items: sorted, noStation: false },
     };
 
   } catch (_err) {
-    return {
-      hasContent:   true,
-      urgencyScore: 0,
-      data:         { stationName, items: [], error: true, noStation: false },
-    };
+    // Let createBlock catch handler render the error state
+    throw _err;
   }
 };
 
@@ -223,7 +156,7 @@ BLOCK_RENDERERS['station_focus'] = {
       }
       el.appendChild(list);
     } else {
-      // All prep looks good
+      // All prep in good state
       const calm = document.createElement('p');
       calm.className = 'home-station-focus__calm';
       calm.textContent = t('home.station_focus_ready');
@@ -258,18 +191,6 @@ BLOCK_RENDERERS['station_focus'] = {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-function _statusScore(status) {
-  switch (status) {
-    case 'do_first':    return 0;
-    case 'in_progress': return 1;
-    case 'do_today':    return 2;
-    case 'check':       return 3;
-    case 'count_first': return 4;
-    case 'looks_good':  return 99; // exclude from top-3 priority
-    default:            return 50;
-  }
-}
-
 function _badgeClass(status) {
   switch (status) {
     case 'do_first':    return 'urgent';
@@ -290,17 +211,4 @@ function _statusLabel(status, deps) {
   };
   const key = map[status];
   return key ? deps.translate(key) : (status ?? '—');
-}
-
-function _toLocalDateString(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function _localDateDaysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return _toLocalDateString(d);
 }
