@@ -39,6 +39,9 @@ import { createCommandBar } from './components/command-bar/command-bar.js';
 
 // ── Home Panel ─────────────────────────────────────────────────────────
 import { createHomePanel } from './home/home-panel.js';
+
+// ── Recipe Panel ────────────────────────────────────────────────────────
+import { createRecipePanel } from './components/recipe/recipe-panel.js';
 const root = document.getElementById('app');
 
 if (!root) {
@@ -267,7 +270,13 @@ function mountShell(user) {
       reconcileCount:   reconcilePrepCount,
       passTask:         passPrepToShift,
       currentUser:      user,
+      openPanel:        (type, ctx) => _workspaceManager && _workspaceManager.openPanel(type, ctx),
     })
+  );
+
+  // ── Register recipe-detail renderer ─────────────────────────────
+  _workspaceManager.registerRenderer('recipe-detail', (context) =>
+    createRecipePanel({ ...context, translate: t })
   );
 
   // ── Open Home (always first) ─────────────────────────────────────

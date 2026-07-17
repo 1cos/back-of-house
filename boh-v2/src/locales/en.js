@@ -168,6 +168,25 @@ export const en = {
   'station_prep.wip_resolution_pass_success': 'Handoff sent to the Chef.',
   'station_prep.wip_resolution_pass_error':   'Unable to send this handoff. Try again.',
 
+  // ── Station Prep — Open recipe action ───────────────────────────────────
+  'station_prep.open_recipe': 'Open recipe',
+
+  // ── Recipe Panel (Phase 2) ────────────────────────────────────────────
+  'recipe_panel.aria_label':           'Recipe',
+  'recipe_panel.untitled':             'Recipe',
+  'recipe_panel.target_label':         'Prepare today:',
+  'recipe_panel.ingredients_heading':  'Ingredients',
+  'recipe_panel.procedure_heading':    'Procedure',
+  'recipe_panel.notes_heading':        'Notes',
+  'recipe_panel.no_ingredients':       'No ingredients recorded.',
+  'recipe_panel.no_procedure':         'No procedure recorded.',
+  'recipe_panel.no_content':           'No recipe content recorded.',
+  'recipe_panel.load_error':           'Unable to load recipe. Try again.',
+  'recipe_panel.base_quantities_notice': 'Base recipe quantities.',
+  'recipe_panel.shelf_life_label':     'Shelf life',
+  'recipe_panel.yield_label':          'Yield',
+  'recipe_panel.equipment_label':      'Equipment',
+
   // ── Station Selector (Task 004AH) ────────────────────────────────────
   'station_selector.title':       'Choose a station',
   'station_selector.description': 'Select the station you want to view.',

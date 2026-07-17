@@ -1266,7 +1266,7 @@ function buildWipSection(task, translate, currentUser, startTask, onSuccess, pas
 
 // ── Detail panel builder ──────────────────────────────────────────────
 
-function buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
+function buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
   const panel = document.createElement('div');
   panel.className = 'station-prep__task-detail';
   panel.id = panelId;
@@ -1377,6 +1377,29 @@ function buildDetailPanel(panelId, task, suggestion, logs, count, translate, sta
   });
   panel.appendChild(countBtn);
 
+  // ── Open recipe — secondary action, shown only when recipe_id exists ──
+  // Opens a recipe-detail Workspace panel. No actions inside — read only.
+  if (task.recipeId && typeof openPanel === 'function') {
+    const recipeBtn = document.createElement('button');
+    recipeBtn.type = 'button';
+    recipeBtn.className = 'station-prep__recipe-btn';
+    recipeBtn.textContent = translate('station_prep.open_recipe');
+    recipeBtn.addEventListener('click', () => {
+      // Pass suggestion data so the panel can display the production target
+      // and compute the scale factor without a second DB call.
+      const plannedOutput     = suggestion ? suggestion.plannedOutput     : null;
+      const plannedOutputUnit = suggestion ? suggestion.outputUnit        : null;
+      openPanel('recipe-detail', {
+        recipeId:          task.recipeId,
+        prepTaskId:        task.id,
+        taskName:          task.name,
+        plannedOutput,
+        plannedOutputUnit,
+      });
+    });
+    panel.appendChild(recipeBtn);
+  }
+
   return panel;
 }
 
@@ -1470,7 +1493,7 @@ function _extractBotSentence(task, suggestion, translate) {
 
 // ── Task row builder ──────────────────────────────────────────────────
 
-function buildTaskRow(task, suggestion, logs, count, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
+function buildTaskRow(task, suggestion, logs, count, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
   const item = document.createElement('li');
   item.className = 'station-prep__task';
 
@@ -1544,7 +1567,7 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
   if (qtyEl.textContent.length > 0) metaRow.appendChild(qtyEl);
   if (stockEl.textContent.length > 0) metaRow.appendChild(stockEl);
 
-  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess);
+  const detailPanel = buildDetailPanel(panelId, task, suggestion, logs, count, translate, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel);
 
   item.appendChild(topRow);
   item.appendChild(metaRow);
@@ -1556,7 +1579,7 @@ function buildTaskRow(task, suggestion, logs, count, translate, expandController
 
 // ── Section group builder ─────────────────────────────────────────────
 
-function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess) {
+function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel) {
   if (tasks.length === 0) return null;
 
   const group = document.createElement('section');
@@ -1585,7 +1608,7 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
     const logs       = logsMap[task.name] ?? undefined;
     const taskCount  = countsMap[task.id] ?? null;
     const panelId    = idGen.nextId();
-    list.appendChild(buildTaskRow(task, suggestion, logs, taskCount, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess));
+    list.appendChild(buildTaskRow(task, suggestion, logs, taskCount, translate, expandController, panelId, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel));
   }
 
   group.appendChild(headingRow);
@@ -1637,7 +1660,7 @@ function buildGroup(sectionKey, tasks, suggestionsMap, logsMap, countsMap, trans
  * }} options
  * @returns {HTMLElement}
  */
-export function createStationPrep({ stationName, canChooseStation, translate, fetchStations, onStationSelect, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, saveCount, reconcileCount, passTask, currentUser }) {
+export function createStationPrep({ stationName, canChooseStation, translate, fetchStations, onStationSelect, fetchTasks, fetchSuggestions, fetchLogs, fetchCounts, startTask, completeTask, saveCount, reconcileCount, passTask, currentUser, openPanel }) {
   // ── Selector branch: eligible role, no station yet ────────────────
   const hasStation = typeof stationName === 'string' && stationName.trim().length > 0;
   const showSelector = !hasStation && canChooseStation === true;
@@ -1940,7 +1963,7 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
         }
 
         for (const key of SECTION_KEYS) {
-          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, workingCountsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess);
+          const groupEl = buildGroup(key, groups[key], suggestionsMap, workingLogsMap, workingCountsMap, translate, expandController, idGen, startTask, passTask, currentUser, section, onSuccess, completeTask, onCompleteSuccess, saveCount, reconcileCount, onCountSuccess, openPanel);
           if (groupEl) content.appendChild(groupEl);
         }
       }

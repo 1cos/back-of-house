@@ -1,0 +1,253 @@
+/* BOH OS v2 — Recipe Panel
+   Read-only recipe inspection opened from expanded Prep Card.
+   Mobile-first. iPhone portrait (320px minimum).
+   All values use tokens from tokens.css.
+   No new tokens. No !important. No inline styles. No animation.
+   ------------------------------------------------------------------ */
+
+/* ── Panel root ───────────────────────────────────────────────────────*/
+.recipe-panel {
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-4) var(--sp-4) calc(var(--sp-8) + 56px);
+  min-height: 100%;
+  box-sizing: border-box;
+  gap: var(--sp-5);
+}
+
+/* ── Skeleton ─────────────────────────────────────────────────────────*/
+@keyframes recipe-skeleton-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1;   }
+}
+
+.recipe-panel__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding-top: var(--sp-2);
+}
+
+.recipe-panel__skeleton-row {
+  height: 18px;
+  background: var(--border);
+  border-radius: var(--r-sm);
+  animation: recipe-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.recipe-panel__skeleton-row:nth-child(1) { width: 55%; }
+.recipe-panel__skeleton-row:nth-child(2) { width: 35%; }
+.recipe-panel__skeleton-row:nth-child(3) { width: 80%; }
+.recipe-panel__skeleton-row:nth-child(4) { width: 70%; }
+
+/* ── Header ───────────────────────────────────────────────────────────*/
+.recipe-panel__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.recipe-panel__task-name {
+  font-family: var(--font-sans);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.recipe-panel__target {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 0;
+}
+
+.recipe-panel__recipe-name {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ── Body ─────────────────────────────────────────────────────────────*/
+.recipe-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+/* ── Section ──────────────────────────────────────────────────────────*/
+.recipe-panel__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.recipe-panel__section-heading {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 0;
+  padding-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Ingredient list ──────────────────────────────────────────────────*/
+.recipe-panel__ingredient-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.recipe-panel__ingredient-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.recipe-panel__ingredient-row:last-child {
+  border-bottom: none;
+}
+
+.recipe-panel__ingredient-name {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.recipe-panel__ingredient-qty {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+/* ── Scale notice (shown when scaling is impossible) ──────────────────*/
+.recipe-panel__scale-notice {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: 0;
+  font-style: italic;
+}
+
+/* ── Steps ────────────────────────────────────────────────────────────*/
+.recipe-panel__steps {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  list-style: none;
+  counter-reset: recipe-step;
+}
+
+.recipe-panel__step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding-left: calc(var(--sp-6) + var(--sp-2));
+  position: relative;
+  counter-increment: recipe-step;
+}
+
+.recipe-panel__step::before {
+  content: counter(recipe-step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--surface);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.recipe-panel__step-title {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.recipe-panel__step-instruction {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.recipe-panel__step-timer {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: var(--sp-1) 0 0;
+}
+
+/* ── Procedure free-text (procedure_en fallback) ──────────────────────*/
+.recipe-panel__procedure-text {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Notes ────────────────────────────────────────────────────────────*/
+.recipe-panel__note {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Empty states ─────────────────────────────────────────────────────*/
+.recipe-panel__empty-state {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}

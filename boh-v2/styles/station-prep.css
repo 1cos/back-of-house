@@ -774,3 +774,30 @@
   overflow-wrap: break-word;
   word-break: break-word;
 }
+
+/* ── Open recipe button ───────────────────────────────────────────────
+   Secondary ghost action inside expanded task detail.
+   Full-width. Minimum tap target 44px. Visible only when task.recipeId exists.
+   ------------------------------------------------------------------- */
+
+.station-prep__recipe-btn {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-4);
+  background: transparent;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-md);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+  cursor: pointer;
+  box-sizing: border-box;
+  margin-top: var(--sp-2);
+}
+
+.station-prep__recipe-btn:active {
+  background: var(--border);
+}
