@@ -1178,6 +1178,13 @@ window.invLoadSectionA = async function(container) {
 window.invSaveStock = async function(taskId) {
   var input = document.getElementById('invA_' + taskId);
   if (!input) return;
+
+  // ── IN-FLIGHT GUARD ──────────────────────────────────────────────────────
+  // Prevents concurrent duplicate requests from rapid double-taps or button
+  // re-activation. A second call while the first is still awaiting fetch()
+  // returns immediately — only one active request per input at a time.
+  if (input.dataset.saving === '1') return;
+
   var val = parseFloat(input.value);
   if (isNaN(val) || val < 0) {
     input.style.borderColor = '#ef4444';
@@ -1189,20 +1196,36 @@ window.invSaveStock = async function(taskId) {
     var confirmed = confirm('⚠️ Set ' + itemName + ' to ZERO?\n\nThis will erase the current stock. Tap Cancel to keep the existing value.');
     if (!confirmed) { input.value = ''; input.focus(); return; }
   }
-  input.disabled = true;
+
+  // ── CLIENT KEY LIFECYCLE ─────────────────────────────────────────────────
+  // client_key is tied to the (taskId, qty) pair the user intends to save.
+  // Rules:
+  //   • Same qty as the last key → reuse the key (covers network-error retries
+  //     and the duplicate_skipped path on the EF side).
+  //   • Different qty, OR first save for this input → generate a new UUID.
+  //   • After a confirmed SUCCESS the key is cleared so the next save (same or
+  //     different qty) always starts fresh.
+  // The key is NEVER cleared on network errors — the EF may have committed
+  // successfully even when the browser never received the response, so sending
+  // the same key is the safe behaviour (EF returns duplicate_skipped=true).
+  var valStr = String(val);
+  if (!input.dataset.clientKey || input.dataset.clientKeyQty !== valStr) {
+    input.dataset.clientKey    = crypto.randomUUID();
+    input.dataset.clientKeyQty = valStr;
+  }
+  var clientKey = input.dataset.clientKey;
 
   // Task unit is stamped on the input itself by invLoadSectionA (data-inv-unit).
   // Falls back to 'g' if missing — always a safe native unit.
   var taskUnit = input.dataset.invUnit || 'g';
 
-  // client_key: one UUID per save attempt, stored on the input so a double-tap reuses it.
-  if (!input.dataset.clientKey) {
-    input.dataset.clientKey = crypto.randomUUID();
-  }
-  var clientKey = input.dataset.clientKey;
-
   var brigadeToken = sessionStorage.getItem('brigade_token') || '';
 
+  // Set in-flight state and disable input before any await
+  input.dataset.saving = '1';
+  input.disabled = true;
+
+  var succeeded = false;
   try {
     var resp = await fetch(
       SUPABASE_URL + '/functions/v1/record-prep-stock-count',
@@ -1223,13 +1246,16 @@ window.invSaveStock = async function(taskId) {
     var result = await resp.json();
 
     if (!result || !result.ok) {
-      input.disabled = false;
-      // Clear client_key so a genuine retry gets a fresh UUID
-      delete input.dataset.clientKey;
+      // EF rejected the request (domain error, auth failure, etc.).
+      // Keep the same client_key IF the user retries with the same qty —
+      // the EF's idempotency check will recognise the duplicate.
+      // If the user changes the qty the lifecycle check above generates a new key.
       input.style.borderColor = '#ef4444';
       alert('Errore salvataggio: ' + (result?.error || 'Unknown error'));
       return;
     }
+
+    succeeded = true;
 
     // Server confirms the authoritative new_stock value
     var newStock = result.new_stock;
@@ -1246,11 +1272,24 @@ window.invSaveStock = async function(taskId) {
       row.style.background = 'rgba(5,150,105,0.07)';
       row.style.borderColor = 'rgba(5,150,105,0.3)';
     }
-  } catch(e) {
-    input.disabled = false;
+
+    // Clear the key after confirmed success — a subsequent save (even same qty)
+    // is a new intended count and must get a fresh UUID.
     delete input.dataset.clientKey;
+    delete input.dataset.clientKeyQty;
+
+  } catch(e) {
+    // Network-level failure: the EF may or may not have committed.
+    // Preserve client_key so a retry with the same qty is idempotent.
     input.style.borderColor = '#ef4444';
     alert('Errore salvataggio: ' + e.message);
+  } finally {
+    // Always restore the in-flight flag and interactive state,
+    // except when the save succeeded (row has been replaced with the green pill).
+    input.dataset.saving = '0';
+    if (!succeeded) {
+      input.disabled = false;
+    }
   }
 };
 
