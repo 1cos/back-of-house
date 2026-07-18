@@ -1284,12 +1284,13 @@ window.invSaveStock = async function(taskId) {
     input.style.borderColor = '#ef4444';
     alert('Errore salvataggio: ' + e.message);
   } finally {
-    // Always restore the in-flight flag and interactive state,
-    // except when the save succeeded (row has been replaced with the green pill).
+    // Always restore the in-flight flag and interactive state.
+    // On success the input has been synchronously detached from the DOM by
+    // row.innerHTML (the green pill replaced the entire card), so re-enabling
+    // it here is harmless. On any failure the input is still attached and must
+    // be re-enabled so the user can retry.
     input.dataset.saving = '0';
-    if (!succeeded) {
-      input.disabled = false;
-    }
+    input.disabled = false;
   }
 };
 
