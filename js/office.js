@@ -1155,6 +1155,7 @@ window.invLoadSectionA = async function(container) {
               (unit ? '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + unit + '</div>' : '') +
             '</div>' +
             '<input id="invA_' + t.id + '" type="number" min="0" step="any" placeholder="0" ' +
+              'data-inv-unit="' + (t.unit || 'g') + '" ' +
               'style="width:70px;padding:8px 10px;border:1.5px solid rgba(99,102,241,0.3);border-radius:10px;font-size:14px;font-weight:600;color:#1e3a5f;background:white;text-align:right;" ' +
               'onkeydown="if(event.key===\'Enter\') invSaveStock(' + t.id + ')">' +
             '<button onclick="invSaveStock(' + t.id + ')" ' +
@@ -1175,7 +1176,6 @@ window.invLoadSectionA = async function(container) {
 
 // ── Salva singolo stock ──
 window.invSaveStock = async function(taskId) {
-  var sb = window.supa;
   var input = document.getElementById('invA_' + taskId);
   if (!input) return;
   var val = parseFloat(input.value);
@@ -1190,25 +1190,65 @@ window.invSaveStock = async function(taskId) {
     if (!confirmed) { input.value = ''; input.focus(); return; }
   }
   input.disabled = true;
+
+  // Task unit is stamped on the input itself by invLoadSectionA (data-inv-unit).
+  // Falls back to 'g' if missing — always a safe native unit.
+  var taskUnit = input.dataset.invUnit || 'g';
+
+  // client_key: one UUID per save attempt, stored on the input so a double-tap reuses it.
+  if (!input.dataset.clientKey) {
+    input.dataset.clientKey = crypto.randomUUID();
+  }
+  var clientKey = input.dataset.clientKey;
+
+  var brigadeToken = sessionStorage.getItem('brigade_token') || '';
+
   try {
-    var { error } = await sb.from('prep_tasks')
-      .update({ current_stock: val })
-      .eq('id', taskId);
-    if (error) throw error;
-    // Visual feedback: sostituisci riga con pill verde
+    var resp = await fetch(
+      SUPABASE_URL + '/functions/v1/record-prep-stock-count',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + brigadeToken,
+        },
+        body: JSON.stringify({
+          prep_task_id: taskId,
+          qty:          val,
+          unit:         taskUnit,
+          client_key:   clientKey,
+        }),
+      }
+    );
+    var result = await resp.json();
+
+    if (!result || !result.ok) {
+      input.disabled = false;
+      // Clear client_key so a genuine retry gets a fresh UUID
+      delete input.dataset.clientKey;
+      input.style.borderColor = '#ef4444';
+      alert('Errore salvataggio: ' + (result?.error || 'Unknown error'));
+      return;
+    }
+
+    // Server confirms the authoritative new_stock value
+    var newStock = result.new_stock;
+
+    // Visual feedback: replace row with green pill using server-confirmed value
     var row = input.closest('div[style*="border-radius:14px"]');
     if (row) {
       var name = row.querySelector('div[style*="font-weight:600"]')?.textContent || '';
       row.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;">' +
         '<span style="font-size:16px;">✅</span>' +
         '<span style="font-size:13px;color:#059669;font-weight:600;">' + (name.split('<')[0]) + '</span>' +
-        '<span style="font-size:12px;color:#059669;margin-left:4px;">→ ' + val + '</span>' +
+        '<span style="font-size:12px;color:#059669;margin-left:4px;">→ ' + newStock + '</span>' +
       '</div>';
       row.style.background = 'rgba(5,150,105,0.07)';
       row.style.borderColor = 'rgba(5,150,105,0.3)';
     }
   } catch(e) {
     input.disabled = false;
+    delete input.dataset.clientKey;
     input.style.borderColor = '#ef4444';
     alert('Errore salvataggio: ' + e.message);
   }
