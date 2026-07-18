@@ -153,8 +153,15 @@ export function createCompletePrepForm({ taskName, defaultUnit, translate, onCon
   }
 
   // ── Submit handler ──
+  // _submitting: prevents a second tap firing onConfirm while the first
+  // request is in flight. Reset via wrapper._resetSubmit() on failure.
+  let _submitting = false;
+
   form.addEventListener('submit', (e) => {
     e.preventDefault();
+
+    // Duplicate-submission guard: ignore all taps while a request is in flight.
+    if (_submitting) return;
 
     // Remove previous error before each validation attempt.
     clearError();
@@ -175,11 +182,25 @@ export function createCompletePrepForm({ taskName, defaultUnit, translate, onCon
       return;
     }
 
-    // Valid — call onConfirm if it is a function.
+    // Valid — lock immediately before the async call so rapid taps are ignored.
+    _submitting = true;
+    confirmBtn.disabled = true;
+    cancelBtn.disabled  = true;
+    confirmBtn.textContent = translate('station_prep.completing');
+
     if (typeof onConfirm === 'function') {
       onConfirm({ quantity: rawQty, unit: rawUnit });
     }
   });
+
+  // ── Reset helper (called by parent on failure) ──
+  // Restores button state so the cook can correct and resubmit.
+  wrapper._resetSubmit = function () {
+    _submitting = false;
+    confirmBtn.disabled = false;
+    cancelBtn.disabled  = false;
+    confirmBtn.textContent = translate('station_prep.complete_form_confirm');
+  };
 
   // ── Cancel handler ──
   cancelBtn.addEventListener('click', () => {
