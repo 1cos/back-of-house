@@ -8,7 +8,7 @@
 // Exports:
 //   fetchRecipeData(recipeId, prepTaskId) → RecipeData
 
-import { supabase } from '../../core/supabase-client.js';
+import { supabase } from '../core/supabase-client.js';
 
 /**
  * @typedef {{
