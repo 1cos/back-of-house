@@ -2622,136 +2622,196 @@ window.saveKitchenCount = async function(id) {
   if (!it) return;
   const input = document.getElementById('count-input-' + id);
   if (!input) return;
+
+  // ── IN-FLIGHT GUARD ──────────────────────────────────────────────────────
+  // Prevents a second tap while the first request is still in flight.
+  if (input.dataset.saving === '1') return;
+
   const val = parseFloat(input.value);
-  if (isNaN(val) || val < 0) {
+  if (isNaN(val) || !isFinite(val) || val < 0) {
     input.style.borderColor = '#ef4444';
     setTimeout(() => input.style.borderColor = '#cbd5e1', 1200);
     return;
   }
 
-  const taskUnit = (it.unit || '').toLowerCase();
-  const prevStock = parseFloat(it.current_stock) || 0;
-  const prevSugg  = parseFloat(it.suggested_qty) || null;
-  const prevBy    = it.suggested_by || null;
-  const userName  = window.user?.name || 'unknown';
+  // ── UNIT RESOLUTION ──────────────────────────────────────────────────────
+  // kitchenCountUnit() returns the unit the chef actually typed against
+  // (kg when the card shows kg, pz for piece tasks, etc.).
+  // The record-prep-stock-count RPC normalises kg→g server-side.
+  const { unit: submitUnit } = kitchenCountUnit(it);
+  const unit = submitUnit || it.unit || 'g';
 
-  // Se l'input era in kg (display) ma il task è in g, converti per current_stock
-  const { unit: displayUnit } = kitchenCountUnit(it);
-  const isKgDisplay = displayUnit === 'kg' && taskUnit === 'g';
-  const savedUnit   = isKgDisplay ? 'kg' : taskUnit; // salva in kg se il cuoco ha contato in kg
-  const stockVal    = isKgDisplay ? val * 1000 : val; // current_stock sempre in unità native (g)
-
-  // 1. Salva in prep_stock_counts — NON in prep_tasks.suggested_*
-  const { data: countRows, error: countErr } = await supa.from('prep_stock_counts').insert({
-    prep_task_id:        id,
-    counted_qty:         val,       // valore come inserito dal cuoco (es. 3.5 kg)
-    unit:                savedUnit, // unità come inserita (kg, non g)
-    counted_by:          userName,
-    source:              'kitchen_count',
-    prev_bot_stock:      prevStock,
-    prev_bot_suggestion: prevSugg,
-    prev_suggested_by:   prevBy
-  }).select('id');
-
-  const countId = countRows?.[0]?.id || null;
-
-  // 2. Aggiorna current_stock (loggato in prev_bot_stock — non distruttivo)
-  // current_stock sempre in unità native del task (es. g) — converti se input era in kg
-  await supa.from('prep_tasks').update({ current_stock: stockVal }).eq('id', id);
-  tasks[id].current_stock = stockVal;
-  if (items) {
-    const idx = items.findIndex(x => x.id === id);
-    if (idx >= 0) items[idx].current_stock = stockVal;
+  // ── CLIENT-KEY LIFECYCLE ─────────────────────────────────────────────────
+  // Key is tied to the (id, qty) pair.
+  //   • Same qty after any failure   → reuse key (EF returns duplicate_skipped).
+  //   • Different qty after failure  → new key (new intended count).
+  //   • After confirmed success       → key cleared; next save starts fresh.
+  const valStr = String(val);
+  if (!input.dataset.clientKey || input.dataset.clientKeyQty !== valStr) {
+    input.dataset.clientKey    = crypto.randomUUID();
+    input.dataset.clientKeyQty = valStr;
   }
+  const clientKey = input.dataset.clientKey;
 
-  // 3. Mostra feedback immediato "saving..."
+  // Locate the save button (first <button> inside the flex row containing the input).
+  const btn = input.parentElement ? input.parentElement.querySelector('button') : null;
+
+  // Brigade session token — same source used by _scSave
+  const brigadeToken = sessionStorage.getItem('brigade_token') || '';
+
+  // ── SET IN-FLIGHT STATE ───────────────────────────────────────────────────
+  input.dataset.saving = '1';
+  input.disabled = true;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; btn.style.cursor = 'not-allowed'; }
+
+  // Locate the card block for inline feedback (may be absent; guarded throughout)
   const cardEl = document.querySelector('[data-audit-id="' + id + '"]');
-  const confirmBlock = cardEl?.querySelector('.chef-ai-card-block');
+  const confirmBlock = cardEl ? cardEl.querySelector('.chef-ai-card-block') : null;
   if (confirmBlock) {
-    confirmBlock.innerHTML = '<div style="margin-top:8px;font-size:13px;color:#64748b;">⏳ Chef AI is reconciling the count…</div>';
+    confirmBlock.innerHTML = '<div style="margin-top:8px;font-size:13px;color:#64748b;">⏳ Saving count…</div>';
   }
 
-  // 4. Chiama il reconciler on-demand
-  let reconcilerResult = null;
-  if (countId) {
+  let result = null;
+  let succeeded = false;
+  try {
+    // ── CALL CANONICAL EF ────────────────────────────────────────────────────
+    // record-prep-stock-count validates the Brigade session, runs the
+    // transactional record_prep_stock_count RPC (idempotent on client_key),
+    // and calls the reconciler server-to-server.
+    let resp;
     try {
-      const resp = await fetch(
-        `${SUPABASE_URL}/functions/v1/bot-prep-count-reconciler`,
+      resp = await fetch(
+        SUPABASE_URL + '/functions/v1/record-prep-stock-count',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
-          body: JSON.stringify({ prep_task_id: id, count_id: countId })
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + brigadeToken,
+          },
+          body: JSON.stringify({
+            prep_task_id: id,
+            qty:          val,
+            unit:         unit,
+            client_key:   clientKey,
+          }),
         }
       );
-      if (resp.ok) reconcilerResult = await resp.json();
-    } catch(e) {
-      // Reconciler fallito — mostra comunque "count saved"
+    } catch (netErr) {
+      // Network-level failure — EF may or may not have committed.
+      // Preserve client_key so a retry with the same qty is idempotent.
+      if (confirmBlock) {
+        confirmBlock.innerHTML = '<div style="margin-top:8px;font-size:13px;color:#dc2626;">Network error. Tap Save count again to retry.</div>';
+      }
+      return;
     }
+
+    // Defensive JSON parse
+    try {
+      result = await resp.json();
+    } catch (_) {
+      result = null;
+    }
+
+    if (!result || !result.ok) {
+      // EF rejected the request (auth, domain error, etc.).
+      // Keep client_key — retry with same qty is idempotent via EF.
+      const errMsg = result?.error || ('HTTP ' + resp.status);
+      if (confirmBlock) {
+        confirmBlock.innerHTML = '<div style="margin-top:8px;font-size:13px;color:#dc2626;">Could not save: ' + errMsg + '. Try again.</div>';
+      }
+      return;
+    }
+
+    succeeded = true;
+
+    // ── SUCCESS ───────────────────────────────────────────────────────────────
+    // Use server-confirmed values; never trust the local val for display.
+    const newStock   = result.new_stock;
+    const taskUnit   = result.task_unit || it.unit || '';
+    const countedBy  = result.counted_by || (window.user?.name || '');
+    const countedAt  = result.counted_at ? new Date(result.counted_at) : new Date();
+    const countId    = result.count_id;
+
+    // Update local in-memory state from server-confirmed values
+    tasks[id].current_stock = newStock;
+    if (items) {
+      const idx = items.findIndex(x => x.id === id);
+      if (idx >= 0) items[idx].current_stock = newStock;
+    }
+
+    // Update _recentCounts so card re-render picks up COUNT_RECONCILED state
+    const reconciler = result.reconciler;
+    window._recentCounts = window._recentCounts || {};
+    window._recentCounts[id] = {
+      id:               countId,
+      prep_task_id:     id,
+      counted_qty:      val,
+      unit:             unit,
+      counted_by:       countedBy,
+      counted_at:       result.counted_at || new Date().toISOString(),
+      reconcile_status: reconciler?.reconcile_status || (result.reconcile_ok ? 'manual_review' : 'pending'),
+      reconciled_qty:   reconciler?.reconciled_qty   || null,
+      reconciled_note:  reconciler?.reconciled_note  || null,
+      expires_at:       reconciler?.expires_at       || null,
+      prev_bot_stock:   result.previous_stock,
+    };
+
+    // Build inline confirmation matching the existing post-save appearance
+    if (confirmBlock) {
+      const newStockHuman = (typeof humanQty === 'function')
+        ? (humanQty(parseFloat(newStock), taskUnit) || newStock + ' ' + taskUnit)
+        : newStock + ' ' + taskUnit;
+
+      const rs = reconciler?.reconcile_status;
+      const statusColor  = rs === 'sufficient' ? '#059669' : rs === 'prep_more' ? '#d97706' : '#1d4ed8';
+      const statusBg     = rs === 'sufficient' ? 'rgba(5,150,105,0.08)' : rs === 'prep_more' ? 'rgba(217,119,6,0.08)' : 'rgba(37,99,235,0.08)';
+      const statusBorder = rs === 'sufficient' ? '#bbf7d0' : rs === 'prep_more' ? '#fde68a' : '#bfdbfe';
+      let statusEmoji = '✅'; let statusLabel = 'Count confirmed';
+      if (rs === 'prep_more') { statusEmoji = '🟠'; statusLabel = 'Prep more'; }
+      else if (rs === 'manual_review') { statusEmoji = '🔵'; statusLabel = 'Count saved'; }
+
+      const msg = reconciler?.reconciled_note
+        || (val > 0
+          ? 'Stock confirmed: ' + newStockHuman + '. Chef AI will update the prep suggestion next run.'
+          : 'Stock confirmed: 0. You may need to prep today. Chef will review.');
+
+      const prevStock = parseFloat(it.current_stock) || 0;
+      const prevSugg  = parseFloat(it.suggested_qty)  || null;
+      const debugHtml = (typeof isAdmin === 'function' && isAdmin()) ? `
+        <details style="margin-top:8px;">
+          <summary style="font-size:10px;font-weight:600;color:#94a3b8;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">Details ↓</summary>
+          <div style="margin-top:4px;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:11px;color:#64748b;line-height:1.7;font-family:monospace;">
+            <div>Bot stock before: ${prevStock} ${taskUnit}</div>
+            <div>Bot suggestion: ${prevSugg || '—'} ${taskUnit}</div>
+            <div>Kitchen count: ${val} ${unit}</div>
+            <div>Reconcile: ${rs || 'pending'}</div>
+            <div>Counted by: ${countedBy}</div>
+          </div>
+        </details>` : '';
+
+      confirmBlock.innerHTML = `
+        <div style="margin-top:6px;">
+          <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${statusColor};background:${statusBg};border:1px solid ${statusBorder};border-radius:20px;padding:3px 9px;">${statusEmoji} ${statusLabel}</span>
+          <div style="font-size:13px;font-weight:600;color:#1e3a5f;margin-top:6px;">${msg}</div>
+          ${debugHtml}
+        </div>`;
+    }
+
+    // Clear the key after confirmed success — next save is a new intended count
+    delete input.dataset.clientKey;
+    delete input.dataset.clientKeyQty;
+
+    // Re-render card after short delay so renderM sees the updated _recentCounts
+    setTimeout(() => { if (typeof renderM === 'function') renderM(); }, 100);
+
+  } finally {
+    // Always restore in-flight flag and controls regardless of outcome.
+    // On success the card may be replaced by renderM shortly; restoring
+    // the input and button here is harmless in that case.
+    input.dataset.saving = '0';
+    input.disabled = false;
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = 'pointer'; }
   }
-
-  // 5. Aggiorna _recentCounts subito — anche senza reconciler, così renderM() mostra START
-  window._recentCounts[id] = {
-    id:                countId,
-    prep_task_id:      id,
-    counted_qty:       val,
-    unit:              savedUnit,
-    counted_by:        userName,
-    counted_at:        new Date().toISOString(),
-    reconcile_status:  reconcilerResult?.reconcile_status || 'pending',
-    reconciled_qty:    reconcilerResult?.reconciled_qty   || null,
-    reconciled_note:   reconcilerResult?.reconciled_note  || null,
-    expires_at:        reconcilerResult?.expires_at       || null,
-    prev_bot_stock:    prevStock,
-    prev_bot_suggestion: prevSugg,
-    prev_suggested_by: prevBy,
-  };
-
-  // 6. Aggiorna card inline con il risultato
-  if (confirmBlock) {
-    const confirmQty = humanQty(val, unit) || val + ' ' + unit;
-    let statusEmoji = '✅';
-    let statusLabel = 'Count confirmed';
-    let msg = reconcilerResult?.reconciled_note
-      || (val > 0
-        ? 'Stock confirmed: ' + confirmQty + '. Chef AI will update the prep suggestion next run.'
-        : 'Stock confirmed: 0. You may need to prep today. Chef will review.');
-    // Colore in base al reconcile_status
-    const rs = reconcilerResult?.reconcile_status;
-    const statusColor = rs === 'sufficient' ? '#059669'
-                      : rs === 'prep_more'   ? '#d97706'
-                      : '#1d4ed8';
-    const statusBg    = rs === 'sufficient' ? 'rgba(5,150,105,0.08)'
-                      : rs === 'prep_more'   ? 'rgba(217,119,6,0.08)'
-                      : 'rgba(37,99,235,0.08)';
-    const statusBorder = rs === 'sufficient' ? '#bbf7d0'
-                       : rs === 'prep_more'   ? '#fde68a'
-                       : '#bfdbfe';
-    if (rs === 'prep_more') { statusEmoji = '🟠'; statusLabel = 'Prep more'; }
-    else if (rs === 'manual_review') { statusEmoji = '🔵'; statusLabel = 'Count saved'; }
-
-    // Debug da mostrare nei Details
-    const debugHtml = isAdmin() ? `
-      <details style="margin-top:8px;">
-        <summary style="font-size:10px;font-weight:600;color:#94a3b8;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">Details ↓</summary>
-        <div style="margin-top:4px;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:11px;color:#64748b;line-height:1.7;font-family:monospace;">
-          <div>Bot stock before: ${prevStock} ${unit}</div>
-          <div>Bot suggestion: ${prevSugg || '—'} ${unit}</div>
-          <div>Kitchen count: ${val} ${unit}</div>
-          <div>Reconcile: ${rs || 'pending'}</div>
-          <div>Counted by: ${userName}</div>
-        </div>
-      </details>` : '';
-
-    confirmBlock.innerHTML = `
-      <div style="margin-top:6px;">
-        <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:${statusColor};background:${statusBg};border:1px solid ${statusBorder};border-radius:20px;padding:3px 9px;">${statusEmoji} ${statusLabel}</span>
-        <div style="font-size:13px;font-weight:600;color:#1e3a5f;margin-top:6px;">${msg}</div>
-        ${debugHtml}
-      </div>`;
-  }
-  // Re-render la card così il bottone START è correttamente nel DOM
-  // (il confirmBlock inline viene sostituito da renderM con la card aggiornata)
-  setTimeout(() => { if (typeof renderM === 'function') renderM(); }, 100);
 };
 
 // ── PREP ──
