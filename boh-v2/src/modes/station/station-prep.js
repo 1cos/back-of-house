@@ -569,6 +569,7 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
           } else {
             submitting = false;
             setFormDisabled(false);
+            if (formContainer) { const _cpf = formContainer.querySelector('.cpf'); if (_cpf && _cpf._resetSubmit) _cpf._resetSubmit(); }
             clearFeedback();
             if (result.retriable === true) {
               // Retain pendingCompleteOp — same UUID on next tap.
@@ -581,6 +582,7 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
           if (!section.isConnected) return;
           submitting = false;
           setFormDisabled(false);
+          if (formContainer) { const _cpf = formContainer.querySelector('.cpf'); if (_cpf && _cpf._resetSubmit) _cpf._resetSubmit(); }
           clearFeedback();
           // Transport uncertain — retain pendingCompleteOp.
           showError('station_prep.complete_error');
@@ -737,6 +739,7 @@ function buildRecordProductionButton({ task, currentUser, translate, recordProdu
           } else {
             submitting = false;
             setFormDisabled(false);
+            if (formContainer) { const _cpf = formContainer.querySelector('.cpf'); if (_cpf && _cpf._resetSubmit) _cpf._resetSubmit(); }
             clearFeedback();
             if (result.retriable !== true) pendingOp = null;
             showError('station_prep.complete_error');
@@ -745,6 +748,7 @@ function buildRecordProductionButton({ task, currentUser, translate, recordProdu
           if (!section.isConnected) return;
           submitting = false;
           setFormDisabled(false);
+          if (formContainer) { const _cpf = formContainer.querySelector('.cpf'); if (_cpf && _cpf._resetSubmit) _cpf._resetSubmit(); }
           clearFeedback();
           // Retain pendingOp — transport uncertain.
           showError('station_prep.complete_error');
@@ -1167,6 +1171,7 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
           } else {
             finishedSubmitting = false;
             setFinishedFormDisabled(false);
+            if (finishedFormContainer) { const _cpf = finishedFormContainer.querySelector('.cpf'); if (_cpf && _cpf._resetSubmit) _cpf._resetSubmit(); }
             clearFinishedFeedback();
             if (result.retriable === true) {
               // Retain pendingFinishedOp — same UUID on next tap.
@@ -1179,6 +1184,7 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
           if (!section.isConnected) return;
           finishedSubmitting = false;
           setFinishedFormDisabled(false);
+          if (finishedFormContainer) { const _cpf = finishedFormContainer.querySelector('.cpf'); if (_cpf && _cpf._resetSubmit) _cpf._resetSubmit(); }
           clearFinishedFeedback();
           // Transport uncertain — retain pendingFinishedOp.
           showFinishedError('station_prep.complete_error');
