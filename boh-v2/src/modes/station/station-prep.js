@@ -565,7 +565,7 @@ function buildCompleteButton({ task, currentUser, translate, completeTask, secti
           if (!section.isConnected) return;
           if (result.ok) {
             pendingCompleteOp = null;
-            onCompleteSuccess({ ok: true, log: result.log, task: result.task });
+            onCompleteSuccess({ ok: true, log: result.log, task: result.task, suggestion: result.suggestion, suggestionRecalculated: result.suggestionRecalculated });
           } else {
             submitting = false;
             setFormDisabled(false);
@@ -1167,7 +1167,7 @@ function buildWipResolutionPanel({ translate, task, currentUser, startTask, onSu
           if (!section.isConnected) return;
           if (result.ok) {
             pendingFinishedOp = null;
-            onCompleteSuccess({ ok: true, log: result.log, task: result.task });
+            onCompleteSuccess({ ok: true, log: result.log, task: result.task, suggestion: result.suggestion, suggestionRecalculated: result.suggestionRecalculated });
           } else {
             finishedSubmitting = false;
             setFinishedFormDisabled(false);
@@ -2088,6 +2088,22 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
       // A targeted re-read clears the entry when a fresh suggestion is confirmed.
       let updatingTaskIds = new Set();
 
+      // ── Live-state fix (boh-v701) ─────────────────────────────────────
+      // The card face displays stock from the bot suggestion. After a
+      // successful production / completion / count write, the server task row
+      // carries the authoritative stock. This helper patches the suggestion
+      // copy in the working map so the visible card reflects the fresh stock
+      // immediately. It changes ONLY currentStock — status, plannedOutput,
+      // reason and every other suggestion field are untouched.
+      function patchSuggestionStock(taskId, currentStock) {
+        if (currentStock === null || currentStock === undefined) return;
+        const existing = workingSuggestionsMap[taskId];
+        if (!existing) return;
+        workingSuggestionsMap = Object.assign({}, workingSuggestionsMap, {
+          [taskId]: Object.assign({}, existing, { currentStock: currentStock }),
+        });
+      }
+
       function render() {
         content.innerHTML = '';
 
@@ -2144,6 +2160,19 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
                 inProgressBy: result.task.inProgressBy,
               });
             });
+            // Live-state fix: the card reads stock from the suggestion.
+            // Apply the fresh suggestion (stock overridden with the authoritative
+            // task value) when the bot recalculated; otherwise patch the existing
+            // suggestion's stock so the visible card updates immediately.
+            if (result.suggestionRecalculated && result.suggestion) {
+              workingSuggestionsMap = Object.assign({}, workingSuggestionsMap, {
+                [result.task.id]: Object.assign({}, result.suggestion, {
+                  currentStock: result.task.currentStock,
+                }),
+              });
+            } else {
+              patchSuggestionStock(result.task.id, result.task.currentStock);
+            }
             if (section.isConnected) render();
           }
         }
@@ -2181,8 +2210,12 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
           // 3. Apply or suppress suggestion.
           if (result.suggestionRecalculated && result.suggestion && result.task) {
             // Fresh suggestion confirmed — apply and clear updating flag.
+            // Live-state fix: override the suggestion's stock snapshot with the
+            // authoritative post-write task stock so the card updates immediately.
             workingSuggestionsMap = Object.assign({}, workingSuggestionsMap, {
-              [result.task.id]: result.suggestion,
+              [result.task.id]: Object.assign({}, result.suggestion, {
+                currentStock: result.task.currentStock,
+              }),
             });
             updatingTaskIds.delete(result.task.id);
           } else if (!result.suggestionRecalculated && result.task) {
@@ -2205,8 +2238,14 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
                 if (!section.isConnected) return;
                 if (refreshResult.ok && refreshResult.suggestion) {
                   // Fresh suggestion confirmed — apply and leave updating state.
+                  // Live-state fix: keep the working task's stock authoritative
+                  // (a newer production may have happened during the 3s wait).
+                  const _wt = workingTasks.find((t) => t.id === retryTaskId);
+                  const _stockOverride = (_wt && _wt.currentStock !== null && _wt.currentStock !== undefined)
+                    ? { currentStock: _wt.currentStock }
+                    : {};
                   workingSuggestionsMap = Object.assign({}, workingSuggestionsMap, {
-                    [retryTaskId]: refreshResult.suggestion,
+                    [retryTaskId]: Object.assign({}, refreshResult.suggestion, _stockOverride),
                   });
                   updatingTaskIds.delete(retryTaskId);
                   render();
@@ -2256,6 +2295,9 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
                 if (t.id !== saveTask.id) return t;
                 return Object.assign({}, t, { currentStock: saveTask.currentStock });
               });
+              // Live-state fix: the card reads stock from the suggestion —
+              // patch it with the freshly counted authoritative value.
+              patchSuggestionStock(saveTask.id, saveTask.currentStock);
             }
 
             if (reconcileOk) {
