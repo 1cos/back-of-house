@@ -115,8 +115,17 @@ function renderHomeTodo() {
       if (col2 === 'red') _dotColor = '#ef4444';
       else if (col2 === 'yellow') _dotColor = '#f59e0b';
     }
+    var _doneLabel = typeof tr === 'function' ? tr('prep_done') : 'DONE';
+    var _ariaLabel = _doneLabel + ': ' + i.name;
+    var _safeId = JSON.stringify(i.id);
     return ('<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);min-width:0;">'
       + '<div style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:' + _dotColor + ';"></div>'
+      + '<button type="button"'
+          + ' onclick="if(document.querySelector(\'[data-prep-done-sheet]\'))'  
+          + '{return;}if(typeof window.prepDone===\'function\'){window.prepDone(' + _safeId + ');}"'
+          + ' aria-label="' + _ariaLabel + '"'
+          + ' style="flex-shrink:0;width:36px;height:24px;border-radius:6px;background:#059669;color:white;font-size:11px;font-weight:700;border:none;cursor:pointer;padding:0;line-height:1;-webkit-tap-highlight-color:transparent;">'
+          + '&#10003;</button>'
       + '<span style="font-size:14px;color:#1e3a5f;font-weight:400;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + i.name + '</span>'
       + (_qtyPart ? '<span style="font-size:13px;color:#60a5fa;font-weight:500;white-space:nowrap;flex-shrink:0;">' + _qtyPart + '</span>' : '')
       + '</div>');
