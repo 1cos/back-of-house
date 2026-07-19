@@ -613,12 +613,17 @@
 
     // ── ACTIONS ───────────────────────────────────────────────────────────
     // Set Count — compact inline action area after Executive Summary.
-    html += '<div style="margin-bottom:12px;">'
-      + '<button id="pcSetCountBtn" onclick="window._pcSetCount()"'
-      + ' style="padding:8px 16px;border-radius:10px;border:1.5px solid #bfdbfe;'
-      + 'background:white;color:#1e40af;font-size:13px;font-weight:700;'
-      + 'font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;">'
-      + '&#x1F4E6; Set Count</button>'
+    html += '<div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">' 
+      + '<button id="pcSetCountBtn" onclick="window._pcSetCount()"' 
+      + ' style="padding:8px 16px;border-radius:10px;border:1.5px solid #bfdbfe;' 
+      + 'background:white;color:#1e40af;font-size:13px;font-weight:700;' 
+      + 'font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;">' 
+      + '&#x1F4E6; Set Count</button>' 
+      + '<button id="pcRecordProdBtn" onclick="window._pcSetProd()"' 
+      + ' style="padding:8px 16px;border-radius:10px;border:1.5px solid #bbf7d0;' 
+      + 'background:white;color:#166534;font-size:13px;font-weight:700;' 
+      + 'font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;">' 
+      + '&#x1F373; Record Production</button>' 
       + '</div>';
 
     // Inline count form (hidden until button pressed)
@@ -666,6 +671,42 @@
       + '<div id="pcCountResult" style="margin-top:8px;font-size:12px;'
       + 'line-height:1.5;word-break:break-word;min-height:0;"></div>'
 
+      + '</div>';
+
+    // Production inline form (hidden until button pressed)
+    html += '<div id="pcProdForm" style="display:none;background:white;border:1px solid #bbf7d0;'
+      + 'border-radius:12px;padding:12px 14px;margin-bottom:12px;">' 
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'
+      + '<span style="font-size:13px;font-weight:700;color:#1e3a5f;">Record Production</span>'
+      + '<button onclick="window._pcCancelProd()"'
+      + ' style="background:none;border:none;font-size:16px;color:#94a3b8;cursor:pointer;'
+      + ' padding:2px 6px;-webkit-tap-highlight-color:transparent;">&times;</button>'
+      + '</div>'
+      + '<div style="font-size:12px;color:#64748b;margin-bottom:10px;">'
+      + esc(r.name)
+      + ' &nbsp;&middot;&nbsp; on hand: '
+      + (r.current_stock !== null && r.current_stock !== undefined
+          ? '<span style="font-weight:600;color:#0f172a;">' + esc(fmtQty(r.current_stock, r.unit)) + '</span>'
+          : '<span style="color:#94a3b8;">not recorded</span>')
+      + '</div>'
+      + '<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;'
+      + 'letter-spacing:0.05em;margin-bottom:6px;">Quantity produced</div>'
+      + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
+      + '<input id="pcProdInput" type="number" min="0.001" step="1" placeholder="0"'
+      + ' oninput="window._pcProdValidate()"'
+      + ' style="width:96px;height:46px;border:2px solid #cbd5e1;border-radius:10px;'
+      + 'font-size:20px;font-weight:700;text-align:center;color:#1e3a5f;'
+      + 'background:#fff;outline:none;font-family:inherit;">'
+      + '<span style="font-size:14px;color:#64748b;font-weight:600;">' + esc(r.unit || '') + '</span>'
+      + '</div>'
+      + '<div id="pcProdHint" style="font-size:11px;color:#94a3b8;min-height:14px;margin-bottom:10px;"></div>'
+      + '<button id="pcProdSaveBtn" disabled onclick="window._pcSaveProd()"'
+      + ' style="width:100%;height:44px;border-radius:10px;border:none;'
+      + 'font-size:14px;font-weight:700;color:white;background:#94a3b8;'
+      + 'font-family:inherit;cursor:not-allowed;letter-spacing:0.02em;'
+      + '-webkit-tap-highlight-color:transparent;">Save Production</button>'
+      + '<div id="pcProdResult" style="margin-top:8px;font-size:12px;'
+      + 'line-height:1.5;word-break:break-word;min-height:0;"></div>'
       + '</div>';
     // ── END ACTIONS ────────────────────────────────────────────────────────
 
@@ -1618,5 +1659,208 @@
     }, 600);
   };
   // ── END SET COUNT FUNCTIONS ────────────────────────────────────────────────
+
+
+  // ── RECORD PRODUCTION FUNCTIONS ──────────────────────────────────────────
+  window._pcSetProd = function () {
+    const form     = document.getElementById('pcProdForm');
+    const btn      = document.getElementById('pcRecordProdBtn');
+    // Close count form if open
+    const countForm = document.getElementById('pcCountForm');
+    const countBtn  = document.getElementById('pcSetCountBtn');
+    if (countForm) countForm.style.display = 'none';
+    if (countBtn)  countBtn.style.display  = '';
+    if (!form || !btn) return;
+    form.style.display = 'block';
+    btn.style.display  = 'none';
+    const inp = document.getElementById('pcProdInput');
+    if (inp) setTimeout(function () { inp.focus(); inp.select(); }, 100);
+  };
+
+  window._pcCancelProd = function () {
+    const form = document.getElementById('pcProdForm');
+    const btn  = document.getElementById('pcRecordProdBtn');
+    if (form) form.style.display = 'none';
+    if (btn)  btn.style.display  = '';
+  };
+
+  window._pcProdValidate = function () {
+    const inp  = document.getElementById('pcProdInput');
+    const save = document.getElementById('pcProdSaveBtn');
+    const hint = document.getElementById('pcProdHint');
+    if (!inp || !save) return;
+    const raw = inp.value.trim();
+    const val = parseFloat(raw);
+    const valid = raw !== '' && !isNaN(val) && val > 0;
+    save.disabled         = !valid;
+    save.style.background = valid ? '#166534' : '#94a3b8';
+    save.style.cursor     = valid ? 'pointer'  : 'not-allowed';
+    if (hint) hint.textContent = (!valid && raw !== '') ? 'Enter a quantity greater than zero.' : '';
+  };
+
+  window._pcSaveProd = async function () {
+    const r = _pcDetailRow;
+    if (!r) return;
+
+    const inp     = document.getElementById('pcProdInput');
+    const saveBtn = document.getElementById('pcProdSaveBtn');
+    const resultEl= document.getElementById('pcProdResult');
+    if (!inp || !saveBtn) return;
+
+    const raw = inp.value.trim();
+    const val = parseFloat(raw);
+    if (isNaN(val) || val <= 0) return;             // guard: zero/negative/blank
+    if (saveBtn.dataset.saving === '1') return;      // guard: double-submit
+
+    const brigadeToken = sessionStorage.getItem('brigade_token');
+    if (!brigadeToken) {
+      if (resultEl) resultEl.innerHTML = '<span style="color:#dc2626;">Session expired — log in again.</span>';
+      return;
+    }
+
+    const unit = r.unit || 'g';
+
+    // Client key tied to (prep_task_id, qty) for idempotent retry
+    if (!inp.dataset.clientKey || inp.dataset.clientKeyQty !== raw) {
+      inp.dataset.clientKey    = crypto.randomUUID();
+      inp.dataset.clientKeyQty = raw;
+    }
+    const clientKey = inp.dataset.clientKey;
+
+    // suggestion_date: use the row value if available, else today CDT
+    const suggDate = r.suggestion_date || new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Chicago',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+
+    // In-flight state
+    saveBtn.dataset.saving  = '1';
+    saveBtn.disabled        = true;
+    saveBtn.style.background= '#94a3b8';
+    saveBtn.style.cursor    = 'not-allowed';
+    saveBtn.textContent     = 'Saving…';
+    if (resultEl) resultEl.innerHTML = '';
+
+    let resp, efData;
+    try {
+      resp = await fetch(
+        SUPABASE_URL + '/functions/v1/record-prep-production',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            brigade_token:   brigadeToken,
+            prep_task_id:    r.id,
+            qty:             val,
+            unit:            unit,
+            station:         r.category || '',
+            started_at:      new Date().toISOString(),
+            duration_min:    0,
+            is_suggested:    false,
+            client_key:      clientKey,
+            suggestion_date: suggDate,
+          }),
+        }
+      );
+    } catch (_netErr) {
+      saveBtn.dataset.saving  = '';
+      saveBtn.disabled        = false;
+      saveBtn.style.background= '#166534';
+      saveBtn.style.cursor    = 'pointer';
+      saveBtn.textContent     = 'Save Production';
+      if (resultEl) resultEl.innerHTML = '<span style="color:#dc2626;">Network error — try again.</span>';
+      return;
+    }
+
+    try { efData = await resp.json(); } catch (_) { efData = null; }
+
+    if (!efData || !efData.ok) {
+      saveBtn.dataset.saving  = '';
+      saveBtn.disabled        = false;
+      saveBtn.style.background= '#166534';
+      saveBtn.style.cursor    = 'pointer';
+      saveBtn.textContent     = 'Save Production';
+      const errMsg = efData && efData.error ? efData.error : ('HTTP ' + (resp ? resp.status : '?'));
+      if (resultEl) resultEl.innerHTML = '<span style="color:#dc2626;">Could not save: ' + esc(errMsg) + '</span>';
+      return;
+    }
+
+    // ── SUCCESS ───────────────────────────────────────────────────────────
+    delete inp.dataset.clientKey;
+    delete inp.dataset.clientKeyQty;
+
+    const newStock = efData.new_stock;
+    if (newStock !== undefined && newStock !== null) {
+      r.current_stock = newStock;
+      const listRow = _pcRows.find(function (row) { return row.id === r.id; });
+      if (listRow) listRow.current_stock = newStock;
+    }
+
+    if (resultEl) resultEl.innerHTML = '<span style="color:#059669;font-weight:600;">✓ Production recorded</span>';
+
+    setTimeout(async function () {
+      try {
+        const [countRes, prodRes, ded3Res, sugFullRes, recipeRes] = await Promise.all([
+          supa.from('prep_stock_counts')
+            .select('counted_qty,unit,qty_native,counted_by,counted_at,reconcile_status,expires_at,source')
+            .eq('prep_task_id', r.id)
+            .order('counted_at', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          supa.from('prep_log')
+            .select('created_at,user_name,qty,unit,duration_minutes')
+            .eq('prep_task_id', r.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          supa.from('stock_deductions')
+            .select('business_date,quantity,unit,source,pos_item_name,portions_sold')
+            .eq('prep_task_id', r.id)
+            .order('business_date', { ascending: false })
+            .limit(3),
+          r.suggestion_date
+            ? supa.from('prep_suggestions_daily')
+                .select('suggestion_date,generated_at,status,confidence,planned_output,output_unit,net_requirement,demand_source,forecast_path,stock_source,minimum_increment,production_constraint_quality,debug_json')
+                .eq('prep_task_id', r.id)
+                .eq('suggestion_date', r.suggestion_date)
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
+          r.recipe_id
+            ? supa.from('recipes')
+                .select('id,title,pos_name,base_weight_g,base_servings')
+                .eq('id', r.recipe_id)
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
+        ]);
+
+        const body2    = document.getElementById('pcDetailBody');
+        const bomRows2 = (body2 && body2._pcCache) ? (body2._pcCache.bomRows || []) : [];
+
+        renderDetail(
+          r,
+          countRes.data   || null,
+          prodRes.data    || null,
+          ded3Res.data    || [],
+          sugFullRes.data || null,
+          recipeRes.data  || null,
+          bomRows2
+        );
+
+        const res2 = document.getElementById('pcProdResult');
+        if (res2) {
+          res2.style.display = 'block';
+          res2.innerHTML = '<span style="color:#059669;font-weight:600;">✓ Production recorded — detail updated.</span>';
+        }
+        const form2 = document.getElementById('pcProdForm');
+        if (form2) form2.style.display = 'none';
+
+      } catch (_reloadErr) {
+        const res2 = document.getElementById('pcProdResult');
+        if (res2) res2.innerHTML = '<span style="color:#059669;">✓ Production recorded.</span>'
+          + ' <span style="color:#94a3b8;">Refresh to see updated values.</span>';
+      }
+    }, 600);
+  };
+  // ── END RECORD PRODUCTION FUNCTIONS ──────────────────────────────────────
 
 })();
