@@ -621,53 +621,112 @@
       : '<span style="color:#94a3b8;">not linked</span>', { muted: !r.recipe_id });
     html += `</div>`;
 
-    // ── CURRENT STATE ─────────────────────────────────────────────────────
-    html += sectionHdr('Current State');
-    html += `<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:4px;">`;
-    html += kv('Current stock', fmtStockHtml(r.current_stock, r.unit));
+    // ── CURRENT SITUATION ────────────────────────────────────────────────
+    // Four chef-facing rows. Technical detail preserved in Admin Diagnostics.
+    html += sectionHdr('Current Situation');
+    html += `<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;
+      padding:0;margin-bottom:4px;overflow:hidden;">`;
 
-    if (count) {
-      const isExpired = count.expires_at && new Date(count.expires_at) < new Date();
-      const qtyNative = count.qty_native != null ? count.qty_native : count.counted_qty;
-      html += kv('Latest count',
-        esc(fmtQty(qtyNative, r.unit)) + ' by ' + esc(count.counted_by || '?') +
-        ' · ' + esc(fmtDateCDT(count.counted_at)),
-        isExpired ? { warn: true } : {});
-      if (isExpired) {
-        html += kv('Count status', '<span style="color:#ef4444;">expired</span>');
-      } else if (count.reconcile_status) {
-        html += kv('Reconcile', esc(count.reconcile_status));
+    // Helper: one situation row
+    function sitRow(label, valueHtml, opts) {
+      const borderTop = opts && opts.first ? 'none' : '1px solid #f1f5f9';
+      const labelColor = '#64748b';
+      return `<div style="display:grid;grid-template-columns:110px 1fr;
+        align-items:start;gap:8px;padding:9px 12px;border-top:${borderTop};">
+        <span style="font-size:10px;font-weight:700;color:${labelColor};
+          text-transform:uppercase;letter-spacing:0.06em;padding-top:1px;">${esc(label)}</span>
+        <span style="font-size:13px;color:#0f172a;line-height:1.4;word-break:break-word;">${valueHtml}</span>
+      </div>`;
+    }
+
+    // ── ON HAND ──────────────────────────────────────────────────────────
+    {
+      const stockVal = (r.current_stock !== null && r.current_stock !== undefined)
+        ? parseFloat(r.current_stock) : null;
+      const ss = sugFull?.stock_source || '';
+      let stockHtml;
+      if (stockVal === null || isNaN(stockVal)) {
+        stockHtml = '<span style="color:#94a3b8;">Not recorded</span>';
+      } else if (stockVal === 0) {
+        stockHtml = '<span style="font-weight:700;color:#dc2626;">0 ' + esc(r.unit || '') + '</span>'
+          + (ss === 'db_snapshot_unverified'
+            ? ' <span style="font-size:11px;color:#b45309;font-weight:600;">· unverified</span>' : '');
+      } else {
+        stockHtml = '<span style="font-weight:700;color:#0f172a;">' + esc(fmtQty(r.current_stock, r.unit)) + '</span>'
+          + (ss === 'db_snapshot_unverified'
+            ? ' <span style="font-size:11px;color:#b45309;font-weight:600;">· unverified</span>' : '');
       }
-    } else {
-      html += kv('Latest count', '<span style="color:#94a3b8;">none recorded</span>', { muted: true });
+      html += sitRow('On Hand', stockHtml, { first: true });
     }
 
-    if (prod) {
-      const dur = prod.duration_minutes ? prod.duration_minutes + ' min' : '';
-      html += kv('Latest production',
-        esc(fmtQty(prod.qty, prod.unit)) + ' by ' + esc(prod.user_name || '?') +
-        ' · ' + esc(fmtDateCDT(prod.created_at)) +
-        (dur ? ' · ' + dur : ''));
-    } else {
-      html += kv('Latest production', '<span style="color:#94a3b8;">none recorded</span>', { muted: true });
+    // ── LAST COUNT ───────────────────────────────────────────────────────
+    {
+      let countHtml;
+      if (count) {
+        const isExpired = count.expires_at && new Date(count.expires_at) < new Date();
+        const qtyNative = count.qty_native != null ? count.qty_native : count.counted_qty;
+        const qtyStr    = fmtQty(qtyNative, r.unit);
+        const timeStr   = fmtDateCDT(count.counted_at);
+        const who       = count.counted_by || '?';
+        countHtml = '<span style="font-weight:600;color:#0f172a;">' + esc(qtyStr) + '</span>'
+          + ' · ' + esc(who)
+          + ' · <span style="color:#64748b;">' + esc(timeStr) + '</span>';
+        if (isExpired) {
+          countHtml += ' <span style="font-size:11px;font-weight:700;color:#ef4444;">· expired</span>';
+        }
+      } else {
+        countHtml = '<span style="color:#94a3b8;">No recent physical count</span>';
+      }
+      html += sitRow('Last Count', countHtml);
     }
+
+    // ── LAST PRODUCTION ──────────────────────────────────────────────────
+    {
+      let prodHtml;
+      if (prod) {
+        const qtyStr  = fmtQty(prod.qty, prod.unit);
+        const who     = prod.user_name || '?';
+        const timeStr = fmtDateCDT(prod.created_at);
+        const dur     = prod.duration_minutes
+          ? ' <span style="color:#64748b;font-size:11px;">(' + prod.duration_minutes + ' min)</span>'
+          : '';
+        prodHtml = 'Produced <span style="font-weight:600;color:#0f172a;">' + esc(qtyStr) + '</span>'
+          + ' · ' + esc(who)
+          + ' · <span style="color:#64748b;">' + esc(timeStr) + '</span>'
+          + dur;
+      } else {
+        prodHtml = '<span style="color:#94a3b8;">No recent production recorded</span>';
+      }
+      html += sitRow('Last Produced', prodHtml);
+    }
+
+    // ── RECENT USE ───────────────────────────────────────────────────────
+    {
+      let useHtml;
+      if (ded3 && ded3.length > 0) {
+        // Sum quantities across all deduction rows (same unit assumed — they come from the same prep_task)
+        let totalQty = 0;
+        let unitLabel = '';
+        for (const d of ded3) {
+          const q = parseFloat(d.quantity);
+          if (!isNaN(q)) { totalQty += q; unitLabel = d.unit || r.unit || ''; }
+        }
+        const totalStr = fmtQty(totalQty, unitLabel);
+        const count3   = ded3.length;
+        useHtml = '<span style="font-weight:600;color:#0f172a;">' + esc(totalStr) + '</span>'
+          + ' consumed across '
+          + '<span style="font-weight:600;">' + count3 + '</span>'
+          + (count3 === 1 ? ' recent deduction' : ' recent deductions');
+      } else {
+        useHtml = '<span style="color:#94a3b8;">No recent consumption recorded</span>';
+      }
+      html += sitRow('Recent Use', useHtml);
+    }
+
     html += `</div>`;
 
-    // ── STOCK DEDUCTIONS ──────────────────────────────────────────────────
-    html += sectionHdr('Recent POS Deductions');
-    html += `<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:4px;">`;
-    if (ded3.length) {
-      for (const d of ded3) {
-        html += kv(
-          esc(d.business_date || '?') + ' · ' + esc(d.pos_item_name || d.source || ''),
-          esc(fmtQty(d.quantity, d.unit)) +
-          (d.portions_sold ? ' (' + Math.round(parseFloat(d.portions_sold)) + ' portions)' : '')
-        );
-      }
-    } else {
-      html += kv('Deductions', '<span style="color:#94a3b8;">no recent deductions</span>', { muted: true });
-    }
-    html += `</div>`;
+    // Technical detail preserved for Admin Diagnostics (count + deductions)
+    // appended to the dj block below under the existing <details> toggle.
 
     // ── SUGGESTION ────────────────────────────────────────────────────────
     html += sectionHdr('Latest Suggestion');
@@ -790,16 +849,58 @@
       }
     }
 
-    // ── RAW DEBUG JSON (collapsed) ────────────────────────────────────────
-    if (dj) {
-      const rawJson = JSON.stringify(dj, null, 2);
-      html += `<details style="margin-top:12px;">
-        <summary style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;
-          letter-spacing:0.06em;cursor:pointer;padding:4px 0;">Admin diagnostics</summary>
-        <pre style="font-size:10px;color:#64748b;background:#f8fafc;border-radius:8px;
-          padding:10px;overflow-x:auto;word-break:break-all;white-space:pre-wrap;
-          margin-top:6px;max-height:300px;overflow-y:auto;">${esc(rawJson)}</pre>
-      </details>`;
+    // ── ADMIN DIAGNOSTICS (collapsed) ───────────────────────────────────
+    // Contains: raw debug_json, technical count fields, individual deduction rows
+    {
+      const hasDiag = dj || count || (ded3 && ded3.length > 0);
+      if (hasDiag) {
+        html += `<details style="margin-top:12px;">
+          <summary style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;
+            letter-spacing:0.06em;cursor:pointer;padding:4px 0;">Admin diagnostics</summary>
+          <div style="margin-top:6px;">`;
+
+        // Count technical detail
+        if (count) {
+          html += `<div style="font-size:10px;font-weight:700;color:#94a3b8;
+            text-transform:uppercase;letter-spacing:0.05em;margin:4px 0 2px;">Count detail</div>`;
+          html += `<div style="background:#f8fafc;border-radius:8px;padding:8px 10px;
+            font-size:11px;color:#475569;line-height:1.8;">`;
+          const qtyNativeDiag = count.qty_native != null ? count.qty_native : count.counted_qty;
+          html += 'Qty: <b>' + esc(fmtQty(qtyNativeDiag, r.unit)) + '</b><br>';
+          if (count.reconcile_status) html += 'Reconcile status: <b>' + esc(count.reconcile_status) + '</b><br>';
+          if (count.source)           html += 'Source: <b>' + esc(count.source) + '</b><br>';
+          if (count.expires_at)       html += 'Expires: <b>' + esc(fmtDateCDT(count.expires_at)) + '</b>';
+          html += `</div>`;
+        }
+
+        // Deduction rows
+        if (ded3 && ded3.length > 0) {
+          html += `<div style="font-size:10px;font-weight:700;color:#94a3b8;
+            text-transform:uppercase;letter-spacing:0.05em;margin:8px 0 2px;">POS deductions (last 3)</div>`;
+          html += `<div style="background:#f8fafc;border-radius:8px;padding:8px 10px;
+            font-size:11px;color:#475569;line-height:1.8;">`;
+          for (const d of ded3) {
+            html += esc(d.business_date || '?')
+              + ' · ' + esc(d.pos_item_name || d.source || '—')
+              + ' · <b>' + esc(fmtQty(d.quantity, d.unit)) + '</b>'
+              + (d.portions_sold ? ' (' + Math.round(parseFloat(d.portions_sold)) + ' portions)' : '')
+              + '<br>';
+          }
+          html += `</div>`;
+        }
+
+        // Raw debug_json
+        if (dj) {
+          const rawJson = JSON.stringify(dj, null, 2);
+          html += `<div style="font-size:10px;font-weight:700;color:#94a3b8;
+            text-transform:uppercase;letter-spacing:0.05em;margin:8px 0 2px;">Debug JSON</div>`;
+          html += `<pre style="font-size:10px;color:#64748b;background:#f8fafc;border-radius:8px;
+            padding:10px;overflow-x:auto;word-break:break-all;white-space:pre-wrap;
+            margin:0;max-height:300px;overflow-y:auto;">${esc(rawJson)}</pre>`;
+        }
+
+        html += `</div></details>`;
+      }
     }
 
     body.innerHTML = html;
