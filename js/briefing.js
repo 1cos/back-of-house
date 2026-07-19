@@ -88,7 +88,7 @@ function renderHomeTodo() {
     el.innerHTML = '<div style="font-size:13px;color:#94a3b8;padding:4px 0;">' + tr('todo_empty') + '</div>';
     return;
   }
-  el.innerHTML = sorted.map(function(i) {
+  el.innerHTML = sorted.slice(0, 5).map(function(i) {
     var _sg = (window._suggestions || {})[i.id];
     var _hasSugg = !!_sg;
     var _plannedOut = _hasSugg && _sg.planned_output != null ? _sg.planned_output : null;
@@ -104,6 +104,24 @@ function renderHomeTodo() {
         : parseFloat(_qtyRaw.toFixed(2)).toString();
     }
     var _qtyPart = _qtyStr ? (' \u00b7\u202f' + _qtyStr + (_unit ? '\u202f' + _unit : '')) : '';
+    // Batch equivalence — same logic as prep.js L807-809
+    // Fields from window._suggestions: planned_output, minimum_increment, production_constraint_quality
+    // No unit conversion needed: po and mi are always in the same canonical unit
+    var _batchStr = '';
+    if (_hasSugg && _sg.production_constraint_quality === 'valid_fixed_batch') {
+      var _mi = _sg.minimum_increment != null ? parseFloat(_sg.minimum_increment) : 0;
+      var _po = _plannedOut != null ? parseFloat(_plannedOut) : 0;
+      if (_mi > 0 && _po > 0) {
+        var _batchN = _po / _mi;
+        var _batchFmt = (_batchN === Math.floor(_batchN))
+          ? String(Math.floor(_batchN))
+          : parseFloat(_batchN.toFixed(2)).toString();
+        var _batchWord = parseFloat(_batchFmt) === 1
+          ? (typeof tr === 'function' ? tr('todo_batch_s') : 'batch')
+          : (typeof tr === 'function' ? tr('todo_batch_p') : 'batches');
+        _batchStr = ' = ' + _batchFmt + '\u202f' + _batchWord;
+      }
+    }
     var _dotColor = '#cbd5e1';
     if (i.in_progress) { _dotColor = '#3b82f6'; }
     else if (_hasSugg) {
@@ -127,7 +145,7 @@ function renderHomeTodo() {
           + ' style="flex-shrink:0;width:36px;height:24px;border-radius:6px;background:#059669;color:white;font-size:11px;font-weight:700;border:none;cursor:pointer;padding:0;line-height:1;-webkit-tap-highlight-color:transparent;">'
           + '&#10003;</button>'
       + '<span style="font-size:14px;color:#1e3a5f;font-weight:400;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + i.name + '</span>'
-      + (_qtyPart ? '<span style="font-size:13px;color:#60a5fa;font-weight:500;white-space:nowrap;flex-shrink:0;">' + _qtyPart + '</span>' : '')
+      + (_qtyPart ? '<span style="font-size:13px;color:#60a5fa;font-weight:500;white-space:nowrap;flex-shrink:0;">' + _qtyPart + _batchStr + '</span>' : '')
       + '</div>');
   }).join('');
 }
