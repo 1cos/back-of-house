@@ -4479,10 +4479,21 @@ async function jarvisExecuteDraft(sb, draft) {
 
     case 'update_prep_stock': {
       // payload: { prep_name, new_value, unit, field, table, produced_qty, reporter }
+      // Semantic: new_value = new_total_claimed (absolute target stock confirmed by Max).
+      // Migrated boh-v706: write via record-prep-stock-count EF (canonical authenticated
+      // absolute-set path) instead of direct sb.from('prep_tasks').update.
+      // client_key = draft.id — stable UUID, ensures idempotency across page-refresh retries.
+
       var prepName = payload.prep_name || '';
       var newStock = payload.new_value != null ? parseFloat(payload.new_value) : null;
-      if (!prepName || newStock == null || isNaN(newStock)) throw new Error('prep_name e new_value richiesti');
-      // Alias map: nomi comuni/POS -> nome DB reale (per evitare mismatch lingua o sinonimi)
+      if (!prepName || newStock == null || isNaN(newStock))
+        throw new Error('prep_name e new_value richiesti');
+      if (!isFinite(newStock))
+        throw new Error('new_value non è un numero finito');
+      if (newStock < 0)
+        throw new Error('new_value non può essere negativo');
+
+      // ── ALIAS MAP — nomi comuni/POS → nome DB reale ──────────────────
       var PREP_NAME_ALIASES = {
         'tagliatelle': 'Fettucine fresh pasta',
         'fettuccine': 'Fettucine fresh pasta',
@@ -4504,7 +4515,8 @@ async function jarvisExecuteDraft(sb, draft) {
         'bechamel': 'Besciamella'
       };
       var resolvedName = PREP_NAME_ALIASES[prepName.toLowerCase()] || prepName;
-      // Lookup: exact match su nome risolto, poi ILIKE fallback
+
+      // ── TASK LOOKUP — exact match, ILIKE fallback ─────────────────
       var { data: exactRows } = await sb.from('prep_tasks').select('id,name,current_stock,unit').eq('archived', false).eq('name', resolvedName).limit(3);
       var foundRows = exactRows && exactRows.length ? exactRows : null;
       if (!foundRows || !foundRows.length) {
@@ -4519,9 +4531,59 @@ async function jarvisExecuteDraft(sb, draft) {
       }
       if (!foundRows || !foundRows.length) throw new Error('Prep task non trovato: ' + prepName + ' (cercato anche come: ' + resolvedName + ')');
       var target = foundRows[0];
-      var { error } = await sb.from('prep_tasks').update({ current_stock: newStock }).eq('id', target.id);
-      if (error) throw new Error(error.message);
-      return { updated: 'prep_tasks.current_stock', id: target.id, name: target.name, new_value: newStock };
+
+      // Unit: use what Jarvis extracted; fall back to task's native unit.
+      // record_prep_stock_count RPC normalises kg→g and alias variants.
+      var efUnit = (payload.unit || '').trim() || target.unit || 'g';
+
+      // Brigade session token — same pattern as invSaveStock (L1222)
+      var brigadeToken = sessionStorage.getItem('brigade_token') || '';
+      if (!brigadeToken) throw new Error('Brigade session token non disponibile — riaccedi');
+
+      // ── CALL CANONICAL EF ────────────────────────────────────
+      // client_key = draft.id: stable UUID per action draft.
+      // Re-executing the same draft (page refresh, retry) reuses the same key.
+      // The EF RPC enforces ON CONFLICT (client_key) DO NOTHING → duplicate_skipped.
+      var efResp;
+      try {
+        efResp = await fetch(
+          SUPABASE_URL + '/functions/v1/record-prep-stock-count',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + brigadeToken,
+            },
+            body: JSON.stringify({
+              prep_task_id: target.id,
+              qty:          newStock,
+              unit:         efUnit,
+              client_key:   draft.id,
+            }),
+          }
+        );
+      } catch (netErr) {
+        throw new Error('record-prep-stock-count network error: ' + netErr.message);
+      }
+
+      // Defensive JSON parse — non-JSON body or empty response must not crash the audit flow
+      var efResult = null;
+      try { efResult = await efResp.json(); } catch (_) { efResult = null; }
+
+      if (!efResp.ok || !efResult || !efResult.ok) {
+        var efErr = (efResult && efResult.error) ? efResult.error : ('HTTP ' + efResp.status);
+        throw new Error('record-prep-stock-count fallito: ' + efErr);
+      }
+
+      // Return audit-compatible result using only server-confirmed values.
+      return {
+        updated:          'prep_tasks.current_stock',
+        id:               target.id,
+        name:             target.name,
+        new_value:        efResult.new_stock,
+        count_id:         efResult.count_id,
+        duplicate_skipped: efResult.duplicate_skipped === true,
+      };
     }
 
     default:
