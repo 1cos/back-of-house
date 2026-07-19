@@ -400,6 +400,16 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
     <!-- HOME -->
     <section id="vh" class="px-3 pt-3 pb-4 space-y-3">
 
+      <!-- TODAY'S TO-DO (staff only, rendered by renderHomeTodo in briefing.js) -->
+      <!-- Hidden by default; JS shows based on role + station -->
+      <div id="homeTodoWidget" style="display:none;background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
+          <span id="homeTodoTitle" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Today's to-do</span>
+          <button onclick="document.querySelector('[data-t=m]').click()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Go to prep →</button>
+        </div>
+        <div id="homeTodoList" style="padding:9px 14px;padding-bottom:14px;"></div>
+      </div>
+
       <!-- ── CLOSING CHECKLIST (sale in cima dopo le 20:00) — tutti ── -->
       <!-- Nascosto di default, JS lo mostra dopo le 20:00 -->
       <div id="homeClosingWidget" style="display:none;background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
@@ -1038,6 +1048,7 @@ function updateTVButtonState(active) {
 </script>
 <div id="workspace-root" aria-modal="true" role="dialog" aria-label="Workspace"></div>
 </html>
+
 
 
 
