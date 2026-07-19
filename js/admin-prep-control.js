@@ -1601,6 +1601,15 @@
       r.current_stock = newStock;
       const listRow = _pcRows.find(function (row) { return row.id === r.id; });
       if (listRow) listRow.current_stock = newStock;
+      // Sync into Home's global task objects so the "On hand" row
+      // on the Home card reflects the counted value without a full reload.
+      if (typeof tasks !== 'undefined' && tasks && tasks[r.id]) {
+        tasks[r.id].current_stock = newStock;
+      }
+      if (typeof items !== 'undefined' && Array.isArray(items)) {
+        const _homeIdx = items.findIndex(function (x) { return x.id === r.id; });
+        if (_homeIdx >= 0) items[_homeIdx].current_stock = newStock;
+      }
     }
 
     // Show interim "saving" state — button stays disabled through recalc
@@ -1848,6 +1857,15 @@
       r.current_stock = newStock;
       const listRow = _pcRows.find(function (row) { return row.id === r.id; });
       if (listRow) listRow.current_stock = newStock;
+      // Sync into Home's global task objects so the "On hand" row
+      // on the Home card reflects the counted value without a full reload.
+      if (typeof tasks !== 'undefined' && tasks && tasks[r.id]) {
+        tasks[r.id].current_stock = newStock;
+      }
+      if (typeof items !== 'undefined' && Array.isArray(items)) {
+        const _homeIdx = items.findIndex(function (x) { return x.id === r.id; });
+        if (_homeIdx >= 0) items[_homeIdx].current_stock = newStock;
+      }
     }
 
     // Show interim state while reloading
