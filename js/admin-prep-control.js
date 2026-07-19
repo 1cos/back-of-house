@@ -676,6 +676,11 @@
 
       const fresh = (freshRows && freshRows[0]) ? freshRows[0] : null;
 
+      // ── Guard: EF must have saved a row ───────────────────────────────────
+      if (!fresh) {
+        throw new Error('Recalculation completed, but no saved suggestion was found for this prep.');
+      }
+
       // ── Update in-memory row ──────────────────────────────────────────────
       const updated = {
         suggestion_date: fresh?.suggestion_date || null,
