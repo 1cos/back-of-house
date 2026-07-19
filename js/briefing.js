@@ -42,10 +42,92 @@ async function refreshBriefing(){
   loadBriefing();
 }
 
+
+// HOME TO-DO BLOCK (staff only)
+function renderHomeTodo() {
+  var el = document.getElementById('homeTodoList');
+  if (!el) return;
+  var _isAdmin = typeof isAdmin === 'function' && isAdmin();
+  if (!user || !user.default_station || _isAdmin) {
+    var widgetHide = document.getElementById('homeTodoWidget');
+    if (widgetHide) widgetHide.style.display = 'none';
+    return;
+  }
+  var userStation = user.default_station;
+  var stationItems = (items || []).filter(function(i) {
+    return !i.archived && i.category === userStation &&
+      (typeof isActionableCard === 'function' ? isActionableCard(i) : i.need_tomorrow);
+  });
+  function _todoScore(i) {
+    if (i.in_progress) return 5;
+    if (i.prep_type === 'checklist') return 1;
+    var _sg = (window._suggestions || {})[i.id];
+    if (_sg) {
+      if (_sg.status === 'do_first')    return 5;
+      if (_sg.status === 'prep_today')  return 4;
+      if (_sg.status === 'count_first') return 3;
+      if (_sg.status === 'looks_ok')    return 2;
+    }
+    if (i.suggested_note && i.suggested_note.includes('|')) {
+      var col = i.suggested_note.split('|')[0];
+      if (col === 'red')    return 4;
+      if (col === 'yellow') return 3;
+      if (col === 'green')  return 2;
+    }
+    return 0;
+  }
+  var sorted = stationItems.slice().sort(function(a, b) {
+    var sa = _todoScore(a), sb = _todoScore(b);
+    if (sb !== sa) return sb - sa;
+    return a.name.localeCompare(b.name);
+  });
+  var widget = document.getElementById('homeTodoWidget');
+  if (!widget) return;
+  widget.style.display = 'block';
+  if (!sorted.length) {
+    el.innerHTML = '<div style="font-size:13px;color:#94a3b8;padding:4px 0;">' + tr('todo_empty') + '</div>';
+    return;
+  }
+  el.innerHTML = sorted.map(function(i) {
+    var _sg = (window._suggestions || {})[i.id];
+    var _hasSugg = !!_sg;
+    var _plannedOut = _hasSugg && _sg.planned_output != null ? _sg.planned_output : null;
+    var _qtyRaw = _plannedOut != null ? parseFloat(_plannedOut)
+      : (!_hasSugg && i.suggested_qty != null) ? parseFloat(i.suggested_qty)
+      : i.average_qty != null ? parseFloat(i.average_qty)
+      : null;
+    var _unit = (_hasSugg && _sg.output_unit) ? _sg.output_unit : (i.unit || '');
+    var _qtyStr = '';
+    if (_qtyRaw != null && !isNaN(_qtyRaw) && _qtyRaw > 0) {
+      _qtyStr = (_qtyRaw === Math.floor(_qtyRaw))
+        ? String(Math.floor(_qtyRaw))
+        : parseFloat(_qtyRaw.toFixed(2)).toString();
+    }
+    var _qtyPart = _qtyStr ? (' \u00b7\u202f' + _qtyStr + (_unit ? '\u202f' + _unit : '')) : '';
+    var _dotColor = '#cbd5e1';
+    if (i.in_progress) { _dotColor = '#3b82f6'; }
+    else if (_hasSugg) {
+      if (_sg.status === 'do_first')         _dotColor = '#ef4444';
+      else if (_sg.status === 'prep_today')  _dotColor = '#f59e0b';
+      else if (_sg.status === 'count_first') _dotColor = '#8b5cf6';
+    } else if (i.suggested_note && i.suggested_note.includes('|')) {
+      var col2 = i.suggested_note.split('|')[0];
+      if (col2 === 'red') _dotColor = '#ef4444';
+      else if (col2 === 'yellow') _dotColor = '#f59e0b';
+    }
+    return ('<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);min-width:0;">'
+      + '<div style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:' + _dotColor + ';"></div>'
+      + '<span style="font-size:14px;color:#1e3a5f;font-weight:400;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + i.name + '</span>'
+      + (_qtyPart ? '<span style="font-size:13px;color:#60a5fa;font-weight:500;white-space:nowrap;flex-shrink:0;">' + _qtyPart + '</span>' : '')
+      + '</div>');
+  }).join('');
+}
+
 // ── HOME STATIONS ──
 // Admin: tutte le stazioni in pill (#homeStations) — verdi/rosse
 // Staff: top 3 propria stazione (#homeStationItems) + altre stazioni con item da fare (#homeOtherStations)
 function renderHomeStations(){
+  if (typeof renderHomeTodo === 'function') renderHomeTodo();
   // Tutte le categorie presenti in prep_tasks
   const allCats=[...new Set(items.map(i=>i.category).filter(Boolean))].sort();
 
@@ -510,3 +592,4 @@ async function addServiceUpdate(){
   loadServiceUpdates();
   document.querySelector('.fixed')?.remove();
 }
+
