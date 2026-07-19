@@ -2295,9 +2295,45 @@ export function createStationPrep({ stationName, canChooseStation, translate, fe
                 if (t.id !== saveTask.id) return t;
                 return Object.assign({}, t, { currentStock: saveTask.currentStock });
               });
-              // Live-state fix: the card reads stock from the suggestion —
-              // patch it with the freshly counted authoritative value.
-              patchSuggestionStock(saveTask.id, saveTask.currentStock);
+
+              // Fix 1+2: A successful count changes the real stock, so the
+              // persisted suggestion (planned_output, status, stock_source)
+              // is now stale relative to the new stock reality.
+              // Remove the stale suggestion from the working map and enter
+              // the same "updating" state used by the production path.
+              // The Phase 3F async refresh (refreshSuggestion → bot) will
+              // write a fresh suggestion row and apply it here.
+              // This prevents the card from combining new live stock with
+              // an old recommendation that was calculated from different stock.
+              const countTaskId = saveTask.id;
+              const countTaskStock = saveTask.currentStock;
+
+              const updatedSugg = Object.assign({}, workingSuggestionsMap);
+              delete updatedSugg[countTaskId];
+              workingSuggestionsMap = updatedSugg;
+              updatingTaskIds.add(countTaskId);
+
+              // Schedule async suggestion refresh (same 3s path as production).
+              setTimeout(() => {
+                if (!section.isConnected) return;
+                refreshSuggestion(countTaskId).then((refreshResult) => {
+                  if (!section.isConnected) return;
+                  if (refreshResult.ok && refreshResult.suggestion) {
+                    // Fresh suggestion confirmed. Override its stock snapshot
+                    // with the authoritative counted value so card shows
+                    // consistent stock without waiting for next nightly bot.
+                    workingSuggestionsMap = Object.assign({}, workingSuggestionsMap, {
+                      [countTaskId]: Object.assign({}, refreshResult.suggestion, {
+                        currentStock: countTaskStock,
+                      }),
+                    });
+                    updatingTaskIds.delete(countTaskId);
+                    render();
+                  }
+                  // On failure: updatingTaskIds entry remains.
+                  // No stale suggestion restored. Clears on reload.
+                }).catch(() => { /* silent — updating state persists */ });
+              }, 3000);
             }
 
             if (reconcileOk) {

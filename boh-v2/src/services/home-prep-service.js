@@ -145,10 +145,18 @@ export async function fetchStationHomeFocus(stationName) {
     }
   }
 
-  // Merge task + suggestion data; compute priority score
+  // Merge task + suggestion data; compute priority score.
+  // Fix 4: when no suggestion row exists for a task, fall back to
+  // 'count_first' rather than null. A null status creates a hybrid card
+  // (live stock + no recommendation) that is meaningless to the cook and
+  // inconsistent with Prep Control, which would also show no recommendation.
+  // 'count_first' is the correct semantic: we have live stock but the bot
+  // has not yet produced a recommendation for today's date — the cook
+  // should verify the count before acting. This covers the window between
+  // a physical count and the bot's next recalculation.
   const items = taskRows.map((task) => {
     const sugg   = suggMap[task.id] ?? null;
-    const status = sugg?.status ?? (task.in_progress ? 'in_progress' : null);
+    const status = sugg?.status ?? (task.in_progress ? 'in_progress' : 'count_first');
     return {
       id:            task.id,
       name:          task.name,
