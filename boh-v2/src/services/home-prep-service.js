@@ -145,18 +145,63 @@ export async function fetchStationHomeFocus(stationName) {
     }
   }
 
+  // Fetch which tasks have a currently valid physical count.
+  // A count is valid when: expires_at is null or in the future,
+  // AND reconcile_status is not one of the excluded correction statuses.
+  // This matches the validity window used by bot-prep-suggester exactly.
+  // Used below to distinguish "no suggestion + count exists (recalculating)"
+  // from "no suggestion + no count (cook should count)".
+  const validCountTaskIds = new Set();
+  const nowIso = new Date().toISOString();
+  const excludedStatuses = 'invalid_test_data,corrected_unit_error';
+  {
+    const { data: countRows, error: countErr } = await supabase
+      .from('prep_stock_counts')
+      .select('prep_task_id')
+      .in('prep_task_id', taskIds)
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+      .or(`reconcile_status.is.null,reconcile_status.not.in.(${excludedStatuses})`);
+
+    if (!countErr && countRows) {
+      for (const row of countRows) {
+        validCountTaskIds.add(row.prep_task_id);
+      }
+    }
+  }
+
   // Merge task + suggestion data; compute priority score.
-  // Fix 4: when no suggestion row exists for a task, fall back to
-  // 'count_first' rather than null. A null status creates a hybrid card
-  // (live stock + no recommendation) that is meaningless to the cook and
-  // inconsistent with Prep Control, which would also show no recommendation.
-  // 'count_first' is the correct semantic: we have live stock but the bot
-  // has not yet produced a recommendation for today's date — the cook
-  // should verify the count before acting. This covers the window between
-  // a physical count and the bot's next recalculation.
+  //
+  // Three-way branch when no valid suggestion exists for a task:
+  //
+  // A) Suggestion present → use it as-is. Normal path.
+  //
+  // B) No suggestion + valid count exists → 'updating_recommendation'.
+  //    The cook has already counted stock. The bot is recalculating.
+  //    Telling the cook to count again is wrong. Showing a stale or
+  //    fabricated recommendation is wrong. The task is temporarily omitted
+  //    from the Home top-3 display (score 99, same as looks_good) until
+  //    the refreshed suggestion from the 3s async refresh in station-prep.js
+  //    is written to prep_suggestions_daily and Home re-fetches.
+  //
+  // C) No suggestion + no valid count → 'count_first'.
+  //    We have live stock from prep_tasks but no verified measurement and
+  //    no recommendation. The cook should count before acting.
+  //
+  // In all cases: no recommendation is fabricated from live stock alone.
   const items = taskRows.map((task) => {
-    const sugg   = suggMap[task.id] ?? null;
-    const status = sugg?.status ?? (task.in_progress ? 'in_progress' : 'count_first');
+    const sugg = suggMap[task.id] ?? null;
+
+    let status;
+    if (sugg) {
+      status = sugg.status;
+    } else if (task.in_progress) {
+      status = 'in_progress';
+    } else if (validCountTaskIds.has(task.id)) {
+      status = 'updating_recommendation'; // score 99 → omitted from display
+    } else {
+      status = 'count_first';
+    }
+
     return {
       id:            task.id,
       name:          task.name,
@@ -258,12 +303,14 @@ export async function fetchAllStationsOverview(stationNames) {
 
 function _statusScore(status) {
   switch (status) {
-    case 'do_first':    return 0;
-    case 'in_progress': return 1;
-    case 'do_today':    return 2;
-    case 'check':       return 3;
-    case 'count_first': return 4;
-    case 'looks_good':  return 99; // excluded from top-3 display
-    default:            return 50;
+    case 'do_first':               return 0;
+    case 'in_progress':            return 1;
+    case 'do_today':               return 2;
+    case 'prep_today':             return 2;
+    case 'check':                  return 3;
+    case 'count_first':            return 4;
+    case 'looks_good':             return 99; // excluded from top-3 display
+    case 'updating_recommendation': return 99; // temporarily omitted — recalculating
+    default:                       return 50;
   }
 }
