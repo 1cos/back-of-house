@@ -728,6 +728,138 @@
     // Technical detail preserved for Admin Diagnostics (count + deductions)
     // appended to the dj block below under the existing <details> toggle.
 
+    // ── WHY THIS RECOMMENDATION ─────────────────────────────────────────
+    // Deterministic plain-language reasons — no AI, no new queries.
+    // Inserted between Current Situation and Latest Suggestion.
+    {
+      const _wrStatus = (sugFull && sugFull.status) || r._status || '__no_suggestion__';
+      const _wrUnit   = sugFull?.output_unit || r.unit || '';
+      const _wrStock  = r.current_stock;
+      const _wrPo     = sugFull?.planned_output ?? null;
+      const _wrNr     = sugFull?.net_requirement ?? null;
+      const _wrMi     = sugFull?.minimum_increment ?? null;
+      const _wrPq     = sugFull?.production_constraint_quality || '';
+      const _wrSs     = sugFull?.stock_source || '';
+      const _wrConf   = r.confidence || sugFull?.confidence || '';
+      const _wrHasCount = !!count;
+      const _wrCountExp = count && count.expires_at && new Date(count.expires_at) < new Date();
+      const _wrHasProd  = !!prod;
+      const _wrHasDed   = ded3 && ded3.length > 0;
+
+      // Format a quantity — same logic as fmtQty but returns null for invalid/zero
+      function _wrFmt(val, u) {
+        if (val === null || val === undefined) return null;
+        const v = parseFloat(val);
+        if (isNaN(v) || v <= 0) return null;
+        const ul = (u || '').toLowerCase();
+        if (ul === 'g') {
+          return v >= 1000
+            ? (v / 1000).toFixed(1).replace(/\.0$/, '') + ' kg'
+            : Math.round(v) + ' g';
+        }
+        if (ul === 'kg') return (v % 1 === 0 ? v : v.toFixed(1)) + ' kg';
+        if (ul === 'pz' || ul === 'pezzi') {
+          const n = Math.round(v);
+          return n + (n === 1 ? ' piece' : ' pieces');
+        }
+        return (v % 1 === 0 ? Math.round(v) : v.toFixed(1)) + (u ? ' ' + u : '');
+      }
+
+      // Batch label when constraint is valid_fixed_batch
+      function _wrBatchLabel() {
+        if (!_wrMi || parseFloat(_wrMi) <= 0) return null;
+        if (_wrPq !== 'valid_fixed_batch') return null;
+        const s = _wrFmt(_wrMi, _wrUnit);
+        return s ? 'batches of ' + s : null;
+      }
+
+      const reasons = [];
+
+      if (_wrStatus === '__no_suggestion__') {
+        reasons.push('The planner has not generated a suggestion for this prep yet.');
+        if (!_wrHasDed) reasons.push('No POS demand has been recorded — the system has nothing to calculate from.');
+
+      } else if (_wrStatus === 'out_of_scope') {
+        reasons.push('This is a checklist or operational item, not a batch-production prep.');
+        reasons.push('The planner does not calculate quantities for this type of task.');
+
+      } else if (_wrStatus === 'no_demand_path') {
+        reasons.push('No recent demand deductions are connected to this prep.');
+        reasons.push('The planner cannot estimate how much should be produced.');
+        if (!r.recipe_id) reasons.push('No recipe is linked — the system cannot trace a demand path.');
+
+      } else if (_wrStatus === 'count_first') {
+        reasons.push('The current stock level is not considered reliable.');
+        if (!_wrHasCount) {
+          reasons.push('There is no recent valid physical count on record.');
+        } else if (_wrCountExp) {
+          reasons.push('The most recent physical count has expired.');
+        } else {
+          reasons.push('The stock source is marked as unverified.');
+        }
+        reasons.push('Count the prep before deciding whether to produce.');
+
+      } else if (_wrStatus === 'looks_ok') {
+        reasons.push('Current stock covers the expected requirement.');
+        if (_wrNr !== null && parseFloat(_wrNr) <= 0) {
+          reasons.push('Net requirement after stock is zero — nothing more is needed right now.');
+        } else {
+          reasons.push('No additional production is needed right now.');
+        }
+        if (_wrConf === 'low') reasons.push('Confidence is low — consider verifying stock before relying on this.');
+
+      } else if (_wrStatus === 'defer_to_tomorrow') {
+        reasons.push('Stock is sufficient to get through today.');
+        reasons.push('The planner will reassess overnight with updated demand data.');
+        if (_wrConf === 'low') reasons.push('Confidence is low — check stock if demand runs higher than expected.');
+
+      } else if (_wrStatus === 'prep_today') {
+        if (_wrStock !== null && parseFloat(_wrStock) > 0) {
+          reasons.push('Current stock is present but will likely run short before end of service.');
+        } else {
+          reasons.push('Current stock is low relative to expected demand.');
+        }
+        const nrStr = _wrFmt(_wrNr, _wrUnit);
+        if (nrStr) reasons.push('The remaining requirement is ' + nrStr + '.');
+        const batchLabel = _wrBatchLabel();
+        if (batchLabel) reasons.push('Production must be made in ' + batchLabel + '.');
+        if (_wrSs === 'db_snapshot_unverified') reasons.push('Stock level has not been physically verified — check the cooler first.');
+
+      } else if (_wrStatus === 'do_first') {
+        const stockVal = _wrStock !== null ? parseFloat(_wrStock) : null;
+        if (stockVal === 0) {
+          reasons.push('Current stock is at zero — there is nothing on hand.');
+        } else {
+          reasons.push('Current stock does not cover expected demand.');
+        }
+        const nrStr = _wrFmt(_wrNr, _wrUnit);
+        if (nrStr) reasons.push('The remaining requirement is ' + nrStr + '.');
+        const batchLabel = _wrBatchLabel();
+        if (batchLabel) reasons.push('Production must be made in ' + batchLabel + '.');
+        if (!_wrHasProd) reasons.push('No recent production has been recorded.');
+
+      } else {
+        reasons.push('The planner does not have enough information to explain this recommendation.');
+      }
+
+      const capped = reasons.slice(0, 4);
+
+      if (capped.length > 0) {
+        html += sectionHdr('Why This Recommendation');
+        html += '<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
+          + 'padding:10px 12px;margin-bottom:4px;">';
+        for (const reason of capped) {
+          html += '<div style="display:flex;align-items:baseline;gap:8px;'
+            + 'padding:4px 0;border-bottom:1px solid #f8fafc;">'
+            + '<span style="flex-shrink:0;font-size:11px;color:#cbd5e1;margin-top:1px;">\u2014</span>'
+            + '<span style="font-size:13px;color:#334155;line-height:1.45;">' + esc(reason) + '</span>'
+            + '</div>';
+        }
+        html += '</div>';
+      }
+    }
+    // ── END WHY THIS RECOMMENDATION ───────────────────────────────────────
+
     // ── SUGGESTION ────────────────────────────────────────────────────────
     html += sectionHdr('Latest Suggestion');
     html += `<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:4px;">`;
