@@ -3756,7 +3756,7 @@ async function _retryRecalcOnly(id, suggDate) {
       }
       const _done = retryData.suggestion_status && !['do_first','prep_today','count_first'].includes(retryData.suggestion_status);
       if(_done) showConfetti();
-      if(typeof loadSuggestions === 'function') loadSuggestions().then(()=>renderM());
+      if(typeof loadSuggestions === 'function') loadSuggestions().then(()=>{renderM();renderHomeStations();});
     } else {
       // Still failed — show card again
       _showRecalcFailedCard(id, pending.qty, pending.unit, pending.suggDate || suggDate);
@@ -3821,7 +3821,7 @@ async function suggestedSave(id, modal){
   if(_suggRecalcd2) {
     const _done2 = _suggStatus2 && !['do_first','prep_today','count_first'].includes(_suggStatus2);
     if(_done2) showConfetti();
-    if(typeof loadSuggestions==='function') loadSuggestions().then(()=>renderM());
+    if(typeof loadSuggestions==='function') loadSuggestions().then(()=>{renderM();renderHomeStations();});
   } else {
     // Production saved but bot recalc not confirmed — show pending state
     _setPendingRecalc(id, _ck2, qty, unit, _ns2, _cardSuggDate2);
@@ -3923,7 +3923,7 @@ async function detailSave(id, btn, isSuggested){
     // Confetti ONLY if the task is now non-actionable (truly done)
     const _done = _suggStatus && !['do_first','prep_today','count_first'].includes(_suggStatus);
     if(!_isDuplicate && _done) showConfetti();
-    if(typeof loadSuggestions === 'function') loadSuggestions().then(()=>{ renderM(); });
+    if(typeof loadSuggestions === 'function') loadSuggestions().then(()=>{ renderM(); renderHomeStations(); });
   } else {
     // Production saved (stock incremented), but bot recalc not confirmed.
     // Persist pending state so page reload does not re-enable the DONE action.
