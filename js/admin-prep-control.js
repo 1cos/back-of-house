@@ -610,6 +610,65 @@
     })();
     // ── END EXECUTIVE SUMMARY ──────────────────────────────────────────────
 
+
+    // ── ACTIONS ───────────────────────────────────────────────────────────
+    // Set Count — compact inline action area after Executive Summary.
+    html += '<div style="margin-bottom:12px;">'
+      + '<button id="pcSetCountBtn" onclick="window._pcSetCount()"'
+      + ' style="padding:8px 16px;border-radius:10px;border:1.5px solid #bfdbfe;'
+      + 'background:white;color:#1e40af;font-size:13px;font-weight:700;'
+      + 'font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;">'
+      + '&#x1F4E6; Set Count</button>'
+      + '</div>';
+
+    // Inline count form (hidden until button pressed)
+    html += '<div id="pcCountForm" style="display:none;background:white;border:1px solid #bfdbfe;'
+      + 'border-radius:12px;padding:12px 14px;margin-bottom:12px;">'
+
+      // Header row
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'
+      + '<span style="font-size:13px;font-weight:700;color:#1e3a5f;">Set Physical Count</span>'
+      + '<button onclick="window._pcCancelCount()"'
+      + ' style="background:none;border:none;font-size:16px;color:#94a3b8;cursor:pointer;'
+      + ' padding:2px 6px;-webkit-tap-highlight-color:transparent;">&times;</button>'
+      + '</div>'
+
+      // Prep name + current stock summary
+      + '<div style="font-size:12px;color:#64748b;margin-bottom:10px;">'
+      + esc(r.name)
+      + ' &nbsp;&middot;&nbsp; currently '
+      + (r.current_stock !== null && r.current_stock !== undefined
+          ? '<span style="font-weight:600;color:#0f172a;">' + esc(fmtQty(r.current_stock, r.unit)) + '</span>'
+          : '<span style="color:#94a3b8;">not recorded</span>')
+      + '</div>'
+
+      // Input row — onfocus/onblur use double quotes inside the onclick attr string
+      + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
+      + '<input id="pcCountInput" type="number" min="0" step="1" placeholder="0"'
+      + ' oninput="window._pcCountValidate()"'
+      + ' style="width:96px;height:46px;border:2px solid #cbd5e1;border-radius:10px;'
+      + 'font-size:20px;font-weight:700;text-align:center;color:#1e3a5f;'
+      + 'background:#fff;outline:none;font-family:inherit;">'
+      + '<span style="font-size:14px;color:#64748b;font-weight:600;">' + esc(r.unit || '') + '</span>'
+      + '</div>'
+
+      // Validation hint
+      + '<div id="pcCountHint" style="font-size:11px;color:#94a3b8;min-height:14px;margin-bottom:10px;"></div>'
+
+      // Save button
+      + '<button id="pcCountSaveBtn" disabled onclick="window._pcSaveCount()"'
+      + ' style="width:100%;height:44px;border-radius:10px;border:none;'
+      + 'font-size:14px;font-weight:700;color:white;background:#94a3b8;'
+      + 'font-family:inherit;cursor:not-allowed;letter-spacing:0.02em;'
+      + '-webkit-tap-highlight-color:transparent;">Save Count</button>'
+
+      // Result area
+      + '<div id="pcCountResult" style="margin-top:8px;font-size:12px;'
+      + 'line-height:1.5;word-break:break-word;min-height:0;"></div>'
+
+      + '</div>';
+    // ── END ACTIONS ────────────────────────────────────────────────────────
+
     // ── IDENTITY ──────────────────────────────────────────────────────────
     html += sectionHdr('Identity');
     html += `<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:4px;">`;
@@ -1364,5 +1423,200 @@
       if (summaryEl) summaryEl.textContent = 'Error';
     }
   };
+
+
+  // ── SET COUNT FUNCTIONS ───────────────────────────────────────────────────
+  window._pcSetCount = function () {
+    const form = document.getElementById('pcCountForm');
+    const btn  = document.getElementById('pcSetCountBtn');
+    if (!form || !btn) return;
+    form.style.display = 'block';
+    btn.style.display  = 'none';
+    const inp = document.getElementById('pcCountInput');
+    if (inp) setTimeout(function () { inp.focus(); inp.select(); }, 100);
+  };
+
+  window._pcCancelCount = function () {
+    const form = document.getElementById('pcCountForm');
+    const btn  = document.getElementById('pcSetCountBtn');
+    if (form) form.style.display = 'none';
+    if (btn)  btn.style.display  = '';
+  };
+
+  window._pcCountValidate = function () {
+    const inp  = document.getElementById('pcCountInput');
+    const save = document.getElementById('pcCountSaveBtn');
+    const hint = document.getElementById('pcCountHint');
+    if (!inp || !save) return;
+    const raw = inp.value.trim();
+    const val = parseFloat(raw);
+    const valid = raw !== '' && !isNaN(val) && val >= 0;
+    save.disabled         = !valid;
+    save.style.background = valid ? '#1e40af' : '#94a3b8';
+    save.style.cursor     = valid ? 'pointer'  : 'not-allowed';
+    if (hint) hint.textContent = (!valid && raw !== '') ? 'Enter 0 or a positive number.' : '';
+  };
+
+  window._pcSaveCount = async function () {
+    const r = _pcDetailRow;
+    if (!r) return;
+
+    const inp     = document.getElementById('pcCountInput');
+    const saveBtn = document.getElementById('pcCountSaveBtn');
+    const resultEl= document.getElementById('pcCountResult');
+    if (!inp || !saveBtn) return;
+
+    const raw = inp.value.trim();
+    const val = parseFloat(raw);
+    if (isNaN(val) || val < 0) return;           // guard: invalid
+    if (saveBtn.dataset.saving === '1') return;  // guard: double-submit
+
+    const brigadeToken = sessionStorage.getItem('brigade_token');
+    if (!brigadeToken) {
+      if (resultEl) resultEl.innerHTML = '<span style="color:#dc2626;">Session expired — log in again.</span>';
+      return;
+    }
+
+    const unit = r.unit || 'g';
+
+    // Client key: tied to (prep_task_id, qty) for idempotency
+    if (!inp.dataset.clientKey || inp.dataset.clientKeyQty !== raw) {
+      inp.dataset.clientKey    = crypto.randomUUID();
+      inp.dataset.clientKeyQty = raw;
+    }
+    const clientKey = inp.dataset.clientKey;
+
+    // In-flight state
+    saveBtn.dataset.saving  = '1';
+    saveBtn.disabled        = true;
+    saveBtn.style.background= '#94a3b8';
+    saveBtn.style.cursor    = 'not-allowed';
+    saveBtn.textContent     = 'Saving…';
+    if (resultEl) resultEl.innerHTML = '';
+
+    let resp, efData;
+    try {
+      resp = await fetch(
+        SUPABASE_URL + '/functions/v1/record-prep-stock-count',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + brigadeToken,
+          },
+          body: JSON.stringify({
+            prep_task_id: r.id,
+            qty:          val,
+            unit:         unit,
+            client_key:   clientKey,
+          }),
+        }
+      );
+    } catch (_netErr) {
+      // Network error — preserve value and client_key for retry
+      saveBtn.dataset.saving  = '';
+      saveBtn.disabled        = false;
+      saveBtn.style.background= '#1e40af';
+      saveBtn.style.cursor    = 'pointer';
+      saveBtn.textContent     = 'Save Count';
+      if (resultEl) resultEl.innerHTML = '<span style="color:#dc2626;">Network error — try again.</span>';
+      return;
+    }
+
+    try { efData = await resp.json(); } catch (_) { efData = null; }
+
+    if (!efData || !efData.ok) {
+      // EF error — preserve value and client_key for retry
+      saveBtn.dataset.saving  = '';
+      saveBtn.disabled        = false;
+      saveBtn.style.background= '#1e40af';
+      saveBtn.style.cursor    = 'pointer';
+      saveBtn.textContent     = 'Save Count';
+      const errMsg = efData && efData.error ? efData.error : ('HTTP ' + (resp ? resp.status : '?'));
+      if (resultEl) resultEl.innerHTML = '<span style="color:#dc2626;">Could not save: ' + esc(errMsg) + '</span>';
+      return;
+    }
+
+    // ── SUCCESS ───────────────────────────────────────────────────────────
+    // Clear client_key — next distinct save starts fresh
+    delete inp.dataset.clientKey;
+    delete inp.dataset.clientKeyQty;
+
+    // Patch in-memory row from server-confirmed stock
+    const newStock = efData.new_stock;
+    if (newStock !== undefined && newStock !== null) {
+      r.current_stock = newStock;
+      const listRow = _pcRows.find(function (row) { return row.id === r.id; });
+      if (listRow) listRow.current_stock = newStock;
+    }
+
+    if (resultEl) resultEl.innerHTML = '<span style="color:#059669;font-weight:600;">✓ Count saved</span>';
+
+    // Reload the detail panel with fresh lazy data after a short pause
+    setTimeout(async function () {
+      try {
+        const [countRes, prodRes, ded3Res, sugFullRes, recipeRes] = await Promise.all([
+          supa.from('prep_stock_counts')
+            .select('counted_qty,unit,qty_native,counted_by,counted_at,reconcile_status,expires_at,source')
+            .eq('prep_task_id', r.id)
+            .order('counted_at', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          supa.from('prep_log')
+            .select('created_at,user_name,qty,unit,duration_minutes')
+            .eq('prep_task_id', r.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          supa.from('stock_deductions')
+            .select('business_date,quantity,unit,source,pos_item_name,portions_sold')
+            .eq('prep_task_id', r.id)
+            .order('business_date', { ascending: false })
+            .limit(3),
+          r.suggestion_date
+            ? supa.from('prep_suggestions_daily')
+                .select('suggestion_date,generated_at,status,confidence,planned_output,output_unit,net_requirement,demand_source,forecast_path,stock_source,minimum_increment,production_constraint_quality,debug_json')
+                .eq('prep_task_id', r.id)
+                .eq('suggestion_date', r.suggestion_date)
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
+          r.recipe_id
+            ? supa.from('recipes')
+                .select('id,title,pos_name,base_weight_g,base_servings')
+                .eq('id', r.recipe_id)
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
+        ]);
+
+        const body2 = document.getElementById('pcDetailBody');
+        const bomRows2 = (body2 && body2._pcCache) ? (body2._pcCache.bomRows || []) : [];
+
+        renderDetail(
+          r,
+          countRes.data  || null,
+          prodRes.data   || null,
+          ded3Res.data   || [],
+          sugFullRes.data || null,
+          recipeRes.data || null,
+          bomRows2
+        );
+
+        // Show success notice after re-render
+        const res2 = document.getElementById('pcCountResult');
+        if (res2) {
+          res2.style.display = 'block';
+          res2.innerHTML = '<span style="color:#059669;font-weight:600;">✓ Count saved — detail updated.</span>';
+        }
+        const form2 = document.getElementById('pcCountForm');
+        if (form2) form2.style.display = 'none';
+
+      } catch (_reloadErr) {
+        const res2 = document.getElementById('pcCountResult');
+        if (res2) res2.innerHTML = '<span style="color:#059669;">✓ Count saved.</span>'
+          + ' <span style="color:#94a3b8;">Refresh to see updated values.</span>';
+      }
+    }, 600);
+  };
+  // ── END SET COUNT FUNCTIONS ────────────────────────────────────────────────
 
 })();
