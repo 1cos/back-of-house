@@ -905,9 +905,9 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span style="color:#db2777;font-weight:700;">Closed</span>
         </button>
 
-        <button onclick="openBotDebug()" class="amenu-btn" style="border:1.5px solid #e0e7ff;background:#eef2ff;">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="1.8" stroke-linecap="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"/></svg>
-          <span style="color:#4f46e5;font-weight:700;">Bot Debug</span>
+        <button onclick="hideAdminMenu();openPrepControl()" class="amenu-btn" style="border:1.5px solid #fbbf24;background:#fefce8;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="1.8" stroke-linecap="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="12" y2="16"/></svg>
+          <span style="color:#b45309;font-weight:700;">Prep Control</span>
         </button>
 
         <button onclick="hideAdminMenu();openMappingControlRoom()" class="amenu-btn" style="border:1.5px solid #d1fae5;background:#ecfdf5;">
@@ -964,6 +964,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/admin-prep.js"></script>
 <script src="js/admin-ingredients.js"></script>
 <script src="js/admin-chef-ai.js"></script>
+<script src="js/admin-prep-control.js"></script>
 <script src="js/prep.js"></script>
 <script src="js/closing.js"></script>
 <script src="js/recipe-modal.js"></script>
