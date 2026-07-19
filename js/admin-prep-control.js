@@ -44,6 +44,7 @@
   let _pcDetailRow    = null;     // the joined row being inspected
   let _pcListScroll   = 0;        // scroll position to restore
   let _pcRecalcInFlight = false;  // duplicate-request guard
+  let _pcActionHistory  = [];     // in-memory per-detail action log (max 3, cleared on prep change)
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function esc(s) {
@@ -220,6 +221,7 @@
   function showList() {
     _pcView = 'list';
     _pcDetailRow = null;
+    _pcActionHistory = [];    // clear history when returning to list
 
     const modal = document.getElementById('pcModal');
     if (!modal) return;
@@ -248,6 +250,7 @@
     if (!r) return;
     _pcDetailRow = r;
     _pcView = 'detail';
+    _pcActionHistory = [];    // clear history for the newly selected prep
 
     // Save scroll position
     const listEl = document.getElementById('pcList');
@@ -710,6 +713,10 @@
       + '</div>';
     // ── END ACTIONS ────────────────────────────────────────────────────────
 
+    // ── RECENT ACTIONS ───────────────────────────────────────────────────
+    // In-memory per-session action history; populated by _pcPushAction()
+    // rendered here at detail-open time, then updated live via _pcRefreshActionsEl()
+    html += '<div id="pcRecentActions"></div>';
     // ── IDENTITY ──────────────────────────────────────────────────────────
     html += sectionHdr('Identity');
     html += `<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:4px;">`;
@@ -1136,6 +1143,8 @@
     }
 
     body.innerHTML = html;
+    // Populate action history immediately after render (in-memory, no query)
+    _pcRefreshActionsEl();
     // Cache lazy-loaded data so Recalculate can re-render without re-fetching
     body._pcCache = { count, prod, ded3, recipe, bomRows };
   }
@@ -1268,6 +1277,7 @@
         const el = document.getElementById('pcRecalcResult');
         if (el) { el.style.display = 'block'; el.innerHTML = summaryHtml; }
       }
+      window._pcPushAction('Recommendation updated manually');
 
     } catch (err) {
       const el = document.getElementById('pcRecalcResult');
@@ -1654,9 +1664,11 @@
           res2.innerHTML =
             '<span style="color:#059669;font-weight:600;">✓ Count saved.</span>'
             + ' <span style="color:#b45309;">Recommendation could not be updated — use Recalculate to try again.</span>';
+          window._pcPushAction('Count saved; recommendation update failed', true);
         } else {
           res2.innerHTML =
             '<span style="color:#059669;font-weight:600;">✓ Count saved and recommendation updated.</span>';
+          window._pcPushAction('Count saved and recommendation updated');
         }
       }
       const form2 = document.getElementById('pcCountForm');
@@ -1669,6 +1681,7 @@
         res2.innerHTML = '<span style="color:#059669;">✓ Count saved.</span>'
           + ' <span style="color:#94a3b8;">Refresh to see updated values.</span>';
       }
+      window._pcPushAction('Count saved (reload failed — refresh to confirm)', true);
     } finally {
       // Release double-submit guard only after the full sequence completes
       saveBtn.dataset.saving  = '';
@@ -1902,13 +1915,16 @@
         if (isDuplicate) {
           res2.innerHTML =
             '<span style="color:#64748b;font-weight:600;">Production was already recorded. Detail refreshed.</span>';
+          window._pcPushAction('Production already recorded; detail refreshed', false);
         } else if (suggRecalculated) {
           res2.innerHTML =
             '<span style="color:#059669;font-weight:600;">✓ Production recorded and recommendation updated.</span>';
+          window._pcPushAction('Produced ' + fmtQty(val, unit) + '; recommendation updated');
         } else {
           res2.innerHTML =
             '<span style="color:#059669;font-weight:600;">✓ Production recorded.</span>'
             + ' <span style="color:#b45309;">Recommendation was not updated — use Recalculate to try again.</span>';
+          window._pcPushAction('Produced ' + fmtQty(val, unit) + '; recommendation not updated', true);
         }
       }
       const form2 = document.getElementById('pcProdForm');
@@ -1919,6 +1935,7 @@
       const res2 = document.getElementById('pcProdResult');
       if (res2) res2.innerHTML = '<span style="color:#059669;">✓ Production recorded.</span>'
         + ' <span style="color:#94a3b8;">Refresh to see updated values.</span>';
+      window._pcPushAction('Production saved (reload failed — refresh to confirm)', true);
     } finally {
       // Release guard after full sequence
       saveBtn.dataset.saving  = '';
@@ -1929,5 +1946,48 @@
     }
   };
   // ── END RECORD PRODUCTION FUNCTIONS ──────────────────────────────────────
+
+
+  // ── ACTION HISTORY ────────────────────────────────────────────────────────
+  // _pcActionHistory is module-level, cleared on prep change / return to list.
+  // Each entry: { time: Date, text: string, warn: boolean }
+  // Maximum 3 entries visible; oldest dropped when a 4th is pushed.
+
+  function _pcBuildActionsHtml() {
+    if (!_pcActionHistory.length) return '';
+    const items = _pcActionHistory.slice(-3);
+    const rows = items.map(function (e) {
+      const timeStr = e.time.toLocaleTimeString('en-US', {
+        hour: 'numeric', minute: '2-digit', hour12: true,
+      });
+      const color = e.warn ? '#b45309' : '#475569';
+      return '<div style="display:flex;align-items:baseline;gap:6px;'
+        + 'padding:4px 0;border-bottom:1px solid #f8fafc;">'
+        + '<span style="flex-shrink:0;font-size:11px;color:#94a3b8;white-space:nowrap;">' + esc(timeStr) + '</span>'
+        + '<span style="font-size:12px;color:' + color + ';line-height:1.4;">' + esc(e.text) + '</span>'
+        + '</div>';
+    }).join('');
+    return '<div style="margin-bottom:12px;">'
+      + '<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;'
+      + 'letter-spacing:0.06em;margin-bottom:5px;">Recent Actions</div>'
+      + '<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
+      + 'padding:6px 12px;">'
+      + rows
+      + '</div></div>';
+  }
+
+  function _pcRefreshActionsEl() {
+    const el = document.getElementById('pcRecentActions');
+    if (el) el.innerHTML = _pcBuildActionsHtml();
+  }
+
+  // Push a new entry and refresh the visible element.
+  // warn=true renders the text in amber (partial-success / warning).
+  window._pcPushAction = function (text, warn) {
+    _pcActionHistory.push({ time: new Date(), text: text, warn: !!warn });
+    if (_pcActionHistory.length > 3) _pcActionHistory.shift();
+    _pcRefreshActionsEl();
+  };
+  // ── END ACTION HISTORY ────────────────────────────────────────────────────
 
 })();
