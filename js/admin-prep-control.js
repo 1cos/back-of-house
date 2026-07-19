@@ -1141,6 +1141,85 @@
   }
 
   // ── Recalculate: rerun Suggester for the selected prep only ─────────────
+
+  // ── SHARED RECALC HELPER ──────────────────────────────────────────────────
+  // Calls bot-prep-suggester for a single prep and reloads its suggestion row.
+  // Returns { fresh, summaryHtml } on success; throws Error on failure.
+  // Used by both _pcRecalculate (manual button) and _pcSaveCount (auto-recalc).
+  async function _pcRunRecalc(r, brigadeToken) {
+    const beforeStatus = r.status ? (STATUS_META[r.status]?.label || r.status) : '—';
+    const beforeOutput = r.planned_output != null ? fmtQty(r.planned_output, r.output_unit) : '—';
+
+    let efResp, efData;
+    try {
+      efResp = await fetch(
+        SUPABASE_URL + '/functions/v1/bot-prep-suggester',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prep_task_ids: [r.id],
+            dry_run: false,
+            brigade_token: brigadeToken,
+          }),
+        }
+      );
+    } catch (_netErr) {
+      throw new Error('Network error — check your connection and try again.');
+    }
+
+    try { efData = await efResp.json(); } catch (_) {
+      throw new Error('Server returned an unreadable response (HTTP ' + efResp.status + ').');
+    }
+
+    if (!efResp.ok) throw new Error(efData?.error || ('Server error: HTTP ' + efResp.status));
+    if (efData.success === false) throw new Error(efData?.error || 'Suggester returned an error.');
+
+    const { data: freshRows, error: freshErr } = await supa
+      .from('prep_suggestions_daily')
+      .select('prep_task_id,suggestion_date,generated_at,status,confidence,planned_output,output_unit,net_requirement,demand_source,production_constraint_quality,forecast_path,stock_source,minimum_increment,debug_json')
+      .eq('prep_task_id', r.id)
+      .order('suggestion_date', { ascending: false })
+      .order('generated_at', { ascending: false })
+      .limit(1);
+
+    if (freshErr) throw new Error('Could not reload suggestion: ' + freshErr.message);
+
+    const fresh = (freshRows && freshRows[0]) ? freshRows[0] : null;
+    if (!fresh) throw new Error('Recalculation completed, but no saved suggestion was found for this prep.');
+
+    // Patch in-memory row
+    const updated = {
+      suggestion_date: fresh.suggestion_date || null,
+      generated_at:    fresh.generated_at    || null,
+      status:          fresh.status          || null,
+      confidence:      fresh.confidence      || null,
+      planned_output:  fresh.planned_output  ?? null,
+      output_unit:     fresh.output_unit     || null,
+      net_requirement: fresh.net_requirement ?? null,
+      demand_source:   fresh.demand_source   || null,
+      production_constraint_quality: fresh.production_constraint_quality || null,
+      _status:         fresh.status          || '__no_suggestion__',
+    };
+    Object.assign(r, updated);
+    const listIdx = _pcRows.findIndex(function (row) { return row.id === r.id; });
+    if (listIdx >= 0) Object.assign(_pcRows[listIdx], updated);
+
+    // Build summary string
+    const afterStatus = fresh.status ? (STATUS_META[fresh.status]?.label || fresh.status) : 'No suggestion';
+    const afterOutput = fresh.planned_output != null ? fmtQty(fresh.planned_output, fresh.output_unit || r.unit) : '—';
+    const afterTime   = fresh.generated_at ? fmtDateCDT(fresh.generated_at) : '—';
+    const unchanged   = (beforeStatus === afterStatus && beforeOutput === afterOutput);
+    const summaryHtml = unchanged
+      ? '<span style="color:#16a34a;">✓ Recalculated — result unchanged: ' + esc(afterStatus) + ' · ' + esc(afterOutput) + '</span>'
+      : '<span style="color:#16a34a;">✓ Updated</span> · Before: <b>' + esc(beforeStatus) + ' · ' + esc(beforeOutput) + '</b>'
+        + ' → Now: <b>' + esc(afterStatus) + ' · ' + esc(afterOutput) + '</b>'
+        + ' <span style="color:#94a3b8;">· ' + esc(afterTime) + '</span>';
+
+    return { fresh, summaryHtml };
+  }
+  // ── END SHARED RECALC HELPER ──────────────────────────────────────────────
+
   window._pcRecalculate = async function () {
     if (_pcRecalcInFlight) return;
 
@@ -1175,109 +1254,17 @@
     if (errEl) { errEl.style.display = 'none'; errEl.innerHTML = ''; }
 
     try {
-      // ── EF request ───────────────────────────────────────────────────────
-      let efResp, efData;
-      try {
-        efResp = await fetch(
-          SUPABASE_URL + '/functions/v1/bot-prep-suggester',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prep_task_ids: [r.id],
-              dry_run: false,
-              brigade_token: brigadeToken,
-            }),
-          }
-        );
-      } catch (netErr) {
-        throw new Error('Network error — check your connection and try again.');
-      }
-
-      // ── Parse response ────────────────────────────────────────────────────
-      try {
-        efData = await efResp.json();
-      } catch (_) {
-        throw new Error('Server returned an unreadable response (HTTP ' + efResp.status + ').');
-      }
-
-      if (!efResp.ok) {
-        const msg = efData?.error || ('Server error: HTTP ' + efResp.status);
-        throw new Error(msg);
-      }
-
-      if (efData.success === false) {
-        throw new Error(efData?.error || 'Suggester returned an error.');
-      }
-
-      // ── Reload the saved suggestion row (date may differ) ─────────────────
-      const { data: freshRows, error: freshErr } = await supa
-        .from('prep_suggestions_daily')
-        .select('prep_task_id,suggestion_date,generated_at,status,confidence,planned_output,output_unit,net_requirement,demand_source,production_constraint_quality,forecast_path,stock_source,minimum_increment,debug_json')
-        .eq('prep_task_id', r.id)
-        .order('suggestion_date', { ascending: false })
-        .order('generated_at', { ascending: false })
-        .limit(1);
-
-      if (freshErr) throw new Error('Could not reload suggestion: ' + freshErr.message);
-
-      const fresh = (freshRows && freshRows[0]) ? freshRows[0] : null;
-
-      // ── Guard: EF must have saved a row ───────────────────────────────────
-      if (!fresh) {
-        throw new Error('Recalculation completed, but no saved suggestion was found for this prep.');
-      }
-
-      // ── Update in-memory row ──────────────────────────────────────────────
-      const updated = {
-        suggestion_date: fresh?.suggestion_date || null,
-        generated_at:    fresh?.generated_at    || null,
-        status:          fresh?.status          || null,
-        confidence:      fresh?.confidence      || null,
-        planned_output:  fresh?.planned_output  ?? null,
-        output_unit:     fresh?.output_unit     || null,
-        net_requirement: fresh?.net_requirement ?? null,
-        demand_source:   fresh?.demand_source   || null,
-        production_constraint_quality: fresh?.production_constraint_quality || null,
-        _status:         fresh?.status          || '__no_suggestion__',
-      };
-      // Patch the live detail reference
-      Object.assign(r, updated);
-      // Patch the list row so Back shows the refreshed status
-      const listIdx = _pcRows.findIndex(row => row.id === r.id);
-      if (listIdx >= 0) Object.assign(_pcRows[listIdx], updated);
-
-      // ── Build before/after summary ────────────────────────────────────────
-      const afterStatus = fresh?.status
-        ? (STATUS_META[fresh.status]?.label || fresh.status)
-        : 'No suggestion';
-      const afterOutput = fresh?.planned_output != null
-        ? fmtQty(fresh.planned_output, fresh.output_unit || r.unit)
-        : '—';
-      const afterTime = fresh?.generated_at ? fmtDateCDT(fresh.generated_at) : '—';
-
-      const unchanged = (beforeStatus === afterStatus && beforeOutput === afterOutput);
-      const summaryHtml = unchanged
-        ? '<span style="color:#16a34a;">✓ Recalculated — result unchanged: '
-            + esc(afterStatus) + ' · ' + esc(afterOutput) + '</span>'
-        : '<span style="color:#16a34a;">✓ Updated</span> · '
-            + 'Before: <b>' + esc(beforeStatus) + ' · ' + esc(beforeOutput) + '</b>'
-            + ' → Now: <b>' + esc(afterStatus) + ' · ' + esc(afterOutput) + '</b>'
-            + ' <span style="color:#94a3b8;">· ' + esc(afterTime) + '</span>';
+      // ── Delegate EF call + suggestion reload to shared helper ─────────────
+      const { fresh, summaryHtml } = await _pcRunRecalc(r, brigadeToken);
 
       // ── Re-render the full detail with fresh suggestion ───────────────────
       const detailBody = document.getElementById('pcDetailBody');
       if (detailBody && detailBody._pcCache) {
         const c = detailBody._pcCache;
         renderDetail(r, c.count, c.prod, c.ded3, fresh, c.recipe, c.bomRows);
-        // Restore result banner after re-render (renderDetail replaces innerHTML)
         const newErrEl = document.getElementById('pcRecalcResult');
-        if (newErrEl) {
-          newErrEl.style.display = 'block';
-          newErrEl.innerHTML = summaryHtml;
-        }
+        if (newErrEl) { newErrEl.style.display = 'block'; newErrEl.innerHTML = summaryHtml; }
       } else {
-        // Fallback: update banner only
         const el = document.getElementById('pcRecalcResult');
         if (el) { el.style.display = 'block'; el.innerHTML = summaryHtml; }
       }
@@ -1286,7 +1273,7 @@
       const el = document.getElementById('pcRecalcResult');
       if (el) {
         el.style.display = 'block';
-        el.innerHTML = '<span style="color:#dc2626;">⚠ ' + esc(err.message) + '</span>';
+        el.innerHTML = '<span style="color:#dc2626;">\u26a0 ' + esc(err.message) + '</span>';
       }
     } finally {
       _pcRecalcInFlight = false;
@@ -1578,7 +1565,7 @@
       return;
     }
 
-    // ── SUCCESS ───────────────────────────────────────────────────────────
+    // ── COUNT SAVED — step 1 of 2 ─────────────────────────────────────────
     // Clear client_key — next distinct save starts fresh
     delete inp.dataset.clientKey;
     delete inp.dataset.clientKeyQty;
@@ -1591,72 +1578,105 @@
       if (listRow) listRow.current_stock = newStock;
     }
 
-    if (resultEl) resultEl.innerHTML = '<span style="color:#059669;font-weight:600;">✓ Count saved</span>';
+    // Show interim "saving" state — button stays disabled through recalc
+    if (resultEl) resultEl.innerHTML = '<span style="color:#64748b;">⏳ Count saved — updating recommendation…</span>';
+    if (saveBtn) saveBtn.textContent = 'Updating…';
 
-    // Reload the detail panel with fresh lazy data after a short pause
-    setTimeout(async function () {
-      try {
-        const [countRes, prodRes, ded3Res, sugFullRes, recipeRes] = await Promise.all([
-          supa.from('prep_stock_counts')
-            .select('counted_qty,unit,qty_native,counted_by,counted_at,reconcile_status,expires_at,source')
-            .eq('prep_task_id', r.id)
-            .order('counted_at', { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-          supa.from('prep_log')
-            .select('created_at,user_name,qty,unit,duration_minutes')
-            .eq('prep_task_id', r.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-          supa.from('stock_deductions')
-            .select('business_date,quantity,unit,source,pos_item_name,portions_sold')
-            .eq('prep_task_id', r.id)
-            .order('business_date', { ascending: false })
-            .limit(3),
-          r.suggestion_date
-            ? supa.from('prep_suggestions_daily')
-                .select('suggestion_date,generated_at,status,confidence,planned_output,output_unit,net_requirement,demand_source,forecast_path,stock_source,minimum_increment,production_constraint_quality,debug_json')
-                .eq('prep_task_id', r.id)
-                .eq('suggestion_date', r.suggestion_date)
-                .maybeSingle()
-            : Promise.resolve({ data: null }),
-          r.recipe_id
-            ? supa.from('recipes')
-                .select('id,title,pos_name,base_weight_g,base_servings')
-                .eq('id', r.recipe_id)
-                .maybeSingle()
-            : Promise.resolve({ data: null }),
-        ]);
+    // ── STEP 2: Recalculate the suggestion for this prep ─────────────────
+    // saveBtn.dataset.saving = '1' is still set — prevents double-submit
+    // during the recalc + reload sequence that follows.
+    let recalcFresh = null;
+    let recalcSummary = null;
+    let recalcFailed = false;
 
-        const body2 = document.getElementById('pcDetailBody');
-        const bomRows2 = (body2 && body2._pcCache) ? (body2._pcCache.bomRows || []) : [];
+    try {
+      const result = await _pcRunRecalc(r, brigadeToken);
+      recalcFresh   = result.fresh;
+      recalcSummary = result.summaryHtml;
+    } catch (_recalcErr) {
+      recalcFailed = true;
+    }
 
-        renderDetail(
-          r,
-          countRes.data  || null,
-          prodRes.data   || null,
-          ded3Res.data   || [],
-          sugFullRes.data || null,
-          recipeRes.data || null,
-          bomRows2
-        );
+    // ── STEP 3: Reload the full detail (count is already confirmed saved) ─
+    try {
+      const [countRes, prodRes, ded3Res, sugFullRes, recipeRes] = await Promise.all([
+        supa.from('prep_stock_counts')
+          .select('counted_qty,unit,qty_native,counted_by,counted_at,reconcile_status,expires_at,source')
+          .eq('prep_task_id', r.id)
+          .order('counted_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supa.from('prep_log')
+          .select('created_at,user_name,qty,unit,duration_minutes')
+          .eq('prep_task_id', r.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supa.from('stock_deductions')
+          .select('business_date,quantity,unit,source,pos_item_name,portions_sold')
+          .eq('prep_task_id', r.id)
+          .order('business_date', { ascending: false })
+          .limit(3),
+        // Use the freshest suggestion: recalc result if available, else current date
+        supa.from('prep_suggestions_daily')
+          .select('suggestion_date,generated_at,status,confidence,planned_output,output_unit,net_requirement,demand_source,forecast_path,stock_source,minimum_increment,production_constraint_quality,debug_json')
+          .eq('prep_task_id', r.id)
+          .order('suggestion_date', { ascending: false })
+          .order('generated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        r.recipe_id
+          ? supa.from('recipes')
+              .select('id,title,pos_name,base_weight_g,base_servings')
+              .eq('id', r.recipe_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
 
-        // Show success notice after re-render
-        const res2 = document.getElementById('pcCountResult');
-        if (res2) {
-          res2.style.display = 'block';
-          res2.innerHTML = '<span style="color:#059669;font-weight:600;">✓ Count saved — detail updated.</span>';
+      const body2    = document.getElementById('pcDetailBody');
+      const bomRows2 = (body2 && body2._pcCache) ? (body2._pcCache.bomRows || []) : [];
+
+      renderDetail(
+        r,
+        countRes.data    || null,
+        prodRes.data     || null,
+        ded3Res.data     || [],
+        sugFullRes.data  || null,
+        recipeRes.data   || null,
+        bomRows2
+      );
+
+      // ── Final message after re-render ─────────────────────────────────
+      const res2 = document.getElementById('pcCountResult');
+      if (res2) {
+        res2.style.display = 'block';
+        if (recalcFailed) {
+          res2.innerHTML =
+            '<span style="color:#059669;font-weight:600;">✓ Count saved.</span>'
+            + ' <span style="color:#b45309;">Recommendation could not be updated — use Recalculate to try again.</span>';
+        } else {
+          res2.innerHTML =
+            '<span style="color:#059669;font-weight:600;">✓ Count saved and recommendation updated.</span>';
         }
-        const form2 = document.getElementById('pcCountForm');
-        if (form2) form2.style.display = 'none';
+      }
+      const form2 = document.getElementById('pcCountForm');
+      if (form2) form2.style.display = 'none';
 
-      } catch (_reloadErr) {
-        const res2 = document.getElementById('pcCountResult');
-        if (res2) res2.innerHTML = '<span style="color:#059669;">✓ Count saved.</span>'
+    } catch (_reloadErr) {
+      // Reload failed — count and (if successful) recalc are already committed
+      const res2 = document.getElementById('pcCountResult');
+      if (res2) {
+        res2.innerHTML = '<span style="color:#059669;">✓ Count saved.</span>'
           + ' <span style="color:#94a3b8;">Refresh to see updated values.</span>';
       }
-    }, 600);
+    } finally {
+      // Release double-submit guard only after the full sequence completes
+      saveBtn.dataset.saving  = '';
+      saveBtn.disabled        = false;
+      saveBtn.style.background= '#1e40af';
+      saveBtn.style.cursor    = 'pointer';
+      saveBtn.textContent     = 'Save Count';
+    }
   };
   // ── END SET COUNT FUNCTIONS ────────────────────────────────────────────────
 
