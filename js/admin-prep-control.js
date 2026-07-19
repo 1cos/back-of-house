@@ -43,6 +43,7 @@
   let _pcView         = 'list';   // 'list' | 'detail'
   let _pcDetailRow    = null;     // the joined row being inspected
   let _pcListScroll   = 0;        // scroll position to restore
+  let _pcRecalcInFlight = false;  // duplicate-request guard
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function esc(s) {
@@ -475,6 +476,16 @@
     }
     html += `</div>`;
 
+    // ── RECALCULATE BUTTON ────────────────────────────────────────────────
+    html += `<div style="margin:10px 0 4px;">`;
+    html += `<button id="pcRecalcBtn" onclick="window._pcRecalculate()"
+      style="padding:9px 18px;background:#1e3a5f;color:white;border:none;border-radius:10px;
+        font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;
+        -webkit-tap-highlight-color:transparent;">Recalculate</button>`;
+    html += `<div id="pcRecalcResult" style="display:none;margin-top:8px;font-size:12px;
+      line-height:1.5;word-break:break-word;"></div>`;
+    html += `</div>`;
+
     // ── DEMAND WINDOW (from debug_json) ───────────────────────────────────
     if (dj && (dj.cadence_type || dj.cover_dates || dj.buffered_forecast != null)) {
       html += sectionHdr('Demand Window');
@@ -578,7 +589,164 @@
     }
 
     body.innerHTML = html;
+    // Cache lazy-loaded data so Recalculate can re-render without re-fetching
+    body._pcCache = { count, prod, ded3, recipe, bomRows };
   }
+
+  // ── Recalculate: rerun Suggester for the selected prep only ─────────────
+  window._pcRecalculate = async function () {
+    if (_pcRecalcInFlight) return;
+
+    const r = _pcDetailRow;
+    if (!r) return;
+
+    // ── Auth check ────────────────────────────────────────────────────────
+    const brigadeToken = sessionStorage.getItem('brigade_token');
+    if (!brigadeToken) {
+      const errEl = document.getElementById('pcRecalcResult');
+      if (errEl) {
+        errEl.style.display = 'block';
+        errEl.innerHTML = '<span style="color:#dc2626;">Session expired — please log in again before recalculating.</span>';
+      }
+      return;
+    }
+
+    // ── Capture before state ──────────────────────────────────────────────
+    const beforeStatus = r.status ? (STATUS_META[r.status]?.label || r.status) : '—';
+    const beforeOutput = r.planned_output != null ? fmtQty(r.planned_output, r.output_unit) : '—';
+
+    // ── UI: loading state ─────────────────────────────────────────────────
+    _pcRecalcInFlight = true;
+    const btn   = document.getElementById('pcRecalcBtn');
+    const errEl = document.getElementById('pcRecalcResult');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Recalculating…';
+      btn.style.opacity = '0.6';
+      btn.style.cursor = 'not-allowed';
+    }
+    if (errEl) { errEl.style.display = 'none'; errEl.innerHTML = ''; }
+
+    try {
+      // ── EF request ───────────────────────────────────────────────────────
+      let efResp, efData;
+      try {
+        efResp = await fetch(
+          SUPABASE_URL + '/functions/v1/bot-prep-suggester',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prep_task_ids: [r.id],
+              dry_run: false,
+              brigade_token: brigadeToken,
+            }),
+          }
+        );
+      } catch (netErr) {
+        throw new Error('Network error — check your connection and try again.');
+      }
+
+      // ── Parse response ────────────────────────────────────────────────────
+      try {
+        efData = await efResp.json();
+      } catch (_) {
+        throw new Error('Server returned an unreadable response (HTTP ' + efResp.status + ').');
+      }
+
+      if (!efResp.ok) {
+        const msg = efData?.error || ('Server error: HTTP ' + efResp.status);
+        throw new Error(msg);
+      }
+
+      if (efData.success === false) {
+        throw new Error(efData?.error || 'Suggester returned an error.');
+      }
+
+      // ── Reload the saved suggestion row (date may differ) ─────────────────
+      const { data: freshRows, error: freshErr } = await supa
+        .from('prep_suggestions_daily')
+        .select('prep_task_id,suggestion_date,generated_at,status,confidence,planned_output,output_unit,net_requirement,demand_source,production_constraint_quality,forecast_path,stock_source,minimum_increment,debug_json')
+        .eq('prep_task_id', r.id)
+        .order('suggestion_date', { ascending: false })
+        .order('generated_at', { ascending: false })
+        .limit(1);
+
+      if (freshErr) throw new Error('Could not reload suggestion: ' + freshErr.message);
+
+      const fresh = (freshRows && freshRows[0]) ? freshRows[0] : null;
+
+      // ── Update in-memory row ──────────────────────────────────────────────
+      const updated = {
+        suggestion_date: fresh?.suggestion_date || null,
+        generated_at:    fresh?.generated_at    || null,
+        status:          fresh?.status          || null,
+        confidence:      fresh?.confidence      || null,
+        planned_output:  fresh?.planned_output  ?? null,
+        output_unit:     fresh?.output_unit     || null,
+        net_requirement: fresh?.net_requirement ?? null,
+        demand_source:   fresh?.demand_source   || null,
+        production_constraint_quality: fresh?.production_constraint_quality || null,
+        _status:         fresh?.status          || '__no_suggestion__',
+      };
+      // Patch the live detail reference
+      Object.assign(r, updated);
+      // Patch the list row so Back shows the refreshed status
+      const listIdx = _pcRows.findIndex(row => row.id === r.id);
+      if (listIdx >= 0) Object.assign(_pcRows[listIdx], updated);
+
+      // ── Build before/after summary ────────────────────────────────────────
+      const afterStatus = fresh?.status
+        ? (STATUS_META[fresh.status]?.label || fresh.status)
+        : 'No suggestion';
+      const afterOutput = fresh?.planned_output != null
+        ? fmtQty(fresh.planned_output, fresh.output_unit || r.unit)
+        : '—';
+      const afterTime = fresh?.generated_at ? fmtDateCDT(fresh.generated_at) : '—';
+
+      const unchanged = (beforeStatus === afterStatus && beforeOutput === afterOutput);
+      const summaryHtml = unchanged
+        ? '<span style="color:#16a34a;">✓ Recalculated — result unchanged: '
+            + esc(afterStatus) + ' · ' + esc(afterOutput) + '</span>'
+        : '<span style="color:#16a34a;">✓ Updated</span> · '
+            + 'Before: <b>' + esc(beforeStatus) + ' · ' + esc(beforeOutput) + '</b>'
+            + ' → Now: <b>' + esc(afterStatus) + ' · ' + esc(afterOutput) + '</b>'
+            + ' <span style="color:#94a3b8;">· ' + esc(afterTime) + '</span>';
+
+      // ── Re-render the full detail with fresh suggestion ───────────────────
+      const detailBody = document.getElementById('pcDetailBody');
+      if (detailBody && detailBody._pcCache) {
+        const c = detailBody._pcCache;
+        renderDetail(r, c.count, c.prod, c.ded3, fresh, c.recipe, c.bomRows);
+        // Restore result banner after re-render (renderDetail replaces innerHTML)
+        const newErrEl = document.getElementById('pcRecalcResult');
+        if (newErrEl) {
+          newErrEl.style.display = 'block';
+          newErrEl.innerHTML = summaryHtml;
+        }
+      } else {
+        // Fallback: update banner only
+        const el = document.getElementById('pcRecalcResult');
+        if (el) { el.style.display = 'block'; el.innerHTML = summaryHtml; }
+      }
+
+    } catch (err) {
+      const el = document.getElementById('pcRecalcResult');
+      if (el) {
+        el.style.display = 'block';
+        el.innerHTML = '<span style="color:#dc2626;">⚠ ' + esc(err.message) + '</span>';
+      }
+    } finally {
+      _pcRecalcInFlight = false;
+      const b = document.getElementById('pcRecalcBtn');
+      if (b) {
+        b.disabled = false;
+        b.textContent = 'Recalculate';
+        b.style.opacity = '1';
+        b.style.cursor = 'pointer';
+      }
+    }
+  };
 
   // ── Back handler ──────────────────────────────────────────────────────────
   window._pcBack = function () {
