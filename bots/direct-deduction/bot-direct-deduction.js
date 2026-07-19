@@ -31,6 +31,7 @@ const HYBRID_PARENT_ALLOWLIST = new Set([
   '146ff381-49ba-46e1-b413-aea7bce1f265', // Scallops Chefs Way → Scallops (4 pz)
   '9e4ea921-93dc-4aaa-b2f2-2ff476dc3a08', // Italian Marble Cake → Cremino (1 pz)
   '5c3cc880-baa9-48aa-b280-6de57001578f', // Limoncello Cake    → Mimosa (1 pz)
+  '14ccae9f-00b8-4f50-8b43-2cb8010d8ead', // Fried calamari     → Calamari pt266 (165g) + Arrabbiata pt233 (50g)
 ])
 
 // Se unit è peso/volume, la serving_qty deve essere >= questa soglia per essere plausibile
