@@ -396,6 +396,220 @@
     const dj = sugFull?.debug_json || null;
     let html = '';
 
+
+    // ── EXECUTIVE SUMMARY ─────────────────────────────────────────────────
+    // Deterministic chef-facing briefing. Built from fields already loaded.
+    // No AI, no new queries. Inserted as the first section in renderDetail.
+    html += (function _buildPcExecSummary() {
+      const status = (sugFull && sugFull.status) || r._status || '__no_suggestion__';
+      const unit   = sugFull?.output_unit || r.unit || '';
+      const stock  = r.current_stock;
+      const po     = sugFull?.planned_output ?? null;
+      const nr     = sugFull?.net_requirement ?? null;
+      const pq     = sugFull?.production_constraint_quality || '';
+      const mi     = sugFull?.minimum_increment ?? null;
+      const ss     = sugFull?.stock_source || '';
+      const hasCount = !!count;
+      const hasProd  = !!prod;
+      const hasDed   = ded3 && ded3.length > 0;
+
+      // Format a quantity as a short human string
+      function _fmt(val, u) {
+        if (val === null || val === undefined) return null;
+        const v = parseFloat(val);
+        if (isNaN(v) || v <= 0) return null;
+        const ul = (u || '').toLowerCase();
+        if (ul === 'g') {
+          return v >= 1000
+            ? (v / 1000).toFixed(1).replace(/\.0$/, '') + ' kg'
+            : Math.round(v) + ' g';
+        }
+        if (ul === 'kg') return (v % 1 === 0 ? v : v.toFixed(1)) + ' kg';
+        if (ul === 'pz' || ul === 'pezzi') {
+          const n = Math.round(v);
+          return n + (n === 1 ? ' piece' : ' pieces');
+        }
+        return (v % 1 === 0 ? Math.round(v) : v.toFixed(1)) + (u ? ' ' + u : '');
+      }
+
+      // Format stock from the task row
+      function _fmtStock() {
+        if (stock === null || stock === undefined) return null;
+        const v = parseFloat(stock);
+        if (isNaN(v)) return null;
+        const ul = (r.unit || '').toLowerCase();
+        if (ul === 'g') {
+          if (v === 0) return '0 g';
+          return v >= 1000
+            ? (v / 1000).toFixed(1).replace(/\.0$/, '') + ' kg'
+            : Math.round(v) + ' g';
+        }
+        if (ul === 'pz' || ul === 'pezzi') {
+          const n = Math.round(v);
+          return n + (n === 1 ? ' piece' : ' pieces');
+        }
+        return (v % 1 === 0 ? Math.round(v) : v.toFixed(1)) + (r.unit ? ' ' + r.unit : '');
+      }
+
+      // Batch label: "2 batches (6.3 kg)" or just "6.3 kg"
+      function _fmtOutput() {
+        const s = _fmt(po, unit);
+        if (!s) return null;
+        if (mi && parseFloat(mi) > 0 && pq === 'valid_fixed_batch') {
+          const batches = Math.round(parseFloat(po) / parseFloat(mi));
+          if (batches > 0) return batches + (batches === 1 ? ' batch' : ' batches') + ' — ' + s;
+        }
+        return s;
+      }
+
+      let headline = '';
+      let reasons  = [];
+      let bg       = '#f8fafc';
+      let border   = '#e2e8f0';
+      let hColor   = '#334155';
+      let accent   = '#e2e8f0';
+
+      // ── NO SUGGESTION ───────────────────────────────────────────────────
+      if (status === '__no_suggestion__') {
+        headline = 'No suggestion available.';
+        reasons.push('The bot has not generated a suggestion for this prep yet.');
+        if (!hasDed) reasons.push('No POS deduction history found — the demand path may not be configured.');
+        bg = '#f8fafc'; border = '#e2e8f0'; hColor = '#64748b'; accent = '#e2e8f0';
+      }
+
+      // ── OUT OF SCOPE ─────────────────────────────────────────────────────
+      else if (status === 'out_of_scope') {
+        headline = 'Not tracked by the planner.';
+        reasons.push('This is a checklist or operational item, not a batch-production prep.');
+        reasons.push('No quantity recommendation applies here.');
+        bg = '#f8fafc'; border = '#e2e8f0'; hColor = '#64748b'; accent = '#e2e8f0';
+      }
+
+      // ── NO DEMAND PATH ───────────────────────────────────────────────────
+      else if (status === 'no_demand_path') {
+        headline = 'No production recommendation available.';
+        reasons.push('This prep is not connected to a usable demand path in the system.');
+        if (!hasDed) reasons.push('No POS deductions have been recorded for it.');
+        else         reasons.push('Deduction history exists but could not be matched to a valid path.');
+        if (!r.recipe_id) reasons.push('No recipe is linked to this prep task.');
+        bg = '#f8fafc'; border = '#e2e8f0'; hColor = '#475569'; accent = '#e2e8f0';
+      }
+
+      // ── COUNT FIRST ──────────────────────────────────────────────────────
+      else if (status === 'count_first') {
+        headline = 'Count the stock before producing.';
+        const stockStr = _fmtStock();
+        if (stock === null || stock === undefined) {
+          reasons.push('No stock reading has been recorded for this prep yet.');
+        } else if (stockStr) {
+          reasons.push('Recorded stock is ' + stockStr + ' but has not been physically verified.');
+        } else {
+          reasons.push('The current inventory reading is not considered reliable.');
+        }
+        reasons.push('Align Stock after counting so the planner can give an accurate recommendation.');
+        bg = '#fffbeb'; border = '#fde68a'; hColor = '#92400e'; accent = '#fde68a';
+      }
+
+      // ── LOOKS OK ─────────────────────────────────────────────────────────
+      else if (status === 'looks_ok') {
+        headline = 'No production needed.';
+        const stockStr = _fmtStock();
+        if (stockStr) {
+          reasons.push('Current stock is ' + stockStr + ', which covers the expected demand window.');
+        } else {
+          reasons.push('Recorded stock is sufficient for the coverage window.');
+        }
+        if (nr !== null && parseFloat(nr) <= 0) {
+          reasons.push('Net requirement after stock is zero or negative.');
+        }
+        bg = '#f0fdf4'; border = '#bbf7d0'; hColor = '#166534'; accent = '#bbf7d0';
+      }
+
+      // ── DEFER TO TOMORROW ────────────────────────────────────────────────
+      else if (status === 'defer_to_tomorrow') {
+        headline = 'Hold off — check again tomorrow morning.';
+        const stockStr = _fmtStock();
+        if (stockStr) {
+          reasons.push('Current stock (' + stockStr + ') should be enough to cover today.');
+        } else {
+          reasons.push('Stock appears sufficient to cover today\'s service.');
+        }
+        reasons.push('The system will reassess overnight and confirm whether production is needed.');
+        bg = '#f0fdf4'; border = '#d1fae5'; hColor = '#065f46'; accent = '#d1fae5';
+      }
+
+      // ── PREP TODAY ───────────────────────────────────────────────────────
+      else if (status === 'prep_today') {
+        const outStr = _fmtOutput();
+        headline = outStr
+          ? 'Plan to produce ' + outStr + ' today.'
+          : 'Some production needed today.';
+        const stockStr = _fmtStock();
+        if (stockStr && parseFloat(stock) > 0) {
+          reasons.push('Current stock is ' + stockStr + ' — enough for now, but not for the full shift.');
+        } else {
+          reasons.push('Stock levels are low relative to expected demand.');
+        }
+        if (ss === 'db_snapshot_unverified') {
+          reasons.push('Check the cooler before starting — stock level has not been physically confirmed.');
+        }
+        bg = '#fff7ed'; border = '#fed7aa'; hColor = '#9a3412'; accent = '#fed7aa';
+      }
+
+      // ── DO FIRST ─────────────────────────────────────────────────────────
+      else if (status === 'do_first') {
+        const outStr = _fmtOutput();
+        const noConstraint = (pq === 'missing' || pq === 'conflicting') && !outStr;
+        if (outStr) {
+          headline = 'Produce ' + outStr + ' before anything else.';
+        } else if (noConstraint) {
+          headline = 'Production needed — batch size not configured.';
+        } else {
+          headline = 'This prep needs to happen before service.';
+        }
+        const stockStr = _fmtStock();
+        if (stock !== null && parseFloat(stock) === 0) {
+          reasons.push('Current stock is at zero.');
+        } else if (stockStr) {
+          reasons.push('Recorded stock is critically low' +
+            (ss === 'db_snapshot_unverified' ? ' and has not been physically verified.' : '.'));
+        } else {
+          reasons.push('Current stock is insufficient for the coverage window.');
+        }
+        if (noConstraint) {
+          reasons.push('Set a batch size in the recipe to get a precise quantity.');
+        } else if (nr !== null && parseFloat(nr) > 0) {
+          const nrStr = _fmt(nr, unit);
+          if (nrStr) reasons.push('Net requirement: ' + nrStr + ' to cover expected demand.');
+        }
+        if (!hasProd) reasons.push('No production has been recorded recently for this prep.');
+        bg = '#fef2f2'; border = '#fecaca'; hColor = '#991b1b'; accent = '#fecaca';
+      }
+
+      // ── FALLBACK ─────────────────────────────────────────────────────────
+      else {
+        headline = 'No recommendation available.';
+        reasons.push('This prep has no usable demand path in the system.');
+        bg = '#f8fafc'; border = '#e2e8f0'; hColor = '#475569'; accent = '#e2e8f0';
+      }
+
+      // ── RENDER ────────────────────────────────────────────────────────────
+      const reasonHtml = reasons.slice(0, 3).map(function(txt) {
+        return '<div style="font-size:12px;color:#475569;margin-top:4px;line-height:1.5;'
+          + 'padding-left:10px;border-left:2px solid ' + accent + ';word-break:break-word;">'
+          + esc(txt) + '</div>';
+      }).join('');
+
+      return '<div style="background:' + bg + ';border:1px solid ' + border + ';border-radius:12px;'
+        + 'padding:12px 14px;margin-bottom:14px;">'
+        + '<div style="font-size:14px;font-weight:800;color:' + hColor + ';'
+        + 'letter-spacing:-0.01em;line-height:1.35;word-break:break-word;">'
+        + esc(headline) + '</div>'
+        + reasonHtml
+        + '</div>';
+    })();
+    // ── END EXECUTIVE SUMMARY ──────────────────────────────────────────────
+
     // ── IDENTITY ──────────────────────────────────────────────────────────
     html += sectionHdr('Identity');
     html += `<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:4px;">`;
