@@ -17,18 +17,61 @@
 import { supabase } from '../core/supabase-client.js';
 
 // ── Date helpers ───────────────────────────────────────────────────────
+// The backend bot (bot-prep-suggester) writes suggestion rows using:
+//
+//   function nextServiceDay(): string {
+//     const d = new Date();
+//     d.setUTCDate(d.getUTCDate() + 1);
+//     while (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() + 1);
+//     return d.toISOString().slice(0, 10);
+//   }
+//
+// This is pure UTC arithmetic: always UTC-tomorrow, advancing past Sunday.
+// It has NO timezone component. It does NOT use America/Chicago.
+//
+// At 10:29 AM CDT (15:29 UTC) on July 19, the bot writes suggestion_date
+// = 2026-07-20. The old toLocalDateString(new Date()) returned '2026-07-19'
+// on a Texas iPhone, making the .lte filter exclude the active date.
+//
+// Fix: the upper bound for the valid-date scan must be the same UTC-tomorrow
+// value the bot uses. The lower bound (sevenAgo) moves back 8 UTC days so
+// the 7-day history window is never short by a day when the service date is
+// tomorrow.
 
-function _toLocalDateString(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+/**
+ * Returns a YYYY-MM-DD string for a UTC date.
+ *
+ * @param {Date} date
+ * @returns {string}
+ */
+function _utcDateString(date) {
+  return date.toISOString().slice(0, 10);
 }
 
-function _localDateDaysAgo(n) {
+/**
+ * Returns the next kitchen service date in YYYY-MM-DD (UTC),
+ * matching bot-prep-suggester's nextServiceDay() exactly:
+ *   UTC tomorrow, advancing past Sunday (UTC day 0).
+ *
+ * @returns {string}
+ */
+function _nextServiceDayUtc() {
   const d = new Date();
-  d.setDate(d.getDate() - n);
-  return _toLocalDateString(d);
+  d.setUTCDate(d.getUTCDate() + 1);
+  while (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() + 1);
+  return _utcDateString(d);
+}
+
+/**
+ * Returns the YYYY-MM-DD string for N UTC days before today.
+ *
+ * @param {number} n
+ * @returns {string}
+ */
+function _utcDateDaysAgo(n) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - n);
+  return _utcDateString(d);
 }
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -44,8 +87,12 @@ const DATE_SCAN_LIMIT        = 500;
 // @returns {Promise<string|null>}  YYYY-MM-DD or null if no valid run found
 
 async function _findValidSuggestionDate() {
-  const today    = _toLocalDateString(new Date());
-  const sevenAgo = _localDateDaysAgo(SEARCH_WINDOW_DAYS);
+  // Upper bound: next kitchen service day (UTC tomorrow, skip Sunday) —
+  // matches the suggestion_date the bot writes. Lower bound: 8 UTC days
+  // ago so the scan always covers a full 7-day history even when the
+  // service date is one day ahead of the calendar date.
+  const today    = _nextServiceDayUtc();
+  const sevenAgo = _utcDateDaysAgo(SEARCH_WINDOW_DAYS + 1);
 
   let allRows = [];
   let pageIndex = 0;
