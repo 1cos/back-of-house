@@ -1801,81 +1801,132 @@
       return;
     }
 
-    // ── SUCCESS ───────────────────────────────────────────────────────────
+    // ── PRODUCTION COMMITTED (ok: true) ─────────────────────────────────────
+    // The record_prep_production RPC completes atomically before the EF responds.
+    // Both the prep_log row and the updated current_stock are readable immediately.
+    // No delay needed — reload runs directly after the EF call returns.
+
+    // Read EF response fields
+    const newStock         = efData.new_stock;
+    const isDuplicate      = efData.duplicate_skipped === true;
+    const suggRecalculated = efData.suggestion_recalculated === true;
+
+    // Clear client_key only after confirmed ok:true
     delete inp.dataset.clientKey;
     delete inp.dataset.clientKeyQty;
 
-    const newStock = efData.new_stock;
+    // Patch in-memory stock from server-confirmed value
     if (newStock !== undefined && newStock !== null) {
       r.current_stock = newStock;
       const listRow = _pcRows.find(function (row) { return row.id === r.id; });
       if (listRow) listRow.current_stock = newStock;
     }
 
-    if (resultEl) resultEl.innerHTML = '<span style="color:#059669;font-weight:600;">✓ Production recorded</span>';
+    // Show interim state while reloading
+    if (resultEl) resultEl.innerHTML = '<span style="color:#64748b;">⏳ Reloading…</span>';
 
-    setTimeout(async function () {
-      try {
-        const [countRes, prodRes, ded3Res, sugFullRes, recipeRes] = await Promise.all([
-          supa.from('prep_stock_counts')
-            .select('counted_qty,unit,qty_native,counted_by,counted_at,reconcile_status,expires_at,source')
-            .eq('prep_task_id', r.id)
-            .order('counted_at', { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-          supa.from('prep_log')
-            .select('created_at,user_name,qty,unit,duration_minutes')
-            .eq('prep_task_id', r.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-          supa.from('stock_deductions')
-            .select('business_date,quantity,unit,source,pos_item_name,portions_sold')
-            .eq('prep_task_id', r.id)
-            .order('business_date', { ascending: false })
-            .limit(3),
-          r.suggestion_date
-            ? supa.from('prep_suggestions_daily')
-                .select('suggestion_date,generated_at,status,confidence,planned_output,output_unit,net_requirement,demand_source,forecast_path,stock_source,minimum_increment,production_constraint_quality,debug_json')
-                .eq('prep_task_id', r.id)
-                .eq('suggestion_date', r.suggestion_date)
-                .maybeSingle()
-            : Promise.resolve({ data: null }),
-          r.recipe_id
-            ? supa.from('recipes')
-                .select('id,title,pos_name,base_weight_g,base_servings')
-                .eq('id', r.recipe_id)
-                .maybeSingle()
-            : Promise.resolve({ data: null }),
-        ]);
+    // ── RELOAD DETAIL (no delay — data is committed before EF returned) ──────
+    try {
+      const [countRes, prodRes, ded3Res, sugFullRes, recipeRes] = await Promise.all([
+        supa.from('prep_stock_counts')
+          .select('counted_qty,unit,qty_native,counted_by,counted_at,reconcile_status,expires_at,source')
+          .eq('prep_task_id', r.id)
+          .order('counted_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supa.from('prep_log')
+          .select('created_at,user_name,qty,unit,duration_minutes')
+          .eq('prep_task_id', r.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supa.from('stock_deductions')
+          .select('business_date,quantity,unit,source,pos_item_name,portions_sold')
+          .eq('prep_task_id', r.id)
+          .order('business_date', { ascending: false })
+          .limit(3),
+        // Fetch freshest suggestion regardless of r.suggestion_date —
+        // suggestion_recalculated=true means a newer row may exist
+        supa.from('prep_suggestions_daily')
+          .select('suggestion_date,generated_at,status,confidence,planned_output,output_unit,net_requirement,demand_source,forecast_path,stock_source,minimum_increment,production_constraint_quality,debug_json')
+          .eq('prep_task_id', r.id)
+          .order('suggestion_date', { ascending: false })
+          .order('generated_at',    { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        r.recipe_id
+          ? supa.from('recipes')
+              .select('id,title,pos_name,base_weight_g,base_servings')
+              .eq('id', r.recipe_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
 
-        const body2    = document.getElementById('pcDetailBody');
-        const bomRows2 = (body2 && body2._pcCache) ? (body2._pcCache.bomRows || []) : [];
-
-        renderDetail(
-          r,
-          countRes.data   || null,
-          prodRes.data    || null,
-          ded3Res.data    || [],
-          sugFullRes.data || null,
-          recipeRes.data  || null,
-          bomRows2
-        );
-
-        const res2 = document.getElementById('pcProdResult');
-        if (res2) {
-          res2.style.display = 'block';
-          res2.innerHTML = '<span style="color:#059669;font-weight:600;">✓ Production recorded — detail updated.</span>';
-        }
-        const form2 = document.getElementById('pcProdForm');
-        if (form2) form2.style.display = 'none';
-
-      } catch (_reloadErr) {
-        const res2 = document.getElementById('pcProdResult');
-        if (res2) res2.innerHTML = '<span style="color:#059669;">✓ Production recorded.</span>'
-          + ' <span style="color:#94a3b8;">Refresh to see updated values.</span>';
+      // Patch in-memory suggestion from freshest row (may be newer after recalc)
+      const freshSug = sugFullRes.data || null;
+      if (freshSug) {
+        const updated = {
+          suggestion_date: freshSug.suggestion_date || null,
+          generated_at:    freshSug.generated_at    || null,
+          status:          freshSug.status          || null,
+          confidence:      freshSug.confidence      || null,
+          planned_output:  freshSug.planned_output  ?? null,
+          output_unit:     freshSug.output_unit     || null,
+          net_requirement: freshSug.net_requirement ?? null,
+          demand_source:   freshSug.demand_source   || null,
+          production_constraint_quality: freshSug.production_constraint_quality || null,
+          _status:         freshSug.status          || '__no_suggestion__',
+        };
+        Object.assign(r, updated);
+        const listIdx = _pcRows.findIndex(function (row) { return row.id === r.id; });
+        if (listIdx >= 0) Object.assign(_pcRows[listIdx], updated);
       }
-    }, 600);
+
+      const body2    = document.getElementById('pcDetailBody');
+      const bomRows2 = (body2 && body2._pcCache) ? (body2._pcCache.bomRows || []) : [];
+
+      renderDetail(
+        r,
+        countRes.data  || null,
+        prodRes.data   || null,
+        ded3Res.data   || [],
+        freshSug,
+        recipeRes.data || null,
+        bomRows2
+      );
+
+      // ── Result message based on EF response fields ──────────────────────
+      const res2 = document.getElementById('pcProdResult');
+      if (res2) {
+        res2.style.display = 'block';
+        if (isDuplicate) {
+          res2.innerHTML =
+            '<span style="color:#64748b;font-weight:600;">Production was already recorded. Detail refreshed.</span>';
+        } else if (suggRecalculated) {
+          res2.innerHTML =
+            '<span style="color:#059669;font-weight:600;">✓ Production recorded and recommendation updated.</span>';
+        } else {
+          res2.innerHTML =
+            '<span style="color:#059669;font-weight:600;">✓ Production recorded.</span>'
+            + ' <span style="color:#b45309;">Recommendation was not updated — use Recalculate to try again.</span>';
+        }
+      }
+      const form2 = document.getElementById('pcProdForm');
+      if (form2) form2.style.display = 'none';
+
+    } catch (_reloadErr) {
+      // Reload query failed — production is still committed
+      const res2 = document.getElementById('pcProdResult');
+      if (res2) res2.innerHTML = '<span style="color:#059669;">✓ Production recorded.</span>'
+        + ' <span style="color:#94a3b8;">Refresh to see updated values.</span>';
+    } finally {
+      // Release guard after full sequence
+      saveBtn.dataset.saving  = '';
+      saveBtn.disabled        = false;
+      saveBtn.style.background= '#166534';
+      saveBtn.style.cursor    = 'pointer';
+      saveBtn.textContent     = 'Save Production';
+    }
   };
   // ── END RECORD PRODUCTION FUNCTIONS ──────────────────────────────────────
 
