@@ -183,8 +183,10 @@ function renderWorkspace() {
 /* ── Utilities ───────────────────────────────────────────────────────────── */
 function tabIcon(type) {
   return { home:'⌂', bot_center:'🤖', recipe:'📋',
-           inventory:'📦', daily_journal:'📓', pos:'📊' }[type] ?? '📄';
+           inventory:'📦', daily_journal:'📓', pos:'📊',
+           production_lab:'🧪' }[type] ?? '📄';
 }
 
 // Expose openTab for inline onclick (used from pages)
 window._wsOpenTab = openTab;
+

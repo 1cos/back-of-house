@@ -128,6 +128,20 @@ export const translations = {
     'btn.cancel':  'Annulla',
     'btn.edit':    'Modifica',
     'btn.back':    'Indietro',
+
+    // ── Production Lab page ───────────────────────────────
+    'nav.production_lab':        'Lab Produzione',
+    'tab.production_lab':        'Lab Produzione',
+    'home.card.lab.title':       'Lab Produzione',
+    'home.card.lab.desc':        'Flussi SALE → TRANSFORM → ASSEMBLE',
+    'lab.title':                 'Production Lab',
+    'lab.subtitle':              'Clean & Trust',
+    'lab.badge':                 'READ-ONLY LAB',
+    'lab.stage.sale':            'SALE',
+    'lab.stage.transform':       'TRANSFORM',
+    'lab.stage.assemble':        'ASSEMBLE',
+    'lab.coming_soon':           'Prossima funzione — nessun dato ancora',
+
     'status.demo': 'Prototipo — nessun dato reale',
   },
 
@@ -230,6 +244,20 @@ export const translations = {
     'btn.cancel':  'Cancel',
     'btn.edit':    'Edit',
     'btn.back':    'Back',
+
+    // ── Production Lab page ───────────────────────────────
+    'nav.production_lab':        'Production Lab',
+    'tab.production_lab':        'Production Lab',
+    'home.card.lab.title':       'Production Lab',
+    'home.card.lab.desc':        'SALE → TRANSFORM → ASSEMBLE flows',
+    'lab.title':                 'Production Lab',
+    'lab.subtitle':              'Clean & Trust',
+    'lab.badge':                 'READ-ONLY LAB',
+    'lab.stage.sale':            'SALE',
+    'lab.stage.transform':       'TRANSFORM',
+    'lab.stage.assemble':        'ASSEMBLE',
+    'lab.coming_soon':           'Upcoming feature — no data yet',
+
     'status.demo': 'Prototype — no real data',
   },
 
@@ -332,6 +360,20 @@ export const translations = {
     'btn.cancel':  'Cancelar',
     'btn.edit':    'Editar',
     'btn.back':    'Atrás',
+
+    // ── Production Lab page ───────────────────────────────
+    'nav.production_lab':        'Lab Producción',
+    'tab.production_lab':        'Lab Producción',
+    'home.card.lab.title':       'Lab Producción',
+    'home.card.lab.desc':        'Flujos SALE → TRANSFORM → ASSEMBLE',
+    'lab.title':                 'Production Lab',
+    'lab.subtitle':              'Clean & Trust',
+    'lab.badge':                 'READ-ONLY LAB',
+    'lab.stage.sale':            'SALE',
+    'lab.stage.transform':       'TRANSFORM',
+    'lab.stage.assemble':        'ASSEMBLE',
+    'lab.coming_soon':           'Próxima función — sin datos aún',
+
     'status.demo': 'Prototipo — sin datos reales',
   }
 };

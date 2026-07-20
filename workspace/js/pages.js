@@ -29,6 +29,7 @@ export const HomePage = {
       { key:'inventory', type:'inventory',   icon:'📦', perm:'can_see_inventory',
         params:{ id:'caesar', name:'Caesar Dressing' } },
       { key:'pos',     type:'pos',           icon:'📊', perm:'can_see_pos' },
+      { key:'lab',     type:'production_lab', icon:'🧪', perm:'can_see_pos' },
     ].filter(c => can(c.perm));
 
     return `
@@ -508,13 +509,59 @@ export function showYesChef(root, message) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════ */
+/*  PRODUCTION LAB                                                            */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+export const ProductionLabPage = {
+  render() {
+    return `
+      <div class="page-lab">
+        <div class="page-header">
+          <div class="page-header-top">
+            <h2 class="page-title">${t('lab.title')}</h2>
+            <span class="badge lab-badge-ro">${t('lab.badge')}</span>
+          </div>
+          <p class="page-subtitle">${t('lab.subtitle')}</p>
+        </div>
+
+        <div class="lab-stages">
+          <div class="lab-stage">
+            <span class="lab-stage-icon">🥩</span>
+            <span class="lab-stage-label">${t('lab.stage.sale')}</span>
+          </div>
+          <span class="lab-stage-arrow">→</span>
+          <div class="lab-stage">
+            <span class="lab-stage-icon">🔪</span>
+            <span class="lab-stage-label">${t('lab.stage.transform')}</span>
+          </div>
+          <span class="lab-stage-arrow">→</span>
+          <div class="lab-stage">
+            <span class="lab-stage-icon">🍽️</span>
+            <span class="lab-stage-label">${t('lab.stage.assemble')}</span>
+          </div>
+        </div>
+
+        <div class="demo-banner">
+          <span class="demo-dot"></span>
+          ${t('lab.coming_soon')}
+        </div>
+      </div>
+    `;
+  },
+
+  afterRender() {}
+};
+
+/* ══════════════════════════════════════════════════════════════════════════ */
 /*  PAGE REGISTRY                                                             */
 /* ══════════════════════════════════════════════════════════════════════════ */
 
 export const PAGES = {
-  home:          HomePage,
-  bot_center:    BotCenterPage,
-  recipe:        RecipePage,
-  inventory:     InventoryPage,
-  daily_journal: JournalPage,
+  home:            HomePage,
+  bot_center:      BotCenterPage,
+  recipe:          RecipePage,
+  inventory:       InventoryPage,
+  daily_journal:   JournalPage,
+  production_lab:  ProductionLabPage,
 };
+
