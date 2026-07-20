@@ -607,6 +607,17 @@ const LAB_ROW_KEYS = [
   'lab.row.ps_moddiag_ded',
   'lab.row.ps_moddiag_missing',
   'lab.row.ps_moddiag_stage',
+  // ── TB recipe integrity ────────────────────────────────
+  'lab.row.tb_ri_header',
+  'lab.row.tb_ri_bom_rows',
+  'lab.row.tb_ri_batch',
+  'lab.row.tb_ri_portions',
+  'lab.row.tb_ri_calc_portion',
+  'lab.row.tb_ri_decl_portion',
+  'lab.row.tb_ri_implied_batch',
+  'lab.row.tb_ri_diff',
+  'lab.row.tb_ri_status',
+  'lab.row.tb_ri_bom_source',
   // ── Production formula ─────────────────────────────────
   'lab.row.prod_header',
   'lab.row.prod_forecast',
@@ -1347,9 +1358,13 @@ async function _loadTruffleButter(el) {
     if (cls) el2.className = (el2.className || '') + ' ' + cls;
   };
 
-  const LIVE_ROWS = ['trigger','recipe','bom','stock','boh_result'];
+  const LIVE_ROWS = ['trigger','recipe','bom','stock','boh_result',
+                     'tb_ri_bom_rows','tb_ri_batch','tb_ri_portions',
+                     'tb_ri_calc_portion','tb_ri_decl_portion','tb_ri_implied_batch',
+                     'tb_ri_diff','tb_ri_status','tb_ri_bom_source'];
   LIVE_ROWS.forEach(r => setVal(r, t('lab.loading')));
 
+  // ── Phase 1: core data ─────────────────────────────────────────────────────
   const result = await fetchTruffleButter();
 
   if (!result.ok) {
@@ -1364,34 +1379,79 @@ async function _loadTruffleButter(el) {
 
   const { recipe, bom, prep, suggestion } = result.data;
 
-  // Transformation: batch yield = base_weight_g / base_servings per portion
-  const batchG    = recipe.base_weight_g ? Number(recipe.base_weight_g) : null;
-  const servings  = recipe.base_servings ? Number(recipe.base_servings) : null;
-  const perPortG  = (batchG && servings) ? Math.round(batchG / servings) : null;
-  const yieldDesc = (batchG && servings && perPortG)
-    ? `${batchG}g batch / ${servings} portions → ${perPortG}g/portion`
+  // Yield fields
+  const batchG   = recipe.base_weight_g   ? Number(recipe.base_weight_g)   : null;
+  const servings = recipe.base_servings   ? Number(recipe.base_servings)    : null;
+  const declPort = recipe.serving_weight_g ? Number(recipe.serving_weight_g) : null;
+
+  const calcPort    = (batchG && servings) ? Math.round((batchG / servings) * 100) / 100 : null;
+  const impliedBatch = (servings && declPort) ? servings * declPort : null;
+  const diff         = (batchG  && impliedBatch) ? batchG - impliedBatch : null;
+
+  const yieldDesc = (batchG && servings && calcPort)
+    ? `${batchG}g batch / ${servings} portions → ${calcPort}g calc / ${declPort ?? '?'}g declared`
     : recipe.base_weight_g ? `${recipe.base_weight_g}g batch` : '—';
 
-  // BOM note: if empty, show explicit note
   const bomText = bom.length > 0
     ? (formatBOM(bom) || '—')
-    : 'No BOM in DB yet (recipe_bom empty — ingredients not yet catalogued)';
+    : 'Empty (not yet catalogued)';
 
-  // Trigger: downstream from Truffle Fettuccine POS sales
+  // ── Phase 2: fill base rows ────────────────────────────────────────────────
   setVal('trigger', 'Downstream — Truffle Fettuccine (POS) × 20g/portion');
   setVal('recipe',  `${recipe.title} · ${yieldDesc}`);
   setVal('bom',     bomText);
   setVal('stock',   formatStock(prep));
   setVal('boh_result', formatSuggestion(suggestion, lang));
 
-  // Trace
+  // ── Phase 3: recipe integrity diagnostic ──────────────────────────────────
+  // Determine card status: NEEDS_REVIEW if BOM empty OR yield inconsistency
+  const hasInconsistency = bom.length === 0 || (diff !== null && Math.abs(diff) > 0.5);
+
+  const statusDot   = card.querySelector('.lab-status-dot');
+  const statusLabel = card.querySelector('.lab-status-label');
+  const statusBadge = card.querySelector('.lab-card-status');
+
+  if (hasInconsistency) {
+    if (statusDot)   statusDot.className    = 'lab-status-dot lab-status-needs-review';
+    if (statusLabel) statusLabel.textContent = t('lab.status.needs_review');
+    if (statusBadge) statusBadge.className   = (statusBadge.className || '')
+      .replace('lab-status-connected','').trim() + ' lab-status-needs-review';
+  }
+
+  // BOM rows
+  setVal('tb_ri_bom_rows',      `${bom.length}`);
+  setVal('tb_ri_batch',         batchG   != null ? `${batchG}g`   : '—');
+  setVal('tb_ri_portions',      servings != null ? `${servings}`  : '—');
+  setVal('tb_ri_calc_portion',  calcPort != null ? `${calcPort}g` : '—');
+  setVal('tb_ri_decl_portion',  declPort != null ? `${declPort}g` : '—');
+  setVal('tb_ri_implied_batch', impliedBatch != null ? `${impliedBatch}g (${servings} × ${declPort}g)` : '—');
+  setVal('tb_ri_diff',          diff != null ? `${diff}g` : '—');
+
+  const riStatus = hasInconsistency ? 'NEEDS RECIPE REVIEW' : 'OK';
+  const riCls    = hasInconsistency ? 'lab-val-mismatch' : 'lab-val-match';
+  setVal('tb_ri_status', riStatus, riCls);
+
+  // ── Phase 4: POSSIBLE BOM SOURCE ──────────────────────────────────────────
+  // Existing ingredients that could compose Truffle Butter
+  // (confirmed from DB: Butter, Black Truffle, Truffle Oil all exist as ingredients;
+  //  Truffle Fettuccine BOM uses Black Truffle 4g separately → suggests TB = Butter + truffle compound)
+  const possibleSources = [
+    'Butter (category: Dairy) — exists in ingredients, not linked to this BOM',
+    'Black Truffle (category: Produce) — used in Truffle Fettuccine BOM separately (4g)',
+    'Truffle Oil (category: Oil & Vinegar) — used in WELLINGTON BOM (5g)',
+    '"Truffle Butter" ingredient also exists (category: Dairy) — no vendor, no BOM reference',
+  ].join(' · ');
+  setVal('tb_ri_bom_source', possibleSources);
+
+  // ── Phase 5: trace ─────────────────────────────────────────────────────────
   const traceEl = card.querySelector('.lab-trace');
   if (traceEl) {
     const trace = [
-      `Truffle Fettuccine (POS item, pos_name='Truffle Fettuccine')`,
-      `→ recipe_bom: TRUFFLE BUTTER 20g/portion (bom_id=2306)`,
-      `→ recipe 'TRUFFLE BUTTER' (Bases, ${batchG ?? '?'}g batch / ${servings ?? '?'} portions)`,
+      `Truffle Fettuccine (POS, pos_name='Truffle Fettuccine') × 20g/portion`,
+      `→ recipe_bom bom_id=2306: TRUFFLE BUTTER 20g`,
+      `→ recipe 'TRUFFLE BUTTER' id=0564433e (${batchG ?? '?'}g batch / ${servings ?? '?'} portions)`,
       `→ prep_tasks.id=${prep.id} '${prep.name}' · ${prep.category} · ${prep.current_stock}${prep.unit}`,
+      `⚠ BOM empty — 20g downstream confirmed via stock_deductions (clean path)`,
     ];
     traceEl.innerHTML = trace
       .map(line => `<span class="lab-trace-line">${line}</span>`)

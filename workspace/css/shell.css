@@ -984,6 +984,18 @@ ol, ul { list-style: none; }
 .lab-card-status.lab-status-connected .lab-status-label {
   color: var(--ok);
 }
+.lab-card-status.lab-status-needs-review {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-color: var(--warn);
+}
+.lab-card-status.lab-status-needs-review .lab-status-label {
+  color: var(--warn);
+}
+.lab-status-dot.lab-status-needs-review {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 25%, transparent);
+}
+
 .lab-card-status.lab-status-error .lab-status-label {
   color: var(--danger);
 }
