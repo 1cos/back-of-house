@@ -155,7 +155,15 @@
               <input type="checkbox" id="rctFilterNull" onchange="rctApplyFilter()"> Has NULLs
             </label>
           </div>
-          <div id="rctStatus" style="font-size:11px;opacity:0.7;margin-top:6px;">Loading…</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
+            <div id="rctStatus" style="font-size:11px;opacity:0.7;">Loading…</div>
+            <button onclick="rctPrintExport()"
+              style="padding:5px 13px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
+                border-radius:7px;color:white;font-size:12px;font-weight:600;cursor:pointer;
+                display:flex;align-items:center;gap:6px;white-space:nowrap;">
+              🖨️ Print / Export PDF
+            </button>
+          </div>
         </div>
 
         <!-- DB mapping row + table wrapper -->
@@ -779,6 +787,343 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
   }
+
+
+
+  // ── PRINT / PDF EXPORT ────────────────────────────────────────────────────
+  // Uses window.print() with a dynamically injected print stylesheet.
+  // No external dependencies. Works on desktop & iPad Safari.
+
+  window.rctPrintExport = async function () {
+    // Collect currently filtered rows (same logic as rctApplyFilter)
+    const filterName    = (document.getElementById('rctSearchName')?.value || '').toLowerCase();
+    const filterGroup   = document.getElementById('rctFilterGroup')?.value || '';
+    const filterStation = document.getElementById('rctFilterStation')?.value || '';
+    const filterFamily  = document.getElementById('rctFilterFamily')?.value || '';
+    const filterDirty   = document.getElementById('rctFilterDirty')?.checked || false;
+    const filterNull    = document.getElementById('rctFilterNull')?.checked || false;
+
+    const filtered = _rows.filter(r => {
+      const rec = r.recipe;
+      if (filterName    && !(rec.title || '').toLowerCase().includes(filterName)) return false;
+      if (filterGroup   && rec.menu_group !== filterGroup) return false;
+      if (filterStation && r._station !== filterStation) return false;
+      if (filterFamily  && r._family !== filterFamily) return false;
+      if (filterDirty   && !r._dirty) return false;
+      if (filterNull) {
+        const hasNull = COLUMNS.some(col => col.editable && col.key !== 'id' &&
+          !col.key.startsWith('_') && (rec[col.key] === null || rec[col.key] === undefined));
+        if (!hasNull) return false;
+      }
+      return true;
+    });
+
+    if (!filtered.length) {
+      alert('No rows to export with current filters.');
+      return;
+    }
+
+    // Check for unsaved edits
+    const dirtyRows = filtered.filter(r => r._dirty);
+    let exportMode = 'saved'; // 'saved' | 'unsaved'
+
+    if (dirtyRows.length > 0) {
+      const choice = await _rctUnsavedDialog(dirtyRows.length);
+      if (choice === 'cancel') return;
+      exportMode = choice; // 'unsaved' or 'saved'
+    }
+
+    // Build filter summary
+    const now = new Date().toLocaleString('en-US', {
+      timeZone: 'America/Chicago',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+    });
+
+    const filterLines = [
+      filterName    ? `Search: "${filterName}"`           : null,
+      filterGroup   ? `Menu Group: ${filterGroup}`        : null,
+      filterStation ? `Station: ${filterStation}`         : null,
+      filterFamily  ? `Prod. Family: ${filterFamily}`     : null,
+      filterDirty   ? 'Filter: Modified rows only'        : null,
+      filterNull    ? 'Filter: Has NULL fields'           : null,
+    ].filter(Boolean);
+
+    const versionEl = document.querySelector('[data-boh-version]');
+    const version = (typeof CACHE_NAME !== 'undefined' ? CACHE_NAME : 'boh-v739');
+
+    const summaryLines = [
+      `<b>Recipe Control Table Audit</b>`,
+      `Version: ${version}`,
+      `Rows exported: ${filtered.length}`,
+      filterLines.length ? filterLines.join('  ·  ') : 'No filters active (all recipes)',
+      filterDirty || exportMode === 'unsaved' ? '' : '',
+      exportMode === 'unsaved'
+        ? '<span style="color:#b45309;font-weight:700;">⚠ INCLUDES CURRENT UNSAVED EDITS</span>'
+        : '<span style="color:#047857;">SAVED DATABASE VALUES</span>',
+      `Generated: ${now} CDT`,
+    ].filter(s => s !== null);
+
+    // Build print HTML
+    const printCols = COLUMNS; // all columns
+
+    const headerRow1 = printCols.map(col =>
+      `<th class="pth">${_pEsc(col.label)}</th>`
+    ).join('');
+
+    const headerRow2 = printCols.map(col =>
+      `<th class="pth pth-db">${_pEsc(col.db)}</th>`
+    ).join('');
+
+    const bodyRows = filtered.map(row => {
+      const rec = row.recipe;
+      return '<tr class="ptr">' + printCols.map(col => {
+        let val;
+        if (col.key.startsWith('_')) {
+          val = row[col.key];
+        } else {
+          // If exporting unsaved: use edit value if present
+          if (exportMode === 'unsaved' && row._edits[col.key] !== undefined) {
+            val = row._edits[col.key];
+          } else {
+            val = rec[col.key];
+          }
+        }
+
+        const isEdited = exportMode === 'unsaved' && row._edits[col.key] !== undefined &&
+          row._edits[col.key] !== (rec[col.key] ?? null);
+
+        let display;
+        if (val === null || val === undefined) {
+          display = '<span class="p-null">NULL</span>';
+        } else if (col.key === 'id') {
+          display = `<span class="p-id">${_pEsc(String(val).slice(0,8))}…</span>`;
+        } else {
+          display = _pEsc(String(val));
+        }
+
+        const editedClass = isEdited ? ' ptd-edited' : '';
+        return `<td class="ptd${editedClass}">${display}</td>`;
+      }).join('') + '</tr>';
+    }).join('');
+
+    const printHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Recipe Control Table — BOH Audit</title>
+<style>
+  @page {
+    size: A3 landscape;
+    margin: 12mm 10mm 14mm;
+  }
+  @media print {
+    @page { size: A3 landscape; margin: 12mm 10mm 14mm; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9pt;
+    color: #0f172a;
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+  .p-summary {
+    padding: 8px 0 10px;
+    border-bottom: 2px solid #1e3a5f;
+    margin-bottom: 10px;
+    font-size: 9pt;
+    line-height: 1.6;
+  }
+  .p-title {
+    font-size: 14pt;
+    font-weight: 700;
+    color: #1e3a5f;
+    margin-bottom: 4px;
+  }
+  .p-meta { color: #374151; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-size: 8pt;
+    page-break-inside: auto;
+  }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  .pth {
+    background: #1e3a5f;
+    color: white;
+    padding: 5px 6px;
+    text-align: left;
+    font-size: 8pt;
+    font-weight: 600;
+    border: 1px solid #2d4f78;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+  .pth-db {
+    background: #0f2540;
+    color: rgba(255,255,255,0.65);
+    font-size: 7pt;
+    font-family: monospace;
+    font-weight: 400;
+    white-space: normal;
+    word-break: break-all;
+  }
+  .ptr { page-break-inside: avoid; }
+  .ptr:nth-child(even) td { background: #f8fafc; }
+  .ptd {
+    padding: 4px 6px;
+    border: 1px solid #cbd5e1;
+    vertical-align: top;
+    word-break: break-word;
+    max-width: 200px;
+    line-height: 1.4;
+  }
+  .ptd-edited {
+    background: #fef9c3 !important;
+  }
+  .p-null {
+    color: #94a3b8;
+    font-style: italic;
+    font-size: 7.5pt;
+  }
+  .p-id {
+    font-family: monospace;
+    font-size: 7pt;
+    color: #94a3b8;
+  }
+  .p-footer {
+    margin-top: 8px;
+    font-size: 7.5pt;
+    color: #6b7280;
+    text-align: right;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 4px;
+  }
+  .p-page-num::after {
+    content: counter(page);
+  }
+  .p-page-total::after {
+    content: counter(pages);
+  }
+  @media screen {
+    body { padding: 20px; background: #f8fafc; }
+    .p-summary { max-width: 1000px; }
+    table { max-width: 100%; overflow-x: auto; display: block; }
+  }
+</style>
+</head>
+<body>
+<div class="p-summary">
+  <div class="p-title">📋 Recipe Control Table Audit</div>
+  <div class="p-meta">${summaryLines.slice(1).join('<br>')}</div>
+</div>
+
+<table>
+  <thead>
+    <tr>${headerRow1}</tr>
+    <tr>${headerRow2}</tr>
+  </thead>
+  <tbody>${bodyRows}</tbody>
+  <tfoot>
+    <tr>
+      <td colspan="${printCols.length}" class="p-footer">
+        BOH OS ${version} · Recipe Control Table Audit · ${now} CDT
+      </td>
+    </tr>
+  </tfoot>
+</table>
+</body>
+</html>`;
+
+    // Open in a new window and trigger print
+    const win = window.open('', '_blank', 'width=1200,height=800');
+    if (!win) {
+      alert('Pop-up blocked. Please allow pop-ups for this site and try again.');
+      return;
+    }
+    win.document.write(printHtml);
+    win.document.close();
+
+    // Wait for resources to load then print
+    win.onload = () => {
+      setTimeout(() => {
+        win.focus();
+        win.print();
+      }, 400);
+    };
+    // Fallback if onload already fired
+    if (win.document.readyState === 'complete') {
+      setTimeout(() => { win.focus(); win.print(); }, 400);
+    }
+  };
+
+  // ── Unsaved edits dialog ──────────────────────────────────────────────────
+  function _rctUnsavedDialog(count) {
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = [
+        'position:fixed;inset:0;z-index:9000;',
+        'background:rgba(15,23,42,0.65);',
+        'display:flex;align-items:center;justify-content:center;',
+        'padding:20px;',
+      ].join('');
+
+      overlay.innerHTML = `
+        <div style="background:white;border-radius:18px;padding:24px;max-width:380px;width:100%;
+          box-shadow:0 8px 40px rgba(0,0,0,0.25);">
+          <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:8px;">
+            ⚠️ Unsaved Edits Detected
+          </div>
+          <div style="font-size:13px;color:#374151;margin-bottom:18px;line-height:1.5;">
+            <b>${count} row${count>1?'s':''}</b> ${count>1?'have':'has'} unsaved changes.<br>
+            Which values should the PDF show?
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <button id="rctPrintUnsaved"
+              style="padding:11px 14px;background:#fef9c3;border:1.5px solid #f59e0b;border-radius:10px;
+                font-size:13px;font-weight:700;color:#92400e;cursor:pointer;text-align:left;">
+              📄 Current unsaved values<br>
+              <span style="font-size:11px;font-weight:400;color:#b45309;">
+                PDF will be labelled "INCLUDES UNSAVED EDITS"
+              </span>
+            </button>
+            <button id="rctPrintSaved"
+              style="padding:11px 14px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;
+                font-size:13px;font-weight:700;color:#14532d;cursor:pointer;text-align:left;">
+              💾 Last saved database values<br>
+              <span style="font-size:11px;font-weight:400;color:#166534;">
+                PDF will show the committed DB state
+              </span>
+            </button>
+            <button id="rctPrintCancel"
+              style="padding:11px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;
+                font-size:13px;font-weight:600;color:#64748b;cursor:pointer;">
+              Cancel
+            </button>
+          </div>
+        </div>`;
+
+      document.body.appendChild(overlay);
+
+      overlay.querySelector('#rctPrintUnsaved').onclick = () => { overlay.remove(); resolve('unsaved'); };
+      overlay.querySelector('#rctPrintSaved').onclick   = () => { overlay.remove(); resolve('saved'); };
+      overlay.querySelector('#rctPrintCancel').onclick  = () => { overlay.remove(); resolve('cancel'); };
+      overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve('cancel'); } });
+    });
+  }
+
+  // ── Print-safe escape (no &amp; needed since we write innerHTML) ──────────
+  function _pEsc(str) {
+    return (str || '').toString()
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
 
   // Expose filter globally (called from inline onclick in header)
   window.rctApplyFilter = rctApplyFilter;
