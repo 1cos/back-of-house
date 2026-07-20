@@ -73,7 +73,7 @@ export async function fetchAddChicken() {
     // 4. Latest BOH suggestion (prep_suggestions_daily)
     const { data: suggRows, error: suggErr } = await _db
       .from('prep_suggestions_daily')
-      .select('suggestion_date, status, confidence, planned_output, output_unit, reason, generated_at')
+      .select('suggestion_date, status, confidence, planned_output, output_unit, forecast, forecast_unit, net_requirement, demand_source, forecast_path, reason, generated_at')
       .eq('prep_task_id', ADD_CHICKEN_PREP_ID)
       .order('suggestion_date', { ascending: false })
       .order('generated_at', { ascending: false })
@@ -165,3 +165,88 @@ export function formatSuggestion(suggestion, lang) {
     ? `${statusLabel}${qty} — ${reasonText}`
     : `${statusLabel}${qty}`;
 }
+
+/**
+ * Fetch modifier counts for the Add Chicken recipe for a given business date.
+ * Includes all aliases from recipes.pos_name (pipe-delimited).
+ * Source table: pos_modifiers (one row per modifier per date).
+ *
+ * @param {string} businessDate — 'YYYY-MM-DD'
+ * @param {string} posName      — pipe-delimited alias string from recipes.pos_name
+ * @returns {Promise<{ ok: true, data: ModifierFetchResult } | { ok: false, error: string }>}
+ */
+export async function fetchAddChickenModifiers(businessDate, posName) {
+  try {
+    // Parse aliases from pipe-delimited pos_name
+    const aliases = (posName ?? '')
+      .split('|')
+      .map(a => a.trim())
+      .filter(Boolean);
+
+    if (!aliases.length) {
+      return { ok: false, error: 'No aliases found in pos_name' };
+    }
+
+    // SELECT only — filter by date and any of the aliases (case-insensitive match)
+    // PostgREST: use .in() for the alias list
+    const { data: modifierRows, error } = await _db
+      .from('pos_modifiers')
+      .select('modifier, quantity_sold, sale_date')
+      .eq('sale_date', businessDate)
+      .in('modifier', aliases);  // exact match against pos_name aliases
+
+    if (error) throw new Error(`pos_modifiers: ${error.message}`);
+
+    return {
+      ok: true,
+      data: {
+        businessDate,
+        aliases,
+        modifierRows: modifierRows ?? [],
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}
+
+/**
+ * Get the most recent date that has POS modifier data for Add Chicken aliases.
+ * Used to select the business date for the shadow calculation.
+ *
+ * @returns {Promise<{ ok: true, date: string } | { ok: false, error: string }>}
+ */
+export async function fetchLatestModifierDate() {
+  try {
+    const { data, error } = await _db
+      .from('pos_modifiers')
+      .select('sale_date')
+      .eq('modifier', 'Add chicken')
+      .order('sale_date', { ascending: false })
+      .limit(1);
+
+    if (error) throw new Error(`pos_modifiers date: ${error.message}`);
+    if (!data?.length) return { ok: false, error: 'No modifier data found' };
+
+    return { ok: true, date: data[0].sale_date };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}
+
+/**
+ * Extract the BOM quantity (grams) for Diced Grilled Chicken from BOM rows.
+ * Returns { qty, unit } or null if not found.
+ *
+ * @param {Array} bomRows — rows from fetchAddChicken().data.bom
+ * @returns {{ qty: number, unit: string } | null}
+ */
+export function extractDicedChickenBOMQty(bomRows) {
+  const row = (bomRows ?? []).find(
+    r => r.component_type === 'RECIPE' &&
+         r.sub_recipe?.title?.toLowerCase().includes('diced grilled chicken')
+  );
+  if (!row) return null;
+  return { qty: Number(row.quantity), unit: row.unit ?? 'g' };
+}
+

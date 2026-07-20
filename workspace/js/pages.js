@@ -8,10 +8,14 @@ import { can, getRole } from '../permissions/permissions.js';
 import { openTab } from './tabs.js';
 import {
   fetchAddChicken,
+  fetchAddChickenModifiers,
+  fetchLatestModifierDate,
+  extractDicedChickenBOMQty,
   formatBOM,
   formatStock,
   formatSuggestion,
 } from './production-lab-data.js';
+import { calculateAddChickenShadow } from './production-lab-shadow-engine.js';
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 /*  HOME                                                                      */
@@ -537,8 +541,12 @@ const LAB_ROW_KEYS = [
   'lab.row.recipe',
   'lab.row.bom',
   'lab.row.stock',
-  'lab.row.required',
-  'lab.row.reason',
+  'lab.row.modifier_uses',
+  'lab.row.bom_per_use',
+  'lab.row.shadow_demand',
+  'lab.row.boh_result',
+  'lab.row.difference',
+  'lab.row.explanation',
 ];
 
 function renderLabCard(card) {
@@ -573,6 +581,10 @@ function renderLabCard(card) {
       <div class="lab-card-rows">
         ${rows}
       </div>
+      ${isConnected ? `
+        <div class="lab-not-comparable" style="display:none"></div>
+        <div class="lab-trace"></div>
+      ` : ''}
     </div>
   `;
 }
@@ -583,56 +595,122 @@ async function _loadAddChicken(el) {
   if (!card) return;
 
   const get = id => card.querySelector('#' + id);
+  const lang = sessionStorage.getItem('ws_lang') ?? 'en';
+
+  // Row IDs match LAB_ROW_KEYS suffix
+  const ROW_IDS = ['trigger','recipe','bom','stock',
+                   'modifier_uses','bom_per_use','shadow_demand',
+                   'boh_result','difference','explanation'];
 
   // Show loading state
-  const ROW_IDS = ['trigger','recipe','bom','stock','required','reason'];
   ROW_IDS.forEach(key => {
     const el2 = get(`lab-row-add_chicken-${key}`);
     if (el2) el2.textContent = t('lab.loading');
   });
 
+  // ── Phase 1: fetch core Add Chicken data ───────────────────────────────────
   const result = await fetchAddChicken();
 
   if (!result.ok) {
-    // Error: fill every row with error text
     ROW_IDS.forEach(key => {
       const el2 = get(`lab-row-add_chicken-${key}`);
       if (el2) el2.textContent = t('lab.error');
     });
-    // Update status chip
     const statusDot   = card.querySelector('.lab-status-dot');
     const statusLabel = card.querySelector('.lab-status-label');
-    if (statusDot)   { statusDot.className   = 'lab-status-dot lab-status-error'; }
-    if (statusLabel) { statusLabel.textContent = t('lab.status.error'); }
+    if (statusDot)   statusDot.className    = 'lab-status-dot lab-status-error';
+    if (statusLabel) statusLabel.textContent = t('lab.status.error');
     console.warn('[ProductionLab] Add Chicken fetch error:', result.error);
     return;
   }
 
   const { recipe, bom, prep, suggestion } = result.data;
-  const lang = sessionStorage.getItem('ws_lang') ?? 'en';
 
-  // Trigger — modifier name from modifier_config (known, no extra query needed)
-  const triggerEl = get('lab-row-add_chicken-trigger');
-  if (triggerEl) triggerEl.textContent = 'Add chicken (modifier · Proteine)';
+  // Fill static rows immediately
+  const setVal = (key, text) => {
+    const el2 = get(`lab-row-add_chicken-${key}`);
+    if (el2) el2.textContent = text;
+  };
 
-  // Recipe — title + pos_name summary
-  const recipeEl = get('lab-row-add_chicken-recipe');
-  if (recipeEl) recipeEl.textContent = recipe.title ?? '—';
+  setVal('trigger', 'Add chicken (modifier · Proteine)');
+  setVal('recipe',  recipe.title ?? '—');
+  setVal('bom',     formatBOM(bom) || '—');
+  setVal('stock',   formatStock(prep));
+  setVal('boh_result', formatSuggestion(suggestion, lang));
 
-  // BOM — compact list
-  const bomEl = get('lab-row-add_chicken-bom');
-  if (bomEl) bomEl.textContent = formatBOM(bom) || '—';
+  // ── Phase 2: get latest modifier date ──────────────────────────────────────
+  const dateResult = await fetchLatestModifierDate();
+  if (!dateResult.ok) {
+    setVal('modifier_uses',  t('lab.error'));
+    setVal('bom_per_use',    '—');
+    setVal('shadow_demand',  t('lab.error'));
+    setVal('difference',     '—');
+    setVal('explanation',    dateResult.error);
+    return;
+  }
+  const businessDate = dateResult.date;
 
-  // Current Stock
-  const stockEl = get('lab-row-add_chicken-stock');
-  if (stockEl) stockEl.textContent = formatStock(prep);
+  // ── Phase 3: fetch modifier counts for that date ───────────────────────────
+  const modResult = await fetchAddChickenModifiers(businessDate, recipe.pos_name ?? '');
+  if (!modResult.ok) {
+    setVal('modifier_uses',  t('lab.error'));
+    setVal('bom_per_use',    '—');
+    setVal('shadow_demand',  t('lab.error'));
+    setVal('difference',     '—');
+    setVal('explanation',    modResult.error);
+    return;
+  }
 
-  // Current BOH Result (suggestion)
-  const requiredEl = get('lab-row-add_chicken-required');
-  if (requiredEl) requiredEl.textContent = formatSuggestion(suggestion, lang);
+  // ── Phase 4: extract Diced Grilled Chicken BOM qty ────────────────────────
+  const bomEntry = extractDicedChickenBOMQty(bom);
+  if (!bomEntry) {
+    setVal('modifier_uses',  modResult.data.modifierRows.reduce((s,r)=>s+r.quantity_sold,0).toString());
+    setVal('bom_per_use',    '—');
+    setVal('shadow_demand',  'NEEDS REVIEW: Diced Grilled Chicken not found in BOM');
+    setVal('difference',     '—');
+    setVal('explanation',    'BOM entry for Diced Grilled Chicken is missing.');
+    return;
+  }
 
-  // Reason: kept — for now
-  // (left as —)
+  // ── Phase 5: shadow engine (pure, no DB) ──────────────────────────────────
+  const shadow = calculateAddChickenShadow({
+    businessDate,
+    modifierRows: modResult.data.modifierRows,
+    recipeAliases: modResult.data.aliases,
+    bomQtyPerUse:  bomEntry.qty,
+    bomUnit:       bomEntry.unit,
+    suggestion,
+  });
+
+  if (!shadow.ok) {
+    setVal('modifier_uses', '—');
+    setVal('shadow_demand', `NEEDS REVIEW: ${shadow.error}`);
+    setVal('difference',    '—');
+    setVal('explanation',   shadow.error);
+    return;
+  }
+
+  // ── Phase 6: fill shadow rows ──────────────────────────────────────────────
+  setVal('modifier_uses', `${shadow.totalUses} (${businessDate})`);
+  setVal('bom_per_use',   `${shadow.bomQtyPerUse}${shadow.bomUnit}`);
+  setVal('shadow_demand', shadow.shadowDemandLabel);
+  setVal('difference',    shadow.comparableLabel);  // NOT_COMPARABLE
+  setVal('explanation',   shadow.explanation);
+
+  // ── Phase 7: render trace section ─────────────────────────────────────────
+  const traceEl = card.querySelector('.lab-trace');
+  if (traceEl) {
+    traceEl.innerHTML = shadow.tracePath
+      .map(line => `<span class="lab-trace-line">${line}</span>`)
+      .join('');
+  }
+
+  // ── Phase 8: render NOT_COMPARABLE note ───────────────────────────────────
+  const ncEl = card.querySelector('.lab-not-comparable');
+  if (ncEl && shadow.comparableLabel === 'NOT_COMPARABLE') {
+    ncEl.textContent = shadow.comparableReason;
+    ncEl.style.display = '';
+  }
 }
 
 export const ProductionLabPage = {

@@ -999,6 +999,37 @@ ol, ul { list-style: none; }
   font-size: 10px;
 }
 
+
+/* ── Lab Trace & Not-Comparable sections ────────────────────────────────── */
+.lab-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-top: 2px;
+}
+
+.lab-trace-line {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.lab-not-comparable {
+  font-size: var(--text-xs);
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
 @media (max-width: 600px) {
   .lab-grid {
     grid-template-columns: 1fr;

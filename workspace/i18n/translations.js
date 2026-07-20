@@ -158,6 +158,12 @@ export const translations = {
     'lab.row.stock':            'Current Stock',
     'lab.row.required':         'Required Production',
     'lab.row.reason':           'Reason',
+    'lab.row.modifier_uses': 'Usi modifier',
+    'lab.row.bom_per_use':   'BOM per uso',
+    'lab.row.shadow_demand': 'Domanda shadow',
+    'lab.row.boh_result':    'Risultato BOH',
+    'lab.row.difference':    'Differenza',
+    'lab.row.explanation':   'Spiegazione',
 
     'status.demo': 'Prototipo — nessun dato reale',
   },
@@ -291,6 +297,12 @@ export const translations = {
     'lab.row.stock':            'Current Stock',
     'lab.row.required':         'Required Production',
     'lab.row.reason':           'Reason',
+    'lab.row.modifier_uses': 'Modifier uses',
+    'lab.row.bom_per_use':   'BOM per use',
+    'lab.row.shadow_demand': 'Shadow demand',
+    'lab.row.boh_result':    'BOH result',
+    'lab.row.difference':    'Difference',
+    'lab.row.explanation':   'Explanation',
 
     'status.demo': 'Prototype — no real data',
   },
@@ -424,6 +436,12 @@ export const translations = {
     'lab.row.stock':            'Stock Actual',
     'lab.row.required':         'Producción Requerida',
     'lab.row.reason':           'Razón',
+    'lab.row.modifier_uses': 'Usos modifier',
+    'lab.row.bom_per_use':   'BOM por uso',
+    'lab.row.shadow_demand': 'Demanda sombra',
+    'lab.row.boh_result':    'Resultado BOH',
+    'lab.row.difference':    'Diferencia',
+    'lab.row.explanation':   'Explicación',
 
     'status.demo': 'Prototipo — sin datos reales',
   }
