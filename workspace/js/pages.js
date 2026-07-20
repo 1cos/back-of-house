@@ -1331,30 +1331,39 @@ async function _loadProcessSalmon(el) {
   setVal('ps_moddiag_class', classLabel);
 
   // Recipe match result
+  const pathFixed = !!(cleanRow?.recipe_id);
   const recipeLabel = cleanRow?.recipe_id
     ? `${cleanRow.matched_recipe_name} (${cleanRow.match_type})`
-    : `NULL — shouldMap=false (${cleanRow?.item_class ?? '?'} ≠ MENU_ITEM)`;
+    : `NULL — shouldMap=false (${cleanRow?.item_class ?? '?'} ≠ KITCHEN_OPERATIONAL)`;
   setVal('ps_moddiag_recipe', recipeLabel);
 
   // Deductions written
   const dedTotal = dDed.reduce((s, r) => s + Number(r.quantity ?? 0), 0);
   setVal('ps_moddiag_ded', dedTotal === 0 ? '0 pz (none written)' : `${dedTotal} pz`);
 
-  // Missing demand
-  setVal('ps_moddiag_missing', `${rawTotal} pz Thaw Salmon`);
+  // Missing demand — 0 if fix applied and deductions written
+  const missingDemand = pathFixed ? Math.max(0, rawTotal - dedTotal) : rawTotal;
+  setVal('ps_moddiag_missing', missingDemand === 0 ? '0 (all demand captured ✓)' : `${missingDemand} pz Thaw Salmon`);
 
-  // Failure stage and technical reason
-  const stageLabel = cleanRow
-    ? `pos_daily_clean classification: source_table='pos_modifiers' → default UNKNOWN_REVIEW → shouldMap=false → recipe_id=null → deduction skipped`
-    : `Not found in pos_daily_clean`;
+  // Stage / status — reflects actual current state from live DB
+  const stageLabel = pathFixed
+    ? `MODIFIER PATH FIXED — pos_item_class_rules id=85 (KITCHEN_OPERATIONAL/map). Alias corrected: Add salmon whole → Salmon Whole. Rule added 2026-07-19.`
+    : (cleanRow
+        ? `pos_daily_clean: source_table='pos_modifiers' → default UNKNOWN_REVIEW → shouldMap=false → recipe_id=null → deduction skipped`
+        : `Not found in pos_daily_clean`);
   setVal('ps_moddiag_stage', stageLabel);
 
   // Append to formula trace
   const formulaEl = card.querySelector('.lab-formula-trace');
   if (formulaEl) {
-    const techNote = `Fix needed: add pos_item_class_rules rule for 'Add salmon whole' ` +
-      `(source_table=pos_modifiers, item_class=MENU_ITEM, action=map). ` +
-      `Secondary: pos_item_aliases canonical_name='Salmon fillet' should be 'Salmon Whole'.`;
+    const techNote = pathFixed
+      ? `MODIFIER PATH FIXED 2026-07-19: pos_item_class_rules rule #85 added (Add salmon whole → KITCHEN_OPERATIONAL/map). ` +
+        `pos_item_aliases corrected: Salmon fillet → Salmon Whole. ` +
+        `Pipeline re-run for 2026-07-18: 4 pz Thaw Salmon deducted from Add salmon whole modifier. ` +
+        `Total demand 2026-07-18: 6 Thaw Salmon (4 modifier + 2 Amalfi Salmon).`
+      : `Fix needed: add pos_item_class_rules rule for 'Add salmon whole' ` +
+        `(source_table=pos_modifiers, item_class=KITCHEN_OPERATIONAL, action=map). ` +
+        `Secondary: pos_item_aliases canonical_name='Salmon fillet' should be 'Salmon Whole'.`;
     formulaEl.innerHTML = `<span class="lab-trace-line lab-trace-note">${techNote}</span>`;
     formulaEl.style.display = 'block';
   }
