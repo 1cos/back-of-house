@@ -361,6 +361,142 @@ export function calculateRequiredProduction(input) {
   };
 }
 
+
+/**
+ * Calculate shadow demand for a sale-recipe card (POS item → recipe BOM → prep ingredient).
+ * Pure function — no DB access, no DOM, no side effects.
+ *
+ * Used for items sold as POS line items (not modifiers).
+ * Each sale row is one portion; portion_factor scales the canonical count.
+ *
+ * Double-count guard: the function checks that no alias appears more than once
+ * across the salesRows for the same date. If found → returns NEEDS_REVIEW.
+ *
+ * @param {object}   input
+ * @param {string}   input.businessDate      — 'YYYY-MM-DD'
+ * @param {Array}    input.salesRows         — [{date, menu_item, quantity}] from pos_sales_by_item
+ * @param {object}   input.aliasPortionMap   — { 'Fried Calamari': 1.0, 'Calamari': 1.0, … }
+ *                                             Keys are recipe alias strings (exact case from pos_name).
+ *                                             Values are portion_factor (default 1.0 if alias not in pos_item_aliases).
+ * @param {number}   input.bomQuantity       — grams per portion from recipe_bom (live, not hardcoded)
+ * @param {string}   input.bomUnit           — unit of bomQuantity (expected 'g')
+ * @param {string}   input.ingredientName    — name of the key BOM ingredient (for trace)
+ * @param {string}   input.recipeTitle       — recipe title (for trace)
+ *
+ * @returns {SaleRecipeDemandResult}
+ */
+export function calculateSaleRecipeDemand(input) {
+  const {
+    businessDate,
+    salesRows,
+    aliasPortionMap,
+    bomQuantity,
+    bomUnit,
+    ingredientName,
+    recipeTitle,
+  } = input;
+
+  // ── Guard: BOM unit ────────────────────────────────────────────────────────
+  if (bomUnit !== 'g') {
+    return {
+      ok:    false,
+      status:'NEEDS_REVIEW',
+      error: `Unexpected BOM unit '${bomUnit}' — expected 'g'. Cannot calculate demand.`,
+    };
+  }
+
+  const bomQty    = Number(bomQuantity ?? 0);
+  if (bomQty <= 0) {
+    return { ok: false, status: 'NEEDS_REVIEW', error: `BOM quantity is zero or missing.` };
+  }
+
+  const aliasSet  = new Set(Object.keys(aliasPortionMap).map(k => k.toLowerCase()));
+
+  // ── Double-count guard: each alias must appear at most once per date ───────
+  const seenAliases = {};
+  for (const row of (salesRows ?? [])) {
+    const key = `${row.date}::${(row.menu_item ?? '').toLowerCase()}`;
+    if (seenAliases[key]) {
+      return {
+        ok:     false,
+        status: 'NEEDS_REVIEW',
+        error:  `Duplicate alias '${row.menu_item}' on ${row.date} — possible double-count. Verify pos_sales_by_item.`,
+        duplicateAlias: row.menu_item,
+        duplicateDate:  row.date,
+      };
+    }
+    seenAliases[key] = true;
+  }
+
+  // ── Process each sales row ─────────────────────────────────────────────────
+  let canonicalPortions = 0;
+  const includedRows    = [];
+  const excludedRows    = [];
+
+  for (const row of (salesRows ?? [])) {
+    const itemKey    = (row.menu_item ?? '').toLowerCase();
+    const qtyRaw     = Number(row.quantity ?? 0);
+
+    if (!aliasSet.has(itemKey)) {
+      excludedRows.push({ menu_item: row.menu_item, quantity: qtyRaw, reason: 'not in alias set' });
+      continue;
+    }
+
+    // Look up portion_factor — find matching key case-insensitively
+    const matchedKey = Object.keys(aliasPortionMap).find(k => k.toLowerCase() === itemKey);
+    const factor     = matchedKey != null ? Number(aliasPortionMap[matchedKey] ?? 1.0) : 1.0;
+    const canonical  = qtyRaw * factor;
+
+    canonicalPortions += canonical;
+    includedRows.push({ menu_item: row.menu_item, quantity: qtyRaw, portion_factor: factor, canonical });
+  }
+
+  // ── Demand ─────────────────────────────────────────────────────────────────
+  const totalDemandG     = canonicalPortions * bomQty;
+  const shadowDemandLabel = `${totalDemandG}g`;
+
+  const explanation =
+    `${canonicalPortions} ${recipeTitle ?? 'portions'} × ${bomQty}${bomUnit} ${ingredientName ?? 'ingredient'} = ${totalDemandG}${bomUnit} demand.`;
+
+  // ── Trace ─────────────────────────────────────────────────────────────────
+  const tracePath = [
+    `pos_sales_by_item (${businessDate}): ${includedRows.map(r => `'${r.menu_item}' ×${r.quantity}`).join(', ')}`,
+    `→ recipe '${recipeTitle}' — aliases: [${[...aliasSet].join(', ')}]`,
+    `→ recipe_bom: ${ingredientName} ${bomQty}${bomUnit}/portion`,
+    `→ demand: ${canonicalPortions} × ${bomQty}${bomUnit} = ${totalDemandG}${bomUnit}`,
+  ];
+
+  return {
+    ok:                true,
+    status:            'OK',
+    businessDate,
+    canonicalPortions,
+    bomQtyPerPortion:  bomQty,
+    bomUnit,
+    totalDemandG,
+    shadowDemandLabel,
+    includedRows,
+    excludedRows,
+    explanation,
+    tracePath,
+  };
+}
+
+/**
+ * @typedef {object} SaleRecipeDemandResult
+ * @property {true}    ok
+ * @property {'OK'|'NEEDS_REVIEW'} status
+ * @property {string}  businessDate
+ * @property {number}  canonicalPortions
+ * @property {number}  bomQtyPerPortion
+ * @property {string}  bomUnit
+ * @property {number}  totalDemandG
+ * @property {string}  shadowDemandLabel
+ * @property {Array}   includedRows
+ * @property {Array}   excludedRows
+ * @property {string}  explanation
+ * @property {string[]} tracePath
+ */
 /**
  * @typedef {object} DowForecastResult
  * @property {true}    ok

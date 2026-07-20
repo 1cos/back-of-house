@@ -14,6 +14,9 @@ import {
   deriveMatchingDowDates,
   extractDicedChickenBOMQty,
   fetchFriedCalamari,
+  fetchLatestCalamariSalesDate,
+  fetchFriedCalamariSales,
+  extractCalamariItemBOMQty,
   formatBOM,
   formatStock,
   formatSuggestion,
@@ -22,6 +25,7 @@ import {
   calculateAddChickenShadow,
   calculateMatchingDowForecast,
   calculateRequiredProduction,
+  calculateSaleRecipeDemand,
 } from './production-lab-shadow-engine.js';
 
 /* ══════════════════════════════════════════════════════════════════════════ */
@@ -856,48 +860,108 @@ async function _loadFriedCalamari(el) {
     if (cls) el2.className = (el2.className || '') + ' ' + cls;
   };
 
-  // Rows populated by this loader (static rows remain —)
-  const LIVE_ROWS = ['trigger','recipe','bom','stock','boh_result'];
+  // All rows this loader touches
+  const LIVE_ROWS = ['trigger','recipe','bom','stock','boh_result',
+                     'modifier_uses','bom_per_use','shadow_demand','difference','explanation'];
   LIVE_ROWS.forEach(r => setVal(r, t('lab.loading')));
 
-  const result = await fetchFriedCalamari();
+  // ── Phase 1: core recipe + BOM + prep + suggestion ────────────────────────
+  const core = await fetchFriedCalamari();
 
-  if (!result.ok) {
+  if (!core.ok) {
     LIVE_ROWS.forEach(r => setVal(r, t('lab.error')));
     const statusDot   = card.querySelector('.lab-status-dot');
     const statusLabel = card.querySelector('.lab-status-label');
     if (statusDot)   statusDot.className    = 'lab-status-dot lab-status-error';
     if (statusLabel) statusLabel.textContent = t('lab.status.error');
-    console.warn('[ProductionLab] Fried Calamari fetch error:', result.error);
+    console.warn('[ProductionLab] Fried Calamari fetch error:', core.error);
     return;
   }
 
-  const { recipe, bom, prep, suggestion } = result.data;
+  const { recipe, bom, prep, suggestion } = core.data;
+  const aliases = (recipe.pos_name ?? '').split('|').map(a => a.trim()).filter(Boolean);
 
-  // Trigger: POS item (not a modifier) — primary alias is "Fried Calamari"
+  // Fill static rows
   setVal('trigger', 'Fried Calamari (POS item · Antipasti)');
   setVal('recipe',  recipe.title ?? '—');
   setVal('bom',     formatBOM(bom) || '—');
   setVal('stock',   formatStock(prep));
   setVal('boh_result', formatSuggestion(suggestion, lang));
 
-  // Trace path
-  const traceEl = card.querySelector('.lab-trace');
-  if (traceEl) {
-    const aliases = (recipe.pos_name ?? '').split('|').map(a => a.trim());
-    const keyBom  = bom.find(r => r.component_type === 'ITEM'
-                              && r.ingredients?.name?.toLowerCase().includes('calamari'));
-    const bomDesc = keyBom
-      ? `${keyBom.ingredients.name} ${keyBom.quantity}${keyBom.unit}`
-      : `${bom.length} BOM rows`;
+  // ── Phase 2: extract Calamari BOM qty (live, not hardcoded) ──────────────
+  const bomEntry = extractCalamariItemBOMQty(bom);
+  if (!bomEntry) {
+    setVal('modifier_uses', '—');
+    setVal('bom_per_use',   '—');
+    setVal('shadow_demand', 'NEEDS REVIEW: Calamari ITEM not found in BOM');
+    setVal('difference',    '—');
+    setVal('explanation',   'Calamari ingredient missing from recipe BOM.');
+    return;
+  }
 
-    const trace = [
-      `pos_sales_by_item.menu_item IN [${aliases.map(a => `'${a}'`).join(', ')}]`,
-      `→ recipe '${recipe.title}' (id: ${recipe.id?.slice(0, 8)}…)`,
-      `→ recipe_bom: ${bomDesc} (key ingredient)`,
-      `→ prep_tasks.id=${prep.id} '${prep.name}' · ${prep.category}`,
-    ];
-    traceEl.innerHTML = trace
+  // ── Phase 3: latest sales date ────────────────────────────────────────────
+  const dateResult = await fetchLatestCalamariSalesDate(aliases);
+  if (!dateResult.ok) {
+    setVal('modifier_uses', '—');
+    setVal('bom_per_use',   `${bomEntry.qty}${bomEntry.unit}`);
+    setVal('shadow_demand', 'NEEDS REVIEW: ' + dateResult.error);
+    setVal('difference',    '—');
+    setVal('explanation',   dateResult.error);
+    return;
+  }
+  const businessDate = dateResult.date;
+
+  // ── Phase 4: fetch sales + alias portion factors ──────────────────────────
+  const salesResult = await fetchFriedCalamariSales(businessDate, aliases);
+  if (!salesResult.ok) {
+    setVal('modifier_uses', t('lab.error'));
+    setVal('shadow_demand', t('lab.error'));
+    setVal('difference',    '—');
+    setVal('explanation',   salesResult.error);
+    return;
+  }
+
+  // ── Phase 5: shadow engine (pure) ─────────────────────────────────────────
+  const shadow = calculateSaleRecipeDemand({
+    businessDate,
+    salesRows:      salesResult.data.salesRows,
+    aliasPortionMap:salesResult.data.aliasPortionMap,
+    bomQuantity:    bomEntry.qty,
+    bomUnit:        bomEntry.unit,
+    ingredientName: bomEntry.ingredientName,
+    recipeTitle:    recipe.title,
+  });
+
+  if (!shadow.ok) {
+    setVal('modifier_uses', '—');
+    setVal('shadow_demand', `${shadow.status}: ${shadow.error}`);
+    setVal('difference',    '—');
+    setVal('explanation',   shadow.error);
+    return;
+  }
+
+  // ── Phase 6: fill shadow rows ─────────────────────────────────────────────
+  const portionsLabel = shadow.includedRows
+    .map(r => `${r.menu_item} ×${r.quantity}`)
+    .join(', ');
+  setVal('modifier_uses', `${shadow.canonicalPortions} portions (${businessDate}) — ${portionsLabel}`);
+  setVal('bom_per_use',   `${shadow.bomQtyPerPortion}${shadow.bomUnit}`);
+  setVal('shadow_demand', shadow.shadowDemandLabel);
+  // BOH has no demand path → NOT COMPARABLE
+  setVal('difference',    'NOT COMPARABLE');
+  setVal('explanation',   shadow.explanation);
+
+  // ── Phase 7: warning banner ───────────────────────────────────────────────
+  const ncEl = card.querySelector('.lab-not-comparable');
+  if (ncEl) {
+    ncEl.textContent = 'SHADOW DEMAND EXISTS — BOH HAS NO DEMAND PATH (no_demand_path). Stock deductions exist but bot has no forecast.';
+    ncEl.style.display = '';
+  }
+
+  // ── Phase 8: trace ────────────────────────────────────────────────────────
+  const traceEl = card.querySelector('.lab-trace');
+  if (traceEl && shadow.tracePath) {
+    traceEl.innerHTML = shadow.tracePath
       .map(line => `<span class="lab-trace-line">${line}</span>`)
       .join('');
   }

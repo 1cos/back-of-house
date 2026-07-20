@@ -395,3 +395,104 @@ export async function fetchFriedCalamari() {
     return { ok: false, error: err.message ?? 'unknown error' };
   }
 }
+
+/**
+ * Fetch the latest date that has pos_sales_by_item data for Fried Calamari aliases.
+ * SELECT only.
+ *
+ * @param {string[]} aliases  — alias list from recipes.pos_name
+ * @returns {Promise<{ ok: true, date: string } | { ok: false, error: string }>}
+ */
+export async function fetchLatestCalamariSalesDate(aliases) {
+  try {
+    const { data, error } = await _db
+      .from('pos_sales_by_item')
+      .select('sale_date')
+      .in('menu_item', aliases)
+      .order('sale_date', { ascending: false })
+      .limit(1);
+
+    if (error) throw new Error(`pos_sales_by_item date: ${error.message}`);
+    if (!data?.length) return { ok: false, error: 'No sales found for Fried Calamari aliases' };
+
+    return { ok: true, date: data[0].sale_date };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}
+
+/**
+ * Fetch POS sales for Fried Calamari aliases on a specific date.
+ * Also fetch portion_factor values from pos_item_aliases.
+ * SELECT only.
+ *
+ * @param {string}   businessDate — 'YYYY-MM-DD'
+ * @param {string[]} aliases      — alias list from recipes.pos_name
+ * @returns {Promise<{ ok: true, data: CalamariSalesData } | { ok: false, error: string }>}
+ */
+export async function fetchFriedCalamariSales(businessDate, aliases) {
+  try {
+    // 1. POS sales for the date
+    const { data: salesRows, error: salesErr } = await _db
+      .from('pos_sales_by_item')
+      .select('sale_date, menu_item, quantity')
+      .eq('sale_date', businessDate)
+      .in('menu_item', aliases);
+
+    if (salesErr) throw new Error(`pos_sales_by_item: ${salesErr.message}`);
+
+    // 2. portion_factor from pos_item_aliases for any mapped aliases
+    const { data: aliasRows, error: aliasErr } = await _db
+      .from('pos_item_aliases')
+      .select('alias_name, portion_factor')
+      .in('alias_name', aliases);
+
+    if (aliasErr) throw new Error(`pos_item_aliases: ${aliasErr.message}`);
+
+    // Build aliasPortionMap: default 1.0 for aliases not in pos_item_aliases
+    const aliasPortionMap = {};
+    for (const alias of aliases) {
+      const row = (aliasRows ?? []).find(r => r.alias_name === alias);
+      aliasPortionMap[alias] = row ? Number(row.portion_factor ?? 1.0) : 1.0;
+    }
+
+    // Normalize salesRows: add 'date' for engine compatibility
+    const normalized = (salesRows ?? []).map(r => ({
+      date:      r.sale_date,
+      menu_item: r.menu_item,
+      quantity:  r.quantity,
+    }));
+
+    return {
+      ok: true,
+      data: {
+        businessDate,
+        salesRows: normalized,
+        aliasPortionMap,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}
+
+/**
+ * Extract the Calamari ingredient BOM quantity from Fried Calamari BOM rows.
+ * Returns { qty, unit, ingredientName } or null if not found.
+ * Looks for ITEM component whose ingredient name contains 'calamari'.
+ *
+ * @param {Array} bomRows — rows from fetchFriedCalamari().data.bom
+ * @returns {{ qty: number, unit: string, ingredientName: string } | null}
+ */
+export function extractCalamariItemBOMQty(bomRows) {
+  const row = (bomRows ?? []).find(
+    r => r.component_type === 'ITEM' &&
+         r.ingredients?.name?.toLowerCase().includes('calamari')
+  );
+  if (!row) return null;
+  return {
+    qty:            Number(row.quantity),
+    unit:           row.unit ?? 'g',
+    ingredientName: row.ingredients.name,
+  };
+}
