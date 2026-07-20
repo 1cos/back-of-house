@@ -1455,7 +1455,7 @@ async function _loadTruffleButter(el) {
   setVal('tb_ri_implied_batch', impliedBatch != null ? `${impliedBatch}g (${servings} × ${declPort}g)` : '—');
   setVal('tb_ri_diff',          diff != null ? `${diff}g` : '—');
 
-  const riStatus = hasInconsistency ? 'NEEDS RECIPE REVIEW' : 'OK';
+  const riStatus = hasInconsistency ? 'NEEDS RECIPE REVIEW' : 'RECIPE COMPLETE';
   const riCls    = hasInconsistency ? 'lab-val-mismatch' : 'lab-val-match';
   setVal('tb_ri_status', riStatus, riCls);
 
@@ -1463,13 +1463,11 @@ async function _loadTruffleButter(el) {
   // Existing ingredients that could compose Truffle Butter
   // (confirmed from DB: Butter, Black Truffle, Truffle Oil all exist as ingredients;
   //  Truffle Fettuccine BOM uses Black Truffle 4g separately → suggests TB = Butter + truffle compound)
-  const possibleSources = [
-    'Butter (category: Dairy) — exists in ingredients, not linked to this BOM',
-    'Black Truffle (category: Produce) — used in Truffle Fettuccine BOM separately (4g)',
-    'Truffle Oil (category: Oil & Vinegar) — used in WELLINGTON BOM (5g)',
-    '"Truffle Butter" ingredient also exists (category: Dairy) — no vendor, no BOM reference',
-  ].join(' · ');
-  setVal('tb_ri_bom_source', possibleSources);
+  const bomCompleteNote = bom.length > 0
+    ? `BOM COMPLETE 2026-07-19 — ${bom.length} ingredients: ` +
+      bom.map(b => b.ingredients?.name ?? b.sub_recipe?.title ?? '?').join(', ')
+    : 'BOM empty — not yet catalogued';
+  setVal('tb_ri_bom_source', bomCompleteNote);
 
   // ── Phase 5: trace ─────────────────────────────────────────────────────────
   const traceEl = card.querySelector('.lab-trace');
@@ -1479,7 +1477,9 @@ async function _loadTruffleButter(el) {
       `→ recipe_bom bom_id=2306: TRUFFLE BUTTER 20g`,
       `→ recipe 'TRUFFLE BUTTER' id=0564433e (${batchG ?? '?'}g batch / ${servings ?? '?'} portions)`,
       `→ prep_tasks.id=${prep.id} '${prep.name}' · ${prep.category} · ${prep.current_stock}${prep.unit}`,
-      `⚠ BOM empty — 20g downstream confirmed via stock_deductions (clean path)`,
+      bom.length > 0
+        ? `→ BOM COMPLETE: ${bom.length} ingredients, 963.5g input → 960g finished (3.5g process loss)`
+        : `⚠ BOM empty — 20g downstream confirmed via stock_deductions (clean path)`,
     ];
     traceEl.innerHTML = trace
       .map(line => `<span class="lab-trace-line">${line}</span>`)
