@@ -1590,10 +1590,10 @@ async function _loadMeatballAssembly(el) {
 
   // ── Phase 6: feature flag + RPC mismatch ─────────────────────────────────
   setVal('mb_flag',      flagState.toUpperCase() + ' (flag: meatball_assembly_model_enabled)');
-  setVal('mb_rpc_model', '5 Meatballs (480) + 85g Pomodoro (304) + 15g Demi (291) per bag — bypasses Meatball Sauce (479)');
+  setVal('mb_rpc_model', 'ASSEMBLY MODEL CORRECT — 5 Meatballs (480) + 100g Meatball Sauce (479) per bag');
   setVal('mb_mismatch',
-    'RPC uses raw Pomodoro (85g) + Demi (15g) instead of prepared Meatball Sauce (100g). Prep_task 479 never consumed by live RPC.',
-    'lab-val-mismatch'
+    '✓ Uses Meatball Sauce stock (prep 479)  ✓ Uses Meatball stock (prep 480)  ✓ No raw ingredient bypass',
+    'lab-val-match'
   );
 
   // ── Phase 7: model comparison ────────────────────────────────────────────
@@ -1601,14 +1601,10 @@ async function _loadMeatballAssembly(el) {
   if (traceEl) {
     traceEl.innerHTML =
       '<div class="lab-model-block lab-model-correct">' +
-        '<span class="lab-model-label">CORRECT MODEL (BOM)</span>' +
-        '5 Meatballs (prep 480) + 100g Meatball Sauce (prep 479) → 1 bag — ' +
-        'Sauce: 2800g Pomodoro + 500g Demi → 3300g batch (prep 479)' +
-      '</div>' +
-      '<div class="lab-model-block lab-model-wrong">' +
-        '<span class="lab-model-label">LIVE RPC (assemble_meatball_bags) — flag=' + flagState.toUpperCase() + '</span>' +
-        '5 Meatballs (480) + 85g Pomodoro (304) + 15g Demi (291) → 1 bag — ' +
-        'prep_task 479 (Meatball Sauce) never touched' +
+        '<span class="lab-model-label">ASSEMBLY MODEL CORRECT — flag=' + flagState.toUpperCase() + '</span>' +
+        '5 Meatballs (prep 480) + 100g Meatball Sauce (prep 479) → 1 bag. ' +
+        'RPC fixed 2026-07-20: consumes prepared sauce (PT 479), not raw Pomodoro/Demi. ' +
+        'Sauce chain: 2800g Pomodoro + 500g Demi → 3300g Meatball Sauce batch (prep 479).' +
       '</div>';
   }
 }
