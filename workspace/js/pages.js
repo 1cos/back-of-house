@@ -19,6 +19,7 @@ import {
   extractCalamariItemBOMQty,
   fetchSalesForDates,
   fetchCalamariDeductionDiagnostics,
+  fetchProcessSalmon,
   formatBOM,
   formatStock,
   formatSuggestion,
@@ -602,7 +603,7 @@ const LAB_ROW_KEYS = [
 
 function renderLabCard(card) {
   const familyClass = LAB_FAMILY_CLASS[card.family] ?? '';
-  const CONNECTED_SET = new Set(['add_chicken', 'fried_calamari']);
+  const CONNECTED_SET = new Set(['add_chicken', 'fried_calamari', 'process_salmon']);
   const isConnected  = CONNECTED_SET.has(card.key);
   const statusClass  = isConnected ? 'lab-status-connected' : '';
   const statusLabel  = isConnected
@@ -1143,6 +1144,67 @@ async function _loadFriedCalamari(el) {
   }
 }
 
+/* ── Process Salmon live loader ──────────────────────────────────────────── */
+async function _loadProcessSalmon(el) {
+  const card = el.querySelector('#lab-card-process_salmon');
+  if (!card) return;
+
+  const lang = sessionStorage.getItem('ws_lang') ?? 'en';
+  const KEY  = 'process_salmon';
+
+  const get    = id => card.querySelector('#' + id);
+  const setVal = (suffix, text, cls) => {
+    const el2 = get(`lab-row-${KEY}-${suffix}`);
+    if (!el2) return;
+    el2.textContent = text;
+    if (cls) el2.className = (el2.className || '') + ' ' + cls;
+  };
+
+  const LIVE_ROWS = ['trigger','recipe','bom','stock','boh_result'];
+  LIVE_ROWS.forEach(r => setVal(r, t('lab.loading')));
+
+  const result = await fetchProcessSalmon();
+
+  if (!result.ok) {
+    LIVE_ROWS.forEach(r => setVal(r, t('lab.error')));
+    const statusDot   = card.querySelector('.lab-status-dot');
+    const statusLabel = card.querySelector('.lab-status-label');
+    if (statusDot)   statusDot.className    = 'lab-status-dot lab-status-error';
+    if (statusLabel) statusLabel.textContent = t('lab.status.error');
+    console.warn('[ProductionLab] Process Salmon fetch error:', result.error);
+    return;
+  }
+
+  const { recipe, bom, prep, suggestion } = result.data;
+
+  // Transformation ratio: Salmon (raw) 190g → 1 portioned filet
+  const rawBomRow = bom.find(r => r.component_type === 'ITEM'
+                               && r.ingredients?.name?.toLowerCase().includes('salmon'));
+  const inputQty  = rawBomRow ? `${rawBomRow.quantity}${rawBomRow.unit}` : '190g';
+  const outputQty = recipe.base_weight_g ? `${recipe.base_weight_g}g / ${recipe.serving_qty ?? '1'} ${recipe.serving_unit ?? 'pz'}` : '190g / 1 pz';
+
+  // Trigger: downstream demand — Amalfi Salmon POS → Thaw Salmon → pulls from this prep
+  setVal('trigger', 'Downstream demand — Amalfi Salmon POS → Thaw Salmon → Salmon Filets');
+  setVal('recipe',  `${recipe.title} (${inputQty} raw → ${outputQty} portioned)`);
+  setVal('bom',     formatBOM(bom) || '—');
+  setVal('stock',   formatStock(prep));
+  setVal('boh_result', formatSuggestion(suggestion, lang));
+
+  // Trace path
+  const traceEl = card.querySelector('.lab-trace');
+  if (traceEl) {
+    const trace = [
+      `Salmon (raw ingredient, Fruge Seafood, ~32.6lb baffa)`,
+      `→ recipe '${recipe.title}' (cure + portion + freeze)`,
+      `→ ${inputQty} raw → 1 filet (~190g, curato)`,
+      `→ prep_tasks.id=${prep.id} '${prep.name}' · ${prep.category} · ${prep.current_stock} ${prep.unit} in freezer`,
+    ];
+    traceEl.innerHTML = trace
+      .map(line => `<span class="lab-trace-line">${line}</span>`)
+      .join('');
+  }
+}
+
 export const ProductionLabPage = {
   render() {
     return `
@@ -1182,6 +1244,7 @@ export const ProductionLabPage = {
   afterRender(el) {
     _loadAddChicken(el);
     _loadFriedCalamari(el);
+    _loadProcessSalmon(el);
   },
 };
 

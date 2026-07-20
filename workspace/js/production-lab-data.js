@@ -584,3 +584,81 @@ export async function fetchCalamariDeductionDiagnostics(dates, aliases) {
     return { ok: false, error: err.message ?? 'unknown error' };
   }
 }
+
+// ── Process Salmon — fixed IDs (verified 2026-07-19) ────────────────────────
+// Recipe: "Salmon Filets"  id=1e31334d  (Bases, base_weight_g=190g, serving_unit=pezzi)
+//   BOM: Salmon (ITEM) 190g — raw input per filet
+//   Output: 1 filet (~190g, cured with Fish Salt, wrapped, frozen)
+// prep_tasks.id: 317  name="Salmon filets"  category=Table Side  unit=pezzi
+//   current_stock=63 pz
+// Trigger: downstream demand — Amalfi Salmon POS sales drive Thaw Salmon (413),
+//   which pulls from Salmon filets (317). Chain: Salmon (raw) → Salmon Filets
+//   (prep) → Thaw Salmon (sub-recipe in Amalfi Salmon BOM)
+// BOH: no_demand_path for prep_task 317 (no direct stock_deductions recorded)
+
+const PROCESS_SALMON_RECIPE_ID = '1e31334d-544c-4b51-b212-c07b45fe9738';
+const PROCESS_SALMON_PREP_ID   = 317;
+
+/**
+ * Fetch all data for the Process Salmon card (read-only).
+ * SELECT only — no insert/update/delete/upsert/mutating RPC.
+ *
+ * @returns {Promise<{ ok: true, data: ProcessSalmonData } | { ok: false, error: string }>}
+ */
+export async function fetchProcessSalmon() {
+  try {
+    // 1. Recipe (Salmon Filets)
+    const { data: recipeRows, error: recErr } = await _db
+      .from('recipes')
+      .select('id, title, pos_name, base_servings, base_weight_g, serving_unit, serving_qty')
+      .eq('id', PROCESS_SALMON_RECIPE_ID)
+      .limit(1);
+
+    if (recErr) throw new Error(`recipe: ${recErr.message}`);
+    if (!recipeRows?.length) throw new Error('Process Salmon recipe not found');
+    const recipe = recipeRows[0];
+
+    // 2. BOM (single row: Salmon 190g)
+    const { data: bomRows, error: bomErr } = await _db
+      .from('recipe_bom')
+      .select(`
+        bom_id, component_type, quantity, unit, notes, sort_order,
+        ingredients ( name ),
+        sub_recipe:recipes!recipe_bom_sub_recipe_id_fkey ( title )
+      `)
+      .eq('parent_recipe_id', PROCESS_SALMON_RECIPE_ID)
+      .order('sort_order');
+
+    if (bomErr) throw new Error(`bom: ${bomErr.message}`);
+
+    // 3. Prep task (Salmon filets, freezer stock)
+    const { data: prepRows, error: prepErr } = await _db
+      .from('prep_tasks')
+      .select('id, name, category, unit, current_stock')
+      .eq('id', PROCESS_SALMON_PREP_ID)
+      .limit(1);
+
+    if (prepErr) throw new Error(`prep_task: ${prepErr.message}`);
+    if (!prepRows?.length) throw new Error('Salmon filets prep task not found');
+    const prep = prepRows[0];
+
+    // 4. Latest BOH suggestion for Salmon filets
+    const { data: suggRows, error: suggErr } = await _db
+      .from('prep_suggestions_daily')
+      .select('suggestion_date, status, confidence, planned_output, output_unit, forecast, forecast_unit, net_requirement, demand_source, reason, generated_at')
+      .eq('prep_task_id', PROCESS_SALMON_PREP_ID)
+      .order('suggestion_date', { ascending: false })
+      .order('generated_at',    { ascending: false })
+      .limit(1);
+
+    if (suggErr) throw new Error(`suggestions: ${suggErr.message}`);
+    const suggestion = suggRows?.[0] ?? null;
+
+    return {
+      ok: true,
+      data: { recipe, bom: bomRows ?? [], prep, suggestion },
+    };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}
