@@ -930,6 +930,11 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span style="color:#d97706;font-weight:700;">Production Coverage</span>
         </button>
 
+        <button onclick="hideAdminMenu();openRecipeControlTable()" class="amenu-btn" style="border:1.5px solid #ddd6fe;background:#f5f3ff;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="1.8" stroke-linecap="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+          <span style="color:#7c3aed;font-weight:700;">Recipe DB</span>
+        </button>
+
         <!-- Logout — rosso, in fondo -->
         <button onclick="hideAdminMenu();brigadeLogout()" class="amenu-btn amenu-logout">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -1002,6 +1007,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/office.js"></script>
 <script src="js/mapping-control-room.js"></script>
 <script src="js/admin-prod-coverage.js"></script>
+<script src="js/admin-recipe-control.js"></script>
 <script src="js/demo-bot.js"></script>
 <script src="js/workspace.js"></script>
 <script src="js/schedule.js"></script>
