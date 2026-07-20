@@ -512,6 +512,55 @@ export function showYesChef(root, message) {
 /*  PRODUCTION LAB                                                            */
 /* ══════════════════════════════════════════════════════════════════════════ */
 
+const LAB_CARDS = [
+  { key:'add_chicken',      family:'sale'      },
+  { key:'fried_calamari',   family:'sale'      },
+  { key:'process_salmon',   family:'transform' },
+  { key:'truffle_butter',   family:'transform' },
+  { key:'meatball_bags',    family:'assemble'  },
+];
+
+const LAB_FAMILY_CLASS = {
+  sale:      'lab-family-sale',
+  transform: 'lab-family-transform',
+  assemble:  'lab-family-assemble',
+};
+
+const LAB_ROW_KEYS = [
+  'lab.row.trigger',
+  'lab.row.recipe',
+  'lab.row.bom',
+  'lab.row.stock',
+  'lab.row.required',
+  'lab.row.reason',
+];
+
+function renderLabCard(card) {
+  const familyClass = LAB_FAMILY_CLASS[card.family] ?? '';
+  const rows = LAB_ROW_KEYS.map(key => `
+    <div class="lab-card-row">
+      <span class="lab-row-label">${t(key)}</span>
+      <span class="lab-row-value">—</span>
+    </div>
+  `).join('');
+
+  return `
+    <div class="lab-card">
+      <div class="lab-card-header">
+        <span class="lab-card-name">${t('lab.card.' + card.key)}</span>
+        <span class="lab-family-badge ${familyClass}">${t('lab.stage.' + card.family)}</span>
+      </div>
+      <div class="lab-card-status">
+        <span class="lab-status-dot"></span>
+        <span class="lab-status-label">${t('lab.status.not_connected')}</span>
+      </div>
+      <div class="lab-card-rows">
+        ${rows}
+      </div>
+    </div>
+  `;
+}
+
 export const ProductionLabPage = {
   render() {
     return `
@@ -541,9 +590,8 @@ export const ProductionLabPage = {
           </div>
         </div>
 
-        <div class="demo-banner">
-          <span class="demo-dot"></span>
-          ${t('lab.coming_soon')}
+        <div class="lab-grid">
+          ${LAB_CARDS.map(renderLabCard).join('')}
         </div>
       </div>
     `;
