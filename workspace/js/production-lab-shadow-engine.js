@@ -244,6 +244,123 @@ export function calculateMatchingDowForecast(input) {
   };
 }
 
+
+/**
+ * Reconstruct the BOH planned_output from explicit named fields in the suggestion record.
+ * Pure function — no DB access, no DOM. planned_output is NEVER used as a calculation input.
+ *
+ * Formula (all inputs are named debug_json / suggestion fields):
+ *   1. gross_requirement = buffered_forecast       (debug_json.buffered_forecast)
+ *   2. net_requirement   = gross − stock_value     (debug_json.stock_detail.value, fresh count)
+ *   3. planned_output    = ceil(net / min_increment) × min_increment
+ *
+ * Float precision note:
+ *   raw_forecast × buffer_factor drifts 0.01g vs stored buffered_forecast.
+ *   The shadow uses buffered_forecast directly to match the bot's own stored value.
+ *
+ * @param {object} input
+ * @param {number}   input.bufferedForecast   — debug_json.buffered_forecast (g)
+ * @param {number}   input.rawForecast        — debug_json.raw_forecast (g) [display only]
+ * @param {number}   input.bufferFactor       — debug_json.buffer_factor [display only]
+ * @param {number}   input.stockValue         — debug_json.stock_detail.value (g)
+ * @param {number}   input.minimumIncrement   — suggestion.minimum_increment
+ * @param {number}   input.bohPlannedOutput   — suggestion.planned_output [comparison ONLY]
+ * @param {number}   input.coverageDays       — suggestion.coverage_days [display only]
+ * @param {string[]} input.coverDates         — debug_json.cover_dates [display only]
+ * @returns {ProductionResult}
+ */
+export function calculateRequiredProduction(input) {
+  const {
+    bufferedForecast,
+    rawForecast,
+    bufferFactor,
+    stockValue,
+    minimumIncrement,
+    bohPlannedOutput,
+    coverageDays,
+    coverDates,
+  } = input;
+
+  // ── Guard: require all essential calculation inputs ───────────────────────
+  const missing = [];
+  if (bufferedForecast == null || isNaN(Number(bufferedForecast)))
+    missing.push('debug_json.buffered_forecast');
+  if (stockValue == null || isNaN(Number(stockValue)))
+    missing.push('debug_json.stock_detail.value');
+  if (minimumIncrement == null || isNaN(Number(minimumIncrement)))
+    missing.push('minimum_increment');
+
+  if (missing.length) {
+    return {
+      ok:            false,
+      status:        'CANNOT_RECONSTRUCT',
+      missingFields: missing,
+      error:         `Missing: ${missing.join(', ')}`,
+    };
+  }
+
+  const gross  = Number(bufferedForecast);
+  const stock  = Number(stockValue);
+  const minInc = Number(minimumIncrement);
+  const boh    = bohPlannedOutput != null ? Number(bohPlannedOutput) : null;
+
+  // Step 1: gross requirement = buffered forecast
+  const grossRequirement = gross;
+
+  // Step 2: net requirement = gross − stock (round to 2dp, matches bot precision)
+  const netRequirement = Math.round((gross - stock) * 100) / 100;
+
+  if (netRequirement <= 0) {
+    const diff = boh != null ? 0 - boh : 0;
+    return {
+      ok: true,
+      grossRequirement,
+      rawForecast:      rawForecast ?? null,
+      bufferFactor:     bufferFactor ?? null,
+      stockApplied:     stock,
+      netRequirement:   0,
+      roundingNote:     'Net ≤ 0 — no production needed',
+      calculatedOutput: 0,
+      bohPlannedOutput: boh,
+      diff,
+      status:           (boh == null || Math.abs(diff) < minInc) ? 'MATCH' : 'MISMATCH',
+      formulaTrace:     `${gross}g − ${stock}g = ${netRequirement}g (≤ 0) → 0g`,
+      coverageDays:     coverageDays ?? null,
+      coverDates:       coverDates ?? [],
+    };
+  }
+
+  // Step 3: planned = ceil(net / min_increment) × min_increment
+  const calculatedOutput = Math.ceil(netRequirement / minInc) * minInc;
+  const roundingNote     = `ceil(${netRequirement}g / ${minInc}) × ${minInc} = ${calculatedOutput}g`;
+
+  // Step 4: compare with BOH (comparison only — boh not used in any calc above)
+  const diff    = boh != null ? calculatedOutput - boh : 0;
+  const absDiff = Math.abs(diff);
+  const status  = boh == null ? 'CANNOT_RECONSTRUCT'
+    : absDiff <= minInc ? 'MATCH' : 'MISMATCH';
+
+  const formulaTrace =
+    `${gross}g − ${stock}g = ${netRequirement}g → ${roundingNote}`;
+
+  return {
+    ok:               true,
+    grossRequirement,
+    rawForecast:      rawForecast ?? null,
+    bufferFactor:     bufferFactor ?? null,
+    stockApplied:     stock,
+    netRequirement,
+    roundingNote,
+    calculatedOutput,
+    bohPlannedOutput: boh,
+    diff,
+    status,
+    formulaTrace,
+    coverageDays:     coverageDays ?? null,
+    coverDates:       coverDates ?? [],
+  };
+}
+
 /**
  * @typedef {object} DowForecastResult
  * @property {true}    ok

@@ -1001,6 +1001,23 @@ ol, ul { list-style: none; }
 
 
 
+
+/* ── Lab formula trace line ─────────────────────────────────────────────── */
+.lab-formula-trace {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  padding: 6px 10px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-top: 2px;
+  line-height: 1.5;
+  word-break: break-all;
+  display: none; /* shown by JS after load */
+}
+.lab-formula-trace:not(:empty) { display: block; }
+
 /* ── Lab section header rows ─────────────────────────────────────────────── */
 .lab-card-row.lab-row-header {
   background: var(--bg-mid);

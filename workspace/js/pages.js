@@ -20,6 +20,7 @@ import {
 import {
   calculateAddChickenShadow,
   calculateMatchingDowForecast,
+  calculateRequiredProduction,
 } from './production-lab-shadow-engine.js';
 
 /* ══════════════════════════════════════════════════════════════════════════ */
@@ -560,6 +561,18 @@ const LAB_ROW_KEYS = [
   'lab.row.dow_status',
   'lab.row.boh_result',
   'lab.row.explanation',
+  // ── Production formula ─────────────────────────────────
+  'lab.row.prod_header',
+  'lab.row.prod_forecast',
+  'lab.row.prod_coverage',
+  'lab.row.prod_gross',
+  'lab.row.prod_stock',
+  'lab.row.prod_net',
+  'lab.row.prod_rounding',
+  'lab.row.prod_shadow',
+  'lab.row.prod_boh',
+  'lab.row.prod_diff',
+  'lab.row.prod_status',
 ];
 
 function renderLabCard(card) {
@@ -598,6 +611,7 @@ function renderLabCard(card) {
       ${isConnected ? `
         <div class="lab-not-comparable" style="display:none"></div>
         <div class="lab-trace"></div>
+        <div class="lab-formula-trace"></div>
       ` : ''}
     </div>
   `;
@@ -621,7 +635,10 @@ async function _loadAddChicken(el) {
   // Show loading for all dynamic rows
   const LOADING_KEYS = ['modifier_uses','bom_per_use','shadow_demand',
                         'dow_samples','dow_bom_forecast','dow_boh_forecast',
-                        'dow_difference','dow_status','boh_result','explanation'];
+                        'dow_difference','dow_status','boh_result','explanation',
+                        'prod_forecast','prod_coverage','prod_gross','prod_stock',
+                        'prod_net','prod_rounding','prod_shadow','prod_boh',
+                        'prod_diff','prod_status'];
   LOADING_KEYS.forEach(k => setVal(k, t('lab.loading')));
 
   // ── Phase 1: core recipe + BOM + prep + suggestion ────────────────────────
@@ -769,6 +786,56 @@ async function _loadAddChicken(el) {
       ncEl.style.display = '';
     }
   }
+
+  // ── Phase 7: production formula reconstruction ────────────────────────────
+  // Extract named inputs from debug_json — never pass planned_output into calc
+  const dbg = suggestion.debug_json ?? {};
+  const prod = calculateRequiredProduction({
+    bufferedForecast:  dbg.buffered_forecast ?? null,
+    rawForecast:       dbg.raw_forecast      ?? null,
+    bufferFactor:      dbg.buffer_factor     ?? null,
+    stockValue:        dbg.stock_detail?.value ?? null,
+    minimumIncrement:  suggestion.minimum_increment ?? null,
+    bohPlannedOutput:  suggestion.planned_output ?? null,   // comparison target only
+    coverageDays:      suggestion.coverage_days ?? null,
+    coverDates:        dbg.cover_dates ?? [],
+  });
+
+  if (!prod.ok) {
+    setVal('prod_forecast', '—');
+    setVal('prod_coverage', '—');
+    setVal('prod_gross',    '—');
+    setVal('prod_stock',    '—');
+    setVal('prod_net',      '—');
+    setVal('prod_rounding', '—');
+    setVal('prod_shadow',   `CANNOT RECONSTRUCT: ${prod.missingFields?.join(', ') ?? prod.error}`);
+    setVal('prod_boh',      suggestion.planned_output != null ? `${suggestion.planned_output}g` : '—');
+    setVal('prod_diff',     '—');
+    setVal('prod_status',   'CANNOT RECONSTRUCT');
+    return;
+  }
+
+  const coverLabel = prod.coverDates.length
+    ? `${prod.coverageDays}d (${prod.coverDates[0]} → ${prod.coverDates[prod.coverDates.length-1]})`
+    : `${prod.coverageDays ?? '—'}d`;
+  const diffLabel = prod.diff === 0 ? '0g'
+    : `${prod.diff > 0 ? '+' : ''}${prod.diff.toFixed(0)}g`;
+  const prodStatusCls = prod.status === 'MATCH' ? 'lab-val-match' : 'lab-val-mismatch';
+
+  setVal('prod_forecast', `${prod.grossRequirement}g (×${prod.bufferFactor ?? '?'} buffer → ${prod.rawForecast ?? '?'}g raw)`);
+  setVal('prod_coverage', coverLabel);
+  setVal('prod_gross',    `${prod.grossRequirement}g`);
+  setVal('prod_stock',    `${prod.stockApplied}g (fresh count)`);
+  setVal('prod_net',      `${prod.netRequirement}g`);
+  setVal('prod_rounding', prod.roundingNote);
+  setVal('prod_shadow',   `${prod.calculatedOutput}g`);
+  setVal('prod_boh',      `${prod.bohPlannedOutput}g`);
+  setVal('prod_diff',     diffLabel);
+  setVal('prod_status',   prod.status, prodStatusCls);
+
+  // Update formula trace to show production formula
+  const formulaEl = card.querySelector('.lab-formula-trace');
+  if (formulaEl) formulaEl.textContent = prod.formulaTrace;
 }
 
 export const ProductionLabPage = {
