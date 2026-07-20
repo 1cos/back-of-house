@@ -1152,9 +1152,10 @@ async function _loadFriedCalamari(el) {
     deductionRows:    diagResult.data.deductionRows,
     bomQtyPerPortion: bomEntry.qty,
     bomUnit:          bomEntry.unit,
-    techNote: "'Calamari' (menu_group: Happy hours) absent from pos_daily_raw on 2 of 3 sample dates. " +
-              "Nightly gmail-touchbistro-import omitted Happy Hours rows on those dates. " +
-              "Pipeline cannot deduct what pos_daily_raw does not contain.",
+    techNote: "HAPPY HOUR PATH FIXED 2026-07-19: bot-pos-cleaner v6 adds HAPPY_HOUR_FOOD_ITEMS allowlist. " +
+              "'Calamari' (menu_group: Happy hours) now bypasses BEVERAGE_GROUPS skip and maps to Fried calamari recipe (14ccae9f). " +
+              "Pipeline re-run for 2026-06-29 and 2026-07-13: 165g Calamari prep deducted per date. " +
+              "Monday DOW average restored: 1320g • 1650g • 1485g → avg 1485g. Missing demand: 0.",
   });
 
   if (!diag.ok) {
