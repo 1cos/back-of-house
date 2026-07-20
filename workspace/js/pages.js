@@ -22,6 +22,7 @@ import {
   fetchProcessSalmon,
   fetchSalmonChainSales,
   fetchLatestSalmonSalesDate,
+  fetchSalmonModifierPathDiagnostic,
   formatBOM,
   formatStock,
   formatSuggestion,
@@ -597,6 +598,14 @@ const LAB_ROW_KEYS = [
   'lab.row.ps_filets_demand',
   'lab.row.ps_raw_demand',
   'lab.row.ps_chain_status',
+  // ── PS modifier path diagnostic ─────────────────────────
+  'lab.row.ps_moddiag_header',
+  'lab.row.ps_moddiag_raw',
+  'lab.row.ps_moddiag_class',
+  'lab.row.ps_moddiag_recipe',
+  'lab.row.ps_moddiag_ded',
+  'lab.row.ps_moddiag_missing',
+  'lab.row.ps_moddiag_stage',
   // ── Production formula ─────────────────────────────────
   'lab.row.prod_header',
   'lab.row.prod_forecast',
@@ -1262,6 +1271,62 @@ async function _loadProcessSalmon(el) {
     traceEl.innerHTML = trace
       .map(line => `<span class="lab-trace-line">${line}</span>`)
       .join('');
+  }
+
+  // ── Phase 4: modifier path diagnostic ─────────────────────────────────────
+  const MODIFIER_NAMES = ['Add salmon whole', 'add salmon whole', 'Add salmon', 'add salmon'];
+  const DIAG_ROWS = ['ps_moddiag_raw','ps_moddiag_class','ps_moddiag_recipe',
+                     'ps_moddiag_ded','ps_moddiag_missing','ps_moddiag_stage'];
+  DIAG_ROWS.forEach(k => setVal(k, t('lab.loading')));
+
+  const diagResult = await fetchSalmonModifierPathDiagnostic(businessDate, MODIFIER_NAMES);
+
+  if (!diagResult.ok) {
+    DIAG_ROWS.forEach(k => setVal(k, t('lab.error')));
+    return;
+  }
+
+  const { rawRows: dRaw, cleanRows: dClean, aliasRows: dAlias, deductions: dDed } = diagResult.data;
+
+  // Raw modifier count
+  const rawTotal = dRaw.reduce((s, r) => s + Number(r.quantity_sold ?? 0), 0);
+  const rawLabel = dRaw.map(r => `${r.modifier} ×${r.quantity_sold}`).join(', ') || '0';
+  setVal('ps_moddiag_raw', `${rawTotal} (${rawLabel})`);
+
+  // Classification result from pos_daily_clean
+  const cleanRow = dClean[0] ?? null;
+  const classLabel = cleanRow
+    ? `${cleanRow.item_class} / action=${cleanRow.action} (source=${cleanRow.source_table})`
+    : 'NOT IN pos_daily_clean';
+  setVal('ps_moddiag_class', classLabel);
+
+  // Recipe match result
+  const recipeLabel = cleanRow?.recipe_id
+    ? `${cleanRow.matched_recipe_name} (${cleanRow.match_type})`
+    : `NULL — shouldMap=false (${cleanRow?.item_class ?? '?'} ≠ MENU_ITEM)`;
+  setVal('ps_moddiag_recipe', recipeLabel);
+
+  // Deductions written
+  const dedTotal = dDed.reduce((s, r) => s + Number(r.quantity ?? 0), 0);
+  setVal('ps_moddiag_ded', dedTotal === 0 ? '0 pz (none written)' : `${dedTotal} pz`);
+
+  // Missing demand
+  setVal('ps_moddiag_missing', `${rawTotal} pz Thaw Salmon`);
+
+  // Failure stage and technical reason
+  const stageLabel = cleanRow
+    ? `pos_daily_clean classification: source_table='pos_modifiers' → default UNKNOWN_REVIEW → shouldMap=false → recipe_id=null → deduction skipped`
+    : `Not found in pos_daily_clean`;
+  setVal('ps_moddiag_stage', stageLabel);
+
+  // Append to formula trace
+  const formulaEl = card.querySelector('.lab-formula-trace');
+  if (formulaEl) {
+    const techNote = `Fix needed: add pos_item_class_rules rule for 'Add salmon whole' ` +
+      `(source_table=pos_modifiers, item_class=MENU_ITEM, action=map). ` +
+      `Secondary: pos_item_aliases canonical_name='Salmon fillet' should be 'Salmon Whole'.`;
+    formulaEl.innerHTML = `<span class="lab-trace-line lab-trace-note">${techNote}</span>`;
+    formulaEl.style.display = 'block';
   }
 }
 

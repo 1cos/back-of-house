@@ -741,3 +741,65 @@ export async function fetchLatestSalmonSalesDate() {
     return { ok: false, error: err.message ?? 'unknown error' };
   }
 }
+
+/**
+ * Fetch modifier path diagnostic data for Process Salmon.
+ * Reads pos_daily_clean for the given date and salmon modifier aliases.
+ * SELECT only.
+ *
+ * @param {string}   businessDate  — 'YYYY-MM-DD'
+ * @param {string[]} modifierNames — list of modifier names to inspect
+ * @returns {Promise<{ ok: true, data: ModPathDiagData } | { ok: false, error: string }>}
+ */
+export async function fetchSalmonModifierPathDiagnostic(businessDate, modifierNames) {
+  try {
+    // 1. Raw modifier counts from pos_modifiers
+    const { data: rawRows, error: rawErr } = await _db
+      .from('pos_modifiers')
+      .select('modifier, quantity_sold, sale_date')
+      .eq('sale_date', businessDate)
+      .in('modifier', modifierNames);
+
+    if (rawErr) throw new Error(`pos_modifiers: ${rawErr.message}`);
+
+    // 2. pos_daily_clean for those modifiers (shows classification result)
+    const { data: cleanRows, error: cleanErr } = await _db
+      .from('pos_daily_clean')
+      .select('pos_item_name, portions_sold, item_class, action, recipe_id, matched_recipe_name, match_type, needs_review, source_table')
+      .eq('business_date', businessDate)
+      .in('pos_item_name', modifierNames);
+
+    if (cleanErr) throw new Error(`pos_daily_clean: ${cleanErr.message}`);
+
+    // 3. pos_item_aliases for canonical name lookup
+    const { data: aliasRows, error: aliasErr } = await _db
+      .from('pos_item_aliases')
+      .select('alias_name, canonical_name, portion_factor, source')
+      .in('alias_name', modifierNames);
+
+    if (aliasErr) throw new Error(`pos_item_aliases: ${aliasErr.message}`);
+
+    // 4. Deductions written for prep_task 413 (Thaw Salmon) on this date
+    const { data: dedRows, error: dedErr } = await _db
+      .from('stock_deductions')
+      .select('business_date, pos_item_name, quantity, source, calculation_path')
+      .eq('prep_task_id', 413)
+      .eq('business_date', businessDate)
+      .in('pos_item_name', modifierNames);
+
+    if (dedErr) throw new Error(`stock_deductions: ${dedErr.message}`);
+
+    return {
+      ok:   true,
+      data: {
+        businessDate,
+        rawRows:    rawRows ?? [],
+        cleanRows:  cleanRows ?? [],
+        aliasRows:  aliasRows ?? [],
+        deductions: dedRows ?? [],
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}
