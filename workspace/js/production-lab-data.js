@@ -662,3 +662,82 @@ export async function fetchProcessSalmon() {
     return { ok: false, error: err.message ?? 'unknown error' };
   }
 }
+
+// ── Amalfi Salmon chain IDs (verified 2026-07-19) ───────────────────────────
+// Amalfi Salmon recipe:  54335322 (POS item, Entrees)
+// Salmon Whole recipe:   78d90bc9 (modifier aliases: Add salmon whole / Add salmon)
+// Both feed → Thaw Salmon c2fe373a → Salmon Filets 1e31334d → Salmon (raw) 190g
+
+const AMALFI_SALMON_RECIPE_ID    = '54335322-88d2-4092-a022-6f1c75415870';
+const SALMON_WHOLE_POS_NAMES     = ['Add salmon whole', 'add salmon whole', 'Add salmon', 'add salmon', 'Side salmon whole'];
+
+/**
+ * Fetch POS sales data for the Amalfi Salmon chain on a given date.
+ * Reads: pos_sales_by_item (Amalfi Salmon) + pos_modifiers (Add salmon whole aliases).
+ * SELECT only.
+ *
+ * @param {string} businessDate — 'YYYY-MM-DD'
+ * @returns {Promise<{ ok: true, data: SalmonChainSales } | { ok: false, error: string }>}
+ */
+export async function fetchSalmonChainSales(businessDate) {
+  try {
+    // 1. Amalfi Salmon as POS item
+    const { data: itemRows, error: itemErr } = await _db
+      .from('pos_sales_by_item')
+      .select('sale_date, menu_item, quantity')
+      .eq('sale_date', businessDate)
+      .eq('menu_item', 'Amalfi Salmon');
+
+    if (itemErr) throw new Error(`pos_sales_by_item: ${itemErr.message}`);
+
+    // 2. Add salmon whole as modifier
+    const { data: modRows, error: modErr } = await _db
+      .from('pos_modifiers')
+      .select('sale_date, modifier, quantity_sold')
+      .eq('sale_date', businessDate)
+      .in('modifier', SALMON_WHOLE_POS_NAMES);
+
+    if (modErr) throw new Error(`pos_modifiers: ${modErr.message}`);
+
+    // Normalize to unified shape
+    const salesRows = [
+      ...(itemRows ?? []).map(r => ({ source: 'pos_item',  menu_item: r.menu_item, quantity: Number(r.quantity ?? 0) })),
+      ...(modRows  ?? []).map(r => ({ source: 'modifier', menu_item: r.modifier,   quantity: Number(r.quantity_sold ?? 0) })),
+    ];
+
+    // Latest date with any salmon data (for the date picker)
+    const latestDate = businessDate;
+
+    return { ok: true, data: { businessDate: latestDate, salesRows } };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}
+
+/**
+ * Fetch the latest date with Amalfi Salmon or Add salmon whole sales.
+ * @returns {Promise<{ ok: true, date: string } | { ok: false, error: string }>}
+ */
+export async function fetchLatestSalmonSalesDate() {
+  try {
+    const [itemRes, modRes] = await Promise.all([
+      _db.from('pos_sales_by_item').select('sale_date').eq('menu_item', 'Amalfi Salmon')
+        .order('sale_date', { ascending: false }).limit(1),
+      _db.from('pos_modifiers').select('sale_date').in('modifier', SALMON_WHOLE_POS_NAMES)
+        .order('sale_date', { ascending: false }).limit(1),
+    ]);
+
+    if (itemRes.error) throw new Error(itemRes.error.message);
+    if (modRes.error)  throw new Error(modRes.error.message);
+
+    const dates = [
+      ...(itemRes.data ?? []).map(r => r.sale_date),
+      ...(modRes.data  ?? []).map(r => r.sale_date),
+    ].sort().reverse();
+
+    if (!dates.length) return { ok: false, error: 'No Amalfi Salmon sales found' };
+    return { ok: true, date: dates[0] };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}

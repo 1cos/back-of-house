@@ -20,6 +20,8 @@ import {
   fetchSalesForDates,
   fetchCalamariDeductionDiagnostics,
   fetchProcessSalmon,
+  fetchSalmonChainSales,
+  fetchLatestSalmonSalesDate,
   formatBOM,
   formatStock,
   formatSuggestion,
@@ -31,6 +33,7 @@ import {
   calculateSaleRecipeDemand,
   calculateSaleRecipeDowForecast,
   diagnoseSaleDemandPath,
+  calculateRecipeChainDemand,
 } from './production-lab-shadow-engine.js';
 
 /* ══════════════════════════════════════════════════════════════════════════ */
@@ -587,6 +590,13 @@ const LAB_ROW_KEYS = [
   'lab.row.fc_diag_deducted',
   'lab.row.fc_diag_missing',
   'lab.row.fc_diag_coverage',
+  // ── PS chain demand ───────────────────────────────────────
+  'lab.row.ps_chain_header',
+  'lab.row.ps_pos_portions',
+  'lab.row.ps_thaw_demand',
+  'lab.row.ps_filets_demand',
+  'lab.row.ps_raw_demand',
+  'lab.row.ps_chain_status',
   // ── Production formula ─────────────────────────────────
   'lab.row.prod_header',
   'lab.row.prod_forecast',
@@ -1160,9 +1170,12 @@ async function _loadProcessSalmon(el) {
     if (cls) el2.className = (el2.className || '') + ' ' + cls;
   };
 
-  const LIVE_ROWS = ['trigger','recipe','bom','stock','boh_result'];
+  const LIVE_ROWS = ['trigger','recipe','bom','stock','boh_result',
+                     'ps_pos_portions','ps_thaw_demand','ps_filets_demand',
+                     'ps_raw_demand','ps_chain_status'];
   LIVE_ROWS.forEach(r => setVal(r, t('lab.loading')));
 
+  // ── Phase 1: core recipe + BOM + prep + suggestion ────────────────────────
   const result = await fetchProcessSalmon();
 
   if (!result.ok) {
@@ -1177,27 +1190,74 @@ async function _loadProcessSalmon(el) {
 
   const { recipe, bom, prep, suggestion } = result.data;
 
-  // Transformation ratio: Salmon (raw) 190g → 1 portioned filet
   const rawBomRow = bom.find(r => r.component_type === 'ITEM'
                                && r.ingredients?.name?.toLowerCase().includes('salmon'));
   const inputQty  = rawBomRow ? `${rawBomRow.quantity}${rawBomRow.unit}` : '190g';
-  const outputQty = recipe.base_weight_g ? `${recipe.base_weight_g}g / ${recipe.serving_qty ?? '1'} ${recipe.serving_unit ?? 'pz'}` : '190g / 1 pz';
+  const rawGPerFilet = rawBomRow ? Number(rawBomRow.quantity) : 190;
+  const outputQty = recipe.base_weight_g
+    ? `${recipe.base_weight_g}g / ${recipe.serving_qty ?? '1'} ${recipe.serving_unit ?? 'pz'}`
+    : '190g / 1 pz';
 
-  // Trigger: downstream demand — Amalfi Salmon POS → Thaw Salmon → pulls from this prep
-  setVal('trigger', 'Downstream demand — Amalfi Salmon POS → Thaw Salmon → Salmon Filets');
+  setVal('trigger', 'Downstream demand — Amalfi Salmon POS + Add salmon whole → Thaw Salmon → Salmon Filets');
   setVal('recipe',  `${recipe.title} (${inputQty} raw → ${outputQty} portioned)`);
   setVal('bom',     formatBOM(bom) || '—');
   setVal('stock',   formatStock(prep));
   setVal('boh_result', formatSuggestion(suggestion, lang));
 
-  // Trace path
+  // ── Phase 2: downstream chain demand ──────────────────────────────────────
+  const dateResult = await fetchLatestSalmonSalesDate();
+  if (!dateResult.ok) {
+    ['ps_pos_portions','ps_thaw_demand','ps_filets_demand','ps_raw_demand','ps_chain_status']
+      .forEach(k => setVal(k, t('lab.error')));
+    return;
+  }
+  const businessDate = dateResult.date;
+
+  const salesResult = await fetchSalmonChainSales(businessDate);
+  if (!salesResult.ok) {
+    ['ps_pos_portions','ps_thaw_demand','ps_filets_demand','ps_raw_demand','ps_chain_status']
+      .forEach(k => setVal(k, t('lab.error')));
+    return;
+  }
+
+  // Pure engine — chain: all 1:1 recipe hops, then 190g raw ingredient
+  const chain = calculateRecipeChainDemand({
+    businessDate,
+    salesRows: salesResult.data.salesRows,
+    chain: [
+      { name: 'POS demand',     qtyPerParent: 1,           unit: 'pz' },
+      { name: 'Thaw Salmon',    qtyPerParent: 1,           unit: 'pz' },
+      { name: 'Salmon Filets',  qtyPerParent: 1,           unit: 'pz' },
+      { name: 'Salmon (raw)',   qtyPerParent: rawGPerFilet, unit: 'g'  },
+    ],
+  });
+
+  if (!chain.ok) {
+    setVal('ps_chain_status', `ERROR: ${chain.error}`);
+    return;
+  }
+
+  const [posLv, thawLv, filetsLv, rawLv] = chain.levels;
+  const sourceLabel = chain.sourceBreakdown.map(s => `${s.menu_item} ×${s.quantity}`).join(' + ');
+
+  setVal('ps_pos_portions', `${chain.totalRootQty} (${businessDate}) — ${sourceLabel}`);
+  setVal('ps_thaw_demand',  `${thawLv.demand} ${thawLv.unit}`);
+  setVal('ps_filets_demand',`${filetsLv.demand} ${filetsLv.unit}`);
+  setVal('ps_raw_demand',   `${rawLv.demand}${rawLv.unit} (${(rawLv.demand/1000).toFixed(3)}kg)`);
+
+  const chainCls = chain.isPerfect ? 'lab-val-match' : 'lab-val-mismatch';
+  setVal('ps_chain_status', chain.chainStatus, chainCls);
+
+  // ── Phase 3: trace ─────────────────────────────────────────────────────────
   const traceEl = card.querySelector('.lab-trace');
   if (traceEl) {
     const trace = [
-      `Salmon (raw ingredient, Fruge Seafood, ~32.6lb baffa)`,
-      `→ recipe '${recipe.title}' (cure + portion + freeze)`,
-      `→ ${inputQty} raw → 1 filet (~190g, curato)`,
-      `→ prep_tasks.id=${prep.id} '${prep.name}' · ${prep.category} · ${prep.current_stock} ${prep.unit} in freezer`,
+      `Salmon (raw, Fruge Seafood ~32.6lb baffa)`,
+      `→ Salmon Filets recipe (cure + portion + freeze, 190g raw → 1 filet)`,
+      `→ prep_tasks.id=${prep.id} '${prep.name}' · ${prep.current_stock} pz in freezer`,
+      `→ Thaw Salmon (sub-recipe in Amalfi Salmon + Salmon Whole BOMs)`,
+      `→ Amalfi Salmon (POS) + Add salmon whole (modifier)`,
+      `${businessDate}: ${sourceLabel} = ${chain.totalRootQty} filets → ${rawLv.demand}g raw`,
     ];
     traceEl.innerHTML = trace
       .map(line => `<span class="lab-trace-line">${line}</span>`)

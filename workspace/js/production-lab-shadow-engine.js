@@ -746,6 +746,98 @@ export function diagnoseSaleDemandPath(input) {
   };
 }
 
+
+/**
+ * Calculate demand through a multi-level recipe chain from POS sales.
+ * Pure function — no DB, no DOM.
+ *
+ * Each hop in the chain specifies:
+ *   - name: label for display
+ *   - qtyPerParent: how many of THIS item are needed per 1 unit of the parent
+ *   - unit: 'pz' / 'g' / etc.
+ *
+ * Input sales can come from multiple POS sources (items + modifiers).
+ * Each source row specifies its quantity and which chain it feeds (same root → same demand).
+ *
+ * @param {object}   input
+ * @param {string}   input.businessDate    — 'YYYY-MM-DD'
+ * @param {Array}    input.salesRows       — [{source, menu_item, quantity}]
+ *                                           source: 'pos_item' | 'modifier'
+ * @param {Array}    input.chain           — ordered hops, root first:
+ *                                           [{name, qtyPerParent, unit}]
+ *                                           Root hop is POS dish (qtyPerParent = 1).
+ * @returns {ChainDemandResult}
+ */
+export function calculateRecipeChainDemand(input) {
+  const { businessDate, salesRows, chain } = input;
+
+  if (!chain?.length) {
+    return { ok: false, error: 'Chain is empty' };
+  }
+
+  // ── 1. Sum total POS demand (root level) ─────────────────────────────────
+  const sourceBreakdown = (salesRows ?? []).map(r => ({
+    source:    r.source,
+    menu_item: r.menu_item,
+    quantity:  Number(r.quantity ?? 0),
+  }));
+  const totalRootQty = sourceBreakdown.reduce((s, r) => s + r.quantity, 0);
+
+  // ── 2. Propagate through chain ────────────────────────────────────────────
+  const levels = [];
+  let currentQty = totalRootQty;
+
+  for (let i = 0; i < chain.length; i++) {
+    const hop = chain[i];
+    const qty = currentQty * Number(hop.qtyPerParent ?? 1);
+    levels.push({
+      name:          hop.name,
+      qtyPerParent:  Number(hop.qtyPerParent ?? 1),
+      unit:          hop.unit,
+      demand:        qty,
+      label:         `${qty}${hop.unit}`,
+    });
+    currentQty = qty;
+  }
+
+  // ── 3. Check ratios — PERFECT_CHAIN if all recipe-to-recipe hops are 1:1
+  // (Raw ingredient hops with unit='g' are weight conversions, not recipe ratios — excluded)
+  const recipeHops    = chain.filter(h => (h.unit ?? '') !== 'g');
+  const nonUnityHops  = recipeHops.filter(h => Number(h.qtyPerParent ?? 1) !== 1);
+  const isPerfect     = nonUnityHops.length === 0;
+  const chainStatus   = isPerfect ? 'PERFECT_CHAIN' : `RATIO_VARIANCE: ${nonUnityHops.map(h => `${h.name} ${h.qtyPerParent}:1`).join(', ')}`;
+
+  // ── 4. Trace ──────────────────────────────────────────────────────────────
+  const tracePath = levels.map((lv, i) =>
+    i === 0
+      ? `${lv.name}: ${totalRootQty}${lv.unit} (${sourceBreakdown.map(s => `${s.menu_item} ×${s.quantity}`).join(' + ')})`
+      : `  ↓
+${lv.name}: ${lv.demand}${lv.unit} (×${lv.qtyPerParent} per parent)`
+  );
+
+  return {
+    ok:             true,
+    businessDate,
+    totalRootQty,
+    sourceBreakdown,
+    levels,
+    chainStatus,
+    isPerfect,
+    tracePath,
+  };
+}
+
+/**
+ * @typedef {object} ChainDemandResult
+ * @property {true}    ok
+ * @property {string}  businessDate
+ * @property {number}  totalRootQty
+ * @property {Array}   sourceBreakdown    — [{source, menu_item, quantity}]
+ * @property {Array}   levels             — [{name, qtyPerParent, unit, demand, label}]
+ * @property {'PERFECT_CHAIN'|string} chainStatus
+ * @property {boolean} isPerfect
+ * @property {string[]} tracePath
+ */
 /**
  * @typedef {object} DiagnosticResult
  * @property {true}    ok
