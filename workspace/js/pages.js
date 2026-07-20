@@ -24,6 +24,7 @@ import {
   fetchLatestSalmonSalesDate,
   fetchSalmonModifierPathDiagnostic,
   fetchTruffleButter,
+  fetchMeatballAssembly,
   formatBOM,
   formatStock,
   formatSuggestion,
@@ -618,6 +619,23 @@ const LAB_ROW_KEYS = [
   'lab.row.tb_ri_diff',
   'lab.row.tb_ri_status',
   'lab.row.tb_ri_bom_source',
+  // ── Meatball assembly ────────────────────────────────────
+  'lab.row.mb_output',
+  'lab.row.mb_balls_req',
+  'lab.row.mb_sauce_req',
+  'lab.row.mb_balls_stock',
+  'lab.row.mb_sauce_stock',
+  'lab.row.mb_bags_stock',
+  'lab.row.mb_boh_balls',
+  'lab.row.mb_boh_sauce',
+  'lab.row.mb_boh_bags',
+  'lab.row.mb_sauce_transform',
+  'lab.row.mb_cap_balls',
+  'lab.row.mb_cap_sauce',
+  'lab.row.mb_cap_safe',
+  'lab.row.mb_flag',
+  'lab.row.mb_rpc_model',
+  'lab.row.mb_mismatch',
   // ── Production formula ─────────────────────────────────
   'lab.row.prod_header',
   'lab.row.prod_forecast',
@@ -634,7 +652,7 @@ const LAB_ROW_KEYS = [
 
 function renderLabCard(card) {
   const familyClass = LAB_FAMILY_CLASS[card.family] ?? '';
-  const CONNECTED_SET = new Set(['add_chicken', 'fried_calamari', 'process_salmon', 'truffle_butter']);
+  const CONNECTED_SET = new Set(['add_chicken', 'fried_calamari', 'process_salmon', 'truffle_butter', 'meatball_bags']);
   const isConnected  = CONNECTED_SET.has(card.key);
   const statusClass  = isConnected ? 'lab-status-connected' : '';
   const statusLabel  = isConnected
@@ -1459,6 +1477,132 @@ async function _loadTruffleButter(el) {
   }
 }
 
+/* ── Meatball Assembly live loader ───────────────────────────────────────── */
+async function _loadMeatballAssembly(el) {
+  const card = el.querySelector('#lab-card-meatball_bags');
+  if (!card) return;
+
+  const lang = sessionStorage.getItem('ws_lang') ?? 'en';
+  const KEY  = 'meatball_bags';
+
+  const get    = id => card.querySelector('#' + id);
+  const setVal = (suffix, text, cls) => {
+    const el2 = get(`lab-row-${KEY}-${suffix}`);
+    if (!el2) return;
+    el2.textContent = text;
+    if (cls) el2.className = (el2.className || '') + ' ' + cls;
+  };
+
+  const LIVE_ROWS = [
+    'trigger','recipe','bom','stock','boh_result',
+    'mb_output','mb_balls_req','mb_sauce_req',
+    'mb_balls_stock','mb_sauce_stock','mb_bags_stock',
+    'mb_boh_balls','mb_boh_sauce','mb_boh_bags',
+    'mb_sauce_transform','mb_cap_balls','mb_cap_sauce','mb_cap_safe',
+    'mb_flag','mb_rpc_model','mb_mismatch',
+  ];
+  LIVE_ROWS.forEach(r => setVal(r, t('lab.loading')));
+
+  // ── Phase 1: fetch all data (no RPC calls) ────────────────────────────────
+  const result = await fetchMeatballAssembly();
+
+  if (!result.ok) {
+    LIVE_ROWS.forEach(r => setVal(r, t('lab.error')));
+    const statusDot   = card.querySelector('.lab-status-dot');
+    const statusLabel = card.querySelector('.lab-status-label');
+    if (statusDot)   statusDot.className    = 'lab-status-dot lab-status-error';
+    if (statusLabel) statusLabel.textContent = t('lab.status.error');
+    console.warn('[ProductionLab] Meatball Assembly fetch error:', result.error);
+    return;
+  }
+
+  const { recipeMap, bagBom, sauceBom, prepMap, suggMap, flag } = result.data;
+
+  const balls = prepMap[480] ?? null;
+  const sauce = prepMap[479] ?? null;
+  const bags  = prepMap[481] ?? null;
+
+  // Assembly ratios from BOM (live, not hardcoded)
+  const ballsBomRow  = bagBom.find(r => r.sub_recipe?.title === 'Meatballs');
+  const sauceBomRow  = bagBom.find(r => r.sub_recipe?.title === 'Meatball Sauce');
+  const BALLS_PER_BAG   = ballsBomRow ? Number(ballsBomRow.quantity) : 5;
+  const SAUCE_PER_BAG_G = sauceBomRow ? Number(sauceBomRow.quantity) : 100;
+
+  // ── Phase 2: card status ─────────────────────────────────────────────────
+  const flagState   = flag?.state ?? 'not_found';
+  const statusDot   = card.querySelector('.lab-status-dot');
+  const statusLabel = card.querySelector('.lab-status-label');
+  const statusBadge = card.querySelector('.lab-card-status');
+  if (statusDot)   statusDot.className = 'lab-status-dot lab-status-assembly-blocked';
+  if (statusLabel) statusLabel.textContent = t('lab.status.assembly_blocked');
+  if (statusBadge) {
+    const old = statusBadge.className.replace('lab-status-connected', '').trim();
+    statusBadge.className = old + ' lab-status-assembly-blocked';
+  }
+
+  // ── Phase 3: fill base rows ──────────────────────────────────────────────
+  setVal('trigger',    'Downstream — Meatball Appetizer POS demand (no BOH path yet)');
+  setVal('recipe',     'Meatball Appetizer (bag) — 5 Meatballs + 100g Meatball Sauce');
+  setVal('bom',        BALLS_PER_BAG + ' pz Meatballs + ' + SAUCE_PER_BAG_G + 'g Meatball Sauce (BOM bom_id=2156,2157)');
+  setVal('stock',      bags ? (bags.current_stock != null ? bags.current_stock + ' ' + bags.unit : 'NULL (count needed)') : '—');
+  setVal('boh_result', formatSuggestion(suggMap[481], lang));
+
+  // ── Phase 4: detailed rows ───────────────────────────────────────────────
+  setVal('mb_output',      '1 bag = ' + BALLS_PER_BAG + ' pz Meatballs + ' + SAUCE_PER_BAG_G + 'g Meatball Sauce');
+  setVal('mb_balls_req',   BALLS_PER_BAG + ' pz per bag');
+  setVal('mb_sauce_req',   SAUCE_PER_BAG_G + 'g per bag');
+  setVal('mb_balls_stock', balls?.current_stock != null ? balls.current_stock + ' ' + balls.unit : 'NULL');
+  setVal('mb_sauce_stock', sauce?.current_stock != null ? sauce.current_stock + ' ' + sauce.unit : 'NULL — count needed');
+  setVal('mb_bags_stock',  bags?.current_stock  != null ? bags.current_stock  + ' ' + bags.unit  : 'NULL — count needed');
+
+  setVal('mb_boh_balls', formatSuggestion(suggMap[480], lang));
+  setVal('mb_boh_sauce', formatSuggestion(suggMap[479], lang));
+  setVal('mb_boh_bags',  formatSuggestion(suggMap[481], lang));
+
+  // Sauce transformation from BOM
+  const pomRow   = sauceBom.find(r => r.sub_recipe?.title === 'POMODORO SAUCE');
+  const demiRow  = sauceBom.find(r => r.sub_recipe?.title === 'DEMI');
+  const pomG     = pomRow  ? Number(pomRow.quantity)  : 2800;
+  const demiG    = demiRow ? Number(demiRow.quantity) : 500;
+  const sauceBatchG = recipeMap['Meatball Sauce']?.base_weight_g ?? 3300;
+  setVal('mb_sauce_transform', pomG + 'g Pomodoro + ' + demiG + 'g Demi → ' + sauceBatchG + 'g Meatball Sauce batch');
+
+  // ── Phase 5: capacity calculation ────────────────────────────────────────
+  const ballsStock = balls?.current_stock != null ? Number(balls.current_stock) : null;
+  const sauceStock = sauce?.current_stock != null ? Number(sauce.current_stock) : null;
+  const capBalls   = ballsStock != null ? Math.floor(ballsStock / BALLS_PER_BAG) : null;
+  const capSauce   = sauceStock != null ? Math.floor(sauceStock / SAUCE_PER_BAG_G) : null;
+  const capSafe    = capBalls != null && capSauce != null ? Math.min(capBalls, capSauce) : null;
+
+  setVal('mb_cap_balls', capBalls != null ? capBalls + ' bags (floor(' + ballsStock + '/' + BALLS_PER_BAG + '))' : 'BLOCKED — stock unknown');
+  setVal('mb_cap_sauce', capSauce != null ? capSauce + ' bags (floor(' + sauceStock + '/' + SAUCE_PER_BAG_G + 'g))' : 'BLOCKED — Sauce stock NULL (count first)');
+  setVal('mb_cap_safe',  capSafe  != null ? capSafe + ' bags' : 'BLOCKED (sauce stock unknown)', capSafe != null ? 'lab-val-match' : 'lab-val-mismatch');
+
+  // ── Phase 6: feature flag + RPC mismatch ─────────────────────────────────
+  setVal('mb_flag',      flagState.toUpperCase() + ' (flag: meatball_assembly_model_enabled)');
+  setVal('mb_rpc_model', '5 Meatballs (480) + 85g Pomodoro (304) + 15g Demi (291) per bag — bypasses Meatball Sauce (479)');
+  setVal('mb_mismatch',
+    'RPC uses raw Pomodoro (85g) + Demi (15g) instead of prepared Meatball Sauce (100g). Prep_task 479 never consumed by live RPC.',
+    'lab-val-mismatch'
+  );
+
+  // ── Phase 7: model comparison ────────────────────────────────────────────
+  const traceEl = card.querySelector('.lab-trace');
+  if (traceEl) {
+    traceEl.innerHTML =
+      '<div class="lab-model-block lab-model-correct">' +
+        '<span class="lab-model-label">CORRECT MODEL (BOM)</span>' +
+        '5 Meatballs (prep 480) + 100g Meatball Sauce (prep 479) → 1 bag — ' +
+        'Sauce: 2800g Pomodoro + 500g Demi → 3300g batch (prep 479)' +
+      '</div>' +
+      '<div class="lab-model-block lab-model-wrong">' +
+        '<span class="lab-model-label">LIVE RPC (assemble_meatball_bags) — flag=' + flagState.toUpperCase() + '</span>' +
+        '5 Meatballs (480) + 85g Pomodoro (304) + 15g Demi (291) → 1 bag — ' +
+        'prep_task 479 (Meatball Sauce) never touched' +
+      '</div>';
+  }
+}
+
 export const ProductionLabPage = {
   render() {
     return `
@@ -1500,6 +1644,7 @@ export const ProductionLabPage = {
     _loadFriedCalamari(el);
     _loadProcessSalmon(el);
     _loadTruffleButter(el);
+    _loadMeatballAssembly(el);
   },
 };
 

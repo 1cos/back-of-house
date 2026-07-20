@@ -881,3 +881,121 @@ export async function fetchTruffleButter() {
     return { ok: false, error: err.message ?? 'unknown error' };
   }
 }
+
+// ── Meatball Assembly — fixed IDs (verified 2026-07-19) ─────────────────────
+// Recipes:
+//   Meatballs        id=46784186  Bases, base_weight_g=9012g, serving_weight_g=56g
+//   Meatball Sauce   id=c6108c5f  Bases, base_weight_g=3300g
+//   Meatball Appetizer id=74de5287  Antipasti (finished bag)
+// Prep tasks:
+//   479  Meatball Sauce   (Sauté Station, g)    current_stock=NULL
+//   480  Meatballs        (Saucier Station, pz)  current_stock=35
+//   481  Meatball Appetizer (Sauté Station, pz) current_stock=NULL
+// Assembly BOM (Meatball Appetizer):
+//   bom_id=2156: Meatballs 5 pz/bag (sub-recipe)
+//   bom_id=2157: Meatball Sauce 100g/bag (sub-recipe)
+// Sauce BOM: 2800g Pomodoro + 500g Demi → 3300g
+// RPC live model (WRONG): PT_POMODORO=304, PT_DEMI=291, bypasses prepared sauce (479)
+// Feature flag: meatball_assembly_model_enabled = 'off'
+
+const MEATBALL_PREP_IDS = {
+  sauce:   479,
+  balls:   480,
+  bags:    481,
+};
+
+/**
+ * Fetch all data for the Meatball Assembly card (read-only, NO RPC calls).
+ * SELECT only. Never calls assemble_meatball_bags.
+ *
+ * @returns {Promise<{ ok: true, data: MeatballAssemblyData } | { ok: false, error: string }>}
+ */
+export async function fetchMeatballAssembly() {
+  try {
+    // 1. All three recipes
+    const { data: recipeRows, error: recErr } = await _db
+      .from('recipes')
+      .select('id, title, menu_group, base_servings, base_weight_g, serving_weight_g, serving_unit')
+      .in('id', [
+        '46784186-0f68-4fb9-9ec4-34dceef1936c',  // Meatballs
+        'c6108c5f-6846-487e-ae0e-2a1fcb36c67e',  // Meatball Sauce
+        '74de5287-fc1a-4d53-9927-9da0b26070a9',  // Meatball Appetizer
+      ]);
+
+    if (recErr) throw new Error(`recipes: ${recErr.message}`);
+    const recipeMap = Object.fromEntries((recipeRows ?? []).map(r => [r.title, r]));
+
+    // 2. BOM for Meatball Appetizer (the finished-bag assembly spec)
+    const { data: bagBom, error: bagBomErr } = await _db
+      .from('recipe_bom')
+      .select(`
+        bom_id, component_type, quantity, unit,
+        sub_recipe:recipes!recipe_bom_sub_recipe_id_fkey ( title )
+      `)
+      .eq('parent_recipe_id', '74de5287-fc1a-4d53-9927-9da0b26070a9')
+      .order('sort_order');
+
+    if (bagBomErr) throw new Error(`bag bom: ${bagBomErr.message}`);
+
+    // 3. BOM for Meatball Sauce
+    const { data: sauceBom, error: sauceBomErr } = await _db
+      .from('recipe_bom')
+      .select(`
+        bom_id, component_type, quantity, unit,
+        sub_recipe:recipes!recipe_bom_sub_recipe_id_fkey ( title )
+      `)
+      .eq('parent_recipe_id', 'c6108c5f-6846-487e-ae0e-2a1fcb36c67e')
+      .order('sort_order');
+
+    if (sauceBomErr) throw new Error(`sauce bom: ${sauceBomErr.message}`);
+
+    // 4. Prep tasks 479, 480, 481
+    const { data: prepRows, error: prepErr } = await _db
+      .from('prep_tasks')
+      .select('id, name, category, unit, current_stock')
+      .in('id', [479, 480, 481]);
+
+    if (prepErr) throw new Error(`prep_tasks: ${prepErr.message}`);
+    const prepMap = Object.fromEntries((prepRows ?? []).map(r => [r.id, r]));
+
+    // 5. Latest BOH suggestions for all three
+    const { data: suggRows, error: suggErr } = await _db
+      .from('prep_suggestions_daily')
+      .select('prep_task_id, suggestion_date, status, confidence, planned_output, output_unit, forecast, forecast_unit, demand_source, current_stock, stock_unit, reason, generated_at')
+      .in('prep_task_id', [479, 480, 481])
+      .order('suggestion_date', { ascending: false })
+      .order('generated_at',    { ascending: false })
+      .limit(6);
+
+    if (suggErr) throw new Error(`suggestions: ${suggErr.message}`);
+    // Keep only latest per prep_task_id
+    const suggMap = {};
+    for (const s of (suggRows ?? [])) {
+      if (!suggMap[s.prep_task_id]) suggMap[s.prep_task_id] = s;
+    }
+
+    // 6. Feature flag
+    const { data: flagRows, error: flagErr } = await _db
+      .from('feature_flags')
+      .select('flag_name, state, updated_at')
+      .eq('flag_name', 'meatball_assembly_model_enabled')
+      .limit(1);
+
+    if (flagErr) throw new Error(`feature_flags: ${flagErr.message}`);
+    const flag = flagRows?.[0] ?? null;
+
+    return {
+      ok: true,
+      data: {
+        recipeMap,
+        bagBom:   bagBom ?? [],
+        sauceBom: sauceBom ?? [],
+        prepMap,
+        suggMap,
+        flag,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}
