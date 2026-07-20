@@ -18,6 +18,7 @@ import {
   fetchFriedCalamariSales,
   extractCalamariItemBOMQty,
   fetchSalesForDates,
+  fetchCalamariDeductionDiagnostics,
   formatBOM,
   formatStock,
   formatSuggestion,
@@ -28,6 +29,7 @@ import {
   calculateRequiredProduction,
   calculateSaleRecipeDemand,
   calculateSaleRecipeDowForecast,
+  diagnoseSaleDemandPath,
 } from './production-lab-shadow-engine.js';
 
 /* ══════════════════════════════════════════════════════════════════════════ */
@@ -577,6 +579,13 @@ const LAB_ROW_KEYS = [
   'lab.row.fc_dow_bom_forecast',
   'lab.row.fc_dow_boh_forecast',
   'lab.row.fc_dow_status',
+  // ── FC demand path diagnostic ─────────────────────────
+  'lab.row.fc_diag_header',
+  'lab.row.fc_diag_status',
+  'lab.row.fc_diag_expected',
+  'lab.row.fc_diag_deducted',
+  'lab.row.fc_diag_missing',
+  'lab.row.fc_diag_coverage',
   // ── Production formula ─────────────────────────────────
   'lab.row.prod_header',
   'lab.row.prod_forecast',
@@ -628,6 +637,7 @@ function renderLabCard(card) {
       ${isConnected ? `
         <div class="lab-not-comparable" style="display:none"></div>
         <div class="lab-trace"></div>
+        <div class="lab-diag-detail"></div>
         <div class="lab-formula-trace"></div>
       ` : ''}
     </div>
@@ -1069,6 +1079,67 @@ async function _loadFriedCalamari(el) {
       .map(line => `<span class="lab-trace-line">${line}</span>`)
       .join('');
     formulaEl.style.display = 'block';
+  }
+
+  // ── Phase 10: demand-path diagnostic ─────────────────────────────────────
+  // Show loading for diagnostic rows
+  const DIAG_ROWS = ['fc_diag_status','fc_diag_expected','fc_diag_deducted',
+                     'fc_diag_missing','fc_diag_coverage'];
+  DIAG_ROWS.forEach(k => setVal(k, t('lab.loading')));
+
+  // Use the DOW sample dates (fcDowDates) and aliases from Phase 4
+  const diagResult = await fetchCalamariDeductionDiagnostics(fcDowDates, aliases);
+
+  if (!diagResult.ok) {
+    DIAG_ROWS.forEach(k => setVal(k, t('lab.error')));
+    return;
+  }
+
+  const diag = diagnoseSaleDemandPath({
+    sampleDates:      fcDowDates,
+    aliases,
+    salesRows:        diagResult.data.salesRows,
+    deductionRows:    diagResult.data.deductionRows,
+    bomQtyPerPortion: bomEntry.qty,
+    bomUnit:          bomEntry.unit,
+    techNote: "'Calamari' (menu_group: Happy hours) absent from pos_daily_raw on 2 of 3 sample dates. " +
+              "Nightly gmail-touchbistro-import omitted Happy Hours rows on those dates. " +
+              "Pipeline cannot deduct what pos_daily_raw does not contain.",
+  });
+
+  if (!diag.ok) {
+    DIAG_ROWS.forEach(k => setVal(k, t('lab.error')));
+    return;
+  }
+
+  // Build per-date diagnostic HTML and inject into the diag section element
+  const diagSectionEl = card.querySelector('.lab-diag-detail');
+  if (diagSectionEl) {
+    const rows = diag.dateRows.flatMap(dr =>
+      dr.aliasResults.map(r => {
+        const cls = r.status === 'COMPLETE' ? 'lab-diag-complete' : 'lab-diag-missing';
+        const miss = r.missingG > 0 ? ` (missing ${r.missingG}g)` : '';
+        return `<div class="lab-diag-row ${cls}">
+          <span class="lab-diag-date">${dr.date}</span>
+          <span class="lab-diag-alias">${r.alias}</span>
+          <span class="lab-diag-status">${r.status}${miss}</span>
+        </div>`;
+      })
+    );
+    diagSectionEl.innerHTML = rows.join('');
+  }
+
+  const statusCls = diag.overallStatus === 'COMPLETE_PATH' ? 'lab-val-match' : 'lab-val-mismatch';
+  setVal('fc_diag_status',   diag.overallStatus.replace('_', ' '), statusCls);
+  setVal('fc_diag_expected', `${diag.totalExpectedG}g`);
+  setVal('fc_diag_deducted', `${diag.totalDeductedG}g`);
+  setVal('fc_diag_missing',  `${diag.totalMissingG}g`);
+  setVal('fc_diag_coverage', `${diag.coveragePct}%`);
+
+  // Tech note in formula trace
+  if (formulaEl && diag.techNote) {
+    const noteSpan = `<span class="lab-trace-line lab-trace-note">${diag.techNote}</span>`;
+    formulaEl.innerHTML = (formulaEl.innerHTML || '') + noteSpan;
   }
 }
 

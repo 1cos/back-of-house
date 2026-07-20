@@ -1052,6 +1052,46 @@ ol, ul { list-style: none; }
   font-style: italic;
 }
 
+
+/* ── Lab demand diagnostic detail ───────────────────────────────────────── */
+.lab-diag-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+.lab-diag-detail:empty { display: none; }
+
+.lab-diag-row {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--r-xs);
+  font-size: 10px;
+}
+.lab-diag-date  { font-family: var(--font-mono); color: var(--text-muted); }
+.lab-diag-alias { color: var(--text-secondary); }
+.lab-diag-status { font-weight: var(--weight-bold); text-align: right; }
+
+.lab-diag-complete { background: var(--ok-bg); }
+.lab-diag-complete .lab-diag-status { color: var(--ok); }
+.lab-diag-missing  { background: var(--warn-bg); }
+.lab-diag-missing  .lab-diag-status { color: var(--warn); }
+
+.lab-trace-note {
+  color: var(--warn) !important;
+  font-style: italic;
+  margin-top: 4px;
+  display: block;
+}
+
+@media (max-width: 600px) {
+  .lab-diag-row { grid-template-columns: 80px 1fr; }
+  .lab-diag-status { grid-column: 1 / -1; font-size: 9px; }
+}
+
 /* ── Lab Trace & Not-Comparable sections ────────────────────────────────── */
 .lab-trace {
   display: flex;

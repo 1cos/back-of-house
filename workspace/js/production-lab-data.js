@@ -532,3 +532,55 @@ export async function fetchSalesForDates(dates, aliases) {
     return { ok: false, error: err.message ?? 'unknown error' };
   }
 }
+
+/**
+ * Fetch raw POS sales AND stock_deductions for Fried Calamari diagnostic.
+ * SELECT only — no insert/update/delete.
+ *
+ * @param {string[]} dates    — array of 'YYYY-MM-DD' sample dates
+ * @param {string[]} aliases  — recipe alias strings (from pos_name)
+ * @returns {Promise<{ ok: true, data: CalamariDiagData } | { ok: false, error: string }>}
+ */
+export async function fetchCalamariDeductionDiagnostics(dates, aliases) {
+  try {
+    // 1. POS sales for those dates (from pos_sales_by_item)
+    const { data: salesRows, error: salesErr } = await _db
+      .from('pos_sales_by_item')
+      .select('sale_date, menu_item, quantity')
+      .in('sale_date', dates)
+      .in('menu_item', aliases);
+
+    if (salesErr) throw new Error(`pos_sales_by_item diagnostic: ${salesErr.message}`);
+
+    // 2. Stock deductions for prep_task 266 on those dates
+    const { data: deductionRows, error: dedErr } = await _db
+      .from('stock_deductions')
+      .select('business_date, pos_item_name, quantity, source, calculation_path')
+      .eq('prep_task_id', FRIED_CALAMARI_PREP_ID)
+      .in('business_date', dates);
+
+    if (dedErr) throw new Error(`stock_deductions diagnostic: ${dedErr.message}`);
+
+    // Normalize to engine-friendly shape
+    const normSales = (salesRows ?? []).map(r => ({
+      date:      r.sale_date,
+      menu_item: r.menu_item,
+      quantity:  r.quantity,
+    }));
+
+    const normDeductions = (deductionRows ?? []).map(r => ({
+      date:           r.business_date,
+      pos_item_name:  r.pos_item_name,
+      quantity_g:     r.quantity,
+      source:         r.source,
+      calculation_path: r.calculation_path,
+    }));
+
+    return {
+      ok:   true,
+      data: { salesRows: normSales, deductionRows: normDeductions },
+    };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}

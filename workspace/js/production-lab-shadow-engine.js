@@ -640,6 +640,125 @@ export function calculateSaleRecipeDowForecast(input) {
  * @property {string|null} mismatchReason
  * @property {string[]} traceDow
  */
+
+/**
+ * Diagnose which POS alias rows reached stock_deductions and which were missed.
+ * Pure function — no DB, no DOM.
+ *
+ * For each (date × alias) combination:
+ *   - expected: salesRow exists for alias on that date
+ *   - deducted: deductionRow exists for that alias on that date
+ *   - result: COMPLETE | MISSING | UNEXPECTED
+ *
+ * @param {object} input
+ * @param {string[]}  input.sampleDates      — ['YYYY-MM-DD', …]
+ * @param {string[]}  input.aliases          — recipe alias strings (from pos_name)
+ * @param {Array}     input.salesRows        — [{date, menu_item, quantity}] from pos_sales_by_item
+ * @param {Array}     input.deductionRows    — [{date, pos_item_name, quantity_g, calculation_path}]
+ * @param {number}    input.bomQtyPerPortion — grams per portion (live from recipe_bom)
+ * @param {string}    input.bomUnit          — 'g'
+ * @param {string}    input.techNote         — human-readable root-cause note (filled by caller)
+ * @returns {DiagnosticResult}
+ */
+export function diagnoseSaleDemandPath(input) {
+  const {
+    sampleDates,
+    aliases,
+    salesRows,
+    deductionRows,
+    bomQtyPerPortion,
+    bomUnit,
+    techNote,
+  } = input;
+
+  const bomQty   = Number(bomQtyPerPortion ?? 0);
+  const aliasSet = new Set((aliases ?? []).map(a => a.toLowerCase()));
+
+  // ── Index sales by date+alias ────────────────────────────────────────────
+  const salesByKey = {};   // `${date}::${alias_lower}` → qty
+  for (const row of (salesRows ?? [])) {
+    const k = `${row.date}::${(row.menu_item ?? '').toLowerCase()}`;
+    salesByKey[k] = (salesByKey[k] ?? 0) + Number(row.quantity ?? 0);
+  }
+
+  // ── Index deductions by date+pos_item_name ───────────────────────────────
+  const dedByKey = {};    // `${date}::${item_lower}` → deducted_g
+  for (const row of (deductionRows ?? [])) {
+    const k = `${row.date}::${(row.pos_item_name ?? '').toLowerCase()}`;
+    dedByKey[k] = (dedByKey[k] ?? 0) + Number(row.quantity_g ?? 0);
+  }
+
+  // ── Build per-date per-alias diagnostic rows ──────────────────────────────
+  let totalExpectedG = 0;
+  let totalDeductedG = 0;
+  const dateRows = [];
+
+  for (const date of (sampleDates ?? [])) {
+    const aliasResults = [];
+
+    for (const alias of (aliases ?? [])) {
+      const sk = `${date}::${alias.toLowerCase()}`;
+      const qtySold = salesByKey[sk] ?? 0;
+
+      if (qtySold === 0) continue;  // alias not sold on this date → skip
+
+      const expectedG  = qtySold * bomQty;
+      const deductedG  = dedByKey[sk] ?? 0;
+      const missingG   = Math.max(0, expectedG - deductedG);
+      const status     = missingG === 0 ? 'COMPLETE' : 'MISSING';
+
+      totalExpectedG += expectedG;
+      totalDeductedG += deductedG;
+
+      aliasResults.push({
+        alias,
+        qtySold,
+        expectedG,
+        deductedG,
+        missingG,
+        status,
+      });
+    }
+
+    dateRows.push({ date, aliasResults });
+  }
+
+  const totalMissingG = totalExpectedG - totalDeductedG;
+  const coveragePct   = totalExpectedG > 0
+    ? Math.round((totalDeductedG / totalExpectedG) * 1000) / 10  // 1dp
+    : 0;
+
+  const overallStatus = totalMissingG === 0 ? 'COMPLETE_PATH'
+    : coveragePct === 0                     ? 'NO_PATH'
+    :                                         'PARTIAL_PATH';
+
+  return {
+    ok:             true,
+    sampleDates,
+    aliases,
+    dateRows,
+    totalExpectedG,
+    totalDeductedG,
+    totalMissingG,
+    coveragePct,
+    overallStatus,
+    techNote:       techNote ?? null,
+  };
+}
+
+/**
+ * @typedef {object} DiagnosticResult
+ * @property {true}    ok
+ * @property {string[]} sampleDates
+ * @property {string[]} aliases
+ * @property {Array}   dateRows           — [{date, aliasResults[]}]
+ * @property {number}  totalExpectedG
+ * @property {number}  totalDeductedG
+ * @property {number}  totalMissingG
+ * @property {number}  coveragePct
+ * @property {'COMPLETE_PATH'|'PARTIAL_PATH'|'NO_PATH'} overallStatus
+ * @property {string|null} techNote
+ */
 /**
  * @typedef {object} DowForecastResult
  * @property {true}    ok
