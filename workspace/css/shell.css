@@ -1046,6 +1046,11 @@ ol, ul { list-style: none; }
   color: var(--warn) !important;
   font-weight: var(--weight-bold);
 }
+.lab-val-shadow {
+  color: var(--text-secondary) !important;
+  font-weight: var(--weight-bold);
+  font-style: italic;
+}
 
 /* ── Lab Trace & Not-Comparable sections ────────────────────────────────── */
 .lab-trace {

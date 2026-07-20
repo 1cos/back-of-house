@@ -17,6 +17,7 @@ import {
   fetchLatestCalamariSalesDate,
   fetchFriedCalamariSales,
   extractCalamariItemBOMQty,
+  fetchSalesForDates,
   formatBOM,
   formatStock,
   formatSuggestion,
@@ -26,6 +27,7 @@ import {
   calculateMatchingDowForecast,
   calculateRequiredProduction,
   calculateSaleRecipeDemand,
+  calculateSaleRecipeDowForecast,
 } from './production-lab-shadow-engine.js';
 
 /* ══════════════════════════════════════════════════════════════════════════ */
@@ -566,6 +568,15 @@ const LAB_ROW_KEYS = [
   'lab.row.dow_status',
   'lab.row.boh_result',
   'lab.row.explanation',
+  // ── FC matching-DOW forecast ───────────────────────────
+  'lab.row.fc_dow_header',
+  'lab.row.fc_dow_target',
+  'lab.row.fc_dow_samples',
+  'lab.row.fc_dow_portions',
+  'lab.row.fc_dow_demand',
+  'lab.row.fc_dow_bom_forecast',
+  'lab.row.fc_dow_boh_forecast',
+  'lab.row.fc_dow_status',
   // ── Production formula ─────────────────────────────────
   'lab.row.prod_header',
   'lab.row.prod_forecast',
@@ -862,7 +873,9 @@ async function _loadFriedCalamari(el) {
 
   // All rows this loader touches
   const LIVE_ROWS = ['trigger','recipe','bom','stock','boh_result',
-                     'modifier_uses','bom_per_use','shadow_demand','difference','explanation'];
+                     'modifier_uses','bom_per_use','shadow_demand','difference','explanation',
+                     'fc_dow_target','fc_dow_samples','fc_dow_portions',
+                     'fc_dow_demand','fc_dow_bom_forecast','fc_dow_boh_forecast','fc_dow_status'];
   LIVE_ROWS.forEach(r => setVal(r, t('lab.loading')));
 
   // ── Phase 1: core recipe + BOM + prep + suggestion ────────────────────────
@@ -958,12 +971,104 @@ async function _loadFriedCalamari(el) {
     ncEl.style.display = '';
   }
 
-  // ── Phase 8: trace ────────────────────────────────────────────────────────
+  // ── Phase 8: trace (single-day) ───────────────────────────────────────────
   const traceEl = card.querySelector('.lab-trace');
   if (traceEl && shadow.tracePath) {
     traceEl.innerHTML = shadow.tracePath
       .map(line => `<span class="lab-trace-line">${line}</span>`)
       .join('');
+  }
+
+  // ── Phase 9: matching-DOW BOM-first forecast ──────────────────────────────
+  if (!suggestion || !suggestion.history_start_date || !suggestion.history_end_date) {
+    ['fc_dow_target','fc_dow_samples','fc_dow_portions',
+     'fc_dow_demand','fc_dow_bom_forecast','fc_dow_boh_forecast','fc_dow_status']
+      .forEach(k => setVal(k, '—'));
+    return;
+  }
+
+  // Derive matching-DOW dates from history window
+  const fcSuggDate  = new Date(suggestion.suggestion_date + 'T00:00:00Z');
+  const fcTargetDow = fcSuggDate.getUTCDay();
+  const fcDowDates  = deriveMatchingDowDates(
+    suggestion.history_start_date,
+    suggestion.history_end_date,
+    fcTargetDow
+  );
+
+  // Fetch sales for those dates (all aliases, from pos_sales_by_item)
+  const dowSalesResult = await fetchSalesForDates(fcDowDates, aliases);
+  if (!dowSalesResult.ok) {
+    ['fc_dow_target','fc_dow_samples','fc_dow_portions',
+     'fc_dow_demand','fc_dow_bom_forecast','fc_dow_boh_forecast','fc_dow_status']
+      .forEach(k => setVal(k, t('lab.error')));
+    return;
+  }
+
+  // Also need alias portion factors (reuse salesResult.data.aliasPortionMap if still in scope,
+  // or re-derive from aliases with default 1.0 — Calamari factor is 1.0, confirmed from DB)
+  // We have salesResult.data.aliasPortionMap from Phase 4 if it succeeded.
+  // Use it directly — same aliases, same portion factors apply to DOW dates.
+  const fcAliasPortionMap = salesResult.data.aliasPortionMap;
+
+  const fcDow = calculateSaleRecipeDowForecast({
+    targetDate:      suggestion.suggestion_date,
+    targetDow:       fcTargetDow,
+    sampleRows:      dowSalesResult.data.rows,
+    aliasPortionMap: fcAliasPortionMap,
+    bomQtyPerPortion:bomEntry.qty,
+    bomUnit:         bomEntry.unit,
+    bohForecastG:    suggestion.forecast != null ? Number(suggestion.forecast) : null,
+    ingredientName:  bomEntry.ingredientName,
+    recipeTitle:     recipe.title,
+  });
+
+  if (!fcDow.ok) {
+    setVal('fc_dow_target',       suggestion.suggestion_date);
+    setVal('fc_dow_bom_forecast', `NEEDS REVIEW: ${fcDow.error}`);
+    setVal('fc_dow_status',       'ERROR');
+    return;
+  }
+
+  // Format sample summaries
+  const fcSampleDates = fcDow.samples
+    .map(s => {
+      const d = new Date(s.date + 'T00:00:00Z');
+      const label = d.toLocaleDateString('en-US', { month:'short', day:'numeric', timeZone:'UTC' });
+      return label;
+    })
+    .join(', ');
+
+  const fcPortionsSummary = fcDow.samples
+    .map(s => {
+      const d = new Date(s.date + 'T00:00:00Z');
+      const label = d.toLocaleDateString('en-US', { month:'short', day:'numeric', timeZone:'UTC' });
+      return `${label}: ${s.portions}p`;
+    })
+    .join(' · ');
+
+  const fcDemandSummary = fcDow.samples
+    .map(s => `${s.bomDemandG}g`)
+    .join(' · ');
+
+  const fcStatusCls = fcDow.comparisonStatus === 'SHADOW_ONLY' ? 'lab-val-shadow'
+    : fcDow.comparisonStatus === 'MATCH' ? 'lab-val-match' : 'lab-val-mismatch';
+
+  setVal('fc_dow_target',       `${suggestion.suggestion_date} (DOW ${fcTargetDow})`);
+  setVal('fc_dow_samples',      fcSampleDates);
+  setVal('fc_dow_portions',     fcPortionsSummary);
+  setVal('fc_dow_demand',       fcDemandSummary);
+  setVal('fc_dow_bom_forecast', fcDow.avgLabel);
+  setVal('fc_dow_boh_forecast', fcDow.bohForecastG != null ? `${fcDow.bohForecastG}g` : 'NONE');
+  setVal('fc_dow_status',       fcDow.comparisonStatus, fcStatusCls);
+
+  // Update trace with DOW trace
+  const formulaEl = card.querySelector('.lab-formula-trace');
+  if (formulaEl && fcDow.traceDow) {
+    formulaEl.innerHTML = fcDow.traceDow
+      .map(line => `<span class="lab-trace-line">${line}</span>`)
+      .join('');
+    formulaEl.style.display = 'block';
   }
 }
 

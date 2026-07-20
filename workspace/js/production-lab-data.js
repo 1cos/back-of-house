@@ -378,7 +378,7 @@ export async function fetchFriedCalamari() {
     // 4. Latest BOH suggestion
     const { data: suggRows, error: suggErr } = await _db
       .from('prep_suggestions_daily')
-      .select('suggestion_date, status, confidence, planned_output, output_unit, forecast, forecast_unit, net_requirement, demand_source, forecast_path, reason, generated_at')
+      .select('suggestion_date, status, confidence, planned_output, output_unit, forecast, forecast_unit, net_requirement, demand_source, forecast_path, reason, generated_at, history_start_date, history_end_date, same_weekday_samples')
       .eq('prep_task_id', FRIED_CALAMARI_PREP_ID)
       .order('suggestion_date', { ascending: false })
       .order('generated_at',    { ascending: false })
@@ -495,4 +495,40 @@ export function extractCalamariItemBOMQty(bomRows) {
     unit:           row.unit ?? 'g',
     ingredientName: row.ingredients.name,
   };
+}
+
+/**
+ * Fetch pos_sales_by_item rows for specific dates and a set of aliases.
+ * Used for DOW sample window calculation.
+ * Returns rows normalized to {date, menu_item, quantity}.
+ * SELECT only.
+ *
+ * @param {string[]} dates    — array of 'YYYY-MM-DD'
+ * @param {string[]} aliases  — recipe alias strings
+ * @returns {Promise<{ ok: true, data: { rows: Array } } | { ok: false, error: string }>}
+ */
+export async function fetchSalesForDates(dates, aliases) {
+  try {
+    if (!dates?.length || !aliases?.length) {
+      return { ok: false, error: 'Missing dates or aliases' };
+    }
+
+    const { data: rows, error } = await _db
+      .from('pos_sales_by_item')
+      .select('sale_date, menu_item, quantity')
+      .in('sale_date', dates)
+      .in('menu_item', aliases);
+
+    if (error) throw new Error(`pos_sales_by_item DOW fetch: ${error.message}`);
+
+    const normalized = (rows ?? []).map(r => ({
+      date:      r.sale_date,
+      menu_item: r.menu_item,
+      quantity:  r.quantity,
+    }));
+
+    return { ok: true, data: { rows: normalized } };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
 }

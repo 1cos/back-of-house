@@ -497,6 +497,149 @@ export function calculateSaleRecipeDemand(input) {
  * @property {string}  explanation
  * @property {string[]} tracePath
  */
+
+/**
+ * Calculate a matching-DOW BOM-first forecast for a sale-recipe item (POS line item, not modifier).
+ * Pure function — no DB, no DOM, no side effects.
+ *
+ * Analogous to calculateMatchingDowForecast but uses:
+ *   row.menu_item  (not row.modifier)
+ *   row.quantity   (not row.quantity_sold)
+ *   aliasPortionMap for portion_factor scaling
+ *
+ * When BOH has no forecast (null), comparableLabel = 'SHADOW_ONLY'.
+ *
+ * @param {object}   input
+ * @param {string}   input.targetDate         — 'YYYY-MM-DD'
+ * @param {number}   input.targetDow          — JS getUTCDay() of target date
+ * @param {Array}    input.sampleRows         — [{date, menu_item, quantity}] from pos_sales_by_item
+ * @param {object}   input.aliasPortionMap    — { 'Fried Calamari': 1.0, 'Calamari': 1.0, … }
+ * @param {number}   input.bomQtyPerPortion   — grams per canonical portion (live from recipe_bom)
+ * @param {string}   input.bomUnit            — 'g'
+ * @param {number|null} input.bohForecastG    — null if BOH has no demand path
+ * @param {string}   input.ingredientName     — key BOM ingredient name (for trace)
+ * @param {string}   input.recipeTitle        — recipe title (for trace)
+ * @returns {SaleRecipeDowForecastResult}
+ */
+export function calculateSaleRecipeDowForecast(input) {
+  const {
+    targetDate,
+    targetDow,
+    sampleRows,
+    aliasPortionMap,
+    bomQtyPerPortion,
+    bomUnit,
+    bohForecastG,
+    ingredientName,
+    recipeTitle,
+  } = input;
+
+  if (bomUnit !== 'g') {
+    return { ok: false, error: `Unexpected BOM unit '${bomUnit}' — expected 'g'` };
+  }
+
+  const bomQty   = Number(bomQtyPerPortion ?? 0);
+  if (bomQty <= 0) {
+    return { ok: false, error: 'BOM qty per portion is zero or missing' };
+  }
+
+  const aliasSet = new Set(Object.keys(aliasPortionMap).map(k => k.toLowerCase()));
+
+  // ── 1. Group rows by date, sum canonical portions ────────────────────────
+  const byDate = {};
+  for (const row of (sampleRows ?? [])) {
+    const itemKey = (row.menu_item ?? '').trim().toLowerCase();
+    if (!aliasSet.has(itemKey)) continue;
+
+    const matchedKey = Object.keys(aliasPortionMap).find(k => k.toLowerCase() === itemKey);
+    const factor     = matchedKey != null ? Number(aliasPortionMap[matchedKey] ?? 1.0) : 1.0;
+    const qty        = Number(row.quantity ?? 0);
+    const canonical  = qty * factor;
+
+    const d = row.date;
+    if (!byDate[d]) byDate[d] = { portions: 0, rowDetails: [] };
+    byDate[d].portions += canonical;
+    byDate[d].rowDetails.push({ menu_item: row.menu_item, qty, factor, canonical });
+  }
+
+  // ── 2. Build per-date sample array ─────────────────────────────────────
+  const samples = Object.entries(byDate)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, info]) => ({
+      date,
+      portions:   info.portions,
+      bomDemandG: info.portions * bomQty,
+      rowDetails: info.rowDetails,
+    }));
+
+  if (!samples.length) {
+    return { ok: false, error: 'No sales found for recipe aliases on the DOW sample dates' };
+  }
+
+  // ── 3. Average ──────────────────────────────────────────────────────────
+  const totalDemandG = samples.reduce((s, r) => s + r.bomDemandG, 0);
+  const avgRounded   = Math.round((totalDemandG / samples.length) * 100) / 100;
+
+  // ── 4. Compare with BOH ─────────────────────────────────────────────────
+  const hasBOH = bohForecastG != null;
+  let comparisonStatus, diff, mismatchReason;
+
+  if (!hasBOH) {
+    comparisonStatus = 'SHADOW_ONLY';
+    diff             = null;
+    mismatchReason   = 'BOH has no forecast (no_demand_path). BOM-first forecast exists but BOH does not classify this prep as having a demand path.';
+  } else {
+    diff = avgRounded - Number(bohForecastG);
+    const tolerance = Math.max(1, Number(bohForecastG) * 0.001);
+    if (Math.abs(diff) <= tolerance) {
+      comparisonStatus = 'MATCH';
+      mismatchReason   = null;
+    } else {
+      comparisonStatus = 'MISMATCH';
+      mismatchReason   = `BOM-first avg ${avgRounded}g vs BOH ${bohForecastG}g — diff ${diff.toFixed(2)}g.`;
+    }
+  }
+
+  // ── 5. Trace ────────────────────────────────────────────────────────────
+  const traceDow = [
+    `Target: ${targetDate} (DOW ${targetDow})`,
+    `Samples (${samples.length}): ${samples.map(s => `${s.date}→${s.portions}p×${bomQty}g=${s.bomDemandG}g`).join(', ')}`,
+    `BOM-first avg: (${samples.map(s => s.bomDemandG).join('+')}÷${samples.length}) = ${avgRounded}g`,
+    `BOH forecast: ${hasBOH ? bohForecastG + 'g' : 'NONE (no_demand_path)'}`,
+    `Status: ${comparisonStatus}`,
+  ];
+
+  return {
+    ok:              true,
+    targetDate,
+    samples,
+    sampleCount:     samples.length,
+    totalDemandG,
+    avgDemandG:      avgRounded,
+    avgLabel:        `${avgRounded}g`,
+    bohForecastG:    hasBOH ? Number(bohForecastG) : null,
+    diff,
+    comparisonStatus,
+    mismatchReason,
+    traceDow,
+  };
+}
+
+/**
+ * @typedef {object} SaleRecipeDowForecastResult
+ * @property {true}    ok
+ * @property {string}  targetDate
+ * @property {Array}   samples             — [{date, portions, bomDemandG, rowDetails}]
+ * @property {number}  sampleCount
+ * @property {number}  totalDemandG
+ * @property {number}  avgDemandG
+ * @property {string}  avgLabel
+ * @property {number|null} bohForecastG
+ * @property {number|null} diff
+ * @property {'MATCH'|'MISMATCH'|'SHADOW_ONLY'} comparisonStatus
+ * @property {string|null} mismatchReason
+ * @property {string[]} traceDow
+ */
 /**
  * @typedef {object} DowForecastResult
  * @property {true}    ok
