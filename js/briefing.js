@@ -44,9 +44,18 @@ async function refreshBriefing(){
 
 
 // HOME TO-DO BLOCK (staff only)
+// Feature flag — set to true to re-enable when Chef AI suggestions are reliable
+var HOME_TODO_ENABLED = false; // hotfix: hidden until suggestion-selection logic is fixed
+
 function renderHomeTodo() {
   var el = document.getElementById('homeTodoList');
   if (!el) return;
+  // Feature-flag early exit — hides widget, clears any stale rows, returns immediately
+  if (!HOME_TODO_ENABLED) {
+    var _w = document.getElementById('homeTodoWidget');
+    if (_w) { _w.style.display = 'none'; el.innerHTML = ''; }
+    return;
+  }
   var _isAdmin = typeof isAdmin === 'function' && isAdmin();
   if (!user || !user.default_station || _isAdmin) {
     var widgetHide = document.getElementById('homeTodoWidget');
