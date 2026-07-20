@@ -215,18 +215,34 @@ async function officeLoadHome() {
       invBtn.addEventListener('click', function() { officeOpenInventorySetup(); });
       container.appendChild(invBtn);
 
-      // ── BOT CENTER ──
-      var botBtn = document.createElement('div');
-      botBtn.style.cssText = 'background:rgba(15,23,42,0.85);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(255,255,255,0.12);border-radius:18px;cursor:pointer;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.2);-webkit-tap-highlight-color:transparent;margin-top:10px;';
-      botBtn.innerHTML =
+      // ── PRODUCTION MONITOR ──
+      var prodMonBtn = document.createElement('div');
+      prodMonBtn.style.cssText = 'background:rgba(15,23,42,0.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(34,197,94,0.25);border-radius:18px;cursor:pointer;overflow:hidden;box-shadow:0 2px 12px rgba(34,197,94,0.12);-webkit-tap-highlight-color:transparent;margin-top:10px;';
+      prodMonBtn.innerHTML =
         '<div style="display:flex;align-items:center;padding:14px 16px;gap:12px;">' +
-          '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:46px;flex-shrink:0;background:linear-gradient(180deg,#f59e0b,#8b5cf6,#3b82f6);"></div>' +
-          '<div style="font-size:26px;width:32px;text-align:center;">🤖</div>' +
+          '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:46px;flex-shrink:0;background:linear-gradient(180deg,#22c55e,#3b82f6);"></div>' +
+          '<div style="font-size:26px;width:32px;text-align:center;">📊</div>' +
           '<div style="flex:1;">' +
-            '<div style="color:white;font-size:16px;font-weight:600;">Bot Center</div>' +
-            '<div style="color:rgba(255,255,255,0.4);font-size:12px;margin-top:3px;">7 bot attivi · Log · Config · Trigger</div>' +
+            '<div style="color:white;font-size:16px;font-weight:600;">Production Monitor</div>' +
+            '<div style="color:rgba(255,255,255,0.4);font-size:12px;margin-top:3px;">Pipeline · Suggestions · Bot Health</div>' +
           '</div>' +
           '<span style="color:rgba(255,255,255,0.25);font-size:18px;">&#x203A;</span>' +
+        '</div>';
+      prodMonBtn.addEventListener('click', function() { openProductionMonitor(); });
+      container.appendChild(prodMonBtn);
+
+      // ── BOT CENTER (diagnostics) ──
+      var botBtn = document.createElement('div');
+      botBtn.style.cssText = 'background:rgba(15,23,42,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(255,255,255,0.08);border-radius:18px;cursor:pointer;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.15);-webkit-tap-highlight-color:transparent;margin-top:8px;';
+      botBtn.innerHTML =
+        '<div style="display:flex;align-items:center;padding:12px 16px;gap:12px;">' +
+          '<div style="width:5px;border-radius:4px;align-self:stretch;min-height:38px;flex-shrink:0;background:rgba(245,158,11,0.5);"></div>' +
+          '<div style="font-size:22px;width:32px;text-align:center;opacity:0.7;">🤖</div>' +
+          '<div style="flex:1;">' +
+            '<div style="color:rgba(255,255,255,0.6);font-size:14px;font-weight:600;">Bot Center</div>' +
+            '<div style="color:rgba(255,255,255,0.25);font-size:11px;margin-top:2px;">7 bot attivi · Log · Trigger</div>' +
+          '</div>' +
+          '<span style="color:rgba(255,255,255,0.2);font-size:16px;">&#x203A;</span>' +
         '</div>';
       botBtn.addEventListener('click', function() { officeBotCenter(); });
       container.appendChild(botBtn);
@@ -1589,10 +1605,9 @@ var _botDefs = [
   { id:'bot-food-cost-guard',  name:'Guardiano Food Cost',         icon:'📊', desc:'Impatto $ mensile per aumento prezzi su ricette vendute — 3 livelli severity, pack mismatch detection.',schedule:'Ad ogni fattura',   ribbon:'#ec4899', fnName:'bot-food-cost-guard',  logTable:'invoice',  hasConfig:false },
   { id:'bot-prep-accuracy',    name:'Guardiano Accuratezza Prep',  icon:'🎯', desc:'Ogni sera confronta "no_need" mattutini con prep del pomeriggio — trova chi ha sbagliato.',  schedule:'Ogni sera 17:30 CDT',    ribbon:'#14b8a6', fnName:'bot-prep-accuracy',    logTable:'preplog',  hasConfig:false },
   { id:'bot-recipe-guardian',  name:'Recipe Guardian',             icon:'📖', desc:'6 AM — 4 check Critical + 4 Warning + 2 Info su ricette vendute, dedup, priorità per vendite.', schedule:'Ogni mattina 6:00 AM',  ribbon:'#10b981', fnName:'bot-recipe-guardian',  logTable:'office',   hasConfig:false },
-  // ── Brigata di Bot — pipeline notturna ──
-  { id:'pos-touchbistro-bot',  name:'POS TouchBistro Bot',         icon:'🔄', desc:'Legge vendite TouchBistro da pos_sales_by_item + modifiers. Aggrega per item+menu_group. Esclude bevande e Gift Card.',  schedule:'04:00 AM CDT',           ribbon:'#0ea5e9', fnName:'bot-pos-importer',     logTable:'bot_runs', hasConfig:false, isBrigata:true },
-  { id:'recipe-matcher-bot',   name:'Recipe Matcher Bot',          icon:'🎯', desc:'Mappa ogni item POS alla ricetta Brigade. Gestisce Kids/Half, alias pipe-delimited, modifier. Scrive pos_daily_clean.',    schedule:'04:15 AM CDT',           ribbon:'#6366f1', fnName:'bot-recipe-matcher',   logTable:'bot_runs', hasConfig:false, isBrigata:true },
-  { id:'stock-drain-bot',      name:'Stock Drain Bot',             icon:'📉', desc:'Espande BOM di ogni POS item e scrive movimenti POS_DRAIN in stock_movements. Solo righe sicure (exact/kids/modifier).',  schedule:'04:30 AM CDT',           ribbon:'#f97316', fnName:'bot-stock-drain',      logTable:'bot_runs', hasConfig:false, isBrigata:true }
+  // ── Brigata di Bot — gestiti dal Production Monitor / bot-pipeline-worker ──
+  // Rimossi da Bot Center: pos-touchbistro-bot, recipe-matcher-bot, stock-drain-bot
+  // La pipeline notturna è visibile in Production Monitor → Nightly Pipeline
 ];
 
 
@@ -1635,7 +1650,7 @@ window.officeBotCenter = function() {
     '<div style="width:40px;height:5px;background:rgba(30,58,95,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
     '<div style="background:rgba(15,23,42,0.98);border-bottom:0.5px solid rgba(255,255,255,0.08);padding:14px 16px;display:flex;align-items:center;gap:14px;flex-shrink:0;">' +
       '<button onclick="document.getElementById(\'officeBotPanel\')?.remove();" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:0.5px solid rgba(255,255,255,0.15);color:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&#8592;</button>' +
-      '<div style="flex:1;"><div style="font-size:19px;font-weight:700;color:white;">🤖 Bot Center</div><div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:2px;">10 bot attivi · clicca per aprire la scheda</div></div>' +
+      '<div style="flex:1;"><div style="font-size:19px;font-weight:700;color:white;">🤖 Bot Center</div><div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:2px;">7 bot attivi · clicca per aprire la scheda</div></div>' +
     '</div>' +
     '<div id="botCenterList" style="flex:1;overflow-y:auto;padding:14px 16px 80px;display:flex;flex-direction:column;gap:10px;">' +
       '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Caricamento...</div>' +
@@ -1658,6 +1673,302 @@ window.officeBotCenter = function() {
 
   botCenterLoadList();
 };
+
+// ── PRODUCTION MONITOR ────────────────────────────────────────────────
+// Shows live pipeline status, bot health, suggestions — no legacy data.
+window.openProductionMonitor = function() {
+  var existing = document.getElementById('prodMonPanel');
+  if (existing) existing.remove();
+
+  var panel = document.createElement('div');
+  panel.id = 'prodMonPanel';
+  panel.style.cssText = [
+    'position:fixed;top:0;left:50%;transform:translateX(-50%) translateY(100%);',
+    'width:100%;max-width:480px;height:100vh;z-index:500;',
+    'background:#0a0f1e;',
+    'display:flex;flex-direction:column;overflow:hidden;',
+    'font-family:Inter,system-ui,sans-serif;',
+    'transition:transform 0.4s cubic-bezier(0.4,0,0.2,1);'
+  ].join('');
+
+  panel.innerHTML =
+    '<div style="width:40px;height:5px;background:rgba(34,197,94,0.15);border-radius:3px;margin:10px auto 0;flex-shrink:0;"></div>' +
+    '<div style="background:rgba(10,15,30,0.98);border-bottom:0.5px solid rgba(34,197,94,0.15);padding:14px 16px;display:flex;align-items:center;gap:14px;flex-shrink:0;">' +
+      '<button onclick="document.getElementById(\'prodMonPanel\')?.remove();" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.06);border:0.5px solid rgba(255,255,255,0.12);color:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&#8592;</button>' +
+      '<div style="flex:1;"><div style="font-size:18px;font-weight:700;color:white;">📊 Production Monitor</div><div style="font-size:12px;color:rgba(34,197,94,0.5);margin-top:2px;">Pipeline · Suggestions · Bot Health</div></div>' +
+      '<button onclick="prodMonLoad()" style="padding:6px 12px;background:rgba(34,197,94,0.1);border:0.5px solid rgba(34,197,94,0.3);border-radius:10px;color:#22c55e;font-size:12px;font-weight:700;cursor:pointer;">↻ Refresh</button>' +
+    '</div>' +
+    '<div id="prodMonContent" style="flex:1;overflow-y:auto;padding:12px 14px 80px;display:flex;flex-direction:column;gap:10px;">' +
+      '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Caricamento...</div>' +
+    '</div>';
+
+  document.body.appendChild(panel);
+  requestAnimationFrame(function() { requestAnimationFrame(function() { panel.style.transform = 'translateX(-50%) translateY(0)'; }); });
+
+  var startY = 0;
+  panel.addEventListener('touchstart', function(e) { startY = e.touches[0].clientY; }, { passive:true });
+  panel.addEventListener('touchmove', function(e) {
+    var dy = e.touches[0].clientY - startY;
+    if (dy > 40) { panel.style.transition='none'; panel.style.transform='translateX(-50%) translateY('+dy+'px)'; }
+  }, { passive:true });
+  panel.addEventListener('touchend', function(e) {
+    var dy = e.changedTouches[0].clientY - startY;
+    if (dy > 120) { panel.style.transition='transform 0.35s cubic-bezier(0.4,0,0.2,1)'; panel.style.transform='translateX(-50%) translateY(100%)'; setTimeout(function(){panel.remove();},360); }
+    else { panel.style.transition='transform 0.3s cubic-bezier(0.4,0,0.2,1)'; panel.style.transform='translateX(-50%) translateY(0)'; }
+  }, { passive:true });
+
+  prodMonLoad();
+};
+
+window.prodMonLoad = async function() {
+  var content = document.getElementById('prodMonContent');
+  if (!content) return;
+  var sb = window.supa;
+  if (!sb) { content.innerHTML = '<div style="color:#f87171;padding:20px;">Supabase non disponibile.</div>'; return; }
+
+  content.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Caricamento...</div>';
+
+  // Colour helpers
+  var COL = { green:'#22c55e', yellow:'#eab308', red:'#ef4444', blue:'#60a5fa', muted:'rgba(255,255,255,0.35)', white:'white' };
+  function sectionTitle(icon, label) {
+    return '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">'+icon+' '+label+'</div>';
+  }
+  function card(inner, accent) {
+    var b = accent ? '0.5px solid '+accent+'44' : '0.5px solid rgba(255,255,255,0.07)';
+    return '<div style="background:rgba(255,255,255,0.03);border:'+b+';border-radius:14px;padding:13px 14px;">'+inner+'</div>';
+  }
+  function row(label, value, vc) {
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:0.5px solid rgba(255,255,255,0.04);">' +
+      '<span style="color:'+COL.muted+';font-size:12px;">'+label+'</span>' +
+      '<span style="color:'+(vc||COL.white)+';font-size:13px;font-weight:600;text-align:right;max-width:60%;word-break:break-word;">'+value+'</span>' +
+    '</div>';
+  }
+  function statusPill(s) {
+    var c = s==='success'?COL.green:s==='running'?COL.blue:s==='failed'?COL.red:COL.yellow;
+    return '<span style="font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700;background:'+c+'22;color:'+c+';">'+s+'</span>';
+  }
+  function fmtDt(iso) {
+    if (!iso) return '—';
+    try {
+      var d = new Date(iso);
+      var opts = { timeZone:'America/Chicago', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false };
+      return d.toLocaleString('en-US', opts) + ' CDT';
+    } catch(e) { return iso.slice(0,16); }
+  }
+  function fmtDur(start, end) {
+    if (!start || !end) return '—';
+    var s = Math.round((new Date(end)-new Date(start))/1000);
+    if (s < 60) return s+'s';
+    return Math.floor(s/60)+'m '+( s%60 )+'s';
+  }
+
+  try {
+    // ── 1. Latest pipeline job ────────────────────────────────────────
+    var pjRes = await sb.from('bot_pipeline_jobs')
+      .select('id,business_date,status,started_at,finished_at,total_steps,completed_steps,error_message,metadata')
+      .order('started_at', { ascending:false })
+      .limit(5);
+    var jobs = pjRes.data || [];
+    var latestJob = jobs[0] || null;
+
+    // ── 2. Pipeline step runs for latest job ──────────────────────────
+    var stepRows = [];
+    if (latestJob) {
+      var stRes = await sb.from('bot_pipeline_step_runs')
+        .select('step_index,step_name,status,started_at,finished_at,rows_written,error_message')
+        .eq('pipeline_job_id', latestJob.id)
+        .order('step_index');
+      stepRows = stRes.data || [];
+    }
+
+    // ── 3. Today's prep suggestions ───────────────────────────────────
+    var today = new Date().toLocaleDateString('en-CA', { timeZone:'America/Chicago' });
+    var suggRes = await sb.from('prep_suggestions_daily')
+      .select('suggestion_date, status, confidence, prep_task_id')
+      .eq('suggestion_date', today)
+      .limit(1); // just count via total
+    // Get count separately
+    var suggCountRes = await sb.from('prep_suggestions_daily')
+      .select('id', { count:'exact', head:true })
+      .eq('suggestion_date', today);
+    var suggCount = suggCountRes.count || 0;
+
+    // Breakdown by status
+    var suggBreakRes = await sb.from('prep_suggestions_daily')
+      .select('status')
+      .eq('suggestion_date', today)
+      .limit(500);
+    var suggBreak = {};
+    (suggBreakRes.data||[]).forEach(function(r){ suggBreak[r.status]=(suggBreak[r.status]||0)+1; });
+
+    // ── 4. Bot health — last run per active bot ───────────────────────
+    var activeBotNames = [
+      'bot-price-guard','bot-chat-analyst','bot-tell-chef-reader',
+      'bot-food-cost-guard','bot-prep-accuracy','bot-recipe-guardian',
+      'bot-prep-suggester','bot-pos-cleaner','bot-direct-deduction',
+      'bot-bom-chain-deduction','bot-modifier-depletion','bot-stock-consolidator',
+      'bot-stock-drain'
+    ];
+    var botRunsRes = await sb.from('bot_runs')
+      .select('bot_name,run_date,status,started_at,finished_at,rows_written,summary')
+      .in('bot_name', activeBotNames)
+      .order('started_at', { ascending:false })
+      .limit(60);
+    var botRunsRaw = botRunsRes.data || [];
+    // Latest run per bot
+    var latestByBot = {};
+    botRunsRaw.forEach(function(r) {
+      if (!latestByBot[r.bot_name]) latestByBot[r.bot_name] = r;
+    });
+
+    // ── 5. Recent errors (last 7d) ────────────────────────────────────
+    var sevenDaysAgo = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+    var errRes = await sb.from('bot_runs')
+      .select('bot_name,run_date,status,summary,started_at')
+      .eq('status','failed')
+      .gte('started_at', sevenDaysAgo)
+      .order('started_at', { ascending:false })
+      .limit(10);
+    var errors = errRes.data || [];
+
+    // ── 6. Active crons ───────────────────────────────────────────────
+    var cronRes = await sb.from('cron_job_status').select('*').limit(20);
+    var cronRows = cronRes.data || [];
+    // Fallback: if no view, skip cron section silently
+    var cronHasFailed = cronRows.length === 0;
+
+    // ── Render ────────────────────────────────────────────────────────
+    var html = '';
+
+    // ── SECTION 1: Latest Pipeline Run ──────────────────────────────
+    html += sectionTitle('🔄','Nightly Pipeline');
+    if (latestJob) {
+      var jStatus = latestJob.status;
+      var jColor = jStatus==='success'?COL.green:jStatus==='running'?COL.blue:jStatus==='failed'?COL.red:COL.yellow;
+      var jDur = fmtDur(latestJob.started_at, latestJob.finished_at);
+      var jSteps = (latestJob.completed_steps||0)+' / '+(latestJob.total_steps||7)+' steps';
+      html += card(
+        row('Status', statusPill(jStatus)) +
+        row('Business date', latestJob.business_date || '—', COL.blue) +
+        row('Started (CDT)', fmtDt(latestJob.started_at), COL.muted) +
+        row('Duration', jDur, COL.white) +
+        row('Steps', jSteps, jStatus==='success'?COL.green:COL.yellow) +
+        (latestJob.error_message ? row('Error', latestJob.error_message.slice(0,80), COL.red) : ''),
+        jColor
+      );
+    } else {
+      html += card('<div style="color:'+COL.muted+';font-size:13px;text-align:center;padding:8px 0;">Nessun job trovato</div>');
+    }
+
+    // ── SECTION 2: Pipeline Steps (last run) ─────────────────────────
+    if (stepRows.length > 0) {
+      html += sectionTitle('📋','Pipeline Steps — Last Run');
+      var stepsInner = '';
+      var STEP_NAMES = ['pos-cleaner','direct-deduction','bom-chain-deduction','modifier-depletion','stock-consolidator','stock-drain','prep-suggester'];
+      stepRows.forEach(function(s) {
+        var sc = s.status==='success'?COL.green:s.status==='running'?COL.blue:s.status==='failed'?COL.red:COL.muted;
+        var stepLabel = s.step_name || STEP_NAMES[s.step_index] || ('step '+s.step_index);
+        var dur = fmtDur(s.started_at, s.finished_at);
+        stepsInner +=
+          '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:0.5px solid rgba(255,255,255,0.04);">' +
+            '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:'+sc+'22;color:'+sc+';flex-shrink:0;">'+s.step_index+'</span>' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="color:white;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+stepLabel+'</div>' +
+              '<div style="color:'+COL.muted+';font-size:10px;">'+dur+(s.rows_written!=null?' · '+s.rows_written+' rows':'')+'</div>' +
+            '</div>' +
+            statusPill(s.status) +
+          '</div>';
+      });
+      html += card(stepsInner);
+    }
+
+    // ── SECTION 3: Prep Suggestions Today ───────────────────────────
+    html += sectionTitle('🥗','Prep Suggestions — ' + today);
+    var statusColors = { prep_today:COL.red, stock_ok:COL.green, count_first:COL.yellow, prep_later:COL.blue };
+    var suggInner = row('Total rows', suggCount, suggCount>50?COL.green:suggCount>0?COL.yellow:COL.red);
+    Object.keys(suggBreak).sort().forEach(function(k) {
+      suggInner += row(k, suggBreak[k], statusColors[k]||COL.muted);
+    });
+    if (suggCount === 0) suggInner += '<div style="color:'+COL.yellow+';font-size:11px;margin-top:6px;">Nessuna suggestion — pipeline non ancora girata oggi?</div>';
+    html += card(suggInner, suggCount>50?COL.green:COL.yellow);
+
+    // ── SECTION 4: Bot Health ────────────────────────────────────────
+    html += sectionTitle('🤖','Bot Health — Last Run');
+    var DISPLAY_BOTS = [
+      { id:'bot-price-guard',      label:'Price Guard',    icon:'💰' },
+      { id:'bot-chat-analyst',     label:'Chat Analyst',   icon:'💬' },
+      { id:'bot-tell-chef-reader', label:'Tell Chef Reader',icon:'📣' },
+      { id:'bot-food-cost-guard',  label:'Food Cost Guard',icon:'📊' },
+      { id:'bot-prep-accuracy',    label:'Prep Accuracy',  icon:'🎯' },
+      { id:'bot-recipe-guardian',  label:'Recipe Guardian',icon:'📖' },
+      { id:'bot-prep-suggester',   label:'Prep Suggester', icon:'🥗' },
+      { id:'bot-pos-cleaner',      label:'POS Cleaner',    icon:'🔄' },
+    ];
+    var healthInner = '';
+    DISPLAY_BOTS.forEach(function(b) {
+      var run = latestByBot[b.id];
+      if (!run) {
+        healthInner += '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:0.5px solid rgba(255,255,255,0.04);">' +
+          '<span style="font-size:14px;">'+b.icon+'</span>' +
+          '<div style="flex:1;color:rgba(255,255,255,0.35);font-size:12px;">'+b.label+'</div>' +
+          '<span style="color:'+COL.muted+';font-size:11px;">no data</span>' +
+        '</div>';
+        return;
+      }
+      var sc = run.status==='success'?COL.green:run.status==='failed'?COL.red:COL.yellow;
+      healthInner += '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:0.5px solid rgba(255,255,255,0.04);">' +
+        '<span style="font-size:14px;">'+b.icon+'</span>' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="color:white;font-size:12px;font-weight:600;">'+b.label+'</div>' +
+          '<div style="color:'+COL.muted+';font-size:10px;">'+run.run_date+(run.rows_written!=null?' · '+run.rows_written+' rows':'')+'</div>' +
+        '</div>' +
+        statusPill(run.status) +
+      '</div>';
+    });
+    html += card(healthInner);
+
+    // ── SECTION 5: Recent Errors ────────────────────────────────────
+    if (errors.length > 0) {
+      html += sectionTitle('🚨','Recent Errors — 7d');
+      var errInner = '';
+      errors.slice(0,5).forEach(function(e) {
+        errInner += '<div style="padding:8px 0;border-bottom:0.5px solid rgba(239,68,68,0.1);">' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">' +
+            '<span style="color:'+COL.red+';font-size:12px;font-weight:700;">'+e.bot_name+'</span>' +
+            '<span style="color:'+COL.muted+';font-size:11px;">'+e.run_date+'</span>' +
+          '</div>' +
+          '<div style="color:rgba(255,255,255,0.5);font-size:11px;line-height:1.4;">'+( e.summary || '' ).slice(0,100)+'</div>' +
+        '</div>';
+      });
+      html += card(errInner, COL.red);
+    }
+
+    // ── SECTION 6: Recent pipeline jobs (table) ──────────────────────
+    if (jobs.length > 1) {
+      html += sectionTitle('📅','Recent Pipeline Jobs');
+      var jobsInner = '';
+      jobs.forEach(function(j) {
+        var jc = j.status==='success'?COL.green:j.status==='running'?COL.blue:j.status==='failed'?COL.red:COL.yellow;
+        jobsInner += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid rgba(255,255,255,0.04);">' +
+          '<div style="flex:1;">' +
+            '<div style="color:white;font-size:12px;font-weight:600;">'+(j.business_date||'—')+'</div>' +
+            '<div style="color:'+COL.muted+';font-size:10px;">'+fmtDt(j.started_at)+'</div>' +
+          '</div>' +
+          statusPill(j.status) +
+          '<div style="color:'+COL.muted+';font-size:11px;min-width:30px;text-align:right;">'+fmtDur(j.started_at,j.finished_at)+'</div>' +
+        '</div>';
+      });
+      html += card(jobsInner);
+    }
+
+    content.innerHTML = html;
+
+  } catch(err) {
+    content.innerHTML = '<div style="background:rgba(239,68,68,0.1);border:0.5px solid rgba(239,68,68,0.3);border-radius:12px;padding:16px;color:#f87171;font-size:13px;">❌ '+err.message+'</div>';
+  }
+};
+
+// ── END PRODUCTION MONITOR ───────────────────────────────────────────
 
 async function botCenterLoadList() {
   var list = document.getElementById('botCenterList');
@@ -1792,8 +2103,8 @@ function botOpenDetail(bot, s) {
     // Tab bar
     '<div id="botTabBar" style="display:flex;background:rgba(255,255,255,0.04);border-bottom:0.5px solid rgba(255,255,255,0.08);flex-shrink:0;">'+
       '<button id="botTab_cosa" onclick="botSwitchTab(\'cosa\',\''+bot.id+'\')" style="flex:1;padding:11px 4px;background:none;border:none;color:white;font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid '+bot.ribbon+';">📖 Cosa fa</button>'+
-      (bot.id==='bot-preplist-builder' ? '<button id="botTab_config" onclick="botSwitchTab(\'config\',\''+bot.id+'\')" style="flex:1;padding:11px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;">✏️ Preplist</button>' : '')+
-      (bot.isBrigata ? '<button id="botTab_dati" onclick="botSwitchTab(\'dati\',\''+bot.id+'\')" style="flex:1;padding:11px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;">📊 Dati Live</button>' : '')+
+      /* ✏️ Preplist tab rimosso — bot-preplist-builder disattivato (Clean & Trust 2026-07-20) */
+      /* 📊 Dati Live tab rimosso — Brigata bots gestiti da Production Monitor */
       '<button id="botTab_codice" onclick="botSwitchTab(\'codice\',\''+bot.id+'\')" style="flex:1;padding:11px 4px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;">💻 Codice</button>'+
     '</div>'+
     // Content area
@@ -2977,63 +3288,9 @@ function botBuildTaskCard(task, bomMap) {
   }
 
   var bodyHTML = '';
-
-  // ── SEZIONE 1: RISULTATO BOT REALE ──────────────────────────────────
-  // Source: prep_tasks.suggested_note / suggested_qty / suggested_at / suggested_by
-  // logicSource: real_bot_v41_result
-  var realBotColor = hasRealBot ? pillColor : 'rgba(255,255,255,0.2)';
-  var realBotBg    = hasRealBot ? pillBg : 'rgba(255,255,255,0.03)';
-  var realBotBorder = hasRealBot ? pillColor : 'rgba(255,255,255,0.1)';
-
-  bodyHTML +=
-    '<div style="background:' + realBotBg + ';border:1.5px solid ' + realBotBorder + ';border-radius:12px;padding:12px 14px;margin-bottom:14px;">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
-        '<div style="color:rgba(255,255,255,0.4);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">🤖 Risultato bot reale</div>' +
-        '<div style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.2);letter-spacing:.05em;">logicSource: real_bot_v41_result</div>' +
-      '</div>';
-
-  if (hasRealBot) {
-    var sugQty = task.suggested_qty != null ? botFmtValue(task.suggested_qty, task.unit) : '—';
-    var runAt = task.suggested_at
-      ? (function() {
-          try {
-            var d = new Date(task.suggested_at);
-            var cdt = new Date(d.getTime() - 5 * 60 * 60 * 1000);
-            return cdt.toISOString().slice(0,10) + ' ' +
-              String(cdt.getUTCHours()).padStart(2,'0') + ':' +
-              String(cdt.getUTCMinutes()).padStart(2,'0') + ' CDT';
-          } catch(e) { return task.suggested_at; }
-        })()
-      : '—';
-
-    bodyHTML +=
-      staticRow('Pill', '<span style="background:' + pillBg + ';color:' + pillColor + ';padding:2px 8px;border-radius:20px;font-weight:700;">' + noteColor.toUpperCase() + '</span>', null) +
-      staticRow('Suggested qty', sugQty, pillColor) +
-      staticRow('🇮🇹 IT', noteIT || '—', '#86efac') +
-      staticRow('🇺🇸 EN', noteEN || '—', '#93c5fd') +
-      staticRow('🇪🇸 ES', noteES || '—', '#fbbf24') +
-      staticRow('Run at (CDT)', runAt, 'rgba(255,255,255,0.4)') +
-      staticRow('Run by', task.suggested_by || '—', 'rgba(255,255,255,0.3)');
-  } else {
-    bodyHTML +=
-      '<div style="color:rgba(255,255,255,0.3);font-size:12px;padding:6px 0;">Il bot non ha ancora girato per questa prep.<br>' +
-      '<span style="font-size:11px;color:rgba(255,255,255,0.2);">Il bot gira ogni notte alle 4:00 AM CDT.</span></div>';
-  }
-
-  bodyHTML += '</div>';
-
-  // ── SEZIONE 2: SIMULAZIONE TRUSTED (bot_debug_runs) ─────────────────
-  // Source: bot-preplist-sim → bot_debug_runs
-  // logicSource: bot_debug_sim_v6
-  // Loaded async after card is expanded
-  bodyHTML +=
-    '<div style="background:rgba(59,130,246,0.05);border:1.5px solid rgba(59,130,246,0.2);border-radius:12px;padding:12px 14px;margin-bottom:14px;">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
-        '<div style="color:rgba(147,197,253,0.7);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">📊 Simulazione trusted</div>' +
-        '<div style="font-size:9px;font-weight:700;color:rgba(147,197,253,0.3);letter-spacing:.05em;">logicSource: bot_debug_sim_v6</div>' +
-      '</div>' +
-      '<div id="simData_' + task.id + '" style="color:rgba(255,255,255,0.25);font-size:11px;">Caricamento...</div>' +
-    '</div>';
+  // SEZIONE 1 (legacy bot result) e SEZIONE 2 (simulazione bot_debug_runs) rimossi.
+  // Clean & Trust 2026-07-20: suggested_note/qty nullati, bot_debug_runs stale.
+  // Suggestions attive → Production Monitor → Prep Suggestions.
 
   // ── SEZIONE 3: STOCK ATTUALE (DB read) ──────────────────────────────
   // stockSource: current_stock_db
@@ -3146,16 +3403,14 @@ function botBuildTaskCard(task, bomMap) {
     var arrow = document.getElementById('prepArrow_' + task.id);
     if (arrow) arrow.style.transform = expanded ? 'rotate(90deg)' : '';
 
-    // Carica sim data la prima volta che la card si apre
-    if (expanded && !simLoaded) {
+    // Sim data rimosso (Clean & Trust 2026-07-20): bot_debug_runs stale
+    if (false && expanded && !simLoaded) {
       simLoaded = true;
       var simEl = document.getElementById('simData_' + task.id);
       window.botLoadSimData(task.name).then(function(sim) {
         if (!simEl) return;
         if (!sim) {
-          simEl.innerHTML =
-            '<div style="color:rgba(147,197,253,0.4);font-size:12px;">Nessun dato di simulazione disponibile.</div>' +
-            '<div style="font-size:10px;color:rgba(255,255,255,0.2);margin-top:4px;">Esegui Bot Debug per dettagli — Admin → Bot Debug → Aggiorna simulazione.</div>';
+          simEl.innerHTML = '<div style="color:rgba(147,197,253,0.4);font-size:12px;">Nessun dato.</div>';
           return;
         }
         var pill = sim.pill || 'green';
@@ -6163,6 +6418,7 @@ window.dqConfirmApply = async function(idx) {
     if(typeof showScToast==='function') showScToast('Errore: ' + (err.message||err));
   }
 };
+
 
 
 
