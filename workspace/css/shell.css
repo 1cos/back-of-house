@@ -967,6 +967,38 @@ ol, ul { list-style: none; }
   text-align: right;
 }
 
+
+/* Connected & error status variants */
+.lab-status-dot.lab-status-connected {
+  background: var(--ok);
+}
+.lab-status-dot.lab-status-error {
+  background: var(--danger);
+}
+.lab-card-status.lab-status-connected {
+  background: var(--ok-bg);
+}
+.lab-card-status.lab-status-error {
+  background: var(--danger-bg);
+}
+.lab-card-status.lab-status-connected .lab-status-label {
+  color: var(--ok);
+}
+.lab-card-status.lab-status-error .lab-status-label {
+  color: var(--danger);
+}
+
+/* Live value: slightly stronger than muted to show it's real data */
+.lab-card #lab-row-add_chicken-trigger,
+.lab-card #lab-row-add_chicken-recipe,
+.lab-card #lab-row-add_chicken-bom,
+.lab-card #lab-row-add_chicken-stock,
+.lab-card #lab-row-add_chicken-required {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
 @media (max-width: 600px) {
   .lab-grid {
     grid-template-columns: 1fr;

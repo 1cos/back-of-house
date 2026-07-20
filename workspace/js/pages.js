@@ -6,6 +6,12 @@
 import { t } from '../i18n/i18n.js';
 import { can, getRole } from '../permissions/permissions.js';
 import { openTab } from './tabs.js';
+import {
+  fetchAddChicken,
+  formatBOM,
+  formatStock,
+  formatSuggestion,
+} from './production-lab-data.js';
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 /*  HOME                                                                      */
@@ -537,28 +543,96 @@ const LAB_ROW_KEYS = [
 
 function renderLabCard(card) {
   const familyClass = LAB_FAMILY_CLASS[card.family] ?? '';
-  const rows = LAB_ROW_KEYS.map(key => `
-    <div class="lab-card-row">
-      <span class="lab-row-label">${t(key)}</span>
-      <span class="lab-row-value">—</span>
-    </div>
-  `).join('');
+  const isConnected  = card.key === 'add_chicken';
+  const statusClass  = isConnected ? 'lab-status-connected' : '';
+  const statusLabel  = isConnected
+    ? t('lab.status.connected')
+    : t('lab.status.not_connected');
+
+  // Static placeholder rows (used for all cards; add_chicken values filled by afterRender)
+  const rows = LAB_ROW_KEYS.map(key => {
+    const rowId = isConnected ? `lab-row-${card.key}-${key.split('.').pop()}` : '';
+    return `
+      <div class="lab-card-row">
+        <span class="lab-row-label">${t(key)}</span>
+        <span class="lab-row-value" ${rowId ? `id="${rowId}"` : ''}>—</span>
+      </div>
+    `;
+  }).join('');
 
   return `
-    <div class="lab-card">
+    <div class="lab-card" ${isConnected ? 'id="lab-card-add-chicken"' : ''}>
       <div class="lab-card-header">
         <span class="lab-card-name">${t('lab.card.' + card.key)}</span>
         <span class="lab-family-badge ${familyClass}">${t('lab.stage.' + card.family)}</span>
       </div>
-      <div class="lab-card-status">
-        <span class="lab-status-dot"></span>
-        <span class="lab-status-label">${t('lab.status.not_connected')}</span>
+      <div class="lab-card-status ${statusClass}">
+        <span class="lab-status-dot ${statusClass}"></span>
+        <span class="lab-status-label">${statusLabel}</span>
       </div>
       <div class="lab-card-rows">
         ${rows}
       </div>
     </div>
   `;
+}
+
+/* ── Add Chicken live loader ─────────────────────────────────────────────── */
+async function _loadAddChicken(el) {
+  const card = el.querySelector('#lab-card-add-chicken');
+  if (!card) return;
+
+  const get = id => card.querySelector('#' + id);
+
+  // Show loading state
+  const ROW_IDS = ['trigger','recipe','bom','stock','required','reason'];
+  ROW_IDS.forEach(key => {
+    const el2 = get(`lab-row-add_chicken-${key}`);
+    if (el2) el2.textContent = t('lab.loading');
+  });
+
+  const result = await fetchAddChicken();
+
+  if (!result.ok) {
+    // Error: fill every row with error text
+    ROW_IDS.forEach(key => {
+      const el2 = get(`lab-row-add_chicken-${key}`);
+      if (el2) el2.textContent = t('lab.error');
+    });
+    // Update status chip
+    const statusDot   = card.querySelector('.lab-status-dot');
+    const statusLabel = card.querySelector('.lab-status-label');
+    if (statusDot)   { statusDot.className   = 'lab-status-dot lab-status-error'; }
+    if (statusLabel) { statusLabel.textContent = t('lab.status.error'); }
+    console.warn('[ProductionLab] Add Chicken fetch error:', result.error);
+    return;
+  }
+
+  const { recipe, bom, prep, suggestion } = result.data;
+  const lang = sessionStorage.getItem('ws_lang') ?? 'en';
+
+  // Trigger — modifier name from modifier_config (known, no extra query needed)
+  const triggerEl = get('lab-row-add_chicken-trigger');
+  if (triggerEl) triggerEl.textContent = 'Add chicken (modifier · Proteine)';
+
+  // Recipe — title + pos_name summary
+  const recipeEl = get('lab-row-add_chicken-recipe');
+  if (recipeEl) recipeEl.textContent = recipe.title ?? '—';
+
+  // BOM — compact list
+  const bomEl = get('lab-row-add_chicken-bom');
+  if (bomEl) bomEl.textContent = formatBOM(bom) || '—';
+
+  // Current Stock
+  const stockEl = get('lab-row-add_chicken-stock');
+  if (stockEl) stockEl.textContent = formatStock(prep);
+
+  // Current BOH Result (suggestion)
+  const requiredEl = get('lab-row-add_chicken-required');
+  if (requiredEl) requiredEl.textContent = formatSuggestion(suggestion, lang);
+
+  // Reason: kept — for now
+  // (left as —)
 }
 
 export const ProductionLabPage = {
@@ -597,7 +671,9 @@ export const ProductionLabPage = {
     `;
   },
 
-  afterRender() {}
+  afterRender(el) {
+    _loadAddChicken(el);
+  },
 };
 
 /* ══════════════════════════════════════════════════════════════════════════ */
