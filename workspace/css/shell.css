@@ -1000,6 +1000,36 @@ ol, ul { list-style: none; }
 }
 
 
+
+/* ── Lab section header rows ─────────────────────────────────────────────── */
+.lab-card-row.lab-row-header {
+  background: var(--bg-mid);
+  border-bottom: 1px solid var(--border);
+  justify-content: center;
+}
+.lab-card-row.lab-row-header .lab-row-label {
+  font-size: 10px;
+  font-weight: var(--weight-bold);
+  color: var(--text-secondary);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  text-align: center;
+}
+/* Hide value cell for header rows */
+.lab-card-row.lab-row-header .lab-row-value {
+  display: none;
+}
+
+/* ── DOW comparison status badges ────────────────────────────────────────── */
+.lab-val-match {
+  color: var(--ok) !important;
+  font-weight: var(--weight-bold);
+}
+.lab-val-mismatch {
+  color: var(--warn) !important;
+  font-weight: var(--weight-bold);
+}
+
 /* ── Lab Trace & Not-Comparable sections ────────────────────────────────── */
 .lab-trace {
   display: flex;

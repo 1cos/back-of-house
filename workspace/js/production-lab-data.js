@@ -73,7 +73,7 @@ export async function fetchAddChicken() {
     // 4. Latest BOH suggestion (prep_suggestions_daily)
     const { data: suggRows, error: suggErr } = await _db
       .from('prep_suggestions_daily')
-      .select('suggestion_date, status, confidence, planned_output, output_unit, forecast, forecast_unit, net_requirement, demand_source, forecast_path, reason, generated_at')
+      .select('suggestion_date, status, confidence, planned_output, output_unit, forecast, forecast_unit, net_requirement, demand_source, forecast_path, reason, generated_at, history_start_date, history_end_date, same_weekday_samples, debug_json')
       .eq('prep_task_id', ADD_CHICKEN_PREP_ID)
       .order('suggestion_date', { ascending: false })
       .order('generated_at', { ascending: false })
@@ -250,3 +250,73 @@ export function extractDicedChickenBOMQty(bomRows) {
   return { qty: Number(row.quantity), unit: row.unit ?? 'g' };
 }
 
+/**
+ * Fetch modifier counts for specific dates (DOW sample window).
+ * Used for the matching-DOW BOM-first forecast.
+ * Returns rows in the form [{date, modifier, quantity_sold}] for all
+ * modifier aliases (matched or not — engine filters by alias set).
+ *
+ * @param {string[]} dates       — array of 'YYYY-MM-DD' strings
+ * @param {string[]} aliases     — alias strings from recipes.pos_name
+ * @returns {Promise<{ ok: true, data: { rows: Array } } | { ok: false, error: string }>}
+ */
+export async function fetchModifierCountsForDates(dates, aliases) {
+  try {
+    if (!dates?.length || !aliases?.length) {
+      return { ok: false, error: 'Missing dates or aliases' };
+    }
+
+    // SELECT only — no insert/update/delete
+    const { data: rows, error } = await _db
+      .from('pos_modifiers')
+      .select('sale_date, modifier, quantity_sold')
+      .in('sale_date', dates)
+      .in('modifier', aliases);
+
+    if (error) throw new Error(`pos_modifiers DOW fetch: ${error.message}`);
+
+    // Normalize: add 'date' alias so engine can use row.date
+    const normalized = (rows ?? []).map(r => ({
+      date:          r.sale_date,
+      modifier:      r.modifier,
+      quantity_sold: r.quantity_sold,
+    }));
+
+    return { ok: true, data: { rows: normalized } };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}
+
+/**
+ * Extract the DOW sample dates from the BOH suggestion debug_json.
+ * The debug_json.dow_avg key has one entry per DOW (JS day: 1=Mon…6=Sat).
+ * The matching Mondays are the ones in the history window with day_of_week = target_dow.
+ *
+ * We derive them by finding all dates between history_start_date and history_end_date
+ * that match the target DOW — pure JS calculation, no extra DB query needed.
+ *
+ * @param {string}  historyStart  — 'YYYY-MM-DD'
+ * @param {string}  historyEnd    — 'YYYY-MM-DD'
+ * @param {number}  targetDow     — JS getDay() of the suggestion_date
+ * @returns {string[]}  array of 'YYYY-MM-DD' strings (sorted)
+ */
+export function deriveMatchingDowDates(historyStart, historyEnd, targetDow) {
+  const result = [];
+  const start  = new Date(historyStart + 'T00:00:00Z');
+  const end    = new Date(historyEnd   + 'T00:00:00Z');
+  const cur    = new Date(start);
+
+  // Advance to first matching DOW
+  while (cur.getUTCDay() !== targetDow) {
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+
+  // Collect all matching days in window
+  while (cur <= end) {
+    result.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 7);
+  }
+
+  return result;
+}

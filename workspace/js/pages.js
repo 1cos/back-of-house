@@ -10,12 +10,17 @@ import {
   fetchAddChicken,
   fetchAddChickenModifiers,
   fetchLatestModifierDate,
+  fetchModifierCountsForDates,
+  deriveMatchingDowDates,
   extractDicedChickenBOMQty,
   formatBOM,
   formatStock,
   formatSuggestion,
 } from './production-lab-data.js';
-import { calculateAddChickenShadow } from './production-lab-shadow-engine.js';
+import {
+  calculateAddChickenShadow,
+  calculateMatchingDowForecast,
+} from './production-lab-shadow-engine.js';
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 /*  HOME                                                                      */
@@ -541,11 +546,19 @@ const LAB_ROW_KEYS = [
   'lab.row.recipe',
   'lab.row.bom',
   'lab.row.stock',
+  // ── Latest actual day ──────────────────────────────────
+  'lab.row.latest_day_header',
   'lab.row.modifier_uses',
   'lab.row.bom_per_use',
   'lab.row.shadow_demand',
+  // ── Matching-DOW forecast ──────────────────────────────
+  'lab.row.dow_header',
+  'lab.row.dow_samples',
+  'lab.row.dow_bom_forecast',
+  'lab.row.dow_boh_forecast',
+  'lab.row.dow_difference',
+  'lab.row.dow_status',
   'lab.row.boh_result',
-  'lab.row.difference',
   'lab.row.explanation',
 ];
 
@@ -560,8 +573,9 @@ function renderLabCard(card) {
   // Static placeholder rows (used for all cards; add_chicken values filled by afterRender)
   const rows = LAB_ROW_KEYS.map(key => {
     const rowId = isConnected ? `lab-row-${card.key}-${key.split('.').pop()}` : '';
+    const isHeader = key.endsWith('_header');
     return `
-      <div class="lab-card-row">
+      <div class="lab-card-row${isHeader ? ' lab-row-header' : ''}">
         <span class="lab-row-label">${t(key)}</span>
         <span class="lab-row-value" ${rowId ? `id="${rowId}"` : ''}>—</span>
       </div>
@@ -594,122 +608,166 @@ async function _loadAddChicken(el) {
   const card = el.querySelector('#lab-card-add-chicken');
   if (!card) return;
 
-  const get = id => card.querySelector('#' + id);
+  const get  = id => card.querySelector('#' + id);
   const lang = sessionStorage.getItem('ws_lang') ?? 'en';
 
-  // Row IDs match LAB_ROW_KEYS suffix
-  const ROW_IDS = ['trigger','recipe','bom','stock',
-                   'modifier_uses','bom_per_use','shadow_demand',
-                   'boh_result','difference','explanation'];
-
-  // Show loading state
-  ROW_IDS.forEach(key => {
+  const setVal = (key, text, cls) => {
     const el2 = get(`lab-row-add_chicken-${key}`);
-    if (el2) el2.textContent = t('lab.loading');
-  });
-
-  // ── Phase 1: fetch core Add Chicken data ───────────────────────────────────
-  const result = await fetchAddChicken();
-
-  if (!result.ok) {
-    ROW_IDS.forEach(key => {
-      const el2 = get(`lab-row-add_chicken-${key}`);
-      if (el2) el2.textContent = t('lab.error');
-    });
-    const statusDot   = card.querySelector('.lab-status-dot');
-    const statusLabel = card.querySelector('.lab-status-label');
-    if (statusDot)   statusDot.className    = 'lab-status-dot lab-status-error';
-    if (statusLabel) statusLabel.textContent = t('lab.status.error');
-    console.warn('[ProductionLab] Add Chicken fetch error:', result.error);
-    return;
-  }
-
-  const { recipe, bom, prep, suggestion } = result.data;
-
-  // Fill static rows immediately
-  const setVal = (key, text) => {
-    const el2 = get(`lab-row-add_chicken-${key}`);
-    if (el2) el2.textContent = text;
+    if (!el2) return;
+    el2.textContent = text;
+    if (cls) el2.className = (el2.className || '') + ' ' + cls;
   };
 
+  // Show loading for all dynamic rows
+  const LOADING_KEYS = ['modifier_uses','bom_per_use','shadow_demand',
+                        'dow_samples','dow_bom_forecast','dow_boh_forecast',
+                        'dow_difference','dow_status','boh_result','explanation'];
+  LOADING_KEYS.forEach(k => setVal(k, t('lab.loading')));
+
+  // ── Phase 1: core recipe + BOM + prep + suggestion ────────────────────────
+  const core = await fetchAddChicken();
+  if (!core.ok) {
+    LOADING_KEYS.forEach(k => setVal(k, t('lab.error')));
+    card.querySelector('.lab-status-dot')?.classList.add('lab-status-error');
+    const sl = card.querySelector('.lab-status-label');
+    if (sl) sl.textContent = t('lab.status.error');
+    console.warn('[ProductionLab] core fetch error:', core.error);
+    return;
+  }
+  const { recipe, bom, prep, suggestion } = core.data;
+
+  // Static rows — fill immediately
   setVal('trigger', 'Add chicken (modifier · Proteine)');
   setVal('recipe',  recipe.title ?? '—');
   setVal('bom',     formatBOM(bom) || '—');
   setVal('stock',   formatStock(prep));
   setVal('boh_result', formatSuggestion(suggestion, lang));
 
-  // ── Phase 2: get latest modifier date ──────────────────────────────────────
-  const dateResult = await fetchLatestModifierDate();
-  if (!dateResult.ok) {
-    setVal('modifier_uses',  t('lab.error'));
-    setVal('bom_per_use',    '—');
-    setVal('shadow_demand',  t('lab.error'));
-    setVal('difference',     '—');
-    setVal('explanation',    dateResult.error);
-    return;
-  }
-  const businessDate = dateResult.date;
-
-  // ── Phase 3: fetch modifier counts for that date ───────────────────────────
-  const modResult = await fetchAddChickenModifiers(businessDate, recipe.pos_name ?? '');
-  if (!modResult.ok) {
-    setVal('modifier_uses',  t('lab.error'));
-    setVal('bom_per_use',    '—');
-    setVal('shadow_demand',  t('lab.error'));
-    setVal('difference',     '—');
-    setVal('explanation',    modResult.error);
-    return;
-  }
-
-  // ── Phase 4: extract Diced Grilled Chicken BOM qty ────────────────────────
+  // ── Phase 2: BOM qty for Diced Grilled Chicken ────────────────────────────
   const bomEntry = extractDicedChickenBOMQty(bom);
   if (!bomEntry) {
-    setVal('modifier_uses',  modResult.data.modifierRows.reduce((s,r)=>s+r.quantity_sold,0).toString());
-    setVal('bom_per_use',    '—');
-    setVal('shadow_demand',  'NEEDS REVIEW: Diced Grilled Chicken not found in BOM');
-    setVal('difference',     '—');
-    setVal('explanation',    'BOM entry for Diced Grilled Chicken is missing.');
+    LOADING_KEYS.forEach(k => setVal(k, t('lab.error')));
+    setVal('explanation', 'BOM entry for Diced Grilled Chicken missing.');
     return;
   }
 
-  // ── Phase 5: shadow engine (pure, no DB) ──────────────────────────────────
-  const shadow = calculateAddChickenShadow({
-    businessDate,
-    modifierRows: modResult.data.modifierRows,
-    recipeAliases: modResult.data.aliases,
-    bomQtyPerUse:  bomEntry.qty,
-    bomUnit:       bomEntry.unit,
-    suggestion,
+  // ── Phase 3: latest actual day (single date) ───────────────────────────────
+  const dateResult = await fetchLatestModifierDate();
+  if (!dateResult.ok) {
+    setVal('modifier_uses', t('lab.error'));
+    setVal('bom_per_use',   '—');
+    setVal('shadow_demand', t('lab.error'));
+  } else {
+    const businessDate = dateResult.date;
+    const modResult = await fetchAddChickenModifiers(businessDate, recipe.pos_name ?? '');
+    if (!modResult.ok) {
+      setVal('modifier_uses', t('lab.error'));
+      setVal('shadow_demand', t('lab.error'));
+    } else {
+      const latestShadow = calculateAddChickenShadow({
+        businessDate,
+        modifierRows: modResult.data.modifierRows,
+        recipeAliases: modResult.data.aliases,
+        bomQtyPerUse: bomEntry.qty,
+        bomUnit: bomEntry.unit,
+        suggestion,
+      });
+      if (latestShadow.ok) {
+        setVal('modifier_uses', `${latestShadow.totalUses} (${businessDate})`);
+        setVal('bom_per_use',   `${latestShadow.bomQtyPerUse}${latestShadow.bomUnit}`);
+        setVal('shadow_demand', latestShadow.shadowDemandLabel);
+        setVal('explanation',   latestShadow.explanation);
+      }
+    }
+  }
+
+  // ── Phase 4: matching-DOW BOM-first forecast ───────────────────────────────
+  if (!suggestion || !suggestion.history_start_date || !suggestion.history_end_date) {
+    setVal('dow_samples',      '—');
+    setVal('dow_bom_forecast', '—');
+    setVal('dow_boh_forecast', '—');
+    setVal('dow_difference',   '—');
+    setVal('dow_status',       'NO SUGGESTION');
+    return;
+  }
+
+  // Derive the matching-DOW dates from history window
+  const suggDate  = new Date(suggestion.suggestion_date + 'T00:00:00Z');
+  const targetDow = suggDate.getUTCDay();  // 1 = Monday
+  const dowDates  = deriveMatchingDowDates(
+    suggestion.history_start_date,
+    suggestion.history_end_date,
+    targetDow
+  );
+
+  // Fetch modifier counts for those DOW dates (all aliases)
+  const aliases = (recipe.pos_name ?? '').split('|').map(a => a.trim()).filter(Boolean);
+  const dowFetchResult = await fetchModifierCountsForDates(dowDates, aliases);
+
+  if (!dowFetchResult.ok) {
+    setVal('dow_samples',      t('lab.error'));
+    setVal('dow_bom_forecast', t('lab.error'));
+    setVal('dow_difference',   t('lab.error'));
+    setVal('dow_status',       t('lab.error'));
+    return;
+  }
+
+  // Run the pure DOW forecast engine
+  const dow = calculateMatchingDowForecast({
+    targetDate:     suggestion.suggestion_date,
+    targetDow,
+    sampleRows:     dowFetchResult.data.rows,
+    recipeAliases:  aliases,
+    bomQtyPerUse:   bomEntry.qty,
+    bomUnit:        bomEntry.unit,
+    bohForecastG:   Number(suggestion.forecast ?? 0),
+    bohSampleCount: Number(suggestion.same_weekday_samples ?? 0),
   });
 
-  if (!shadow.ok) {
-    setVal('modifier_uses', '—');
-    setVal('shadow_demand', `NEEDS REVIEW: ${shadow.error}`);
-    setVal('difference',    '—');
-    setVal('explanation',   shadow.error);
+  if (!dow.ok) {
+    setVal('dow_samples',      t('lab.error'));
+    setVal('dow_bom_forecast', `NEEDS REVIEW: ${dow.error}`);
+    setVal('dow_difference',   '—');
+    setVal('dow_status',       t('lab.error'));
     return;
   }
 
-  // ── Phase 6: fill shadow rows ──────────────────────────────────────────────
-  setVal('modifier_uses', `${shadow.totalUses} (${businessDate})`);
-  setVal('bom_per_use',   `${shadow.bomQtyPerUse}${shadow.bomUnit}`);
-  setVal('shadow_demand', shadow.shadowDemandLabel);
-  setVal('difference',    shadow.comparableLabel);  // NOT_COMPARABLE
-  setVal('explanation',   shadow.explanation);
+  // Sample summary: "Jun 29: 17×100=1700g, Jul 06: 13×100=1300g, ..."
+  const sampleSummary = dow.samples
+    .map(s => {
+      const d = new Date(s.date + 'T00:00:00Z');
+      const label = d.toLocaleDateString('en-US', { month:'short', day:'numeric', timeZone:'UTC' });
+      return `${label}: ${s.uses}×${bomEntry.qty}g=${s.bomDemandG}g`;
+    })
+    .join(' · ');
 
-  // ── Phase 7: render trace section ─────────────────────────────────────────
+  const diffLabel = dow.diff === 0 ? '0g'
+    : `${dow.diff > 0 ? '+' : ''}${dow.diff.toFixed(0)}g`;
+  const statusCls = dow.comparisonStatus === 'MATCH' ? 'lab-val-match' : 'lab-val-mismatch';
+
+  setVal('dow_samples',      sampleSummary);
+  setVal('dow_bom_forecast', dow.avgLabel);
+  setVal('dow_boh_forecast', `${dow.bohForecastG}g`);
+  setVal('dow_difference',   diffLabel);
+  setVal('dow_status',       dow.comparisonStatus, statusCls);
+
+  // ── Phase 5: update trace section ─────────────────────────────────────────
   const traceEl = card.querySelector('.lab-trace');
-  if (traceEl) {
-    traceEl.innerHTML = shadow.tracePath
+  if (traceEl && dow.traceDow) {
+    traceEl.innerHTML = dow.traceDow
       .map(line => `<span class="lab-trace-line">${line}</span>`)
       .join('');
   }
 
-  // ── Phase 8: render NOT_COMPARABLE note ───────────────────────────────────
+  // ── Phase 6: clear NOT_COMPARABLE note if MATCH ────────────────────────────
   const ncEl = card.querySelector('.lab-not-comparable');
-  if (ncEl && shadow.comparableLabel === 'NOT_COMPARABLE') {
-    ncEl.textContent = shadow.comparableReason;
-    ncEl.style.display = '';
+  if (ncEl) {
+    if (dow.comparisonStatus === 'MATCH') {
+      ncEl.style.display = 'none';
+    } else {
+      ncEl.textContent = dow.mismatchReason ?? '';
+      ncEl.style.display = '';
+    }
   }
 }
 

@@ -123,6 +123,142 @@ export function calculateAddChickenShadow(input) {
   };
 }
 
+
+/**
+ * Calculate a matching-DOW BOM-first forecast.
+ * Pure function — no DB access, no DOM, no side effects.
+ *
+ * Uses the exact same logic as the BOH dow_match path:
+ *   1. Filter sample rows to those matching the target DOW.
+ *   2. Multiply each day's modifier uses × bomQtyPerUse → daily BOM demand.
+ *   3. Average the daily BOM demands.
+ *
+ * @param {object} input
+ * @param {string}  input.targetDate          — 'YYYY-MM-DD' business date being forecast
+ * @param {number}  input.targetDow           — JS getDay() value (0=Sun…6=Sat)
+ * @param {Array}   input.sampleRows          — [{date, modifier, quantity_sold, aliases}]
+ *                                              Each row is ONE modifier on ONE date.
+ * @param {string[]} input.recipeAliases      — lowercase alias set for matching
+ * @param {number}  input.bomQtyPerUse        — grams per modifier use
+ * @param {string}  input.bomUnit             — 'g'
+ * @param {number}  input.bohForecastG        — BOH dow_avg value for this DOW (g)
+ * @param {number}  input.bohSampleCount      — how many samples BOH used
+ *
+ * @returns {DowForecastResult}
+ */
+export function calculateMatchingDowForecast(input) {
+  const {
+    targetDate,
+    targetDow,
+    sampleRows,
+    recipeAliases,
+    bomQtyPerUse,
+    bomUnit,
+    bohForecastG,
+    bohSampleCount,
+  } = input;
+
+  const aliasSet = new Set((recipeAliases ?? []).map(a => a.trim().toLowerCase()));
+  const bomQty   = Number(bomQtyPerUse ?? 0);
+
+  if (bomQty <= 0 || bomUnit !== 'g') {
+    return { ok: false, error: `Bad BOM qty: ${bomQtyPerUse} ${bomUnit}` };
+  }
+
+  // ── 1. Group rows by date, sum matched modifier uses ─────────────────────
+  const byDate = {};  // date → { uses, rowDetails }
+  for (const row of (sampleRows ?? [])) {
+    const modKey = (row.modifier ?? '').trim().toLowerCase();
+    if (!aliasSet.has(modKey)) continue;  // only matched aliases
+    const d = row.date;
+    if (!byDate[d]) byDate[d] = { uses: 0, rowDetails: [] };
+    byDate[d].uses += Number(row.quantity_sold ?? 0);
+    byDate[d].rowDetails.push({ modifier: row.modifier, qty: Number(row.quantity_sold ?? 0) });
+  }
+
+  // ── 2. Build per-date sample array ────────────────────────────────────────
+  const samples = Object.entries(byDate)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, info]) => ({
+      date,
+      uses:        info.uses,
+      bomDemandG:  info.uses * bomQty,
+      rowDetails:  info.rowDetails,
+    }));
+
+  if (!samples.length) {
+    return { ok: false, error: 'No matching modifier rows for the DOW sample dates' };
+  }
+
+  // ── 3. Average ────────────────────────────────────────────────────────────
+  const totalDemandG   = samples.reduce((s, r) => s + r.bomDemandG, 0);
+  const avgDemandG     = totalDemandG / samples.length;
+  // Round to 2dp to match BOH precision
+  const avgRounded     = Math.round(avgDemandG * 100) / 100;
+
+  // ── 4. Compare with BOH forecast ─────────────────────────────────────────
+  const diff           = avgRounded - Number(bohForecastG ?? 0);
+  const absDiff        = Math.abs(diff);
+  // Tolerance: ≤1g rounding, or ≤0.1% of bohForecast
+  const tolerance      = Math.max(1, Number(bohForecastG ?? 0) * 0.001);
+  const isMatch        = absDiff <= tolerance;
+  const comparisonStatus = isMatch ? 'MATCH' : 'MISMATCH';
+
+  // ── 5. Mismatch explanation ───────────────────────────────────────────────
+  let mismatchReason = null;
+  if (!isMatch) {
+    const sampleCountDiff = samples.length - Number(bohSampleCount ?? 0);
+    if (sampleCountDiff !== 0) {
+      mismatchReason = `Sample count differs: BOM-first has ${samples.length} samples, BOH used ${bohSampleCount}.`;
+    } else if (absDiff < 5) {
+      mismatchReason = `Rounding difference (${diff.toFixed(2)}g). Likely safe.`;
+    } else {
+      mismatchReason = `Material difference of ${diff.toFixed(2)}g. `
+        + `Possible causes: additional deduction sources in stock_deductions beyond direct modifier path, `
+        + `unmapped aliases, or excluded status rows.`;
+    }
+  }
+
+  // ── 6. Trace path ─────────────────────────────────────────────────────────
+  const traceDow = [
+    `Target: ${targetDate} (DOW ${targetDow})`,
+    `Samples (${samples.length}): ${samples.map(s => `${s.date}→${s.uses}×${bomQty}g=${s.bomDemandG}g`).join(', ')}`,
+    `BOM-first avg: (${samples.map(s => s.bomDemandG).join('+')}÷${samples.length}) = ${avgRounded}g`,
+    `BOH forecast: ${bohForecastG}g`,
+    `Diff: ${diff >= 0 ? '+' : ''}${diff.toFixed(2)}g → ${comparisonStatus}`,
+  ];
+
+  return {
+    ok: true,
+    targetDate,
+    samples,
+    sampleCount:       samples.length,
+    totalDemandG,
+    avgDemandG:        avgRounded,
+    avgLabel:          `${avgRounded}g`,
+    bohForecastG:      Number(bohForecastG ?? 0),
+    diff,
+    comparisonStatus,
+    mismatchReason,
+    traceDow,
+  };
+}
+
+/**
+ * @typedef {object} DowForecastResult
+ * @property {true}    ok
+ * @property {string}  targetDate
+ * @property {Array}   samples            — [{date, uses, bomDemandG, rowDetails}]
+ * @property {number}  sampleCount
+ * @property {number}  totalDemandG
+ * @property {number}  avgDemandG         — rounded to 2dp
+ * @property {string}  avgLabel
+ * @property {number}  bohForecastG
+ * @property {number}  diff               — avgDemandG − bohForecastG
+ * @property {'MATCH'|'MISMATCH'} comparisonStatus
+ * @property {string|null} mismatchReason
+ * @property {string[]} traceDow
+ */
 /**
  * @typedef {object} ShadowResult
  * @property {true}    ok
