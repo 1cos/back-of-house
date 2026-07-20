@@ -13,6 +13,7 @@ import {
   fetchModifierCountsForDates,
   deriveMatchingDowDates,
   extractDicedChickenBOMQty,
+  fetchFriedCalamari,
   formatBOM,
   formatStock,
   formatSuggestion,
@@ -577,7 +578,8 @@ const LAB_ROW_KEYS = [
 
 function renderLabCard(card) {
   const familyClass = LAB_FAMILY_CLASS[card.family] ?? '';
-  const isConnected  = card.key === 'add_chicken';
+  const CONNECTED_SET = new Set(['add_chicken', 'fried_calamari']);
+  const isConnected  = CONNECTED_SET.has(card.key);
   const statusClass  = isConnected ? 'lab-status-connected' : '';
   const statusLabel  = isConnected
     ? t('lab.status.connected')
@@ -596,7 +598,7 @@ function renderLabCard(card) {
   }).join('');
 
   return `
-    <div class="lab-card" ${isConnected ? 'id="lab-card-add-chicken"' : ''}>
+    <div class="lab-card" ${isConnected ? `id="lab-card-${card.key}"` : ''}>
       <div class="lab-card-header">
         <span class="lab-card-name">${t('lab.card.' + card.key)}</span>
         <span class="lab-family-badge ${familyClass}">${t('lab.stage.' + card.family)}</span>
@@ -838,6 +840,69 @@ async function _loadAddChicken(el) {
   if (formulaEl) formulaEl.textContent = prod.formulaTrace;
 }
 
+/* ── Fried Calamari live loader ──────────────────────────────────────────── */
+async function _loadFriedCalamari(el) {
+  const card = el.querySelector('#lab-card-fried_calamari');
+  if (!card) return;
+
+  const lang = sessionStorage.getItem('ws_lang') ?? 'en';
+  const KEY  = 'fried_calamari';
+
+  const get    = id => card.querySelector('#' + id);
+  const setVal = (suffix, text, cls) => {
+    const el2 = get(`lab-row-${KEY}-${suffix}`);
+    if (!el2) return;
+    el2.textContent = text;
+    if (cls) el2.className = (el2.className || '') + ' ' + cls;
+  };
+
+  // Rows populated by this loader (static rows remain —)
+  const LIVE_ROWS = ['trigger','recipe','bom','stock','boh_result'];
+  LIVE_ROWS.forEach(r => setVal(r, t('lab.loading')));
+
+  const result = await fetchFriedCalamari();
+
+  if (!result.ok) {
+    LIVE_ROWS.forEach(r => setVal(r, t('lab.error')));
+    const statusDot   = card.querySelector('.lab-status-dot');
+    const statusLabel = card.querySelector('.lab-status-label');
+    if (statusDot)   statusDot.className    = 'lab-status-dot lab-status-error';
+    if (statusLabel) statusLabel.textContent = t('lab.status.error');
+    console.warn('[ProductionLab] Fried Calamari fetch error:', result.error);
+    return;
+  }
+
+  const { recipe, bom, prep, suggestion } = result.data;
+
+  // Trigger: POS item (not a modifier) — primary alias is "Fried Calamari"
+  setVal('trigger', 'Fried Calamari (POS item · Antipasti)');
+  setVal('recipe',  recipe.title ?? '—');
+  setVal('bom',     formatBOM(bom) || '—');
+  setVal('stock',   formatStock(prep));
+  setVal('boh_result', formatSuggestion(suggestion, lang));
+
+  // Trace path
+  const traceEl = card.querySelector('.lab-trace');
+  if (traceEl) {
+    const aliases = (recipe.pos_name ?? '').split('|').map(a => a.trim());
+    const keyBom  = bom.find(r => r.component_type === 'ITEM'
+                              && r.ingredients?.name?.toLowerCase().includes('calamari'));
+    const bomDesc = keyBom
+      ? `${keyBom.ingredients.name} ${keyBom.quantity}${keyBom.unit}`
+      : `${bom.length} BOM rows`;
+
+    const trace = [
+      `pos_sales_by_item.menu_item IN [${aliases.map(a => `'${a}'`).join(', ')}]`,
+      `→ recipe '${recipe.title}' (id: ${recipe.id?.slice(0, 8)}…)`,
+      `→ recipe_bom: ${bomDesc} (key ingredient)`,
+      `→ prep_tasks.id=${prep.id} '${prep.name}' · ${prep.category}`,
+    ];
+    traceEl.innerHTML = trace
+      .map(line => `<span class="lab-trace-line">${line}</span>`)
+      .join('');
+  }
+}
+
 export const ProductionLabPage = {
   render() {
     return `
@@ -876,6 +941,7 @@ export const ProductionLabPage = {
 
   afterRender(el) {
     _loadAddChicken(el);
+    _loadFriedCalamari(el);
   },
 };
 

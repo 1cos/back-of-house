@@ -320,3 +320,78 @@ export function deriveMatchingDowDates(historyStart, historyEnd, targetDow) {
 
   return result;
 }
+
+// ── Fried Calamari — fixed IDs (verified 2026-07-19) ────────────────────────
+// recipes.id:        14ccae9f-00b8-4f50-8b43-2cb8010d8ead  (title: 'Fried calamari')
+//   pos_name: 'Calamari|Fried Calamari|Fritto Misto Di Calamari'
+// prep_tasks.id:     266  (name: 'Calamari', category: Oven Station, unit: g)
+// Trigger: POS item (pos_sales_by_item), not a modifier
+//   'Fried Calamari' = 308 total, 'Calamari' = 11 total (alias via pos_item_aliases)
+// BOH status: no_demand_path (stock_deductions exist but bot reports no demand path)
+
+const FRIED_CALAMARI_RECIPE_ID = '14ccae9f-00b8-4f50-8b43-2cb8010d8ead';
+const FRIED_CALAMARI_PREP_ID   = 266;
+
+/**
+ * Fetch all data for the Fried Calamari card (read-only).
+ * SELECT only — no insert/update/delete/upsert/mutating RPC.
+ *
+ * @returns {Promise<{ ok: true, data: FriedCalamariData } | { ok: false, error: string }>}
+ */
+export async function fetchFriedCalamari() {
+  try {
+    // 1. Recipe
+    const { data: recipeRows, error: recErr } = await _db
+      .from('recipes')
+      .select('id, title, pos_name, base_servings, base_weight_g')
+      .eq('id', FRIED_CALAMARI_RECIPE_ID)
+      .limit(1);
+
+    if (recErr) throw new Error(`recipe: ${recErr.message}`);
+    if (!recipeRows?.length) throw new Error('Fried Calamari recipe not found');
+    const recipe = recipeRows[0];
+
+    // 2. BOM
+    const { data: bomRows, error: bomErr } = await _db
+      .from('recipe_bom')
+      .select(`
+        bom_id, component_type, quantity, unit, notes, sort_order,
+        ingredients ( name ),
+        sub_recipe:recipes!recipe_bom_sub_recipe_id_fkey ( title )
+      `)
+      .eq('parent_recipe_id', FRIED_CALAMARI_RECIPE_ID)
+      .order('sort_order');
+
+    if (bomErr) throw new Error(`bom: ${bomErr.message}`);
+
+    // 3. Prep task (current_stock)
+    const { data: prepRows, error: prepErr } = await _db
+      .from('prep_tasks')
+      .select('id, name, category, unit, current_stock')
+      .eq('id', FRIED_CALAMARI_PREP_ID)
+      .limit(1);
+
+    if (prepErr) throw new Error(`prep_task: ${prepErr.message}`);
+    if (!prepRows?.length) throw new Error('Calamari prep task not found');
+    const prep = prepRows[0];
+
+    // 4. Latest BOH suggestion
+    const { data: suggRows, error: suggErr } = await _db
+      .from('prep_suggestions_daily')
+      .select('suggestion_date, status, confidence, planned_output, output_unit, forecast, forecast_unit, net_requirement, demand_source, forecast_path, reason, generated_at')
+      .eq('prep_task_id', FRIED_CALAMARI_PREP_ID)
+      .order('suggestion_date', { ascending: false })
+      .order('generated_at',    { ascending: false })
+      .limit(1);
+
+    if (suggErr) throw new Error(`suggestions: ${suggErr.message}`);
+    const suggestion = suggRows?.[0] ?? null;
+
+    return {
+      ok: true,
+      data: { recipe, bom: bomRows ?? [], prep, suggestion },
+    };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}
