@@ -1117,6 +1117,18 @@ ol, ul { list-style: none; }
 .lab-card-status.lab-status-assembly-blocked .lab-status-label {
   color: var(--text-muted);
 }
+.lab-status-dot.lab-status-rpc-correct {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
+  animation: pulse-ok 2s infinite;
+}
+.lab-card-status.lab-status-rpc-correct {
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  border-color: var(--ok);
+}
+.lab-card-status.lab-status-rpc-correct .lab-status-label {
+  color: var(--ok);
+}
 
 /* ── Meatball model comparison rows ─────────────────────────────────────── */
 .lab-model-block {

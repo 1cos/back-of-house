@@ -1538,16 +1538,32 @@ async function _loadMeatballAssembly(el) {
   const BALLS_PER_BAG   = ballsBomRow ? Number(ballsBomRow.quantity) : 5;
   const SAUCE_PER_BAG_G = sauceBomRow ? Number(sauceBomRow.quantity) : 100;
 
-  // ── Phase 2: card status ─────────────────────────────────────────────────
+  // ── Phase 2: card status — three states ─────────────────────────────────
+  // 'off'    → RPC model correct, flag off, count sauce before enabling
+  // 'shadow' → RPC correct, shadow mode active
+  // 'on'     → fully live (not current)
   const flagState   = flag?.state ?? 'not_found';
+  const sauceNull   = sauce?.current_stock == null;
   const statusDot   = card.querySelector('.lab-status-dot');
   const statusLabel = card.querySelector('.lab-status-label');
   const statusBadge = card.querySelector('.lab-card-status');
-  if (statusDot)   statusDot.className = 'lab-status-dot lab-status-assembly-blocked';
-  if (statusLabel) statusLabel.textContent = t('lab.status.assembly_blocked');
+
+  // Determine status class and label
+  let mbStatusCls, mbStatusKey;
+  if (flagState === 'on') {
+    mbStatusCls = sauceNull ? 'lab-status-assembly-blocked' : 'lab-status-connected';
+    mbStatusKey = sauceNull ? 'lab.status.assembly_blocked' : 'lab.status.connected';
+  } else {
+    // off or shadow: model is correct, flag is simply not on yet
+    mbStatusCls = 'lab-status-rpc-correct';
+    mbStatusKey = 'lab.status.rpc_model_correct';
+  }
+
+  if (statusDot)   statusDot.className = 'lab-status-dot ' + mbStatusCls;
+  if (statusLabel) statusLabel.textContent = t(mbStatusKey);
   if (statusBadge) {
-    const old = statusBadge.className.replace('lab-status-connected', '').trim();
-    statusBadge.className = old + ' lab-status-assembly-blocked';
+    statusBadge.className = statusBadge.className
+      .replace(/lab-status-\S+/g, '').trim() + ' ' + mbStatusCls;
   }
 
   // ── Phase 3: fill base rows ──────────────────────────────────────────────
@@ -1589,7 +1605,16 @@ async function _loadMeatballAssembly(el) {
   setVal('mb_cap_safe',  capSafe  != null ? capSafe + ' bags' : 'BLOCKED (sauce stock unknown)', capSafe != null ? 'lab-val-match' : 'lab-val-mismatch');
 
   // ── Phase 6: feature flag + RPC mismatch ─────────────────────────────────
-  setVal('mb_flag',      flagState.toUpperCase() + ' (flag: meatball_assembly_model_enabled)');
+  // Three-state flag row
+  let flagMsg;
+  if (flagState === 'on') {
+    flagMsg = 'ON — Assembly active';
+  } else if (flagState === 'shadow') {
+    flagMsg = 'SHADOW — Calc only, no writes';
+  } else {
+    flagMsg = 'OFF — RPC MODEL CORRECT · COUNT SAUCE BEFORE ACTIVATION';
+  }
+  setVal('mb_flag', flagMsg + ' (meatball_assembly_model_enabled)');
   setVal('mb_rpc_model', 'ASSEMBLY MODEL CORRECT — 5 Meatballs (480) + 100g Meatball Sauce (479) per bag');
   setVal('mb_mismatch',
     '✓ Uses Meatball Sauce stock (prep 479)  ✓ Uses Meatball stock (prep 480)  ✓ No raw ingredient bypass',
