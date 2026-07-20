@@ -803,3 +803,81 @@ export async function fetchSalmonModifierPathDiagnostic(businessDate, modifierNa
     return { ok: false, error: err.message ?? 'unknown error' };
   }
 }
+
+// ── Truffle Butter — fixed IDs (verified 2026-07-19) ───────────────────────
+// Recipe:    "TRUFFLE BUTTER"  id=0564433e  (Bases, base_servings=24, base_weight_g=496g)
+//   Output:  496g batch / 24 portions × 20g/portion
+//   BOM:     EMPTY in recipe_bom (ingredients not yet catalogued in DB)
+// prep_tasks.id: 309  name="Truffle butter"  category=Saucier Station  unit=g
+//   current_stock=339g
+// Downstream: ONLY consumed by Truffle Fettuccine (pos_name='Truffle Fettuccine')
+//   BOM: 20g Truffle Butter per portion (bom_id=2306)
+//   Trigger: Truffle Fettuccine POS sales → 20g × portions = Truffle Butter demand
+// BOH: defer_to_tomorrow (forecast=110g, demand_source=stock_deductions, stock_deductions CLEAN)
+
+const TRUFFLE_BUTTER_RECIPE_ID = '0564433e-3428-44f0-a7ae-8efadcf0022c';
+const TRUFFLE_BUTTER_PREP_ID   = 309;
+
+/**
+ * Fetch all data for the Truffle Butter card (read-only).
+ * SELECT only — no insert/update/delete/upsert/mutating RPC.
+ *
+ * @returns {Promise<{ ok: true, data: TruffleButterData } | { ok: false, error: string }>}
+ */
+export async function fetchTruffleButter() {
+  try {
+    // 1. Recipe
+    const { data: recipeRows, error: recErr } = await _db
+      .from('recipes')
+      .select('id, title, pos_name, base_servings, base_weight_g, serving_weight_g, serving_unit, serving_qty')
+      .eq('id', TRUFFLE_BUTTER_RECIPE_ID)
+      .limit(1);
+
+    if (recErr) throw new Error(`recipe: ${recErr.message}`);
+    if (!recipeRows?.length) throw new Error('Truffle Butter recipe not found');
+    const recipe = recipeRows[0];
+
+    // 2. BOM (may be empty — recipe_bom not yet populated for this item)
+    const { data: bomRows, error: bomErr } = await _db
+      .from('recipe_bom')
+      .select(`
+        bom_id, component_type, quantity, unit, notes, sort_order,
+        ingredients ( name ),
+        sub_recipe:recipes!recipe_bom_sub_recipe_id_fkey ( title )
+      `)
+      .eq('parent_recipe_id', TRUFFLE_BUTTER_RECIPE_ID)
+      .order('sort_order');
+
+    if (bomErr) throw new Error(`bom: ${bomErr.message}`);
+
+    // 3. Prep task
+    const { data: prepRows, error: prepErr } = await _db
+      .from('prep_tasks')
+      .select('id, name, category, unit, current_stock')
+      .eq('id', TRUFFLE_BUTTER_PREP_ID)
+      .limit(1);
+
+    if (prepErr) throw new Error(`prep_task: ${prepErr.message}`);
+    if (!prepRows?.length) throw new Error('Truffle butter prep task not found');
+    const prep = prepRows[0];
+
+    // 4. Latest BOH suggestion
+    const { data: suggRows, error: suggErr } = await _db
+      .from('prep_suggestions_daily')
+      .select('suggestion_date, status, confidence, planned_output, output_unit, forecast, forecast_unit, net_requirement, demand_source, forecast_path, reason, generated_at')
+      .eq('prep_task_id', TRUFFLE_BUTTER_PREP_ID)
+      .order('suggestion_date', { ascending: false })
+      .order('generated_at',    { ascending: false })
+      .limit(1);
+
+    if (suggErr) throw new Error(`suggestions: ${suggErr.message}`);
+    const suggestion = suggRows?.[0] ?? null;
+
+    return {
+      ok: true,
+      data: { recipe, bom: bomRows ?? [], prep, suggestion },
+    };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'unknown error' };
+  }
+}

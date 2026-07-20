@@ -23,6 +23,7 @@ import {
   fetchSalmonChainSales,
   fetchLatestSalmonSalesDate,
   fetchSalmonModifierPathDiagnostic,
+  fetchTruffleButter,
   formatBOM,
   formatStock,
   formatSuggestion,
@@ -622,7 +623,7 @@ const LAB_ROW_KEYS = [
 
 function renderLabCard(card) {
   const familyClass = LAB_FAMILY_CLASS[card.family] ?? '';
-  const CONNECTED_SET = new Set(['add_chicken', 'fried_calamari', 'process_salmon']);
+  const CONNECTED_SET = new Set(['add_chicken', 'fried_calamari', 'process_salmon', 'truffle_butter']);
   const isConnected  = CONNECTED_SET.has(card.key);
   const statusClass  = isConnected ? 'lab-status-connected' : '';
   const statusLabel  = isConnected
@@ -1330,6 +1331,74 @@ async function _loadProcessSalmon(el) {
   }
 }
 
+/* ── Truffle Butter live loader ───────────────────────────────────────────── */
+async function _loadTruffleButter(el) {
+  const card = el.querySelector('#lab-card-truffle_butter');
+  if (!card) return;
+
+  const lang = sessionStorage.getItem('ws_lang') ?? 'en';
+  const KEY  = 'truffle_butter';
+
+  const get    = id => card.querySelector('#' + id);
+  const setVal = (suffix, text, cls) => {
+    const el2 = get(`lab-row-${KEY}-${suffix}`);
+    if (!el2) return;
+    el2.textContent = text;
+    if (cls) el2.className = (el2.className || '') + ' ' + cls;
+  };
+
+  const LIVE_ROWS = ['trigger','recipe','bom','stock','boh_result'];
+  LIVE_ROWS.forEach(r => setVal(r, t('lab.loading')));
+
+  const result = await fetchTruffleButter();
+
+  if (!result.ok) {
+    LIVE_ROWS.forEach(r => setVal(r, t('lab.error')));
+    const statusDot   = card.querySelector('.lab-status-dot');
+    const statusLabel = card.querySelector('.lab-status-label');
+    if (statusDot)   statusDot.className    = 'lab-status-dot lab-status-error';
+    if (statusLabel) statusLabel.textContent = t('lab.status.error');
+    console.warn('[ProductionLab] Truffle Butter fetch error:', result.error);
+    return;
+  }
+
+  const { recipe, bom, prep, suggestion } = result.data;
+
+  // Transformation: batch yield = base_weight_g / base_servings per portion
+  const batchG    = recipe.base_weight_g ? Number(recipe.base_weight_g) : null;
+  const servings  = recipe.base_servings ? Number(recipe.base_servings) : null;
+  const perPortG  = (batchG && servings) ? Math.round(batchG / servings) : null;
+  const yieldDesc = (batchG && servings && perPortG)
+    ? `${batchG}g batch / ${servings} portions → ${perPortG}g/portion`
+    : recipe.base_weight_g ? `${recipe.base_weight_g}g batch` : '—';
+
+  // BOM note: if empty, show explicit note
+  const bomText = bom.length > 0
+    ? (formatBOM(bom) || '—')
+    : 'No BOM in DB yet (recipe_bom empty — ingredients not yet catalogued)';
+
+  // Trigger: downstream from Truffle Fettuccine POS sales
+  setVal('trigger', 'Downstream — Truffle Fettuccine (POS) × 20g/portion');
+  setVal('recipe',  `${recipe.title} · ${yieldDesc}`);
+  setVal('bom',     bomText);
+  setVal('stock',   formatStock(prep));
+  setVal('boh_result', formatSuggestion(suggestion, lang));
+
+  // Trace
+  const traceEl = card.querySelector('.lab-trace');
+  if (traceEl) {
+    const trace = [
+      `Truffle Fettuccine (POS item, pos_name='Truffle Fettuccine')`,
+      `→ recipe_bom: TRUFFLE BUTTER 20g/portion (bom_id=2306)`,
+      `→ recipe 'TRUFFLE BUTTER' (Bases, ${batchG ?? '?'}g batch / ${servings ?? '?'} portions)`,
+      `→ prep_tasks.id=${prep.id} '${prep.name}' · ${prep.category} · ${prep.current_stock}${prep.unit}`,
+    ];
+    traceEl.innerHTML = trace
+      .map(line => `<span class="lab-trace-line">${line}</span>`)
+      .join('');
+  }
+}
+
 export const ProductionLabPage = {
   render() {
     return `
@@ -1370,6 +1439,7 @@ export const ProductionLabPage = {
     _loadAddChicken(el);
     _loadFriedCalamari(el);
     _loadProcessSalmon(el);
+    _loadTruffleButter(el);
   },
 };
 
