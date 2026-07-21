@@ -230,7 +230,10 @@ window.pdcRun = async function() {
     if (error) throw error;
     const ms = Date.now() - t0;
 
-    window._pdcState.issues = data || [];
+    const allRows = data || [];
+    // Separate INFO rows (excluded_by_group) from real issues — INFO is not a problem
+    window._pdcState.issues = allRows.filter(r => r.severity !== 'INFO');
+    window._pdcState.excludedInfo = allRows.find(r => r.issue_type === 'excluded_by_group') || null;
     const cnt = document.getElementById('pdcIssueCount');
     if (cnt) cnt.textContent = `(${window._pdcState.issues.length})`;
     if (sub) sub.textContent = `${start} → ${end} · ${window._pdcState.issues.length} issues · ${ms}ms`;
@@ -310,6 +313,26 @@ function pdcRenderSummary() {
         <div class="pdc-stat-lbl">Portions sold — no coverage</div>
       </div>
     </div>
+
+    ${(function(){
+      const ei = window._pdcState.excludedInfo;
+      if (!ei) return '';
+      const ex = ei.extra || {};
+      const cnt2 = ex.excluded_item_count || 0;
+      const pts  = Math.round(ex.excluded_portions || 0);
+      const grps = ex.excluded_groups || 0;
+      return '<div style="margin-bottom:10px;padding:8px 14px;background:#0c1a2e;border:1px solid #1e3a5f;' +
+             'border-radius:10px;display:flex;align-items:center;gap:10px;">' +
+             '<span style="font-size:14px;">🍷</span>' +
+             '<div>' +
+             '<span style="font-size:12px;color:#60a5fa;font-weight:600;">' +
+             cnt2 + ' POS items excluded by group</span>' +
+             '<span style="font-size:11px;color:#475569;margin-left:8px;">' +
+             pts + ' portions \xb7 ' + grps + ' groups (Alcohol / Beer / Wine)</span>' +
+             '<div style="font-size:10px;color:#334155;margin-top:2px;">' +
+             'Bar items — no recipe/BOM/prep coverage required. Zero issues generated.' +
+             '</div></div></div>';
+    })()}
 
     <div class="pdc-section">Issue breakdown</div>
     ${Object.entries(byType).sort((a,b)=>b[1]-a[1]).map(([type,cnt])=>`
