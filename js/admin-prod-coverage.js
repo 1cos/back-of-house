@@ -146,7 +146,7 @@ window.openProductionCoverage = async function () {
     filterType: 'all',
     dateStart: null,
     dateEnd: null,
-    selectedIdx: null,
+    selectedIssueId: null,
   };
 
   await pdcRun();
@@ -244,7 +244,7 @@ window.pdcRun = async function() {
 // ── Tab switching ──────────────────────────────────────────────
 window.pdcTab = function(name) {
   window._pdcState.tab = name;
-  window._pdcState.selectedIdx = null;
+  window._pdcState.selectedIssueId = null;
   const drawer = document.getElementById('pdcDrawer');
   if (drawer) drawer.style.display = 'none';
   ['summary','issues','pos','prep','modifiers','alias'].forEach((t,i) => {
@@ -380,11 +380,11 @@ function pdcRenderIssues() {
     </div>
     <div style="font-size:11px;color:#475569;margin-bottom:8px;">${issues.length} issues</div>
     ${issues.length===0 ? '<div style="color:#64748b;text-align:center;padding:30px;">No issues match the current filter.</div>' : ''}
-    ${issues.map((iss,idx)=>{
+    ${issues.map((iss)=>{
+      const stableId = (iss.pos_name||'') + '|' + (iss.issue_type||'') + '|' + (iss.prep_task_id||'');
       const name = pdcEsc(iss.pos_name || iss.prep_task_name || '—');
-      const recipe = pdcEsc(iss.recipe_title || '—');
-      return `<div class="pdc-row ${st.selectedIdx===idx?'pdc-selected':''}"
-                   onclick="pdcSelectIssue(${idx})">
+      return `<div class="pdc-row ${st.selectedIssueId===stableId?'pdc-selected':''}"
+                   onclick="pdcSelectIssue('${stableId.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">
         <div style="flex:0 0 50px;">${pdcSevPill(iss.severity)}</div>
         <div style="flex:1;min-width:0;">
           <div style="font-weight:600;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
@@ -400,10 +400,13 @@ function pdcRenderIssues() {
 
 window.pdcFilterSev = function(s) { window._pdcState.filterSev=s; pdcRenderIssues(); };
 window.pdcFilterType = function(t) { window._pdcState.filterType=t; pdcRenderIssues(); };
-window.pdcSelectIssue = function(idx) {
-  window._pdcState.selectedIdx = idx;
+window.pdcSelectIssue = function(stableId) {
+  window._pdcState.selectedIssueId = stableId;
+  // Look up the real issue from the canonical issues array using the stableId
+  const iss = window._pdcState.issues.find(i =>
+    ((i.pos_name||'') + '|' + (i.issue_type||'') + '|' + (i.prep_task_id||'')) === stableId
+  );
   pdcRenderIssues();
-  const iss = window._pdcState.issues[idx];
   if (iss) pdcShowIssueDetail(iss);
 };
 
