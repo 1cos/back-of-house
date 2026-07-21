@@ -538,6 +538,36 @@
       if (Object.keys(recPatch).length) {
         const { error: re } = await supa.from('recipes').update(recPatch).eq('id', rid);
         if (re) throw new Error(`recipes: ${re.message}`);
+
+        // ── Auto-link pos_item_class_rules when pos_name changes ──────────
+        // If pos_name was edited, find any matching rule with target_type='none'
+        // and update it to point to this recipe. This prevents unmatched_pos issues.
+        if ('pos_name' in recPatch && recPatch.pos_name) {
+          const newPosName = recPatch.pos_name;
+          // Check each pipe-delimited alias
+          const aliases = newPosName.split('|').map(a => a.trim()).filter(Boolean);
+          for (const alias of aliases) {
+            const { data: matchedRules } = await supa
+              .from('pos_item_class_rules')
+              .select('id, pattern, target_type, target_id, action')
+              .eq('pattern', alias)
+              .eq('active', true);
+            if (matchedRules && matchedRules.length > 0) {
+              for (const rule of matchedRules) {
+                if (rule.target_type === 'none' || rule.target_id === null) {
+                  // Update to point to this recipe
+                  await supa.from('pos_item_class_rules')
+                    .update({
+                      target_type: 'recipe',
+                      target_id: rid,
+                      notes: `Auto-linked to recipe ${rid} via Recipe Control Table pos_name save`
+                    })
+                    .eq('id', rule.id);
+                }
+              }
+            }
+          }
+        }
       }
 
       // Save prep_tasks
