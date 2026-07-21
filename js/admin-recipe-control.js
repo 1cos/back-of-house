@@ -1,1131 +1,810 @@
-// ── RECIPE CONTROL TABLE — js/admin-recipe-control.js ────────────────────────
-// Admin-only spreadsheet view of all recipes with inline editing.
-// Every column maps to a real DB column; saving uses only modified fields;
-// read-back from DB verifies every save.
+// ── RECIPE CONTROL TABLE v2 — js/admin-recipe-control.js ─────────────────────
+// Admin-only spreadsheet: view + edit all recipe fields + linked prep data.
+// v2: full dropdown + multi-table save (recipes / prep_tasks / prep_task_classifications).
 //
-// DB MAPPING (authoritative — matches Recipe Editor live):
-//   recipes.id               → identity (not editable)
-//   recipes.title            → "Title"
-//   recipes.menu_group       → "Menu Group / Famiglia"
-//   recipes.pos_name         → "POS Name"
-//   recipes.base_servings    → "Nr. porzioni"
-//   recipes.yield_text       → "Grandezza finale"
-//   recipes.base_weight_g    → "Batch weight g" (read-only computed)
-//   recipes.serving_weight_g → "Serving weight g" (read-only computed)
-//   recipes.prep_time_minutes→ "Prep time (min)"
-//   recipes.shelf_life_days  → "Shelf life (days)"
-//   recipes.serving_qty      → "Qty / POS sale"
-//   recipes.serving_unit     → "Unit / POS sale"
-//   recipes.selling_price    → "Selling price $" (admin only)
-//   recipes.prep_frequency_days→ "Prep every N days"
-//   recipes.equipment        → "Equipment"
-//   recipes.procedure        → "Notes / Service"
-//   recipes.image_url        → "Photo URL"
+// DB WRITE MAPPING (verified against live schema):
+//   recipes.*                       → UPDATE recipes SET col=val WHERE id=recipe_id
+//   prep_tasks.category (Station)   → UPDATE prep_tasks SET category=val WHERE id=pt_id
+//   prep_task_classifications.production_family / work_type
+//                                   → UPDATE prep_task_classifications SET col=val WHERE prep_task_id=pt_id
 //
-// STATION: joined from prep_tasks.category WHERE prep_tasks.recipe_id = recipes.id
-// FAMILY:  joined from prep_task_classifications.production_family (via prep_tasks)
-// SUBFAMILY (sottofamiglia): no dedicated DB column on recipes — shown as "—"
-//   (exists only conceptually; data lives in prep_task_classifications.work_type)
-//
-// EDITING RULES:
-//   - title, menu_group, pos_name, yield_text, equipment, procedure, image_url → text input
-//   - base_servings, prep_time_minutes, shelf_life_days, prep_frequency_days → number int
-//   - base_weight_g, serving_weight_g, serving_qty → number numeric
-//   - serving_unit → select from fixed list
-//   - selling_price → number decimal (admin only)
-//   - id, station, family → read-only
-//   - NULL values preserved as NULL on save (never coerced to 0 or '')
-//
-// SAVE BEHAVIOUR:
-//   1. Only changed columns sent to DB (PATCH semantics)
-//   2. Read-back immediately after save
-//   3. Row updated from DB response
-//   4. Confirm only after read-back match
+// RULES:
+//   - NULL preserved as NULL, never coerced to '' or 0
+//   - serving_weight_g: editable, never auto-calculated
+//   - If recipe has >1 prep_task, user picks which one to edit before save
+//   - Save is per-row only; no bulk write
+//   - Read-back after every save
 // ─────────────────────────────────────────────────────────────────────────────
 
 (function () {
+  'use strict';
 
-  // ── Constants ──────────────────────────────────────────────────────────────
+  // ── Canonical option lists ─────────────────────────────────────────────────
+  // production_family: from CHECK constraint chk_ptc_production_family
+  const PRODUCTION_FAMILIES = [
+    'weekly_batch','daily_fresh','frozen_production','vendor_driven','opportunistic'
+  ];
+  // work_type: from CHECK constraint chk_ptc_work_type
+  const WORK_TYPES = [
+    'quantitative_prep','operational_action','stock_check','station_setup','cleaning'
+  ];
+  // menu_group: authoritative list from the Recipe Editor (plus values found in DB)
   const MENU_GROUPS = [
     'Antipasti','Primi','Secondi','Table Side','Salads','Sides',
-    'Soups','Desserts','Sauces','Bases','Finger Food','Catering','Add-ons'
+    'Soups','Desserts','Sauces','Bases','Finger Food','Catering','Add-ons',
+    // legacy values found in live DB — kept so existing rows can be read
+    'Entrees','Pasta','Kids menu','Protein','Proteins'
+  ];
+  // serving_unit: canonical list; user can still set NULL
+  const SERVING_UNITS = [
+    'g','kg','pezzi','porzione','nests','cup','filetto','ml','l','oz','lb'
   ];
 
-  const SERVING_UNITS = ['g','kg','cup','nests','pezzi','filetto','porzione','buste','ml','l','oz','lb'];
+  // Stations are loaded live from prep_tasks.category at startup
+  let STATIONS = [];
 
-  // Column definition — order determines display order
-  // key: recipes column name (or synthetic)
-  // label: human-readable header
-  // db: 'recipes.column' or 'join:...' for read-only joined columns
-  // editable: bool
-  // type: 'text'|'number-int'|'number-decimal'|'select'|'readonly'|'textarea'
-  // options: for select only
-  // adminOnly: hidden from non-admin (not relevant here since whole panel is admin-only)
-  const COLUMNS = [
-    { key: 'id',                  label: 'ID',                  db: 'recipes.id',                   editable: false, type: 'readonly' },
-    { key: 'title',               label: 'Title',               db: 'recipes.title',                editable: true,  type: 'text' },
-    { key: 'menu_group',          label: 'Famiglia / Menu Group',db: 'recipes.menu_group',           editable: true,  type: 'select',  options: [''].concat(MENU_GROUPS) },
-    { key: '_station',            label: 'Station',             db: 'prep_tasks.category (joined)', editable: false, type: 'readonly' },
-    { key: '_family',             label: 'Prod. Family',        db: 'prep_task_classifications.production_family (joined)', editable: false, type: 'readonly' },
-    { key: '_work_type',          label: 'Work Type',           db: 'prep_task_classifications.work_type (joined)', editable: false, type: 'readonly' },
-    { key: 'pos_name',            label: 'POS Name',            db: 'recipes.pos_name',             editable: true,  type: 'text' },
-    { key: 'base_servings',       label: 'Nr. Porzioni',        db: 'recipes.base_servings',        editable: true,  type: 'number-int' },
-    { key: 'yield_text',          label: 'Grandezza finale',    db: 'recipes.yield_text',           editable: true,  type: 'text' },
-    { key: 'base_weight_g',       label: 'Batch weight g',      db: 'recipes.base_weight_g',        editable: true,  type: 'number-decimal' },
-    { key: 'serving_weight_g',    label: 'Serving weight g',    db: 'recipes.serving_weight_g',     editable: false, type: 'readonly' },
-    { key: 'prep_time_minutes',   label: 'Prep time (min)',     db: 'recipes.prep_time_minutes',    editable: true,  type: 'number-int' },
-    { key: 'shelf_life_days',     label: 'Shelf life (days)',   db: 'recipes.shelf_life_days',      editable: true,  type: 'number-int' },
-    { key: 'serving_qty',         label: 'Qty / POS sale',      db: 'recipes.serving_qty',          editable: true,  type: 'number-decimal' },
-    { key: 'serving_unit',        label: 'Unit / POS sale',     db: 'recipes.serving_unit',         editable: true,  type: 'select', options: [''].concat(SERVING_UNITS) },
-    { key: 'prep_frequency_days', label: 'Prep every N days',   db: 'recipes.prep_frequency_days', editable: true,  type: 'number-int' },
-    { key: 'selling_price',       label: 'Selling price $',     db: 'recipes.selling_price',        editable: true,  type: 'number-decimal' },
-    { key: 'equipment',           label: 'Equipment',           db: 'recipes.equipment',            editable: true,  type: 'text' },
-    { key: 'procedure',           label: 'Notes / Service',     db: 'recipes.procedure',            editable: true,  type: 'textarea' },
-    { key: 'image_url',           label: 'Photo URL',           db: 'recipes.image_url',            editable: true,  type: 'text' },
+  // ── Column definitions ─────────────────────────────────────────────────────
+  // type: 'text' | 'number-int' | 'number-decimal' | 'select' | 'textarea' | 'readonly'
+  // table: which DB table owns this column
+  const COLS = [
+    { key:'id',                  label:'ID',                   db:'recipes.id',                                  table:'recipes',  type:'readonly',       w:90  },
+    { key:'title',               label:'Title',                db:'recipes.title',                               table:'recipes',  type:'readonly',       w:200 },
+    { key:'menu_group',          label:'Menu Group',           db:'recipes.menu_group',                          table:'recipes',  type:'select',         w:130, options: MENU_GROUPS },
+    { key:'_station',            label:'Station',              db:'prep_tasks.category',                         table:'prep_tasks', type:'select',       w:150, options: [] /* filled later */ },
+    { key:'_family',             label:'Prod. Family',         db:'prep_task_classifications.production_family', table:'ptc',      type:'select',         w:140, options: PRODUCTION_FAMILIES },
+    { key:'_work_type',          label:'Work Type',            db:'prep_task_classifications.work_type',         table:'ptc',      type:'select',         w:150, options: WORK_TYPES },
+    { key:'pos_name',            label:'POS Name',             db:'recipes.pos_name',                            table:'recipes',  type:'text',           w:180 },
+    { key:'base_servings',       label:'Nr. Porzioni',         db:'recipes.base_servings',                       table:'recipes',  type:'number-int',     w:90  },
+    { key:'yield_text',          label:'Grandezza finale',     db:'recipes.yield_text',                          table:'recipes',  type:'text',           w:130 },
+    { key:'base_weight_g',       label:'Batch weight g',       db:'recipes.base_weight_g',                       table:'recipes',  type:'number-decimal', w:110 },
+    { key:'serving_weight_g',    label:'Serving weight g',     db:'recipes.serving_weight_g',                    table:'recipes',  type:'number-decimal', w:115 },
+    { key:'prep_time_minutes',   label:'Prep time (min)',      db:'recipes.prep_time_minutes',                   table:'recipes',  type:'number-int',     w:105 },
+    { key:'shelf_life_days',     label:'Shelf life (days)',    db:'recipes.shelf_life_days',                     table:'recipes',  type:'number-int',     w:110 },
+    { key:'serving_qty',         label:'Qty / POS sale',       db:'recipes.serving_qty',                         table:'recipes',  type:'number-decimal', w:105 },
+    { key:'serving_unit',        label:'Unit / POS sale',      db:'recipes.serving_unit',                        table:'recipes',  type:'select',         w:110, options: SERVING_UNITS },
+    { key:'prep_frequency_days', label:'Prep every N days',    db:'recipes.prep_frequency_days',                 table:'recipes',  type:'number-int',     w:120 },
+    { key:'selling_price',       label:'Selling price $',      db:'recipes.selling_price',                       table:'recipes',  type:'number-decimal', w:110 },
+    { key:'equipment',           label:'Equipment',            db:'recipes.equipment',                           table:'recipes',  type:'textarea',       w:180 },
+    { key:'procedure',           label:'Notes / Service',      db:'recipes.procedure',                           table:'recipes',  type:'textarea',       w:200 },
+    { key:'image_url',           label:'Photo URL',            db:'recipes.image_url',                           table:'recipes',  type:'text',           w:160 },
   ];
 
   // ── Module state ──────────────────────────────────────────────────────────
-  let _rows        = [];     // { recipe, _station, _family, _work_type, _edits: {}, _dirty: false, _saving: false }
-  let _filterName  = '';
-  let _filterGroup = '';
-  let _filterStation='';
-  let _filterFamily='';
-  let _filterDirty = false;
-  let _filterNull  = false;
-  let _sortAsc     = true;
+  let _rows = [];          // [{ recipe, prep_tasks:[], _linked_pt, _edits:{}, _dirty, _saving, _lastSave }]
+  let _filtName    = '';
+  let _filtGroup   = '';
+  let _filtStation = '';
+  let _filtFamily  = '';
+  let _filtDirty   = false;
+  let _filtNull    = false;
   let _sheet       = null;
+  let _filtered    = [];   // current visible rows
 
   // ── Entry point ───────────────────────────────────────────────────────────
   window.openRecipeControlTable = async function () {
     hideAdminMenu();
-
     _sheet = document.createElement('div');
     _sheet.id = 'recipeControlSheet';
-    _sheet.style.cssText = [
-      'position:fixed;inset:0;z-index:80;',
-      'background:rgba(15,23,42,0.55);',
-      'overflow:hidden;',
-      'display:flex;flex-direction:column;',
-    ].join('');
+    _sheet.style.cssText = 'position:fixed;inset:0;z-index:80;background:rgba(15,23,42,0.55);overflow:hidden;display:flex;flex-direction:column;';
 
     _sheet.innerHTML = `
-      <div id="rctInner" style="
-        position:absolute;inset:0;
-        background:#f8fafc;
-        display:flex;flex-direction:column;
-        overflow:hidden;
-      ">
-        <!-- Header -->
-        <div style="
-          background:#1e3a5f;color:white;
-          padding:14px 16px 10px;
-          flex-shrink:0;
-        ">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-            <div>
-              <div style="font-size:17px;font-weight:700;">📋 Recipe Control Table</div>
-              <div style="font-size:11px;opacity:0.7;margin-top:2px;">Tabellone admin — una riga per ricetta — modifica diretta DB</div>
-            </div>
-            <button onclick="document.getElementById('recipeControlSheet').remove()"
-              style="font-size:22px;background:none;border:none;color:rgba(255,255,255,0.7);padding:4px 8px;cursor:pointer;">✕</button>
-          </div>
-
-          <!-- Filters -->
-          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-            <input id="rctSearchName" placeholder="Search title…"
-              style="padding:6px 10px;border-radius:8px;border:none;font-size:13px;min-width:130px;background:rgba(255,255,255,0.15);color:white;flex:1;"
-              oninput="rctApplyFilter()">
-            <select id="rctFilterGroup" onchange="rctApplyFilter()"
-              style="padding:6px 8px;border-radius:8px;border:none;font-size:12px;background:rgba(255,255,255,0.15);color:white;max-width:130px;">
-              <option value="">All Groups</option>
-              ${MENU_GROUPS.map(g=>`<option value="${g}">${g}</option>`).join('')}
-            </select>
-            <select id="rctFilterStation" onchange="rctApplyFilter()"
-              style="padding:6px 8px;border-radius:8px;border:none;font-size:12px;background:rgba(255,255,255,0.15);color:white;max-width:130px;">
-              <option value="">All Stations</option>
-            </select>
-            <select id="rctFilterFamily" onchange="rctApplyFilter()"
-              style="padding:6px 8px;border-radius:8px;border:none;font-size:12px;background:rgba(255,255,255,0.15);color:white;max-width:130px;">
-              <option value="">All Families</option>
-            </select>
-            <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;color:rgba(255,255,255,0.85);">
-              <input type="checkbox" id="rctFilterDirty" onchange="rctApplyFilter()"> Modified
-            </label>
-            <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;color:rgba(255,255,255,0.85);">
-              <input type="checkbox" id="rctFilterNull" onchange="rctApplyFilter()"> Has NULLs
-            </label>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
-            <div id="rctStatus" style="font-size:11px;opacity:0.7;">Loading…</div>
-            <button onclick="rctPrintExport()"
-              style="padding:5px 13px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
-                border-radius:7px;color:white;font-size:12px;font-weight:600;cursor:pointer;
-                display:flex;align-items:center;gap:6px;white-space:nowrap;">
-              🖨️ Print / Export PDF
-            </button>
-          </div>
-        </div>
-
-        <!-- DB mapping row + table wrapper -->
-        <div id="rctTableWrap" style="
-          flex:1;overflow:auto;
-          -webkit-overflow-scrolling:touch;
-        ">
-          <div id="rctLoadMsg" style="padding:40px;text-align:center;color:#64748b;font-size:14px;">
-            ⏳ Loading recipes…
-          </div>
-          <table id="rctTable" style="display:none;border-collapse:collapse;width:max-content;min-width:100%;font-size:12px;">
-            <thead id="rctThead"></thead>
-            <tbody id="rctTbody"></tbody>
-          </table>
-        </div>
-      </div>`;
+<div style="position:absolute;inset:0;background:#f8fafc;display:flex;flex-direction:column;overflow:hidden;">
+  <!-- Header -->
+  <div style="background:#1e3a5f;color:white;padding:12px 16px 10px;flex-shrink:0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <div>
+        <div style="font-size:17px;font-weight:700;">📋 Recipe Control Table</div>
+        <div style="font-size:11px;opacity:0.6;margin-top:1px;">Admin · modifica diretta DB · una riga = una ricetta</div>
+      </div>
+      <button onclick="document.getElementById('recipeControlSheet').remove()" style="font-size:22px;background:none;border:none;color:rgba(255,255,255,0.7);cursor:pointer;padding:4px 8px;">✕</button>
+    </div>
+    <!-- Filters -->
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <input id="rctSearchName" placeholder="Cerca titolo…" oninput="rctApplyFilter()"
+        style="padding:6px 10px;border-radius:8px;border:none;font-size:13px;min-width:130px;background:rgba(255,255,255,0.15);color:white;flex:1;">
+      <select id="rctFilterGroup" onchange="rctApplyFilter()"
+        style="padding:6px 8px;border-radius:8px;border:none;font-size:12px;background:rgba(255,255,255,0.15);color:white;max-width:130px;">
+        <option value="">All Groups</option>
+        ${MENU_GROUPS.map(g=>`<option value="${_esc(g)}">${_esc(g)}</option>`).join('')}
+      </select>
+      <select id="rctFilterStation" onchange="rctApplyFilter()"
+        style="padding:6px 8px;border-radius:8px;border:none;font-size:12px;background:rgba(255,255,255,0.15);color:white;max-width:140px;">
+        <option value="">All Stations</option>
+      </select>
+      <select id="rctFilterFamily" onchange="rctApplyFilter()"
+        style="padding:6px 8px;border-radius:8px;border:none;font-size:12px;background:rgba(255,255,255,0.15);color:white;max-width:140px;">
+        <option value="">All Families</option>
+        ${PRODUCTION_FAMILIES.map(f=>`<option value="${f}">${f}</option>`).join('')}
+      </select>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;color:rgba(255,255,255,0.85);">
+        <input type="checkbox" id="rctFilterDirty" onchange="rctApplyFilter()"> Modified
+      </label>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;color:rgba(255,255,255,0.85);">
+        <input type="checkbox" id="rctFilterNull" onchange="rctApplyFilter()"> Has NULLs
+      </label>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
+      <div id="rctStatus" style="font-size:11px;opacity:0.7;">Loading…</div>
+      <button onclick="rctPrintExport()"
+        style="padding:5px 13px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);border-radius:7px;color:white;font-size:12px;font-weight:600;cursor:pointer;">
+        🖨️ Print / Export PDF
+      </button>
+    </div>
+  </div>
+  <!-- Table wrapper -->
+  <div id="rctTableWrap" style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;">
+    <div id="rctLoadMsg" style="padding:40px;text-align:center;color:#64748b;font-size:14px;">⏳ Loading recipes…</div>
+    <table id="rctTable" style="display:none;border-collapse:collapse;width:max-content;min-width:100%;font-size:12px;">
+      <thead id="rctThead"></thead>
+      <tbody id="rctTbody"></tbody>
+    </table>
+  </div>
+</div>`;
 
     document.body.appendChild(_sheet);
     _sheet.addEventListener('click', e => { if (e.target === _sheet) _sheet.remove(); });
-
-    await _rctLoad();
+    await _load();
   };
 
-  // ── Load data ─────────────────────────────────────────────────────────────
-  async function _rctLoad() {
+  // ── Load all data ─────────────────────────────────────────────────────────
+  async function _load() {
     _rows = [];
-
     try {
-      // 1. Fetch all recipes (PostgREST max 1000 — recipes table has ~218 rows, safe)
-      const { data: recipes, error: recErr } = await supa.from('recipes')
+      // 1. Recipes
+      const { data: recipes, error: re } = await supa.from('recipes')
         .select('id,title,menu_group,pos_name,base_servings,yield_text,base_weight_g,serving_weight_g,prep_time_minutes,shelf_life_days,serving_qty,serving_unit,prep_frequency_days,selling_price,equipment,procedure,image_url')
         .order('title');
-      if (recErr) throw recErr;
+      if (re) throw re;
 
-      // 2. Fetch prep_tasks with recipe_id to get station + link to classifications
-      const { data: preps, error: prepErr } = await supa.from('prep_tasks')
-        .select('id,recipe_id,category')
-        .not('recipe_id', 'is', null)
-        .eq('archived', false);
-      if (prepErr) throw prepErr;
+      // 2. prep_tasks (non archived, with recipe_id)
+      const { data: preps, error: pe } = await supa.from('prep_tasks')
+        .select('id,recipe_id,category,name')
+        .not('recipe_id','is',null)
+        .eq('archived',false)
+        .order('id');
+      if (pe) throw pe;
 
-      // 3. Fetch classifications for those prep task ids
-      const prepIds = (preps || []).map(p => p.id);
-      let classMap = {};
-      if (prepIds.length) {
-        // Split if > 500 (safe guard for PostgREST)
-        const chunks = [];
-        for (let i = 0; i < prepIds.length; i += 500) chunks.push(prepIds.slice(i, i + 500));
-        for (const chunk of chunks) {
-          const { data: cls } = await supa.from('prep_task_classifications')
-            .select('prep_task_id,production_family,work_type')
-            .in('prep_task_id', chunk);
-          (cls || []).forEach(c => { classMap[c.prep_task_id] = c; });
-        }
+      // 3. Stations for dropdown (distinct categories)
+      STATIONS = [...new Set((preps||[]).map(p=>p.category).filter(Boolean))].sort();
+      const stSel = document.getElementById('rctFilterStation');
+      if (stSel) {
+        stSel.innerHTML = '<option value="">All Stations</option>' +
+          STATIONS.map(s=>`<option value="${_esc(s)}">${_esc(s)}</option>`).join('');
+      }
+      // Patch COLS station options
+      const stCol = COLS.find(c=>c.key==='_station');
+      if (stCol) stCol.options = STATIONS;
+
+      // 4. Classifications
+      const ptIds = (preps||[]).map(p=>p.id);
+      let clsMap = {};
+      for (let i=0;i<ptIds.length;i+=500) {
+        const { data: cls } = await supa.from('prep_task_classifications')
+          .select('prep_task_id,production_family,work_type')
+          .in('prep_task_id', ptIds.slice(i,i+500));
+        (cls||[]).forEach(c=>{ clsMap[c.prep_task_id]=c; });
       }
 
-      // 4. Build recipe_id → { station, family, work_type } map
-      //    Multiple prep tasks per recipe → take first non-null
-      const recipeJoinMap = {};
-      (preps || []).forEach(p => {
-        if (!p.recipe_id) return;
-        if (!recipeJoinMap[p.recipe_id]) {
-          const cls = classMap[p.id] || {};
-          recipeJoinMap[p.recipe_id] = {
-            _station: p.category || null,
-            _family: cls.production_family || null,
-            _work_type: cls.work_type || null,
-          };
-        }
+      // 5. Build rows — group prep_tasks per recipe
+      const prepsByRecipe = {};
+      (preps||[]).forEach(p => {
+        if (!prepsByRecipe[p.recipe_id]) prepsByRecipe[p.recipe_id] = [];
+        prepsByRecipe[p.recipe_id].push({ ...p, _cls: clsMap[p.id]||null });
       });
 
-      // 5. Build rows
-      _rows = (recipes || []).map(r => ({
-        recipe: r,
-        _station: (recipeJoinMap[r.id] || {})._station || null,
-        _family: (recipeJoinMap[r.id] || {})._family || null,
-        _work_type: (recipeJoinMap[r.id] || {})._work_type || null,
-        _edits: {},
-        _dirty: false,
-        _saving: false,
-        _lastSave: null, // { ok, before, after }
-      }));
+      _rows = (recipes||[]).map(r => {
+        const pts = prepsByRecipe[r.id] || [];
+        // default linked prep_task = first one
+        const linked = pts[0] || null;
+        return {
+          recipe: r,
+          prep_tasks: pts,
+          _linked_pt: linked,
+          _edits: {},
+          _dirty: false,
+          _saving: false,
+          _lastSave: null,
+        };
+      });
 
-      _rctBuildFilters();
-      _rctBuildTable();
-      _rctApplyFilter();
-
-    } catch (e) {
+      _buildThead();
+      rctApplyFilter();
+    } catch(e) {
       const msg = document.getElementById('rctLoadMsg');
-      if (msg) msg.innerHTML = `<div style="color:#dc2626;padding:20px;">Error loading: ${_esc(e.message)}</div>`;
+      if (msg) msg.innerHTML = `<div style="color:#dc2626;padding:20px;">Errore: ${_esc(e.message)}</div>`;
     }
   }
 
-  // ── Build filter dropdowns ────────────────────────────────────────────────
-  function _rctBuildFilters() {
-    const stations = [...new Set(_rows.map(r => r._station).filter(Boolean))].sort();
-    const families = [...new Set(_rows.map(r => r._family).filter(Boolean))].sort();
-
-    const stSel = document.getElementById('rctFilterStation');
-    if (stSel) {
-      stSel.innerHTML = '<option value="">All Stations</option>' +
-        stations.map(s => `<option value="${_esc(s)}">${_esc(s)}</option>`).join('');
-    }
-
-    const faSel = document.getElementById('rctFilterFamily');
-    if (faSel) {
-      faSel.innerHTML = '<option value="">All Families</option>' +
-        families.map(f => `<option value="${_esc(f)}">${_esc(f)}</option>`).join('');
-    }
-  }
-
-  // ── Build table structure ─────────────────────────────────────────────────
-  function _rctBuildTable() {
+  // ── Build thead (two header rows: label + db mapping) ─────────────────────
+  function _buildThead() {
     const thead = document.getElementById('rctThead');
     const msg   = document.getElementById('rctLoadMsg');
     const tbl   = document.getElementById('rctTable');
     if (!thead) return;
-
-    // Row 1: visible labels
-    // Row 2: DB column mapping (fixed)
-    const thStyle = `
-      position:sticky;top:0;z-index:3;
-      background:#1e3a5f;color:white;
-      padding:8px 10px;white-space:nowrap;
-      border-right:1px solid rgba(255,255,255,0.1);
-      font-size:11px;font-weight:600;text-align:left;
-    `;
-    const thDbStyle = `
-      position:sticky;top:32px;z-index:3;
-      background:#0f2540;color:rgba(255,255,255,0.55);
-      padding:4px 10px;white-space:nowrap;
-      border-right:1px solid rgba(255,255,255,0.08);
-      font-size:9px;font-weight:500;text-align:left;
-      letter-spacing:0.03em;
-    `;
-
-    // Sticky first 2 columns (ID + Title)
-    function stickyStyle(colIdx, isLabel) {
-      if (colIdx > 1) return isLabel ? thStyle : thDbStyle;
-      const left = colIdx === 0 ? '0' : '60px';
-      const bg = isLabel ? '#1e3a5f' : '#0f2540';
-      return (isLabel ? thStyle : thDbStyle) +
-        `;position:sticky;left:${left};z-index:${isLabel?5:4};background:${bg};`;
-    }
+    const th1 = s => `position:sticky;top:0;z-index:3;background:#1e3a5f;color:white;padding:7px 8px;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.1);font-size:11px;font-weight:600;text-align:left;${s||''}`;
+    const th2 = s => `position:sticky;top:28px;z-index:3;background:#0f2540;color:rgba(255,255,255,0.5);padding:3px 8px;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.08);font-size:9px;font-family:monospace;text-align:left;${s||''}`;
+    const stk0 = (base) => base + 'left:0;z-index:5!important;';
+    const stk1 = (base) => base + 'left:60px;z-index:5!important;';
 
     thead.innerHTML = `
-      <tr>
-        <th style="${stickyStyle(0,true)}">Actions</th>
-        ${COLUMNS.map((col, ci) => `
-          <th style="${stickyStyle(ci+1,true)};min-width:${_colMinWidth(col)}px;">
-            ${_esc(col.label)}
-          </th>
-        `).join('')}
-      </tr>
-      <tr>
-        <th style="${stickyStyle(0,false)}font-style:italic;">save / reset</th>
-        ${COLUMNS.map((col, ci) => `
-          <th style="${stickyStyle(ci+1,false)};font-family:monospace;font-size:9px;">
-            ${_esc(col.db)}
-          </th>
-        `).join('')}
-      </tr>`;
+    <tr>
+      <th style="${stk0(th1())}min-width:160px;">Actions</th>
+      ${COLS.map((col,ci)=>`<th style="${ci<=1?stk1(th1()):th1()}min-width:${col.w}px;">${_esc(col.label)}</th>`).join('')}
+    </tr>
+    <tr>
+      <th style="${stk0(th2())}font-style:italic;">save · reset · prep</th>
+      ${COLS.map((col,ci)=>`<th style="${ci<=1?stk1(th2()):th2()}">${_esc(col.db)}</th>`).join('')}
+    </tr>`;
 
-    msg.style.display = 'none';
-    tbl.style.display = '';
+    if (msg) msg.style.display='none';
+    if (tbl) tbl.style.display='';
   }
 
-  function _colMinWidth(col) {
-    if (col.key === 'id') return 80;
-    if (col.key === 'title') return 200;
-    if (col.key === 'procedure' || col.key === 'equipment') return 220;
-    if (col.key === 'pos_name') return 160;
-    if (col.type === 'select') return 120;
-    if (col.type === 'number-int' || col.type === 'number-decimal') return 90;
-    return 120;
-  }
+  // ── Apply filters ─────────────────────────────────────────────────────────
+  window.rctApplyFilter = function() {
+    _filtName    = (document.getElementById('rctSearchName')?.value||'').toLowerCase();
+    _filtGroup   = document.getElementById('rctFilterGroup')?.value||'';
+    _filtStation = document.getElementById('rctFilterStation')?.value||'';
+    _filtFamily  = document.getElementById('rctFilterFamily')?.value||'';
+    _filtDirty   = document.getElementById('rctFilterDirty')?.checked||false;
+    _filtNull    = document.getElementById('rctFilterNull')?.checked||false;
 
-  // ── Apply filter & render rows ────────────────────────────────────────────
-  window.rctApplyFilter = function () {
-    _filterName    = (document.getElementById('rctSearchName')?.value || '').toLowerCase();
-    _filterGroup   = document.getElementById('rctFilterGroup')?.value || '';
-    _filterStation = document.getElementById('rctFilterStation')?.value || '';
-    _filterFamily  = document.getElementById('rctFilterFamily')?.value || '';
-    _filterDirty   = document.getElementById('rctFilterDirty')?.checked || false;
-    _filterNull    = document.getElementById('rctFilterNull')?.checked || false;
-
-    const filtered = _rows.filter(r => {
-      const rec = r.recipe;
-      if (_filterName   && !(rec.title || '').toLowerCase().includes(_filterName)) return false;
-      if (_filterGroup  && rec.menu_group !== _filterGroup) return false;
-      if (_filterStation && r._station !== _filterStation) return false;
-      if (_filterFamily && r._family !== _filterFamily) return false;
-      if (_filterDirty  && !r._dirty) return false;
-      if (_filterNull) {
-        // At least one editable field is NULL
-        const hasNull = COLUMNS.some(col => col.editable && col.key !== 'id' &&
-          !col.key.startsWith('_') && (rec[col.key] === null || rec[col.key] === undefined));
+    _filtered = _rows.filter(row => {
+      const r = row.recipe;
+      if (_filtName   && !(r.title||'').toLowerCase().includes(_filtName)) return false;
+      if (_filtGroup  && r.menu_group !== _filtGroup) return false;
+      if (_filtStation) {
+        const st = row._linked_pt?.category || null;
+        if (st !== _filtStation) return false;
+      }
+      if (_filtFamily) {
+        const fam = row._linked_pt?._cls?.production_family || null;
+        if (fam !== _filtFamily) return false;
+      }
+      if (_filtDirty && !row._dirty) return false;
+      if (_filtNull) {
+        const editableRecipeCols = COLS.filter(c=>c.table==='recipes'&&c.type!=='readonly');
+        const hasNull = editableRecipeCols.some(c=>
+          (row._edits[c.key]!==undefined ? row._edits[c.key] : (row.recipe[c.key]??null)) === null
+        );
         if (!hasNull) return false;
       }
       return true;
     });
 
-    _rctRenderRows(filtered);
-
-    const statusEl = document.getElementById('rctStatus');
-    if (statusEl) {
-      statusEl.textContent = `${filtered.length} / ${_rows.length} recipes` +
-        (filtered.some(r => r._dirty) ? ` · ${filtered.filter(r=>r._dirty).length} modified` : '');
-    }
+    _renderBody();
+    const dirty = _filtered.filter(r=>r._dirty).length;
+    const st = document.getElementById('rctStatus');
+    if (st) st.textContent = `${_filtered.length} / ${_rows.length} ricette${dirty?` · ${dirty} modificate`:''}`;
   };
 
-  // ── Render rows ───────────────────────────────────────────────────────────
-  function _rctRenderRows(filtered) {
+  // ── Render tbody ──────────────────────────────────────────────────────────
+  function _renderBody() {
     const tbody = document.getElementById('rctTbody');
     if (!tbody) return;
 
-    const tdBase = `
-      padding:6px 10px;
-      border-bottom:1px solid #e2e8f0;
-      border-right:1px solid #e2e8f0;
-      vertical-align:middle;
-    `;
-    const tdSticky0 = `${tdBase}position:sticky;left:0;z-index:2;background:white;`;
-    const tdSticky1 = `${tdBase}position:sticky;left:60px;z-index:2;background:white;`;
+    tbody.innerHTML = _filtered.map(row => _renderRow(row)).join('');
 
-    tbody.innerHTML = filtered.map((row, rowIdx) => {
-      const rec = row.recipe;
-      const rid = rec.id;
-      const dirtyBg = row._dirty ? 'background:#fffbeb;' : '';
-      const savingBg = row._saving ? 'background:#f0fdf4;' : '';
-      const rowBg = row._saving ? savingBg : dirtyBg;
-
-      // Actions cell
-      const actionsHtml = `
-        <div style="display:flex;gap:4px;align-items:center;">
-          <button
-            id="rctSaveBtn_${rid}"
-            onclick="rctSaveRow('${rid}')"
-            style="
-              padding:4px 10px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:700;
-              background:${row._dirty ? '#059669' : '#e2e8f0'};
-              color:${row._dirty ? 'white' : '#94a3b8'};
-              opacity:${row._dirty ? '1' : '0.6'};
-              pointer-events:${row._dirty ? 'auto' : 'none'};
-            ">Save</button>
-          <button
-            onclick="rctResetRow('${rid}')"
-            style="
-              padding:4px 8px;border-radius:6px;border:1px solid #e2e8f0;cursor:pointer;font-size:11px;
-              background:white;color:#64748b;
-              display:${row._dirty ? 'inline-block' : 'none'};
-            "
-            id="rctResetBtn_${rid}">Reset</button>
-          ${row._lastSave ? _rctSaveBadge(row._lastSave) : ''}
-        </div>`;
-
-      const cells = COLUMNS.map((col, ci) => {
-        const rawVal = col.key.startsWith('_')
-          ? (row[col.key] ?? null)
-          : (row._edits[col.key] !== undefined ? row._edits[col.key] : (rec[col.key] ?? null));
-        const isEdited = row._edits[col.key] !== undefined &&
-          row._edits[col.key] !== (rec[col.key] ?? null);
-
-        const stickyAdd = ci === 0 ? `position:sticky;left:0;z-index:2;background:${row._dirty?'#fffbeb8a':'white'};`
-                        : ci === 1 ? `position:sticky;left:60px;z-index:2;background:${row._dirty?'#fffbeb8a':'white'};`
-                        : '';
-        const cellStyle = `${tdBase}${stickyAdd}${rowBg}${isEdited ? 'background:#fef9c3;' : ''}`;
-        const cellContent = _rctCellContent(col, rawVal, rid);
-        return `<td style="${cellStyle}">${cellContent}</td>`;
-      }).join('');
-
-      return `<tr id="rctRow_${rid}" style="${rowBg}">
-        <td style="${tdSticky0}${rowBg}">${actionsHtml}</td>
-        ${cells}
-      </tr>`;
-    }).join('');
-
-    // Wire input events
-    filtered.forEach(row => {
-      const rid = row.recipe.id;
-      COLUMNS.forEach(col => {
-        if (!col.editable) return;
-        const el = document.getElementById(`rctCell_${rid}_${col.key}`);
-        if (!el) return;
-        el.addEventListener('change', (e) => _rctOnChange(rid, col, e.target.value));
-        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-          el.addEventListener('input', (e) => _rctOnChange(rid, col, e.target.value));
-        }
-      });
-    });
+    // Wire events
+    _filtered.forEach(row => { _wireRow(row); });
   }
 
-  function _rctCellContent(col, val, rid) {
-    const esc_val = _esc(val === null || val === undefined ? '' : String(val));
-    const nullNote = (val === null || val === undefined) ? ' style="color:#94a3b8;font-style:italic;"' : '';
+  function _renderRow(row) {
+    const rid = row.recipe.id;
+    const bg = row._dirty ? '#fffbeb' : row._saving ? '#f0fdf4' : '';
 
-    if (!col.editable || col.type === 'readonly') {
-      if (col.key === 'id') {
-        return `<span style="font-family:monospace;font-size:10px;color:#94a3b8;">${_esc((val||'').toString().slice(0,8))}…</span>`;
-      }
-      return `<span${nullNote}>${val === null || val === undefined ? 'NULL' : esc_val}</span>`;
+    // Current display value for each column
+    function val(col) {
+      if (col.key === '_station') return row._linked_pt?.category ?? null;
+      if (col.key === '_family')  return row._linked_pt?._cls?.production_family ?? null;
+      if (col.key === '_work_type') return row._linked_pt?._cls?.work_type ?? null;
+      const edited = row._edits[col.key];
+      return edited !== undefined ? edited : (row.recipe[col.key] ?? null);
     }
 
-    const baseInputStyle = `
-      width:100%;min-width:${_colMinWidth(col)-20}px;
-      padding:4px 6px;border:1px solid transparent;border-radius:5px;
-      font-size:12px;font-family:inherit;
-      background:transparent;
-      box-sizing:border-box;
-    `;
-    const focusHint = `onfocus="this.style.border='1px solid #3b82f6';this.style.background='white';"
-                       onblur="this.style.border='1px solid transparent';this.style.background='transparent';"`;
+    function isEdited(col) {
+      if (!['_station','_family','_work_type'].includes(col.key)) {
+        return row._edits[col.key] !== undefined && row._edits[col.key] !== (row.recipe[col.key]??null);
+      }
+      if (col.key === '_station')   return row._edits._station   !== undefined;
+      if (col.key === '_family')    return row._edits._family    !== undefined;
+      if (col.key === '_work_type') return row._edits._work_type !== undefined;
+      return false;
+    }
+
+    const tdBase = `padding:5px 8px;border-bottom:1px solid #e2e8f0;border-right:1px solid #e2e8f0;vertical-align:middle;`;
+    const tdStk0 = `${tdBase}position:sticky;left:0;z-index:2;background:${bg||'white'};`;
+    const tdStk1 = `${tdBase}position:sticky;left:60px;z-index:2;background:${bg||'white'};`;
+
+    // Prep selector (if >1 prep_task)
+    let prepSelectorHtml = '';
+    if (row.prep_tasks.length > 1) {
+      const opts = row.prep_tasks.map(pt =>
+        `<option value="${pt.id}" ${row._linked_pt?.id===pt.id?'selected':''}>${_esc(pt.name)} (${_esc(pt.category||'?')})</option>`
+      ).join('');
+      prepSelectorHtml = `<select id="rctPtSel_${rid}" onchange="rctSelectPt('${rid}',this.value)"
+        style="margin-top:4px;width:100%;padding:3px 5px;border:1px solid #e2e8f0;border-radius:5px;font-size:10px;background:white;color:#374151;">
+        ${opts}
+      </select>`;
+    } else if (row.prep_tasks.length === 1) {
+      prepSelectorHtml = `<div style="font-size:10px;color:#94a3b8;margin-top:3px;">${_esc(row._linked_pt.name)}</div>`;
+    } else {
+      prepSelectorHtml = `<div style="font-size:10px;color:#cbd5e1;margin-top:3px;font-style:italic;">No prep task</div>`;
+    }
+
+    const lastSaveBadge = row._lastSave
+      ? (row._lastSave.ok
+          ? `<span style="font-size:10px;color:#059669;font-weight:600;margin-left:4px;">✓ saved</span>`
+          : `<span style="font-size:10px;color:#dc2626;font-weight:600;margin-left:4px;" title="${_esc(row._lastSave.error||'')}">✕ error</span>`)
+      : '';
+
+    const actionCell = `
+      <td style="${tdStk0}min-width:160px;">
+        <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+          <button id="rctSaveBtn_${rid}" onclick="rctSaveRow('${rid}')"
+            style="padding:4px 10px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:700;
+              background:${row._dirty?'#059669':'#e2e8f0'};color:${row._dirty?'white':'#94a3b8'};
+              opacity:${row._dirty?'1':'0.5'};pointer-events:${row._dirty?'auto':'none'};">
+            ${row._saving?'…':'Save'}
+          </button>
+          <button id="rctResetBtn_${rid}" onclick="rctResetRow('${rid}')"
+            style="padding:4px 8px;border-radius:6px;border:1px solid #e2e8f0;cursor:pointer;font-size:11px;
+              background:white;color:#64748b;display:${row._dirty?'inline-block':'none'};">
+            Reset
+          </button>
+          ${lastSaveBadge}
+        </div>
+        ${prepSelectorHtml}
+      </td>`;
+
+    const dataCells = COLS.map((col, ci) => {
+      const v      = val(col);
+      const edited = isEdited(col);
+      const stkStyle = ci===0 ? tdStk1 : '';
+      const cellBg   = edited ? 'background:#fef9c3;' : (bg ? `background:${bg};` : '');
+      const style    = `${tdBase}${stkStyle}${cellBg}`;
+      return `<td style="${style}">${_cellHtml(col, v, rid)}</td>`;
+    }).join('');
+
+    return `<tr id="rctRow_${rid}" style="background:${bg};">${actionCell}${dataCells}</tr>`;
+  }
+
+  function _cellHtml(col, val, rid) {
+    const isnull = val === null || val === undefined;
+    const strVal = isnull ? '' : String(val);
+    const eid    = `rctCell_${rid}_${col.key}`;
+
+    if (col.type === 'readonly') {
+      if (col.key === 'id') return `<span style="font-family:monospace;font-size:10px;color:#94a3b8;">${_esc(strVal.slice(0,8))}…</span>`;
+      return `<span>${_esc(strVal)}</span>`;
+    }
+
+    const baseInput = `width:100%;min-width:${col.w-16}px;padding:4px 5px;border:1px solid transparent;border-radius:5px;font-size:12px;font-family:inherit;background:transparent;box-sizing:border-box;`;
+    const focus = `onfocus="this.style.border='1px solid #3b82f6';this.style.background='white';" onblur="this.style.border='1px solid transparent';this.style.background='transparent';"`;
 
     if (col.type === 'select') {
-      const opts = (col.options || []).map(o =>
-        `<option value="${_esc(o)}" ${(val === null || val === undefined ? '' : val) === o ? 'selected' : ''}>${o || '— none —'}</option>`
+      const opts = ['', ...(col.options||[])].map(o =>
+        `<option value="${_esc(o)}" ${strVal===o&&!isnull?'selected':(!o&&isnull?'selected':'')}>${o||'— NULL —'}</option>`
       ).join('');
-      return `<select id="rctCell_${rid}_${col.key}"
-        style="${baseInputStyle}cursor:pointer;">${opts}</select>`;
+      return `<select id="${eid}" style="${baseInput}cursor:pointer;">${opts}</select>`;
     }
 
     if (col.type === 'textarea') {
-      return `<textarea id="rctCell_${rid}_${col.key}"
-        rows="2"
-        style="${baseInputStyle}resize:vertical;min-height:36px;"
-        ${focusHint}
-        >${esc_val}</textarea>`;
+      return `<textarea id="${eid}" rows="2"
+        style="${baseInput}resize:vertical;min-height:34px;"
+        ${focus}>${_esc(strVal)}</textarea>`;
     }
 
-    const inputType = (col.type === 'number-int' || col.type === 'number-decimal') ? 'number' : 'text';
-    const step = col.type === 'number-decimal' ? 'step="0.01"' : col.type === 'number-int' ? 'step="1"' : '';
-    const placeholder = (val === null || val === undefined) ? 'NULL' : '';
+    const inputType = (col.type==='number-int'||col.type==='number-decimal') ? 'number' : 'text';
+    const step      = col.type==='number-decimal' ? 'step="any"' : col.type==='number-int' ? 'step="1"' : '';
+    const nullLabel = isnull ? 'placeholder="NULL"' : '';
+    const nullStyle = isnull ? 'color:#94a3b8;' : '';
 
-    return `<input
-      id="rctCell_${rid}_${col.key}"
-      type="${inputType}" ${step}
-      value="${esc_val}"
-      placeholder="${placeholder}"
-      style="${baseInputStyle}${val === null || val === undefined ? 'color:#94a3b8;' : ''}"
-      ${focusHint}
-    >`;
+    return `<input id="${eid}" type="${inputType}" ${step} value="${_esc(strVal)}" ${nullLabel}
+      style="${baseInput}${nullStyle}" ${focus}>`;
   }
 
-  function _rctSaveBadge(save) {
-    if (save.ok) {
-      return `<span style="font-size:10px;color:#059669;font-weight:600;" title="Read-back verified">✓ saved</span>`;
-    }
-    return `<span style="font-size:10px;color:#dc2626;font-weight:600;" title="${_esc(save.error||'')}">✕ error</span>`;
+  // ── Wire input events for a row ───────────────────────────────────────────
+  function _wireRow(row) {
+    const rid = row.recipe.id;
+    COLS.forEach(col => {
+      if (col.type === 'readonly') return;
+      const el = document.getElementById(`rctCell_${rid}_${col.key}`);
+      if (!el) return;
+      const ev = (el.tagName === 'SELECT' || el.tagName === 'INPUT') ? 'change' : 'input';
+      el.addEventListener('change', () => _onChange(rid, col, el.value));
+      if (el.tagName === 'TEXTAREA') el.addEventListener('input', () => _onChange(rid, col, el.value));
+    });
   }
+
+  // ── Prep task selector ────────────────────────────────────────────────────
+  window.rctSelectPt = function(rid, ptId) {
+    const row = _rows.find(r=>r.recipe.id===rid);
+    if (!row) return;
+    const pt = row.prep_tasks.find(p=>p.id===Number(ptId));
+    if (!pt) return;
+    row._linked_pt = pt;
+    // Clear any pending ptc edits since we switched to a different prep
+    delete row._edits._station;
+    delete row._edits._family;
+    delete row._edits._work_type;
+    row._dirty = Object.keys(row._edits).length > 0;
+    _reRenderRow(row);
+  };
 
   // ── On cell change ────────────────────────────────────────────────────────
-  function _rctOnChange(rid, col, rawValue) {
-    const rowObj = _rows.find(r => r.recipe.id === rid);
-    if (!rowObj) return;
+  function _onChange(rid, col, rawVal) {
+    const row = _rows.find(r=>r.recipe.id===rid);
+    if (!row) return;
 
-    // Parse value
+    // Parse
     let parsed;
-    if (rawValue === '' || rawValue === null || rawValue === undefined) {
-      parsed = null; // explicit NULL
+    if (rawVal === '' || rawVal === null || rawVal === undefined) {
+      parsed = null;
     } else if (col.type === 'number-int') {
-      const n = parseInt(rawValue, 10);
+      const n = parseInt(rawVal, 10);
       parsed = isNaN(n) ? null : n;
     } else if (col.type === 'number-decimal') {
-      const n = parseFloat(rawValue);
+      const n = parseFloat(rawVal);
       parsed = isNaN(n) ? null : n;
+    } else if (col.type === 'select' && rawVal === '') {
+      parsed = null;
     } else {
-      parsed = rawValue.trim() === '' ? null : rawValue;
+      parsed = rawVal;
     }
 
-    const original = rowObj.recipe[col.key] ?? null;
+    // Compare to original
+    let original;
+    if (col.key === '_station')   original = row._linked_pt?.category ?? null;
+    else if (col.key === '_family')  original = row._linked_pt?._cls?.production_family ?? null;
+    else if (col.key === '_work_type') original = row._linked_pt?._cls?.work_type ?? null;
+    else original = row.recipe[col.key] ?? null;
 
-    if (parsed === original) {
-      delete rowObj._edits[col.key];
-    } else {
-      rowObj._edits[col.key] = parsed;
-    }
+    if (_looseEq(parsed, original)) delete row._edits[col.key];
+    else row._edits[col.key] = parsed;
 
-    rowObj._dirty = Object.keys(rowObj._edits).length > 0;
-    _rctUpdateRowUI(rowObj);
+    row._dirty = Object.keys(row._edits).length > 0;
+    _updateActionCell(row);
+    _highlightEdited(row);
   }
 
-  // ── Update single row UI (no full re-render) ──────────────────────────────
-  function _rctUpdateRowUI(rowObj) {
-    const rid = rowObj.recipe.id;
-    const rowEl = document.getElementById(`rctRow_${rid}`);
-    const saveBtn = document.getElementById(`rctSaveBtn_${rid}`);
-    const resetBtn = document.getElementById(`rctResetBtn_${rid}`);
-
-    if (rowEl) {
-      rowEl.style.background = rowObj._dirty ? '#fffbeb' : (rowObj._saving ? '#f0fdf4' : '');
-    }
-
-    if (saveBtn) {
-      saveBtn.style.background = rowObj._dirty ? '#059669' : '#e2e8f0';
-      saveBtn.style.color      = rowObj._dirty ? 'white' : '#94a3b8';
-      saveBtn.style.opacity    = rowObj._dirty ? '1' : '0.6';
-      saveBtn.style.pointerEvents = rowObj._dirty ? 'auto' : 'none';
-    }
-    if (resetBtn) {
-      resetBtn.style.display = rowObj._dirty ? 'inline-block' : 'none';
-    }
-
-    // Highlight edited cells
-    COLUMNS.forEach(col => {
-      if (!col.editable || col.key.startsWith('_')) return;
-      const tdEl = document.querySelector(`#rctRow_${rid} td:nth-child(${COLUMNS.indexOf(col)+2})`);
-      if (!tdEl) return;
-      const isEdited = rowObj._edits[col.key] !== undefined &&
-        rowObj._edits[col.key] !== (rowObj.recipe[col.key] ?? null);
-      if (isEdited) {
-        tdEl.style.background = '#fef9c3';
-      } else {
-        tdEl.style.background = rowObj._dirty ? '#fffbeb' : '';
-      }
-    });
+  function _looseEq(a, b) {
+    if (a === null && b === null) return true;
+    if (a === null || b === null) return false;
+    return String(a) === String(b);
   }
 
   // ── Reset row ─────────────────────────────────────────────────────────────
-  window.rctResetRow = function (rid) {
-    const rowObj = _rows.find(r => r.recipe.id === rid);
-    if (!rowObj) return;
-
-    rowObj._edits = {};
-    rowObj._dirty = false;
-    rowObj._lastSave = null;
-
-    // Restore input values
-    COLUMNS.forEach(col => {
-      if (!col.editable || col.key.startsWith('_')) return;
+  window.rctResetRow = function(rid) {
+    const row = _rows.find(r=>r.recipe.id===rid);
+    if (!row) return;
+    row._edits = {};
+    row._dirty = false;
+    row._lastSave = null;
+    COLS.forEach(col => {
+      if (col.type === 'readonly') return;
       const el = document.getElementById(`rctCell_${rid}_${col.key}`);
       if (!el) return;
-      const orig = rowObj.recipe[col.key];
+      let orig;
+      if (col.key === '_station')   orig = row._linked_pt?.category ?? null;
+      else if (col.key === '_family')  orig = row._linked_pt?._cls?.production_family ?? null;
+      else if (col.key === '_work_type') orig = row._linked_pt?._cls?.work_type ?? null;
+      else orig = row.recipe[col.key] ?? null;
       el.value = orig === null || orig === undefined ? '' : String(orig);
     });
-
-    _rctUpdateRowUI(rowObj);
+    _updateActionCell(row);
+    _highlightEdited(row);
   };
 
   // ── Save row ──────────────────────────────────────────────────────────────
-  window.rctSaveRow = async function (rid) {
-    const rowObj = _rows.find(r => r.recipe.id === rid);
-    if (!rowObj || !rowObj._dirty || rowObj._saving) return;
+  window.rctSaveRow = async function(rid) {
+    const row = _rows.find(r=>r.recipe.id===rid);
+    if (!row || !row._dirty || row._saving) return;
 
-    const patch = { ...rowObj._edits };
-    if (!Object.keys(patch).length) return;
+    const edits = { ...row._edits };
+    if (!Object.keys(edits).length) return;
 
-    rowObj._saving = true;
-    _rctUpdateRowUI(rowObj);
+    // Validate numeric fields
+    for (const [k, v] of Object.entries(edits)) {
+      const col = COLS.find(c=>c.key===k);
+      if (!col) continue;
+      if (v !== null && (col.type==='number-int'||col.type==='number-decimal') && isNaN(parseFloat(v))) {
+        _showNotif(rid, false, `Valore non valido per "${col.label}": "${v}"`);
+        return;
+      }
+      if (v !== null && (col.type==='number-int'||col.type==='number-decimal') && parseFloat(v)<0) {
+        _showNotif(rid, false, `Valore negativo non consentito per "${col.label}"`);
+        return;
+      }
+    }
 
-    const saveBtn = document.getElementById(`rctSaveBtn_${rid}`);
-    if (saveBtn) { saveBtn.textContent = '…'; saveBtn.disabled = true; }
+    row._saving = true;
+    _updateActionCell(row, true);
 
     try {
-      // 1. Save to DB — only modified columns
-      const { error: updErr } = await supa.from('recipes').update(patch).eq('id', rid);
-      if (updErr) throw updErr;
+      // ── recipes patch ──────────────────────────────────────────────────
+      const recPatch = {};
+      const ptcEdits = {};
+      const ptEdits  = {};
 
-      // 2. Read-back immediately
-      const colKeys = COLUMNS
-        .filter(c => !c.key.startsWith('_'))
-        .map(c => c.key).join(',');
-      const { data: fresh, error: readErr } = await supa.from('recipes')
-        .select(colKeys)
-        .eq('id', rid)
-        .single();
-      if (readErr) throw readErr;
-
-      // 3. Verify each modified field
-      const mismatches = [];
-      Object.entries(patch).forEach(([key, expected]) => {
-        const got = fresh[key] ?? null;
-        const exp = expected ?? null;
-        // Numeric comparison with tolerance
-        if (typeof exp === 'number' || typeof got === 'number') {
-          const expN = parseFloat(exp);
-          const gotN = parseFloat(got);
-          if (Math.abs(expN - gotN) > 0.0001) {
-            mismatches.push({ key, expected: exp, got });
-          }
-        } else if (String(got) !== String(exp) && !(got === null && exp === null)) {
-          mismatches.push({ key, expected: exp, got });
-        }
-      });
-
-      if (mismatches.length > 0) {
-        throw new Error('Read-back mismatch: ' + mismatches.map(m =>
-          `${m.key} expected ${JSON.stringify(m.expected)} got ${JSON.stringify(m.got)}`
-        ).join('; '));
+      for (const [k, v] of Object.entries(edits)) {
+        if (k === '_station')   ptEdits.category           = v;
+        else if (k === '_family')  ptcEdits.production_family = v;
+        else if (k === '_work_type') ptcEdits.work_type       = v;
+        else recPatch[k] = v;
       }
 
-      // 4. Update in-memory record
-      Object.assign(rowObj.recipe, fresh);
-      rowObj._edits = {};
-      rowObj._dirty = false;
-      rowObj._lastSave = { ok: true, patch };
+      // Save recipes
+      if (Object.keys(recPatch).length) {
+        const { error: re } = await supa.from('recipes').update(recPatch).eq('id', rid);
+        if (re) throw new Error(`recipes: ${re.message}`);
+      }
 
-    } catch (e) {
-      rowObj._lastSave = { ok: false, error: e.message, patch };
+      // Save prep_tasks
+      if (Object.keys(ptEdits).length) {
+        const ptId = row._linked_pt?.id;
+        if (!ptId) throw new Error('Nessuna prep task collegata per salvare Station.');
+        const { error: pe } = await supa.from('prep_tasks').update(ptEdits).eq('id', ptId);
+        if (pe) throw new Error(`prep_tasks: ${pe.message}`);
+      }
+
+      // Save prep_task_classifications (upsert)
+      if (Object.keys(ptcEdits).length) {
+        const ptId = row._linked_pt?.id;
+        if (!ptId) throw new Error('Nessuna prep task collegata per salvare Family/Work Type.');
+        const existing = row._linked_pt?._cls;
+        if (existing) {
+          const { error: ce } = await supa.from('prep_task_classifications').update(ptcEdits).eq('prep_task_id', ptId);
+          if (ce) throw new Error(`ptc update: ${ce.message}`);
+        } else {
+          // Insert — work_type is NOT NULL, so we need a value
+          const toInsert = {
+            prep_task_id: ptId,
+            production_family: ptcEdits.production_family ?? null,
+            work_type: ptcEdits.work_type ?? 'quantitative_prep',
+            classified_by: `rct_${window.user?.name||'admin'}`,
+            classified_at: new Date().toISOString(),
+          };
+          const { error: ci } = await supa.from('prep_task_classifications').insert(toInsert);
+          if (ci) throw new Error(`ptc insert: ${ci.message}`);
+        }
+      }
+
+      // ── Read-back ─────────────────────────────────────────────────────
+      const { data: freshRec, error: rr } = await supa.from('recipes')
+        .select('id,title,menu_group,pos_name,base_servings,yield_text,base_weight_g,serving_weight_g,prep_time_minutes,shelf_life_days,serving_qty,serving_unit,prep_frequency_days,selling_price,equipment,procedure,image_url')
+        .eq('id', rid).single();
+      if (rr) throw new Error(`read-back recipes: ${rr.message}`);
+
+      let freshPt = row._linked_pt;
+      let freshCls = row._linked_pt?._cls || null;
+
+      if (Object.keys(ptEdits).length || Object.keys(ptcEdits).length) {
+        const ptId = row._linked_pt?.id;
+        const { data: fp } = await supa.from('prep_tasks').select('id,recipe_id,category,name').eq('id',ptId).single();
+        if (fp) freshPt = { ...fp, _cls: freshCls };
+        const { data: fc } = await supa.from('prep_task_classifications').select('prep_task_id,production_family,work_type').eq('prep_task_id',ptId).maybeSingle();
+        freshCls = fc || null;
+        if (freshPt) freshPt._cls = freshCls;
+      }
+
+      // Update in-memory
+      Object.assign(row.recipe, freshRec);
+      row._linked_pt = freshPt;
+      if (freshPt) {
+        const ptIdx = row.prep_tasks.findIndex(p=>p.id===freshPt.id);
+        if (ptIdx>=0) row.prep_tasks[ptIdx] = freshPt;
+      }
+      row._edits = {};
+      row._dirty = false;
+      row._lastSave = { ok: true, patch: edits };
+
+    } catch(e) {
+      row._lastSave = { ok: false, error: e.message, patch: edits };
     } finally {
-      rowObj._saving = false;
-      if (saveBtn) { saveBtn.textContent = 'Save'; saveBtn.disabled = false; }
+      row._saving = false;
     }
 
-    // Re-render this row
-    _rctReRenderRow(rowObj);
+    // Show notification then re-render
+    _showSaveNotif(row);
+    _reRenderRow(row);
   };
 
-  // ── Re-render single row after save ───────────────────────────────────────
-  function _rctReRenderRow(rowObj) {
-    const rid = rowObj.recipe.id;
+  // ── Re-render single row ──────────────────────────────────────────────────
+  function _reRenderRow(row) {
+    const rid = row.recipe.id;
     const rowEl = document.getElementById(`rctRow_${rid}`);
     if (!rowEl) return;
-
-    const rec = rowObj.recipe;
-    const rowBg = rowObj._dirty ? 'background:#fffbeb;' : rowObj._saving ? 'background:#f0fdf4;' : '';
-
-    // Rebuild cells
-    const tdBase = `padding:6px 10px;border-bottom:1px solid #e2e8f0;border-right:1px solid #e2e8f0;vertical-align:middle;`;
-
-    // Actions
-    const actCell = rowEl.querySelector('td:first-child');
-    if (actCell) {
-      actCell.innerHTML = `
-        <div style="display:flex;gap:4px;align-items:center;">
-          <button id="rctSaveBtn_${rid}" onclick="rctSaveRow('${rid}')"
-            style="padding:4px 10px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:700;
-              background:${rowObj._dirty?'#059669':'#e2e8f0'};
-              color:${rowObj._dirty?'white':'#94a3b8'};
-              opacity:${rowObj._dirty?'1':'0.6'};
-              pointer-events:${rowObj._dirty?'auto':'none'};">Save</button>
-          <button onclick="rctResetRow('${rid}')"
-            style="padding:4px 8px;border-radius:6px;border:1px solid #e2e8f0;cursor:pointer;font-size:11px;
-              background:white;color:#64748b;display:${rowObj._dirty?'inline-block':'none'};"
-            id="rctResetBtn_${rid}">Reset</button>
-          ${rowObj._lastSave ? _rctSaveBadge(rowObj._lastSave) : ''}
-        </div>`;
-    }
-
-    // Rebuild all data cells
-    COLUMNS.forEach((col, ci) => {
-      const tdEl = rowEl.querySelector(`td:nth-child(${ci+2})`);
-      if (!tdEl) return;
-
-      const rawVal = col.key.startsWith('_')
-        ? (rowObj[col.key] ?? null)
-        : (rec[col.key] ?? null);
-
-      const stickyAdd = ci === 0 ? `position:sticky;left:0;z-index:2;` : ci === 1 ? `position:sticky;left:60px;z-index:2;` : '';
-      tdEl.style.cssText = `${tdBase}${stickyAdd}${rowBg}`;
-      tdEl.innerHTML = _rctCellContent(col, rawVal, rid);
-
-      // Re-wire events
-      if (col.editable) {
-        const el = document.getElementById(`rctCell_${rid}_${col.key}`);
-        if (el) {
-          el.addEventListener('change', (e) => _rctOnChange(rid, col, e.target.value));
-          if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-            el.addEventListener('input', (e) => _rctOnChange(rid, col, e.target.value));
-          }
-        }
-      }
-    });
-
-    // Show save result notification
-    if (rowObj._lastSave) {
-      _rctShowSaveNotification(rowObj);
-    }
+    const newHtml = _renderRow(row);
+    const tmp = document.createElement('tbody');
+    tmp.innerHTML = newHtml;
+    const newTr = tmp.firstChild;
+    rowEl.parentNode.replaceChild(newTr, rowEl);
+    _wireRow(row);
   }
 
-  // ── Save notification (change summary) ───────────────────────────────────
-  function _rctShowSaveNotification(rowObj) {
-    const rid = rowObj.recipe.id;
-    const existingNotif = document.getElementById(`rctNotif_${rid}`);
-    if (existingNotif) existingNotif.remove();
+  // ── Update just the action cell ───────────────────────────────────────────
+  function _updateActionCell(row, saving=false) {
+    const rid = row.recipe.id;
+    const btn = document.getElementById(`rctSaveBtn_${rid}`);
+    const rst = document.getElementById(`rctResetBtn_${rid}`);
+    if (btn) {
+      btn.style.background     = row._dirty ? '#059669' : '#e2e8f0';
+      btn.style.color          = row._dirty ? 'white' : '#94a3b8';
+      btn.style.opacity        = row._dirty ? '1' : '0.5';
+      btn.style.pointerEvents  = row._dirty ? 'auto' : 'none';
+      btn.textContent          = saving ? '…' : 'Save';
+    }
+    if (rst) rst.style.display = row._dirty ? 'inline-block' : 'none';
+    const rowEl = document.getElementById(`rctRow_${rid}`);
+    if (rowEl) rowEl.style.background = row._dirty ? '#fffbeb' : '';
+  }
 
-    if (!rowObj._lastSave) return;
+  // ── Highlight edited cells ────────────────────────────────────────────────
+  function _highlightEdited(row) {
+    const rid = row.recipe.id;
+    const rowEl = document.getElementById(`rctRow_${rid}`);
+    if (!rowEl) return;
+    const tds = rowEl.querySelectorAll('td');
+    // tds[0] = actions, tds[1..] = COLS
+    COLS.forEach((col,ci) => {
+      const td = tds[ci+1];
+      if (!td) return;
+      let edited = false;
+      if (col.key==='_station')    edited = row._edits._station   !== undefined;
+      else if (col.key==='_family')    edited = row._edits._family    !== undefined;
+      else if (col.key==='_work_type') edited = row._edits._work_type !== undefined;
+      else edited = row._edits[col.key] !== undefined && !_looseEq(row._edits[col.key], row.recipe[col.key]??null);
+      if (edited) {
+        td.style.background = '#fef9c3';
+      } else {
+        td.style.background = row._dirty ? '#fffbeb' : '';
+      }
+    });
+  }
 
+  // ── Save notification ─────────────────────────────────────────────────────
+  function _showSaveNotif(row) {
+    if (!row._lastSave) return;
+    const rid = row.recipe.id;
+    document.getElementById(`rctNotif_${rid}`)?.remove();
     const notif = document.createElement('div');
     notif.id = `rctNotif_${rid}`;
-
-    if (!rowObj._lastSave.ok) {
-      notif.style.cssText = `
-        position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
-        background:#fef2f2;border:1.5px solid #fca5a5;border-radius:12px;
-        padding:12px 16px;z-index:999;max-width:400px;font-size:12px;color:#991b1b;
-        box-shadow:0 4px 20px rgba(0,0,0,0.15);
-      `;
-      notif.innerHTML = `<b>Save failed</b><br>${_esc(rowObj._lastSave.error || 'Unknown error')}`;
+    if (!row._lastSave.ok) {
+      notif.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#fef2f2;border:1.5px solid #fca5a5;border-radius:12px;padding:12px 16px;z-index:9999;max-width:420px;font-size:12px;color:#991b1b;box-shadow:0 4px 20px rgba(0,0,0,.15);';
+      notif.innerHTML = `<b>Salvataggio fallito</b><br>${_esc(row._lastSave.error||'')}`;
     } else {
-      const patch = rowObj._lastSave.patch || {};
-      const lines = Object.entries(patch).map(([k, v]) => {
-        const col = COLUMNS.find(c => c.key === k);
-        const label = col ? col.label : k;
-        const db = col ? col.db : k;
-        return `<div>· <b>${_esc(label)}</b>: ${v === null ? '<i>NULL</i>' : _esc(String(v))} <span style="color:#94a3b8;font-size:10px;">(${_esc(db)})</span></div>`;
+      const lines = Object.entries(row._lastSave.patch).map(([k,v]) => {
+        const col = COLS.find(c=>c.key===k);
+        return `<div>· <b>${_esc(col?.label||k)}</b>: ${v===null?'<i>NULL</i>':_esc(String(v))} <span style="color:#94a3b8;font-size:10px;">[${_esc(col?.db||k)}]</span></div>`;
       }).join('');
+      notif.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:12px 16px;z-index:9999;max-width:480px;font-size:12px;color:#14532d;box-shadow:0 4px 20px rgba(0,0,0,.15);';
+      notif.innerHTML = `<div style="font-weight:700;margin-bottom:5px;">✅ Salvato e verificato dal DB</div><div style="font-weight:600;margin-bottom:4px;">${_esc(row.recipe.title)}</div>${lines}<div style="margin-top:5px;color:#059669;font-weight:600;">Read-back: Confermato ✓</div>`;
+    }
+    document.body.appendChild(notif);
+    setTimeout(()=>notif.remove(), 6000);
+  }
 
-      notif.style.cssText = `
-        position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
-        background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;
-        padding:12px 16px;z-index:999;max-width:480px;font-size:12px;color:#14532d;
-        box-shadow:0 4px 20px rgba(0,0,0,0.15);
-      `;
-      notif.innerHTML = `
-        <div style="font-weight:700;margin-bottom:6px;">✅ Saved &amp; verified from DB</div>
-        <div style="font-weight:600;margin-bottom:4px;">Recipe: ${_esc(rowObj.recipe.title)}</div>
-        ${lines}
-        <div style="margin-top:6px;color:#059669;font-weight:600;">Read-back: Confirmed ✓</div>
-      `;
+  function _showNotif(rid, ok, msg) {
+    document.getElementById(`rctNotif_${rid}`)?.remove();
+    const notif = document.createElement('div');
+    notif.id = `rctNotif_${rid}`;
+    notif.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:${ok?'#f0fdf4':'#fef2f2'};border:1.5px solid ${ok?'#86efac':'#fca5a5'};border-radius:12px;padding:12px 16px;z-index:9999;max-width:420px;font-size:12px;color:${ok?'#14532d':'#991b1b'};box-shadow:0 4px 20px rgba(0,0,0,.15);`;
+    notif.textContent = msg;
+    document.body.appendChild(notif);
+    setTimeout(()=>notif.remove(), 5000);
+  }
+
+  // ── PRINT / PDF EXPORT ────────────────────────────────────────────────────
+  window.rctPrintExport = async function() {
+    const filtered = _filtered;
+    if (!filtered.length) { alert('Nessuna riga da esportare con i filtri correnti.'); return; }
+
+    const dirtyRows = filtered.filter(r=>r._dirty);
+    let exportMode = 'saved';
+    if (dirtyRows.length > 0) {
+      const choice = await _unsavedDialog(dirtyRows.length);
+      if (choice === 'cancel') return;
+      exportMode = choice;
     }
 
-    document.body.appendChild(notif);
-    setTimeout(() => notif.remove(), 5000);
+    const now = new Date().toLocaleString('en-US',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:true});
+    const version = typeof CACHE_NAME !== 'undefined' ? CACHE_NAME : 'boh-v741';
+
+    const filterSummary = [
+      _filtName    ? `Search: "${_filtName}"` : null,
+      _filtGroup   ? `Menu Group: ${_filtGroup}` : null,
+      _filtStation ? `Station: ${_filtStation}` : null,
+      _filtFamily  ? `Prod. Family: ${_filtFamily}` : null,
+      _filtDirty   ? 'Filter: Modified only' : null,
+      _filtNull    ? 'Filter: Has NULLs' : null,
+    ].filter(Boolean).join('  ·  ') || 'No filters (all recipes)';
+
+    const headerRow1 = COLS.map(col=>`<th class="pth">${_pEsc(col.label)}</th>`).join('');
+    const headerRow2 = COLS.map(col=>`<th class="pth pth-db">${_pEsc(col.db)}</th>`).join('');
+
+    const bodyRows = filtered.map(row => {
+      const cells = COLS.map(col => {
+        let v;
+        if (col.key==='_station')   v = row._linked_pt?.category ?? null;
+        else if (col.key==='_family')  v = row._linked_pt?._cls?.production_family ?? null;
+        else if (col.key==='_work_type') v = row._linked_pt?._cls?.work_type ?? null;
+        else if (exportMode==='unsaved'&&row._edits[col.key]!==undefined) v = row._edits[col.key];
+        else v = row.recipe[col.key] ?? null;
+
+        const edited = exportMode==='unsaved'&&row._edits[col.key]!==undefined;
+        let disp = v===null ? '<span class="p-null">NULL</span>' : col.key==='id' ? `<span class="p-id">${_pEsc(String(v).slice(0,8))}…</span>` : _pEsc(String(v));
+        return `<td class="ptd${edited?' ptd-edited':''}">${disp}</td>`;
+      }).join('');
+      return `<tr class="ptr">${cells}</tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Recipe Control Table Audit</title>
+<style>
+@page{size:A3 landscape;margin:12mm 10mm 14mm;}
+*{box-sizing:border-box;}
+body{font-family:-apple-system,Arial,sans-serif;font-size:9pt;color:#0f172a;margin:0;padding:0;}
+.p-summary{padding:8px 0 10px;border-bottom:2px solid #1e3a5f;margin-bottom:10px;font-size:9pt;line-height:1.6;}
+.p-title{font-size:14pt;font-weight:700;color:#1e3a5f;margin-bottom:4px;}
+table{width:100%;border-collapse:collapse;font-size:8pt;page-break-inside:auto;}
+thead{display:table-header-group;}
+.pth{background:#1e3a5f;color:white;padding:5px 6px;text-align:left;font-size:8pt;font-weight:600;border:1px solid #2d4f78;white-space:nowrap;}
+.pth-db{background:#0f2540;color:rgba(255,255,255,0.6);font-size:7pt;font-family:monospace;font-weight:400;word-break:break-all;}
+.ptr{page-break-inside:avoid;}
+.ptr:nth-child(even) td{background:#f8fafc;}
+.ptd{padding:4px 6px;border:1px solid #cbd5e1;vertical-align:top;word-break:break-word;max-width:200px;line-height:1.4;}
+.ptd-edited{background:#fef9c3!important;}
+.p-null{color:#94a3b8;font-style:italic;font-size:7.5pt;}
+.p-id{font-family:monospace;font-size:7pt;color:#94a3b8;}
+@media screen{body{padding:20px;background:#f8fafc;}table{display:block;overflow-x:auto;}}
+</style></head><body>
+<div class="p-summary">
+<div class="p-title">📋 Recipe Control Table Audit</div>
+<div>Version: ${version} · Rows: ${filtered.length} · ${filterSummary}</div>
+<div>${exportMode==='unsaved'?'<b style="color:#b45309;">⚠ INCLUDES UNSAVED EDITS</b>':'<span style="color:#047857;">SAVED DATABASE VALUES</span>'}</div>
+<div>Generated: ${now} CDT</div>
+</div>
+<table><thead><tr>${headerRow1}</tr><tr>${headerRow2}</tr></thead><tbody>${bodyRows}</tbody></table>
+</body></html>`;
+
+    const win = window.open('','_blank','width=1200,height=800');
+    if (!win) { alert('Pop-up bloccato. Abilita i pop-up per questo sito e riprova.'); return; }
+    win.document.write(html);
+    win.document.close();
+    win.onload = ()=>{ setTimeout(()=>{ win.focus(); win.print(); }, 400); };
+    if (win.document.readyState==='complete') setTimeout(()=>{ win.focus(); win.print(); }, 400);
+  };
+
+  function _unsavedDialog(count) {
+    return new Promise(resolve => {
+      const ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,0.65);display:flex;align-items:center;justify-content:center;padding:20px;';
+      ov.innerHTML = `<div style="background:white;border-radius:18px;padding:24px;max-width:380px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.25);">
+        <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:8px;">⚠️ Modifiche non salvate (${count})</div>
+        <div style="font-size:13px;color:#374151;margin-bottom:18px;line-height:1.5;">Quale versione esportare nel PDF?</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <button id="_pu" style="padding:11px 14px;background:#fef9c3;border:1.5px solid #f59e0b;border-radius:10px;font-size:13px;font-weight:700;color:#92400e;cursor:pointer;text-align:left;">📄 Valori non salvati attuali</button>
+          <button id="_ps" style="padding:11px 14px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;font-size:13px;font-weight:700;color:#14532d;cursor:pointer;text-align:left;">💾 Valori DB (ultimi salvati)</button>
+          <button id="_pc" style="padding:11px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;font-weight:600;color:#64748b;cursor:pointer;">Annulla</button>
+        </div>
+      </div>`;
+      document.body.appendChild(ov);
+      ov.querySelector('#_pu').onclick = ()=>{ ov.remove(); resolve('unsaved'); };
+      ov.querySelector('#_ps').onclick = ()=>{ ov.remove(); resolve('saved'); };
+      ov.querySelector('#_pc').onclick = ()=>{ ov.remove(); resolve('cancel'); };
+      ov.addEventListener('click', e=>{ if(e.target===ov){ ov.remove(); resolve('cancel'); } });
+    });
   }
 
   // ── Utilities ─────────────────────────────────────────────────────────────
-  function _esc(str) {
-    return (str || '').toString()
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  function _esc(s) {
+    return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function _pEsc(s) {
+    return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-
-
-  // ── PRINT / PDF EXPORT ────────────────────────────────────────────────────
-  // Uses window.print() with a dynamically injected print stylesheet.
-  // No external dependencies. Works on desktop & iPad Safari.
-
-  window.rctPrintExport = async function () {
-    // Collect currently filtered rows (same logic as rctApplyFilter)
-    const filterName    = (document.getElementById('rctSearchName')?.value || '').toLowerCase();
-    const filterGroup   = document.getElementById('rctFilterGroup')?.value || '';
-    const filterStation = document.getElementById('rctFilterStation')?.value || '';
-    const filterFamily  = document.getElementById('rctFilterFamily')?.value || '';
-    const filterDirty   = document.getElementById('rctFilterDirty')?.checked || false;
-    const filterNull    = document.getElementById('rctFilterNull')?.checked || false;
-
-    const filtered = _rows.filter(r => {
-      const rec = r.recipe;
-      if (filterName    && !(rec.title || '').toLowerCase().includes(filterName)) return false;
-      if (filterGroup   && rec.menu_group !== filterGroup) return false;
-      if (filterStation && r._station !== filterStation) return false;
-      if (filterFamily  && r._family !== filterFamily) return false;
-      if (filterDirty   && !r._dirty) return false;
-      if (filterNull) {
-        const hasNull = COLUMNS.some(col => col.editable && col.key !== 'id' &&
-          !col.key.startsWith('_') && (rec[col.key] === null || rec[col.key] === undefined));
-        if (!hasNull) return false;
-      }
-      return true;
-    });
-
-    if (!filtered.length) {
-      alert('No rows to export with current filters.');
-      return;
-    }
-
-    // Check for unsaved edits
-    const dirtyRows = filtered.filter(r => r._dirty);
-    let exportMode = 'saved'; // 'saved' | 'unsaved'
-
-    if (dirtyRows.length > 0) {
-      const choice = await _rctUnsavedDialog(dirtyRows.length);
-      if (choice === 'cancel') return;
-      exportMode = choice; // 'unsaved' or 'saved'
-    }
-
-    // Build filter summary
-    const now = new Date().toLocaleString('en-US', {
-      timeZone: 'America/Chicago',
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', hour12: true,
-    });
-
-    const filterLines = [
-      filterName    ? `Search: "${filterName}"`           : null,
-      filterGroup   ? `Menu Group: ${filterGroup}`        : null,
-      filterStation ? `Station: ${filterStation}`         : null,
-      filterFamily  ? `Prod. Family: ${filterFamily}`     : null,
-      filterDirty   ? 'Filter: Modified rows only'        : null,
-      filterNull    ? 'Filter: Has NULL fields'           : null,
-    ].filter(Boolean);
-
-    const versionEl = document.querySelector('[data-boh-version]');
-    const version = (typeof CACHE_NAME !== 'undefined' ? CACHE_NAME : 'boh-v739');
-
-    const summaryLines = [
-      `<b>Recipe Control Table Audit</b>`,
-      `Version: ${version}`,
-      `Rows exported: ${filtered.length}`,
-      filterLines.length ? filterLines.join('  ·  ') : 'No filters active (all recipes)',
-      filterDirty || exportMode === 'unsaved' ? '' : '',
-      exportMode === 'unsaved'
-        ? '<span style="color:#b45309;font-weight:700;">⚠ INCLUDES CURRENT UNSAVED EDITS</span>'
-        : '<span style="color:#047857;">SAVED DATABASE VALUES</span>',
-      `Generated: ${now} CDT`,
-    ].filter(s => s !== null);
-
-    // Build print HTML
-    const printCols = COLUMNS; // all columns
-
-    const headerRow1 = printCols.map(col =>
-      `<th class="pth">${_pEsc(col.label)}</th>`
-    ).join('');
-
-    const headerRow2 = printCols.map(col =>
-      `<th class="pth pth-db">${_pEsc(col.db)}</th>`
-    ).join('');
-
-    const bodyRows = filtered.map(row => {
-      const rec = row.recipe;
-      return '<tr class="ptr">' + printCols.map(col => {
-        let val;
-        if (col.key.startsWith('_')) {
-          val = row[col.key];
-        } else {
-          // If exporting unsaved: use edit value if present
-          if (exportMode === 'unsaved' && row._edits[col.key] !== undefined) {
-            val = row._edits[col.key];
-          } else {
-            val = rec[col.key];
-          }
-        }
-
-        const isEdited = exportMode === 'unsaved' && row._edits[col.key] !== undefined &&
-          row._edits[col.key] !== (rec[col.key] ?? null);
-
-        let display;
-        if (val === null || val === undefined) {
-          display = '<span class="p-null">NULL</span>';
-        } else if (col.key === 'id') {
-          display = `<span class="p-id">${_pEsc(String(val).slice(0,8))}…</span>`;
-        } else {
-          display = _pEsc(String(val));
-        }
-
-        const editedClass = isEdited ? ' ptd-edited' : '';
-        return `<td class="ptd${editedClass}">${display}</td>`;
-      }).join('') + '</tr>';
-    }).join('');
-
-    const printHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Recipe Control Table — BOH Audit</title>
-<style>
-  @page {
-    size: A3 landscape;
-    margin: 12mm 10mm 14mm;
-  }
-  @media print {
-    @page { size: A3 landscape; margin: 12mm 10mm 14mm; }
-  }
-  * { box-sizing: border-box; }
-  body {
-    font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
-    font-size: 9pt;
-    color: #0f172a;
-    margin: 0;
-    padding: 0;
-    background: white;
-  }
-  .p-summary {
-    padding: 8px 0 10px;
-    border-bottom: 2px solid #1e3a5f;
-    margin-bottom: 10px;
-    font-size: 9pt;
-    line-height: 1.6;
-  }
-  .p-title {
-    font-size: 14pt;
-    font-weight: 700;
-    color: #1e3a5f;
-    margin-bottom: 4px;
-  }
-  .p-meta { color: #374151; }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: auto;
-    font-size: 8pt;
-    page-break-inside: auto;
-  }
-  thead { display: table-header-group; }
-  tfoot { display: table-footer-group; }
-  .pth {
-    background: #1e3a5f;
-    color: white;
-    padding: 5px 6px;
-    text-align: left;
-    font-size: 8pt;
-    font-weight: 600;
-    border: 1px solid #2d4f78;
-    white-space: nowrap;
-    vertical-align: bottom;
-  }
-  .pth-db {
-    background: #0f2540;
-    color: rgba(255,255,255,0.65);
-    font-size: 7pt;
-    font-family: monospace;
-    font-weight: 400;
-    white-space: normal;
-    word-break: break-all;
-  }
-  .ptr { page-break-inside: avoid; }
-  .ptr:nth-child(even) td { background: #f8fafc; }
-  .ptd {
-    padding: 4px 6px;
-    border: 1px solid #cbd5e1;
-    vertical-align: top;
-    word-break: break-word;
-    max-width: 200px;
-    line-height: 1.4;
-  }
-  .ptd-edited {
-    background: #fef9c3 !important;
-  }
-  .p-null {
-    color: #94a3b8;
-    font-style: italic;
-    font-size: 7.5pt;
-  }
-  .p-id {
-    font-family: monospace;
-    font-size: 7pt;
-    color: #94a3b8;
-  }
-  .p-footer {
-    margin-top: 8px;
-    font-size: 7.5pt;
-    color: #6b7280;
-    text-align: right;
-    border-top: 1px solid #e2e8f0;
-    padding-top: 4px;
-  }
-  .p-page-num::after {
-    content: counter(page);
-  }
-  .p-page-total::after {
-    content: counter(pages);
-  }
-  @media screen {
-    body { padding: 20px; background: #f8fafc; }
-    .p-summary { max-width: 1000px; }
-    table { max-width: 100%; overflow-x: auto; display: block; }
-  }
-</style>
-</head>
-<body>
-<div class="p-summary">
-  <div class="p-title">📋 Recipe Control Table Audit</div>
-  <div class="p-meta">${summaryLines.slice(1).join('<br>')}</div>
-</div>
-
-<table>
-  <thead>
-    <tr>${headerRow1}</tr>
-    <tr>${headerRow2}</tr>
-  </thead>
-  <tbody>${bodyRows}</tbody>
-  <tfoot>
-    <tr>
-      <td colspan="${printCols.length}" class="p-footer">
-        BOH OS ${version} · Recipe Control Table Audit · ${now} CDT
-      </td>
-    </tr>
-  </tfoot>
-</table>
-</body>
-</html>`;
-
-    // Open in a new window and trigger print
-    const win = window.open('', '_blank', 'width=1200,height=800');
-    if (!win) {
-      alert('Pop-up blocked. Please allow pop-ups for this site and try again.');
-      return;
-    }
-    win.document.write(printHtml);
-    win.document.close();
-
-    // Wait for resources to load then print
-    win.onload = () => {
-      setTimeout(() => {
-        win.focus();
-        win.print();
-      }, 400);
-    };
-    // Fallback if onload already fired
-    if (win.document.readyState === 'complete') {
-      setTimeout(() => { win.focus(); win.print(); }, 400);
-    }
-  };
-
-  // ── Unsaved edits dialog ──────────────────────────────────────────────────
-  function _rctUnsavedDialog(count) {
-    return new Promise(resolve => {
-      const overlay = document.createElement('div');
-      overlay.style.cssText = [
-        'position:fixed;inset:0;z-index:9000;',
-        'background:rgba(15,23,42,0.65);',
-        'display:flex;align-items:center;justify-content:center;',
-        'padding:20px;',
-      ].join('');
-
-      overlay.innerHTML = `
-        <div style="background:white;border-radius:18px;padding:24px;max-width:380px;width:100%;
-          box-shadow:0 8px 40px rgba(0,0,0,0.25);">
-          <div style="font-size:16px;font-weight:700;color:#1e3a5f;margin-bottom:8px;">
-            ⚠️ Unsaved Edits Detected
-          </div>
-          <div style="font-size:13px;color:#374151;margin-bottom:18px;line-height:1.5;">
-            <b>${count} row${count>1?'s':''}</b> ${count>1?'have':'has'} unsaved changes.<br>
-            Which values should the PDF show?
-          </div>
-          <div style="display:flex;flex-direction:column;gap:8px;">
-            <button id="rctPrintUnsaved"
-              style="padding:11px 14px;background:#fef9c3;border:1.5px solid #f59e0b;border-radius:10px;
-                font-size:13px;font-weight:700;color:#92400e;cursor:pointer;text-align:left;">
-              📄 Current unsaved values<br>
-              <span style="font-size:11px;font-weight:400;color:#b45309;">
-                PDF will be labelled "INCLUDES UNSAVED EDITS"
-              </span>
-            </button>
-            <button id="rctPrintSaved"
-              style="padding:11px 14px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;
-                font-size:13px;font-weight:700;color:#14532d;cursor:pointer;text-align:left;">
-              💾 Last saved database values<br>
-              <span style="font-size:11px;font-weight:400;color:#166534;">
-                PDF will show the committed DB state
-              </span>
-            </button>
-            <button id="rctPrintCancel"
-              style="padding:11px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;
-                font-size:13px;font-weight:600;color:#64748b;cursor:pointer;">
-              Cancel
-            </button>
-          </div>
-        </div>`;
-
-      document.body.appendChild(overlay);
-
-      overlay.querySelector('#rctPrintUnsaved').onclick = () => { overlay.remove(); resolve('unsaved'); };
-      overlay.querySelector('#rctPrintSaved').onclick   = () => { overlay.remove(); resolve('saved'); };
-      overlay.querySelector('#rctPrintCancel').onclick  = () => { overlay.remove(); resolve('cancel'); };
-      overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve('cancel'); } });
-    });
-  }
-
-  // ── Print-safe escape (no &amp; needed since we write innerHTML) ──────────
-  function _pEsc(str) {
-    return (str || '').toString()
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  }
-
-
-  // Expose filter globally (called from inline onclick in header)
+  // Expose filter for onclick in header
   window.rctApplyFilter = rctApplyFilter;
 
 })();
