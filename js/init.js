@@ -31,14 +31,14 @@ async function init(){
   // Admin: tutte (cucina + Dish Crew + Chiusura). Dish Crew: solo Dish Crew. Cucina: solo cucina + Chiusura.
   const stationList = isAdmin()
     ? ['All', ...KITCHEN_STATIONS, DISH_STATION, 'Chiusura']
-    : (isDishCrew ? [DISH_STATION] : [...KITCHEN_STATIONS, 'Chiusura']);
+    : (isDishCrew ? [DISH_STATION] : ['All', ...KITCHEN_STATIONS, 'Chiusura']);
   if(!isAdmin()){
     if(isDishCrew){
       if(station!==DISH_STATION) station=DISH_STATION;
       if(station2!==DISH_STATION) station2=DISH_STATION;
     } else {
-      if(station==='All' || station===DISH_STATION) station='Oven Station';
-      if(station2==='All' || station2===DISH_STATION) station2='Oven Station';
+      if(station===DISH_STATION) station='Oven Station';
+      if(station2===DISH_STATION) station2='Oven Station';
     }
   }
   const stationsEl=document.getElementById('stations');
