@@ -146,65 +146,117 @@ function makeHomeRenderer(user) {
 // The station-selector component takes a pre-loaded stations array, so we
 // fetch first, then render. The modal is an overlay — not a panel.
 
-function openStationSelectorModal(workspaceManager, shellEl) {
+function openPanelChooserModal(workspaceManager, shellEl) {
   // Backdrop — full-screen overlay
   const backdrop = document.createElement('div');
   backdrop.className = 'station-selector-modal';
   backdrop.setAttribute('role', 'dialog');
   backdrop.setAttribute('aria-modal', 'true');
-  backdrop.setAttribute('aria-label', 'Select a station');
+  backdrop.setAttribute('aria-label', 'Open panel');
 
   function dismiss() {
     if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
   }
 
-  // Loading state while stations are fetched
-  const loadingEl = document.createElement('div');
-  loadingEl.className = 'station-selector-modal__loading';
-  loadingEl.textContent = 'Loading stations…';
-  backdrop.appendChild(loadingEl);
-
-  shellEl.appendChild(backdrop);
-
-  // Dismiss on backdrop click (outside the selector card)
+  // Dismiss on backdrop click (outside the card)
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) dismiss();
   });
 
-  // Fetch stations, then swap in the real selector
-  fetchAvailableStations().then((result) => {
-    if (!backdrop.isConnected) return;
+  // Card container
+  const card = document.createElement('div');
+  card.className = 'station-selector-modal__card';
+  card.addEventListener('click', (e) => e.stopPropagation());
 
-    backdrop.removeChild(loadingEl);
+  // Dismiss button
+  const dismissBtn = document.createElement('button');
+  dismissBtn.type = 'button';
+  dismissBtn.className = 'station-selector-modal__dismiss';
+  dismissBtn.setAttribute('aria-label', 'Close');
+  dismissBtn.textContent = '×';
+  dismissBtn.addEventListener('click', dismiss);
+  card.appendChild(dismissBtn);
 
-    const stations = result.ok ? (result.stations ?? []) : [];
+  // ── Chooser: Recipe Book + Station ──────────────────────────────
+  function showChooser() {
+    // Clear card content except dismiss button
+    while (card.children.length > 1) card.removeChild(card.lastChild);
 
-    const selectorEl = createStationSelector({
-      stations,
-      translate: t,
-      onSelect: (stationName) => {
-        dismiss();
-        workspaceManager.openPanel('station-prep', { stationName });
-      },
+    const chooser = document.createElement('div');
+    chooser.className = 'station-selector-modal__chooser';
+
+    const heading = document.createElement('h3');
+    heading.className = 'station-selector-modal__chooser-heading';
+    heading.textContent = t('station_selector.open_heading');
+    chooser.appendChild(heading);
+
+    // Recipe Book option
+    const recipeBtn = document.createElement('button');
+    recipeBtn.type = 'button';
+    recipeBtn.className = 'station-selector-modal__chooser-option';
+    recipeBtn.innerHTML = '<span class="station-selector-modal__chooser-icon" aria-hidden="true">📖</span>';
+    recipeBtn.appendChild(document.createTextNode(' ' + t('recipe_book.title')));
+    recipeBtn.addEventListener('click', () => {
+      dismiss();
+      workspaceManager.openPanel('recipe-book', {});
     });
+    chooser.appendChild(recipeBtn);
 
-    // Wrap in a card so backdrop clicks don't propagate from the selector
-    const card = document.createElement('div');
-    card.className = 'station-selector-modal__card';
-    card.addEventListener('click', (e) => e.stopPropagation());
+    // Station option
+    const stationBtn = document.createElement('button');
+    stationBtn.type = 'button';
+    stationBtn.className = 'station-selector-modal__chooser-option';
+    stationBtn.innerHTML = '<span class="station-selector-modal__chooser-icon" aria-hidden="true">🍳</span>';
+    stationBtn.appendChild(document.createTextNode(' ' + t('station_selector.title')));
+    stationBtn.addEventListener('click', showStationList);
+    chooser.appendChild(stationBtn);
 
-    // Dismiss button
-    const dismissBtn = document.createElement('button');
-    dismissBtn.type = 'button';
-    dismissBtn.className = 'station-selector-modal__dismiss';
-    dismissBtn.setAttribute('aria-label', 'Close station selector');
-    dismissBtn.textContent = '×';
-    dismissBtn.addEventListener('click', dismiss);
+    card.appendChild(chooser);
+  }
 
-    card.appendChild(dismissBtn);
-    card.appendChild(selectorEl);
-    backdrop.appendChild(card);
-  });
+  // ── Station list (replaces chooser inside same card) ───────────
+  function showStationList() {
+    // Clear card content except dismiss button
+    while (card.children.length > 1) card.removeChild(card.lastChild);
+
+    // Back button
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'station-selector-modal__back';
+    backBtn.textContent = '← ' + t('station_selector.open_heading');
+    backBtn.addEventListener('click', showChooser);
+    card.appendChild(backBtn);
+
+    // Loading state
+    const loadingEl = document.createElement('div');
+    loadingEl.className = 'station-selector-modal__loading';
+    loadingEl.textContent = t('station_selector.loading');
+    card.appendChild(loadingEl);
+
+    fetchAvailableStations().then((result) => {
+      if (!backdrop.isConnected) return;
+      if (loadingEl.parentNode) loadingEl.remove();
+
+      const stations = result.ok ? (result.stations ?? []) : [];
+
+      const selectorEl = createStationSelector({
+        stations,
+        translate: t,
+        onSelect: (stationName) => {
+          dismiss();
+          workspaceManager.openPanel('station-prep', { stationName });
+        },
+      });
+
+      card.appendChild(selectorEl);
+    });
+  }
+
+  // Start with chooser
+  showChooser();
+
+  backdrop.appendChild(card);
+  shellEl.appendChild(backdrop);
 }
 
 // ── Shell mount ───────────────────────────────────────────────────────
@@ -245,7 +297,7 @@ function mountShell(user) {
     outlet:          workspaceOutlet,
     panelStripMount,
     showAdd:         isExecutiveChef,
-    onAdd:           () => openStationSelectorModal(_workspaceManager, shell),
+    onAdd:           () => openPanelChooserModal(_workspaceManager, shell),
   });
 
   // ── Register renderers ───────────────────────────────────────────

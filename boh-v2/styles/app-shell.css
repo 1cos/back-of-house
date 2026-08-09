@@ -198,3 +198,69 @@
   color: var(--text-secondary);
   text-align: center;
 }
+
+/* ── Panel chooser (+ menu) ───────────────────────────────────────────*/
+.station-selector-modal__chooser {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.station-selector-modal__chooser-heading {
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  padding-top: var(--sp-1);
+}
+
+.station-selector-modal__chooser-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-4);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 52px;
+}
+
+.station-selector-modal__chooser-option:active {
+  background: var(--surface-active);
+}
+
+.station-selector-modal__chooser-icon {
+  font-size: 1.25rem;
+  flex: 0 0 auto;
+}
+
+.station-selector-modal__back {
+  display: block;
+  padding: var(--sp-3) var(--sp-4);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: left;
+}
+
+.station-selector-modal__back:active {
+  opacity: 0.7;
+}

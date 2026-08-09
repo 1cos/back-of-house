@@ -205,6 +205,7 @@ export const en = {
   'station_selector.title':       'Choose a station',
   'station_selector.description': 'Select the station you want to view.',
   'station_selector.empty':       'No stations available.',
+  'station_selector.open_heading': 'Open…',
 
   // ── Station Selector — async states (Task 004AI) ──────────────────────
   'station_selector.loading': 'Loading stations…',
