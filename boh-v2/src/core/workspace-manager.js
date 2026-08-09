@@ -40,6 +40,7 @@ function dedupeKey(type, context) {
     case 'home':
     case 'journal':
     case 'schedule':
+    case 'recipe-book':
       return type;
     case 'station-prep':
     case 'station-recipes':
@@ -95,6 +96,7 @@ export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivat
       case 'station-prep':    return context.stationName ?? 'Station';
       case 'station-recipes': return `${context.stationName ?? 'Station'} Recipes`;
       case 'recipe-detail':   return context.taskName ?? context.recipeName ?? 'Recipe';
+      case 'recipe-book':     return 'Recipe Book';
       case 'journal':         return 'Journal';
       case 'schedule':        return 'Schedule';
       default:                return type;

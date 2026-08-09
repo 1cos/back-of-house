@@ -9,6 +9,7 @@ export const PANEL_ICONS = {
   'station-prep':    '🍳',
   'station-recipes': '📖',
   'recipe-detail':   '📋',
+  'recipe-book':     '📖',
   'journal':         '📓',
   'schedule':        '📅',
 };

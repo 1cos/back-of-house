@@ -193,6 +193,14 @@ export const en = {
   'recipe_panel.yield_label':          'Yield',
   'recipe_panel.equipment_label':      'Equipment',
 
+  // ── Recipe Book ──────────────────────────────────────────────────────
+  'recipe_book.title':              'Recipe Book',
+  'recipe_book.search_placeholder': 'Search recipes…',
+  'recipe_book.all':                'All',
+  'recipe_book.loading':            'Loading recipes…',
+  'recipe_book.empty':              'No recipes found.',
+  'recipe_book.error':              'Unable to load recipes. Try again.',
+
   // ── Station Selector (Task 004AH) ────────────────────────────────────
   'station_selector.title':       'Choose a station',
   'station_selector.description': 'Select the station you want to view.',

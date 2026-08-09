@@ -44,6 +44,9 @@ import { createHomePanel } from './home/home-panel.js';
 
 // ── Recipe Panel ────────────────────────────────────────────────────────
 import { createRecipePanel } from './components/recipe/recipe-panel.js';
+
+// ── Recipe Book ─────────────────────────────────────────────────────────
+import { createRecipeBookPanel } from './components/recipe-book/recipe-book-panel.js';
 const root = document.getElementById('app');
 
 if (!root) {
@@ -282,6 +285,14 @@ function mountShell(user) {
   // ── Register recipe-detail renderer ─────────────────────────────
   _workspaceManager.registerRenderer('recipe-detail', (context) =>
     createRecipePanel({ ...context, translate: t })
+  );
+
+  // ── Register recipe-book renderer ──────────────────────────────
+  _workspaceManager.registerRenderer('recipe-book', () =>
+    createRecipeBookPanel({
+      translate: t,
+      openPanel: (type, ctx) => _workspaceManager && _workspaceManager.openPanel(type, ctx),
+    })
   );
 
   // ── Open Home (always first) ─────────────────────────────────────
