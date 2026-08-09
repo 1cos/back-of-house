@@ -1,8 +1,12 @@
 // BOH OS v2 — Recipe Panel
-// Read-only inspection panel opened from an expanded Prep Card.
+// Read-only inspection panel opened from an expanded Prep Card or Recipe Book.
 // Registered as 'recipe-detail' in WorkspaceManager.
 //
 // Spec: BOH OS v2 Recipe Trust — Phase 2
+// Manual ingredient-based scaling (Task 3A):
+//   Tap any ingredient qty → inline editor → new factor applied to ALL rows.
+//   Unit conversions: g↔kg, ml↔l only.
+//
 // No Start / Continue / Mark done here — those live on the Prep Card.
 // No legacy recipe-modal.js import. No modal over Workspace.
 // No writes to any table.
@@ -13,19 +17,12 @@
 //   3. procedure_en              (free-text fallback)
 //   4. neutral empty state       ("No procedure recorded.")
 //
-// Ingredient scaling:
-//   scaleFactor = plannedOutput / base_weight_g
-//   Only applied when BOTH values are valid positive numbers.
-//   When scaling is impossible → render base recipe quantities + note.
-//   Never guess a scale factor.
-//
 // Returns an HTMLElement synchronously (Workspace Engine R-21).
 // All async work uses isConnected guards.
 
 import { fetchRecipeData } from '../../services/recipe-service.js';
 
 // ── Quantity formatting ───────────────────────────────────────────────
-// Matches the formatting in legacy recipe-modal.js fmtQty.
 // factor=1 renders the base quantity unchanged.
 
 function _fmtQty(quantity, factor) {
@@ -37,9 +34,7 @@ function _fmtQty(quantity, factor) {
   return (Math.round(raw * 100) / 100).toFixed(2).replace(/\.?0+$/, '');
 }
 
-// ── Scale factor calculation ──────────────────────────────────────────
-// Returns a valid positive number or null.
-// null means "cannot scale — render base quantities."
+// ── Scale factor calculation (from plannedOutput) ─────────────────────
 
 function _computeScaleFactor(plannedOutput, baseWeightG) {
   const po  = parseFloat(plannedOutput);
@@ -47,9 +42,42 @@ function _computeScaleFactor(plannedOutput, baseWeightG) {
   if (!isFinite(po) || po <= 0) return null;
   if (!isFinite(bwg) || bwg <= 0) return null;
   const f = po / bwg;
-  // Sanity cap: >50× is almost certainly a unit mismatch
   if (f > 50) return null;
   return f;
+}
+
+// ── Unit conversion helpers ───────────────────────────────────────────
+// Only safe conversions: g↔kg, ml↔l. Returns grams/ml base or null.
+
+const UNIT_TO_BASE = {
+  'g':  { base: 'g',  multiplier: 1 },
+  'kg': { base: 'g',  multiplier: 1000 },
+  'ml': { base: 'ml', multiplier: 1 },
+  'l':  { base: 'ml', multiplier: 1000 },
+};
+
+function _normalizeToBase(qty, unit) {
+  const u = (unit || '').trim().toLowerCase();
+  const conv = UNIT_TO_BASE[u];
+  if (!conv) return null;
+  const q = parseFloat(qty);
+  if (!isFinite(q) || q < 0) return null;
+  return { value: q * conv.multiplier, baseUnit: conv.base };
+}
+
+function _unitsCompatible(unitA, unitB) {
+  const a = UNIT_TO_BASE[(unitA || '').trim().toLowerCase()];
+  const b = UNIT_TO_BASE[(unitB || '').trim().toLowerCase()];
+  if (!a || !b) return false;
+  return a.base === b.base;
+}
+
+// ── Format scale factor for display ───────────────────────────────────
+
+function _fmtFactor(f) {
+  if (f >= 10) return Math.round(f) + '×';
+  const r = Math.round(f * 100) / 100;
+  return r.toString().replace(/\.?0+$/, '') + '×';
 }
 
 // ── DOM helpers ───────────────────────────────────────────────────────
@@ -70,9 +98,93 @@ function _bomIngredientName(row) {
   return row.ingredients?.name ?? '—';
 }
 
-// ── Section builders ──────────────────────────────────────────────────
+// ── Inline qty editor ─────────────────────────────────────────────────
+// Replaces the qty span with an input. On confirm, computes new factor.
 
-function _buildIngredients(bomRows, scaleFactor, translate) {
+function _openQtyEditor(qtyEl, row, currentFactor, onNewFactor) {
+  if (qtyEl.querySelector('.recipe-panel__qty-input')) return; // already open
+
+  const baseQty = parseFloat(row.quantity);
+  if (!isFinite(baseQty) || baseQty <= 0) return;
+
+  const currentScaled = baseQty * (currentFactor || 1);
+  const unit = row.unit || '';
+
+  // Save original content
+  const originalContent = qtyEl.textContent;
+  qtyEl.textContent = '';
+  qtyEl.classList.add('recipe-panel__ingredient-qty--editing');
+
+  // Input
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.inputMode = 'decimal';
+  input.className = 'recipe-panel__qty-input';
+  input.value = _fmtQty(baseQty, currentFactor);
+  input.setAttribute('aria-label', 'New quantity');
+
+  // Unit label
+  const unitLabel = _el('span', 'recipe-panel__qty-unit', unit);
+
+  function cancel() {
+    qtyEl.classList.remove('recipe-panel__ingredient-qty--editing');
+    qtyEl.innerHTML = '';
+    qtyEl.textContent = originalContent;
+  }
+
+  function confirm() {
+    const rawVal = input.value.trim().replace(',', '.');
+    const desired = parseFloat(rawVal);
+    if (!isFinite(desired) || desired <= 0) {
+      cancel();
+      return;
+    }
+
+    // Attempt unit-aware factor calculation
+    const baseNorm = _normalizeToBase(baseQty, unit);
+    const desiredNorm = _normalizeToBase(desired, unit); // same unit as display
+
+    let newFactor;
+    if (baseNorm && desiredNorm && baseNorm.baseUnit === desiredNorm.baseUnit && baseNorm.value > 0) {
+      newFactor = desiredNorm.value / baseNorm.value;
+    } else {
+      // Fallback: simple ratio
+      newFactor = desired / baseQty;
+    }
+
+    if (!isFinite(newFactor) || newFactor <= 0 || newFactor > 50) {
+      cancel();
+      return;
+    }
+
+    onNewFactor(newFactor);
+  }
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+    if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  });
+
+  input.addEventListener('blur', () => {
+    // Small delay to allow tap on other elements
+    setTimeout(() => {
+      if (qtyEl.contains(input)) confirm();
+    }, 150);
+  });
+
+  qtyEl.appendChild(input);
+  qtyEl.appendChild(unitLabel);
+
+  // Focus and select
+  requestAnimationFrame(() => {
+    input.focus();
+    input.select();
+  });
+}
+
+// ── Ingredients section (with tappable quantities) ────────────────────
+
+function _buildIngredients(bomRows, factor, isManuallyScaled, translate, onTapQty) {
   const section = _el('section', 'recipe-panel__section');
   section.appendChild(_el('h2', 'recipe-panel__section-heading', translate('recipe_panel.ingredients_heading')));
 
@@ -81,24 +193,40 @@ function _buildIngredients(bomRows, scaleFactor, translate) {
     return section;
   }
 
-  // Scale notice — shown when scaling is impossible
-  if (scaleFactor === null) {
-    const notice = _el('p', 'recipe-panel__scale-notice', translate('recipe_panel.base_quantities_notice'));
-    section.appendChild(notice);
+  // Scale notice
+  if (factor === 1 && !isManuallyScaled) {
+    // Could show base notice, but only when scaling was impossible
+    // (kept clean — no notice for normal base view)
   }
-
-  const factor = scaleFactor ?? 1;
 
   const list = _el('ul', 'recipe-panel__ingredient-list');
   list.setAttribute('role', 'list');
 
-  for (const row of bomRows) {
-    const li   = _el('li', 'recipe-panel__ingredient-row');
+  for (let i = 0; i < bomRows.length; i++) {
+    const row = bomRows[i];
+    const li  = _el('li', 'recipe-panel__ingredient-row');
     const name = _el('span', 'recipe-panel__ingredient-name', _bomIngredientName(row));
     const qty  = _el('span', 'recipe-panel__ingredient-qty');
 
     if (row.quantity !== null && row.quantity !== undefined) {
+      const hasQty = parseFloat(row.quantity) > 0;
       qty.textContent = _fmtQty(row.quantity, factor) + (row.unit ? ' ' + row.unit : '');
+
+      if (hasQty) {
+        qty.classList.add('recipe-panel__ingredient-qty--tappable');
+        qty.setAttribute('role', 'button');
+        qty.setAttribute('tabindex', '0');
+        qty.setAttribute('aria-label', 'Edit quantity for ' + _bomIngredientName(row));
+
+        const rowIndex = i;
+        qty.addEventListener('click', () => onTapQty(rowIndex, qty));
+        qty.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onTapQty(rowIndex, qty);
+          }
+        });
+      }
     }
 
     li.appendChild(name);
@@ -110,22 +238,37 @@ function _buildIngredients(bomRows, scaleFactor, translate) {
   return section;
 }
 
+// ── Scale indicator bar ───────────────────────────────────────────────
+
+function _buildScaleBar(factor, translate, onReset) {
+  const bar = _el('div', 'recipe-panel__scale-bar');
+
+  const label = _el('span', 'recipe-panel__scale-label',
+    translate('recipe_panel.scaled_label') + ' ' + _fmtFactor(factor));
+
+  const resetBtn = document.createElement('button');
+  resetBtn.type = 'button';
+  resetBtn.className = 'recipe-panel__scale-reset';
+  resetBtn.textContent = translate('recipe_panel.reset_to_base');
+  resetBtn.addEventListener('click', onReset);
+
+  bar.appendChild(label);
+  bar.appendChild(resetBtn);
+  return bar;
+}
+
+// ── Procedure builder (unchanged) ─────────────────────────────────────
+
 function _buildProcedure(prepSteps, recipeSteps, procedureEn, translate) {
   const section = _el('section', 'recipe-panel__section');
   section.appendChild(_el('h2', 'recipe-panel__section-heading', translate('recipe_panel.procedure_heading')));
 
-  // ── Source precedence ─────────────────────────────────────────────
-  // a. prep_steps when present
   if (prepSteps && prepSteps.length > 0) {
     const ol = _el('ol', 'recipe-panel__steps');
     for (const step of prepSteps) {
       const li = _el('li', 'recipe-panel__step');
-      if (step.title) {
-        li.appendChild(_el('p', 'recipe-panel__step-title', step.title));
-      }
-      if (step.note) {
-        li.appendChild(_el('p', 'recipe-panel__step-instruction', step.note));
-      }
+      if (step.title) li.appendChild(_el('p', 'recipe-panel__step-title', step.title));
+      if (step.note) li.appendChild(_el('p', 'recipe-panel__step-instruction', step.note));
       if (step.timer_minutes && step.timer_minutes > 0) {
         li.appendChild(_el('p', 'recipe-panel__step-timer', step.timer_minutes + ' min'));
       }
@@ -135,19 +278,14 @@ function _buildProcedure(prepSteps, recipeSteps, procedureEn, translate) {
     return section;
   }
 
-  // b. recipe_steps
   if (recipeSteps && recipeSteps.length > 0) {
     const ol = _el('ol', 'recipe-panel__steps');
     for (const step of recipeSteps) {
       const li = _el('li', 'recipe-panel__step');
       const titleText = step.title ?? '';
-      if (titleText) {
-        li.appendChild(_el('p', 'recipe-panel__step-title', titleText));
-      }
+      if (titleText) li.appendChild(_el('p', 'recipe-panel__step-title', titleText));
       const instrText = step.instruction_en ?? step.instruction_it ?? '';
-      if (instrText) {
-        li.appendChild(_el('p', 'recipe-panel__step-instruction', instrText));
-      }
+      if (instrText) li.appendChild(_el('p', 'recipe-panel__step-instruction', instrText));
       if (step.timer_seconds && step.timer_seconds > 0) {
         const mins = Math.round(step.timer_seconds / 60);
         li.appendChild(_el('p', 'recipe-panel__step-timer', mins + ' min'));
@@ -158,18 +296,17 @@ function _buildProcedure(prepSteps, recipeSteps, procedureEn, translate) {
     return section;
   }
 
-  // c. procedure_en free-text
   const procText = typeof procedureEn === 'string' ? procedureEn.trim() : '';
   if (procText.length > 0) {
-    const p = _el('p', 'recipe-panel__procedure-text', procText);
-    section.appendChild(p);
+    section.appendChild(_el('p', 'recipe-panel__procedure-text', procText));
     return section;
   }
 
-  // d. empty state
   section.appendChild(_el('p', 'recipe-panel__empty-state', translate('recipe_panel.no_procedure')));
   return section;
 }
+
+// ── Notes builder (unchanged) ─────────────────────────────────────────
 
 function _buildNotes(recipe, translate) {
   const notes = [];
@@ -200,24 +337,18 @@ function _renderContent(root, context, translate) {
   fetchRecipeData(recipeId ?? null, prepTaskId ?? null).then((data) => {
     if (!root.isConnected) return;
 
-    // Clear skeleton
     root.innerHTML = '';
 
     // ── Header ─────────────────────────────────────────────────────
     const header = _el('header', 'recipe-panel__header');
+    header.appendChild(_el('h1', 'recipe-panel__task-name', taskName ?? translate('recipe_panel.untitled')));
 
-    const taskNameEl = _el('h1', 'recipe-panel__task-name', taskName ?? translate('recipe_panel.untitled'));
-    header.appendChild(taskNameEl);
-
-    // Production target — from suggestion (authoritative, pre-resolved by card)
     if (plannedOutput !== null && plannedOutput !== undefined) {
       const targetText = String(plannedOutput) + (plannedOutputUnit ? ' ' + plannedOutputUnit : '');
-      const targetEl = _el('p', 'recipe-panel__target',
-        translate('recipe_panel.target_label') + ' ' + targetText);
-      header.appendChild(targetEl);
+      header.appendChild(_el('p', 'recipe-panel__target',
+        translate('recipe_panel.target_label') + ' ' + targetText));
     }
 
-    // Recipe title — only when different from task name
     const recipeTitle = data.recipe?.title ?? null;
     if (recipeTitle && recipeTitle !== taskName) {
       header.appendChild(_el('p', 'recipe-panel__recipe-name', recipeTitle));
@@ -225,7 +356,7 @@ function _renderContent(root, context, translate) {
 
     root.appendChild(header);
 
-    // ── No recipe content at all ───────────────────────────────────
+    // ── No content guard ───────────────────────────────────────────
     const hasAnyContent =
       data.bomRows.length > 0 ||
       data.recipeSteps.length > 0 ||
@@ -237,33 +368,70 @@ function _renderContent(root, context, translate) {
       return;
     }
 
-    // ── Scale factor ───────────────────────────────────────────────
-    const scaleFactor = _computeScaleFactor(
-      plannedOutput,
-      data.recipe?.base_weight_g
-    );
+    // ── Scale state ────────────────────────────────────────────────
+    const contextFactor = _computeScaleFactor(plannedOutput, data.recipe?.base_weight_g);
+    let activeFactor = contextFactor ?? 1;
+    let isManuallyScaled = false;
+
+    // ── Scale bar mount point (above ingredients) ──────────────────
+    const scaleBarMount = _el('div', 'recipe-panel__scale-bar-mount');
+    root.appendChild(scaleBarMount);
 
     // ── Body ───────────────────────────────────────────────────────
     const body = _el('div', 'recipe-panel__body');
 
-    // 1. Ingredients
-    body.appendChild(_buildIngredients(data.bomRows, scaleFactor, translate));
+    // Ingredients mount — will be rebuilt on scale change
+    const ingredientsMount = _el('div', 'recipe-panel__ingredients-mount');
+    body.appendChild(ingredientsMount);
 
-    // 2. Procedure
+    // Procedure (not affected by scaling)
     body.appendChild(_buildProcedure(
-      data.prepSteps,
-      data.recipeSteps,
-      data.recipe?.procedure_en ?? '',
-      translate
+      data.prepSteps, data.recipeSteps,
+      data.recipe?.procedure_en ?? '', translate
     ));
 
-    // 3. Notes (only when useful content exists)
     if (data.recipe) {
       const notes = _buildNotes(data.recipe, translate);
       if (notes) body.appendChild(notes);
     }
 
     root.appendChild(body);
+
+    // ── Render/rerender ingredients + scale bar ────────────────────
+    function renderIngredients() {
+      ingredientsMount.innerHTML = '';
+      scaleBarMount.innerHTML = '';
+
+      // Scale bar — show when factor ≠ 1
+      if (activeFactor !== 1) {
+        scaleBarMount.appendChild(_buildScaleBar(activeFactor, translate, () => {
+          activeFactor = contextFactor ?? 1;
+          isManuallyScaled = false;
+          renderIngredients();
+        }));
+      } else if (contextFactor === null && data.bomRows.length > 0) {
+        // Base quantities notice when no scaling is possible
+        scaleBarMount.appendChild(
+          _el('p', 'recipe-panel__scale-notice', translate('recipe_panel.base_quantities_notice'))
+        );
+      }
+
+      ingredientsMount.appendChild(
+        _buildIngredients(data.bomRows, activeFactor, isManuallyScaled, translate,
+          (rowIndex, qtyEl) => {
+            const row = data.bomRows[rowIndex];
+            _openQtyEditor(qtyEl, row, activeFactor, (newFactor) => {
+              activeFactor = newFactor;
+              isManuallyScaled = true;
+              renderIngredients();
+            });
+          }
+        )
+      );
+    }
+
+    renderIngredients();
+
   }).catch(() => {
     if (!root.isConnected) return;
     root.innerHTML = '';
@@ -272,8 +440,6 @@ function _renderContent(root, context, translate) {
 }
 
 // ── Public: createRecipePanel ─────────────────────────────────────────
-// Workspace Engine R-21: returns HTMLElement synchronously.
-// Async fetch starts immediately; isConnected guards prevent stale writes.
 
 /**
  * @param {{
@@ -289,20 +455,17 @@ function _renderContent(root, context, translate) {
 export function createRecipePanel(context) {
   const { translate } = context;
 
-  // Root element returned synchronously
   const root = document.createElement('article');
   root.className = 'recipe-panel';
   root.setAttribute('role', 'region');
   root.setAttribute('aria-label', translate('recipe_panel.aria_label'));
 
-  // Skeleton — replaced when data arrives
   const skeleton = _el('div', 'recipe-panel__skeleton');
   for (let i = 0; i < 4; i++) {
     skeleton.appendChild(_el('div', 'recipe-panel__skeleton-row'));
   }
   root.appendChild(skeleton);
 
-  // Start async fetch
   _renderContent(root, context, translate);
 
   return root;

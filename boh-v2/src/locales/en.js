@@ -192,6 +192,8 @@ export const en = {
   'recipe_panel.shelf_life_label':     'Shelf life',
   'recipe_panel.yield_label':          'Yield',
   'recipe_panel.equipment_label':      'Equipment',
+  'recipe_panel.scaled_label':         'Scaled recipe ·',
+  'recipe_panel.reset_to_base':        'Reset to base',
 
   // ── Recipe Book ──────────────────────────────────────────────────────
   'recipe_book.title':              'Recipe Book',

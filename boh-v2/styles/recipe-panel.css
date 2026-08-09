@@ -251,3 +251,100 @@
   margin: 0;
   line-height: 1.5;
 }
+
+/* ── Tappable ingredient quantities (Task 3A) ─────────────────────────*/
+.recipe-panel__ingredient-qty--tappable {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  border-radius: var(--r-sm);
+  color: var(--accent);
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.recipe-panel__ingredient-qty--tappable:active {
+  background: var(--accent-subtle);
+}
+
+/* ── Inline qty editor ────────────────────────────────────────────────*/
+.recipe-panel__ingredient-qty--editing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  margin: 0;
+  min-height: 44px;
+}
+
+.recipe-panel__qty-input {
+  width: 72px;
+  padding: 6px 8px;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  border: 2px solid var(--accent);
+  border-radius: var(--r-sm);
+  text-align: right;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+}
+
+.recipe-panel__qty-unit {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ── Scale indicator bar ──────────────────────────────────────────────*/
+.recipe-panel__scale-bar-mount {
+  min-height: 0;
+}
+
+.recipe-panel__scale-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-3);
+  background: var(--accent-subtle);
+  border-radius: var(--r-md);
+  border: 1px solid var(--accent);
+}
+
+.recipe-panel__scale-label {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.recipe-panel__scale-reset {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 36px;
+}
+
+.recipe-panel__scale-reset:active {
+  background: var(--surface-active);
+}
