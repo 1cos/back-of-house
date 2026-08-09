@@ -935,6 +935,11 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span style="color:#7c3aed;font-weight:700;">Recipe DB</span>
         </button>
 
+        <button onclick="hideAdminMenu();openExpenses()" class="amenu-btn" style="border:1.5px solid #d1fae5;background:#ecfdf5;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          <span style="color:#059669;font-weight:700;">Expenses</span>
+        </button>
+
         <!-- Logout — rosso, in fondo -->
         <button onclick="hideAdminMenu();brigadeLogout()" class="amenu-btn amenu-logout">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -1012,6 +1017,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/workspace.js"></script>
 <script src="js/schedule.js"></script>
 <script src="js/staff-manager.js"></script>
+<script src="js/expenses.js"></script>
 <script>if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js')}</script>
 <script>
 // App version — single source of truth: CACHE_NAME in sw.js (boh-vNN).
@@ -1060,17 +1066,3 @@ function updateTVButtonState(active) {
 </script>
 <div id="workspace-root" aria-modal="true" role="dialog" aria-label="Workspace"></div>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
