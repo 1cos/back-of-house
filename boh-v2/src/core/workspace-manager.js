@@ -94,7 +94,7 @@ export function createWorkspaceManager({ outlet, panelStripMount, onPanelActivat
       case 'home':            return 'Home';
       case 'station-prep':    return context.stationName ?? 'Station';
       case 'station-recipes': return `${context.stationName ?? 'Station'} Recipes`;
-      case 'recipe-detail':   return context.recipeName   ?? 'Recipe';
+      case 'recipe-detail':   return context.taskName ?? context.recipeName ?? 'Recipe';
       case 'journal':         return 'Journal';
       case 'schedule':        return 'Schedule';
       default:                return type;
