@@ -146,7 +146,8 @@ function makeHomeRenderer(user) {
 // The station-selector component takes a pre-loaded stations array, so we
 // fetch first, then render. The modal is an overlay — not a panel.
 
-function openPanelChooserModal(workspaceManager, shellEl) {
+function openPanelChooserModal(workspaceManager, shellEl, user) {
+  const canChooseStation = can('view_executive_mode', user);
   // Backdrop — full-screen overlay
   const backdrop = document.createElement('div');
   backdrop.className = 'station-selector-modal';
@@ -202,14 +203,16 @@ function openPanelChooserModal(workspaceManager, shellEl) {
     });
     chooser.appendChild(recipeBtn);
 
-    // Station option
-    const stationBtn = document.createElement('button');
-    stationBtn.type = 'button';
-    stationBtn.className = 'station-selector-modal__chooser-option';
-    stationBtn.innerHTML = '<span class="station-selector-modal__chooser-icon" aria-hidden="true">🍳</span>';
-    stationBtn.appendChild(document.createTextNode(' ' + t('station_selector.title')));
-    stationBtn.addEventListener('click', showStationList);
-    chooser.appendChild(stationBtn);
+    // Station option — only for users who can choose stations
+    if (canChooseStation) {
+      const stationBtn = document.createElement('button');
+      stationBtn.type = 'button';
+      stationBtn.className = 'station-selector-modal__chooser-option';
+      stationBtn.innerHTML = '<span class="station-selector-modal__chooser-icon" aria-hidden="true">🍳</span>';
+      stationBtn.appendChild(document.createTextNode(' ' + t('station_selector.title')));
+      stationBtn.addEventListener('click', showStationList);
+      chooser.appendChild(stationBtn);
+    }
 
     card.appendChild(chooser);
   }
@@ -296,8 +299,8 @@ function mountShell(user) {
   _workspaceManager = createWorkspaceManager({
     outlet:          workspaceOutlet,
     panelStripMount,
-    showAdd:         isExecutiveChef,
-    onAdd:           () => openPanelChooserModal(_workspaceManager, shell),
+    showAdd:         true,
+    onAdd:           () => openPanelChooserModal(_workspaceManager, shell, user),
   });
 
   // ── Register renderers ───────────────────────────────────────────
