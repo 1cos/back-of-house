@@ -525,4 +525,125 @@ function _csvEsc(s){
   return s;
 }
 
+// ── HOME QUICK ENTRY ──────────────────────────────────────────────
+// Compact expense entry widget on Home, visible 08:00–14:00 CDT.
+// Authorized users: admin + Tela (id=3, Kitchen Operation Coordinator).
+
+var _EXP_QUICK_ALLOWED_IDS = [1, 3]; // Max, Tela
+
+function _expQuickAllowed(){
+  if(!window.user) return false;
+  if(window.user.is_admin || window.user.role === 'admin') return true;
+  return _EXP_QUICK_ALLOWED_IDS.indexOf(window.user.id) >= 0;
+}
+
+function _expQuickInWindow(){
+  var h = parseInt(new Date().toLocaleString('en-US',{timeZone:'America/Chicago',hour:'numeric',hour12:false}));
+  var m = parseInt(new Date().toLocaleString('en-US',{timeZone:'America/Chicago',minute:'numeric'}));
+  var total = h * 60 + m; // minutes since midnight
+  return total >= 480 && total < 840; // 08:00 (480) to 14:00 (840)
+}
+
+window.initExpenseQuickEntry = function(){
+  var el = document.getElementById('expQuickWidget');
+  if(!el) return;
+
+  if(!_expQuickAllowed()){ el.style.display = 'none'; return; }
+
+  // Initial visibility
+  _expQuickUpdateVisibility();
+  // Re-check every 60s for boundary crossing
+  if(!window._expQuickInterval){
+    window._expQuickInterval = setInterval(_expQuickUpdateVisibility, 60000);
+  }
+};
+
+function _expQuickUpdateVisibility(){
+  var el = document.getElementById('expQuickWidget');
+  if(!el) return;
+  if(!_expQuickAllowed()){ el.style.display = 'none'; return; }
+  el.style.display = _expQuickInWindow() ? 'block' : 'none';
+  // Populate dropdown if becoming visible and not yet populated
+  if(el.style.display === 'block'){
+    var sel = document.getElementById('expQVendor');
+    if(sel && sel.options.length <= 1) _expQuickLoadVendors();
+    // Update date label
+    var lbl = document.getElementById('expQDateLabel');
+    if(lbl) lbl.textContent = _fmtDateLabel(_todayCDT());
+  }
+}
+
+async function _expQuickLoadVendors(){
+  if(_expAllVendors.length === 0) await _loadAllVendors();
+  var sel = document.getElementById('expQVendor');
+  if(!sel) return;
+  var html = '<option value="">Select vendor…</option>';
+  _expAllVendors.forEach(function(v){
+    html += '<option value="' + _escH(v) + '">' + _escH(v) + '</option>';
+  });
+  html += '<option value="__other__">Other vendor…</option>';
+  sel.innerHTML = html;
+}
+
+window._expQuickVendorChange = function(){
+  var sel = document.getElementById('expQVendor');
+  var other = document.getElementById('expQOther');
+  if(sel.value === '__other__'){
+    other.style.display = 'block';
+    other.focus();
+  } else {
+    other.style.display = 'none';
+    other.value = '';
+    document.getElementById('expQAmount').focus();
+  }
+};
+
+window._expQuickAdd = async function(){
+  var selV = document.getElementById('expQVendor');
+  var otherV = document.getElementById('expQOther');
+  var amtEl = document.getElementById('expQAmount');
+  var btn = document.getElementById('expQBtn');
+  var msg = document.getElementById('expQMsg');
+
+  var vendor = selV.value === '__other__' ? (otherV.value||'').trim() : selV.value;
+  var amount = parseFloat(amtEl.value);
+
+  if(!vendor){ _expQMsg(msg,'Select vendor','#fef3c7','#92400e'); return; }
+  if(isNaN(amount) || amount < 0){ _expQMsg(msg,'Enter amount','#fef3c7','#92400e'); return; }
+
+  btn.disabled = true;
+  btn.textContent = '…';
+
+  try {
+    var res = await supa.from('expenses').insert({
+      expense_date: _todayCDT(),
+      vendor: vendor,
+      amount: amount,
+      notes: null,
+      created_by: (window.user && window.user.name) || 'Admin'
+    });
+    if(res.error) throw res.error;
+    _expQMsg(msg,'Added ✓','#dcfce7','#166534');
+    selV.value = '';
+    otherV.style.display = 'none';
+    otherV.value = '';
+    amtEl.value = '';
+  } catch(e){
+    console.error('[expenses-quick] error', e);
+    _expQMsg(msg,'Failed','#fee2e2','#991b1b');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Add';
+  }
+};
+
+function _expQMsg(el,text,bg,color){
+  if(!el) return;
+  el.textContent = text;
+  el.style.background = bg;
+  el.style.color = color;
+  el.style.display = 'inline-block';
+  setTimeout(function(){ el.style.display = 'none'; }, 2000);
+}
+
 })();

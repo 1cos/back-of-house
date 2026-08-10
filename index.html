@@ -450,6 +450,23 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         </div>
       </div>
 
+      <!-- Expenses Quick Entry — timed 08:00-14:00 CDT, authorized users only -->
+      <div id="expQuickWidget" style="display:none;background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;padding:12px 14px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-size:13px;font-weight:700;color:#1e3a5f;">💰 Expenses</span>
+          <span style="font-size:11px;color:#94a3b8;">Today · <span id="expQDateLabel"></span></span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:stretch;">
+          <select id="expQVendor" onchange="_expQuickVendorChange()" style="flex:2;padding:10px 8px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;font-family:inherit;background:white;color:#1e3a5f;-webkit-appearance:none;appearance:none;background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%227%22><path d=%22M1 1l4 4 4-4%22 stroke=%22%2394a3b8%22 stroke-width=%221.5%22 fill=%22none%22/></svg>');background-repeat:no-repeat;background-position:right 8px center;min-width:0;">
+            <option value="">Select vendor…</option>
+          </select>
+          <input type="number" id="expQAmount" inputmode="decimal" step="0.01" min="0" placeholder="$0.00" style="flex:1;padding:10px 8px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-weight:600;font-family:inherit;background:white;color:#1e3a5f;text-align:center;min-width:0;">
+          <button id="expQBtn" onclick="_expQuickAdd()" style="padding:10px 14px;background:#1e3a5f;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">Add</button>
+        </div>
+        <input type="text" id="expQOther" placeholder="Vendor name…" style="display:none;width:100%;padding:9px 8px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;font-family:inherit;background:white;color:#1e3a5f;margin-top:6px;">
+        <span id="expQMsg" style="display:none;font-size:11px;padding:3px 8px;border-radius:6px;margin-top:6px;"></span>
+      </div>
+
       <!-- Briefing AI — solo admin -->
       <div id="homeBriefingSection" style="display:none;background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
@@ -1031,7 +1048,7 @@ if('serviceWorker'in navigator){
 // Also detects stale cache: if the server sw.js version is newer than
 // what this page was built with, trigger a SW update check.
 (function(){
-  var PAGE_VERSION = 749;
+  var PAGE_VERSION = 750;
   fetch('sw.js?nocache=' + Date.now())
     .then(function(r){ return r.text(); })
     .then(function(t){

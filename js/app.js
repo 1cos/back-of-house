@@ -360,6 +360,7 @@ function doLogin(profile){
     updateTopBarAvatar();
   });
   init(); applyLang(); updateAlertBtn(); setupPush();
+  if(typeof initExpenseQuickEntry === 'function') initExpenseQuickEntry();
   loadNews(); initNews();
   loadBriefing(); startPresence(); startUrgencyCheck(); if(typeof startUsersRealtime==='function') startUsersRealtime();
   setTimeout(()=>startChatRealtime(), 500);
