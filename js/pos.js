@@ -988,7 +988,7 @@ async function daExecuteQuery(sb, q, from, to) {
     var recipeIds = bomRows.map(function(x){ return x.parent_recipe_id; });
 
     // Step 2: Get pos_name for each parent recipe
-    var recR = await sb.from('recipes').select('id,title,pos_name').in('id', recipeIds);
+    var recR = await sb.from('recipes').select('id,title,pos_name,base_servings').in('id', recipeIds);
     var recipes = {};
     (recR.data || []).forEach(function(x){ recipes[x.id] = x; });
 
@@ -997,14 +997,17 @@ async function daExecuteQuery(sb, q, from, to) {
     bomRows.forEach(function(bom) {
       var rec = recipes[bom.parent_recipe_id];
       if (!rec || !rec.pos_name) {
-        aliasMap.push({ alias:null, title:rec?rec.title:'?', bomQty:Number(bom.quantity), bomUnit:bom.unit, isKids:false, noPos:true });
+        var _srv = rec ? (Number(rec.base_servings)||1) : 1;
+        aliasMap.push({ alias:null, title:rec?rec.title:'?', bomQty:Number(bom.quantity)/_srv, bomUnit:bom.unit, isKids:false, noPos:true });
         return;
       }
+      var servings = Number(rec.base_servings) || 1;
+      var perServing = Number(bom.quantity) / servings;
       rec.pos_name.split('|').forEach(function(raw) {
         var alias = raw.trim();
         var isKids = alias.indexOf('[Kids]') >= 0;
         var clean = alias.replace(/\s*\[Kids\]\s*/g, '').trim();
-        aliasMap.push({ alias:clean, title:rec.title, bomQty:Number(bom.quantity), bomUnit:bom.unit, isKids:isKids, noPos:false });
+        aliasMap.push({ alias:clean, title:rec.title, bomQty:perServing, bomUnit:bom.unit, isKids:isKids, noPos:false });
       });
     });
 
