@@ -1,18 +1,15 @@
-// ── EXPENSES MODULE ──
-// Manual expense/invoice total tracker for admin.
+// ── EXPENSES MODULE v3 ──
+// Fast entry + weekly/monthly budget dashboard.
 // Reads/writes public.expenses via Supabase anon client (supa).
-// No Edge Functions, no vendor_documents integration.
 
 (function(){
 'use strict';
 
 // ── STATE ──
 let _expRows = [];
-let _expVendors = []; // from ingredient_vendors
-let _expFilterFrom = '';
-let _expFilterTo = '';
-let _expFilterVendor = '';
-let _expEditId = null; // UUID of expense being edited, null = add mode
+let _expAllVendors = [];
+let _expEditId = null;
+let _expNoteOpen = false;
 
 // ── HELPERS ──
 function _escH(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -21,269 +18,355 @@ function _todayCDT(){
   return new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'});
 }
 
-function _monthStartCDT(){
-  const d = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'}));
-  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-01';
-}
-
 function _fmtUSD(n){
   return '$' + Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
 }
 
-function _fmtDateShort(d){
+function _fmtDateLabel(d){
   if(!d) return '';
-  const p = d.split('-');
-  if(p.length!==3) return d;
-  return p[1]+'/'+p[2];
+  try {
+    var dt = new Date(d+'T12:00:00');
+    var opts = {month:'short', day:'numeric', timeZone:'America/Chicago'};
+    return dt.toLocaleDateString('en-US', opts);
+  } catch(e){ return d; }
 }
 
-// ── VENDOR AUTOCOMPLETE ──
-async function _loadVendorNames(){
+function _fmtDateShort(d){
+  if(!d) return '';
+  var p = d.split('-');
+  return p.length===3 ? p[1]+'/'+p[2] : d;
+}
+
+// Week boundaries: Monday→Sunday, CDT
+function _weekBounds(){
+  var now = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'}));
+  var dow = now.getDay(); // 0=Sun
+  var diffToMon = dow === 0 ? 6 : dow - 1;
+  var mon = new Date(now);
+  mon.setDate(now.getDate() - diffToMon);
+  var sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
+  var fmt = function(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+  return { start: fmt(mon), end: fmt(sun) };
+}
+
+function _monthStart(){
+  var d = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Chicago'}));
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01';
+}
+
+// ── LOAD VENDORS ──
+async function _loadAllVendors(){
   try {
-    const{data}=await supa.from('ingredient_vendors').select('vendor').eq('active',true);
-    if(data){
-      const set = new Set(data.map(r=>r.vendor));
-      _expVendors = [...set].sort();
-    }
+    var results = await Promise.all([
+      supa.from('ingredient_vendors').select('vendor').eq('active',true),
+      supa.from('expenses').select('vendor')
+    ]);
+    var set = new Set();
+    if(results[0].data) results[0].data.forEach(function(r){ set.add(r.vendor); });
+    if(results[1].data) results[1].data.forEach(function(r){ set.add(r.vendor); });
+    _expAllVendors = Array.from(set).sort();
   } catch(e){ console.warn('[expenses] vendor load failed', e); }
 }
 
 // ── OPEN ──
 window.openExpenses = async function(){
   if(typeof hideAdminMenu === 'function') hideAdminMenu();
-
-  // defaults
-  _expFilterFrom = _monthStartCDT();
-  _expFilterTo = _todayCDT();
-  _expFilterVendor = '';
   _expEditId = null;
+  _expNoteOpen = false;
 
-  // load vendors in parallel with building UI
-  const vendorP = _loadVendorNames();
+  var vendorP = _loadAllVendors();
 
-  const sheet = document.createElement('div');
+  var sheet = document.createElement('div');
   sheet.id = 'expensesSheet';
   sheet.style.cssText = 'position:fixed;inset:0;z-index:70;background:rgba(15,23,42,0.45);overflow-y:auto;-webkit-overflow-scrolling:touch;';
 
-  sheet.innerHTML = `
-  <div style="min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:8px 6px 40px;">
-    <div style="background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);border-radius:20px;width:100%;max-width:500px;padding:18px 14px 24px;">
+  sheet.innerHTML =
+  '<div style="min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:8px 6px 40px;">' +
+    '<div style="background:linear-gradient(160deg,#eff6ff 0%,#dbeafe 60%,#e0f2fe 100%);border-radius:20px;width:100%;max-width:500px;padding:18px 14px 24px;">' +
 
-      <!-- HEADER -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-        <div>
-          <div style="font-size:17px;font-weight:700;color:#1e3a5f;">💰 Expenses</div>
-          <div style="font-size:11px;color:#60a5fa;margin-top:2px;">Manual invoice & expense totals</div>
-        </div>
-        <button onclick="document.getElementById('expensesSheet').remove()" style="font-size:22px;background:none;border:none;color:#94a3b8;padding:4px 8px;">✕</button>
-      </div>
+      // HEADER
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">' +
+        '<div style="font-size:17px;font-weight:700;color:#1e3a5f;">💰 Expenses</div>' +
+        '<button onclick="document.getElementById(\'expensesSheet\').remove()" style="font-size:22px;background:none;border:none;color:#94a3b8;padding:4px 8px;">✕</button>' +
+      '</div>' +
 
-      <!-- ADD/EDIT FORM -->
-      <div id="expFormCard" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;padding:14px;margin-bottom:14px;">
-        <div style="font-size:13px;font-weight:600;color:#1e3a5f;margin-bottom:10px;" id="expFormTitle">Add Expense</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
-          <div>
-            <label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">Date</label>
-            <input type="date" id="expDate" style="width:100%;padding:9px 8px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;background:white;color:#1e3a5f;">
-          </div>
-          <div>
-            <label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">Amount ($)</label>
-            <input type="number" id="expAmount" inputmode="decimal" step="0.01" min="0" placeholder="0.00" style="width:100%;padding:9px 8px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;background:white;color:#1e3a5f;">
-          </div>
-        </div>
-        <div style="margin-bottom:8px;position:relative;">
-          <label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">Vendor</label>
-          <input type="text" id="expVendor" autocomplete="off" placeholder="Type vendor name…" style="width:100%;padding:9px 8px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;background:white;color:#1e3a5f;">
-          <div id="expVendorAC" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:10;background:white;border:1px solid #e2e8f0;border-radius:10px;max-height:160px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
-        </div>
-        <div style="margin-bottom:10px;">
-          <label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">Notes <span style="color:#94a3b8;">(optional)</span></label>
-          <input type="text" id="expNotes" placeholder="Invoice #, description…" style="width:100%;padding:9px 8px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;background:white;color:#1e3a5f;">
-        </div>
-        <div id="expBtnRow" style="display:flex;gap:8px;">
-          <button id="expSaveBtn" onclick="_expSave()" style="flex:1;padding:11px;background:#1e3a5f;color:white;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;">Add Expense</button>
-          <button id="expCancelBtn" onclick="_expCancelEdit()" style="display:none;padding:11px 16px;background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;">Cancel</button>
-        </div>
-        <div id="expSaveMsg" style="display:none;text-align:center;font-size:12px;margin-top:6px;padding:6px;border-radius:8px;"></div>
-      </div>
+      // FAST ENTRY
+      '<div id="expFormCard" style="background:rgba(255,255,255,0.65);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;padding:14px;margin-bottom:12px;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">' +
+          '<span id="expFormTitle" style="font-size:13px;font-weight:600;color:#1e3a5f;">New Expense</span>' +
+          '<button onclick="_expToggleDate()" id="expDateBtn" style="font-size:12px;color:#3b82f6;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);border-radius:8px;padding:4px 10px;cursor:pointer;font-family:inherit;">Today · <span id="expDateLabel"></span></button>' +
+        '</div>' +
+        '<input type="date" id="expDate" style="display:none;width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;background:white;color:#1e3a5f;margin-bottom:8px;">' +
 
-      <!-- FILTERS -->
-      <div style="background:rgba(255,255,255,0.5);border:0.5px solid rgba(59,130,246,0.12);border-radius:12px;padding:10px 12px;margin-bottom:12px;">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-          <span style="font-size:11px;color:#64748b;font-weight:600;">Filter:</span>
-          <input type="date" id="expFFrom" style="padding:5px 6px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;font-family:inherit;background:white;color:#1e3a5f;" onchange="_expApplyFilters()">
-          <span style="font-size:11px;color:#94a3b8;">→</span>
-          <input type="date" id="expFTo" style="padding:5px 6px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;font-family:inherit;background:white;color:#1e3a5f;" onchange="_expApplyFilters()">
-          <select id="expFVendor" style="padding:5px 6px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;font-family:inherit;background:white;color:#1e3a5f;max-width:140px;" onchange="_expApplyFilters()">
-            <option value="">All Vendors</option>
-          </select>
-        </div>
-      </div>
+        // Vendor dropdown
+        '<select id="expVendor" style="width:100%;padding:11px 10px;border:1px solid #e2e8f0;border-radius:12px;font-size:15px;font-family:inherit;background:white;color:#1e3a5f;margin-bottom:8px;-webkit-appearance:none;appearance:none;background-image:url(\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%228%22><path d=%22M1 1l5 5 5-5%22 stroke=%22%2394a3b8%22 stroke-width=%221.5%22 fill=%22none%22/></svg>\');background-repeat:no-repeat;background-position:right 12px center;">' +
+          '<option value="">Select vendor…</option>' +
+        '</select>' +
+        '<input type="text" id="expVendorOther" placeholder="Enter vendor name…" style="display:none;width:100%;padding:11px 10px;border:1px solid #e2e8f0;border-radius:12px;font-size:15px;font-family:inherit;background:white;color:#1e3a5f;margin-bottom:8px;">' +
 
-      <!-- SUMMARY -->
-      <div id="expSummary" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:14px;padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;">
-        <div>
-          <div style="font-size:22px;font-weight:700;color:#1e3a5f;" id="expTotal">$0.00</div>
-          <div style="font-size:11px;color:#64748b;" id="expCount">0 expenses</div>
-        </div>
-        <button onclick="_expExportCSV()" style="padding:7px 12px;background:rgba(59,130,246,0.08);color:#2563eb;border:1px solid rgba(59,130,246,0.2);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;">Export CSV</button>
-      </div>
+        // Amount
+        '<input type="number" id="expAmount" inputmode="decimal" step="0.01" min="0" placeholder="$0.00" style="width:100%;padding:11px 10px;border:1px solid #e2e8f0;border-radius:12px;font-size:18px;font-weight:600;font-family:inherit;background:white;color:#1e3a5f;margin-bottom:8px;text-align:center;">' +
 
-      <!-- LIST -->
-      <div id="expList" style="display:flex;flex-direction:column;gap:6px;">
-        <div style="text-align:center;color:#94a3b8;font-size:13px;padding:20px;">Loading…</div>
-      </div>
+        // Note toggle
+        '<div id="expNoteToggle" style="margin-bottom:8px;">' +
+          '<button onclick="_expShowNote()" style="font-size:12px;color:#64748b;background:none;border:none;cursor:pointer;padding:2px 0;font-family:inherit;">+ Add note</button>' +
+        '</div>' +
+        '<input type="text" id="expNotes" placeholder="Invoice #, description…" style="display:none;width:100%;padding:9px 10px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;background:white;color:#1e3a5f;margin-bottom:8px;">' +
 
-    </div>
-  </div>`;
+        // Buttons
+        '<div id="expBtnRow" style="display:flex;gap:8px;">' +
+          '<button id="expSaveBtn" onclick="_expSave()" style="flex:1;padding:13px;background:#1e3a5f;color:white;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;">Add Expense</button>' +
+          '<button id="expCancelBtn" onclick="_expCancelEdit()" style="display:none;padding:13px 18px;background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">Cancel</button>' +
+        '</div>' +
+        '<div id="expSaveMsg" style="display:none;text-align:center;font-size:12px;margin-top:6px;padding:6px;border-radius:8px;"></div>' +
+      '</div>' +
 
-  sheet.addEventListener('click', e => { if(e.target === sheet) sheet.remove(); });
+      // KPI DASHBOARD
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">' +
+        '<div style="background:rgba(255,255,255,0.65);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:14px;padding:14px 12px;text-align:center;">' +
+          '<div style="font-size:10px;font-weight:700;color:#3b82f6;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:4px;">This Week</div>' +
+          '<div id="expWeekTotal" style="font-size:20px;font-weight:800;color:#1e3a5f;">$0.00</div>' +
+          '<div id="expWeekCount" style="font-size:10px;color:#94a3b8;margin-top:2px;">0 expenses</div>' +
+        '</div>' +
+        '<div style="background:rgba(255,255,255,0.65);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:14px;padding:14px 12px;text-align:center;">' +
+          '<div style="font-size:10px;font-weight:700;color:#3b82f6;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:4px;">This Month</div>' +
+          '<div id="expMonthTotal" style="font-size:20px;font-weight:800;color:#1e3a5f;">$0.00</div>' +
+          '<div id="expMonthCount" style="font-size:10px;color:#94a3b8;margin-top:2px;">0 expenses</div>' +
+        '</div>' +
+      '</div>' +
+
+      // HISTORY HEADER
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+        '<span style="font-size:13px;font-weight:600;color:#1e3a5f;">Recent Expenses</span>' +
+        '<button onclick="_expToggleFilters()" id="expFilterToggle" style="font-size:11px;color:#3b82f6;background:none;border:none;cursor:pointer;font-family:inherit;">Filter & Export ▾</button>' +
+      '</div>' +
+
+      // FILTERS (collapsed)
+      '<div id="expFilterPanel" style="display:none;background:rgba(255,255,255,0.5);border:0.5px solid rgba(59,130,246,0.12);border-radius:12px;padding:10px 12px;margin-bottom:10px;">' +
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
+          '<input type="date" id="expFFrom" style="padding:5px 6px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;font-family:inherit;background:white;color:#1e3a5f;" onchange="_expApplyFilters()">' +
+          '<span style="font-size:11px;color:#94a3b8;">→</span>' +
+          '<input type="date" id="expFTo" style="padding:5px 6px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;font-family:inherit;background:white;color:#1e3a5f;" onchange="_expApplyFilters()">' +
+          '<select id="expFVendor" style="padding:5px 6px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;font-family:inherit;background:white;color:#1e3a5f;max-width:130px;" onchange="_expApplyFilters()">' +
+            '<option value="">All Vendors</option>' +
+          '</select>' +
+          '<button onclick="_expExportCSV()" style="padding:5px 10px;background:rgba(59,130,246,0.08);color:#2563eb;border:1px solid rgba(59,130,246,0.2);border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">CSV ↓</button>' +
+        '</div>' +
+        '<div id="expFilterSummary" style="font-size:11px;color:#64748b;margin-top:6px;"></div>' +
+      '</div>' +
+
+      // LIST
+      '<div id="expList" style="display:flex;flex-direction:column;gap:5px;">' +
+        '<div style="text-align:center;color:#94a3b8;font-size:13px;padding:20px;">Loading…</div>' +
+      '</div>' +
+
+    '</div>' +
+  '</div>';
+
+  sheet.addEventListener('click', function(e){ if(e.target === sheet) sheet.remove(); });
   document.body.appendChild(sheet);
 
-  // Set default date
-  document.getElementById('expDate').value = _todayCDT();
-  document.getElementById('expFFrom').value = _expFilterFrom;
-  document.getElementById('expFTo').value = _expFilterTo;
+  // Set date
+  var today = _todayCDT();
+  document.getElementById('expDate').value = today;
+  document.getElementById('expDateLabel').textContent = _fmtDateLabel(today);
 
-  // Vendor autocomplete wiring
-  await vendorP;
-  _expWireAutocomplete();
-
-  // Load data
-  await _expFetchAndRender();
-};
-
-// ── VENDOR AUTOCOMPLETE ──
-function _expWireAutocomplete(){
-  const inp = document.getElementById('expVendor');
-  const ac = document.getElementById('expVendorAC');
-  if(!inp || !ac) return;
-
-  inp.addEventListener('input', function(){
-    const q = this.value.trim().toLowerCase();
-    if(!q || q.length < 1){ ac.style.display='none'; return; }
-    // Combine known vendors from ingredient_vendors + unique vendors already in expenses
-    const allVendors = [...new Set([..._expVendors, ..._expRows.map(r=>r.vendor)])].sort();
-    const matches = allVendors.filter(v => v.toLowerCase().includes(q));
-    if(matches.length === 0){ ac.style.display='none'; return; }
-    ac.innerHTML = matches.slice(0,8).map(v =>
-      `<div style="padding:8px 10px;font-size:13px;color:#1e3a5f;cursor:pointer;border-bottom:1px solid #f1f5f9;" onmousedown="_expPickVendor('${_escH(v.replace(/'/g,"\\'"))}')">${_escH(v)}</div>`
-    ).join('');
-    ac.style.display='block';
+  // Vendor change handler
+  document.getElementById('expVendor').addEventListener('change', function(){
+    var otherField = document.getElementById('expVendorOther');
+    if(this.value === '__other__'){
+      otherField.style.display = 'block';
+      otherField.focus();
+    } else {
+      otherField.style.display = 'none';
+      otherField.value = '';
+      // Auto-focus amount after vendor selection
+      document.getElementById('expAmount').focus();
+    }
   });
 
-  inp.addEventListener('blur', function(){ setTimeout(()=>{ ac.style.display='none'; }, 150); });
-  inp.addEventListener('focus', function(){ if(this.value.trim()) this.dispatchEvent(new Event('input')); });
-}
+  // Date change handler
+  document.getElementById('expDate').addEventListener('change', function(){
+    var lbl = document.getElementById('expDateLabel');
+    var btn = document.getElementById('expDateBtn');
+    if(this.value === today){
+      btn.innerHTML = 'Today · <span id="expDateLabel">' + _escH(_fmtDateLabel(today)) + '</span>';
+    } else {
+      btn.innerHTML = '<span id="expDateLabel">' + _escH(_fmtDateLabel(this.value)) + '</span>';
+    }
+  });
 
-window._expPickVendor = function(v){
-  const inp = document.getElementById('expVendor');
-  if(inp) inp.value = v;
-  const ac = document.getElementById('expVendorAC');
-  if(ac) ac.style.display = 'none';
+  await vendorP;
+  _expPopulateVendorDropdown();
+
+  await _expFetchAll();
 };
+
+// ── DATE TOGGLE ──
+window._expToggleDate = function(){
+  var el = document.getElementById('expDate');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+};
+
+// ── NOTE TOGGLE ──
+window._expShowNote = function(){
+  _expNoteOpen = true;
+  document.getElementById('expNotes').style.display = 'block';
+  document.getElementById('expNoteToggle').style.display = 'none';
+  document.getElementById('expNotes').focus();
+};
+
+// ── FILTER TOGGLE ──
+window._expToggleFilters = function(){
+  var p = document.getElementById('expFilterPanel');
+  var b = document.getElementById('expFilterToggle');
+  if(p.style.display === 'none'){
+    p.style.display = 'block';
+    b.textContent = 'Filter & Export ▴';
+    // Set default filter range if empty
+    if(!document.getElementById('expFFrom').value){
+      document.getElementById('expFFrom').value = _monthStart();
+      document.getElementById('expFTo').value = _todayCDT();
+    }
+  } else {
+    p.style.display = 'none';
+    b.textContent = 'Filter & Export ▾';
+  }
+};
+
+// ── VENDOR DROPDOWN ──
+function _expPopulateVendorDropdown(){
+  var sel = document.getElementById('expVendor');
+  if(!sel) return;
+  var current = sel.value;
+  var html = '<option value="">Select vendor…</option>';
+  _expAllVendors.forEach(function(v){
+    html += '<option value="' + _escH(v) + '"' + (v===current?' selected':'') + '>' + _escH(v) + '</option>';
+  });
+  html += '<option value="__other__">Other vendor…</option>';
+  sel.innerHTML = html;
+}
 
 // ── EDIT MODE ──
 window._expEdit = function(id){
-  const row = _expRows.find(r => r.id === id);
+  var row = _expRows.find(function(r){ return r.id === id; });
   if(!row) return;
   _expEditId = id;
 
   document.getElementById('expDate').value = row.expense_date || '';
-  document.getElementById('expAmount').value = Number(row.amount || 0);
-  document.getElementById('expVendor').value = row.vendor || '';
-  document.getElementById('expNotes').value = row.notes || '';
+  document.getElementById('expDate').style.display = 'block';
+  var lbl = document.getElementById('expDateBtn');
+  lbl.innerHTML = '<span id="expDateLabel">' + _escH(_fmtDateLabel(row.expense_date)) + '</span>';
 
-  // Switch UI to edit mode
-  const title = document.getElementById('expFormTitle');
-  const btn = document.getElementById('expSaveBtn');
-  const cancelBtn = document.getElementById('expCancelBtn');
-  const card = document.getElementById('expFormCard');
-  if(title) title.textContent = '✏️ Editing Expense';
+  // Set vendor
+  var sel = document.getElementById('expVendor');
+  var inList = _expAllVendors.indexOf(row.vendor) >= 0;
+  if(inList){
+    sel.value = row.vendor;
+    document.getElementById('expVendorOther').style.display = 'none';
+  } else {
+    sel.value = '__other__';
+    document.getElementById('expVendorOther').style.display = 'block';
+    document.getElementById('expVendorOther').value = row.vendor;
+  }
+
+  document.getElementById('expAmount').value = Number(row.amount || 0);
+
+  if(row.notes){
+    _expShowNote();
+    document.getElementById('expNotes').value = row.notes;
+  }
+
+  var title = document.getElementById('expFormTitle');
+  var btn = document.getElementById('expSaveBtn');
+  var cancelBtn = document.getElementById('expCancelBtn');
+  var card = document.getElementById('expFormCard');
+  if(title) title.textContent = '✏️ Editing';
   if(btn) btn.textContent = 'Save Changes';
   if(cancelBtn) cancelBtn.style.display = 'block';
   if(card) card.style.borderColor = 'rgba(245,158,11,0.4)';
-
-  // Scroll form into view
   card.scrollIntoView({behavior:'smooth', block:'start'});
 };
 
 window._expCancelEdit = function(){
   _expEditId = null;
-
-  // Reset form
-  document.getElementById('expDate').value = _todayCDT();
-  document.getElementById('expAmount').value = '';
+  _expNoteOpen = false;
+  var today = _todayCDT();
+  document.getElementById('expDate').value = today;
+  document.getElementById('expDate').style.display = 'none';
+  document.getElementById('expDateBtn').innerHTML = 'Today · <span id="expDateLabel">' + _escH(_fmtDateLabel(today)) + '</span>';
   document.getElementById('expVendor').value = '';
+  document.getElementById('expVendorOther').style.display = 'none';
+  document.getElementById('expVendorOther').value = '';
+  document.getElementById('expAmount').value = '';
   document.getElementById('expNotes').value = '';
+  document.getElementById('expNotes').style.display = 'none';
+  document.getElementById('expNoteToggle').style.display = 'block';
 
-  // Restore add mode UI
-  const title = document.getElementById('expFormTitle');
-  const btn = document.getElementById('expSaveBtn');
-  const cancelBtn = document.getElementById('expCancelBtn');
-  const card = document.getElementById('expFormCard');
-  if(title) title.textContent = 'Add Expense';
+  var title = document.getElementById('expFormTitle');
+  var btn = document.getElementById('expSaveBtn');
+  var cancelBtn = document.getElementById('expCancelBtn');
+  var card = document.getElementById('expFormCard');
+  if(title) title.textContent = 'New Expense';
   if(btn){ btn.textContent = 'Add Expense'; btn.disabled = false; }
   if(cancelBtn) cancelBtn.style.display = 'none';
   if(card) card.style.borderColor = 'rgba(59,130,246,0.18)';
 
-  const msgEl = document.getElementById('expSaveMsg');
+  var msgEl = document.getElementById('expSaveMsg');
   if(msgEl) msgEl.style.display = 'none';
 };
 
-// ── SAVE (insert or update) ──
+// ── SAVE ──
 window._expSave = async function(){
-  const dateEl = document.getElementById('expDate');
-  const vendorEl = document.getElementById('expVendor');
-  const amountEl = document.getElementById('expAmount');
-  const notesEl = document.getElementById('expNotes');
-  const msgEl = document.getElementById('expSaveMsg');
-  const btn = document.getElementById('expSaveBtn');
+  var selV = document.getElementById('expVendor');
+  var otherV = document.getElementById('expVendorOther');
+  var vendor = selV.value === '__other__' ? (otherV.value||'').trim() : selV.value;
+  var expDate = document.getElementById('expDate').value;
+  var amount = parseFloat(document.getElementById('expAmount').value);
+  var notes = (document.getElementById('expNotes').value||'').trim() || null;
+  var msgEl = document.getElementById('expSaveMsg');
+  var btn = document.getElementById('expSaveBtn');
 
-  const expDate = dateEl?.value;
-  const vendor = vendorEl?.value?.trim();
-  const amount = parseFloat(amountEl?.value);
-  const notes = notesEl?.value?.trim() || null;
-
-  // Validate
-  if(!expDate){ _expMsg(msgEl, '⚠️ Date is required', '#fef3c7', '#92400e'); return; }
-  if(!vendor){ _expMsg(msgEl, '⚠️ Vendor is required', '#fef3c7', '#92400e'); return; }
-  if(isNaN(amount) || amount < 0){ _expMsg(msgEl, '⚠️ Amount must be ≥ 0', '#fef3c7', '#92400e'); return; }
+  if(!expDate){ _expMsg(msgEl,'⚠️ Date is required','#fef3c7','#92400e'); return; }
+  if(!vendor){ _expMsg(msgEl,'⚠️ Select a vendor','#fef3c7','#92400e'); return; }
+  if(isNaN(amount) || amount < 0){ _expMsg(msgEl,'⚠️ Enter a valid amount','#fef3c7','#92400e'); return; }
 
   btn.disabled = true;
   btn.textContent = 'Saving…';
 
   try {
     if(_expEditId){
-      // ── UPDATE ──
-      const{error} = await supa.from('expenses')
+      var res = await supa.from('expenses')
         .update({ expense_date: expDate, vendor: vendor, amount: amount, notes: notes })
         .eq('id', _expEditId);
-      if(error) throw error;
-      _expMsg(msgEl, '✓ Expense updated', '#dcfce7', '#166534');
+      if(res.error) throw res.error;
+      _expMsg(msgEl,'✓ Updated','#dcfce7','#166534');
       _expCancelEdit();
     } else {
-      // ── INSERT ──
-      const{error} = await supa.from('expenses').insert({
-        expense_date: expDate,
-        vendor: vendor,
-        amount: amount,
-        notes: notes,
+      var res2 = await supa.from('expenses').insert({
+        expense_date: expDate, vendor: vendor, amount: amount, notes: notes,
         created_by: (window.user && window.user.name) || 'Admin'
       });
-      if(error) throw error;
-      _expMsg(msgEl, '✓ Expense added', '#dcfce7', '#166534');
-      amountEl.value = '';
-      notesEl.value = '';
+      if(res2.error) throw res2.error;
+      _expMsg(msgEl,'✓ Added','#dcfce7','#166534');
+      // Reset for next fast entry
+      document.getElementById('expVendor').value = '';
+      document.getElementById('expVendorOther').style.display = 'none';
+      document.getElementById('expVendorOther').value = '';
+      document.getElementById('expAmount').value = '';
+      document.getElementById('expNotes').value = '';
+      document.getElementById('expNotes').style.display = 'none';
+      document.getElementById('expNoteToggle').style.display = 'block';
+      _expNoteOpen = false;
     }
-    await _expFetchAndRender();
+    await _expFetchAll();
   } catch(e){
     console.error('[expenses] save error', e);
-    _expMsg(msgEl, '✕ Save failed: ' + (e.message||'unknown'), '#fee2e2', '#991b1b');
+    _expMsg(msgEl,'✕ Failed: '+(e.message||'unknown'),'#fee2e2','#991b1b');
   } finally {
     btn.disabled = false;
-    if(_expEditId) btn.textContent = 'Save Changes';
-    else btn.textContent = 'Add Expense';
+    btn.textContent = _expEditId ? 'Save Changes' : 'Add Expense';
   }
 };
 
@@ -291,21 +374,15 @@ window._expSave = async function(){
 window._expDelete = async function(id){
   if(!id) return;
   if(!confirm('Delete this expense? This cannot be undone.')) return;
-
   try {
-    const{error} = await supa.from('expenses').delete().eq('id', id);
-    if(error) throw error;
-
-    // If we were editing this row, exit edit mode
+    var res = await supa.from('expenses').delete().eq('id', id);
+    if(res.error) throw res.error;
     if(_expEditId === id) _expCancelEdit();
-
-    const msgEl = document.getElementById('expSaveMsg');
-    _expMsg(msgEl, '✓ Expense deleted', '#dcfce7', '#166534');
-    await _expFetchAndRender();
+    _expMsg(document.getElementById('expSaveMsg'),'✓ Deleted','#dcfce7','#166534');
+    await _expFetchAll();
   } catch(e){
     console.error('[expenses] delete error', e);
-    const msgEl = document.getElementById('expSaveMsg');
-    _expMsg(msgEl, '✕ Delete failed: ' + (e.message||'unknown'), '#fee2e2', '#991b1b');
+    _expMsg(document.getElementById('expSaveMsg'),'✕ Delete failed','#fee2e2','#991b1b');
   }
 };
 
@@ -315,84 +392,109 @@ function _expMsg(el, text, bg, color){
   el.style.background = bg;
   el.style.color = color;
   el.style.display = 'block';
-  setTimeout(()=>{ el.style.display = 'none'; }, 3000);
+  setTimeout(function(){ el.style.display = 'none'; }, 2500);
 }
 
-// ── FETCH & RENDER ──
-async function _expFetchAndRender(){
-  const from = document.getElementById('expFFrom')?.value || '';
-  const to = document.getElementById('expFTo')?.value || '';
-  const vendor = document.getElementById('expFVendor')?.value || '';
+// ── DATA FETCH ──
+async function _expFetchAll(){
+  // Fetch recent expenses for the list (last 60 days or filter)
+  var from = document.getElementById('expFFrom');
+  var to = document.getElementById('expFTo');
+  var vendorF = document.getElementById('expFVendor');
+  var filterPanel = document.getElementById('expFilterPanel');
+  var filtersActive = filterPanel && filterPanel.style.display !== 'none';
 
-  let q = supa.from('expenses').select('*').order('expense_date',{ascending:false}).order('created_at',{ascending:false});
-  if(from) q = q.gte('expense_date', from);
-  if(to) q = q.lte('expense_date', to);
-  if(vendor) q = q.eq('vendor', vendor);
+  var q = supa.from('expenses').select('*').order('expense_date',{ascending:false}).order('created_at',{ascending:false});
 
-  const{data, error} = await q;
-  if(error){ console.error('[expenses] fetch error', error); return; }
-  _expRows = data || [];
+  if(filtersActive && from && from.value) q = q.gte('expense_date', from.value);
+  if(filtersActive && to && to.value) q = q.lte('expense_date', to.value);
+  if(filtersActive && vendorF && vendorF.value) q = q.eq('vendor', vendorF.value);
+  if(!filtersActive) q = q.limit(50);
+
+  var res = await q;
+  _expRows = res.data || [];
 
   _expRenderList();
-  _expRenderSummary();
-  _expPopulateVendorFilter();
+  _expPopulateFilterVendor();
+  if(filtersActive) _expRenderFilterSummary();
+
+  // KPIs — always independent queries
+  await _expUpdateKPIs();
 }
 
+async function _expUpdateKPIs(){
+  var week = _weekBounds();
+  var monthStart = _monthStart();
+  var today = _todayCDT();
+
+  var wkRes = await supa.from('expenses').select('amount').gte('expense_date', week.start).lte('expense_date', week.end);
+  var wkRows = wkRes.data || [];
+  var wkTotal = wkRows.reduce(function(s,r){ return s + Number(r.amount||0); }, 0);
+  var el1 = document.getElementById('expWeekTotal');
+  var el2 = document.getElementById('expWeekCount');
+  if(el1) el1.textContent = _fmtUSD(wkTotal);
+  if(el2) el2.textContent = wkRows.length + ' expense' + (wkRows.length!==1?'s':'');
+
+  var moRes = await supa.from('expenses').select('amount').gte('expense_date', monthStart).lte('expense_date', today);
+  var moRows = moRes.data || [];
+  var moTotal = moRows.reduce(function(s,r){ return s + Number(r.amount||0); }, 0);
+  var el3 = document.getElementById('expMonthTotal');
+  var el4 = document.getElementById('expMonthCount');
+  if(el3) el3.textContent = _fmtUSD(moTotal);
+  if(el4) el4.textContent = moRows.length + ' expense' + (moRows.length!==1?'s':'');
+}
+
+// ── RENDER LIST ──
 function _expRenderList(){
-  const el = document.getElementById('expList');
+  var el = document.getElementById('expList');
   if(!el) return;
   if(_expRows.length === 0){
-    el.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:13px;padding:24px;">No expenses in this period.</div>';
+    el.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:13px;padding:20px;">No expenses found.</div>';
     return;
   }
-  el.innerHTML = _expRows.map(r => {
-    const dateStr = _fmtDateShort(r.expense_date);
-    const notesHtml = r.notes ? `<div style="font-size:12px;color:#64748b;margin-top:3px;line-height:1.3;">${_escH(r.notes)}</div>` : '';
-    const isEditing = _expEditId === r.id;
-    const editHighlight = isEditing ? 'border-color:rgba(245,158,11,0.5);' : '';
-    return `<div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:0.5px solid rgba(59,130,246,0.12);border-radius:12px;padding:10px 12px;${editHighlight}">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-        <div style="flex:1;min-width:0;">
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span style="font-size:12px;color:#94a3b8;font-weight:500;min-width:40px;">${_escH(dateStr)}</span>
-            <span style="font-size:14px;font-weight:600;color:#1e3a5f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_escH(r.vendor)}</span>
-          </div>
-          ${notesHtml}
-          <div style="font-size:10px;color:#94a3b8;margin-top:2px;">${_escH(r.created_by||'')}</div>
-        </div>
-        <div style="font-size:15px;font-weight:700;color:#1e3a5f;white-space:nowrap;">${_fmtUSD(r.amount)}</div>
-      </div>
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px;padding-top:5px;border-top:1px solid rgba(59,130,246,0.06);">
-        <button onclick="_expEdit('${r.id}')" style="padding:4px 10px;font-size:11px;color:#64748b;background:rgba(241,245,249,0.8);border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-family:inherit;">Edit</button>
-        <button onclick="_expDelete('${r.id}')" style="padding:4px 10px;font-size:11px;color:#dc2626;background:rgba(254,226,226,0.5);border:1px solid rgba(220,38,38,0.15);border-radius:8px;cursor:pointer;font-family:inherit;">Delete</button>
-      </div>
-    </div>`;
+  el.innerHTML = _expRows.map(function(r){
+    var noteHtml = r.notes ? '<div style="font-size:11px;color:#64748b;margin-top:2px;line-height:1.2;">' + _escH(r.notes) + '</div>' : '';
+    var editHL = _expEditId === r.id ? 'border-color:rgba(245,158,11,0.5);' : '';
+    return '<div style="background:rgba(255,255,255,0.55);border:0.5px solid rgba(59,130,246,0.1);border-radius:10px;padding:8px 10px;' + editHL + '">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="display:flex;align-items:center;gap:5px;">' +
+            '<span style="font-size:11px;color:#94a3b8;min-width:36px;">' + _escH(_fmtDateShort(r.expense_date)) + '</span>' +
+            '<span style="font-size:13px;font-weight:600;color:#1e3a5f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + _escH(r.vendor) + '</span>' +
+          '</div>' +
+          noteHtml +
+        '</div>' +
+        '<div style="font-size:14px;font-weight:700;color:#1e3a5f;white-space:nowrap;">' + _fmtUSD(r.amount) + '</div>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:6px;margin-top:4px;">' +
+        '<button onclick="_expEdit(\'' + r.id + '\')" style="padding:3px 8px;font-size:10px;color:#64748b;background:rgba(241,245,249,0.8);border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;font-family:inherit;">Edit</button>' +
+        '<button onclick="_expDelete(\'' + r.id + '\')" style="padding:3px 8px;font-size:10px;color:#dc2626;background:rgba(254,226,226,0.4);border:1px solid rgba(220,38,38,0.12);border-radius:6px;cursor:pointer;font-family:inherit;">Delete</button>' +
+      '</div>' +
+    '</div>';
   }).join('');
 }
 
-function _expRenderSummary(){
-  const totalEl = document.getElementById('expTotal');
-  const countEl = document.getElementById('expCount');
-  if(!totalEl || !countEl) return;
-  const total = _expRows.reduce((s,r) => s + Number(r.amount||0), 0);
-  totalEl.textContent = _fmtUSD(total);
-  const n = _expRows.length;
-  countEl.textContent = n + ' expense' + (n !== 1 ? 's' : '');
+function _expPopulateFilterVendor(){
+  var sel = document.getElementById('expFVendor');
+  if(!sel) return;
+  var current = sel.value;
+  var vendors = [];
+  var seen = {};
+  _expRows.forEach(function(r){ if(!seen[r.vendor]){ seen[r.vendor]=1; vendors.push(r.vendor); } });
+  vendors.sort();
+  sel.innerHTML = '<option value="">All Vendors</option>' +
+    vendors.map(function(v){ return '<option value="' + _escH(v) + '"' + (v===current?' selected':'') + '>' + _escH(v) + '</option>'; }).join('');
 }
 
-function _expPopulateVendorFilter(){
-  const sel = document.getElementById('expFVendor');
-  if(!sel) return;
-  const current = sel.value;
-  const vendors = [...new Set(_expRows.map(r=>r.vendor))].sort();
-  sel.innerHTML = '<option value="">All Vendors</option>' +
-    vendors.map(v => `<option value="${_escH(v)}"${v===current?' selected':''}>${_escH(v)}</option>`).join('');
+function _expRenderFilterSummary(){
+  var el = document.getElementById('expFilterSummary');
+  if(!el) return;
+  var total = _expRows.reduce(function(s,r){ return s + Number(r.amount||0); }, 0);
+  el.textContent = _expRows.length + ' expenses · ' + _fmtUSD(total);
 }
 
 // ── FILTERS ──
-window._expApplyFilters = function(){
-  _expFetchAndRender();
-};
+window._expApplyFilters = function(){ _expFetchAll(); };
 
 // ── CSV EXPORT ──
 window._expExportCSV = function(){
@@ -400,34 +502,26 @@ window._expExportCSV = function(){
     if(typeof showScToast === 'function') showScToast('No expenses to export');
     return;
   }
-  const header = 'Date,Vendor,Amount,Notes,Created By,Created At';
-  const rows = _expRows.map(r => {
+  var header = 'Date,Vendor,Amount,Notes,Created By,Created At';
+  var rows = _expRows.map(function(r){
     return [
-      r.expense_date || '',
-      _csvEsc(r.vendor || ''),
-      Number(r.amount||0).toFixed(2),
-      _csvEsc(r.notes || ''),
-      _csvEsc(r.created_by || ''),
-      r.created_at || ''
+      r.expense_date||'', _csvEsc(r.vendor||''), Number(r.amount||0).toFixed(2),
+      _csvEsc(r.notes||''), _csvEsc(r.created_by||''), r.created_at||''
     ].join(',');
   });
-  const csv = header + '\n' + rows.join('\n');
-  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'expenses_' + _todayCDT() + '.csv';
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(()=>{ a.remove(); URL.revokeObjectURL(url); }, 200);
+  var csv = header + '\n' + rows.join('\n');
+  var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'expenses_' + _todayCDT() + '.csv'; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ a.remove(); URL.revokeObjectURL(url); }, 200);
 };
 
 function _csvEsc(s){
   if(!s) return '';
-  if(s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0){
-    return '"' + s.replace(/"/g, '""') + '"';
-  }
+  if(s.indexOf(',')>=0 || s.indexOf('"')>=0 || s.indexOf('\n')>=0)
+    return '"' + s.replace(/"/g,'""') + '"';
   return s;
 }
 
