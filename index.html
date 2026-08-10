@@ -1018,23 +1018,39 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/schedule.js"></script>
 <script src="js/staff-manager.js"></script>
 <script src="js/expenses.js"></script>
-<script>if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js')}</script>
+<script>
+if('serviceWorker'in navigator){
+  navigator.serviceWorker.register('./sw.js');
+  // Auto-reload when a new service worker takes control (cache busted)
+  navigator.serviceWorker.addEventListener('controllerchange', () => { location.reload(); });
+}
+</script>
 <script>
 // App version — single source of truth: CACHE_NAME in sw.js (boh-vNN).
 // Bumped on every deploy; label and title update automatically.
-fetch('sw.js?nocache=' + Date.now())
-  .then(r => r.text())
-  .then(t => {
-    const m = t.match(/boh-v(\d+)/);
-    if (!m) return;
-    const v = 'v' + m[1];
-    const el = document.getElementById('appVersion');
-    if (el) el.textContent = v;
-    const elPin = document.getElementById('appVersionPin');
-    if (elPin) elPin.textContent = v;
-    document.title = 'Brigade — ' + v;
-  })
-  .catch(() => {});
+// Also detects stale cache: if the server sw.js version is newer than
+// what this page was built with, trigger a SW update check.
+(function(){
+  var PAGE_VERSION = 748;
+  fetch('sw.js?nocache=' + Date.now())
+    .then(function(r){ return r.text(); })
+    .then(function(t){
+      var m = t.match(/boh-v(\d+)/);
+      if (!m) return;
+      var serverV = parseInt(m[1], 10);
+      var v = 'v' + m[1];
+      var el = document.getElementById('appVersion');
+      if (el) el.textContent = v;
+      var elPin = document.getElementById('appVersionPin');
+      if (elPin) elPin.textContent = v;
+      document.title = 'Brigade — ' + v;
+      // If server version is newer than this page, force SW update check
+      if (serverV > PAGE_VERSION && navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.getRegistration().then(function(reg){ if(reg) reg.update(); });
+      }
+    })
+    .catch(function(){});
+})();
 </script>
 <script>
 async function toggleKitchenDisplay() {
