@@ -466,10 +466,10 @@ var DA_CATEGORIES = {
     { id:'p23', label:'Trend Lobster Fettuccine — quantità a settimana', query:'trend_dish', filter:{name:'Lobster Fettuc'} },
     { id:'p24', label:'Paste vendute to go', query:'modifier_total', filter:{modifiers:['To go','TO GO','Togo','to go']} },
     { id:'p25', label:'Burrata come upgrade — su quali paste?', query:'modifier_by_parent', filter:{modifier:'Burrata',groups:['Pasta']} },
-    { id:'p26', label:'Spaghetti — nest totali (piatti + add-on + kids + mezze)', query:'pasta_type_production', filter:{name:'Spaghetti',nestPer:2} },
-    { id:'p27', label:'Fettuccine — nest totali (piatti + add-on + kids + mezze)', query:'pasta_type_production', filter:{name:'Fettuccine',nestPer:2} },
-    { id:'p28', label:'Gnocchi — porzioni totali (piatti + add-on + kids)', query:'pasta_type_production', filter:{name:'Gnocchi',nestPer:0} },
-    { id:'p29', label:'Maccheroni — porzioni totali (piatti + add-on + kids)', query:'pasta_type_production', filter:{name:'Maccheroni',nestPer:0} }
+    { id:'p26', label:'Spaghetti — nest totali via BOM (tutte le ricette)', query:'bom_pasta_consumption', filter:{subRecipeId:'87cae4ee-aed0-4c20-886d-ecb6768f1c12', label:'Spaghetti', unit:'nests'} },
+    { id:'p27', label:'Fettuccine — nest totali via BOM (tutte le ricette)', query:'bom_pasta_consumption', filter:{subRecipeId:'a8cc53ff-2fd5-44e4-ae94-6d2d4da945c0', label:'Fettuccine', unit:'nests'} },
+    { id:'p28', label:'Gnocchi — porzioni totali (piatti + modifier)', query:'pasta_type_production', filter:{name:'Gnocchi',nestPer:0} },
+    { id:'p29', label:'Maccheroni — consumo via BOM (tutte le ricette)', query:'bom_pasta_consumption', filter:{subRecipeId:'4cddb858-58a2-45f3-8452-0a7f5d1cf56f', label:'Maccheroni', unit:'g'} }
   ],
   'Secondi': [
     { id:'s01', label:'Secondo più venduto nel periodo', query:'top_item', filter:{cat:'Food',groups:['Secondi/entrees','Secondi']} },
@@ -969,6 +969,108 @@ async function daExecuteQuery(sb, q, from, to) {
       summaryHtml += '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">'+fullQty+' full + '+kidsQty+' kids + '+halfDishQty+' half + '+modQty+' modifier</div>';
     }
     summaryHtml += '</div>';
+
+    return resultBlock(q.label, summaryHtml + detailHtml);
+  }
+
+  // ── QUERY: bom_pasta_consumption ───────────────────────────────────
+  // BOM-driven: finds ALL recipes consuming a sub-recipe and matches to POS sales
+  if (qtype === 'bom_pasta_consumption') {
+    var subId = f.subRecipeId;
+    var unitLabel = f.unit || 'nests';
+    var pastaLabel = f.label || 'Pasta';
+
+    // Step 1: Get BOM map — which recipes consume this sub-recipe and how much
+    var bomR = await sb.from('recipe_bom').select('parent_recipe_id,quantity,unit').eq('component_type','RECIPE').eq('sub_recipe_id', subId);
+    var bomRows = bomR.data || [];
+    if (bomRows.length === 0) return resultBlock(q.label, '<div style="color:#94a3b8;padding:16px;text-align:center;">No BOM data found for this pasta type.</div>');
+
+    var recipeIds = bomRows.map(function(x){ return x.parent_recipe_id; });
+
+    // Step 2: Get pos_name for each parent recipe
+    var recR = await sb.from('recipes').select('id,title,pos_name').in('id', recipeIds);
+    var recipes = {};
+    (recR.data || []).forEach(function(x){ recipes[x.id] = x; });
+
+    // Build alias map: { alias_key -> { title, bomQty, bomUnit, isKids } }
+    var aliasMap = [];
+    bomRows.forEach(function(bom) {
+      var rec = recipes[bom.parent_recipe_id];
+      if (!rec || !rec.pos_name) {
+        aliasMap.push({ alias:null, title:rec?rec.title:'?', bomQty:Number(bom.quantity), bomUnit:bom.unit, isKids:false, noPos:true });
+        return;
+      }
+      rec.pos_name.split('|').forEach(function(raw) {
+        var alias = raw.trim();
+        var isKids = alias.indexOf('[Kids]') >= 0;
+        var clean = alias.replace(/\s*\[Kids\]\s*/g, '').trim();
+        aliasMap.push({ alias:clean, title:rec.title, bomQty:Number(bom.quantity), bomUnit:bom.unit, isKids:isKids, noPos:false });
+      });
+    });
+
+    // Step 3: Get POS sales
+    var posR = await sb.from('pos_sales_by_item').select('menu_item,menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false);
+    var posSales = posR.data || [];
+
+    // Step 4: Match
+    var results = []; // {label, qty, bomQty, totalUnits}
+    var matched = {};
+    var unresolved = [];
+
+    posSales.forEach(function(sale) {
+      var item = sale.menu_item;
+      var group = (sale.menu_group || '').toLowerCase();
+      var isKidsGroup = group.indexOf('kids') >= 0;
+      var qty = Number(sale.quantity) || 0;
+      if (qty === 0) return;
+
+      // Find best alias match — prefer kids-specific match for kids items
+      var bestMatch = null;
+      aliasMap.forEach(function(a) {
+        if (a.noPos || !a.alias) return;
+        if (a.alias !== item) return;
+        if (isKidsGroup && a.isKids) { bestMatch = a; }
+        else if (!isKidsGroup && !a.isKids) { bestMatch = a; }
+        else if (!bestMatch) { bestMatch = a; }
+      });
+
+      if (bestMatch) {
+        var key = item + (isKidsGroup ? ' [Kids]' : '');
+        if (!matched[key]) matched[key] = { label:key, title:bestMatch.title, qty:0, bomQty:bestMatch.bomQty, bomUnit:bestMatch.bomUnit };
+        matched[key].qty += qty;
+      }
+    });
+
+    // Calculate totals
+    var totalUnits = 0;
+    var detailRows = Object.values(matched).sort(function(a,b){
+      return (b.qty * b.bomQty) - (a.qty * a.bomQty);
+    });
+    detailRows.forEach(function(r){ r.totalUnits = r.qty * r.bomQty; totalUnits += r.totalUnits; });
+
+    // Recipes with no pos_name (unmapped)
+    var unmapped = aliasMap.filter(function(a){ return a.noPos; });
+
+    // Build output
+    var detailHtml = detailRows.map(function(r) {
+      return rowItem(r.label, r.qty + ' sales → ' + Math.round(r.totalUnits*100)/100 + ' ' + unitLabel, r.bomQty + ' ' + r.bomUnit + '/sale');
+    }).join('');
+
+    if (unmapped.length > 0) {
+      detailHtml += '<div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:.05em;margin:14px 0 6px;">⚠ UNMAPPED (no pos_name)</div>';
+      unmapped.forEach(function(u) {
+        detailHtml += rowItem(u.title, u.bomQty + ' ' + u.bomUnit + '/sale', 'recipe has no pos_name — POS sales not counted');
+      });
+    }
+
+    if (!detailHtml) detailHtml = '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:16px;">'+tr('posNoDataPeriod')+'</div>';
+
+    var roundedTotal = Math.round(totalUnits * 100) / 100;
+    var summaryHtml = '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;">' +
+      '<span style="font-size:28px;font-weight:800;color:#6366f1;">' + roundedTotal + '</span>' +
+      '<span style="font-size:12px;color:#6366f1;margin-left:6px;">' + unitLabel + ' totali via BOM</span>' +
+      '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">' + detailRows.length + ' prodotti POS · ' + unmapped.length + ' ricette senza pos_name</div>' +
+      '</div>';
 
     return resultBlock(q.label, summaryHtml + detailHtml);
   }
