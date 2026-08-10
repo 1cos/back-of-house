@@ -689,12 +689,17 @@ var daFromDate = null;
 var daToDate = null;
 
 function openDeepAnalysis() {
-  var today = new Date();
-  today.setHours(0,0,0,0);
-  var yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate()-1);
-  daFromDate = toISO(yesterday);
-  daToDate   = toISO(yesterday);
+  // Sync with current admin period selection
+  try {
+    var _syncP = getPeriod(posDateMode);
+    daFromDate = _syncP.from;
+    daToDate   = _syncP.to;
+  } catch(_e) {
+    var _today = new Date(); _today.setHours(0,0,0,0);
+    var _yest = new Date(_today); _yest.setDate(_yest.getDate()-1);
+    daFromDate = toISO(_yest);
+    daToDate   = toISO(_yest);
+  }
 
   var catOptions = Object.keys(DA_CATEGORIES).map(function(cat) {
     return '<option value="'+cat+'">'+cat+'</option>';
