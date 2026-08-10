@@ -465,7 +465,11 @@ var DA_CATEGORIES = {
     { id:'p22', label:'Trend Wheel Pasta — quantità a settimana', query:'trend_dish', filter:{name:'Wheel Pasta'} },
     { id:'p23', label:'Trend Lobster Fettuccine — quantità a settimana', query:'trend_dish', filter:{name:'Lobster Fettuc'} },
     { id:'p24', label:'Paste vendute to go', query:'modifier_total', filter:{modifiers:['To go','TO GO','Togo','to go']} },
-    { id:'p25', label:'Burrata come upgrade — su quali paste?', query:'modifier_by_parent', filter:{modifier:'Burrata',groups:['Pasta']} }
+    { id:'p25', label:'Burrata come upgrade — su quali paste?', query:'modifier_by_parent', filter:{modifier:'Burrata',groups:['Pasta']} },
+    { id:'p26', label:'Quante porzioni Spaghetti vendute? (×2 = nest)', query:'dish_total', filter:{name:'Spaghetti'} },
+    { id:'p27', label:'Quante porzioni Fettuccine vendute? (×2 = nest)', query:'dish_total', filter:{name:'Fettuccine'} },
+    { id:'p28', label:'Quante porzioni Gnocchi vendute?', query:'dish_total', filter:{name:'Gnocchi'} },
+    { id:'p29', label:'Quante porzioni Maccheroni vendute?', query:'dish_total', filter:{name:'Maccheroni'} }
   ],
   'Secondi': [
     { id:'s01', label:'Secondo più venduto nel periodo', query:'top_item', filter:{cat:'Food',groups:['Secondi/entrees','Secondi']} },
