@@ -278,20 +278,20 @@ async function tcAdminLoad() {
 
       return '<div style="background:#fff;border-radius:14px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,0.06);">' +
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
-          '<div style="font-size:13px;font-weight:800;color:#1a202c;">' + (r.user_name||'?') + '</div>' +
-          (station ? '<div style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 7px;border-radius:20px;font-weight:700;">' + station + '</div>' : '') +
+          '<div style="font-size:15px;font-weight:800;color:#1a202c;">' + (r.user_name||'?') + '</div>' +
+          (station ? '<div style="font-size:12px;color:#94a3b8;background:#f1f5f9;padding:2px 7px;border-radius:20px;font-weight:700;">' + station + '</div>' : '') +
           '<div style="flex:1;"></div>' +
-          '<div style="font-size:10px;color:#94a3b8;">' + timeStr + '</div>' +
+          '<div style="font-size:12px;color:#94a3b8;">' + timeStr + '</div>' +
         '</div>' +
-        '<div style="font-size:14px;color:#2d3748;line-height:1.5;margin-bottom:10px;">' + (r.message||'') + '</div>' +
-        (r.souschef_suggestion ? '<div style="background:#eff6ff;border-left:3px solid #3b82f6;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12px;color:#3b82f6;margin-bottom:10px;">🤖 ' + r.souschef_suggestion + '</div>' : '') +
+        '<div style="font-size:16px;color:#2d3748;line-height:1.5;margin-bottom:10px;">' + (r.message||'') + '</div>' +
+        (r.souschef_suggestion ? '<div style="background:#eff6ff;border-left:3px solid #3b82f6;padding:8px 10px;border-radius:0 8px 8px 0;font-size:14px;color:#3b82f6;margin-bottom:10px;">🤖 ' + r.souschef_suggestion + '</div>' : '') +
         '<div style="display:flex;gap:6px;">' +
-          '<button onclick="tcSetStatus(\'' + r.id + '\',\'in_progress\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:700;color:#f59e0b;background:#fff;cursor:pointer;">' + tr('tc_working') + '</button>' +
-          '<button onclick="tcSetStatus(\'' + r.id + '\',\'done\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:700;color:#22c55e;background:#fff;cursor:pointer;">' + tr('tc_done') + '</button>' +
-          '<button onclick="tcSetStatus(\'' + r.id + '\',\'ignored\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:700;color:#94a3b8;background:#fff;cursor:pointer;">' + tr('tc_ignore') + '</button>' +
+          '<button onclick="tcSetStatus(\'' + r.id + '\',\'in_progress\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-weight:700;color:#f59e0b;background:#fff;cursor:pointer;">' + tr('tc_working') + '</button>' +
+          '<button onclick="tcSetStatus(\'' + r.id + '\',\'done\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-weight:700;color:#22c55e;background:#fff;cursor:pointer;">' + tr('tc_done') + '</button>' +
+          '<button onclick="tcSetStatus(\'' + r.id + '\',\'ignored\',this)" style="flex:1;padding:6px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-weight:700;color:#94a3b8;background:#fff;cursor:pointer;">' + tr('tc_ignore') + '</button>' +
         '</div>' +
         '<div style="margin-top:6px;text-align:right;">' +
-          '<span style="font-size:10px;font-weight:800;color:' + statusColor + ';">● ' + statusLabel + '</span>' +
+          '<span style="font-size:12px;font-weight:800;color:' + statusColor + ';">● ' + statusLabel + '</span>' +
         '</div>' +
       '</div>';
     }).join('');
