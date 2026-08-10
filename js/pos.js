@@ -234,6 +234,108 @@ async function loadPOS() {
         '</div></div>';
     }
 
+    // ── Production View (admin) — reuses staff logic ──────────────
+    const { data: adModCfg } = await sb.from('modifier_config').select('modifier,kitchen_cat,portion_note').eq('is_kitchen',true);
+    const { data: adModSales } = await sb.from('pos_modifiers').select('modifier,quantity_sold').gte('sale_date',period.from).lte('sale_date',period.to).eq('is_historical',false);
+
+    const prodFoodItems = (items||[]).filter(function(x){ return x.sales_category==='Food' && STAFF_EXCL.indexOf(x.menu_group)<0; });
+    const prodGroupMap = {};
+    prodFoodItems.forEach(function(x) {
+      var label = STAFF_GROUP_LABELS[x.menu_group] || x.menu_group;
+      if (!prodGroupMap[label]) prodGroupMap[label] = {qty:0,items:{}};
+      prodGroupMap[label].qty += Number(x.quantity)||0;
+      var it = x.menu_item;
+      prodGroupMap[label].items[it] = (prodGroupMap[label].items[it]||0) + (Number(x.quantity)||0);
+    });
+
+    // Contorni modifier ×0.5
+    var prodContorniCfg = (adModCfg||[]).filter(function(x){ return x.kitchen_cat === 'Contorni'; });
+    var prodContorniNames = prodContorniCfg.map(function(x){ return x.modifier.toLowerCase(); });
+    if (!prodGroupMap['Contorni']) prodGroupMap['Contorni'] = {qty:0, items:{}};
+    (adModSales||[]).forEach(function(x) {
+      if (!x.modifier) return;
+      var low = x.modifier.toLowerCase();
+      var match = prodContorniNames.some(function(m){ return low === m || low.indexOf(m) >= 0 || m.indexOf(low) >= 0; });
+      if (match) {
+        var halfQty = (Number(x.quantity_sold)||0) * 0.5;
+        prodGroupMap['Contorni'].qty += halfQty;
+        var key = x.modifier + ' (mod)';
+        prodGroupMap['Contorni'].items[key] = (prodGroupMap['Contorni'].items[key]||0) + halfQty;
+      }
+    });
+    if (prodGroupMap['Contorni']) prodGroupMap['Contorni'].qty = Math.round(prodGroupMap['Contorni'].qty * 10) / 10;
+
+    var prodGroupOrder = ['Pasta','Secondi','Antipasti','Insalate','Dolcezze','Kids','Zuppe','Contorni','Pranzo'];
+    var prodGroupsSorted = prodGroupOrder.filter(function(g){return prodGroupMap[g] && prodGroupMap[g].qty>0;});
+    var prodMaxGroupQty = Math.max.apply(null, prodGroupsSorted.map(function(g){return prodGroupMap[g].qty;}).concat([1]));
+
+    var prodGroupsHtml = prodGroupsSorted.map(function(g) {
+      var data2 = prodGroupMap[g];
+      var emoji = STAFF_GROUP_EMOJI[g]||'🍴';
+      var pct = prodMaxGroupQty>0 ? Math.round((data2.qty/prodMaxGroupQty)*100) : 0;
+      return '<div onclick="staffOpenGroup(\''+g+'\')" style="background:rgba(255,255,255,0.7);border-radius:14px;padding:10px 14px;margin-bottom:6px;cursor:pointer;-webkit-tap-highlight-color:transparent;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+        '<span style="font-size:18px;">'+emoji+'</span>' +
+        '<span style="font-size:13px;font-weight:700;color:#1e293b;">'+(STAFF_GROUP_DISPLAY[g]||g)+'</span>' +
+        '</div>' +
+        '<span style="font-size:16px;font-weight:800;color:#6366f1;">'+data2.qty+'<span style="font-size:10px;font-weight:500;color:#94a3b8;">x</span></span>' +
+        '</div>' +
+        '<div style="height:3px;background:#f1f5f9;border-radius:2px;overflow:hidden;">' +
+        '<div style="width:'+pct+'%;height:100%;background:#6366f1;border-radius:2px;"></div>' +
+        '</div>' +
+        '</div>';
+    }).join('');
+
+    // Kitchen modifiers
+    var prodKitchenMods = (adModCfg||[]).map(function(x){return x.modifier.toLowerCase();});
+    var prodModAgg = {};
+    (adModSales||[]).forEach(function(x) {
+      if (!x.modifier) return;
+      var low = x.modifier.toLowerCase();
+      if (prodKitchenMods.some(function(m){return low.indexOf(m)>=0 || m.indexOf(low)>=0;})) {
+        prodModAgg[x.modifier] = (prodModAgg[x.modifier]||0) + (Number(x.quantity_sold)||0);
+      }
+    });
+    var prodModSorted = Object.entries(prodModAgg).sort(function(a,b){return b[1]-a[1];});
+    var prodMaxMod = prodModSorted.length>0 ? prodModSorted[0][1] : 1;
+
+    var prodModHtml = '';
+    if (prodModSorted.length > 0) {
+      prodModHtml = '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;margin-bottom:8px;">' +
+        '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">KITCHEN MODIFIERS</div>' +
+        prodModSorted.map(function(e) {
+          var pct2 = Math.round((e[1]/prodMaxMod)*100);
+          var cfg2 = (adModCfg||[]).find(function(x){return x.modifier.toLowerCase()===e[0].toLowerCase();});
+          var cat2 = cfg2 ? cfg2.kitchen_cat : '';
+          var catCols = {Contorni:'#059669',Proteine:'#dc2626',Upgrade:'#d97706',Extra:'#6366f1'};
+          var col2 = catCols[cat2]||'#6366f1';
+          return '<div onclick="staffOpenModifier(\''+e[0].replace(/'/g,"\\\'")+'\',\''+period.from+'\',\''+period.to+'\')" style="margin-bottom:8px;cursor:pointer;-webkit-tap-highlight-color:transparent;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">' +
+            '<span style="font-size:12px;font-weight:600;color:#1e293b;">'+e[0]+'</span>' +
+            '<span style="font-size:13px;font-weight:800;color:'+col2+';">'+e[1]+'<span style="font-size:10px;font-weight:500;color:#94a3b8;">x</span></span>' +
+            '</div>' +
+            '<div style="height:3px;background:#f1f5f9;border-radius:2px;overflow:hidden;">' +
+            '<div style="width:'+pct2+'%;height:100%;background:'+col2+';border-radius:2px;"></div>' +
+            '</div>' +
+            '</div>';
+        }).join('') +
+        '</div>';
+    }
+
+    // Set _staffData so drill-down modals work
+    window._staffData = { groupMap:prodGroupMap, period:period, modCfg:adModCfg||[] };
+
+    var prodViewHtml = '';
+    if (prodGroupsSorted.length > 0) {
+      prodViewHtml = '<div style="margin-bottom:8px;">' +
+        '<p style="font-size:10px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Production</p>' +
+        prodGroupsHtml +
+        prodModHtml +
+        '</div>';
+    }
+    // ── End Production View ─────────────────────────────────────────
+
     const topHtml = topItems.length>0 ?
       '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;margin-bottom:8px;">' +
       '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Top 10 per Revenue</p>' +
@@ -315,6 +417,7 @@ async function loadPOS() {
       '</div>' +
       (cmpHtml ? cmpHtml+'<div style="height:8px;"></div>' : '') +
       (trendHtml ? trendHtml+'<div style="height:8px;"></div>' : '') +
+      prodViewHtml +
       topHtml +
       catsHtml +
       daysHtml +
