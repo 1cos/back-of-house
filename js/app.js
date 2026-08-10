@@ -602,6 +602,18 @@ function hideAdminMenu(){
 window.showAdminMenu = showAdminMenu;
 window.hideAdminMenu = hideAdminMenu;
 
+function showJournal() {
+  // Deactivate all tabs visually
+  document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('tab-active'); x.classList.add('text-slate-500'); });
+  // Hide all sections
+  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr','vj'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.classList.add('hidden');
+  });
+  var vj=document.getElementById('vj');
+  if(vj){ vj.classList.remove('hidden'); loadJournal(); }
+}
+window.showJournal = showJournal;
+
 // ── TRADUZIONI TAB INGREDIENTS ──
 function applyIngredientsLang(){
   const lang = user?.lang || 'en';
@@ -630,6 +642,8 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   if (vx) { vx.classList.toggle('hidden', t!=='x'); if (t==='x') loadPOS(); }
   const vsched = document.getElementById('vsched');
   if (vsched) { vsched.classList.toggle('hidden', t!=='sched'); if (t==='sched') schedLoadData(); }
+  const vj = document.getElementById('vj');
+  if (vj) { vj.classList.toggle('hidden', t!=='j'); if (t==='j') loadJournal(); }
   if(t==='c') renderRecipes();
   if(t==='s'){ renderS(); if(typeof updateCloseTurnBtn==='function') updateCloseTurnBtn(); }
   if(t==='h') renderHomeStations();
@@ -643,7 +657,7 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
 // ── Vendor Documents page navigation ──
 window.showVdrSection = function() {
   // Hide all sections
-  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr'].forEach(function(id){
+  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr','vj'].forEach(function(id){
     var el = document.getElementById(id);
     if(el) el.classList.add('hidden');
   });
@@ -660,7 +674,7 @@ window.showVdrSection = function() {
 };
 
 window.showSection = function(id) {
-  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr'].forEach(function(sid){
+  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr','vj'].forEach(function(sid){
     var el = document.getElementById(sid);
     if(el) el.classList.add('hidden');
   });
