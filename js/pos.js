@@ -197,7 +197,7 @@ async function loadPOS() {
         '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">'+period.compareLabel+' \u00B7 '+compareDays.length+' date</p>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">' +
         '<div><p style="font-size:9px;color:#94a3b8;">Revenue avg</p><p style="font-size:14px;font-weight:700;color:#475569;">'+fmt(cRev)+'</p>'+arrowHtml(arrow(totalRevenue,cRev))+'</div>' +
-        '<div><p style="font-size:9px;color:#94a3b8;">Tavoli avg</p><p style="font-size:14px;font-weight:700;color:#475569;">'+Math.round(cCov)+'</p>'+arrowHtml(arrow(totalCovers,cCov))+'</div>' +
+        '<div><p style="font-size:9px;color:#94a3b8;">'+tr('posBillsAvg')+'</p><p style="font-size:14px;font-weight:700;color:#475569;">'+Math.round(cCov)+'</p>'+arrowHtml(arrow(totalCovers,cCov))+'</div>' +
         '<div><p style="font-size:9px;color:#94a3b8;">Check avg</p><p style="font-size:14px;font-weight:700;color:#475569;">'+fmtD(cChk)+'</p></div>' +
         '</div>' +
         '<p style="font-size:10px;color:#94a3b8;text-align:center;margin-top:8px;">Food cost avg: '+cFcP.toFixed(1)+'%</p>' +
@@ -303,7 +303,7 @@ async function loadPOS() {
     var prodModHtml = '';
     if (prodModSorted.length > 0) {
       prodModHtml = '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;margin-bottom:8px;">' +
-        '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">KITCHEN MODIFIERS</div>' +
+        '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">'+tr('kitchenModifiers').toUpperCase()+'</div>' +
         prodModSorted.map(function(e) {
           var pct2 = Math.round((e[1]/prodMaxMod)*100);
           var cfg2 = (adModCfg||[]).find(function(x){return x.modifier.toLowerCase()===e[0].toLowerCase();});
@@ -329,7 +329,7 @@ async function loadPOS() {
     var prodViewHtml = '';
     if (prodGroupsSorted.length > 0) {
       prodViewHtml = '<div style="margin-bottom:8px;">' +
-        '<p style="font-size:10px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Production</p>' +
+        '<p style="font-size:10px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">'+tr('posProduction')+'</p>' +
         prodGroupsHtml +
         prodModHtml +
         '</div>';
@@ -338,7 +338,7 @@ async function loadPOS() {
 
     const topHtml = topItems.length>0 ?
       '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;margin-bottom:8px;">' +
-      '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Top 10 per Revenue</p>' +
+      '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">'+tr('posTopRevenue')+'</p>' +
       '<div style="display:flex;flex-direction:column;gap:8px;">' +
       topItems.map(function(it,i) {
         const bw=topItems[0].rev>0?Math.round((it.rev/topItems[0].rev)*100):0;
@@ -359,7 +359,7 @@ async function loadPOS() {
 
     const catsHtml = cats.length>0 ?
       '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;margin-bottom:8px;">' +
-      '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Per categoria</p>' +
+      '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">'+tr('posByCategory')+'</p>' +
       '<div style="display:flex;flex-direction:column;gap:6px;">' +
       cats.map(function(entry) {
         const cat=entry[0]; const rev=entry[1];
@@ -377,13 +377,13 @@ async function loadPOS() {
 
     const daysHtml = d.length>0 ?
       '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px 16px;">' +
-      '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">Giornate</p>' +
+      '<p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:10px;">'+tr('posDaysList')+'</p>' +
       '<div>' +
       d.map(function(x) {
         return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f8fafc;">' +
           '<div>' +
           '<p style="font-size:12px;font-weight:500;color:#1e293b;">'+dayNameIT(x.sale_date)+' '+x.sale_date.slice(5)+'</p>' +
-          '<p style="font-size:10px;color:#94a3b8;">'+(x.bill_count||'\u2014')+' tav \u00B7 check '+(x.bill_count?fmtD((x.net_sales||0)/x.bill_count):'\u2014')+'</p>' +
+          '<p style="font-size:10px;color:#94a3b8;">'+(x.bill_count||'\u2014')+' bills \u00B7 check '+(x.bill_count?fmtD((x.net_sales||0)/x.bill_count):'\u2014')+'</p>' +
           '</div>' +
           '<p style="font-size:15px;font-weight:700;color:#059669;">'+fmt(x.net_sales||0)+'</p>' +
           '</div>';
@@ -395,22 +395,22 @@ async function loadPOS() {
       '<p style="font-size:11px;color:#64748b;font-weight:500;margin-bottom:12px;">' + period.label + '</p>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">' +
         '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">' +
-          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Revenue netto</p>' +
+          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">'+tr('posNetRevenue')+'</p>' +
           '<p style="font-size:22px;font-weight:700;color:#059669;">'+fmt(totalRevenue)+'</p>' +
-          (nDays>1?'<p style="font-size:10px;color:#94a3b8;">avg/gg '+fmt(totalRevenue/nDays)+'</p>':'') +
+          (nDays>1?'<p style="font-size:10px;color:#94a3b8;">'+tr('posAvgDay')+' '+fmt(totalRevenue/nDays)+'</p>':'') +
         '</div>' +
         '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">' +
-          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Bills</p>' +
+          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">'+tr('posBills')+'</p>' +
           '<p style="font-size:22px;font-weight:700;color:#1e293b;">'+totalCovers+'</p>' +
           '<p style="font-size:10px;color:#94a3b8;">check '+fmtD(avgCheck)+'</p>' +
         '</div>' +
         '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">' +
-          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Food cost</p>' +
+          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">'+tr('posFoodCost')+'</p>' +
           '<p style="font-size:22px;font-weight:700;color:'+(foodCostPct>35?'#dc2626':'#1e293b')+';">'+foodCostPct.toFixed(1)+'%</p>' +
           '<p style="font-size:10px;color:#94a3b8;">'+fmt(totalFoodCost)+'</p>' +
         '</div>' +
         '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:12px;">' +
-          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Sconti</p>' +
+          '<p style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">'+tr('posDiscounts')+'</p>' +
           '<p style="font-size:22px;font-weight:700;color:#d97706;">'+fmt(totalDisc)+'</p>' +
           '<p style="font-size:10px;color:#94a3b8;">'+(totalRevenue>0?((totalDisc/(totalRevenue+totalDisc))*100).toFixed(1)+'%':'\u2014')+' del lordo</p>' +
         '</div>' +
