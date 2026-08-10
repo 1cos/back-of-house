@@ -1048,7 +1048,7 @@ if('serviceWorker'in navigator){
 // Also detects stale cache: if the server sw.js version is newer than
 // what this page was built with, trigger a SW update check.
 (function(){
-  var PAGE_VERSION = 751;
+  var PAGE_VERSION = 752;
   fetch('sw.js?nocache=' + Date.now())
     .then(function(r){ return r.text(); })
     .then(function(t){

@@ -533,6 +533,7 @@ var _EXP_QUICK_ALLOWED_IDS = [3]; // Tela only (Kitchen Operation Coordinator)
 
 function _expQuickAllowed(){
   if(!window.user) return false;
+  if(window.user.is_admin || window.user.role === 'admin') return true;
   return _EXP_QUICK_ALLOWED_IDS.indexOf(window.user.id) >= 0;
 }
 
@@ -561,7 +562,8 @@ function _expQuickUpdateVisibility(){
   var el = document.getElementById('expQuickWidget');
   if(!el) return;
   if(!_expQuickAllowed()){ el.style.display = 'none'; return; }
-  el.style.display = _expQuickInWindow() ? 'block' : 'none';
+  var isAdm = window.user && (window.user.is_admin || window.user.role === 'admin');
+  el.style.display = (isAdm || _expQuickInWindow()) ? 'block' : 'none';
   // Populate dropdown if becoming visible and not yet populated
   if(el.style.display === 'block'){
     var sel = document.getElementById('expQVendor');
