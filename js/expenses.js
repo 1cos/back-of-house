@@ -12,6 +12,7 @@ let _expVendors = []; // from ingredient_vendors
 let _expFilterFrom = '';
 let _expFilterTo = '';
 let _expFilterVendor = '';
+let _expEditId = null; // UUID of expense being edited, null = add mode
 
 // ── HELPERS ──
 function _escH(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -55,6 +56,7 @@ window.openExpenses = async function(){
   _expFilterFrom = _monthStartCDT();
   _expFilterTo = _todayCDT();
   _expFilterVendor = '';
+  _expEditId = null;
 
   // load vendors in parallel with building UI
   const vendorP = _loadVendorNames();
@@ -76,9 +78,9 @@ window.openExpenses = async function(){
         <button onclick="document.getElementById('expensesSheet').remove()" style="font-size:22px;background:none;border:none;color:#94a3b8;padding:4px 8px;">✕</button>
       </div>
 
-      <!-- ADD FORM -->
-      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;padding:14px;margin-bottom:14px;">
-        <div style="font-size:13px;font-weight:600;color:#1e3a5f;margin-bottom:10px;">Add Expense</div>
+      <!-- ADD/EDIT FORM -->
+      <div id="expFormCard" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;padding:14px;margin-bottom:14px;">
+        <div style="font-size:13px;font-weight:600;color:#1e3a5f;margin-bottom:10px;" id="expFormTitle">Add Expense</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
           <div>
             <label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">Date</label>
@@ -98,7 +100,10 @@ window.openExpenses = async function(){
           <label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">Notes <span style="color:#94a3b8;">(optional)</span></label>
           <input type="text" id="expNotes" placeholder="Invoice #, description…" style="width:100%;padding:9px 8px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;background:white;color:#1e3a5f;">
         </div>
-        <button id="expSaveBtn" onclick="_expSave()" style="width:100%;padding:11px;background:#1e3a5f;color:white;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;">Add Expense</button>
+        <div id="expBtnRow" style="display:flex;gap:8px;">
+          <button id="expSaveBtn" onclick="_expSave()" style="flex:1;padding:11px;background:#1e3a5f;color:white;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;">Add Expense</button>
+          <button id="expCancelBtn" onclick="_expCancelEdit()" style="display:none;padding:11px 16px;background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;">Cancel</button>
+        </div>
         <div id="expSaveMsg" style="display:none;text-align:center;font-size:12px;margin-top:6px;padding:6px;border-radius:8px;"></div>
       </div>
 
@@ -178,7 +183,55 @@ window._expPickVendor = function(v){
   if(ac) ac.style.display = 'none';
 };
 
-// ── SAVE ──
+// ── EDIT MODE ──
+window._expEdit = function(id){
+  const row = _expRows.find(r => r.id === id);
+  if(!row) return;
+  _expEditId = id;
+
+  document.getElementById('expDate').value = row.expense_date || '';
+  document.getElementById('expAmount').value = Number(row.amount || 0);
+  document.getElementById('expVendor').value = row.vendor || '';
+  document.getElementById('expNotes').value = row.notes || '';
+
+  // Switch UI to edit mode
+  const title = document.getElementById('expFormTitle');
+  const btn = document.getElementById('expSaveBtn');
+  const cancelBtn = document.getElementById('expCancelBtn');
+  const card = document.getElementById('expFormCard');
+  if(title) title.textContent = '✏️ Editing Expense';
+  if(btn) btn.textContent = 'Save Changes';
+  if(cancelBtn) cancelBtn.style.display = 'block';
+  if(card) card.style.borderColor = 'rgba(245,158,11,0.4)';
+
+  // Scroll form into view
+  card.scrollIntoView({behavior:'smooth', block:'start'});
+};
+
+window._expCancelEdit = function(){
+  _expEditId = null;
+
+  // Reset form
+  document.getElementById('expDate').value = _todayCDT();
+  document.getElementById('expAmount').value = '';
+  document.getElementById('expVendor').value = '';
+  document.getElementById('expNotes').value = '';
+
+  // Restore add mode UI
+  const title = document.getElementById('expFormTitle');
+  const btn = document.getElementById('expSaveBtn');
+  const cancelBtn = document.getElementById('expCancelBtn');
+  const card = document.getElementById('expFormCard');
+  if(title) title.textContent = 'Add Expense';
+  if(btn){ btn.textContent = 'Add Expense'; btn.disabled = false; }
+  if(cancelBtn) cancelBtn.style.display = 'none';
+  if(card) card.style.borderColor = 'rgba(59,130,246,0.18)';
+
+  const msgEl = document.getElementById('expSaveMsg');
+  if(msgEl) msgEl.style.display = 'none';
+};
+
+// ── SAVE (insert or update) ──
 window._expSave = async function(){
   const dateEl = document.getElementById('expDate');
   const vendorEl = document.getElementById('expVendor');
@@ -201,26 +254,58 @@ window._expSave = async function(){
   btn.textContent = 'Saving…';
 
   try {
-    const{error} = await supa.from('expenses').insert({
-      expense_date: expDate,
-      vendor: vendor,
-      amount: amount,
-      notes: notes,
-      created_by: (window.user && window.user.name) || 'Admin'
-    });
-    if(error) throw error;
-
-    _expMsg(msgEl, '✓ Expense added', '#dcfce7', '#166534');
-    amountEl.value = '';
-    notesEl.value = '';
-    // keep date and vendor for rapid entry of multiple invoices from same vendor/date
+    if(_expEditId){
+      // ── UPDATE ──
+      const{error} = await supa.from('expenses')
+        .update({ expense_date: expDate, vendor: vendor, amount: amount, notes: notes })
+        .eq('id', _expEditId);
+      if(error) throw error;
+      _expMsg(msgEl, '✓ Expense updated', '#dcfce7', '#166534');
+      _expCancelEdit();
+    } else {
+      // ── INSERT ──
+      const{error} = await supa.from('expenses').insert({
+        expense_date: expDate,
+        vendor: vendor,
+        amount: amount,
+        notes: notes,
+        created_by: (window.user && window.user.name) || 'Admin'
+      });
+      if(error) throw error;
+      _expMsg(msgEl, '✓ Expense added', '#dcfce7', '#166534');
+      amountEl.value = '';
+      notesEl.value = '';
+    }
     await _expFetchAndRender();
   } catch(e){
     console.error('[expenses] save error', e);
     _expMsg(msgEl, '✕ Save failed: ' + (e.message||'unknown'), '#fee2e2', '#991b1b');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Add Expense';
+    if(_expEditId) btn.textContent = 'Save Changes';
+    else btn.textContent = 'Add Expense';
+  }
+};
+
+// ── DELETE ──
+window._expDelete = async function(id){
+  if(!id) return;
+  if(!confirm('Delete this expense? This cannot be undone.')) return;
+
+  try {
+    const{error} = await supa.from('expenses').delete().eq('id', id);
+    if(error) throw error;
+
+    // If we were editing this row, exit edit mode
+    if(_expEditId === id) _expCancelEdit();
+
+    const msgEl = document.getElementById('expSaveMsg');
+    _expMsg(msgEl, '✓ Expense deleted', '#dcfce7', '#166534');
+    await _expFetchAndRender();
+  } catch(e){
+    console.error('[expenses] delete error', e);
+    const msgEl = document.getElementById('expSaveMsg');
+    _expMsg(msgEl, '✕ Delete failed: ' + (e.message||'unknown'), '#fee2e2', '#991b1b');
   }
 };
 
@@ -263,7 +348,9 @@ function _expRenderList(){
   el.innerHTML = _expRows.map(r => {
     const dateStr = _fmtDateShort(r.expense_date);
     const notesHtml = r.notes ? `<div style="font-size:12px;color:#64748b;margin-top:3px;line-height:1.3;">${_escH(r.notes)}</div>` : '';
-    return `<div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:0.5px solid rgba(59,130,246,0.12);border-radius:12px;padding:10px 12px;">
+    const isEditing = _expEditId === r.id;
+    const editHighlight = isEditing ? 'border-color:rgba(245,158,11,0.5);' : '';
+    return `<div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:0.5px solid rgba(59,130,246,0.12);border-radius:12px;padding:10px 12px;${editHighlight}">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
         <div style="flex:1;min-width:0;">
           <div style="display:flex;align-items:center;gap:6px;">
@@ -274,6 +361,10 @@ function _expRenderList(){
           <div style="font-size:10px;color:#94a3b8;margin-top:2px;">${_escH(r.created_by||'')}</div>
         </div>
         <div style="font-size:15px;font-weight:700;color:#1e3a5f;white-space:nowrap;">${_fmtUSD(r.amount)}</div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px;padding-top:5px;border-top:1px solid rgba(59,130,246,0.06);">
+        <button onclick="_expEdit('${r.id}')" style="padding:4px 10px;font-size:11px;color:#64748b;background:rgba(241,245,249,0.8);border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-family:inherit;">Edit</button>
+        <button onclick="_expDelete('${r.id}')" style="padding:4px 10px;font-size:11px;color:#dc2626;background:rgba(254,226,226,0.5);border:1px solid rgba(220,38,38,0.15);border-radius:8px;cursor:pointer;font-family:inherit;">Delete</button>
       </div>
     </div>`;
   }).join('');
