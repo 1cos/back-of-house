@@ -466,10 +466,10 @@ var DA_CATEGORIES = {
     { id:'p23', label:'Trend Lobster Fettuccine — quantità a settimana', query:'trend_dish', filter:{name:'Lobster Fettuc'} },
     { id:'p24', label:'Paste vendute to go', query:'modifier_total', filter:{modifiers:['To go','TO GO','Togo','to go']} },
     { id:'p25', label:'Burrata come upgrade — su quali paste?', query:'modifier_by_parent', filter:{modifier:'Burrata',groups:['Pasta']} },
-    { id:'p26', label:'Quante porzioni Spaghetti vendute? (×2 = nest)', query:'dish_total', filter:{name:'Spaghetti'} },
-    { id:'p27', label:'Quante porzioni Fettuccine vendute? (×2 = nest)', query:'dish_total', filter:{name:'Fettuccine'} },
-    { id:'p28', label:'Quante porzioni Gnocchi vendute?', query:'dish_total', filter:{name:'Gnocchi'} },
-    { id:'p29', label:'Quante porzioni Maccheroni vendute?', query:'dish_total', filter:{name:'Maccheroni'} }
+    { id:'p26', label:'Spaghetti — nest totali (piatti + add-on + kids + mezze)', query:'pasta_type_production', filter:{name:'Spaghetti',nestPer:2} },
+    { id:'p27', label:'Fettuccine — nest totali (piatti + add-on + kids + mezze)', query:'pasta_type_production', filter:{name:'Fettuccine',nestPer:2} },
+    { id:'p28', label:'Gnocchi — porzioni totali (piatti + add-on + kids)', query:'pasta_type_production', filter:{name:'Gnocchi',nestPer:0} },
+    { id:'p29', label:'Maccheroni — porzioni totali (piatti + add-on + kids)', query:'pasta_type_production', filter:{name:'Maccheroni',nestPer:0} }
   ],
   'Secondi': [
     { id:'s01', label:'Secondo più venduto nel periodo', query:'top_item', filter:{cat:'Food',groups:['Secondi/entrees','Secondi']} },
@@ -904,6 +904,73 @@ async function daExecuteQuery(sb, q, from, to) {
     var rows = sorted.map(function(e){ return rowItem(e[0], e[1]+'x'); }).join('');
     if (!rows) rows = '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:16px;">'+tr('posNoDataPeriod')+'</div>';
     return resultBlock(q.label, '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;"><span style="font-size:28px;font-weight:800;color:#6366f1;">'+total+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">porzioni totali</span></div>'+rows);
+  }
+
+  // ── QUERY: pasta_type_production ────────────────────────────────────
+  // Combines pos_sales_by_item (full + kids + half) + pos_modifiers (add-on, sub, half)
+  if (qtype === 'pasta_type_production') {
+    var pName = f.name || '';
+    var nestPer = f.nestPer || 0; // 2 for spaghetti/fettuccine, 0 for gnocchi (no nest calc)
+    // Dishes from POS
+    var r1 = await sb.from('pos_sales_by_item').select('menu_item,menu_group,quantity').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).ilike('menu_item','%'+pName+'%');
+    // Modifiers from POS
+    var r2 = await sb.from('pos_modifiers').select('modifier,quantity_sold').gte('sale_date',from).lte('sale_date',to).eq('is_historical',false).ilike('modifier','%'+pName+'%');
+
+    var fullQty = 0, kidsQty = 0, halfDishQty = 0;
+    var dishRows = {};
+    (r1.data||[]).forEach(function(x){
+      var q2 = Number(x.quantity)||0;
+      var low = (x.menu_item||'').toLowerCase();
+      var isKids = (x.menu_group||'').toLowerCase().indexOf('kids') >= 0;
+      var isHalf = low.indexOf('half') >= 0;
+      var label2 = x.menu_item + (isKids ? ' (Kids)' : '') + (isHalf ? ' (½)' : '');
+      dishRows[label2] = (dishRows[label2]||0) + q2;
+      if (isHalf) halfDishQty += q2;
+      else if (isKids) kidsQty += q2;
+      else fullQty += q2;
+    });
+
+    var modQty = 0;
+    var modRows = {};
+    (r2.data||[]).forEach(function(x){
+      var q2 = Number(x.quantity_sold)||0;
+      var mod = x.modifier||'';
+      var low = mod.toLowerCase();
+      // Skip negatives like "No spaghetti" or "Extra sauce on spaghetti"
+      if (low.indexOf('no ') === 0 || low.indexOf('extra sauce') >= 0) return;
+      modRows[mod] = (modRows[mod]||0) + q2;
+      modQty += q2;
+    });
+
+    var totalPortions = fullQty + kidsQty + halfDishQty + modQty;
+    var detailHtml = '';
+    // Dish breakdown
+    Object.entries(dishRows).sort(function(a,b){return b[1]-a[1];}).forEach(function(e){
+      detailHtml += rowItem(e[0], e[1]+'x');
+    });
+    // Modifier breakdown
+    if (modQty > 0) {
+      detailHtml += '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:12px 0 6px;">MODIFIER / ADD-ON</div>';
+      Object.entries(modRows).sort(function(a,b){return b[1]-a[1];}).forEach(function(e){
+        detailHtml += rowItem(e[0], e[1]+'x');
+      });
+    }
+    if (!detailHtml) detailHtml = '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:16px;">'+tr('posNoDataPeriod')+'</div>';
+
+    // Summary
+    var summaryHtml = '<div style="background:#f0f4ff;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;">';
+    if (nestPer > 0) {
+      // Nest calculation: full=2 nests, kids=1 nest (half portion), half dish=1 nest, modifier=1 nest
+      var totalNests = (fullQty * nestPer) + (kidsQty * 1) + (halfDishQty * 1) + (modQty * 1);
+      summaryHtml += '<span style="font-size:28px;font-weight:800;color:#6366f1;">'+totalNests+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">nest totali</span>';
+      summaryHtml += '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">'+fullQty+' full (×'+nestPer+') + '+kidsQty+' kids (×1) + '+halfDishQty+' half dish (×1) + '+modQty+' modifier (×1)</div>';
+    } else {
+      summaryHtml += '<span style="font-size:28px;font-weight:800;color:#6366f1;">'+totalPortions+'</span><span style="font-size:12px;color:#6366f1;margin-left:6px;">porzioni totali</span>';
+      summaryHtml += '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">'+fullQty+' full + '+kidsQty+' kids + '+halfDishQty+' half + '+modQty+' modifier</div>';
+    }
+    summaryHtml += '</div>';
+
+    return resultBlock(q.label, summaryHtml + detailHtml);
   }
 
   // ── QUERY: cacio_pepe_total ─────────────────────────────────────────
