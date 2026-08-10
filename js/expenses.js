@@ -529,11 +529,10 @@ function _csvEsc(s){
 // Compact expense entry widget on Home, visible 08:00–14:00 CDT.
 // Authorized users: admin + Tela (id=3, Kitchen Operation Coordinator).
 
-var _EXP_QUICK_ALLOWED_IDS = [1, 3]; // Max, Tela
+var _EXP_QUICK_ALLOWED_IDS = [3]; // Tela only (Kitchen Operation Coordinator)
 
 function _expQuickAllowed(){
   if(!window.user) return false;
-  if(window.user.is_admin || window.user.role === 'admin') return true;
   return _EXP_QUICK_ALLOWED_IDS.indexOf(window.user.id) >= 0;
 }
 
