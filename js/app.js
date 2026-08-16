@@ -361,6 +361,7 @@ function doLogin(profile){
   });
   init(); applyLang(); updateAlertBtn(); setupPush();
   if(typeof initExpenseQuickEntry === 'function') initExpenseQuickEntry();
+  if(typeof initPurchaseOrderEntry === 'function') initPurchaseOrderEntry();
   loadNews(); initNews();
   loadBriefing(); startPresence(); startUrgencyCheck(); if(typeof startUsersRealtime==='function') startUsersRealtime();
   setTimeout(()=>startChatRealtime(), 500);
@@ -606,7 +607,7 @@ function showJournal() {
   // Deactivate all tabs visually
   document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('tab-active'); x.classList.add('text-slate-500'); });
   // Hide all sections
-  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr','vj'].forEach(function(id){
+  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr','vj','vpo'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.classList.add('hidden');
   });
   var vj=document.getElementById('vj');
@@ -657,7 +658,7 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
 // ── Vendor Documents page navigation ──
 window.showVdrSection = function() {
   // Hide all sections
-  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr','vj'].forEach(function(id){
+  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr','vj','vpo'].forEach(function(id){
     var el = document.getElementById(id);
     if(el) el.classList.add('hidden');
   });
@@ -674,7 +675,7 @@ window.showVdrSection = function() {
 };
 
 window.showSection = function(id) {
-  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr','vj'].forEach(function(sid){
+  ['vh','vm','vs','vc','vr','vp','vi','vx','vsched','vkal','vvdr','vj','vpo'].forEach(function(sid){
     var el = document.getElementById(sid);
     if(el) el.classList.add('hidden');
   });
