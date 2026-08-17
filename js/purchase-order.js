@@ -1,3 +1,7 @@
+// Testability: in a real browser `window` always exists, so this is a no-op there.
+// It only kicks in when this file is require()'d from plain Node (see tests/).
+if (typeof window === 'undefined') { global.window = global; }
+
 // ══════════════════════════════════════════════════════════════
 // PURCHASE ORDER — Compila Ordine (Draft v1)
 // Dictate/type a shopping list, match against existing vendor catalog,
@@ -17,6 +21,7 @@ var PO_KNOWN_UNITS = ['case','cases','lb','lbs','kg','g','oz','box','boxes','bun
 var _poAliasCatalog = [];
 var _poIngVendorCatalog = [];
 var _poLinkCatalog = [];
+var _poPurchaseFreq = {}; // ingredient_id -> times seen in invoice_lines (vendor history signal)
 var _poCatalogLoaded = false;
 var _poCatalogLoading = null;
 
@@ -60,49 +65,137 @@ async function poLoadCatalog(){
   if(_poCatalogLoading) return _poCatalogLoading;
   _poCatalogLoading = (async function(){
     var sb = window.supabaseClient;
-    var [alias, iv, links] = await Promise.all([
+    var [alias, iv, links, invLines] = await Promise.all([
       sb.from('vendor_item_aliases').select('id,vendor_sku,vendor_description,ingredient_id')
         .eq('vendor', PO_VENDOR).eq('active', true),
       sb.from('ingredient_vendors').select('id,vendor_sku,ingredient_id,ingredients(name)')
         .eq('vendor', PO_VENDOR).eq('active', true).eq('do_not_order', false),
       sb.from('ingredient_links').select('id,invoice_description,ingredient_name,ingredient_id,confidence')
-        .eq('vendor', PO_VENDOR)
+        .eq('vendor', PO_VENDOR),
+      sb.from('invoice_lines').select('ingredient_id').eq('vendor', PO_VENDOR).not('ingredient_id', 'is', null)
     ]);
     _poAliasCatalog = alias.data || [];
     _poIngVendorCatalog = (iv.data || []).map(function(r){
       return { id:r.id, vendor_sku:r.vendor_sku, ingredient_id:r.ingredient_id, name: r.ingredients ? r.ingredients.name : null };
     });
     _poLinkCatalog = links.data || [];
+    _poPurchaseFreq = {};
+    (invLines.data || []).forEach(function(r){
+      if(!r.ingredient_id) return;
+      _poPurchaseFreq[r.ingredient_id] = (_poPurchaseFreq[r.ingredient_id] || 0) + 1;
+    });
     _poCatalogLoaded = true;
   })();
   return _poCatalogLoading;
 }
 
-// ── TEXT NORMALIZATION / MATCHING (simple, no NLP) ───────────────
+// ── TEXT NORMALIZATION / MATCHING ─────────────────────────────────
+// Deterministic, no LLM per line: normalize -> stem tokens -> token
+// containment + Levenshtein fuzz for typos -> vendor-history tiebreak.
+// Confidence has three tiers (see poMatchItem): HIGH (auto-select),
+// MEDIUM (auto-select but flagged "da verificare"), LOW/ambiguous
+// (no auto-selection, 2-5 candidates shown), or no candidate at all.
+
+var PO_HIGH_THRESHOLD = 0.82;
+var PO_MEDIUM_THRESHOLD = 0.55;
+var PO_CANDIDATE_FLOOR = 0.30;
+var PO_AMBIGUITY_GAP = 0.08; // if #1 and #2 are this close, treat as ambiguous regardless of raw score
+
+var PO_ABBREVIATIONS = { 'lg':'large', 'sm':'small', 'med':'medium', 'org':'organic', 'ea':'each', 'pkg':'package' };
+
 function poNormalize(s){
   return (s || '').toLowerCase().replace(/['’]/g,'').replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
 }
 
-function poScore(a, b){
-  if(!a || !b) return 0;
-  if(a === b) return 1;
-  if(b.indexOf(a) >= 0 || a.indexOf(b) >= 0){
-    var shorter = Math.min(a.length, b.length), longer = Math.max(a.length, b.length);
-    return 0.6 + 0.3 * (shorter / longer);
-  }
-  var at = a.split(' '), bt = b.split(' ');
-  var common = at.filter(function(w){ return w.length > 2 && bt.indexOf(w) >= 0; });
-  if(common.length === 0) return 0;
-  return 0.25 + 0.25 * (common.length / Math.max(at.length, bt.length));
+// Very light singularizer — collapses simple plurals so "brussels"/"brussel"
+// and "sprouts"/"sprout" land on the same stem without a dictionary.
+function poStem(w){
+  if(w.length > 4 && /ies$/.test(w)) return w.slice(0, -3) + 'y';
+  if(w.length > 4 && /(ch|sh|x|z|s)es$/.test(w)) return w.slice(0, -2);
+  if(w.length > 3 && /s$/.test(w) && !/ss$/.test(w)) return w.slice(0, -1);
+  return w;
 }
 
-function poBestInCatalog(qNorm, catalog, field){
-  var best = null, bestScore = 0;
-  catalog.forEach(function(item){
-    var s = poScore(qNorm, poNormalize(item[field]));
-    if(s > bestScore){ bestScore = s; best = item; }
+function poTokens(s){
+  return poNormalize(s).split(' ').filter(Boolean).map(function(w){
+    return poStem(PO_ABBREVIATIONS[w] || w);
   });
-  return best ? { item: best, score: bestScore } : null;
+}
+
+function poLevenshtein(a, b){
+  if(a === b) return 0;
+  var m = a.length, n = b.length;
+  if(m === 0) return n;
+  if(n === 0) return m;
+  var prev = new Array(n + 1), cur = new Array(n + 1);
+  for(var j = 0; j <= n; j++) prev[j] = j;
+  for(var i = 1; i <= m; i++){
+    cur[0] = i;
+    for(var jj = 1; jj <= n; jj++){
+      var cost = a[i-1] === b[jj-1] ? 0 : 1;
+      cur[jj] = Math.min(prev[jj] + 1, cur[jj-1] + 1, prev[jj-1] + cost);
+    }
+    var tmp = prev; prev = cur; cur = tmp;
+  }
+  return prev[n];
+}
+
+// Similarity between two already-stemmed tokens: 1.0 if identical,
+// else Levenshtein-based ratio (typo tolerance), floored so unrelated
+// short words don't accidentally score as "similar".
+function poTokenSim(a, b){
+  if(a === b) return 1;
+  if(a.length < 3 || b.length < 3) return 0; // too short to fuzz reliably
+  var dist = poLevenshtein(a, b);
+  var sim = 1 - dist / Math.max(a.length, b.length);
+  return sim >= 0.65 ? sim : 0;
+}
+
+// How well does `query`'s tokens get covered by `candidate`'s tokens, and
+// vice versa. Returns {queryCoverage, candidateCoverage}, each 0..1.
+function poCoverage(queryTokens, candTokens){
+  if(queryTokens.length === 0 || candTokens.length === 0) return { queryCoverage: 0, candidateCoverage: 0 };
+  var usedCand = new Array(candTokens.length).fill(false);
+  var qMatchSum = 0;
+  queryTokens.forEach(function(qt){
+    var best = 0, bestIdx = -1;
+    candTokens.forEach(function(ct, ci){
+      if(usedCand[ci]) return;
+      var s = poTokenSim(qt, ct);
+      if(s > best){ best = s; bestIdx = ci; }
+    });
+    if(bestIdx >= 0) usedCand[bestIdx] = true;
+    qMatchSum += best;
+  });
+  var candMatchSum = 0;
+  var usedQ = new Array(queryTokens.length).fill(false);
+  candTokens.forEach(function(ct){
+    var best = 0, bestIdx = -1;
+    queryTokens.forEach(function(qt, qi){
+      if(usedQ[qi]) return;
+      var s = poTokenSim(ct, qt);
+      if(s > best){ best = s; bestIdx = qi; }
+    });
+    if(bestIdx >= 0) usedQ[bestIdx] = true;
+    candMatchSum += best;
+  });
+  return {
+    queryCoverage: qMatchSum / queryTokens.length,
+    candidateCoverage: candMatchSum / candTokens.length
+  };
+}
+
+function poScore(queryText, candidateText){
+  var qNorm = poNormalize(queryText), cNorm = poNormalize(candidateText);
+  if(!qNorm || !cNorm) return 0;
+  if(qNorm === cNorm) return 1;
+  var qTok = poTokens(queryText), cTok = poTokens(candidateText);
+  if(qTok.join(' ') === cTok.join(' ')) return 1; // exact after stemming (e.g. singular/plural)
+  var cov = poCoverage(qTok, cTok);
+  // Weighted toward how much of the (usually short, dictated) query is explained
+  // by the candidate, with a smaller contribution from how much of the candidate
+  // name is "used up" — keeps very generic short queries from over-matching long names.
+  return 0.7 * cov.queryCoverage + 0.3 * cov.candidateCoverage;
 }
 
 // Fallback: once we know an ingredient_id via ingredient_links, see if the
@@ -113,51 +206,106 @@ function poSkuForIngredient(ingredientId){
   return hit ? hit.vendor_sku : null;
 }
 
+// Source priors reflect trust order from the spec: confirmed aliases first,
+// then the vendor's own catalog, then the fuzzy invoice-derived links table.
+var PO_SOURCE_PRIOR = { vendor_item_aliases: 0.05, ingredient_vendors: 0.02, ingredient_links: 0 };
+
+function poPurchaseBoost(ingredientId){
+  var n = _poPurchaseFreq[ingredientId] || 0;
+  if(n === 0) return 0;
+  return Math.min(0.05, 0.012 * Math.log2(1 + n)); // small, bounded — tiebreaker, not a trump card
+}
+
+// Whatever source scored the match, always DISPLAY the canonical product
+// name/SKU when the ingredient exists in the vendor's real catalog — an
+// alias or a fuzzy invoice-link is a signal that we found the right
+// ingredient_id, not necessarily good display text on its own.
+function poCanonicalDisplay(ingredientId, fallbackName, fallbackSku){
+  var ivHit = _poIngVendorCatalog.find(function(r){ return r.ingredient_id === ingredientId; });
+  if(ivHit) return { name: ivHit.name || fallbackName, sku: ivHit.vendor_sku || fallbackSku };
+  var lkHit = _poLinkCatalog.find(function(r){ return r.ingredient_id === ingredientId; });
+  if(lkHit) return { name: lkHit.ingredient_name || fallbackName, sku: fallbackSku };
+  return { name: fallbackName, sku: fallbackSku };
+}
+
+function poBuildCandidate(item, source, itemText){
+  var name = source === 'vendor_item_aliases' ? item.vendor_description
+           : source === 'ingredient_vendors' ? item.name
+           : item.ingredient_name;
+  var rawScore = poScore(itemText, name);
+  if(rawScore === 0) return null;
+  var score = rawScore + PO_SOURCE_PRIOR[source] + poPurchaseBoost(item.ingredient_id);
+  score = Math.min(1, score);
+  var sku = item.vendor_sku || poSkuForIngredient(item.ingredient_id);
+  var disp = poCanonicalDisplay(item.ingredient_id, name, sku);
+  return {
+    ingredient_id: item.ingredient_id,
+    matched_name: disp.name,
+    vendor_sku: disp.sku || null,
+    confidence: Math.round(score * 100) / 100,
+    source: source
+  };
+}
+
 function poMatchItem(itemText){
-  var q = poNormalize(itemText);
-  var aBest = poBestInCatalog(q, _poAliasCatalog, 'vendor_description');
-  var ivBest = poBestInCatalog(q, _poIngVendorCatalog, 'name');
-  var lkBest = poBestInCatalog(q, _poLinkCatalog, 'ingredient_name');
+  if(!itemText || !itemText.trim()) return { matched: false, needsReview: true, candidates: [] };
 
-  function build(match, source){
-    var item = match.item;
-    var name = source === 'vendor_item_aliases' ? item.vendor_description
-             : source === 'ingredient_vendors' ? item.name
-             : item.ingredient_name;
-    var sku = item.vendor_sku || poSkuForIngredient(item.ingredient_id);
-    return {
-      matched: true,
-      needsReview: false,
-      ingredient_id: item.ingredient_id,
-      matched_name: name,
-      vendor_sku: sku || null,
-      confidence: Math.round(match.score * 100) / 100,
-      source: source
-    };
-  }
+  var pool = [];
+  _poAliasCatalog.forEach(function(item){
+    var c = poBuildCandidate(item, 'vendor_item_aliases', itemText);
+    if(c) pool.push(c);
+  });
+  _poIngVendorCatalog.forEach(function(item){
+    var c = poBuildCandidate(item, 'ingredient_vendors', itemText);
+    if(c) pool.push(c);
+  });
+  _poLinkCatalog.forEach(function(item){
+    var c = poBuildCandidate(item, 'ingredient_links', itemText);
+    if(c) pool.push(c);
+  });
 
-  // Tier 1: confirmed vendor aliases — trust a strong hit outright
-  if(aBest && aBest.score >= 0.85) return build(aBest, 'vendor_item_aliases');
-  // Tier 2: known vendor catalog
-  if(ivBest && ivBest.score >= 0.85) return build(ivBest, 'ingredient_vendors');
-
-  // Nothing confidently above threshold — gather every plausible candidate
-  // across all three tiers and let the human decide. Never silently pick.
-  var candidates = [];
-  if(aBest && aBest.score >= 0.3) candidates.push({ match: aBest, source: 'vendor_item_aliases' });
-  if(ivBest && ivBest.score >= 0.3) candidates.push({ match: ivBest, source: 'ingredient_vendors' });
-  if(lkBest && lkBest.score >= 0.3) candidates.push({ match: lkBest, source: 'ingredient_links' });
-  candidates.sort(function(x, y){ return y.match.score - x.match.score; });
+  // Dedupe by ingredient_id, keeping the best-scoring source for each product
+  // (an item can legitimately appear in more than one of the three tables).
+  var byIngredient = {};
+  pool.forEach(function(c){
+    var key = c.ingredient_id || ('noid:' + c.matched_name);
+    if(!byIngredient[key] || c.confidence > byIngredient[key].confidence) byIngredient[key] = c;
+  });
+  var candidates = Object.keys(byIngredient).map(function(k){ return byIngredient[k]; })
+    .filter(function(c){ return c.confidence >= PO_CANDIDATE_FLOOR; })
+    .sort(function(a, b){ return b.confidence - a.confidence; });
 
   if(candidates.length === 0) return { matched: false, needsReview: true, candidates: [] };
 
   var top = candidates[0];
-  var clearWinner = candidates.length === 1 || (top.match.score - candidates[1].match.score) > 0.15;
-  if(top.match.score >= 0.85 && clearWinner) return build(top.match, top.source);
+  var second = candidates[1];
+  var tooClose = second && (top.confidence - second.confidence) < PO_AMBIGUITY_GAP && second.confidence >= PO_MEDIUM_THRESHOLD;
 
-  // Ambiguous or low confidence — flag for manual review, keep candidates for the picker
-  var built = candidates.slice(0, 3).map(function(c){ return build(c.match, c.source); });
-  return { matched: false, needsReview: true, candidates: built };
+  // Explicit vendor-history tiebreak: when the top two are effectively tied
+  // on text alone, the one actually purchased before wins outright rather
+  // than falling into "ambiguous" — a real, previously-bought product should
+  // beat a theoretical lookalike that's never been ordered.
+  if(tooClose){
+    var topFreq = _poPurchaseFreq[top.ingredient_id] || 0;
+    var secondFreq = _poPurchaseFreq[second.ingredient_id] || 0;
+    if(topFreq !== secondFreq){
+      if(secondFreq > topFreq){ var swap = top; top = second; second = swap; }
+      tooClose = false;
+    }
+  }
+
+  if(top.confidence >= PO_HIGH_THRESHOLD && !tooClose){
+    return { matched: true, needsReview: false, ingredient_id: top.ingredient_id,
+      matched_name: top.matched_name, vendor_sku: top.vendor_sku, confidence: top.confidence,
+      source: top.source, candidates: candidates.slice(0, 5) };
+  }
+  if(top.confidence >= PO_MEDIUM_THRESHOLD && !tooClose){
+    return { matched: true, needsReview: true, ingredient_id: top.ingredient_id,
+      matched_name: top.matched_name, vendor_sku: top.vendor_sku, confidence: top.confidence,
+      source: top.source, candidates: candidates.slice(0, 5) };
+  }
+  // Low confidence or ambiguous (close race) — no auto-selection, human picks
+  return { matched: false, needsReview: true, candidates: candidates.slice(0, 5) };
 }
 
 // ── LINE PARSING (trailing "<item> <qty> [<unit>]", no invented data) ──
@@ -200,7 +348,7 @@ window.poParseAndMatch = async function(){
       vendor_sku: m.matched ? m.vendor_sku : null,
       match_confidence: m.matched ? m.confidence : null,
       match_source: m.matched ? m.source : 'manual',
-      needs_review: !m.matched,
+      needs_review: !!m.needsReview,
       candidates: m.candidates || []
     };
   });
@@ -223,6 +371,7 @@ window.poLineSetProduct = function(i, encoded){
   if(encoded === '__manual__'){
     line.ingredient_id = null; line.matched_name = null; line.vendor_sku = null;
     line.match_confidence = null; line.match_source = 'manual'; line.needs_review = false;
+    line._userCorrected = false; // "no product" isn't something to learn as an alias
     poRenderPage();
     return;
   }
@@ -234,6 +383,7 @@ window.poLineSetProduct = function(i, encoded){
   line.match_confidence = cand.confidence;
   line.match_source = cand.source;
   line.needs_review = false;
+  line._userCorrected = true; // a human deliberately picked this product — candidate for a learned alias on save
   poRenderPage();
 };
 
@@ -254,6 +404,49 @@ window.poLineAddManual = function(){
     if(inputs.length) inputs[inputs.length - 1].focus();
   }, 30);
 };
+
+// ── LEARNING: a deliberate manual correction becomes a persistent alias ──
+// Only fires for lines where the user actually picked a product from the
+// dropdown (line._userCorrected) — never for untouched auto-matches, and
+// never for "Nessun prodotto (manuale)". Skips anything already known.
+async function poLearnAliasesFromCorrections(){
+  var toLearn = _poDraftLines.filter(function(l){
+    return l._userCorrected && l.ingredient_id && l.requested_text;
+  });
+  if(toLearn.length === 0) return;
+
+  var sb = window.supabaseClient;
+  var seen = {}; // avoid inserting the same requested_text twice within one save
+  for(var i = 0; i < toLearn.length; i++){
+    var l = toLearn[i];
+    var normText = poNormalize(l.requested_text);
+    if(seen[normText]) continue;
+    seen[normText] = true;
+
+    var already = _poAliasCatalog.some(function(a){ return poNormalize(a.vendor_description) === normText; });
+    if(already) continue;
+
+    try{
+      var ins = await sb.from('vendor_item_aliases').insert({
+        vendor: PO_VENDOR,
+        vendor_sku: l.vendor_sku || null,
+        vendor_description: l.requested_text,
+        ingredient_id: l.ingredient_id,
+        confirmed_by: (window.user && window.user.name) || 'Unknown',
+        notes: 'Auto-creato da correzione manuale in Compila Ordine'
+      });
+      if(!ins.error){
+        // keep in-memory catalog in sync so a second correction in the same
+        // session doesn't try to insert the same alias again
+        _poAliasCatalog.push({ vendor_sku: l.vendor_sku, vendor_description: l.requested_text, ingredient_id: l.ingredient_id });
+      } else {
+        console.error('[purchase-order] alias learn failed for', l.requested_text, ins.error);
+      }
+    }catch(e){
+      console.error('[purchase-order] alias learn error', e);
+    }
+  }
+}
 
 // ── SAVE DRAFT ─────────────────────────────────────────────────────
 window.poSaveDraft = async function(){
@@ -294,6 +487,8 @@ window.poSaveDraft = async function(){
     });
     var insLines = await sb.from('purchase_order_lines').insert(rows);
     if(insLines.error) throw insLines.error;
+
+    await poLearnAliasesFromCorrections();
 
     poToast('Bozza salvata ✓');
     _poView = 'list';
@@ -493,4 +688,24 @@ function poRenderReview(){
   html += '<button onclick="poLineAddManual()" style="width:100%;padding:10px;border:1px dashed #cbd5e1;border-radius:10px;background:none;color:#64748b;font-size:13px;cursor:pointer;margin-bottom:16px;">+ Aggiungi riga</button>';
   html += '<button id="poSaveBtn" onclick="poSaveDraft()" style="width:100%;height:46px;border-radius:12px;background:#1e3a5f;color:white;border:none;font-size:14px;font-weight:700;cursor:pointer;">Salva bozza</button>';
   return html;
+}
+
+// ── TEST-ONLY EXPORTS ────────────────────────────────────────────
+// No-op in the browser (no `module` there). Lets tests/ require this
+// file directly and exercise the real matching code — not a copy of it.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    poMatchItem: poMatchItem,
+    poNormalize: poNormalize,
+    poStem: poStem,
+    poTokens: poTokens,
+    poScore: poScore,
+    poParseLine: poParseLine,
+    poSetCatalogsForTest: function(alias, ingVendor, links, purchaseFreq){
+      _poAliasCatalog = alias || [];
+      _poIngVendorCatalog = ingVendor || [];
+      _poLinkCatalog = links || [];
+      _poPurchaseFreq = purchaseFreq || {};
+    }
+  };
 }
