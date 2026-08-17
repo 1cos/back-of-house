@@ -1,3 +1,6 @@
+// Testability: no-op in a real browser. Lets tests/ require() this file directly.
+if (typeof window === 'undefined') { global.window = global; }
+
 // ── JOURNAL — Clean & Trust ────────────────────────────────────────
 // Connected to public.journal_entries. Admin-only.
 // Design: feed-first, composer collapsed, filters in panel.
@@ -341,8 +344,70 @@ async function jRestore(id){
   loadJournal();
 }
 
+// ── T1: Entry lifecycle + updates — plumbing only, no UI here yet ───
+// journal_updates is a chronological, append-only child log: the original
+// entry (title/body) is never overwritten by an update.
+var J_STATUSES = ['OPEN','IN_PROGRESS','WAITING','RESOLVED','CLOSED'];
+
+async function jGetEntry(id){
+  var sb = window.supabaseClient;
+  var { data, error } = await sb.from('journal_entries').select('*').eq('id', id).single();
+  if(error){ console.error('[journal] jGetEntry', error); return null; }
+  return data;
+}
+
+async function jGetUpdates(entryId){
+  var sb = window.supabaseClient;
+  var { data, error } = await sb.from('journal_updates').select('*')
+    .eq('journal_entry_id', entryId).order('created_at', { ascending: true });
+  if(error){ console.error('[journal] jGetUpdates', error); return []; }
+  return data || [];
+}
+
+async function jGetEntryWithUpdates(id){
+  var entry = await jGetEntry(id);
+  if(!entry) return null;
+  var updates = await jGetUpdates(id);
+  return { entry: entry, updates: updates };
+}
+
+async function jAddUpdate(entryId, body){
+  body = (body || '').trim();
+  if(!body) return { error: 'empty body' };
+  var sb = window.supabaseClient;
+  var { data, error } = await sb.from('journal_updates').insert({
+    journal_entry_id: entryId,
+    author: (window.user && window.user.name) || 'Unknown',
+    body: body
+  }).select('*').single();
+  if(error){ console.error('[journal] jAddUpdate', error); return { error: error }; }
+  return { data: data };
+}
+
+async function jSetStatus(id, status){
+  if(J_STATUSES.indexOf(status) < 0) return { error: 'invalid status: ' + status };
+  var sb = window.supabaseClient;
+  var { data, error } = await sb.from('journal_entries').update({ status: status }).eq('id', id).select('*').single();
+  if(error){ console.error('[journal] jSetStatus', error); return { error: error }; }
+  return { data: data };
+}
+
+async function jSetAssignee(id, userId){
+  var sb = window.supabaseClient;
+  var { data, error } = await sb.from('journal_entries').update({ assigned_to: userId }).eq('id', id).select('*').single();
+  if(error){ console.error('[journal] jSetAssignee', error); return { error: error }; }
+  return { data: data };
+}
+
 // ── Globals ────────────────────────────────────────────────────────
 window.loadJournal=loadJournal;
+window.jGetEntry=jGetEntry;
+window.jGetUpdates=jGetUpdates;
+window.jGetEntryWithUpdates=jGetEntryWithUpdates;
+window.jAddUpdate=jAddUpdate;
+window.jSetStatus=jSetStatus;
+window.jSetAssignee=jSetAssignee;
+window.J_STATUSES=J_STATUSES;
 window.jOpenComposer=jOpenComposer;
 window.jCloseComposer=jCloseComposer;
 window.jToggleFilter=jToggleFilter;
@@ -356,3 +421,17 @@ window.jCancelEdit=jCancelEdit;
 window.jArchive=jArchive;
 window.jRestore=jRestore;
 window.jCardMenu=jCardMenu;
+
+// ── TEST-ONLY EXPORTS ────────────────────────────────────────────
+// No-op in the browser (no `module` there).
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    J_STATUSES: J_STATUSES,
+    jGetEntry: jGetEntry,
+    jGetUpdates: jGetUpdates,
+    jGetEntryWithUpdates: jGetEntryWithUpdates,
+    jAddUpdate: jAddUpdate,
+    jSetStatus: jSetStatus,
+    jSetAssignee: jSetAssignee
+  };
+}
