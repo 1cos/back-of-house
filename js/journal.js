@@ -48,6 +48,22 @@ function _jDateLabel(){
   return days[d.getDay()]+', '+months[d.getMonth()]+' '+d.getDate();
 }
 
+// One query for every visible card's update count/last-update date — avoids N+1.
+async function _jLoadUpdateStats(entryIds){
+  if(!entryIds||entryIds.length===0) return {};
+  var sb=window.supabaseClient;
+  var {data,error}=await sb.from('journal_updates').select('journal_entry_id,created_at').in('journal_entry_id',entryIds);
+  if(error){ console.error('[journal] update stats',error); return {}; }
+  var stats={};
+  (data||[]).forEach(function(u){
+    var s=stats[u.journal_entry_id];
+    if(!s){ s={count:0,lastAt:null}; stats[u.journal_entry_id]=s; }
+    s.count++;
+    if(!s.lastAt||u.created_at>s.lastAt) s.lastAt=u.created_at;
+  });
+  return stats;
+}
+
 // ── Main render ────────────────────────────────────────────────────
 async function loadJournal(){
   var sec=document.getElementById('vj');
@@ -65,6 +81,7 @@ async function loadJournal(){
   var {data,error}=await query;
   if(error){sec.innerHTML='<div style="padding:20px;color:#dc2626;">'+error.message+'</div>';return;}
   var entries=data||[];
+  var updateStats=await _jLoadUpdateStats(entries.map(function(e){return e.id;}));
 
   // Active filter indicator
   var hasFilter=_jCatFilter!=='All'||_jPeriod!=='7'||_jShowArchived;
@@ -91,7 +108,7 @@ async function loadJournal(){
     (_jFilterOpen?_jFilterPanel():'')+
 
     // Feed
-    _jFeedHtml(entries)+
+    _jFeedHtml(entries,updateStats)+
   '</div>';
 
   // Auto-focus title if composer is open
@@ -176,7 +193,7 @@ function _jFilterPanel(){
 }
 
 // ── Feed grouped by day ────────────────────────────────────────────
-function _jFeedHtml(entries){
+function _jFeedHtml(entries,updateStats){
   if(entries.length===0){
     return '<div style="text-align:center;padding:48px 20px;color:#94a3b8;">'+
       '<div style="font-size:32px;margin-bottom:8px;opacity:0.4;">📓</div>'+
@@ -199,24 +216,28 @@ function _jFeedHtml(entries){
   Object.keys(groups).sort().reverse().forEach(function(d){
     var label=d===today?'TODAY':d===yest?'YESTERDAY':d.slice(5).replace('-',' / ');
     html+='<div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px;'+(html?'':'margin-top:4px;')+'">'+label+'</div>';
-    groups[d].forEach(function(e){ html+=_jCard(e); });
+    groups[d].forEach(function(e){ html+=_jCard(e,updateStats&&updateStats[e.id]); });
   });
   return html;
 }
 
 // ── Card ───────────────────────────────────────────────────────────
-function _jCard(e){
+function _jCard(e,stats){
   var cat=_jCat(e.category);
   var sev=J_SEV[e.severity]||J_SEV.info;
   var time=e.created_at?new Date(e.created_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'';
   var archived=e.is_archived;
 
-  var menuItems='<div onclick="jEditEntry(\''+e.id+'\')" style="padding:10px 16px;font-size:14px;color:#1e293b;cursor:pointer;">'+tr('jEdit')+'</div>'+
+  var menuItems='<div onclick="event.stopPropagation();jEditEntry(\''+e.id+'\')" style="padding:10px 16px;font-size:14px;color:#1e293b;cursor:pointer;">'+tr('jEdit')+'</div>'+
     (archived
-      ?'<div onclick="jRestore(\''+e.id+'\')" style="padding:10px 16px;font-size:14px;color:#059669;cursor:pointer;">'+tr('jRestore')+'</div>'
-      :'<div onclick="jArchive(\''+e.id+'\')" style="padding:10px 16px;font-size:14px;color:#94a3b8;cursor:pointer;">'+tr('jArchive')+'</div>');
+      ?'<div onclick="event.stopPropagation();jRestore(\''+e.id+'\')" style="padding:10px 16px;font-size:14px;color:#059669;cursor:pointer;">'+tr('jRestore')+'</div>'
+      :'<div onclick="event.stopPropagation();jArchive(\''+e.id+'\')" style="padding:10px 16px;font-size:14px;color:#94a3b8;cursor:pointer;">'+tr('jArchive')+'</div>');
 
-  return '<div style="background:white;border-radius:12px;margin-bottom:6px;border-left:3px solid '+sev+';'+(archived?'opacity:0.5;':'')+'position:relative;">'+
+  var updateLine=(stats&&stats.count>0)
+    ?'<div style="font-size:10px;color:#a5b4fc;margin-top:4px;">'+stats.count+' '+(stats.count===1?'update':'updates')+' · Last update '+_jdFmtDateShort(stats.lastAt)+'</div>'
+    :'';
+
+  return '<div onclick="jOpenDetail(\''+e.id+'\')" style="background:white;border-radius:12px;margin-bottom:6px;border-left:3px solid '+sev+';'+(archived?'opacity:0.5;':'')+'position:relative;cursor:pointer;-webkit-tap-highlight-color:transparent;">'+
     '<div style="padding:12px 14px;">'+
 
     // Top row: category + time + menu
@@ -227,7 +248,7 @@ function _jCard(e){
     '</div>'+
     '<div style="display:flex;align-items:center;gap:4px;">'+
     '<span style="font-size:10px;color:#cbd5e1;">'+time+'</span>'+
-    '<button onclick="jCardMenu(this)" style="background:none;border:none;padding:2px 4px;cursor:pointer;font-size:14px;color:#cbd5e1;line-height:1;">⋯</button>'+
+    '<button onclick="event.stopPropagation();jCardMenu(this)" style="background:none;border:none;padding:2px 4px;cursor:pointer;font-size:14px;color:#cbd5e1;line-height:1;">⋯</button>'+
     '</div></div>'+
 
     // Title
@@ -238,6 +259,9 @@ function _jCard(e){
 
     // Author
     '<div style="font-size:10px;color:#cbd5e1;margin-top:6px;">'+_jEsc(e.author)+'</div>'+
+
+    // Update-count summary (only when it exists — no noise otherwise)
+    updateLine+
 
     // Dropdown menu (hidden by default)
     '<div class="jcard-menu" style="display:none;position:absolute;right:12px;top:36px;background:white;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.12);border:1px solid #e2e8f0;z-index:10;min-width:120px;overflow:hidden;">'+
@@ -399,6 +423,156 @@ async function jSetAssignee(id, userId){
   return { data: data };
 }
 
+// ── T2A: Entry detail sheet + timeline + Add Update ──────────────────
+// Bottom sheet, same convention used elsewhere in BOH OS (e.g. vendor
+// document review): fixed overlay, rounded panel sliding up from the
+// bottom, drag handle, sticky header/footer, safe-area padding.
+var _jdOpenId = null;
+var _jdEntry = null;
+var _jdUpdates = [];
+var _jdComposerOpen = false;
+var _jdSaving = false;
+
+function _jdFmtDateTime(iso){
+  if(!iso) return '';
+  var d=new Date(iso);
+  var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var time=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+  return months[d.getMonth()]+' '+d.getDate()+' · '+time;
+}
+function _jdFmtDateShort(iso){
+  if(!iso) return '';
+  var d=new Date(iso);
+  var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return months[d.getMonth()]+' '+d.getDate();
+}
+
+async function jOpenDetail(id){
+  document.querySelectorAll('.jcard-menu').forEach(function(m){m.style.display='none';});
+  var result = await jGetEntryWithUpdates(id);
+  if(!result) return;
+  _jdOpenId = id;
+  _jdEntry = result.entry;
+  _jdUpdates = result.updates;
+  _jdComposerOpen = false;
+  _jdRenderSheet();
+}
+
+function jCloseDetail(){
+  var el = document.getElementById('jDetailSheet');
+  if(el) el.remove();
+  var hadUpdates = _jdUpdates && _jdUpdates.length > 0;
+  _jdOpenId = null; _jdEntry = null; _jdUpdates = []; _jdComposerOpen = false;
+  if(hadUpdates) loadJournal(); // refresh card summary if anything changed
+}
+
+function jdUpdateRow(u){
+  return '<div style="padding:10px 0;border-top:1px solid #f1f5f9;">'+
+    '<div style="font-size:11px;color:#94a3b8;margin-bottom:3px;">'+_jdFmtDateTime(u.created_at)+' — '+_jEsc(u.author||'')+'</div>'+
+    '<div style="font-size:13px;color:#334155;line-height:1.5;white-space:pre-wrap;">'+_jEsc(u.body)+'</div>'+
+    '</div>';
+}
+
+function jdComposerHtml(){
+  if(!_jdComposerOpen){
+    return '<button onclick="jdOpenComposer()" style="width:100%;padding:12px;border-radius:12px;border:1.5px dashed #c7d2fe;background:white;color:#6366f1;font-size:14px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;">+ Add Update</button>';
+  }
+  return '<textarea id="jd_update_text" rows="3" placeholder="Update text" style="width:100%;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;resize:vertical;box-sizing:border-box;font-family:inherit;margin-bottom:8px;" '+(_jdSaving?'disabled':'')+'></textarea>'+
+    '<div style="display:flex;gap:8px;">'+
+    '<button onclick="jdCancelComposer()" style="flex:1;padding:11px;border-radius:12px;border:1px solid #e2e8f0;background:white;color:#64748b;font-size:14px;font-weight:600;cursor:pointer;" '+(_jdSaving?'disabled':'')+'>'+tr('prep_cancel')+'</button>'+
+    '<button id="jdSaveBtn" onclick="jdSaveUpdate()" style="flex:2;padding:11px;border-radius:12px;border:none;background:#6366f1;color:white;font-size:14px;font-weight:600;cursor:pointer;" '+(_jdSaving?'disabled':'')+'>'+(_jdSaving?'…':'Add Update')+'</button>'+
+    '</div>';
+}
+
+function _jdRenderSheet(){
+  var existing = document.getElementById('jDetailSheet');
+  if(existing) existing.remove();
+  var entry = _jdEntry;
+  if(!entry) return;
+  var cat = _jCat(entry.category);
+
+  var metaLine = cat.emoji+' '+entry.category+' · '+entry.status+' · '+_jdFmtDateShort(entry.entry_date+'T00:00:00');
+  var originalBody = entry.body
+    ? '<div style="font-size:14px;color:#1e293b;line-height:1.5;margin-top:4px;white-space:pre-wrap;">'+_jEsc(entry.body)+'</div>'
+    : '';
+  var updatesHtml = _jdUpdates.length===0
+    ? '<div style="padding:16px 0;font-size:12px;color:#cbd5e1;text-align:center;">No updates yet.</div>'
+    : _jdUpdates.map(function(u){ return jdUpdateRow(u); }).join('');
+
+  var sheet = document.createElement('div');
+  sheet.id = 'jDetailSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:9100;display:flex;flex-direction:column;justify-content:flex-end;';
+
+  sheet.innerHTML =
+    '<div onclick="jCloseDetail()" style="flex:1;background:rgba(0,0,0,0.4);"></div>'+
+    '<div style="background:white;border-radius:20px 20px 0 0;max-height:90vh;display:flex;flex-direction:column;touch-action:pan-y;">'+
+      '<div style="display:flex;justify-content:center;padding:12px 0 4px;">'+
+        '<div style="width:36px;height:4px;border-radius:2px;background:#e2e8f0;"></div>'+
+      '</div>'+
+      '<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 16px 12px;border-bottom:1px solid #f1f5f9;flex-shrink:0;">'+
+        '<button onclick="jCloseDetail()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>'+
+        '<div style="flex:1;min-width:0;">'+
+          '<div style="font-size:15px;font-weight:700;color:#1e293b;line-height:1.3;">'+_jEsc(entry.title)+'</div>'+
+          '<div style="font-size:11px;color:#94a3b8;margin-top:3px;">'+metaLine+'</div>'+
+        '</div>'+
+      '</div>'+
+      '<div id="jdScrollBody" style="overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;padding:14px 16px;">'+
+        '<div style="background:#f8fafc;border-radius:12px;padding:12px 14px;margin-bottom:16px;">'+
+          '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Original entry</div>'+
+          '<div style="font-size:11px;color:#94a3b8;">'+_jdFmtDateTime(entry.created_at)+' — '+_jEsc(entry.author)+'</div>'+
+          originalBody+
+        '</div>'+
+        '<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Updates</div>'+
+        '<div id="jdTimeline">'+updatesHtml+'</div>'+
+      '</div>'+
+      '<div id="jdComposerWrap" style="flex-shrink:0;padding:12px 16px;border-top:1px solid #f1f5f9;background:white;">'+
+        jdComposerHtml()+
+      '</div>'+
+      '<div style="height:env(safe-area-inset-bottom,0px);background:white;flex-shrink:0;"></div>'+
+    '</div>';
+
+  document.body.appendChild(sheet);
+
+  if(_jdComposerOpen){
+    var ta=document.getElementById('jd_update_text');
+    if(ta) setTimeout(function(){ ta.focus(); }, 100);
+  }
+}
+
+function jdOpenComposer(){ _jdComposerOpen=true; _jdRenderSheet(); }
+function jdCancelComposer(){ _jdComposerOpen=false; _jdRenderSheet(); }
+
+async function jdSaveUpdate(){
+  if(_jdSaving) return; // prevent duplicate submits
+  var ta = document.getElementById('jd_update_text');
+  var text = (ta && ta.value || '').trim();
+  if(!text) return;
+
+  _jdSaving = true;
+  var wrap = document.getElementById('jdComposerWrap');
+  if(wrap) wrap.innerHTML = jdComposerHtml(); // re-render footer in disabled/"…" state
+
+  var res = await jAddUpdate(_jdOpenId, text);
+  _jdSaving = false;
+
+  if(res.error){
+    // Keep the composer open, restore what was typed, don't create a duplicate.
+    if(wrap) wrap.innerHTML = jdComposerHtml();
+    var ta2 = document.getElementById('jd_update_text');
+    if(ta2) ta2.value = text;
+    alert('Could not save the update. Please try again.');
+    return;
+  }
+
+  _jdUpdates.push(res.data);
+  _jdComposerOpen = false;
+  _jdRenderSheet();
+  setTimeout(function(){
+    var body = document.getElementById('jdScrollBody');
+    if(body) body.scrollTop = body.scrollHeight;
+  }, 50);
+}
+
 // ── Globals ────────────────────────────────────────────────────────
 window.loadJournal=loadJournal;
 window.jGetEntry=jGetEntry;
@@ -421,6 +595,11 @@ window.jCancelEdit=jCancelEdit;
 window.jArchive=jArchive;
 window.jRestore=jRestore;
 window.jCardMenu=jCardMenu;
+window.jOpenDetail=jOpenDetail;
+window.jCloseDetail=jCloseDetail;
+window.jdOpenComposer=jdOpenComposer;
+window.jdCancelComposer=jdCancelComposer;
+window.jdSaveUpdate=jdSaveUpdate;
 
 // ── TEST-ONLY EXPORTS ────────────────────────────────────────────
 // No-op in the browser (no `module` there).
