@@ -47,6 +47,10 @@ function makeFakeSupabase(store){
         this._eqKey = key; this._eqVal = val;
         return this;
       },
+      in(key, vals){
+        this._inKey = key; this._inVals = vals;
+        return this;
+      },
       order(key, opts){
         this._orderKey = key; this._orderAsc = !opts || opts.ascending !== false;
         return this;
@@ -54,6 +58,7 @@ function makeFakeSupabase(store){
       then(resolve){
         // array-returning path (used when .single() isn't called)
         var rows = store[name].filter(r => this._eqKey ? r[this._eqKey] === this._eqVal : true);
+        if(this._inKey) rows = rows.filter(r => this._inVals.indexOf(r[this._inKey]) >= 0);
         if(this._orderKey){
           rows = rows.slice().sort((a,b) => {
             var av = a[this._orderKey], bv = b[this._orderKey];
@@ -108,6 +113,22 @@ function makeFakeSupabase(store){
           });
         }
         return { data: entry2, error: null };
+      }
+      if(name === 'journal_set_waiting_for'){
+        var entry3 = store.journal_entries.find(e => e.id === params.p_entry_id);
+        if(!entry3) return { data: null, error: { message: 'not found' } };
+        var oldWF = entry3.waiting_for || null;
+        var newWF = (params.p_new_value || '').trim() || null; // mirrors the RPC's own NULLIF(trim(...),'')
+        entry3.waiting_for = newWF;
+        if(oldWF !== newWF){
+          store.journal_activity.push({
+            id: 'act-' + Math.random().toString(36).slice(2),
+            journal_entry_id: params.p_entry_id, event_type: 'WAITING_FOR_CHANGED',
+            actor: params.p_actor, old_value: oldWF, new_value: newWF,
+            created_at: new Date().toISOString()
+          });
+        }
+        return { data: entry3, error: null };
       }
       return { data: null, error: { message: 'unknown rpc: ' + name } };
     }
@@ -434,6 +455,130 @@ console.log('\nJournal T1 — plumbing test run\n');
     assert.deepStrictEqual(t1.map(x => x.type), t2.map(x => x.type));
   });
 
+  // ── T2D: waiting_for / current blocker ──────────────────────────
+  await atest('jSetWaitingFor: null -> text creates one WAITING_FOR_CHANGED activity', async () => {
+    var store = { journal_entries: [{ id: 'e1', waiting_for: null }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
 
+    var res = await j.jSetWaitingFor('e1', 'Monica approval');
+    assert.ok(!res.error);
+    assert.strictEqual(store.journal_entries[0].waiting_for, 'Monica approval');
+    assert.strictEqual(store.journal_activity.length, 1);
+    assert.strictEqual(store.journal_activity[0].event_type, 'WAITING_FOR_CHANGED');
+    assert.strictEqual(store.journal_activity[0].old_value, null);
+    assert.strictEqual(store.journal_activity[0].new_value, 'Monica approval');
+  });
+
+  await atest('jSetWaitingFor: text -> different text creates one activity with correct old/new', async () => {
+    var store = { journal_entries: [{ id: 'e1', waiting_for: 'CES technician' }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    await j.jSetWaitingFor('e1', 'Monica approval');
+    assert.strictEqual(store.journal_activity.length, 1);
+    assert.strictEqual(store.journal_activity[0].old_value, 'CES technician');
+    assert.strictEqual(store.journal_activity[0].new_value, 'Monica approval');
+  });
+
+  await atest('jSetWaitingFor: text -> empty string persists as null and logs old -> null', async () => {
+    var store = { journal_entries: [{ id: 'e1', waiting_for: 'CES replacement part' }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    await j.jSetWaitingFor('e1', '');
+    assert.strictEqual(store.journal_entries[0].waiting_for, null);
+    assert.strictEqual(store.journal_activity[0].old_value, 'CES replacement part');
+    assert.strictEqual(store.journal_activity[0].new_value, null);
+  });
+
+  await atest('jSetWaitingFor: same value = ZERO new activity rows (no-op)', async () => {
+    var store = { journal_entries: [{ id: 'e1', waiting_for: 'Monica approval' }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    await j.jSetWaitingFor('e1', 'Monica approval');
+    assert.strictEqual(store.journal_activity.length, 0);
+  });
+
+  await atest('jSetWaitingFor: whitespace-only input normalizes to null, not a blank-string blocker', async () => {
+    var store = { journal_entries: [{ id: 'e1', waiting_for: null }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    await j.jSetWaitingFor('e1', '   ');
+    assert.strictEqual(store.journal_entries[0].waiting_for, null);
+    assert.strictEqual(store.journal_activity.length, 0, 'null -> null via whitespace must not log an event');
+  });
+
+  await atest('jSetWaitingFor: leading/trailing whitespace is trimmed before storing', async () => {
+    var store = { journal_entries: [{ id: 'e1', waiting_for: null }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    await j.jSetWaitingFor('e1', '   replacement part   ');
+    assert.strictEqual(store.journal_entries[0].waiting_for, 'replacement part');
+  });
+
+  await test('jdActivitySentence: WAITING_FOR_CHANGED wording — set / changed / cleared', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'WAITING_FOR_CHANGED', old_value: null, new_value: 'Monica approval' }),
+      'Max set waiting for: Monica approval'
+    );
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'WAITING_FOR_CHANGED', old_value: 'Monica approval', new_value: 'CES replacement part' }),
+      'Max changed waiting for from Monica approval to CES replacement part'
+    );
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'WAITING_FOR_CHANGED', old_value: 'CES replacement part', new_value: null }),
+      'Max cleared waiting for'
+    );
+  });
+
+  await test('jMergeTimeline: WAITING_FOR_CHANGED merges into the unified timeline like any other activity', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var updates = [{ id: 'u1', body: 'Technician came.', created_at: '2026-08-18T10:15:00Z' }];
+    var activity = [
+      { id: 'a1', event_type: 'STATUS_CHANGED', old_value: 'OPEN', new_value: 'WAITING', created_at: '2026-08-17T15:05:00Z' },
+      { id: 'a2', event_type: 'WAITING_FOR_CHANGED', old_value: null, new_value: 'CES technician', created_at: '2026-08-17T15:06:00Z' },
+      { id: 'a3', event_type: 'WAITING_FOR_CHANGED', old_value: 'CES technician', new_value: 'Monica approval', created_at: '2026-08-18T10:17:00Z' }
+    ];
+    var timeline = j.jMergeTimeline(updates, activity);
+    assert.deepStrictEqual(timeline.map(t => t.data.id), ['a1', 'a2', 'u1', 'a3']);
+  });
+
+  await atest('_jLoadUpdateStats ignores journal_activity entirely — manual count stays manual-only', async () => {
+    var store = {
+      journal_entries: [{ id: 'e1' }],
+      journal_updates: [{ id: 'u1', journal_entry_id: 'e1', created_at: '2026-08-17T10:00:00Z' }],
+      journal_activity: [
+        { id: 'a1', journal_entry_id: 'e1', event_type: 'STATUS_CHANGED', created_at: '2026-08-17T11:00:00Z' },
+        { id: 'a2', journal_entry_id: 'e1', event_type: 'WAITING_FOR_CHANGED', created_at: '2026-08-17T12:00:00Z' },
+        { id: 'a3', journal_entry_id: 'e1', event_type: 'WAITING_FOR_CHANGED', created_at: '2026-08-17T13:00:00Z' }
+      ]
+    };
+    global.window = { supabaseClient: makeFakeSupabase(store) };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var stats = await j._jLoadUpdateStats(['e1']);
+    assert.strictEqual(stats.e1.count, 1, 'three activity rows exist but the manual count must stay 1');
+  });
+
+
+  console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
   process.exit(fail > 0 ? 1 : 0);
 })();

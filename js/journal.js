@@ -262,6 +262,10 @@ function _jCard(e,stats){
   var lifecycleLine='<div style="font-size:10px;font-weight:600;color:'+(J_STATUS_COLORS[e.status]||'#94a3b8')+';margin-top:4px;">'+
     (J_STATUS_LABELS[e.status]||e.status)+(assigneeName?' · '+_jEsc(assigneeName):'')+'</div>';
 
+  var waitingForLine=e.waiting_for
+    ?'<div style="font-size:10px;color:#94a3b8;margin-top:2px;">Waiting for: '+_jEsc(e.waiting_for)+'</div>'
+    :'';
+
   return '<div onclick="jOpenDetail(\''+e.id+'\')" style="background:white;border-radius:12px;margin-bottom:6px;border-left:3px solid '+sev+';'+(archived?'opacity:0.5;':'')+'position:relative;cursor:pointer;-webkit-tap-highlight-color:transparent;">'+
     '<div style="padding:12px 14px;">'+
 
@@ -287,6 +291,9 @@ function _jCard(e,stats){
 
     // Status/assignee lifecycle line
     lifecycleLine+
+
+    // Current blocker, if any (shown regardless of status)
+    waitingForLine+
 
     // Update-count summary (only when it exists — no noise otherwise)
     updateLine+
@@ -502,6 +509,19 @@ async function jSetAssignee(id, userId){
   return { data: data };
 }
 
+// Atomic via RPC (journal_set_waiting_for) — same T2C transaction pattern.
+// Trim + empty-string->null happen here AND defensively again in the RPC.
+async function jSetWaitingFor(id, text){
+  var normalized = (text||'').trim();
+  var sb = window.supabaseClient;
+  var { data, error } = await sb.rpc('journal_set_waiting_for', {
+    p_entry_id: id, p_new_value: normalized || null,
+    p_actor: (window.user && window.user.name) || 'Unknown'
+  });
+  if(error){ console.error('[journal] jSetWaitingFor', error); return { error: error }; }
+  return { data: data };
+}
+
 // ── T2A: Entry detail sheet + timeline + Add Update ──────────────────
 // Bottom sheet, same convention used elsewhere in BOH OS (e.g. vendor
 // document review): fixed overlay, rounded panel sliding up from the
@@ -538,6 +558,7 @@ async function jOpenDetail(id){
   _jdUpdates = result.updates;
   _jdTimeline = result.timeline;
   _jdComposerOpen = false;
+  _jdWaitingForEditing = false;
   _jdDirty = false;
   _jdRenderSheet();
 }
@@ -546,7 +567,7 @@ function jCloseDetail(){
   var el = document.getElementById('jDetailSheet');
   if(el) el.remove();
   var dirty = _jdDirty;
-  _jdOpenId = null; _jdEntry = null; _jdUpdates = []; _jdTimeline = []; _jdComposerOpen = false; _jdDirty = false;
+  _jdOpenId = null; _jdEntry = null; _jdUpdates = []; _jdTimeline = []; _jdComposerOpen = false; _jdWaitingForEditing = false; _jdDirty = false;
   if(dirty) loadJournal(); // refresh card state (status/assignee/update count) behind the sheet
 }
 
@@ -581,6 +602,11 @@ function jdActivitySentence(a){
     if(!a.old_value&&a.new_value) return actor+' assigned this to '+_jEsc(a.new_value);
     if(a.old_value&&!a.new_value) return actor+' removed '+_jEsc(a.old_value)+"'s assignment";
     if(a.old_value&&a.new_value) return actor+' reassigned this from '+_jEsc(a.old_value)+' to '+_jEsc(a.new_value);
+  }
+  if(a.event_type==='WAITING_FOR_CHANGED'){
+    if(!a.old_value&&a.new_value) return actor+' set waiting for: '+_jEsc(a.new_value);
+    if(a.old_value&&!a.new_value) return actor+' cleared waiting for';
+    if(a.old_value&&a.new_value) return actor+' changed waiting for from '+_jEsc(a.old_value)+' to '+_jEsc(a.new_value);
   }
   return actor+' updated this entry';
 }
@@ -626,6 +652,56 @@ function jdQuickActionHtml(entry){
   if(!target) return '';
   var color=target==='RESOLVED'?'#059669':'#64748b';
   return '<button onclick="jdChangeStatus(\''+target+'\')" style="font-size:11px;font-weight:600;color:'+color+';background:'+color+'15;border:1px solid '+color+'40;border-radius:20px;padding:4px 10px;cursor:pointer;">'+jdQuickActionLabel(target)+'</button>';
+}
+
+var _jdWaitingForEditing = false;
+var _jdWaitingForSaving = false;
+
+function jdWaitingForHtml(entry){
+  if(_jdWaitingForEditing){
+    return '<div style="margin-top:8px;width:100%;">'+
+      '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">Waiting for</div>'+
+      '<input id="jd_waiting_for_text" type="text" value="'+_jEsc(entry.waiting_for||'')+'" placeholder="e.g. Monica approval" style="width:100%;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;margin-bottom:6px;">'+
+      '<div style="display:flex;gap:8px;">'+
+      '<button onclick="jdCancelWaitingForEdit()" style="flex:1;padding:8px;border-radius:10px;border:1px solid #e2e8f0;background:white;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;">'+tr('prep_cancel')+'</button>'+
+      '<button id="jdWaitingForSaveBtn" onclick="jdSaveWaitingFor()" style="flex:1;padding:8px;border-radius:10px;border:none;background:#6366f1;color:white;font-size:12px;font-weight:600;cursor:pointer;">Save</button>'+
+      '</div></div>';
+  }
+  var emphasize = entry.status==='WAITING';
+  return '<div onclick="jdOpenWaitingForEdit()" style="margin-top:8px;display:flex;align-items:center;gap:6px;cursor:pointer;flex-wrap:wrap;'+
+    (emphasize?'background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:6px 10px;':'')+'">'+
+    '<span style="font-size:11px;color:'+(emphasize?'#7c3aed':'#94a3b8')+';font-weight:'+(emphasize?'700':'400')+';">Waiting for</span>'+
+    '<span style="font-size:12px;font-weight:600;color:'+(entry.waiting_for?'#1e293b':'#cbd5e1')+';">'+(entry.waiting_for?_jEsc(entry.waiting_for):'Not set')+'</span>'+
+    '</div>';
+}
+
+function jdOpenWaitingForEdit(){ _jdWaitingForEditing=true; _jdRenderSheet(); }
+function jdCancelWaitingForEdit(){ _jdWaitingForEditing=false; _jdRenderSheet(); }
+
+async function jdSaveWaitingFor(){
+  if(_jdWaitingForSaving) return; // prevent duplicate submits
+  var input=document.getElementById('jd_waiting_for_text');
+  var text=(input&&input.value)||'';
+  _jdWaitingForSaving=true;
+  var btn=document.getElementById('jdWaitingForSaveBtn');
+  if(btn){ btn.disabled=true; btn.textContent='…'; }
+  if(input) input.disabled=true;
+
+  var res=await jSetWaitingFor(_jdOpenId, text);
+  _jdWaitingForSaving=false;
+
+  if(res.error){
+    if(btn){ btn.disabled=false; btn.textContent='Save'; }
+    if(input) input.disabled=false; // keep what was typed, stay in edit mode
+    alert('Could not save. Please try again.');
+    return;
+  }
+
+  _jdEntry=res.data;
+  _jdWaitingForEditing=false;
+  _jdDirty=true;
+  await _jdRefetchTimeline();
+  _jdRenderSheet();
 }
 
 function jdAssigneeSelectHtml(entry){
@@ -719,6 +795,7 @@ function _jdRenderSheet(){
             '<span style="font-size:11px;color:#94a3b8;">Assigned to</span>'+
             jdAssigneeSelectHtml(entry)+
           '</div>'+
+          jdWaitingForHtml(entry)+
         '</div>'+
       '</div>'+
       '<div id="jdScrollBody" style="overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;padding:14px 16px;">'+
@@ -741,6 +818,10 @@ function _jdRenderSheet(){
   if(_jdComposerOpen){
     var ta=document.getElementById('jd_update_text');
     if(ta) setTimeout(function(){ ta.focus(); }, 100);
+  }
+  if(_jdWaitingForEditing){
+    var wf=document.getElementById('jd_waiting_for_text');
+    if(wf) setTimeout(function(){ wf.focus(); }, 100);
   }
 }
 
@@ -809,6 +890,9 @@ window.jdCancelComposer=jdCancelComposer;
 window.jdSaveUpdate=jdSaveUpdate;
 window.jdChangeStatus=jdChangeStatus;
 window.jdChangeAssignee=jdChangeAssignee;
+window.jdOpenWaitingForEdit=jdOpenWaitingForEdit;
+window.jdCancelWaitingForEdit=jdCancelWaitingForEdit;
+window.jdSaveWaitingFor=jdSaveWaitingFor;
 
 // ── TEST-ONLY EXPORTS ────────────────────────────────────────────
 // No-op in the browser (no `module` there).
@@ -825,6 +909,8 @@ if (typeof module !== 'undefined' && module.exports) {
     jAddUpdate: jAddUpdate,
     jSetStatus: jSetStatus,
     jSetAssignee: jSetAssignee,
+    jSetWaitingFor: jSetWaitingFor,
+    _jLoadUpdateStats: _jLoadUpdateStats,
     jdQuickActionTarget: jdQuickActionTarget,
     jdActivitySentence: jdActivitySentence,
     _jRosterName: _jRosterName,
