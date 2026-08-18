@@ -75,7 +75,43 @@ function makeFakeSupabase(store){
       }
     };
   }
-  return { from: table };
+  return {
+    from: table,
+    rpc: async function(name, params){
+      store.journal_activity = store.journal_activity || [];
+      if(name === 'journal_set_status'){
+        var entry = store.journal_entries.find(e => e.id === params.p_entry_id);
+        if(!entry) return { data: null, error: { message: 'not found' } };
+        var oldStatus = entry.status;
+        entry.status = params.p_new_status;
+        if(oldStatus !== params.p_new_status){
+          store.journal_activity.push({
+            id: 'act-' + Math.random().toString(36).slice(2),
+            journal_entry_id: params.p_entry_id, event_type: 'STATUS_CHANGED',
+            actor: params.p_actor, old_value: oldStatus, new_value: params.p_new_status,
+            created_at: new Date().toISOString()
+          });
+        }
+        return { data: entry, error: null };
+      }
+      if(name === 'journal_set_assignee'){
+        var entry2 = store.journal_entries.find(e => e.id === params.p_entry_id);
+        if(!entry2) return { data: null, error: { message: 'not found' } };
+        var oldAssignee = entry2.assigned_to;
+        entry2.assigned_to = params.p_new_assignee;
+        if(oldAssignee !== params.p_new_assignee){
+          store.journal_activity.push({
+            id: 'act-' + Math.random().toString(36).slice(2),
+            journal_entry_id: params.p_entry_id, event_type: 'ASSIGNEE_CHANGED',
+            actor: params.p_actor, old_value: params.p_old_name, new_value: params.p_new_name,
+            created_at: new Date().toISOString()
+          });
+        }
+        return { data: entry2, error: null };
+      }
+      return { data: null, error: { message: 'unknown rpc: ' + name } };
+    }
+  };
 }
 
 console.log('\nJournal T1 — plumbing test run\n');
@@ -270,6 +306,134 @@ console.log('\nJournal T1 — plumbing test run\n');
     assert.strictEqual(store.journal_updates.length, 0);
   });
 
-  console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
+  // ── T2C: automatic activity history ─────────────────────────────
+  await atest('jSetStatus creates exactly one STATUS_CHANGED activity row on a real change', async () => {
+    var store = { journal_entries: [{ id: 'e1', status: 'OPEN' }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    await j.jSetStatus('e1', 'WAITING');
+    assert.strictEqual(store.journal_activity.length, 1);
+    assert.strictEqual(store.journal_activity[0].event_type, 'STATUS_CHANGED');
+    assert.strictEqual(store.journal_activity[0].old_value, 'OPEN');
+    assert.strictEqual(store.journal_activity[0].new_value, 'WAITING');
+    assert.strictEqual(store.journal_activity[0].actor, 'Max');
+  });
+
+  await atest('jSetStatus same-status call creates ZERO activity rows (no-op)', async () => {
+    var store = { journal_entries: [{ id: 'e1', status: 'WAITING' }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    await j.jSetStatus('e1', 'WAITING');
+    assert.strictEqual(store.journal_activity.length, 0);
+  });
+
+  await atest('jSetAssignee creates exactly one ASSIGNEE_CHANGED activity row on a real change', async () => {
+    var store = { journal_entries: [{ id: 'e1', assigned_to: null }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+    j._jSetRosterForTest([{ id: 5, name: 'Monica' }]);
+
+    await j.jSetAssignee('e1', 5);
+    assert.strictEqual(store.journal_activity.length, 1);
+    assert.strictEqual(store.journal_activity[0].event_type, 'ASSIGNEE_CHANGED');
+    assert.strictEqual(store.journal_activity[0].old_value, null);
+    assert.strictEqual(store.journal_activity[0].new_value, 'Monica');
+  });
+
+  await atest('jSetAssignee same-assignee call creates ZERO activity rows (no-op)', async () => {
+    var store = { journal_entries: [{ id: 'e1', assigned_to: 5 }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+    j._jSetRosterForTest([{ id: 5, name: 'Monica' }]);
+
+    await j.jSetAssignee('e1', 5); // Monica -> Monica
+    assert.strictEqual(store.journal_activity.length, 0);
+  });
+
+  await test('jdActivitySentence: assignment wording — null -> user, user -> user, user -> null', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'ASSIGNEE_CHANGED', old_value: null, new_value: 'Monica' }),
+      'Max assigned this to Monica'
+    );
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'ASSIGNEE_CHANGED', old_value: 'Monica', new_value: 'Anto' }),
+      'Max reassigned this from Monica to Anto'
+    );
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'ASSIGNEE_CHANGED', old_value: 'Monica', new_value: null }),
+      "Max removed Monica's assignment"
+    );
+  });
+
+  await test('jdActivitySentence: RESOLVED and CLOSED get special wording', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'STATUS_CHANGED', old_value: 'IN_PROGRESS', new_value: 'RESOLVED' }),
+      'Max resolved this issue'
+    );
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'STATUS_CHANGED', old_value: 'RESOLVED', new_value: 'CLOSED' }),
+      'Max closed this issue'
+    );
+  });
+
+  await test('jdActivitySentence: normal transitions use human labels, no raw underscores', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'STATUS_CHANGED', old_value: 'CLOSED', new_value: 'OPEN' }),
+      'Max changed status from Closed to Open'
+    );
+  });
+
+  await test('jMergeTimeline: interleaves updates and activity in true chronological order', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var updates = [
+      { id: 'u1', body: 'CES technician came.', created_at: '2026-08-18T10:15:00Z' }
+    ];
+    var activity = [
+      { id: 'a1', event_type: 'ASSIGNEE_CHANGED', old_value: null, new_value: 'Monica', created_at: '2026-08-17T15:05:00Z' },
+      { id: 'a2', event_type: 'STATUS_CHANGED', old_value: 'OPEN', new_value: 'WAITING', created_at: '2026-08-17T15:06:00Z' },
+      { id: 'a3', event_type: 'STATUS_CHANGED', old_value: 'WAITING', new_value: 'IN_PROGRESS', created_at: '2026-08-18T11:03:00Z' }
+    ];
+    var timeline = j.jMergeTimeline(updates, activity);
+    assert.strictEqual(timeline.length, 4);
+    assert.deepStrictEqual(timeline.map(t => t.data.id), ['a1', 'a2', 'u1', 'a3']);
+    assert.deepStrictEqual(timeline.map(t => t.type), ['activity', 'activity', 'update', 'activity']);
+  });
+
+  await test('jMergeTimeline: deterministic tie-break when timestamps are identical (update before activity)', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var sameTime = '2026-08-18T10:00:00Z';
+    var updates = [{ id: 'u1', body: 'x', created_at: sameTime }];
+    var activity = [{ id: 'a1', event_type: 'STATUS_CHANGED', old_value: 'OPEN', new_value: 'WAITING', created_at: sameTime }];
+    var t1 = j.jMergeTimeline(updates, activity);
+    var t2 = j.jMergeTimeline(updates, activity); // run twice — must be stable/deterministic
+    assert.deepStrictEqual(t1.map(x => x.type), ['update', 'activity']);
+    assert.deepStrictEqual(t1.map(x => x.type), t2.map(x => x.type));
+  });
+
+
   process.exit(fail > 0 ? 1 : 0);
 })();

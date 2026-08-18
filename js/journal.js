@@ -416,11 +416,44 @@ async function jGetUpdates(entryId){
   return data || [];
 }
 
+// T2C: journal_activity holds automatic STATUS_CHANGED/ASSIGNEE_CHANGED events.
+async function jGetActivity(entryId){
+  var sb = window.supabaseClient;
+  var { data, error } = await sb.from('journal_activity').select('*')
+    .eq('journal_entry_id', entryId).order('created_at', { ascending: true });
+  if(error){ console.error('[journal] jGetActivity', error); return []; }
+  return data || [];
+}
+
+// Merges manual updates + automatic activity into one chronological story.
+// Deterministic tie-break for equal timestamps: updates first, then by id.
+function jMergeTimeline(updates, activity){
+  var items = [];
+  (updates||[]).forEach(function(u){ items.push({ type:'update', created_at:u.created_at, data:u }); });
+  (activity||[]).forEach(function(a){ items.push({ type:'activity', created_at:a.created_at, data:a }); });
+  items.sort(function(x,y){
+    var tx=new Date(x.created_at).getTime(), ty=new Date(y.created_at).getTime();
+    if(tx!==ty) return tx-ty;
+    if(x.type!==y.type) return x.type==='update' ? -1 : 1;
+    var ix=(x.data.id||''), iy=(y.data.id||'');
+    return ix<iy?-1:ix>iy?1:0;
+  });
+  return items;
+}
+
 async function jGetEntryWithUpdates(id){
   var entry = await jGetEntry(id);
   if(!entry) return null;
   var updates = await jGetUpdates(id);
   return { entry: entry, updates: updates };
+}
+
+async function jGetEntryWithTimeline(id){
+  var entry = await jGetEntry(id);
+  if(!entry) return null;
+  var updates = await jGetUpdates(id);
+  var activity = await jGetActivity(id);
+  return { entry: entry, updates: updates, activity: activity, timeline: jMergeTimeline(updates, activity) };
 }
 
 async function jAddUpdate(entryId, body){
@@ -436,17 +469,35 @@ async function jAddUpdate(entryId, body){
   return { data: data };
 }
 
+// Atomic via RPC (journal_set_status): the status UPDATE and the conditional
+// STATUS_CHANGED activity row are written in a single DB transaction, so a
+// failure can never leave one written without the other. Same-status calls
+// are still sent through (the RPC itself is what decides "no-op = no row").
 async function jSetStatus(id, status){
   if(J_STATUSES.indexOf(status) < 0) return { error: 'invalid status: ' + status };
   var sb = window.supabaseClient;
-  var { data, error } = await sb.from('journal_entries').update({ status: status }).eq('id', id).select('*').single();
+  var { data, error } = await sb.rpc('journal_set_status', {
+    p_entry_id: id, p_new_status: status,
+    p_actor: (window.user && window.user.name) || 'Unknown'
+  });
   if(error){ console.error('[journal] jSetStatus', error); return { error: error }; }
   return { data: data };
 }
 
+// Atomic via RPC (journal_set_assignee): resolves old/new display names from
+// the already-cached roster (no extra N+1) and passes them in so the
+// activity row stays readable even if a name changes or a user is removed.
 async function jSetAssignee(id, userId){
   var sb = window.supabaseClient;
-  var { data, error } = await sb.from('journal_entries').update({ assigned_to: userId }).eq('id', id).select('*').single();
+  var cur = await sb.from('journal_entries').select('assigned_to').eq('id', id).single();
+  if(cur.error){ console.error('[journal] jSetAssignee (read)', cur.error); return { error: cur.error }; }
+  var oldName = _jRosterName(cur.data.assigned_to);
+  var newName = _jRosterName(userId);
+  var { data, error } = await sb.rpc('journal_set_assignee', {
+    p_entry_id: id, p_new_assignee: userId,
+    p_actor: (window.user && window.user.name) || 'Unknown',
+    p_old_name: oldName, p_new_name: newName
+  });
   if(error){ console.error('[journal] jSetAssignee', error); return { error: error }; }
   return { data: data };
 }
@@ -458,6 +509,7 @@ async function jSetAssignee(id, userId){
 var _jdOpenId = null;
 var _jdEntry = null;
 var _jdUpdates = [];
+var _jdTimeline = []; // merged, chronologically-sorted updates + activity
 var _jdComposerOpen = false;
 var _jdSaving = false;
 var _jdDirty = false; // true once anything changes, so jCloseDetail knows to refresh the feed behind it
@@ -478,12 +530,13 @@ function _jdFmtDateShort(iso){
 
 async function jOpenDetail(id){
   document.querySelectorAll('.jcard-menu').forEach(function(m){m.style.display='none';});
-  var result = await jGetEntryWithUpdates(id);
+  var result = await jGetEntryWithTimeline(id);
   if(!result) return;
   await _jLoadRoster();
   _jdOpenId = id;
   _jdEntry = result.entry;
   _jdUpdates = result.updates;
+  _jdTimeline = result.timeline;
   _jdComposerOpen = false;
   _jdDirty = false;
   _jdRenderSheet();
@@ -493,8 +546,17 @@ function jCloseDetail(){
   var el = document.getElementById('jDetailSheet');
   if(el) el.remove();
   var dirty = _jdDirty;
-  _jdOpenId = null; _jdEntry = null; _jdUpdates = []; _jdComposerOpen = false; _jdDirty = false;
+  _jdOpenId = null; _jdEntry = null; _jdUpdates = []; _jdTimeline = []; _jdComposerOpen = false; _jdDirty = false;
   if(dirty) loadJournal(); // refresh card state (status/assignee/update count) behind the sheet
+}
+
+// Re-pulls updates + activity and re-merges — used after any successful
+// mutation instead of hand-splicing three differently-shaped arrays.
+async function _jdRefetchTimeline(){
+  var updates = await jGetUpdates(_jdOpenId);
+  var activity = await jGetActivity(_jdOpenId);
+  _jdUpdates = updates;
+  _jdTimeline = jMergeTimeline(updates, activity);
 }
 
 function jdUpdateRow(u){
@@ -502,6 +564,33 @@ function jdUpdateRow(u){
     '<div style="font-size:11px;color:#94a3b8;margin-bottom:3px;">'+_jdFmtDateTime(u.created_at)+' — '+_jEsc(u.author||'')+'</div>'+
     '<div style="font-size:13px;color:#334155;line-height:1.5;white-space:pre-wrap;">'+_jEsc(u.body)+'</div>'+
     '</div>';
+}
+
+// Automatic activity: lighter/compact single line, visually distinct from
+// a manual update (no card background, muted color, no separate body block).
+function jdActivitySentence(a){
+  var actor=_jEsc(a.actor||'Someone');
+  if(a.event_type==='STATUS_CHANGED'){
+    if(a.new_value==='RESOLVED') return actor+' resolved this issue';
+    if(a.new_value==='CLOSED') return actor+' closed this issue';
+    var oldLabel=J_STATUS_LABELS[a.old_value]||a.old_value;
+    var newLabel=J_STATUS_LABELS[a.new_value]||a.new_value;
+    return actor+' changed status from '+oldLabel+' to '+newLabel;
+  }
+  if(a.event_type==='ASSIGNEE_CHANGED'){
+    if(!a.old_value&&a.new_value) return actor+' assigned this to '+_jEsc(a.new_value);
+    if(a.old_value&&!a.new_value) return actor+' removed '+_jEsc(a.old_value)+"'s assignment";
+    if(a.old_value&&a.new_value) return actor+' reassigned this from '+_jEsc(a.old_value)+' to '+_jEsc(a.new_value);
+  }
+  return actor+' updated this entry';
+}
+function jdActivityRow(a){
+  return '<div style="padding:6px 0;font-size:11px;color:#94a3b8;">'+
+    '<span style="color:#cbd5e1;">'+_jdFmtDateTime(a.created_at)+'</span> — '+jdActivitySentence(a)+
+    '</div>';
+}
+function jdTimelineRow(item){
+  return item.type==='update' ? jdUpdateRow(item.data) : jdActivityRow(item.data);
 }
 
 function jdComposerHtml(){
@@ -565,6 +654,7 @@ async function jdChangeStatus(newStatus){
   }
   _jdEntry=res.data; // includes resolved_at/closed_at as stamped by the T1 DB trigger
   _jdDirty=true;
+  await _jdRefetchTimeline();
   _jdRenderSheet();
 }
 
@@ -587,6 +677,7 @@ async function jdChangeAssignee(val){
   }
   _jdEntry=res.data;
   _jdDirty=true;
+  await _jdRefetchTimeline();
   _jdRenderSheet();
 }
 
@@ -601,9 +692,9 @@ function _jdRenderSheet(){
   var originalBody = entry.body
     ? '<div style="font-size:14px;color:#1e293b;line-height:1.5;margin-top:4px;white-space:pre-wrap;">'+_jEsc(entry.body)+'</div>'
     : '';
-  var updatesHtml = _jdUpdates.length===0
+  var updatesHtml = _jdTimeline.length===0
     ? '<div style="padding:16px 0;font-size:12px;color:#cbd5e1;text-align:center;">No updates yet.</div>'
-    : _jdUpdates.map(function(u){ return jdUpdateRow(u); }).join('');
+    : _jdTimeline.map(jdTimelineRow).join('');
 
   var sheet = document.createElement('div');
   sheet.id = 'jDetailSheet';
@@ -678,9 +769,9 @@ async function jdSaveUpdate(){
     return;
   }
 
-  _jdUpdates.push(res.data);
   _jdComposerOpen = false;
   _jdDirty = true;
+  await _jdRefetchTimeline();
   _jdRenderSheet();
   setTimeout(function(){
     var body = document.getElementById('jdScrollBody');
@@ -693,6 +784,7 @@ window.loadJournal=loadJournal;
 window.jGetEntry=jGetEntry;
 window.jGetUpdates=jGetUpdates;
 window.jGetEntryWithUpdates=jGetEntryWithUpdates;
+window.jGetEntryWithTimeline=jGetEntryWithTimeline;
 window.jAddUpdate=jAddUpdate;
 window.jSetStatus=jSetStatus;
 window.jSetAssignee=jSetAssignee;
@@ -727,10 +819,14 @@ if (typeof module !== 'undefined' && module.exports) {
     jGetEntry: jGetEntry,
     jGetUpdates: jGetUpdates,
     jGetEntryWithUpdates: jGetEntryWithUpdates,
+    jGetActivity: jGetActivity,
+    jGetEntryWithTimeline: jGetEntryWithTimeline,
+    jMergeTimeline: jMergeTimeline,
     jAddUpdate: jAddUpdate,
     jSetStatus: jSetStatus,
     jSetAssignee: jSetAssignee,
     jdQuickActionTarget: jdQuickActionTarget,
+    jdActivitySentence: jdActivitySentence,
     _jRosterName: _jRosterName,
     _jSetRosterForTest: function(roster){ _jRoster = roster; }
   };
