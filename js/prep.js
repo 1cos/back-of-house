@@ -3576,14 +3576,26 @@ function openDoneSheetCustom(id){
             ${tr('prep_pieces')}
           </button>
         </div>`
-      // Default: 2 colonne (g o pz attivo)
+      // Count-based unit (pz, pezzi, porzioni, batch, squeezer, checklist, ...) —
+      // no safe/defined gram conversion exists for these (no g-per-unit factor
+      // stored anywhere). Offering Grams here let cooks pick an incompatible
+      // unit that the backend correctly rejects (unit_conversion_unsupported) —
+      // root UX cause of the Gf pasta save-failure bug. Show only the count unit.
+      : defaultPezzi
+      ? `<div style="margin-bottom:14px;">
+          <button id="dsc-btn-pz-${it.id}" onclick="dscSelect('${it.id}','pz')"
+            style="width:100%;height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid #059669;background:#059669;color:#fff;">
+            ${tr('prep_pieces')}
+          </button>
+        </div>`
+      // Default: 2 colonne (g o pz attivo) — solo per task con unità 'g' nativa
       : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
           <button id="dsc-btn-g-${it.id}" onclick="dscSelect('${it.id}','g')"
-            style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid ${defaultPezzi?'#e2e8f0':'#059669'};background:${defaultPezzi?'#f8fafc':'#059669'};color:${defaultPezzi?'#94a3b8':'#fff'};">
+            style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid #059669;background:#059669;color:#fff;">
             ${tr('prep_grams')}
           </button>
           <button id="dsc-btn-pz-${it.id}" onclick="dscSelect('${it.id}','pz')"
-            style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid ${defaultPezzi?'#059669':'#e2e8f0'};background:${defaultPezzi?'#059669':'#f8fafc'};color:${defaultPezzi?'#fff':'#94a3b8'};">
+            style="height:52px;border-radius:14px;font-size:15px;font-weight:600;border:2px solid #e2e8f0;background:#f8fafc;color:#94a3b8;">
             ${tr('prep_pieces')}
           </button>
         </div>`;
