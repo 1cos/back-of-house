@@ -526,7 +526,7 @@ function _csvEsc(s){
 }
 
 // ── HOME QUICK ENTRY ──────────────────────────────────────────────
-// Compact expense entry widget on Home, visible 08:00–14:00 CDT.
+// Compact expense entry widget on Home, always visible (no time window).
 // Authorized users: admin + Tela (id=3, Kitchen Operation Coordinator).
 
 var _EXP_QUICK_ALLOWED_IDS = [3]; // Tela only (Kitchen Operation Coordinator)
@@ -562,8 +562,7 @@ function _expQuickUpdateVisibility(){
   var el = document.getElementById('expQuickWidget');
   if(!el) return;
   if(!_expQuickAllowed()){ el.style.display = 'none'; return; }
-  var isAdm = window.user && (window.user.is_admin || window.user.role === 'admin');
-  el.style.display = (isAdm || _expQuickInWindow()) ? 'block' : 'none';
+  el.style.display = 'block'; // no time window — visible anytime to authorized users
   // Populate dropdown if becoming visible and not yet populated
   if(el.style.display === 'block'){
     var sel = document.getElementById('expQVendor');
