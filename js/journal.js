@@ -11,6 +11,8 @@ var _jShowArchived = false;
 var _jStatusFilter = 'All';   // All | Active | OPEN | IN_PROGRESS | WAITING | RESOLVED | CLOSED
 var _jFollowUpFilter = 'All'; // All | Due | Overdue | Scheduled | NotSet
 var _jAssigneeFilter = 'All'; // All | Me | Unassigned | '<users.id>' (string)
+var _jSearchTerm = '';        // trimmed; empty = no restriction. NOT counted in Filter · N.
+var _jSearchDebounceTimer = null;
 
 // T2H: Quick Views are presets over the SAME three filter variables above —
 // no separate state, no new query. "Mine" is only offered when the current
@@ -118,6 +120,11 @@ async function loadJournal(){
   var sec=document.getElementById('vj');
   if(!sec||sec.classList.contains('hidden'))return;
 
+  // Preserve search-input focus across the full-innerHTML re-render below —
+  // without this, every debounced search re-render would steal focus and
+  // interrupt typing.
+  var searchHadFocus = document.activeElement && document.activeElement.id==='jSearchInput';
+
   try{
     var sb=window.supabaseClient;
     var range=_jRange();
@@ -148,6 +155,18 @@ async function loadJournal(){
       query=query.eq('assigned_to',parseInt(_jAssigneeFilter,10));
     }
 
+    // T2I search — title/body/waiting_for/author, case-insensitive partial
+    // match, server-side via the same query (no extra request, no client-
+    // side filtering). Comma/parens are escaped because PostgREST's .or()
+    // grammar uses them as condition separators/grouping — otherwise a
+    // search term containing one could break the request. See T2I report.
+    var hasSearch = !!_jSearchTerm;
+    if(hasSearch){
+      var escTerm=_jSearchTerm.replace(/[,()]/g,function(ch){return '\\'+ch;});
+      var pat='%'+escTerm+'%';
+      query=query.or('title.ilike.'+pat+',body.ilike.'+pat+',waiting_for.ilike.'+pat+',author.ilike.'+pat);
+    }
+
     var {data,error}=await query;
     if(error){sec.innerHTML='<div style="padding:20px;color:#dc2626;">'+error.message+'</div>';return;}
     var entries=data||[];
@@ -172,6 +191,9 @@ async function loadJournal(){
     // New entry button / composer
     _jComposerHtml()+
 
+    // Search — server-side, title/body/waiting_for/author (T2I)
+    _jSearchHtml()+
+
     // Quick Views — one-tap presets over the existing Status/FollowUp/Assignee filters
     _jQuickViewsHtml()+
 
@@ -186,13 +208,21 @@ async function loadJournal(){
     (_jFilterOpen?_jFilterPanel():'')+
 
     // Feed
-    _jFeedHtml(entries,updateStats,hasFilter)+
+    _jFeedHtml(entries,updateStats,hasFilter,hasSearch)+
   '</div>';
 
   // Auto-focus title if composer is open
   if(_jComposerOpen||_jEditId){
     var tf=document.getElementById('jf_title');
     if(tf)setTimeout(function(){tf.focus();},100);
+  }
+  if(searchHadFocus){
+    var si=document.getElementById('jSearchInput');
+    if(si){
+      si.focus();
+      var len=si.value.length;
+      if(si.setSelectionRange) si.setSelectionRange(len,len);
+    }
   }
   }catch(e){
     // Any unexpected exception here previously left the OLD feed on screen
@@ -248,6 +278,30 @@ function _jComposerHtml(){
 // Compact horizontally-scrollable presets — subtle pill style, matching the
 // soft-tinted badges already used elsewhere (e.g. status pill in the detail
 // sheet), not the bolder filled Period buttons in the Filter panel.
+// Debounced (~300ms) so we don't fire a request per keystroke. Clear is
+// immediate. Focus/cursor position is restored after loadJournal() re-renders
+// (see loadJournal itself) so typing isn't interrupted.
+function jOnSearchInput(val){
+  clearTimeout(_jSearchDebounceTimer);
+  _jSearchDebounceTimer=setTimeout(function(){
+    _jSearchTerm=(val||'').trim();
+    loadJournal();
+  },300);
+}
+function jClearSearch(){
+  clearTimeout(_jSearchDebounceTimer);
+  _jSearchTerm='';
+  loadJournal();
+}
+
+function _jSearchHtml(){
+  return '<div style="position:relative;margin-bottom:12px;">'+
+    '<input id="jSearchInput" type="text" value="'+_jEsc(_jSearchTerm)+'" oninput="jOnSearchInput(this.value)" placeholder="Search Journal…" '+
+    'style="width:100%;padding:9px '+(_jSearchTerm?'34px':'12px')+' 9px 12px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;background:white;box-sizing:border-box;">'+
+    (_jSearchTerm?'<button onclick="jClearSearch()" style="position:absolute;right:6px;top:0;bottom:0;background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:0 8px;line-height:1;">✕</button>':'')+
+    '</div>';
+}
+
 function _jQuickViewsHtml(){
   var active=_jActiveQuickView();
   var views=J_QUICK_VIEWS.filter(function(q){ return q.key!=='Mine' || (window.user && window.user.id!=null); });
@@ -315,11 +369,15 @@ function _jFilterPanel(){
 }
 
 // ── Feed grouped by day ────────────────────────────────────────────
-function _jFeedHtml(entries,updateStats,hasFilter){
+function _jFeedHtml(entries,updateStats,hasFilter,hasSearch){
   if(entries.length===0){
+    var emptyMsg=tr('jNoEntries');
+    if(hasSearch&&hasFilter) emptyMsg='No Journal entries match your search and filters.';
+    else if(hasSearch) emptyMsg='No Journal entries match your search.';
+    else if(hasFilter) emptyMsg='No Journal entries match these filters.';
     return '<div style="text-align:center;padding:48px 20px;color:#94a3b8;">'+
       '<div style="font-size:32px;margin-bottom:8px;opacity:0.4;">📓</div>'+
-      '<div style="font-size:14px;font-weight:500;">'+(hasFilter?'No Journal entries match these filters.':tr('jNoEntries'))+'</div>'+
+      '<div style="font-size:14px;font-weight:500;">'+emptyMsg+'</div>'+
       '</div>';
   }
 
@@ -1165,6 +1223,8 @@ window.jSetStatusFilter=jSetStatusFilter;
 window.jSetFollowUpFilter=jSetFollowUpFilter;
 window.jSetAssigneeFilter=jSetAssigneeFilter;
 window.jSetQuickView=jSetQuickView;
+window.jOnSearchInput=jOnSearchInput;
+window.jClearSearch=jClearSearch;
 window.jToggleArchived=jToggleArchived;
 window.jCustomDate=jCustomDate;
 window.jSaveEntry=jSaveEntry;
@@ -1225,7 +1285,10 @@ if (typeof module !== 'undefined' && module.exports) {
     jSetPeriod: jSetPeriod,
     jSetCat: jSetCat,
     jToggleArchived: jToggleArchived,
-    _jGetFilterStateForTest: function(){ return { status:_jStatusFilter, followUp:_jFollowUpFilter, assignee:_jAssigneeFilter, period:_jPeriod, category:_jCatFilter, archived:_jShowArchived }; },
+    _jGetFilterStateForTest: function(){ return { status:_jStatusFilter, followUp:_jFollowUpFilter, assignee:_jAssigneeFilter, period:_jPeriod, category:_jCatFilter, archived:_jShowArchived, search:_jSearchTerm }; },
+    _jSetSearchTermForTest: function(v){ clearTimeout(_jSearchDebounceTimer); _jSearchTerm=(v||'').trim(); },
+    jOnSearchInput: jOnSearchInput,
+    jClearSearch: jClearSearch,
     _jSetRosterForTest: function(roster){ _jRoster = roster; }
   };
 }

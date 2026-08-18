@@ -83,6 +83,22 @@ function makeFakeSupabase(store){
         filters.push(r => vals.indexOf(r[key]) >= 0);
         return this;
       },
+      or(str){
+        // Splits on unescaped commas (PostgREST condition separator),
+        // unescapes \, and \( \) back to literal characters, and matches
+        // each "field.ilike.%term%" condition case-insensitively.
+        var conditions = str.split(/(?<!\\),/).map(c => c.replace(/\\(.)/g, '$1'));
+        var parsed = conditions.map(c => {
+          var m = c.match(/^([a-zA-Z_]+)\.ilike\.%(.*)%$/);
+          if(!m) return null;
+          return { field: m[1], term: m[2].toLowerCase() };
+        }).filter(Boolean);
+        filters.push(r => parsed.some(p => {
+          var val = r[p.field];
+          return typeof val === 'string' && val.toLowerCase().indexOf(p.term) >= 0;
+        }));
+        return this;
+      },
       order(key, opts){
         this._orderKey = key; this._orderAsc = !opts || opts.ascending !== false;
         return this;
@@ -1239,6 +1255,130 @@ console.log('\nJournal T1 — plumbing test run\n');
     j.jSetQuickView('NotARealPreset');
     var state = j._jGetFilterStateForTest();
     assert.strictEqual(state.status, 'WAITING', 'an unrecognized key must not alter existing filter state');
+  });
+
+  // ── T2I: Search entries ────────────────────────────────────────────
+  function makeSearchFixture(){
+    function fmt(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+    var todayStr = fmt(new Date());
+    return [
+      { id: 'A', title: "Oven Rational water problem", body: 'Called CES', waiting_for: 'replacement part', author: 'Max', entry_date: todayStr, is_archived: false, category: 'other', status: 'WAITING', assigned_to: null, created_at: '2026-08-17T10:00:00Z' },
+      { id: 'B', title: 'Fridge dressing and citrus not cooling', body: 'Temperature too high', waiting_for: null, author: 'Max', entry_date: todayStr, is_archived: false, category: 'other', status: 'OPEN', assigned_to: null, created_at: '2026-08-17T10:01:00Z' },
+      { id: 'C', title: "Chef's knife order", body: 'Cost $500, needs water valve part', waiting_for: null, author: 'Monica', entry_date: todayStr, is_archived: false, category: 'other', status: 'OPEN', assigned_to: null, created_at: '2026-08-17T10:02:00Z' }
+    ];
+  }
+
+  await atest('Search matches title (case-insensitive, partial)', async () => {
+    var html = await runLoadJournalWithFixture(makeSearchFixture(), j => j._jSetSearchTermForTest('rational'));
+    assert.ok(html.includes('Oven Rational water problem'));
+    assert.ok(!html.includes('Fridge dressing'));
+  });
+
+  await atest('Search matches body', async () => {
+    var html = await runLoadJournalWithFixture(makeSearchFixture(), j => j._jSetSearchTermForTest('CES'));
+    assert.ok(html.includes('Oven Rational water problem'));
+    assert.ok(!html.includes('Fridge dressing'));
+  });
+
+  await atest('Search matches waiting_for', async () => {
+    var html = await runLoadJournalWithFixture(makeSearchFixture(), j => j._jSetSearchTermForTest('replacement'));
+    assert.ok(html.includes('Oven Rational water problem'));
+    assert.ok(!html.includes('Fridge dressing'));
+    assert.ok(!html.includes("Chef's knife order"));
+  });
+
+  await atest('Search matches author', async () => {
+    var html = await runLoadJournalWithFixture(makeSearchFixture(), j => j._jSetSearchTermForTest('Monica'));
+    assert.ok(html.includes("Chef's knife order"));
+    assert.ok(!html.includes('Oven Rational'));
+    assert.ok(!html.includes('Fridge dressing'));
+  });
+
+  await atest('Search "fridge" matches only the fridge entry', async () => {
+    var html = await runLoadJournalWithFixture(makeSearchFixture(), j => j._jSetSearchTermForTest('fridge'));
+    assert.ok(html.includes('Fridge dressing and citrus not cooling'));
+    assert.ok(!html.includes('Oven Rational'));
+  });
+
+  await atest('Trimmed input: " fridge " behaves identically to "fridge"', async () => {
+    var html1 = await runLoadJournalWithFixture(makeSearchFixture(), j => j._jSetSearchTermForTest('fridge'));
+    var html2 = await runLoadJournalWithFixture(makeSearchFixture(), j => j._jSetSearchTermForTest('  fridge  '));
+    assert.strictEqual(html1.includes('Fridge dressing'), html2.includes('Fridge dressing'));
+    assert.ok(html2.includes('Fridge dressing'));
+  });
+
+  await atest('Whitespace-only input behaves as Search Off (all entries visible)', async () => {
+    var html = await runLoadJournalWithFixture(makeSearchFixture(), j => j._jSetSearchTermForTest('   '));
+    assert.ok(html.includes('Oven Rational'));
+    assert.ok(html.includes('Fridge dressing'));
+    assert.ok(html.includes("Chef's knife order"));
+  });
+
+  await atest('Search + Status combination: "fridge" + Status=Waiting -> zero results', async () => {
+    var html = await runLoadJournalWithFixture(makeSearchFixture(), j => {
+      j._jSetSearchTermForTest('fridge');
+      j._jSetStatusFilterForTest('WAITING');
+    });
+    assert.ok(html.includes('No Journal entries match your search and filters.'));
+  });
+
+  await atest('Search + Assignee combination narrows correctly', async () => {
+    var fixture = makeSearchFixture();
+    fixture[0].assigned_to = 1; // Max on entry A
+    var html = await runLoadJournalWithRoster(fixture, [{ id: 1, name: 'Max' }], { id: 1, name: 'Max' }, j => {
+      j._jSetSearchTermForTest('water');
+      j._jSetAssigneeFilterForTest('1');
+    });
+    assert.ok(html.includes('Oven Rational'), 'entry A matches "water" in title and is assigned to Max');
+  });
+
+  await atest('Search + Follow Up combination applies both server-side', async () => {
+    var fixture = makeSearchFixture();
+    fixture[0].follow_up_on = '2026-01-01'; // clearly in the past
+    var html = await runLoadJournalWithFixture(fixture, j => {
+      j._jSetSearchTermForTest('rational');
+      j._jSetFollowUpFilterForTest('Overdue');
+    });
+    assert.ok(html.includes('Oven Rational'));
+  });
+
+  await atest('Quick View preserves an existing search term', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j._jSetSearchTermForTest('Rational');
+    j.jSetQuickView('Active');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.search, 'Rational', 'Quick View must not clear an active search');
+    assert.strictEqual(state.status, 'Active');
+  });
+
+  await atest('Quick View "All" does not clear search either', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j._jSetSearchTermForTest('Rational');
+    j.jSetQuickView('Waiting');
+    j.jSetQuickView('All');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.search, 'Rational');
+    assert.strictEqual(state.status, 'All');
+  });
+
+  await test('Clearing search resets the term (direct state check)', () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j._jSetSearchTermForTest('Rational');
+    assert.strictEqual(j._jGetFilterStateForTest().search, 'Rational');
+    j._jSetSearchTermForTest('');
+    assert.strictEqual(j._jGetFilterStateForTest().search, '');
+  });
+
+  await atest('Special characters (comma, parens) in search do not break the query', async () => {
+    var fixture = makeSearchFixture();
+    fixture.push({ id: 'D', title: 'Vendor quote (urgent), $500 total', body: null, waiting_for: null, author: 'Max', entry_date: fixture[0].entry_date, is_archived: false, category: 'other', status: 'OPEN', assigned_to: null, created_at: '2026-08-17T10:03:00Z' });
+    var html = await runLoadJournalWithFixture(fixture, j => j._jSetSearchTermForTest('quote (urgent), $500'));
+    assert.ok(html.includes('Vendor quote'), 'a search term containing commas/parens must still find the matching entry, not throw');
+  });
+
+  await atest("Apostrophes and dollar signs in search work normally (Chef's, $500)", async () => {
+    var html = await runLoadJournalWithFixture(makeSearchFixture(), j => j._jSetSearchTermForTest("Chef's"));
+    assert.ok(html.includes("Chef's knife order"));
   });
 
 
