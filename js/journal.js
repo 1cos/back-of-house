@@ -32,14 +32,21 @@ var J_STATUS_COLORS = {OPEN:'#2563eb', IN_PROGRESS:'#d97706', WAITING:'#7c3aed',
 
 // Roster is fetched once and cached module-side — every card + the assignee
 // picker reuse this instead of each running their own query (no N+1).
+// Wrapped defensively: a failure here must never prevent the core Journal
+// feed (valid journal_entries) from rendering — see HOTFIX T2E.1.
 var _jRoster = null;
 async function _jLoadRoster(){
   if(_jRoster) return _jRoster;
-  var sb = window.supabaseClient;
-  var {data,error} = await sb.from('users').select('id,name').eq('active',true).order('name');
-  if(error){ console.error('[journal] roster load',error); return []; }
-  _jRoster = data || [];
-  return _jRoster;
+  try{
+    var sb = window.supabaseClient;
+    var {data,error} = await sb.from('users').select('id,name').eq('active',true).order('name');
+    if(error){ console.error('[journal] roster load',error); return []; }
+    _jRoster = data || [];
+    return _jRoster;
+  }catch(e){
+    console.error('[journal] roster load threw — continuing without it',e);
+    return [];
+  }
 }
 function _jRosterName(userId){
   if(userId===null||userId===undefined) return null;
@@ -69,19 +76,26 @@ function _jDateLabel(){
 }
 
 // One query for every visible card's update count/last-update date — avoids N+1.
+// Wrapped defensively — see HOTFIX T2E.1: this must degrade gracefully,
+// never abort the feed render.
 async function _jLoadUpdateStats(entryIds){
   if(!entryIds||entryIds.length===0) return {};
-  var sb=window.supabaseClient;
-  var {data,error}=await sb.from('journal_updates').select('journal_entry_id,created_at').in('journal_entry_id',entryIds);
-  if(error){ console.error('[journal] update stats',error); return {}; }
-  var stats={};
-  (data||[]).forEach(function(u){
-    var s=stats[u.journal_entry_id];
-    if(!s){ s={count:0,lastAt:null}; stats[u.journal_entry_id]=s; }
-    s.count++;
-    if(!s.lastAt||u.created_at>s.lastAt) s.lastAt=u.created_at;
-  });
-  return stats;
+  try{
+    var sb=window.supabaseClient;
+    var {data,error}=await sb.from('journal_updates').select('journal_entry_id,created_at').in('journal_entry_id',entryIds);
+    if(error){ console.error('[journal] update stats',error); return {}; }
+    var stats={};
+    (data||[]).forEach(function(u){
+      var s=stats[u.journal_entry_id];
+      if(!s){ s={count:0,lastAt:null}; stats[u.journal_entry_id]=s; }
+      s.count++;
+      if(!s.lastAt||u.created_at>s.lastAt) s.lastAt=u.created_at;
+    });
+    return stats;
+  }catch(e){
+    console.error('[journal] update stats threw — continuing without it',e);
+    return {};
+  }
 }
 
 // ── Main render ────────────────────────────────────────────────────
@@ -89,20 +103,24 @@ async function loadJournal(){
   var sec=document.getElementById('vj');
   if(!sec||sec.classList.contains('hidden'))return;
 
-  var sb=window.supabaseClient;
-  var range=_jRange();
+  try{
+    var sb=window.supabaseClient;
+    var range=_jRange();
 
-  var query=sb.from('journal_entries').select('*')
-    .gte('entry_date',range.from).lte('entry_date',range.to)
-    .order('entry_date',{ascending:false}).order('created_at',{ascending:false});
-  if(!_jShowArchived) query=query.eq('is_archived',false);
-  if(_jCatFilter!=='All') query=query.eq('category',_jCatFilter);
+    var query=sb.from('journal_entries').select('*')
+      .gte('entry_date',range.from).lte('entry_date',range.to)
+      .order('entry_date',{ascending:false}).order('created_at',{ascending:false});
+    if(!_jShowArchived) query=query.eq('is_archived',false);
+    if(_jCatFilter!=='All') query=query.eq('category',_jCatFilter);
 
-  var {data,error}=await query;
-  if(error){sec.innerHTML='<div style="padding:20px;color:#dc2626;">'+error.message+'</div>';return;}
-  var entries=data||[];
-  var updateStats=await _jLoadUpdateStats(entries.map(function(e){return e.id;}));
-  await _jLoadRoster();
+    var {data,error}=await query;
+    if(error){sec.innerHTML='<div style="padding:20px;color:#dc2626;">'+error.message+'</div>';return;}
+    var entries=data||[];
+    // Secondary enrichment (update counts, roster for assignee names) — both
+    // are internally fault-tolerant (see _jLoadUpdateStats/_jLoadRoster) and
+    // must never prevent a valid, already-saved entry from showing up here.
+    var updateStats=await _jLoadUpdateStats(entries.map(function(e){return e.id;}));
+    await _jLoadRoster();
 
   // Active filter indicator
   var hasFilter=_jCatFilter!=='All'||_jPeriod!=='7'||_jShowArchived;
@@ -136,6 +154,12 @@ async function loadJournal(){
   if(_jComposerOpen||_jEditId){
     var tf=document.getElementById('jf_title');
     if(tf)setTimeout(function(){tf.focus();},100);
+  }
+  }catch(e){
+    // Any unexpected exception here previously left the OLD feed on screen
+    // with zero feedback (HOTFIX T2E.1) — surface it visibly instead.
+    console.error('[journal] loadJournal failed',e);
+    sec.innerHTML='<div style="padding:20px;color:#dc2626;">Could not load Journal. Pull to refresh or reopen the app.</div>';
   }
 }
 
@@ -1050,6 +1074,7 @@ if (typeof module !== 'undefined' && module.exports) {
     jSetWaitingFor: jSetWaitingFor,
     jSetFollowUp: jSetFollowUp,
     jFollowUpLabel: jFollowUpLabel,
+    loadJournal: loadJournal,
     _jLoadUpdateStats: _jLoadUpdateStats,
     jdQuickActionTarget: jdQuickActionTarget,
     jdActivitySentence: jdActivitySentence,

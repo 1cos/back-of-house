@@ -12,6 +12,19 @@
 const assert = require('assert');
 const path = require('path');
 
+// Minimal fake DOM — only what loadJournal() touches (getElementById('vj')
+// + querySelectorAll for closing card menus). Used only by the HOTFIX
+// T2E.1 regression test below.
+function makeFakeDom(){
+  var elements = {};
+  function makeEl(id){ return { id: id, classList: { contains: function(){ return false; } }, innerHTML: '', style: {} }; }
+  return {
+    getElementById: function(id){ if(!elements[id]) elements[id] = makeEl(id); return elements[id]; },
+    querySelectorAll: function(){ return []; },
+    _el: function(id){ return elements[id]; }
+  };
+}
+
 let pass = 0, fail = 0;
 function test(name, fn){
   try{ fn(); pass++; console.log('  ✓ ' + name); }
@@ -32,6 +45,8 @@ function makeFakeSupabase(store){
   function table(name){
     return {
       select(){ return this; },
+      gte(){ return this; },
+      lte(){ return this; },
       insert(obj){
         var row = Object.assign({ id: 'gen-' + Math.random().toString(36).slice(2) }, obj);
         if(!row.created_at) row.created_at = new Date().toISOString();
@@ -48,6 +63,9 @@ function makeFakeSupabase(store){
         return this;
       },
       in(key, vals){
+        if(store._throwOnTable && store._throwOnTable === name){
+          throw new Error('simulated failure querying ' + name);
+        }
         this._inKey = key; this._inVals = vals;
         return this;
       },
@@ -769,6 +787,35 @@ console.log('\nJournal T1 — plumbing test run\n');
 
     var stats = await j._jLoadUpdateStats(['e1']);
     assert.strictEqual(stats.e1.count, 1);
+  });
+
+  // ── HOTFIX T2E.1: enrichment failure must never hide a valid entry ──
+  await atest('loadJournal still renders a real entry even when the update-stats enrichment query throws', async () => {
+    var store = {
+      journal_entries: [
+        { id: 'real-1', entry_date: '2026-08-18', author: 'Max', category: 'equipment',
+          title: 'Fridge dressing and citrus not cooling', body: 'Working at 58F', severity: 'info',
+          is_archived: false, created_at: '2026-08-18T02:56:55Z', status: 'OPEN',
+          assigned_to: null, waiting_for: null, follow_up_on: null }
+      ],
+      journal_updates: [],
+      journal_activity: [],
+      _throwOnTable: 'journal_updates' // simulates a network/schema-cache failure on the enrichment query only
+    };
+    var dom = makeFakeDom();
+    global.document = dom;
+    global.tr = function(k){ return '[' + k + ']'; };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    await j.loadJournal(); // must not throw/reject despite the enrichment query throwing internally
+    var html = dom._el('vj').innerHTML;
+    assert.ok(html.indexOf('Fridge dressing and citrus not cooling') >= 0,
+      'a real, already-saved entry must still render even when secondary enrichment fails');
+
+    delete global.document;
+    delete global.tr;
   });
 
 
