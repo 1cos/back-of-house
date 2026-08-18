@@ -837,6 +837,25 @@ console.log('\nJournal T1 — plumbing test run\n');
     return html;
   }
 
+  // T2G variant: also seeds a users roster (or omits it, to simulate roster
+  // failure) and a specific window.user (or none, to test "Me" availability).
+  async function runLoadJournalWithRoster(entries, users, currentUser, setup){
+    var store = { journal_entries: entries, journal_updates: [], journal_activity: [] };
+    if(users) store.users = users; // omit entirely to simulate a roster load failure
+    var dom = makeFakeDom();
+    global.document = dom;
+    global.tr = function(k){ return '[' + k + ']'; };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: currentUser || null };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+    if(setup) setup(j);
+    await j.loadJournal();
+    var html = dom._el('vj').innerHTML;
+    delete global.document;
+    delete global.tr;
+    return html;
+  }
+
   await atest('Status=Active includes OPEN/IN_PROGRESS/WAITING, excludes RESOLVED/CLOSED', async () => {
     var html = await runLoadJournalWithFixture(makeFilterFixture(), j => j._jSetStatusFilterForTest('Active'));
     ['Open no followup','Waiting due today','Waiting overdue','In progress future followup'].forEach(t => {
@@ -1009,6 +1028,90 @@ console.log('\nJournal T1 — plumbing test run\n');
 
     delete global.document;
     delete global.tr;
+  });
+
+  // ── T2G: Assigned To filter ─────────────────────────────────────
+  function makeAssigneeFixture(){
+    function fmt(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+    var todayStr = fmt(new Date());
+    var yesterdayStr = fmt(new Date(Date.now()-864e5));
+    return [
+      { id: 'e-max', title: 'Assigned to Max', entry_date: todayStr, is_archived: false, category: 'other', status: 'WAITING', follow_up_on: null, assigned_to: 1, created_at: '2026-08-17T10:00:00Z' },
+      { id: 'e-monica', title: 'Assigned to Monica', entry_date: todayStr, is_archived: false, category: 'other', status: 'WAITING', follow_up_on: yesterdayStr, assigned_to: 5, created_at: '2026-08-17T10:01:00Z' },
+      { id: 'e-unassigned-open', title: 'Unassigned open', entry_date: todayStr, is_archived: false, category: 'other', status: 'OPEN', follow_up_on: null, assigned_to: null, created_at: '2026-08-17T10:02:00Z' },
+      { id: 'e-unassigned-closed', title: 'Unassigned closed', entry_date: todayStr, is_archived: false, category: 'other', status: 'CLOSED', follow_up_on: null, assigned_to: null, created_at: '2026-08-17T10:03:00Z' },
+      { id: 'e-deleted-user', title: 'Assigned to a removed user', entry_date: todayStr, is_archived: false, category: 'other', status: 'OPEN', follow_up_on: null, assigned_to: 999, created_at: '2026-08-17T10:04:00Z' }
+    ];
+  }
+  var ROSTER = [{ id: 1, name: 'Max' }, { id: 5, name: 'Monica' }];
+
+  await atest('Assigned To=All applies no restriction', async () => {
+    var html = await runLoadJournalWithRoster(makeAssigneeFixture(), ROSTER, { id: 1, name: 'Max' });
+    ['Assigned to Max','Assigned to Monica','Unassigned open','Unassigned closed','Assigned to a removed user'].forEach(t => {
+      assert.ok(html.includes(t), 'All must include: ' + t);
+    });
+  });
+
+  await atest('Assigned To=Unassigned = assigned_to IS NULL only', async () => {
+    var html = await runLoadJournalWithRoster(makeAssigneeFixture(), ROSTER, { id: 1, name: 'Max' },
+      j => j._jSetAssigneeFilterForTest('Unassigned'));
+    assert.ok(html.includes('Unassigned open'));
+    assert.ok(html.includes('Unassigned closed'));
+    assert.ok(!html.includes('Assigned to Max'));
+    assert.ok(!html.includes('Assigned to Monica'));
+  });
+
+  await atest('Assigned To=<named user id> filters to that exact users.id', async () => {
+    var html = await runLoadJournalWithRoster(makeAssigneeFixture(), ROSTER, { id: 1, name: 'Max' },
+      j => j._jSetAssigneeFilterForTest('5')); // Monica
+    assert.ok(html.includes('Assigned to Monica'));
+    assert.ok(!html.includes('Assigned to Max'));
+    assert.ok(!html.includes('Unassigned'));
+  });
+
+  await atest('Combination: Assigned To=Unassigned + Status=Active shows unowned active work only', async () => {
+    var html = await runLoadJournalWithRoster(makeAssigneeFixture(), ROSTER, { id: 1, name: 'Max' }, j => {
+      j._jSetAssigneeFilterForTest('Unassigned');
+      j._jSetStatusFilterForTest('Active');
+    });
+    assert.ok(html.includes('Unassigned open'));
+    assert.ok(!html.includes('Unassigned closed'), 'Closed must be excluded by Status=Active even though unassigned');
+  });
+
+  await atest('Combination: Assigned To=Monica + Follow Up=Overdue', async () => {
+    var html = await runLoadJournalWithRoster(makeAssigneeFixture(), ROSTER, { id: 1, name: 'Max' }, j => {
+      j._jSetAssigneeFilterForTest('5');
+      j._jSetFollowUpFilterForTest('Overdue');
+    });
+    assert.ok(html.includes('Assigned to Monica'));
+    assert.ok(!html.includes('Assigned to Max'), 'Max has no follow-up date, must be excluded by Overdue');
+  });
+
+  await atest('Assigned To=Me resolves to window.user.id, not name-matching', async () => {
+    var html = await runLoadJournalWithRoster(makeAssigneeFixture(), ROSTER, { id: 1, name: 'Max' },
+      j => j._jSetAssigneeFilterForTest('Me'));
+    assert.ok(html.includes('Assigned to Max'));
+    assert.ok(!html.includes('Assigned to Monica'));
+  });
+
+  await atest('Filter · N includes the assignee filter when combined with Status', async () => {
+    var html = await runLoadJournalWithRoster(makeAssigneeFixture(), ROSTER, { id: 1, name: 'Max' }, j => {
+      j._jSetStatusFilterForTest('WAITING');
+      j._jSetAssigneeFilterForTest('5');
+    });
+    assert.ok(html.includes('Filter · 2'), 'expected "Filter · 2" in the rendered header');
+  });
+
+  await atest('Roster load failure does not kill the feed — All remains usable', async () => {
+    // users key intentionally omitted from the store to simulate a roster query failure
+    var html = await runLoadJournalWithRoster(makeAssigneeFixture(), null, { id: 1, name: 'Max' });
+    assert.ok(html.includes('Assigned to Max'), 'feed must still render every entry when roster fails');
+    assert.ok(html.includes('Unassigned open'));
+  });
+
+  await atest('An assigned_to referencing a user not in the roster does not crash rendering', async () => {
+    var html = await runLoadJournalWithRoster(makeAssigneeFixture(), ROSTER, { id: 1, name: 'Max' });
+    assert.ok(html.includes('Assigned to a removed user'), 'the entry itself must still render');
   });
 
 

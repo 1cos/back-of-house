@@ -10,6 +10,7 @@ var _jCatFilter = 'All';
 var _jShowArchived = false;
 var _jStatusFilter = 'All';   // All | Active | OPEN | IN_PROGRESS | WAITING | RESOLVED | CLOSED
 var _jFollowUpFilter = 'All'; // All | Due | Overdue | Scheduled | NotSet
+var _jAssigneeFilter = 'All'; // All | Me | Unassigned | '<users.id>' (string)
 var _jCustomFrom = null;
 var _jCustomTo = null;
 var _jEditId = null;
@@ -127,6 +128,14 @@ async function loadJournal(){
     else if(_jFollowUpFilter==='Scheduled') query=query.not('follow_up_on','is',null);
     else if(_jFollowUpFilter==='NotSet') query=query.is('follow_up_on',null);
 
+    if(_jAssigneeFilter==='Me'){
+      if(window.user && window.user.id!=null) query=query.eq('assigned_to',window.user.id);
+    } else if(_jAssigneeFilter==='Unassigned'){
+      query=query.is('assigned_to',null);
+    } else if(_jAssigneeFilter!=='All'){
+      query=query.eq('assigned_to',parseInt(_jAssigneeFilter,10));
+    }
+
     var {data,error}=await query;
     if(error){sec.innerHTML='<div style="padding:20px;color:#dc2626;">'+error.message+'</div>';return;}
     var entries=data||[];
@@ -137,7 +146,7 @@ async function loadJournal(){
     await _jLoadRoster();
 
   // Active filter indicator — count of non-default filters
-  var activeFilterCount=(_jCatFilter!=='All'?1:0)+(_jPeriod!=='7'?1:0)+(_jShowArchived?1:0)+(_jStatusFilter!=='All'?1:0)+(_jFollowUpFilter!=='All'?1:0);
+  var activeFilterCount=(_jCatFilter!=='All'?1:0)+(_jPeriod!=='7'?1:0)+(_jShowArchived?1:0)+(_jStatusFilter!=='All'?1:0)+(_jFollowUpFilter!=='All'?1:0)+(_jAssigneeFilter!=='All'?1:0);
   var hasFilter=activeFilterCount>0;
   var filterLabel=hasFilter?('Filter · '+activeFilterCount):'Filter';
 
@@ -236,6 +245,13 @@ function _jFilterPanel(){
     {k:'All',l:'All'},{k:'Due',l:'Due'},{k:'Overdue',l:'Overdue'},{k:'Scheduled',l:'Scheduled'},{k:'NotSet',l:'Not Set'}
   ].map(function(o){return'<option value="'+o.k+'"'+(_jFollowUpFilter===o.k?' selected':'')+'>'+o.l+'</option>';}).join('');
 
+  var assigneeOpts='<option value="All"'+(_jAssigneeFilter==='All'?' selected':'')+'>All</option>';
+  if(window.user && window.user.id!=null){
+    assigneeOpts+='<option value="Me"'+(_jAssigneeFilter==='Me'?' selected':'')+'>Me</option>';
+  }
+  assigneeOpts+='<option value="Unassigned"'+(_jAssigneeFilter==='Unassigned'?' selected':'')+'>Unassigned</option>'+
+    (_jRoster||[]).map(function(u){return'<option value="'+u.id+'"'+(_jAssigneeFilter===String(u.id)?' selected':'')+'>'+_jEsc(u.name)+'</option>';}).join('');
+
   return '<div style="background:white;border-radius:14px;padding:14px 16px;margin-bottom:10px;border:1px solid #e2e8f0;">'+
 
     '<div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Period</div>'+
@@ -259,6 +275,9 @@ function _jFilterPanel(){
 
     '<div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Follow Up</div>'+
     '<select onchange="jSetFollowUpFilter(this.value)" style="width:100%;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;background:white;margin-bottom:10px;-webkit-appearance:none;appearance:none;">'+followUpOpts+'</select>'+
+
+    '<div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Assigned To</div>'+
+    '<select onchange="jSetAssigneeFilter(this.value)" style="width:100%;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;background:white;margin-bottom:10px;-webkit-appearance:none;appearance:none;">'+assigneeOpts+'</select>'+
 
     '<label style="font-size:12px;color:#64748b;display:flex;align-items:center;gap:6px;cursor:pointer;">'+
     '<input type="checkbox" '+(_jShowArchived?'checked':'')+' onchange="jToggleArchived()" style="accent-color:#6366f1;">'+
@@ -401,6 +420,7 @@ function jSetPeriod(m){ _jPeriod=m; loadJournal(); }
 function jSetCat(c){ _jCatFilter=c; loadJournal(); }
 function jSetStatusFilter(v){ _jStatusFilter=v; loadJournal(); }
 function jSetFollowUpFilter(v){ _jFollowUpFilter=v; loadJournal(); }
+function jSetAssigneeFilter(v){ _jAssigneeFilter=v; loadJournal(); }
 function jToggleArchived(){ _jShowArchived=!_jShowArchived; loadJournal(); }
 function jCustomDate(){
   var f=document.getElementById('_jFrom'),t=document.getElementById('_jTo');
@@ -1093,6 +1113,7 @@ window.jSetPeriod=jSetPeriod;
 window.jSetCat=jSetCat;
 window.jSetStatusFilter=jSetStatusFilter;
 window.jSetFollowUpFilter=jSetFollowUpFilter;
+window.jSetAssigneeFilter=jSetAssigneeFilter;
 window.jToggleArchived=jToggleArchived;
 window.jCustomDate=jCustomDate;
 window.jSaveEntry=jSaveEntry;
@@ -1146,6 +1167,7 @@ if (typeof module !== 'undefined' && module.exports) {
     _jRosterName: _jRosterName,
     _jSetStatusFilterForTest: function(v){ _jStatusFilter = v; },
     _jSetFollowUpFilterForTest: function(v){ _jFollowUpFilter = v; },
+    _jSetAssigneeFilterForTest: function(v){ _jAssigneeFilter = v; },
     _jSetRosterForTest: function(roster){ _jRoster = roster; }
   };
 }
