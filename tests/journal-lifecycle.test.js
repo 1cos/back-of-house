@@ -789,6 +789,57 @@ console.log('\nJournal T1 — plumbing test run\n');
     assert.strictEqual(stats.e1.count, 1);
   });
 
+  // ── HOTFIX T2E.3: the actual, evidenced root cause — Texas evening timezone bug ──
+  await test('_jFmtLocalISO: Texas evening (22:30 CT) stays on the correct LOCAL calendar day', () => {
+    var originalTZ = process.env.TZ;
+    process.env.TZ = 'America/Chicago';
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    // 2026-08-18T03:30:00Z == 2026-08-17 22:30:00 in America/Chicago (CDT, UTC-5) —
+    // this is exactly when Max was creating real entries that went missing.
+    var texasEvening = new Date('2026-08-18T03:30:00Z');
+    var result = j._jFmtLocalISO(texasEvening);
+    assert.strictEqual(result, '2026-08-17',
+      'must stay on Aug 17 (Texas local calendar day) — the old `.toISOString().slice(0,10)` ' +
+      'approach would have wrongly returned 2026-08-18 here, which is the confirmed root cause');
+
+    process.env.TZ = originalTZ;
+  });
+
+  await test('Old buggy formula (for contrast): toISOString-based "today" DOES roll to tomorrow at Texas 22:30', () => {
+    var originalTZ = process.env.TZ;
+    process.env.TZ = 'America/Chicago';
+    var texasEvening = new Date('2026-08-18T03:30:00Z');
+    var oldBuggyResult = texasEvening.toISOString().slice(0, 10);
+    assert.strictEqual(oldBuggyResult, '2026-08-18',
+      'documents the exact bug: the old formula returns tomorrow, not today, after ~7pm CT');
+    process.env.TZ = originalTZ;
+  });
+
+  await test('_jTodayISO uses the local formatter (regression guard against reverting to toISOString)', () => {
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+    assert.strictEqual(j._jTodayISO(), j._jFmtLocalISO(new Date()));
+  });
+
+  await test('_jRange: entry_date=2026-08-17 stays within Today/7D/All ranges when "today" is Texas 22:30 on the 17th', () => {
+    var originalTZ = process.env.TZ;
+    process.env.TZ = 'America/Chicago';
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var entryDate = '2026-08-17';
+    var range7d = j._jRange(); // default period is '7'
+    assert.ok(entryDate >= range7d.from && entryDate <= range7d.to,
+      'a same-day entry must fall inside the default 7-day range, got ' + JSON.stringify(range7d));
+
+    process.env.TZ = originalTZ;
+  });
+
   // ── HOTFIX T2E.1: enrichment failure must never hide a valid entry ──
   await atest('loadJournal still renders a real entry even when the update-stats enrichment query throws', async () => {
     var store = {

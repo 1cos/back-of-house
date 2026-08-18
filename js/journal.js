@@ -14,6 +14,19 @@ var _jEditId = null;
 var _jComposerOpen = false;
 var _jFilterOpen = false;
 
+// ── TEMPORARY DIAGNOSTICS — HOTFIX T2E.3, remove once root cause confirmed on-device ──
+var _jDiag = {
+  runs: 0,
+  lastLoadAt: null,
+  mainQuery: { rows: null, error: null },
+  filters: {},
+  afterFilters: null,
+  updateStats: { ok: null, count: null },
+  roster: { ok: null, count: null },
+  render: { attempted: 0, rendered: 0, error: null },
+  rawNewest: []
+};
+
 var J_CATS = [
   {key:'service',     emoji:'🍽️', color:'#059669'},
   {key:'kitchen',     emoji:'🔪', color:'#2563eb'},
@@ -36,15 +49,17 @@ var J_STATUS_COLORS = {OPEN:'#2563eb', IN_PROGRESS:'#d97706', WAITING:'#7c3aed',
 // feed (valid journal_entries) from rendering — see HOTFIX T2E.1.
 var _jRoster = null;
 async function _jLoadRoster(){
-  if(_jRoster) return _jRoster;
+  if(_jRoster){ _jDiag.roster={ok:true,count:_jRoster.length}; return _jRoster; }
   try{
     var sb = window.supabaseClient;
     var {data,error} = await sb.from('users').select('id,name').eq('active',true).order('name');
-    if(error){ console.error('[journal] roster load',error); return []; }
+    if(error){ console.error('[journal] roster load',error); _jDiag.roster={ok:false,count:0}; return []; }
     _jRoster = data || [];
+    _jDiag.roster={ok:true,count:_jRoster.length};
     return _jRoster;
   }catch(e){
     console.error('[journal] roster load threw — continuing without it',e);
+    _jDiag.roster={ok:false,count:0};
     return [];
   }
 }
@@ -59,7 +74,7 @@ function _jEsc(s){ return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace
 
 function _jRange(){
   var t=new Date();t.setHours(0,0,0,0);
-  var iso=function(d){return d.toISOString().slice(0,10);};
+  var iso=_jFmtLocalISO;
   var add=function(d,n){var r=new Date(d);r.setDate(r.getDate()+n);return r;};
   if(_jPeriod==='0') return{from:iso(t),to:iso(t)};
   if(_jPeriod==='7') return{from:iso(add(t,-6)),to:iso(t)};
@@ -79,11 +94,11 @@ function _jDateLabel(){
 // Wrapped defensively — see HOTFIX T2E.1: this must degrade gracefully,
 // never abort the feed render.
 async function _jLoadUpdateStats(entryIds){
-  if(!entryIds||entryIds.length===0) return {};
+  if(!entryIds||entryIds.length===0){ _jDiag.updateStats={ok:true,count:0}; return {}; }
   try{
     var sb=window.supabaseClient;
     var {data,error}=await sb.from('journal_updates').select('journal_entry_id,created_at').in('journal_entry_id',entryIds);
-    if(error){ console.error('[journal] update stats',error); return {}; }
+    if(error){ console.error('[journal] update stats',error); _jDiag.updateStats={ok:false,count:0}; return {}; }
     var stats={};
     (data||[]).forEach(function(u){
       var s=stats[u.journal_entry_id];
@@ -91,9 +106,11 @@ async function _jLoadUpdateStats(entryIds){
       s.count++;
       if(!s.lastAt||u.created_at>s.lastAt) s.lastAt=u.created_at;
     });
+    _jDiag.updateStats={ok:true,count:Object.keys(stats).length};
     return stats;
   }catch(e){
     console.error('[journal] update stats threw — continuing without it',e);
+    _jDiag.updateStats={ok:false,count:0};
     return {};
   }
 }
@@ -103,9 +120,13 @@ async function loadJournal(){
   var sec=document.getElementById('vj');
   if(!sec||sec.classList.contains('hidden'))return;
 
+  _jDiag.runs++;
+  _jDiag.lastLoadAt=new Date().toISOString();
+
   try{
     var sb=window.supabaseClient;
     var range=_jRange();
+    _jDiag.filters={period:_jPeriod, category:_jCatFilter, showArchived:_jShowArchived, rangeFrom:range.from, rangeTo:range.to};
 
     var query=sb.from('journal_entries').select('*')
       .gte('entry_date',range.from).lte('entry_date',range.to)
@@ -114,8 +135,13 @@ async function loadJournal(){
     if(_jCatFilter!=='All') query=query.eq('category',_jCatFilter);
 
     var {data,error}=await query;
+    _jDiag.mainQuery={rows:data?data.length:0, error:error?error.message:null};
+    _jDiag.rawNewest=(data||[]).slice().sort(function(a,b){return (b.created_at||'').localeCompare(a.created_at||'');}).slice(0,5)
+      .map(function(e){return {id:(e.id||'').slice(0,8), entry_date:e.entry_date, title:e.title, is_archived:e.is_archived, status:e.status};});
+
     if(error){sec.innerHTML='<div style="padding:20px;color:#dc2626;">'+error.message+'</div>';return;}
     var entries=data||[];
+    _jDiag.afterFilters=entries.length; // date/category/archive filters are applied server-side in the query above — nothing further removes rows client-side
     // Secondary enrichment (update counts, roster for assignee names) — both
     // are internally fault-tolerant (see _jLoadUpdateStats/_jLoadRoster) and
     // must never prevent a valid, already-saved entry from showing up here.
@@ -127,6 +153,9 @@ async function loadJournal(){
   var filterLabel=hasFilter?'Filter ·':'Filter';
 
   sec.innerHTML='<div style="padding:16px 16px 120px;">'+
+    // TEMPORARY DEBUG PANEL — HOTFIX T2E.3
+    _jDiagPanelHtml()+
+
     // Header
     '<div style="margin-bottom:20px;">'+
     '<div style="font-size:24px;font-weight:800;color:#1e293b;letter-spacing:-.02em;">Journal</div>'+
@@ -163,6 +192,70 @@ async function loadJournal(){
   }
 }
 
+// ── TEMPORARY DEBUG PANEL — HOTFIX T2E.3, remove once root cause confirmed on-device ──
+function _jDiagPanelHtml(){
+  var d=_jDiag;
+  var rawLines=(d.rawNewest||[]).map(function(r,i){
+    return (i+1)+'. '+_jEsc(r.id)+'... | '+_jEsc(r.entry_date)+' | '+_jEsc(r.title)+' | archived='+r.is_archived+' | '+_jEsc(r.status||'?');
+  }).join('\n');
+  return '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:14px;">'+
+    '<div style="font-family:monospace;font-size:10px;color:#78350f;white-space:pre-wrap;line-height:1.6;">'+
+    '<b>⚠ TEMPORARY DEBUG — journal.js marker T2E3</b>\n'+
+    'BOH version: '+_jEsc(window.BOH_VERSION||'?')+'\n'+
+    'loadJournal runs: '+d.runs+'\n'+
+    'Last load: '+_jEsc(d.lastLoadAt||'-')+'\n'+
+    '\nMAIN QUERY:\n'+
+    '  rows returned: '+(d.mainQuery.rows==null?'-':d.mainQuery.rows)+'\n'+
+    '  error: '+_jEsc(d.mainQuery.error||'none')+'\n'+
+    '\nVISIBLE AFTER FILTERS:\n'+
+    '  rows: '+(d.afterFilters==null?'-':d.afterFilters)+'\n'+
+    '\nACTIVE FILTERS (real values used by the query, not just UI labels):\n'+
+    '  period: '+_jEsc(d.filters.period||'-')+'\n'+
+    '  category: '+_jEsc(d.filters.category||'-')+'\n'+
+    '  severity: N/A — no severity filter exists in this build\n'+
+    '  archived shown: '+d.filters.showArchived+'\n'+
+    '  date range: '+_jEsc(d.filters.rangeFrom||'-')+' .. '+_jEsc(d.filters.rangeTo||'-')+'\n'+
+    '\nUPDATE STATS:\n'+
+    '  '+(d.updateStats.ok===null?'-':(d.updateStats.ok?'success':'error'))+', entries enriched: '+(d.updateStats.count==null?'-':d.updateStats.count)+'\n'+
+    '\nROSTER:\n'+
+    '  '+(d.roster.ok===null?'-':(d.roster.ok?'success':'error'))+', users: '+(d.roster.count==null?'-':d.roster.count)+'\n'+
+    '\nRENDER:\n'+
+    '  cards attempted: '+d.render.attempted+'\n'+
+    '  cards rendered: '+d.render.rendered+'\n'+
+    '  render error: '+_jEsc(d.render.error||'none')+'\n'+
+    '\nRAW NEWEST (from the main query, before grouping):\n'+(rawLines||'(none)')+
+    '</div>'+
+    '<button onclick="jDiagRenderRaw()" style="width:100%;margin-top:10px;padding:8px;border-radius:8px;border:1px dashed #f59e0b;background:white;color:#92400e;font-size:11px;font-weight:600;cursor:pointer;">🔧 Render raw rows (no filters, no enrichment)</button>'+
+    '<div id="jDiagRawOutput"></div>'+
+    '</div>';
+}
+
+// Bypasses date range, archive filter, category filter, roster, update
+// stats, grouping and _jCard entirely — the absolute minimum query+render,
+// to answer one question: does the browser's own Supabase client receive
+// the missing rows at all?
+async function jDiagRenderRaw(){
+  var out=document.getElementById('jDiagRawOutput');
+  if(!out) return;
+  out.innerHTML='<div style="padding:8px 0;font-size:11px;color:#92400e;">Loading…</div>';
+  try{
+    var sb=window.supabaseClient;
+    var {data,error}=await sb.from('journal_entries').select('id,title,entry_date,status,is_archived').order('created_at',{ascending:false}).limit(30);
+    if(error){ out.innerHTML='<div style="padding:8px 0;color:#dc2626;font-size:11px;">Error: '+_jEsc(error.message)+'</div>'; return; }
+    var html='<div style="margin-top:8px;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;">'+
+      '<div style="font-size:10px;font-weight:700;color:#166534;margin-bottom:6px;">RAW ROWS — no filters — '+(data?data.length:0)+' returned</div>';
+    (data||[]).forEach(function(e){
+      html+='<div style="font-size:11px;color:#166534;padding:4px 0;border-top:1px solid #dcfce7;">'+
+        '<b>'+_jEsc(e.title)+'</b> — '+_jEsc(e.entry_date)+' — '+_jEsc(e.status||'?')+(e.is_archived?' (archived)':'')+
+        '</div>';
+    });
+    html+='</div>';
+    out.innerHTML=html;
+  }catch(e){
+    out.innerHTML='<div style="padding:8px 0;color:#dc2626;font-size:11px;">Threw: '+_jEsc(e.message)+'</div>';
+  }
+}
+
 // ── Composer ───────────────────────────────────────────────────────
 function _jComposerHtml(){
   if(!_jComposerOpen&&!_jEditId){
@@ -172,7 +265,7 @@ function _jComposerHtml(){
   }
 
   var isEdit=!!_jEditId;
-  var today=new Date().toISOString().slice(0,10);
+  var today=_jTodayISO();
   var catOpts=J_CATS.map(function(c){return'<option value="'+c.key+'">'+c.emoji+' '+c.key+'</option>';}).join('');
 
   return '<div style="background:white;border-radius:14px;padding:14px 16px;border:1px solid #e0e7ff;">'+
@@ -240,14 +333,15 @@ function _jFilterPanel(){
 // ── Feed grouped by day ────────────────────────────────────────────
 function _jFeedHtml(entries,updateStats){
   if(entries.length===0){
+    _jDiag.render={attempted:0,rendered:0,error:null};
     return '<div style="text-align:center;padding:48px 20px;color:#94a3b8;">'+
       '<div style="font-size:32px;margin-bottom:8px;opacity:0.4;">📓</div>'+
       '<div style="font-size:14px;font-weight:500;">'+tr('jNoEntries')+'</div>'+
       '</div>';
   }
 
-  var today=new Date().toISOString().slice(0,10);
-  var yest=new Date(Date.now()-864e5).toISOString().slice(0,10);
+  var today=_jTodayISO();
+  var yest=_jFmtLocalISO(new Date(Date.now()-864e5));
 
   // Group by date
   var groups={};
@@ -257,11 +351,22 @@ function _jFeedHtml(entries,updateStats){
     groups[d].push(e);
   });
 
+  _jDiag.render={attempted:entries.length, rendered:0, error:null};
+
   var html='';
   Object.keys(groups).sort().reverse().forEach(function(d){
     var label=d===today?'TODAY':d===yest?'YESTERDAY':d.slice(5).replace('-',' / ');
     html+='<div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px;'+(html?'':'margin-top:4px;')+'">'+label+'</div>';
-    groups[d].forEach(function(e){ html+=_jCard(e,updateStats&&updateStats[e.id]); });
+    groups[d].forEach(function(e){
+      // One malformed entry must not hide every other card — isolate per-card.
+      try{
+        html+=_jCard(e,updateStats&&updateStats[e.id]);
+        _jDiag.render.rendered++;
+      }catch(err){
+        console.error('[journal] card render failed for entry',e.id,err);
+        _jDiag.render.error=(e.id||'?')+': '+err.message;
+      }
+    });
   });
   return html;
 }
@@ -377,7 +482,7 @@ async function jSaveEntry(){
     if(!title){alert(tr('titleRequired'));return;}
 
     var payload={
-      entry_date:document.getElementById('jf_date')?.value||new Date().toISOString().slice(0,10),
+      entry_date:document.getElementById('jf_date')?.value||_jTodayISO(),
       category:document.getElementById('jf_cat')?.value||'other',
       severity:document.getElementById('jf_sev')?.value||'info',
       title:title,
@@ -624,7 +729,20 @@ function _jdFmtDateShort(iso){
 function _jdFmtDateOnly(dateStr){
   return dateStr ? _jdFmtDateShort(dateStr+'T00:00:00') : '';
 }
-function _jTodayISO(){ return new Date().toISOString().slice(0,10); }
+// HOTFIX T2E.3 root cause: plain `new Date().toISOString().slice(0,10)` is
+// WRONG in any timezone behind UTC (e.g. Texas/CDT, UTC-5) — toISOString()
+// always converts to UTC first, so after ~7pm local time it has already
+// rolled into UTC tomorrow and silently returns TOMORROW's date instead of
+// today's. Proven against real data: entries Max created 21:56-22:36 Texas
+// time got entry_date = tomorrow, then the feed's own `entry_date <= today`
+// filter excluded them — the row existed in the DB the whole time.
+// This formats a Date using its LOCAL calendar fields directly, no UTC
+// conversion at all, so it's correct in every timezone.
+function _jFmtLocalISO(d){
+  var y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+day;
+}
+function _jTodayISO(){ return _jFmtLocalISO(new Date()); }
 
 // Pure, testable — the exact text to show for a follow-up date given the
 // entry's current status. todayStr is injectable for deterministic tests;
@@ -1065,6 +1183,7 @@ window.jdChangeAssignee=jdChangeAssignee;
 window.jdOpenWaitingForEdit=jdOpenWaitingForEdit;
 window.jdCancelWaitingForEdit=jdCancelWaitingForEdit;
 window.jdSaveWaitingFor=jdSaveWaitingFor;
+window.jDiagRenderRaw=jDiagRenderRaw;
 window.jdOpenFollowUpEdit=jdOpenFollowUpEdit;
 window.jdCancelFollowUpEdit=jdCancelFollowUpEdit;
 window.jdQuickFollowUp=jdQuickFollowUp;
@@ -1090,6 +1209,9 @@ if (typeof module !== 'undefined' && module.exports) {
     jSetFollowUp: jSetFollowUp,
     jFollowUpLabel: jFollowUpLabel,
     loadJournal: loadJournal,
+    _jFmtLocalISO: _jFmtLocalISO,
+    _jTodayISO: _jTodayISO,
+    _jRange: _jRange,
     _jLoadUpdateStats: _jLoadUpdateStats,
     jdQuickActionTarget: jdQuickActionTarget,
     jdActivitySentence: jdActivitySentence,
