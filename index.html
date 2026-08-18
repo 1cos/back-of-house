@@ -1086,9 +1086,13 @@ if('serviceWorker'in navigator){
 // App version — single source of truth: CACHE_NAME in sw.js (boh-vNN).
 // Bumped on every deploy; label and title update automatically.
 // Also detects stale cache: if the server sw.js version is newer than
-// what this page was built with, trigger a SW update check.
+// what this page was built with, force an SW update AND reload — an
+// already-open PWA tab does not otherwise pick up new JS on its own,
+// no matter how many times the SW itself updates in the background.
+// See HOTFIX T2E.2 for why this matters: reg.update() alone left
+// already-open sessions permanently running stale journal.js.
 (function(){
-  var PAGE_VERSION = 752;
+  var PAGE_VERSION = 773;
   fetch('sw.js?nocache=' + Date.now())
     .then(function(r){ return r.text(); })
     .then(function(t){
@@ -1096,14 +1100,25 @@ if('serviceWorker'in navigator){
       if (!m) return;
       var serverV = parseInt(m[1], 10);
       var v = 'v' + m[1];
+      window.BOH_VERSION = v;
       var el = document.getElementById('appVersion');
       if (el) el.textContent = v;
       var elPin = document.getElementById('appVersionPin');
       if (elPin) elPin.textContent = v;
       document.title = 'Brigade — ' + v;
-      // If server version is newer than this page, force SW update check
+      // If server version is newer than this page, force SW update AND
+      // reload — but only once per detected version, so a slow-to-activate
+      // SW can't cause a reload loop.
       if (serverV > PAGE_VERSION && navigator.serviceWorker && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.getRegistration().then(function(reg){ if(reg) reg.update(); });
+        var reloadedFor = sessionStorage.getItem('boh_reloaded_for_v');
+        if (reloadedFor !== String(serverV)) {
+          sessionStorage.setItem('boh_reloaded_for_v', String(serverV));
+          navigator.serviceWorker.getRegistration().then(function(reg){
+            if (reg) return reg.update();
+          }).catch(function(){}).then(function(){
+            location.reload();
+          });
+        }
       }
     })
     .catch(function(){});

@@ -370,29 +370,44 @@ function jCustomDate(){
 }
 
 async function jSaveEntry(){
-  var sb=window.supabaseClient;
-  var title=(document.getElementById('jf_title')?.value||'').trim();
-  if(!title){alert(tr('titleRequired'));return;}
+  console.log('[JOURNAL CREATE] save clicked', {version: window.BOH_VERSION, editing: !!_jEditId});
+  try{
+    var sb=window.supabaseClient;
+    var title=(document.getElementById('jf_title')?.value||'').trim();
+    if(!title){alert(tr('titleRequired'));return;}
 
-  var payload={
-    entry_date:document.getElementById('jf_date')?.value||new Date().toISOString().slice(0,10),
-    category:document.getElementById('jf_cat')?.value||'other',
-    severity:document.getElementById('jf_sev')?.value||'info',
-    title:title,
-    body:(document.getElementById('jf_body')?.value||'').trim()||null
-  };
+    var payload={
+      entry_date:document.getElementById('jf_date')?.value||new Date().toISOString().slice(0,10),
+      category:document.getElementById('jf_cat')?.value||'other',
+      severity:document.getElementById('jf_sev')?.value||'info',
+      title:title,
+      body:(document.getElementById('jf_body')?.value||'').trim()||null
+    };
+    console.log('[JOURNAL CREATE] payload', payload);
 
-  if(_jEditId){
-    var {error}=await sb.from('journal_entries').update(payload).eq('id',_jEditId);
-    if(error){alert(tr('errorPrefix')+error.message);return;}
-    _jEditId=null;
-  } else {
-    payload.author=window.user?.name||'Max';
-    var {error}=await sb.from('journal_entries').insert(payload);
-    if(error){alert(tr('errorPrefix')+error.message);return;}
+    if(_jEditId){
+      console.log('[JOURNAL CREATE] update start', _jEditId);
+      var {error}=await sb.from('journal_entries').update(payload).eq('id',_jEditId);
+      if(error){ console.error('[JOURNAL CREATE] insert error', error); alert(tr('errorPrefix')+error.message); return; }
+      console.log('[JOURNAL CREATE] update success', _jEditId);
+      _jEditId=null;
+    } else {
+      payload.author=window.user?.name||'Max';
+      console.log('[JOURNAL CREATE] insert start');
+      var {data,error}=await sb.from('journal_entries').insert(payload).select('id');
+      if(error){ console.error('[JOURNAL CREATE] insert error', error); alert(tr('errorPrefix')+error.message); return; }
+      console.log('[JOURNAL CREATE] insert success', data && data[0] && data[0].id);
+    }
+    _jComposerOpen=false;
+    console.log('[JOURNAL CREATE] reload start');
+    await loadJournal();
+    console.log('[JOURNAL CREATE] reload complete, render count', document.querySelectorAll('#vj [onclick^="jOpenDetail"]').length);
+  }catch(e){
+    // Previously an unexpected exception here could leave the composer open
+    // (or closed) with zero feedback — "nothing happens". Never again.
+    console.error('[JOURNAL CREATE] unexpected exception', e);
+    alert('Something went wrong saving this entry. Please try again — ' + (e && e.message ? e.message : 'unknown error'));
   }
-  _jComposerOpen=false;
-  loadJournal();
 }
 
 async function jEditEntry(id){
