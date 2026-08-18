@@ -155,16 +155,38 @@ async function loadJournal(){
       query=query.eq('assigned_to',parseInt(_jAssigneeFilter,10));
     }
 
-    // T2I search — title/body/waiting_for/author, case-insensitive partial
-    // match, server-side via the same query (no extra request, no client-
-    // side filtering). Comma/parens are escaped because PostgREST's .or()
-    // grammar uses them as condition separators/grouping — otherwise a
-    // search term containing one could break the request. See T2I report.
+    // T2I/T2J search — entry fields (title/body/waiting_for/author) OR a
+    // manual update's body/author. Comma/parens are escaped because
+    // PostgREST's .or() grammar uses them as condition separators/grouping
+    // — otherwise a search term containing one could break the request.
     var hasSearch = !!_jSearchTerm;
     if(hasSearch){
       var escTerm=_jSearchTerm.replace(/[,()]/g,function(ch){return '\\'+ch;});
       var pat='%'+escTerm+'%';
-      query=query.or('title.ilike.'+pat+',body.ilike.'+pat+',waiting_for.ilike.'+pat+',author.ilike.'+pat);
+      var orParts=['title.ilike.'+pat,'body.ilike.'+pat,'waiting_for.ilike.'+pat,'author.ilike.'+pat];
+
+      // One extra query against journal_updates (not per-entry — this is a
+      // single query regardless of how many entries/updates exist, so it's
+      // not N+1), then fold the matching parent ids into the SAME .or() as
+      // an id.in.(...) condition. This keeps "entry field OR update field"
+      // as one server-side filter, still ANDed with every other Journal
+      // filter exactly like T2I. Fails safe: if this sub-query errors, we
+      // silently continue with entry-field-only search rather than break
+      // the whole feed.
+      try{
+        var updRes=await sb.from('journal_updates').select('journal_entry_id')
+          .or('body.ilike.'+pat+',author.ilike.'+pat);
+        if(updRes.error){
+          console.error('[journal] update search failed — continuing with entry-field search only',updRes.error);
+        } else {
+          var matchedIds=Array.from(new Set((updRes.data||[]).map(function(u){return u.journal_entry_id;})));
+          if(matchedIds.length>0) orParts.push('id.in.('+matchedIds.join(',')+')');
+        }
+      }catch(e){
+        console.error('[journal] update search threw — continuing with entry-field search only',e);
+      }
+
+      query=query.or(orParts.join(','));
     }
 
     var {data,error}=await query;

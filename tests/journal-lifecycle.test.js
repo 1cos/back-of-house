@@ -41,6 +41,24 @@ async function atest(name, fn){
 // .from(t).select(c).eq(k,v).order(c,{ascending}) -> array
 // .from(t).insert(obj).select('*').single()
 // .from(t).update(obj).eq(k,v).select('*').single()
+// PostgREST's real or= grammar treats commas inside a nested in.(...) list
+// as list separators, not condition separators — only top-level commas
+// (outside any parens) separate conditions. A naive string.split(',') gets
+// this wrong as soon as an id.in.(a,b,c) condition is mixed in (T2J).
+function splitTopLevelCommas(str){
+  var parts = [], depth = 0, current = '';
+  for(var i = 0; i < str.length; i++){
+    var ch = str[i];
+    if(ch === '\\' && i + 1 < str.length){ current += ch + str[i+1]; i++; continue; }
+    if(ch === '(') depth++;
+    if(ch === ')') depth--;
+    if(ch === ',' && depth === 0){ parts.push(current); current = ''; }
+    else current += ch;
+  }
+  if(current) parts.push(current);
+  return parts;
+}
+
 function makeFakeSupabase(store){
   function table(name){
     var filters = []; // predicates, ANDed together — supports real multi-condition queries
@@ -84,18 +102,21 @@ function makeFakeSupabase(store){
         return this;
       },
       or(str){
-        // Splits on unescaped commas (PostgREST condition separator),
-        // unescapes \, and \( \) back to literal characters, and matches
-        // each "field.ilike.%term%" condition case-insensitively.
-        var conditions = str.split(/(?<!\\),/).map(c => c.replace(/\\(.)/g, '$1'));
+        var conditions = splitTopLevelCommas(str);
         var parsed = conditions.map(c => {
-          var m = c.match(/^([a-zA-Z_]+)\.ilike\.%(.*)%$/);
-          if(!m) return null;
-          return { field: m[1], term: m[2].toLowerCase() };
+          var mIlike = c.match(/^([a-zA-Z_]+)\.ilike\.%(.*)%$/);
+          if(mIlike) return { type: 'ilike', field: mIlike[1], term: mIlike[2].replace(/\\(.)/g, '$1').toLowerCase() };
+          var mIn = c.match(/^([a-zA-Z_]+)\.in\.\((.*)\)$/);
+          if(mIn) return { type: 'in', field: mIn[1], vals: mIn[2].length ? mIn[2].split(',') : [] };
+          return null;
         }).filter(Boolean);
         filters.push(r => parsed.some(p => {
-          var val = r[p.field];
-          return typeof val === 'string' && val.toLowerCase().indexOf(p.term) >= 0;
+          if(p.type === 'ilike'){
+            var val = r[p.field];
+            return typeof val === 'string' && val.toLowerCase().indexOf(p.term) >= 0;
+          }
+          if(p.type === 'in') return p.vals.indexOf(String(r[p.field])) >= 0;
+          return false;
         }));
         return this;
       },
@@ -853,6 +874,24 @@ console.log('\nJournal T1 — plumbing test run\n');
     return html;
   }
 
+  // T2J variant: also seeds journal_updates, so search-in-updates can be tested.
+  async function runLoadJournalWithUpdates(entries, updates, setup){
+    var store = { journal_entries: entries, journal_updates: updates || [], journal_activity: [] };
+    var dom = makeFakeDom();
+    global.document = dom;
+    global.tr = function(k){ return '[' + k + ']'; };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+    if(setup) setup(j);
+    await j.loadJournal();
+    var html = dom._el('vj').innerHTML;
+    delete global.document;
+    delete global.tr;
+    return html;
+  }
+
+
   // T2G variant: also seeds a users roster (or omits it, to simulate roster
   // failure) and a specific window.user (or none, to test "Me" availability).
   async function runLoadJournalWithRoster(entries, users, currentUser, setup){
@@ -1379,6 +1418,142 @@ console.log('\nJournal T1 — plumbing test run\n');
   await atest("Apostrophes and dollar signs in search work normally (Chef's, $500)", async () => {
     var html = await runLoadJournalWithFixture(makeSearchFixture(), j => j._jSetSearchTermForTest("Chef's"));
     assert.ok(html.includes("Chef's knife order"));
+  });
+
+  // ── T2J: search also matches manual updates (returns parent, deduped) ──
+  function makeUpdateSearchFixture(){
+    function fmt(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+    var todayStr = fmt(new Date());
+    var entries = [
+      { id: 'A', title: 'Oven Rational water problem', body: 'Water alarm', waiting_for: null, author: 'Max', entry_date: todayStr, is_archived: false, category: 'other', status: 'WAITING', assigned_to: null, created_at: '2026-08-17T10:00:00Z' },
+      { id: 'B', title: 'Walk-in fridge issue', body: 'Called refrigeration company.', waiting_for: null, author: 'Max', entry_date: todayStr, is_archived: false, category: 'other', status: 'OPEN', assigned_to: null, created_at: '2026-08-17T10:01:00Z' }
+    ];
+    var updates = [
+      { id: 'u1', journal_entry_id: 'A', author: 'Max', body: 'CES technician replaced water valve.', created_at: '2026-08-18T09:00:00Z' },
+      { id: 'u2', journal_entry_id: 'B', author: 'Max', body: 'Waiting for estimate.', created_at: '2026-08-18T09:01:00Z' }
+    ];
+    return { entries: entries, updates: updates };
+  }
+
+  await atest('Search matches a manual update body and returns the parent entry', async () => {
+    var f = makeUpdateSearchFixture();
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => j._jSetSearchTermForTest('CES'));
+    assert.ok(html.includes('Oven Rational water problem'), 'entry A has no "CES" in its own fields, only in its update');
+    assert.ok(!html.includes('Walk-in fridge issue'));
+  });
+
+  await atest('Search "estimate" matches entry B only through its update', async () => {
+    var f = makeUpdateSearchFixture();
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => j._jSetSearchTermForTest('estimate'));
+    assert.ok(html.includes('Walk-in fridge issue'));
+    assert.ok(!html.includes('Oven Rational'));
+  });
+
+  await atest('Search "Rational" still matches through the original entry field (unchanged from T2I)', async () => {
+    var f = makeUpdateSearchFixture();
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => j._jSetSearchTermForTest('Rational'));
+    assert.ok(html.includes('Oven Rational water problem'));
+  });
+
+  await atest('Search matches a manual update AUTHOR', async () => {
+    var f = makeUpdateSearchFixture();
+    f.updates[1].author = 'Monica';
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => j._jSetSearchTermForTest('Monica'));
+    assert.ok(html.includes('Walk-in fridge issue'));
+    assert.ok(!html.includes('Oven Rational'));
+  });
+
+  await atest('Entry-field match OR update match — both entries returned for a term matching each differently', async () => {
+    var f = makeUpdateSearchFixture();
+    f.entries[1].body = 'Called refrigeration company, CES referred.'; // now B also matches CES via its own body
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => j._jSetSearchTermForTest('CES'));
+    assert.ok(html.includes('Oven Rational water problem'), 'A matches via its update');
+    assert.ok(html.includes('Walk-in fridge issue'), 'B matches via its own body field');
+  });
+
+  await atest('Multiple matching updates on the same entry still return the parent exactly once', async () => {
+    var f = makeUpdateSearchFixture();
+    f.updates.push({ id: 'u3', journal_entry_id: 'A', author: 'Max', body: 'Called CES again.', created_at: '2026-08-19T09:00:00Z' });
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => j._jSetSearchTermForTest('CES'));
+    var occurrences = html.split('Oven Rational water problem').length - 1;
+    assert.strictEqual(occurrences, 1, 'entry A must appear exactly once despite two matching updates');
+  });
+
+  await atest('Search-via-update combines with Status filter', async () => {
+    var f = makeUpdateSearchFixture(); // entry A is WAITING
+    var htmlWaiting = await runLoadJournalWithUpdates(f.entries, f.updates, j => {
+      j._jSetSearchTermForTest('CES');
+      j._jSetStatusFilterForTest('WAITING');
+    });
+    assert.ok(htmlWaiting.includes('Oven Rational water problem'));
+
+    var htmlClosed = await runLoadJournalWithUpdates(f.entries, f.updates, j => {
+      j._jSetSearchTermForTest('CES');
+      j._jSetStatusFilterForTest('CLOSED');
+    });
+    assert.ok(!htmlClosed.includes('Oven Rational water problem'), 'A is WAITING, not CLOSED — must be excluded');
+  });
+
+  await atest('Search-via-update combines with Assigned To filter', async () => {
+    var f = makeUpdateSearchFixture();
+    f.entries[0].assigned_to = 1; // Max
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => {
+      j._jSetSearchTermForTest('CES');
+      j._jSetAssigneeFilterForTest('1');
+    });
+    assert.ok(html.includes('Oven Rational water problem'));
+  });
+
+  await atest('Search-via-update combines with Follow Up filter', async () => {
+    var f = makeUpdateSearchFixture();
+    f.entries[0].follow_up_on = '2026-01-01'; // clearly overdue
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => {
+      j._jSetSearchTermForTest('CES');
+      j._jSetFollowUpFilterForTest('Overdue');
+    });
+    assert.ok(html.includes('Oven Rational water problem'));
+  });
+
+  await atest('Quick View preserves an update-matching search', async () => {
+    var f = makeUpdateSearchFixture();
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => {
+      j._jSetSearchTermForTest('CES');
+      j.jSetQuickView('Waiting');
+    });
+    var state = null;
+    // jSetQuickView already triggers loadJournal internally; verify state via a fresh call
+    assert.ok(html.includes('Oven Rational water problem'), 'search-via-update must still work after a Quick View tap');
+  });
+
+  await atest('Blank search performs no update-search work and renders the normal feed', async () => {
+    var f = makeUpdateSearchFixture();
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates); // no search term set — default ''
+    assert.ok(html.includes('Oven Rational water problem'));
+    assert.ok(html.includes('Walk-in fridge issue'));
+  });
+
+  await atest('Clearing search restores the normal feed (both entries visible again)', async () => {
+    var f = makeUpdateSearchFixture();
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => {
+      j._jSetSearchTermForTest('CES');
+      j._jSetSearchTermForTest(''); // simulates jClearSearch's effect on state
+    });
+    assert.ok(html.includes('Oven Rational water problem'));
+    assert.ok(html.includes('Walk-in fridge issue'));
+  });
+
+  await atest('Special characters in an update-matching search do not break the query', async () => {
+    var f = makeUpdateSearchFixture();
+    f.updates[0].body = "Part, valve (SCC) replaced — Chef's approval $500.";
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => j._jSetSearchTermForTest('valve (SCC)'));
+    assert.ok(html.includes('Oven Rational water problem'), 'a search term with parens must still match via the update, not throw');
+  });
+
+  await atest('Manual update count is unaffected by search (still counts all updates on the entry)', async () => {
+    var f = makeUpdateSearchFixture();
+    f.updates.push({ id: 'u3', journal_entry_id: 'A', author: 'Max', body: 'Called CES again.', created_at: '2026-08-19T09:00:00Z' });
+    var html = await runLoadJournalWithUpdates(f.entries, f.updates, j => j._jSetSearchTermForTest('CES'));
+    assert.ok(html.includes('2 updates'), 'entry A has 2 real updates total — search must not change this count');
   });
 
 
