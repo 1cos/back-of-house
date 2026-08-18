@@ -167,6 +167,81 @@ console.log('\nJournal T1 — plumbing test run\n');
     assert.strictEqual(r2.data.assigned_to, null);
   });
 
+  // ── T2B: status labels, roster resolution, quick-action mapping ────
+  await atest('J_STATUS_LABELS: every allowed status has a human label with no raw underscores', async () => {
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    j.J_STATUSES.forEach(s => {
+      var label = j.J_STATUS_LABELS[s];
+      assert.ok(label, 'missing label for ' + s);
+      assert.ok(!label.includes('_'), 'label for ' + s + ' leaks a raw underscore: ' + label);
+    });
+    assert.strictEqual(j.J_STATUS_LABELS.IN_PROGRESS, 'In Progress');
+  });
+
+  await atest('_jRosterName resolves a known id, unknown id, and null', async () => {
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    j._jSetRosterForTest([{ id: 1, name: 'Max' }, { id: 3, name: 'Tela' }]);
+    assert.strictEqual(j._jRosterName(3), 'Tela');
+    assert.strictEqual(j._jRosterName(999), null, 'unknown id should resolve to null, not throw');
+    assert.strictEqual(j._jRosterName(null), null);
+  });
+
+  await atest('jdQuickActionTarget: OPEN/IN_PROGRESS/WAITING -> RESOLVED', async () => {
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.strictEqual(j.jdQuickActionTarget('OPEN'), 'RESOLVED');
+    assert.strictEqual(j.jdQuickActionTarget('IN_PROGRESS'), 'RESOLVED');
+    assert.strictEqual(j.jdQuickActionTarget('WAITING'), 'RESOLVED');
+  });
+
+  await atest('jdQuickActionTarget: RESOLVED -> CLOSED', async () => {
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.strictEqual(j.jdQuickActionTarget('RESOLVED'), 'CLOSED');
+  });
+
+  await atest('jdQuickActionTarget: CLOSED -> no further action', async () => {
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.strictEqual(j.jdQuickActionTarget('CLOSED'), null);
+  });
+
+  await atest('jSetStatus: Resolve action target actually persists as RESOLVED', async () => {
+    var store = { journal_entries: [{ id: 'e1', status: 'WAITING' }], journal_updates: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var target = j.jdQuickActionTarget('WAITING'); // 'RESOLVED'
+    var res = await j.jSetStatus('e1', target);
+    assert.ok(!res.error);
+    assert.strictEqual(res.data.status, 'RESOLVED');
+  });
+
+  await atest('jSetStatus: Close action target actually persists as CLOSED', async () => {
+    var store = { journal_entries: [{ id: 'e1', status: 'RESOLVED' }], journal_updates: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var target = j.jdQuickActionTarget('RESOLVED'); // 'CLOSED'
+    var res = await j.jSetStatus('e1', target);
+    assert.ok(!res.error);
+    assert.strictEqual(res.data.status, 'CLOSED');
+  });
+
   await atest('jGetEntryWithUpdates assembles entry + its updates together', async () => {
     var store = {
       journal_entries: [{ id: 'e1', title: 'X', status: 'OPEN' }],

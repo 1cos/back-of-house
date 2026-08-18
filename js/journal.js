@@ -27,6 +27,26 @@ var J_CATS = [
 ];
 var J_SEV = {info:'#94a3b8', warning:'#f59e0b', critical:'#dc2626'};
 
+var J_STATUS_LABELS = {OPEN:'Open', IN_PROGRESS:'In Progress', WAITING:'Waiting', RESOLVED:'Resolved', CLOSED:'Closed'};
+var J_STATUS_COLORS = {OPEN:'#2563eb', IN_PROGRESS:'#d97706', WAITING:'#7c3aed', RESOLVED:'#059669', CLOSED:'#64748b'};
+
+// Roster is fetched once and cached module-side — every card + the assignee
+// picker reuse this instead of each running their own query (no N+1).
+var _jRoster = null;
+async function _jLoadRoster(){
+  if(_jRoster) return _jRoster;
+  var sb = window.supabaseClient;
+  var {data,error} = await sb.from('users').select('id,name').eq('active',true).order('name');
+  if(error){ console.error('[journal] roster load',error); return []; }
+  _jRoster = data || [];
+  return _jRoster;
+}
+function _jRosterName(userId){
+  if(userId===null||userId===undefined) return null;
+  var hit=(_jRoster||[]).find(function(u){return u.id===userId;});
+  return hit?hit.name:null;
+}
+
 function _jCat(k){ return J_CATS.find(function(c){return c.key===k;})||{key:k,emoji:'📝',color:'#64748b'}; }
 function _jEsc(s){ return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):''; }
 
@@ -82,6 +102,7 @@ async function loadJournal(){
   if(error){sec.innerHTML='<div style="padding:20px;color:#dc2626;">'+error.message+'</div>';return;}
   var entries=data||[];
   var updateStats=await _jLoadUpdateStats(entries.map(function(e){return e.id;}));
+  await _jLoadRoster();
 
   // Active filter indicator
   var hasFilter=_jCatFilter!=='All'||_jPeriod!=='7'||_jShowArchived;
@@ -237,6 +258,10 @@ function _jCard(e,stats){
     ?'<div style="font-size:10px;color:#a5b4fc;margin-top:4px;">'+stats.count+' '+(stats.count===1?'update':'updates')+' · Last update '+_jdFmtDateShort(stats.lastAt)+'</div>'
     :'';
 
+  var assigneeName=_jRosterName(e.assigned_to);
+  var lifecycleLine='<div style="font-size:10px;font-weight:600;color:'+(J_STATUS_COLORS[e.status]||'#94a3b8')+';margin-top:4px;">'+
+    (J_STATUS_LABELS[e.status]||e.status)+(assigneeName?' · '+_jEsc(assigneeName):'')+'</div>';
+
   return '<div onclick="jOpenDetail(\''+e.id+'\')" style="background:white;border-radius:12px;margin-bottom:6px;border-left:3px solid '+sev+';'+(archived?'opacity:0.5;':'')+'position:relative;cursor:pointer;-webkit-tap-highlight-color:transparent;">'+
     '<div style="padding:12px 14px;">'+
 
@@ -259,6 +284,9 @@ function _jCard(e,stats){
 
     // Author
     '<div style="font-size:10px;color:#cbd5e1;margin-top:6px;">'+_jEsc(e.author)+'</div>'+
+
+    // Status/assignee lifecycle line
+    lifecycleLine+
 
     // Update-count summary (only when it exists — no noise otherwise)
     updateLine+
@@ -432,6 +460,7 @@ var _jdEntry = null;
 var _jdUpdates = [];
 var _jdComposerOpen = false;
 var _jdSaving = false;
+var _jdDirty = false; // true once anything changes, so jCloseDetail knows to refresh the feed behind it
 
 function _jdFmtDateTime(iso){
   if(!iso) return '';
@@ -451,19 +480,21 @@ async function jOpenDetail(id){
   document.querySelectorAll('.jcard-menu').forEach(function(m){m.style.display='none';});
   var result = await jGetEntryWithUpdates(id);
   if(!result) return;
+  await _jLoadRoster();
   _jdOpenId = id;
   _jdEntry = result.entry;
   _jdUpdates = result.updates;
   _jdComposerOpen = false;
+  _jdDirty = false;
   _jdRenderSheet();
 }
 
 function jCloseDetail(){
   var el = document.getElementById('jDetailSheet');
   if(el) el.remove();
-  var hadUpdates = _jdUpdates && _jdUpdates.length > 0;
-  _jdOpenId = null; _jdEntry = null; _jdUpdates = []; _jdComposerOpen = false;
-  if(hadUpdates) loadJournal(); // refresh card summary if anything changed
+  var dirty = _jdDirty;
+  _jdOpenId = null; _jdEntry = null; _jdUpdates = []; _jdComposerOpen = false; _jdDirty = false;
+  if(dirty) loadJournal(); // refresh card state (status/assignee/update count) behind the sheet
 }
 
 function jdUpdateRow(u){
@@ -484,6 +515,81 @@ function jdComposerHtml(){
     '</div>';
 }
 
+function jdStatusSelectHtml(entry){
+  var color = J_STATUS_COLORS[entry.status]||'#64748b';
+  var opts = J_STATUSES.map(function(s){
+    return '<option value="'+s+'"'+(s===entry.status?' selected':'')+'>'+J_STATUS_LABELS[s]+'</option>';
+  }).join('');
+  return '<select id="jdStatusSelect" onchange="jdChangeStatus(this.value)" style="font-size:11px;font-weight:700;color:'+color+';background:'+color+'1a;border:1px solid '+color+'40;border-radius:20px;padding:4px 10px;-webkit-appearance:none;appearance:none;cursor:pointer;">'+opts+'</select>';
+}
+
+// Pure decision, no DOM — which status a quick action button should move to.
+function jdQuickActionTarget(status){
+  if(status==='OPEN'||status==='IN_PROGRESS'||status==='WAITING') return 'RESOLVED';
+  if(status==='RESOLVED') return 'CLOSED';
+  return null; // CLOSED — no further quick action
+}
+function jdQuickActionLabel(target){
+  return target==='RESOLVED'?'✓ Resolve':target==='CLOSED'?'Close':'';
+}
+function jdQuickActionHtml(entry){
+  var target=jdQuickActionTarget(entry.status);
+  if(!target) return '';
+  var color=target==='RESOLVED'?'#059669':'#64748b';
+  return '<button onclick="jdChangeStatus(\''+target+'\')" style="font-size:11px;font-weight:600;color:'+color+';background:'+color+'15;border:1px solid '+color+'40;border-radius:20px;padding:4px 10px;cursor:pointer;">'+jdQuickActionLabel(target)+'</button>';
+}
+
+function jdAssigneeSelectHtml(entry){
+  var opts='<option value=""'+(entry.assigned_to==null?' selected':'')+'>Unassigned</option>';
+  (_jRoster||[]).forEach(function(u){
+    opts+='<option value="'+u.id+'"'+(entry.assigned_to===u.id?' selected':'')+'>'+_jEsc(u.name)+'</option>';
+  });
+  return '<select id="jdAssigneeSelect" onchange="jdChangeAssignee(this.value)" style="font-size:12px;font-weight:600;color:#1e293b;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:6px 10px;-webkit-appearance:none;appearance:none;cursor:pointer;max-width:200px;">'+opts+'</select>';
+}
+
+var _jdStatusSaving=false;
+async function jdChangeStatus(newStatus){
+  if(_jdStatusSaving) return; // prevent duplicate submits
+  var prev=_jdEntry.status;
+  _jdStatusSaving=true;
+  var sel=document.getElementById('jdStatusSelect');
+  if(sel) sel.disabled=true;
+
+  var res=await jSetStatus(_jdOpenId,newStatus);
+  _jdStatusSaving=false;
+
+  if(res.error){
+    if(sel){ sel.disabled=false; sel.value=prev; } // preserve previous state visually
+    alert('Could not change status. Please try again.');
+    return;
+  }
+  _jdEntry=res.data; // includes resolved_at/closed_at as stamped by the T1 DB trigger
+  _jdDirty=true;
+  _jdRenderSheet();
+}
+
+var _jdAssigneeSaving=false;
+async function jdChangeAssignee(val){
+  if(_jdAssigneeSaving) return;
+  var prev=_jdEntry.assigned_to;
+  var newId = val===''? null : parseInt(val,10);
+  _jdAssigneeSaving=true;
+  var sel=document.getElementById('jdAssigneeSelect');
+  if(sel) sel.disabled=true;
+
+  var res=await jSetAssignee(_jdOpenId,newId);
+  _jdAssigneeSaving=false;
+
+  if(res.error){
+    if(sel){ sel.disabled=false; sel.value=prev==null?'':prev; }
+    alert('Could not update assignment. Please try again.');
+    return;
+  }
+  _jdEntry=res.data;
+  _jdDirty=true;
+  _jdRenderSheet();
+}
+
 function _jdRenderSheet(){
   var existing = document.getElementById('jDetailSheet');
   if(existing) existing.remove();
@@ -491,7 +597,7 @@ function _jdRenderSheet(){
   if(!entry) return;
   var cat = _jCat(entry.category);
 
-  var metaLine = cat.emoji+' '+entry.category+' · '+entry.status+' · '+_jdFmtDateShort(entry.entry_date+'T00:00:00');
+  var catDateLine = cat.emoji+' '+entry.category+' · '+_jdFmtDateShort(entry.entry_date+'T00:00:00');
   var originalBody = entry.body
     ? '<div style="font-size:14px;color:#1e293b;line-height:1.5;margin-top:4px;white-space:pre-wrap;">'+_jEsc(entry.body)+'</div>'
     : '';
@@ -513,7 +619,15 @@ function _jdRenderSheet(){
         '<button onclick="jCloseDetail()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>'+
         '<div style="flex:1;min-width:0;">'+
           '<div style="font-size:15px;font-weight:700;color:#1e293b;line-height:1.3;">'+_jEsc(entry.title)+'</div>'+
-          '<div style="font-size:11px;color:#94a3b8;margin-top:3px;">'+metaLine+'</div>'+
+          '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px;">'+
+            '<span style="font-size:11px;color:#94a3b8;">'+catDateLine+'</span>'+
+            jdStatusSelectHtml(entry)+
+            jdQuickActionHtml(entry)+
+          '</div>'+
+          '<div style="display:flex;align-items:center;gap:6px;margin-top:8px;">'+
+            '<span style="font-size:11px;color:#94a3b8;">Assigned to</span>'+
+            jdAssigneeSelectHtml(entry)+
+          '</div>'+
         '</div>'+
       '</div>'+
       '<div id="jdScrollBody" style="overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;padding:14px 16px;">'+
@@ -566,6 +680,7 @@ async function jdSaveUpdate(){
 
   _jdUpdates.push(res.data);
   _jdComposerOpen = false;
+  _jdDirty = true;
   _jdRenderSheet();
   setTimeout(function(){
     var body = document.getElementById('jdScrollBody');
@@ -600,17 +715,23 @@ window.jCloseDetail=jCloseDetail;
 window.jdOpenComposer=jdOpenComposer;
 window.jdCancelComposer=jdCancelComposer;
 window.jdSaveUpdate=jdSaveUpdate;
+window.jdChangeStatus=jdChangeStatus;
+window.jdChangeAssignee=jdChangeAssignee;
 
 // ── TEST-ONLY EXPORTS ────────────────────────────────────────────
 // No-op in the browser (no `module` there).
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     J_STATUSES: J_STATUSES,
+    J_STATUS_LABELS: J_STATUS_LABELS,
     jGetEntry: jGetEntry,
     jGetUpdates: jGetUpdates,
     jGetEntryWithUpdates: jGetEntryWithUpdates,
     jAddUpdate: jAddUpdate,
     jSetStatus: jSetStatus,
-    jSetAssignee: jSetAssignee
+    jSetAssignee: jSetAssignee,
+    jdQuickActionTarget: jdQuickActionTarget,
+    _jRosterName: _jRosterName,
+    _jSetRosterForTest: function(roster){ _jRoster = roster; }
   };
 }
