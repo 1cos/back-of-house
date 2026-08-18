@@ -14,19 +14,6 @@ var _jEditId = null;
 var _jComposerOpen = false;
 var _jFilterOpen = false;
 
-// ── TEMPORARY DIAGNOSTICS — HOTFIX T2E.3, remove once root cause confirmed on-device ──
-var _jDiag = {
-  runs: 0,
-  lastLoadAt: null,
-  mainQuery: { rows: null, error: null },
-  filters: {},
-  afterFilters: null,
-  updateStats: { ok: null, count: null },
-  roster: { ok: null, count: null },
-  render: { attempted: 0, rendered: 0, error: null },
-  rawNewest: []
-};
-
 var J_CATS = [
   {key:'service',     emoji:'🍽️', color:'#059669'},
   {key:'kitchen',     emoji:'🔪', color:'#2563eb'},
@@ -49,17 +36,15 @@ var J_STATUS_COLORS = {OPEN:'#2563eb', IN_PROGRESS:'#d97706', WAITING:'#7c3aed',
 // feed (valid journal_entries) from rendering — see HOTFIX T2E.1.
 var _jRoster = null;
 async function _jLoadRoster(){
-  if(_jRoster){ _jDiag.roster={ok:true,count:_jRoster.length}; return _jRoster; }
+  if(_jRoster) return _jRoster;
   try{
     var sb = window.supabaseClient;
     var {data,error} = await sb.from('users').select('id,name').eq('active',true).order('name');
-    if(error){ console.error('[journal] roster load',error); _jDiag.roster={ok:false,count:0}; return []; }
+    if(error){ console.error('[journal] roster load',error); return []; }
     _jRoster = data || [];
-    _jDiag.roster={ok:true,count:_jRoster.length};
     return _jRoster;
   }catch(e){
     console.error('[journal] roster load threw — continuing without it',e);
-    _jDiag.roster={ok:false,count:0};
     return [];
   }
 }
@@ -94,11 +79,11 @@ function _jDateLabel(){
 // Wrapped defensively — see HOTFIX T2E.1: this must degrade gracefully,
 // never abort the feed render.
 async function _jLoadUpdateStats(entryIds){
-  if(!entryIds||entryIds.length===0){ _jDiag.updateStats={ok:true,count:0}; return {}; }
+  if(!entryIds||entryIds.length===0) return {};
   try{
     var sb=window.supabaseClient;
     var {data,error}=await sb.from('journal_updates').select('journal_entry_id,created_at').in('journal_entry_id',entryIds);
-    if(error){ console.error('[journal] update stats',error); _jDiag.updateStats={ok:false,count:0}; return {}; }
+    if(error){ console.error('[journal] update stats',error); return {}; }
     var stats={};
     (data||[]).forEach(function(u){
       var s=stats[u.journal_entry_id];
@@ -106,11 +91,9 @@ async function _jLoadUpdateStats(entryIds){
       s.count++;
       if(!s.lastAt||u.created_at>s.lastAt) s.lastAt=u.created_at;
     });
-    _jDiag.updateStats={ok:true,count:Object.keys(stats).length};
     return stats;
   }catch(e){
     console.error('[journal] update stats threw — continuing without it',e);
-    _jDiag.updateStats={ok:false,count:0};
     return {};
   }
 }
@@ -120,13 +103,9 @@ async function loadJournal(){
   var sec=document.getElementById('vj');
   if(!sec||sec.classList.contains('hidden'))return;
 
-  _jDiag.runs++;
-  _jDiag.lastLoadAt=new Date().toISOString();
-
   try{
     var sb=window.supabaseClient;
     var range=_jRange();
-    _jDiag.filters={period:_jPeriod, category:_jCatFilter, showArchived:_jShowArchived, rangeFrom:range.from, rangeTo:range.to};
 
     var query=sb.from('journal_entries').select('*')
       .gte('entry_date',range.from).lte('entry_date',range.to)
@@ -135,13 +114,8 @@ async function loadJournal(){
     if(_jCatFilter!=='All') query=query.eq('category',_jCatFilter);
 
     var {data,error}=await query;
-    _jDiag.mainQuery={rows:data?data.length:0, error:error?error.message:null};
-    _jDiag.rawNewest=(data||[]).slice().sort(function(a,b){return (b.created_at||'').localeCompare(a.created_at||'');}).slice(0,5)
-      .map(function(e){return {id:(e.id||'').slice(0,8), entry_date:e.entry_date, title:e.title, is_archived:e.is_archived, status:e.status};});
-
     if(error){sec.innerHTML='<div style="padding:20px;color:#dc2626;">'+error.message+'</div>';return;}
     var entries=data||[];
-    _jDiag.afterFilters=entries.length; // date/category/archive filters are applied server-side in the query above — nothing further removes rows client-side
     // Secondary enrichment (update counts, roster for assignee names) — both
     // are internally fault-tolerant (see _jLoadUpdateStats/_jLoadRoster) and
     // must never prevent a valid, already-saved entry from showing up here.
@@ -153,9 +127,6 @@ async function loadJournal(){
   var filterLabel=hasFilter?'Filter ·':'Filter';
 
   sec.innerHTML='<div style="padding:16px 16px 120px;">'+
-    // TEMPORARY DEBUG PANEL — HOTFIX T2E.3
-    _jDiagPanelHtml()+
-
     // Header
     '<div style="margin-bottom:20px;">'+
     '<div style="font-size:24px;font-weight:800;color:#1e293b;letter-spacing:-.02em;">Journal</div>'+
@@ -189,70 +160,6 @@ async function loadJournal(){
     // with zero feedback (HOTFIX T2E.1) — surface it visibly instead.
     console.error('[journal] loadJournal failed',e);
     sec.innerHTML='<div style="padding:20px;color:#dc2626;">Could not load Journal. Pull to refresh or reopen the app.</div>';
-  }
-}
-
-// ── TEMPORARY DEBUG PANEL — HOTFIX T2E.3, remove once root cause confirmed on-device ──
-function _jDiagPanelHtml(){
-  var d=_jDiag;
-  var rawLines=(d.rawNewest||[]).map(function(r,i){
-    return (i+1)+'. '+_jEsc(r.id)+'... | '+_jEsc(r.entry_date)+' | '+_jEsc(r.title)+' | archived='+r.is_archived+' | '+_jEsc(r.status||'?');
-  }).join('\n');
-  return '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:14px;">'+
-    '<div style="font-family:monospace;font-size:10px;color:#78350f;white-space:pre-wrap;line-height:1.6;">'+
-    '<b>⚠ TEMPORARY DEBUG — journal.js marker T2E3</b>\n'+
-    'BOH version: '+_jEsc(window.BOH_VERSION||'?')+'\n'+
-    'loadJournal runs: '+d.runs+'\n'+
-    'Last load: '+_jEsc(d.lastLoadAt||'-')+'\n'+
-    '\nMAIN QUERY:\n'+
-    '  rows returned: '+(d.mainQuery.rows==null?'-':d.mainQuery.rows)+'\n'+
-    '  error: '+_jEsc(d.mainQuery.error||'none')+'\n'+
-    '\nVISIBLE AFTER FILTERS:\n'+
-    '  rows: '+(d.afterFilters==null?'-':d.afterFilters)+'\n'+
-    '\nACTIVE FILTERS (real values used by the query, not just UI labels):\n'+
-    '  period: '+_jEsc(d.filters.period||'-')+'\n'+
-    '  category: '+_jEsc(d.filters.category||'-')+'\n'+
-    '  severity: N/A — no severity filter exists in this build\n'+
-    '  archived shown: '+d.filters.showArchived+'\n'+
-    '  date range: '+_jEsc(d.filters.rangeFrom||'-')+' .. '+_jEsc(d.filters.rangeTo||'-')+'\n'+
-    '\nUPDATE STATS:\n'+
-    '  '+(d.updateStats.ok===null?'-':(d.updateStats.ok?'success':'error'))+', entries enriched: '+(d.updateStats.count==null?'-':d.updateStats.count)+'\n'+
-    '\nROSTER:\n'+
-    '  '+(d.roster.ok===null?'-':(d.roster.ok?'success':'error'))+', users: '+(d.roster.count==null?'-':d.roster.count)+'\n'+
-    '\nRENDER:\n'+
-    '  cards attempted: '+d.render.attempted+'\n'+
-    '  cards rendered: '+d.render.rendered+'\n'+
-    '  render error: '+_jEsc(d.render.error||'none')+'\n'+
-    '\nRAW NEWEST (from the main query, before grouping):\n'+(rawLines||'(none)')+
-    '</div>'+
-    '<button onclick="jDiagRenderRaw()" style="width:100%;margin-top:10px;padding:8px;border-radius:8px;border:1px dashed #f59e0b;background:white;color:#92400e;font-size:11px;font-weight:600;cursor:pointer;">🔧 Render raw rows (no filters, no enrichment)</button>'+
-    '<div id="jDiagRawOutput"></div>'+
-    '</div>';
-}
-
-// Bypasses date range, archive filter, category filter, roster, update
-// stats, grouping and _jCard entirely — the absolute minimum query+render,
-// to answer one question: does the browser's own Supabase client receive
-// the missing rows at all?
-async function jDiagRenderRaw(){
-  var out=document.getElementById('jDiagRawOutput');
-  if(!out) return;
-  out.innerHTML='<div style="padding:8px 0;font-size:11px;color:#92400e;">Loading…</div>';
-  try{
-    var sb=window.supabaseClient;
-    var {data,error}=await sb.from('journal_entries').select('id,title,entry_date,status,is_archived').order('created_at',{ascending:false}).limit(30);
-    if(error){ out.innerHTML='<div style="padding:8px 0;color:#dc2626;font-size:11px;">Error: '+_jEsc(error.message)+'</div>'; return; }
-    var html='<div style="margin-top:8px;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;">'+
-      '<div style="font-size:10px;font-weight:700;color:#166534;margin-bottom:6px;">RAW ROWS — no filters — '+(data?data.length:0)+' returned</div>';
-    (data||[]).forEach(function(e){
-      html+='<div style="font-size:11px;color:#166534;padding:4px 0;border-top:1px solid #dcfce7;">'+
-        '<b>'+_jEsc(e.title)+'</b> — '+_jEsc(e.entry_date)+' — '+_jEsc(e.status||'?')+(e.is_archived?' (archived)':'')+
-        '</div>';
-    });
-    html+='</div>';
-    out.innerHTML=html;
-  }catch(e){
-    out.innerHTML='<div style="padding:8px 0;color:#dc2626;font-size:11px;">Threw: '+_jEsc(e.message)+'</div>';
   }
 }
 
@@ -333,7 +240,6 @@ function _jFilterPanel(){
 // ── Feed grouped by day ────────────────────────────────────────────
 function _jFeedHtml(entries,updateStats){
   if(entries.length===0){
-    _jDiag.render={attempted:0,rendered:0,error:null};
     return '<div style="text-align:center;padding:48px 20px;color:#94a3b8;">'+
       '<div style="font-size:32px;margin-bottom:8px;opacity:0.4;">📓</div>'+
       '<div style="font-size:14px;font-weight:500;">'+tr('jNoEntries')+'</div>'+
@@ -351,8 +257,6 @@ function _jFeedHtml(entries,updateStats){
     groups[d].push(e);
   });
 
-  _jDiag.render={attempted:entries.length, rendered:0, error:null};
-
   var html='';
   Object.keys(groups).sort().reverse().forEach(function(d){
     var label=d===today?'TODAY':d===yest?'YESTERDAY':d.slice(5).replace('-',' / ');
@@ -361,10 +265,8 @@ function _jFeedHtml(entries,updateStats){
       // One malformed entry must not hide every other card — isolate per-card.
       try{
         html+=_jCard(e,updateStats&&updateStats[e.id]);
-        _jDiag.render.rendered++;
       }catch(err){
         console.error('[journal] card render failed for entry',e.id,err);
-        _jDiag.render.error=(e.id||'?')+': '+err.message;
       }
     });
   });
@@ -475,7 +377,6 @@ function jCustomDate(){
 }
 
 async function jSaveEntry(){
-  console.log('[JOURNAL CREATE] save clicked', {version: window.BOH_VERSION, editing: !!_jEditId});
   try{
     var sb=window.supabaseClient;
     var title=(document.getElementById('jf_title')?.value||'').trim();
@@ -488,30 +389,23 @@ async function jSaveEntry(){
       title:title,
       body:(document.getElementById('jf_body')?.value||'').trim()||null
     };
-    console.log('[JOURNAL CREATE] payload', payload);
 
     if(_jEditId){
-      console.log('[JOURNAL CREATE] update start', _jEditId);
       var {error}=await sb.from('journal_entries').update(payload).eq('id',_jEditId);
-      if(error){ console.error('[JOURNAL CREATE] insert error', error); alert(tr('errorPrefix')+error.message); return; }
-      console.log('[JOURNAL CREATE] update success', _jEditId);
+      if(error){ console.error('[journal] save error',error); alert(tr('errorPrefix')+error.message); return; }
       _jEditId=null;
     } else {
       payload.author=window.user?.name||'Max';
-      console.log('[JOURNAL CREATE] insert start');
-      var {data,error}=await sb.from('journal_entries').insert(payload).select('id');
-      if(error){ console.error('[JOURNAL CREATE] insert error', error); alert(tr('errorPrefix')+error.message); return; }
-      console.log('[JOURNAL CREATE] insert success', data && data[0] && data[0].id);
+      var {error}=await sb.from('journal_entries').insert(payload);
+      if(error){ console.error('[journal] save error',error); alert(tr('errorPrefix')+error.message); return; }
     }
     _jComposerOpen=false;
-    console.log('[JOURNAL CREATE] reload start');
     await loadJournal();
-    console.log('[JOURNAL CREATE] reload complete, render count', document.querySelectorAll('#vj [onclick^="jOpenDetail"]').length);
   }catch(e){
-    // Previously an unexpected exception here could leave the composer open
-    // (or closed) with zero feedback — "nothing happens". Never again.
-    console.error('[JOURNAL CREATE] unexpected exception', e);
-    alert('Something went wrong saving this entry. Please try again — ' + (e && e.message ? e.message : 'unknown error'));
+    // An unexpected exception here must never leave the composer silently
+    // stuck with zero feedback.
+    console.error('[journal] unexpected save error',e);
+    alert('Something went wrong saving this entry. Please try again.');
   }
 }
 
@@ -1183,7 +1077,6 @@ window.jdChangeAssignee=jdChangeAssignee;
 window.jdOpenWaitingForEdit=jdOpenWaitingForEdit;
 window.jdCancelWaitingForEdit=jdCancelWaitingForEdit;
 window.jdSaveWaitingFor=jdSaveWaitingFor;
-window.jDiagRenderRaw=jDiagRenderRaw;
 window.jdOpenFollowUpEdit=jdOpenFollowUpEdit;
 window.jdCancelFollowUpEdit=jdCancelFollowUpEdit;
 window.jdQuickFollowUp=jdQuickFollowUp;
