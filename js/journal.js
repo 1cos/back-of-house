@@ -266,6 +266,11 @@ function _jCard(e,stats){
     ?'<div style="font-size:10px;color:#94a3b8;margin-top:2px;">Waiting for: '+_jEsc(e.waiting_for)+'</div>'
     :'';
 
+  var fuLabel=jFollowUpLabel(e.follow_up_on, e.status);
+  var followUpLine=fuLabel
+    ?'<div style="font-size:10px;color:'+(fuLabel.indexOf('Overdue')>=0?'#dc2626':'#94a3b8')+';font-weight:'+(fuLabel.indexOf('Overdue')>=0?'700':'400')+';margin-top:2px;">Follow up: '+fuLabel+'</div>'
+    :'';
+
   return '<div onclick="jOpenDetail(\''+e.id+'\')" style="background:white;border-radius:12px;margin-bottom:6px;border-left:3px solid '+sev+';'+(archived?'opacity:0.5;':'')+'position:relative;cursor:pointer;-webkit-tap-highlight-color:transparent;">'+
     '<div style="padding:12px 14px;">'+
 
@@ -294,6 +299,9 @@ function _jCard(e,stats){
 
     // Current blocker, if any (shown regardless of status)
     waitingForLine+
+
+    // Follow-up date, if any
+    followUpLine+
 
     // Update-count summary (only when it exists — no noise otherwise)
     updateLine+
@@ -522,6 +530,30 @@ async function jSetWaitingFor(id, text){
   return { data: data };
 }
 
+// YYYY-MM-DD, matching a real calendar date — used to reject malformed
+// input before it ever reaches the network (the RPC's `date` param type
+// would reject it too, but this gives a fast, clear client-side error).
+function _jIsValidDateStr(s){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  var d = new Date(s+'T00:00:00');
+  return !isNaN(d.getTime()) && d.toISOString().slice(0,10) === s;
+}
+
+// Atomic via RPC (journal_set_follow_up) — same T2C/T2D transaction pattern.
+async function jSetFollowUp(id, dateStr){
+  var normalized = (dateStr||'').trim();
+  if(normalized && !_jIsValidDateStr(normalized)){
+    return { error: 'invalid date: ' + normalized };
+  }
+  var sb = window.supabaseClient;
+  var { data, error } = await sb.rpc('journal_set_follow_up', {
+    p_entry_id: id, p_new_date: normalized || null,
+    p_actor: (window.user && window.user.name) || 'Unknown'
+  });
+  if(error){ console.error('[journal] jSetFollowUp', error); return { error: error }; }
+  return { data: data };
+}
+
 // ── T2A: Entry detail sheet + timeline + Add Update ──────────────────
 // Bottom sheet, same convention used elsewhere in BOH OS (e.g. vendor
 // document review): fixed overlay, rounded panel sliding up from the
@@ -547,6 +579,29 @@ function _jdFmtDateShort(iso){
   var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return months[d.getMonth()]+' '+d.getDate();
 }
+// For bare 'YYYY-MM-DD' values (follow_up_on): append a local time-of-day
+// before parsing, same defensive trick already used for entry_date, so the
+// day doesn't shift backward in timezones behind UTC (e.g. CDT).
+function _jdFmtDateOnly(dateStr){
+  return dateStr ? _jdFmtDateShort(dateStr+'T00:00:00') : '';
+}
+function _jTodayISO(){ return new Date().toISOString().slice(0,10); }
+
+// Pure, testable — the exact text to show for a follow-up date given the
+// entry's current status. todayStr is injectable for deterministic tests;
+// real callers omit it and get the actual current date.
+function jFollowUpLabel(dateStr, status, todayStr){
+  if(!dateStr) return null;
+  todayStr = todayStr || _jTodayISO();
+  if(dateStr === todayStr) return 'Today';
+  var tmw = new Date(todayStr+'T00:00:00'); tmw.setDate(tmw.getDate()+1);
+  var tmwStr = tmw.toISOString().slice(0,10);
+  if(dateStr === tmwStr) return 'Tomorrow';
+  var label = _jdFmtDateOnly(dateStr);
+  var isPast = dateStr < todayStr; // ISO 'YYYY-MM-DD' strings compare correctly lexicographically
+  var isTerminal = status==='RESOLVED' || status==='CLOSED';
+  return (isPast && !isTerminal) ? label+' · Overdue' : label;
+}
 
 async function jOpenDetail(id){
   document.querySelectorAll('.jcard-menu').forEach(function(m){m.style.display='none';});
@@ -559,6 +614,7 @@ async function jOpenDetail(id){
   _jdTimeline = result.timeline;
   _jdComposerOpen = false;
   _jdWaitingForEditing = false;
+  _jdFollowUpEditing = false;
   _jdDirty = false;
   _jdRenderSheet();
 }
@@ -567,7 +623,7 @@ function jCloseDetail(){
   var el = document.getElementById('jDetailSheet');
   if(el) el.remove();
   var dirty = _jdDirty;
-  _jdOpenId = null; _jdEntry = null; _jdUpdates = []; _jdTimeline = []; _jdComposerOpen = false; _jdWaitingForEditing = false; _jdDirty = false;
+  _jdOpenId = null; _jdEntry = null; _jdUpdates = []; _jdTimeline = []; _jdComposerOpen = false; _jdWaitingForEditing = false; _jdFollowUpEditing = false; _jdDirty = false;
   if(dirty) loadJournal(); // refresh card state (status/assignee/update count) behind the sheet
 }
 
@@ -607,6 +663,11 @@ function jdActivitySentence(a){
     if(!a.old_value&&a.new_value) return actor+' set waiting for: '+_jEsc(a.new_value);
     if(a.old_value&&!a.new_value) return actor+' cleared waiting for';
     if(a.old_value&&a.new_value) return actor+' changed waiting for from '+_jEsc(a.old_value)+' to '+_jEsc(a.new_value);
+  }
+  if(a.event_type==='FOLLOW_UP_CHANGED'){
+    if(!a.old_value&&a.new_value) return actor+' set follow-up for '+_jdFmtDateOnly(a.new_value);
+    if(a.old_value&&!a.new_value) return actor+' cleared the follow-up date';
+    if(a.old_value&&a.new_value) return actor+' changed follow-up from '+_jdFmtDateOnly(a.old_value)+' to '+_jdFmtDateOnly(a.new_value);
   }
   return actor+' updated this entry';
 }
@@ -704,6 +765,73 @@ async function jdSaveWaitingFor(){
   _jdRenderSheet();
 }
 
+var _jdFollowUpEditing = false;
+var _jdFollowUpSaving = false;
+
+function jdFollowUpHtml(entry){
+  if(_jdFollowUpEditing){
+    return '<div style="margin-top:8px;width:100%;">'+
+      '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">Follow up</div>'+
+      '<input id="jd_followup_date" type="date" value="'+(entry.follow_up_on||'')+'" style="width:100%;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;margin-bottom:6px;">'+
+      '<div style="display:flex;gap:6px;margin-bottom:8px;">'+
+      '<button onclick="jdQuickFollowUp(1)" style="flex:1;padding:6px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#475569;font-size:11px;cursor:pointer;">Tomorrow</button>'+
+      '<button onclick="jdQuickFollowUp(3)" style="flex:1;padding:6px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#475569;font-size:11px;cursor:pointer;">+3 days</button>'+
+      '<button onclick="jdQuickFollowUp(7)" style="flex:1;padding:6px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#475569;font-size:11px;cursor:pointer;">+7 days</button>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;">'+
+      '<button onclick="jdCancelFollowUpEdit()" style="flex:1;padding:8px;border-radius:10px;border:1px solid #e2e8f0;background:white;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;">'+tr('prep_cancel')+'</button>'+
+      (entry.follow_up_on?'<button onclick="jdClearFollowUp()" style="flex:1;padding:8px;border-radius:10px;border:1px solid #fecaca;background:white;color:#dc2626;font-size:12px;font-weight:600;cursor:pointer;">Clear</button>':'')+
+      '<button id="jdFollowUpSaveBtn" onclick="jdSaveFollowUp()" style="flex:1;padding:8px;border-radius:10px;border:none;background:#6366f1;color:white;font-size:12px;font-weight:600;cursor:pointer;">Save</button>'+
+      '</div></div>';
+  }
+  var label = jFollowUpLabel(entry.follow_up_on, entry.status);
+  var overdue = label && label.indexOf('Overdue')>=0;
+  return '<div onclick="jdOpenFollowUpEdit()" style="margin-top:8px;display:flex;align-items:center;gap:6px;cursor:pointer;">'+
+    '<span style="font-size:11px;color:#94a3b8;">Follow up</span>'+
+    '<span style="font-size:12px;font-weight:600;color:'+(overdue?'#dc2626':label?'#1e293b':'#cbd5e1')+';">'+(label||'Not set')+'</span>'+
+    '</div>';
+}
+
+function jdOpenFollowUpEdit(){ _jdFollowUpEditing=true; _jdRenderSheet(); }
+function jdCancelFollowUpEdit(){ _jdFollowUpEditing=false; _jdRenderSheet(); }
+
+// Populates the date input only — user still taps Save to commit.
+function jdQuickFollowUp(days){
+  var d=new Date(); d.setDate(d.getDate()+days);
+  var input=document.getElementById('jd_followup_date');
+  if(input) input.value=d.toISOString().slice(0,10);
+}
+
+async function jdSaveFollowUp(){
+  var input=document.getElementById('jd_followup_date');
+  await _jdCommitFollowUp((input&&input.value)||'');
+}
+async function jdClearFollowUp(){
+  await _jdCommitFollowUp('');
+}
+
+async function _jdCommitFollowUp(dateStr){
+  if(_jdFollowUpSaving) return; // prevent duplicate submits
+  _jdFollowUpSaving=true;
+  var btn=document.getElementById('jdFollowUpSaveBtn');
+  if(btn){ btn.disabled=true; btn.textContent='…'; }
+
+  var res=await jSetFollowUp(_jdOpenId, dateStr);
+  _jdFollowUpSaving=false;
+
+  if(res.error){
+    if(btn){ btn.disabled=false; btn.textContent='Save'; }
+    alert('Could not save the follow-up date. Please try again.');
+    return;
+  }
+
+  _jdEntry=res.data;
+  _jdFollowUpEditing=false;
+  _jdDirty=true;
+  await _jdRefetchTimeline();
+  _jdRenderSheet();
+}
+
 function jdAssigneeSelectHtml(entry){
   var opts='<option value=""'+(entry.assigned_to==null?' selected':'')+'>Unassigned</option>';
   (_jRoster||[]).forEach(function(u){
@@ -796,6 +924,7 @@ function _jdRenderSheet(){
             jdAssigneeSelectHtml(entry)+
           '</div>'+
           jdWaitingForHtml(entry)+
+          jdFollowUpHtml(entry)+
         '</div>'+
       '</div>'+
       '<div id="jdScrollBody" style="overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;padding:14px 16px;">'+
@@ -822,6 +951,10 @@ function _jdRenderSheet(){
   if(_jdWaitingForEditing){
     var wf=document.getElementById('jd_waiting_for_text');
     if(wf) setTimeout(function(){ wf.focus(); }, 100);
+  }
+  if(_jdFollowUpEditing){
+    var fu=document.getElementById('jd_followup_date');
+    if(fu) setTimeout(function(){ fu.focus(); }, 100);
   }
 }
 
@@ -893,6 +1026,11 @@ window.jdChangeAssignee=jdChangeAssignee;
 window.jdOpenWaitingForEdit=jdOpenWaitingForEdit;
 window.jdCancelWaitingForEdit=jdCancelWaitingForEdit;
 window.jdSaveWaitingFor=jdSaveWaitingFor;
+window.jdOpenFollowUpEdit=jdOpenFollowUpEdit;
+window.jdCancelFollowUpEdit=jdCancelFollowUpEdit;
+window.jdQuickFollowUp=jdQuickFollowUp;
+window.jdSaveFollowUp=jdSaveFollowUp;
+window.jdClearFollowUp=jdClearFollowUp;
 
 // ── TEST-ONLY EXPORTS ────────────────────────────────────────────
 // No-op in the browser (no `module` there).
@@ -910,6 +1048,8 @@ if (typeof module !== 'undefined' && module.exports) {
     jSetStatus: jSetStatus,
     jSetAssignee: jSetAssignee,
     jSetWaitingFor: jSetWaitingFor,
+    jSetFollowUp: jSetFollowUp,
+    jFollowUpLabel: jFollowUpLabel,
     _jLoadUpdateStats: _jLoadUpdateStats,
     jdQuickActionTarget: jdQuickActionTarget,
     jdActivitySentence: jdActivitySentence,

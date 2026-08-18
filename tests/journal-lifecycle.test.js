@@ -130,6 +130,22 @@ function makeFakeSupabase(store){
         }
         return { data: entry3, error: null };
       }
+      if(name === 'journal_set_follow_up'){
+        var entry4 = store.journal_entries.find(e => e.id === params.p_entry_id);
+        if(!entry4) return { data: null, error: { message: 'not found' } };
+        var oldFU = entry4.follow_up_on || null;
+        var newFU = params.p_new_date || null;
+        entry4.follow_up_on = newFU;
+        if(oldFU !== newFU){
+          store.journal_activity.push({
+            id: 'act-' + Math.random().toString(36).slice(2),
+            journal_entry_id: params.p_entry_id, event_type: 'FOLLOW_UP_CHANGED',
+            actor: params.p_actor, old_value: oldFU, new_value: newFU,
+            created_at: new Date().toISOString()
+          });
+        }
+        return { data: entry4, error: null };
+      }
       return { data: null, error: { message: 'unknown rpc: ' + name } };
     }
   };
@@ -576,6 +592,183 @@ console.log('\nJournal T1 — plumbing test run\n');
 
     var stats = await j._jLoadUpdateStats(['e1']);
     assert.strictEqual(stats.e1.count, 1, 'three activity rows exist but the manual count must stay 1');
+  });
+
+  // ── T2E: follow_up_on / follow-up date ──────────────────────────
+  await atest('jSetFollowUp: null -> date creates one FOLLOW_UP_CHANGED activity', async () => {
+    var store = { journal_entries: [{ id: 'e1', follow_up_on: null }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var res = await j.jSetFollowUp('e1', '2026-08-20');
+    assert.ok(!res.error);
+    assert.strictEqual(store.journal_entries[0].follow_up_on, '2026-08-20');
+    assert.strictEqual(store.journal_activity.length, 1);
+    assert.strictEqual(store.journal_activity[0].event_type, 'FOLLOW_UP_CHANGED');
+    assert.strictEqual(store.journal_activity[0].old_value, null);
+    assert.strictEqual(store.journal_activity[0].new_value, '2026-08-20');
+  });
+
+  await atest('jSetFollowUp: date -> different date logs correct old/new', async () => {
+    var store = { journal_entries: [{ id: 'e1', follow_up_on: '2026-08-20' }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    await j.jSetFollowUp('e1', '2026-08-25');
+    assert.strictEqual(store.journal_activity[0].old_value, '2026-08-20');
+    assert.strictEqual(store.journal_activity[0].new_value, '2026-08-25');
+  });
+
+  await atest('jSetFollowUp: date -> empty clears to null and logs date -> null', async () => {
+    var store = { journal_entries: [{ id: 'e1', follow_up_on: '2026-08-25' }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    await j.jSetFollowUp('e1', '');
+    assert.strictEqual(store.journal_entries[0].follow_up_on, null);
+    assert.strictEqual(store.journal_activity[0].old_value, '2026-08-25');
+    assert.strictEqual(store.journal_activity[0].new_value, null);
+  });
+
+  await atest('jSetFollowUp: same date = ZERO new activity rows (no-op)', async () => {
+    var store = { journal_entries: [{ id: 'e1', follow_up_on: '2026-08-20' }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    await j.jSetFollowUp('e1', '2026-08-20');
+    assert.strictEqual(store.journal_activity.length, 0);
+  });
+
+  await atest('jSetFollowUp: invalid date is rejected without touching the DB', async () => {
+    var store = { journal_entries: [{ id: 'e1', follow_up_on: null }], journal_updates: [], journal_activity: [] };
+    global.window = { supabaseClient: makeFakeSupabase(store), user: { name: 'Max' } };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var res = await j.jSetFollowUp('e1', 'not-a-date');
+    assert.ok(res.error, 'expected an error for an invalid date');
+    assert.strictEqual(store.journal_entries[0].follow_up_on, null, 'must not have been mutated');
+    assert.strictEqual(store.journal_activity.length, 0);
+
+    var res2 = await j.jSetFollowUp('e1', '2026-13-40'); // wrong month/day, still matches the regex shape
+    assert.ok(res2.error, 'expected an error for an out-of-range date');
+  });
+
+  await test('jdActivitySentence: FOLLOW_UP_CHANGED wording — set / changed / cleared', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'FOLLOW_UP_CHANGED', old_value: null, new_value: '2026-08-20' }),
+      'Max set follow-up for Aug 20'
+    );
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'FOLLOW_UP_CHANGED', old_value: '2026-08-20', new_value: '2026-08-25' }),
+      'Max changed follow-up from Aug 20 to Aug 25'
+    );
+    assert.strictEqual(
+      j.jdActivitySentence({ actor: 'Max', event_type: 'FOLLOW_UP_CHANGED', old_value: '2026-08-25', new_value: null }),
+      'Max cleared the follow-up date'
+    );
+  });
+
+  await test('jMergeTimeline: FOLLOW_UP_CHANGED merges into the unified timeline like any other activity', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var updates = [{ id: 'u1', body: 'CES says backordered.', created_at: '2026-08-18T10:15:00Z' }];
+    var activity = [
+      { id: 'a1', event_type: 'WAITING_FOR_CHANGED', old_value: null, new_value: 'CES replacement part', created_at: '2026-08-17T15:06:00Z' },
+      { id: 'a2', event_type: 'FOLLOW_UP_CHANGED', old_value: null, new_value: '2026-08-24', created_at: '2026-08-17T15:07:00Z' },
+      { id: 'a3', event_type: 'FOLLOW_UP_CHANGED', old_value: '2026-08-24', new_value: '2026-08-29', created_at: '2026-08-18T10:17:00Z' }
+    ];
+    var timeline = j.jMergeTimeline(updates, activity);
+    assert.deepStrictEqual(timeline.map(t => t.data.id), ['a1', 'a2', 'u1', 'a3']);
+  });
+
+  await test('jFollowUpLabel: today renders as "Today"', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.strictEqual(j.jFollowUpLabel('2026-08-17', 'OPEN', '2026-08-17'), 'Today');
+  });
+
+  await test('jFollowUpLabel: tomorrow renders as "Tomorrow"', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.strictEqual(j.jFollowUpLabel('2026-08-18', 'OPEN', '2026-08-17'), 'Tomorrow');
+  });
+
+  await test('jFollowUpLabel: past date + OPEN is marked Overdue', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var label = j.jFollowUpLabel('2026-08-16', 'OPEN', '2026-08-17');
+    assert.ok(label.includes('Overdue'), 'expected Overdue, got: ' + label);
+    assert.ok(label.includes('Aug 16'));
+  });
+
+  await test('jFollowUpLabel: past date + WAITING is also Overdue (any non-terminal status)', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.ok(j.jFollowUpLabel('2026-08-16', 'WAITING', '2026-08-17').includes('Overdue'));
+  });
+
+  await test('jFollowUpLabel: past date + RESOLVED is NOT overdue', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var label = j.jFollowUpLabel('2026-08-16', 'RESOLVED', '2026-08-17');
+    assert.ok(!label.includes('Overdue'), 'RESOLVED must never show Overdue, got: ' + label);
+    assert.strictEqual(label, 'Aug 16');
+  });
+
+  await test('jFollowUpLabel: past date + CLOSED is NOT overdue', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var label = j.jFollowUpLabel('2026-08-16', 'CLOSED', '2026-08-17');
+    assert.ok(!label.includes('Overdue'));
+  });
+
+  await test('jFollowUpLabel: future date renders as a plain formatted date, no null crash', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }) };
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    assert.strictEqual(j.jFollowUpLabel('2026-09-01', 'OPEN', '2026-08-17'), 'Sep 1');
+    assert.strictEqual(j.jFollowUpLabel(null, 'OPEN', '2026-08-17'), null);
+  });
+
+  await atest('_jLoadUpdateStats ignores FOLLOW_UP_CHANGED activity — manual count stays manual-only', async () => {
+    var store = {
+      journal_entries: [{ id: 'e1' }],
+      journal_updates: [{ id: 'u1', journal_entry_id: 'e1', created_at: '2026-08-17T10:00:00Z' }],
+      journal_activity: [
+        { id: 'a1', journal_entry_id: 'e1', event_type: 'FOLLOW_UP_CHANGED', created_at: '2026-08-17T11:00:00Z' },
+        { id: 'a2', journal_entry_id: 'e1', event_type: 'FOLLOW_UP_CHANGED', created_at: '2026-08-17T12:00:00Z' }
+      ]
+    };
+    global.window = { supabaseClient: makeFakeSupabase(store) };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    const j = require(path.join(__dirname, '..', 'js', 'journal.js'));
+
+    var stats = await j._jLoadUpdateStats(['e1']);
+    assert.strictEqual(stats.e1.count, 1);
   });
 
 
