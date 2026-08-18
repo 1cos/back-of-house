@@ -11,6 +11,18 @@ var _jShowArchived = false;
 var _jStatusFilter = 'All';   // All | Active | OPEN | IN_PROGRESS | WAITING | RESOLVED | CLOSED
 var _jFollowUpFilter = 'All'; // All | Due | Overdue | Scheduled | NotSet
 var _jAssigneeFilter = 'All'; // All | Me | Unassigned | '<users.id>' (string)
+
+// T2H: Quick Views are presets over the SAME three filter variables above —
+// no separate state, no new query. "Mine" is only offered when the current
+// user's id is reliably known (same rule as T2G's Me).
+var J_QUICK_VIEWS = [
+  { key:'All', label:'All', status:'All', followUp:'All', assignee:'All' },
+  { key:'Active', label:'Active', status:'Active', followUp:'All', assignee:'All' },
+  { key:'Waiting', label:'Waiting', status:'WAITING', followUp:'All', assignee:'All' },
+  { key:'Overdue', label:'Overdue', status:'All', followUp:'Overdue', assignee:'All' },
+  { key:'Mine', label:'Mine', status:'All', followUp:'All', assignee:'Me' },
+  { key:'Unassigned', label:'Unassigned', status:'All', followUp:'All', assignee:'Unassigned' }
+];
 var _jCustomFrom = null;
 var _jCustomTo = null;
 var _jEditId = null;
@@ -160,6 +172,9 @@ async function loadJournal(){
     // New entry button / composer
     _jComposerHtml()+
 
+    // Quick Views — one-tap presets over the existing Status/FollowUp/Assignee filters
+    _jQuickViewsHtml()+
+
     // Feed header + filter
     '<div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 10px;">'+
     '<div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">'+
@@ -230,6 +245,20 @@ function _jComposerHtml(){
 }
 
 // ── Filter panel ───────────────────────────────────────────────────
+// Compact horizontally-scrollable presets — subtle pill style, matching the
+// soft-tinted badges already used elsewhere (e.g. status pill in the detail
+// sheet), not the bolder filled Period buttons in the Filter panel.
+function _jQuickViewsHtml(){
+  var active=_jActiveQuickView();
+  var views=J_QUICK_VIEWS.filter(function(q){ return q.key!=='Mine' || (window.user && window.user.id!=null); });
+  return '<div style="display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px;-webkit-overflow-scrolling:touch;">'+
+    views.map(function(q){
+      var sel=active===q.key;
+      return '<button onclick="jSetQuickView(\''+q.key+'\')" style="flex-shrink:0;padding:6px 14px;border-radius:20px;border:1px solid '+(sel?'#6366f1':'#e2e8f0')+';background:'+(sel?'#eef2ff':'white')+';color:'+(sel?'#6366f1':'#64748b')+';font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">'+q.label+'</button>';
+    }).join('')+
+    '</div>';
+}
+
 function _jFilterPanel(){
   var periods=[
     {m:'0',l:tr('jToday')},{m:'7',l:tr('j7days')},{m:'30',l:tr('j30days')},{m:'custom',l:'Custom'}
@@ -421,6 +450,27 @@ function jSetCat(c){ _jCatFilter=c; loadJournal(); }
 function jSetStatusFilter(v){ _jStatusFilter=v; loadJournal(); }
 function jSetFollowUpFilter(v){ _jFollowUpFilter=v; loadJournal(); }
 function jSetAssigneeFilter(v){ _jAssigneeFilter=v; loadJournal(); }
+
+// Tapping a Quick View replaces all three operational filters at once —
+// period/category/severity/archived are never touched.
+function jSetQuickView(key){
+  var qv=J_QUICK_VIEWS.find(function(q){return q.key===key;});
+  if(!qv) return;
+  _jStatusFilter=qv.status;
+  _jFollowUpFilter=qv.followUp;
+  _jAssigneeFilter=qv.assignee;
+  loadJournal();
+}
+
+// Derived, not stored — the three filter vars are the single source of
+// truth. Returns the matching preset key, or null for a custom combination.
+function _jActiveQuickView(){
+  for(var i=0;i<J_QUICK_VIEWS.length;i++){
+    var q=J_QUICK_VIEWS[i];
+    if(_jStatusFilter===q.status && _jFollowUpFilter===q.followUp && _jAssigneeFilter===q.assignee) return q.key;
+  }
+  return null;
+}
 function jToggleArchived(){ _jShowArchived=!_jShowArchived; loadJournal(); }
 function jCustomDate(){
   var f=document.getElementById('_jFrom'),t=document.getElementById('_jTo');
@@ -1114,6 +1164,7 @@ window.jSetCat=jSetCat;
 window.jSetStatusFilter=jSetStatusFilter;
 window.jSetFollowUpFilter=jSetFollowUpFilter;
 window.jSetAssigneeFilter=jSetAssigneeFilter;
+window.jSetQuickView=jSetQuickView;
 window.jToggleArchived=jToggleArchived;
 window.jCustomDate=jCustomDate;
 window.jSaveEntry=jSaveEntry;
@@ -1168,6 +1219,13 @@ if (typeof module !== 'undefined' && module.exports) {
     _jSetStatusFilterForTest: function(v){ _jStatusFilter = v; },
     _jSetFollowUpFilterForTest: function(v){ _jFollowUpFilter = v; },
     _jSetAssigneeFilterForTest: function(v){ _jAssigneeFilter = v; },
+    jSetQuickView: jSetQuickView,
+    _jActiveQuickView: _jActiveQuickView,
+    J_QUICK_VIEWS: J_QUICK_VIEWS,
+    jSetPeriod: jSetPeriod,
+    jSetCat: jSetCat,
+    jToggleArchived: jToggleArchived,
+    _jGetFilterStateForTest: function(){ return { status:_jStatusFilter, followUp:_jFollowUpFilter, assignee:_jAssigneeFilter, period:_jPeriod, category:_jCatFilter, archived:_jShowArchived }; },
     _jSetRosterForTest: function(roster){ _jRoster = roster; }
   };
 }

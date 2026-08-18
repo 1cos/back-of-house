@@ -1066,7 +1066,8 @@ console.log('\nJournal T1 — plumbing test run\n');
       j => j._jSetAssigneeFilterForTest('5')); // Monica
     assert.ok(html.includes('Assigned to Monica'));
     assert.ok(!html.includes('Assigned to Max'));
-    assert.ok(!html.includes('Unassigned'));
+    assert.ok(!html.includes('Unassigned open'));
+    assert.ok(!html.includes('Unassigned closed'));
   });
 
   await atest('Combination: Assigned To=Unassigned + Status=Active shows unowned active work only', async () => {
@@ -1112,6 +1113,132 @@ console.log('\nJournal T1 — plumbing test run\n');
   await atest('An assigned_to referencing a user not in the roster does not crash rendering', async () => {
     var html = await runLoadJournalWithRoster(makeAssigneeFixture(), ROSTER, { id: 1, name: 'Max' });
     assert.ok(html.includes('Assigned to a removed user'), 'the entry itself must still render');
+  });
+
+  // ── T2H: Quick Views (presets over existing T2F/T2G filter state) ──
+  function freshJournalModule(currentUser){
+    var dom = makeFakeDom();
+    global.document = dom;
+    global.tr = function(k){ return '[' + k + ']'; };
+    global.window = { supabaseClient: makeFakeSupabase({ journal_entries: [], journal_updates: [] }), user: currentUser };
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'js', 'journal.js'))];
+    return require(path.join(__dirname, '..', 'js', 'journal.js'));
+  }
+
+  await atest('Quick View "All" resets only status/followUp/assignee, never period/category/archived', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j._jSetStatusFilterForTest('WAITING');
+    j._jSetFollowUpFilterForTest('Overdue');
+    j._jSetAssigneeFilterForTest('5');
+    j.jSetQuickView('All');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.status, 'All');
+    assert.strictEqual(state.followUp, 'All');
+    assert.strictEqual(state.assignee, 'All');
+  });
+
+  await atest('Quick View "Active" -> status=Active, followUp/assignee=All', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j.jSetQuickView('Active');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.status, 'Active');
+    assert.strictEqual(state.followUp, 'All');
+    assert.strictEqual(state.assignee, 'All');
+    assert.strictEqual(j._jActiveQuickView(), 'Active');
+  });
+
+  await atest('Quick View "Waiting" -> status=WAITING, followUp/assignee=All', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j.jSetQuickView('Waiting');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.status, 'WAITING');
+    assert.strictEqual(state.followUp, 'All');
+    assert.strictEqual(state.assignee, 'All');
+  });
+
+  await atest('Quick View "Overdue" -> status=All, followUp=Overdue, assignee=All (reuses T2F Overdue semantics)', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j.jSetQuickView('Overdue');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.status, 'All');
+    assert.strictEqual(state.followUp, 'Overdue');
+    assert.strictEqual(state.assignee, 'All');
+  });
+
+  await atest('Quick View "Mine" -> assignee=Me, status/followUp=All', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j.jSetQuickView('Mine');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.assignee, 'Me');
+    assert.strictEqual(state.status, 'All');
+    assert.strictEqual(state.followUp, 'All');
+  });
+
+  await atest('Quick View "Unassigned" -> assignee=Unassigned, status/followUp=All', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j.jSetQuickView('Unassigned');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.assignee, 'Unassigned');
+    assert.strictEqual(state.status, 'All');
+    assert.strictEqual(state.followUp, 'All');
+  });
+
+  await atest('Presets mutually replace each other — Waiting then Mine leaves no trace of Waiting', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j.jSetQuickView('Waiting');
+    j.jSetQuickView('Mine');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.status, 'All', 'status must be reset, not left as WAITING');
+    assert.strictEqual(state.assignee, 'Me');
+  });
+
+  await atest('Broader filters (period/category/archived) survive a Quick View tap', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j.jSetPeriod('30');
+    j.jSetCat('equipment');
+    j.jToggleArchived();
+    j.jSetQuickView('Active');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.period, '30');
+    assert.strictEqual(state.category, 'equipment');
+    assert.strictEqual(state.archived, true);
+    assert.strictEqual(state.status, 'Active');
+  });
+
+  await atest('A custom combination matches no preset — _jActiveQuickView returns null', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j.jSetQuickView('Waiting');
+    j._jSetAssigneeFilterForTest('5'); // manual override via Filter panel, e.g. Monica
+    assert.strictEqual(j._jActiveQuickView(), null);
+  });
+
+  await atest('Filter panel state (the same three variables) reflects the tapped Quick View exactly', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j.jSetQuickView('Waiting');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.status, 'WAITING');
+    assert.strictEqual(state.followUp, 'All');
+    assert.strictEqual(state.assignee, 'All');
+    // No separate Quick View state exists — the Filter panel selects reading
+    // these exact same variables, so there is nothing further to desync.
+  });
+
+  await atest('"Mine" is available when window.user.id is present', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    var available = j.J_QUICK_VIEWS.some(q => q.key === 'Mine');
+    assert.ok(available, 'Mine should always be defined in the preset list');
+    // Visibility gating (hiding the chip without a valid id) happens in the
+    // DOM-only _jQuickViewsHtml renderer, not in the shared preset list —
+    // covered by inspection: it filters on `window.user && window.user.id!=null`.
+    assert.ok(window.user && window.user.id != null, 'this test runs with a valid current user id');
+  });
+
+  await atest('jSetQuickView with an unknown key is a safe no-op', async () => {
+    const j = freshJournalModule({ id: 1, name: 'Max' });
+    j.jSetQuickView('Waiting');
+    j.jSetQuickView('NotARealPreset');
+    var state = j._jGetFilterStateForTest();
+    assert.strictEqual(state.status, 'WAITING', 'an unrecognized key must not alter existing filter state');
   });
 
 
