@@ -150,17 +150,27 @@ window.vdrProcessAllPdf = async function(docId) {
     const sb = window.supabaseClient;
     // FIX (BOH OS Task 11J): docId optional. Absent -> unchanged behaviour,
     // processes the whole pdf_received queue (every existing call-site calls
-    // this with zero arguments). Present -> scoped at the DB level
-    // (status='pdf_received' AND id=docId), not fetched-then-filtered in
-    // memory, so no other document is ever read or touched. If docId doesn't
-    // exist or isn't pdf_received, this query returns zero rows and the
-    // existing empty-queue exit below already handles it — no new UI/error
-    // path needed.
+    // this with zero arguments). Present -> scoped at the DB level (id=docId),
+    // not fetched-then-filtered in memory, so no other document is ever read
+    // or touched. If docId doesn't exist or isn't in an allowed status, this
+    // query returns zero rows and the existing empty-queue exit below already
+    // handles it — no new UI/error path needed. (Status filter itself refined
+    // in Task 11M below.)
+    // FIX (BOH OS Task 11M): senza docId la query resta ESATTAMENTE quella di
+    // sempre (solo status='pdf_received', comportamento batch invariato). Con
+    // docId, il documento può essere riprocessato intenzionalmente anche se è
+    // già pending (es. dopo un fix ai parser, come il mapping data BEK del
+    // commit fa0effd7) — mai se è imported/ignored/error, per costruzione: lo
+    // status ammesso con docId è un IN esplicito su due soli valori, non una
+    // condizione più permissiva applicata al caso batch.
     let query = sb
       .from('vendor_documents')
-      .select('id,parsed_json,source_email_subject,raw_text')
-      .eq('status', 'pdf_received');
-    if (docId) query = query.eq('id', docId);
+      .select('id,parsed_json,source_email_subject,raw_text');
+    if (docId) {
+      query = query.eq('id', docId).in('status', ['pdf_received', 'pending']);
+    } else {
+      query = query.eq('status', 'pdf_received');
+    }
     const { data: queue } = await query.order('created_at', { ascending: true });
 
     if (!queue || queue.length === 0) { vdrLoad(); return; }

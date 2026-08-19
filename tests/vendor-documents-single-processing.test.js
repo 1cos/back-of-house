@@ -1,14 +1,15 @@
 // ══════════════════════════════════════════════════════════════════
 // Vendor Review — vdrProcessAllPdf(docId) single-document scoping tests
-// (BOH OS Task 11J)
+// (BOH OS Task 11J, esteso in Task 11M per il reprocess di documenti pending)
 // Plain Node, zero dipendenze esterne: `node tests/vendor-documents-single-processing.test.js`
 //
 // Esegue la logica reale di costruzione query estratta da
-// js/vendor-documents-review.js (marker espliciti, come negli altri test di
-// questa serie) contro un mock Supabase che si comporta come un vero DB:
-// contiene TUTTE le righe e applica i filtri .eq() realmente — se il codice
-// non chiamasse .eq('id', docId), il mock restituirebbe più righe di quelle
-// attese e il test lo scoprirebbe. Non è un mock che "sa già" cosa filtrare.
+// js/vendor-documents-review.js (marker espliciti) contro un mock Supabase
+// che si comporta come un vero DB: contiene TUTTE le righe e applica i
+// filtri .eq()/.in() realmente chiamati dal codice — se il codice non
+// chiamasse .eq('id', docId) o .in('status', [...]), il mock restituirebbe
+// più righe di quelle attese e il test lo scoprirebbe. Non è un mock che
+// "sa già" cosa filtrare.
 // ══════════════════════════════════════════════════════════════════
 
 const assert = require('assert');
@@ -16,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 const VDR_JS = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
+const VP_UI_JS = path.join(__dirname, '..', 'js', 'vendor-parser-ui.js');
 
 let pass = 0, fail = 0;
 function test(name, fn) { try { fn(); pass++; console.log('  ✓ ' + name); } catch (e) { fail++; console.log('  ✗ ' + name + '\n      ' + (e && e.message)); } }
@@ -23,7 +25,7 @@ async function atest(name, fn) { try { await fn(); pass++; console.log('  ✓ ' 
 
 function readSrc() { return fs.readFileSync(VDR_JS, 'utf8'); }
 
-// Estrae il blocco reale di costruzione/esecuzione della query (STEP 2/3).
+// Estrae il blocco reale di costruzione/esecuzione della query (Task 11J/11M).
 function extractQuerySnippet() {
   const src = readSrc();
   const startMarker = 'let query = sb';
@@ -36,18 +38,22 @@ function extractQuerySnippet() {
   return src.slice(start, end);
 }
 
-// Mock Supabase "come un vero DB": contiene l'intera tabella e applica i
-// filtri .eq() realmente chiamati dal codice. Registra ogni chiamata.
+// Mock Supabase "come un vero DB": contiene l'intera tabella e applica
+// DAVVERO sia .eq() che .in() così come chiamati dal codice reale.
 function makeMockSb(allRows) {
-  const calls = { eqs: [] };
+  const calls = { eqs: [], ins: [] };
   const sb = {
     from(_table) {
       const c = {
-        _eqs: [],
+        _eqs: [], _ins: [],
         select() { return c; },
         eq(k, v) { c._eqs.push([k, v]); calls.eqs.push([k, v]); return c; },
+        in(k, values) { c._ins.push([k, values]); calls.ins.push([k, values]); return c; },
         order() {
-          const matched = allRows.filter(row => c._eqs.every(([k, v]) => row[k] === v));
+          const matched = allRows.filter(row =>
+            c._eqs.every(([k, v]) => row[k] === v) &&
+            c._ins.every(([k, values]) => values.includes(row[k]))
+          );
           return Promise.resolve({ data: matched });
         },
       };
@@ -64,64 +70,110 @@ async function runQuery(sb, docId) {
   return fn(sb, docId);
 }
 
-// Fixture: l'intera "tabella" con cui i test lavorano — include il
-// documento target BEK HTML e il record protetto 383764dd-... nella stessa
-// coda pdf_received, esattamente la situazione reale verificata nel Task 11I.
-const ALL_ROWS = [
-  { id: '383764dd-f12e-458d-960e-656a2347894a', status: 'pdf_received', parsed_json: { source: 'email_body' } },
-  { id: '7aa702b1-510b-4ba9-9e32-0b67e9c9ab81', status: 'pdf_received', parsed_json: { source: 'email_html' } },
-  { id: 'some-other-pending-doc', status: 'pending', parsed_json: null },
-];
-
 console.log('\nVendor Review — vdrProcessAllPdf(docId) single-document scoping — test run\n');
+
+// ── Fixture per T1-T6: copre pdf_received, pending, imported, error ────
+const ALL_ROWS_STATUSES = [
+  { id: 'A-pdf-received', status: 'pdf_received', parsed_json: { source: 'email_html' } },
+  { id: 'B-pending',      status: 'pending',      parsed_json: { source: 'email_html' } },
+  { id: 'C-imported',     status: 'imported',     parsed_json: { source: 'email_html' } },
+  { id: 'D-error',        status: 'error',        parsed_json: null },
+];
 
 (async () => {
 
-  // ── T1 — Single target: A processato, B invariato/mai letto ─────
-  await atest("T1: vdrProcessAllPdf('7aa...') restituisce SOLO quel documento, non 383764dd-...", async () => {
-    const { sb, calls } = makeMockSb(ALL_ROWS);
-    const queue = await runQuery(sb, '7aa702b1-510b-4ba9-9e32-0b67e9c9ab81');
+  // ── T1 — Pending single document: A(pending) riprocessato via docId ──
+  await atest("T1: vdrProcessAllPdf('B-pending') con status=pending -> il documento viene incluso nella queue (riprocessabile)", async () => {
+    const { sb } = makeMockSb(ALL_ROWS_STATUSES);
+    const queue = await runQuery(sb, 'B-pending');
     assert.strictEqual(queue.length, 1);
-    assert.strictEqual(queue[0].id, '7aa702b1-510b-4ba9-9e32-0b67e9c9ab81');
-    assert.ok(calls.eqs.some(([k, v]) => k === 'id' && v === '7aa702b1-510b-4ba9-9e32-0b67e9c9ab81'), 'la query deve filtrare per id a livello DB');
+    assert.strictEqual(queue[0].id, 'B-pending');
   });
 
-  // ── T2 — Target BEK HTML: la riga restituita ha davvero source=email_html ──
-  await atest('T2: il documento scoped è quello con parsed_json.source=email_html (routing verificato altrove, qui solo lo scoping)', async () => {
-    const { sb } = makeMockSb(ALL_ROWS);
-    const queue = await runQuery(sb, '7aa702b1-510b-4ba9-9e32-0b67e9c9ab81');
-    assert.strictEqual(queue[0].parsed_json.source, 'email_html');
-  });
-
-  // ── T3 — Il record protetto non è mai letto durante il processing scoped ──
-  await atest('T3: 383764dd-... (record protetto) non compare mai nel risultato quando si processa solo 7aa...', async () => {
-    const { sb } = makeMockSb(ALL_ROWS);
-    const queue = await runQuery(sb, '7aa702b1-510b-4ba9-9e32-0b67e9c9ab81');
-    assert.ok(!queue.some(d => d.id === '383764dd-f12e-458d-960e-656a2347894a'), '383764dd-... non deve mai apparire nella queue scoped');
-  });
-
-  // ── T4 — Batch invariato: nessun docId -> tutta la coda pdf_received ──
-  await atest('T4: vdrProcessAllPdf() senza docId restituisce ancora tutta la coda pdf_received (comportamento batch invariato)', async () => {
-    const { sb, calls } = makeMockSb(ALL_ROWS);
+  // ── T2 — Batch non include pending: solo pdf_received processato ────
+  await atest('T2: vdrProcessAllPdf() (batch, nessun docId) include SOLO pdf_received, MAI pending', async () => {
+    const { sb, calls } = makeMockSb(ALL_ROWS_STATUSES);
     const queue = await runQuery(sb, undefined);
-    assert.strictEqual(queue.length, 2, 'entrambi i pdf_received attesi, nessuno scoping');
-    assert.ok(queue.some(d => d.id === '383764dd-f12e-458d-960e-656a2347894a'));
-    assert.ok(queue.some(d => d.id === '7aa702b1-510b-4ba9-9e32-0b67e9c9ab81'));
-    assert.ok(!calls.eqs.some(([k]) => k === 'id'), 'senza docId non deve mai filtrare per id');
+    assert.strictEqual(queue.length, 1);
+    assert.strictEqual(queue[0].id, 'A-pdf-received');
+    assert.ok(!queue.some(d => d.status === 'pending'), 'il batch non deve mai includere documenti pending');
+    assert.ok(!calls.ins.length, 'il batch non deve mai usare .in() sullo status — solo .eq(status,pdf_received)');
   });
 
-  // ── T5 — ID inesistente: 0 documenti ──────────────────────────────
-  await atest('T5: docId inesistente -> 0 documenti nella queue', async () => {
-    const { sb } = makeMockSb(ALL_ROWS);
-    const queue = await runQuery(sb, 'uuid-che-non-esiste-nel-db');
+  // ── T3 — Scoped: due pending, solo quello richiesto viene selezionato ──
+  await atest("T3: due documenti pending nella tabella, vdrProcessAllPdf('B-pending') seleziona SOLO quello richiesto", async () => {
+    const rows = [
+      { id: 'B-pending', status: 'pending', parsed_json: { source: 'email_html' } },
+      { id: 'E-pending-other', status: 'pending', parsed_json: { source: 'email_html' } },
+    ];
+    const { sb } = makeMockSb(rows);
+    const queue = await runQuery(sb, 'B-pending');
+    assert.strictEqual(queue.length, 1);
+    assert.strictEqual(queue[0].id, 'B-pending');
+  });
+
+  // ── T4 — Imported protetto: 0 risultati, mai selezionabile ──────────
+  await atest("T4: vdrProcessAllPdf('C-imported') -> 0 documenti (status imported non è mai riprocessabile)", async () => {
+    const { sb } = makeMockSb(ALL_ROWS_STATUSES);
+    const queue = await runQuery(sb, 'C-imported');
     assert.strictEqual(queue.length, 0);
   });
 
-  // ── T6 — Status non valido: documento esiste ma non è pdf_received ──
-  await atest("T6: docId esistente ma status!='pdf_received' -> 0 documenti (non processato)", async () => {
-    const { sb } = makeMockSb(ALL_ROWS);
-    const queue = await runQuery(sb, 'some-other-pending-doc');
+  // ── T5 — Error protetto: 0 risultati ─────────────────────────────────
+  await atest("T5: vdrProcessAllPdf('D-error') -> 0 documenti (status error non è mai riprocessabile)", async () => {
+    const { sb } = makeMockSb(ALL_ROWS_STATUSES);
+    const queue = await runQuery(sb, 'D-error');
     assert.strictEqual(queue.length, 0);
+  });
+
+  // ── T6 — Comportamento pdf_received single-document invariato (Task 11J) ──
+  await atest("T6: vdrProcessAllPdf('A-pdf-received') continua a funzionare come nel Task 11J", async () => {
+    const { sb, calls } = makeMockSb(ALL_ROWS_STATUSES);
+    const queue = await runQuery(sb, 'A-pdf-received');
+    assert.strictEqual(queue.length, 1);
+    assert.strictEqual(queue[0].id, 'A-pdf-received');
+    assert.ok(calls.ins.some(([k, values]) => k === 'status' && values.includes('pdf_received') && values.includes('pending')));
+  });
+
+  // ── T7 — Integrazione: BEK pending riprocessato + fix data (Task 11L) ──
+  // Combina, sul codice reale: (a) la query ammette un documento pending
+  // scoped per docId (T1/T3 sopra), e (b) il parser + la logica di mapping
+  // data reali (stessa tecnica di tests/bek-date-mapping-fix.test.js)
+  // producono document_date/delivery_date corretti per quel documento.
+  await atest('T7: documento BEK pending, riprocessato via docId, ottiene document_date e delivery_date corretti (integrazione col fix Task 11L)', async () => {
+    // 7a — il documento pending è selezionabile dalla query reale
+    const rows = [{ id: 'bek-pending', status: 'pending', parsed_json: { source: 'email_html' } }];
+    const { sb } = makeMockSb(rows);
+    const queue = await runQuery(sb, 'bek-pending');
+    assert.strictEqual(queue.length, 1, 'il documento BEK pending deve essere selezionabile via docId');
+
+    // 7b — il parser reale + la logica reale di mapping data (Task 11L)
+    // producono i valori attesi per "Delivery Date 08/20/2026"
+    const vpSrc = fs.readFileSync(VP_UI_JS, 'utf8');
+    const vpStart = vpSrc.indexOf('function buildVendorParsers() {');
+    const vpEnd = vpSrc.indexOf('// ── BRIDGE: Parser result → Invoice Import pipeline ───────────');
+    global.DOMParser = function () {
+      return {
+        parseFromString(html) {
+          const bodyText = String(html).replace(/<[^>]+>/g, ' ');
+          return { body: { textContent: bodyText }, querySelectorAll: () => [] };
+        },
+      };
+    };
+    global.window = global.window || {};
+    const parsers = new Function(vpSrc.slice(vpStart, vpEnd) + '\nreturn buildVendorParsers();')();
+    const html = '<p>Sales Order # 0002952908</p><p>Delivery Date 08/20/2026</p><p>Order Total $81.96</p>';
+    const parsed = parsers.parseBekOrderConfirmationHtml(html);
+
+    const vdrSrc = readSrc();
+    const docDateLine = "const docDate   = parsed.order_date   || parsed.credit_date   || parsed.delivery_date || null;";
+    assert.ok(vdrSrc.includes(docDateLine), 'riga reale di calcolo docDate non trovata');
+    const computeDocDate = new Function('parsed', docDateLine + '\nreturn docDate;');
+    const document_date = computeDocDate(parsed);
+    const delivery_date = parsed.delivery_date || null;
+
+    assert.strictEqual(document_date, '2026-08-20');
+    assert.strictEqual(delivery_date, '2026-08-20');
   });
 
   // ── Verifica di collegamento: la firma della funzione accetta docId ──
