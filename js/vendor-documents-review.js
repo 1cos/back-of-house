@@ -192,8 +192,15 @@ window.vdrProcessAllPdf = async function(docId) {
 
     for (const doc of queue) {
       const storagePath = doc.parsed_json?.storage_path;
-      if (!log) break;
-      log.textContent = `Processing ${done + 1}/${queue.length}: ${doc.source_email_subject || storagePath}…`;
+      // FIX (BOH OS Task 11N): vdrProcessLog only exists in the DOM while the
+      // pdf_received banner is rendered. Reprocessing a document that's
+      // already pending (Task 11M) — the exact case this task adds a UI
+      // trigger for — typically means the banner isn't showing at all, so
+      // `log` is null here. Aborting the loop on a missing log element was
+      // the whole loop before processing anything in that situation. Log
+      // output is best-effort progress text only; its absence must never
+      // stop processing.
+      if (log) log.textContent = `Processing ${done + 1}/${queue.length}: ${doc.source_email_subject || storagePath}…`;
 
       try {
         let rawText;
@@ -384,6 +391,30 @@ window.vdrProcessAllPdf = async function(docId) {
   }
 };
 
+// FIX (BOH OS Task 11N): thin single-document trigger for the "Reprocess"
+// button on a pending document (e.g. after a parser fix, so a document can
+// be re-run without DevTools). No new pipeline — this just calls the exact
+// same vdrProcessAllPdf(docId) from Task 11M/11J with the button's own
+// disable/re-enable for double-tap protection. vdrProcessAllPdf's own
+// setTimeout(vdrLoad, 1000) after a successful run re-renders the whole list
+// (removing/replacing this button along with everything else); the finally
+// block here is just a safety net for the window before that happens, or if
+// something throws before that point is ever reached.
+window.vdrReprocessOne = async function(docId, btn) {
+  if (!docId) return;
+  if (btn) {
+    if (btn.disabled) return; // double-tap guard
+    btn.disabled = true;
+    btn.dataset.origText = btn.textContent;
+    btn.textContent = '⏳ Reprocessing…';
+  }
+  try {
+    await vdrProcessAllPdf(docId);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || '🔄 Reprocess'; }
+  }
+};
+
 // ── Render filtered list ──────────────────────────────────────
 window.vdrRenderList = function() {
   const list = document.getElementById('vdrList');
@@ -509,6 +540,7 @@ window.vdrToggle = function(id) {
       <!-- Sticky Approve footer -->
       <div style="flex-shrink:0;padding:12px 16px;border-top:1px solid #f1f5f9;background:white;">
         <div id="vdrActionStatus-${doc.id}" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>
+        ${doc.status === 'pending' ? `<button id="vdrReprocessBtn-${doc.id}" onclick="vdrReprocessOne('${doc.id}',this)" style="width:100%;height:38px;border-radius:12px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:500;border:none;cursor:pointer;margin-bottom:8px;">🔄 Reprocess</button>` : ''}
         <button onclick="vdrApprove('${doc.id}',this)" style="width:100%;height:48px;border-radius:14px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;">Approve Document</button>
       </div>
       <!-- Bottom safe area -->
@@ -826,8 +858,12 @@ function vdrDetailHTML(doc) {
   }
 
   // -- Approve --
+  var reprocessHTML = (doc.status === 'pending')
+    ? '<button id="vdrReprocessBtn-' + docId + '" onclick="vdrReprocessOne(\'' + docId + '\',this)" style="width:100%;height:36px;border-radius:12px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:500;border:none;cursor:pointer;margin-bottom:8px;">🔄 Reprocess</button>'
+    : '';
   var approveHTML = '<div style="padding:12px 14px 14px;">' +
     '<div id="vdrActionStatus-' + docId + '" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>' +
+    reprocessHTML +
     '<button onclick="vdrApprove(\'' + docId + '\',this)" style="width:100%;height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Approve Document</button>' +
   '</div>';
 
