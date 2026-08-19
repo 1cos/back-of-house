@@ -3357,12 +3357,75 @@ window.prepSeeSteps = function(id){
   recipeModal.open(it.recipe_id||null, id);
 };
 
-// DONE — apre modal quantità
+// DONE — apre modal quantità, oppure completa direttamente per i task
+// completion_mode='checklist' (nessuna domanda di quantità: la richiesta
+// non ha senso per un controllo/refill linea, non una produzione).
 window.prepDone = function(id){
+  const it = tasks[id];
+  if(it && it.completion_mode === 'checklist'){
+    checklistComplete(id);
+    return;
+  }
   openDoneSheet(id);
 };
 
-// ── PREP QTY UNIT CONVERSION ──────────────────────────────────────────────────
+// ── CHECKLIST-ONLY COMPLETION ───────────────────────────────────────────
+// For prep_tasks.completion_mode='checklist' — DONE with no quantity
+// question, no production RPC, no current_stock mutation. Distinct from
+// noNeed(): DONE means "checked/refilled, all good", No Need means
+// "didn't need to touch it" — two different events, kept separate.
+async function checklistComplete(id){
+  const it = tasks[id];
+  if(!it) return;
+  delete _startTimes[id];
+
+  const _clientKey = crypto.randomUUID ? crypto.randomUUID() : (
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)})
+  );
+
+  const _efUrl = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/record-prep-checklist';
+  const _efTok = sessionStorage.getItem('brigade_token');
+  let rpcRaw, rpcData;
+  try {
+    rpcRaw = await fetch(_efUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        brigade_token: _efTok,
+        prep_task_id:  id,
+        station:       it.category || tr('generale'),
+        client_key:    _clientKey
+      })
+    });
+    rpcData = await rpcRaw.json();
+  } catch(e) {
+    _prepSaveError(it.name, 'Network error saving checklist completion');
+    return;
+  }
+
+  if(!rpcRaw.ok || !rpcData?.ok){
+    if(rpcRaw.status===401){_prepSaveError(it.name,'Session expired — please sign in again.');return;}
+    _prepSaveError(it.name, rpcData?.error || 'Checklist save failed');
+    return;
+  }
+
+  // DB confermato — aggiorna RAM. current_stock NON viene toccato: la RPC
+  // non lo modifica e qui non lo tocchiamo neanche localmente.
+  tasks[id].in_progress    = false;
+  tasks[id].in_progress_at = null;
+  tasks[id].in_progress_by = null;
+  tasks[id].need_tomorrow  = false;
+  tasks[id].suggested_note = null;
+  tasks[id].suggested_qty  = null;
+  delete _taskStep[id];
+  delete _taskStepTotal[id];
+  releaseWakeLock();
+
+  renderM(); renderS(); renderHomeStations();
+  loadTodayLogs();
+}
+
+
 // Converte qty dall'unità scelta dal cuoco all'unità nativa del prep task
 // prima di aggiornare current_stock. Il prep_log conserva l'unità originale.
 //
