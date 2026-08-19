@@ -1359,6 +1359,15 @@ function buildVendorParsers() {
       document_type:   'order_confirmation',
       document_number: salesOrder,
       document_date:   deliveryDate,
+      // FIX (BOH OS Task 11L): vdrProcessAllPdf's docDate fallback chain
+      // (js/vendor-documents-review.js) checks order_date/credit_date/
+      // delivery_date — never document_date — and the DB delivery_date
+      // column is populated straight from parsed.delivery_date. BEK has one
+      // meaningful date (Delivery Date), so the same value is used for both
+      // keys, matching how other order_confirmation-type parsers in this
+      // file already provide both. No downstream change needed: this is the
+      // key vdrProcessAllPdf's existing logic already reads.
+      delivery_date:   deliveryDate,
       subtotal:        null,
       total:           orderTotal,
       items,
@@ -1455,6 +1464,11 @@ function buildVendorParsers() {
       document_type:   'order_confirmation',
       document_number: salesOrder,
       document_date:   deliveryDate,
+      // FIX (BOH OS Task 11L): same fix as parseBekOrderConfirmationEmail
+      // above — vdrProcessAllPdf's docDate fallback and the DB delivery_date
+      // column never read document_date. BEK has one meaningful date, used
+      // for both keys here.
+      delivery_date:   deliveryDate,
       subtotal:        null,
       total:           orderTotal,
       items,
