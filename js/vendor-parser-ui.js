@@ -1391,7 +1391,14 @@ function buildVendorParsers() {
     if (ddM) deliveryDate = parseDate(ddM[1]);
 
     let orderTotal = null;
-    const otM = bodyText.match(/Order\s*Total\s*:?\s*\$?([\d,]+\.\d{2})/i);
+    // FIX (BOH OS Task 11H, Bug 2): the real production label is literally
+    // "Order Total*" — a footnote marker ("*This is your order total without
+    // taxes...") that's part of the actual text, not a bold-conversion
+    // artifact. "*" made optional here so "Order Total", "Order Total*",
+    // "Order Total:" and "Order Total*:" all match. Scoped to this HTML
+    // parser only — parseBekOrderConfirmationEmail (plain-body path) is
+    // untouched, per task scope.
+    const otM = bodyText.match(/Order\s*Total\s*\*?\s*:?\s*\$?([\d,]+\.\d{2})/i);
     if (otM) orderTotal = parsePrice(otM[1]);
 
     // Items — read the actual HTML table rows (ITEM# / ITEM NAME / BRAND /
@@ -1402,7 +1409,17 @@ function buildVendorParsers() {
     const items = [];
     const rows = doc.querySelectorAll('table tr');
     for (const row of rows) {
-      const cells = Array.from(row.querySelectorAll('td')).map(td => (td.textContent || '').trim());
+      // FIX (BOH OS Task 11H, Bug 1): direct children only — NOT a recursive
+      // descendant selector. The real PRICE cell contains its own nested
+      // <table> ("$40.98" / "per case" on separate rows); querySelectorAll('td')
+      // matched those nested cells too (10 td found instead of 8), shifting
+      // ORDERED/CONFIRMED/STATUS onto the wrong values. row.children already
+      // stops at the row's own <td> cells — the nested table's text still
+      // ends up inside that cell's own .textContent ("$40.98 per case"),
+      // which unitPrice's regex below already handles.
+      const cells = Array.from(row.children)
+        .filter(el => el.tagName === 'TD')
+        .map(td => (td.textContent || '').trim());
       if (cells.length < 8) continue;
       const [itemCode, descRaw, brand, pack, priceRaw, orderedRaw, confirmedRaw, status] = cells;
       if (!/^\d{4,8}$/.test(itemCode)) continue;

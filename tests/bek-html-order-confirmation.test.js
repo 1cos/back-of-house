@@ -24,7 +24,7 @@ const path = require('path');
 
 const VP_UI_JS = path.join(__dirname, '..', 'js', 'vendor-parser-ui.js');
 const EDGE_FN_TS = path.join(__dirname, '..', 'edge-functions', 'gmail-vendor-import', 'index.ts');
-const { BEK_HTML_FIXTURE, SUBJECT, FROM } = require('./fixtures/bek-html-sample.js');
+const { BEK_HTML_FIXTURE, BEK_HTML_TOTAL_NO_ASTERISK, SUBJECT, FROM } = require('./fixtures/bek-html-sample.js');
 
 function decodeEntities(str) {
   return str
@@ -37,22 +37,88 @@ function decodeEntities(str) {
     .replace(/&nbsp;/g, ' ')
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
 }
-function stripTags(html) {
-  return decodeEntities(String(html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).trim();
+
+// ── Minimal tag-nesting-aware HTML tree parser (test-only) ──────────
+// FIX (BOH OS Task 11H): the previous polyfill matched <td>...</td> with a
+// single non-greedy regex, which cannot tell a cell's OWN closing tag apart
+// from a nested table's closing tag inside it — exactly the ambiguity Bug 1
+// is about. This version builds a real parent/child tree (stack-based), so
+// `element.children` genuinely means "direct element children only", the
+// same distinction the production fix (Array.from(row.children).filter(...))
+// now relies on. Still zero npm dependencies, same as every other test here.
+function parseHtmlTree(html) {
+  const voidTags = new Set(['br', 'img', 'hr', 'input', 'meta', 'link', 'area', 'base', 'col', 'embed', 'source', 'track', 'wbr']);
+  const openTagRe = /^<([a-zA-Z0-9]+)((?:\s+[a-zA-Z0-9_-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]*))?)*)\s*(\/?)>/;
+  const closeTagRe = /^<\/([a-zA-Z0-9]+)\s*>/;
+  let i = 0;
+  const n = html.length;
+  const root = { tagName: '#root', childNodes: [] };
+  const stack = [root];
+  let current = root;
+
+  while (i < n) {
+    if (html.startsWith('<!--', i)) { const end = html.indexOf('-->', i); i = end === -1 ? n : end + 3; continue; }
+    if (html[i] === '<') {
+      if (html[i + 1] === '!') { const end = html.indexOf('>', i); i = end === -1 ? n : end + 1; continue; }
+      if (html[i + 1] === '/') {
+        const m = closeTagRe.exec(html.slice(i));
+        if (m) {
+          const tag = m[1].toLowerCase();
+          for (let s = stack.length - 1; s >= 1; s--) {
+            if (stack[s].tagName.toLowerCase() === tag) { stack.length = s; current = stack[stack.length - 1]; break; }
+          }
+          i += m[0].length;
+          continue;
+        }
+        i++; continue;
+      }
+      const m = openTagRe.exec(html.slice(i));
+      if (!m) { i++; continue; }
+      const tagLower = m[1].toLowerCase();
+      const selfClosing = m[3] === '/' || voidTags.has(tagLower);
+      i += m[0].length;
+      const el = { tagName: tagLower.toUpperCase(), childNodes: [] };
+      current.childNodes.push(el);
+      if (!selfClosing) { stack.push(el); current = el; }
+      continue;
+    }
+    const nextLt = html.indexOf('<', i);
+    const text = nextLt === -1 ? html.slice(i) : html.slice(i, nextLt);
+    if (text) current.childNodes.push({ isText: true, text });
+    i = nextLt === -1 ? n : nextLt;
+  }
+  return root;
 }
-function makeCell(innerHtml) { return { textContent: stripTags(innerHtml) }; }
-function makeRow(rowHtml) {
-  const cellMatches = [...rowHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)];
-  return { querySelectorAll(sel) { return sel === 'td' ? cellMatches.map(m => makeCell(m[1])) : []; } };
+function elChildren(el) { return el.childNodes.filter(c => !c.isText); }
+function elTextContent(el) {
+  let out = '';
+  for (const c of el.childNodes) out += c.isText ? c.text : elTextContent(c);
+  return decodeEntities(out);
+}
+function findAllByTag(el, tagUpper, acc) {
+  acc = acc || [];
+  for (const c of elChildren(el)) { if (c.tagName === tagUpper) acc.push(c); findAllByTag(c, tagUpper, acc); }
+  return acc;
+}
+function wrapEl(el) {
+  return {
+    tagName: el.tagName,
+    get children() { return elChildren(el).map(wrapEl); },
+    get textContent() { return elTextContent(el); },
+    querySelectorAll(sel) {
+      if (sel === 'table tr' || sel === 'td') return findAllByTag(el, sel === 'td' ? 'TD' : 'TR').map(wrapEl);
+      return [];
+    },
+  };
 }
 class MiniDOMParser {
   parseFromString(html) {
-    const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    const bodyHtml = bodyMatch ? bodyMatch[1] : html;
-    const rowMatches = [...bodyHtml.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+    const root = parseHtmlTree(String(html || ''));
+    const bodyMatches = findAllByTag(root, 'BODY');
+    const bodyEl = bodyMatches[0] || root;
     return {
-      body: { textContent: stripTags(bodyHtml) },
-      querySelectorAll(sel) { return sel === 'table tr' ? rowMatches.map(m => makeRow(m[1])) : []; },
+      body: wrapEl(bodyEl),
+      querySelectorAll(sel) { return sel === 'table tr' ? findAllByTag(root, 'TR').map(wrapEl) : []; },
     };
   }
 }
@@ -83,8 +149,8 @@ console.log('\nBen E. Keith Order Confirmation — HTML (getBody) test run\n');
 const browserParsers = loadRealBrowserParsers();
 const result = browserParsers.parseBekOrderConfirmationHtml(BEK_HTML_FIXTURE);
 
-// ── T3 — HTML table: prima riga ──────────────────────────────────
-test('T3: la prima riga della tabella HTML produce tutti i campi attesi', () => {
+// ── T1 (Task 11H) — cella PRICE con tabella annidata ────────────────
+test('T1: riga articolo con tabella annidata nella cella PRICE produce tutti i campi attesi', () => {
   assert.strictEqual(result.items.length, 2, 'attese 2 righe nella fixture');
   const it = result.items[0];
   assert.strictEqual(it.vendor_sku, '116533');
@@ -92,39 +158,47 @@ test('T3: la prima riga della tabella HTML produce tutti i campi attesi', () => 
   assert.strictEqual(it.brand, 'Regency Wraps');
   assert.strictEqual(it.pack_description, '1/ 100 CT');
   assert.strictEqual(it.unit_price, 40.98);
-  assert.strictEqual(it.qty_ordered, 2);
-  assert.strictEqual(it.qty_received, 2);
-  assert.strictEqual(it.status, 'Filled');
+  assert.strictEqual(it.qty_ordered, 2, 'BUG 1: senza il fix sarebbe null (celle disallineate dalla tabella annidata)');
+  assert.strictEqual(it.qty_received, 2, 'BUG 1: senza il fix sarebbe null');
+  assert.strictEqual(it.status, 'Filled', 'BUG 1: senza il fix sarebbe "2" (valore sbagliato per lo slittamento colonne)');
 });
 
-// ── T4 — Delivery date ───────────────────────────────────────────
-test('T4: delivery date 08/20/2026 estratta correttamente', () => {
-  assert.strictEqual(result.document_date, '2026-08-20');
-});
-
-// ── T5 — Total ────────────────────────────────────────────────────
-test('T5: order total 81.96 estratto correttamente', () => {
-  assert.strictEqual(result.total, 81.96);
-});
-
-// ── T6 — Ordered/confirmed distinti preservati ───────────────────
-test('T6: seconda riga (ordered=3, confirmed=2) preserva entrambi i valori distinti', () => {
+// ── T2 (Task 11H) — ordered != confirmed, con la stessa struttura annidata ──
+test('T2: seconda riga (ordered=3, confirmed=2, tabella annidata nel PRICE) preserva entrambi i valori distinti', () => {
   const it2 = result.items[1];
   assert.strictEqual(it2.vendor_sku, '118842');
+  assert.strictEqual(it2.unit_price, 12.50);
   assert.strictEqual(it2.qty_ordered, 3);
   assert.strictEqual(it2.qty_received, 2);
   assert.notStrictEqual(it2.qty_ordered, it2.qty_received);
   assert.strictEqual(it2.status, 'Backordered');
 });
 
-// ── T2 (parser) — document number dal contenuto HTML ─────────────
-test("T2b: document_number '0002952908' estratto anche dal solo contenuto HTML (senza fallback subject)", () => {
+// ── T3 (Task 11H) — "Order Total*" (label reale, con asterisco) ────
+test('T3: "Order Total*" (asterisco reale come nel documento production) estrae 81.96', () => {
+  assert.strictEqual(result.total, 81.96, 'BUG 2: senza il fix sarebbe null — la regex non tollerava l\'asterisco del label reale');
+});
+
+// ── T4 (Task 11H) — "Order Total" senza asterisco continua a funzionare ──
+test('T4: "Order Total" (senza asterisco, formato precedente) continua a funzionare', () => {
+  const r2 = browserParsers.parseBekOrderConfirmationHtml(BEK_HTML_TOTAL_NO_ASTERISK);
+  assert.strictEqual(r2.total, 81.96);
+  assert.strictEqual(r2.document_number, '0002952908');
+});
+
+// ── Delivery date (invariato dal Task 11F) ──────────────────────────
+test('delivery date 08/20/2026 estratta correttamente', () => {
+  assert.strictEqual(result.document_date, '2026-08-20');
+});
+
+// ── T2 (Task 11F) — document number dal contenuto HTML ─────────────
+test("document_number '0002952908' estratto anche dal solo contenuto HTML (senza fallback subject)", () => {
   assert.strictEqual(result.document_number, '0002952908');
   assert.strictEqual(typeof result.document_number, 'string');
 });
 
-// ── T7 — HTML entities decodificate dal DOM parser reale ─────────
-test("T7: DOMParser (stessa interfaccia usata dal codice reale) decodifica &apos; e &copy; correttamente (non regex)", () => {
+// ── T7 (Task 11F) — HTML entities decodificate dal DOM parser ───────
+test("DOMParser (stessa interfaccia usata dal codice reale) decodifica &apos; e &copy; correttamente (non regex)", () => {
   const doc = new DOMParser().parseFromString('<p>ZENO&apos;S ON THE SQUARE</p><p>&copy; 2026</p>', 'text/html');
   const text = doc.body.textContent;
   assert.ok(text.includes("ZENO'S ON THE SQUARE"), 'apostrofo non decodificato: ' + JSON.stringify(text));
