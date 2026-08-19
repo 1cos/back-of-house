@@ -44,6 +44,7 @@ async function loadWarningsBanner() {
         const wArr = Array.isArray(doc.warnings) ? doc.warnings : [];
         for (const w of wArr) {
           if (!w.code) continue;
+          if (!isVdWarningActionable(w.code)) continue; // FIX Task 2: pack/count già non azionabile in Vendor Review
           vdWarnings.push({
             _source: 'vd',
             _docId: doc.id,
@@ -83,6 +84,20 @@ async function loadWarningsBanner() {
   } catch(e) {
     console.error('[WarningsBanner] Error:', e.message);
   }
+}
+
+// ── Non-actionable codes from vendor_documents.warnings (raw JSONB) ──────
+// FIX (BOH OS Task 2): questi codici vengono esclusi da `invoice_warnings`
+// già al momento dell'inserimento — vedi vendor-documents-review.js, commento
+// "OQR-006 auto-resolves in UI" — e/o sono auto-saltati da vdrWarningToQuestion()
+// nella Vendor Review per i pack a conteggio non ambiguo (pure-count / CT-range).
+// Il JSONB grezzo di vendor_documents.warnings non applica questo filtro, quindi
+// senza questa esclusione le stesse voci ricompaiono come rumore sul banner Home
+// a ogni import, anche se la Vendor Review le considera già non azionabili.
+// Tenere allineato a BOH_OS_WARNINGS.md → "Code Migration Map" (OQR-006 → INV-PACKCT-001).
+const VD_WARNING_NONACTIONABLE_CODES = ['OQR-006', 'INV-PACKCT-001'];
+function isVdWarningActionable(code) {
+  return !VD_WARNING_NONACTIONABLE_CODES.includes(code);
 }
 
 function warnSeverity(code) {
