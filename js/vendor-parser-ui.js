@@ -1101,11 +1101,185 @@ function buildVendorParsers() {
     };
   }
 
+  // ── Ben E. Keith invoice parser ──────────────────────────────
+  // FIX (BOH OS Task 9): ported from js/vendor-parsers/bek-invoice.js
+  // (Node-only, never reachable from the browser — see Task 8 audit).
+  // Logic, regex and field names kept as close to the original as possible;
+  // only renamed (bekParseLine/bekPackToGrams) to avoid clashing with other
+  // vendor sections in this shared closure. Reuses the parseDate/parsePrice
+  // already defined above in this function — not redefined.
+  //
+  // Formato colonne originale:
+  // Location(SKU) | Cases(Qty) | Pkgs | Item# | Brand | MfgCode | PackSize | Description | UnitPrice | Amount
+  const BEK_SKIP_RE = /ben e\.? keith|invoice|sold to|ship to|customer|route|terms|due|section total|description\s+promo|^cases\s+pkg|please check|cash\/ck|amt paid|total invoice|continued|^this page|tax\b|^dry$|^frozen$/i;
+
+  function bekPackToGrams(packStr) {
+    if (!packStr) return null;
+    const s = packStr.trim().toUpperCase().replace(/\s+/g, ' ');
+
+    const fracM = s.match(/^(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(LB|LBS|#|OZ|GAL|ML|L|KG|G)\s*$/);
+    if (fracM) {
+      const count = parseFloat(fracM[1]);
+      const size  = parseFloat(fracM[2]);
+      const unit  = fracM[3];
+      if (unit === 'LB' || unit === 'LBS' || unit === '#') return count * size * 453.592;
+      if (unit === 'OZ') return count * size * 28.3495;
+      if (unit === 'GAL') return count * size * 3785.41;
+      if (unit === 'ML') return count * size;
+      if (unit === 'L') return count * size * 1000;
+      if (unit === 'KG') return count * size * 1000;
+      if (unit === 'G') return count * size;
+    }
+
+    const rangeM = s.match(/^(\d+)\s*\/\s*(\d+)-(\d+)\s*(LB|OZ|#)\s*$/);
+    if (rangeM) {
+      const count = parseFloat(rangeM[1]);
+      const avg   = (parseFloat(rangeM[2]) + parseFloat(rangeM[3])) / 2;
+      const unit  = rangeM[4];
+      if (unit === 'LB' || unit === '#') return count * avg * 453.592;
+      if (unit === 'OZ') return count * avg * 28.3495;
+    }
+
+    const simpleM = s.match(/^(\d+(?:\.\d+)?)\s*(LB|LBS|#|OZ|GAL|KG|G|ML|L)\s*$/);
+    if (simpleM) {
+      const size = parseFloat(simpleM[1]);
+      const unit = simpleM[2];
+      if (unit === 'LB' || unit === 'LBS' || unit === '#') return size * 453.592;
+      if (unit === 'OZ') return size * 28.3495;
+      if (unit === 'GAL') return size * 3785.41;
+      if (unit === 'KG') return size * 1000;
+      if (unit === 'G') return size;
+      if (unit === 'ML') return size;
+      if (unit === 'L') return size * 1000;
+    }
+
+    return null; // CT, EA, ecc. — conta, nessun peso
+  }
+
+  // Formato riga BEK:
+  // DW07311  1  1  108509  MR CLEAN  1003700002621  3/1 GAL  Cleaner Floor & All Purpose  54.33  54.33
+  function bekParseLine(line) {
+    line = line.replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim();
+
+    const amountM = line.match(/\$?([\d,]+\.\d{2})\s*$/);
+    if (!amountM) return null;
+    const amount = parsePrice(amountM[1]);
+
+    const beforeAmount = line.slice(0, line.lastIndexOf(amountM[0])).trim();
+
+    const priceM = beforeAmount.match(/\$?([\d,]+\.\d{2})\s*$/);
+    if (!priceM) return null;
+    const unitPrice = parsePrice(priceM[1]);
+    if (!unitPrice) return null;
+
+    const beforePrice = beforeAmount.slice(0, beforeAmount.lastIndexOf(priceM[0])).trim();
+
+    const tokens = beforePrice.split(/\s+/);
+    if (tokens.length < 5) return null;
+
+    const sku = tokens[0];
+    const qty = parseInt(tokens[1]) || 1;
+
+    let packSize = null, descStart = -1;
+    for (let i = 3; i < tokens.length; i++) {
+      const chunk2 = tokens[i] + (tokens[i+1] ? ' ' + tokens[i+1] : '');
+      const chunk1 = tokens[i];
+      if (/^\d+\/\d+$/.test(chunk1) && tokens[i+1] && /^(GAL|LB|LBS|OZ|CT|ML|L|KG|G|#)$/i.test(tokens[i+1])) {
+        packSize = chunk2;
+        descStart = i + 2;
+        break;
+      }
+      if (/^\d+\/\d+-\d+$/.test(chunk1) && tokens[i+1] && /^(OZ|LB|#)$/i.test(tokens[i+1])) {
+        packSize = chunk2;
+        descStart = i + 2;
+        break;
+      }
+      if (/^\d+\/\d+(?:\.\d+)?(GAL|LB|OZ|ML|CT|KG|G|#)$/i.test(chunk1)) {
+        packSize = chunk1;
+        descStart = i + 1;
+        break;
+      }
+    }
+
+    if (descStart === -1 || descStart >= tokens.length) return null;
+
+    const descRaw = tokens.slice(descStart).join(' ').trim();
+    if (!descRaw || descRaw.length < 3) return null;
+
+    if (/cleaner|floor|sanitiz|chemical|glove|bag|container|wrap|film|towel/i.test(descRaw)) {
+      return null; // Skip non-food items
+    }
+
+    const desc   = cleanDescription(descRaw);
+    const totalG = bekPackToGrams(packSize);
+    const p100   = (totalG && unitPrice) ? parseFloat(((unitPrice / totalG) * 100).toFixed(4)) : null;
+
+    const itemWarnings = [];
+    if (!totalG && packSize && !/ct|ea|each|dz/i.test(packSize)) {
+      itemWarnings.push({
+        code: 'OQR-006',
+        message: `Pack size "${packSize}" — peso non calcolabile per ${desc}`,
+        field: 'pack_unit',
+      });
+    }
+
+    return {
+      vendor_sku:         sku,
+      raw_description:    descRaw,
+      description:        desc,
+      qty_ordered:        qty,
+      qty_received:       qty,
+      pack_description:   packSize,
+      unit_price:         unitPrice,
+      amount:             amount,
+      extended_price:     amount,
+      price_type:         'per_case',
+      conversion_to_base: totalG ? Math.round(totalG) : null,
+      _cost_per_100g:     p100,
+      catchweight:        false,
+      warnings:           itemWarnings,
+    };
+  }
+
+  function parseBekInvoice(rawText) {
+    const text  = String(rawText || '');
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+    let invoiceNumber = null, invoiceDate = null, total = null;
+    for (const line of lines) {
+      let m;
+      m = line.match(/Invoice\s*#?\s*:?\s*(\d+)/i);        if (m) invoiceNumber = m[1];
+      m = line.match(/(?:Invoice|Order)\s+Date\s*:?\s*([\d\/]+)/i); if (m) invoiceDate = parseDate(m[1]);
+      m = line.match(/Total\s+Invoice\s+([\d,]+\.\d{2})/i); if (m) total = parsePrice(m[1]);
+    }
+
+    const items = [];
+    for (const line of lines) {
+      if (BEK_SKIP_RE.test(line)) continue;
+      if (line.length < 20) continue;
+      const item = bekParseLine(line);
+      if (item && item.unit_price) items.push(item);
+    }
+
+    return {
+      vendor:         'Ben E. Keith',
+      document_type:  'invoice',
+      document_number: invoiceNumber,
+      document_date:   invoiceDate,
+      subtotal:       null,
+      total,
+      items,
+      warnings: [],
+    };
+  }
+
   // ── Router ──
   function detectVendor(text) {
     if (/dairyland produce|hardie'?s|chefs'?\s*wh?se/i.test(text)) return 'hardies';
     if (/freshpoint/i.test(text)) return 'freshpoint';
     if (/fruge|netyield/i.test(text)) return 'fruge';
+    // FIX (BOH OS Task 9): specific to "Ben E[.] Keith" — not a bare "Keith" match.
+    if (/ben\s+e\.?\s+keith/i.test(text)) return 'bek';
     return 'unknown';
   }
 
@@ -1140,6 +1314,9 @@ function buildVendorParsers() {
       if (vendor === 'fruge') {
         if (docType === 'invoice') return parseFrugeInvoice(rawText);
         return parseFrugeInvoice(rawText); // try invoice parser for any doc type
+      }
+      if (vendor === 'bek') {
+        if (docType === 'invoice') return parseBekInvoice(rawText);
       }
       return {vendor,document_type:docType,items:[],warnings:[{code:'NO_PARSER',message:`No parser for ${vendor}/${docType}`}]};
     } catch(e) {
