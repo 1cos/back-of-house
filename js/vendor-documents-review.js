@@ -226,6 +226,51 @@ window.vdrProcessAllPdf = async function() {
           }
         }
 
+        // ── Hardie's / Chef's Warehouse: order_confirmation <-> invoice reconciliation ──
+        // FIX (BOH OS Task 3). order_confirmation and invoice are two phases of the
+        // same purchase, not true duplicates — they have different document_type,
+        // so the exact-duplicate check above never catches them (see BOH OS Task 3
+        // audit). Business rule: the invoice is the canonical operational document.
+        // A superseded confirmation is set to status='ignored' — already a supported
+        // value in the vendor_documents_status_check constraint, currently unused
+        // elsewhere in the codebase. That alone is enough to keep it out of Vendor
+        // Review (this file, L40/L47: only pdf_received/pending/error are listed)
+        // and out of the Home banner's vendor_documents.warnings source
+        // (warnings-banner.js only reads pending/error) — no other file changed.
+        // Scope: Hardie's/Chef's Warehouse only. Exact vendor + document_number
+        // match, no fuzzy matching. Historical rows are never deleted, only their
+        // status is updated; the confirmation's storage PDF is preserved.
+        const RECONCILE_VENDORS = ["Hardie's Fresh Foods / Dairyland Produce", "Chef's Warehouse"];
+        if (docNumber && RECONCILE_VENDORS.includes(parsed.vendor) &&
+            (parsed.document_type === 'order_confirmation' || parsed.document_type === 'invoice')) {
+          const counterpartType = parsed.document_type === 'invoice' ? 'order_confirmation' : 'invoice';
+          const { data: counterpart } = await sb.from('vendor_documents')
+            .select('id,status')
+            .eq('vendor', parsed.vendor)
+            .eq('document_number', docNumber)
+            .eq('document_type', counterpartType)
+            .neq('id', doc.id)
+            .limit(1);
+
+          if (counterpart && counterpart.length > 0) {
+            if (parsed.document_type === 'invoice') {
+              // Case A: the Invoice just arrived — supersede the existing Confirmation.
+              // Skip an already-imported counterpart untouched: real invoice_lines may
+              // already exist from it, and reconciling that is out of scope here.
+              const other = counterpart[0];
+              if (other.status !== 'imported' && other.status !== 'ignored') {
+                await sb.from('vendor_documents').update({ status: 'ignored' }).eq('id', other.id);
+              }
+              // The Invoice itself proceeds below as the operational document.
+            } else {
+              // Case B: a Confirmation just arrived but the Invoice already exists —
+              // the Confirmation never becomes operational. Invoice keeps winning.
+              await sb.from('vendor_documents').update({ status: 'ignored' }).eq('id', doc.id);
+              done++; continue;
+            }
+          }
+        }
+
         const allWarnings = [
           ...(parsed.warnings || []),
           ...(parsed.items || []).flatMap(i => (i.warnings || []).map(w => ({ ...w, item: i.description }))),
