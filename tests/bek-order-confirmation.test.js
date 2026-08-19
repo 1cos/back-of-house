@@ -159,12 +159,22 @@ function realIsBekOrderConfirmation(from, subject) {
   return fn(from, subject);
 }
 
-// Estrae ed esegue la riga reale di estrazione Sales Order (JS puro).
+// Estrae ed esegue le righe reali di estrazione Sales Order (JS puro).
+// FIX (BOH OS Task 11B): marker aggiornato — l'estrazione ora normalizza i
+// caratteri invisibili e rende "#"/":" opzionali (vedi
+// tests/bek-order-confirmation-body-fix.test.js per la copertura completa
+// del fix). Stesso comportamento verificato qui, sorgente reale.
 function realExtractSalesOrder(body) {
   const src = readEdgeFnSource();
-  const marker = 'const soM = body.match(/Sales\\s*Order\\s*#\\s*(\\d+)/i);';
-  if (!src.includes(marker)) throw new Error('riga di estrazione Sales Order non trovata o cambiata nella Edge Function');
-  const fn = new Function('body', marker + '\nreturn soM ? soM[1] : null;');
+  const startMarker = "const cleanBody = body.replace(/[\\u200B\\u200C\\u200D\\uFEFF]/g, '');";
+  const endMarker = "const soM = cleanBody.match(/Sales\\s*Order\\s*#?\\s*:?\\s*(\\d+)/i);";
+  if (!src.includes(startMarker) || !src.includes(endMarker)) {
+    throw new Error('righe di estrazione Sales Order non trovate o cambiate nella Edge Function');
+  }
+  const start = src.indexOf(startMarker);
+  const end = src.indexOf(endMarker) + endMarker.length;
+  const snippet = src.slice(start, end);
+  const fn = new Function('body', snippet + '\nreturn soM ? soM[1] : null;');
   return fn(body);
 }
 

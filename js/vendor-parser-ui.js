@@ -1289,8 +1289,14 @@ function buildVendorParsers() {
     const nonEmpty = lines.filter(l => l.length > 0);
 
     // Sales Order # — kept as a string, leading zeros preserved (never Number()).
+    // FIX (BOH OS Task 11B, STEP 3): "#" made optional and an optional colon
+    // added — mirrors the same defensive shape already used for Invoice
+    // numbers in parseBekInvoice() (/Invoice\s*#?\s*:?\s*(\d+)/i) — plus
+    // zero-width/invisible characters stripped first, since \s alone does not
+    // match U+200B (confirmed empirically; \s already covers NBSP/CRLF/tabs).
     let salesOrder = null;
-    const soM = text.match(/Sales\s*Order\s*#\s*(\d+)/i);
+    const cleanText = text.replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+    const soM = cleanText.match(/Sales\s*Order\s*#?\s*:?\s*(\d+)/i);
     if (soM) salesOrder = soM[1];
 
     let deliveryDate = null;
@@ -1377,6 +1383,14 @@ function buildVendorParsers() {
     if (/\bINVOICE\b/i.test(text))           return 'invoice';
     // FreshPoint: order confirmation uses "Reference #" and "Order Confirmation"
     if (/Reference\s*#\s*\d{6,}/i.test(text) || /Order Confirmation/i.test(text)) return 'order_confirmation';
+    // FIX (BOH OS Task 11B) — CONFIRMED root cause of the first real production
+    // test (vendor_documents id d84e4d64..., landed in status='error' with
+    // UNKNOWN_DOC_TYPE): the real Ben E. Keith Order Confirmation email BODY
+    // does not contain the literal phrase "Order Confirmation" — that phrase
+    // is only in the email subject, which this function never sees. "Sales
+    // Order #" is BEK-specific wording that IS present in the real body and
+    // reliably signals this document type.
+    if (/Sales\s*Order/i.test(text))         return 'order_confirmation';
     if (/\bINVOICE\b/i.test(text))           return 'invoice';
     return 'unknown';
   }

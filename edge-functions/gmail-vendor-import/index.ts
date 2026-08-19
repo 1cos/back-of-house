@@ -106,7 +106,14 @@ async function handleBekOrderConfirmationBody(
   supabase: any,
   { subject, from, body }: { subject?: string; from?: string; body: string }
 ) {
-  const soM = body.match(/Sales\s*Order\s*#\s*(\d+)/i);
+  // FIX (BOH OS Task 11B, STEP 3): "#" made optional and an optional colon
+  // added, matching the same defensive shape already used elsewhere for
+  // Invoice numbers (/Invoice\s*#?\s*:?\s*(\d+)/i in bek-invoice.js). Zero-
+  // width/invisible characters stripped first — \s alone does not match
+  // U+200B (confirmed empirically; \s already covers NBSP/CRLF/tabs, so
+  // those needed no extra handling).
+  const cleanBody = body.replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+  const soM = cleanBody.match(/Sales\s*Order\s*#?\s*:?\s*(\d+)/i);
   const salesOrder: string | null = soM ? soM[1] : null; // string — leading zeros preserved, never Number()
 
   // Dedup key: vendor + document_type + document_number, as required.
