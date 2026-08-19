@@ -133,16 +133,16 @@ function readEdgeFnSource() {
 
 function realExtractSalesOrder(bodyText) {
   const src = readEdgeFnSource();
-  const marker = 'const cleanBody = body.replace(/[\\u200B\\u200C\\u200D\\uFEFF]/g, \'\');';
-  const endMarker = "const soM = cleanBody.match(/Sales\\s*Order\\s*#?\\s*:?\\s*(\\d+)/i);";
+  const marker = "const sourceText = html_body || body || '';";
+  const endMarker = 'if (!salesOrder && subject) {';
   if (!src.includes(marker) || !src.includes(endMarker)) {
     throw new Error('righe di estrazione Sales Order non trovate o cambiate nella Edge Function');
   }
   const start = src.indexOf(marker);
-  const end = src.indexOf(endMarker) + endMarker.length;
-  const snippet = src.slice(start, end);
-  const fn = new Function('body', snippet + '\nreturn soM ? soM[1] : null;');
-  return fn(bodyText);
+  const end = src.indexOf(endMarker);
+  const snippet = src.slice(start, end).replace(/:\s*string\s*\|\s*null/g, '');
+  const fn = new Function('body', 'html_body', 'subject', snippet + '\nreturn salesOrder;');
+  return fn(bodyText, undefined, null);
 }
 
 // ── T5 — dedup usa il document number reale (non più null) ──────────

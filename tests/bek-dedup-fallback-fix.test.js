@@ -24,7 +24,7 @@ function readSrc() { return fs.readFileSync(EDGE_FN_TS, 'utf8'); }
 
 function extractHandleBekBody() {
   const src = readSrc();
-  const startMarker = "const cleanBody = body.replace(/[\\u200B\\u200C\\u200D\\uFEFF]/g, '');";
+  const startMarker = "const sourceText = html_body || body || '';";
   const endMarker = 'function jsonResponse(data: unknown, status = 200) {';
   const start = src.indexOf(startMarker);
   const end = src.indexOf(endMarker);
@@ -61,21 +61,26 @@ function makeMockSupa({ existingRows = [] } = {}) {
   return { sb, calls };
 }
 
-async function runHandleBekBody({ supabase, subject, from, body }) {
+async function runHandleBekBody({ supabase, subject, from, body, html_body }) {
   let snippet = extractHandleBekBody().replace(/:\s*string\s*\|\s*null/g, '');
   snippet = snippet.trim();
   snippet = snippet.slice(0, snippet.lastIndexOf('}')); // strip the function's own closing brace — new Function already wraps the body
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  const fn = new AsyncFunction('supabase', 'subject', 'from', 'body', 'jsonResponse', 'jsonError', snippet);
+  const fn = new AsyncFunction('supabase', 'subject', 'from', 'body', 'html_body', 'jsonResponse', 'jsonError', snippet);
   const jsonResponse = (data) => data;
   const jsonError = (message) => ({ error: message });
-  return fn(supabase, subject, from, body, jsonResponse, jsonError);
+  return fn(supabase, subject, from, body, html_body, jsonResponse, jsonError);
 }
 
 const SUBJECT = "Ben E. Keith : Order Confirmation for FDF770366-ZENO'S ON THE SQUARE;0002952908";
 const FROM = 'CRP-SVCMBX-entree@benekeith.com';
 const BODY_WITH_SALES_ORDER = 'Ben E. Keith Foods\r\nYour order is confirmed\r\nSales Order # 0002952908\r\nCustomer Name\r\n';
 const BODY_WITHOUT_SALES_ORDER = 'Ben E. Keith Foods\r\nYour order is confirmed\r\nCustomer Name\r\nZENO\'S ON THE SQUARE\r\n';
+// FIX (BOH OS Task 11F): il subject standard contiene sempre il Sales Order
+// dopo il ";" (usato ora anche come fallback di estrazione, non solo per il
+// dedup) -- per T4a/T4b serve un subject SENZA quel suffisso, altrimenti
+// salesOrder non è mai null e il ramo subject+from non scatterebbe davvero.
+const SUBJECT_NO_SALES_ORDER_SUFFIX = "Ben E. Keith : Order Confirmation for FDF770366-ZENO'S ON THE SQUARE";
 
 // Fixture: il vecchio record rotto reale (id d84e4d64-...)
 const OLD_BROKEN_RECORD = {
@@ -87,6 +92,9 @@ const OLD_BROKEN_RECORD = {
   source_email_subject: SUBJECT,
   source_email_from: FROM,
 };
+
+// Variante del record rotto con subject senza suffisso (per T4a)
+const OLD_BROKEN_RECORD_NO_SUFFIX = { ...OLD_BROKEN_RECORD, source_email_subject: SUBJECT_NO_SALES_ORDER_SUFFIX };
 
 // Fixture: un vero duplicato corretto (stessa identità del nuovo documento)
 const REAL_CORRECT_RECORD = {
@@ -131,17 +139,17 @@ console.log('\nBEK dedup fallback fix — test run\n');
     assert.ok(!keys.includes('source_email_subject'), 'il fallback non deve essere interrogato in parallelo');
   });
 
-  // ── T4 — Sales Order assente: il fallback protegge, ma solo per record compatibili ──
-  await atest('T4a: senza Sales Order, il vecchio record rotto (forma incompatibile) NON blocca più', async () => {
-    const { sb } = makeMockSupa({ existingRows: [OLD_BROKEN_RECORD] });
-    const result = await runHandleBekBody({ supabase: sb, subject: SUBJECT, from: FROM, body: BODY_WITHOUT_SALES_ORDER });
+  // ── T4 — Sales Order assente (né da body né da subject): il fallback protegge, ma solo per record compatibili ──
+  await atest('T4a: senza Sales Order (body e subject), il vecchio record rotto (forma incompatibile) NON blocca più', async () => {
+    const { sb } = makeMockSupa({ existingRows: [OLD_BROKEN_RECORD_NO_SUFFIX] });
+    const result = await runHandleBekBody({ supabase: sb, subject: SUBJECT_NO_SALES_ORDER_SUFFIX, from: FROM, body: BODY_WITHOUT_SALES_ORDER });
     assert.notStrictEqual(result.status, 'duplicate');
   });
 
-  await atest('T4b: senza Sales Order, un record realmente compatibile (stesso subject/from, vendor/document_type corretti) blocca correttamente', async () => {
-    const compatibleNoNumber = { ...REAL_CORRECT_RECORD, document_number: null };
+  await atest('T4b: senza Sales Order (body e subject), un record realmente compatibile (stesso subject/from, vendor/document_type corretti) blocca correttamente', async () => {
+    const compatibleNoNumber = { ...REAL_CORRECT_RECORD, document_number: null, source_email_subject: SUBJECT_NO_SALES_ORDER_SUFFIX };
     const { sb } = makeMockSupa({ existingRows: [compatibleNoNumber] });
-    const result = await runHandleBekBody({ supabase: sb, subject: SUBJECT, from: FROM, body: BODY_WITHOUT_SALES_ORDER });
+    const result = await runHandleBekBody({ supabase: sb, subject: SUBJECT_NO_SALES_ORDER_SUFFIX, from: FROM, body: BODY_WITHOUT_SALES_ORDER });
     assert.strictEqual(result.status, 'duplicate');
   });
 

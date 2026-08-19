@@ -14,7 +14,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const payload = await req.json();
-    const { pdf_base64, filename, subject, from, body } = payload;
+    const { pdf_base64, filename, subject, from, body, html_body } = payload;
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
@@ -28,8 +28,14 @@ Deno.serve(async (req: Request) => {
     const isBekOrderConfirmation = isBekSender || isBekSubject;
 
     if (!pdf_base64) {
-      if (!isBekOrderConfirmation || !body) return jsonError('Missing pdf_base64', 400);
-      return await handleBekOrderConfirmationBody(supabase, { subject, from, body });
+      // FIX (BOH OS Task 11F): getPlainBody() degrades real BEK content
+      // (values wrapped in stray asterisks, item table rows entirely
+      // stripped — confirmed against real production data, Task 11E).
+      // html_body (msg.getBody()) is the authoritative source when present;
+      // body stays supported for backward compatibility (Task 10/11B/11D),
+      // just no longer required once html_body is available.
+      if (!isBekOrderConfirmation || (!body && !html_body)) return jsonError('Missing pdf_base64', 400);
+      return await handleBekOrderConfirmationBody(supabase, { subject, from, body, html_body });
     }
 
     // Duplicate check by subject + from
@@ -95,30 +101,42 @@ Deno.serve(async (req: Request) => {
 });
 
 // ── FIX (BOH OS Task 10): body-only path for Ben E. Keith Order Confirmation ──
-// No file to store. Only a lightweight regex extraction happens here, just
-// enough for the dedup key and document_number — the real parse (items,
-// pricing, ordered/confirmed quantities) happens client-side in
-// js/vendor-parser-ui.js (parseBekOrderConfirmationEmail), reusing the exact
-// same Vendor Review pipeline every other vendor already goes through. This
-// is not a second parser: the regex below only extracts the Sales Order
-// number, nothing else.
+// No file to store. Only a lightweight extraction happens here, just enough
+// for the dedup key and document_number — the real parse (items, pricing,
+// ordered/confirmed quantities) happens client-side, reusing the exact same
+// Vendor Review pipeline every other vendor already goes through. This is
+// not a second parser.
 async function handleBekOrderConfirmationBody(
   supabase: any,
-  { subject, from, body }: { subject?: string; from?: string; body: string }
+  { subject, from, body, html_body }: { subject?: string; from?: string; body?: string; html_body?: string }
 ) {
-  // FIX (BOH OS Task 11B, STEP 3): "#" made optional and an optional colon
-  // added, matching the same defensive shape already used elsewhere for
-  // Invoice numbers (/Invoice\s*#?\s*:?\s*(\d+)/i in bek-invoice.js). Zero-
-  // width/invisible characters stripped first — \s alone does not match
-  // U+200B (confirmed empirically; \s already covers NBSP/CRLF/tabs, so
-  // those needed no extra handling).
-  const cleanBody = body.replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
-  const soM = cleanBody.match(/Sales\s*Order\s*#?\s*:?\s*(\d+)/i);
-  const salesOrder: string | null = soM ? soM[1] : null; // string — leading zeros preserved, never Number()
+  // FIX (BOH OS Task 11F): html_body (msg.getBody()) is authoritative when
+  // present — getPlainBody() was confirmed (Task 11E, real production data)
+  // to strip the item table entirely and wrap values in stray asterisks.
+  // body stays supported (Task 10/11B/11D) for backward compatibility when
+  // html_body isn't sent yet.
+  const sourceText = html_body || body || '';
+  const sourceMarker = html_body ? 'email_html' : 'email_body';
+
+  // Document number extraction. STEP 2: try the body/html text first (tags
+  // stripped crudely — this is only for the dedup key, the real per-column
+  // HTML table parse happens client-side via DOMParser, not here); the real
+  // per-column item parse is NOT attempted server-side. Optional "*" handles
+  // the bold-wrapped values confirmed in Task 11E ("Sales Order # *0002952908*").
+  // Falls back to the subject, which already carries the Sales Order in a
+  // reliable structured position ("...;0002952908") — confirmed against the
+  // real production subject line.
+  const cleanText = sourceText.replace(/<[^>]+>/g, ' ').replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+  const soM = cleanText.match(/Sales\s*Order\s*#?\s*:?\s*\*?\s*(\d+)/i);
+  let salesOrder: string | null = soM ? soM[1] : null; // string — leading zeros preserved, never Number()
+  if (!salesOrder && subject) {
+    const subM = subject.match(/;\s*(\d+)\s*$/);
+    if (subM) salesOrder = subM[1];
+  }
 
   // Dedup key: vendor + document_type + document_number, as required.
   // Falls back to the existing subject+from check only if no Sales Order
-  // number could be found in the body at all.
+  // number could be found at all.
   if (salesOrder) {
     const { data: existing } = await supabase
       .from('vendor_documents')
@@ -160,8 +178,8 @@ async function handleBekOrderConfirmationBody(
       uploaded_by:          'gmail-auto',
       source_email_subject: subject || null,
       source_email_from:    from    || null,
-      raw_text:             body,           // the email body IS the source text — no file to store
-      parsed_json:          { source: 'email_body' }, // marker: client skips PDF download/extraction
+      raw_text:             sourceText,     // HTML when available (authoritative), else plain body — no file to store
+      parsed_json:          { source: sourceMarker }, // marker: client skips PDF download/extraction, picks the right parser
       warnings:             [],
     })
     .select('id')

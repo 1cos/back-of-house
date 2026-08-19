@@ -1366,6 +1366,85 @@ function buildVendorParsers() {
     };
   }
 
+  // ── Ben E. Keith Order Confirmation (real HTML, msg.getBody()) ────
+  // FIX (BOH OS Task 11F). getPlainBody() (Task 10) was confirmed against
+  // real production data (Task 11E) to degrade the email: Sales Order/dates/
+  // totals come out wrapped in stray asterisks, and — critically — the item
+  // table rows are stripped entirely, leaving only the column headers. The
+  // real MIME/HTML (msg.getBody()) still has the actual <table> rows.
+  // Uses DOMParser (browser-native) instead of regex to strip/read HTML, as
+  // requested — entities (&apos; etc.) are decoded for free via .textContent.
+  function parseBekOrderConfirmationHtml(rawHtml) {
+    const html = String(rawHtml || '');
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const bodyText = doc.body ? (doc.body.textContent || '') : '';
+
+    // Header fields — same tolerant regex as the plain-body parser, run on
+    // the DOM's decoded textContent (inline tags collapse away, entities are
+    // already resolved).
+    let salesOrder = null;
+    const soM = bodyText.match(/Sales\s*Order\s*#?\s*:?\s*(\d+)/i);
+    if (soM) salesOrder = soM[1];
+
+    let deliveryDate = null;
+    const ddM = bodyText.match(/Delivery\s*Date\s*:?\s*([\d\/]+)/i);
+    if (ddM) deliveryDate = parseDate(ddM[1]);
+
+    let orderTotal = null;
+    const otM = bodyText.match(/Order\s*Total\s*:?\s*\$?([\d,]+\.\d{2})/i);
+    if (otM) orderTotal = parsePrice(otM[1]);
+
+    // Items — read the actual HTML table rows (ITEM# / ITEM NAME / BRAND /
+    // PACK/SIZE / PRICE / ORDERED / CONFIRMED / STATUS), not regex on
+    // flattened text. Header rows use <th>, so a row with <8 <td> cells is
+    // skipped naturally; a first-cell check guards against any other
+    // non-item row shape.
+    const items = [];
+    const rows = doc.querySelectorAll('table tr');
+    for (const row of rows) {
+      const cells = Array.from(row.querySelectorAll('td')).map(td => (td.textContent || '').trim());
+      if (cells.length < 8) continue;
+      const [itemCode, descRaw, brand, pack, priceRaw, orderedRaw, confirmedRaw, status] = cells;
+      if (!/^\d{4,8}$/.test(itemCode)) continue;
+
+      const priceM = priceRaw.match(/\$?([\d,]+\.\d{2})/);
+      const unitPrice = priceM ? parsePrice(priceM[1]) : null;
+      const orderedN   = parseInt(orderedRaw, 10);
+      const confirmedN = parseInt(confirmedRaw, 10);
+      const ordered   = isNaN(orderedN)   ? null : orderedN;
+      // FIX (Task 11F, T6): ordered and confirmed kept as two distinct
+      // fields (qty_ordered/qty_received — same convention used everywhere
+      // else in this codebase) even when they differ.
+      const confirmed = isNaN(confirmedN) ? null : confirmedN;
+
+      items.push({
+        vendor_sku:         itemCode,
+        raw_description:    descRaw,
+        description:        cleanDescription(descRaw),
+        brand:               brand,
+        pack_description:   pack,
+        unit_price:         unitPrice,
+        qty_ordered:        ordered,
+        qty_received:       confirmed,
+        status:              status,
+        price_type:          'per_case',
+        amount:              (unitPrice != null && confirmed != null) ? parseFloat((unitPrice * confirmed).toFixed(2)) : null,
+        warnings:            [],
+      });
+    }
+
+    return {
+      vendor:          'Ben E. Keith',
+      document_type:   'order_confirmation',
+      document_number: salesOrder,
+      document_date:   deliveryDate,
+      subtotal:        null,
+      total:           orderTotal,
+      items,
+      warnings: [],
+    };
+  }
+
   // ── Router ──
   function detectVendor(text) {
     if (/dairyland produce|hardie'?s|chefs'?\s*wh?se/i.test(text)) return 'hardies';
@@ -1426,7 +1505,7 @@ function buildVendorParsers() {
     }
   }
 
-  return { parse, detectVendor, detectDocumentType };
+  return { parse, detectVendor, detectDocumentType, parseBekOrderConfirmationHtml };
 }
 
 // ── BRIDGE: Parser result → Invoice Import pipeline ───────────

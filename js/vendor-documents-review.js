@@ -178,7 +178,19 @@ window.vdrProcessAllPdf = async function() {
 
       try {
         let rawText;
-        if (doc.parsed_json?.source === 'email_body' && doc.raw_text) {
+        let parsed;
+        if (doc.parsed_json?.source === 'email_html' && doc.raw_text) {
+          // FIX (BOH OS Task 11F): Ben E. Keith Order Confirmation HTML
+          // (msg.getBody()) — the authoritative source once gmail-vendor-import
+          // sends html_body (getPlainBody() was confirmed to strip the item
+          // table and mangle values, Task 11E). Skip storage download AND the
+          // generic text dispatcher (parsers.parse would try to run
+          // detectVendor/detectDocumentType on raw HTML markup, which this
+          // path doesn't need) — go straight to the dedicated DOM-based
+          // table parser.
+          rawText = doc.raw_text;
+          parsed = parsers.parseBekOrderConfirmationHtml(rawText);
+        } else if (doc.parsed_json?.source === 'email_body' && doc.raw_text) {
           // FIX (BOH OS Task 10): Ben E. Keith Order Confirmation emails have no
           // PDF attachment — gmail-vendor-import already stored the plain email
           // body directly in raw_text. Skip storage download/PDF.js extraction
@@ -186,6 +198,7 @@ window.vdrProcessAllPdf = async function() {
           // existing PDF path unchanged (parsed_json.source is only set for
           // this body-only path).
           rawText = doc.raw_text;
+          parsed = parsers.parse(rawText);
         } else {
           // Download PDF from Storage
           const { data: fileData, error: dlErr } = await sb.storage.from('app').download(storagePath);
@@ -212,11 +225,9 @@ window.vdrProcessAllPdf = async function() {
           rawText = pages.join('\n');
 
           if (!rawText || rawText.trim().length < 30) throw new Error('No text extracted');
+          parsed = parsers.parse(rawText);
         }
         console.log('[VDR] rawText preview:', rawText.slice(0, 500));
-
-        // Parse with Hardie's parser
-        const parsed = parsers.parse(rawText);
         console.log('[VDR] parsed vendor:', parsed.vendor, 'items:', parsed.items?.length, 'warnings:', parsed.warnings?.length);
 
         // FIX (BOH OS Task 10): also read parsed.document_number — Fruge/FreshPoint/

@@ -160,22 +160,23 @@ function realIsBekOrderConfirmation(from, subject) {
 }
 
 // Estrae ed esegue le righe reali di estrazione Sales Order (JS puro).
-// FIX (BOH OS Task 11B): marker aggiornato — l'estrazione ora normalizza i
-// caratteri invisibili e rende "#"/":" opzionali (vedi
-// tests/bek-order-confirmation-body-fix.test.js per la copertura completa
-// del fix). Stesso comportamento verificato qui, sorgente reale.
+// FIX (BOH OS Task 11F): marker aggiornato — l'estrazione ora prova prima
+// body/html_body (variabile rinominata sourceText/cleanText) poi il subject
+// come fallback (vedi tests/bek-html-order-confirmation.test.js per la
+// copertura completa del fix). Stesso comportamento verificato qui, sorgente
+// reale, path body-only legacy (senza html_body).
 function realExtractSalesOrder(body) {
   const src = readEdgeFnSource();
-  const startMarker = "const cleanBody = body.replace(/[\\u200B\\u200C\\u200D\\uFEFF]/g, '');";
-  const endMarker = "const soM = cleanBody.match(/Sales\\s*Order\\s*#?\\s*:?\\s*(\\d+)/i);";
+  const startMarker = "const sourceText = html_body || body || '';";
+  const endMarker = "if (!salesOrder && subject) {";
   if (!src.includes(startMarker) || !src.includes(endMarker)) {
     throw new Error('righe di estrazione Sales Order non trovate o cambiate nella Edge Function');
   }
   const start = src.indexOf(startMarker);
-  const end = src.indexOf(endMarker) + endMarker.length;
-  const snippet = src.slice(start, end);
-  const fn = new Function('body', snippet + '\nreturn soM ? soM[1] : null;');
-  return fn(body);
+  const end = src.indexOf(endMarker);
+  const snippet = src.slice(start, end).replace(/:\s*string\s*\|\s*null/g, '');
+  const fn = new Function('body', 'html_body', 'subject', snippet + '\nreturn salesOrder;');
+  return fn(body, undefined, null);
 }
 
 // ── T1 — Email BEK senza attachment non scartata solo per assenza PDF ──
@@ -212,18 +213,18 @@ test('document_number non viene mai convertito a Number/parseInt (zeri iniziali 
 });
 
 // ── Vendor_documents shape corretta per il nuovo path ────────────────
-test('vendor_documents creato con document_type=order_confirmation, status=pdf_received, raw_text=body', () => {
+test('vendor_documents creato con document_type=order_confirmation, status=pdf_received, raw_text=sourceText', () => {
   const src = readEdgeFnSource();
   assert.ok(src.includes("document_type:        'order_confirmation',"));
   assert.ok(src.includes("status:               'pdf_received',"));
-  assert.ok(src.includes('raw_text:             body,'));
-  assert.ok(src.includes("parsed_json:          { source: 'email_body' },"));
+  assert.ok(src.includes('raw_text:             sourceText,'));
+  assert.ok(src.includes("parsed_json:          { source: sourceMarker },"));
 });
 
 // ── Percorso PDF esistente invariato ──────────────────────────────
 test("percorso PDF esistente (altri vendor) non richiede piu' del vecchio pdf_base64 -- nessuna regressione", () => {
   const src = readEdgeFnSource();
-  assert.ok(src.includes("if (!isBekOrderConfirmation || !body) return jsonError('Missing pdf_base64', 400);"));
+  assert.ok(src.includes("if (!isBekOrderConfirmation || (!body && !html_body)) return jsonError('Missing pdf_base64', 400);"));
   // Il branch PDF (else implicito, prosegue sotto) resta identico: stesso
   // upload storage, stesso insert document_type='invoice', stesso vendorHint.
   assert.ok(src.includes("document_type:        'invoice',"));
