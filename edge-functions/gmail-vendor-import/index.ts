@@ -130,9 +130,19 @@ async function handleBekOrderConfirmationBody(
     if (existing && existing.length > 0)
       return jsonResponse({ status: 'duplicate', message: 'Already imported', document_id: existing[0].id });
   } else if (subject && from) {
+    // FIX (BOH OS Task 11D): the fallback previously matched on subject+from
+    // ALONE — no vendor/document_type filter — unlike the primary key path
+    // above, which is correctly scoped on all three. That let it match a
+    // record with an entirely incompatible shape (e.g. the legacy
+    // vendor='bek'/document_type='invoice' row from before Task 9's
+    // vendor='Ben E. Keith' convention existed), returning 'duplicate' for a
+    // genuinely new, correctly-keyed document. Scoped the same way the
+    // primary key path already is.
     const { data: existing } = await supabase
       .from('vendor_documents')
       .select('id, status')
+      .eq('vendor', 'Ben E. Keith')
+      .eq('document_type', 'order_confirmation')
       .eq('source_email_subject', subject)
       .eq('source_email_from', from)
       .limit(1);
