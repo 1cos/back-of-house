@@ -140,7 +140,7 @@ window.vdrLoad = async function() {
 };
 
 // ── Process all pdf_received using the existing import pipeline ──
-window.vdrProcessAllPdf = async function() {
+window.vdrProcessAllPdf = async function(docId) {
   const btn = document.getElementById('vdrProcessAllBtn');
   const log = document.getElementById('vdrProcessLog');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Processing…'; }
@@ -148,11 +148,20 @@ window.vdrProcessAllPdf = async function() {
 
   try {
     const sb = window.supabaseClient;
-    const { data: queue } = await sb
+    // FIX (BOH OS Task 11J): docId optional. Absent -> unchanged behaviour,
+    // processes the whole pdf_received queue (every existing call-site calls
+    // this with zero arguments). Present -> scoped at the DB level
+    // (status='pdf_received' AND id=docId), not fetched-then-filtered in
+    // memory, so no other document is ever read or touched. If docId doesn't
+    // exist or isn't pdf_received, this query returns zero rows and the
+    // existing empty-queue exit below already handles it — no new UI/error
+    // path needed.
+    let query = sb
       .from('vendor_documents')
       .select('id,parsed_json,source_email_subject,raw_text')
-      .eq('status', 'pdf_received')
-      .order('created_at', { ascending: true });
+      .eq('status', 'pdf_received');
+    if (docId) query = query.eq('id', docId);
+    const { data: queue } = await query.order('created_at', { ascending: true });
 
     if (!queue || queue.length === 0) { vdrLoad(); return; }
 
