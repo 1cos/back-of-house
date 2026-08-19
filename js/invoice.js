@@ -244,11 +244,14 @@ function showInvoicePreview(data){
 async function saveInvoice(data,btn){
   btn.textContent='Saving...'; btn.disabled=true;
   try{
-    // Anti-duplicate: check if same vendor+date+total already saved
-    if(data.invoice_date&&data.vendor){
-      const q=supa.from('purchases')
-        .select('id').eq('vendor',data.vendor).eq('invoice_date',data.invoice_date);
-      if(data.total) q.eq('total',data.total);
+    // Anti-duplicate: check if a vendor_documents record for the same vendor
+    // + document already exists (document_number when we have it, else date).
+    // FIX (BOH OS Task 6): checks vendor_documents, the new master table for
+    // manual imports, instead of the now-frozen legacy `purchases` table.
+    if(data.vendor&&(data.invoice_number||data.invoice_date)){
+      const q=supa.from('vendor_documents').select('id').eq('vendor',data.vendor);
+      if(data.invoice_number) q.eq('document_number',data.invoice_number);
+      else q.eq('document_date',data.invoice_date);
       const{data:existing}=await q.limit(1);
       if(existing&&existing.length){
         btn.textContent='✓ Save Invoice'; btn.disabled=false;
@@ -256,17 +259,38 @@ async function saveInvoice(data,btn){
         return;
       }
     }
-    const{data:purchase,error}=await supa.from('purchases').insert({
-      vendor:data.vendor||null,invoice_number:data.invoice_number||null,
-      invoice_date:data.invoice_date||null,payment_terms:data.payment_terms||null,
-      subtotal:data.subtotal||null,tax:data.tax||null,total:data.total||null,
-      items:data.items||[],uploaded_by:user?.name||'Max'
+    // FIX (BOH OS Task 6): master record is now vendor_documents, not purchases.
+    // Same document_type/status already used by the Gmail import pipeline
+    // (vendor-documents-review.js) for a successfully parsed invoice, so this
+    // document lands in Vendor Review through the existing vdrLoad() query
+    // with no changes needed there.
+    const{data:vdoc,error}=await supa.from('vendor_documents').insert({
+      vendor:           data.vendor||null,
+      document_type:    'invoice',
+      document_number:  data.invoice_number||null,
+      document_date:    data.invoice_date||null,
+      parsed_json:      data,
+      raw_text:         data.raw_text||null,
+      status:           'pending',
+      uploaded_by:      user?.name||'Max',
     }).select().single();
     if(error) throw error;
-    data._purchase_id=purchase?.id||null;
+    data._vendor_document_id=vdoc?.id||null;
     (document.getElementById('_invoicePreviewModal')||btn.closest('.fixed'))?.remove();
 
     const savedLines=await saveToInvoiceLines(data);
+    if(savedLines===null){
+      // FIX (BOH OS Task 6, STEP 5): don't report success if invoice_lines
+      // failed. Mark the vendor_documents row 'error' — the same status the
+      // Gmail pipeline already uses for failed processing — so the document
+      // stays identifiable as incomplete instead of silently looking fine.
+      if(data._vendor_document_id){
+        await supa.from('vendor_documents').update({status:'error'}).eq('id',data._vendor_document_id);
+      }
+      btn.textContent='Error — retry'; btn.disabled=false;
+      showScToast('❌ Invoice saved but line items failed to save — marked as error, check Vendor Review');
+      return;
+    }
     data._lineIdMap={};
     (savedLines||[]).forEach(row=>{
       if(row.id&&row.raw_description) data._lineIdMap[row.raw_description]=row.id;
@@ -1160,9 +1184,11 @@ async function saveAllMatches(vendor){
 
     // 2c. Update invoice_lines using raw_description + import_id (both safe UUIDs)
     //     NEVER use array index or non-UUID as filter
-    const purchaseId = invoiceData?._purchase_id;
+    // FIX (BOH OS Task 6): fallback now keyed on the vendor_documents UUID,
+    // not the retired purchases.id.
+    const linkedDocId = invoiceData?._vendor_document_id;
     const lineId = invoiceData?._lineIdMap?.[m.invoice_description];
-    const purchaseIdIsUUID = isValidUUID(purchaseId);
+    const linkedDocIdIsUUID = isValidUUID(linkedDocId);
 
     let ilErr = null;
     if(isValidUUID(lineId)){
@@ -1171,23 +1197,23 @@ async function saveAllMatches(vendor){
         .update({ingredient_id:ingrId, match_status:'matched', match_confidence:m.confidence||null})
         .eq('id', lineId);
       ilErr = e;
-    } else if(purchaseIdIsUUID){
-      // Good: scoped to this purchase + description
+    } else if(linkedDocIdIsUUID){
+      // Good: scoped to this document + description
       const{error:e} = await supa.from('invoice_lines')
         .update({ingredient_id:ingrId, match_status:'matched', match_confidence:m.confidence||null})
-        .eq('import_id', purchaseId)
+        .eq('import_id', linkedDocId)
         .eq('raw_description', m.invoice_description);
       ilErr = e;
     } else {
       // Skip — no valid UUID available, do not send garbage to DB
       console.warn('Skipped invoice_lines update: missing lineId and invalid import_id',
-        {lineId, purchaseId, desc: m.invoice_description});
+        {lineId, linkedDocId, desc: m.invoice_description});
     }
 
     if(ilErr){
-      console.error('invoice_lines update error:',ilErr,{lineId,purchaseId,desc:m.invoice_description});
+      console.error('invoice_lines update error:',ilErr,{lineId,linkedDocId,desc:m.invoice_description});
       stats.errors.push('Line update: '+ilErr.message);
-    } else if(isValidUUID(lineId)||purchaseIdIsUUID){
+    } else if(isValidUUID(lineId)||linkedDocIdIsUUID){
       stats.linesUpdated++;
     }
 
@@ -1371,7 +1397,7 @@ async function saveToInvoiceLines(data){
     const price=parseFloat(item.unit_price||item.amount)||null;
     const costPer100g=(totalG&&price)?((price/totalG)*100):null;
     return {
-      import_id:        isValidUUID(data._purchase_id) ? data._purchase_id : null,
+      import_id:        data._vendor_document_id||null, // FIX Task 6: real vendor_documents UUID, not purchases.id
       invoice_date:     data.invoice_date||new Date().toISOString().slice(0,10),
       invoice_number:   data.invoice_number||null,
       vendor:           data.vendor||'Unknown',
