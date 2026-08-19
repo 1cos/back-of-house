@@ -69,6 +69,42 @@ function test(name, fn) {
 // A7. Cap enforcement unaffected: qty=600 unit='pz' on a porzioni
 //     fixture (cap 500 for the pz bucket) → still { ok:false,
 //     error:'qty_exceeds_maximum', max:500 }. [VERIFIED]
+//
+// ── Gf pasta canonical-unit migration (2026-08-18) ──────────────────
+// Read-only audit found prep_tasks.id=295 (Gf pasta) had unit='porzioni'
+// configured, but 8 of 9 historical prep_log entries were logged in
+// kg/g by kitchen staff, and no recipe/BOM/ingredient/POS-depletion
+// row references this task at all — prep_tasks.unit was the only, and
+// wrong, source of truth. Migration fix_gf_pasta_canonical_unit_g
+// changed ONLY prep_tasks.id=295.unit: 'porzioni' -> 'g'. current_stock
+// (1997) was deliberately left untouched — its historical accumulation
+// mixes raw kg/g/porzioni values without conversion, so it cannot be
+// reliably rebaselined here; a separate operational decision is needed
+// for that cleanup. No other prep_task (Rinse Clams/Mussels, berries,
+// dressings, Orange supreme, or any other porzioni/batch/squeezer task)
+// was touched.
+//
+// A8. Gf pasta (id=295) with unit now 'g': qty=1500, unit='g' →
+//     { ok:true, qty_native:1500, task_unit:'g' }. No
+//     unit_conversion_unsupported. prep_log row created (qty=1500
+//     unit='g'). prep_tasks.in_progress -> false. [VERIFIED 2026-08-18]
+//
+// A9. Retry idempotency on the same call (same client_key) → { ok:true,
+//     duplicate_skipped:true }, same log_id, stock unchanged on the
+//     second call. [VERIFIED]
+//
+// A10. Unit normalization: 1 kg on Gf pasta → qty_native:1000 (kg->g
+//      conversion branch, pre-existing and untouched by this fix).
+//      [VERIFIED]
+//
+// A11. Regressions: (a) cap for 'g' unaffected — qty=50001 still
+//      { ok:false, error:'qty_exceeds_maximum', max:50000 }; (b) the
+//      v782 alias fix still works for genuine count-based tasks —
+//      Rinse Clams (id=289, unit='porzioni', untouched by this
+//      migration) with qty=3 unit='pz' still → { ok:true,
+//      task_unit:'porzioni' }. [VERIFIED — all test-generated rows
+//      deleted and current_stock/in_progress restored on 295 and 289
+//      after verification; zero residue confirmed]
 
 // ── PART B — frontend structural regression guard ──────────────────
 const PREP_JS = path.join(__dirname, '..', 'js', 'prep.js');
