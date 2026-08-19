@@ -150,7 +150,7 @@ window.vdrProcessAllPdf = async function() {
     const sb = window.supabaseClient;
     const { data: queue } = await sb
       .from('vendor_documents')
-      .select('id,parsed_json,source_email_subject')
+      .select('id,parsed_json,source_email_subject,raw_text')
       .eq('status', 'pdf_received')
       .order('created_at', { ascending: true });
 
@@ -177,38 +177,54 @@ window.vdrProcessAllPdf = async function() {
       log.textContent = `Processing ${done + 1}/${queue.length}: ${doc.source_email_subject || storagePath}…`;
 
       try {
-        // Download PDF from Storage
-        const { data: fileData, error: dlErr } = await sb.storage.from('app').download(storagePath);
-        if (dlErr || !fileData) throw new Error('Download failed: ' + dlErr?.message);
+        let rawText;
+        if (doc.parsed_json?.source === 'email_body' && doc.raw_text) {
+          // FIX (BOH OS Task 10): Ben E. Keith Order Confirmation emails have no
+          // PDF attachment — gmail-vendor-import already stored the plain email
+          // body directly in raw_text. Skip storage download/PDF.js extraction
+          // entirely and parse that text as-is. Every other vendor keeps the
+          // existing PDF path unchanged (parsed_json.source is only set for
+          // this body-only path).
+          rawText = doc.raw_text;
+        } else {
+          // Download PDF from Storage
+          const { data: fileData, error: dlErr } = await sb.storage.from('app').download(storagePath);
+          if (dlErr || !fileData) throw new Error('Download failed: ' + dlErr?.message);
 
-        // Extract text with PDF.js — same as vendor-parser-ui.js extractWithPdfJs
-        const arrayBuffer = await fileData.arrayBuffer();
-        const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        const pages = [];
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          const lineMap = {};
-          for (const item of content.items) {
-            const y = Math.round(item.transform[5]);
-            if (!lineMap[y]) lineMap[y] = [];
-            lineMap[y].push({ x: item.transform[4], text: item.str });
+          // Extract text with PDF.js — same as vendor-parser-ui.js extractWithPdfJs
+          const arrayBuffer = await fileData.arrayBuffer();
+          const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          const pages = [];
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            const lineMap = {};
+            for (const item of content.items) {
+              const y = Math.round(item.transform[5]);
+              if (!lineMap[y]) lineMap[y] = [];
+              lineMap[y].push({ x: item.transform[4], text: item.str });
+            }
+            const sortedY = Object.keys(lineMap).map(Number).sort((a, b) => b - a);
+            pages.push(sortedY.map(y =>
+              lineMap[y].sort((a, b) => a.x - b.x).map(i => i.text).join(' ')
+            ).join('\n'));
           }
-          const sortedY = Object.keys(lineMap).map(Number).sort((a, b) => b - a);
-          pages.push(sortedY.map(y =>
-            lineMap[y].sort((a, b) => a.x - b.x).map(i => i.text).join(' ')
-          ).join('\n'));
-        }
-        const rawText = pages.join('\n');
+          rawText = pages.join('\n');
 
-        if (!rawText || rawText.trim().length < 30) throw new Error('No text extracted');
+          if (!rawText || rawText.trim().length < 30) throw new Error('No text extracted');
+        }
         console.log('[VDR] rawText preview:', rawText.slice(0, 500));
 
         // Parse with Hardie's parser
         const parsed = parsers.parse(rawText);
         console.log('[VDR] parsed vendor:', parsed.vendor, 'items:', parsed.items?.length, 'warnings:', parsed.warnings?.length);
 
-        let docNumber = parsed.invoice_number || parsed.order_number || parsed.credit_number || null;
+        // FIX (BOH OS Task 10): also read parsed.document_number — Fruge/FreshPoint/
+        // BEK parsers in this file return that field name (not invoice_number/
+        // order_number/credit_number). Without this, a correct document_number
+        // already set by gmail-vendor-import at intake could get silently
+        // overwritten below by the much more ambiguous subject-regex fallback.
+        let docNumber = parsed.invoice_number || parsed.order_number || parsed.credit_number || parsed.document_number || null;
         // Fallback: extract from email subject, e.g. "INVOICE - #06997941"
         if (!docNumber && doc.source_email_subject) {
           const sm = doc.source_email_subject.match(/#?\s*(\d{6,10})/);
@@ -221,7 +237,7 @@ window.vdrProcessAllPdf = async function() {
           const { data: byNum } = await sb.from('vendor_documents').select('id').eq('vendor', parsed.vendor).eq('document_number', docNumber).eq('document_type', parsed.document_type).neq('id', doc.id).limit(1);
           if (byNum && byNum.length > 0) {
             await sb.from('vendor_documents').update({ status: 'error', warnings: [{ code: 'DUPLICATE', message: `Document #${docNumber} already exists` }] }).eq('id', doc.id);
-            await sb.storage.from('app').remove([storagePath]);
+            if (storagePath) await sb.storage.from('app').remove([storagePath]);
             done++; continue;
           }
         }
@@ -317,7 +333,7 @@ window.vdrProcessAllPdf = async function() {
         }
 
         // Remove PDF from storage after successful parse
-        if (parsed.items && parsed.items.length > 0) {
+        if (parsed.items && parsed.items.length > 0 && storagePath) {
           await sb.storage.from('app').remove([storagePath]);
         }
 

@@ -1273,6 +1273,93 @@ function buildVendorParsers() {
     };
   }
 
+  // ── Ben E. Keith Order Confirmation (email body, no PDF) ─────
+  // FIX (BOH OS Task 10). Real Ben E. Keith "Order Confirmation" emails carry
+  // no attachment — every field lives in the plain-text body, one multi-line
+  // block per item (item#, name, brand, pack, price, ORDERED n, CONFIRMED n,
+  // status), not the single-line table rows bek-invoice.js/parseBekInvoice
+  // expect. No Node source of truth existed for this shape (see Task 8/9
+  // audit — bek-invoice.js only ever produced document_type:'invoice'), so
+  // this is new, following the same one-parser-per-document-type pattern
+  // already used for Hardie's (parseHardiesOrder vs parseHardiesInvoice).
+  // Reuses parseDate/parsePrice/cleanDescription already defined above.
+  function parseBekOrderConfirmationEmail(rawText) {
+    const text = String(rawText || '');
+    const lines = text.split('\n').map(l => l.trim());
+    const nonEmpty = lines.filter(l => l.length > 0);
+
+    // Sales Order # — kept as a string, leading zeros preserved (never Number()).
+    let salesOrder = null;
+    const soM = text.match(/Sales\s*Order\s*#\s*(\d+)/i);
+    if (soM) salesOrder = soM[1];
+
+    let deliveryDate = null;
+    const ddM = text.match(/Delivery\s*Date\s*:?\s*([\d\/]+)/i);
+    if (ddM) deliveryDate = parseDate(ddM[1]);
+
+    let orderTotal = null;
+    const otM = text.match(/Order\s*Total\s*:?\s*\$?([\d,]+\.\d{2})/i);
+    if (otM) orderTotal = parsePrice(otM[1]);
+
+    // Items: scan for a bare item-code line (4-8 digits), then read the fixed
+    // block of lines that follows it (description, brand, pack, price,
+    // ORDERED n, CONFIRMED n, status) — matching the real format in the
+    // task's sample email body.
+    const items = [];
+    for (let i = 0; i < nonEmpty.length; i++) {
+      const line = nonEmpty[i];
+      if (!/^\d{4,8}$/.test(line)) continue;
+
+      const chunk = nonEmpty.slice(i, i + 8);
+      const orderedIdx   = chunk.findIndex(l => /^ORDERED\s+(\d+)/i.test(l));
+      const confirmedIdx = chunk.findIndex(l => /^CONFIRMED\s+(\d+)/i.test(l));
+      if (orderedIdx === -1 || confirmedIdx === -1) continue; // not really an item block
+
+      const description = chunk[1] || null;
+      const brand        = chunk[2] || null;
+      const packLine      = chunk[3] || null;
+      const priceLine      = chunk[4] || '';
+      const orderedM   = chunk[orderedIdx].match(/ORDERED\s+(\d+)/i);
+      const confirmedM = chunk[confirmedIdx].match(/CONFIRMED\s+(\d+)/i);
+      const statusLine  = chunk[confirmedIdx + 1] || null;
+
+      const priceM = priceLine.match(/\$?([\d,]+\.\d{2})/);
+      const unitPrice = priceM ? parsePrice(priceM[1]) : null;
+      const ordered   = orderedM   ? parseInt(orderedM[1], 10)   : null;
+      // FIX (BOH OS Task 10, STEP 7): ordered vs confirmed preserved using the
+      // same qty_ordered/qty_received field names already used everywhere
+      // else in this codebase (e.g. Hardie's OQR-007 qty-mismatch logic) —
+      // no new field names introduced.
+      const confirmed = confirmedM ? parseInt(confirmedM[1], 10) : null;
+
+      items.push({
+        vendor_sku:         line,
+        raw_description:    description,
+        description:        cleanDescription(description || ''),
+        brand:               brand,
+        pack_description:   packLine,
+        unit_price:         unitPrice,
+        qty_ordered:        ordered,
+        qty_received:       confirmed,
+        status:              statusLine,
+        price_type:          'per_case',
+        amount:              (unitPrice != null && confirmed != null) ? parseFloat((unitPrice * confirmed).toFixed(2)) : null,
+        warnings:            [],
+      });
+    }
+
+    return {
+      vendor:          'Ben E. Keith',
+      document_type:   'order_confirmation',
+      document_number: salesOrder,
+      document_date:   deliveryDate,
+      subtotal:        null,
+      total:           orderTotal,
+      items,
+      warnings: [],
+    };
+  }
+
   // ── Router ──
   function detectVendor(text) {
     if (/dairyland produce|hardie'?s|chefs'?\s*wh?se/i.test(text)) return 'hardies';
@@ -1317,6 +1404,7 @@ function buildVendorParsers() {
       }
       if (vendor === 'bek') {
         if (docType === 'invoice') return parseBekInvoice(rawText);
+        if (docType === 'order_confirmation') return parseBekOrderConfirmationEmail(rawText);
       }
       return {vendor,document_type:docType,items:[],warnings:[{code:'NO_PARSER',message:`No parser for ${vendor}/${docType}`}]};
     } catch(e) {
