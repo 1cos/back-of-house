@@ -147,6 +147,64 @@ function test(name, fn) {
 //      current_stock/in_progress restored to their exact pre-test
 //      snapshot on 289, 299, 328, 250 afterward; zero residue
 //      confirmed. [VERIFIED]
+//
+// ── Dressing "Check" tasks canonical-unit migration (2026-08-19) ────
+// Same pattern as Gf pasta and the 3 mass-based checklist tasks,
+// applied to the 4 dressing tasks: Check Citronnette (393), Check
+// Ranch (394), Check Caesar (395), Check Balsamic Dressing (396). All
+// had unit='squeezer' configured, but 'squeezer' has no defined
+// capacity or conversion anywhere in the system (not in js/prep.js
+// WHOLE_UNITS, not in js/unit-normalizer.js STATIC_CONVERSIONS, not in
+// the live unit_conversion_table -- 0 of 26 rows). Historical manual
+// entries were almost entirely g/kg, never squeezer. Independent
+// converging evidence: the matching recipes (CITRONETTE, Ranch
+// Dressing, BALSAMIC VINAIGRETTE) store base_weight_g/serving_unit='g';
+// the matching ingredients (Caesar Dressing, Citronette, Ranch,
+// Balsamic Vinaigrette) all have base_unit='g'; and the active
+// pos_modifier_depletion_rules for all 4 modifiers use
+// normalized_qty_g=59.147 (2 fl oz ramekin, confirmed by Max
+// 2026-07-08). Migration fix_dressing_check_tasks_canonical_unit_g
+// changed ONLY these 4 rows' unit: 'squeezer' -> 'g', each statement
+// guarded on id + name + previous value. current_stock, prep_type,
+// daily_reset, recipe_id and the (deliberately still unlinked)
+// pos_modifier_depletion_rules were all left untouched -- checklist
+// semantics and recipe/depletion linkage are explicitly out of scope
+// for this task.
+//
+// A17. Check Citronnette (id=393) now unit='g': qty=500 unit='g' →
+//      { ok:true, qty_native:500, task_unit:'g' }. Retry same
+//      client_key → duplicate_skipped:true, same log_id, stock
+//      unchanged. Failure case (unit='nests', unsupported) →
+//      { ok:false, error:'unit_conversion_unsupported' }, zero rows
+//      written, stock/in_progress unchanged. [VERIFIED 2026-08-19]
+//
+// A18. Check Ranch (id=394) now unit='g': qty=1 unit='kg' →
+//      { ok:true, qty_native:1000, task_unit:'g' } (kg->g conversion,
+//      pre-existing, unaffected). [VERIFIED]
+//
+// A19. Check Caesar (id=395) now unit='g': qty=250 unit='g' →
+//      { ok:true, qty_native:250, task_unit:'g' }. Cap unaffected:
+//      qty=50001 unit='g' → { ok:false, error:'qty_exceeds_maximum',
+//      max:50000 }. [VERIFIED]
+//
+// A20. Check Balsamic Dressing (id=396) now unit='g': qty=750
+//      unit='g' → { ok:true, qty_native:750, task_unit:'g' }.
+//      [VERIFIED]
+//
+// A21. Regression — Orange supreme (id=250, unit='porzioni', NOT part
+//      of this migration) with qty=4 unit='pz' still → { ok:true,
+//      task_unit:'porzioni' }: v782 unaffected. [VERIFIED]
+//
+// A22. Out-of-scope verification: 295, 289, 299, 328 (previously fixed
+//      to 'g'), 250, 330, 360 (still 'porzioni'), 462/463 (still NULL)
+//      all confirmed unchanged before/after. pos_modifier_depletion_rules
+//      for all 4 dressing modifiers confirmed unchanged
+//      (active=true, usage_mode='fixed_quantity',
+//      normalized_qty_g≈59.147, linked_prep_task_id=NULL). All five
+//      test-generated prep_log rows deleted and current_stock/
+//      in_progress restored to their exact pre-test snapshot on
+//      393, 394, 395, 396, 250 afterward; zero residue confirmed.
+//      [VERIFIED]
 
 // ── PART B — frontend structural regression guard ──────────────────
 const PREP_JS = path.join(__dirname, '..', 'js', 'prep.js');
