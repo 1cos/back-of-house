@@ -105,6 +105,48 @@ function test(name, fn) {
 //      task_unit:'porzioni' }. [VERIFIED — all test-generated rows
 //      deleted and current_stock/in_progress restored on 295 and 289
 //      after verification; zero residue confirmed]
+//
+// ── High-confidence mass-unit migration (2026-08-18, follow-up) ─────
+// Same pattern as Gf pasta, applied to the 3 tasks with unanimous
+// mass-based history: Rinse Clams (id=289, 11/11 manual entries in
+// g/kg), Rinse Mussels (id=299, 8/8 in g/kg), Refill Blackberries
+// (id=328, 3/3 in g). Migration fix_high_confidence_mass_prep_units
+// changed ONLY these 3 rows' unit: 'porzioni' -> 'g', each statement
+// guarded on id + name + previous value (never a blanket
+// WHERE unit='porzioni'). current_stock left untouched on all three
+// (same contaminated-history rationale as Gf pasta). Orange supreme
+// (id=250), Refill Blueberry/Raspberry (330/360), all 4 Check
+// dressings (393-396), and the Rinse Clams/Mussels orphan rows
+// (462/463) were verified unchanged before and after.
+//
+// A12. Rinse Clams (id=289) now unit='g': qty=1000 unit='g' →
+//      { ok:true, qty_native:1000, task_unit:'g' }. Retry same
+//      client_key → duplicate_skipped:true, same log_id, stock
+//      unchanged. Failure case (unit='nests', unsupported) →
+//      { ok:false, error:'unit_conversion_unsupported' }, zero rows
+//      written, stock unchanged. [VERIFIED]
+//
+// A13. Rinse Mussels (id=299) now unit='g': qty=1 unit='kg' →
+//      { ok:true, qty_native:1000, task_unit:'g' } (kg->g conversion,
+//      pre-existing, unaffected). [VERIFIED]
+//
+// A14. Refill Blackberries (id=328) now unit='g': qty=250 unit='g' →
+//      { ok:true, qty_native:250, task_unit:'g' }. Cap unaffected on
+//      this task: qty=50001 unit='g' → { ok:false,
+//      error:'qty_exceeds_maximum', max:50000 }. [VERIFIED]
+//
+// A15. Regression — Orange supreme (id=250, unit='porzioni', NOT part
+//      of this migration) with qty=5 unit='pz' still → { ok:true,
+//      task_unit:'porzioni' }: the v782 fix and the still-count-based
+//      tasks are both unaffected by this migration. [VERIFIED]
+//
+// A16. Out-of-scope verification: 250, 330, 360, 393, 394, 395, 396,
+//      462, 463 all confirmed unchanged (unit identical before/after);
+//      295 confirmed still 'g' from the prior migration. All
+//      test-generated prep_log rows (four) deleted and
+//      current_stock/in_progress restored to their exact pre-test
+//      snapshot on 289, 299, 328, 250 afterward; zero residue
+//      confirmed. [VERIFIED]
 
 // ── PART B — frontend structural regression guard ──────────────────
 const PREP_JS = path.join(__dirname, '..', 'js', 'prep.js');
