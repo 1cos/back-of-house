@@ -1696,6 +1696,16 @@ window.vdrApprove = async function(docId, btn) {
 
     // ── Populate invoice_lines (invoices only) ────────────────────
     if (pj.document_type === 'invoice') {
+      // FIX (BOH OS Task 7): if invoice_lines already exist for this document
+      // (Manual Import writes them directly at save time — see js/invoice.js
+      // saveToInvoiceLines()), reuse those instead of inserting a second,
+      // duplicate set parsed fresh from parsed_json.items on every approve.
+      // Gmail-imported documents never have pre-existing lines at this point,
+      // so this leaves that path completely unchanged.
+      const { data: existingLines } = await sb.from('invoice_lines')
+        .select('id').eq('import_id', docId).limit(1);
+
+      if (!existingLines || existingLines.length === 0) {
       const invoiceLineRows = items.map((item, itemIdx) => {
         const edits       = docEdits[itemIdx] || {};
         const desc        = item.description || item.raw_description || null;
@@ -1746,6 +1756,12 @@ window.vdrApprove = async function(docId, btn) {
       if (invoiceLineRows.length) {
         const { error: ilErr } = await sb.from('invoice_lines').insert(invoiceLineRows);
         if (ilErr) console.warn('invoice_lines insert warning:', ilErr.message);
+      } else {
+        // FIX (BOH OS Task 7): no pre-existing lines and nothing extractable
+        // from parsed_json — don't silently mark an incomplete document as
+        // imported.
+        throw new Error('No invoice lines found or extractable for this document — cannot approve.');
+      }
       }
     }
 
