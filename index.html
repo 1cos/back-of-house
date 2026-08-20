@@ -19,6 +19,20 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   body{font-family:Inter,system-ui,sans-serif}
+  /* ── APP-SHELL BOTTOM NAV — static fallback ──
+     Root cause of the floating-nav bug: <nav class="fixed bottom-0 left-0
+     right-0 z-40 ..."> relies entirely on the Tailwind Play CDN
+     (cdn.tailwindcss.com) to generate this CSS at runtime, client-side. That
+     script is cross-origin and NEVER cached by sw.js (which only caches
+     same-origin 'basic' responses), so on any slow/blocked/failed load of
+     that CDN script the utility classes never materialize and <nav> falls
+     back to browser-default position:static, rendering inline wherever it
+     lands in the document flow. This rule guarantees the shell's critical
+     positioning independent of that external script — it mirrors the exact
+     values already declared via Tailwind classes on <nav>/<main>, so it is a
+     no-op (not a visual change) whenever Tailwind does load successfully. */
+  nav.fixed{position:fixed;bottom:0;left:0;right:0;z-index:40;padding-bottom:env(safe-area-inset-bottom)}
+  main.flex-1{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
   .glass{background:rgba(255,255,255,0.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:0.5px solid rgba(59,130,246,0.18);border-radius:18px;}
   .glass-card{background:rgba(255,255,255,0.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1.5px solid rgba(59,130,246,0.15);border-radius:16px;}
   .tab-active{color:#059669} .tab-active svg{stroke:#059669}
