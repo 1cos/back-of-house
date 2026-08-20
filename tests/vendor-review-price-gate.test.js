@@ -82,7 +82,11 @@ console.log('\nVendor Review — gate ingredient_vendors a solo Invoice (Task 11
 test("verifica riga reale: 'if (pj.document_type === 'invoice') {' racchiude il blocco ingredient_vendors (non solo invoice_lines)", () => {
   const src = fs.readFileSync(VDR_JS, 'utf8');
   const occurrences = src.split("if (pj.document_type === 'invoice') {").length - 1;
-  assert.strictEqual(occurrences, 2, "atteso ESATTAMENTE 2 gate 'invoice' — uno per ingredient_vendors (nuovo, Task 11V) e uno per invoice_lines (preesistente)");
+  // >= 2 (non ===2): Task 11W ha aggiunto legittimamente un terzo gate
+  // identico in vdrPreflight (ingredient matching, stesso principio) —
+  // questo test verifica solo che i DUE gate di questo task (Task 11V:
+  // ingredient_vendors + invoice_lines) siano ancora entrambi presenti.
+  assert.ok(occurrences >= 2, `atteso ALMENO 2 gate 'invoice' (ingredient_vendors + invoice_lines) — trovati ${occurrences}`);
   const ivBlockIdx = src.indexOf("ingredient_vendors (price intelligence) — invoices only");
   assert.ok(ivBlockIdx > -1, 'commento del fix Task 11V non trovato');
   const gateAfterComment = src.indexOf("if (pj.document_type === 'invoice') {", ivBlockIdx);

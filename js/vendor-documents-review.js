@@ -1622,29 +1622,39 @@ async function vdrPreflight(docId, doc) {
   }
 
   // 2. Check ingredient_links — are all items matched?
-  const descs = items.map(i => i.description || i.raw_description).filter(Boolean);
-  const skus  = items.map(i => i.vendor_sku || i.item_code).filter(Boolean);
+  // FIX (BOH OS Task 11W): this check exists to guarantee an ingredient_id
+  // is resolvable before vdrApprove() writes ingredient_vendors — but Task
+  // 11V already made that write invoice-only. Requiring ingredient matching
+  // for an order_confirmation is now both pointless (nothing downstream
+  // consumes the match) and actively wrong (auto-suggestions can propose a
+  // semantically unrelated ingredient, e.g. "Pastry Bag" -> "Puff Pastry",
+  // for a document that will never use the link). Gated the same way the
+  // ingredient_vendors write itself already is.
+  if (pj.document_type === 'invoice') {
+    const descs = items.map(i => i.description || i.raw_description).filter(Boolean);
+    const skus  = items.map(i => i.vendor_sku || i.item_code).filter(Boolean);
 
-  // Fetch existing SKU matches
-  const { data: skuRows } = skus.length ? await sb.from('ingredient_vendors')
-    .select('vendor_sku').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] };
-  const matchedSkus = new Set((skuRows || []).map(r => r.vendor_sku));
+    // Fetch existing SKU matches
+    const { data: skuRows } = skus.length ? await sb.from('ingredient_vendors')
+      .select('vendor_sku').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] };
+    const matchedSkus = new Set((skuRows || []).map(r => r.vendor_sku));
 
-  // Fetch confirmed links
-  const { data: linkRows } = descs.length ? await sb.from('ingredient_links')
-    .select('invoice_description').eq('vendor', vendor).eq('confirmed', true)
-    .in('invoice_description', descs) : { data: [] };
-  const matchedDescs = new Set((linkRows || []).map(r => r.invoice_description));
+    // Fetch confirmed links
+    const { data: linkRows } = descs.length ? await sb.from('ingredient_links')
+      .select('invoice_description').eq('vendor', vendor).eq('confirmed', true)
+      .in('invoice_description', descs) : { data: [] };
+    const matchedDescs = new Set((linkRows || []).map(r => r.invoice_description));
 
-  // Find unmatched items
-  const unmatched = items.filter(item => {
-    const sku  = item.vendor_sku || item.item_code;
-    const desc = item.description || item.raw_description;
-    return !(sku && matchedSkus.has(sku)) && !(desc && matchedDescs.has(desc));
-  });
+    // Find unmatched items
+    const unmatched = items.filter(item => {
+      const sku  = item.vendor_sku || item.item_code;
+      const desc = item.description || item.raw_description;
+      return !(sku && matchedSkus.has(sku)) && !(desc && matchedDescs.has(desc));
+    });
 
-  if (unmatched.length > 0) {
-    return { ok: false, reason: 'match_needed', unmatched, items, vendor };
+    if (unmatched.length > 0) {
+      return { ok: false, reason: 'match_needed', unmatched, items, vendor };
+    }
   }
 
   return { ok: true, items, vendor };
