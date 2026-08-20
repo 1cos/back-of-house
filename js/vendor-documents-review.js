@@ -1931,10 +1931,20 @@ window.vdrApprove = async function(docId, btn) {
     }).join('');
     const moreCount = items.length > 12 ? `<div style="font-size:13px;color:#94a3b8;padding-top:8px;">+ altri ${items.length - 12} articoli</div>` : '';
 
-    const statsLine = [
-      toInsert.length ? `${toInsert.length} nuovo${toInsert.length !== 1 ? 'i' : ''}` : '',
-      toUpdate.length ? `${toUpdate.length} aggiornato${toUpdate.length !== 1 ? 'i' : ''}` : '',
-    ].filter(Boolean).join(' · ') || `${items.length} articoli`;
+    // FIX (BOH OS Task 11Y): a document_type='order_confirmation' approval is
+    // purely documentary (Task 11V/11W: 0 ingredient_vendors writes, 0
+    // invoice_lines) — the "Articoli importati" / "N nuovi · M aggiornati"
+    // copy implied real price/ingredient writes that never happened, using
+    // a price shown straight from parsed_json (Task 11X audit). Copy-only
+    // change, no DB/business logic touched.
+    const isInvoiceApproval = pj.document_type === 'invoice';
+    const statsLine = isInvoiceApproval
+      ? ([
+          toInsert.length ? `${toInsert.length} nuovo${toInsert.length !== 1 ? 'i' : ''}` : '',
+          toUpdate.length ? `${toUpdate.length} aggiornato${toUpdate.length !== 1 ? 'i' : ''}` : '',
+        ].filter(Boolean).join(' · ') || `${items.length} articoli`)
+      : 'Documento confermato';
+    const itemsLabel = isInvoiceApproval ? 'Articoli importati' : "Articoli nell'ordine";
 
     const overlay = document.createElement('div');
     overlay.id = '_yesChefOverlay';
@@ -1966,7 +1976,7 @@ window.vdrApprove = async function(docId, btn) {
 
         <!-- Lista articoli — scrollabile -->
         <div style="padding:0 20px;overflow-y:auto;flex:1;">
-          <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;">Articoli importati</div>
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;">${itemsLabel}</div>
           ${itemLines}
           ${moreCount}
         </div>
