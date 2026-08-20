@@ -17,7 +17,14 @@ function pinPress(digit){
   if(_pinSubmitting) return; // guard: ignore input while request in flight
   pinBuffer += digit;
   updatePinDots();
-  if(pinBuffer.length === 4) setTimeout(()=>attemptPinLogin(), 150);
+  // FIX (BOH OS PERF P10): removed the fixed 150ms setTimeout — present since
+  // at least June 25 2026, predating brigade-login entirely, with no security
+  // purpose (confirmed PERF P3/P4 audit trail). updatePinDots() above already
+  // applies the 4th dot's style synchronously; requestAnimationFrame is the
+  // minimal yield that lets the browser paint that change on the very next
+  // frame (~16ms at 60fps) before attemptPinLogin() fires, instead of an
+  // arbitrary fixed 150ms wait.
+  if(pinBuffer.length === 4) requestAnimationFrame(()=>attemptPinLogin());
 }
 
 function pinDel(){
