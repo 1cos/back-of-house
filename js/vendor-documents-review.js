@@ -1718,93 +1718,105 @@ window.vdrApprove = async function(docId, btn) {
 
     const toUpdate = [];
     const toInsert = [];
-    const processedIds = new Set();
 
     const docEdits = (window._vdrEdits && window._vdrEdits[docId]) || {};
 
-    for (const [itemIdx, item] of items.entries()) {
-      const sku  = item.vendor_sku || item.item_code || null;
-      const desc = item.description || item.raw_description || null;
-      if (!desc) continue;
+    // ── Populate/execute ingredient_vendors (price intelligence) — invoices only ──
+    // FIX (BOH OS Task 11V): this block used to run identically for invoice
+    // AND order_confirmation, writing unit_price/pack_description/price_type/
+    // conversion_to_base/price_per_100g/last_invoice_date from an Order
+    // Confirmation as if it were a final Invoice price. BEK's own Order
+    // Confirmation states the total is "without taxes, fees and final weight
+    // prices" — not guaranteed final (root cause: Task 11U audit). Gated the
+    // same way invoice_lines already was below — a real Invoice is the only
+    // source allowed to update price intelligence.
+    if (pj.document_type === 'invoice') {
+      const processedIds = new Set();
 
-      // Applica modifiche utente da _vdrEdits (sovrascrive i valori parsati)
-      const edits = docEdits[itemIdx] || {};
-      const effectivePack  = (edits.pack      != null && edits.pack !== '')      ? edits.pack                          : (item.pack_description || null);
-      const effectivePrice = (edits.unitPrice  != null && !isNaN(edits.unitPrice)) ? edits.unitPrice                   : (item.unit_price != null ? parseFloat(item.unit_price) : null);
-      const effectiveExt   = (edits.ext        != null && !isNaN(edits.ext))       ? edits.ext                         : (item.amount != null ? Math.abs(item.amount) : null);
-      const effectiveQty   = (edits.qty        != null && !isNaN(edits.qty))       ? edits.qty                         : (item.qty_ordered || 1);
+      for (const [itemIdx, item] of items.entries()) {
+        const sku  = item.vendor_sku || item.item_code || null;
+        const desc = item.description || item.raw_description || null;
+        if (!desc) continue;
 
-      // Calcola totalG dal pack effettivo
-      // Use total_weight_lb from Fruge parser if available
-      const totalG  = item.total_weight_lb
-        ? item.total_weight_lb * 453.592
-        : item.catchweight && item.actual_weight_lb
-          ? item.actual_weight_lb * 453.592
-          : (window.vdrPackToGrams ? window.vdrPackToGrams(effectivePack, false, null, desc)
-            : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null));
+        // Applica modifiche utente da _vdrEdits (sovrascrive i valori parsati)
+        const edits = docEdits[itemIdx] || {};
+        const effectivePack  = (edits.pack      != null && edits.pack !== '')      ? edits.pack                          : (item.pack_description || null);
+        const effectivePrice = (edits.unitPrice  != null && !isNaN(edits.unitPrice)) ? edits.unitPrice                   : (item.unit_price != null ? parseFloat(item.unit_price) : null);
+        const effectiveExt   = (edits.ext        != null && !isNaN(edits.ext))       ? edits.ext                         : (item.amount != null ? Math.abs(item.amount) : null);
+        const effectiveQty   = (edits.qty        != null && !isNaN(edits.qty))       ? edits.qty                         : (item.qty_ordered || 1);
 
-      // Prezzo: Fruge parser -> cost_per_lb, altrimenti unit price, altrimenti ext/qty
-      const price   = item.cost_per_lb != null ? item.cost_per_lb
-                    : effectivePrice != null ? effectivePrice
-                    : (effectiveExt && effectiveQty ? effectiveExt / effectiveQty : null);
+        // Calcola totalG dal pack effettivo
+        // Use total_weight_lb from Fruge parser if available
+        const totalG  = item.total_weight_lb
+          ? item.total_weight_lb * 453.592
+          : item.catchweight && item.actual_weight_lb
+            ? item.actual_weight_lb * 453.592
+            : (window.vdrPackToGrams ? window.vdrPackToGrams(effectivePack, false, null, desc)
+              : (window.calcTotalWeightG ? window.calcTotalWeightG(item) : null));
 
-      // Fruge parser produces _cost_per_100g and cost_per_lb directly — use them
-      const per100g = item._cost_per_100g
-        ? parseFloat(item._cost_per_100g)
-        : (item.catchweight && item.price_per_lb)
-          ? (item.price_per_lb / 453.592) * 100
-          : (item.cost_per_lb)
-            ? (item.cost_per_lb / 453.592) * 100
-            : ((totalG && price) ? (price / totalG * 100) : null);
+        // Prezzo: Fruge parser -> cost_per_lb, altrimenti unit price, altrimenti ext/qty
+        const price   = item.cost_per_lb != null ? item.cost_per_lb
+                      : effectivePrice != null ? effectivePrice
+                      : (effectiveExt && effectiveQty ? effectiveExt / effectiveQty : null);
 
-      const priceType = item.price_type || (item.catchweight ? 'per_lb' : 'per_case');
-      const convBase  = priceType === 'per_lb' ? null : (item.conversion_to_base || totalG || null);
+        // Fruge parser produces _cost_per_100g and cost_per_lb directly — use them
+        const per100g = item._cost_per_100g
+          ? parseFloat(item._cost_per_100g)
+          : (item.catchweight && item.price_per_lb)
+            ? (item.price_per_lb / 453.592) * 100
+            : (item.cost_per_lb)
+              ? (item.cost_per_lb / 453.592) * 100
+              : ((totalG && price) ? (price / totalG * 100) : null);
 
-      const fields  = {
-        unit_price:         price,
-        pack_description:   effectivePack,
-        price_type:         priceType,
-        conversion_to_base: convBase ? Math.round(convBase) : null,
-        price_per_100g:     per100g,
-        last_invoice_date:  invoiceDate,
-      };
+        const priceType = item.price_type || (item.catchweight ? 'per_lb' : 'per_case');
+        const convBase  = priceType === 'per_lb' ? null : (item.conversion_to_base || totalG || null);
 
-      // Match by SKU first
-      if (sku && skuMap[sku]) {
-        const ingrId = skuMap[sku].ingredient_id;
-        if (!processedIds.has(ingrId)) {
-          processedIds.add(ingrId);
-          toUpdate.push({ id: skuMap[sku].id, ...fields });
+        const fields  = {
+          unit_price:         price,
+          pack_description:   effectivePack,
+          price_type:         priceType,
+          conversion_to_base: convBase ? Math.round(convBase) : null,
+          price_per_100g:     per100g,
+          last_invoice_date:  invoiceDate,
+        };
+
+        // Match by SKU first
+        if (sku && skuMap[sku]) {
+          const ingrId = skuMap[sku].ingredient_id;
+          if (!processedIds.has(ingrId)) {
+            processedIds.add(ingrId);
+            toUpdate.push({ id: skuMap[sku].id, ...fields });
+          }
+          continue;
         }
-        continue;
+
+        // Match by confirmed link
+        const linkedId = linkMap[desc];
+        if (!linkedId || processedIds.has(linkedId)) continue;
+        processedIds.add(linkedId);
+
+        if (ingrVendorMap[linkedId]) {
+          toUpdate.push({ id: ingrVendorMap[linkedId], ...fields });
+        } else {
+          toInsert.push({ ingredient_id: linkedId, vendor, vendor_sku: sku, active: true, ...fields });
+        }
       }
 
-      // Match by confirmed link
-      const linkedId = linkMap[desc];
-      if (!linkedId || processedIds.has(linkedId)) continue;
-      processedIds.add(linkedId);
-
-      if (ingrVendorMap[linkedId]) {
-        toUpdate.push({ id: ingrVendorMap[linkedId], ...fields });
-      } else {
-        toInsert.push({ ingredient_id: linkedId, vendor, vendor_sku: sku, active: true, ...fields });
+      // Execute saves
+      if (toUpdate.length) {
+        const results = await Promise.all(toUpdate.map(r => {
+          const { id, ...data } = r;
+          return sb.from('ingredient_vendors').update(data).eq('id', id);
+        }));
+        const failed = results.find(r => r.error);
+        if (failed) throw new Error('Update failed: ' + failed.error.message);
       }
-    }
 
-    // Execute saves
-    if (toUpdate.length) {
-      const results = await Promise.all(toUpdate.map(r => {
-        const { id, ...data } = r;
-        return sb.from('ingredient_vendors').update(data).eq('id', id);
-      }));
-      const failed = results.find(r => r.error);
-      if (failed) throw new Error('Update failed: ' + failed.error.message);
-    }
-
-    for (const row of toInsert) {
-      const { error: insErr } = await sb.from('ingredient_vendors').insert(row);
-      if (insErr && insErr.code !== '23505') {
-        throw new Error('Insert failed for ' + (row.ingredient_id || '?') + ': ' + insErr.message);
+      for (const row of toInsert) {
+        const { error: insErr } = await sb.from('ingredient_vendors').insert(row);
+        if (insErr && insErr.code !== '23505') {
+          throw new Error('Insert failed for ' + (row.ingredient_id || '?') + ': ' + insErr.message);
+        }
       }
     }
 
