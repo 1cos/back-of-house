@@ -227,6 +227,25 @@ window.vdrProcessAllPdf = async function(docId) {
           parsed = parsers.parse(rawText);
         } else {
           // Download PDF from Storage
+          // FIX (BOH OS Task 11S): storagePath can be undefined/null here —
+          // e.g. an email_html/email_body document whose routing metadata
+          // was lost (root cause fixed above, but this guard is defense in
+          // depth for any other document that legitimately has none).
+          // Calling sb.storage.from('app').download(undefined) crashes
+          // SYNCHRONOUSLY inside the supabase-js client itself
+          // (StorageFileApi._getFinalPath: path.replace(...) on undefined),
+          // surfacing as an engine-specific, unreadable message ("undefined
+          // is not an object (evaluating 'e.replace')" on Safari — confirmed
+          // in production, Task 11R). Fail loud and readable instead, same
+          // status='error' + warnings pattern already used for DUPLICATE
+          // above, and skip this document without ever calling Storage.
+          if (!storagePath) {
+            await sb.from('vendor_documents').update({
+              status: 'error',
+              warnings: [{ code: 'MISSING_STORAGE_PATH', message: 'No storage_path in parsed_json — cannot download from Storage. This document has no PDF to process (e.g. an email_html/email_body document whose routing metadata was lost).' }],
+            }).eq('id', doc.id);
+            done++; continue;
+          }
           const { data: fileData, error: dlErr } = await sb.storage.from('app').download(storagePath);
           if (dlErr || !fileData) throw new Error('Download failed: ' + dlErr?.message);
 
@@ -336,7 +355,21 @@ window.vdrProcessAllPdf = async function(docId) {
           document_date:   docDate,
           delivery_date:   parsed.delivery_date || null,
           raw_text:        rawText,
-          parsed_json:     parsed,
+          // FIX (BOH OS Task 11S): parsed_json used to be replaced wholesale
+          // with the parser's business-data output (parsed_json: parsed),
+          // which silently dropped intake metadata the parser never returns
+          // (parsed_json.source, parsed_json.storage_path — set only at
+          // insert time by gmail-vendor-import / the PDF upload path). A
+          // document reprocessed a second time then lost its routing marker
+          // (doc.parsed_json?.source === 'email_html'/'email_body'), fell
+          // through to the PDF-download branch below with storagePath
+          // undefined, and crashed inside supabase-js's Storage client
+          // (path.replace on undefined — root cause proven in Task 11R,
+          // production doc 7aa702b1-...). Spreading doc.parsed_json first
+          // preserves any pre-existing metadata keys (source, storage_path,
+          // or anything else set at intake) while parsed's fields still win
+          // on any actual overlap (vendor/document_type/document_number/...).
+          parsed_json:     { ...(doc.parsed_json || {}), ...parsed },
           status:          (parsed.items && parsed.items.length > 0) ? 'pending' : 'error',
           warnings:        allWarnings.length ? allWarnings : null,
           updated_at:      new Date().toISOString(),
