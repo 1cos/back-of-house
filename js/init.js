@@ -46,13 +46,26 @@ async function init(){
   stationsEl.innerHTML=stationList.map(s=>`<button onclick="station='${s}';document.querySelectorAll('#stations button').forEach(b=>{b.classList.remove('bg-slate-900','text-white');b.style.cssText='background:rgba(255,255,255,0.55);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);border:1px solid rgba(255,255,255,0.75);box-shadow:0 2px 12px rgba(30,58,95,0.08),inset 0 1px 0 rgba(255,255,255,0.9);';});this.classList.add('bg-slate-900','text-white');this.style.cssText='border:2px solid #1e293b;';feedMode?renderFeed():renderM()" style="${station===s?'border:2px solid #1e293b;':'background:rgba(255,255,255,0.55);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);border:1px solid rgba(255,255,255,0.75);box-shadow:0 2px 12px rgba(30,58,95,0.08),inset 0 1px 0 rgba(255,255,255,0.9);'}" class="px-3 py-1 rounded-full text-sm ${station===s?'bg-slate-900 text-white':''}">${s.replace(" Station","").replace("Chiusura","EOD")}</button>`).join('');
   stations2El.innerHTML=stationList.map(s=>`<button onclick="station2='${s}';document.querySelectorAll('#stations2 button').forEach(b=>{b.classList.remove('bg-slate-900','text-white');b.style.cssText='background:rgba(255,255,255,0.55);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);border:1px solid rgba(255,255,255,0.75);box-shadow:0 2px 12px rgba(30,58,95,0.08),inset 0 1px 0 rgba(255,255,255,0.9);';});this.classList.add('bg-slate-900','text-white');this.style.cssText='border:2px solid #1e293b;';renderS()" style="${station2===s?'border:2px solid #1e293b;':'background:rgba(255,255,255,0.55);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);border:1px solid rgba(255,255,255,0.75);box-shadow:0 2px 12px rgba(30,58,95,0.08),inset 0 1px 0 rgba(255,255,255,0.9);'}" class="px-3 py-1 rounded-full text-sm ${station2===s?'bg-slate-900 text-white':''}">${s.replace(" Station","").replace("Chiusura","EOD")}</button>`).join('');
   if(isAdmin()) stationsEl.insertAdjacentHTML('beforeend',`<button onclick="adminAdd()" class="ml-2 px-2 py-1 rounded-full bg-green-600 text-white text-sm">+ Nuovo</button><button onclick="showArchivedPreps()" class="ml-1 px-2 py-1 rounded-full bg-slate-200 text-slate-700 text-sm">📦</button>`);
-  await loadItemAlerts();
   await ensureChiusuraStation();
-  if(typeof loadTodayLogs==='function') await loadTodayLogs();
-  // Sprint #2C: load prep_stock_counts from DB on every page load.
-  // This ensures cross-device visibility of Align Stock history (counted_by, counted_at).
-  // Without this call, _recentCounts is empty for any device that did not submit the count.
-  if(typeof loadRecentCounts==='function') await loadRecentCounts();
+  // FIX (BOH OS PERF P2): loadItemAlerts/loadTodayLogs/loadRecentCounts write
+  // to three disjoint globals (itemAlerts / window._todayLogs+window._suggestions*
+  // via loadSuggestions/ window._recentCounts respectively) and none reads a
+  // value the others produce — verified in PERF P1/P2 preflight, no forced
+  // parallelism. Previously awaited strictly in sequence (3-6 round-trips back
+  // to back); now started together and awaited as one barrier, matching the
+  // exact same typeof guards as before (a missing function is simply not
+  // added to the job list, not silently swallowed). loadTodayLogs() itself is
+  // untouched — it still fires its own internal renderM()/renderS() calls
+  // exactly as before; the only change is WHEN these three start relative to
+  // each other, not what they do or what they load.
+  const _p2cJobs = [ loadItemAlerts() ];
+  if (typeof loadTodayLogs === 'function') _p2cJobs.push(loadTodayLogs());
+  // Sprint #2C: load prep_stock_counts from DB on every page load. This
+  // ensures cross-device visibility of Align Stock history (counted_by,
+  // counted_at). Without this call, _recentCounts is empty for any device
+  // that did not submit the count.
+  if (typeof loadRecentCounts === 'function') _p2cJobs.push(loadRecentCounts());
+  await Promise.all(_p2cJobs);
   renderM(); renderS(); renderHomeStations();
   renderHomeStationItems();
   loadServiceUpdates();
