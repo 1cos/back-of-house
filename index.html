@@ -14,7 +14,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="js/vendor-documents-review.js"></script>
-<script src="js/warnings-banner.js"></script>
 <script src="js/operation-notes.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -426,7 +425,12 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
         </div>
       </div>
 
-      <!-- WARNINGS BANNER — populated by warnings-banner.js — solo admin -->
+      <!-- FIX (BOH OS HOME H2): container kept in DOM but intentionally never
+           populated. warnings-banner.js and souschef-warnings.js — the two
+           (colliding) scripts that used to render invoice_warnings/
+           vendor_documents.warnings cards here — are no longer loaded.
+           Those warnings/questions live exclusively in Vendor Review now;
+           Home's only Vendor Review signal is #vdrPendingBadge below. -->
       <div id="warningsBanner" style="display:none;"></div>
 
       <!-- Invoice quick actions — solo admin -->
@@ -1056,7 +1060,6 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/souschef-core.js"></script>
 <script src="js/souschef-voice.js"></script>
 <script src="js/souschef-scan.js"></script>
-<script src="js/souschef-warnings.js"></script>
 <script src="js/souschef-chat.js"></script>
   <script src="js/vendor-parser-ui.js"></script>
 <script src="js/invoice.js"></script>
