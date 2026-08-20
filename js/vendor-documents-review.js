@@ -286,7 +286,13 @@ window.vdrProcessAllPdf = async function(docId) {
           const sm = doc.source_email_subject.match(/#?\s*(\d{6,10})/);
           if (sm) docNumber = sm[1];
         }
-        const docDate   = parsed.order_date   || parsed.credit_date   || parsed.delivery_date || null;
+        // FIX (Vendor Docs date audit): fallback chain never checked
+        // parsed.document_date — the exact key the Fruge Seafood parser
+        // returns (confirmed present and correct in parsed_json for every
+        // affected document). Appended last so order_date/credit_date/
+        // delivery_date-based vendors keep their current, already-correct
+        // behavior unchanged.
+        const docDate   = parsed.order_date   || parsed.credit_date   || parsed.delivery_date || parsed.document_date || null;
 
         // Duplicate check by doc number
         if (docNumber) {
@@ -823,7 +829,7 @@ function vdrDetailHTML(doc) {
 
       // Valori iniziali (da edits store se gia modificati, altrimenti da item)
       var edits     = window._vdrEdits[docId][idx] || {};
-      var qtyVal    = edits.qty      != null ? edits.qty      : (isCredit ? (item.qty_credited || '') : (item.qty_ordered || ''));
+      var qtyVal    = edits.qty      != null ? edits.qty      : (isCredit ? (item.qty_credited || '') : (item.catchweight === true ? 1 : (item.qty_ordered != null ? item.qty_ordered : (item.qty_received != null ? item.qty_received : ''))));
       var packVal   = edits.pack     != null ? edits.pack     : (item.pack_description || '');
       var unitVal   = edits.unitPrice!= null ? edits.unitPrice: (item.unit_price != null ? parseFloat(item.unit_price).toFixed(2) : (item.price_per_lb != null ? parseFloat(item.price_per_lb).toFixed(2) : ''));
       var extVal    = edits.ext      != null ? edits.ext      : (item.amount != null ? Math.abs(item.amount).toFixed(2) : '');
@@ -1847,7 +1853,7 @@ window.vdrApprove = async function(docId, btn) {
         const edits       = docEdits[itemIdx] || {};
         const desc        = item.description || item.raw_description || null;
         const sku         = item.vendor_sku || item.item_code || null;
-        const qty         = (edits.qty != null && !isNaN(edits.qty)) ? edits.qty : (item.qty_ordered || item.qty_received || null);
+        const qty         = (edits.qty != null && !isNaN(edits.qty)) ? edits.qty : (item.catchweight === true ? 1 : (item.qty_ordered != null ? item.qty_ordered : (item.qty_received != null ? item.qty_received : null)));
         const pack        = (edits.pack != null && edits.pack !== '') ? edits.pack : (item.pack_description || null);
         const unitPrice   = (edits.unitPrice != null && !isNaN(edits.unitPrice)) ? edits.unitPrice : (item.unit_price != null ? parseFloat(item.unit_price) : null);
         const lineTotal   = (edits.ext != null && !isNaN(edits.ext)) ? edits.ext : (item.amount != null ? Math.abs(item.amount) : null);
