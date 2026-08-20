@@ -2,6 +2,7 @@
 let posDateMode = 'day_0';
 let posCustomFrom = null;
 let posCustomTo   = null;
+let posViewMode = 'overview'; // 'overview' | 'team' — Team Sales v1
 
 function toISO(d) { return d.toISOString().slice(0,10); }
 function addDays(d,n) { const r=new Date(d); r.setDate(r.getDate()+n); return r; }
@@ -135,6 +136,7 @@ function posSelectors(period) {
 
 async function loadPOS() {
   if (!isAdmin()) { loadPOSStaff(); return; }
+  if (posViewMode === 'team') { loadTeamSales(); return; }
   const sec = document.getElementById('vx');
   if (!sec || sec.classList.contains('hidden')) return;
   sec.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px;">'+tr('loading')+'</div>';
@@ -168,6 +170,7 @@ async function loadPOS() {
         month:    tr('posNoDataMonth'),
       };
       sec.innerHTML = '<div style="padding:12px;">' +
+        salesViewTabsHtml() +
         posSelectors(period) +
         '<p style="font-size:11px;color:#64748b;font-weight:500;margin-bottom:16px;">' + period.label + '</p>' +
         '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:40px 20px;text-align:center;font-size:13px;color:#475569;line-height:1.6;">' +
@@ -391,6 +394,7 @@ async function loadPOS() {
       '</div></div>' : '';
 
     sec.innerHTML = '<div style="padding:12px 12px 100px;">' +
+      salesViewTabsHtml() +
       posSelectors(period) +
       '<p style="font-size:11px;color:#64748b;font-weight:500;margin-bottom:12px;">' + period.label + '</p>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">' +
@@ -2705,3 +2709,220 @@ async function staffOpenModifier(modName, from, to) {
 
 
 
+
+// ── TEAM SALES v1 ──────────────────────────────────────────────────
+// Sales volume by TouchBistro user, from pos_sales_by_server.
+// Grain: sale_date + server_name + menu_item (TouchBistro's own aggregate,
+// NOT check-level). No checks/covers/hours-worked/attach-rate here — see
+// info line rendered at the bottom of the view. Admin-only, same access
+// gate as the rest of Sales (loadPOS already redirects non-admins before
+// this is ever reached).
+
+let teamSalesDate = null;
+let teamSalesDatesCache = null; // [{sale_date}], desc, cached per session
+let teamSalesRowsCache = {};    // sale_date -> raw rows[]
+let teamSalesExpanded = null;   // currently open server_name detail, or null
+
+function salesViewTabsHtml() {
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'team',     label: 'Team Sales' },
+  ];
+  return '<div style="display:flex;gap:6px;margin-bottom:12px;">' +
+    tabs.map(t => {
+      const active = posViewMode === t.id;
+      return '<button onclick="posSetView(\'' + t.id + '\')" style="flex:1;padding:8px 0;border-radius:10px;border:none;font-size:12px;font-weight:600;cursor:pointer;' +
+        (active ? 'background:#059669;color:white;' : 'background:rgba(255,255,255,0.7);color:#64748b;') + '">' +
+        t.label + '</button>';
+    }).join('') +
+    '</div>';
+}
+
+function posSetView(v) {
+  posViewMode = v;
+  loadPOS();
+}
+
+function teamSalesCategoryUnits(rows) {
+  const sum = (pred) => rows.filter(pred).reduce((s, r) => s + (Number(r.menu_item_quantity) || 0), 0);
+  return {
+    food:     sum(r => r.sales_category === 'Food'),
+    wine:     sum(r => r.sales_category === 'Wine'),
+    alcohol:  sum(r => r.sales_category === 'Alcohol'),
+    beer:     sum(r => r.sales_category === 'Beer'),
+    desserts: sum(r => (r.menu_group || '').toLowerCase().indexOf('dessert') !== -1),
+    features: sum(r => r.menu_group === 'Features'),
+  };
+}
+
+async function loadTeamSales() {
+  const sec = document.getElementById('vx');
+  if (!sec || sec.classList.contains('hidden')) return;
+  sec.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:13px;">' + tr('loading') + '</div>';
+
+  try {
+    const sb = window.supabaseClient;
+
+    if (!teamSalesDatesCache) {
+      const { data: dateRows } = await sb.from('pos_sales_by_server')
+        .select('sale_date').eq('is_historical', false).order('sale_date', { ascending: false });
+      const seen = {}; teamSalesDatesCache = [];
+      (dateRows || []).forEach(r => { if (!seen[r.sale_date]) { seen[r.sale_date] = true; teamSalesDatesCache.push(r.sale_date); } });
+    }
+
+    if (!teamSalesDatesCache.length) {
+      sec.innerHTML = '<div style="padding:12px;">' + salesViewTabsHtml() +
+        '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:40px 20px;text-align:center;font-size:13px;color:#475569;">Nessun dato Team Sales ancora importato.</div></div>';
+      return;
+    }
+    if (!teamSalesDate || teamSalesDatesCache.indexOf(teamSalesDate) === -1) teamSalesDate = teamSalesDatesCache[0];
+
+    let rows = teamSalesRowsCache[teamSalesDate];
+    if (!rows) {
+      const { data } = await sb.from('pos_sales_by_server')
+        .select('server_name,menu_item,sales_category,menu_group,menu_item_quantity,menu_item_void_quantity,voids,item_discounts,bill_discounts,sales')
+        .eq('sale_date', teamSalesDate).eq('is_historical', false);
+      rows = data || [];
+      teamSalesRowsCache[teamSalesDate] = rows;
+    }
+
+    const idx = teamSalesDatesCache.indexOf(teamSalesDate);
+    const hasPrev = idx < teamSalesDatesCache.length - 1;
+    const hasNext = idx > 0;
+    const dateLabel = dayNameIT(teamSalesDate) + ' ' + teamSalesDate.slice(5);
+
+    const dateNavHtml =
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">' +
+      '<button onclick="teamSalesSetDate(teamSalesDatesCache[' + (idx + 1) + '])" ' + (!hasPrev ? 'disabled style="opacity:0.3;' : 'style="') + 'background:none;border:none;font-size:18px;color:#059669;padding:4px 10px;cursor:pointer;">‹</button>' +
+      '<span style="font-size:13px;font-weight:600;color:#1e293b;">' + dateLabel + '</span>' +
+      '<button onclick="teamSalesSetDate(teamSalesDatesCache[' + (idx - 1) + '])" ' + (!hasNext ? 'disabled style="opacity:0.3;' : 'style="') + 'background:none;border:none;font-size:18px;color:#059669;padding:4px 10px;cursor:pointer;">›</button>' +
+      '</div>';
+
+    if (!rows.length) {
+      sec.innerHTML = '<div style="padding:12px;">' + salesViewTabsHtml() + dateNavHtml +
+        '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:40px 20px;text-align:center;font-size:13px;color:#475569;">Nessun dato Team Sales per questa data.</div></div>';
+      return;
+    }
+
+    // ── Aggregate by server ──────────────────────────────────────────
+    const byServer = {};
+    rows.forEach(r => {
+      const name = r.server_name || '(senza nome)';
+      if (!byServer[name]) byServer[name] = { name, sales: 0, qty: 0, voids: 0, itemDiscounts: 0, rows: [] };
+      byServer[name].sales         += Number(r.sales) || 0;
+      byServer[name].qty           += Number(r.menu_item_quantity) || 0;
+      byServer[name].voids         += Number(r.voids) || 0;
+      byServer[name].itemDiscounts += Number(r.item_discounts) || 0;
+      byServer[name].rows.push(r);
+    });
+    const servers = Object.values(byServer).sort((a, b) => b.sales - a.sales);
+    servers.forEach(s => { s.cats = teamSalesCategoryUnits(s.rows); });
+
+    const totalSales = rows.reduce((s, r) => s + (Number(r.sales) || 0), 0);
+    const totalQty    = rows.reduce((s, r) => s + (Number(r.menu_item_quantity) || 0), 0);
+    const nUsers       = servers.length;
+
+    // ── Daily callouts (raw volume, no denominators) ─────────────────
+    const callouts = [];
+    if (servers[0] && servers[0].sales > 0) callouts.push({ icon: '🏆', label: 'Top Sales', text: servers[0].name + ' · ' + fmt(servers[0].sales) });
+    const mostFeat = servers.filter(s => s.cats.features > 0).sort((a, b) => b.cats.features - a.cats.features)[0];
+    if (mostFeat) callouts.push({ icon: '⭐', label: 'Più Features vendute', text: mostFeat.name + ' · ' + mostFeat.cats.features + ' unità' });
+    const mostDes = servers.filter(s => s.cats.desserts > 0).sort((a, b) => b.cats.desserts - a.cats.desserts)[0];
+    if (mostDes) callouts.push({ icon: '🍰', label: 'Più dessert venduti', text: mostDes.name + ' · ' + mostDes.cats.desserts + ' venduti' });
+    const mostWine = servers.filter(s => s.cats.wine > 0).sort((a, b) => b.cats.wine - a.cats.wine)[0];
+    if (mostWine) callouts.push({ icon: '🍷', label: 'Più vino venduto', text: mostWine.name + ' · ' + mostWine.cats.wine + ' unità' });
+
+    const calloutsHtml = callouts.length ?
+      '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">' +
+      callouts.map(c => '<div style="background:rgba(255,255,255,0.7);border-radius:12px;padding:8px 12px;display:flex;align-items:center;gap:8px;">' +
+        '<span style="font-size:16px;">' + c.icon + '</span>' +
+        '<div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;">' + c.label + '</div>' +
+        '<div style="font-size:12px;font-weight:600;color:#1e293b;">' + c.text + '</div></div></div>').join('') +
+      '</div>' : '';
+
+    const catChip = (label, val) => val > 0 ? '<span style="font-size:10px;color:#64748b;background:#f1f5f9;border-radius:6px;padding:2px 6px;margin-right:4px;">' + label + ' ' + val + '</span>' : '';
+
+    const cardsHtml = servers.map(s => {
+      const opsHtml = (s.voids > 0 || s.itemDiscounts > 0) ?
+        '<div style="font-size:10px;color:#94a3b8;margin-top:4px;">' +
+        (s.voids > 0 ? 'void ' + fmtD(s.voids) + ' ' : '') +
+        (s.itemDiscounts > 0 ? '· sconti ' + fmtD(s.itemDiscounts) : '') +
+        '</div>' : '';
+      return '<div onclick="teamSalesOpenDetail(\'' + s.name.replace(/'/g, "\\'") + '\')" style="background:rgba(255,255,255,0.75);border-radius:14px;padding:12px 14px;margin-bottom:8px;cursor:pointer;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+        '<span style="font-size:13px;font-weight:600;color:#1e293b;">' + s.name + '</span>' +
+        '<span style="font-size:15px;font-weight:700;color:#059669;">' + fmt(s.sales) + '</span>' +
+        '</div>' +
+        '<div style="font-size:11px;color:#64748b;margin-top:2px;">' + s.qty + ' unità vendute</div>' +
+        '<div style="margin-top:6px;">' +
+        catChip('🍰', s.cats.desserts) + catChip('⭐', s.cats.features) + catChip('🍷', s.cats.wine) + catChip('🥃', s.cats.alcohol) + catChip('🍺', s.cats.beer) +
+        '</div>' +
+        opsHtml +
+        '</div>';
+    }).join('');
+
+    sec.innerHTML = '<div style="padding:12px 12px 100px;">' +
+      salesViewTabsHtml() + dateNavHtml +
+      '<div style="background:rgba(255,255,255,0.7);border-radius:16px;padding:14px;margin-bottom:14px;display:flex;justify-content:space-around;text-align:center;">' +
+      '<div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;">Sales totali</div><div style="font-size:18px;font-weight:700;color:#059669;">' + fmt(totalSales) + '</div></div>' +
+      '<div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;">Unità vendute</div><div style="font-size:18px;font-weight:700;color:#1e293b;">' + totalQty + '</div></div>' +
+      '<div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;">Persone</div><div style="font-size:18px;font-weight:700;color:#1e293b;">' + nUsers + '</div></div>' +
+      '</div>' +
+      calloutsHtml +
+      cardsHtml +
+      '<div style="font-size:10px;color:#94a3b8;line-height:1.5;padding:10px 4px 0;">Volume vendite da TouchBistro. Dati su conti, coperti e ore lavorate non sono ancora disponibili.</div>' +
+      '<div id="teamSalesDetailSheet"></div>' +
+      '</div>';
+
+  } catch (e) {
+    sec.innerHTML = '<div style="padding:20px;color:#dc2626;font-size:13px;">' + tr('pos_error') + (e.message || '') + '</div>';
+  }
+}
+
+function teamSalesSetDate(d) {
+  if (!d) return;
+  teamSalesDate = d;
+  loadTeamSales();
+}
+
+function teamSalesOpenDetail(serverName) {
+  const rows = (teamSalesRowsCache[teamSalesDate] || []).filter(r => (r.server_name || '(senza nome)') === serverName);
+  if (!rows.length) return;
+  const cats = teamSalesCategoryUnits(rows);
+  const totalSales = rows.reduce((s, r) => s + (Number(r.sales) || 0), 0);
+
+  const itemAgg = {};
+  rows.forEach(r => {
+    const key = r.menu_item;
+    if (!itemAgg[key]) itemAgg[key] = { name: key, qty: 0, sales: 0 };
+    itemAgg[key].qty   += Number(r.menu_item_quantity) || 0;
+    itemAgg[key].sales += Number(r.sales) || 0;
+  });
+  const topItems = Object.values(itemAgg).filter(i => i.qty > 0).sort((a, b) => b.qty - a.qty).slice(0, 10);
+
+  const catRow = (label, val) => '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;">' +
+    '<span style="color:#64748b;">' + label + '</span><span style="font-weight:600;color:#1e293b;">' + val + '</span></div>';
+
+  const html =
+    '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:70;" onclick="teamSalesCloseDetail()"></div>' +
+    '<div style="position:fixed;left:0;right:0;bottom:0;background:#f8faff;border-radius:20px 20px 0 0;z-index:71;padding:20px;max-height:75vh;overflow-y:auto;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+    '<span style="font-size:16px;font-weight:700;color:#1e293b;">' + serverName + '</span>' +
+    '<span style="font-size:16px;font-weight:700;color:#059669;">' + fmt(totalSales) + '</span>' +
+    '</div>' +
+    '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Piatti più venduti</div>' +
+    topItems.map(i => '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);font-size:13px;">' +
+      '<span style="color:#1e293b;">' + i.name + '</span>' +
+      '<span style="color:#64748b;">' + i.qty + '&nbsp;&nbsp;<span style="color:#059669;font-weight:600;">' + fmt(i.sales) + '</span></span></div>').join('') +
+    '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:14px 0 4px;">Mix categorie (unità)</div>' +
+    catRow('Food', cats.food) + catRow('Wine', cats.wine) + catRow('Alcohol', cats.alcohol) + catRow('Beer', cats.beer) + catRow('Desserts', cats.desserts) + catRow('Features', cats.features) +
+    '</div>';
+
+  const holder = document.getElementById('teamSalesDetailSheet');
+  if (holder) holder.innerHTML = html;
+}
+
+function teamSalesCloseDetail() {
+  const holder = document.getElementById('teamSalesDetailSheet');
+  if (holder) holder.innerHTML = '';
+}
