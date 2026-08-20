@@ -297,6 +297,131 @@ async function loadServiceUpdates(){
   }
 }
 
+// ── ADD-ON OPPORTUNITIES (Insights v2.1) ──────────────────────────────────
+// Item-level modifier attach-rate vs a 30-day weighted historical baseline,
+// using pos_modifier_by_item (already parent-item-linked, already in prod).
+// Scope: item-level only. NOT check-level, NOT server-level, NOT guaranteed
+// lost revenue — see final report for the evidence behind every number.
+//
+// Allowlist = smallest explicit set of modifiers proven to be paid add-ons
+// with a reliable, context-independent unit price (near-zero stddev across
+// hundreds of real occurrences and multiple parent items). Real production
+// data is full of non-commercial "modifiers" (kitchen routing like "Fired at
+// 7:05 PM", prep prefs like "No Glass"/"On the side", substitutions) that
+// must never be shown as revenue opportunities — hence an explicit allowlist
+// rather than any automatic classification.
+const _ADDON_ALLOWLIST=[
+  {modifier:'Add chicken',      unitPrice:7.00},
+  {modifier:'Add shrimp',       unitPrice:10.00},
+  {modifier:'Add salmon whole', unitPrice:15.00},
+  {modifier:'Add half spaghetti',unitPrice:5.00},
+];
+const _ADDON_MIN_YESTERDAY_PARENT_QTY=5;   // avoid 1-of-2 dish noise
+const _ADDON_MIN_HIST_PARENT_QTY=20;       // enough historical volume
+const _ADDON_MIN_HIST_DAYS=3;              // enough distinct selling days
+const _ADDON_MIN_MISSED_ATTACHES=1.0;      // below this, gap is statistical noise
+const _ADDON_MAX_CARDS=3;
+
+function _addDaysISO(str,n){ const d=new Date(str+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+
+async function _computeAddOnOpportunities(yStr){
+  const modNames=_ADDON_ALLOWLIST.map(a=>a.modifier);
+  const priceMap={}; _ADDON_ALLOWLIST.forEach(a=>priceMap[a.modifier]=a.unitPrice);
+  const histEnd=_addDaysISO(yStr,-1);           // day before yesterday
+  const histStart=_addDaysISO(yStr,-30);         // 30-day trailing window, excludes yesterday
+
+  // 1) Historical modifier occurrences → discover which parent items are candidates
+  const{data:histModRows}=await supa.from('pos_modifier_by_item')
+    .select('parent_item,modifier,quantity_sold,sale_date')
+    .in('modifier',modNames)
+    .gte('sale_date',histStart).lte('sale_date',histEnd);
+  if(!histModRows||!histModRows.length) return [];
+
+  const parentItems=[...new Set(histModRows.map(r=>r.parent_item))];
+
+  // 2) Historical parent-item daily quantities (denominator), only real selling days
+  const{data:histParentRows}=await supa.from('pos_sales_by_item')
+    .select('menu_item,quantity,sale_date')
+    .in('menu_item',parentItems)
+    .gte('sale_date',histStart).lte('sale_date',histEnd)
+    .gt('quantity',0);
+
+  // 3) Yesterday actuals
+  const{data:yModRows}=await supa.from('pos_modifier_by_item')
+    .select('parent_item,modifier,quantity_sold')
+    .eq('sale_date',yStr).in('modifier',modNames);
+  const{data:yParentRows}=await supa.from('pos_sales_by_item')
+    .select('menu_item,quantity')
+    .eq('sale_date',yStr).in('menu_item',parentItems);
+
+  // Aggregate historical parent qty/days per parent item
+  const histParentAgg={}; // parent -> {qty, days:Set}
+  (histParentRows||[]).forEach(r=>{
+    if(!histParentAgg[r.menu_item]) histParentAgg[r.menu_item]={qty:0,days:new Set()};
+    histParentAgg[r.menu_item].qty+=Number(r.quantity)||0;
+    histParentAgg[r.menu_item].days.add(r.sale_date);
+  });
+  // Aggregate historical modifier qty per (parent,modifier)
+  const histModAgg={}; // "parent|modifier" -> qty
+  (histModRows||[]).forEach(r=>{
+    const k=r.parent_item+'|'+r.modifier;
+    histModAgg[k]=(histModAgg[k]||0)+(Number(r.quantity_sold)||0);
+  });
+  const yParentMap={}; (yParentRows||[]).forEach(r=>{ yParentMap[r.menu_item]=Number(r.quantity)||0; });
+  const yModMap={}; (yModRows||[]).forEach(r=>{ const k=r.parent_item+'|'+r.modifier; yModMap[k]=(yModMap[k]||0)+(Number(r.quantity_sold)||0); });
+
+  // Distinct (parent,modifier) candidate pairs from historical data
+  const pairs=[...new Set(histModRows.map(r=>r.parent_item+'|'+r.modifier))];
+
+  const opportunities=[];
+  for(const key of pairs){
+    const[parent,modifier]=key.split('|');
+    const yParentQty=yParentMap[parent]||0;
+    if(yParentQty<_ADDON_MIN_YESTERDAY_PARENT_QTY) continue;
+    const hp=histParentAgg[parent];
+    if(!hp||hp.qty<_ADDON_MIN_HIST_PARENT_QTY||hp.days.size<_ADDON_MIN_HIST_DAYS) continue;
+    const histModQty=histModAgg[key]||0;
+    const histAttachRate=histModQty/hp.qty;
+    const yModQty=yModMap[key]||0;
+    const yAttachRate=yModQty/yParentQty;
+    const expectedAttaches=histAttachRate*yParentQty;
+    const missedAttaches=Math.max(0,expectedAttaches-yModQty);
+    if(missedAttaches<_ADDON_MIN_MISSED_ATTACHES) continue;
+    if(histAttachRate<=yAttachRate) continue; // yesterday already at/above baseline — not an opportunity (T6)
+    opportunities.push({
+      parent,modifier,yParentQty,yModQty,yAttachRate,
+      histParentQty:hp.qty,histModQty,histDays:hp.days.size,histAttachRate,
+      missedAttaches,
+      dollarOpportunity:missedAttaches*priceMap[modifier], // allowlist prices are pre-validated reliable — see report
+    });
+  }
+  opportunities.sort((a,b)=>b.missedAttaches-a.missedAttaches);
+  return opportunities.slice(0,_ADDON_MAX_CARDS);
+}
+
+function _renderAddOnOpportunities(opps){
+  if(!opps||!opps.length){
+    return '<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No significant add-on opportunities detected yesterday.</div>';
+  }
+  const header='<div style="font-size:10px;font-weight:600;color:#f59e0b;letter-spacing:.06em;text-transform:uppercase;padding:2px 0 6px;">Opportunities</div>';
+  const cards=opps.map(o=>{
+    const yPct=(o.yAttachRate*100).toFixed(0);
+    const hPct=(o.histAttachRate*100).toFixed(0);
+    const missedRounded=Math.round(o.missedAttaches);
+    const missedText=missedRounded<1?'~1':'~'+missedRounded;
+    const dollarLine=(o.dollarOpportunity&&o.dollarOpportunity>=1)
+      ? '<div style="font-size:12px;color:#059669;font-weight:600;margin-top:2px;">Potential opportunity: ~$'+Math.round(o.dollarOpportunity)+'</div>'
+      : '';
+    return '<div style="padding:7px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
+      '<div style="font-size:13px;color:#1e3a5f;font-weight:600;">🟠 '+o.parent+' · '+o.modifier.replace(/^Add /,'')+'</div>'+
+      '<div style="font-size:12px;color:#64748b;margin-top:2px;">'+yPct+'% yesterday vs '+hPct+'% recent baseline</div>'+
+      '<div style="font-size:12px;color:#64748b;">'+missedText+' more add-ons would have matched normal performance</div>'+
+      dollarLine+
+      '</div>';
+  }).join('');
+  return header+cards;
+}
+
 // ── YESTERDAY highlights (martedì–sabato) ──
 async function _loadYesterdayHighlights(el){
   const now=getNowDallas();
@@ -309,17 +434,8 @@ async function _loadYesterdayHighlights(el){
     .eq('sale_date',yStr)
     .maybeSingle();
 
-  const{data:posItems}=await supa.from('pos_sales_by_item')
-    .select('menu_item,quantity')
-    .eq('sale_date',yStr)
-    .not('menu_group','in',_EXCL_GROUPS)
-    .not('sales_category','in',_EXCL_SALES_CAT)
-    .lt('quantity',1000)
-    .order('quantity',{ascending:false})
-    .limit(3);
-
   // Fallback su service_updates se nessun dato POS
-  if(!summary&&(!posItems||!posItems.length)){
+  if(!summary){
     const{data:updates}=await supa.from('service_updates')
       .select('*').order('created_at',{ascending:false}).limit(3);
     if(!updates||!updates.length){
@@ -336,36 +452,25 @@ async function _loadYesterdayHighlights(el){
     return;
   }
 
+  // Admin: net sales ieri (bill count rimosso — duplicato con Briefing AI/altrove)
   const rows=[];
-  const medals=['🥇','🥈','🥉'];
-
-  // Admin: finanziari ieri
   if(typeof isAdmin==='function'&&isAdmin()&&summary){
     const sales=parseFloat(summary.net_sales||0).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
     rows.push(
       '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
       '<span style="font-size:15px;">💰</span>'+
       '<span style="font-size:13px;color:#1e3a5f;font-weight:600;">'+sales+'</span>'+
-      '<span style="font-size:12px;color:#64748b;">·</span>'+
-      '<span style="font-size:13px;color:#64748b;">'+summary.bill_count+' bills</span>'+
       '</div>'
     );
   }
 
-  // Tutti: top 3 piatti
-  if(posItems&&posItems.length){
-    posItems.forEach(function(item,i){
-      rows.push(
-        '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
-        '<span style="font-size:15px;">'+medals[i]+'</span>'+
-        '<span style="font-size:13px;color:#1e3a5f;font-weight:500;">'+item.menu_item+'</span>'+
-        '<span style="margin-left:auto;font-size:12px;color:#60a5fa;font-weight:600;">'+item.quantity+' pcs</span>'+
-        '</div>'
-      );
-    });
-  }
+  // Tutti: add-on opportunities reali (sostituisce la lista "top 3 piatti" duplicata)
+  let opps=[];
+  try{ opps=await _computeAddOnOpportunities(yStr); }catch(e){ console.error('[opportunities]',e); }
+  rows.push(_renderAddOnOpportunities(opps));
 
   el.innerHTML=rows.length?rows.join(''):'<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
+
 }
 
 // ── WEEKLY highlights (lunedì) — ultimi 7 giorni aggregati ──
