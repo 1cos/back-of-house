@@ -679,6 +679,22 @@ function officeRenderCard(item) {
     // All items with ai_options: replace Fix now / Snooze / Ignore with honest buttons
     var _styleElabora2 = 'width:100%;padding:9px 0;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;margin-top:2px;';
     var _btnElabora2 = (src === 'tell_chef' || src === 'ai_scan' || src === 'bot-recipe-guardian') ? '<button onclick="jarvisAnalyze(\'' + item.id + '\')" style="' + _styleElabora2 + '">🤖 Chef AI</button>' : '';
+
+    // Tell Chef → Compila Ordine bridge. INVENTORY_SHORTAGE only, authorized
+    // users only (same poAllowed() gate as Compila Ordine itself). A draft
+    // is not a fulfilled purchase — this never marks the shortage Solved.
+    var _btnAddToOrder2 = '';
+    var _isShortage2 = (src === 'tell_chef') && (item.category === 'INVENTORY_SHORTAGE' || item.report_type === 'INVENTORY_SHORTAGE');
+    var _poCanUse2 = (typeof poAllowed === 'function') && poAllowed();
+    if (_isShortage2 && _poCanUse2) {
+      if (item.chef_action === 'added_to_order') {
+        _btnAddToOrder2 =
+          '<div style="width:100%;text-align:center;font-size:13px;color:#15803d;font-weight:600;margin-top:2px;">✅ Added to order</div>' +
+          '<button onclick="openPurchaseOrder()" style="width:100%;padding:9px 0;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid #22c55e;background:#f0fdf4;color:#15803d;margin-top:4px;">Open Compila Ordine</button>';
+      } else {
+        _btnAddToOrder2 = '<button onclick="officeAddToOrder(\'' + item.id + '\',' + JSON.stringify(item.ingredient_name || '') + ')" style="width:100%;padding:9px 0;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#b45309,#f59e0b);color:white;margin-top:2px;">🛒 Add to Order</button>';
+      }
+    }
     if (hasSkill) {
       // Has a real Skill — show Later + Solved + 🧠 Resolve
       actionsHtml =
@@ -688,6 +704,7 @@ function officeRenderCard(item) {
             '<button onclick="officeResolve(\'' + item.id + '\',\'solved\')"  style="' + _styleSolved  + '">✓ Solved</button>' +
             '<button onclick="officeSkillDispatch(\'' + item.id + '\',\'' + (item.issue_type||'') + '\')" style="' + _styleResolve + '">🧠 Resolve</button>' +
           '</div>' +
+          _btnAddToOrder2 +
           _btnElabora2 +
         '</div>';
     } else {
@@ -698,6 +715,7 @@ function officeRenderCard(item) {
             '<button onclick="officeResolve(\'' + item.id + '\',\'later\')"  style="' + _styleLater  + '">🕒 Later</button>' +
             '<button onclick="officeResolve(\'' + item.id + '\',\'solved\')" style="' + _styleSolved + '">✓ Solved</button>' +
           '</div>' +
+          _btnAddToOrder2 +
           _btnElabora2 +
         '</div>';
     }
@@ -717,10 +735,24 @@ function officeRenderCard(item) {
       btnRight = '<button onclick="officeChefAction(\'' + item.id + '\',\'done\')"         style="' + styleDone   + '">✓ Done</button>';
       var btnIgnore   = '<button onclick="officeChefAction(\'' + item.id + '\',\'ignored\')"  style="' + styleIgnore  + '">Ignore</button>';
       var btnElabora  = '<button onclick="jarvisAnalyze(\'' + item.id + '\')" style="' + styleElabora + '">🤖 Elabora</button>';
+
+      var btnAddToOrderLegacy = '';
+      var isShortageLegacy = (item.category === 'INVENTORY_SHORTAGE' || item.report_type === 'INVENTORY_SHORTAGE');
+      if (isShortageLegacy && (typeof poAllowed === 'function') && poAllowed()) {
+        if (item.chef_action === 'added_to_order') {
+          btnAddToOrderLegacy =
+            '<div style="width:100%;text-align:center;font-size:13px;color:#15803d;font-weight:600;">✅ Added to order</div>' +
+            '<button onclick="openPurchaseOrder()" style="width:100%;padding:9px 0;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid #22c55e;background:#f0fdf4;color:#15803d;">Open Compila Ordine</button>';
+        } else {
+          btnAddToOrderLegacy = '<button onclick="officeAddToOrder(\'' + item.id + '\',' + JSON.stringify(item.ingredient_name || '') + ')" style="width:100%;padding:9px 0;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#b45309,#f59e0b);color:white;">🛒 Add to Order</button>';
+        }
+      }
+
       actionsHtml =
         '<div data-role="actions" style="display:flex;flex-direction:column;gap:6px;padding:0 14px 12px;">' +
           '<div style="display:flex;gap:6px;">' + btnLeft + btnRight + '</div>' +
           btnIgnore +
+          btnAddToOrderLegacy +
           btnElabora +
         '</div>';
     } else if (src === 'operation_note') {
@@ -4905,6 +4937,25 @@ window.jarvisShowReasoning = async function(itemId) {
 };
 
 // ── Trigger Chef AI su una card esistente (on-demand) ──
+// Tell Chef → Compila Ordine bridge (INVENTORY_SHORTAGE cards only).
+// All matching, vendor resolution, and persistence logic lives in
+// js/purchase-order.js (poAddTellChefShortage / poSaveDraft) — this just
+// disables the button during the async hop to Compila Ordine's review
+// screen as a simple double-tap guard on the initial tap.
+window.officeAddToOrder = async function(itemId, ingredientName) {
+  if (typeof poAddTellChefShortage !== 'function') {
+    if (typeof showScToast === 'function') showScToast('Compila Ordine non disponibile.');
+    return;
+  }
+  var btn = document.querySelector('[data-item-id="' + itemId + '"] button[onclick*="officeAddToOrder"]');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    await poAddTellChefShortage(itemId, ingredientName);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🛒 Add to Order'; }
+  }
+};
+
 window.jarvisAnalyze = async function(itemId) {
   var sb = window.supa;
   if (!sb) return;

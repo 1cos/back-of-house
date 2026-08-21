@@ -67,6 +67,12 @@ var _poCatalogLoading = null;
 var _poDraftLines = [];      // working lines currently in the review screen (may span multiple vendors)
 var _poEditingOrderId = null; // set when reopening one existing single-vendor draft
 var _poEditingVendor = null;  // the vendor of that opened draft (null if composing fresh)
+
+// Tell Chef bridge: office_items.id awaiting "added_to_order" ack. Set only
+// when review was entered from a Tell Chef shortage; cleared after a
+// successful poSaveDraft() (or when the user leaves without saving). Never
+// set chef_action on tap alone — only after real persistence.
+var _poPendingOfficeItemId = null;
 var _poView = 'list';         // 'list' (composer + open drafts) | 'review'
 var _poOpenDrafts = [];       // all open drafts (draft+ready), any vendor
 
@@ -139,6 +145,68 @@ window.initVendorHomePanels = async function(){
   }
 };
 
+// ── TELL CHEF → COMPILA ORDINE BRIDGE ──────────────────────────────
+// Entry point called from office.js when an authorized user taps
+// "🛒 Add to Order" on an INVENTORY_SHORTAGE card. Reuses poMatchItem()
+// as-is — including its built-in v808 vendor resolution — plus the
+// existing review screen and poSaveDraft(). No parallel matcher, no
+// parallel vendor logic, no parallel persistence. Does not touch
+// office_items itself; that only happens inside poSaveDraft() after a
+// real successful save (see _poPendingOfficeItemId).
+window.poAddTellChefShortage = async function(officeItemId, ingredientName){
+  if(!poAllowed()) return false; // safety net — button shouldn't render otherwise
+
+  var text = (ingredientName || '').trim();
+  if(!text){
+    poToast('Nessun ingrediente rilevato — usa Compila Ordine manualmente.');
+    return false;
+  }
+
+  await poLoadCatalog();
+  var m = poMatchItem(text);
+
+  // No product match at all, or a product matched but with no safe vendor
+  // evidence (v808's own resolution said 'unresolved') — never guess a
+  // vendor for a Tell Chef-originated line. Ambiguous (real candidates,
+  // no dominance) is different: that still gets a human vendor picker
+  // in review, same as manual Compila Ordine entry.
+  if(!m.ingredient_id || m.vendorStatus === 'unresolved'){
+    poToast('No supported vendor match yet — ' + text);
+    return false;
+  }
+
+  var newLine = {
+    requested_text: text, quantity: null, unit: null,
+    ingredient_id: m.ingredient_id, matched_name: m.matched_name, vendor_sku: m.vendor_sku,
+    match_confidence: m.confidence, match_source: m.source, needs_review: !!m.needsReview,
+    candidates: m.candidates || [],
+    vendor: m.vendor || null, vendor_status: m.vendorStatus, vendor_candidates: m.vendorCandidates || []
+  };
+
+  // Fresh single-line review session — poSaveDraft() already knows how to
+  // find-or-create the resolved vendor's draft and preserve its existing
+  // lines (same path as any first-touch vendor in a normal session), so
+  // the bridge does not need to preload anything itself.
+  _poDraftLines = [newLine];
+  _poEditingOrderId = null;
+  _poEditingVendor = null;
+  _poPendingOfficeItemId = officeItemId; // set now; office_items written only after real poSaveDraft() success
+
+  if(typeof showSection === 'function') showSection('vpo');
+  _poView = 'review';
+  poRenderPage();
+  return true;
+};
+
+window.poBackToList = function(){
+  // Leaving without saving must not leave a stale ack pending — entering
+  // review is not persistence; if abandoned, nothing changed.
+  _poPendingOfficeItemId = null;
+  _poView = 'list';
+  poRenderPage();
+  poLoadOpenDrafts();
+};
+
 // ── OPEN PAGE ────────────────────────────────────────────────────
 window.openPurchaseOrder = function(){
   if(!poAllowed()) return;
@@ -147,6 +215,7 @@ window.openPurchaseOrder = function(){
   _poDraftLines = [];
   _poEditingOrderId = null;
   _poEditingVendor = null;
+  _poPendingOfficeItemId = null; // manual entry — not a Tell Chef bridge session
   poRenderPage();
   poLoadOpenDrafts();
 };
@@ -764,6 +833,24 @@ window.poSaveDraft = async function(){
 
     await poLearnAliasesFromCorrections();
 
+    // Tell Chef bridge: only now — after every line above is actually
+    // persisted — mark the source shortage as added to order. If anything
+    // above threw, this never runs and _poPendingOfficeItemId stays set so
+    // a retry of Save Draft still honors it.
+    if(_poPendingOfficeItemId){
+      var pendingOfficeItemId = _poPendingOfficeItemId;
+      _poPendingOfficeItemId = null;
+      try{
+        await sb.from('office_items').update({
+          chef_action: 'added_to_order',
+          chef_action_at: new Date().toISOString(),
+          chef_action_by: (window.user && window.user.name) || 'Unknown'
+        }).eq('id', pendingOfficeItemId);
+      }catch(ackErr){
+        console.error('[purchase-order] tell-chef ack failed (order line still saved)', ackErr);
+      }
+    }
+
     poToast(pendingCount > 0
       ? ('Bozza salvata ✓ — ' + pendingCount + (pendingCount === 1 ? ' riga in sospeso (vendor da scegliere)' : ' righe in sospeso (vendor da scegliere)'))
       : 'Bozza salvata ✓');
@@ -930,7 +1017,7 @@ function poRenderReview(){
   var html = '';
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
   html += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;">Revisiona ' + _poDraftLines.length + ' righe</div>';
-  html += '<button onclick="_poView=\'list\';poRenderPage();poLoadOpenDrafts();" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">&#8249; Indietro</button>';
+  html += '<button onclick="poBackToList()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">&#8249; Indietro</button>';
   html += '</div>';
 
   _poDraftLines.forEach(function(l, i){
