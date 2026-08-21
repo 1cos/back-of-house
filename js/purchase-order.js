@@ -3,15 +3,51 @@
 if (typeof window === 'undefined') { global.window = global; }
 
 // ══════════════════════════════════════════════════════════════
-// PURCHASE ORDER — Compila Ordine (Draft v1)
-// Dictate/type a shopping list, match against existing vendor catalog,
-// review and correct, save as a draft purchase_order.
-// NOT in scope here: Tell Chef integration, Chef's Warehouse login,
-// browser automation, sending the order, receiving goods.
+// PURCHASE ORDER — Compila Ordine (Multi-vendor Draft v2)
+// Dictate/type a shopping list, resolve each item's real vendor from
+// proven product-level evidence, match against that vendor's catalog,
+// review and correct, save into one draft per vendor.
+// NOT in scope here: Tell Chef integration, vendor portal logins,
+// browser automation, sending orders, receiving goods.
 // Access: admin + allowlisted staff ids (Tela, Anto) — see _PO_ALLOWED_IDS.
 // ══════════════════════════════════════════════════════════════
 
-var PO_VENDOR = "Hardie's Fresh Foods / Dairyland Produce"; // Chef's Warehouse / Hardie's — normalized vendor string used across the DB
+// Canonical vendor name normalization — code-only map, no migration.
+// Real production data uses these exact canonical strings; the keys
+// below are known real-world variants that should converge to them.
+// BEK and Marro are documented here for display/normalization only —
+// see _poEligibleVendors below for why they don't get product routing yet.
+var PO_VENDOR_CANONICAL = {
+  "hardie's": "Hardie's Fresh Foods / Dairyland Produce",
+  "hardies": "Hardie's Fresh Foods / Dairyland Produce",
+  "hardie's fresh foods": "Hardie's Fresh Foods / Dairyland Produce",
+  "hardie's fresh foods / dairyland produce": "Hardie's Fresh Foods / Dairyland Produce",
+  "chef's warehouse": "Hardie's Fresh Foods / Dairyland Produce",
+  "chefs warehouse": "Hardie's Fresh Foods / Dairyland Produce",
+  "the chefs' warehouse": "Hardie's Fresh Foods / Dairyland Produce",
+  "fruge seafood": "Fruge Seafood",
+  "frugé seafood": "Fruge Seafood",
+  "freshpoint dallas": "FreshPoint Dallas",
+  "freshpoint": "FreshPoint Dallas",
+  "h-e-b": "H-E-B",
+  "heb": "H-E-B",
+  "walmart": "Walmart",
+  "bek": "Ben E. Keith",
+  "ben e keith": "Ben E. Keith",
+  "ben e. keith": "Ben E. Keith",
+  "marro": "Marro",
+  "mauro": "Marro" // real production data uses "Marro" — documented alias only
+};
+function poNormalizeVendorName(raw){
+  if(!raw) return null;
+  var key = raw.trim().toLowerCase().replace(/[’']/g, "'").replace(/\s+/g, ' ');
+  return PO_VENDOR_CANONICAL[key] || raw.trim();
+}
+
+// Responsibility — centralized, derived from canonical vendor name (v1, no schema field).
+function poResponsibleFor(vendorName){
+  return vendorName === 'Walmart' ? 'Anto' : 'Tela';
+}
 
 var _PO_ALLOWED_IDS = [2, 3]; // Anto (Chef Rover), Tela (Kitchen Operation Coordinator) — Max covered by isAdmin()
 
@@ -21,14 +57,18 @@ var PO_KNOWN_UNITS = ['case','cases','lb','lbs','kg','g','oz','box','boxes','bun
 var _poAliasCatalog = [];
 var _poIngVendorCatalog = [];
 var _poLinkCatalog = [];
-var _poPurchaseFreq = {}; // ingredient_id -> times seen in invoice_lines (vendor history signal)
+var _poInvoiceLineRows = [];  // ingredient_id+vendor rows, all vendors — tier-3 evidence + dominance tie-break
+var _poPurchaseFreq = {};     // ingredient_id -> total purchase count across all vendors (existing text-match tiebreak)
+var _poPurchaseFreqByVendor = {}; // "ingredientId|vendor" -> count (new — vendor dominance tie-break)
+var _poEligibleVendors = {};  // vendor -> true, only vendors with cross-table product-level corroboration
 var _poCatalogLoaded = false;
 var _poCatalogLoading = null;
 
-var _poDraftLines = [];      // working lines currently in the review screen
-var _poEditingOrderId = null; // set when reopening an existing draft
+var _poDraftLines = [];      // working lines currently in the review screen (may span multiple vendors)
+var _poEditingOrderId = null; // set when reopening one existing single-vendor draft
+var _poEditingVendor = null;  // the vendor of that opened draft (null if composing fresh)
 var _poView = 'list';         // 'list' (composer + open drafts) | 'review'
-var _poOpenDrafts = [];
+var _poOpenDrafts = [];       // all open drafts (draft+ready), any vendor
 
 var _poRecording = false;
 var _poMediaRecorder = null;
@@ -48,6 +88,57 @@ window.initPurchaseOrderEntry = function(){
   el.style.display = poAllowed() ? 'block' : 'none';
 };
 
+// ── HOME PURCHASING PANELS (Anto: Walmart only / Tela: everything else) ──
+// Built only from real open drafts — an empty vendor never gets a fabricated
+// row just to make a panel non-empty (e.g. Walmart today, per the audit).
+window.initVendorHomePanels = async function(){
+  var antoEl = document.getElementById('antoPurchasingWidget');
+  var telaEl = document.getElementById('telaPurchasingWidget');
+  if(antoEl) antoEl.style.display = 'none';
+  if(telaEl) telaEl.style.display = 'none';
+
+  var name = window.user && window.user.name;
+  var isAnto = name === 'Anto';
+  var isTela = name === 'Tela';
+  if((!isAnto && !isTela) || !poAllowed()) return;
+
+  var sb = window.supabaseClient;
+  var { data, error } = await sb.from('purchase_order_lines')
+    .select('purchase_order_id, purchase_orders!inner(vendor_name,status)')
+    .eq('purchase_orders.status', 'draft');
+  if(error){ console.error('[purchase-order] home panel error', error); return; }
+
+  var counts = {};
+  (data || []).forEach(function(r){
+    var v = r.purchase_orders && r.purchase_orders.vendor_name;
+    if(!v) return;
+    counts[v] = (counts[v] || 0) + 1;
+  });
+
+  if(isAnto && antoEl){
+    var n = counts['Walmart'] || 0;
+    if(n > 0){
+      antoEl.style.display = 'block';
+      var body = antoEl.querySelector('[data-role="body"]');
+      if(body) body.textContent = n + (n === 1 ? ' item' : ' items') + ' to review';
+    }
+  }
+
+  if(isTela && telaEl){
+    var rows = Object.keys(counts).filter(function(v){ return v !== 'Walmart'; }).sort();
+    if(rows.length > 0){
+      telaEl.style.display = 'block';
+      var telaBody = telaEl.querySelector('[data-role="body"]');
+      if(telaBody){
+        telaBody.innerHTML = rows.map(function(v){
+          return '<div style="display:flex;justify-content:space-between;font-size:13px;color:#475569;padding:3px 0;"><span>' +
+            _poEsc(v) + '</span><span style="color:#94a3b8;">' + counts[v] + '</span></div>';
+        }).join('');
+      }
+    }
+  }
+};
+
 // ── OPEN PAGE ────────────────────────────────────────────────────
 window.openPurchaseOrder = function(){
   if(!poAllowed()) return;
@@ -55,38 +146,98 @@ window.openPurchaseOrder = function(){
   _poView = 'list';
   _poDraftLines = [];
   _poEditingOrderId = null;
+  _poEditingVendor = null;
   poRenderPage();
   poLoadOpenDrafts();
 };
 
-// ── CATALOG LOADING (once per session) ──────────────────────────
+// ── CATALOG LOADING (once per session, all vendors) ──────────────
 async function poLoadCatalog(){
   if(_poCatalogLoaded) return;
   if(_poCatalogLoading) return _poCatalogLoading;
   _poCatalogLoading = (async function(){
     var sb = window.supabaseClient;
     var [alias, iv, links, invLines] = await Promise.all([
-      sb.from('vendor_item_aliases').select('id,vendor_sku,vendor_description,ingredient_id')
-        .eq('vendor', PO_VENDOR).eq('active', true),
-      sb.from('ingredient_vendors').select('id,vendor_sku,ingredient_id,ingredients(name)')
-        .eq('vendor', PO_VENDOR).eq('active', true).eq('do_not_order', false),
-      sb.from('ingredient_links').select('id,invoice_description,ingredient_name,ingredient_id,confidence')
-        .eq('vendor', PO_VENDOR),
-      sb.from('invoice_lines').select('ingredient_id').eq('vendor', PO_VENDOR).not('ingredient_id', 'is', null)
+      sb.from('vendor_item_aliases').select('id,vendor,vendor_sku,vendor_description,ingredient_id').eq('active', true),
+      sb.from('ingredient_vendors').select('id,vendor,vendor_sku,ingredient_id,ingredients(name)').eq('active', true).eq('do_not_order', false),
+      sb.from('ingredient_links').select('id,vendor,invoice_description,ingredient_name,ingredient_id,confidence,confirmed'),
+      sb.from('invoice_lines').select('vendor,ingredient_id').not('ingredient_id', 'is', null)
     ]);
     _poAliasCatalog = alias.data || [];
     _poIngVendorCatalog = (iv.data || []).map(function(r){
-      return { id:r.id, vendor_sku:r.vendor_sku, ingredient_id:r.ingredient_id, name: r.ingredients ? r.ingredients.name : null };
+      return { id:r.id, vendor:r.vendor, vendor_sku:r.vendor_sku, ingredient_id:r.ingredient_id, name: r.ingredients ? r.ingredients.name : null };
     });
     _poLinkCatalog = links.data || [];
+    _poInvoiceLineRows = invLines.data || [];
+
     _poPurchaseFreq = {};
-    (invLines.data || []).forEach(function(r){
+    _poPurchaseFreqByVendor = {};
+    _poInvoiceLineRows.forEach(function(r){
       if(!r.ingredient_id) return;
       _poPurchaseFreq[r.ingredient_id] = (_poPurchaseFreq[r.ingredient_id] || 0) + 1;
+      var key = r.ingredient_id + '|' + r.vendor;
+      _poPurchaseFreqByVendor[key] = (_poPurchaseFreqByVendor[key] || 0) + 1;
     });
+
+    // Vendor eligibility: a vendor may receive automatic product routing
+    // only if it has BOTH a catalog presence (ingredient_vendors) AND
+    // corroborating evidence elsewhere (ingredient_links or invoice_lines).
+    // This is purely data-driven — no vendor name is special-cased. It's
+    // why Hardie's/Fruge/FreshPoint/H-E-B qualify today and Walmart/BEK/
+    // Marro don't: those three currently have zero rows in at least one
+    // of the corroborating tables (see audit).
+    var ivVendors = {}, linkVendors = {}, invVendors = {};
+    _poIngVendorCatalog.forEach(function(r){ if(r.vendor) ivVendors[r.vendor] = true; });
+    _poLinkCatalog.forEach(function(r){ if(r.vendor) linkVendors[r.vendor] = true; });
+    _poInvoiceLineRows.forEach(function(r){ if(r.vendor) invVendors[r.vendor] = true; });
+    _poEligibleVendors = {};
+    Object.keys(ivVendors).forEach(function(v){
+      if(linkVendors[v] || invVendors[v]) _poEligibleVendors[v] = true;
+    });
+
     _poCatalogLoaded = true;
   })();
   return _poCatalogLoading;
+}
+
+function poUniq(arr){
+  var seen = {}, out = [];
+  arr.forEach(function(v){ if(v && !seen[v]){ seen[v] = true; out.push(v); } });
+  return out;
+}
+
+// ── VENDOR RESOLUTION (Correction: never invent a vendor) ──────────
+// Tiered evidence, most reliable first. Never uses Expenses history,
+// fuzzy vendor-name guessing, or an LLM. If two eligible vendors tie on
+// a tier, only a real invoice-history dominance signal breaks the tie —
+// otherwise the ingredient stays "ambiguous" for a human to resolve.
+function poResolveVendorForIngredient(ingredientId){
+  function decide(vendorList, tier){
+    var candidates = poUniq(vendorList).filter(function(v){ return _poEligibleVendors[v]; });
+    if(candidates.length === 0) return null;
+    if(candidates.length === 1) return { status: 'resolved', vendor: candidates[0], tier: tier };
+    var withHits = candidates.map(function(v){
+      return { vendor: v, hits: _poPurchaseFreqByVendor[ingredientId + '|' + v] || 0 };
+    }).sort(function(a, b){ return b.hits - a.hits; });
+    if(withHits[0].hits > 0 && withHits[0].hits > withHits[1].hits){
+      return { status: 'resolved', vendor: withHits[0].vendor, tier: tier, note: 'invoice-history dominance' };
+    }
+    return { status: 'ambiguous', candidates: withHits.map(function(x){ return x.vendor; }), tier: tier };
+  }
+
+  var tier1 = _poIngVendorCatalog.filter(function(r){ return r.ingredient_id === ingredientId; }).map(function(r){ return r.vendor; });
+  var r1 = decide(tier1, 1);
+  if(r1) return r1;
+
+  var tier2 = _poLinkCatalog.filter(function(r){ return r.ingredient_id === ingredientId && r.confirmed === true; }).map(function(r){ return r.vendor; });
+  var r2 = decide(tier2, 2);
+  if(r2) return r2;
+
+  var tier3 = _poInvoiceLineRows.filter(function(r){ return r.ingredient_id === ingredientId; }).map(function(r){ return r.vendor; });
+  var r3 = decide(tier3, 3);
+  if(r3) return r3;
+
+  return { status: 'unresolved' };
 }
 
 // ── TEXT NORMALIZATION / MATCHING ─────────────────────────────────
@@ -200,9 +351,11 @@ function poScore(queryText, candidateText){
 
 // Fallback: once we know an ingredient_id via ingredient_links, see if the
 // same ingredient also has a vendor SKU in ingredient_vendors (already loaded).
-function poSkuForIngredient(ingredientId){
+// If vendor is given, only that vendor's row counts — avoids borrowing a
+// SKU from an unrelated vendor once vendor resolution has happened.
+function poSkuForIngredient(ingredientId, vendor){
   if(!ingredientId) return null;
-  var hit = _poIngVendorCatalog.find(function(r){ return r.ingredient_id === ingredientId; });
+  var hit = _poIngVendorCatalog.find(function(r){ return r.ingredient_id === ingredientId && (!vendor || r.vendor === vendor); });
   return hit ? hit.vendor_sku : null;
 }
 
@@ -220,10 +373,10 @@ function poPurchaseBoost(ingredientId){
 // name/SKU when the ingredient exists in the vendor's real catalog — an
 // alias or a fuzzy invoice-link is a signal that we found the right
 // ingredient_id, not necessarily good display text on its own.
-function poCanonicalDisplay(ingredientId, fallbackName, fallbackSku){
-  var ivHit = _poIngVendorCatalog.find(function(r){ return r.ingredient_id === ingredientId; });
+function poCanonicalDisplay(ingredientId, fallbackName, fallbackSku, vendor){
+  var ivHit = _poIngVendorCatalog.find(function(r){ return r.ingredient_id === ingredientId && (!vendor || r.vendor === vendor); });
   if(ivHit) return { name: ivHit.name || fallbackName, sku: ivHit.vendor_sku || fallbackSku };
-  var lkHit = _poLinkCatalog.find(function(r){ return r.ingredient_id === ingredientId; });
+  var lkHit = _poLinkCatalog.find(function(r){ return r.ingredient_id === ingredientId && (!vendor || r.vendor === vendor); });
   if(lkHit) return { name: lkHit.ingredient_name || fallbackName, sku: fallbackSku };
   return { name: fallbackName, sku: fallbackSku };
 }
@@ -248,7 +401,7 @@ function poBuildCandidate(item, source, itemText){
 }
 
 function poMatchItem(itemText){
-  if(!itemText || !itemText.trim()) return { matched: false, needsReview: true, candidates: [] };
+  if(!itemText || !itemText.trim()) return { matched: false, needsReview: true, candidates: [], vendorStatus: 'unresolved', vendor: null };
 
   var pool = [];
   _poAliasCatalog.forEach(function(item){
@@ -265,7 +418,10 @@ function poMatchItem(itemText){
   });
 
   // Dedupe by ingredient_id, keeping the best-scoring source for each product
-  // (an item can legitimately appear in more than one of the three tables).
+  // (an item can legitimately appear in more than one of the three tables,
+  // now across multiple vendors too). This decides PRODUCT identity only —
+  // vendor is resolved separately below from the full evidence for that
+  // ingredient_id, never inherited from whichever single row scored highest.
   var byIngredient = {};
   pool.forEach(function(c){
     var key = c.ingredient_id || ('noid:' + c.matched_name);
@@ -275,7 +431,7 @@ function poMatchItem(itemText){
     .filter(function(c){ return c.confidence >= PO_CANDIDATE_FLOOR; })
     .sort(function(a, b){ return b.confidence - a.confidence; });
 
-  if(candidates.length === 0) return { matched: false, needsReview: true, candidates: [] };
+  if(candidates.length === 0) return { matched: false, needsReview: true, candidates: [], vendorStatus: 'unresolved', vendor: null };
 
   var top = candidates[0];
   var second = candidates[1];
@@ -294,18 +450,42 @@ function poMatchItem(itemText){
     }
   }
 
+  var result;
   if(top.confidence >= PO_HIGH_THRESHOLD && !tooClose){
-    return { matched: true, needsReview: false, ingredient_id: top.ingredient_id,
+    result = { matched: true, needsReview: false, ingredient_id: top.ingredient_id,
       matched_name: top.matched_name, vendor_sku: top.vendor_sku, confidence: top.confidence,
       source: top.source, candidates: candidates.slice(0, 5) };
-  }
-  if(top.confidence >= PO_MEDIUM_THRESHOLD && !tooClose){
-    return { matched: true, needsReview: true, ingredient_id: top.ingredient_id,
+  } else if(top.confidence >= PO_MEDIUM_THRESHOLD && !tooClose){
+    result = { matched: true, needsReview: true, ingredient_id: top.ingredient_id,
       matched_name: top.matched_name, vendor_sku: top.vendor_sku, confidence: top.confidence,
       source: top.source, candidates: candidates.slice(0, 5) };
+  } else {
+    // Low confidence or ambiguous (close race) — no auto-selection, human picks
+    result = { matched: false, needsReview: true, candidates: candidates.slice(0, 5) };
   }
-  // Low confidence or ambiguous (close race) — no auto-selection, human picks
-  return { matched: false, needsReview: true, candidates: candidates.slice(0, 5) };
+
+  // Vendor resolution — independent of the text score above. A product can
+  // be identified with high confidence and still have no safe vendor (e.g.
+  // "Milk" resolves fine as an ingredient, but Walmart lacks corroborating
+  // evidence, so vendor stays unresolved — the line must not be guessed
+  // into any draft).
+  if(result.ingredient_id){
+    var vr = poResolveVendorForIngredient(result.ingredient_id);
+    result.vendorStatus = vr.status;
+    result.vendor = vr.vendor || null;
+    result.vendorCandidates = vr.candidates || [];
+    result.vendorTier = vr.tier || null;
+    if(vr.status === 'resolved'){
+      var disp = poCanonicalDisplay(result.ingredient_id, result.matched_name, result.vendor_sku, vr.vendor);
+      result.matched_name = disp.name;
+      result.vendor_sku = poSkuForIngredient(result.ingredient_id, vr.vendor) || disp.sku;
+    }
+  } else {
+    result.vendorStatus = 'unresolved';
+    result.vendor = null;
+    result.vendorCandidates = [];
+  }
+  return result;
 }
 
 // ── LINE PARSING (trailing "<item> <qty> [<unit>]", no invented data) ──
@@ -349,7 +529,10 @@ window.poParseAndMatch = async function(){
       match_confidence: m.matched ? m.confidence : null,
       match_source: m.matched ? m.source : 'manual',
       needs_review: !!m.needsReview,
-      candidates: m.candidates || []
+      candidates: m.candidates || [],
+      vendor: m.vendor || null,
+      vendor_status: m.vendorStatus || 'unresolved',
+      vendor_candidates: m.vendorCandidates || []
     };
   });
 
@@ -372,6 +555,7 @@ window.poLineSetProduct = function(i, encoded){
     line.ingredient_id = null; line.matched_name = null; line.vendor_sku = null;
     line.match_confidence = null; line.match_source = 'manual'; line.needs_review = false;
     line._userCorrected = false; // "no product" isn't something to learn as an alias
+    line.vendor = null; line.vendor_status = 'unresolved'; line.vendor_candidates = [];
     poRenderPage();
     return;
   }
@@ -384,6 +568,29 @@ window.poLineSetProduct = function(i, encoded){
   line.match_source = cand.source;
   line.needs_review = false;
   line._userCorrected = true; // a human deliberately picked this product — candidate for a learned alias on save
+
+  // Product changed — vendor must be re-resolved for the newly chosen
+  // ingredient, never inherited from the previous candidate.
+  var vr = poResolveVendorForIngredient(cand.ingredient_id);
+  line.vendor = vr.vendor || null;
+  line.vendor_status = vr.status;
+  line.vendor_candidates = vr.candidates || [];
+  if(vr.status === 'resolved'){
+    var disp = poCanonicalDisplay(cand.ingredient_id, line.matched_name, line.vendor_sku, vr.vendor);
+    line.matched_name = disp.name;
+    line.vendor_sku = poSkuForIngredient(cand.ingredient_id, vr.vendor) || disp.sku;
+  }
+  poRenderPage();
+};
+
+// Human picks the vendor directly — used when vendor_status is 'ambiguous'
+// (two eligible vendors, no dominance signal) or for a fully manual line.
+// An explicit human choice here is not BOH OS guessing.
+window.poLineSetVendor = function(i, vendorValue){
+  var line = _poDraftLines[i];
+  var v = poNormalizeVendorName(vendorValue);
+  line.vendor = v || null;
+  line.vendor_status = v ? 'resolved' : 'unresolved';
   poRenderPage();
 };
 
@@ -396,7 +603,8 @@ window.poLineAddManual = function(){
   _poDraftLines.push({
     requested_text: '', quantity: null, unit: null, ingredient_id: null,
     matched_name: null, vendor_sku: null, match_confidence: null,
-    match_source: 'manual', needs_review: false, candidates: []
+    match_source: 'manual', needs_review: false, candidates: [],
+    vendor: null, vendor_status: 'unresolved', vendor_candidates: []
   });
   poRenderPage();
   setTimeout(function(){
@@ -448,52 +656,124 @@ async function poLearnAliasesFromCorrections(){
   }
 }
 
+// ── FIND-OR-CREATE DRAFT PER VENDOR ─────────────────────────────────
+// Only ever reuses status='draft'. 'ready'/'sent'/'cancelled' orders are
+// never appended to — they've moved past normal compilation.
+async function poFindLatestDraftForVendor(vendor){
+  var sb = window.supabaseClient;
+  var { data, error } = await sb.from('purchase_orders')
+    .select('id').eq('vendor_name', vendor).eq('status', 'draft')
+    .order('created_at', { ascending: false }).limit(1);
+  if(error){ console.error('[purchase-order] find draft error', error); return null; }
+  return (data && data.length > 0) ? data[0].id : null;
+}
+
+async function poFetchDraftLines(orderId){
+  var sb = window.supabaseClient;
+  var { data, error } = await sb.from('purchase_order_lines')
+    .select('*').eq('purchase_order_id', orderId).order('created_at', { ascending: true });
+  if(error) throw error;
+  return data || [];
+}
+
+function poLineToRow(l, orderId, vendor){
+  return {
+    purchase_order_id: orderId,
+    ingredient_id: l.ingredient_id || null,
+    vendor_name: vendor,
+    vendor_sku: l.vendor_sku || null,
+    requested_text: l.requested_text,
+    matched_name: l.matched_name || null,
+    quantity: l.quantity,
+    unit: l.unit || null,
+    match_confidence: l.match_confidence,
+    match_source: l.match_source || 'manual'
+  };
+}
+
 // ── SAVE DRAFT ─────────────────────────────────────────────────────
+// Correction: never invent a vendor. Only lines whose vendor_status is
+// 'resolved' get persisted — anything 'ambiguous' or 'unresolved' stays
+// in the review screen untouched, waiting for a human to pick a vendor.
 window.poSaveDraft = async function(){
-  if(_poDraftLines.length === 0){ poToast('Nessuna riga da salvare.'); return; }
+  var resolved = _poDraftLines.filter(function(l){ return l.vendor_status === 'resolved' && l.vendor; });
+  var pendingCount = _poDraftLines.length - resolved.length;
+
+  if(resolved.length === 0){
+    poToast(pendingCount > 0
+      ? 'Nessuna riga pronta — scegli il vendor per le righe segnalate.'
+      : 'Nessuna riga da salvare.');
+    return;
+  }
+
   var sb = window.supabaseClient;
   var btn = document.getElementById('poSaveBtn');
   if(btn){ btn.disabled = true; btn.textContent = '…'; }
 
+  var byVendor = {};
+  resolved.forEach(function(l){ (byVendor[l.vendor] = byVendor[l.vendor] || []).push(l); });
+
   try{
-    var orderId = _poEditingOrderId;
-    if(!orderId){
-      var ins = await sb.from('purchase_orders').insert({
-        vendor_name: PO_VENDOR,
-        status: 'draft',
-        created_by: (window.user && window.user.name) || 'Unknown'
-      }).select('id').single();
-      if(ins.error) throw ins.error;
-      orderId = ins.data.id;
-    } else {
-      // Reopened draft — replace its lines cleanly rather than trying to diff them
-      var del = await sb.from('purchase_order_lines').delete().eq('purchase_order_id', orderId);
-      if(del.error) throw del.error;
+    for(var vendor in byVendor){
+      var orderId, existingRows;
+      if(vendor === _poEditingVendor && _poEditingOrderId){
+        // This is the exact draft the user opened — _poDraftLines already IS
+        // its full authoritative line set, so replace cleanly (no re-fetch,
+        // matches the original single-vendor semantics exactly).
+        orderId = _poEditingOrderId;
+        var del = await sb.from('purchase_order_lines').delete().eq('purchase_order_id', orderId);
+        if(del.error) throw del.error;
+        existingRows = [];
+      } else {
+        // A vendor we're touching for the first time this session — find or
+        // create its draft, and if one already exists, preserve its lines
+        // (append, never replace-with-only-the-new-item).
+        orderId = await poFindLatestDraftForVendor(vendor);
+        if(!orderId){
+          var ins = await sb.from('purchase_orders').insert({
+            vendor_name: vendor, status: 'draft',
+            created_by: (window.user && window.user.name) || 'Unknown'
+          }).select('id').single();
+          if(ins.error) throw ins.error;
+          orderId = ins.data.id;
+          existingRows = [];
+        } else {
+          existingRows = (await poFetchDraftLines(orderId)).map(function(l){
+            return { ingredient_id: l.ingredient_id, vendor_sku: l.vendor_sku, requested_text: l.requested_text,
+              matched_name: l.matched_name, quantity: l.quantity, unit: l.unit,
+              match_confidence: l.match_confidence, match_source: l.match_source };
+          });
+          var del2 = await sb.from('purchase_order_lines').delete().eq('purchase_order_id', orderId);
+          if(del2.error) throw del2.error;
+        }
+      }
+
+      var rows = existingRows.concat(byVendor[vendor]).map(function(l){ return poLineToRow(l, orderId, vendor); });
+      var insLines = await sb.from('purchase_order_lines').insert(rows);
+      if(insLines.error) throw insLines.error;
     }
 
-    var rows = _poDraftLines.map(function(l){
-      return {
-        purchase_order_id: orderId,
-        ingredient_id: l.ingredient_id || null,
-        vendor_name: PO_VENDOR,
-        vendor_sku: l.vendor_sku || null,
-        requested_text: l.requested_text,
-        matched_name: l.matched_name || null,
-        quantity: l.quantity,
-        unit: l.unit || null,
-        match_confidence: l.match_confidence,
-        match_source: l.match_source || 'manual'
-      };
-    });
-    var insLines = await sb.from('purchase_order_lines').insert(rows);
-    if(insLines.error) throw insLines.error;
+    // If the opened draft's vendor now has zero resolved lines left (user
+    // removed them all), clear it out rather than leaving stale lines behind.
+    if(_poEditingOrderId && _poEditingVendor && !byVendor[_poEditingVendor]){
+      var stillHasVendor = _poDraftLines.some(function(l){ return l.vendor === _poEditingVendor; });
+      if(!stillHasVendor){
+        await sb.from('purchase_order_lines').delete().eq('purchase_order_id', _poEditingOrderId);
+      }
+    }
 
     await poLearnAliasesFromCorrections();
 
-    poToast('Bozza salvata ✓');
-    _poView = 'list';
-    _poDraftLines = [];
-    _poEditingOrderId = null;
+    poToast(pendingCount > 0
+      ? ('Bozza salvata ✓ — ' + pendingCount + (pendingCount === 1 ? ' riga in sospeso (vendor da scegliere)' : ' righe in sospeso (vendor da scegliere)'))
+      : 'Bozza salvata ✓');
+
+    _poDraftLines = _poDraftLines.filter(function(l){ return l.vendor_status !== 'resolved'; });
+    if(_poDraftLines.length === 0){
+      _poView = 'list';
+      _poEditingOrderId = null;
+      _poEditingVendor = null;
+    }
     poRenderPage();
     poLoadOpenDrafts();
   }catch(e){
@@ -504,12 +784,11 @@ window.poSaveDraft = async function(){
   }
 };
 
-// ── OPEN DRAFTS LIST ────────────────────────────────────────────────
+// ── OPEN DRAFTS LIST (all vendors) ──────────────────────────────────
 async function poLoadOpenDrafts(){
   var sb = window.supabaseClient;
   var { data, error } = await sb.from('purchase_orders')
-    .select('id,status,created_by,created_at,notes')
-    .eq('vendor_name', PO_VENDOR)
+    .select('id,vendor_name,status,created_by,created_at,notes')
     .in('status', ['draft', 'ready'])
     .order('created_at', { ascending: false });
   if(error){ console.error('[purchase-order] load drafts error', error); return; }
@@ -519,6 +798,7 @@ async function poLoadOpenDrafts(){
 
 window.poOpenDraft = async function(orderId){
   var sb = window.supabaseClient;
+  var target = _poOpenDrafts.find(function(d){ return d.id === orderId; });
   var { data, error } = await sb.from('purchase_order_lines')
     .select('*').eq('purchase_order_id', orderId).order('created_at', { ascending: true });
   if(error){ poToast('Errore nel caricamento'); return; }
@@ -527,10 +807,12 @@ window.poOpenDraft = async function(orderId){
       requested_text: l.requested_text, quantity: l.quantity, unit: l.unit,
       ingredient_id: l.ingredient_id, matched_name: l.matched_name, vendor_sku: l.vendor_sku,
       match_confidence: l.match_confidence, match_source: l.match_source,
-      needs_review: !l.ingredient_id && l.match_source !== 'manual', candidates: []
+      needs_review: !l.ingredient_id && l.match_source !== 'manual', candidates: [],
+      vendor: l.vendor_name, vendor_status: 'resolved', vendor_candidates: []
     };
   });
   _poEditingOrderId = orderId;
+  _poEditingVendor = target ? target.vendor_name : (data && data[0] ? data[0].vendor_name : null);
   _poView = 'review';
   poRenderPage();
 };
@@ -617,23 +899,28 @@ function poRenderList(){
   var html = '';
   html += '<div style="background:rgba(255,255,255,0.7);border:1px solid #e2e8f0;border-radius:16px;padding:16px;margin-bottom:16px;">';
   html += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:8px;">Detta o scrivi la lista</div>';
-  html += '<textarea id="poInputText" rows="6" placeholder="heavy cream 2 cases\nparsley 3\nbrussels sprouts 10 lb\nlemons 1 case" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>';
+  html += '<textarea id="poInputText" rows="6" placeholder="heavy cream 2 cases\nparsley 3\nbrussels sprouts 10 lb\nshrimp 5 lb" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>';
   html += '<div style="display:flex;gap:8px;margin-top:10px;">';
   html += '<button id="poMicBtn" onclick="poToggleMic()" style="width:44px;height:44px;border-radius:12px;border:1px solid #e2e8f0;background:white;font-size:18px;cursor:pointer;flex-shrink:0;">🎙️</button>';
   html += '<button id="poCreateBtn" onclick="poParseAndMatch()" style="flex:1;height:44px;border-radius:12px;background:#1e3a5f;color:white;border:none;font-size:14px;font-weight:700;cursor:pointer;">Crea ordine</button>';
   html += '</div></div>';
   html += '<style>.po-mic-active{background:#dbeafe !important;border-color:#3b82f6 !important;}</style>';
 
-  html += '<div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:20px 0 8px;">Bozze aperte — ' + _poEsc(PO_VENDOR) + '</div>';
+  html += '<div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:20px 0 8px;">Bozze aperte</div>';
   if(_poOpenDrafts.length === 0){
     html += '<div style="font-size:13px;color:#94a3b8;padding:12px 0;">Nessuna bozza aperta.</div>';
   } else {
-    _poOpenDrafts.forEach(function(d){
-      var date = new Date(d.created_at).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
-      html += '<div onclick="poOpenDraft(\'' + d.id + '\')" style="background:rgba(255,255,255,0.7);border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">';
-      html += '<div><div style="font-size:13px;font-weight:600;color:#1e3a5f;">' + _poEsc(d.created_by || 'Unknown') + ' · ' + _poEsc(d.status) + '</div>';
-      html += '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + date + '</div></div>';
-      html += '<span style="color:#94a3b8;">&#8250;</span></div>';
+    var byVendor = {};
+    _poOpenDrafts.forEach(function(d){ (byVendor[d.vendor_name] = byVendor[d.vendor_name] || []).push(d); });
+    Object.keys(byVendor).sort().forEach(function(vendor){
+      html += '<div style="font-size:11px;font-weight:700;color:#1e3a5f;text-transform:uppercase;letter-spacing:.03em;margin:14px 0 6px;">' + _poEsc(vendor) + '</div>';
+      byVendor[vendor].forEach(function(d){
+        var date = new Date(d.created_at).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+        html += '<div onclick="poOpenDraft(\'' + d.id + '\')" style="background:rgba(255,255,255,0.7);border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">';
+        html += '<div><div style="font-size:13px;font-weight:600;color:#1e3a5f;">' + _poEsc(d.created_by || 'Unknown') + ' · ' + _poEsc(d.status) + '</div>';
+        html += '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + date + '</div></div>';
+        html += '<span style="color:#94a3b8;">&#8250;</span></div>';
+      });
     });
   }
   return html;
@@ -658,7 +945,26 @@ function poRenderReview(){
       badge = '<span style="font-size:10px;color:#1e40af;background:#dbeafe;padding:2px 6px;border-radius:6px;">~ simile</span>';
     }
 
-    html += '<div style="background:rgba(255,255,255,0.7);border:1px solid ' + (l.needs_review ? '#fbbf24' : '#e2e8f0') + ';border-radius:12px;padding:12px;margin-bottom:10px;">';
+    // Vendor state — never silently guessed. Resolved shows a badge;
+    // ambiguous shows a picker among the real eligible candidates;
+    // unresolved shows a manual vendor field and blocks that line from
+    // being saved until one is set.
+    var vendorBlock = '';
+    if(l.vendor_status === 'resolved' && l.vendor){
+      vendorBlock = '<div style="font-size:11px;color:#1e40af;margin-top:4px;">→ ' + _poEsc(l.vendor) + '</div>';
+    } else if(l.vendor_status === 'ambiguous' && (l.vendor_candidates||[]).length){
+      vendorBlock = '<select onchange="poLineSetVendor(' + i + ',this.value)" style="width:100%;margin-top:6px;padding:6px 8px;border:1px solid #fbbf24;border-radius:8px;font-size:12px;background:#fffbeb;color:#92400e;">' +
+        '<option value="" selected>⚠ Vendor da verificare — scegli</option>' +
+        (l.vendor_candidates||[]).map(function(v){ return '<option value="' + _poEsc(v) + '">' + _poEsc(v) + '</option>'; }).join('') +
+        '</select>';
+    } else {
+      vendorBlock = '<div style="display:flex;gap:6px;align-items:center;margin-top:6px;">' +
+        '<span style="font-size:10px;color:#92400e;background:#fef3c7;padding:2px 6px;border-radius:6px;white-space:nowrap;">⚠ vendor sconosciuto</span>' +
+        '<input type="text" placeholder="vendor…" oninput="poLineSetVendor(' + i + ',this.value)" style="flex:1;padding:5px 8px;border:1px solid #fbbf24;border-radius:8px;font-size:12px;background:#fffbeb;">' +
+        '</div>';
+    }
+
+    html += '<div style="background:rgba(255,255,255,0.7);border:1px solid ' + (l.needs_review || l.vendor_status !== 'resolved' ? '#fbbf24' : '#e2e8f0') + ';border-radius:12px;padding:12px;margin-bottom:10px;">';
     html += '<input class="po-line-text" value="' + _poEsc(l.requested_text) + '" oninput="poLineSetText(' + i + ',this.value)" style="width:100%;border:none;font-size:14px;font-weight:600;color:#1e3a5f;padding:0 0 6px;background:transparent;">';
 
     html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">';
@@ -681,6 +987,7 @@ function poRenderReview(){
     });
     if(l.matched_name) html += '<option value="__manual__">Nessun prodotto (manuale)</option>';
     html += '</select>';
+    html += vendorBlock;
 
     html += '</div>';
   });
@@ -701,11 +1008,31 @@ if (typeof module !== 'undefined' && module.exports) {
     poTokens: poTokens,
     poScore: poScore,
     poParseLine: poParseLine,
-    poSetCatalogsForTest: function(alias, ingVendor, links, purchaseFreq){
+    poResolveVendorForIngredient: poResolveVendorForIngredient,
+    poNormalizeVendorName: poNormalizeVendorName,
+    poResponsibleFor: poResponsibleFor,
+    poSetCatalogsForTest: function(alias, ingVendor, links, purchaseFreq, invoiceLines){
       _poAliasCatalog = alias || [];
       _poIngVendorCatalog = ingVendor || [];
       _poLinkCatalog = links || [];
       _poPurchaseFreq = purchaseFreq || {};
+      _poInvoiceLineRows = invoiceLines || [];
+      _poPurchaseFreqByVendor = {};
+      _poInvoiceLineRows.forEach(function(r){
+        if(!r.ingredient_id) return;
+        var key = r.ingredient_id + '|' + r.vendor;
+        _poPurchaseFreqByVendor[key] = (_poPurchaseFreqByVendor[key] || 0) + 1;
+      });
+      // Same eligibility derivation as poLoadCatalog — a vendor needs both
+      // ingredient_vendors presence and corroboration elsewhere.
+      var ivVendors = {}, linkVendors = {}, invVendors = {};
+      _poIngVendorCatalog.forEach(function(r){ if(r.vendor) ivVendors[r.vendor] = true; });
+      _poLinkCatalog.forEach(function(r){ if(r.vendor) linkVendors[r.vendor] = true; });
+      _poInvoiceLineRows.forEach(function(r){ if(r.vendor) invVendors[r.vendor] = true; });
+      _poEligibleVendors = {};
+      Object.keys(ivVendors).forEach(function(v){
+        if(linkVendors[v] || invVendors[v]) _poEligibleVendors[v] = true;
+      });
     }
   };
 }

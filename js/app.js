@@ -369,6 +369,7 @@ function doLogin(profile){
   init(); applyLang(); updateAlertBtn(); setupPush();
   if(typeof initExpenseQuickEntry === 'function') initExpenseQuickEntry();
   if(typeof initPurchaseOrderEntry === 'function') initPurchaseOrderEntry();
+  if(typeof initVendorHomePanels === 'function') initVendorHomePanels();
   loadNews(); initNews();
   loadBriefing(); startPresence(); startUrgencyCheck(); if(typeof startUsersRealtime==='function') startUsersRealtime();
   setTimeout(()=>startChatRealtime(), 500);
