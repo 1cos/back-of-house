@@ -426,6 +426,87 @@ function _renderAddOnOpportunities(opps){
   return header+cards;
 }
 
+// ── SERVER SALES (Yesterday's Highlights, Micro-task 7) ────────────────────
+// Volume-only leaders (Highest Sales $, Most Appetizers/Pasta/Entrées/Desserts/
+// Features). Reuses buildServerSalesDataset()/getServerSalesLeaders() from
+// js/pos.js — no aggregation logic duplicated here. No covers/checks/attach-
+// rate exist yet (Micro-task 5 audit), so wording stays strictly factual
+// volume ("Highest sales", "Most X sold") — never best/top performer/
+// conversion/attach rate/per cover/outperformed.
+
+// "Ayden, Harper" -> "Harper" if unambiguous today, else "Harper Ayden",
+// else the raw persisted name. Purely visual — never touches stored data.
+function _serverDisplayName(rawName, allNamesToday){
+  const parts=(rawName||'').split(',').map(s=>s.trim());
+  if(parts.length<2) return rawName;
+  const last=parts[0], firstFull=parts[1];
+  const first=firstFull.split(' ')[0];
+  const reversedFull=firstFull+' '+last;
+  const others=(allNamesToday||[]).filter(n=>n!==rawName);
+  const firstCollision=others.some(n=>{
+    const p=(n||'').split(',').map(s=>s.trim());
+    return p.length>=2 && p[1].split(' ')[0]===first;
+  });
+  if(!firstCollision) return first;
+  const reversedCollision=others.some(n=>{
+    const p=(n||'').split(',').map(s=>s.trim());
+    return p.length>=2 && (p[1]+' '+p[0])===reversedFull;
+  });
+  return reversedCollision ? rawName : reversedFull;
+}
+
+const SERVER_SALES_ROW_SPECS=[
+  { key:'total_sales',   icon:'💰', label:'Highest sales', fmt:v=>'$'+Math.round(v).toLocaleString('en-US') },
+  { key:'appetizer_qty', icon:'🥗', label:'Appetizers',    fmt:v=>String(v) },
+  { key:'pasta_qty',     icon:'🍝', label:'Pasta',         fmt:v=>String(v) },
+  { key:'entree_qty',    icon:'🍽️', label:'Entrées',       fmt:v=>String(v) },
+  { key:'dessert_qty',   icon:'🍰', label:'Desserts',      fmt:v=>String(v) },
+  { key:'feature_qty',   icon:'⭐', label:'Features',      fmt:v=>String(v) },
+];
+
+// Pure render: takes raw pos_sales_by_server rows for one business day, returns
+// an HTML string or '' (no data / nothing eligible -> section simply omitted).
+function _renderServerSalesHtml(rows){
+  if(!rows||!rows.length) return '';
+  const dataset=buildServerSalesDataset(rows);
+  const leaders=getServerSalesLeaders(dataset);
+  const allNames=dataset.map(s=>s.server_name);
+
+  const lines=SERVER_SALES_ROW_SPECS.map(spec=>{
+    const L=leaders[spec.key];
+    if(!L) return ''; // no eligible server with a value > 0 -> row omitted
+    let nameHtml;
+    if(L.tie){
+      if(L.candidates.length>2) return ''; // 3+ way tie -> keep it simple, suppress row
+      nameHtml=L.candidates.map(n=>_serverDisplayName(n,allNames)).join(' & ');
+    } else {
+      nameHtml=_serverDisplayName(L.server_name,allNames);
+    }
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;">'+
+      '<span style="color:#64748b;">'+spec.icon+' '+spec.label+'</span>'+
+      '<span style="color:#1e3a5f;font-weight:600;">'+nameHtml+' · '+spec.fmt(L.value)+'</span>'+
+      '</div>';
+  }).filter(Boolean);
+
+  if(!lines.length) return '';
+
+  return '<div style="margin-top:8px;padding-top:8px;border-top:0.5px solid rgba(59,130,246,0.08);">'+
+    '<div style="font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;">Server Sales</div>'+
+    lines.join('')+
+    '</div>';
+}
+
+async function _renderServerSalesSection(yStr){
+  let rows=[];
+  try{
+    const{data}=await supa.from('pos_sales_by_server')
+      .select('server_name,sales_category,menu_group,menu_item_quantity,sales')
+      .eq('sale_date',yStr).eq('is_historical',false);
+    rows=data||[];
+  }catch(e){ console.error('[server-sales]',e); return ''; }
+  return _renderServerSalesHtml(rows);
+}
+
 // ── YESTERDAY highlights (martedì–sabato) ──
 async function _loadYesterdayHighlights(el){
   const now=getNowDallas();
@@ -472,6 +553,14 @@ async function _loadYesterdayHighlights(el){
   let opps=[];
   try{ opps=await _computeAddOnOpportunities(yStr); }catch(e){ console.error('[opportunities]',e); }
   rows.push(_renderAddOnOpportunities(opps));
+
+  // Server Sales snapshot — volume only, admin-only (same gate as net sales above)
+  if(typeof isAdmin==='function'&&isAdmin()){
+    try{
+      const serverSalesHtml=await _renderServerSalesSection(yStr);
+      if(serverSalesHtml) rows.push(serverSalesHtml);
+    }catch(e){ console.error('[server-sales]',e); }
+  }
 
   el.innerHTML=rows.length?rows.join(''):'<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
 
