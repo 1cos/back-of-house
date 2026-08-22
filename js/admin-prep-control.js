@@ -1251,7 +1251,7 @@
     if (!r) return;
 
     // ── Auth check ────────────────────────────────────────────────────────
-    const brigadeToken = sessionStorage.getItem('brigade_token');
+    const brigadeToken = localStorage.getItem('brigade_token');
     if (!brigadeToken) {
       const errEl = document.getElementById('pcRecalcResult');
       if (errEl) {
@@ -1524,7 +1524,7 @@
     if (isNaN(val) || val < 0) return;           // guard: invalid
     if (saveBtn.dataset.saving === '1') return;  // guard: double-submit
 
-    const brigadeToken = sessionStorage.getItem('brigade_token');
+    const brigadeToken = localStorage.getItem('brigade_token');
     if (!brigadeToken) {
       if (resultEl) resultEl.innerHTML = '<span style="color:#dc2626;">Session expired — log in again.</span>';
       return;
@@ -1769,7 +1769,7 @@
     if (isNaN(val) || val <= 0) return;             // guard: zero/negative/blank
     if (saveBtn.dataset.saving === '1') return;      // guard: double-submit
 
-    const brigadeToken = sessionStorage.getItem('brigade_token');
+    const brigadeToken = localStorage.getItem('brigade_token');
     if (!brigadeToken) {
       if (resultEl) resultEl.innerHTML = '<span style="color:#dc2626;">Session expired — log in again.</span>';
       return;

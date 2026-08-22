@@ -33,7 +33,7 @@ async function saveNewPIN(btn){
   if(!current||!newPin||!confirm){err.textContent='Compila tutti i campi';err.classList.remove('hidden');return}
   if(!/^\d{4}$/.test(newPin)){err.textContent='Il PIN deve essere 4 cifre';err.classList.remove('hidden');return}
   if(newPin!==confirm){err.textContent='I PIN non coincidono';err.classList.remove('hidden');return}
-  const token=sessionStorage.getItem('brigade_token');
+  const token=localStorage.getItem('brigade_token');
   if(!token){err.textContent='Sessione scaduta — rieffettua il login';err.classList.remove('hidden');return}
   btn.disabled=true; btn.textContent='Salvataggio...';
   const{data:res,error}=await supa.rpc('brigade_change_pin',{
@@ -55,7 +55,7 @@ async function saveNewPIN(btn){
 // All user management mutations go through the brigade-user-admin Edge Function.
 // Never write to public.users directly from the browser.
 async function _adminApi(action, params) {
-  const token = sessionStorage.getItem('brigade_token');
+  const token = localStorage.getItem('brigade_token');
   if(!token) throw new Error('no_session');
   const url = (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : window.SUPABASE_URL) + '/functions/v1/brigade-user-admin';
   const resp = await fetch(url, {
@@ -211,7 +211,7 @@ async function saveEditUser(userId, btn){
   // If a new PIN is supplied, reset it via the secure RPC (session-validated, audit-logged)
   if(pin){
     const{data:pinRes}=await supa.rpc('brigade_reset_pin',{
-      p_token:sessionStorage.getItem('brigade_token'),
+      p_token:localStorage.getItem('brigade_token'),
       p_target_id:userId, p_new_pin:pin
     });
     if(!pinRes?.ok){err.textContent='PIN error: '+(pinRes?.error||'failed');err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return}
@@ -262,7 +262,7 @@ window.confirmResetPIN = async(userId, btn) => {
     err.style.display='block';
     return;
   }
-  const token=sessionStorage.getItem('brigade_token');
+  const token=localStorage.getItem('brigade_token');
   if(!token){err.textContent='Sessione scaduta';err.style.display='block';return;}
   btn.textContent='...'; btn.disabled=true;
   const{data:res,error}=await supa.rpc('brigade_reset_pin',{

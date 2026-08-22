@@ -2657,7 +2657,7 @@ window.saveKitchenCount = async function(id) {
   const btn = input.parentElement ? input.parentElement.querySelector('button') : null;
 
   // Brigade session token — same source used by _scSave
-  const brigadeToken = sessionStorage.getItem('brigade_token') || '';
+  const brigadeToken = localStorage.getItem('brigade_token') || '';
 
   // ── SET IN-FLIGHT STATE ───────────────────────────────────────────────────
   input.dataset.saving = '1';
@@ -3384,7 +3384,7 @@ async function checklistComplete(id){
   );
 
   const _efUrl = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/record-prep-checklist';
-  const _efTok = sessionStorage.getItem('brigade_token');
+  const _efTok = localStorage.getItem('brigade_token');
   let rpcRaw, rpcData;
   try {
     rpcRaw = await fetch(_efUrl, {
@@ -3802,7 +3802,7 @@ async function _retryRecalcOnly(id, suggDate) {
     renderM();
   }
   var _efUrl = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/record-prep-production';
-  var _efTok = sessionStorage.getItem('brigade_token');
+  var _efTok = localStorage.getItem('brigade_token');
   try {
     // Use a no-op retry: call the EF with the same client_key from pending state.
     // Since the RPC is idempotent on client_key, it returns duplicate_skipped=true.
@@ -3863,7 +3863,7 @@ async function suggestedSave(id, modal){
   );
   const _cardSuggDate2 = window._suggestionsDate || new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const _efUrl2 = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/record-prep-production';
-  const _efTok2 = sessionStorage.getItem('brigade_token');
+  const _efTok2 = localStorage.getItem('brigade_token');
   let rpcRes2Raw, rpcRes2;
   try {
     rpcRes2Raw = await fetch(_efUrl2, {
@@ -3938,7 +3938,7 @@ async function detailSave(id, btn, isSuggested){
 
   // Call production Edge Function: validates session, records production, calls bot server-to-server
   const _efUrl = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:window.SUPABASE_URL)+'/functions/v1/record-prep-production';
-  const _efTok = sessionStorage.getItem('brigade_token');
+  const _efTok = localStorage.getItem('brigade_token');
   let rpcRaw, rpcData;
   try {
     rpcRaw = await fetch(_efUrl, {
@@ -4650,8 +4650,8 @@ window._scSave = async function(id) {
   btn.textContent = 'Aligning…';
   if (res) res.innerHTML = '';
 
-  // Brigade session token from sessionStorage
-  const brigadeToken = sessionStorage.getItem('brigade_token') || '';
+  // Brigade session token from localStorage
+  const brigadeToken = localStorage.getItem('brigade_token') || '';
 
   let result = null;
   try {
@@ -4816,7 +4816,7 @@ window._scRetry = async function(id, countId) {
   const resEl = document.getElementById('stockCountResult-' + id);
   if (resEl) resEl.innerHTML = '<div style="font-size:12px;color:#64748b;margin-top:8px;">⏳ Retrying Chef AI…</div>';
 
-  const brigadeToken = sessionStorage.getItem('brigade_token') || '';
+  const brigadeToken = localStorage.getItem('brigade_token') || '';
 
   let result = null;
   try {
@@ -5051,7 +5051,7 @@ window._ussSaveInline = async function(id) {
   btn.textContent = 'Saving…';
   if (errDiv) { errDiv.style.display = 'none'; errDiv.textContent = ''; }
 
-  const brigadeToken = sessionStorage.getItem('brigade_token') || '';
+  const brigadeToken = localStorage.getItem('brigade_token') || '';
   const efBase = (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : window.SUPABASE_URL);
 
   let result = null;

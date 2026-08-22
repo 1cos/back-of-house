@@ -1267,7 +1267,7 @@ window.invSaveStock = async function(taskId) {
   // Falls back to 'g' if missing — always a safe native unit.
   var taskUnit = input.dataset.invUnit || 'g';
 
-  var brigadeToken = sessionStorage.getItem('brigade_token') || '';
+  var brigadeToken = localStorage.getItem('brigade_token') || '';
 
   // Set in-flight state and disable input before any await
   input.dataset.saving = '1';
@@ -4824,7 +4824,7 @@ async function jarvisExecuteDraft(sb, draft) {
       var efUnit = (payload.unit || '').trim() || target.unit || 'g';
 
       // Brigade session token — same pattern as invSaveStock (L1222)
-      var brigadeToken = sessionStorage.getItem('brigade_token') || '';
+      var brigadeToken = localStorage.getItem('brigade_token') || '';
       if (!brigadeToken) throw new Error('Brigade session token non disponibile — riaccedi');
 
       // ── CALL CANONICAL EF ────────────────────────────────────

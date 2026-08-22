@@ -130,10 +130,10 @@ async function attemptPinLogin(){
   }
   // ── Stage 3: Store session ─────────────────────────────────────────────────
   try {
-    sessionStorage.setItem('brigade_token', loginData.token);
+    localStorage.setItem('brigade_token', loginData.token);
     console.info('[LOGIN]', { stage: 'session_stored', hasToken: true, reqId: _thisReqId });
   } catch(storageErr) {
-    // sessionStorage unavailable (private browsing, storage full, security policy)
+    // localStorage unavailable (private browsing, storage full, security policy)
     console.warn('[LOGIN]', { stage: 'storage_failed', error: storageErr?.name, reqId: _thisReqId });
     _showLoginError('storage');
   }
@@ -182,11 +182,11 @@ function _showLoginError(type) {
 // ── SESSION RESTORE — validate existing token on page load ──
 // Called immediately; if valid, skips login screen entirely.
 (async function _restoreSession(){
-  const stored = sessionStorage.getItem('brigade_token');
+  const stored = localStorage.getItem('brigade_token');
   if(!stored) return; // no session → show login screen normally
   const{data:res, error} = await supa.rpc('brigade_validate_session', {p_token: stored});
   if(error || !res || !res.ok){
-    sessionStorage.removeItem('brigade_token');
+    localStorage.removeItem('brigade_token');
     return; // expired/invalid → show login
   }
   doLogin(res.user);
@@ -194,10 +194,10 @@ function _showLoginError(type) {
 
 // ── BRIGADE LOGOUT — invalidates server session ──
 window.brigadeLogout = async function(){
-  const token = sessionStorage.getItem('brigade_token');
+  const token = localStorage.getItem('brigade_token');
   if(token){
     await supa.rpc('brigade_logout', {p_token: token}).catch(()=>{});
-    sessionStorage.removeItem('brigade_token');
+    localStorage.removeItem('brigade_token');
   }
   user = null;
   location.reload();
