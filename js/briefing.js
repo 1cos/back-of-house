@@ -319,7 +319,8 @@ const _ADDON_ALLOWLIST=[
 const _ADDON_MIN_YESTERDAY_PARENT_QTY=5;   // avoid 1-of-2 dish noise
 const _ADDON_MIN_HIST_PARENT_QTY=20;       // enough historical volume
 const _ADDON_MIN_HIST_DAYS=3;              // enough distinct selling days
-const _ADDON_MIN_MISSED_ATTACHES=1.0;      // below this, gap is statistical noise
+const _ADDON_MIN_MISSED_ATTACHES=3;        // materiality floor (v2): below this, not worth managerial attention on the Home
+const _ADDON_MIN_REVENUE_OPPORTUNITY=50;   // materiality floor (v2): dollar-size floor -- BOTH floors must clear, on raw pre-rounding values
 const _ADDON_MAX_CARDS=3;
 
 function _addDaysISO(str,n){ const d=new Date(str+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
@@ -386,13 +387,16 @@ async function _computeAddOnOpportunities(yStr){
     const yAttachRate=yModQty/yParentQty;
     const expectedAttaches=histAttachRate*yParentQty;
     const missedAttaches=Math.max(0,expectedAttaches-yModQty);
-    if(missedAttaches<_ADDON_MIN_MISSED_ATTACHES) continue;
     if(histAttachRate<=yAttachRate) continue; // yesterday already at/above baseline — not an opportunity (T6)
+    const dollarOpportunity=missedAttaches*priceMap[modifier]; // allowlist prices are pre-validated reliable — see report
+    // Materiality (v2): BOTH floors must clear, checked on raw values before any
+    // UI rounding (e.g. 2.96 missed attaches must never be treated as 3).
+    if(missedAttaches<_ADDON_MIN_MISSED_ATTACHES||dollarOpportunity<_ADDON_MIN_REVENUE_OPPORTUNITY) continue;
     opportunities.push({
       parent,modifier,yParentQty,yModQty,yAttachRate,
       histParentQty:hp.qty,histModQty,histDays:hp.days.size,histAttachRate,
       missedAttaches,
-      dollarOpportunity:missedAttaches*priceMap[modifier], // allowlist prices are pre-validated reliable — see report
+      dollarOpportunity,
     });
   }
   opportunities.sort((a,b)=>b.missedAttaches-a.missedAttaches);
