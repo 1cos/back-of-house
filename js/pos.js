@@ -2746,13 +2746,94 @@ function posSetView(v) {
 function teamSalesCategoryUnits(rows) {
   const sum = (pred) => rows.filter(pred).reduce((s, r) => s + (Number(r.menu_item_quantity) || 0), 0);
   return {
-    food:     sum(r => r.sales_category === 'Food'),
-    wine:     sum(r => r.sales_category === 'Wine'),
-    alcohol:  sum(r => r.sales_category === 'Alcohol'),
-    beer:     sum(r => r.sales_category === 'Beer'),
-    desserts: sum(r => (r.menu_group || '').toLowerCase().indexOf('dessert') !== -1),
-    features: sum(r => r.menu_group === 'Features'),
+    food:      sum(r => r.sales_category === 'Food'),
+    wine:      sum(r => r.sales_category === 'Wine'),
+    alcohol:   sum(r => r.sales_category === 'Alcohol'),
+    beer:      sum(r => r.sales_category === 'Beer'),
+    desserts:  sum(r => (r.menu_group || '').toLowerCase().indexOf('dessert') !== -1),
+    features:  sum(r => r.menu_group === 'Features'),
+    // Added for the server sales dataset (Micro-task 6) — same menu_group
+    // taxonomy already used everywhere else in Brigade, no new mapping.
+    appetizer: sum(r => r.menu_group === 'Antipasti/appetizer'),
+    salad:     sum(r => r.menu_group === 'Insalate/salad'),
+    pasta:     sum(r => r.menu_group === 'Pasta'),
+    entree:    sum(r => r.menu_group === 'Secondi/entrees'),
   };
+}
+
+// ── SERVER SALES DATASET (data layer only, v1 — Micro-task 6) ─────────────
+// Raw sales VOLUME per server for one business day, from pos_sales_by_server.
+// This is volume, not a normalized/conversion metric: no covers, no checks,
+// no attach rate — none of those denominators are available/reliable today
+// (see Micro-task 5 audit). Do not present this as "performance" or coaching;
+// it only supports statements like "X sold the most desserts yesterday."
+//
+// rows: raw pos_sales_by_server rows for a single sale_date
+//   (same shape already fetched by loadTeamSales: server_name, sales_category,
+//   menu_group, menu_item_quantity, sales, ...).
+// excludeNames: optional array of known non-server identities (e.g. ['Admin']).
+//   None are known to exist in current data — pass explicitly only once a
+//   specific name is confirmed as a system identity, never guessed here.
+const TEAM_SALES_MIN_ACTIVITY_ITEMS = 10; // is_low_activity floor (v1): real 21/08
+// distribution showed 8 real shifts at 53-151 items vs 2 cameo shifts at 1 item
+// each. Set far below the observed "normal" floor (53) so it only screens out
+// clear cameo/placeholder shifts and never a genuine partial shift.
+
+function buildServerSalesDataset(rows, excludeNames) {
+  excludeNames = excludeNames || [];
+  const byServer = {};
+  (rows || []).forEach(r => {
+    const name = r.server_name || '(senza nome)';
+    if (excludeNames.indexOf(name) !== -1) return;
+    if (!byServer[name]) byServer[name] = { server_name: name, total_item_qty: 0, total_sales: 0, rows: [] };
+    byServer[name].total_item_qty += Number(r.menu_item_quantity) || 0;
+    byServer[name].total_sales    += Number(r.sales) || 0;
+    byServer[name].rows.push(r);
+  });
+  return Object.values(byServer).map(s => {
+    const cats = teamSalesCategoryUnits(s.rows);
+    return {
+      server_name: s.server_name,
+      total_item_qty: s.total_item_qty,
+      total_sales: s.total_sales,
+      appetizer_qty: cats.appetizer,
+      salad_qty: cats.salad,
+      pasta_qty: cats.pasta,
+      entree_qty: cats.entree,
+      dessert_qty: cats.desserts,
+      feature_qty: cats.features,
+      is_low_activity: s.total_item_qty < TEAM_SALES_MIN_ACTIVITY_ITEMS,
+    };
+  }).sort((a, b) => b.total_sales - a.total_sales);
+}
+
+// Leader for one metric among eligible (non-low-activity) rows.
+// Returns null if no eligible server has a value > 0.
+// Returns {tie:true, ...} with NO single winner if 2+ eligible servers share the max —
+// never invents a winner on a tie.
+function getServerSalesLeader(dataset, metricKey) {
+  const eligible = (dataset || []).filter(s => !s.is_low_activity && s[metricKey] > 0);
+  if (!eligible.length) return null;
+  const max = Math.max(...eligible.map(s => s[metricKey]));
+  const winners = eligible.filter(s => s[metricKey] === max);
+  if (winners.length > 1) return { tie: true, value: max, candidates: winners.map(w => w.server_name) };
+  return { tie: false, server_name: winners[0].server_name, value: max };
+}
+
+// Headline leaders only (per spec: Salad stays in the dataset but is not a headline leader).
+const SERVER_SALES_LEADER_METRICS = [
+  { key: 'total_sales',   label: 'Total Sales $' },
+  { key: 'appetizer_qty', label: 'Appetizer qty' },
+  { key: 'pasta_qty',     label: 'Pasta qty' },
+  { key: 'entree_qty',    label: 'Entrée qty' },
+  { key: 'dessert_qty',   label: 'Dessert qty' },
+  { key: 'feature_qty',   label: 'Feature qty' },
+];
+
+function getServerSalesLeaders(dataset) {
+  const out = {};
+  SERVER_SALES_LEADER_METRICS.forEach(m => { out[m.key] = getServerSalesLeader(dataset, m.key); });
+  return out;
 }
 
 async function loadTeamSales() {
