@@ -2758,6 +2758,7 @@ function teamSalesCategoryUnits(rows) {
     salad:     sum(r => r.menu_group === 'Insalate/salad'),
     pasta:     sum(r => r.menu_group === 'Pasta'),
     entree:    sum(r => r.menu_group === 'Secondi/entrees'),
+    risotto:   sum(r => r.menu_group === 'Risotto'), // Micro-task 9: main_qty needs Risotto (verified main-course in Micro-task 8 audit)
   };
 }
 
@@ -2779,6 +2780,13 @@ const TEAM_SALES_MIN_ACTIVITY_ITEMS = 10; // is_low_activity floor (v1): real 21
 // each. Set far below the observed "normal" floor (53) so it only screens out
 // clear cameo/placeholder shifts and never a genuine partial shift.
 
+const TEAM_SALES_MIN_MAINS_FOR_RATIO = 15; // is_ratio_eligible floor (v1, Micro-task 9)
+// Separate concept from is_low_activity (different denominator: main_qty, not
+// total_item_qty). Verified against 2026-08-19/20/21 real data: with 15,
+// eligible counts were 1/7, 3/7, 6/8 across the three days -- never zero,
+// never "everyone qualifies", and it correctly excludes the noisy cases found
+// in the Micro-task 8 audit (e.g. a 4-main day producing a 175% ratio).
+
 function buildServerSalesDataset(rows, excludeNames) {
   excludeNames = excludeNames || [];
   const byServer = {};
@@ -2792,6 +2800,9 @@ function buildServerSalesDataset(rows, excludeNames) {
   });
   return Object.values(byServer).map(s => {
     const cats = teamSalesCategoryUnits(s.rows);
+    // Main-course proxy (Micro-task 9): Pasta + Secondi/entrees + Features + Risotto.
+    // Explicitly excludes Kids, Sides, Appetizers, Salads, Desserts (see Micro-task 8 audit).
+    const main_qty = cats.pasta + cats.entree + cats.features + cats.risotto;
     return {
       server_name: s.server_name,
       total_item_qty: s.total_item_qty,
@@ -2803,6 +2814,11 @@ function buildServerSalesDataset(rows, excludeNames) {
       dessert_qty: cats.desserts,
       feature_qty: cats.features,
       is_low_activity: s.total_item_qty < TEAM_SALES_MIN_ACTIVITY_ITEMS,
+      main_qty: main_qty,
+      // raw ratios, no rounding here; null (not Infinity/0) when main_qty is 0
+      appetizer_per_main: main_qty > 0 ? cats.appetizer / main_qty : null,
+      dessert_per_main:   main_qty > 0 ? cats.desserts  / main_qty : null,
+      is_ratio_eligible: main_qty >= TEAM_SALES_MIN_MAINS_FOR_RATIO,
     };
   }).sort((a, b) => b.total_sales - a.total_sales);
 }
@@ -2834,6 +2850,30 @@ function getServerSalesLeaders(dataset) {
   const out = {};
   SERVER_SALES_LEADER_METRICS.forEach(m => { out[m.key] = getServerSalesLeader(dataset, m.key); });
   return out;
+}
+
+// ── NORMALIZED RATIO LEADERS (data-only, v1 — Micro-task 9) ────────────────
+// "ratio" / "per_main" wording only — never conversion/attach/performance
+// score/upsell score: the denominator is a volume proxy (main_qty), not
+// covers or checks (see Micro-task 5/8 audits).
+// Leader for one ratio field among is_ratio_eligible rows only. Same shape/tie
+// semantics as getServerSalesLeader: null if nobody eligible has a value > 0,
+// {tie:true, ...} with no single winner on an exact tie.
+function getServerRatioLeader(dataset, ratioKey) {
+  const eligible = (dataset || []).filter(s => s.is_ratio_eligible && s[ratioKey] != null && s[ratioKey] > 0);
+  if (!eligible.length) return null;
+  const max = Math.max(...eligible.map(s => s[ratioKey]));
+  const winners = eligible.filter(s => s[ratioKey] === max);
+  if (winners.length > 1) return { tie: true, value: max, candidates: winners.map(w => w.server_name) };
+  return { tie: false, server_name: winners[0].server_name, value: max };
+}
+
+// Only appetizer_per_main and dessert_per_main in this task (no Pasta/Entrée ratio leaders yet).
+function getServerRatioLeaders(dataset) {
+  return {
+    appetizer_per_main: getServerRatioLeader(dataset, 'appetizer_per_main'),
+    dessert_per_main:   getServerRatioLeader(dataset, 'dessert_per_main'),
+  };
 }
 
 async function loadTeamSales() {
