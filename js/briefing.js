@@ -464,6 +464,57 @@ const SERVER_SALES_ROW_SPECS=[
   { key:'feature_qty',   icon:'⭐', label:'Features',      fmt:v=>String(v) },
 ];
 
+// ── SALES MIX (normalized ratios, Micro-task 10) ────────────────────────────
+// Two compact additional rows: Appetizer/main and Dessert/main. Reuses
+// main_qty/appetizer_per_main/dessert_per_main/is_ratio_eligible and
+// getServerRatioLeader() from js/pos.js — no new aggregation here. A leader
+// is only shown once at least TEAM_SALES_MIN_ELIGIBLE_SERVERS_FOR_RATIO_INSIGHT
+// servers are ratio-eligible that day (a "leader" among 1-2 samples isn't
+// meaningful). Leader selection always uses the raw ratio, never the rounded
+// display percentage. The percentage is never shown alone — always paired
+// with numerator/denominator so the source is obvious at a glance.
+const TEAM_SALES_MIN_ELIGIBLE_SERVERS_FOR_RATIO_INSIGHT = 3;
+
+const SALES_MIX_ROW_SPECS=[
+  { ratioKey:'appetizer_per_main', qtyKey:'appetizer_qty', label:'Appetizer / main' },
+  { ratioKey:'dessert_per_main',   qtyKey:'dessert_qty',   label:'Dessert / main' },
+];
+
+function _renderSalesMixHtml(dataset){
+  const eligibleCount=(dataset||[]).filter(s=>s.is_ratio_eligible).length;
+  if(eligibleCount<TEAM_SALES_MIN_ELIGIBLE_SERVERS_FOR_RATIO_INSIGHT) return '';
+  const allNames=dataset.map(s=>s.server_name);
+
+  const lines=SALES_MIX_ROW_SPECS.map(spec=>{
+    const L=getServerRatioLeader(dataset,spec.ratioKey);
+    if(!L) return ''; // no ratio-eligible server with a value > 0 -> row omitted
+    let nameHtml, numDen;
+    if(L.tie){
+      if(L.candidates.length>2) return ''; // 3+ way tie -> keep it simple, suppress row
+      nameHtml=L.candidates.map(n=>_serverDisplayName(n,allNames)).join(' & ');
+      numDen=L.candidates.map(n=>{
+        const s=dataset.find(d=>d.server_name===n);
+        return s[spec.qtyKey]+'/'+s.main_qty;
+      }).join(' · ');
+    } else {
+      nameHtml=_serverDisplayName(L.server_name,allNames);
+      const s=dataset.find(d=>d.server_name===L.server_name);
+      numDen=s[spec.qtyKey]+'/'+s.main_qty;
+    }
+    const pct=Math.round(L.value*100); // display only -- leader already chosen on the raw ratio above
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;">'+
+      '<span style="color:#64748b;">'+spec.label+'</span>'+
+      '<span style="color:#1e3a5f;font-weight:600;">'+nameHtml+' · '+pct+'% · '+numDen+'</span>'+
+      '</div>';
+  }).filter(Boolean);
+
+  if(!lines.length) return '';
+
+  return '<div style="margin-top:6px;padding-top:6px;border-top:0.5px dashed rgba(59,130,246,0.15);">'+
+    lines.join('')+
+    '</div>';
+}
+
 // Pure render: takes raw pos_sales_by_server rows for one business day, returns
 // an HTML string or '' (no data / nothing eligible -> section simply omitted).
 function _renderServerSalesHtml(rows){
@@ -488,11 +539,14 @@ function _renderServerSalesHtml(rows){
       '</div>';
   }).filter(Boolean);
 
-  if(!lines.length) return '';
+  const mixHtml=_renderSalesMixHtml(dataset);
+
+  if(!lines.length && !mixHtml) return '';
 
   return '<div style="margin-top:8px;padding-top:8px;border-top:0.5px solid rgba(59,130,246,0.08);">'+
     '<div style="font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;">Server Sales</div>'+
     lines.join('')+
+    mixHtml+
     '</div>';
 }
 
