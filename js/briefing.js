@@ -550,10 +550,16 @@ function _renderServerSalesHtml(rows){
 
   if(!lines.length && !mixHtml) return '';
 
+  // "View all server sales" — opens the full per-server detail view built in
+  // Micro-task 29 (openServerSales()). Home stays a summary only; no item-
+  // level data is duplicated here (Micro-task 30).
+  const viewAllHtml='<button onclick="openServerSales()" style="margin-top:6px;font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;padding:2px 0;">View all server sales →</button>';
+
   return '<div style="margin-top:8px;padding-top:8px;border-top:0.5px solid rgba(59,130,246,0.08);">'+
     '<div style="font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;">What Servers Sold</div>'+
     lines.join('')+
     mixHtml+
+    viewAllHtml+
     '</div>';
 }
 
@@ -912,44 +918,44 @@ async function _loadYesterdayHighlights(el){
     return;
   }
 
-  // Admin: net sales ieri (bill count rimosso — duplicato con Briefing AI/altrove)
+  const admin=typeof isAdmin==='function'&&isAdmin();
   const rows=[];
-  if(typeof isAdmin==='function'&&isAdmin()&&summary){
-    const sales=parseFloat(summary.net_sales||0).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
-    rows.push(
-      '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
-      '<span style="font-size:15px;">💰</span>'+
-      '<span style="font-size:13px;color:#1e3a5f;font-weight:600;">'+sales+'</span>'+
-      '</div>'
-    );
-  }
 
-  // Tutti: cosa abbiamo venduto ieri — item + qty, MAI $ (ripristinato, Micro-task 26;
-  // rimosso per errore il 2026-08-20 quando Add-on Opportunities lo aveva sostituito)
+  // 1) Tutti: cosa abbiamo venduto ieri — item + qty, MAI $ (Micro-task 26/28),
+  // sempre il primo blocco della sezione, per staff e Max (Micro-task 30).
   try{
     const soldHtml=await _renderWhatWeSoldYesterday(yStr);
     if(soldHtml) rows.push(soldHtml);
   }catch(e){ console.error('[what-we-sold]',e); }
 
-  // Tutti: add-on opportunities reali — il valore $ è ora admin-only (Micro-task 26)
-  let opps=[];
-  try{ opps=await _computeAddOnOpportunities(yStr); }catch(e){ console.error('[opportunities]',e); }
-  rows.push(_renderAddOnOpportunities(opps, typeof isAdmin==='function'&&isAdmin()));
-
-  // Server Sales snapshot — volume only, admin-only (same gate as net sales above)
-  if(typeof isAdmin==='function'&&isAdmin()){
+  if(admin){
+    // 2) What Servers Sold (+ link "View all server sales" verso il Task 29)
     try{
       const serverSalesHtml=await _renderServerSalesSection(yStr);
       if(serverSalesHtml) rows.push(serverSalesHtml);
     }catch(e){ console.error('[server-sales]',e); }
-  }
 
-  // Persistent weekday sales-mix patterns — same admin gate as Server Sales (Micro-task 21)
-  if(typeof isAdmin==='function'&&isAdmin()){
+    // 3) Weekday Sales Mix Patterns
     try{
       const patternsHtml=await _renderPersistentPatternsSection(yStr);
       if(patternsHtml) rows.push(patternsHtml);
     }catch(e){ console.error('[persistent-patterns]',e); }
+
+    // 4) Financial / Opportunities — Max-only, in fondo (Micro-task 30: Add-on
+    // Opportunities non è più visibile allo staff nemmeno senza $ — resta
+    // insieme al net sales, entrambi analytics manageriali).
+    if(summary){
+      const sales=parseFloat(summary.net_sales||0).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
+      rows.push(
+        '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;margin-top:8px;padding-top:8px;border-top:0.5px solid rgba(59,130,246,0.08);">'+
+        '<span style="font-size:15px;">💰</span>'+
+        '<span style="font-size:13px;color:#1e3a5f;font-weight:600;">'+sales+'</span>'+
+        '</div>'
+      );
+    }
+    let opps=[];
+    try{ opps=await _computeAddOnOpportunities(yStr); }catch(e){ console.error('[opportunities]',e); }
+    rows.push(_renderAddOnOpportunities(opps,true));
   }
 
   el.innerHTML=rows.length?rows.join(''):'<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
