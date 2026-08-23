@@ -561,6 +561,87 @@ async function _renderServerSalesSection(yStr){
   return _renderServerSalesHtml(rows);
 }
 
+// ── PERSISTENT WEEKDAY SALES-MIX PATTERNS (Yesterday's Highlights, Micro-task 21) ──
+// Renders up to 3 STRONG same-weekday sales-mix patterns from
+// buildPersistentServerDishPatterns() (js/pos.js, Micro-task 20). This is
+// wiring + rendering ONLY — no statistical rule lives here (same-weekday
+// matching, leave-one-out peer benchmark, 4/4-same-sign, >=5pp floor, dish
+// volume floor, kids/sides/beverages exclusion — all untouched, all still in
+// pos.js). User-facing copy deliberately avoids "over-index/under-index/
+// leave-one-out/cohort/peer benchmark" — those stay internal/technical only.
+// Section renders nothing (no N/A, no empty card) when there isn't a full
+// 4-same-weekday history yet or nothing clears the materiality floor.
+
+var EN_WEEKDAY_NAMES=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function _weekdayLabelEN(iso){ return EN_WEEKDAY_NAMES[new Date(iso+'T12:00:00').getDay()]; }
+
+function _directionPhrase(direction){ return direction==='over' ? 'More often than ' : 'Less often than '; }
+
+// Fetches raw pos_sales_by_server rows for the same-weekday lookback window
+// ending at targetDate. Looks back far enough (12 weeks) to survive the
+// known backfill gaps (see Micro-task 13) while still finding 4 same-weekday
+// dates, and paginates explicitly with .range() rather than relying on the
+// default row cap — a single unbounded select here could silently truncate
+// the window and undercount same-weekday dates without any visible error.
+async function _fetchRowsForPersistentPatterns(targetDate){
+  const targetD=new Date(targetDate+'T12:00:00');
+  const fromD=new Date(targetD); fromD.setDate(fromD.getDate()-84); // ~12 weeks back
+  const fromStr=fromD.toLocaleDateString('en-CA');
+  const pageSize=1000;
+  let allRows=[], page=0;
+  while(page<15){ // safety ceiling (~15k rows) — this feature never needs that much
+    const{data,error}=await supa.from('pos_sales_by_server')
+      .select('sale_date,server_name,menu_item,menu_group,menu_item_quantity')
+      .eq('is_historical',false)
+      .gte('sale_date',fromStr).lte('sale_date',targetDate)
+      .range(page*pageSize, page*pageSize+pageSize-1);
+    if(error||!data||!data.length) break;
+    allRows=allRows.concat(data);
+    if(data.length<pageSize) break;
+    page++;
+  }
+  return allRows;
+}
+
+// Pure render: rows already scoped to the lookback window, targetDate is the
+// most recent business day (e.g. yesterday). Returns '' when there's no
+// strong pattern to show — never a placeholder/empty-state card.
+function _renderPersistentPatternsHtml(rows, targetDate){
+  const patterns=buildPersistentServerDishPatterns(rows, targetDate);
+  if(!patterns||!patterns.length) return '';
+
+  const top3=patterns.slice(0,3); // ranking/order comes straight from the data layer — no re-ranking here
+  const weekdayLabel=_weekdayLabelEN(targetDate);
+  const targetDateRows=(rows||[]).filter(r=>r.sale_date===targetDate);
+  const allNames=buildServerSalesDataset(targetDateRows).map(s=>s.server_name); // same collision-check scope as Server Sales
+
+  const lines=top3.map(p=>{
+    const name=_serverDisplayName(p.server_name, allNames);
+    const latest=p.dates[0]; // dates[0] === targetDate per the data-layer contract (Micro-task 20)
+    const roundedMedian=Math.round(p.median_peer_delta_pp); // display only; the slice(0,3) above already ranked on raw values
+    const sign=roundedMedian>0?'+':'';
+    return '<div style="padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.06);">'+
+      '<div style="font-size:12px;color:#1e3a5f;font-weight:600;">'+name+' · '+p.dish+'</div>'+
+      '<div style="font-size:11px;color:#64748b;">'+_directionPhrase(p.direction)+weekdayLabel+' peers · '+p.valid_days+'/'+p.valid_days+' '+weekdayLabel+'s · median '+sign+roundedMedian+' pp</div>'+
+      '<div style="font-size:11px;color:#94a3b8;">Yesterday: '+latest.server_qty+'/'+latest.server_main_qty+' mains · peers '+latest.peer_qty+'/'+latest.peer_main_qty+'</div>'+
+      '</div>';
+  });
+
+  return '<div style="margin-top:8px;padding-top:8px;border-top:0.5px solid rgba(59,130,246,0.08);">'+
+    '<div style="font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;">'+weekdayLabel+' Sales Mix Patterns</div>'+
+    lines.join('')+
+    '</div>';
+}
+
+async function _renderPersistentPatternsSection(yStr){
+  let rows=[];
+  try{ rows=await _fetchRowsForPersistentPatterns(yStr); }
+  catch(e){ console.error('[persistent-patterns]',e); return ''; }
+  if(!rows.length) return '';
+  try{ return _renderPersistentPatternsHtml(rows, yStr); }
+  catch(e){ console.error('[persistent-patterns-render]',e); return ''; }
+}
+
 // ── YESTERDAY highlights (martedì–sabato) ──
 async function _loadYesterdayHighlights(el){
   const now=getNowDallas();
@@ -614,6 +695,14 @@ async function _loadYesterdayHighlights(el){
       const serverSalesHtml=await _renderServerSalesSection(yStr);
       if(serverSalesHtml) rows.push(serverSalesHtml);
     }catch(e){ console.error('[server-sales]',e); }
+  }
+
+  // Persistent weekday sales-mix patterns — same admin gate as Server Sales (Micro-task 21)
+  if(typeof isAdmin==='function'&&isAdmin()){
+    try{
+      const patternsHtml=await _renderPersistentPatternsSection(yStr);
+      if(patternsHtml) rows.push(patternsHtml);
+    }catch(e){ console.error('[persistent-patterns]',e); }
   }
 
   el.innerHTML=rows.length?rows.join(''):'<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No updates</div>';
