@@ -426,13 +426,17 @@ function _renderAddOnOpportunities(opps){
   return header+cards;
 }
 
-// ── SERVER SALES (Yesterday's Highlights, Micro-task 7) ────────────────────
-// Volume-only leaders (Highest Sales $, Most Appetizers/Pasta/Entrées/Desserts/
-// Features). Reuses buildServerSalesDataset()/getServerSalesLeaders() from
-// js/pos.js — no aggregation logic duplicated here. No covers/checks/attach-
-// rate exist yet (Micro-task 5 audit), so wording stays strictly factual
-// volume ("Highest sales", "Most X sold") — never best/top performer/
-// conversion/attach rate/per cover/outperformed.
+// ── WHAT SERVERS SOLD (Yesterday's Highlights, Micro-task 7, retitled/decluttered Micro-task 22) ──
+// Volume-only leaders (Most appetizers/pasta/entrées/desserts/features).
+// Highest Sales $ was removed from this Home card in Micro-task 22 (item
+// volume is the priority signal here, not dollars) — the total_sales field
+// and its leader are still computed in js/pos.js and still shown on the
+// Team Sales page; nothing was removed from the data layer.
+// Reuses buildServerSalesDataset()/getServerSalesLeaders() from js/pos.js —
+// no aggregation logic duplicated here. No covers/checks/attach-rate exist
+// yet (Micro-task 5 audit), so wording stays strictly factual volume
+// ("Most X sold") — never best/top performer/conversion/attach rate/per
+// cover/outperformed.
 
 // "Ayden, Harper" -> "Harper" if unambiguous today, else "Harper Ayden",
 // else the raw persisted name. Purely visual — never touches stored data.
@@ -456,12 +460,11 @@ function _serverDisplayName(rawName, allNamesToday){
 }
 
 const SERVER_SALES_ROW_SPECS=[
-  { key:'total_sales',   icon:'💰', label:'Highest sales', fmt:v=>'$'+Math.round(v).toLocaleString('en-US') },
-  { key:'appetizer_qty', icon:'🥗', label:'Appetizers',    fmt:v=>String(v) },
-  { key:'pasta_qty',     icon:'🍝', label:'Pasta',         fmt:v=>String(v) },
-  { key:'entree_qty',    icon:'🍽️', label:'Entrées',       fmt:v=>String(v) },
-  { key:'dessert_qty',   icon:'🍰', label:'Desserts',      fmt:v=>String(v) },
-  { key:'feature_qty',   icon:'⭐', label:'Features',      fmt:v=>String(v) },
+  { key:'appetizer_qty', icon:'🥗', label:'Most appetizers', fmt:v=>String(v) },
+  { key:'pasta_qty',     icon:'🍝', label:'Most pasta',      fmt:v=>String(v) },
+  { key:'entree_qty',    icon:'🍽️', label:'Most entrées',    fmt:v=>String(v) },
+  { key:'dessert_qty',   icon:'🍰', label:'Most desserts',   fmt:v=>String(v) },
+  { key:'feature_qty',   icon:'⭐', label:'Most features',   fmt:v=>String(v) },
 ];
 
 // ── SALES MIX (normalized ratios, Micro-task 10) ────────────────────────────
@@ -544,7 +547,7 @@ function _renderServerSalesHtml(rows){
   if(!lines.length && !mixHtml) return '';
 
   return '<div style="margin-top:8px;padding-top:8px;border-top:0.5px solid rgba(59,130,246,0.08);">'+
-    '<div style="font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;">Server Sales</div>'+
+    '<div style="font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;">What Servers Sold</div>'+
     lines.join('')+
     mixHtml+
     '</div>';
@@ -575,7 +578,7 @@ async function _renderServerSalesSection(yStr){
 var EN_WEEKDAY_NAMES=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 function _weekdayLabelEN(iso){ return EN_WEEKDAY_NAMES[new Date(iso+'T12:00:00').getDay()]; }
 
-function _directionPhrase(direction){ return direction==='over' ? 'More often than ' : 'Less often than '; }
+function _directionPhrase(direction){ return direction==='over' ? 'More often than other ' : 'Less often than other '; }
 
 // Fetches raw pos_sales_by_server rows for the same-weekday lookback window
 // ending at targetDate. Looks back far enough (12 weeks) to survive the
@@ -622,8 +625,8 @@ function _renderPersistentPatternsHtml(rows, targetDate){
     const sign=roundedMedian>0?'+':'';
     return '<div style="padding:5px 0;border-bottom:0.5px solid rgba(59,130,246,0.06);">'+
       '<div style="font-size:12px;color:#1e3a5f;font-weight:600;">'+name+' · '+p.dish+'</div>'+
-      '<div style="font-size:11px;color:#64748b;">'+_directionPhrase(p.direction)+weekdayLabel+' peers · '+p.valid_days+'/'+p.valid_days+' '+weekdayLabel+'s · median '+sign+roundedMedian+' pp</div>'+
-      '<div style="font-size:11px;color:#94a3b8;">Yesterday: '+latest.server_qty+'/'+latest.server_main_qty+' mains · peers '+latest.peer_qty+'/'+latest.peer_main_qty+'</div>'+
+      '<div style="font-size:11px;color:#64748b;">'+_directionPhrase(p.direction)+weekdayLabel+' servers · '+p.valid_days+'/'+p.valid_days+' '+weekdayLabel+'s · median '+sign+roundedMedian+' pp</div>'+
+      '<div style="font-size:11px;color:#94a3b8;">Yesterday: '+latest.server_qty+'/'+latest.server_main_qty+' mains · other '+weekdayLabel+' servers: '+latest.peer_qty+'/'+latest.peer_main_qty+'</div>'+
       '</div>';
   });
 
