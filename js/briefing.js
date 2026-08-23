@@ -668,6 +668,35 @@ async function _renderPersistentPatternsSection(yStr){
 // this short, evidence-backed list is the documented fallback.
 const _WWSY_NONFOOD_ITEMS=['Gift Card','Open Food'];
 
+// Shared aggregation (Micro-task 28, extracted as a reusable helper in
+// Micro-task 29 so every quantity-only food list in this app — What We Sold
+// Yesterday AND the Server Sales detail view — applies the exact same
+// non-food exclusion and Kids-collision rule, from one place. Takes raw
+// {menu_item,quantity,menu_group} rows (already date/other-filtered by the
+// caller) and returns aggregated, Kids-labeled, deterministically-sorted
+// items: {displayName, quantity, menu_group}.
+function _aggregateFoodItems(rawRows){
+  const raw=(rawRows||[]).filter(r=>_WWSY_NONFOOD_ITEMS.indexOf(r.menu_item)===-1);
+  const byKey={};
+  raw.forEach(r=>{
+    const key=r.menu_item+'|'+(r.menu_group||'');
+    if(!byKey[key]) byKey[key]={menu_item:r.menu_item,menu_group:r.menu_group,quantity:0};
+    byKey[key].quantity+=Number(r.quantity)||0;
+  });
+  let items=Object.values(byKey);
+
+  const namesElsewhere={};
+  items.forEach(it=>{ if(it.menu_group!=='Kids menu') namesElsewhere[it.menu_item]=true; });
+  items=items.map(it=>({
+    displayName:(it.menu_group==='Kids menu'&&namesElsewhere[it.menu_item])?it.menu_item+' (Kids)':it.menu_item,
+    quantity:it.quantity,
+    menu_group:it.menu_group,
+  }));
+
+  items.sort((a,b)=>b.quantity-a.quantity||a.displayName.localeCompare(b.displayName));
+  return items;
+}
+
 async function _renderWhatWeSoldYesterday(yStr){
   let raw=[];
   try{
@@ -677,35 +706,12 @@ async function _renderWhatWeSoldYesterday(yStr){
       .not('menu_group','in',_EXCL_GROUPS)
       .not('sales_category','in',_EXCL_SALES_CAT)
       .lt('quantity',1000);
-    raw=_filterDrinks(data||[]).filter(r=>_WWSY_NONFOOD_ITEMS.indexOf(r.menu_item)===-1);
+    raw=_filterDrinks(data||[]);
   }catch(e){ console.error('[what-we-sold]',e); return ''; }
   if(!raw.length) return '';
 
-  // Aggregate by menu_item + menu_group (Micro-task 28): same dish in the
-  // same group summed together; same name in a DIFFERENT group (e.g. an
-  // adult dish and its Kids menu counterpart) stays separate -- they can be
-  // different preparations/portions and must never be blended into one total.
-  const byKey={};
-  raw.forEach(r=>{
-    const key=r.menu_item+'|'+(r.menu_group||'');
-    if(!byKey[key]) byKey[key]={menu_item:r.menu_item,menu_group:r.menu_group,quantity:0};
-    byKey[key].quantity+=Number(r.quantity)||0;
-  });
-  let items=Object.values(byKey);
-
-  // Kids-collision labeling: append " (Kids)" only when the exact same name
-  // also exists in a non-Kids group that day -- names that are already
-  // distinct (e.g. "La N.4 Half") need no suffix.
-  const namesElsewhere={};
-  items.forEach(it=>{ if(it.menu_group!=='Kids menu') namesElsewhere[it.menu_item]=true; });
-  items=items.map(it=>({
-    displayName:(it.menu_group==='Kids menu'&&namesElsewhere[it.menu_item])?it.menu_item+' (Kids)':it.menu_item,
-    quantity:it.quantity,
-  }));
-
-  // Sort: quantity desc, deterministic alphabetical tiebreak (Micro-task 28) —
-  // order no longer changes randomly between refreshes on a tie.
-  items.sort((a,b)=>b.quantity-a.quantity||a.displayName.localeCompare(b.displayName));
+  const items=_aggregateFoodItems(raw);
+  if(!items.length) return '';
 
   const rowHtml=item=>
     '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;">'+
@@ -733,6 +739,147 @@ async function _renderWhatWeSoldYesterday(yStr){
     '<div style="font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;">What We Sold Yesterday</div>'+
     first5+toggleHtml+
     '</div>';
+}
+
+// ── SERVER SALES (Max-only detail view, Micro-task 29) ──────────────────────
+// Full breakdown of what every server sold on a business day. The summary
+// list reuses buildServerSalesDataset() from js/pos.js as-is (same numbers,
+// same is_low_activity, same category totals already used by Home's "What
+// Servers Sold" — no new aggregation logic). The per-server item detail
+// reuses _aggregateFoodItems() (Micro-task 28) — same non-food exclusion and
+// Kids-collision rule as What We Sold Yesterday, applied here too so we
+// never reintroduce the Fettuccine Alla Vodka-style contamination. Quantity
+// only, never $. Opened from an admin-only ••• menu button; the container
+// itself is inside the admin-only menu, plus an isAdmin() check here as
+// defense in depth against the function being called directly.
+const _SERVER_SALES_CATEGORY_LABELS={
+  'Antipasti/appetizer':'Appetizers','Insalate/salad':'Salads','Pasta':'Pasta',
+  'Secondi/entrees':'Entrées','Risotto':'Risotto','Features':'Features',
+  'Dolcezze/dessert':'Desserts','Kids menu':'Kids','Soup':'Soup','Sides':'Sides',
+};
+const _SERVER_SALES_CATEGORY_ORDER=['Appetizers','Salads','Pasta','Entrées','Risotto','Features','Desserts','Kids'];
+function _serverSalesCategoryLabel(g){ return _SERVER_SALES_CATEGORY_LABELS[g]||g||'Other'; }
+
+let _serverSalesCurrentDate=null;
+let _serverSalesAllNames=null;
+
+async function _fetchServerSalesRows(dateStr){
+  const{data}=await supa.from('pos_sales_by_server')
+    .select('server_name,menu_item,menu_group,menu_item_quantity,sales_category')
+    .eq('sale_date',dateStr).eq('is_historical',false);
+  return data||[];
+}
+
+function _renderServerSalesListHtml(dataset){
+  const sorted=dataset.slice().sort((a,b)=>b.total_item_qty-a.total_item_qty);
+  return sorted.map(s=>{
+    const name=_serverDisplayName(s.server_name,_serverSalesAllNames);
+    const lowTag=s.is_low_activity?' <span style="color:#f59e0b;font-size:10px;font-weight:600;">· Low activity</span>':'';
+    const safeId=s.server_name.replace(/'/g,"\\'");
+    return '<button onclick="_openServerSalesDetail(\''+safeId+'\')" style="display:block;width:100%;text-align:left;background:none;border:none;padding:8px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);cursor:pointer;">'+
+      '<div style="font-size:13px;color:#1e3a5f;font-weight:600;">'+name+' — '+s.total_item_qty+' items'+lowTag+'</div>'+
+      '<div style="font-size:11px;color:#64748b;margin-top:2px;">App '+s.appetizer_qty+' · Pasta '+s.pasta_qty+' · Entrées '+s.entree_qty+' · Dessert '+s.dessert_qty+' · Features '+s.feature_qty+'</div>'+
+      '</button>';
+  }).join('');
+}
+
+function _renderServerSalesCategorizedHtml(items){
+  const byCategory={};
+  items.forEach(it=>{
+    const label=_serverSalesCategoryLabel(it.menu_group);
+    if(!byCategory[label]) byCategory[label]=[];
+    byCategory[label].push(it);
+  });
+  const labels=Object.keys(byCategory).sort((a,b)=>{
+    const ia=_SERVER_SALES_CATEGORY_ORDER.indexOf(a), ib=_SERVER_SALES_CATEGORY_ORDER.indexOf(b);
+    if(ia===-1&&ib===-1) return a.localeCompare(b);
+    if(ia===-1) return 1;
+    if(ib===-1) return -1;
+    return ia-ib;
+  });
+  return labels.map(label=>{
+    const rows=byCategory[label].map(it=>
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;">'+
+      '<span style="color:#1e3a5f;">'+it.displayName+'</span>'+
+      '<span style="color:#60a5fa;font-weight:600;">'+it.quantity+'</span>'+
+      '</div>'
+    ).join('');
+    return '<div style="margin-top:8px;">'+
+      '<div style="font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:2px;">'+label+'</div>'+
+      rows+
+      '</div>';
+  }).join('');
+}
+
+async function openServerSales(){
+  if(typeof isAdmin!=='function'||!isAdmin()) return; // defense in depth — the ••• menu itself is already admin-only
+  const now=getNowDallas();
+  const yesterday=new Date(now); yesterday.setDate(yesterday.getDate()-1);
+  _serverSalesCurrentDate=yesterday.toLocaleDateString('en-CA'); // same "latest complete business day" as Home
+
+  const modal=document.createElement('div');
+  modal.id='serverSalesModal';
+  modal.className='fixed inset-0 z-50 flex items-end';
+  modal.style.background='rgba(0,0,0,0.3)';
+  modal.innerHTML='<div style="background:rgba(255,255,255,0.97);backdrop-filter:blur(20px);border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:85vh;overflow-y:auto;animation:slideUp .25s ease">'+
+    '<div style="width:36px;height:4px;background:rgba(59,130,246,0.15);border-radius:2px;margin:0 auto 14px;"></div>'+
+    '<div id="serverSalesBody"><div style="font-size:12px;color:#93c5fd;padding:20px 0;text-align:center;">Loading…</div></div>'+
+    '<button onclick="document.getElementById(\'serverSalesModal\').remove()" style="width:100%;height:44px;border-radius:14px;background:#1e3a5f;color:white;font-size:14px;font-weight:600;margin-top:16px;border:none;">Close</button>'+
+    '</div>';
+  modal.onclick=e=>{if(e.target===modal)modal.remove()};
+  document.body.appendChild(modal);
+
+  await _renderServerSalesList();
+}
+
+async function _renderServerSalesList(){
+  const body=document.getElementById('serverSalesBody');
+  if(!body) return;
+  body.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:20px 0;text-align:center;">Loading…</div>';
+
+  let rows=[];
+  try{ rows=await _fetchServerSalesRows(_serverSalesCurrentDate); }
+  catch(e){ console.error('[server-sales-page]',e); body.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:12px 0;">Unable to load Server Sales.</div>'; return; }
+
+  const header='<div style="font-size:14px;font-weight:600;color:#1e3a5f;margin-bottom:4px;">Server Sales</div>'+
+    '<div style="font-size:11px;color:#93c5fd;margin-bottom:14px;">'+_serverSalesCurrentDate+'</div>';
+
+  if(!rows.length){
+    body.innerHTML=header+'<div style="font-size:12px;color:#93c5fd;padding:12px 0;">No data for this day.</div>';
+    return;
+  }
+
+  const dataset=buildServerSalesDataset(rows); // existing js/pos.js data layer, unchanged
+  _serverSalesAllNames=dataset.map(s=>s.server_name);
+
+  body.innerHTML=header+_renderServerSalesListHtml(dataset);
+}
+
+async function _openServerSalesDetail(serverName){
+  const body=document.getElementById('serverSalesBody');
+  if(!body) return;
+  body.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:20px 0;text-align:center;">Loading…</div>';
+
+  let raw=[];
+  try{
+    const{data}=await supa.from('pos_sales_by_server')
+      .select('menu_item,menu_group,menu_item_quantity')
+      .eq('sale_date',_serverSalesCurrentDate)
+      .eq('server_name',serverName)
+      .not('menu_group','in',_EXCL_GROUPS)
+      .not('sales_category','in',_EXCL_SALES_CAT)
+      .lt('menu_item_quantity',1000);
+    raw=_filterDrinks((data||[]).map(r=>({menu_item:r.menu_item,quantity:r.menu_item_quantity,menu_group:r.menu_group})));
+  }catch(e){ console.error('[server-sales-detail]',e); body.innerHTML='<div style="font-size:12px;color:#93c5fd;padding:12px 0;">Unable to load detail.</div>'; return; }
+
+  const items=_aggregateFoodItems(raw);
+  const displayName=_serverDisplayName(serverName,_serverSalesAllNames||[]);
+  const totalQty=items.reduce((s,it)=>s+it.quantity,0);
+
+  body.innerHTML='<button onclick="_renderServerSalesList()" style="background:none;border:none;color:#3B82F6;font-size:12px;padding:0 0 10px;cursor:pointer;">‹ All servers</button>'+
+    '<div style="font-size:14px;font-weight:600;color:#1e3a5f;margin-bottom:2px;">'+displayName+'</div>'+
+    '<div style="font-size:11px;color:#93c5fd;margin-bottom:10px;">'+_serverSalesCurrentDate+' · '+totalQty+' food items</div>'+
+    (items.length ? _renderServerSalesCategorizedHtml(items) : '<div style="font-size:12px;color:#93c5fd;padding:8px 0;">No food items recorded.</div>');
 }
 
 // ── YESTERDAY highlights (martedì–sabato) ──
