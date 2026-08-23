@@ -728,17 +728,19 @@ async function _renderWhatWeSoldYesterday(yStr){
   const first5=items.slice(0,5).map(rowHtml).join('');
   const uid='wwsy_'+Math.random().toString(36).slice(2,8);
 
-  // Simple inline expand/collapse — reuses the existing item-row markup,
-  // no new component. Full list only (no re-fetch, no separate modal).
+  // Micro-task 32: toggle sits right after the first 5 items, BEFORE the
+  // hidden remainder — so it stays in place (no scroll-to-bottom needed) when
+  // switching between "Show all" and "Show less". Single control, same
+  // onclick logic as before; only its position in the markup changed.
   const toggleHtml = items.length>5
-    ? '<div id="'+uid+'_rest" style="display:none;">'+items.slice(5).map(rowHtml).join('')+'</div>'+
-      '<button id="'+uid+'_btn" onclick="'+
+    ? '<button id="'+uid+'_btn" onclick="'+
         "var r=document.getElementById('"+uid+"_rest');"+
         "var b=document.getElementById('"+uid+"_btn');"+
         "var open=r.style.display!=='none';"+
         "r.style.display=open?'none':'block';"+
         "b.textContent=open?'Show all':'Show less';"+
-      '" style="margin-top:4px;font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;padding:2px 0;">Show all</button>'
+      '" style="margin-top:4px;font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;padding:2px 0;">Show all</button>'+
+      '<div id="'+uid+'_rest" style="display:none;">'+items.slice(5).map(rowHtml).join('')+'</div>'
     : '';
 
   return '<div style="margin-top:8px;padding-top:8px;border-top:0.5px solid rgba(59,130,246,0.08);">'+
