@@ -657,23 +657,59 @@ async function _renderPersistentPatternsSection(yStr){
 // so it no longer depends on Add-on Opportunities having something to show.
 // Reuses the same food/drink exclusion already used elsewhere in this file
 // (_EXCL_GROUPS/_EXCL_SALES_CAT/_filterDrinks) — no new filtering logic.
+// Confirmed non-food/administrative POS lines (Micro-task 28 audit, evidence
+// not name-guessing): neither item has ANY matching entry in `recipes`
+// (pos_name/title) anywhere in the system, while every real dish -- Kids
+// variants included -- does. Their per-unit pricing is also wildly
+// inconsistent day to day ($0.01-$1680 for "Open Food"; round gift-card
+// denominations for "Gift Card") -- the signature of manual/non-menu POS
+// lines, not prepared food. menu_group/sales_category alone cannot
+// distinguish them (both are tagged Sides/Food exactly like real sides), so
+// this short, evidence-backed list is the documented fallback.
+const _WWSY_NONFOOD_ITEMS=['Gift Card','Open Food'];
+
 async function _renderWhatWeSoldYesterday(yStr){
-  let items=[];
+  let raw=[];
   try{
     const{data}=await supa.from('pos_sales_by_item')
-      .select('menu_item,quantity')
+      .select('menu_item,quantity,menu_group')
       .eq('sale_date',yStr)
       .not('menu_group','in',_EXCL_GROUPS)
       .not('sales_category','in',_EXCL_SALES_CAT)
-      .lt('quantity',1000)
-      .order('quantity',{ascending:false});
-    items=_filterDrinks(data||[]);
+      .lt('quantity',1000);
+    raw=_filterDrinks(data||[]).filter(r=>_WWSY_NONFOOD_ITEMS.indexOf(r.menu_item)===-1);
   }catch(e){ console.error('[what-we-sold]',e); return ''; }
-  if(!items.length) return '';
+  if(!raw.length) return '';
+
+  // Aggregate by menu_item + menu_group (Micro-task 28): same dish in the
+  // same group summed together; same name in a DIFFERENT group (e.g. an
+  // adult dish and its Kids menu counterpart) stays separate -- they can be
+  // different preparations/portions and must never be blended into one total.
+  const byKey={};
+  raw.forEach(r=>{
+    const key=r.menu_item+'|'+(r.menu_group||'');
+    if(!byKey[key]) byKey[key]={menu_item:r.menu_item,menu_group:r.menu_group,quantity:0};
+    byKey[key].quantity+=Number(r.quantity)||0;
+  });
+  let items=Object.values(byKey);
+
+  // Kids-collision labeling: append " (Kids)" only when the exact same name
+  // also exists in a non-Kids group that day -- names that are already
+  // distinct (e.g. "La N.4 Half") need no suffix.
+  const namesElsewhere={};
+  items.forEach(it=>{ if(it.menu_group!=='Kids menu') namesElsewhere[it.menu_item]=true; });
+  items=items.map(it=>({
+    displayName:(it.menu_group==='Kids menu'&&namesElsewhere[it.menu_item])?it.menu_item+' (Kids)':it.menu_item,
+    quantity:it.quantity,
+  }));
+
+  // Sort: quantity desc, deterministic alphabetical tiebreak (Micro-task 28) —
+  // order no longer changes randomly between refreshes on a tie.
+  items.sort((a,b)=>b.quantity-a.quantity||a.displayName.localeCompare(b.displayName));
 
   const rowHtml=item=>
     '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;">'+
-    '<span style="color:#1e3a5f;">'+item.menu_item+'</span>'+
+    '<span style="color:#1e3a5f;">'+item.displayName+'</span>'+
     '<span style="color:#60a5fa;font-weight:600;">'+item.quantity+'</span>'+
     '</div>';
 
