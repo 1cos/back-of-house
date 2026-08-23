@@ -394,6 +394,8 @@ function doLogin(profile){
     // Briefing AI
     const brief = document.getElementById('homeBriefingSection');
     if(brief) brief.style.display = 'block';
+    const briefRefreshAdmin = document.getElementById('briefingRefreshBtn');
+    if(briefRefreshAdmin) briefRefreshAdmin.style.display = '';
 
     // Stations widget — admin: titolo "Stations", mostra pill tutte, nascondi your station e other
     const stTitle = document.getElementById('homeStationsTitle');
@@ -414,7 +416,16 @@ function doLogin(profile){
     const inv = document.getElementById('invoiceSection');
     if(inv) inv.style.display = 'none';
     const brief = document.getElementById('homeBriefingSection');
-    if(brief) brief.style.display = 'none';
+    // Micro-task 26: staff briefing content (points_staff) has been generated
+    // server-side since v172 (2026-06-15) but this container force-hid it
+    // for non-admin since v142 (2026-06-14) — a pre-existing gap, not caused
+    // by the recent analytics work. Restoring visibility; the $-free staff
+    // prompt (see sc-nightly-brief) already guarantees no dollar figures.
+    if(brief) brief.style.display = 'block';
+    // Refresh deletes the shared briefing row (both admin + staff points) —
+    // keep that action admin-only so staff can't wipe it.
+    const briefRefreshStaff = document.getElementById('briefingRefreshBtn');
+    if(briefRefreshStaff) briefRefreshStaff.style.display = 'none';
 
     // Stations widget — staff: titolo "Your Station", nascondi pill admin, mostra your station + altre
     const stTitle = document.getElementById('homeStationsTitle');

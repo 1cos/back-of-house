@@ -403,7 +403,7 @@ async function _computeAddOnOpportunities(yStr){
   return opportunities.slice(0,_ADDON_MAX_CARDS);
 }
 
-function _renderAddOnOpportunities(opps){
+function _renderAddOnOpportunities(opps, showDollar){
   if(!opps||!opps.length){
     return '<div style="font-size:12px;color:#93c5fd;padding:4px 0;">No significant add-on opportunities detected yesterday.</div>';
   }
@@ -413,7 +413,11 @@ function _renderAddOnOpportunities(opps){
     const hPct=(o.histAttachRate*100).toFixed(0);
     const missedRounded=Math.round(o.missedAttaches);
     const missedText=missedRounded<1?'~1':'~'+missedRounded;
-    const dollarLine=(o.dollarOpportunity&&o.dollarOpportunity>=1)
+    // Micro-task 26: dollar figure is a Max-only economic value — never shown
+    // to non-admin roles, even though the underlying opportunity (item/
+    // modifier/rate) is otherwise the same for everyone. Materiality
+    // thresholds and the opportunity itself are unchanged.
+    const dollarLine=(showDollar&&o.dollarOpportunity&&o.dollarOpportunity>=1)
       ? '<div style="font-size:12px;color:#059669;font-weight:600;margin-top:2px;">Potential opportunity: ~$'+Math.round(o.dollarOpportunity)+'</div>'
       : '';
     return '<div style="padding:7px 0;border-bottom:0.5px solid rgba(59,130,246,0.08);">'+
@@ -645,6 +649,56 @@ async function _renderPersistentPatternsSection(yStr){
   catch(e){ console.error('[persistent-patterns-render]',e); return ''; }
 }
 
+// ── WHAT WE SOLD YESTERDAY (restore, Micro-task 26) ─────────────────────────
+// Item + quantity only — NEVER $ — visible to everyone (kitchen staff and
+// admin). This is the operational "what did we sell" view that existed
+// before the 2026-08-20 Insights v2.1 change (commit 083be0ac) replaced the
+// old top-3 list with Add-on Opportunities. Restored as its own titled block
+// so it no longer depends on Add-on Opportunities having something to show.
+// Reuses the same food/drink exclusion already used elsewhere in this file
+// (_EXCL_GROUPS/_EXCL_SALES_CAT/_filterDrinks) — no new filtering logic.
+async function _renderWhatWeSoldYesterday(yStr){
+  let items=[];
+  try{
+    const{data}=await supa.from('pos_sales_by_item')
+      .select('menu_item,quantity')
+      .eq('sale_date',yStr)
+      .not('menu_group','in',_EXCL_GROUPS)
+      .not('sales_category','in',_EXCL_SALES_CAT)
+      .lt('quantity',1000)
+      .order('quantity',{ascending:false});
+    items=_filterDrinks(data||[]);
+  }catch(e){ console.error('[what-we-sold]',e); return ''; }
+  if(!items.length) return '';
+
+  const rowHtml=item=>
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;">'+
+    '<span style="color:#1e3a5f;">'+item.menu_item+'</span>'+
+    '<span style="color:#60a5fa;font-weight:600;">'+item.quantity+'</span>'+
+    '</div>';
+
+  const first5=items.slice(0,5).map(rowHtml).join('');
+  const uid='wwsy_'+Math.random().toString(36).slice(2,8);
+
+  // Simple inline expand/collapse — reuses the existing item-row markup,
+  // no new component. Full list only (no re-fetch, no separate modal).
+  const toggleHtml = items.length>5
+    ? '<div id="'+uid+'_rest" style="display:none;">'+items.slice(5).map(rowHtml).join('')+'</div>'+
+      '<button id="'+uid+'_btn" onclick="'+
+        "var r=document.getElementById('"+uid+"_rest');"+
+        "var b=document.getElementById('"+uid+"_btn');"+
+        "var open=r.style.display!=='none';"+
+        "r.style.display=open?'none':'block';"+
+        "b.textContent=open?'Show all':'Show less';"+
+      '" style="margin-top:4px;font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;padding:2px 0;">Show all</button>'
+    : '';
+
+  return '<div style="margin-top:8px;padding-top:8px;border-top:0.5px solid rgba(59,130,246,0.08);">'+
+    '<div style="font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;">What We Sold Yesterday</div>'+
+    first5+toggleHtml+
+    '</div>';
+}
+
 // ── YESTERDAY highlights (martedì–sabato) ──
 async function _loadYesterdayHighlights(el){
   const now=getNowDallas();
@@ -687,10 +741,17 @@ async function _loadYesterdayHighlights(el){
     );
   }
 
-  // Tutti: add-on opportunities reali (sostituisce la lista "top 3 piatti" duplicata)
+  // Tutti: cosa abbiamo venduto ieri — item + qty, MAI $ (ripristinato, Micro-task 26;
+  // rimosso per errore il 2026-08-20 quando Add-on Opportunities lo aveva sostituito)
+  try{
+    const soldHtml=await _renderWhatWeSoldYesterday(yStr);
+    if(soldHtml) rows.push(soldHtml);
+  }catch(e){ console.error('[what-we-sold]',e); }
+
+  // Tutti: add-on opportunities reali — il valore $ è ora admin-only (Micro-task 26)
   let opps=[];
   try{ opps=await _computeAddOnOpportunities(yStr); }catch(e){ console.error('[opportunities]',e); }
-  rows.push(_renderAddOnOpportunities(opps));
+  rows.push(_renderAddOnOpportunities(opps, typeof isAdmin==='function'&&isAdmin()));
 
   // Server Sales snapshot — volume only, admin-only (same gate as net sales above)
   if(typeof isAdmin==='function'&&isAdmin()){
