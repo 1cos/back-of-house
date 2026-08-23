@@ -2876,6 +2876,187 @@ function getServerRatioLeaders(dataset) {
   };
 }
 
+// ── PERSISTENT WEEKDAY DISH-MIX PATTERNS (data layer only, v1 — Micro-task 20) ─
+// Finds server→dish sales-mix patterns that repeat across the SAME weekday,
+// benchmarked leave-one-out against the OTHER eligible servers of that same
+// weekday — never against the server's own sales, and never against a
+// different weekday. Descriptive sales-mix signal only: no Sales $, no
+// coaching, no "skill"/"performance" framing (see Micro-task 17-19 audits).
+// Conservative v1: only returns STRONG (4/4 same-sign, >=5pp median) patterns.
+// No "emerging" tier yet — see Micro-task 18/20 guardrail.
+
+const PERSISTENT_PATTERN_DISH_GROUPS = ['Antipasti/appetizer','Pasta','Secondi/entrees','Risotto','Features','Dolcezze/dessert'];
+const PERSISTENT_PATTERN_MIN_DISH_QTY = 5;     // eligible-cohort dish qty floor per date (Micro-task 17/18)
+const PERSISTENT_PATTERN_REQUIRED_DAYS = 4;    // same-weekday dates required, conservative v1 (Micro-task 20)
+const PERSISTENT_PATTERN_MIN_ABS_DELTA_PP = 5; // materiality floor (Micro-task 18/19)
+
+// Returns up to `count` distinct sale_date strings found in `rows` that fall
+// on the same weekday as targetDate, most recent first, always starting with
+// targetDate itself (index 0) when present. Never returns a mix of weekdays.
+// If targetDate itself isn't found among the rows' dates, or fewer than
+// `count` same-weekday dates exist at/before it, the caller gets back
+// whatever is available (buildPersistentServerDishPatterns treats fewer than
+// PERSISTENT_PATTERN_REQUIRED_DAYS as "zero patterns" — it never pads with a
+// different weekday to reach the count).
+function getSameWeekdayDates(rows, targetDate, count) {
+  var targetWeekday = new Date(targetDate + 'T12:00:00').getDay();
+  var seen = {};
+  var dates = [];
+  (rows || []).forEach(function(r) {
+    var d = r.sale_date;
+    if (!d || seen[d]) return;
+    seen[d] = true;
+    dates.push(d);
+  });
+  dates = dates.filter(function(d) {
+    return new Date(d + 'T12:00:00').getDay() === targetWeekday;
+  });
+  dates.sort(); // ISO strings sort chronologically ascending
+  dates.reverse(); // most recent first
+  if (dates.indexOf(targetDate) === -1) return [];
+  dates = dates.filter(function(d) { return d <= targetDate; });
+  return dates.slice(0, count);
+}
+
+// rows: raw pos_sales_by_server rows spanning ALL candidate dates (must
+//   include sale_date, server_name, menu_item, menu_group, menu_item_quantity
+//   — same shape already used elsewhere in this file, just multi-date).
+// targetDate: the most recent date to anchor the same-weekday cohort on
+//   (e.g. '2026-08-21').
+// Returns an array of STRONG pattern objects (see field list below), sorted
+// by descending abs(median_peer_delta_pp). Empty array if the weekday cohort
+// doesn't have enough same-weekday history yet.
+function buildPersistentServerDishPatterns(rows, targetDate) {
+  var dates = getSameWeekdayDates(rows, targetDate, PERSISTENT_PATTERN_REQUIRED_DAYS);
+  if (dates.length < PERSISTENT_PATTERN_REQUIRED_DAYS) return []; // never pad with other weekdays
+
+  // Per same-weekday date: eligible server set + main totals (reuses the
+  // existing buildServerSalesDataset/main_qty/is_ratio_eligible data layer),
+  // plus per-dish quantities restricted to eligible servers only (the same
+  // population used for the leave-one-out peer benchmark).
+  var perDate = {};
+  dates.forEach(function(d) {
+    var dateRows = (rows || []).filter(function(r) { return r.sale_date === d; });
+    var dataset = buildServerSalesDataset(dateRows); // existing data layer, unmodified
+    var eligibleServers = {};   // { server_name: main_qty }
+    var eligibleMainTotal = 0;
+    dataset.forEach(function(s) {
+      if (s.is_ratio_eligible) {
+        eligibleServers[s.server_name] = s.main_qty;
+        eligibleMainTotal += s.main_qty;
+      }
+    });
+    var dishByServer = {}; // { menu_item: { menu_group, byServer: {server_name: qty}, eligibleTotal } }
+    dateRows.forEach(function(r) {
+      if (PERSISTENT_PATTERN_DISH_GROUPS.indexOf(r.menu_group) === -1) return;
+      var name = r.server_name || '(senza nome)';
+      if (!eligibleServers.hasOwnProperty(name)) return; // cohort = eligible servers only
+      var item = r.menu_item || '(unknown)';
+      if (!dishByServer[item]) dishByServer[item] = { menu_group: r.menu_group, byServer: {}, eligibleTotal: 0 };
+      var qty = Number(r.menu_item_quantity) || 0;
+      dishByServer[item].byServer[name] = (dishByServer[item].byServer[name] || 0) + qty;
+      dishByServer[item].eligibleTotal += qty;
+    });
+    perDate[d] = { eligibleServers: eligibleServers, eligibleMainTotal: eligibleMainTotal, dishByServer: dishByServer };
+  });
+
+  // Server must be eligible (main_qty >= TEAM_SALES_MIN_MAINS_FOR_RATIO) on
+  // ALL 4 same-weekday dates — a day it wasn't eligible is never treated as 0.
+  var candidateServers = Object.keys(perDate[dates[0]].eligibleServers).filter(function(name) {
+    return dates.every(function(d) { return perDate[d].eligibleServers.hasOwnProperty(name); });
+  });
+
+  // Dish must reach eligible-cohort volume >= PERSISTENT_PATTERN_MIN_DISH_QTY
+  // on ALL 4 dates — a day below that floor is never treated as 0 either.
+  var dishUniverse = {}; // menu_item -> menu_group
+  dates.forEach(function(d) {
+    Object.keys(perDate[d].dishByServer).forEach(function(item) {
+      dishUniverse[item] = perDate[d].dishByServer[item].menu_group;
+    });
+  });
+  var candidateDishes = Object.keys(dishUniverse).filter(function(item) {
+    return dates.every(function(d) {
+      var entry = perDate[d].dishByServer[item];
+      return entry && entry.eligibleTotal >= PERSISTENT_PATTERN_MIN_DISH_QTY;
+    });
+  });
+
+  var patterns = [];
+
+  candidateServers.forEach(function(serverName) {
+    candidateDishes.forEach(function(item) {
+      var menuGroup = dishUniverse[item];
+      var dayDetails = [];
+      var deltas = [];
+      var ok = true;
+
+      dates.forEach(function(d) {
+        if (!ok) return;
+        var pd = perDate[d];
+        var serverMainQty = pd.eligibleServers[serverName];
+        var dishEntry = pd.dishByServer[item];
+        var serverQty = (dishEntry && dishEntry.byServer[serverName]) || 0;
+        var eligibleTotalDishQty = dishEntry ? dishEntry.eligibleTotal : 0;
+
+        // Leave-one-out: the server is removed from BOTH sides of the peer benchmark.
+        var peerMainQty = pd.eligibleMainTotal - serverMainQty;
+        var peerDishQty = eligibleTotalDishQty - serverQty;
+
+        if (!(serverMainQty > 0) || !(peerMainQty > 0)) { ok = false; return; } // no valid comparison possible
+
+        var serverMix = serverQty / serverMainQty;
+        var peerMix = peerDishQty / peerMainQty;
+        var deltaPp = (serverMix - peerMix) * 100;
+
+        deltas.push(deltaPp);
+        dayDetails.push({
+          date: d, server_qty: serverQty, server_main_qty: serverMainQty, server_mix: serverMix,
+          peer_qty: peerDishQty, peer_main_qty: peerMainQty, peer_mix: peerMix, delta_peer_pp: deltaPp,
+        });
+      });
+
+      if (!ok || deltas.length !== PERSISTENT_PATTERN_REQUIRED_DAYS) return;
+
+      var allPositive = deltas.every(function(x) { return x > 0; });
+      var allNegative = deltas.every(function(x) { return x < 0; });
+      if (!allPositive && !allNegative) return; // sign must agree on all 4 dates — no 3/4 tier yet
+
+      var sorted = deltas.slice().sort(function(a, b) { return a - b; });
+      var median = (sorted[1] + sorted[2]) / 2; // 4 values → average of middle two
+      if (Math.abs(median) < PERSISTENT_PATTERN_MIN_ABS_DELTA_PP) return;
+
+      var latest = dayDetails[0]; // dates[0] === targetDate (most recent)
+      patterns.push({
+        server_name: serverName,
+        dish: item,
+        menu_group: menuGroup,
+        weekday: dayNameIT(targetDate),
+        direction: allPositive ? 'over' : 'under',
+        valid_days: PERSISTENT_PATTERN_REQUIRED_DAYS,
+        median_peer_delta_pp: median,
+        min_peer_delta_pp: sorted[0],
+        max_peer_delta_pp: sorted[3],
+        latest_qty: latest.server_qty,
+        latest_main_qty: latest.server_main_qty,
+        latest_server_mix: latest.server_mix,
+        latest_peer_mix: latest.peer_mix,
+        dates: dayDetails,
+      });
+    });
+  });
+
+  return sortPersistentPatterns(patterns);
+}
+
+// Requirement #9: every returned pattern is already 4/4 STRONG by construction
+// (buildPersistentServerDishPatterns only ever returns STRONG patterns), so
+// the only ordering left is magnitude — no artificial scoring.
+function sortPersistentPatterns(patterns) {
+  return (patterns || []).slice().sort(function(a, b) {
+    return Math.abs(b.median_peer_delta_pp) - Math.abs(a.median_peer_delta_pp);
+  });
+}
+
 async function loadTeamSales() {
   const sec = document.getElementById('vx');
   if (!sec || sec.classList.contains('hidden')) return;
