@@ -1712,7 +1712,15 @@ window.vdrApprove = async function(docId, btn) {
 
     const pj    = doc.parsed_json || {};
     const vendor = pj.vendor || doc.vendor || 'Unknown';
-    const invoiceDate = pj.invoice_date || null;
+    // FIX (invoice_date propagation audit): pj.invoice_date never exists in
+    // the real parsed_json (the parser produces order_date/credit_date/
+    // delivery_date/document_date, same as the header fallback at docDate
+    // above). Reusing doc.document_date — already computed with that exact
+    // fallback chain and already saved on this same document — guarantees
+    // invoice_lines.invoice_date == vendor_documents.document_date by
+    // construction, instead of duplicating the fallback logic here. No
+    // created_at, no new Date() fallback.
+    const invoiceDate = doc.document_date || null;
     const items = pj.items || [];
 
     // Batch fetch all needed data
