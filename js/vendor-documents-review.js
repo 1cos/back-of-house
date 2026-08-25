@@ -1612,6 +1612,26 @@ function vdrRefreshBadge(docId) {
 const _vdrQMap = {};
 window._vdrQuestions = _vdrQMap;
 // ── PRE-FLIGHT: run before approve button is enabled ──────────
+// ── MARKER:VDR_DECIDE_CANONICAL_UPDATE_START ────────────────────────
+// Pure guard — no Supabase calls. Local to this file on purpose (Task:
+// "non condividere decideVendorUpdate() cross-environment con
+// process-invoice — stesso comportamento, non la stessa funzione").
+//
+// existingSku: the canonical row's current vendor_sku (may be null/'')
+// incomingSku: this invoice line's item_code/vendor_sku (may be null/'')
+// Returns: 'update' | 'populate_sku' | 'skip'
+function vdrDecideCanonicalUpdate(existingSku, incomingSku) {
+  const norm = v => { const s = (v == null ? '' : String(v)).trim(); return s || null; };
+  const ex = norm(existingSku);
+  const inc = norm(incomingSku);
+
+  if (!inc) return 'skip';               // Caso D: incoming SKU mancante — non tocca il canonical
+  if (!ex) return 'populate_sku';        // Caso C: canonical senza SKU — popolabile in sicurezza
+  if (ex === inc) return 'update';       // Caso A: stesso SKU — refresh normale
+  return 'skip';                         // Caso B: SKU diverso — canonical intoccato
+}
+// ── MARKER:VDR_DECIDE_CANONICAL_UPDATE_END ──────────────────────────
+
 async function vdrPreflight(docId, doc) {
   const sb = window.supabaseClient;
   const pj = doc.parsed_json || {};
@@ -1729,14 +1749,14 @@ window.vdrApprove = async function(docId, btn) {
 
     const [skuRes, ingrVendorRes, linkRes] = await Promise.all([
       skus.length ? sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] },
-      sb.from('ingredient_vendors').select('id,ingredient_id').eq('vendor', vendor),
+      sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku').eq('vendor', vendor),
       descs.length ? sb.from('ingredient_links').select('invoice_description,ingredient_id').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', descs) : { data: [] },
     ]);
 
     const skuMap = {};
     (skuRes.data || []).forEach(r => { skuMap[r.vendor_sku] = r; });
     const ingrVendorMap = {};
-    (ingrVendorRes.data || []).forEach(r => { ingrVendorMap[r.ingredient_id] = r.id; });
+    (ingrVendorRes.data || []).forEach(r => { ingrVendorMap[r.ingredient_id] = { id: r.id, vendor_sku: r.vendor_sku }; });
     const linkMap = {};
     (linkRes.data || []).forEach(l => { linkMap[l.invoice_description] = l.ingredient_id; });
 
@@ -1819,8 +1839,15 @@ window.vdrApprove = async function(docId, btn) {
         if (!linkedId || processedIds.has(linkedId)) continue;
         processedIds.add(linkedId);
 
-        if (ingrVendorMap[linkedId]) {
-          toUpdate.push({ id: ingrVendorMap[linkedId], ...fields });
+        const existingIv = ingrVendorMap[linkedId];
+        if (existingIv) {
+          const decision = vdrDecideCanonicalUpdate(existingIv.vendor_sku, sku);
+          if (decision === 'update') {
+            toUpdate.push({ id: existingIv.id, ...fields });
+          } else if (decision === 'populate_sku') {
+            toUpdate.push({ id: existingIv.id, vendor_sku: sku, ...fields });
+          }
+          // decision === 'skip' → riga canonical intoccata di proposito
         } else {
           toInsert.push({ ingredient_id: linkedId, vendor, vendor_sku: sku, active: true, ...fields });
         }
