@@ -134,6 +134,30 @@ function posSelectors(period) {
            customPicker;
 }
 
+// Paginates explicitly with .range() rather than relying on the default
+// PostgREST row cap (1000 rows) — a single unbounded select on
+// pos_sales_by_item here silently truncated the "30 days" / "week" admin
+// views (Top Revenue, By Category, Production quantities all read from the
+// same result) and undercounted dishes like Wheel Pasta / Beef Ravioli with
+// no visible error (2866 rows for a 30-day window vs the 1000-row cap).
+// Same pagination pattern already used by _fetchRowsForPersistentPatterns
+// in js/briefing.js.
+async function _fetchPosItemsPaginated(sb, period) {
+  const pageSize = 1000;
+  let allRows = [], page = 0;
+  while (page < 20) { // safety ceiling (~20k rows) — this view never needs that much
+    const { data, error } = await sb.from('pos_sales_by_item')
+      .select('menu_item,sales_category,menu_group,quantity,gross_sales,net_sales')
+      .gte('sale_date',period.from).lte('sale_date',period.to).eq('is_historical',false)
+      .range(page*pageSize, page*pageSize+pageSize-1);
+    if (error || !data || !data.length) break;
+    allRows = allRows.concat(data);
+    if (data.length < pageSize) break;
+    page++;
+  }
+  return allRows;
+}
+
 async function loadPOS() {
   if (!isAdmin()) { loadPOSStaff(); return; }
   if (posViewMode === 'team') { loadTeamSales(); return; }
@@ -155,9 +179,7 @@ async function loadPOS() {
       compareDays = cd || [];
     }
 
-    const { data: items } = await sb.from('pos_sales_by_item')
-      .select('menu_item,sales_category,menu_group,quantity,gross_sales,net_sales')
-      .gte('sale_date',period.from).lte('sale_date',period.to).eq('is_historical',false);
+    const items = await _fetchPosItemsPaginated(sb, period);
 
     const d = days || [];
 
