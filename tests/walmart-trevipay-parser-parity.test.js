@@ -198,6 +198,46 @@ test('T8: per-line tax and tax_rate identical on both sides (6c246fda)', () => {
 });
 
 // ── T9 — Walmart is dispatched before Hardie's fallback (Part B) ──────
+// ── T10 — Empty-Buyer fix parity (root cause: \s+ crossing newlines) ──
+test('T10a: Buyer blank, followed by Seller/Walmart Business → buyer=null identically on both sides', () => {
+  const text = [
+    'Walmart Business TreviPay Invoice Details',
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    'Invoice Summary',
+    'Buyer',
+    'United States',
+    'Seller',
+    'Walmart Business',
+  ].join('\n');
+  assert.strictEqual(walmartNode.parse(text).buyer, null);
+  assert.strictEqual(browserParsers.parse(text).buyer, null);
+});
+test('T10b: Buyer blank, followed by Group section → buyer=null identically on both sides', () => {
+  const text = [
+    'Walmart Business TreviPay Invoice Details',
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    'Invoice Summary',
+    'Buyer',
+    'United States',
+    'Group',
+    "Zeno's on the square",
+  ].join('\n');
+  assert.strictEqual(walmartNode.parse(text).buyer, null);
+  assert.strictEqual(browserParsers.parse(text).buyer, null);
+});
+test('T10c: whitespace-only after "United States" → buyer=null identically on both sides', () => {
+  const text = [
+    'Walmart Business TreviPay Invoice Details',
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    'Invoice Summary',
+    'Buyer',
+    'United States   ',
+    'Seller',
+  ].join('\n');
+  assert.strictEqual(walmartNode.parse(text).buyer, null);
+  assert.strictEqual(browserParsers.parse(text).buyer, null);
+});
+
 test('T9: Walmart entry precedes hardies in detectVendor — never falls through to the Hardie\'s default', () => {
   const r = browserParsers.parse(DOC_TEXT.c51dd720);
   assert.strictEqual(r.vendor, 'Walmart Business');

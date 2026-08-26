@@ -58,8 +58,18 @@ function firstMatch(text, re) {
 // line (the Seller's own address, further down) has nothing after it,
 // so requiring trailing content here is what keeps this from ever
 // matching the Seller's country line instead.
+//
+// FIX (empty-Buyer parity task): the gap between "United States" and
+// the value must be horizontal whitespace only ([ \t]+), never \s+ —
+// \s matches newlines too, so when the Buyer field is genuinely blank
+// (nothing after "United States" on its own line), \s+ silently walked
+// forward across the line break and grabbed whatever non-blank text
+// came next (e.g. "Seller", or later boilerplate) instead of failing to
+// match. With the gap restricted to the same physical line, a blank
+// field now correctly yields no match at all → buyer stays null, never
+// inferred from Seller/Walmart Business/Group or any other nearby label.
 function extractBuyer(text) {
-  return firstMatch(text, /United States\s+(\S.+)$/m);
+  return firstMatch(text, /United States[ \t]+(\S.+)$/m);
 }
 
 function valueAfterLabel(lines, label) {

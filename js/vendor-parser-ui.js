@@ -1502,8 +1502,16 @@ function buildVendorParsers() {
   // States" line (the Seller's own address, further down) has nothing
   // after it, so requiring trailing content here is what keeps this
   // from ever matching the Seller's country line instead.
+  //
+  // FIX (empty-Buyer parity task): the gap must be horizontal
+  // whitespace only ([ \t]+), never \s+ — \s matches newlines too, so a
+  // genuinely blank Buyer field (nothing after "United States" on its
+  // own line) let \s+ walk forward across the line break and grab
+  // whatever non-blank text came next (e.g. "Seller") instead of
+  // failing to match. Ported identically from
+  // js/vendor-parsers/walmart-trevipay-invoice.js.
   function walmartExtractBuyer(text) {
-    return walmartFirstMatch(text, /United States\s+(\S.+)$/m);
+    return walmartFirstMatch(text, /United States[ \t]+(\S.+)$/m);
   }
 
   function walmartValueAfterLabel(lines, label) {

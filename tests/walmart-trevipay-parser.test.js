@@ -100,6 +100,62 @@ test('7b. buyer extracted for all 4 real documents', () => {
   assert.strictEqual(walmartParser.parse(DOC_TEXT['30082536']).buyer, 'Zeno Russo');
 });
 
+// ── 7c-7g. Empty-Buyer fix (regex must never cross into the next line) ──
+// Root cause: extractBuyer's original regex used \s+ between "United
+// States" and the value, and \s matches newlines too — so a genuinely
+// blank Buyer field (nothing after "United States" on its own line) let
+// the match walk forward across the line break and grab whatever
+// non-blank text came next, instead of failing to match. Fixed to
+// [ \t]+ (horizontal whitespace only). These fixtures reproduce the
+// exact real document shape (Buyer label, then the Bill-To's "United
+// States" line, then Seller/Group), not hand-picked to fit the fix.
+test('7c. Buyer label present but value row genuinely blank, followed by Seller/Walmart Business → buyer stays null', () => {
+  const text = [
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    'Invoice Summary',
+    'Buyer',
+    'United States',
+    'Seller',
+    'Walmart Business',
+  ].join('\n');
+  assert.strictEqual(walmartParser.parse(text).buyer, null);
+});
+test('7d. Buyer label present but value row blank, followed by Group section → buyer stays null (never infers Group)', () => {
+  const text = [
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    'Invoice Summary',
+    'Buyer',
+    'United States',
+    'Group',
+    "Zeno's on the square",
+  ].join('\n');
+  assert.strictEqual(walmartParser.parse(text).buyer, null);
+});
+test('7e. whitespace-only content after "United States" → buyer stays null', () => {
+  const text = [
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    'Invoice Summary',
+    'Buyer',
+    'United States   ',
+    'Seller',
+  ].join('\n');
+  assert.strictEqual(walmartParser.parse(text).buyer, null);
+});
+test('7f. buyer never falls back to "Seller", "Walmart Business", or "Group" literal strings', () => {
+  const text = [
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    'Invoice Summary',
+    'Buyer',
+    'United States',
+    'Seller',
+    'Walmart Business',
+  ].join('\n');
+  const buyer = walmartParser.parse(text).buyer;
+  assert.notStrictEqual(buyer, 'Seller');
+  assert.notStrictEqual(buyer, 'Walmart Business');
+  assert.notStrictEqual(buyer, 'Group');
+});
+
 // ── 8. Walmart Order Number ────────────────────────────────────────────
 test('8. walmart_order_number = 200015079217150', () => {
   assert.strictEqual(walmartParser.parse(DOC_TEXT.c51dd720).walmart_order_number, '200015079217150');
