@@ -139,6 +139,148 @@ window.vdrLoad = async function() {
   }
 };
 
+// ── MARKER:VDR_TREVIPAY_NORMALIZE_START ────────────────────────────
+// Walmart Business / TreviPay PDF text normalization — pure, DOM-free,
+// used ONLY for documents detected as TreviPay (see call site below).
+// Every other vendor (Hardie's, FreshPoint, Fruge, Ben E. Keith, ...)
+// keeps the exact pre-existing extraction, byte for byte — this block
+// changes nothing for them.
+//
+// Two independent problems were confirmed by a read-only audit against
+// 4 real TreviPay invoices (c51dd720, 6c246fda, 12fd6860, 30082536):
+//
+// (1) TreviPay's PDF embeds a Type3 font whose digit/decimal/minus
+//     glyphs decode, via PDF.js's standard getTextContent(), to Private
+//     Use Area code points instead of normal characters. The exact same
+//     /ToUnicode CMap (same character codes → same PUA targets) was
+//     found byte-identical across all 4 independently generated
+//     invoices, and the target values form a plain arithmetic run
+//     (U+E071..U+E07A → 0..9) rather than an arbitrary per-document
+//     assignment — this is why a formula is used below, not ten
+//     hardcoded cases, and why it's safe to trust beyond the 4 samples.
+// (2) TreviPay's PDF emits many small text-runs per line (sometimes one
+//     per character); the legacy `.join(' ')` a few lines below inserts
+//     a space between every item regardless of true adjacency, which
+//     splits ordinary words ("Roth" → "R ot h") and, combined with (1),
+//     numbers too. Fixed here with a gap-aware join using item.x +
+//     item.width (already returned by the same getTextContent() call —
+//     no new PDF.js API needed), with a threshold derived from each
+//     item's own font size rather than a bare pixel constant.
+
+const TREVIPAY_PUA_DIGIT_BASE = 0xE071; // U+E071..U+E07A → '0'..'9'
+const TREVIPAY_PUA_DECIMAL    = 0xE094; // U+E094 → '.'
+const TREVIPAY_PUA_MINUS      = 0xEE55; // U+EE55 → '-'
+
+// Detection runs on RAW textContent.items, before any join — deliberately
+// whitespace-insensitive (strip all whitespace, lowercase, then require
+// BOTH signals as substrings) because problem (2) above means a single
+// word/token can already be split across several items on the very
+// document we're trying to detect; a check against already-joined text
+// would inherit the same fragility this task exists to fix. Requires the
+// combination of both signals — never a single generic token like
+// "Invoice" — and both are verified present, in this fragmented form, in
+// all 4 real sample PDFs.
+function vdrIsTreviPayDocument(items) {
+  if (!items || !items.length) return false;
+  const flat = items.map(it => (it && it.str) || '').join('').replace(/\s+/g, '').toLowerCase();
+  return flat.includes('walmartbusiness') && flat.includes('trevipay');
+}
+
+// Decodes ONLY the specific PUA code points demonstrated by the read-only
+// audit to be TreviPay's fixed encoding. Any other Private Use Area
+// character (U+E000–U+F8FF) is left completely untouched — never
+// guessed, never silently dropped — since the audit never observed or
+// confirmed a meaning for it; hasUnknownPua lets the caller raise a
+// diagnostic instead of silently trusting an unverified value.
+function decodeTreviPayPUA(str) {
+  if (!str) return { text: str || '', hasUnknownPua: false };
+  let text = '';
+  let hasUnknownPua = false;
+  for (const ch of str) {
+    const cp = ch.codePointAt(0);
+    if (cp >= TREVIPAY_PUA_DIGIT_BASE && cp <= TREVIPAY_PUA_DIGIT_BASE + 9) {
+      text += String(cp - TREVIPAY_PUA_DIGIT_BASE);
+    } else if (cp === TREVIPAY_PUA_DECIMAL) {
+      text += '.';
+    } else if (cp === TREVIPAY_PUA_MINUS) {
+      text += '-';
+    } else if (cp >= 0xE000 && cp <= 0xF8FF) {
+      hasUnknownPua = true;
+      text += ch; // preserved verbatim — never invented
+    } else {
+      text += ch;
+    }
+  }
+  return { text, hasUnknownPua };
+}
+
+// Effective font size straight from the item's own text-rendering matrix
+// (hypot of the matrix's first column) — robust to horizontal scaling or
+// rotation, and derived per-item rather than assumed constant.
+function vdrItemFontSize(item) {
+  const t = (item && item.transform) || [1, 0, 0, 1, 0, 0];
+  return Math.hypot(t[0], t[1]) || Math.hypot(t[2], t[3]) || 1;
+}
+
+// Gap-aware join for ONE Y-row of items (rows themselves are still grouped
+// by rounded Y exactly like the legacy path — this only changes how items
+// within a row are joined). Threshold: half an em of the CURRENT item's
+// own font size. Calibrated against the 4 real invoices: intra-word and
+// intra-number gaps measured 0–~1pt; real inter-column gaps measured
+// ~24–65pt, at the same ~9–10pt font size used throughout every sampled
+// document — half an em (~4.5–5pt) sits with wide margin between the two.
+// Genuine inter-word spaces are unaffected either way: TreviPay already
+// emits an explicit " " item there, which is copied through as-is; this
+// threshold only decides whether to INSERT a space where none was
+// emitted at all (column-to-column jumps).
+const TREVIPAY_GAP_EM_FRACTION = 0.5;
+
+function vdrTreviPayJoinRow(rowItems) {
+  const sorted = (rowItems || []).slice().sort((a, b) => a.x - b.x);
+  let out = '';
+  let prevEnd = null;
+  let hasUnknownPua = false;
+  for (const it of sorted) {
+    const decoded = decodeTreviPayPUA(it.text);
+    if (decoded.hasUnknownPua) hasUnknownPua = true;
+    if (!decoded.text) continue;
+    if (prevEnd !== null) {
+      const threshold = (it.fontSize || 1) * TREVIPAY_GAP_EM_FRACTION;
+      if (it.x - prevEnd > threshold) out += ' ';
+    }
+    out += decoded.text;
+    prevEnd = it.x + (it.width || 0);
+  }
+  return { text: out, hasUnknownPua };
+}
+
+// Full-page normalizer: same per-rounded-Y grouping the legacy path
+// already does, rows joined with vdrTreviPayJoinRow instead of a flat
+// `.join(' ')`. Only ever invoked for documents that already passed
+// vdrIsTreviPayDocument() at the call site.
+function vdrNormalizeTreviPayPage(items) {
+  const lineMap = {};
+  for (const item of (items || [])) {
+    const y = Math.round(item.transform[5]);
+    if (!lineMap[y]) lineMap[y] = [];
+    lineMap[y].push({
+      x: item.transform[4],
+      text: item.str,
+      width: item.width,
+      fontSize: vdrItemFontSize(item),
+    });
+  }
+  const sortedY = Object.keys(lineMap).map(Number).sort((a, b) => b - a);
+  let hasUnknownPua = false;
+  const lines = sortedY.map(y => {
+    const row = vdrTreviPayJoinRow(lineMap[y]);
+    if (row.hasUnknownPua) hasUnknownPua = true;
+    return row.text;
+  });
+  return { text: lines.join('\n'), hasUnknownPua };
+}
+// ── MARKER:VDR_TREVIPAY_NORMALIZE_END ──────────────────────────────
+
 // ── Process all pdf_received using the existing import pipeline ──
 window.vdrProcessAllPdf = async function(docId) {
   const btn = document.getElementById('vdrProcessAllBtn');
@@ -252,10 +394,27 @@ window.vdrProcessAllPdf = async function(docId) {
           // Extract text with PDF.js — same as vendor-parser-ui.js extractWithPdfJs
           const arrayBuffer = await fileData.arrayBuffer();
           const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+          // FIX (BOH OS Task: TreviPay PDF text normalization): detect on page 1's
+          // raw items, before any join — see vdrIsTreviPayDocument for why. Every
+          // vendor that isn't Walmart Business / TreviPay falls straight through
+          // to the untouched legacy branch below.
+          const page1Content = await (await pdf.getPage(1)).getTextContent();
+          const isTreviPay = vdrIsTreviPayDocument(page1Content.items);
+
           const pages = [];
+          let treviPayHasUnknownPua = false;
           for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const content = await page.getTextContent();
+            const content = i === 1 ? page1Content : await (await pdf.getPage(i)).getTextContent();
+
+            if (isTreviPay) {
+              const normalized = vdrNormalizeTreviPayPage(content.items);
+              if (normalized.hasUnknownPua) treviPayHasUnknownPua = true;
+              pages.push(normalized.text);
+              continue;
+            }
+
+            // ── Legacy join — UNCHANGED for every non-TreviPay vendor ──
             const lineMap = {};
             for (const item of content.items) {
               const y = Math.round(item.transform[5]);
@@ -268,6 +427,11 @@ window.vdrProcessAllPdf = async function(docId) {
             ).join('\n'));
           }
           rawText = pages.join('\n');
+          if (isTreviPay && treviPayHasUnknownPua) {
+            // Diagnostic only (Part C requirement) — no parser/business logic
+            // exists yet for this vendor, so there is nothing else to gate here.
+            console.warn('[VDR] TreviPay: unmapped Private Use Area codepoint encountered, doc', doc.id);
+          }
 
           if (!rawText || rawText.trim().length < 30) throw new Error('No text extracted');
           parsed = parsers.parse(rawText);
