@@ -281,6 +281,50 @@ function vdrNormalizeTreviPayPage(items) {
 }
 // ── MARKER:VDR_TREVIPAY_NORMALIZE_END ──────────────────────────────
 
+// ── MARKER:VDR_WALMART_BUYER_GUARD_START ────────────────────────────
+// Walmart Business / TreviPay Buyer routing — pure, DOM-free, applies
+// ONLY to documents already parsed as vendor === 'Walmart Business'.
+// Every other vendor (Hardie's, FreshPoint, Fruge, Ben E. Keith, ...)
+// is untouched: vdrDecideWalmartBuyer returns null for them, and both
+// call sites below (processing AND approval) leave existing behavior
+// alone in that case.
+//
+// Buyer is the SOLE authoritative signal — never SKU, product category,
+// amount, order name, or email sender (see task spec). Only two buyers
+// are known today; anything else — missing, empty, or any name that
+// isn't an exact whitespace/case-normalized match — falls to 'review',
+// never silently accepted and never silently ignored. Deliberately NO
+// fuzzy/partial matching: "Zubboli" alone, "Massimiliano Zubboli", "Max
+// Zubboli", "M. Zubboli" etc. are NOT accepted without an explicit,
+// demonstrated identity mapping in code — none exists yet, so they all
+// resolve to 'review' today, exactly like a genuinely unknown buyer.
+//
+// This same function is called from BOTH vdrProcessAllPdf() (processing
+// guard, decides status) AND vdrApprove() (hard write-boundary guard,
+// decides whether any invoice_lines/ingredient_vendors write may ever
+// happen) — one rule, two enforcement points, never duplicated by hand.
+const WALMART_KITCHEN_BUYER = 'Massimilajo Zubboli';
+const WALMART_BAR_BUYER     = 'Zeno Russo';
+
+function vdrNormalizeBuyerName(name) {
+  if (!name) return '';
+  return String(name).trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function vdrDecideWalmartBuyer(parsed) {
+  if (!parsed || parsed.vendor !== 'Walmart Business') return null;
+  const normalized = vdrNormalizeBuyerName(parsed.buyer);
+  if (!normalized) return { action: 'review', reason: 'buyer_missing' };
+  if (normalized === vdrNormalizeBuyerName(WALMART_KITCHEN_BUYER)) {
+    return { action: 'accept', reason: 'buyer_kitchen' };
+  }
+  if (normalized === vdrNormalizeBuyerName(WALMART_BAR_BUYER)) {
+    return { action: 'ignore', reason: 'buyer_bar' };
+  }
+  return { action: 'review', reason: 'buyer_unrecognized' };
+}
+// ── MARKER:VDR_WALMART_BUYER_GUARD_END ──────────────────────────────
+
 // ── Process all pdf_received using the existing import pipeline ──
 window.vdrProcessAllPdf = async function(docId) {
   const btn = document.getElementById('vdrProcessAllBtn');
@@ -518,6 +562,39 @@ window.vdrProcessAllPdf = async function(docId) {
           ...(parsed.items || []).flatMap(i => (i.warnings || []).map(w => ({ ...w, item: i.description }))),
         ];
 
+        // FIX (Buyer Guard task): buyer is the sole authoritative signal
+        // for routing a Walmart/TreviPay document — computed here, right
+        // after parsing and before ANY status is written, so an
+        // ignore/review decision can never leave a window where the
+        // document could reach 'pending' even transiently. Returns null
+        // for every non-Walmart vendor — no behavior change for them.
+        const walmartBuyerDecision = vdrDecideWalmartBuyer(parsed);
+        if (walmartBuyerDecision && walmartBuyerDecision.action === 'ignore') {
+          allWarnings.push({
+            code:    'BUYER-BAR-001',
+            message: `Walmart/TreviPay buyer "${parsed.buyer}" is not a Kitchen buyer — document excluded from the Kitchen pipeline.`,
+            field:   'buyer',
+          });
+        } else if (walmartBuyerDecision && walmartBuyerDecision.action === 'review') {
+          allWarnings.push({
+            code:    'BUYER-UNKNOWN-001',
+            message: 'Walmart/TreviPay buyer is missing or not recognized; manual review required.',
+            field:   'buyer',
+          });
+        }
+
+        // Normal status computation, unchanged for every non-Walmart
+        // vendor. For Walmart, the Buyer Guard can only ever make this
+        // MORE restrictive (pending → ignored/error) — 'accept' leaves it
+        // exactly as computed, matching "no regression"/"do not
+        // auto-approve" requirements.
+        let computedStatus = (parsed.items && parsed.items.length > 0) ? 'pending' : 'error';
+        if (walmartBuyerDecision && walmartBuyerDecision.action === 'ignore') {
+          computedStatus = 'ignored';
+        } else if (walmartBuyerDecision && walmartBuyerDecision.action === 'review') {
+          computedStatus = 'error';
+        }
+
         await sb.from('vendor_documents').update({
           vendor:          parsed.vendor || "Hardie's Fresh Foods / Dairyland Produce",
           document_type:   parsed.document_type || 'invoice',
@@ -539,8 +616,10 @@ window.vdrProcessAllPdf = async function(docId) {
           // preserves any pre-existing metadata keys (source, storage_path,
           // or anything else set at intake) while parsed's fields still win
           // on any actual overlap (vendor/document_type/document_number/...).
+          // Walmart's buyer field rides along here too — no new column,
+          // preserved exactly like any other parser-returned field.
           parsed_json:     { ...(doc.parsed_json || {}), ...parsed },
-          status:          (parsed.items && parsed.items.length > 0) ? 'pending' : 'error',
+          status:          computedStatus,
           warnings:        allWarnings.length ? allWarnings : null,
           updated_at:      new Date().toISOString(),
         }).eq('id', doc.id);
@@ -1874,6 +1953,31 @@ window.vdrApprove = async function(docId, btn) {
       const cardEl = document.getElementById('vdrCard-' + docId);
       if (cardEl) cardEl.remove();
       return;
+    }
+
+    // FIX (Buyer Guard task, Part D): hard write-boundary for Walmart
+    // Business, independent of whatever status is currently stored.
+    // vdrProcessAllPdf already computes this same decision and sets
+    // status accordingly (ignored/error) — but re-deriving it here,
+    // fresh from the just-fetched parsed_json.buyer, means a stale
+    // status (old document, a manual status edit, or a future bug in
+    // the processing phase) can never let a non-Kitchen Walmart invoice
+    // reach invoice_lines/ingredient_vendors below. Reuses the exact
+    // same vdrDecideWalmartBuyer() used at processing time — the rule
+    // is never duplicated by hand. Scoped strictly to Walmart Business;
+    // every other vendor's approve behavior is completely untouched.
+    const pjForBuyerGuard = doc.parsed_json || {};
+    if (pjForBuyerGuard.vendor === 'Walmart Business') {
+      const buyerDecision = vdrDecideWalmartBuyer(pjForBuyerGuard);
+      if (buyerDecision && buyerDecision.action !== 'accept') {
+        if (typeof showScToast === 'function') {
+          showScToast(`Cannot approve — Walmart buyer "${pjForBuyerGuard.buyer || '(missing)'}" is not Kitchen-authorized.`);
+        }
+        btn.disabled = false;
+        btn.textContent = 'Approve Document';
+        btn.style.background = '#1e293b';
+        return;
+      }
     }
 
     // ── PREFLIGHT ──
