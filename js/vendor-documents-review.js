@@ -2033,7 +2033,7 @@ window.vdrApprove = async function(docId, btn) {
 
     // Fetch document
     const { data: doc, error: fetchErr } = await sb
-      .from('vendor_documents').select('parsed_json,vendor,warnings,status,document_number').eq('id', docId).single();
+      .from('vendor_documents').select('parsed_json,vendor,warnings,status,document_number,document_date').eq('id', docId).single();
     if (fetchErr) throw new Error(fetchErr.message);
 
     // ── Guard: already imported — say so, close, done. No double work. ──
