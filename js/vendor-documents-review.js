@@ -596,7 +596,26 @@ window.vdrProcessAllPdf = async function(docId) {
         }
 
         await sb.from('vendor_documents').update({
-          vendor:          parsed.vendor || "Hardie's Fresh Foods / Dairyland Produce",
+          // FIX (silent Hardie's fallback task): a parser that couldn't
+          // recognize the vendor at all (parsed.vendor === null) must
+          // never silently become Hardie's — that actively mislabels a
+          // document as a vendor it almost certainly isn't. 'unknown' is
+          // not a new sentinel: it's the exact string
+          // detectVendor()/detectDocumentType() already return in
+          // vendor-parsers/index.js and vendor-parser-ui.js for this
+          // same case, and the NOT NULL constraint on vendor_documents.
+          // vendor rules out null/empty without a migration. Note:
+          // doc.vendor (the intake-time value) is deliberately NOT
+          // preserved here instead — the batch query above never selects
+          // it, and an earlier subject/filename heuristic guess is no
+          // more trustworthy than this full-document-text parser also
+          // failing to recognize anything; masking that failure behind
+          // a stale guess would reintroduce the same class of bug.
+          // parsed.items is always [] whenever parsed.vendor is falsy
+          // (both parser copies), so computedStatus below already
+          // resolves to 'error', not 'pending' — this is purely a
+          // labeling fix, not a status change.
+          vendor:          parsed.vendor || 'unknown',
           document_type:   parsed.document_type || 'invoice',
           document_number: docNumber,
           document_date:   docDate,
@@ -632,7 +651,7 @@ window.vdrProcessAllPdf = async function(docId) {
             .filter(w => w.code && !['OQR-006'].includes(w.code)) // OQR-006 auto-resolves in UI
             .map(w => ({
               document_id:      doc.id,
-              vendor:           parsed.vendor || "Hardie's Fresh Foods / Dairyland Produce",
+              vendor:           parsed.vendor || 'unknown',
               document_date:    docDate || null,
               document_number:  docNumber || null,
               code:             w.code,
