@@ -282,3 +282,21 @@ export function rankCandidates(entries, maxResults = 10) {
   });
   return candidates.slice(0, maxResults);
 }
+
+// ── BROWSER BRIDGE ───────────────────────────────────────────────────────
+// This file is loaded as a native ES module (script type="module") so the
+// `export` syntax above works, but every other file in this app (including
+// purchase-order.js, its only consumer so far) is a plain classic script.
+// Plain scripts can't `import` a module, so the module exposes itself on
+// `window` here — same functions, no reimplementation, no formula change.
+if (typeof window !== 'undefined') {
+  window.PurchaseRhythm = {
+    FUNCTIONAL_INGREDIENT_EQUIVALENCE,
+    resolveEquivalenceConfig,
+    isEventEligible,
+    computeIngredientRhythm,
+    computeQuantitySignal,
+    explainRhythm,
+    rankCandidates,
+  };
+}

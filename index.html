@@ -1118,6 +1118,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/staff-manager.js"></script>
 <script src="js/expenses.js"></script>
 <script src="js/journal.js"></script>
+<script type="module" src="js/purchase-rhythm.js"></script>
 <script src="js/purchase-order.js"></script>
 <script>
 if('serviceWorker'in navigator){
@@ -1136,7 +1137,7 @@ if('serviceWorker'in navigator){
 // See HOTFIX T2E.2 for why this matters: reg.update() alone left
 // already-open sessions permanently running stale journal.js.
 (function(){
-  var PAGE_VERSION = 827;
+  var PAGE_VERSION = 828;
   fetch('sw.js?nocache=' + Date.now())
     .then(function(r){ return r.text(); })
     .then(function(t){

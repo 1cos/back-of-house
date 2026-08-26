@@ -74,6 +74,13 @@ var _poEditingVendor = null;  // the vendor of that opened draft (null if compos
 // set chef_action on tap alone — only after real persistence.
 var _poPendingOfficeItemId = null;
 var _poView = 'list';         // 'list' (composer + open drafts) | 'review'
+
+// ── PURCHASE RHYTHM — "Check Before Ordering" (readonly, non-blocking) ────
+// Wired to js/purchase-rhythm.js (window.PurchaseRhythm bridge, since that
+// file is a native ES module and this one is a classic script). No formula
+// or equivalence config lives here — this only fetches data and renders.
+var _poRhythmResults = null;   // null = not loaded yet; [] = loaded, nothing useful
+var _poRhythmLoading = false;
 var _poOpenDrafts = [];       // all open drafts (draft+ready), any vendor
 
 var _poRecording = false;
@@ -202,6 +209,8 @@ window.poBackToList = function(){
   // Leaving without saving must not leave a stale ack pending — entering
   // review is not persistence; if abandoned, nothing changed.
   _poPendingOfficeItemId = null;
+  _poRhythmResults = null;
+  _poRhythmLoading = false;
   _poView = 'list';
   poRenderPage();
   poLoadOpenDrafts();
@@ -267,6 +276,60 @@ async function poLoadCatalog(){
     _poCatalogLoaded = true;
   })();
   return _poCatalogLoading;
+}
+
+// Fetches real Hardie's invoice_lines (invoice_date, never created_at) and
+// pending/pdf_received vendor_documents, then computes rhythm per
+// functional ingredient via window.PurchaseRhythm — same engine, same
+// equivalence config, nothing duplicated here. Never blocks Compila
+// Ordine: any failure just leaves the section absent.
+async function poLoadPurchaseRhythmData(){
+  if(!window.PurchaseRhythm){ _poRhythmResults = []; return; }
+  var sb = window.supabaseClient;
+  var HARDIES = "Hardie's Fresh Foods / Dairyland Produce";
+  try{
+    var _t = new Date();
+    var todayISO = _t.getFullYear() + '-' + String(_t.getMonth()+1).padStart(2,'0') + '-' + String(_t.getDate()).padStart(2,'0');
+
+    var [ilRes, vdRes] = await Promise.all([
+      sb.from('invoice_lines').select('ingredient_id,invoice_date,vendor_sku,qty,pack_description')
+        .eq('vendor', HARDIES).not('ingredient_id','is',null).not('invoice_date','is',null),
+      sb.from('vendor_documents').select('document_date,status')
+        .eq('vendor', HARDIES).in('status', ['pending','pdf_received'])
+    ]);
+
+    var pendingSince = null;
+    (vdRes.data || []).forEach(function(d){
+      var ds = d.document_date || todayISO; // undated pending doc: assume it could be as recent as today
+      if(!pendingSince || ds < pendingSince) pendingSince = ds;
+    });
+
+    var byIngredient = {};
+    (ilRes.data || []).forEach(function(r){
+      (byIngredient[r.ingredient_id] = byIngredient[r.ingredient_id] || []).push(r);
+    });
+
+    var ingredientIds = Object.keys(byIngredient);
+    var namesRes = ingredientIds.length ? await sb.from('ingredients').select('id,name').in('id', ingredientIds) : { data: [] };
+    var nameById = {};
+    (namesRes.data || []).forEach(function(r){ nameById[r.id] = r.name; });
+
+    var out = [];
+    ingredientIds.forEach(function(ingredientId){
+      var rows = byIngredient[ingredientId];
+      var cfg = window.PurchaseRhythm.resolveEquivalenceConfig(ingredientId);
+      var rhythm = window.PurchaseRhythm.computeIngredientRhythm(ingredientId, rows, { asOfDate: todayISO, pendingSince: pendingSince });
+      var eligibleRows = rows.filter(function(r){ return window.PurchaseRhythm.isEventEligible(ingredientId, r.vendor_sku); });
+      var qty = window.PurchaseRhythm.computeQuantitySignal(eligibleRows);
+      out.push({ ingredient_id: ingredientId, name: cfg.name || nameById[ingredientId] || 'Unknown', rhythm: rhythm, qty: qty });
+    });
+
+    _poRhythmResults = out;
+  } catch(e){
+    console.warn('[Purchase Rhythm] non-blocking failure:', e && e.message);
+    _poRhythmResults = [];
+  }
+  poRenderPage();
 }
 
 function poUniq(arr){
@@ -1013,7 +1076,69 @@ function poRenderList(){
   return html;
 }
 
+// ── CHECK BEFORE ORDERING ────────────────────────────────────────────────
+// Readonly. Never adds items, never suggests a quantity to buy, never says
+// "order this" — only "check stock before closing the order". Returns ''
+// (nothing rendered) when there is nothing useful to say.
+function poCheckBeforeOrderingWording(status){
+  if(status === 'STRONGLY_OVERDUE') return 'Strong check — well beyond the normal purchase rhythm';
+  if(status === 'OVERDUE') return 'Worth checking — later than the usual purchase rhythm';
+  return 'Check stock before closing the order';
+}
+
+function poRenderCheckBeforeOrdering(){
+  if(!_poRhythmResults || !_poRhythmResults.length) return '';
+
+  // Never remind about something already in the current draft.
+  var draftIngredientIds = {};
+  _poDraftLines.forEach(function(l){ if(l.ingredient_id) draftIngredientIds[l.ingredient_id] = true; });
+  var relevant = _poRhythmResults.filter(function(r){ return !draftIngredientIds[r.ingredient_id]; });
+
+  var actionable = window.PurchaseRhythm.rankCandidates(relevant, 10);
+  var provisional = relevant.filter(function(r){ return r.rhythm.status === 'DATA_INCOMPLETE'; });
+  // CROSS_VENDOR_BLIND_SPOT is deliberately never surfaced here — the engine
+  // itself already flags it as unreliable; showing it as a check-item would
+  // look like a normal overdue signal, which it explicitly is not (T7).
+
+  if(!actionable.length && !provisional.length) return '';
+
+  var html = '<div style="margin-top:18px;margin-bottom:16px;padding:14px;background:rgba(255,255,255,0.6);border:1px solid #e2e8f0;border-radius:12px;">';
+  html += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:10px;">Check Before Ordering</div>';
+
+  actionable.forEach(function(r){
+    var rh = r.rhythm;
+    var rhythmDays = Math.round(rh.median_gap_days);
+    html += '<div style="margin-bottom:10px;">';
+    html += '<div style="font-size:13px;font-weight:600;color:#1e3a5f;">' + _poEsc(r.name) + '</div>';
+    html += '<div style="font-size:12px;color:#64748b;">Usually purchased about every ' + rhythmDays + (rhythmDays===1?' day':' days') +
+      ' · Last known purchase ' + rh.days_since_last + (rh.days_since_last===1?' day':' days') + ' ago</div>';
+    if(r.qty && r.qty.quantity_status === 'RELIABLE' && r.qty.median_qty != null){
+      html += '<div style="font-size:12px;color:#64748b;">Usually ' + r.qty.median_qty + (r.qty.dominant_pack ? ' (' + _poEsc(r.qty.dominant_pack) + ')' : '') + '</div>';
+    }
+    html += '<div style="font-size:12px;color:#3B82F6;">' + poCheckBeforeOrderingWording(rh.status) + '</div>';
+    html += '</div>';
+  });
+
+  if(provisional.length){
+    html += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;">';
+    html += '<div style="font-size:12px;font-weight:600;color:#64748b;">Recent invoices still processing</div>';
+    html += '<div style="font-size:12px;color:#94a3b8;margin-bottom:6px;">Purchase Rhythm found possible items to check, but recent Chef\'s Warehouse invoices are not complete yet.</div>';
+    provisional.forEach(function(r){
+      html += '<div style="font-size:12px;color:#94a3b8;">' + _poEsc(r.name) + ' — provisional</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
 function poRenderReview(){
+  if(_poRhythmResults === null && !_poRhythmLoading){
+    _poRhythmLoading = true;
+    poLoadPurchaseRhythmData(); // fire-and-forget; re-renders itself on completion, never blocks this render
+  }
+
   var html = '';
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
   html += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;">Revisiona ' + _poDraftLines.length + ' righe</div>';
@@ -1080,6 +1205,7 @@ function poRenderReview(){
   });
 
   html += '<button onclick="poLineAddManual()" style="width:100%;padding:10px;border:1px dashed #cbd5e1;border-radius:10px;background:none;color:#64748b;font-size:13px;cursor:pointer;margin-bottom:16px;">+ Aggiungi riga</button>';
+  html += poRenderCheckBeforeOrdering();
   html += '<button id="poSaveBtn" onclick="poSaveDraft()" style="width:100%;height:46px;border-radius:12px;background:#1e3a5f;color:white;border:none;font-size:14px;font-weight:700;cursor:pointer;">Salva bozza</button>';
   return html;
 }
@@ -1098,6 +1224,10 @@ if (typeof module !== 'undefined' && module.exports) {
     poResolveVendorForIngredient: poResolveVendorForIngredient,
     poNormalizeVendorName: poNormalizeVendorName,
     poResponsibleFor: poResponsibleFor,
+    poRenderCheckBeforeOrdering: poRenderCheckBeforeOrdering,
+    poCheckBeforeOrderingWording: poCheckBeforeOrderingWording,
+    poSetRhythmResultsForTest: function(results){ _poRhythmResults = results; },
+    poSetDraftLinesForTest: function(lines){ _poDraftLines = lines || []; },
     poSetCatalogsForTest: function(alias, ingVendor, links, purchaseFreq, invoiceLines){
       _poAliasCatalog = alias || [];
       _poIngVendorCatalog = ingVendor || [];
