@@ -10,8 +10,28 @@ const hardiesCredit     = require('./hardies-credit');
 const freshpointInvoice = require('./freshpoint-invoice');
 const frugeInvoice      = require('./fruge-invoice');
 const bekInvoice        = require('./bek-invoice');
+const walmartTrevipayInvoice = require('./walmart-trevipay-invoice');
 
 const VENDORS = {
+  // Placed FIRST so it is tried before any other vendor's patterns —
+  // Walmart/TreviPay text also contains the generic word "Invoice" many
+  // times, so this must never fall through to a Hardie's-style default.
+  walmart: {
+    patterns: [
+      // Combined-signal (not a single generic token): requires BOTH
+      // "Walmart Business" and "TreviPay" to appear in the same
+      // document — confirmed present in all 4 real sample invoices.
+      /(?=[\s\S]*walmart\s*business)(?=[\s\S]*trevipay)/i,
+      // Fallback combined signal, in case the "Walmart Business"
+      // wordmark text is ever missing from the parseable region: still
+      // three independent, unrelated signals together, never "Invoice"
+      // alone.
+      /(?=[\s\S]*trevipay)(?=[\s\S]*\bBuyer\b)(?=[\s\S]*Invoice Details)/i,
+    ],
+    documents: {
+      invoice: walmartTrevipayInvoice,
+    },
+  },
   hardies: {
     patterns: [
       /dairyland produce/i,
