@@ -1900,8 +1900,19 @@ async function vdrPreflight(docId, doc) {
   // for a document that will never use the link). Gated the same way the
   // ingredient_vendors write itself already is.
   if (pj.document_type === 'invoice') {
-    const descs = items.map(i => i.description || i.raw_description).filter(Boolean);
-    const skus  = items.map(i => i.vendor_sku || i.item_code).filter(Boolean);
+    // FIX (line_type task): rows the parser has already flagged as
+    // non-product (Walmart's Shipping/adjustment placeholders — SKU
+    // "Shipping"/"ALT_PAYMENT_METHODS" is never a real ingredient) must
+    // never be asked about here at all — not filtered out of an
+    // already-built "unmatched" list, excluded from the matching check
+    // itself, so they can never accidentally create a confirmed
+    // ingredient_links row in the first place. item.line_type is
+    // undefined for every non-Walmart parser today, so this changes
+    // nothing for them: `undefined && ...` is falsy, matchableItems ===
+    // items exactly as before.
+    const matchableItems = items.filter(i => !(i.line_type && i.line_type !== 'product'));
+    const descs = matchableItems.map(i => i.description || i.raw_description).filter(Boolean);
+    const skus  = matchableItems.map(i => i.vendor_sku || i.item_code).filter(Boolean);
 
     // Fetch existing SKU matches
     const { data: skuRows } = skus.length ? await sb.from('ingredient_vendors')
@@ -1914,8 +1925,8 @@ async function vdrPreflight(docId, doc) {
       .in('invoice_description', descs) : { data: [] };
     const matchedDescs = new Set((linkRows || []).map(r => r.invoice_description));
 
-    // Find unmatched items
-    const unmatched = items.filter(item => {
+    // Find unmatched items — only among matchable (product) items
+    const unmatched = matchableItems.filter(item => {
       const sku  = item.vendor_sku || item.item_code;
       const desc = item.description || item.raw_description;
       return !(sku && matchedSkus.has(sku)) && !(desc && matchedDescs.has(desc));
@@ -2046,6 +2057,17 @@ window.vdrApprove = async function(docId, btn) {
       const processedIds = new Set();
 
       for (const [itemIdx, item] of items.entries()) {
+        // FIX (line_type task): hard write-boundary, independent of
+        // vdrPreflight/the UI. Walmart's Shipping/adjustment placeholder
+        // rows (vendor_sku "Shipping"/"ALT_PAYMENT_METHODS") must never
+        // become ingredient_vendors, full stop — even if a stale or
+        // manually-created ingredient_links/ingredient_vendors row
+        // happened to match their SKU or description. item.line_type is
+        // undefined for every non-Walmart parser today, so this changes
+        // nothing for them: `undefined && ...` is falsy, the loop body
+        // runs exactly as before.
+        if (item.line_type && item.line_type !== 'product') continue;
+
         const sku  = item.vendor_sku || item.item_code || null;
         const desc = item.description || item.raw_description || null;
         if (!desc) continue;
@@ -2175,8 +2197,18 @@ window.vdrApprove = async function(docId, btn) {
             ? (item.cost_per_lb / 453.592) * 100
             : (totalG && unitPrice && qty && qty > 0) ? ((unitPrice / totalG) * 100) : null;
 
+        // FIX (line_type task): a Shipping/adjustment row must never carry
+        // an ingredient_id in invoice_lines either, even if a stale or
+        // manually-created link/SKU match exists — it stays fully
+        // preserved economically (raw_description/qty/unit_price/
+        // line_total below) but is always match_status='unmatched',
+        // never linked to a real ingredient. item.line_type is undefined
+        // for every non-Walmart parser, so isNonProduct is always false
+        // for them and this changes nothing.
+        const isNonProduct = !!(item.line_type && item.line_type !== 'product');
+
         // ingredient_id — look up from skuMap or linkMap built earlier
-        const matchedId = (sku && skuMap[sku]) ? skuMap[sku].ingredient_id
+        const matchedId = isNonProduct ? null : (sku && skuMap[sku]) ? skuMap[sku].ingredient_id
           : (desc && linkMap[desc]) ? linkMap[desc]
           : null;
 
