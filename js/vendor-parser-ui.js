@@ -1476,8 +1476,319 @@ function buildVendorParsers() {
     };
   }
 
+  // ── Walmart Business / TreviPay invoice parser ────────────────
+  // Ported from js/vendor-parsers/walmart-trevipay-invoice.js (commit
+  // aef7b5a) — same regexes, same algorithm, same field names. That
+  // Node version is never actually loaded by the browser (no require()
+  // here), so this is the real implementation used by vdrProcessAllPdf.
+  // Any future fix to the parsing logic must land in BOTH places (see
+  // tests/walmart-trevipay-parser-parity.test.js, same convention as
+  // tests/bek-parser-parity.test.js for Ben E. Keith).
+  //
+  // Input contract: receives text already normalized by the TreviPay
+  // preprocessing in vendor-documents-review.js (commit 8325ed5) — PUA
+  // digit/decimal/minus decoding and gap-aware column joins already
+  // applied. Does NOT re-implement any of that here.
+  function walmartFirstMatch(text, re) {
+    var m = text.match(re);
+    return m ? m[1].trim() : null;
+  }
+
+  // "Buyer" the label and its value never sit on the same output line —
+  // the Bill-To address block's line count varies relative to the
+  // Buyer/Seller block, so by the time both reach the same PDF row, the
+  // merge always lands on the Bill-To address's own "United States"
+  // line (confirmed identical in all 4 real samples). A bare "United
+  // States" line (the Seller's own address, further down) has nothing
+  // after it, so requiring trailing content here is what keeps this
+  // from ever matching the Seller's country line instead.
+  function walmartExtractBuyer(text) {
+    return walmartFirstMatch(text, /United States\s+(\S.+)$/m);
+  }
+
+  function walmartValueAfterLabel(lines, label) {
+    for (var i = 0; i < lines.length - 1; i++) {
+      if (lines[i].trim() === label) return lines[i + 1].trim();
+    }
+    return null;
+  }
+
+  function walmartExtractHeader(text, lines) {
+    var documentNumber =
+      walmartFirstMatch(text, /Please Reference Invoice\s+(\S+)\s*\|/i) ||
+      walmartFirstMatch(text, /Invoice\s+(\S+)\s+(?:How To Pay|Invoice Summary)/i);
+
+    var invoiceDate = parseDate(walmartValueAfterLabel(lines, 'Invoice Date'));
+    var dueDate     = parseDate(walmartValueAfterLabel(lines, 'Due Date'));
+    var seller      = walmartValueAfterLabel(lines, 'Seller') || 'Walmart Business';
+    var buyer       = walmartExtractBuyer(text);
+
+    // "Order Number PO Number" is the label row; its value row is two
+    // whitespace-separated tokens ("-" means no PO number on this invoice).
+    var walmartOrderNumber = null;
+    var poNumber = null;
+    var labelIdx = -1;
+    for (var li = 0; li < lines.length; li++) {
+      if (/^Order Number\s+PO Number$/.test(lines[li].trim())) { labelIdx = li; break; }
+    }
+    if (labelIdx > -1 && lines[labelIdx + 1]) {
+      var valueLine = lines[labelIdx + 1].trim();
+      var m = valueLine.match(/^(\S+)\s+(\S+)$/);
+      if (m) {
+        walmartOrderNumber = m[1];
+        poNumber = m[2] === '-' ? null : m[2];
+      } else {
+        walmartOrderNumber = valueLine || null;
+      }
+    }
+
+    var subtotal = parsePrice(walmartFirstMatch(text, /Pre-Tax Subtotal\s+\$(-?[\d,.]+)/i));
+    var tax      = parsePrice(walmartFirstMatch(text, /Taxes Subtotal\s+\$(-?[\d,.]+)/i));
+    var total    = parsePrice(walmartFirstMatch(text, /Total Due as of\s+[\d/]+\s+\$(-?[\d,.]+)/i));
+
+    return { documentNumber: documentNumber, invoiceDate: invoiceDate, dueDate: dueDate, seller: seller, buyer: buyer, walmartOrderNumber: walmartOrderNumber, poNumber: poNumber, subtotal: subtotal, tax: tax, total: total };
+  }
+
+  var WALMART_HEADER_ROW_RE  = /^SKU\s+Description\s+Quantity/;
+  var WALMART_SUMMARY_ROW_RE = /Invoice Summary/;
+  // A wrapped SKU continuation is a line containing ONLY digits, nothing
+  // else — real example: "1350811700" then, alone on the next physical
+  // line, "5". Bounded to 1–4 digits (the only real example is 1 digit;
+  // this leaves headroom without being loose enough to ever swallow a
+  // genuine 5+ digit SKU that starts its own row) and only merges into a
+  // row whose own SKU is itself purely numeric (never onto a Shipping/
+  // ALT_PAYMENT_METHODS row, whose SKU is text) and only up to a sane
+  // total reconstructed length — real UPC/EAN-style codes top out at 13
+  // digits, so 14 is used as a hard ceiling.
+  var WALMART_SKU_FRAGMENT_RE = /^\d{1,4}$/;
+  var WALMART_MAX_RECONSTRUCTED_SKU_LEN = 14;
+
+  function walmartIsSkuFragmentContinuation(line, currentItem) {
+    if (!WALMART_SKU_FRAGMENT_RE.test(line)) return false;
+    if (!currentItem || currentItem.line_type !== 'product') return false;
+    if (!/^\d+$/.test(currentItem.vendor_sku)) return false;
+    return (currentItem.vendor_sku.length + line.length) <= WALMART_MAX_RECONSTRUCTED_SKU_LEN;
+  }
+
+  // Trailing numeric columns. The optional "Tax Details" column only
+  // ever contributes its percentage (e.g. "0.0824%") to the FIRST
+  // continuation line, never to the row-start line itself — confirmed
+  // real in 6c246fda/12fd6860: the row-start line only ever contains
+  // "...Tax1" followed directly by the SAME dollar amount twice (once
+  // for the Tax Details column's own dollar sub-total, once for the
+  // aggregate Tax column) and then Billed Total. The percentage is
+  // picked up separately, from the continuation line, below.
+  //
+  // Every dollar column captures its sign SEPARATELY from its magnitude
+  // (real data prints negative amounts as "-$21.26" — minus before the
+  // dollar sign, e.g. the ALT_PAYMENT_METHODS adjustment — not "$-21.26").
+  var WALMART_SIGNED_MONEY = '(-?)\\$([\\d,.]+)';
+  var WALMART_TAIL_WITH_TAXDETAIL = new RegExp(
+    '^(.*?)\\s+(\\d+)\\s+' + WALMART_SIGNED_MONEY + '\\s+' + WALMART_SIGNED_MONEY +
+    '\\s+Tax1\\s+' + WALMART_SIGNED_MONEY + '\\s+' + WALMART_SIGNED_MONEY + '\\s+' + WALMART_SIGNED_MONEY + '\\s*$'
+  );
+  var WALMART_TAIL_PLAIN = new RegExp(
+    '^(.*?)\\s+(\\d+)\\s+' + WALMART_SIGNED_MONEY + '\\s+' + WALMART_SIGNED_MONEY +
+    '\\s+' + WALMART_SIGNED_MONEY + '\\s+' + WALMART_SIGNED_MONEY + '\\s*$'
+  );
+
+  function walmartSignedPrice(sign, magnitude) {
+    var n = parsePrice(magnitude);
+    return n === null ? null : (sign === '-' ? -n : n);
+  }
+
+  function walmartParseRowStart(line) {
+    var m = line.match(WALMART_TAIL_WITH_TAXDETAIL);
+    var hasTaxDetail = false;
+    if (m) {
+      hasTaxDetail = true;
+    } else {
+      m = line.match(WALMART_TAIL_PLAIN);
+    }
+    if (!m) return null;
+
+    var skuAndDesc = m[1].trim();
+    var qty        = parseInt(m[2], 10);
+    var unitPrice, discount, tax, amount;
+    if (hasTaxDetail) {
+      // groups: 1 desc, 2 qty, 3/4 unit_price, 5/6 discount,
+      // 7/8 tax-detail-dup (unused), 9/10 tax, 11/12 billed_total
+      unitPrice = walmartSignedPrice(m[3], m[4]);
+      discount  = walmartSignedPrice(m[5], m[6]);
+      tax       = walmartSignedPrice(m[9], m[10]);
+      amount    = walmartSignedPrice(m[11], m[12]);
+    } else {
+      // groups: 1 desc, 2 qty, 3/4 unit_price, 5/6 discount, 7/8 tax, 9/10 billed_total
+      unitPrice = walmartSignedPrice(m[3], m[4]);
+      discount  = walmartSignedPrice(m[5], m[6]);
+      tax       = walmartSignedPrice(m[7], m[8]);
+      amount    = walmartSignedPrice(m[9], m[10]);
+    }
+
+    var tokenMatch = skuAndDesc.match(/^(\S+)\s+(.*)$/);
+    if (!tokenMatch) return null;
+    var leadToken  = tokenMatch[1];
+    var descFirst  = tokenMatch[2].trim();
+
+    var lineType = 'product';
+    var vendorSku = leadToken;
+    var description = descFirst;
+
+    if (/^shipping$/i.test(leadToken)) {
+      lineType = 'shipping';
+    } else if (/^ALT_PAYME/i.test(leadToken)) {
+      // The SKU-column text for this row wraps across several short
+      // fragments across multiple lines; only the stable lead fragment
+      // is used for detection. Reconstructing the exact wrapped
+      // spelling is not attempted — a fixed canonical label is used
+      // instead, since it is always this same placeholder text.
+      lineType = 'adjustment';
+      vendorSku = 'ALT_PAYMENT_METHODS';
+      description = 'Alternative Payment Methods';
+    } else if (!/^\d{5,}$/.test(leadToken)) {
+      // Not a recognised row-start shape at all (neither a 5+ digit SKU,
+      // Shipping, nor the adjustment placeholder) — reject so the
+      // caller falls through to continuation handling instead of
+      // misfiling unrelated text as a new product row.
+      return null;
+    }
+
+    return {
+      vendor_sku:       vendorSku,
+      raw_description:  description,
+      description:      description,
+      qty_ordered:      qty,
+      qty_received:     qty,
+      qty:              qty,
+      unit_price:       unitPrice,
+      discount:         discount || 0,
+      tax:              tax || 0,
+      tax_rate:         null,
+      amount:           amount,
+      line_total:       amount,
+      line_type:        lineType,
+      warnings:         [],
+      // Adjustment row's SKU-column wrap fragments ("NT_METHO Methods",
+      // "DS") are swallowed, never appended to description.
+      _swallowContinuation: lineType === 'adjustment',
+      _descParts: [description],
+    };
+  }
+
+  function walmartFinalizeItem(item) {
+    if (!item._swallowContinuation && item._descParts.length > 1) {
+      item.raw_description = cleanDescription(item._descParts.join(' '));
+      item.description = item.raw_description;
+    }
+    delete item._descParts;
+    delete item._swallowContinuation;
+    return item;
+  }
+
+  function walmartExtractItems(lines) {
+    var items = [];
+    var current = null;
+    var inTable = false;
+
+    for (var li2 = 0; li2 < lines.length; li2++) {
+      var line = lines[li2].trim();
+      if (!line) continue;
+
+      if (WALMART_HEADER_ROW_RE.test(line)) {
+        // Re-entering table mode is safe even if we were already in it
+        // (a document whose table spans multiple PDF pages repeats
+        // this header once per page — confirmed real in 30082536).
+        inTable = true;
+        continue;
+      }
+      if (!inTable) continue;
+      if (WALMART_SUMMARY_ROW_RE.test(line)) {
+        inTable = false;
+        continue;
+      }
+
+      if (walmartIsSkuFragmentContinuation(line, current)) {
+        current.vendor_sku += line;
+        continue;
+      }
+
+      var rowStart = walmartParseRowStart(line);
+      if (rowStart) {
+        if (current) items.push(walmartFinalizeItem(current));
+        current = rowStart;
+        continue;
+      }
+
+      // Neither a new row nor a SKU fragment → wrapped description text
+      // continuing the current row (or swallowed, for the adjustment row).
+      if (current && !current._swallowContinuation) {
+        // The optional "Tax Details" percentage (e.g. "0.0824%") wraps
+        // onto whichever continuation line happens to be first — real
+        // geometry confirmed in 6c246fda/12fd6860. It always sits at
+        // the very end of that line; strip it out before treating the
+        // rest (if any) as further description text.
+        var pctMatch = line.match(/^(.*?)\s*([\d.]+)%$/);
+        if (pctMatch && current.tax_rate === null) {
+          // The printed number (e.g. "0.0824") already equals the tax
+          // rate as a fraction of 1 (0.0824 = 8.24%) — confirmed by
+          // cross-checking against the real tax dollar amounts (e.g.
+          // 6c246fda row 1: $3.29 / (2 × $19.97) = 0.0824). No further
+          // scaling.
+          current.tax_rate = parseFloat(pctMatch[2]);
+          var remainder = pctMatch[1].trim();
+          if (remainder) current._descParts.push(remainder);
+          continue;
+        }
+        current._descParts.push(line);
+      }
+    }
+    if (current) items.push(walmartFinalizeItem(current));
+    return items;
+  }
+
+  function parseWalmartInvoice(rawText) {
+    var text  = String(rawText || '');
+    var lines = text.split('\n');
+
+    var header = walmartExtractHeader(text, lines);
+    var items  = walmartExtractItems(lines);
+    var warnings = [];
+
+    if (!items.length) warnings.push({ code: 'PARSE_ERROR', message: 'No line items found' });
+
+    return {
+      vendor:                'Walmart Business',
+      document_type:         'invoice',
+      document_number:       header.documentNumber,
+      invoice_number:        header.documentNumber, // alias — matches sibling invoice parsers' naming
+      invoice_date:          header.invoiceDate,
+      due_date:              header.dueDate,
+      buyer:                 header.buyer,
+      seller:                header.seller,
+      walmart_order_number:  header.walmartOrderNumber,
+      po_number:             header.poNumber,
+      subtotal:              header.subtotal,
+      tax:                   header.tax,
+      total:                 header.total,
+      items:                 items,
+      warnings:              warnings,
+    };
+  }
+
   // ── Router ──
   function detectVendor(text) {
+    // Placed FIRST so it is tried before any other vendor's fallback —
+    // Walmart/TreviPay text also contains the generic word "Invoice"
+    // many times, so this must never fall through to Hardie's.
+    // Combined-signal (not a single generic token): requires BOTH
+    // "Walmart Business" and "TreviPay" to appear in the same document —
+    // confirmed present in all 4 real sample invoices. Semantically
+    // equivalent to the Node detection added in aef7b5a.
+    if (/(?=[\s\S]*walmart\s*business)(?=[\s\S]*trevipay)/i.test(text)) return 'walmart';
+    // Fallback combined signal, in case the "Walmart Business" wordmark
+    // text is ever missing from the parseable region: still three
+    // independent, unrelated signals together, never "Invoice" alone.
+    if (/(?=[\s\S]*trevipay)(?=[\s\S]*\bBuyer\b)(?=[\s\S]*Invoice Details)/i.test(text)) return 'walmart';
     if (/dairyland produce|hardie'?s|chefs'?\s*wh?se/i.test(text)) return 'hardies';
     if (/freshpoint/i.test(text)) return 'freshpoint';
     if (/fruge|netyield/i.test(text)) return 'fruge';
@@ -1513,6 +1824,9 @@ function buildVendorParsers() {
     if (docType === 'unknown')
       return {vendor,document_type:null,items:[],warnings:[{code:'UNKNOWN_DOC_TYPE',message:'Document type not recognised'}]};
     try {
+      if (vendor === 'walmart') {
+        if (docType === 'invoice') return parseWalmartInvoice(rawText);
+      }
       if (vendor === 'hardies') {
         if (docType === 'order_confirmation') return parseHardiesOrder(rawText);
         if (docType === 'invoice')            return parseHardiesInvoice(rawText);
