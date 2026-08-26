@@ -130,6 +130,14 @@ window.vdrLoad = async function() {
       window._vdrKnownConversions = {};
     }
 
+    // ── AUTO-IMPORT clean Hardie's invoices ─────────────────────
+    // Reuses the exact same safety gate (vdrPreflight) and the exact same
+    // write path (vdrApprove) already used for a manual click — no new
+    // matching/warning logic, no new write logic. Only automates the
+    // click itself, and only when that gate already says nothing needs
+    // a human. Fire-and-forget: never blocks the list render.
+    vdrAutoImportCleanHardiesInvoices().catch(function(e){ console.warn('[vdr auto-import] non-blocking failure:', e && e.message); });
+
     list.innerHTML = html;
     vdrRenderList();
     if (data) for (const doc of data) vdrRegisterQuestions(doc);
@@ -1958,6 +1966,59 @@ async function vdrPreflight(docId, doc) {
 
   return { ok: true, items, vendor };
 }
+
+// ── AUTO-IMPORT (Hardie's invoices only) ────────────────────────
+// Business target: a clean, already-matched Hardie's invoice should not
+// need a daily manual click. This does NOT loosen any warning/matching
+// rule — it only asks the exact same question vdrApprove's own gate
+// already asks ("does vdrPreflight say ok:true right now?") and, if so,
+// runs the exact same vdrApprove() write path a human click would have
+// run. Any document with a real open question, an unmatched item, or a
+// status of 'error' is left completely untouched — those still need a
+// person, exactly as today. Never touches pdf_received (not parsed yet)
+// or any non-Hardie's vendor.
+// ── MARKER:VDR_AUTO_IMPORT_START ─────────────────────────────────
+let _vdrAutoImportRunning = false;
+const HARDIES_VENDOR_NAME = "Hardie's Fresh Foods / Dairyland Produce";
+
+async function vdrAutoImportCleanHardiesInvoices() {
+  if (_vdrAutoImportRunning) return;
+  _vdrAutoImportRunning = true;
+  try {
+    const candidates = (window._vdrAllDocs || []).filter(function(doc){
+      return doc.status === 'pending'
+        && doc.vendor === HARDIES_VENDOR_NAME
+        && doc.parsed_json && doc.parsed_json.document_type === 'invoice';
+    });
+    if (!candidates.length) return;
+
+    const imported = [];
+    for (const doc of candidates) {
+      try {
+        const pre = await vdrPreflight(doc.id, doc);
+        if (!pre.ok) continue; // real question or unmatched item — leave for a human, unchanged
+        const noopBtn = { style: {} };
+        await window.vdrApprove(doc.id, noopBtn);
+        imported.push(doc.document_number || doc.id);
+      } catch(e){
+        console.warn('[vdr auto-import] skipped doc', doc.id, e && e.message);
+      }
+    }
+
+    if (imported.length && typeof showScToast === 'function') {
+      showScToast('✓ Auto-imported ' + imported.length + ' clean Hardie\'s invoice' + (imported.length>1?'s':'') + ': ' + imported.join(', '));
+    }
+    if (imported.length) {
+      // Refresh so the list (and any open card) reflects the new status.
+      // Safe against re-entrancy loops: every just-imported doc is no
+      // longer 'pending', so the next pass finds nothing left to do.
+      if (typeof window.vdrLoad === 'function') window.vdrLoad();
+    }
+  } finally {
+    _vdrAutoImportRunning = false;
+  }
+}
+// ── MARKER:VDR_AUTO_IMPORT_END ───────────────────────────────────
 
 // ── APPROVE BUTTON ─────────────────────────────────────────────
 window.vdrApprove = async function(docId, btn) {
