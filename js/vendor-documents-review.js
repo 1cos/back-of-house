@@ -24,6 +24,78 @@ window.vdrSetVendor = function(v) {
 };
 
 // ── Load pending documents ────────────────────────────────────
+// ── MARKER:VDR_MATCH_STATUS_START ───────────────────────────────────
+// Batched ingredient-matching readiness for the document list — computed
+// ONCE per vdrLoad() call across every visible invoice, never per-card
+// (avoids the N+1 query pattern a per-card vdrPreflight() call would
+// cause). Mirrors vdrPreflight's exact matching logic (same
+// `!(line_type && line_type !== 'product')` exclusion for Shipping/
+// adjustment/handling/fulfillment_variance rows) so a card can never
+// claim "needs matching" or "ready" in a way that disagrees with what
+// actually clicking Approve would find. Same convention already used a
+// few lines below in vdrLoad for the known-conversions preload — one
+// batched query per distinct vendor present in the list, not one per
+// document.
+async function vdrComputeMatchStatus(sb, docs) {
+  const status = {};
+  try {
+    const bySkuByVendor = {};
+    const byDescByVendor = {};
+    for (const doc of (docs || [])) {
+      if (doc.document_type !== 'invoice') continue;
+      const pj = doc.parsed_json || {};
+      const vendor = pj.vendor || doc.vendor || '';
+      const matchableItems = (pj.items || []).filter(i => !(i.line_type && i.line_type !== 'product'));
+      if (matchableItems.length === 0) continue;
+      bySkuByVendor[vendor]  = bySkuByVendor[vendor]  || new Set();
+      byDescByVendor[vendor] = byDescByVendor[vendor] || new Set();
+      for (const item of matchableItems) {
+        const sku  = item.vendor_sku || item.item_code;
+        const desc = item.description || item.raw_description;
+        if (sku)  bySkuByVendor[vendor].add(sku);
+        if (desc) byDescByVendor[vendor].add(desc);
+      }
+    }
+
+    const matchedSkusByVendor = {};
+    for (const vendor of Object.keys(bySkuByVendor)) {
+      const { data: rows } = await sb.from('ingredient_vendors')
+        .select('vendor_sku').eq('vendor', vendor).in('vendor_sku', [...bySkuByVendor[vendor]]);
+      matchedSkusByVendor[vendor] = new Set((rows || []).map(r => r.vendor_sku));
+    }
+    const matchedDescsByVendor = {};
+    for (const vendor of Object.keys(byDescByVendor)) {
+      const { data: rows } = await sb.from('ingredient_links')
+        .select('invoice_description').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', [...byDescByVendor[vendor]]);
+      matchedDescsByVendor[vendor] = new Set((rows || []).map(r => r.invoice_description));
+    }
+
+    for (const doc of (docs || [])) {
+      if (doc.document_type !== 'invoice') { status[doc.id] = { needsMatching: false }; continue; }
+      const pj = doc.parsed_json || {};
+      const vendor = pj.vendor || doc.vendor || '';
+      const matchableItems = (pj.items || []).filter(i => !(i.line_type && i.line_type !== 'product'));
+      if (matchableItems.length === 0) { status[doc.id] = { needsMatching: false }; continue; }
+      const matchedSkus  = matchedSkusByVendor[vendor]  || new Set();
+      const matchedDescs = matchedDescsByVendor[vendor] || new Set();
+      const unmatchedCount = matchableItems.filter(item => {
+        const sku  = item.vendor_sku || item.item_code;
+        const desc = item.description || item.raw_description;
+        return !(sku && matchedSkus.has(sku)) && !(desc && matchedDescs.has(desc));
+      }).length;
+      status[doc.id] = { needsMatching: unmatchedCount > 0, unmatchedCount };
+    }
+  } catch (e) {
+    // Read-only, best-effort — a failure here must never break the list
+    // render. Falling back to an empty map makes every card fall through
+    // to the pre-existing "Ready to approve" behavior (see vdrCardHTML),
+    // same as before this task.
+    return {};
+  }
+  return status;
+}
+// ── MARKER:VDR_MATCH_STATUS_END ─────────────────────────────────────
+
 window.vdrLoad = async function() {
   const list = document.getElementById('vdrList');
   if (!list) return;
@@ -99,6 +171,11 @@ window.vdrLoad = async function() {
     // Store all docs for filtering
     window._vdrAllDocs = data || [];
     window._vdrPdfQueue = pdfQueue || [];
+
+    // ── Pre-compute ingredient-matching readiness (Parte C: "Ready to
+    // approve" must never be shown for an invoice with unmatched product
+    // lines) — one batched call, not one per card.
+    window._vdrMatchStatus = await vdrComputeMatchStatus(sb, data || []);
 
     // ── Pre-load known conversions (BIOS-001: first time ask, second time learn) ──
     // Collect all SKUs from pending docs and fetch their conversion_to_base from DB.
@@ -508,7 +585,16 @@ window.vdrProcessAllPdf = async function(docId) {
         // affected document). Appended last so order_date/credit_date/
         // delivery_date-based vendors keep their current, already-correct
         // behavior unchanged.
-        const docDate   = parsed.order_date   || parsed.credit_date   || parsed.delivery_date || parsed.document_date || null;
+        // FIX (DOC DATE + readiness task): the Walmart parser is the only
+        // one that returns its date exclusively as invoice_date — every
+        // other live browser parser (Hardie's order_date/credit_date/
+        // delivery_date, FreshPoint order_date, Fruge/BEK document_date)
+        // already resolves through one of the four fields above, confirmed
+        // against real production data (39/39 Fruge invoices already have
+        // document_date populated) — so appending invoice_date LAST changes
+        // nothing for them; the chain only ever reaches it when all four
+        // higher-precedence fields are absent, which today is Walmart only.
+        const docDate   = parsed.order_date   || parsed.credit_date   || parsed.delivery_date || parsed.document_date || parsed.invoice_date || null;
 
         // Duplicate check by doc number
         if (docNumber) {
@@ -778,9 +864,14 @@ function vdrCardHTML(doc) {
 
   const typeColor = { invoice:'#3B82F6', order_confirmation:'#8b5cf6', credit_memo:'#ef4444' }[doc.document_type] || '#64748b';
 
+  const matchStatus   = (window._vdrMatchStatus && window._vdrMatchStatus[doc.id]) || null;
+  const needsMatching = !!(matchStatus && matchStatus.needsMatching);
+
   const qBadge = qCount > 0
     ? `<span style="background:rgba(245,158,11,0.1);color:#92400e;border:1px solid rgba(245,158,11,0.3);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">❓ ${qCount} question${qCount > 1 ? 's' : ''}</span>`
-    : `<span style="background:rgba(16,185,129,0.08);color:#065f46;border:1px solid rgba(16,185,129,0.2);padding:2px 8px;border-radius:20px;font-size:11px;">✓ Ready to approve</span>`;
+    : needsMatching
+      ? `<span style="background:rgba(59,130,246,0.08);color:#1e40af;border:1px solid rgba(59,130,246,0.25);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">🔗 Needs matching</span>`
+      : `<span style="background:rgba(16,185,129,0.08);color:#065f46;border:1px solid rgba(16,185,129,0.2);padding:2px 8px;border-radius:20px;font-size:11px;">✓ Ready to approve</span>`;
 
   return `
     <div id="vdrCard-${doc.id}" style="border:1px solid #f1f5f9;border-radius:14px;margin-bottom:10px;overflow:hidden;">
