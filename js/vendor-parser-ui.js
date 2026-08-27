@@ -1811,6 +1811,69 @@ function buildVendorParsers() {
     };
   }
 
+  // ── Reconciliation check (Quadratura) — browser port ──────────────
+  // FIX (browser reconciliation fail-safe task): ported verbatim from
+  // js/vendor-parsers/index.js's checkTotals(), which the browser parser
+  // never had at all — confirmed by a zero-hit search for "checkTotals"
+  // in this file before this fix. Without it, any parser bug that drops
+  // real line items (exactly the class of bug just fixed for HANDLING/
+  // FULFILL_VARIANCE in commit 51cd96f) could leave sum(items.amount)
+  // silently mismatched against the declared total with warnings: [] —
+  // and vdrProcessAllPdf() only checks items.length > 0 to decide
+  // pending/error, so a document missing real dollars would still reach
+  // 'pending' looking completely healthy. Applied generically in the
+  // Router below, wrapping every vendor's result — not just Walmart's —
+  // so any future vendor parser gets the same protection automatically.
+  // Data Priority: the document total is the source of truth. If the sum
+  // of parsed line amounts does not match the declared subtotal OR total
+  // (within tolerance), lines are missing or misread → blocking warning
+  // DOC-TOTAL-001.
+  var TOTAL_TOLERANCE = 0.02; // dollars
+
+  function checkTotals(parsed) {
+    if (!parsed || !Array.isArray(parsed.items) || parsed.items.length === 0) {
+      return parsed; // empty docs are covered by PARSE_ERROR/UNKNOWN_VENDOR/etc.
+    }
+
+    var amounts = parsed.items
+      .map(function(it) { return it.amount; })
+      .filter(function(a) { return a !== null && a !== undefined && !isNaN(parseFloat(a)); });
+
+    if (amounts.length === 0) return parsed;
+
+    var sumLines = Math.round(amounts.reduce(function(s, a) { return s + parseFloat(a); }, 0) * 100) / 100;
+
+    var candidates = [];
+    if (parsed.subtotal !== null && parsed.subtotal !== undefined && !isNaN(parseFloat(parsed.subtotal))) {
+      candidates.push(parseFloat(parsed.subtotal));
+    }
+    if (parsed.total !== null && parsed.total !== undefined && !isNaN(parseFloat(parsed.total))) {
+      candidates.push(parseFloat(parsed.total));
+    }
+
+    if (candidates.length === 0) return parsed;
+
+    var matches = candidates.some(function(c) { return Math.abs(c - sumLines) <= TOTAL_TOLERANCE; });
+    if (matches) return parsed;
+
+    // Never duplicate the warning if somehow already present.
+    parsed.warnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+    if (parsed.warnings.some(function(w) { return w && w.code === 'DOC-TOTAL-001'; })) return parsed;
+
+    var declared = candidates[candidates.length - 1];
+    var pct = declared !== 0 ? Math.round(Math.abs(sumLines / declared) * 100) : 0;
+
+    parsed.warnings.push({
+      code:     'DOC-TOTAL-001',
+      severity: 'blocking',
+      message:  'Lines sum $' + sumLines.toFixed(2) + ' but document total is $' + declared.toFixed(2) + ' (' + pct + '% read) — possible missing lines',
+      sum_of_lines:   sumLines,
+      declared_total: declared,
+    });
+
+    return parsed;
+  }
+
   // ── Router ──
   function detectVendor(text) {
     // Placed FIRST so it is tried before any other vendor's fallback —
@@ -1860,26 +1923,27 @@ function buildVendorParsers() {
     if (docType === 'unknown')
       return {vendor,document_type:null,items:[],warnings:[{code:'UNKNOWN_DOC_TYPE',message:'Document type not recognised'}]};
     try {
+      var result = null;
       if (vendor === 'walmart') {
-        if (docType === 'invoice') return parseWalmartInvoice(rawText);
+        if (docType === 'invoice') result = parseWalmartInvoice(rawText);
       }
       if (vendor === 'hardies') {
-        if (docType === 'order_confirmation') return parseHardiesOrder(rawText);
-        if (docType === 'invoice')            return parseHardiesInvoice(rawText);
-        if (docType === 'credit_memo')        return parseHardiesCredit(rawText);
+        if (docType === 'order_confirmation') result = parseHardiesOrder(rawText);
+        if (docType === 'invoice')            result = parseHardiesInvoice(rawText);
+        if (docType === 'credit_memo')        result = parseHardiesCredit(rawText);
       }
       if (vendor === 'freshpoint') {
-        if (docType === 'order_confirmation') return parseFreshPointOrder(rawText);
-        if (docType === 'invoice')            return parseFreshPointOrder(rawText); // same format
+        if (docType === 'order_confirmation') result = parseFreshPointOrder(rawText);
+        if (docType === 'invoice')            result = parseFreshPointOrder(rawText); // same format
       }
       if (vendor === 'fruge') {
-        if (docType === 'invoice') return parseFrugeInvoice(rawText);
-        return parseFrugeInvoice(rawText); // try invoice parser for any doc type
+        result = parseFrugeInvoice(rawText); // try invoice parser for any doc type
       }
       if (vendor === 'bek') {
-        if (docType === 'invoice') return parseBekInvoice(rawText);
-        if (docType === 'order_confirmation') return parseBekOrderConfirmationEmail(rawText);
+        if (docType === 'invoice') result = parseBekInvoice(rawText);
+        if (docType === 'order_confirmation') result = parseBekOrderConfirmationEmail(rawText);
       }
+      if (result) return checkTotals(result);
       return {vendor,document_type:docType,items:[],warnings:[{code:'NO_PARSER',message:`No parser for ${vendor}/${docType}`}]};
     } catch(e) {
       return {vendor,document_type:docType,items:[],warnings:[{code:'PARSER_ERROR',message:e.message}]};
