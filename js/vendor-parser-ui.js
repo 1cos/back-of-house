@@ -1633,32 +1633,60 @@ function buildVendorParsers() {
       amount    = walmartSignedPrice(m[9], m[10]);
     }
 
-    var tokenMatch = skuAndDesc.match(/^(\S+)\s+(.*)$/);
-    if (!tokenMatch) return null;
-    var leadToken  = tokenMatch[1];
-    var descFirst  = tokenMatch[2].trim();
+    // Known non-product placeholder rows (same real-template convention as
+    // Shipping/ALT_PAYMENT_METHODS above), confirmed real in invoice
+    // 26104552: an Express Fee (HANDLING) and, appearing multiple times,
+    // a SubDown/FULFILL_VARIANCE fulfillment-substitution charge. Checked
+    // against the FULL skuAndDesc blob, not the generic single-token split
+    // below — unlike "Shipping" or "ALT_PAYME", their SKU-column
+    // placeholder is itself multi-word ("Express Fee"), so splitting on
+    // the first space alone would wrongly cut it as "Express" + "Fee
+    // HANDLING". Before this fix, neither shape matched any recognised
+    // row-start, so both fell through to continuation handling and were
+    // silently absorbed into the PRECEDING product row's description —
+    // losing $1.93/$10.29/$14.65 as structured line items and corrupting
+    // that product's own description (confirmed against the real PDF).
+    // Ported identically from js/vendor-parsers/walmart-trevipay-invoice.js.
+    var handlingMatch = skuAndDesc.match(/^(Express\s+Fee)\s+(HANDLING)$/i);
+    var fulfillVarianceMatch = skuAndDesc.match(/^(SubDown)\s+(FULFILL_VARIANCE)$/i);
 
-    var lineType = 'product';
-    var vendorSku = leadToken;
-    var description = descFirst;
+    var lineType, vendorSku, description;
+    if (handlingMatch) {
+      lineType = 'handling';
+      vendorSku = handlingMatch[1];
+      description = handlingMatch[2];
+    } else if (fulfillVarianceMatch) {
+      lineType = 'fulfillment_variance';
+      vendorSku = fulfillVarianceMatch[1];
+      description = fulfillVarianceMatch[2];
+    } else {
+      var tokenMatch = skuAndDesc.match(/^(\S+)\s+(.*)$/);
+      if (!tokenMatch) return null;
+      var leadToken  = tokenMatch[1];
+      var descFirst  = tokenMatch[2].trim();
 
-    if (/^shipping$/i.test(leadToken)) {
-      lineType = 'shipping';
-    } else if (/^ALT_PAYME/i.test(leadToken)) {
-      // The SKU-column text for this row wraps across several short
-      // fragments across multiple lines; only the stable lead fragment
-      // is used for detection. Reconstructing the exact wrapped
-      // spelling is not attempted — a fixed canonical label is used
-      // instead, since it is always this same placeholder text.
-      lineType = 'adjustment';
-      vendorSku = 'ALT_PAYMENT_METHODS';
-      description = 'Alternative Payment Methods';
-    } else if (!/^\d{5,}$/.test(leadToken)) {
-      // Not a recognised row-start shape at all (neither a 5+ digit SKU,
-      // Shipping, nor the adjustment placeholder) — reject so the
-      // caller falls through to continuation handling instead of
-      // misfiling unrelated text as a new product row.
-      return null;
+      lineType = 'product';
+      vendorSku = leadToken;
+      description = descFirst;
+
+      if (/^shipping$/i.test(leadToken)) {
+        lineType = 'shipping';
+      } else if (/^ALT_PAYME/i.test(leadToken)) {
+        // The SKU-column text for this row wraps across several short
+        // fragments across multiple lines; only the stable lead fragment
+        // is used for detection. Reconstructing the exact wrapped
+        // spelling is not attempted — a fixed canonical label is used
+        // instead, since it is always this same placeholder text.
+        lineType = 'adjustment';
+        vendorSku = 'ALT_PAYMENT_METHODS';
+        description = 'Alternative Payment Methods';
+      } else if (!/^\d{5,}$/.test(leadToken)) {
+        // Not a recognised row-start shape at all (neither a 5+ digit SKU,
+        // Shipping, the adjustment placeholder, nor Handling/Fulfillment
+        // Variance) — reject so the caller falls through to continuation
+        // handling instead of misfiling unrelated text as a new product row.
+        return null;
+      }
     }
 
     return {

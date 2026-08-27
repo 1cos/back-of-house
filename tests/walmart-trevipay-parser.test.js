@@ -321,6 +321,117 @@ test("16c. tax-rate extraction never confuses the Busch item's own '0.5% ABV' de
   assert.ok(busch.description.includes('0.5%'), 'the real ABV percentage must remain part of the description');
 });
 
+// ── HANDLING / FULFILL_VARIANCE (real invoice 26104552) ────────────────
+// Root cause: "Express Fee HANDLING" and "SubDown FULFILL_VARIANCE" have a
+// multi-word SKU-column placeholder ("Express Fee", "SubDown"), unlike
+// "Shipping"/"ALT_PAYME" which are single tokens — before this fix, neither
+// shape was recognised as a row-start at all, so both fell through to
+// continuation handling and were silently absorbed into the PRECEDING
+// product row's description, losing their amount as a structured line
+// item and corrupting that product's description. These fixtures use the
+// exact real row text from 26104552, not idealized text.
+test('HANDLING: "Express Fee HANDLING" becomes its own line_type=handling row, not absorbed into the prior row', () => {
+  const text = [
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    '44001602 73% Lean / 27% Fat Ground Beef, 10 lb Roll, Fresh, All Natural* 3 $39.94 $0.00 $0.00 $119.82',
+    'Express Fee HANDLING 1 $1.93 $0.00 $0.00 $1.93',
+    '19400236 Perdue Harvestland, Free Range, Fresh Boneless Chicken Breast, 1.50 4.30 lb. Tray 1 $11.72 $0.00 $0.00 $11.72',
+    'Invoice 26104552 Invoice Summary',
+  ].join('\n');
+  const p = walmartParser.parse(text);
+  assert.strictEqual(p.items.length, 3);
+  assert.strictEqual(p.items[0].description, '73% Lean / 27% Fat Ground Beef, 10 lb Roll, Fresh, All Natural*', 'the preceding product description must stay clean');
+  assert.strictEqual(p.items[1].line_type, 'handling');
+  assert.strictEqual(p.items[1].vendor_sku, 'Express Fee');
+  assert.strictEqual(p.items[1].description, 'HANDLING');
+  assert.strictEqual(p.items[1].amount, 1.93);
+  assert.strictEqual(p.items[2].vendor_sku, '19400236', 'the row after HANDLING must still be recognised as its own product row');
+});
+test('FULFILL_VARIANCE: "SubDown FULFILL_VARIANCE" becomes its own line_type=fulfillment_variance row, repeated occurrences both preserved', () => {
+  const text = [
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    '19400236 Perdue Harvestland, Free Range, Fresh Boneless Chicken Breast, 1.50 4.30 lb. Tray 1 $11.72 $0.00 $0.00 $11.72',
+    'SubDown FULFILL_VARIANCE 1 $10.29 $0.00 $0.00 $10.29',
+    'SubDown FULFILL_VARIANCE 1 $14.65 $0.00 $0.00 $14.65',
+    '19400236 Perdue Harvestland, Free Range, Fresh Boneless Chicken Breast, 1.50 4.30 lb. Tray 1 $13.10 $0.00 $0.00 $13.10',
+    'Invoice 26104552 Invoice Summary',
+  ].join('\n');
+  const p = walmartParser.parse(text);
+  assert.strictEqual(p.items.length, 4);
+  assert.strictEqual(p.items[0].description, 'Perdue Harvestland, Free Range, Fresh Boneless Chicken Breast, 1.50 4.30 lb. Tray', 'the first 19400236 description must stay clean');
+  assert.strictEqual(p.items[1].line_type, 'fulfillment_variance');
+  assert.strictEqual(p.items[1].amount, 10.29);
+  assert.strictEqual(p.items[2].line_type, 'fulfillment_variance');
+  assert.strictEqual(p.items[2].amount, 14.65, 'a second, differently-priced FULFILL_VARIANCE row must not be collapsed with the first');
+  assert.strictEqual(p.items[3].vendor_sku, '19400236');
+});
+test('HANDLING/FULFILL_VARIANCE never classified as product, never given a numeric or Shipping/ALT_PAYME-style vendor_sku', () => {
+  const text = [
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    'Express Fee HANDLING 1 $1.93 $0.00 $0.00 $1.93',
+    'SubDown FULFILL_VARIANCE 1 $10.29 $0.00 $0.00 $10.29',
+    'Invoice 26104552 Invoice Summary',
+  ].join('\n');
+  const p = walmartParser.parse(text);
+  p.items.forEach(it => {
+    assert.notStrictEqual(it.line_type, 'product');
+    assert.notStrictEqual(it.line_type, 'shipping');
+    assert.notStrictEqual(it.line_type, 'adjustment');
+  });
+});
+test('regression: Shipping, ALT_PAYMENT_METHODS, numeric SKU, and split-SKU rows are unaffected by the HANDLING/FULFILL_VARIANCE fix', () => {
+  const text = [
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    '110366636 Roth Chèvre Plain Crumbled Fresh 2 $3.97 $0.00 $0.00 $7.94',
+    'Shipping SHIPPING 1 $0.99 $0.00 $0.00 $0.99',
+    'ALT_PAYME Alternative Payment 1 -$21.26 $0.00 $0.00 -$21.26',
+    '1350811700 Fresh Kiwi, 1lb Package 1 $2.62 $0.00 $0.00 $2.62',
+    '5',
+    'Invoice X Invoice Summary',
+  ].join('\n');
+  const p = walmartParser.parse(text);
+  assert.strictEqual(p.items.length, 4);
+  assert.strictEqual(p.items[0].line_type, 'product');
+  assert.strictEqual(p.items[1].line_type, 'shipping');
+  assert.strictEqual(p.items[2].line_type, 'adjustment');
+  assert.strictEqual(p.items[2].amount, -21.26);
+  assert.strictEqual(p.items[3].vendor_sku, '13508117005', 'split-SKU reconstruction must still work');
+});
+
+test('26104552 (real, full document): 24 structured lines, 1 handling + 4 fulfillment_variance + 1 adjustment, fully reconciled to 317.41', () => {
+  const text = norm(fixtures.C26104552_PAGE1) + '\n' + norm(fixtures.C26104552_PAGE2) + '\n' + norm(fixtures.C26104552_PAGE3);
+  const p = walmartParser.parse(text);
+  assert.strictEqual(p.document_number, '26104552');
+  assert.strictEqual(p.buyer, 'Massimilajo Zubboli');
+  assert.strictEqual(p.total, 317.41);
+  assert.strictEqual(p.items.length, 24);
+  const handling = p.items.filter(i => i.line_type === 'handling');
+  const fv = p.items.filter(i => i.line_type === 'fulfillment_variance');
+  const adj = p.items.filter(i => i.line_type === 'adjustment');
+  assert.strictEqual(handling.length, 1);
+  assert.strictEqual(Math.round(handling.reduce((s, i) => s + i.amount, 0) * 100) / 100, 1.93);
+  assert.strictEqual(fv.length, 4);
+  assert.strictEqual(Math.round(fv.reduce((s, i) => s + i.amount, 0) * 100) / 100, 49.88);
+  assert.strictEqual(adj.length, 1);
+  assert.strictEqual(adj[0].amount, -49.88);
+  const sum = Math.round(p.items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
+  assert.strictEqual(sum, 317.41);
+  // Part G — repeated SKU regression, no collapse/dedup
+  const sku19400236 = p.items.filter(i => i.vendor_sku === '19400236').map(i => i.amount);
+  const sku27935840 = p.items.filter(i => i.vendor_sku === '27935840').map(i => i.amount);
+  assert.deepStrictEqual(sku19400236, [11.72, 13.10, 12.87, 12.27, 13.79, 11.63, 14.19, 13.65]);
+  assert.deepStrictEqual(sku27935840, [10.69, 12.41, 12.26, 11.54, 13.03, 12.49, 11.77]);
+  // Part E — adjacent product descriptions stay clean
+  assert.strictEqual(p.items.find(i => i.vendor_sku === '44001602').description, '73% Lean / 27% Fat Ground Beef, 10 lb Roll, Fresh, All Natural*');
+  // NOTE: these two real descriptions contain U+E088, an unmapped PUA
+  // codepoint (likely a weight-range hyphen, e.g. "1.50-4.30 lb") that
+  // decodeTreviPayPUA correctly preserves verbatim rather than inventing
+  // a meaning for it — by design (see commit 8325ed5). Pre-existing,
+  // unrelated to the HANDLING/FULFILL_VARIANCE fix; not corrected here.
+  assert.strictEqual(p.items.find(i => i.vendor_sku === '19400236').description, 'Perdue Harvestland, Free Range, Fresh Boneless Chicken Breast, 1.50\u{e088} 4.30 lb. Tray');
+  assert.strictEqual(p.items.find(i => i.vendor_sku === '27935840').description, 'Freshness Guaranteed Boneless, Skinless Chicken Breasts, 2.75 \u{e088} 7.0 lb Tray');
+});
+
 // ── 17–20. Reconciliation for all 4 real documents ───────────────────
 function sumAmounts(p) { return Math.round(p.items.reduce((s, i) => s + i.amount, 0) * 100) / 100; }
 

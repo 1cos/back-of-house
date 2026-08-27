@@ -66,9 +66,10 @@ const DOC_TEXT = {
   '6c246fda': norm(fixtures.C6C246FDA_PAGE2) + '\n' + norm(fixtures.C6C246FDA_PAGE3),
   '12fd6860': norm(fixtures.C12FD6860_PAGE1) + '\n' + norm(fixtures.C12FD6860_PAGE2),
   '30082536': norm(fixtures.C30082536_PAGE1) + '\n' + norm(fixtures.C30082536_PAGE2) + '\n' + norm(fixtures.C30082536_PAGE3),
+  '26104552': norm(fixtures.C26104552_PAGE1) + '\n' + norm(fixtures.C26104552_PAGE2) + '\n' + norm(fixtures.C26104552_PAGE3),
 };
-const EXPECTED_TOTAL = { c51dd720: 52.07, '6c246fda': 63.33, '12fd6860': 61.56, '30082536': 33.88 };
-const EXPECTED_BUYER = { c51dd720: 'Massimilajo Zubboli', '6c246fda': 'Zeno Russo', '12fd6860': 'Zeno Russo', '30082536': 'Zeno Russo' };
+const EXPECTED_TOTAL = { c51dd720: 52.07, '6c246fda': 63.33, '12fd6860': 61.56, '30082536': 33.88, '26104552': 317.41 };
+const EXPECTED_BUYER = { c51dd720: 'Massimilajo Zubboli', '6c246fda': 'Zeno Russo', '12fd6860': 'Zeno Russo', '30082536': 'Zeno Russo', '26104552': 'Massimilajo Zubboli' };
 
 console.log('\nWalmart Business / TreviPay parser — Node/browser parity test run\n');
 
@@ -185,6 +186,37 @@ test('T7b: ALT_PAYMENT_METHODS negative adjustment identical on both sides (6c24
   assert.strictEqual(browserAdj.amount, -21.26);
   assert.strictEqual(nodeAdj.vendor_sku, 'ALT_PAYMENT_METHODS');
   assert.strictEqual(browserAdj.vendor_sku, 'ALT_PAYMENT_METHODS');
+});
+
+test('T7c: HANDLING (Express Fee) identical on both sides (26104552)', () => {
+  const nodeHandling = walmartNode.parse(DOC_TEXT['26104552']).items.filter(i => i.line_type === 'handling');
+  const browserHandling = browserParsers.parse(DOC_TEXT['26104552']).items.filter(i => i.line_type === 'handling');
+  assert.strictEqual(nodeHandling.length, 1);
+  assert.strictEqual(browserHandling.length, 1);
+  assert.strictEqual(nodeHandling[0].amount, 1.93);
+  assert.strictEqual(browserHandling[0].amount, 1.93);
+  assert.strictEqual(nodeHandling[0].vendor_sku, 'Express Fee');
+  assert.strictEqual(browserHandling[0].vendor_sku, 'Express Fee');
+});
+test('T7d: FULFILL_VARIANCE (SubDown), all 4 real occurrences, identical on both sides (26104552)', () => {
+  const nodeFv = walmartNode.parse(DOC_TEXT['26104552']).items.filter(i => i.line_type === 'fulfillment_variance');
+  const browserFv = browserParsers.parse(DOC_TEXT['26104552']).items.filter(i => i.line_type === 'fulfillment_variance');
+  assert.strictEqual(nodeFv.length, 4);
+  assert.strictEqual(browserFv.length, 4);
+  assert.deepStrictEqual(nodeFv.map(i => i.amount), [10.29, 10.29, 14.65, 14.65]);
+  assert.deepStrictEqual(browserFv.map(i => i.amount), [10.29, 10.29, 14.65, 14.65]);
+});
+test('T7e: adjacent product descriptions (44001602, 19400236, 27935840) stay clean on both sides (26104552)', () => {
+  // NOTE: 19400236/27935840 contain U+E088, an unmapped PUA codepoint
+  // (likely a weight-range hyphen) that the normalizer correctly
+  // preserves verbatim rather than inventing a meaning for — pre-existing,
+  // unrelated to the HANDLING/FULFILL_VARIANCE fix this suite covers.
+  for (const parser of [walmartNode, browserParsers]) {
+    const items = parser.parse(DOC_TEXT['26104552']).items;
+    assert.strictEqual(items.find(i => i.vendor_sku === '44001602').description, '73% Lean / 27% Fat Ground Beef, 10 lb Roll, Fresh, All Natural*');
+    assert.strictEqual(items.find(i => i.vendor_sku === '19400236').description, 'Perdue Harvestland, Free Range, Fresh Boneless Chicken Breast, 1.50\u{e088} 4.30 lb. Tray');
+    assert.strictEqual(items.find(i => i.vendor_sku === '27935840').description, 'Freshness Guaranteed Boneless, Skinless Chicken Breasts, 2.75 \u{e088} 7.0 lb Tray');
+  }
 });
 
 // ── T8 — Non-zero tax parity (6c246fda) ───────────────────────────────

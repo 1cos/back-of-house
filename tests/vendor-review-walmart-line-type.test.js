@@ -199,6 +199,29 @@ await atest('4. shipping → zero ingredient_vendors writes, EVEN with an advers
   assert.strictEqual(calls.inserts.filter(i => i.table === 'ingredient_vendors').length, 0);
 });
 
+await atest('4b. handling → zero ingredient_vendors writes, EVEN with an adversarial pre-existing SKU match (real 26104552 shape)', async () => {
+  // Confirms the generic guard (item.line_type && item.line_type !== 'product')
+  // covers the new 'handling' value automatically — no whitelist of known
+  // line_types to update when a new one is introduced.
+  const items = [{ vendor_sku: 'Express Fee', description: 'HANDLING', raw_description: 'HANDLING', line_type: 'handling', unit_price: 1.93, qty: 1, amount: 1.93 }];
+  const doc = walmartDoc('handling-doc', items);
+  const calls = await approve(doc, {
+    ingredient_vendors: [{ id: 'iv-bad3', ingredient_id: 'ing-bad3', vendor_sku: 'Express Fee', vendor: 'Walmart Business' }],
+  });
+  assert.strictEqual(calls.updates.filter(u => u.table === 'ingredient_vendors').length, 0);
+  assert.strictEqual(calls.inserts.filter(i => i.table === 'ingredient_vendors').length, 0);
+});
+
+await atest('4c. fulfillment_variance → zero ingredient_vendors writes, EVEN with an adversarial pre-existing confirmed link (real 26104552 shape)', async () => {
+  const items = [{ vendor_sku: 'SubDown', description: 'FULFILL_VARIANCE', raw_description: 'FULFILL_VARIANCE', line_type: 'fulfillment_variance', unit_price: 10.29, qty: 1, amount: 10.29 }];
+  const doc = walmartDoc('fv-doc', items);
+  const calls = await approve(doc, {
+    ingredient_links: [{ vendor: 'Walmart Business', invoice_description: 'FULFILL_VARIANCE', ingredient_id: 'ing-bad4', confirmed: true }],
+  });
+  assert.strictEqual(calls.updates.filter(u => u.table === 'ingredient_vendors').length, 0);
+  assert.strictEqual(calls.inserts.filter(i => i.table === 'ingredient_vendors').length, 0);
+});
+
 await atest('5. adjustment → zero ingredient_vendors writes, EVEN with an adversarial pre-existing confirmed link', async () => {
   const items = [{ vendor_sku: 'ALT_PAYMENT_METHODS', description: 'Alternative Payment Methods', raw_description: 'Alternative Payment Methods', line_type: 'adjustment', unit_price: -21.26, qty: 1, amount: -21.26 }];
   const doc = walmartDoc('adj-doc', items);
