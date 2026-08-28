@@ -453,26 +453,25 @@ window.vdrProcessAllPdf = async function(docId) {
 
   try {
     const sb = window.supabaseClient;
-    // FIX (BOH OS Task 11J): docId optional. Absent -> unchanged behaviour,
-    // processes the whole pdf_received queue (every existing call-site calls
-    // this with zero arguments). Present -> scoped at the DB level (id=docId),
-    // not fetched-then-filtered in memory, so no other document is ever read
-    // or touched. If docId doesn't exist or isn't in an allowed status, this
-    // query returns zero rows and the existing empty-queue exit below already
-    // handles it — no new UI/error path needed. (Status filter itself refined
-    // in Task 11M below.)
     // FIX (BOH OS Task 11M): senza docId la query resta ESATTAMENTE quella di
     // sempre (solo status='pdf_received', comportamento batch invariato). Con
     // docId, il documento può essere riprocessato intenzionalmente anche se è
     // già pending (es. dopo un fix ai parser, come il mapping data BEK del
-    // commit fa0effd7) — mai se è imported/ignored/error, per costruzione: lo
-    // status ammesso con docId è un IN esplicito su due soli valori, non una
+    // commit fa0effd7) — mai se è imported/ignored, per costruzione: lo
+    // status ammesso con docId è un IN esplicito su tre soli valori, non una
     // condizione più permissiva applicata al caso batch.
+    // FIX (safe reprocess for errored documents task): 'error' added to the
+    // allowed set — a document that failed (parser error, Storage download
+    // failure, Buyer Guard review) can now be retried the same way a
+    // 'pending' one already could. This query remains the hard second
+    // barrier independent of the UI: even a direct, non-UI call to
+    // vdrProcessAllPdf(importedDocId) still returns zero rows for
+    // 'imported'/'ignored', exactly as before this change.
     let query = sb
       .from('vendor_documents')
       .select('id,parsed_json,source_email_subject,raw_text');
     if (docId) {
-      query = query.eq('id', docId).in('status', ['pdf_received', 'pending']);
+      query = query.eq('id', docId).in('status', ['pdf_received', 'pending', 'error']);
     } else {
       query = query.eq('status', 'pdf_received');
     }
@@ -992,7 +991,7 @@ window.vdrToggle = function(id) {
       <!-- Sticky Approve footer -->
       <div style="flex-shrink:0;padding:12px 16px;border-top:1px solid #f1f5f9;background:white;">
         <div id="vdrActionStatus-${doc.id}" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>
-        ${doc.status === 'pending' ? `<button id="vdrReprocessBtn-${doc.id}" onclick="vdrReprocessOne('${doc.id}',this)" style="width:100%;height:38px;border-radius:12px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:500;border:none;cursor:pointer;margin-bottom:8px;">🔄 Reprocess</button>` : ''}
+        ${(doc.status === 'pending' || doc.status === 'error') ? `<button id="vdrReprocessBtn-${doc.id}" onclick="vdrReprocessOne('${doc.id}',this)" style="width:100%;height:38px;border-radius:12px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:500;border:none;cursor:pointer;margin-bottom:8px;">🔄 Reprocess</button>` : ''}
         <button onclick="vdrApprove('${doc.id}',this)" style="width:100%;height:48px;border-radius:14px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;">Approve Document</button>
       </div>
       <!-- Bottom safe area -->
@@ -1310,7 +1309,7 @@ function vdrDetailHTML(doc) {
   }
 
   // -- Approve --
-  var reprocessHTML = (doc.status === 'pending')
+  var reprocessHTML = (doc.status === 'pending' || doc.status === 'error')
     ? '<button id="vdrReprocessBtn-' + docId + '" onclick="vdrReprocessOne(\'' + docId + '\',this)" style="width:100%;height:36px;border-radius:12px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:500;border:none;cursor:pointer;margin-bottom:8px;">🔄 Reprocess</button>'
     : '';
   var approveHTML = '<div style="padding:12px 14px 14px;">' +

@@ -24,9 +24,9 @@ function readSrc() { return fs.readFileSync(VDR_JS, 'utf8'); }
 // visibilità condizionale senza reimplementarla.
 function renderStickyFooter(doc) {
   const src = readSrc();
-  const marker = "${doc.status === 'pending' ? `<button id=\"vdrReprocessBtn-${doc.id}\" onclick=\"vdrReprocessOne('${doc.id}',this)\"";
+  const marker = "${(doc.status === 'pending' || doc.status === 'error') ? `<button id=\"vdrReprocessBtn-${doc.id}\" onclick=\"vdrReprocessOne('${doc.id}',this)\"";
   if (!src.includes(marker)) throw new Error('riga del bottone Reprocess (sticky footer) non trovata o cambiata');
-  const start = src.indexOf('${doc.status === \'pending\' ?', src.indexOf(marker));
+  const start = src.indexOf("${(doc.status === 'pending'", src.indexOf(marker));
   const lineEnd = src.indexOf('\n', start);
   const line = src.slice(start, lineEnd);
   // Valuta la sola espressione ternaria come template literal reale.
@@ -55,9 +55,16 @@ test('T1: status=pending -> il bottone Reprocess è presente nel footer sticky',
   assert.ok(html.includes("'doc-A'"), "l'id reale del documento deve comparire nell'onclick, non hardcoded");
 });
 
-// ── T2 — imported/error/ignored → Reprocess assente ──────────────────
-test('T2: status=imported/error/ignored -> il bottone Reprocess è assente', () => {
-  for (const status of ['imported', 'error', 'ignored']) {
+// ── T1b — status=error -> il bottone Reprocess è presente (fix task) ──
+test('T1b: status=error -> il bottone Reprocess è presente nel footer sticky (safe reprocess for errored documents)', () => {
+  const html = renderStickyFooter({ id: 'doc-A', status: 'error' });
+  assert.ok(html.includes('vdrReprocessOne'), 'bottone Reprocess assente per status=error');
+  assert.ok(html.includes("'doc-A'"));
+});
+
+// ── T2 — imported/ignored → Reprocess assente ─────────────────────────
+test('T2: status=imported/ignored -> il bottone Reprocess è assente', () => {
+  for (const status of ['imported', 'ignored']) {
     const html = renderStickyFooter({ id: 'doc-A', status });
     assert.strictEqual(html, '', `bottone Reprocess non deve comparire per status=${status}`);
   }

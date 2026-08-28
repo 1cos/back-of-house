@@ -141,10 +141,10 @@ test('T4: dopo il merge-fix, un documento pending con parsed_json.source=email_h
   });
 
   // ── T7 — batch invariato: nessun'altra riga di vdrProcessAllPdf() è stata toccata ──
-  test('T7: la query batch (senza docId) resta invariata — solo status=pdf_received, come prima del fix', () => {
+  test('T7: la query batch (senza docId) resta invariata — solo status=pdf_received; la query single-doc ora include anche error (fix task)', () => {
     const src = readSrc();
     assert.ok(src.includes("query = query.eq('status', 'pdf_received');"), 'comportamento batch invariato');
-    assert.ok(src.includes("query = query.eq('id', docId).in('status', ['pdf_received', 'pending']);"), 'comportamento single-doc invariato');
+    assert.ok(src.includes("query = query.eq('id', docId).in('status', ['pdf_received', 'pending', 'error']);"), "comportamento single-doc esteso a 'error', imported/ignored restano esclusi");
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

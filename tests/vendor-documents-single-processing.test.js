@@ -120,10 +120,11 @@ const ALL_ROWS_STATUSES = [
   });
 
   // ── T5 — Error protetto: 0 risultati ─────────────────────────────────
-  await atest("T5: vdrProcessAllPdf('D-error') -> 0 documenti (status error non è mai riprocessabile)", async () => {
+  await atest("T5: vdrProcessAllPdf('D-error') -> 1 documento (status error è ora riprocessabile — fix task)", async () => {
     const { sb } = makeMockSb(ALL_ROWS_STATUSES);
     const queue = await runQuery(sb, 'D-error');
-    assert.strictEqual(queue.length, 0);
+    assert.strictEqual(queue.length, 1);
+    assert.strictEqual(queue[0].id, 'D-error');
   });
 
   // ── T6 — Comportamento pdf_received single-document invariato (Task 11J) ──
