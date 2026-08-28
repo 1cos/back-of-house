@@ -111,16 +111,21 @@ function loadPreflight() {
 
 (async () => {
 
-await atest('1. product line, no existing match → matching still required (match_needed)', async () => {
+await atest('1. product line, no existing match → vdrPreflight no longer blocks (deferred matching), but still reports unmatchedCount=1', async () => {
+  // FIX (deferred matching task): vdrPreflight used to return
+  // {ok:false, reason:'match_needed'} for an unmatched product line —
+  // that blocking behavior was intentionally removed so Chef Max can
+  // approve now and match later. This still proves the line_type
+  // exclusion logic underneath is unchanged: only real product lines
+  // are ever counted toward unmatchedCount.
   const vdrPreflightFn = loadPreflight();
   const items = [{ vendor_sku: '999999', description: 'Some Real Product', raw_description: 'Some Real Product', line_type: 'product', amount: 5 }];
   const doc = { id: 'd1', vendor: 'Walmart Business', warnings: null, parsed_json: { vendor: 'Walmart Business', document_type: 'invoice', items } };
   const { sb } = makeGenericSb({ ingredient_vendors: [], ingredient_links: [] });
   global.window.supabaseClient = sb;
   const result = await vdrPreflightFn('d1', doc);
-  assert.strictEqual(result.ok, false);
-  assert.strictEqual(result.reason, 'match_needed');
-  assert.strictEqual(result.unmatched.length, 1);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.unmatchedCount, 1);
 });
 
 await atest('2. shipping line, no existing match → NOT unmatched, preflight passes (no match_needed)', async () => {
@@ -143,7 +148,7 @@ await atest('3. adjustment line, no existing match → NOT unmatched, preflight 
   assert.strictEqual(result.ok, true, 'a document containing ONLY the adjustment row must never require ingredient matching');
 });
 
-await atest('mixed doc: unmatched product still blocks, but only the product line is ever counted', async () => {
+await atest('mixed doc: unmatchedCount counts only the real product line, never Shipping/adjustment — and no longer blocks (deferred matching)', async () => {
   const vdrPreflightFn = loadPreflight();
   const items = [
     { vendor_sku: '999999', description: 'Some Real Product', raw_description: 'Some Real Product', line_type: 'product', amount: 5 },
@@ -154,9 +159,8 @@ await atest('mixed doc: unmatched product still blocks, but only the product lin
   const { sb } = makeGenericSb({ ingredient_vendors: [], ingredient_links: [] });
   global.window.supabaseClient = sb;
   const result = await vdrPreflightFn('d4', doc);
-  assert.strictEqual(result.ok, false);
-  assert.strictEqual(result.unmatched.length, 1, 'only the real product line should ever appear in unmatched');
-  assert.strictEqual(result.unmatched[0].vendor_sku, '999999');
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.unmatchedCount, 1, 'only the real product line should ever count toward unmatchedCount');
 });
 
 // ══════════════════════════════════════════════════════════════════

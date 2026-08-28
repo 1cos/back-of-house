@@ -96,6 +96,40 @@ async function vdrComputeMatchStatus(sb, docs) {
 }
 // ── MARKER:VDR_MATCH_STATUS_END ─────────────────────────────────────
 
+// ── MARKER:VDR_BACKFILL_START ───────────────────────────────────────
+// Centralized backfill (deferred matching task, Part E): whenever a
+// vendor+vendor_sku pair newly resolves to an ingredient_id — from
+// EITHER real production write site (vdrApprove's own ingredient_vendors
+// write loop above, or js/ingredients.js's saveNewVendorRow(), the
+// Ingredient Card's "add vendor listing" UI) — this retroactively
+// resolves any OLDER invoice_lines rows that were imported unmatched
+// under that same vendor+SKU, so their economic history joins the
+// ingredient's purchase history too. Scoped strictly to
+// `ingredient_id IS NULL` — a line already linked to a (possibly
+// different) ingredient is never touched. Never creates/deletes
+// ingredient_vendors itself — that remains the sole responsibility of
+// its two callers.
+window.vdrBackfillInvoiceLines = async function(sb, vendor, vendorSku, ingredientId) {
+  if (!sb || !vendor || !vendorSku || !ingredientId) return { backfilled: 0 };
+  try {
+    const { data, error } = await sb.from('invoice_lines')
+      .update({ ingredient_id: ingredientId, match_status: 'matched' })
+      .eq('vendor', vendor)
+      .eq('vendor_sku', vendorSku)
+      .is('ingredient_id', null)
+      .select('id');
+    if (error) {
+      console.warn('[vdrBackfillInvoiceLines]', error.message);
+      return { backfilled: 0, error };
+    }
+    return { backfilled: (data || []).length };
+  } catch (e) {
+    console.warn('[vdrBackfillInvoiceLines]', e && e.message);
+    return { backfilled: 0, error: e };
+  }
+};
+// ── MARKER:VDR_BACKFILL_END ─────────────────────────────────────────
+
 window.vdrLoad = async function() {
   const list = document.getElementById('vdrList');
   if (!list) return;
@@ -865,12 +899,17 @@ function vdrCardHTML(doc) {
   const typeColor = { invoice:'#3B82F6', order_confirmation:'#8b5cf6', credit_memo:'#ef4444' }[doc.document_type] || '#64748b';
 
   const matchStatus   = (window._vdrMatchStatus && window._vdrMatchStatus[doc.id]) || null;
-  const needsMatching = !!(matchStatus && matchStatus.needsMatching);
+  const unmatchedCount = (matchStatus && matchStatus.unmatchedCount) || 0;
 
+  // FIX (deferred matching task, Part D): an invoice with unmatched
+  // product SKUs is genuinely approvable now (Chef Max can link them
+  // later from inside the app) — the badge must say so plainly rather
+  // than implying it's blocked. Same positive/green tone as "Ready to
+  // approve" throughout, just with the extra count appended.
   const qBadge = qCount > 0
     ? `<span style="background:rgba(245,158,11,0.1);color:#92400e;border:1px solid rgba(245,158,11,0.3);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">❓ ${qCount} question${qCount > 1 ? 's' : ''}</span>`
-    : needsMatching
-      ? `<span style="background:rgba(59,130,246,0.08);color:#1e40af;border:1px solid rgba(59,130,246,0.25);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">🔗 Needs matching</span>`
+    : unmatchedCount > 0
+      ? `<span style="background:rgba(16,185,129,0.08);color:#065f46;border:1px solid rgba(16,185,129,0.2);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">✓ Ready — ${unmatchedCount} unmatched</span>`
       : `<span style="background:rgba(16,185,129,0.08);color:#065f46;border:1px solid rgba(16,185,129,0.2);padding:2px 8px;border-radius:20px;font-size:11px;">✓ Ready to approve</span>`;
 
   return `
@@ -1998,6 +2037,7 @@ async function vdrPreflight(docId, doc) {
   const pj = doc.parsed_json || {};
   const vendor = pj.vendor || doc.vendor || '';
   const items = pj.items || [];
+  let unmatchedCount = 0;
 
   // 1. Unresolved warnings → count ACTIONABLE questions, not raw warnings.
   // Some warnings (e.g. pure-count OQR-006) are auto-resolved by the question
@@ -2008,15 +2048,19 @@ async function vdrPreflight(docId, doc) {
     return { ok: false, reason: `${openQuestions.length} question${openQuestions.length>1?'s':''} to answer before approving — open the document detail.` };
   }
 
-  // 2. Check ingredient_links — are all items matched?
-  // FIX (BOH OS Task 11W): this check exists to guarantee an ingredient_id
-  // is resolvable before vdrApprove() writes ingredient_vendors — but Task
-  // 11V already made that write invoice-only. Requiring ingredient matching
-  // for an order_confirmation is now both pointless (nothing downstream
-  // consumes the match) and actively wrong (auto-suggestions can propose a
-  // semantically unrelated ingredient, e.g. "Pastry Bag" -> "Puff Pastry",
-  // for a document that will never use the link). Gated the same way the
-  // ingredient_vendors write itself already is.
+  // 2. Check ingredient_links — how many items are still unmatched?
+  // FIX (deferred matching task): unmatched PRODUCT lines no longer BLOCK
+  // approval — per Chef Max's decision, ingredient matching can happen
+  // later from inside the app. The invoice_lines row builder in
+  // vdrApprove() already writes ingredient_id=null/match_status=
+  // 'unmatched' correctly whenever matchedId is falsy — the exact same
+  // mechanism already used for non-product Shipping/adjustment rows —
+  // so nothing downstream needed to change to support this; only this
+  // gate. unmatchedCount is still computed and surfaced (never silently
+  // dropped) so the UI/vdrApprove can be explicit about what remains.
+  // NOTE: vdrAutoImportCleanHardiesInvoices() deliberately still treats
+  // unmatchedCount > 0 as "leave for a human" — see its own comment —
+  // this change only affects the manual Approve Document button path.
   if (pj.document_type === 'invoice') {
     // FIX (line_type task): rows the parser has already flagged as
     // non-product (Walmart's Shipping/adjustment placeholders — SKU
@@ -2050,12 +2094,10 @@ async function vdrPreflight(docId, doc) {
       return !(sku && matchedSkus.has(sku)) && !(desc && matchedDescs.has(desc));
     });
 
-    if (unmatched.length > 0) {
-      return { ok: false, reason: 'match_needed', unmatched, items, vendor };
-    }
+    unmatchedCount = unmatched.length;
   }
 
-  return { ok: true, items, vendor };
+  return { ok: true, items, vendor, unmatchedCount };
 }
 
 // ── AUTO-IMPORT (Hardie's invoices only) ────────────────────────
@@ -2087,7 +2129,14 @@ async function vdrAutoImportCleanHardiesInvoices() {
     for (const doc of candidates) {
       try {
         const pre = await vdrPreflight(doc.id, doc);
-        if (!pre.ok) continue; // real question or unmatched item — leave for a human, unchanged
+        // FIX (deferred matching task): vdrPreflight itself no longer
+        // blocks on unmatched product lines (Chef Max can defer matching
+        // from the manual Approve button) — but auto-import must keep its
+        // original, stricter promise: only ever touch an ALREADY fully-
+        // matched invoice, unattended, with zero human review. Checking
+        // unmatchedCount here explicitly (rather than relying on pre.ok)
+        // is what keeps that promise intact after this task's change.
+        if (!pre.ok || pre.unmatchedCount > 0) continue; // real question or unmatched item — leave for a human, unchanged
         const noopBtn = { style: {} };
         await window.vdrApprove(doc.id, noopBtn);
         imported.push(doc.document_number || doc.id);
@@ -2212,6 +2261,14 @@ window.vdrApprove = async function(docId, btn) {
 
     const toUpdate = [];
     const toInsert = [];
+    // FIX (deferred matching task, Part E): every vendor+vendor_sku pair
+    // that newly resolves to an ingredient_id here (either a brand new
+    // ingredient_vendors row, or an existing canonical row that just had
+    // its vendor_sku populated) is a candidate for backfilling any OLDER
+    // invoice_lines rows that were imported unmatched under that same
+    // vendor+SKU. Collected here, executed once after both writes below
+    // succeed — see window.vdrBackfillInvoiceLines().
+    const backfillTargets = [];
 
     const docEdits = (window._vdrEdits && window._vdrEdits[docId]) || {};
 
@@ -2307,10 +2364,12 @@ window.vdrApprove = async function(docId, btn) {
             toUpdate.push({ id: existingIv.id, ...fields });
           } else if (decision === 'populate_sku') {
             toUpdate.push({ id: existingIv.id, vendor_sku: sku, ...fields });
+            if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: linkedId });
           }
           // decision === 'skip' → riga canonical intoccata di proposito
         } else {
           toInsert.push({ ingredient_id: linkedId, vendor, vendor_sku: sku, active: true, ...fields });
+          if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: linkedId });
         }
       }
 
@@ -2329,6 +2388,18 @@ window.vdrApprove = async function(docId, btn) {
         if (insErr && insErr.code !== '23505') {
           throw new Error('Insert failed for ' + (row.ingredient_id || '?') + ': ' + insErr.message);
         }
+      }
+
+      // FIX (deferred matching task, Part E/F): retroactively resolve any
+      // older invoice_lines rows that were imported unmatched under the
+      // same vendor+vendor_sku now newly linked to an ingredient — e.g.
+      // a chef matching this document's SKU also fixes yesterday's
+      // unmatched line for that same SKU, so its purchase enters the
+      // ingredient's cost/purchase history too. Scoped strictly to
+      // ingredient_id IS NULL rows — never touches a line already
+      // linked to a (possibly different) ingredient.
+      for (const t of backfillTargets) {
+        await window.vdrBackfillInvoiceLines(sb, t.vendor, t.vendor_sku, t.ingredient_id);
       }
     }
 

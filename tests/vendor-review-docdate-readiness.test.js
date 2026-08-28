@@ -208,13 +208,17 @@ await atest('C7: batched, not N+1 — one ingredient_vendors query per distinct 
   assert.strictEqual(ivCalls.length, 1, '3 documents, same vendor -> exactly 1 batched query, not 3');
 });
 
-test('C8: card badge logic — structural confirmation the three states are distinguished (question > needs matching > ready)', () => {
-  assert.ok(vdrSrc.includes('needsMatching'), 'vdrCardHTML must reference the precomputed match status');
-  assert.ok(vdrSrc.includes('🔗 Needs matching'), 'the new "Needs matching" wording must exist');
+test('C8: card badge logic — structural confirmation the three states are distinguished (question > ready-with-unmatched > fully ready)', () => {
+  // FIX (deferred matching task, Part D): the badge no longer implies an
+  // unmatched invoice is blocked — reworded from "🔗 Needs matching" to
+  // "✓ Ready — N unmatched", same positive tone as "Ready to approve".
+  assert.ok(vdrSrc.includes('unmatchedCount'), 'vdrCardHTML must reference the precomputed unmatched count');
+  assert.ok(!vdrSrc.slice(vdrSrc.indexOf('function vdrCardHTML')).includes('🔗 Needs matching'), 'the old blocking-sounding wording must be gone');
   const cardFn = vdrSrc.slice(vdrSrc.indexOf('function vdrCardHTML'));
   const qBadgeBlock = cardFn.slice(cardFn.indexOf('const qBadge'), cardFn.indexOf('const qBadge') + 900);
-  assert.ok(/qCount > 0[\s\S]*?needsMatching[\s\S]*?Ready to approve/.test(qBadgeBlock),
-    'priority order must be: blocking questions first, then needs-matching, then ready — matching Part C\'s desired UI');
+  assert.ok(qBadgeBlock.includes('Ready — ${unmatchedCount} unmatched'), 'the new wording must exist');
+  assert.ok(/qCount > 0[\s\S]*?unmatchedCount > 0[\s\S]*?Ready to approve/.test(qBadgeBlock),
+    'priority order must be: blocking questions first, then ready-with-unmatched-count, then fully ready');
 });
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

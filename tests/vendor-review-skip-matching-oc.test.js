@@ -68,15 +68,22 @@ function loadRealVdrModule() {
 
 console.log('\nVendor Review — order_confirmation skips ingredient matching (Task 11W) — test run\n');
 
-test("verifica riga reale: il blocco 2 di vdrPreflight (unmatched check) è racchiuso in if (pj.document_type === 'invoice')", () => {
+test("verifica riga reale: il blocco 2 di vdrPreflight (unmatched count) è racchiuso in if (pj.document_type === 'invoice')", () => {
+  // FIX (deferred matching task): vdrPreflight no longer returns
+  // {ok:false, reason:'match_needed'} for unmatched product lines — an
+  // unmatched item no longer blocks approval at all (Chef Max can defer
+  // matching). The unmatchedCount computation itself still lives inside
+  // the SAME invoice-only gate this test originally verified — updated
+  // to check for that computation instead of the now-removed literal.
   const src = fs.readFileSync(VDR_JS, 'utf8');
   const fnStart = src.indexOf('async function vdrPreflight(docId, doc) {');
   assert.ok(fnStart > -1, 'vdrPreflight non trovata');
   const fnBody = src.slice(fnStart, src.indexOf('\n// ── APPROVE BUTTON', fnStart));
   const gateIdx = fnBody.indexOf("if (pj.document_type === 'invoice') {");
   assert.ok(gateIdx > -1, 'gate non trovato dentro vdrPreflight');
-  const unmatchedIdx = fnBody.indexOf("reason: 'match_needed'");
-  assert.ok(unmatchedIdx > gateIdx, "il return match_needed deve stare DENTRO il gate 'invoice'");
+  const unmatchedIdx = fnBody.indexOf('unmatchedCount = unmatched.length;');
+  assert.ok(unmatchedIdx > gateIdx, "il calcolo di unmatchedCount deve stare DENTRO il gate 'invoice'");
+  assert.ok(!fnBody.includes("reason: 'match_needed'"), 'il blocco match_needed non deve più esistere — deferred matching lo ha rimosso');
 });
 
 // Item volutamente NON matchabile (SKU/desc assenti dalla tabella ingredient_vendors/links)
@@ -154,19 +161,29 @@ function tablesNoMatch(doc) {
     assert.ok(statusImported);
   });
 
-  await atest('T4: Invoice, item non matchato — Match Ingredients modal SI apre ancora (comportamento invariato)', async () => {
+  await atest("T4 (updated for deferred matching): Invoice, item non matchato — la modale Match Ingredients NON si apre più, l'invoice viene comunque approvata con ingredient_id=null", async () => {
     document.body.innerHTML = '';
     loadRealVdrModule();
     const docId = 'inv-w-4';
     const doc = makeDoc('invoice', docId);
-    const { sb } = makeGenericSb(tablesNoMatch(doc));
+    const { sb, calls } = makeGenericSb(tablesNoMatch(doc));
     global.window.supabaseClient = sb;
     global.window._vdrEdits = {};
     const btn = { disabled: false, textContent: '', style: {} };
     await global.window.vdrApprove(docId, btn);
 
     const modal = document.getElementById('_vdrMatchModal');
-    assert.ok(modal, 'per una vera Invoice con item non matchato, la modale Match Ingredients deve ancora apparire');
+    assert.ok(!modal, 'con deferred matching, un item non matchato non deve più aprire la modale');
+    const statusImported = calls.updates.some(u => u.table === 'vendor_documents' && u.data.status === 'imported');
+    assert.ok(statusImported, "l'invoice deve comunque completare l'approve");
+    const ilInsert = calls.inserts.find(i => i.table === 'invoice_lines');
+    assert.ok(ilInsert, 'invoice_lines deve comunque essere scritta');
+    const line = ilInsert.row.find(r => r.vendor_sku === '116533');
+    assert.ok(line);
+    assert.strictEqual(line.ingredient_id, null, "l'item non matchato deve avere ingredient_id=null, non bloccare tutto");
+    assert.strictEqual(line.match_status, 'unmatched');
+    const ivWrites = calls.updates.filter(u => u.table === 'ingredient_vendors').length + calls.inserts.filter(i => i.table === 'ingredient_vendors').length;
+    assert.strictEqual(ivWrites, 0, 'nessun ingredient_vendors creato automaticamente per un item unmatched');
   });
 
   await atest('T5: Invoice, item matchato per SKU — approval invariato (ingredient_vendors + invoice_lines scritti)', async () => {

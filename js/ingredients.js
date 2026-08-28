@@ -968,6 +968,8 @@ window.saveNewVendorRow = async function(ingredientId, btn){
   const conv         = parseFloat(document.getElementById('avConversion')?.value)||null;
   const priceTypeVal = document.getElementById('avPriceType')?.value||'per_case';
   const pricePerEach = parseFloat(document.getElementById('avPricePerEach')?.value)||null;
+  const vendorVal    = document.getElementById('avVendor')?.value?.trim()||null;
+  const vendorSkuVal = document.getElementById('avSku')?.value?.trim()||null;
 
   let p100 = null;
   if(up){
@@ -978,8 +980,8 @@ window.saveNewVendorRow = async function(ingredientId, btn){
 
   const {error} = await supa.from('ingredient_vendors').insert({
     ingredient_id:      ingredientId,
-    vendor:             document.getElementById('avVendor')?.value?.trim()||null,
-    vendor_sku:         document.getElementById('avSku')?.value?.trim()||null,
+    vendor:             vendorVal,
+    vendor_sku:         vendorSkuVal,
     unit_price:         up,
     pack_description:   document.getElementById('avPackDesc')?.value?.trim()||null,
     conversion_to_base: conv,
@@ -989,6 +991,13 @@ window.saveNewVendorRow = async function(ingredientId, btn){
     active:             true,
   });
   if(error){ btn.textContent='Error: '+error.message; btn.disabled=false; return; }
+  // FIX (deferred matching task, Part E): a manually-added vendor listing
+  // is exactly as valid a "vendor+SKU now resolves to an ingredient"
+  // event as the one vdrApprove's own write loop handles — reuses the
+  // same shared backfill, never duplicates its logic here.
+  if (window.vdrBackfillInvoiceLines) {
+    await window.vdrBackfillInvoiceLines(supa, vendorVal, vendorSkuVal, ingredientId);
+  }
   btn.closest('.fixed').remove();
   document.querySelectorAll('.fixed.inset-0').forEach(m=>m.remove());
   openIngredientCard(ingredientId);
