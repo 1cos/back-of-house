@@ -798,10 +798,23 @@ window.vdrProcessAllPdf = async function(docId) {
           }
         }
 
-        // Remove PDF from storage after successful parse
-        if (parsed.items && parsed.items.length > 0 && storagePath) {
-          await sb.storage.from('app').remove([storagePath]);
-        }
+        // FIX (Storage persistence task): the PDF used to be deleted from
+        // Storage right here, immediately after any successful parse
+        // (parsed.items.length > 0). That made the PDF a one-time-use
+        // artifact instead of a persistent source: Reprocess, and any
+        // future parser improvement, had nothing left to re-read for a
+        // document that had ever been successfully parsed even once —
+        // demonstrated on real production data, where 20 of 21
+        // vendor_documents with a storage_path had already lost their PDF
+        // this way, across every vendor and every status (pending/error/
+        // ignored/imported alike), regardless of whether the document was
+        // ever approved. The PDF is now the persistent, canonical source
+        // for a vendor_document — it survives every parsing outcome
+        // (success, parser error, Buyer Guard reject, DOC-TOTAL-001) and
+        // is never automatically deleted here or anywhere else in this
+        // codebase. No replacement policy (no timeout, no N-day retention,
+        // no archive/move) was introduced — "PDF acquisito = PDF
+        // persistente", exactly as scoped for this task.
 
         done++;
       } catch(e) {
