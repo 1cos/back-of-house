@@ -1711,6 +1711,45 @@ function buildVendorParsers() {
     };
   }
 
+  // Deterministic pack/weight extraction from the free-text description.
+  // Conservative by design — three explicit safety rules:
+  //   1. RANGE detection runs first and wins: a catch-weight range shape
+  //      ("1.50-4.30 lb" / "2.75  7.0 lb", confirmed real in 26104552 —
+  //      the gap between the two numbers is a dash, the unmapped PUA
+  //      hyphen-like glyph from the normalizer, or plain whitespace,
+  //      never more than a few characters) is EXCLUDED entirely — never
+  //      extracts either endpoint, since neither is the real purchased
+  //      weight (deliberately different from the single-weight case).
+  //   2. "Each"-sold items (Watermelon, Zucchini) are marked as such in
+  //      pack_description but NEVER converted to an assumed weight — no
+  //      invented average/density. Downstream grams/cost-per-100g stay
+  //      unknown for these, by construction (vdrPackToGrams has no "Each"
+  //      pattern today).
+  //   3. Gallon (Milk) is recognised and preserved as a canonical pack
+  //      string ("1gal") but is NOT converted to grams here — no
+  //      production-validated volume→mass density rule exists for Milk
+  //      in this codebase; vdrPackToGrams has no plain "gal" pattern
+  //      either (only mixed-fraction "N-N/N GAL"), so this stays inert
+  //      by construction too, exactly as intended.
+  // Never touches raw_description/description — this only ever adds the
+  // separate pack_description field. Ported verbatim from
+  // js/vendor-parsers/walmart-trevipay-invoice.js.
+  var WALMART_PACK_RANGE_RE   = /\d+(?:\.\d+)?\D{1,4}\d+(?:\.\d+)?\s*(oz|lb)\b/i;
+  var WALMART_PACK_GAL_RE     = /(\d+(?:\.\d+)?)?\s*gal(?:lon)?\b/i;
+  var WALMART_PACK_WEIGHT_RE  = /(\d+(?:\.\d+)?)\s*(oz|lb)\b/i;
+  var WALMART_PACK_EACH_RE    = /\beach\b/i;
+
+  function walmartExtractPack(description) {
+    if (!description) return null;
+    if (WALMART_PACK_RANGE_RE.test(description)) return null;
+    var galMatch = description.match(WALMART_PACK_GAL_RE);
+    if (galMatch) return (galMatch[1] || '1') + 'gal';
+    var weightMatch = description.match(WALMART_PACK_WEIGHT_RE);
+    if (weightMatch) return weightMatch[1] + weightMatch[2].toLowerCase();
+    if (WALMART_PACK_EACH_RE.test(description)) return 'Each';
+    return null;
+  }
+
   function walmartFinalizeItem(item) {
     if (!item._swallowContinuation && item._descParts.length > 1) {
       item.raw_description = cleanDescription(item._descParts.join(' '));
@@ -1718,6 +1757,10 @@ function buildVendorParsers() {
     }
     delete item._descParts;
     delete item._swallowContinuation;
+    // Pack extraction only for real product rows — Shipping/adjustment/
+    // handling/fulfillment_variance descriptions never match any of the
+    // patterns above anyway, but scoping explicitly keeps intent clear.
+    item.pack_description = item.line_type === 'product' ? walmartExtractPack(item.description) : null;
     return item;
   }
 

@@ -432,6 +432,107 @@ test('26104552 (real, full document): 24 structured lines, 1 handling + 4 fulfil
   assert.strictEqual(p.items.find(i => i.vendor_sku === '27935840').description, 'Freshness Guaranteed Boneless, Skinless Chicken Breasts, 2.75 \u{e088} 7.0 lb Tray');
 });
 
+// ── pack_description extraction (deterministic, conservative) ────────
+// 13 determinable real cases (Part F/G): description untouched,
+// pack_description exact, and grams/cost-per-100g match the production
+// vdrPackToGrams constants (lb=453.592g, oz=28.3495g) computed here
+// independently, not hardcoded from the task's reference values.
+const LB_G = 453.592, OZ_G = 28.3495;
+const PACK_CASES = [
+  { sku: '110366636', desc: 'Roth Chèvre Plain Crumbled Fresh Goat Cheese 4oz', pack: '4oz', grams: 4 * OZ_G },
+  { sku: '14255252',  desc: 'BelGioioso Fresh Mozzarella Cheese Pearls Mini Snacking Cheese, 8 oz Refrigerated Plastic Packet', pack: '8oz', grams: 8 * OZ_G },
+  { sku: '47370609',  desc: 'Great Value Original Ricotta Cheese, 32 oz Tub', pack: '32oz', grams: 32 * OZ_G },
+  { sku: '44391605',  desc: 'Fresh Strawberries, 1 lb Container', pack: '1lb', grams: 1 * LB_G },
+  { sku: '13508117005', desc: 'Fresh Kiwi, 1lb Package', pack: '1lb', grams: 1 * LB_G },
+  { sku: '979818213', desc: 'Fresh SunGold Kiwi, 1lb, Package', pack: '1lb', grams: 1 * LB_G },
+  { sku: '141418923', desc: 'Peaches, 2lb Bag', pack: '2lb', grams: 2 * LB_G },
+  { sku: '1918496773', desc: 'NatureSweet Cherubs Heavenly Grape Tomatoes, 10oz Package, Fresh', pack: '10oz', grams: 10 * OZ_G },
+  { sku: '10308430', desc: 'Owens Regular Pork Sausage Roll, 32 oz', pack: '32oz', grams: 32 * OZ_G },
+  { sku: '44001602', desc: '73% Lean / 27% Fat Ground Beef, 10 lb Roll, Fresh, All Natural*', pack: '10lb', grams: 10 * LB_G },
+  { sku: '32247486', desc: 'BARILLA Gluten Free Penne Pasta, Gluten Free Pasta Made with 2 Ingredients, 12oz.', pack: '12oz', grams: 12 * OZ_G },
+  { sku: '529759161', desc: 'Canyon Bakehouse Hawaiian Sweet Gluten Free Bread, Fresh 15oz Loaf', pack: '15oz', grams: 15 * OZ_G },
+  { sku: '12443812', desc: 'Hillshire Farm Ultra Thin Honey Ham Lunchmeat, 16 oz Plastic Tub, Refrigerated', pack: '16oz', grams: 16 * OZ_G },
+];
+
+function buildProductLine(sku, desc, unitPrice) {
+  return [
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    `${sku} ${desc} 1 $${unitPrice} $0.00 $0.00 $${unitPrice}`,
+    'Invoice X Invoice Summary',
+  ].join('\n');
+}
+
+for (const c of PACK_CASES) {
+  test(`pack extraction: ${c.sku} -> "${c.pack}" (${c.grams.toFixed(2)}g), description untouched`, () => {
+    const text = buildProductLine(c.sku, c.desc, '1.00');
+    const item = walmartParser.parse(text).items[0];
+    assert.strictEqual(item.description, c.desc, 'description must never be altered by pack extraction');
+    assert.strictEqual(item.raw_description, c.desc);
+    assert.strictEqual(item.pack_description, c.pack);
+  });
+}
+
+test('pack extraction reference values (Part G): Ground Beef/Ricotta/Strawberries/Mozzarella/Penne/Bread/Ham cost-per-100g match', () => {
+  const refs = [
+    { sku: '44001602', desc: '73% Lean / 27% Fat Ground Beef, 10 lb Roll, Fresh, All Natural*', price: 39.94, expectedGrams: 4535.92, expectedP100: 0.8806 },
+    { sku: '47370609', desc: 'Great Value Original Ricotta Cheese, 32 oz Tub', price: 5.24, expectedGrams: 907.18, expectedP100: 0.5776 },
+    { sku: '44391605', desc: 'Fresh Strawberries, 1 lb Container', price: 2.19, expectedGrams: 453.592, expectedP100: 0.4828 },
+    { sku: '14255252', desc: 'BelGioioso Fresh Mozzarella Cheese Pearls Mini Snacking Cheese, 8 oz Refrigerated Plastic Packet', price: 4.94, expectedGrams: 226.796, expectedP100: 2.1782 },
+    { sku: '32247486', desc: 'BARILLA Gluten Free Penne Pasta, Gluten Free Pasta Made with 2 Ingredients, 12oz.', price: 2.62, expectedGrams: 340.194, expectedP100: 0.7702 },
+    { sku: '529759161', desc: 'Canyon Bakehouse Hawaiian Sweet Gluten Free Bread, Fresh 15oz Loaf', price: 6.97, expectedGrams: 425.2425, expectedP100: 1.6391 },
+    { sku: '12443812', desc: 'Hillshire Farm Ultra Thin Honey Ham Lunchmeat, 16 oz Plastic Tub, Refrigerated', price: 6.48, expectedGrams: 453.592, expectedP100: 1.4288 },
+  ];
+  for (const r of refs) {
+    const text = buildProductLine(r.sku, r.desc, r.price.toFixed(2));
+    const item = walmartParser.parse(text).items[0];
+    const grams = (parseFloat(item.pack_description) || null) &&
+      (item.pack_description.endsWith('lb') ? parseFloat(item.pack_description) * LB_G : parseFloat(item.pack_description) * OZ_G);
+    assert.ok(Math.abs(grams - r.expectedGrams) < 0.01, `${r.sku} grams: got ${grams}, expected ~${r.expectedGrams}`);
+    const p100 = item.unit_price / grams * 100;
+    assert.ok(Math.abs(p100 - r.expectedP100) < 0.001, `${r.sku} cost/100g: got ${p100.toFixed(4)}, expected ~${r.expectedP100}`);
+  }
+});
+
+test('pack extraction: catch-weight RANGE (19400236, real dash+PUA-glyph shape) -> pack_description null, never an endpoint', () => {
+  const text = buildProductLine('19400236', 'Perdue Harvestland, Free Range, Fresh Boneless Chicken Breast, 1.50\u{e088} 4.30 lb. Tray', '11.72');
+  const item = walmartParser.parse(text).items[0];
+  assert.strictEqual(item.pack_description, null);
+  assert.notStrictEqual(item.pack_description, '4.3lb');
+  assert.notStrictEqual(item.pack_description, '1.5lb');
+});
+test('pack extraction: catch-weight RANGE (27935840, real double-space shape) -> pack_description null', () => {
+  const text = buildProductLine('27935840', 'Freshness Guaranteed Boneless, Skinless Chicken Breasts, 2.75  7.0 lb Tray', '10.69');
+  const item = walmartParser.parse(text).items[0];
+  assert.strictEqual(item.pack_description, null);
+});
+test('pack extraction: "Each" (Watermelon) -> pack_description = "Each", never a VDR_UNIT_WEIGHTS estimate', () => {
+  const text = buildProductLine('44391101', 'Fresh Seedless Watermelon, Each', '4.65');
+  const item = walmartParser.parse(text).items[0];
+  assert.strictEqual(item.pack_description, 'Each');
+});
+test('pack extraction: "Each" (Zucchini) -> pack_description = "Each"', () => {
+  const text = buildProductLine('44390947', 'Fresh Zucchini, Each', '3.60');
+  const item = walmartParser.parse(text).items[0];
+  assert.strictEqual(item.pack_description, 'Each');
+});
+test('pack extraction: Gallon (Milk) -> pack_description = "1gal", no density used/needed', () => {
+  const text = buildProductLine('10450114', 'Great Value Whole Vitamin D Milk, Gallon', '3.17');
+  const item = walmartParser.parse(text).items[0];
+  assert.strictEqual(item.pack_description, '1gal');
+});
+test('pack extraction: non-product rows (Shipping/adjustment/handling/fulfillment_variance) always have pack_description = null', () => {
+  const text = [
+    'SKU Description Quantity Unit Price Discount Tax Billed Total',
+    'Shipping SHIPPING 1 $0.99 $0.00 $0.00 $0.99',
+    'ALT_PAYME Alternative Payment 1 -$21.26 $0.00 $0.00 -$21.26',
+    'Express Fee HANDLING 1 $1.93 $0.00 $0.00 $1.93',
+    'SubDown FULFILL_VARIANCE 1 $10.29 $0.00 $0.00 $10.29',
+    'Invoice X Invoice Summary',
+  ].join('\n');
+  const items = walmartParser.parse(text).items;
+  assert.ok(items.every(i => i.pack_description === null));
+});
+
 // ── 17–20. Reconciliation for all 4 real documents ───────────────────
 function sumAmounts(p) { return Math.round(p.items.reduce((s, i) => s + i.amount, 0) * 100) / 100; }
 

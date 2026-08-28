@@ -67,9 +67,10 @@ const DOC_TEXT = {
   '12fd6860': norm(fixtures.C12FD6860_PAGE1) + '\n' + norm(fixtures.C12FD6860_PAGE2),
   '30082536': norm(fixtures.C30082536_PAGE1) + '\n' + norm(fixtures.C30082536_PAGE2) + '\n' + norm(fixtures.C30082536_PAGE3),
   '26104552': norm(fixtures.C26104552_PAGE1) + '\n' + norm(fixtures.C26104552_PAGE2) + '\n' + norm(fixtures.C26104552_PAGE3),
+  '069a51f8': norm(fixtures.C069A51F8_PAGE1) + '\n' + norm(fixtures.C069A51F8_PAGE2),
 };
-const EXPECTED_TOTAL = { c51dd720: 52.07, '6c246fda': 63.33, '12fd6860': 61.56, '30082536': 33.88, '26104552': 317.41 };
-const EXPECTED_BUYER = { c51dd720: 'Massimilajo Zubboli', '6c246fda': 'Zeno Russo', '12fd6860': 'Zeno Russo', '30082536': 'Zeno Russo', '26104552': 'Massimilajo Zubboli' };
+const EXPECTED_TOTAL = { c51dd720: 52.07, '6c246fda': 63.33, '12fd6860': 61.56, '30082536': 33.88, '26104552': 317.41, '069a51f8': 237.56 };
+const EXPECTED_BUYER = { c51dd720: 'Massimilajo Zubboli', '6c246fda': 'Zeno Russo', '12fd6860': 'Zeno Russo', '30082536': 'Zeno Russo', '26104552': 'Massimilajo Zubboli', '069a51f8': 'Massimilajo Zubboli' };
 
 console.log('\nWalmart Business / TreviPay parser — Node/browser parity test run\n');
 
@@ -217,6 +218,29 @@ test('T7e: adjacent product descriptions (44001602, 19400236, 27935840) stay cle
     assert.strictEqual(items.find(i => i.vendor_sku === '19400236').description, 'Perdue Harvestland, Free Range, Fresh Boneless Chicken Breast, 1.50\u{e088} 4.30 lb. Tray');
     assert.strictEqual(items.find(i => i.vendor_sku === '27935840').description, 'Freshness Guaranteed Boneless, Skinless Chicken Breasts, 2.75 \u{e088} 7.0 lb Tray');
   }
+});
+
+test('T7f: pack_description identical on both sides for every product item, all 3 real Kitchen documents (c51dd720, 069a51f8, 26104552)', () => {
+  for (const docName of ['c51dd720', '069a51f8', '26104552']) {
+    const nodeItems = walmartNode.parse(DOC_TEXT[docName]).items;
+    const browserItems = browserParsers.parse(DOC_TEXT[docName]).items;
+    assert.strictEqual(nodeItems.length, browserItems.length, docName + ': item count mismatch');
+    nodeItems.forEach((it, i) => {
+      assert.strictEqual(browserItems[i].pack_description, it.pack_description, `${docName} item ${i} (${it.vendor_sku}): pack_description mismatch`);
+    });
+  }
+});
+test('T7g: real reference values reproduced from the live documents — Ground Beef 10lb, Ricotta 32oz, Milk 1gal, Watermelon/Zucchini Each, chicken-breast ranges null', () => {
+  const c51 = walmartNode.parse(DOC_TEXT.c51dd720).items;
+  const doc69 = walmartNode.parse(DOC_TEXT['069a51f8']).items;
+  const doc26 = walmartNode.parse(DOC_TEXT['26104552']).items;
+  assert.strictEqual(doc69.find(i => i.vendor_sku === '44001602').pack_description, '10lb');
+  assert.strictEqual(c51.find(i => i.vendor_sku === '47370609').pack_description, '32oz');
+  assert.strictEqual(doc69.find(i => i.vendor_sku === '10450114').pack_description, '1gal');
+  assert.strictEqual(doc26.find(i => i.vendor_sku === '44391101').pack_description, 'Each');
+  assert.strictEqual(doc26.find(i => i.vendor_sku === '44390947').pack_description, 'Each');
+  assert.ok(doc26.filter(i => i.vendor_sku === '19400236').every(i => i.pack_description === null));
+  assert.ok(doc26.filter(i => i.vendor_sku === '27935840').every(i => i.pack_description === null));
 });
 
 // ── T8 — Non-zero tax parity (6c246fda) ───────────────────────────────
