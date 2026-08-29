@@ -102,7 +102,7 @@ function makeFixtureDoc(items) {
   return {
     id: 'fixture-26104552', status: 'pending', vendor: 'Walmart Business', document_number: '26104552', document_date: '2026-08-27',
     warnings: null,
-    parsed_json: { vendor: 'Walmart Business', buyer: 'Massimilajo Zubboli', document_type: 'invoice', total: 317.41, items },
+    parsed_json: { vendor: 'Walmart Business', buyer: 'Massimilajo Zubboli', document_type: 'invoice', total: 310.00, items },
   };
 }
 

@@ -276,7 +276,7 @@ await atest('11. adversarial bypass: manipulated state (stale pending + BOTH a b
   assert.strictEqual(shipLine.match_status, 'unmatched');
   assert.strictEqual(adjLine.match_status, 'unmatched');
   assert.strictEqual(shipLine.line_total, 0.99, 'economic value must still be preserved');
-  assert.strictEqual(adjLine.line_total, 21.26, 'negative adjustment preserved as an absolute line_total, same convention already used for every other vendor');
+  assert.strictEqual(adjLine.line_total, -21.26, 'negative adjustment preserved with its real sign (Approval Economic Integrity Hotfix — the old absolute-value convention was itself the bug)');
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -348,14 +348,14 @@ await atest('9. 6c246fda (real, negative adjustment -21.26): adjustment never ma
   assert.strictEqual(adjLine.ingredient_id, null);
   assert.strictEqual(adjLine.match_status, 'unmatched');
   const sum = Math.round(ilInsert.row.reduce((s, r) => s + r.line_total, 0) * 100) / 100;
-  // line_total is stored as Math.abs(amount) throughout this codebase (see
-  // the -21.26 case above and every existing vendor) — the real signed
-  // reconciliation (63.33, including the negative) is what checkTotals()
-  // in vendor-parsers/index.js already verified in the parser task; here
-  // we confirm the invoice_lines rows sum to the same total using the
-  // codebase's existing abs-value convention (52.07's siblings use the
-  // same pattern), i.e. sum(|amount|) = 84.59 = 63.33 + 2×21.26.
-  assert.strictEqual(sum, Math.round(items.reduce((s, i) => s + Math.abs(i.amount), 0) * 100) / 100);
+  // FIX (Approval Economic Integrity Hotfix): line_total now preserves the
+  // real signed amount (the old Math.abs() convention was itself the
+  // production bug this task fixed — see the -21.26 case above, now
+  // -21.26 not 21.26). walmartDoc() already builds pj.total as a SIGNED
+  // sum of item.amount, so sum(line_total) must now match that signed
+  // total directly (63.33, including the negative), not the old
+  // abs-value convention.
+  assert.strictEqual(sum, 63.33);
 });
 
 // ══════════════════════════════════════════════════════════════════

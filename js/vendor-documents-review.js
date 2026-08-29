@@ -2632,7 +2632,19 @@ window.vdrApprove = async function(docId, btn) {
         const qty         = (edits.qty != null && !isNaN(edits.qty)) ? edits.qty : (item.catchweight === true ? 1 : (item.qty_ordered != null ? item.qty_ordered : (item.qty_received != null ? item.qty_received : null)));
         const pack        = (edits.pack != null && edits.pack !== '') ? edits.pack : (item.pack_description || null);
         const unitPrice   = (edits.unitPrice != null && !isNaN(edits.unitPrice)) ? edits.unitPrice : (item.unit_price != null ? parseFloat(item.unit_price) : null);
-        const lineTotal   = (edits.ext != null && !isNaN(edits.ext)) ? edits.ext : (item.amount != null ? Math.abs(item.amount) : null);
+        // FIX (Approval Economic Integrity Hotfix): lineTotal used to
+        // apply Math.abs() to item.amount, silently flipping a real
+        // negative economic value (e.g. ALT_PAYMENT_METHODS = -49.88)
+        // to positive when WRITTEN to invoice_lines.line_total — a real
+        // data bug, not just the display-only issue the prior task
+        // fixed (that one only touched the row editor's extVal, never
+        // this write). unitPrice (above) already correctly preserves
+        // sign via plain parseFloat; lineTotal must too, or the two
+        // columns on the same row silently disagree on sign and any
+        // sum(line_total) reconciliation is wrong by 2x the adjustment
+        // amount (demonstrated in production: 417.17 instead of 317.41,
+        // a 99.76 = 2*49.88 discrepancy).
+        const lineTotal   = (edits.ext != null && !isNaN(edits.ext)) ? edits.ext : (item.amount != null ? item.amount : null);
 
         // Weight
         const totalG = item.total_weight_lb
@@ -2695,6 +2707,30 @@ window.vdrApprove = async function(docId, btn) {
         // unreachable once this throws. The document correctly stays
         // pending.
         if (ilErr) throw new Error('Failed to save invoice lines — approval aborted: ' + ilErr.message);
+
+        // FIX (Post-Insert Reconciliation Guard, Approval Economic
+        // Integrity Hotfix): before ever marking this document imported,
+        // verify the SIGNED sum of what was just persisted actually
+        // reconciles with the document's own declared total — reusing
+        // the exact same $0.02 tolerance DOC-TOTAL-001 already uses at
+        // parse time (TOTAL_TOLERANCE, js/vendor-parser-ui.js's
+        // checkTotals), never a second, arbitrary convention. Uses
+        // invoiceLineRows[].line_total (the real, signed values just
+        // written to the DB), not item.amount again — this also catches
+        // a bug in THIS write construction itself (exactly the sign bug
+        // just fixed above), not only a parser-level total mismatch.
+        // Demonstrated real case: a flipped adjustment sign silently
+        // produced sum=417.17 vs declared 317.41 (a 99.76 discrepancy) —
+        // this guard would have caught it before ever reaching "Mark
+        // imported" below.
+        if (pj.total != null && !isNaN(parseFloat(pj.total))) {
+          const RECONCILIATION_TOLERANCE = 0.02; // same convention as DOC-TOTAL-001 (checkTotals, js/vendor-parser-ui.js) — never a second convention
+          const sumLineTotals = Math.round(invoiceLineRows.reduce((s, r) => s + (r.line_total || 0), 0) * 100) / 100;
+          const declaredTotal = parseFloat(pj.total);
+          if (Math.abs(sumLineTotals - declaredTotal) > RECONCILIATION_TOLERANCE) {
+            throw new Error(`Invoice lines sum $${sumLineTotals.toFixed(2)} but document total is $${declaredTotal.toFixed(2)} — approval aborted, document remains pending.`);
+          }
+        }
       } else {
         // FIX (BOH OS Task 7): no pre-existing lines and nothing extractable
         // from parsed_json — don't silently mark an incomplete document as
