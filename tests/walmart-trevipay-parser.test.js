@@ -493,17 +493,19 @@ test('pack extraction reference values (Part G): Ground Beef/Ricotta/Strawberrie
   }
 });
 
-test('pack extraction: catch-weight RANGE (19400236, real dash+PUA-glyph shape) -> pack_description null, never an endpoint', () => {
+test('pack extraction: catch-weight RANGE (19400236, real dash+PUA-glyph shape) -> pack_description = full visible range "1.50-4.30lb Tray", never a single endpoint (Walmart semantics/UI fix task)', () => {
   const text = buildProductLine('19400236', 'Perdue Harvestland, Free Range, Fresh Boneless Chicken Breast, 1.50\u{e088} 4.30 lb. Tray', '11.72');
   const item = walmartParser.parse(text).items[0];
-  assert.strictEqual(item.pack_description, null);
+  assert.strictEqual(item.pack_description, '1.50-4.30lb Tray');
   assert.notStrictEqual(item.pack_description, '4.3lb');
   assert.notStrictEqual(item.pack_description, '1.5lb');
 });
-test('pack extraction: catch-weight RANGE (27935840, real double-space shape) -> pack_description null', () => {
+test('pack extraction: catch-weight RANGE (27935840, real double-space shape) -> pack_description = full visible range "2.75-7.0lb Tray"', () => {
   const text = buildProductLine('27935840', 'Freshness Guaranteed Boneless, Skinless Chicken Breasts, 2.75  7.0 lb Tray', '10.69');
   const item = walmartParser.parse(text).items[0];
-  assert.strictEqual(item.pack_description, null);
+  assert.strictEqual(item.pack_description, '2.75-7.0lb Tray');
+  assert.notStrictEqual(item.pack_description, '7.0lb');
+  assert.notStrictEqual(item.pack_description, '2.75lb');
 });
 test('pack extraction: "Each" (Watermelon) -> pack_description = "Each", never a VDR_UNIT_WEIGHTS estimate', () => {
   const text = buildProductLine('44391101', 'Fresh Seedless Watermelon, Each', '4.65');

@@ -212,13 +212,18 @@ test('C8: card badge logic — structural confirmation the three states are dist
   // FIX (deferred matching task, Part D): the badge no longer implies an
   // unmatched invoice is blocked — reworded from "🔗 Needs matching" to
   // "✓ Ready — N unmatched", same positive tone as "Ready to approve".
-  assert.ok(vdrSrc.includes('unmatchedCount'), 'vdrCardHTML must reference the precomputed unmatched count');
+  // FIX (Walmart semantics/UI fix task, Part F): further reworded to
+  // lead with the SKU count, not the line count — "Ready — N SKUs
+  // unmatched" — since matching is vendor+SKU and a line count can vastly
+  // overstate the real work (e.g. 15 repeated-SKU chicken lines are only
+  // 2 real SKUs to resolve).
+  assert.ok(vdrSrc.includes('unmatchedSkuCount'), 'vdrCardHTML must reference the precomputed unmatched SKU count');
   assert.ok(!vdrSrc.slice(vdrSrc.indexOf('function vdrCardHTML')).includes('🔗 Needs matching'), 'the old blocking-sounding wording must be gone');
   const cardFn = vdrSrc.slice(vdrSrc.indexOf('function vdrCardHTML'));
   const qBadgeBlock = cardFn.slice(cardFn.indexOf('const qBadge'), cardFn.indexOf('const qBadge') + 900);
-  assert.ok(qBadgeBlock.includes('Ready — ${unmatchedCount} unmatched'), 'the new wording must exist');
-  assert.ok(/qCount > 0[\s\S]*?unmatchedCount > 0[\s\S]*?Ready to approve/.test(qBadgeBlock),
-    'priority order must be: blocking questions first, then ready-with-unmatched-count, then fully ready');
+  assert.ok(qBadgeBlock.includes('Ready — ${unmatchedSkuCount} SKU'), 'the new SKU-based wording must exist');
+  assert.ok(/qCount > 0[\s\S]*?unmatchedSkuCount > 0[\s\S]*?Ready to approve/.test(qBadgeBlock),
+    'priority order must be: blocking questions first, then ready-with-unmatched-SKU-count, then fully ready');
 });
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

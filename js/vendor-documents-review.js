@@ -78,12 +78,29 @@ async function vdrComputeMatchStatus(sb, docs) {
       if (matchableItems.length === 0) { status[doc.id] = { needsMatching: false }; continue; }
       const matchedSkus  = matchedSkusByVendor[vendor]  || new Set();
       const matchedDescs = matchedDescsByVendor[vendor] || new Set();
-      const unmatchedCount = matchableItems.filter(item => {
+      const unmatchedItems = matchableItems.filter(item => {
         const sku  = item.vendor_sku || item.item_code;
         const desc = item.description || item.raw_description;
         return !(sku && matchedSkus.has(sku)) && !(desc && matchedDescs.has(desc));
-      }).length;
-      status[doc.id] = { needsMatching: unmatchedCount > 0, unmatchedCount };
+      });
+      const unmatchedCount = unmatchedItems.length;
+      // FIX (Walmart semantics/UI fix task): matching is vendor+SKU, so
+      // "15 unmatched lines" can genuinely mean "2 SKUs to resolve"
+      // (e.g. 26104552's 15 chicken-tray rows are only 2 distinct SKUs).
+      // unmatchedLineCount is the same number as unmatchedCount, kept
+      // under both names — unmatchedCount stays for backward
+      // compatibility with existing callers/tests, unmatchedLineCount is
+      // the clearer name new UI code should prefer. unmatchedSkuCount is
+      // new: the count of DISTINCT vendor_sku values among the unmatched
+      // rows (falls back to description when a row has no sku, matching
+      // the same identity the matching check itself uses).
+      const unmatchedSkuSet = new Set(unmatchedItems.map(item => item.vendor_sku || item.item_code || item.description || item.raw_description));
+      status[doc.id] = {
+        needsMatching: unmatchedCount > 0,
+        unmatchedCount,
+        unmatchedLineCount: unmatchedCount,
+        unmatchedSkuCount: unmatchedSkuSet.size,
+      };
     }
   } catch (e) {
     // Read-only, best-effort — a failure here must never break the list
@@ -898,6 +915,27 @@ window.vdrRenderList = function() {
 };
 
 // ── Document card (collapsed) ─────────────────────────────────
+// FIX (Walmart semantics/UI fix task, Part E): "24 items" was misleading
+// for a document mixing product and accounting rows — Chef needs to see
+// how many are real products (and distinct SKUs) vs. accounting noise
+// (Shipping/handling/fulfillment_variance/adjustment). Driven entirely
+// by item.line_type, never hardcoded to any vendor/document — a document
+// where every item is a product (every non-Walmart vendor today, and
+// Walmart credit memos with no accounting rows) falls back to the exact
+// same plain "N items" wording as before, unchanged.
+function vdrDescribeItemCounts(items) {
+  const list = items || [];
+  const productItems    = list.filter(i => !(i.line_type && i.line_type !== 'product'));
+  const accountingItems = list.filter(i => i.line_type && i.line_type !== 'product');
+  if (accountingItems.length === 0) {
+    return list.length + ' item' + (list.length !== 1 ? 's' : '');
+  }
+  const distinctSkus = new Set(productItems.map(i => i.vendor_sku || i.item_code).filter(Boolean));
+  return productItems.length + ' product line' + (productItems.length !== 1 ? 's' : '') +
+    ' · ' + distinctSkus.size + ' SKU' + (distinctSkus.size !== 1 ? 's' : '') +
+    ' · ' + accountingItems.length + ' accounting line' + (accountingItems.length !== 1 ? 's' : '');
+}
+
 function vdrCardHTML(doc) {
   const pj        = doc.parsed_json || {};
   const docLabel  = vdrDocTypeLabel(doc.document_type);
@@ -906,22 +944,28 @@ function vdrCardHTML(doc) {
   const total     = pj.total != null ? '$' + Math.abs(pj.total).toFixed(2) : '—';
   const allQ      = vdrBuildQuestions(doc);
   const qCount    = allQ.length;
-  const itemCount = (pj.items || []).length;
+  const itemCountLabel = vdrDescribeItemCounts(pj.items);
 
   const typeColor = { invoice:'#3B82F6', order_confirmation:'#8b5cf6', credit_memo:'#ef4444' }[doc.document_type] || '#64748b';
 
-  const matchStatus   = (window._vdrMatchStatus && window._vdrMatchStatus[doc.id]) || null;
-  const unmatchedCount = (matchStatus && matchStatus.unmatchedCount) || 0;
+  const matchStatus       = (window._vdrMatchStatus && window._vdrMatchStatus[doc.id]) || null;
+  const unmatchedSkuCount  = (matchStatus && matchStatus.unmatchedSkuCount) || 0;
+  const unmatchedLineCount = (matchStatus && matchStatus.unmatchedLineCount) || 0;
 
   // FIX (deferred matching task, Part D): an invoice with unmatched
   // product SKUs is genuinely approvable now (Chef Max can link them
   // later from inside the app) — the badge must say so plainly rather
   // than implying it's blocked. Same positive/green tone as "Ready to
   // approve" throughout, just with the extra count appended.
+  // FIX (Walmart semantics/UI fix task, Part F): matching is vendor+SKU,
+  // so the badge now leads with the SKU count — the number of decisions
+  // Chef actually has to make — not the line count, which can vastly
+  // overstate the work for a document with many repeated-SKU rows (e.g.
+  // 26104552's 15 unmatched chicken-tray lines are only 2 SKUs).
   const qBadge = qCount > 0
     ? `<span style="background:rgba(245,158,11,0.1);color:#92400e;border:1px solid rgba(245,158,11,0.3);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">❓ ${qCount} question${qCount > 1 ? 's' : ''}</span>`
-    : unmatchedCount > 0
-      ? `<span style="background:rgba(16,185,129,0.08);color:#065f46;border:1px solid rgba(16,185,129,0.2);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">✓ Ready — ${unmatchedCount} unmatched</span>`
+    : unmatchedSkuCount > 0
+      ? `<span style="background:rgba(16,185,129,0.08);color:#065f46;border:1px solid rgba(16,185,129,0.2);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">✓ Ready — ${unmatchedSkuCount} SKU${unmatchedSkuCount !== 1 ? 's' : ''} unmatched</span>`
       : `<span style="background:rgba(16,185,129,0.08);color:#065f46;border:1px solid rgba(16,185,129,0.2);padding:2px 8px;border-radius:20px;font-size:11px;">✓ Ready to approve</span>`;
 
   return `
@@ -936,7 +980,7 @@ function vdrCardHTML(doc) {
           <div style="display:flex;gap:12px;flex-wrap:wrap;">
             <span style="font-size:11px;color:#64748b;">${doc.vendor || '—'}</span>
             <span style="font-size:11px;color:#94a3b8;">${dateStr}</span>
-            <span style="font-size:11px;color:#94a3b8;">${itemCount} item${itemCount !== 1 ? 's' : ''}</span>
+            <span style="font-size:11px;color:#94a3b8;">${itemCountLabel}</span>
             <span style="font-size:11px;color:#1e293b;font-weight:500;">${total}</span>
           </div>
         </div>
@@ -1039,15 +1083,44 @@ window.vdrLookupUnitWeight = function(name) {
 };
 
 // -- Parser pack -> calcolo testuale (solo matematica, zero AI)
+// ── MARKER:VDR_RANGE_GUARD_START ────────────────────────────────────
+// Explicit, shared range detector (Walmart semantics/UI fix task) — used
+// as an UNCONDITIONAL guard by both vdrCalcPack and vdrPackToGrams
+// below, so a catch-weight range pack_description (e.g.
+// "1.50-4.30lb Tray", the exact string the Walmart parser now writes
+// for 19400236) can never be converted into a real single weight by
+// either function — never by accident, never because some other
+// pattern chain happens not to match it today. Matches "number [gap]
+// number oz/lb" where the gap is an ASCII hyphen, an en/em dash, or any
+// glyph in the Private Use Area (the exact unmapped TreviPay hyphen-like
+// character seen before normalization, \u{e088}) — every real
+// separator shape confirmed in production TreviPay text, plus the
+// common Unicode dash variants a human might type when editing the
+// field by hand.
+function isWeightRangePack(pack) {
+  if (!pack) return false;
+  return /\d+(?:\.\d+)?\s*[-\u2012\u2013\u2014\uE000-\uF8FF]\s*\d+(?:\.\d+)?\s*(oz|lb)\b/i.test(pack);
+}
+window.isWeightRangePack = isWeightRangePack;
+// ── MARKER:VDR_RANGE_GUARD_END ──────────────────────────────────────
+
 window.vdrCalcPack = function(pack, catchweight, actualWeightLb, ingredientName) {
   if (!pack) return null;
   var p = pack.trim();
   if (catchweight) {
     if (actualWeightLb) return actualWeightLb.toFixed(1) + 'lb (catchweight)';
+    // FIX (Walmart semantics/UI fix task): no real measured weight was
+    // provided — before falling back to deriving one FROM the pack
+    // text, an unconditional range guard: a range must never resolve
+    // to a computed weight here.
+    if (isWeightRangePack(p)) return null;
     var lbm = p.match(/(\d+(?:\.\d+)?)\s*#/);
     if (lbm) return lbm[1] + 'lb';
     return null;
   }
+  // FIX (Walmart semantics/UI fix task): unconditional range guard for
+  // the non-catchweight path too, before any other pattern below.
+  if (isWeightRangePack(p)) return null;
   // Formato "Xpc / Y#" o "X PC/Y#" — es. "1pc / 28#" = 28lb
   var mpc = p.match(/\d+\s*pc\s*\/\s*(\d+(?:\.\d+)?)\s*#/i);
   if (mpc) return parseFloat(mpc[1]).toFixed(1) + 'lb';
@@ -1102,6 +1175,10 @@ window.vdrPackToGrams = function(pack, catchweight, actualWeightLb, ingredientNa
   if (!pack) return null;
   var p = pack.trim();
   if (catchweight && actualWeightLb) return actualWeightLb * 453.592;
+  // FIX (Walmart semantics/UI fix task): unconditional range guard —
+  // no real measured weight was provided above, so before deriving one
+  // FROM the pack text, a range must never resolve to grams here.
+  if (isWeightRangePack(p)) return null;
   // Formato "Xpc / Y#" o "X PC/Y#" — es. "1pc / 28#" = 28lb
   var mpc = p.match(/\d+\s*pc\s*\/\s*(\d+(?:\.\d+)?)\s*#/i);
   if (mpc) return parseFloat(mpc[1]) * 453.592;
@@ -1234,9 +1311,27 @@ function vdrDetailHTML(doc) {
   if (items.length) {
     var inputStyle = 'border:none;border-bottom:1px solid #e2e8f0;background:transparent;font-weight:600;color:#1e293b;outline:none;padding:0;font-size:12px;font-family:inherit;';
 
+    // FIX (Walmart semantics/UI fix task, Part H): repeated-SKU rows
+    // (e.g. 8 chicken trays under the same SKU, same description) look
+    // identical in the list otherwise. Minimal, non-invasive context —
+    // no new grouping UI — just "(tray N/M)" appended to the name when
+    // a SKU appears more than once, computed generically from the real
+    // vendor_sku values already on these items.
+    var skuOccurrenceTotals = {};
+    items.forEach(function(it) {
+      var s = it.vendor_sku || it.item_code;
+      if (s) skuOccurrenceTotals[s] = (skuOccurrenceTotals[s] || 0) + 1;
+    });
+    var skuOccurrenceSeen = {};
+
     var rows = items.map(function(item, idx) {
       var hasWarning  = (item.warnings || []).length > 0;
       var name        = item.description || item.raw_description || '-';
+      var repeatSku   = item.vendor_sku || item.item_code;
+      if (repeatSku && skuOccurrenceTotals[repeatSku] > 1) {
+        skuOccurrenceSeen[repeatSku] = (skuOccurrenceSeen[repeatSku] || 0) + 1;
+        name += ' (tray ' + skuOccurrenceSeen[repeatSku] + '/' + skuOccurrenceTotals[repeatSku] + ')';
+      }
       var mismatch    = isInvoice && item.qty_ordered !== item.qty_received && item.qty_received != null;
 
       // Valori iniziali (da edits store se gia modificati, altrimenti da item)
@@ -1256,14 +1351,42 @@ function vdrDetailHTML(doc) {
       var scParts   = [];
       if (packCalc) scParts.push(packCalc);
       if (per100g)  scParts.push('$' + per100g + '/100g');
-      var scText    = scParts.length ? scParts.join(' · ') : '—';
-      var scColor   = scParts.length ? '#0369a1' : '#94a3b8';
+      // FIX (Walmart semantics/UI fix task): a catch-weight range pack
+      // (e.g. "1.50-4.30lb Tray") must never show a mute "—" — Chef
+      // needs to know WHY there's no cost/100g: the range is real and
+      // visible in the Pack field above, the actual weight simply isn't
+      // known from this invoice. window.isWeightRangePack is the exact
+      // same guard vdrCalcPack/vdrPackToGrams already used to keep
+      // packCalc/totalG null for this case — reused here only for
+      // wording, never for any computation.
+      var scText, scColor;
+      if (scParts.length) {
+        scText = scParts.join(' · ');
+        scColor = '#0369a1';
+      } else if (window.isWeightRangePack && window.isWeightRangePack(packVal)) {
+        scText = 'Actual weight unavailable (range only)';
+        scColor = '#94a3b8';
+      } else {
+        scText = '—';
+        scColor = '#94a3b8';
+      }
 
       // Stili riga
       var labelColor  = hasWarning ? '#b45309' : '#059669';
       var labelBg     = hasWarning ? 'rgba(245,158,11,0.08)' : 'rgba(16,185,129,0.07)';
       var labelBorder = hasWarning ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.25)';
-      var labelIcon   = hasWarning ? 'Warning' : 'OK';
+      // FIX (Walmart semantics/UI fix task, Part G): a non-product
+      // accounting row (handling/fulfillment_variance/adjustment/
+      // shipping) must never look like a normal, generic "OK" product
+      // row — show its real line_type instead, so it reads as what it
+      // is: never matchable, never an ingredient. A warning still takes
+      // priority over the type label (more urgent to surface). Product
+      // rows are completely unaffected — same "OK"/"Warning" as before;
+      // "OK" here still only ever means "no row-level warning", never
+      // "ingredient matched" (unchanged from prior behavior).
+      var lineTypeLabels = { handling: 'Handling', fulfillment_variance: 'Fulfillment variance', adjustment: 'Adjustment', shipping: 'Shipping' };
+      var isAccountingRow = item.line_type && item.line_type !== 'product';
+      var labelIcon   = hasWarning ? 'Warning' : (isAccountingRow ? (lineTypeLabels[item.line_type] || item.line_type) : 'OK');
       var rowBorder   = hasWarning ? 'border-left:3px solid #f59e0b;' : 'border-left:3px solid #10b981;';
       var qtyColor    = mismatch ? '#ef4444' : '#1e293b';
       var rid         = docId + '-' + idx;
@@ -1303,7 +1426,7 @@ function vdrDetailHTML(doc) {
     }).join('');
 
     itemsHTML = '<div style="padding:6px 0 0;">' +
-      '<div style="padding:4px 14px 6px;font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;">Items (' + items.length + ')</div>' +
+      '<div style="padding:4px 14px 6px;font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;">' + vdrDescribeItemCounts(items) + '</div>' +
       rows +
     '</div>';
   }

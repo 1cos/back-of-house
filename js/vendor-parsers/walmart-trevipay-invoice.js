@@ -272,13 +272,19 @@ function parseRowStart(line) {
 
 // Deterministic pack/weight extraction from the free-text description.
 // Conservative by design — three explicit safety rules:
-//   1. RANGE detection runs first and wins: a catch-weight range shape
-//      ("1.50-4.30 lb" / "2.75  7.0 lb", confirmed real in 26104552 —
-//      the gap between the two numbers is a dash, the unmapped PUA
-//      hyphen-like glyph from the normalizer, or plain whitespace,
-//      never more than a few characters) is EXCLUDED entirely — never
-//      extracts either endpoint, since neither is the real purchased
-//      weight (deliberately different from the single-weight case).
+//   1. A catch-weight RANGE shape ("1.50-4.30 lb" / "2.75  7.0 lb",
+//      confirmed real in 26104552 — the gap between the two numbers is a
+//      dash, the unmapped PUA hyphen-like glyph from the normalizer, or
+//      plain whitespace, never more than a few characters) is now
+//      PRESERVED as a visible display string ("1.50-4.30lb Tray") — a
+//      real, useful fact for Chef to see, since it's genuinely printed on
+//      the invoice — but is NEVER treated as a real single purchased
+//      weight. Safety is enforced explicitly downstream, not by omitting
+//      the value here: vdrPackToGrams/vdrCalcPack (js/vendor-documents-
+//      review.js) both run an unconditional isWeightRangePack() guard
+//      before any other pattern, so this string can never be converted
+//      to grams by accident — extracting neither endpoint as "the"
+//      weight, deliberately different from the single-weight case below.
 //   2. "Each"-sold items (Watermelon, Zucchini) are marked as such in
 //      pack_description but NEVER converted to an assumed weight — no
 //      invented average/density. Downstream grams/cost-per-100g stay
@@ -292,14 +298,18 @@ function parseRowStart(line) {
 //      by construction too, exactly as intended.
 // Never touches raw_description/description — this only ever adds the
 // separate pack_description field.
-const WALMART_PACK_RANGE_RE = /\d+(?:\.\d+)?\D{1,4}\d+(?:\.\d+)?\s*(oz|lb)\b/i;
-const WALMART_PACK_GAL_RE   = /(\d+(?:\.\d+)?)?\s*gal(?:lon)?\b/i;
+const WALMART_PACK_RANGE_RE  = /(\d+(?:\.\d+)?)\D{1,4}(\d+(?:\.\d+)?)\s*(oz|lb)\b\.?\s*(Tray)?/i;
+const WALMART_PACK_GAL_RE    = /(\d+(?:\.\d+)?)?\s*gal(?:lon)?\b/i;
 const WALMART_PACK_WEIGHT_RE = /(\d+(?:\.\d+)?)\s*(oz|lb)\b/i;
-const WALMART_PACK_EACH_RE  = /\beach\b/i;
+const WALMART_PACK_EACH_RE   = /\beach\b/i;
 
 function extractWalmartPack(description) {
   if (!description) return null;
-  if (WALMART_PACK_RANGE_RE.test(description)) return null;
+  const rangeMatch = description.match(WALMART_PACK_RANGE_RE);
+  if (rangeMatch) {
+    const [, num1, num2, unit, tray] = rangeMatch;
+    return num1 + '-' + num2 + unit.toLowerCase() + (tray ? ' Tray' : '');
+  }
   const galMatch = description.match(WALMART_PACK_GAL_RE);
   if (galMatch) return (galMatch[1] || '1') + 'gal';
   const weightMatch = description.match(WALMART_PACK_WEIGHT_RE);

@@ -230,7 +230,7 @@ test('T7f: pack_description identical on both sides for every product item, all 
     });
   }
 });
-test('T7g: real reference values reproduced from the live documents — Ground Beef 10lb, Ricotta 32oz, Milk 1gal, Watermelon/Zucchini Each, chicken-breast ranges null', () => {
+test('T7g: real reference values reproduced from the live documents — Ground Beef 10lb, Ricotta 32oz, Milk 1gal, Watermelon/Zucchini Each, chicken-breast ranges preserved as visible display text (Walmart semantics/UI fix task)', () => {
   const c51 = walmartNode.parse(DOC_TEXT.c51dd720).items;
   const doc69 = walmartNode.parse(DOC_TEXT['069a51f8']).items;
   const doc26 = walmartNode.parse(DOC_TEXT['26104552']).items;
@@ -239,8 +239,8 @@ test('T7g: real reference values reproduced from the live documents — Ground B
   assert.strictEqual(doc69.find(i => i.vendor_sku === '10450114').pack_description, '1gal');
   assert.strictEqual(doc26.find(i => i.vendor_sku === '44391101').pack_description, 'Each');
   assert.strictEqual(doc26.find(i => i.vendor_sku === '44390947').pack_description, 'Each');
-  assert.ok(doc26.filter(i => i.vendor_sku === '19400236').every(i => i.pack_description === null));
-  assert.ok(doc26.filter(i => i.vendor_sku === '27935840').every(i => i.pack_description === null));
+  assert.ok(doc26.filter(i => i.vendor_sku === '19400236').every(i => i.pack_description === '1.50-4.30lb Tray'));
+  assert.ok(doc26.filter(i => i.vendor_sku === '27935840').every(i => i.pack_description === '2.75-7.0lb Tray'));
 });
 
 // ── T8 — Non-zero tax parity (6c246fda) ───────────────────────────────
