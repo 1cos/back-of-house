@@ -1046,7 +1046,18 @@ function poRenderPage(){
 }
 
 function poRenderList(){
+  // FIX (Show Purchase Rhythm on Compile Order Home task, Part B): same
+  // guarded fire-and-forget trigger poRenderReview() already uses below —
+  // starts the load once, never blocks this render, poRenderPage() (the
+  // existing re-render-on-completion mechanism) already re-renders
+  // whichever view is current when the data arrives.
+  if(_poRhythmResults === null && !_poRhythmLoading){
+    _poRhythmLoading = true;
+    poLoadPurchaseRhythmData();
+  }
+
   var html = '';
+  html += poRenderChefAISuggests();
   html += '<div style="background:rgba(255,255,255,0.7);border:1px solid #e2e8f0;border-radius:16px;padding:16px;margin-bottom:16px;">';
   html += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:8px;">Detta o scrivi la lista</div>';
   html += '<textarea id="poInputText" rows="6" placeholder="heavy cream 2 cases\nparsley 3\nbrussels sprouts 10 lb\nshrimp 5 lb" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>';
@@ -1073,6 +1084,63 @@ function poRenderList(){
       });
     });
   }
+  return html;
+}
+
+// ── CHEF AI SUGGESTS (initial view) ─────────────────────────────────────
+// Same engine, same data (_poRhythmResults), same rankCandidates()
+// filtering as poRenderCheckBeforeOrdering() below — this is just an
+// earlier surface for the SAME actionable signals, visible the moment
+// Chef opens Compila Ordine, before composing anything. Never shows
+// NORMAL/SUPPRESSED_VARIABLE/INSUFFICIENT_HISTORY/CROSS_VENDOR_BLIND_SPOT
+// — rankCandidates() already filters to OVERDUE/STRONGLY_OVERDUE/
+// CHECK_SOON only (SEVERITY_RANK in purchase-rhythm.js). No new formula,
+// no new query — same _poRhythmResults the review view already computes,
+// loaded once (poRenderList()'s own fire-and-forget trigger, above).
+function poRenderChefAISuggests(){
+  if(!window.PurchaseRhythm) return '';
+  // Still loading (null): say nothing yet — the list renders immediately
+  // regardless, suggestions appear only once real data exists, avoiding
+  // a flash of an empty-state card before the fetch even resolves.
+  if(_poRhythmResults === null) return '';
+
+  var draftIngredientIds = {};
+  _poDraftLines.forEach(function(l){ if(l.ingredient_id) draftIngredientIds[l.ingredient_id] = true; });
+  var relevant = _poRhythmResults.filter(function(r){ return !draftIngredientIds[r.ingredient_id]; });
+  var actionable = window.PurchaseRhythm.rankCandidates(relevant, 10);
+
+  var html = '<div style="margin-bottom:18px;padding:14px;background:rgba(255,255,255,0.6);border:1px solid #e2e8f0;border-radius:12px;">';
+  html += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:2px;">Chef AI Suggests</div>';
+  // FIX (Hardie's scope, Part G): the engine only ever analyzes Hardie's
+  // purchase history today — this note must always be present whenever
+  // this section renders (with or without actionable items) so the UI
+  // never implies coverage of Walmart/FreshPoint/Frugé/BEK.
+  html += '<div style="font-size:11px;color:#94a3b8;margin-bottom:10px;">Based on Hardie\'s purchase history</div>';
+
+  if(!actionable.length){
+    // FIX (Part E): discreet, single line — never a big empty card, no
+    // false alarm implied by its absence either.
+    html += '<div style="font-size:12px;color:#94a3b8;">Nothing unusual to check today</div>';
+    html += '</div>';
+    return html;
+  }
+
+  actionable.forEach(function(r){
+    var rh = r.rhythm;
+    var rhythmDays = Math.round(rh.median_gap_days);
+    html += '<div style="margin-bottom:10px;">';
+    html += '<div style="font-size:13px;font-weight:600;color:#1e3a5f;">Check ' + _poEsc(r.name) + '</div>';
+    html += '<div style="font-size:12px;color:#64748b;">Usually every ' + rhythmDays + (rhythmDays===1?' day':' days') +
+      ' · last bought ' + rh.days_since_last + (rh.days_since_last===1?' day':' days') + ' ago</div>';
+    // FIX (Part D): only ever the existing RELIABLE quantity signal,
+    // verbatim — never an invented "order N cases" suggestion.
+    if(r.qty && r.qty.quantity_status === 'RELIABLE' && r.qty.median_qty != null){
+      html += '<div style="font-size:12px;color:#64748b;">Usually ' + r.qty.median_qty + (r.qty.dominant_pack ? ' (' + _poEsc(r.qty.dominant_pack) + ')' : '') + '</div>';
+    }
+    html += '</div>';
+  });
+
+  html += '</div>';
   return html;
 }
 
@@ -1225,6 +1293,8 @@ if (typeof module !== 'undefined' && module.exports) {
     poNormalizeVendorName: poNormalizeVendorName,
     poResponsibleFor: poResponsibleFor,
     poRenderCheckBeforeOrdering: poRenderCheckBeforeOrdering,
+    poRenderChefAISuggests: poRenderChefAISuggests,
+    poRenderList: poRenderList,
     poCheckBeforeOrderingWording: poCheckBeforeOrderingWording,
     poSetRhythmResultsForTest: function(results){ _poRhythmResults = results; },
     poSetDraftLinesForTest: function(lines){ _poDraftLines = lines || []; },

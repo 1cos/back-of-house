@@ -1,6 +1,9 @@
 // ── PURCHASE RHYTHM v1 — Deterministic reorder-check engine ──────────────────
 // Version: 1.0.0 — read-only analytical engine, no ML, no DB writes.
-// Status:  Standalone module, not yet wired into purchase-order.js or any UI.
+// Status:  Wired into purchase-order.js (poLoadPurchaseRhythmData(),
+//          poRenderChefAISuggests() on the initial Compila Ordine view,
+//          poRenderCheckBeforeOrdering() on the review view) — both
+//          surfaces share this same engine/data, never duplicated.
 //          Placement rationale: purchase-order.js already owns SKU/vendor
 //          matching (poMatchItem, poResolveVendorForIngredient) — Purchase
 //          Rhythm is a different concern (WHEN to check, not WHICH vendor/SKU)
