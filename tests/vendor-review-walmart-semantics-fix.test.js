@@ -322,9 +322,13 @@ test('G: row label uses the real line_type name for accounting rows (Handling/Fu
   assert.ok(vdrSrc.includes('isAccountingRow'));
 });
 test('G: a warning still takes priority over the type label on any row (more urgent to surface)', () => {
-  const idx = vdrSrc.indexOf('var labelIcon');
-  const line = vdrSrc.slice(idx, vdrSrc.indexOf('\n', idx));
-  assert.ok(line.startsWith('var labelIcon   = hasWarning ? \'Warning\''));
+  // FIX (Walmart visual fix 2 task, Part D): labelIcon is now an if/else-if
+  // chain (to add the Matched/Needs match branch) instead of a single
+  // ternary — the semantic guarantee is unchanged: hasWarning is still
+  // checked first and unconditionally wins.
+  const idx = vdrSrc.indexOf('var labelIcon;');
+  const block = vdrSrc.slice(idx, vdrSrc.indexOf('else if', idx));
+  assert.ok(/if\s*\(hasWarning\)\s*labelIcon\s*=\s*'Warning';/.test(block), "hasWarning must still be the first, unconditional check");
 });
 
 // ══════════════════════════════════════════════════════════════════

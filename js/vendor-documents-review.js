@@ -100,6 +100,12 @@ async function vdrComputeMatchStatus(sb, docs) {
         unmatchedCount,
         unmatchedLineCount: unmatchedCount,
         unmatchedSkuCount: unmatchedSkuSet.size,
+        // FIX (Walmart visual fix 2 task, Part D): the actual Set, not
+        // just its size — lets per-row rendering (vdrDetailHTML) show a
+        // real "Matched"/"Needs match" badge per product row using data
+        // already computed here, with zero new query and zero change to
+        // vdrPreflight/vdrApprove's own, separate matching logic.
+        unmatchedSkuSet,
       };
     }
   } catch (e) {
@@ -936,6 +942,22 @@ function vdrDescribeItemCounts(items) {
     ' · ' + accountingItems.length + ' accounting line' + (accountingItems.length !== 1 ? 's' : '');
 }
 
+// ── MARKER:VDR_DISPLAY_CLEAN_START ──────────────────────────────────
+// Display-only cleanup of the unmapped TreviPay PUA range glyph (or a
+// plain double-space, both confirmed real in 26104552) inside free-text
+// description — turns "1.50<glyph>4.30 lb" / "2.75  7.0 lb" into a
+// readable "1.50–4.30 lb" (en dash) for DISPLAY ONLY. Reuses the exact
+// same "two numbers, short gap, then oz/lb" shape already validated
+// safe against every real fixed-weight description (Task 19's
+// isWeightRangePack sibling) — never touches item.description/
+// item.raw_description themselves, only ever applied to a local display
+// string built from them.
+function vdrCleanDisplayDescription(text) {
+  if (!text) return text;
+  return text.replace(/(\d+(?:\.\d+)?)[^\d]{1,4}(\d+(?:\.\d+)?)(\s*(?:oz|lb)\b)/i, '$1\u2013$2$3');
+}
+// ── MARKER:VDR_DISPLAY_CLEAN_END ────────────────────────────────────
+
 function vdrCardHTML(doc) {
   const pj        = doc.parsed_json || {};
   const docLabel  = vdrDocTypeLabel(doc.document_type);
@@ -1011,6 +1033,15 @@ window.vdrToggle = function(id) {
   const questions = vdrBuildQuestions(doc);
   const qCount = questions.length;
   const total = pj.total != null ? '$' + Math.abs(pj.total).toFixed(2) : '—';
+  // FIX (Walmart visual fix 2 task, Part E): this top-bar badge was a
+  // completely separate readiness indicator from the card's — it never
+  // read unmatchedSkuCount, only qCount, so it always showed a bare
+  // "✓ Ready" even when product SKUs still needed matching. Now uses the
+  // exact same window._vdrMatchStatus data and priority order the card
+  // badge already uses (vdrCardHTML) — card and sheet are now
+  // guaranteed to say the same thing.
+  const sheetMatchStatus = (window._vdrMatchStatus && window._vdrMatchStatus[doc.id]) || null;
+  const sheetUnmatchedSkuCount = (sheetMatchStatus && sheetMatchStatus.unmatchedSkuCount) || 0;
 
   sheet.innerHTML = `
     <div onclick="document.getElementById('vdrSheet').remove()" style="flex:1;background:rgba(0,0,0,0.4);"></div>
@@ -1026,7 +1057,11 @@ window.vdrToggle = function(id) {
           <div style="font-size:14px;font-weight:600;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${doc.vendor || '—'}</div>
           <div style="font-size:11px;color:#94a3b8;">#${doc.document_number || '—'} · ${vdrFmtDate(doc.document_date)} · ${total}</div>
         </div>
-        ${qCount > 0 ? `<span style="background:rgba(245,158,11,0.1);color:#92400e;border:1px solid rgba(245,158,11,0.3);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;flex-shrink:0;">❓ ${qCount}</span>` : `<span style="background:rgba(16,185,129,0.08);color:#065f46;border:1px solid rgba(16,185,129,0.2);padding:3px 10px;border-radius:20px;font-size:11px;flex-shrink:0;">✓ Ready</span>`}
+        ${qCount > 0
+          ? `<span style="background:rgba(245,158,11,0.1);color:#92400e;border:1px solid rgba(245,158,11,0.3);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;flex-shrink:0;">❓ ${qCount}</span>`
+          : sheetUnmatchedSkuCount > 0
+            ? `<span style="background:rgba(16,185,129,0.08);color:#065f46;border:1px solid rgba(16,185,129,0.2);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;flex-shrink:0;">✓ Ready — ${sheetUnmatchedSkuCount} SKU${sheetUnmatchedSkuCount !== 1 ? 's' : ''} unmatched</span>`
+            : `<span style="background:rgba(16,185,129,0.08);color:#065f46;border:1px solid rgba(16,185,129,0.2);padding:3px 10px;border-radius:20px;font-size:11px;flex-shrink:0;">✓ Ready</span>`}
       </div>
       <!-- Scrollable content -->
       <div style="overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;">
@@ -1317,17 +1352,25 @@ function vdrDetailHTML(doc) {
     // no new grouping UI — just "(tray N/M)" appended to the name when
     // a SKU appears more than once, computed generically from the real
     // vendor_sku values already on these items.
+    // FIX (Walmart visual fix 2 task, Part C): scoped to PRODUCT rows
+    // only — accounting rows (handling/fulfillment_variance/adjustment/
+    // shipping) share a placeholder vendor_sku across all their
+    // occurrences on purpose (e.g. Walmart's "SubDown" for every
+    // FULFILL_VARIANCE row) and must never receive a tray index; only a
+    // genuinely repeated PRODUCT vendor_sku should.
     var skuOccurrenceTotals = {};
     items.forEach(function(it) {
-      var s = it.vendor_sku || it.item_code;
+      var isProductRow = !(it.line_type && it.line_type !== 'product');
+      var s = isProductRow ? (it.vendor_sku || it.item_code) : null;
       if (s) skuOccurrenceTotals[s] = (skuOccurrenceTotals[s] || 0) + 1;
     });
     var skuOccurrenceSeen = {};
 
     var rows = items.map(function(item, idx) {
       var hasWarning  = (item.warnings || []).length > 0;
-      var name        = item.description || item.raw_description || '-';
-      var repeatSku   = item.vendor_sku || item.item_code;
+      var name        = vdrCleanDisplayDescription(item.description || item.raw_description || '-');
+      var isProductRow = !(item.line_type && item.line_type !== 'product');
+      var repeatSku   = isProductRow ? (item.vendor_sku || item.item_code) : null;
       if (repeatSku && skuOccurrenceTotals[repeatSku] > 1) {
         skuOccurrenceSeen[repeatSku] = (skuOccurrenceSeen[repeatSku] || 0) + 1;
         name += ' (tray ' + skuOccurrenceSeen[repeatSku] + '/' + skuOccurrenceTotals[repeatSku] + ')';
@@ -1339,7 +1382,17 @@ function vdrDetailHTML(doc) {
       var qtyVal    = edits.qty      != null ? edits.qty      : (isCredit ? (item.qty_credited || '') : (item.catchweight === true ? 1 : (item.qty_ordered != null ? item.qty_ordered : (item.qty_received != null ? item.qty_received : ''))));
       var packVal   = edits.pack     != null ? edits.pack     : (item.pack_description || '');
       var unitVal   = edits.unitPrice!= null ? edits.unitPrice: (item.unit_price != null ? parseFloat(item.unit_price).toFixed(2) : (item.price_per_lb != null ? parseFloat(item.price_per_lb).toFixed(2) : ''));
-      var extVal    = edits.ext      != null ? edits.ext      : (item.amount != null ? Math.abs(item.amount).toFixed(2) : '');
+      // FIX (Walmart visual fix 2 task, Part B): Math.abs() here silently
+      // flipped a negative amount (e.g. ALT_PAYMENT_METHODS = -49.88) to
+      // display as positive, while Unit (unitVal, below) already
+      // correctly preserved sign via plain parseFloat — a real, visible
+      // asymmetry between the two fields on the same row. Ext must show
+      // the real signed amount, exactly like Unit does. This only
+      // affects display: the value stored in parsed_json/invoice_lines
+      // remains item.amount itself (line_total below already used
+      // Math.abs() too — left untouched here per this task's scope,
+      // which is display rendering only).
+      var extVal    = edits.ext      != null ? edits.ext      : (item.amount != null ? item.amount.toFixed(2) : '');
 
       // Calcolo Sous Chef iniziale — usa ext/qty come prezzo reale per pack
       var packCalc  = window.vdrCalcPack(packVal, item.catchweight, item.actual_weight_lb, name);
@@ -1371,23 +1424,44 @@ function vdrDetailHTML(doc) {
         scColor = '#94a3b8';
       }
 
-      // Stili riga
-      var labelColor  = hasWarning ? '#b45309' : '#059669';
-      var labelBg     = hasWarning ? 'rgba(245,158,11,0.08)' : 'rgba(16,185,129,0.07)';
-      var labelBorder = hasWarning ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.25)';
       // FIX (Walmart semantics/UI fix task, Part G): a non-product
       // accounting row (handling/fulfillment_variance/adjustment/
       // shipping) must never look like a normal, generic "OK" product
       // row — show its real line_type instead, so it reads as what it
       // is: never matchable, never an ingredient. A warning still takes
-      // priority over the type label (more urgent to surface). Product
-      // rows are completely unaffected — same "OK"/"Warning" as before;
-      // "OK" here still only ever means "no row-level warning", never
-      // "ingredient matched" (unchanged from prior behavior).
+      // priority over the type label (more urgent to surface).
       var lineTypeLabels = { handling: 'Handling', fulfillment_variance: 'Fulfillment variance', adjustment: 'Adjustment', shipping: 'Shipping' };
       var isAccountingRow = item.line_type && item.line_type !== 'product';
-      var labelIcon   = hasWarning ? 'Warning' : (isAccountingRow ? (lineTypeLabels[item.line_type] || item.line_type) : 'OK');
-      var rowBorder   = hasWarning ? 'border-left:3px solid #f59e0b;' : 'border-left:3px solid #10b981;';
+      // FIX (Walmart visual fix 2 task, Part D): a product row now shows
+      // its REAL match status instead of always "OK" — reuses the exact
+      // Set already computed by vdrComputeMatchStatus for this document
+      // (same identity as the matching check itself: vendor_sku falling
+      // back to description) — zero new query, zero change to
+      // vdrPreflight/vdrApprove's own matching/approval logic. Falls
+      // back to the old generic 'OK' only when no match-status data
+      // exists for this document (e.g. non-invoice types, where
+      // ingredient matching never applies) — never invents a false
+      // Matched/Needs match without real data.
+      var docMatchStatus = (window._vdrMatchStatus && window._vdrMatchStatus[docId]) || null;
+      var productKey = item.vendor_sku || item.item_code || item.description || item.raw_description;
+      var rowNeedsMatch = !isAccountingRow && docMatchStatus && docMatchStatus.unmatchedSkuSet && docMatchStatus.unmatchedSkuSet.has(productKey);
+      var labelIcon;
+      if (hasWarning) labelIcon = 'Warning';
+      else if (isAccountingRow) labelIcon = lineTypeLabels[item.line_type] || item.line_type;
+      else if (docMatchStatus && docMatchStatus.unmatchedSkuSet) labelIcon = rowNeedsMatch ? 'Needs match' : 'Matched';
+      else labelIcon = 'OK';
+
+      // Stili riga — "Needs match" gets its own blue tone (same family
+      // as the document-level "Ready — N SKUs unmatched" badge) so it
+      // never looks identical to a genuinely matched/OK green row.
+      var labelColor, labelBg, labelBorder, rowBorder;
+      if (hasWarning) {
+        labelColor = '#b45309'; labelBg = 'rgba(245,158,11,0.08)'; labelBorder = 'rgba(245,158,11,0.25)'; rowBorder = 'border-left:3px solid #f59e0b;';
+      } else if (rowNeedsMatch) {
+        labelColor = '#1e40af'; labelBg = 'rgba(59,130,246,0.08)'; labelBorder = 'rgba(59,130,246,0.25)'; rowBorder = 'border-left:3px solid #3b82f6;';
+      } else {
+        labelColor = '#059669'; labelBg = 'rgba(16,185,129,0.07)'; labelBorder = 'rgba(16,185,129,0.25)'; rowBorder = 'border-left:3px solid #10b981;';
+      }
       var qtyColor    = mismatch ? '#ef4444' : '#1e293b';
       var rid         = docId + '-' + idx;
       var onInput     = 'window.vdrRecalcRow(\'' + docId + '\',' + idx + ',this)';
