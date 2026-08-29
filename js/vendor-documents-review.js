@@ -2684,7 +2684,17 @@ window.vdrApprove = async function(docId, btn) {
 
       if (invoiceLineRows.length) {
         const { error: ilErr } = await sb.from('invoice_lines').insert(invoiceLineRows);
-        if (ilErr) console.warn('invoice_lines insert warning:', ilErr.message);
+        // FIX (Approval Safety task): a failed insert used to be only
+        // console.warn'd, then execution fell through anyway all the way
+        // to "Mark imported" below — a real false-success risk (status=
+        // imported with zero real invoice_lines persisted). Now fails
+        // closed: this throw is caught by vdrApprove's own catch (which
+        // already shows a visible toast — see its final catch block),
+        // and — because "Mark imported" is a later, separate statement
+        // in this same sequential function — that update is structurally
+        // unreachable once this throws. The document correctly stays
+        // pending.
+        if (ilErr) throw new Error('Failed to save invoice lines — approval aborted: ' + ilErr.message);
       } else {
         // FIX (BOH OS Task 7): no pre-existing lines and nothing extractable
         // from parsed_json — don't silently mark an incomplete document as
