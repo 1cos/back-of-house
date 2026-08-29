@@ -153,6 +153,62 @@ window.vdrBackfillInvoiceLines = async function(sb, vendor, vendorSku, ingredien
 };
 // ── MARKER:VDR_BACKFILL_END ─────────────────────────────────────────
 
+// ── MARKER:VDR_SAVE_SKU_MAPPING_START ────────────────────────────────
+// FIX (Manual SKU Match task): the single, shared core for "vendor+
+// vendor_sku now resolves to an ingredient" — used by BOTH the
+// Ingredient Card (window.saveNewVendorRow, js/ingredients.js) and
+// Vendor Review's new inline Match action (vdrOpenMatchSelector below),
+// so the two surfaces can never diverge on what "save a mapping"
+// actually means, or on when vdrBackfillInvoiceLines() gets called.
+// Conflict-safe by construction: a DIFFERENT ingredient_id already
+// mapped to this exact vendor+vendor_sku is never silently overwritten
+// — the caller gets an explicit 'conflict' result and must decide.
+// extraFields (optional): additional ingredient_vendors columns to
+// include only on a genuinely NEW insert (e.g. the Ingredient Card's
+// own pricing fields) — never applied to an existing row, matching or
+// not, to avoid this shared helper silently mutating price data nobody
+// asked it to touch.
+window.vdrSaveVendorSkuMapping = async function(sb, vendor, vendorSku, ingredientId, extraFields) {
+  if (!sb || !vendor || !vendorSku || !ingredientId) return { status: 'error', message: 'Missing required field' };
+  extraFields = extraFields || {};
+  try {
+    const { data: existingRows, error: selErr } = await sb
+      .from('ingredient_vendors')
+      .select('id,ingredient_id')
+      .eq('vendor', vendor)
+      .eq('vendor_sku', vendorSku);
+    if (selErr) return { status: 'error', message: selErr.message };
+
+    const existing = (existingRows || [])[0];
+    if (existing) {
+      if (existing.ingredient_id === ingredientId) {
+        // Idempotent — already mapped correctly. Still safe to backfill:
+        // vdrBackfillInvoiceLines only ever touches ingredient_id IS NULL
+        // rows, so re-running it here can only help, never duplicate work.
+        const bf = window.vdrBackfillInvoiceLines ? await window.vdrBackfillInvoiceLines(sb, vendor, vendorSku, ingredientId) : { backfilled: 0 };
+        return { status: 'idempotent', row: existing, backfilled: bf.backfilled };
+      }
+      // A different ingredient_id is already mapped to this exact
+      // vendor+vendor_sku — never silently overwritten.
+      return { status: 'conflict', existing_ingredient_id: existing.ingredient_id };
+    }
+
+    const insertRow = Object.assign({ vendor: vendor, vendor_sku: vendorSku, ingredient_id: ingredientId, active: true }, extraFields);
+    const { data: inserted, error: insErr } = await sb
+      .from('ingredient_vendors')
+      .insert(insertRow)
+      .select('id')
+      .single();
+    if (insErr) return { status: 'error', message: insErr.message };
+
+    const bf = window.vdrBackfillInvoiceLines ? await window.vdrBackfillInvoiceLines(sb, vendor, vendorSku, ingredientId) : { backfilled: 0 };
+    return { status: 'created', row: inserted, backfilled: bf.backfilled };
+  } catch (e) {
+    return { status: 'error', message: e && e.message };
+  }
+};
+// ── MARKER:VDR_SAVE_SKU_MAPPING_END ──────────────────────────────────
+
 window.vdrLoad = async function() {
   const list = document.getElementById('vdrList');
   if (!list) return;
@@ -1311,6 +1367,7 @@ function vdrDetailHTML(doc) {
   const isCredit  = doc.document_type === 'credit_memo';
   const questions = vdrBuildQuestions(doc);
   const docId     = doc.id;
+  const docVendor = pj.vendor || doc.vendor || '';
 
   // Init edits store per questo doc
   if (!window._vdrEdits[docId]) window._vdrEdits[docId] = {};
@@ -1466,11 +1523,19 @@ function vdrDetailHTML(doc) {
       var rid         = docId + '-' + idx;
       var onInput     = 'window.vdrRecalcRow(\'' + docId + '\',' + idx + ',this)';
 
+      var canMatchThisRow = rowNeedsMatch && !!item.vendor_sku;
+      var matchOnclick = canMatchThisRow
+        ? "window.vdrOpenMatchSelector('" + docId + "','" + String(docVendor).replace(/'/g, "\\'") + "','" + String(item.vendor_sku).replace(/'/g, "\\'") + "','" + String(name).replace(/'/g, "\\'") + "',this)"
+        : '';
+      var labelHtml = canMatchThisRow
+        ? '<button onclick="' + matchOnclick + '" style="font-size:10px;font-weight:700;color:' + labelColor + ';background:' + labelBg + ';border:1px solid ' + labelBorder + ';padding:1px 7px 1px 8px;border-radius:6px;white-space:nowrap;cursor:pointer;display:inline-flex;align-items:center;gap:3px;">' + labelIcon + ' <span style="text-decoration:underline;">· Match</span></button>'
+        : '<span style="font-size:10px;font-weight:700;color:' + labelColor + ';background:' + labelBg + ';border:1px solid ' + labelBorder + ';padding:1px 7px;border-radius:6px;white-space:nowrap;">' + labelIcon + '</span>';
+
       return '<div data-vdr-row="' + rid + '" style="padding:10px 14px;border-bottom:1px solid #f1f5f9;' + rowBorder + '">' +
 
         // Riga 1: label + nome
         '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
-          '<span style="font-size:10px;font-weight:700;color:' + labelColor + ';background:' + labelBg + ';border:1px solid ' + labelBorder + ';padding:1px 7px;border-radius:6px;white-space:nowrap;">' + labelIcon + '</span>' +
+          labelHtml +
           '<span data-ingr-name="' + name + '" style="font-size:13px;font-weight:600;color:#1e293b;">' + name + '</span>' +
           (item.is_substitution ? '<span style="font-size:9px;font-weight:700;color:#f59e0b;margin-left:2px;">SUB</span>' : '') +
         '</div>' +
@@ -2856,6 +2921,143 @@ window.vdrApprove = async function(docId, btn) {
 };
 
 // ── MATCH MODAL (opens BEFORE approve, not during) ─────────────
+// ── MATCH SELECTOR (Manual SKU Match task) — per-SKU, ingredient_vendors only ──
+// This is the ACTIVE match path, reachable from the real "Needs match ·
+// Match" button on any unmatched product row (see labelHtml above).
+// vdrShowMatchModal() below is the OLD, unreachable (dead-code) system —
+// left untouched, never reactivated, never called from here.
+//
+// Contract: vendor + vendor_sku -> ingredient_id -> ingredient_vendors,
+// via the shared window.vdrSaveVendorSkuMapping() helper (same one
+// js/ingredients.js's saveNewVendorRow() uses) -> vdrBackfillInvoiceLines().
+// Never writes ingredient_links. Never creates a new ingredient (search
+// only, over the exact same `ingredients` table/columns
+// js/ingredients.js's searchIngredient() already queries).
+//
+// Per-SKU, not per-row: the button only ever appears when item.vendor_sku
+// is present (see canMatchThisRow above) — a single tap matches every
+// row sharing that vendor_sku, since the underlying mapping (and the
+// backfill it triggers) is keyed on vendor+vendor_sku, never a row index.
+window.vdrOpenMatchSelector = async function(docId, vendor, vendorSku, description, btn) {
+  const sb = window.supabaseClient;
+  if (!sb) return;
+
+  const existingModal = document.getElementById('_vdrMatchSelector');
+  if (existingModal) existingModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = '_vdrMatchSelector';
+  // z-index above the Vendor Review sheet (70) — this must always be
+  // reachable from an already-open document detail.
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9400;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.5);';
+
+  let selected = null; // {id, name, category}
+  let results = [];
+  let statusMsg = '';
+  let statusColor = '#94a3b8';
+
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function render() {
+    const resultsHtml = results.length
+      ? results.map(function(r, i) {
+          const isSel = selected && selected.id === r.id;
+          return '<button onclick="window.vdrMatchSelectorPick(' + i + ')" style="width:100%;text-align:left;padding:10px 12px;border-radius:10px;border:1px solid ' + (isSel ? '#3b82f6' : '#e2e8f0') + ';background:' + (isSel ? 'rgba(59,130,246,0.08)' : 'white') + ';margin-bottom:6px;cursor:pointer;display:block;">' +
+            '<div style="font-size:13px;font-weight:600;color:#1e293b;">' + esc(r.name) + '</div>' +
+            (r.category ? '<div style="font-size:11px;color:#94a3b8;">' + esc(r.category) + '</div>' : '') +
+            '</button>';
+        }).join('')
+      : '<div style="font-size:12px;color:#94a3b8;padding:8px 0;">Type an ingredient name to search.</div>';
+
+    modal.innerHTML =
+      '<div style="background:white;border-radius:20px 20px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:80vh;display:flex;flex-direction:column;">' +
+        '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 12px;"></div>' +
+        '<div style="font-size:15px;font-weight:600;color:#1e293b;margin-bottom:2px;">Match ingredient</div>' +
+        '<div style="font-size:12px;color:#64748b;margin-bottom:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(description) + ' · SKU ' + esc(vendorSku) + '</div>' +
+        '<input id="_vdrMatchSearchInput" type="text" inputmode="search" placeholder="Search ingredients..." style="width:100%;height:44px;padding:0 12px;border:1px solid #e2e8f0;border-radius:12px;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:10px;" />' +
+        '<div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-bottom:10px;">' + resultsHtml + '</div>' +
+        (statusMsg ? '<div style="font-size:12px;color:' + statusColor + ';margin-bottom:8px;">' + esc(statusMsg) + '</div>' : '') +
+        '<div style="display:flex;gap:8px;">' +
+          '<button onclick="document.getElementById(\'_vdrMatchSelector\').remove()" style="flex:1;height:44px;border-radius:12px;background:#f1f5f9;color:#475569;border:none;font-size:13px;cursor:pointer;">Cancel</button>' +
+          '<button id="_vdrMatchConfirmBtn" onclick="window.vdrMatchSelectorConfirm()" ' + (selected ? '' : 'disabled') + ' style="flex:1;height:44px;border-radius:12px;background:' + (selected ? '#1e293b' : '#cbd5e1') + ';color:white;border:none;font-size:13px;font-weight:600;cursor:' + (selected ? 'pointer' : 'default') + ';">Confirm</button>' +
+        '</div>' +
+      '</div>';
+
+    const input = document.getElementById('_vdrMatchSearchInput');
+    if (input) {
+      input.value = _vdrMatchSelectorLastQuery;
+      input.focus();
+      input.addEventListener('input', function() {
+        _vdrMatchSelectorLastQuery = input.value;
+        doSearch(input.value);
+      });
+    }
+  }
+
+  var _vdrMatchSelectorLastQuery = '';
+  var searchDebounce = null;
+  async function doSearch(q) {
+    clearTimeout(searchDebounce);
+    if (!q || q.trim().length < 2) { results = []; selected = null; render(); return; }
+    searchDebounce = setTimeout(async function() {
+      if (typeof window.searchIngredient !== 'function') {
+        statusMsg = 'Ingredient search unavailable.'; statusColor = '#b45309'; render(); return;
+      }
+      results = await window.searchIngredient(q.trim());
+      render();
+    }, 200);
+  }
+
+  window.vdrMatchSelectorPick = function(i) {
+    selected = results[i] || null;
+    render();
+  };
+
+  window.vdrMatchSelectorConfirm = async function() {
+    if (!selected) return;
+    const confirmBtn = document.getElementById('_vdrMatchConfirmBtn');
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Saving...'; }
+
+    const result = await window.vdrSaveVendorSkuMapping(sb, vendor, vendorSku, selected.id);
+
+    if (result.status === 'created' || result.status === 'idempotent') {
+      modal.remove();
+      if (typeof showScToast === 'function') {
+        showScToast('✓ Matched to ' + selected.name + (result.backfilled ? ' — ' + result.backfilled + ' line' + (result.backfilled === 1 ? '' : 's') + ' updated' : ''));
+      }
+      // Re-render the open detail sheet safely: recompute this one
+      // document's match status fresh (never a manual Set mutation),
+      // then let vdrToggle's own remove-and-recreate do the redraw —
+      // no manual refresh needed.
+      const allDocs = window._vdrAllDocs || [];
+      const freshDoc = allDocs.find(function(d) { return d.id === docId; });
+      if (freshDoc && typeof vdrComputeMatchStatus === 'function') {
+        const updatedStatus = await vdrComputeMatchStatus(sb, [freshDoc]);
+        window._vdrMatchStatus = Object.assign({}, window._vdrMatchStatus, updatedStatus);
+      }
+      if (typeof window.vdrToggle === 'function') window.vdrToggle(docId);
+      return;
+    }
+
+    if (result.status === 'conflict') {
+      statusMsg = 'This SKU is already matched to a different ingredient. Choose a different ingredient, or resolve the existing mapping first — nothing was overwritten.';
+      statusColor = '#b45309';
+      if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm'; }
+      render();
+      return;
+    }
+
+    // status === 'error'
+    statusMsg = 'Save failed: ' + (result.message || 'unknown error');
+    statusColor = '#b91c1c';
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm'; }
+    render();
+  };
+
+  document.body.appendChild(modal);
+  render();
+};
+
 async function vdrShowMatchModal(unmatchedItems, allItems, vendor, sb, docId) {
   const { data: allIngr } = await sb.from('ingredients').select('id,name,category').eq('active', true);
   const ingrs = (allIngr || []).filter(i => i.category !== 'Supply');

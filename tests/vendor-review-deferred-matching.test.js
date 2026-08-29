@@ -294,9 +294,14 @@ test('F5: structural — vdrApprove\'s new-insert AND populate_sku paths both fe
   assert.strictEqual(occurrences, 2, 'both the new-insert and populate_sku cases must push a backfill target');
   assert.ok(approveSrc.includes('window.vdrBackfillInvoiceLines(sb, t.vendor, t.vendor_sku, t.ingredient_id)'), 'vdrApprove must call the shared backfill function, not reimplement it');
 });
-test('F6: structural — ingredients.js saveNewVendorRow calls the SAME shared backfill function, not a second implementation', () => {
+test('F6: structural — ingredients.js saveNewVendorRow calls the SAME shared core (vdrSaveVendorSkuMapping), which itself calls the shared backfill — not a second implementation', () => {
   const ingrSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'ingredients.js'), 'utf8');
-  assert.ok(ingrSrc.includes('window.vdrBackfillInvoiceLines'), 'saveNewVendorRow must call the shared backfill function');
+  // FIX (Manual SKU Match task): saveNewVendorRow was refactored to go
+  // through window.vdrSaveVendorSkuMapping (js/vendor-documents-review.js)
+  // — the same shared core Vendor Review's own inline Match action uses —
+  // which calls vdrBackfillInvoiceLines internally. Even more centralized
+  // than the direct call this test originally checked for, same guarantee.
+  assert.ok(ingrSrc.includes('window.vdrSaveVendorSkuMapping'), 'saveNewVendorRow must call the shared save-mapping core, which itself calls the shared backfill function');
   assert.ok(!/from\(\s*['"]invoice_lines['"]\s*\)\s*\.update/i.test(ingrSrc),
     'ingredients.js must not reimplement its own invoice_lines update/backfill logic — it must only ever call it through the shared function');
 });

@@ -269,6 +269,9 @@ async function searchIngredient(name){
     .ilike('name', `%${name}%`).eq('active',true).limit(10);
   return data||[];
 }
+// FIX (Manual SKU Match task): exposed so Vendor Review's new inline
+// Match selector reuses this exact same search — never a duplicated query.
+window.searchIngredient = searchIngredient;
 
 // ── CALCOLA COSTO (Chef AI) ───────────────────────────────────
 async function calculateIngredientCost(ingredientName, qty, unit){
@@ -978,26 +981,32 @@ window.saveNewVendorRow = async function(ingredientId, btn){
     else if(conv > 0)                  p100 = parseFloat(((up / conv) * 100).toFixed(4));
   }
 
-  const {error} = await supa.from('ingredient_vendors').insert({
-    ingredient_id:      ingredientId,
-    vendor:             vendorVal,
-    vendor_sku:         vendorSkuVal,
+  // FIX (Manual SKU Match task): now goes through the shared core
+  // (window.vdrSaveVendorSkuMapping, js/vendor-documents-review.js) that
+  // Vendor Review's own inline Match action also uses — same conflict
+  // safety, same single insert (extraFields below are only ever applied
+  // on a genuinely new row, exactly matching this function's own prior
+  // insert-only behavior), same vdrBackfillInvoiceLines() call. Never
+  // two divergent implementations of "save a vendor SKU mapping".
+  const result = await window.vdrSaveVendorSkuMapping(supa, vendorVal, vendorSkuVal, ingredientId, {
     unit_price:         up,
     pack_description:   document.getElementById('avPackDesc')?.value?.trim()||null,
     conversion_to_base: conv,
     price_per_each:     pricePerEach,
     price_per_100g:     p100,
     price_type:         priceTypeVal,
-    active:             true,
   });
-  if(error){ btn.textContent='Error: '+error.message; btn.disabled=false; return; }
-  // FIX (deferred matching task, Part E): a manually-added vendor listing
-  // is exactly as valid a "vendor+SKU now resolves to an ingredient"
-  // event as the one vdrApprove's own write loop handles — reuses the
-  // same shared backfill, never duplicates its logic here.
-  if (window.vdrBackfillInvoiceLines) {
-    await window.vdrBackfillInvoiceLines(supa, vendorVal, vendorSkuVal, ingredientId);
+
+  if(result.status === 'error'){ btn.textContent='Error: '+result.message; btn.disabled=false; return; }
+  if(result.status === 'conflict'){
+    // Previously this exact case would have just failed with a generic
+    // unique-constraint DB error — now explicit and non-destructive,
+    // matching the same conflict-safety Vendor Review's Match action has.
+    btn.textContent = 'Already matched to a different ingredient';
+    btn.disabled = false;
+    return;
   }
+  // 'created' or 'idempotent' — backfill already ran inside the helper.
   btn.closest('.fixed').remove();
   document.querySelectorAll('.fixed.inset-0').forEach(m=>m.remove());
   openIngredientCard(ingredientId);
