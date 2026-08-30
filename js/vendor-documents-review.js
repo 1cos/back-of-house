@@ -23,37 +23,15 @@ window.vdrSetVendor = function(v) {
   vdrRenderList();
 };
 
-// ── Open/History view (Vendor Documents History task) ──────────
-// 'open' = the existing operational workflow (pending/error), completely
-// unchanged. 'history' = imported documents, loaded separately
-// (window._vdrHistoryDocs, never mixed into window._vdrAllDocs) so the
-// Open workflow's own data/counts/matching-readiness computation is
-// never affected by History even existing.
-let vdrCurrentView = 'open';
-
-window.vdrSetView = function(v) {
-  vdrCurrentView = v;
-  vdrCurrentVendor = 'all'; // reset — a vendor tab selected in one view may not exist in the other
-  document.querySelectorAll('[id^="vdrView-"]').forEach(btn => {
-    const active = btn.id === 'vdrView-' + v;
-    btn.style.background = active ? '#1e3a5f' : '#f1f5f9';
-    btn.style.color = active ? 'white' : '#475569';
-  });
-  vdrRenderVendorTabs();
-  vdrRenderList();
-};
-
-function vdrCurrentViewDocs() {
-  return vdrCurrentView === 'history' ? (window._vdrHistoryDocs || []) : (window._vdrAllDocs || []);
-}
-
-// Extracted from vdrLoad() (Vendor Documents History task) so the exact
-// same tab-building logic can run for whichever view is currently
-// active — Open or History — without duplicating it.
+// Extracted so vdrLoad() doesn't need this logic inlined — always
+// builds tabs from the Open (pending/error) documents, exactly as
+// before the Open/History toggle experiment (Restore Original Match
+// UX task, Part G: the toggle itself is removed; Vendor Documents is
+// again only the operational pending/error queue).
 function vdrRenderVendorTabs() {
   const tabsEl = document.getElementById('vdrVendorTabs');
   if (!tabsEl) return;
-  const data = vdrCurrentViewDocs();
+  const data = window._vdrAllDocs || [];
   const vendors = [...new Set(data.map(d => d.vendor).filter(Boolean))].sort();
   if (vendors.length > 1) {
     const shortName = v => {
@@ -991,13 +969,12 @@ window.vdrReprocessOne = async function(docId, btn) {
 window.vdrRenderList = function() {
   const list = document.getElementById('vdrList');
   if (!list) return;
-  const allDocs = vdrCurrentViewDocs();
-  const pdfQueue = vdrCurrentView === 'open' ? (window._vdrPdfQueue || []) : [];
+  const allDocs = window._vdrAllDocs || [];
+  const pdfQueue = window._vdrPdfQueue || [];
 
   let html = '';
 
-  // PDF banner — Open only; History documents are already imported,
-  // this banner is never relevant there.
+  // PDF banner
   if (pdfQueue.length > 0) {
     html += `<div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:14px;padding:14px 16px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -1016,16 +993,10 @@ window.vdrRenderList = function() {
     : allDocs.filter(d => (d.vendor||'').replace(/[^a-z0-9]/gi,'_') === vdrCurrentVendor);
 
   if (filtered.length === 0 && pdfQueue.length === 0) {
-    // FIX (Vendor Documents History task, Part G): distinct, separate
-    // empty-state wording per view — never a shared "pending" message
-    // inside History.
-    const emptyLabel = vdrCurrentView === 'history'
-      ? (vdrCurrentVendor === 'all' ? 'No imported documents' : 'No imported documents for this vendor')
-      : (vdrCurrentVendor === 'all' ? 'No pending documents' : 'No pending documents for this vendor');
     html += `<div style="text-align:center;padding:48px 0;">
-      <div style="font-size:32px;margin-bottom:10px;">${vdrCurrentView === 'history' ? '🗂️' : '✅'}</div>
-      <div style="font-size:14px;font-weight:500;color:#1e293b;margin-bottom:4px;">${vdrCurrentView === 'history' ? 'Nothing here yet' : 'All clear'}</div>
-      <div style="font-size:12px;color:#94a3b8;">${emptyLabel}</div>
+      <div style="font-size:32px;margin-bottom:10px;">✅</div>
+      <div style="font-size:14px;font-weight:500;color:#1e293b;margin-bottom:4px;">All clear</div>
+      <div style="font-size:12px;color:#94a3b8;">${vdrCurrentVendor === 'all' ? 'No pending documents' : 'No pending documents for this vendor'}</div>
     </div>`;
   } else {
     html += filtered.map(doc => vdrCardHTML(doc)).join('');
@@ -3006,52 +2977,99 @@ window.vdrOpenMatchSelector = async function(docId, vendor, vendorSku, descripti
   const existingModal = document.getElementById('_vdrMatchSelector');
   if (existingModal) existingModal.remove();
 
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // ── HISTORIC CANDIDATE ENGINE (Restore Original Match UX task) ──
+  // Verbatim keyword-scoring logic from vdrShowMatchModal (commit
+  // 5475fea, "post-approve match modal with ingredient linking") — the
+  // exact UX Chef Max used and preferred. Scores every active ingredient
+  // (excluding Supply) against keywords extracted from the REAL invoice
+  // line description, so candidates are ready the instant the modal
+  // opens — the Chef never has to type anything first. Search (below)
+  // remains available only as an explicit fallback.
+  const STOP_WORDS = ['large','small','medium','fresh','whole','organic','baby','jumbo','wild','red','green','yellow','white','black','blue','sliced','diced','chopped','dried','frozen','raw','salted','unsalted','ground','grated'];
+  function findMatches(desc, ingrs) {
+    const kws = (desc || '').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
+      .filter(function(w) { return w.length > 2 && STOP_WORDS.indexOf(w) === -1; });
+    if (!kws.length) return [];
+    return ingrs.map(function(i) {
+      const n = i.name.toLowerCase();
+      const score = kws.filter(function(k) { return n.indexOf(k) > -1; }).length;
+      return Object.assign({}, i, { score: score });
+    }).filter(function(x) { return x.score > 0; })
+      .sort(function(a,b) { return b.score - a.score || a.name.length - b.name.length; })
+      .slice(0, 3);
+  }
+
+  // Fetch ingredients and compute candidates BEFORE the modal is ever
+  // created/appended — matches the historic behavior exactly, so there
+  // is never an empty or "no results" flash on open.
+  const { data: allIngr } = await sb.from('ingredients').select('id,name,category').eq('active', true);
+  const ingrs = (allIngr || []).filter(function(i) { return i.category !== 'Supply'; });
+  let candidates = findMatches(description, ingrs);
+
   const modal = document.createElement('div');
   modal.id = '_vdrMatchSelector';
   // z-index above the Vendor Review sheet (70) — this must always be
   // reachable from an already-open document detail.
   modal.style.cssText = 'position:fixed;inset:0;z-index:9400;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.5);';
 
-  let selected = null; // {id, name, category}
-  let results = [];
+  let searchOpen = false;
+  let searchResults = [];
   let statusMsg = '';
   let statusColor = '#94a3b8';
-
-  function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  let saving = false;
 
   function render() {
-    const resultsHtml = results.length
-      ? results.map(function(r, i) {
-          const isSel = selected && selected.id === r.id;
-          return '<button onclick="window.vdrMatchSelectorPick(' + i + ')" style="width:100%;text-align:left;padding:10px 12px;border-radius:10px;border:1px solid ' + (isSel ? '#3b82f6' : '#e2e8f0') + ';background:' + (isSel ? 'rgba(59,130,246,0.08)' : 'white') + ';margin-bottom:6px;cursor:pointer;display:block;">' +
-            '<div style="font-size:13px;font-weight:600;color:#1e293b;">' + esc(r.name) + '</div>' +
-            (r.category ? '<div style="font-size:11px;color:#94a3b8;">' + esc(r.category) + '</div>' : '') +
+    const candidatesHtml = candidates.length
+      ? candidates.map(function(c, i) {
+          // FIX: primary candidate green (best match, one tap), alternatives
+          // blue — exact same color pair the historic modal used.
+          const isPrimary = i === 0;
+          return '<button onclick="window.vdrMatchSelectorPickCandidate(' + i + ')" style="width:100%;text-align:left;padding:' + (isPrimary?'12px 14px':'9px 12px') + ';border-radius:' + (isPrimary?12:10) + 'px;border:1px solid ' + (isPrimary?'rgba(16,185,129,0.3)':'rgba(59,130,246,0.2)') + ';background:' + (isPrimary?'rgba(16,185,129,0.1)':'rgba(59,130,246,0.06)') + ';margin-bottom:8px;cursor:pointer;display:block;">' +
+            '<div style="font-size:' + (isPrimary?14:13) + 'px;font-weight:' + (isPrimary?700:500) + ';color:' + (isPrimary?'#065f46':'#1d4ed8') + ';">' + (isPrimary?'✓ ':'') + esc(c.name) + '</div>' +
+            (c.category ? '<div style="font-size:11px;color:' + (isPrimary?'#059669':'#60a5fa') + ';margin-top:2px;">' + esc(c.category) + '</div>' : '') +
             '</button>';
         }).join('')
-      : '<div style="font-size:12px;color:#94a3b8;padding:8px 0;">Type an ingredient name to search.</div>';
+      : '<div style="font-size:12px;color:#94a3b8;padding:8px 0;">No close match found — use Search below.</div>';
+
+    const searchResultsHtml = searchResults.map(function(r, i) {
+      return '<button onclick="window.vdrMatchSelectorPickSearch(' + i + ')" style="width:100%;text-align:left;padding:9px 12px;border-radius:10px;border:1px solid #e2e8f0;background:white;margin-bottom:6px;cursor:pointer;display:block;">' +
+        '<div style="font-size:13px;font-weight:600;color:#1e293b;">' + esc(r.name) + '</div>' +
+        (r.category ? '<div style="font-size:11px;color:#94a3b8;">' + esc(r.category) + '</div>' : '') +
+        '</button>';
+    }).join('');
+
+    // FIX (Part F, mobile): the search input/keyboard never appears
+    // until the Chef explicitly taps "Search" — candidates are always
+    // visible first, exactly as required.
+    const searchBlock = searchOpen
+      ? '<div style="margin-top:6px;">' +
+          '<input id="_vdrMatchSearchInput" type="text" inputmode="search" placeholder="Search ingredients..." style="width:100%;height:40px;padding:0 12px;border:1px solid #e2e8f0;border-radius:12px;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:8px;" />' +
+          searchResultsHtml +
+        '</div>'
+      : '<button onclick="window.vdrMatchSelectorShowSearch()" style="font-size:12px;padding:8px 12px;border-radius:10px;background:rgba(245,158,11,0.08);color:#92400e;border:1px solid rgba(245,158,11,0.3);cursor:pointer;width:100%;margin-top:4px;">🔍 Search a different ingredient</button>';
 
     modal.innerHTML =
       '<div style="background:white;border-radius:20px 20px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:80vh;display:flex;flex-direction:column;">' +
         '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 12px;"></div>' +
-        '<div style="font-size:15px;font-weight:600;color:#1e293b;margin-bottom:2px;">Match ingredient</div>' +
+        '<div style="font-size:15px;font-weight:600;color:#1e293b;margin-bottom:2px;">🔗 Match Ingredient</div>' +
         '<div style="font-size:12px;color:#64748b;margin-bottom:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(description) + ' · SKU ' + esc(vendorSku) + '</div>' +
-        '<input id="_vdrMatchSearchInput" type="text" inputmode="search" placeholder="Search ingredients..." style="width:100%;height:44px;padding:0 12px;border:1px solid #e2e8f0;border-radius:12px;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:10px;" />' +
-        '<div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-bottom:10px;">' + resultsHtml + '</div>' +
-        (statusMsg ? '<div style="font-size:12px;color:' + statusColor + ';margin-bottom:8px;">' + esc(statusMsg) + '</div>' : '') +
-        '<div style="display:flex;gap:8px;">' +
-          '<button onclick="document.getElementById(\'_vdrMatchSelector\').remove()" style="flex:1;height:44px;border-radius:12px;background:#f1f5f9;color:#475569;border:none;font-size:13px;cursor:pointer;">Cancel</button>' +
-          '<button id="_vdrMatchConfirmBtn" onclick="window.vdrMatchSelectorConfirm()" ' + (selected ? '' : 'disabled') + ' style="flex:1;height:44px;border-radius:12px;background:' + (selected ? '#1e293b' : '#cbd5e1') + ';color:white;border:none;font-size:13px;font-weight:600;cursor:' + (selected ? 'pointer' : 'default') + ';">Confirm</button>' +
-        '</div>' +
+        '<div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-bottom:6px;">' + candidatesHtml + searchBlock + '</div>' +
+        (statusMsg ? '<div style="font-size:12px;color:' + statusColor + ';margin:8px 0;">' + esc(statusMsg) + '</div>' : '') +
+        '<button onclick="document.getElementById(\'_vdrMatchSelector\').remove()" style="width:100%;height:40px;border-radius:12px;background:#f1f5f9;color:#475569;border:none;font-size:13px;cursor:pointer;margin-top:8px;">Cancel</button>' +
       '</div>';
 
-    const input = document.getElementById('_vdrMatchSearchInput');
-    if (input) {
-      input.value = _vdrMatchSelectorLastQuery;
-      input.focus();
-      input.addEventListener('input', function() {
-        _vdrMatchSelectorLastQuery = input.value;
-        doSearch(input.value);
-      });
+    if (searchOpen) {
+      const input = document.getElementById('_vdrMatchSearchInput');
+      if (input) {
+        input.value = _vdrMatchSelectorLastQuery;
+        input.focus();
+        input.addEventListener('input', function() {
+          _vdrMatchSelectorLastQuery = input.value;
+          doSearch(input.value);
+        });
+      }
     }
   }
 
@@ -3059,40 +3077,45 @@ window.vdrOpenMatchSelector = async function(docId, vendor, vendorSku, descripti
   var searchDebounce = null;
   async function doSearch(q) {
     clearTimeout(searchDebounce);
-    if (!q || q.trim().length < 2) { results = []; selected = null; render(); return; }
+    if (!q || q.trim().length < 2) { searchResults = []; render(); return; }
     searchDebounce = setTimeout(async function() {
       if (typeof window.searchIngredient !== 'function') {
         statusMsg = 'Ingredient search unavailable.'; statusColor = '#b45309'; render(); return;
       }
-      results = await window.searchIngredient(q.trim());
+      searchResults = await window.searchIngredient(q.trim());
       render();
     }, 200);
   }
 
-  window.vdrMatchSelectorPick = function(i) {
-    selected = results[i] || null;
+  window.vdrMatchSelectorShowSearch = function() {
+    searchOpen = true;
     render();
   };
 
-  window.vdrMatchSelectorConfirm = async function() {
-    if (!selected) return;
-    const confirmBtn = document.getElementById('_vdrMatchConfirmBtn');
-    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Saving...'; }
+  // ── SAVE — unchanged modern contract (Manual SKU Match task) ──
+  // Still writes only ingredient_vendors via the shared, conflict-safe
+  // helper, still triggers vdrBackfillInvoiceLines() for every historical
+  // row sharing this vendor+vendor_sku, still per-SKU (never per-row).
+  // Only the candidate-selection UI above changed in this task.
+  async function saveMapping(ingredientId, ingredientName) {
+    if (saving) return;
+    saving = true;
+    statusMsg = 'Saving...'; statusColor = '#94a3b8'; render();
 
-    const result = await window.vdrSaveVendorSkuMapping(sb, vendor, vendorSku, selected.id);
+    const result = await window.vdrSaveVendorSkuMapping(sb, vendor, vendorSku, ingredientId);
 
     if (result.status === 'created' || result.status === 'idempotent') {
       modal.remove();
       if (typeof showScToast === 'function') {
-        showScToast('✓ Matched to ' + selected.name + (result.backfilled ? ' — ' + result.backfilled + ' line' + (result.backfilled === 1 ? '' : 's') + ' updated' : ''));
+        showScToast('✓ Matched to ' + ingredientName + (result.backfilled ? ' — ' + result.backfilled + ' line' + (result.backfilled === 1 ? '' : 's') + ' updated' : ''));
       }
       // Re-render the open detail sheet safely: recompute this one
       // document's match status fresh (never a manual Set mutation),
       // then let vdrToggle's own remove-and-recreate do the redraw —
-      // no manual refresh needed. FIX (Vendor Documents History task):
-      // checks History too — post-approval Match needs this to work on
-      // an already-imported document exactly like it does on Open ones.
-      const allDocs = [...(window._vdrAllDocs || []), ...(window._vdrHistoryDocs || [])];
+      // no manual refresh needed. Works whether the doc is Open or
+      // already imported (window._vdrHistoryDocs), since the backfill
+      // itself never checks the parent document's status.
+      const allDocs = [].concat(window._vdrAllDocs || [], window._vdrHistoryDocs || []);
       const freshDoc = allDocs.find(function(d) { return d.id === docId; });
       if (freshDoc && typeof vdrComputeMatchStatus === 'function') {
         const updatedStatus = await vdrComputeMatchStatus(sb, [freshDoc]);
@@ -3102,19 +3125,27 @@ window.vdrOpenMatchSelector = async function(docId, vendor, vendorSku, descripti
       return;
     }
 
+    saving = false;
     if (result.status === 'conflict') {
       statusMsg = 'This SKU is already matched to a different ingredient. Choose a different ingredient, or resolve the existing mapping first — nothing was overwritten.';
       statusColor = '#b45309';
-      if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm'; }
-      render();
-      return;
+    } else {
+      statusMsg = 'Save failed: ' + (result.message || 'unknown error');
+      statusColor = '#b91c1c';
     }
-
-    // status === 'error'
-    statusMsg = 'Save failed: ' + (result.message || 'unknown error');
-    statusColor = '#b91c1c';
-    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm'; }
     render();
+  }
+
+  // FIX (Part F, mobile): one tap on any candidate (primary or
+  // alternative) saves immediately — no separate select-then-confirm
+  // step, matching "candidato principale selezionabile con un tap".
+  window.vdrMatchSelectorPickCandidate = function(i) {
+    const c = candidates[i];
+    if (c) return saveMapping(c.id, c.name);
+  };
+  window.vdrMatchSelectorPickSearch = function(i) {
+    const r = searchResults[i];
+    if (r) return saveMapping(r.id, r.name);
   };
 
   document.body.appendChild(modal);

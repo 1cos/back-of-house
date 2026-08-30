@@ -865,8 +865,44 @@ async function openPurchaseHistory(){
 async function showPurchaseDetail(id, src){
   document.querySelector('.fixed')?.remove();
   if(src==='vendor_documents'){
-    // Open via vendor documents review sheet
+    // FIX (Restore Original Match UX task, Part H): open the SPECIFIC
+    // document detail directly, not just the generic Vendor Documents
+    // list. openVendorDocumentsReview() mounts the screen and already
+    // fires its own vdrLoad() internally, but that call is fire-and-
+    // forget (not awaitable) — awaiting vdrLoad() here too guarantees
+    // window._vdrAllDocs/_vdrHistoryDocs are populated before vdrToggle
+    // looks this id up (vdrToggle already checks both Open and History,
+    // so this works identically whether the document is still pending
+    // or already imported). A second, read-only vdrLoad() call is
+    // harmless — never a race, never a partial state.
     if(typeof window.openVendorDocumentsReview==='function') window.openVendorDocumentsReview();
+    if(typeof window.vdrLoad==='function') await window.vdrLoad();
+    // FIX (Restore Original Match UX task, Part 2): routing must be
+    // deterministic by id, not merely correct today because Purchase
+    // History's own recency window happens to overlap with the History
+    // query's most-recent-100 limit. If this specific document wasn't
+    // among those, fetch it directly and make it reachable before
+    // vdrToggle looks it up — never a big refactor of the loading
+    // strategy, just a targeted fallback for this one case.
+    const alreadyLoaded = [...(window._vdrAllDocs||[]), ...(window._vdrHistoryDocs||[])].some(d=>d.id===id);
+    if(!alreadyLoaded && window.supabaseClient){
+      const {data:oneDoc} = await window.supabaseClient.from('vendor_documents')
+        .select('id,vendor,document_type,document_number,document_date,delivery_date,parsed_json,warnings,status,created_at')
+        .eq('id', id).single();
+      if(oneDoc){
+        window._vdrHistoryDocs = [...(window._vdrHistoryDocs||[]), oneDoc];
+        // Also compute this doc's own match status — otherwise a
+        // genuinely unmatched SKU would render as generic "OK" instead
+        // of "Needs match" (window._vdrMatchStatus is normally populated
+        // in bulk by vdrLoad(), which never saw this doc since it fell
+        // outside the History query's own recency window).
+        if(typeof vdrComputeMatchStatus === 'function'){
+          const oneStatus = await vdrComputeMatchStatus(window.supabaseClient, [oneDoc]);
+          window._vdrMatchStatus = Object.assign({}, window._vdrMatchStatus, oneStatus);
+        }
+      }
+    }
+    if(typeof window.vdrToggle==='function') window.vdrToggle(id);
     return;
   }
   const{data}=await supa.from('purchases').select('*').eq('id',id).single();

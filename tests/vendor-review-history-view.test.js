@@ -191,44 +191,15 @@ await atest('I7: an imported document with an unmatched product SKU shows the re
 });
 
 // ══════════════════════════════════════════════════════════════════
-// I.8 — vendor filtering works in History
+// REMOVED (Restore Original Match UX task, Part G): the Open/History
+// toggle itself (vdrSetView, vendor filtering "inside History") was
+// explicitly removed on instruction — Vendor Documents is once again
+// only the operational pending/error queue. These 2 tests verified
+// that now-deliberately-eliminated toggle UI. The underlying technical
+// capability they also touched on (History query, vdrToggle's
+// extended lookup, Approve hidden for imported) remains fully covered
+// by the other tests in this file, which are untouched.
 // ══════════════════════════════════════════════════════════════════
-await atest('I8: vendor filtering works inside History exactly like Open', async () => {
-  loadRealModules();
-  const walmartImported = doc('doc-h-walmart', 'imported', 'Walmart Business');
-  const bekImported = doc('doc-h-bek', 'imported', 'Ben E. Keith', 'order_confirmation');
-  const { sb } = makeSb([], [walmartImported, bekImported]);
-  window.supabaseClient = sb;
-  await window.vdrLoad();
-
-  window.vdrSetView('history');
-  let list = document.getElementById('vdrList').innerHTML;
-  assert.ok(list.includes('doc-h-walmart') === false || true); // card doesn't literally include id, check via card count instead
-  const cardCountAll = (list.match(/data-vdr-card|vdrCard-/g) || []).length;
-
-  window.vdrSetVendor('Walmart_Business');
-  list = document.getElementById('vdrList').innerHTML;
-  assert.ok(list.includes('vdrCard-doc-h-walmart'), 'Walmart card must show when filtered to Walmart Business inside History');
-  assert.ok(!list.includes('vdrCard-doc-h-bek'), 'BEK card must be filtered out');
-});
-
-// ══════════════════════════════════════════════════════════════════
-// Part G — empty states are distinct
-// ══════════════════════════════════════════════════════════════════
-await atest('G: Open and History have distinct empty-state wording', async () => {
-  loadRealModules();
-  const { sb } = makeSb([], []);
-  window.supabaseClient = sb;
-  await window.vdrLoad();
-
-  let list = document.getElementById('vdrList').innerHTML;
-  assert.ok(list.includes('No pending documents'), 'Open empty state');
-
-  window.vdrSetView('history');
-  list = document.getElementById('vdrList').innerHTML;
-  assert.ok(list.includes('No imported documents'), 'History empty state must be distinct');
-  assert.ok(!list.includes('No pending documents'), 'History must never show the Open empty-state wording');
-});
 
 // ══════════════════════════════════════════════════════════════════
 // I.9 / Part J — Open workflow regression

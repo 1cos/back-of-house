@@ -206,7 +206,7 @@ test('C: accounting rows never get a Match button (canMatchThisRow requires !isA
 // Part I — pre-approval UX: matching re-renders the SAME open detail,
 // no manual refresh, via a real vdrToggle() safe re-render
 // ══════════════════════════════════════════════════════════════════
-await atest('I: pre-approval — after a successful match via the real end-to-end flow (search, pick, confirm), window._vdrMatchStatus is updated and vdrToggle() is called to safely redraw — no manual refresh', async () => {
+await atest('I: pre-approval — after a successful match via the real end-to-end flow (prepopulated candidate, one tap), window._vdrMatchStatus is updated and vdrToggle() is called to safely redraw — no manual refresh', async () => {
   loadRealModules();
   const items = make26104552Items();
   const doc = {
@@ -227,30 +227,21 @@ await atest('I: pre-approval — after a successful match via the real end-to-en
   };
   const { sb } = makeSb(tables);
   window.supabaseClient = sb;
-  window.searchIngredient = async function(q) {
-    return tables.ingredients.filter(i => i.name.toLowerCase().includes(q.toLowerCase()));
-  };
 
   let toggleCalledWith = null;
   window.vdrToggle = function(id) { toggleCalledWith = id; };
 
-  // Open the real selector, exactly as the button's onclick would.
-  window.vdrOpenMatchSelector('doc-pending', 'Walmart Business', '19400236', 'Chicken A', null);
-  assert.ok(document.getElementById('_vdrMatchSelector'), 'selector modal must be inserted into the DOM');
+  // Open the real selector, exactly as the button's onclick would. Now
+  // awaits an ingredients fetch before creating itself (avoids an
+  // empty-state flash — Restore Original Match UX task, Part F).
+  await window.vdrOpenMatchSelector('doc-pending', 'Walmart Business', '19400236', 'Chicken A', null);
+  assert.ok(document.getElementById('_vdrMatchSelector'), 'selector modal must be inserted into the DOM once ready');
+  assert.ok(document.getElementById('_vdrMatchSelector').innerHTML.includes('Chicken Breast'), 'the real invoice description "Chicken A" must already surface Chicken Breast as a prepopulated candidate — no typing required');
 
-  // Drive the real search input + debounce, exactly like real typing.
-  const input = document.getElementById('_vdrMatchSearchInput');
-  assert.ok(input, 'search input must exist');
-  input.value = 'chicken';
-  input.dispatchEvent(new dom.window.Event('input'));
-  await new Promise(r => setTimeout(r, 300)); // real 200ms debounce + margin
-
-  // Pick the first (only) real result, then confirm — both genuinely
-  // exposed on window by vdrOpenMatchSelector itself.
-  assert.strictEqual(typeof window.vdrMatchSelectorPick, 'function');
-  window.vdrMatchSelectorPick(0);
-  assert.strictEqual(typeof window.vdrMatchSelectorConfirm, 'function');
-  await window.vdrMatchSelectorConfirm();
+  // One tap on the (only, primary) candidate saves immediately — no
+  // separate search-then-confirm step.
+  assert.strictEqual(typeof window.vdrMatchSelectorPickCandidate, 'function');
+  await window.vdrMatchSelectorPickCandidate(0);
 
   assert.strictEqual(toggleCalledWith, 'doc-pending', 'vdrToggle must be called with the same docId to safely redraw — no manual refresh');
   assert.ok(window._vdrMatchStatus['doc-pending'], 'match status must have been recomputed for this document');
