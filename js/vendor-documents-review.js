@@ -23,6 +23,62 @@ window.vdrSetVendor = function(v) {
   vdrRenderList();
 };
 
+// ── Open/History view (Vendor Documents History task) ──────────
+// 'open' = the existing operational workflow (pending/error), completely
+// unchanged. 'history' = imported documents, loaded separately
+// (window._vdrHistoryDocs, never mixed into window._vdrAllDocs) so the
+// Open workflow's own data/counts/matching-readiness computation is
+// never affected by History even existing.
+let vdrCurrentView = 'open';
+
+window.vdrSetView = function(v) {
+  vdrCurrentView = v;
+  vdrCurrentVendor = 'all'; // reset — a vendor tab selected in one view may not exist in the other
+  document.querySelectorAll('[id^="vdrView-"]').forEach(btn => {
+    const active = btn.id === 'vdrView-' + v;
+    btn.style.background = active ? '#1e3a5f' : '#f1f5f9';
+    btn.style.color = active ? 'white' : '#475569';
+  });
+  vdrRenderVendorTabs();
+  vdrRenderList();
+};
+
+function vdrCurrentViewDocs() {
+  return vdrCurrentView === 'history' ? (window._vdrHistoryDocs || []) : (window._vdrAllDocs || []);
+}
+
+// Extracted from vdrLoad() (Vendor Documents History task) so the exact
+// same tab-building logic can run for whichever view is currently
+// active — Open or History — without duplicating it.
+function vdrRenderVendorTabs() {
+  const tabsEl = document.getElementById('vdrVendorTabs');
+  if (!tabsEl) return;
+  const data = vdrCurrentViewDocs();
+  const vendors = [...new Set(data.map(d => d.vendor).filter(Boolean))].sort();
+  if (vendors.length > 1) {
+    const shortName = v => {
+      if (!v) return '?';
+      if (v.toLowerCase().includes('freshpoint')) return 'FreshPoint';
+      if (v.toLowerCase().includes('hardie')) return "Hardie's";
+      if (v.toLowerCase().includes('global')) return 'Global';
+      if (v.toLowerCase().includes('sysco')) return 'Sysco';
+      if (v.toLowerCase().includes('frugé') || v.toLowerCase().includes('fruge')) return 'Frugé';
+      if (v.toLowerCase().includes('keith')) return 'Ben E. Keith';
+      return v.split('/')[0].trim().split(' ').slice(0,2).join(' ');
+    };
+    let tabsHTML = `<button onclick="vdrSetVendor('all')" id="vdrTab-all" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:${vdrCurrentVendor==='all'?'#1e3a5f':'#f1f5f9'};color:${vdrCurrentVendor==='all'?'white':'#475569'};">All</button>`;
+    vendors.forEach(v => {
+      const key = v.replace(/[^a-z0-9]/gi,'_');
+      const active = vdrCurrentVendor === key;
+      tabsHTML += `<button onclick="vdrSetVendor('${key}')" id="vdrTab-${key}" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:${active?'#1e3a5f':'#f1f5f9'};color:${active?'white':'#475569'};">${shortName(v)}</button>`;
+    });
+    tabsEl.innerHTML = tabsHTML;
+    tabsEl.style.display = 'flex';
+  } else {
+    tabsEl.style.display = 'none';
+  }
+}
+
 // ── Load pending documents ────────────────────────────────────
 // ── MARKER:VDR_MATCH_STATUS_START ───────────────────────────────────
 // Batched ingredient-matching readiness for the document list — computed
@@ -234,6 +290,23 @@ window.vdrLoad = async function() {
 
     if (error) throw new Error(error.message);
 
+    // FIX (Vendor Documents History task): imported documents, loaded
+    // separately from the Open workflow above — never mixed into `data`/
+    // window._vdrAllDocs, so the Open list's own counts/matching-
+    // readiness computation is completely unaffected by History even
+    // existing. Limited to the most recent 100 (133 imported docs exist
+    // today, a small/stable volume — no pagination needed per this
+    // task's own scope) so this never risks loading an unbounded amount
+    // as the table grows.
+    const { data: historyData, error: historyError } = await sb
+      .from('vendor_documents')
+      .select('id,vendor,document_type,document_number,document_date,delivery_date,parsed_json,warnings,status,created_at')
+      .eq('status', 'imported')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (historyError) console.warn('[vdrLoad] history fetch failed (non-blocking):', historyError.message);
+    window._vdrHistoryDocs = historyData || [];
+
     let html = '';
 
     // Banner PDF ricevuti da Gmail
@@ -254,41 +327,20 @@ window.vdrLoad = async function() {
         </div>`;
     }
 
-    // Build vendor tabs
-    if (data && data.length > 0) {
-      const vendors = [...new Set(data.map(d => d.vendor).filter(Boolean))].sort();
-      const tabsEl = document.getElementById('vdrVendorTabs');
-      if (tabsEl && vendors.length > 1) {
-        const shortName = v => {
-          if (!v) return '?';
-          if (v.toLowerCase().includes('freshpoint')) return 'FreshPoint';
-          if (v.toLowerCase().includes('hardie')) return "Hardie's";
-          if (v.toLowerCase().includes('global')) return 'Global';
-          if (v.toLowerCase().includes('sysco')) return 'Sysco';
-          if (v.toLowerCase().includes('frugé') || v.toLowerCase().includes('fruge')) return 'Frugé';
-          if (v.toLowerCase().includes('keith')) return 'Ben E. Keith';
-          return v.split('/')[0].trim().split(' ').slice(0,2).join(' ');
-        };
-        let tabsHTML = `<button onclick="vdrSetVendor('all')" id="vdrTab-all" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:${vdrCurrentVendor==='all'?'#1e3a5f':'#f1f5f9'};color:${vdrCurrentVendor==='all'?'white':'#475569'};">All</button>`;
-        vendors.forEach(v => {
-          const key = v.replace(/[^a-z0-9]/gi,'_');
-          const active = vdrCurrentVendor === key;
-          tabsHTML += `<button onclick="vdrSetVendor('${key}')" id="vdrTab-${key}" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:${active?'#1e3a5f':'#f1f5f9'};color:${active?'white':'#475569'};">${shortName(v)}</button>`;
-        });
-        tabsEl.innerHTML = tabsHTML;
-      } else if (tabsEl && vendors.length <= 1) {
-        tabsEl.style.display = 'none';
-      }
-    }
-
     // Store all docs for filtering
     window._vdrAllDocs = data || [];
     window._vdrPdfQueue = pdfQueue || [];
 
+    // Build vendor tabs for whichever view is active (Open on first load).
+    vdrRenderVendorTabs();
+
     // ── Pre-compute ingredient-matching readiness (Parte C: "Ready to
     // approve" must never be shown for an invoice with unmatched product
-    // lines) — one batched call, not one per card.
-    window._vdrMatchStatus = await vdrComputeMatchStatus(sb, data || []);
+    // lines) — one batched call, not one per card. FIX (Vendor Documents
+    // History task, Part F): now includes History docs too — required
+    // for post-approval Match (an imported document's "Needs match"
+    // badge needs the exact same match-status data Open documents get).
+    window._vdrMatchStatus = await vdrComputeMatchStatus(sb, [...(data || []), ...(historyData || [])]);
 
     // ── Pre-load known conversions (BIOS-001: first time ask, second time learn) ──
     // Collect all SKUs from pending docs and fetch their conversion_to_base from DB.
@@ -939,12 +991,13 @@ window.vdrReprocessOne = async function(docId, btn) {
 window.vdrRenderList = function() {
   const list = document.getElementById('vdrList');
   if (!list) return;
-  const allDocs = window._vdrAllDocs || [];
-  const pdfQueue = window._vdrPdfQueue || [];
+  const allDocs = vdrCurrentViewDocs();
+  const pdfQueue = vdrCurrentView === 'open' ? (window._vdrPdfQueue || []) : [];
 
   let html = '';
 
-  // PDF banner
+  // PDF banner — Open only; History documents are already imported,
+  // this banner is never relevant there.
   if (pdfQueue.length > 0) {
     html += `<div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:14px;padding:14px 16px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -963,10 +1016,16 @@ window.vdrRenderList = function() {
     : allDocs.filter(d => (d.vendor||'').replace(/[^a-z0-9]/gi,'_') === vdrCurrentVendor);
 
   if (filtered.length === 0 && pdfQueue.length === 0) {
+    // FIX (Vendor Documents History task, Part G): distinct, separate
+    // empty-state wording per view — never a shared "pending" message
+    // inside History.
+    const emptyLabel = vdrCurrentView === 'history'
+      ? (vdrCurrentVendor === 'all' ? 'No imported documents' : 'No imported documents for this vendor')
+      : (vdrCurrentVendor === 'all' ? 'No pending documents' : 'No pending documents for this vendor');
     html += `<div style="text-align:center;padding:48px 0;">
-      <div style="font-size:32px;margin-bottom:10px;">✅</div>
-      <div style="font-size:14px;font-weight:500;color:#1e293b;margin-bottom:4px;">All clear</div>
-      <div style="font-size:12px;color:#94a3b8;">${vdrCurrentVendor === 'all' ? 'No pending documents' : 'No pending documents for this vendor'}</div>
+      <div style="font-size:32px;margin-bottom:10px;">${vdrCurrentView === 'history' ? '🗂️' : '✅'}</div>
+      <div style="font-size:14px;font-weight:500;color:#1e293b;margin-bottom:4px;">${vdrCurrentView === 'history' ? 'Nothing here yet' : 'All clear'}</div>
+      <div style="font-size:12px;color:#94a3b8;">${emptyLabel}</div>
     </div>`;
   } else {
     html += filtered.map(doc => vdrCardHTML(doc)).join('');
@@ -1071,8 +1130,10 @@ function vdrCardHTML(doc) {
 }
 
 window.vdrToggle = function(id) {
-  // Find doc from stored data
-  const allDocs = window._vdrAllDocs || [];
+  // Find doc from stored data — Open first, then History (Vendor
+  // Documents History task: an imported document must be reopenable
+  // exactly the same way an Open one is).
+  const allDocs = [...(window._vdrAllDocs || []), ...(window._vdrHistoryDocs || [])];
   const doc = allDocs.find(d => d.id === id);
   if (!doc) return;
 
@@ -1127,7 +1188,7 @@ window.vdrToggle = function(id) {
       <div style="flex-shrink:0;padding:12px 16px;border-top:1px solid #f1f5f9;background:white;">
         <div id="vdrActionStatus-${doc.id}" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>
         ${(doc.status === 'pending' || doc.status === 'error') ? `<button id="vdrReprocessBtn-${doc.id}" onclick="vdrReprocessOne('${doc.id}',this)" style="width:100%;height:38px;border-radius:12px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:500;border:none;cursor:pointer;margin-bottom:8px;">🔄 Reprocess</button>` : ''}
-        <button onclick="vdrApprove('${doc.id}',this)" style="width:100%;height:48px;border-radius:14px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;">Approve Document</button>
+        ${doc.status !== 'imported' ? `<button onclick="vdrApprove('${doc.id}',this)" style="width:100%;height:48px;border-radius:14px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;">Approve Document</button>` : ''}
       </div>
       <!-- Bottom safe area -->
       <div style="height:env(safe-area-inset-bottom,0px);background:white;flex-shrink:0;"></div>
@@ -1577,7 +1638,7 @@ function vdrDetailHTML(doc) {
   var approveHTML = '<div style="padding:12px 14px 14px;">' +
     '<div id="vdrActionStatus-' + docId + '" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>' +
     reprocessHTML +
-    '<button onclick="vdrApprove(\'' + docId + '\',this)" style="width:100%;height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Approve Document</button>' +
+    (doc.status !== 'imported' ? '<button onclick="vdrApprove(\'' + docId + '\',this)" style="width:100%;height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Approve Document</button>' : '') +
   '</div>';
 
   return headerHTML + questionsHTML + itemsHTML + approveHTML;
@@ -3028,8 +3089,10 @@ window.vdrOpenMatchSelector = async function(docId, vendor, vendorSku, descripti
       // Re-render the open detail sheet safely: recompute this one
       // document's match status fresh (never a manual Set mutation),
       // then let vdrToggle's own remove-and-recreate do the redraw —
-      // no manual refresh needed.
-      const allDocs = window._vdrAllDocs || [];
+      // no manual refresh needed. FIX (Vendor Documents History task):
+      // checks History too — post-approval Match needs this to work on
+      // an already-imported document exactly like it does on Open ones.
+      const allDocs = [...(window._vdrAllDocs || []), ...(window._vdrHistoryDocs || [])];
       const freshDoc = allDocs.find(function(d) { return d.id === docId; });
       if (freshDoc && typeof vdrComputeMatchStatus === 'function') {
         const updatedStatus = await vdrComputeMatchStatus(sb, [freshDoc]);
