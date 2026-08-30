@@ -92,10 +92,38 @@ async function vdrComputeMatchStatus(sb, docs) {
     }
 
     const matchedSkusByVendor = {};
+    const conflictSkusByVendor = {};
     for (const vendor of Object.keys(bySkuByVendor)) {
-      const { data: rows } = await sb.from('ingredient_vendors')
-        .select('vendor_sku').eq('vendor', vendor).in('vendor_sku', [...bySkuByVendor[vendor]]);
-      matchedSkusByVendor[vendor] = new Set((rows || []).map(r => r.vendor_sku));
+      const skuList = [...bySkuByVendor[vendor]];
+      // FIX (Durable Walmart SKU Mapping task, Part D): vendor_item_aliases
+      // (active rows) is now the AUTHORITATIVE identity source — the
+      // ingredient_vendors.vendor_sku lookup remains only as a temporary
+      // fallback for vendor+SKU pairs not yet migrated, so the transition
+      // never breaks matching for SKUs that haven't moved yet.
+      const [aliasRes, legacyRes] = await Promise.all([
+        sb.from('vendor_item_aliases').select('vendor_sku,ingredient_id').eq('vendor', vendor).eq('active', true).in('vendor_sku', skuList),
+        sb.from('ingredient_vendors').select('vendor_sku,ingredient_id').eq('vendor', vendor).in('vendor_sku', skuList),
+      ]);
+      const aliasMap = {};
+      (aliasRes.data || []).forEach(r => { if (r.vendor_sku) aliasMap[r.vendor_sku] = r.ingredient_id; });
+      const legacyMap = {};
+      (legacyRes.data || []).forEach(r => { if (r.vendor_sku) legacyMap[r.vendor_sku] = r.ingredient_id; });
+
+      const matched = new Set();
+      const conflicts = new Set();
+      for (const sku of skuList) {
+        const aliasIngr = aliasMap[sku];
+        const legacyIngr = legacyMap[sku];
+        if (aliasIngr && legacyIngr && aliasIngr !== legacyIngr) {
+          // Real divergence between the new authoritative source and the
+          // legacy fallback — never silently pick one; flagged, not matched.
+          conflicts.add(sku);
+          continue;
+        }
+        if (aliasIngr || legacyIngr) matched.add(sku);
+      }
+      matchedSkusByVendor[vendor] = matched;
+      if (conflicts.size) conflictSkusByVendor[vendor] = conflicts;
     }
     const matchedDescsByVendor = {};
     for (const vendor of Object.keys(byDescByVendor)) {
@@ -111,10 +139,12 @@ async function vdrComputeMatchStatus(sb, docs) {
       const matchableItems = (pj.items || []).filter(i => !(i.line_type && i.line_type !== 'product'));
       if (matchableItems.length === 0) { status[doc.id] = { needsMatching: false }; continue; }
       const matchedSkus  = matchedSkusByVendor[vendor]  || new Set();
+      const conflictSkus = conflictSkusByVendor[vendor] || new Set();
       const matchedDescs = matchedDescsByVendor[vendor] || new Set();
       const unmatchedItems = matchableItems.filter(item => {
         const sku  = item.vendor_sku || item.item_code;
         const desc = item.description || item.raw_description;
+        if (sku && conflictSkus.has(sku)) return true; // conflict -> still needs review, never silently matched
         return !(sku && matchedSkus.has(sku)) && !(desc && matchedDescs.has(desc));
       });
       const unmatchedCount = unmatchedItems.length;
@@ -140,6 +170,11 @@ async function vdrComputeMatchStatus(sb, docs) {
         // already computed here, with zero new query and zero change to
         // vdrPreflight/vdrApprove's own, separate matching logic.
         unmatchedSkuSet,
+        // FIX (Durable Walmart SKU Mapping task, Part D): SKUs where
+        // vendor_item_aliases and the legacy ingredient_vendors fallback
+        // genuinely disagree on ingredient_id — never resolved silently,
+        // surfaced here for future review UI.
+        conflictSkuSet: conflictSkusByVendor[vendor] || new Set(),
       };
     }
   } catch (e) {
@@ -188,26 +223,35 @@ window.vdrBackfillInvoiceLines = async function(sb, vendor, vendorSku, ingredien
 // ── MARKER:VDR_BACKFILL_END ─────────────────────────────────────────
 
 // ── MARKER:VDR_SAVE_SKU_MAPPING_START ────────────────────────────────
-// FIX (Manual SKU Match task): the single, shared core for "vendor+
-// vendor_sku now resolves to an ingredient" — used by BOTH the
-// Ingredient Card (window.saveNewVendorRow, js/ingredients.js) and
-// Vendor Review's new inline Match action (vdrOpenMatchSelector below),
-// so the two surfaces can never diverge on what "save a mapping"
-// actually means, or on when vdrBackfillInvoiceLines() gets called.
+// FIX (Durable Walmart SKU Mapping task): identity mapping ("vendor+
+// vendor_sku resolves to this ingredient") now writes to
+// vendor_item_aliases — the durable source of truth with the REAL
+// UNIQUE(vendor, vendor_sku) constraint (confirmed via pg_indexes),
+// already the authoritative source purchase-order.js reads for its own
+// SKU matching. ingredient_vendors is no longer touched for identity —
+// it remains exclusively the legacy price-intelligence table (unit_price,
+// pack_description, etc.), written separately by the Ingredient Card's
+// own price-specific insert (js/ingredients.js's saveNewVendorRow).
+//
+// The v846 workaround (detecting ingredient_vendors' unrelated
+// (ingredient_id, vendor) constraint and pretending success) is
+// COMPLETELY REMOVED here — it was explicitly not durable (a future
+// invoice with the same vendor_sku would never recognize the "match"
+// again, since no persistent row was ever created). A match is now
+// genuinely durable by construction: two different vendor_sku values
+// legitimately resolving to the same ingredient simply become two
+// separate vendor_item_aliases rows — no workaround needed, since
+// vendor_item_aliases was never constrained on (ingredient_id, vendor)
+// in the first place.
+//
 // Conflict-safe by construction: a DIFFERENT ingredient_id already
-// mapped to this exact vendor+vendor_sku is never silently overwritten
+// aliased to this exact vendor+vendor_sku is never silently overwritten
 // — the caller gets an explicit 'conflict' result and must decide.
-// extraFields (optional): additional ingredient_vendors columns to
-// include only on a genuinely NEW insert (e.g. the Ingredient Card's
-// own pricing fields) — never applied to an existing row, matching or
-// not, to avoid this shared helper silently mutating price data nobody
-// asked it to touch.
-window.vdrSaveVendorSkuMapping = async function(sb, vendor, vendorSku, ingredientId, extraFields) {
+window.vdrSaveVendorSkuMapping = async function(sb, vendor, vendorSku, ingredientId, vendorDescription) {
   if (!sb || !vendor || !vendorSku || !ingredientId) return { status: 'error', message: 'Missing required field' };
-  extraFields = extraFields || {};
   try {
     const { data: existingRows, error: selErr } = await sb
-      .from('ingredient_vendors')
+      .from('vendor_item_aliases')
       .select('id,ingredient_id')
       .eq('vendor', vendor)
       .eq('vendor_sku', vendorSku);
@@ -222,43 +266,30 @@ window.vdrSaveVendorSkuMapping = async function(sb, vendor, vendorSku, ingredien
         const bf = window.vdrBackfillInvoiceLines ? await window.vdrBackfillInvoiceLines(sb, vendor, vendorSku, ingredientId) : { backfilled: 0 };
         return { status: 'idempotent', row: existing, backfilled: bf.backfilled };
       }
-      // A different ingredient_id is already mapped to this exact
+      // A different ingredient_id is already aliased to this exact
       // vendor+vendor_sku — never silently overwritten.
       return { status: 'conflict', existing_ingredient_id: existing.ingredient_id };
     }
 
-    const insertRow = Object.assign({ vendor: vendor, vendor_sku: vendorSku, ingredient_id: ingredientId, active: true }, extraFields);
+    // vendor_item_aliases.vendor_description is NOT NULL — the real
+    // invoice line description is strongly preferred; this fallback only
+    // fires if a caller genuinely has none available (never invented from
+    // the ingredient name silently without this being visible in data).
+    const insertRow = {
+      vendor: vendor,
+      vendor_sku: vendorSku,
+      vendor_description: vendorDescription || ('SKU ' + vendorSku),
+      ingredient_id: ingredientId,
+      active: true,
+      confirmed_by: 'vendor-review-match',
+      confirmed_at: new Date().toISOString(),
+    };
     const { data: inserted, error: insErr } = await sb
-      .from('ingredient_vendors')
+      .from('vendor_item_aliases')
       .insert(insertRow)
       .select('id')
       .single();
-    if (insErr) {
-      // FIX (Sequential Two-SKU Match bug): the live ingredient_vendors
-      // table has a real UNIQUE constraint on (ingredient_id, vendor) —
-      // a legacy pricing-intelligence constraint (js/invoice.js,
-      // js/admin-ingredients.js still rely on it via their own
-      // upsert(...,{onConflict:'ingredient_id,vendor'}) calls, correctly
-      // left untouched here — changing/removing the DB constraint would
-      // break those 4 call sites) that predates vendor_sku as a
-      // matching key. Two DIFFERENT vendor_sku values legitimately
-      // resolving to the SAME ingredient (this bug's real case: two
-      // different Walmart Chicken Breast SKUs) trip this constraint
-      // even though the existence check above (vendor+vendor_sku)
-      // correctly found nothing — the conflict is on a DIFFERENT
-      // column pair than the one this function's own contract checks.
-      // Detected by exact constraint name (never a generic string
-      // match) and treated as a successful match for THIS vendor_sku:
-      // vdrBackfillInvoiceLines only needs vendor+vendorSku+ingredientId
-      // as parameters, never a matching ingredient_vendors row to
-      // physically exist, so invoice_lines still get correctly
-      // backfilled even though a second row can't be created.
-      if (String(insErr.message || '').indexOf('ingredient_vendors_ingredient_id_vendor_key') > -1) {
-        const bf = window.vdrBackfillInvoiceLines ? await window.vdrBackfillInvoiceLines(sb, vendor, vendorSku, ingredientId) : { backfilled: 0 };
-        return { status: 'idempotent', row: null, backfilled: bf.backfilled, sharedIngredientRow: true };
-      }
-      return { status: 'error', message: insErr.message };
-    }
+    if (insErr) return { status: 'error', message: insErr.message };
 
     const bf = window.vdrBackfillInvoiceLines ? await window.vdrBackfillInvoiceLines(sb, vendor, vendorSku, ingredientId) : { backfilled: 0 };
     return { status: 'created', row: inserted, backfilled: bf.backfilled };
@@ -2407,10 +2438,15 @@ async function vdrPreflight(docId, doc) {
     const descs = matchableItems.map(i => i.description || i.raw_description).filter(Boolean);
     const skus  = matchableItems.map(i => i.vendor_sku || i.item_code).filter(Boolean);
 
-    // Fetch existing SKU matches
-    const { data: skuRows } = skus.length ? await sb.from('ingredient_vendors')
-      .select('vendor_sku').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] };
-    const matchedSkus = new Set((skuRows || []).map(r => r.vendor_sku));
+    // Fetch existing SKU matches — vendor_item_aliases (active) is now
+    // authoritative (Durable Walmart SKU Mapping task, Part D);
+    // ingredient_vendors.vendor_sku remains a temporary fallback for
+    // vendor+SKU pairs not yet migrated.
+    const [aliasRows, legacyRows] = skus.length ? await Promise.all([
+      sb.from('vendor_item_aliases').select('vendor_sku').eq('vendor', vendor).eq('active', true).in('vendor_sku', skus),
+      sb.from('ingredient_vendors').select('vendor_sku').eq('vendor', vendor).in('vendor_sku', skus),
+    ]) : [{ data: [] }, { data: [] }];
+    const matchedSkus = new Set([...(aliasRows.data || []).map(r => r.vendor_sku), ...(legacyRows.data || []).map(r => r.vendor_sku)]);
 
     // Fetch confirmed links
     const { data: linkRows } = descs.length ? await sb.from('ingredient_links')
@@ -2577,14 +2613,29 @@ window.vdrApprove = async function(docId, btn) {
     const skus = items.map(i => i.vendor_sku || i.item_code).filter(Boolean);
     const descs = items.map(i => i.description || i.raw_description).filter(Boolean);
 
-    const [skuRes, ingrVendorRes, linkRes] = await Promise.all([
+    const [skuRes, aliasRes, ingrVendorRes, linkRes] = await Promise.all([
       skus.length ? sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] },
+      // FIX (Durable Walmart SKU Mapping task, Part D): vendor_item_aliases
+      // (active) is now the authoritative identity source for vdrApprove's
+      // own matchedId lookup too — ingredient_vendors.vendor_sku remains
+      // only a fallback for not-yet-migrated SKUs. Never touches the
+      // price-intelligence query/writes just below (ingrVendorRes,
+      // toUpdate/toInsert) — out of scope for this task.
+      skus.length ? sb.from('vendor_item_aliases').select('vendor_sku,ingredient_id').eq('vendor', vendor).eq('active', true).in('vendor_sku', skus) : { data: [] },
       sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku').eq('vendor', vendor),
       descs.length ? sb.from('ingredient_links').select('invoice_description,ingredient_id').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', descs) : { data: [] },
     ]);
 
     const skuMap = {};
     (skuRes.data || []).forEach(r => { skuMap[r.vendor_sku] = r; });
+    // FIX (Durable Walmart SKU Mapping task, Part D): a SEPARATE map, used
+    // only for matchedId determination further below (invoice_lines.
+    // ingredient_id) — never mixed into skuMap itself, which the
+    // price-intelligence write-loop just below (toUpdate/toInsert on
+    // ingredient_vendors, out of scope for this task) still reads
+    // unchanged, always requiring a real ingredient_vendors row id.
+    const identitySkuMap = Object.assign({}, skuMap);
+    (aliasRes.data || []).forEach(r => { if (r.vendor_sku) identitySkuMap[r.vendor_sku] = { ingredient_id: r.ingredient_id, vendor_sku: r.vendor_sku }; });
     const ingrVendorMap = {};
     (ingrVendorRes.data || []).forEach(r => { ingrVendorMap[r.ingredient_id] = { id: r.id, vendor_sku: r.vendor_sku }; });
     const linkMap = {};
@@ -2792,8 +2843,9 @@ window.vdrApprove = async function(docId, btn) {
         // for them and this changes nothing.
         const isNonProduct = !!(item.line_type && item.line_type !== 'product');
 
-        // ingredient_id — look up from skuMap or linkMap built earlier
-        const matchedId = isNonProduct ? null : (sku && skuMap[sku]) ? skuMap[sku].ingredient_id
+        // ingredient_id — look up from identitySkuMap (vendor_item_aliases
+        // authoritative, ingredient_vendors fallback) or linkMap built earlier
+        const matchedId = isNonProduct ? null : (sku && identitySkuMap[sku]) ? identitySkuMap[sku].ingredient_id
           : (desc && linkMap[desc]) ? linkMap[desc]
           : null;
 
@@ -3127,7 +3179,7 @@ window.vdrOpenMatchSelector = async function(docId, vendor, vendorSku, descripti
     saving = true;
     statusMsg = 'Saving...'; statusColor = '#94a3b8'; render();
 
-    const result = await window.vdrSaveVendorSkuMapping(sb, vendor, vendorSku, ingredientId);
+    const result = await window.vdrSaveVendorSkuMapping(sb, vendor, vendorSku, ingredientId, description);
 
     if (result.status === 'created' || result.status === 'idempotent') {
       modal.remove();

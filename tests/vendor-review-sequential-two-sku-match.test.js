@@ -57,7 +57,7 @@ function loadRealModules() {
 // Mock Supabase that enforces the REAL live production constraint on
 // ingredient_vendors: UNIQUE (ingredient_id, vendor) — confirmed via
 // pg_indexes audit against the live database, not assumed.
-function makeSbWithRealConstraint(tables) {
+function makeSb(tables) {
   const calls = { inserts: [], updates: [] };
   function builder(tableName) {
     const state = { filters: [] };
@@ -89,18 +89,6 @@ function makeSbWithRealConstraint(tables) {
       },
       insert(row) {
         calls.inserts.push({ table: tableName, row });
-        if (tableName === 'ingredient_vendors') {
-          // ── REAL CONSTRAINT (live schema, pg_indexes-confirmed) ──
-          const conflict = (tables.ingredient_vendors || []).find(
-            r => r.vendor === row.vendor && r.ingredient_id === row.ingredient_id
-          );
-          if (conflict) {
-            return {
-              select() { return { single() { return Promise.resolve({ data: null, error: { message: 'duplicate key value violates unique constraint "ingredient_vendors_ingredient_id_vendor_key"' } }); } }; },
-              then(resolve) { resolve({ error: { message: 'duplicate key value violates unique constraint "ingredient_vendors_ingredient_id_vendor_key"' } }); },
-            };
-          }
-        }
         const rows = Array.isArray(row) ? row : [row];
         rows.forEach(r => { if (r.id == null) r.id = 'gen-' + Math.random().toString(36).slice(2); });
         (tables[tableName] = tables[tableName] || []).push(...rows);
@@ -140,7 +128,7 @@ function makeFixture() {
     warnings: null,
   };
   const tables = {
-    ingredient_vendors: [],
+    vendor_item_aliases: [],
     invoice_lines: [
       ...Array.from({ length: 8 }, (_, i) => ({ id: 'a' + i, vendor: 'Walmart Business', vendor_sku: '19400236', ingredient_id: null, match_status: 'unmatched' })),
       ...Array.from({ length: 7 }, (_, i) => ({ id: 'b' + i, vendor: 'Walmart Business', vendor_sku: '27935840', ingredient_id: null, match_status: 'unmatched' })),
@@ -158,7 +146,7 @@ function makeFixture() {
 await atest('H: REGRESSION — two different vendor SKUs can sequentially map to the same ingredient in one document/session (19400236 then 27935840, both -> Chicken Breast); 15/15 chicken invoice_lines matched', async () => {
   loadRealModules();
   const { doc, tables } = makeFixture();
-  const { sb } = makeSbWithRealConstraint(tables);
+  const { sb } = makeSb(tables);
   window.supabaseClient = sb;
   window._vdrAllDocs = [];
   window._vdrHistoryDocs = [doc];
@@ -171,7 +159,7 @@ await atest('H: REGRESSION — two different vendor SKUs can sequentially map to
   assert.ok(modal.innerHTML.includes('Chicken Breast'), 'Chicken Breast candidate present for SKU 1');
   await window.vdrMatchSelectorPickCandidate(0);
 
-  assert.strictEqual(tables.ingredient_vendors.length, 1, 'first match creates exactly 1 row');
+  assert.strictEqual(tables.vendor_item_aliases.length, 1, 'first match creates exactly 1 row');
   const firstBatch = tables.invoice_lines.filter(l => l.vendor_sku === '19400236');
   assert.ok(firstBatch.every(l => l.ingredient_id === 'ing-chicken'), 'first SKU: all 8 rows backfilled');
 
@@ -190,9 +178,10 @@ await atest('H: REGRESSION — two different vendor SKUs can sequentially map to
   // ── STEP 4: pick Chicken Breast for the second SKU ──
   await window.vdrMatchSelectorPickCandidate(0);
 
-  // ── THE FIX: 27935840 must now be correctly backfilled, even though
-  // the real DB constraint prevents a second ingredient_vendors row
-  // for the same (vendor, ingredient_id) pair ──
+  // ── DURABLE FIX: 27935840 is correctly backfilled via its own
+  // vendor_item_aliases row — no shared-constraint workaround needed,
+  // since vendor_item_aliases was never constrained on
+  // (ingredient_id, vendor) in the first place ──
   const secondBatch = tables.invoice_lines.filter(l => l.vendor_sku === '27935840');
   assert.ok(secondBatch.every(l => l.ingredient_id === 'ing-chicken'), 'FIX VERIFIED: 27935840 correctly backfilled — 7/7, not 0/7');
 

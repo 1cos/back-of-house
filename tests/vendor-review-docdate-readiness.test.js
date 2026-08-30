@@ -137,8 +137,9 @@ await atest('C1: product line with NO matching ingredient_vendors row -> needsMa
 await atest('C2: product line WITH a matching ingredient_vendors row -> needsMatching = false', async () => {
   const doc = walmartDoc('d2', 'Massimilajo Zubboli', [{ vendor_sku: '110366636', description: 'Roth Chèvre', line_type: 'product', amount: 7.94 }]);
   const { sb } = makeSb({
-    ingredient_vendors: [{ vendor_sku: '110366636', vendor: 'Walmart Business' }],
+    ingredient_vendors: [{ vendor_sku: '110366636', vendor: 'Walmart Business', ingredient_id: 'ing-chevre' }],
     ingredient_links: [],
+    vendor_item_aliases: [],
   });
   const status = await vdrComputeMatchStatus(sb, [doc]);
   assert.strictEqual(status['d2'].needsMatching, false);

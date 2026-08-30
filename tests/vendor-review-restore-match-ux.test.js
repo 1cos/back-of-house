@@ -135,7 +135,7 @@ test('3: structural — primary candidate uses the historic green palette, alter
 // ══════════════════════════════════════════════════════════════════
 await atest('F: one tap on the primary (green) candidate saves immediately via vdrSaveVendorSkuMapping — no separate Confirm step', async () => {
   loadRealModules();
-  const tables = { ingredient_vendors: [], invoice_lines: [], ingredients: [{ id: 'ing-chicken', name: 'Chicken Breast', category: 'Protein', active: true }] };
+  const tables = { vendor_item_aliases: [], invoice_lines: [], ingredients: [{ id: 'ing-chicken', name: 'Chicken Breast', category: 'Protein', active: true }] };
   const { sb } = makeSb(tables);
   window.supabaseClient = sb;
 
@@ -143,19 +143,19 @@ await atest('F: one tap on the primary (green) candidate saves immediately via v
   assert.strictEqual(typeof window.vdrMatchSelectorPickCandidate, 'function');
   await window.vdrMatchSelectorPickCandidate(0);
 
-  assert.strictEqual(tables.ingredient_vendors.length, 1);
-  assert.strictEqual(tables.ingredient_vendors[0].vendor_sku, '19400236');
-  assert.strictEqual(tables.ingredient_vendors[0].ingredient_id, 'ing-chicken');
+  assert.strictEqual(tables.vendor_item_aliases.length, 1);
+  assert.strictEqual(tables.vendor_item_aliases[0].vendor_sku, '19400236');
+  assert.strictEqual(tables.vendor_item_aliases[0].ingredient_id, 'ing-chicken');
 });
 
 // ══════════════════════════════════════════════════════════════════
-// D/6/7 — modern save contract unchanged: per-SKU, ingredient_vendors,
+// D/6/7 — modern save contract unchanged: per-SKU, vendor_item_aliases,
 // conflict protection, backfill
 // ══════════════════════════════════════════════════════════════════
-await atest('D/6/7: 26104552-equivalent — matching 19400236 (8 rows) creates exactly 1 ingredient_vendors row and backfills exactly 8 rows; 27935840 untouched', async () => {
+await atest('D/6/7: 26104552-equivalent — matching 19400236 (8 rows) creates exactly 1 vendor_item_aliases row and backfills exactly 8 rows; 27935840 untouched', async () => {
   loadRealModules();
   const tables = {
-    ingredient_vendors: [],
+    vendor_item_aliases: [],
     invoice_lines: [
       ...Array.from({ length: 8 }, (_, i) => ({ id: 'a' + i, vendor: 'Walmart Business', vendor_sku: '19400236', ingredient_id: null })),
       ...Array.from({ length: 7 }, (_, i) => ({ id: 'b' + i, vendor: 'Walmart Business', vendor_sku: '27935840', ingredient_id: null })),
@@ -168,7 +168,7 @@ await atest('D/6/7: 26104552-equivalent — matching 19400236 (8 rows) creates e
   await window.vdrOpenMatchSelector('doc1', 'Walmart Business', '19400236', 'Chicken Breast', null);
   await window.vdrMatchSelectorPickCandidate(0);
 
-  assert.strictEqual(tables.ingredient_vendors.length, 1, 'exactly 1 new ingredient_vendors row — never 8');
+  assert.strictEqual(tables.vendor_item_aliases.length, 1, 'exactly 1 new vendor_item_aliases row — never 8');
   const a = tables.invoice_lines.filter(l => l.vendor_sku === '19400236');
   const b = tables.invoice_lines.filter(l => l.vendor_sku === '27935840');
   assert.ok(a.every(l => l.ingredient_id === 'ing-chicken'), 'all 8 19400236 rows backfilled');
@@ -178,7 +178,7 @@ await atest('D/6/7: 26104552-equivalent — matching 19400236 (8 rows) creates e
 await atest('D: conflict protection unchanged — a different ingredient_id already mapped is never overwritten', async () => {
   loadRealModules();
   const tables = {
-    ingredient_vendors: [{ id: 'iv-1', vendor: 'Walmart Business', vendor_sku: '19400236', ingredient_id: 'ing-OTHER' }],
+    vendor_item_aliases: [{ id: 'iv-1', vendor: 'Walmart Business', vendor_sku: '19400236', ingredient_id: 'ing-OTHER' }],
     invoice_lines: [],
     ingredients: [{ id: 'ing-chicken', name: 'Chicken Breast', category: 'Protein', active: true }],
   };
@@ -188,8 +188,8 @@ await atest('D: conflict protection unchanged — a different ingredient_id alre
   await window.vdrOpenMatchSelector('doc1', 'Walmart Business', '19400236', 'Chicken Breast', null);
   await window.vdrMatchSelectorPickCandidate(0);
 
-  assert.strictEqual(tables.ingredient_vendors.length, 1, 'no new row created');
-  assert.strictEqual(tables.ingredient_vendors[0].ingredient_id, 'ing-OTHER', 'existing mapping never overwritten');
+  assert.strictEqual(tables.vendor_item_aliases.length, 1, 'no new row created');
+  assert.strictEqual(tables.vendor_item_aliases[0].ingredient_id, 'ing-OTHER', 'existing mapping never overwritten');
   const modal = document.getElementById('_vdrMatchSelector');
   assert.ok(modal, 'modal must stay open on conflict');
   assert.ok(modal.innerHTML.includes('already matched to a different ingredient'));

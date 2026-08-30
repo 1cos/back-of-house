@@ -111,54 +111,54 @@ function makeSb(tables) {
 // ══════════════════════════════════════════════════════════════════
 // Part F/G — vdrSaveVendorSkuMapping: created / idempotent / conflict
 // ══════════════════════════════════════════════════════════════════
-await atest('F: new mapping -> creates ingredient_vendors row, calls backfill, returns created', async () => {
+await atest('F: new mapping -> creates vendor_item_aliases row, calls backfill, returns created', async () => {
   loadRealModules();
-  const tables = { ingredient_vendors: [], invoice_lines: [
+  const tables = { vendor_item_aliases: [], invoice_lines: [
     { id: 'l1', vendor: 'Walmart Business', vendor_sku: '19400236', ingredient_id: null, match_status: 'unmatched' },
     { id: 'l2', vendor: 'Walmart Business', vendor_sku: '19400236', ingredient_id: null, match_status: 'unmatched' },
   ] };
   const { sb, calls } = makeSb(tables);
-  const result = await window.vdrSaveVendorSkuMapping(sb, 'Walmart Business', '19400236', 'ing-chicken');
+  const result = await window.vdrSaveVendorSkuMapping(sb, 'Walmart Business', '19400236', 'ing-chicken', 'Chicken Breast Tray');
   assert.strictEqual(result.status, 'created');
   assert.strictEqual(result.backfilled, 2);
-  assert.strictEqual(tables.ingredient_vendors.length, 1);
-  assert.strictEqual(tables.ingredient_vendors[0].vendor_sku, '19400236');
-  assert.strictEqual(tables.ingredient_vendors[0].ingredient_id, 'ing-chicken');
+  assert.strictEqual(tables.vendor_item_aliases.length, 1);
+  assert.strictEqual(tables.vendor_item_aliases[0].vendor_sku, '19400236');
+  assert.strictEqual(tables.vendor_item_aliases[0].ingredient_id, 'ing-chicken');
   assert.ok(tables.invoice_lines.every(l => l.ingredient_id === 'ing-chicken' && l.match_status === 'matched'));
 });
 
 await atest('G1: same ingredient_id already mapped -> idempotent, no duplicate row, backfill still runs safely', async () => {
   loadRealModules();
   const tables = {
-    ingredient_vendors: [{ id: 'iv-1', vendor: 'Walmart Business', vendor_sku: '19400236', ingredient_id: 'ing-chicken' }],
+    vendor_item_aliases: [{ id: 'iv-1', vendor: 'Walmart Business', vendor_sku: '19400236', ingredient_id: 'ing-chicken' }],
     invoice_lines: [{ id: 'l1', vendor: 'Walmart Business', vendor_sku: '19400236', ingredient_id: null }],
   };
   const { sb } = makeSb(tables);
-  const result = await window.vdrSaveVendorSkuMapping(sb, 'Walmart Business', '19400236', 'ing-chicken');
+  const result = await window.vdrSaveVendorSkuMapping(sb, 'Walmart Business', '19400236', 'ing-chicken', 'Chicken Breast Tray');
   assert.strictEqual(result.status, 'idempotent');
-  assert.strictEqual(tables.ingredient_vendors.length, 1, 'no duplicate row');
+  assert.strictEqual(tables.vendor_item_aliases.length, 1, 'no duplicate row');
   assert.strictEqual(tables.invoice_lines[0].ingredient_id, 'ing-chicken', 'backfill still applies to any still-unmatched rows');
 });
 
 await atest('G2: DIFFERENT ingredient_id already mapped -> conflict, nothing written, nothing overwritten', async () => {
   loadRealModules();
   const tables = {
-    ingredient_vendors: [{ id: 'iv-1', vendor: 'Walmart Business', vendor_sku: '19400236', ingredient_id: 'ing-OTHER' }],
+    vendor_item_aliases: [{ id: 'iv-1', vendor: 'Walmart Business', vendor_sku: '19400236', ingredient_id: 'ing-OTHER' }],
     invoice_lines: [],
   };
   const { sb, calls } = makeSb(tables);
-  const result = await window.vdrSaveVendorSkuMapping(sb, 'Walmart Business', '19400236', 'ing-chicken');
+  const result = await window.vdrSaveVendorSkuMapping(sb, 'Walmart Business', '19400236', 'ing-chicken', 'Chicken Breast Tray');
   assert.strictEqual(result.status, 'conflict');
   assert.strictEqual(result.existing_ingredient_id, 'ing-OTHER');
-  assert.strictEqual(tables.ingredient_vendors.length, 1, 'no new row');
-  assert.strictEqual(tables.ingredient_vendors[0].ingredient_id, 'ing-OTHER', 'existing mapping never overwritten');
-  assert.strictEqual(calls.inserts.filter(i => i.table === 'ingredient_vendors').length, 0);
+  assert.strictEqual(tables.vendor_item_aliases.length, 1, 'no new row');
+  assert.strictEqual(tables.vendor_item_aliases[0].ingredient_id, 'ing-OTHER', 'existing mapping never overwritten');
+  assert.strictEqual(calls.inserts.filter(i => i.table === 'vendor_item_aliases').length, 0);
 });
 
 // ══════════════════════════════════════════════════════════════════
 // Part K — real Walmart-equivalent fixture, per-SKU match
 // ══════════════════════════════════════════════════════════════════
-await atest('K: 26104552-equivalent fixture — matching 19400236 backfills exactly its 8 rows, 27935840 untouched, ingredient_vendors gets exactly 1 new row', async () => {
+await atest('K: 26104552-equivalent fixture — matching 19400236 backfills exactly its 8 rows, 27935840 untouched, vendor_item_aliases gets exactly 1 new row', async () => {
   loadRealModules();
   const items = make26104552Items();
   const invoiceLines = items.filter(i => i.line_type === 'product').map((it, i) => ({
@@ -167,7 +167,7 @@ await atest('K: 26104552-equivalent fixture — matching 19400236 backfills exac
     match_status: ['44001602', '44391101', '44390947'].includes(it.vendor_sku) ? 'matched' : 'unmatched',
   }));
   const tables = {
-    ingredient_vendors: [
+    vendor_item_aliases: [
       { id: 'iv-1', vendor: 'Walmart Business', vendor_sku: '44001602', ingredient_id: 'ing-44001602' },
       { id: 'iv-2', vendor: 'Walmart Business', vendor_sku: '44391101', ingredient_id: 'ing-44391101' },
       { id: 'iv-3', vendor: 'Walmart Business', vendor_sku: '44390947', ingredient_id: 'ing-44390947' },
@@ -175,11 +175,11 @@ await atest('K: 26104552-equivalent fixture — matching 19400236 backfills exac
     invoice_lines: invoiceLines,
   };
   const { sb } = makeSb(tables);
-  const result = await window.vdrSaveVendorSkuMapping(sb, 'Walmart Business', '19400236', 'ing-chicken-19400236');
+  const result = await window.vdrSaveVendorSkuMapping(sb, 'Walmart Business', '19400236', 'ing-chicken-19400236', 'Chicken Breast Tray');
 
   assert.strictEqual(result.status, 'created');
   assert.strictEqual(result.backfilled, 8, 'exactly the 8 real 19400236 rows');
-  assert.strictEqual(tables.ingredient_vendors.length, 4, '3 pre-existing + exactly 1 new — never 8');
+  assert.strictEqual(tables.vendor_item_aliases.length, 4, '3 pre-existing + exactly 1 new — never 8');
 
   const chickenA = tables.invoice_lines.filter(l => l.vendor_sku === '19400236');
   const chickenB = tables.invoice_lines.filter(l => l.vendor_sku === '27935840');
@@ -269,10 +269,30 @@ await atest('J: post-approval — an already-"imported" document with unmatched 
 // ══════════════════════════════════════════════════════════════════
 // Part L — regression: Ingredient Card's saveNewVendorRow still works
 // ══════════════════════════════════════════════════════════════════
-await atest('L: saveNewVendorRow (Ingredient Card) — normal new-mapping case unaffected by the refactor, same fields written, backfill still runs', async () => {
+await atest('L: saveNewVendorRow (Ingredient Card) — price intelligence writes ingredient_vendors (no vendor_sku, matching the 4 legacy sites), identity writes vendor_item_aliases separately', async () => {
   loadRealModules();
-  const tables = { ingredient_vendors: [], invoice_lines: [] };
+  const tables = { ingredient_vendors: [], vendor_item_aliases: [], invoice_lines: [] };
   const { sb } = makeSb(tables);
+  // FIX (Durable Walmart SKU Mapping task, Part H): saveNewVendorRow now
+  // upserts ingredient_vendors directly (onConflict:'ingredient_id,vendor'),
+  // matching the other 4 legacy price-intelligence call sites — the mock
+  // needs a real upsert() implementation (update-if-exists, else insert).
+  const origFrom = sb.from;
+  sb.from = function(tableName) {
+    const b = origFrom(tableName);
+    b.upsert = function(row, opts) {
+      const conflictCols = (opts && opts.onConflict || '').split(',');
+      const existing = (tables[tableName] || []).find(r => conflictCols.every(c => r[c] === row[c]));
+      if (existing) {
+        Object.assign(existing, row);
+        return { then(resolve) { resolve({ error: null }); } };
+      }
+      const newRow = Object.assign({ id: 'gen-' + Math.random().toString(36).slice(2) }, row);
+      (tables[tableName] = tables[tableName] || []).push(newRow);
+      return { then(resolve) { resolve({ error: null }); } };
+    };
+    return b;
+  };
   global.supa = sb; // ingredients.js references the bare identifier `supa`, defined globally in js/utils.js in the real app
   global.openIngredientCard = function() {}; // no-op for this test, same bare-identifier reasoning
   new Function('window', 'document', ingSrc)(global.window, global.document);
@@ -287,14 +307,23 @@ await atest('L: saveNewVendorRow (Ingredient Card) — normal new-mapping case u
   const btn = document.getElementById('saveBtn');
   await window.saveNewVendorRow('ing-ground-beef', btn);
 
+  // Price intelligence: ingredient_vendors, keyed on ingredient_id+vendor,
+  // no vendor_sku written (matches the other 4 legacy sites' contract).
   assert.strictEqual(tables.ingredient_vendors.length, 1);
-  const row = tables.ingredient_vendors[0];
-  assert.strictEqual(row.vendor, 'Walmart Business');
-  assert.strictEqual(row.vendor_sku, '44001602');
-  assert.strictEqual(row.ingredient_id, 'ing-ground-beef');
-  assert.strictEqual(row.unit_price, 39.94);
-  assert.strictEqual(row.pack_description, '10lb');
-  assert.strictEqual(row.active, true);
+  const priceRow = tables.ingredient_vendors[0];
+  assert.strictEqual(priceRow.vendor, 'Walmart Business');
+  assert.strictEqual(priceRow.ingredient_id, 'ing-ground-beef');
+  assert.strictEqual(priceRow.unit_price, 39.94);
+  assert.strictEqual(priceRow.pack_description, '10lb');
+  assert.strictEqual(priceRow.active, true);
+
+  // Identity: vendor_item_aliases, the durable SKU mapping source.
+  assert.strictEqual(tables.vendor_item_aliases.length, 1);
+  const identityRow = tables.vendor_item_aliases[0];
+  assert.strictEqual(identityRow.vendor, 'Walmart Business');
+  assert.strictEqual(identityRow.vendor_sku, '44001602');
+  assert.strictEqual(identityRow.ingredient_id, 'ing-ground-beef');
+
   delete global.supa;
 });
 

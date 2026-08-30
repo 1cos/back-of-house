@@ -106,6 +106,7 @@ await atest('E2E: Purchase History -> showPurchaseDetail -> real detail opens ->
 
   const tables = {
     vendor_documents: [importedDoc],
+    vendor_item_aliases: [],
     ingredient_vendors: [
       { id: 'iv-1', vendor: 'Walmart Business', vendor_sku: '44001602', ingredient_id: 'ing-44001602' },
     ],
@@ -163,8 +164,8 @@ await atest('E2E: Purchase History -> showPurchaseDetail -> real detail opens ->
   await window.vdrMatchSelectorPickCandidate(0);
 
   // ── FINAL STATE ──
-  assert.strictEqual(tables.ingredient_vendors.filter(r => r.vendor_sku === '19400236').length, 1, 'exactly 1 mapping for 19400236');
-  assert.strictEqual(tables.ingredient_vendors.find(r => r.vendor_sku === '19400236').ingredient_id, 'ing-chicken');
+  assert.strictEqual(tables.vendor_item_aliases.filter(r => r.vendor_sku === '19400236').length, 1, 'exactly 1 mapping for 19400236');
+  assert.strictEqual(tables.vendor_item_aliases.find(r => r.vendor_sku === '19400236').ingredient_id, 'ing-chicken');
   const chickenA = tables.invoice_lines.filter(l => l.vendor_sku === '19400236');
   const chickenB = tables.invoice_lines.filter(l => l.vendor_sku === '27935840');
   assert.strictEqual(chickenA.length, 8);

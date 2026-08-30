@@ -981,32 +981,56 @@ window.saveNewVendorRow = async function(ingredientId, btn){
     else if(conv > 0)                  p100 = parseFloat(((up / conv) * 100).toFixed(4));
   }
 
-  // FIX (Manual SKU Match task): now goes through the shared core
-  // (window.vdrSaveVendorSkuMapping, js/vendor-documents-review.js) that
-  // Vendor Review's own inline Match action also uses — same conflict
-  // safety, same single insert (extraFields below are only ever applied
-  // on a genuinely new row, exactly matching this function's own prior
-  // insert-only behavior), same vdrBackfillInvoiceLines() call. Never
-  // two divergent implementations of "save a vendor SKU mapping".
-  const result = await window.vdrSaveVendorSkuMapping(supa, vendorVal, vendorSkuVal, ingredientId, {
+  const packDescVal = document.getElementById('avPackDesc')?.value?.trim()||null;
+
+  // FIX (Durable Walmart SKU Mapping task, Part H): price intelligence
+  // (ingredient_vendors) is written directly here again, using the exact
+  // same upsert(onConflict:'ingredient_id,vendor') convention the other
+  // 4 legacy call sites already use (js/invoice.js x3,
+  // js/admin-ingredients.js x1) — never routed through the shared
+  // identity helper anymore, which now writes exclusively to
+  // vendor_item_aliases (the durable, conflict-safe SKU identity
+  // source). This intentionally still allows only one "known price" row
+  // per ingredient+vendor, per the legacy price-intelligence contract —
+  // out of scope to change in this task.
+  const { error: ivErr } = await supa.from('ingredient_vendors').upsert({
+    ingredient_id:      ingredientId,
+    vendor:             vendorVal,
     unit_price:         up,
-    pack_description:   document.getElementById('avPackDesc')?.value?.trim()||null,
+    pack_description:   packDescVal,
     conversion_to_base: conv,
     price_per_each:     pricePerEach,
     price_per_100g:     p100,
     price_type:         priceTypeVal,
-  });
+    active:             true,
+  }, { onConflict: 'ingredient_id,vendor' });
+  if(ivErr){ btn.textContent='Error: '+ivErr.message; btn.disabled=false; return; }
 
-  if(result.status === 'error'){ btn.textContent='Error: '+result.message; btn.disabled=false; return; }
-  if(result.status === 'conflict'){
-    // Previously this exact case would have just failed with a generic
-    // unique-constraint DB error — now explicit and non-destructive,
-    // matching the same conflict-safety Vendor Review's Match action has.
-    btn.textContent = 'Already matched to a different ingredient';
-    btn.disabled = false;
-    return;
+  // Identity mapping (vendor_item_aliases) — only when a real SKU was
+  // provided. Uses the same shared helper (window.vdrSaveVendorSkuMapping,
+  // js/vendor-documents-review.js) Vendor Review's own inline Match
+  // action uses — same conflict safety, same vdrBackfillInvoiceLines()
+  // call, never a second, divergent implementation. pack_description is
+  // the best available description in this form (no dedicated
+  // description field exists) — the helper's own fallback
+  // ('SKU '+vendorSku) still guarantees a non-null value if this is empty.
+  if (vendorSkuVal) {
+    const result = await window.vdrSaveVendorSkuMapping(supa, vendorVal, vendorSkuVal, ingredientId, packDescVal);
+    if(result.status === 'conflict'){
+      // Previously this exact case would have just failed with a generic
+      // unique-constraint DB error — now explicit and non-destructive.
+      // Price was already saved above; only the SKU link is blocked.
+      btn.textContent = 'Price saved — SKU already linked to a different ingredient';
+      btn.disabled = false;
+      return;
+    }
+    if(result.status === 'error'){
+      btn.textContent = 'Price saved — SKU link failed: ' + result.message;
+      btn.disabled = false;
+      return;
+    }
   }
-  // 'created' or 'idempotent' — backfill already ran inside the helper.
+  // 'created'/'idempotent' (or no vendor_sku provided at all) — done.
   btn.closest('.fixed').remove();
   document.querySelectorAll('.fixed.inset-0').forEach(m=>m.remove());
   openIngredientCard(ingredientId);

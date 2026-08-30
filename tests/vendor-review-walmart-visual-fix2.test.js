@@ -122,11 +122,11 @@ test('D: unmatchedSkuSet is now exposed on the vdrComputeMatchStatus result obje
   }
   const doc = { id: '26104552-doc', document_type: 'invoice', vendor: 'Walmart Business', parsed_json: { vendor: 'Walmart Business', items: items26104552 } };
   const ingredient_vendors = [
-    { vendor_sku: '44001602', vendor: 'Walmart Business' },
-    { vendor_sku: '44391101', vendor: 'Walmart Business' },
-    { vendor_sku: '44390947', vendor: 'Walmart Business' },
+    { vendor_sku: '44001602', vendor: 'Walmart Business', ingredient_id: 'ing-44001602' },
+    { vendor_sku: '44391101', vendor: 'Walmart Business', ingredient_id: 'ing-44391101' },
+    { vendor_sku: '44390947', vendor: 'Walmart Business', ingredient_id: 'ing-44390947' },
   ];
-  const sb = makeSb({ ingredient_vendors, ingredient_links: [] });
+  const sb = makeSb({ ingredient_vendors, ingredient_links: [], vendor_item_aliases: [] });
   const status = await vdrComputeMatchStatus(sb, [doc]);
 
   test('D: real 26104552 + real 3 SAFE_AUTO_MAP mappings -> unmatchedSkuSet contains exactly 19400236 and 27935840, never 44001602/44391101/44390947', () => {

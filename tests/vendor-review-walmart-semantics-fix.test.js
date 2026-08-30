@@ -223,11 +223,11 @@ function makeSb(tables) {
 await (async () => {
   const doc = { id: '26104552-doc', document_type: 'invoice', vendor: 'Walmart Business', parsed_json: { vendor: 'Walmart Business', items: browserResult.items } };
   const ingredient_vendors = [
-    { vendor_sku: '44001602', vendor: 'Walmart Business' },
-    { vendor_sku: '44391101', vendor: 'Walmart Business' },
-    { vendor_sku: '44390947', vendor: 'Walmart Business' },
+    { vendor_sku: '44001602', vendor: 'Walmart Business', ingredient_id: 'ing-44001602' },
+    { vendor_sku: '44391101', vendor: 'Walmart Business', ingredient_id: 'ing-44391101' },
+    { vendor_sku: '44390947', vendor: 'Walmart Business', ingredient_id: 'ing-44390947' },
   ];
-  const sb = makeSb({ ingredient_vendors, ingredient_links: [] });
+  const sb = makeSb({ ingredient_vendors, ingredient_links: [], vendor_item_aliases: [] });
   const status = await vdrComputeMatchStatus(sb, [doc]);
   test('F: 26104552 with the real 3 SAFE_AUTO_MAP mappings -> unmatchedLineCount=15, unmatchedSkuCount=2 (not 15)', () => {
     assert.strictEqual(status['26104552-doc'].unmatchedLineCount, 15);
