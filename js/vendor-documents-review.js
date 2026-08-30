@@ -233,7 +233,32 @@ window.vdrSaveVendorSkuMapping = async function(sb, vendor, vendorSku, ingredien
       .insert(insertRow)
       .select('id')
       .single();
-    if (insErr) return { status: 'error', message: insErr.message };
+    if (insErr) {
+      // FIX (Sequential Two-SKU Match bug): the live ingredient_vendors
+      // table has a real UNIQUE constraint on (ingredient_id, vendor) —
+      // a legacy pricing-intelligence constraint (js/invoice.js,
+      // js/admin-ingredients.js still rely on it via their own
+      // upsert(...,{onConflict:'ingredient_id,vendor'}) calls, correctly
+      // left untouched here — changing/removing the DB constraint would
+      // break those 4 call sites) that predates vendor_sku as a
+      // matching key. Two DIFFERENT vendor_sku values legitimately
+      // resolving to the SAME ingredient (this bug's real case: two
+      // different Walmart Chicken Breast SKUs) trip this constraint
+      // even though the existence check above (vendor+vendor_sku)
+      // correctly found nothing — the conflict is on a DIFFERENT
+      // column pair than the one this function's own contract checks.
+      // Detected by exact constraint name (never a generic string
+      // match) and treated as a successful match for THIS vendor_sku:
+      // vdrBackfillInvoiceLines only needs vendor+vendorSku+ingredientId
+      // as parameters, never a matching ingredient_vendors row to
+      // physically exist, so invoice_lines still get correctly
+      // backfilled even though a second row can't be created.
+      if (String(insErr.message || '').indexOf('ingredient_vendors_ingredient_id_vendor_key') > -1) {
+        const bf = window.vdrBackfillInvoiceLines ? await window.vdrBackfillInvoiceLines(sb, vendor, vendorSku, ingredientId) : { backfilled: 0 };
+        return { status: 'idempotent', row: null, backfilled: bf.backfilled, sharedIngredientRow: true };
+      }
+      return { status: 'error', message: insErr.message };
+    }
 
     const bf = window.vdrBackfillInvoiceLines ? await window.vdrBackfillInvoiceLines(sb, vendor, vendorSku, ingredientId) : { backfilled: 0 };
     return { status: 'created', row: inserted, backfilled: bf.backfilled };
