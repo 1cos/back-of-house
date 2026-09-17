@@ -1902,6 +1902,32 @@ function vdrWarningToQuestion(w, item, docId, idx) {
     };
   }
 
+  // ── PARSE_ERROR_NO_LINES (MICRO-TASK 34) — a document already ──────
+  // recognized as a valid invoice (real vendor, real document number)
+  // that a vendor parser nonetheless extracted ZERO line items from.
+  // Deliberately NOT grouped with the generic PARSE_ERROR/UNKNOWN_*
+  // info-only codes below: those cover a parser that couldn't even
+  // identify the document, which genuinely has nothing actionable to
+  // ask about. This is different — real data exists and something
+  // concrete broke — so it must always surface as a real, blocking
+  // question, exactly like DOC-TOTAL-001 just below, never silently.
+  if (w.code === 'PARSE_ERROR_NO_LINES') {
+    return {
+      qid, code: 'PARSE_ERROR_NO_LINES', item: null, docId, idx,
+      emoji: '🧾',
+      title: 'No line items found',
+      detected: w.message,
+      question: `This invoice was recognized but no line items could be read from it.`,
+      meaning: `Approving as-is would import a $0 invoice — the real lines are still on the document, just not parsed`,
+      yesLabel: 'Needs re-scan',
+      noLabel: 'Skip for now',
+      noNextQuestion: `What's wrong with this document?`,
+      noPlaceholder: `e.g. Layout changed, bad scan, will check manually`,
+      warnRef: w,
+      blocking: true,
+    };
+  }
+
   // Technical errors — show as read-only info, no question needed
   if (['PARSE_ERROR','UNKNOWN_VENDOR','UNKNOWN_DOC_TYPE','NO_PARSER','PARSER_ERROR'].includes(w.code)) {
     return {
@@ -3403,7 +3429,8 @@ function vdrRegisterQuestions(doc) {
 function vdrCodeToSeverity(code) {
   const blocking = ['INV-PACK-001','OQR-008','DOC-PARSE-001','DOC-VENDOR-001','DOC-TYPE-001',
     'DOC-NOPARSER-001','INV-MATCH-001','INV-DUP-001','INV-OCR-001','PARSE_ERROR',
-    'UNKNOWN_VENDOR','UNKNOWN_DOC_TYPE','NO_PARSER','PARSER_ERROR','DOC-TOTAL-001','PROCESS_ERROR'];
+    'UNKNOWN_VENDOR','UNKNOWN_DOC_TYPE','NO_PARSER','PARSER_ERROR','DOC-TOTAL-001','PROCESS_ERROR',
+    'PARSE_ERROR_NO_LINES'];
   const insight  = ['INV-SUB-001','OQR-002','INV-PACKCT-001','OQR-006','INV-PRICE-001','INV-UNUSED-001'];
   if (blocking.includes(code)) return 'blocking';
   if (insight.includes(code))  return 'insight';
