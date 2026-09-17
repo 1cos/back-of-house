@@ -2477,6 +2477,25 @@ async function vdrPreflight(docId, doc) {
 // status of 'error' is left completely untouched — those still need a
 // person, exactly as today. Never touches pdf_received (not parsed yet)
 // or any non-Hardie's vendor.
+//
+// MICRO-TASK 32 note (2026-09-17): a server-side counterpart now exists
+// — Edge Function `vendor-doc-auto-import`, scheduled via pg_cron every
+// 5 minutes (cron.job 'vendor-doc-auto-import-5min'), independent of
+// anyone having this page open. It runs the same two gates (a
+// vdrPreflight equivalent, then the same vdrApprove write sequence,
+// ported function-by-function with inline "PORTED FROM" markers pointing
+// back at the exact lines here) for EVERY vendor's clean pending
+// invoice, not just Hardie's — so for Hardie's specifically, this
+// client-side function is now largely redundant in the common case (the
+// cron beats vdrLoad() to it almost every time). Deliberately NOT
+// removed yet: it's still the only path for a document opened from a
+// fresh page load in the gap before the next cron tick, and no fallback
+// audit has been done to confirm nothing else depends on it firing
+// synchronously from vdrLoad(). See MICRO-TASK 31 (audit) and 32
+// (background worker) for the full writeup. The server-side version
+// deliberately does NOT cover Ben E. Keith order_confirmation (DOMParser
+// unavailable in Deno) — that stays on this file's existing client-side
+// path.
 // ── MARKER:VDR_AUTO_IMPORT_START ─────────────────────────────────
 let _vdrAutoImportRunning = false;
 const HARDIES_VENDOR_NAME = "Hardie's Fresh Foods / Dairyland Produce";
