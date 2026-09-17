@@ -479,6 +479,80 @@ async function vdaiBackfillInvoiceLines(sb: any, vendor: string, vendorSku: stri
   await sb.from('invoice_lines').update({ ingredient_id: ingredientId, match_status: 'matched' }).eq('vendor', vendor).eq('vendor_sku', vendorSku).is('ingredient_id', null);
 }
 
+// ══════════════════════════════════════════════════════════════════
+// writeInvoiceLines — MICRO-TASK 37. Extracted, unchanged, from
+// vdaiApprove's own invoice_lines block (the exact same idempotency
+// guard, the exact same row-building transformation, the exact same
+// reconciliation check — nothing rewritten, nothing added). Reused by:
+//   - vdaiApprove(), the normal pending→imported approval path, below
+//   - vdaiRepairMissingInvoiceLines(), the historical-backfill repair
+//     path for already-`imported` documents (MICRO-TASK 35/36 audit:
+//     21 documents, 16 Hardie's + 5 Fruge, status='imported' with a
+//     valid parsed_json but zero invoice_lines rows, from a pre-existing
+//     bulk historical import that never wrote them)
+// Deliberately scoped to ONLY invoice_lines. Never touches
+// ingredient_vendors (no price intelligence, no last_invoice_date),
+// vendor_item_aliases, invoice_warnings, parsed_json, or
+// vendor_documents.status — none of those tables/fields appear
+// anywhere in this function, by construction, so no caller of it can
+// accidentally trigger any of that regardless of which document or
+// document status it's called with.
+// ══════════════════════════════════════════════════════════════════
+async function writeInvoiceLines(
+  sb: any,
+  docId: string,
+  items: any[],
+  pj: any,
+  invoiceDate: string | null,
+  vendor: string,
+  identitySkuMap: Record<string, any>,
+  linkMap: Record<string, any>,
+): Promise<{ ok: boolean; reason?: string; inserted?: number }> {
+  // Idempotency guard — reuse pre-existing lines, exactly as before.
+  const { data: existingLines } = await sb.from('invoice_lines').select('id').eq('import_id', docId).limit(1);
+  if (existingLines && existingLines.length > 0) return { ok: true, reason: 'already_has_lines', inserted: 0 };
+
+  const invoiceLineRows = items
+    .map((item: any) => {
+      const desc = item.description || item.raw_description || null;
+      const sku = item.vendor_sku || item.item_code || null;
+      const qty = item.catchweight === true ? 1 : item.qty_ordered != null ? item.qty_ordered : item.qty_received != null ? item.qty_received : null;
+      const pack = item.pack_description || null;
+      const unitPrice = item.unit_price != null ? parseFloat(item.unit_price) : null;
+      const lineTotal = item.amount != null ? item.amount : null;
+
+      const totalG = item.total_weight_lb ? item.total_weight_lb * 453.592 : item.catchweight && item.actual_weight_lb ? item.actual_weight_lb * 453.592 : vdaiPackToGrams(pack);
+      const per100g = item._cost_per_100g ? parseFloat(item._cost_per_100g) : item.cost_per_lb ? (item.cost_per_lb / 453.592) * 100 : totalG && unitPrice && qty && qty > 0 ? (unitPrice / totalG) * 100 : null;
+
+      const isNonProduct = !!(item.line_type && item.line_type !== 'product');
+      const matchedId = isNonProduct ? null : sku && identitySkuMap[sku] ? identitySkuMap[sku].ingredient_id : desc && linkMap[desc] ? linkMap[desc] : null;
+
+      return {
+        import_id: docId, invoice_date: invoiceDate, invoice_number: pj.invoice_number || pj.document_number || null, vendor,
+        raw_description: desc, vendor_sku: sku, ingredient_id: matchedId, match_status: matchedId ? 'matched' : 'unmatched',
+        qty, purchase_unit: 'case', pack_description: pack, unit_price: unitPrice, line_total: lineTotal,
+        estimated_total_g: totalG ? Math.round(totalG) : null, cost_per_100g: per100g ? parseFloat(per100g.toFixed(4)) : null,
+      };
+    })
+    .filter((r: any) => r.raw_description);
+
+  if (!invoiceLineRows.length) return { ok: false, reason: 'no invoice lines extractable' };
+
+  const { error: ilErr } = await sb.from('invoice_lines').insert(invoiceLineRows);
+  if (ilErr) return { ok: false, reason: 'invoice_lines insert failed: ' + ilErr.message };
+
+  if (pj.total != null && !isNaN(parseFloat(pj.total))) {
+    const RECONCILIATION_TOLERANCE = 0.02;
+    const sumLineTotals = Math.round(invoiceLineRows.reduce((s: number, r: any) => s + (r.line_total || 0), 0) * 100) / 100;
+    const declaredTotal = parseFloat(pj.total);
+    if (Math.abs(sumLineTotals - declaredTotal) > RECONCILIATION_TOLERANCE) {
+      return { ok: false, reason: `reconciliation failed: lines sum $${sumLineTotals.toFixed(2)} vs document total $${declaredTotal.toFixed(2)}` };
+    }
+  }
+
+  return { ok: true, inserted: invoiceLineRows.length };
+}
+
 async function vdaiApprove(sb: any, docId: string): Promise<{ ok: boolean; reason?: string }> {
   const { data: doc, error: fetchErr } = await sb.from('vendor_documents').select('parsed_json,vendor,warnings,status,document_number,document_date').eq('id', docId).single();
   if (fetchErr) return { ok: false, reason: fetchErr.message };
@@ -609,49 +683,12 @@ async function vdaiApprove(sb: any, docId: string): Promise<{ ok: boolean; reaso
     for (const t of backfillTargets) await vdaiBackfillInvoiceLines(sb, t.vendor, t.vendor_sku, t.ingredient_id);
   }
 
-  // ── invoice_lines — idempotency guard #2: reuse pre-existing lines ──
-  const { data: existingLines } = await sb.from('invoice_lines').select('id').eq('import_id', docId).limit(1);
-  if (!existingLines || existingLines.length === 0) {
-    const invoiceLineRows = items
-      .map((item) => {
-        const desc = item.description || item.raw_description || null;
-        const sku = item.vendor_sku || item.item_code || null;
-        const qty = item.catchweight === true ? 1 : item.qty_ordered != null ? item.qty_ordered : item.qty_received != null ? item.qty_received : null;
-        const pack = item.pack_description || null;
-        const unitPrice = item.unit_price != null ? parseFloat(item.unit_price) : null;
-        const lineTotal = item.amount != null ? item.amount : null;
-
-        const totalG = item.total_weight_lb ? item.total_weight_lb * 453.592 : item.catchweight && item.actual_weight_lb ? item.actual_weight_lb * 453.592 : vdaiPackToGrams(pack);
-        const per100g = item._cost_per_100g ? parseFloat(item._cost_per_100g) : item.cost_per_lb ? (item.cost_per_lb / 453.592) * 100 : totalG && unitPrice && qty && qty > 0 ? (unitPrice / totalG) * 100 : null;
-
-        const isNonProduct = !!(item.line_type && item.line_type !== 'product');
-        const matchedId = isNonProduct ? null : sku && identitySkuMap[sku] ? identitySkuMap[sku].ingredient_id : desc && linkMap[desc] ? linkMap[desc] : null;
-
-        return {
-          import_id: docId, invoice_date: invoiceDate, invoice_number: pj.invoice_number || pj.document_number || null, vendor,
-          raw_description: desc, vendor_sku: sku, ingredient_id: matchedId, match_status: matchedId ? 'matched' : 'unmatched',
-          qty, purchase_unit: 'case', pack_description: pack, unit_price: unitPrice, line_total: lineTotal,
-          estimated_total_g: totalG ? Math.round(totalG) : null, cost_per_100g: per100g ? parseFloat(per100g.toFixed(4)) : null,
-        };
-      })
-      .filter((r) => r.raw_description);
-
-    if (invoiceLineRows.length) {
-      const { error: ilErr } = await sb.from('invoice_lines').insert(invoiceLineRows);
-      if (ilErr) return { ok: false, reason: 'invoice_lines insert failed: ' + ilErr.message };
-
-      if (pj.total != null && !isNaN(parseFloat(pj.total))) {
-        const RECONCILIATION_TOLERANCE = 0.02;
-        const sumLineTotals = Math.round(invoiceLineRows.reduce((s, r) => s + (r.line_total || 0), 0) * 100) / 100;
-        const declaredTotal = parseFloat(pj.total);
-        if (Math.abs(sumLineTotals - declaredTotal) > RECONCILIATION_TOLERANCE) {
-          return { ok: false, reason: `reconciliation failed: lines sum $${sumLineTotals.toFixed(2)} vs document total $${declaredTotal.toFixed(2)}` };
-        }
-      }
-    } else {
-      return { ok: false, reason: 'no invoice lines extractable' };
-    }
-  }
+  // ── invoice_lines — extracted to writeInvoiceLines() (MICRO-TASK 37) ──
+  // Same idempotency guard, same row-building, same reconciliation —
+  // just no longer inlined here, so the identical logic can also be
+  // reused by the repair path below without duplicating it by hand.
+  const linesResult = await writeInvoiceLines(sb, docId, items, pj, invoiceDate, vendor, identitySkuMap, linkMap);
+  if (!linesResult.ok) return { ok: false, reason: linesResult.reason };
 
   // Idempotency guard #3 — the atomic conditional update. If another
   // concurrent run already flipped this row (status no longer
@@ -676,6 +713,75 @@ function vdaiPackToGrams(packStr: string | null): number | null {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// vdaiRepairMissingInvoiceLines — MICRO-TASK 37. A standalone repair
+// path for the exact opposite situation vdaiApprove handles: a
+// document that is ALREADY status='imported' (vdaiApprove refuses
+// these outright — "Idempotency guard #1" above) but whose
+// invoice_lines were never written, from a pre-existing bulk
+// historical import that set status='imported' without ever running
+// the normal write path (MICRO-TASK 35/36 audit: 21 such documents,
+// 16 Hardie's + 5 Fruge, all dated 2026-05-26..2026-06-22).
+//
+// This function's status guard is the mirror image of vdaiApprove's:
+// it requires status === 'imported' and does nothing for 'pending' —
+// the two paths can never both fire on the same document. It NEVER
+// touches vendor_documents (status or any other column) and NEVER
+// runs the ingredient_vendors price-intelligence block — that whole
+// block (source lines ~526-609 of vdaiApprove above) is simply absent
+// here, not merely skipped by a flag, so there is no code path by
+// which calling this function can regress last_invoice_date or
+// current price, or touch vendor_item_aliases, or write
+// invoice_warnings, or modify parsed_json. Matching (identitySkuMap /
+// linkMap) is rebuilt read-only from the exact same tables/queries
+// vdaiApprove already uses, so an unmatched SKU is handled exactly
+// the same way (match_status:'unmatched', ingredient_id:null) —
+// never invented, never silently forced to match.
+// ══════════════════════════════════════════════════════════════════
+async function vdaiRepairMissingInvoiceLines(sb: any, docId: string, dryRun: boolean): Promise<{ ok: boolean; reason?: string; inserted?: number }> {
+  const { data: doc, error: fetchErr } = await sb.from('vendor_documents').select('parsed_json,vendor,status,document_number,document_date').eq('id', docId).single();
+  if (fetchErr) return { ok: false, reason: fetchErr.message };
+
+  // Mirror-image guard of vdaiApprove's — this path exists ONLY for
+  // already-imported documents. Never for 'pending' (that's
+  // vdaiApprove's job) and never for 'error'/'ignored'.
+  if (doc.status !== 'imported') return { ok: false, reason: 'not_imported' };
+
+  const pj = doc.parsed_json || {};
+  if (pj.document_type !== 'invoice') return { ok: false, reason: 'not_invoice' };
+
+  const vendor = pj.vendor || doc.vendor || 'Unknown';
+  const invoiceDate = doc.document_date || null;
+  const items: any[] = pj.items || [];
+
+  const skus = items.map((i: any) => i.vendor_sku || i.item_code).filter(Boolean);
+  const descs = items.map((i: any) => i.description || i.raw_description).filter(Boolean);
+
+  // Same read-only matching lookups vdaiApprove builds — no
+  // ingredient_vendors WRITE query here (that table is only ever
+  // written by the price-intelligence block, which this path omits
+  // entirely rather than merely skip).
+  const [skuRes, aliasRes, linkRes] = await Promise.all([
+    skus.length ? sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] },
+    skus.length ? sb.from('vendor_item_aliases').select('vendor_sku,ingredient_id').eq('vendor', vendor).eq('active', true).in('vendor_sku', skus) : { data: [] },
+    descs.length ? sb.from('ingredient_links').select('invoice_description,ingredient_id').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', descs) : { data: [] },
+  ]);
+
+  const skuMap: Record<string, any> = {};
+  (skuRes.data || []).forEach((r: any) => { skuMap[r.vendor_sku] = r; });
+  const identitySkuMap: Record<string, any> = Object.assign({}, skuMap);
+  (aliasRes.data || []).forEach((r: any) => { if (r.vendor_sku) identitySkuMap[r.vendor_sku] = { ingredient_id: r.ingredient_id, vendor_sku: r.vendor_sku }; });
+  const linkMap: Record<string, any> = {};
+  (linkRes.data || []).forEach((l: any) => { linkMap[l.invoice_description] = l.ingredient_id; });
+
+  if (dryRun) {
+    const { data: existingLines } = await sb.from('invoice_lines').select('id').eq('import_id', docId).limit(1);
+    return { ok: true, reason: existingLines && existingLines.length > 0 ? 'already_has_lines' : 'would_repair', inserted: 0 };
+  }
+
+  return await writeInvoiceLines(sb, docId, items, pj, invoiceDate, vendor, identitySkuMap, linkMap);
+}
+
+// ══════════════════════════════════════════════════════════════════
 // Orchestration
 // ══════════════════════════════════════════════════════════════════
 Deno.serve(async (req: Request) => {
@@ -685,8 +791,20 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}));
     const dryRun: boolean = !!body.dry_run;
     const documentId: string | null = body.document_id || null;
+    // MICRO-TASK 37 — an entirely separate, additive branch: the cron's
+    // bare invocation never sets this, so Phase A/B below (and every
+    // other vendor's behavior) is completely unaffected by its
+    // existence. Only fires on an explicit, single-document request.
+    const repairInvoiceLines: boolean = !!body.repair_invoice_lines;
 
     const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+    if (repairInvoiceLines) {
+      if (!documentId) return json({ ok: false, error: 'repair_invoice_lines requires document_id' }, 400);
+      const repairResult = await vdaiRepairMissingInvoiceLines(sb, documentId, dryRun);
+      return json({ ok: true, ms: Date.now() - started, repair: { id: documentId, dry_run: dryRun, ...repairResult } });
+    }
+
     const parsers = loadParsers();
 
     const result = { phaseA: [] as any[], phaseB: [] as any[], dry_run: dryRun };
