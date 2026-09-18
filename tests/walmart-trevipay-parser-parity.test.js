@@ -20,11 +20,20 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
+// MICRO-TASK 42: i blocchi estratti da vendor-documents-review.js delegano
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Iniettata QUI IN TESTA: alcuni test girano a livello top-level e devono
+// trovarla gia definita. E la REGOLA VERA, non uno stub.
+global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-order-confirmation').isPurchasableDocument;
+
+
 const VP_UI_JS = path.join(__dirname, '..', 'js', 'vendor-parser-ui.js');
 const VDR_JS   = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 const walmartNode = require(path.join(__dirname, '..', 'js', 'vendor-parsers', 'walmart-trevipay-invoice.js'));
 const nodeParsers  = require(path.join(__dirname, '..', 'js', 'vendor-parsers', 'index.js'));
 const fixtures     = require('./fixtures/trevipay-samples.js');
+
+
 
 let pass = 0, fail = 0;
 function test(name, fn) {

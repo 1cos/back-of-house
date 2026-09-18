@@ -10,6 +10,7 @@ const hardiesCredit     = require('./hardies-credit');
 const freshpointInvoice = require('./freshpoint-invoice');
 const frugeInvoice      = require('./fruge-invoice');
 const bekInvoice        = require('./bek-invoice');
+const bekOrderConfirmation = require('./ben-e-keith-order-confirmation');
 const walmartTrevipayInvoice = require('./walmart-trevipay-invoice');
 
 const VENDORS = {
@@ -69,7 +70,12 @@ const VENDORS = {
       /ben e keith/i,
     ],
     documents: {
-      invoice: bekInvoice,
+      invoice:            bekInvoice,
+      // MICRO-TASK 42: the Order Confirmation email is an operational
+      // purchase document for Ben E. Keith — there is no separate
+      // invoice to wait for. document_type stays 'order_confirmation'
+      // so the original source is never lost.
+      order_confirmation: bekOrderConfirmation,
     },
   },
 };
@@ -86,14 +92,39 @@ function detectVendor(rawText) {
 }
 
 // ── Detect document type from raw text ───────────────────────
-function detectDocumentType(rawText) {
+// `vendor` is optional and backwards compatible: called with one
+// argument this behaves exactly as before. parse() passes the detected
+// vendor so a vendor-specific signal can never leak into another
+// vendor's detection.
+function detectDocumentType(rawText, vendor) {
   const text = rawText || '';
   if (/CONFIRMATION OF SALE/i.test(text))   return 'order_confirmation';
   if (/\bCREDIT\b/i.test(text) && /\bCREDIT\s+\d{5,}/i.test(text)) return 'credit_memo';
   if (/INVOICE\/POD/i.test(text))           return 'invoice';
+
+  // MICRO-TASK 42 — Ben E. Keith Order Confirmation. Scoped to vendor
+  // 'bek' ONLY: the real email body never contains the literal phrase
+  // "Order Confirmation" (that lives in the subject, which this
+  // function never sees), but it always carries "Sales Order #".
+  // Checked BEFORE the generic \bINVOICE\b fallback, because BEK's
+  // footer/boilerplate can mention invoices. Deliberately NOT global —
+  // "Sales Order" is common vendor prose and must not reclassify any
+  // other vendor's document. (Same root cause as Task 11B, fixed there
+  // for the browser parser.)
+  if (vendor === 'bek' && /Sales\s*Order/i.test(text)) return 'order_confirmation';
+
   if (/\bINVOICE\b/i.test(text))            return 'invoice';
   return 'unknown';
 }
+
+// ── Purchasable document types (MICRO-TASK 42) ───────────────
+// Re-exported, NOT redefined: the single definition lives in
+// ./ben-e-keith-order-confirmation.js, which is also the copy the browser
+// loads as a plain <script> (window.BekOrderConfirmationParser). Keeping
+// one definition is the whole point — a second copy here would be exactly
+// the divergence this task forbids.
+const isBenEKeith           = bekOrderConfirmation.isBenEKeith;
+const isPurchasableDocument = bekOrderConfirmation.isPurchasableDocument;
 
 
 // ── Reconciliation check (Quadratura) ────────────────────────
@@ -107,6 +138,18 @@ function checkTotals(parsed) {
   if (!parsed || !Array.isArray(parsed.items) || parsed.items.length === 0) {
     return parsed; // empty docs are covered by PARSE_ERROR
   }
+
+  // MICRO-TASK 42 — a parser that already reconciled its own totals says
+  // so, and this generic check must not re-judge it. Generic flag, not a
+  // vendor special case: it exists because `amount` does not always mean
+  // the same thing as the document's declared total. For Ben E. Keith the
+  // declared "Order Total" is an ORDER-time figure (measured: equals
+  // Σ price×ordered on all 4 real documents), while `amount` carries the
+  // CONFIRMED purchase value. Comparing the two would fail every short
+  // delivery — which must import, carrying only an informational
+  // BEK_QTY_SHORT. That parser raises DOC-TOTAL-001 itself, against the
+  // ordered sum, using this same $0.02 tolerance.
+  if (parsed.totals_reconciled === true) return parsed;
 
   const amounts = parsed.items
     .map(it => it.amount)
@@ -150,7 +193,7 @@ function checkTotals(parsed) {
 // Returns structured VendorDocument or error object
 function parse(rawText) {
   const vendor  = detectVendor(rawText);
-  const docType = detectDocumentType(rawText);
+  const docType = detectDocumentType(rawText, vendor);
 
   if (vendor === 'unknown') {
     return {
@@ -205,4 +248,7 @@ function parse(rawText) {
   }
 }
 
-module.exports = { parse, detectVendor, detectDocumentType, checkTotals };
+module.exports = {
+  parse, detectVendor, detectDocumentType, checkTotals,
+  isPurchasableDocument, isBenEKeith,
+};

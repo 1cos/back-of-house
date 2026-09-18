@@ -16,6 +16,15 @@ const fs = require('fs');
 const path = require('path');
 const fixtures = require('./fixtures/trevipay-samples.js');
 
+// MICRO-TASK 42: i blocchi estratti da vendor-documents-review.js delegano
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Iniettata QUI IN TESTA: alcuni test girano a livello top-level e devono
+// trovarla gia definita. E la REGOLA VERA, non uno stub.
+global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-order-confirmation').isPurchasableDocument;
+
+
+
+
 const SRC_PATH = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 const src = fs.readFileSync(SRC_PATH, 'utf8');
 

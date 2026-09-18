@@ -8,6 +8,15 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
+// MICRO-TASK 42: i blocchi estratti da vendor-documents-review.js delegano
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Iniettata QUI IN TESTA: alcuni test girano a livello top-level e devono
+// trovarla gia definita. E la REGOLA VERA, non uno stub.
+global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-order-confirmation').isPurchasableDocument;
+
+
+
+
 const VDR_JS = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 const VPU_JS = path.join(__dirname, '..', 'js', 'vendor-parser-ui.js');
 const INV_JS = path.join(__dirname, '..', 'js', 'invoice.js');

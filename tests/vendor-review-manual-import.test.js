@@ -13,9 +13,21 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+
+// MICRO-TASK 42: i blocchi estratti da vendor-documents-review.js delegano
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Iniettata QUI IN TESTA: alcuni test girano a livello top-level e devono
+// trovarla gia definita. E la REGOLA VERA, non uno stub.
+global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-order-confirmation').isPurchasableDocument;
+
 const VDR_JS = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 
 global.window = global.window || {}; // il blocco reale legge window.vdrPackToGrams
+// MICRO-TASK 42: il blocco estratto da vendor-documents-review.js ora delega
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Qui iniettiamo la REGOLA VERA (non uno stub), cosi il test esercita
+// esattamente cio che gira in produzione.
+
 
 let pass = 0, fail = 0;
 function test(name, fn) {

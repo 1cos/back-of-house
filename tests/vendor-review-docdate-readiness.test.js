@@ -21,6 +21,15 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
+// MICRO-TASK 42: i blocchi estratti da vendor-documents-review.js delegano
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Iniettata QUI IN TESTA: alcuni test girano a livello top-level e devono
+// trovarla gia definita. E la REGOLA VERA, non uno stub.
+global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-order-confirmation').isPurchasableDocument;
+
+
+
+
 const VDR_JS = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 const vdrSrc = fs.readFileSync(VDR_JS, 'utf8');
 
@@ -168,8 +177,13 @@ await atest('C4: mixed document — only the real product line counts, non-produ
   assert.strictEqual(status['d4'].unmatchedCount, 1, 'only the product row, never the shipping row, counts');
 });
 
-await atest('C5: non-invoice document_type (e.g. order_confirmation) never needs matching', async () => {
-  const doc = { id: 'd5', document_type: 'order_confirmation', parsed_json: { vendor: 'Ben E. Keith', items: [{ vendor_sku: 'x', description: 'y', amount: 1 }] } };
+// MICRO-TASK 42: il vendor era 'Ben E. Keith'. Da questo task una BEK
+// order_confirmation E un documento d'acquisto e DEVE passare dal matching,
+// quindi il caso e stato spostato su un vendor DOCUMENTALE (Hardie's), dove
+// l'invariante originale continua a valere. Il comportamento nuovo di BEK e
+// coperto in tests/bek-canonical-parser.test.js.
+await atest('C5: order_confirmation DOCUMENTALE (Hardies) never needs matching', async () => {
+  const doc = { id: 'd5', document_type: 'order_confirmation', parsed_json: { vendor: "Hardie's Fresh Foods / Dairyland Produce", items: [{ vendor_sku: 'x', description: 'y', amount: 1 }] } };
   const { sb } = makeSb({ ingredient_vendors: [], ingredient_links: [] });
   const status = await vdrComputeMatchStatus(sb, [doc]);
   assert.strictEqual(status['d5'].needsMatching, false);

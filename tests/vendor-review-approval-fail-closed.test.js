@@ -10,6 +10,13 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
+// MICRO-TASK 42: i blocchi estratti da vendor-documents-review.js delegano
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Iniettata QUI IN TESTA: alcuni test girano a livello top-level e devono
+// trovarla gia definita. E la REGOLA VERA, non uno stub.
+global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-order-confirmation').isPurchasableDocument;
+
+
 const VDR_JS = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 const VPU_JS = path.join(__dirname, '..', 'js', 'vendor-parser-ui.js');
 const vdrSrc = fs.readFileSync(VDR_JS, 'utf8');
@@ -22,6 +29,7 @@ async function atest(name, fn) { try { await fn(); pass++; console.log('  ✓ ' 
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 global.document = dom.window.document;
 global.window = global.window || {};
+
 
 console.log('\nApproval Safety Fix — invoice_lines fail-closed — test run\n');
 

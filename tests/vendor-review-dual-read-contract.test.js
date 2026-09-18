@@ -8,6 +8,13 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
+// MICRO-TASK 42: i blocchi estratti da vendor-documents-review.js delegano
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Iniettata QUI IN TESTA: alcuni test girano a livello top-level e devono
+// trovarla gia definita. E la REGOLA VERA, non uno stub.
+global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-order-confirmation').isPurchasableDocument;
+
+
 const VDR_JS = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 const vdrSrc = fs.readFileSync(VDR_JS, 'utf8');
 
@@ -166,6 +173,8 @@ test('E: structural — the vendor_item_aliases lookup explicitly filters .eq(\'
 // Part 4 — Ingredient Card contract (saveNewVendorRow)
 // ══════════════════════════════════════════════════════════════════
 const { JSDOM } = require('jsdom');
+
+
 const domForCard = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 global.document = domForCard.window.document;
 global.window = global; // real browser semantics — bare identifiers resolve against the true global

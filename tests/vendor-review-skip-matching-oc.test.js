@@ -14,6 +14,13 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
+// MICRO-TASK 42: i blocchi estratti da vendor-documents-review.js delegano
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Iniettata QUI IN TESTA: alcuni test girano a livello top-level e devono
+// trovarla gia definita. E la REGOLA VERA, non uno stub.
+global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-order-confirmation').isPurchasableDocument;
+
+
 const VDR_JS = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 
 let pass = 0, fail = 0;
@@ -23,6 +30,11 @@ async function atest(name, fn) { try { await fn(); pass++; console.log('  ✓ ' 
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 global.document = dom.window.document;
 global.window = global.window || {};
+// MICRO-TASK 42: il blocco estratto da vendor-documents-review.js ora delega
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Qui iniettiamo la REGOLA VERA (non uno stub), cosi il test esercita
+// esattamente cio che gira in produzione.
+
 
 function makeGenericSb(tables) {
   const calls = { updates: [], inserts: [], selects: [] };
@@ -68,7 +80,10 @@ function loadRealVdrModule() {
 
 console.log('\nVendor Review — order_confirmation skips ingredient matching (Task 11W) — test run\n');
 
-test("verifica riga reale: il blocco 2 di vdrPreflight (unmatched count) è racchiuso in if (pj.document_type === 'invoice')", () => {
+// MICRO-TASK 42: il gate non e piu `document_type === 'invoice'` ma
+// la regola condivisa isPurchasableDocument, che include BEK
+// order_confirmation. L'invariante verificato qui resta lo stesso.
+test("verifica riga reale: il blocco 2 di vdrPreflight (unmatched count) è racchiuso nel gate isPurchasableDocument", () => {
   // FIX (deferred matching task): vdrPreflight no longer returns
   // {ok:false, reason:'match_needed'} for unmatched product lines — an
   // unmatched item no longer blocks approval at all (Chef Max can defer
@@ -79,7 +94,7 @@ test("verifica riga reale: il blocco 2 di vdrPreflight (unmatched count) è racc
   const fnStart = src.indexOf('async function vdrPreflight(docId, doc) {');
   assert.ok(fnStart > -1, 'vdrPreflight non trovata');
   const fnBody = src.slice(fnStart, src.indexOf('\n// ── APPROVE BUTTON', fnStart));
-  const gateIdx = fnBody.indexOf("if (pj.document_type === 'invoice') {");
+  const gateIdx = fnBody.indexOf("if (vdrIsPurchasableDocument(pj.vendor, pj.document_type)) {");
   assert.ok(gateIdx > -1, 'gate non trovato dentro vdrPreflight');
   const unmatchedIdx = fnBody.indexOf('unmatchedCount = unmatched.length;');
   assert.ok(unmatchedIdx > gateIdx, "il calcolo di unmatchedCount deve stare DENTRO il gate 'invoice'");
@@ -91,10 +106,15 @@ test("verifica riga reale: il blocco 2 di vdrPreflight (unmatched count) è racc
 // ("Pastry Bag" -> "Puff Pastry") — replica esatta del bug osservato.
 const UNMATCHED_ITEM = { vendor_sku: '116533', description: 'Pastry Bag 21in Clr Disposable', raw_description: 'Pastry Bag 21in Clr Disposable', pack_description: '1/ 100 CT', unit_price: 40.98, qty_ordered: 2, qty_received: 2, amount: 81.96, warnings: [] };
 
-function makeDoc(docType, docId) {
+const HARDIES = "Hardie's Fresh Foods / Dairyland Produce";
+function makeDoc(docType, docId, vendorName) {
+  // MICRO-TASK 42: un order_confirmation DOCUMENTALE (Hardie's) non genera
+  // acquisto; uno Ben E. Keith si. L'invariante originale resta verificato
+  // sul vendor per cui vale ancora.
+  vendorName = vendorName || 'Ben E. Keith';
   return {
-    id: docId, document_number: '0002952908', vendor: 'Ben E. Keith', status: 'pending', warnings: null,
-    parsed_json: { vendor: 'Ben E. Keith', document_type: docType, document_number: '0002952908', document_date: '2026-08-20', delivery_date: '2026-08-20', total: 81.96, items: [UNMATCHED_ITEM], warnings: [] },
+    id: docId, document_number: '0002952908', vendor: vendorName, status: 'pending', warnings: null,
+    parsed_json: { vendor: vendorName, document_type: docType, document_number: '0002952908', document_date: '2026-08-20', delivery_date: '2026-08-20', total: 81.96, items: [UNMATCHED_ITEM], warnings: [] },
   };
 }
 
@@ -142,11 +162,11 @@ function tablesNoMatch(doc) {
     assert.ok(yesChef, 'la modale celebrativa Yes-Chef deve apparire (percorso di successo raggiunto, non quello di match)');
   });
 
-  await atest('T3: Order Confirmation approval — 0 ingredient_vendors writes, 0 invoice_lines, status=imported', async () => {
+  await atest('T3: Order Confirmation DOCUMENTALE (Hardies) — 0 ingredient_vendors writes, 0 invoice_lines, status=imported', async () => {
     document.body.innerHTML = '';
     loadRealVdrModule();
     const docId = 'oc-w-3';
-    const doc = makeDoc('order_confirmation', docId);
+    const doc = makeDoc('order_confirmation', docId, HARDIES);
     const { sb, calls } = makeGenericSb(tablesNoMatch(doc));
     global.window.supabaseClient = sb;
     global.window._vdrEdits = {};
@@ -192,7 +212,7 @@ function tablesNoMatch(doc) {
     const docId = 'inv-w-5';
     const doc = makeDoc('invoice', docId);
     const tables = tablesNoMatch(doc);
-    tables.ingredient_vendors = [{ id: 'iv-1', ingredient_id: 'ing-1', vendor_sku: '116533', vendor: 'Ben E. Keith' }];
+    tables.ingredient_vendors = [{ id: 'iv-1', ingredient_id: 'ing-1', vendor_sku: '116533', vendor: doc.vendor }];
     const { sb, calls } = makeGenericSb(tables);
     global.window.supabaseClient = sb;
     global.window._vdrEdits = {};
@@ -205,13 +225,13 @@ function tablesNoMatch(doc) {
   });
 
   // ── T6 — Regressione Task 11V (zero price writes per order_confirmation) ──
-  await atest('T6: Regressione Task 11V — order_confirmation resta a zero price writes anche con item matchato', async () => {
+  await atest('T6: Regressione Task 11V — order_confirmation DOCUMENTALE resta a zero price writes anche con item matchato', async () => {
     document.body.innerHTML = '';
     loadRealVdrModule();
     const docId = 'oc-w-6';
-    const doc = makeDoc('order_confirmation', docId);
+    const doc = makeDoc('order_confirmation', docId, HARDIES);
     const tables = tablesNoMatch(doc);
-    tables.ingredient_vendors = [{ id: 'iv-1', ingredient_id: 'ing-1', vendor_sku: '116533', vendor: 'Ben E. Keith' }];
+    tables.ingredient_vendors = [{ id: 'iv-1', ingredient_id: 'ing-1', vendor_sku: '116533', vendor: doc.vendor }];
     const { sb, calls } = makeGenericSb(tables);
     global.window.supabaseClient = sb;
     global.window._vdrEdits = {};

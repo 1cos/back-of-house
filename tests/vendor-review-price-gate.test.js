@@ -16,6 +16,13 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
+// MICRO-TASK 42: i blocchi estratti da vendor-documents-review.js delegano
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Iniettata QUI IN TESTA: alcuni test girano a livello top-level e devono
+// trovarla gia definita. E la REGOLA VERA, non uno stub.
+global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-order-confirmation').isPurchasableDocument;
+
+
 const VDR_JS = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 
 let pass = 0, fail = 0;
@@ -26,6 +33,11 @@ async function atest(name, fn) { try { await fn(); pass++; console.log('  ✓ ' 
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 global.document = dom.window.document;
 global.window = global.window || {};
+// MICRO-TASK 42: il blocco estratto da vendor-documents-review.js ora delega
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Qui iniettiamo la REGOLA VERA (non uno stub), cosi il test esercita
+// esattamente cio che gira in produzione.
+
 
 // ── Generic thenable Supabase mock — un vero query builder, non uno shortcut ──
 function makeGenericSb(tables) {
@@ -79,9 +91,12 @@ function loadRealVdrModule() {
 console.log('\nVendor Review — gate ingredient_vendors a solo Invoice (Task 11V) — test run\n');
 
 // ── Verifica strutturale: la riga reale nel sorgente ──────────────────
-test("verifica riga reale: 'if (pj.document_type === 'invoice') {' racchiude il blocco ingredient_vendors (non solo invoice_lines)", () => {
+// MICRO-TASK 42: il gate non e piu `document_type === 'invoice'` ma
+// la regola condivisa isPurchasableDocument, che include BEK
+// order_confirmation. L'invariante verificato qui resta lo stesso.
+test("verifica riga reale: il gate isPurchasableDocument racchiude il blocco ingredient_vendors (non solo invoice_lines)", () => {
   const src = fs.readFileSync(VDR_JS, 'utf8');
-  const occurrences = src.split("if (pj.document_type === 'invoice') {").length - 1;
+  const occurrences = src.split("if (vdrIsPurchasableDocument(pj.vendor, pj.document_type)) {").length - 1;
   // >= 2 (non ===2): Task 11W ha aggiunto legittimamente un terzo gate
   // identico in vdrPreflight (ingredient matching, stesso principio) —
   // questo test verifica solo che i DUE gate di questo task (Task 11V:
@@ -89,21 +104,25 @@ test("verifica riga reale: 'if (pj.document_type === 'invoice') {' racchiude il 
   assert.ok(occurrences >= 2, `atteso ALMENO 2 gate 'invoice' (ingredient_vendors + invoice_lines) — trovati ${occurrences}`);
   const ivBlockIdx = src.indexOf("ingredient_vendors (price intelligence) — invoices only");
   assert.ok(ivBlockIdx > -1, 'commento del fix Task 11V non trovato');
-  const gateAfterComment = src.indexOf("if (pj.document_type === 'invoice') {", ivBlockIdx);
+  const gateAfterComment = src.indexOf("if (vdrIsPurchasableDocument(pj.vendor, pj.document_type)) {", ivBlockIdx);
   assert.ok(gateAfterComment > -1 && gateAfterComment < ivBlockIdx + 1200, 'il gate deve seguire a breve distanza il commento del fix Task 11V, racchiudendo il blocco ingredient_vendors');
 });
 
+const HARDIES = "Hardie's Fresh Foods / Dairyland Produce";
 const BEK_ITEM = { vendor_sku: '116533', description: 'Pastry Bag 21in Clr Disposable', raw_description: 'Pastry Bag 21in Clr Disposable', pack_description: '1/ 100 CT', unit_price: 40.98, qty_ordered: 2, qty_received: 2, amount: 81.96, warnings: [] };
 
-function makeDoc(docType, docId) {
+function makeDoc(docType, docId, vendorName) {
+  // MICRO-TASK 42: vendor parametrizzabile — un order_confirmation di un
+  // vendor DOCUMENTALE (Hardie's) non genera acquisto, uno BEK si.
+  vendorName = vendorName || 'Ben E. Keith';
   return {
     id: docId,
     document_number: '0002952908',
-    vendor: 'Ben E. Keith',
+    vendor: vendorName,
     status: 'pending',
     warnings: null,
     parsed_json: {
-      vendor: 'Ben E. Keith',
+      vendor: vendorName,
       document_type: docType,
       document_number: '0002952908',
       document_date: '2026-08-20',
@@ -127,10 +146,10 @@ function baseTables(doc) {
 (async () => {
 
   // ── T1/T2/T3 — Order Confirmation ────────────────────────────────
-  await atest('T1: Order Confirmation — 0 UPDATE e 0 INSERT su ingredient_vendors', async () => {
+  await atest('T1: Order Confirmation DOCUMENTALE (Hardies) — 0 UPDATE e 0 INSERT su ingredient_vendors', async () => {
     loadRealVdrModule();
     const docId = 'oc-doc-1';
-    const doc = makeDoc('order_confirmation', docId);
+    const doc = makeDoc('order_confirmation', docId, HARDIES);
     const { sb, calls } = makeGenericSb(baseTables(doc));
     global.window.supabaseClient = sb;
     global.window._vdrEdits = {};
@@ -143,10 +162,10 @@ function baseTables(doc) {
     assert.strictEqual(ivInserts.length, 0, `atteso 0 INSERT ingredient_vendors, trovati ${ivInserts.length}`);
   });
 
-  await atest('T2: Order Confirmation — 0 INSERT su invoice_lines', async () => {
+  await atest('T2: Order Confirmation DOCUMENTALE (Hardies) — 0 INSERT su invoice_lines', async () => {
     loadRealVdrModule();
     const docId = 'oc-doc-2';
-    const doc = makeDoc('order_confirmation', docId);
+    const doc = makeDoc('order_confirmation', docId, HARDIES);
     const { sb, calls } = makeGenericSb(baseTables(doc));
     global.window.supabaseClient = sb;
     global.window._vdrEdits = {};

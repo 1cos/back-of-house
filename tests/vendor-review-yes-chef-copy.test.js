@@ -13,6 +13,13 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
+// MICRO-TASK 42: i blocchi estratti da vendor-documents-review.js delegano
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Iniettata QUI IN TESTA: alcuni test girano a livello top-level e devono
+// trovarla gia definita. E la REGOLA VERA, non uno stub.
+global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-order-confirmation').isPurchasableDocument;
+
+
 const VDR_JS = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 
 let pass = 0, fail = 0;
@@ -22,6 +29,11 @@ async function atest(name, fn) { try { await fn(); pass++; console.log('  ✓ ' 
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 global.document = dom.window.document;
 global.window = global.window || {};
+// MICRO-TASK 42: il blocco estratto da vendor-documents-review.js ora delega
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Qui iniettiamo la REGOLA VERA (non uno stub), cosi il test esercita
+// esattamente cio che gira in produzione.
+
 
 function makeGenericSb(tables) {
   const calls = { updates: [], inserts: [] };
@@ -69,27 +81,30 @@ console.log('\nVendor Review — Yes-Chef modal copy per document_type (Task 11Y
 
 const MATCHED_ITEM = { vendor_sku: '116533', description: 'Pastry Bag 21in Clr Disposable', raw_description: 'Pastry Bag 21in Clr Disposable', pack_description: '1/ 100 CT', unit_price: 40.98, qty_ordered: 2, qty_received: 2, amount: 81.96, warnings: [] };
 
-function makeDoc(docType, docId) {
+const HARDIES = "Hardie's Fresh Foods / Dairyland Produce";
+function makeDoc(docType, docId, vendorName) {
+  // MICRO-TASK 42: vedi nota in vendor-review-price-gate.test.js
+  vendorName = vendorName || 'Ben E. Keith';
   return {
-    id: docId, document_number: '0002952908', vendor: 'Ben E. Keith', status: 'pending', warnings: null,
-    parsed_json: { vendor: 'Ben E. Keith', document_type: docType, document_number: '0002952908', document_date: '2026-08-20', delivery_date: '2026-08-20', total: 81.96, items: [MATCHED_ITEM], warnings: [] },
+    id: docId, document_number: '0002952908', vendor: vendorName, status: 'pending', warnings: null,
+    parsed_json: { vendor: vendorName, document_type: docType, document_number: '0002952908', document_date: '2026-08-20', delivery_date: '2026-08-20', total: 81.96, items: [MATCHED_ITEM], warnings: [] },
   };
 }
 
 function tables(doc) {
   return {
     vendor_documents: [doc],
-    ingredient_vendors: [{ id: 'iv-1', ingredient_id: 'ing-1', vendor_sku: '116533', vendor: 'Ben E. Keith' }],
+    ingredient_vendors: [{ id: 'iv-1', ingredient_id: 'ing-1', vendor_sku: '116533', vendor: doc.vendor }],
     ingredient_links: [],
     ingredients: [],
     invoice_lines: [],
   };
 }
 
-async function runApprove(docType, docId) {
+async function runApprove(docType, docId, vendorName) {
   document.body.innerHTML = '';
   loadRealVdrModule();
-  const doc = makeDoc(docType, docId);
+  const doc = makeDoc(docType, docId, vendorName);
   const { sb, calls } = makeGenericSb(tables(doc));
   global.window.supabaseClient = sb;
   global.window._vdrEdits = {};
@@ -120,8 +135,8 @@ async function runApprove(docType, docId) {
   });
 
   // ── T3 — Nessuna write DB differente rispetto a prima (Task 11V/11W) ──
-  await atest('T3: Order Confirmation — comportamento DB identico a prima (0 ingredient_vendors, 0 invoice_lines, status=imported)', async () => {
-    const { calls } = await runApprove('order_confirmation', 'oc-y-3');
+  await atest('T3: Order Confirmation DOCUMENTALE (Hardies) — comportamento DB identico a prima (0 ingredient_vendors, 0 invoice_lines, status=imported)', async () => {
+    const { calls } = await runApprove('order_confirmation', 'oc-y-3', HARDIES);
     const ivWrites = calls.updates.filter(u => u.table === 'ingredient_vendors').length + calls.inserts.filter(i => i.table === 'ingredient_vendors').length;
     const ilWrites = calls.inserts.filter(i => i.table === 'invoice_lines').length;
     const statusImported = calls.updates.some(u => u.table === 'vendor_documents' && u.data.status === 'imported');

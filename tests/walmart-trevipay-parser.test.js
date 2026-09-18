@@ -17,6 +17,13 @@ const path = require('path');
 
 const fixtures = require('./fixtures/trevipay-samples.js');
 
+// MICRO-TASK 42: i blocchi estratti da vendor-documents-review.js delegano
+// la regola "questo documento genera un acquisto?" al modulo canonico.
+// Iniettata QUI IN TESTA: alcuni test girano a livello top-level e devono
+// trovarla gia definita. E la REGOLA VERA, non uno stub.
+global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-order-confirmation').isPurchasableDocument;
+
+
 const VDR_SRC_PATH = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 const vdrSrc = fs.readFileSync(VDR_SRC_PATH, 'utf8');
 const NORM_START = '// ── MARKER:VDR_TREVIPAY_NORMALIZE_START ────────────────────────────';
@@ -28,6 +35,8 @@ function norm(items) { return vdrNormalizeTreviPayPage(items).text; }
 
 const parsers = require('../js/vendor-parsers/index.js');
 const walmartParser = require('../js/vendor-parsers/walmart-trevipay-invoice.js');
+
+
 
 // ── Real, full documents built exactly like production would ──────────
 const DOC_TEXT = {

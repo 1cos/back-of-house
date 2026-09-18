@@ -13,6 +13,11 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- MICRO-TASK 42: parser canonico Ben E. Keith (pure JS, nessun DOMParser).
+     Stesso file embeddato in vendor-doc-auto-import e usato dai test Node.
+     Deve precedere vendor-documents-review.js / vendor-parser-ui.js, che
+     leggono window.BekOrderConfirmationParser. -->
+<script src="js/vendor-parsers/ben-e-keith-order-confirmation.js"></script>
 <script src="js/vendor-documents-review.js"></script>
 <script src="js/operation-notes.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>

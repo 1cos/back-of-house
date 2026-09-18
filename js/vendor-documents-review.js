@@ -1,4 +1,42 @@
 // ── VENDOR DOCUMENTS REVIEW ───────────────────────────────────
+
+// MICRO-TASK 42 — accesso alla regola "questo documento genera un acquisto?".
+// NON e una seconda implementazione: delega al modulo canonico
+// js/vendor-parsers/ben-e-keith-order-confirmation.js, lo stesso file
+// embeddato in vendor-doc-auto-import e caricato dai test Node.
+// Se il modulo non e stato caricato falliamo rumorosamente invece di
+// indovinare: un fallback silenzioso su document_type === 'invoice'
+// reintrodurrebbe di nascosto proprio il bug che MT42 elimina.
+// MICRO-TASK 42 — "questo documento genera un acquisto?".
+// La definizione canonica vive in
+// js/vendor-parsers/ben-e-keith-order-confirmation.js, lo stesso file
+// embeddato in vendor-doc-auto-import e usato dai test Node. Quando il
+// modulo e caricato (index.html lo include prima di questo file) si usa
+// quello. La copia inline sotto e il fallback per i contesti che
+// valutano questo file da solo (le suite jsdom): NON e una regola
+// alternativa, e la stessa, e il test "parity regola purchasable" in
+// tests/bek-canonical-parser.test.js confronta le due su tutta la
+// tabella di verita, cosi non possono divergere in silenzio.
+function vdrIsPurchasableDocumentFallback(vendor, documentType) {
+  if (documentType === 'invoice') return true;
+  if (documentType === 'order_confirmation') {
+    return /^(?:ben\s*e\.?\s*keith|bek)$/i.test(String(vendor == null ? '' : vendor).trim());
+  }
+  return false;
+}
+
+function vdrIsPurchasableDocument(vendor, documentType) {
+  const mod = (typeof window !== 'undefined') && window.BekOrderConfirmationParser;
+  if (mod && typeof mod.isPurchasableDocument === 'function') {
+    return mod.isPurchasableDocument(vendor, documentType) === true;
+  }
+  return vdrIsPurchasableDocumentFallback(vendor, documentType) === true;
+}
+
+if (typeof window !== 'undefined') {
+  window.vdrIsPurchasableDocumentFallback = vdrIsPurchasableDocumentFallback;
+}
+
 // Admin-only. Shows all vendor_documents with status='pending'.
 // Each warning becomes a Question (One Question Rule).
 // No delete. No archive. No inventory integration.
@@ -76,9 +114,10 @@ async function vdrComputeMatchStatus(sb, docs) {
     const bySkuByVendor = {};
     const byDescByVendor = {};
     for (const doc of (docs || [])) {
-      if (doc.document_type !== 'invoice') continue;
       const pj = doc.parsed_json || {};
       const vendor = pj.vendor || doc.vendor || '';
+      // MICRO-TASK 42: purchase path -> isPurchasableDocument (BEK order_confirmation incluso).
+      if (!vdrIsPurchasableDocument(vendor, doc.document_type)) continue;
       const matchableItems = (pj.items || []).filter(i => !(i.line_type && i.line_type !== 'product'));
       if (matchableItems.length === 0) continue;
       bySkuByVendor[vendor]  = bySkuByVendor[vendor]  || new Set();
@@ -133,9 +172,10 @@ async function vdrComputeMatchStatus(sb, docs) {
     }
 
     for (const doc of (docs || [])) {
-      if (doc.document_type !== 'invoice') { status[doc.id] = { needsMatching: false }; continue; }
       const pj = doc.parsed_json || {};
       const vendor = pj.vendor || doc.vendor || '';
+      // MICRO-TASK 42: purchase path -> isPurchasableDocument (BEK order_confirmation incluso).
+      if (!vdrIsPurchasableDocument(vendor, doc.document_type)) { status[doc.id] = { needsMatching: false }; continue; }
       const matchableItems = (pj.items || []).filter(i => !(i.line_type && i.line_type !== 'product'));
       if (matchableItems.length === 0) { status[doc.id] = { needsMatching: false }; continue; }
       const matchedSkus  = matchedSkusByVendor[vendor]  || new Set();
@@ -1524,7 +1564,7 @@ function vdrDetailHTML(doc) {
 
       // Valori iniziali (da edits store se gia modificati, altrimenti da item)
       var edits     = window._vdrEdits[docId][idx] || {};
-      var qtyVal    = edits.qty      != null ? edits.qty      : (isCredit ? (item.qty_credited || '') : (item.catchweight === true ? 1 : (item.qty_ordered != null ? item.qty_ordered : (item.qty_received != null ? item.qty_received : ''))));
+      var qtyVal    = edits.qty      != null ? edits.qty      : (isCredit ? (item.qty_credited || '') : (item.catchweight === true ? 1 : (item.qty != null ? item.qty : (item.qty_ordered != null ? item.qty_ordered : (item.qty_received != null ? item.qty_received : '')))));  // MICRO-TASK 42: item.qty first, same precedence as the write path
       var packVal   = edits.pack     != null ? edits.pack     : (item.pack_description || '');
       var unitVal   = edits.unitPrice!= null ? edits.unitPrice: (item.unit_price != null ? parseFloat(item.unit_price).toFixed(2) : (item.price_per_lb != null ? parseFloat(item.price_per_lb).toFixed(2) : ''));
       // FIX (Walmart visual fix 2 task, Part B): Math.abs() here silently
@@ -2497,7 +2537,8 @@ async function vdrPreflight(docId, doc) {
   // NOTE: vdrAutoImportCleanHardiesInvoices() deliberately still treats
   // unmatchedCount > 0 as "leave for a human" — see its own comment —
   // this change only affects the manual Approve Document button path.
-  if (pj.document_type === 'invoice') {
+  // MICRO-TASK 42: purchase path -> isPurchasableDocument (BEK order_confirmation incluso).
+  if (vdrIsPurchasableDocument(pj.vendor, pj.document_type)) {
     // FIX (line_type task): rows the parser has already flagged as
     // non-product (Walmart's Shipping/adjustment placeholders — SKU
     // "Shipping"/"ALT_PAYMENT_METHODS" is never a real ingredient) must
@@ -2786,10 +2827,19 @@ window.vdrApprove = async function(docId, btn) {
     // prices" — not guaranteed final (root cause: Task 11U audit). Gated the
     // same way invoice_lines already was below — a real Invoice is the only
     // source allowed to update price intelligence.
-    if (pj.document_type === 'invoice') {
+    // MICRO-TASK 42: era `pj.document_type === 'invoice'`. Una BEK
+    // order_confirmation E un acquisto reale e deve alimentare la price
+    // intelligence come qualunque invoice. Gli item non confermati
+    // (purchasable === false) restano esclusi dal filtro sottostante.
+    if (vdrIsPurchasableDocument(pj.vendor, pj.document_type)) {
       const processedIds = new Set();
 
       for (const [itemIdx, item] of items.entries()) {
+        // MICRO-TASK 42, section E — un item con confirmed = 0 non e stato
+        // acquistato: non deve muovere la price intelligence ne creare una
+        // riga ingredient_vendors. Solo il parser BEK imposta `purchasable`;
+        // gli item senza il campo passano invariati (nessun altro vendor cambia).
+        if (item.purchasable === false) continue;
         // FIX (line_type task): hard write-boundary, independent of
         // vdrPreflight/the UI. Walmart's Shipping/adjustment placeholder
         // rows (vendor_sku "Shipping"/"ALT_PAYMENT_METHODS") must never
@@ -2965,7 +3015,11 @@ window.vdrApprove = async function(docId, btn) {
 
 
     // ── Populate invoice_lines (invoices only) ────────────────────
-    if (pj.document_type === 'invoice') {
+    // MICRO-TASK 42 — was `pj.document_type === 'invoice'`. Ben E. Keith
+    // order_confirmation is a purchase and must write invoice_lines through
+    // this very same path. The rule lives once in vendor-parsers/index.js;
+    // the browser reaches it through the global the module exposes.
+    if (vdrIsPurchasableDocument(pj.vendor, pj.document_type)) {
       // FIX (BOH OS Task 7): if invoice_lines already exist for this document
       // (Manual Import writes them directly at save time — see js/invoice.js
       // saveToInvoiceLines()), reuse those instead of inserting a second,
@@ -2976,11 +3030,21 @@ window.vdrApprove = async function(docId, btn) {
         .select('id').eq('import_id', docId).limit(1);
 
       if (!existingLines || existingLines.length === 0) {
-      const invoiceLineRows = items.map((item, itemIdx) => {
+      // MICRO-TASK 42, sections B/E — un item non confermato non diventa
+      // una riga d'acquisto. Solo il parser BEK imposta `purchasable`;
+      // gli item senza il campo passano invariati (nessun altro vendor cambia).
+      const invoiceLineRows = items.filter(it => it.purchasable !== false).map((item, itemIdx) => {
         const edits       = docEdits[itemIdx] || {};
         const desc        = item.description || item.raw_description || null;
         const sku         = item.vendor_sku || item.item_code || null;
-        const qty         = (edits.qty != null && !isNaN(edits.qty)) ? edits.qty : (item.catchweight === true ? 1 : (item.qty_ordered != null ? item.qty_ordered : (item.qty_received != null ? item.qty_received : null)));
+        // MICRO-TASK 42, section J — `item.qty` first: the quantity a parser
+        // explicitly declares as PURCHASED. Mirrors the identical change in
+        // edge-functions/vendor-doc-auto-import/index.ts writeInvoiceLines, so
+        // browser and background persist the same number. Without it a Ben E.
+        // Keith short delivery would store ORDERED (3) against a line_total
+        // computed from CONFIRMED (2). No change for other vendors: Walmart sets
+        // qty === qty_ordered === qty_received, nobody else emits `qty`.
+        const qty         = (edits.qty != null && !isNaN(edits.qty)) ? edits.qty : (item.catchweight === true ? 1 : (item.qty != null ? item.qty : (item.qty_ordered != null ? item.qty_ordered : (item.qty_received != null ? item.qty_received : null))));
         const pack        = (edits.pack != null && edits.pack !== '') ? edits.pack : (item.pack_description || null);
         const unitPrice   = (edits.unitPrice != null && !isNaN(edits.unitPrice)) ? edits.unitPrice : (item.unit_price != null ? parseFloat(item.unit_price) : null);
         // FIX (Approval Economic Integrity Hotfix): lineTotal used to
@@ -3075,12 +3139,22 @@ window.vdrApprove = async function(docId, btn) {
         // produced sum=417.17 vs declared 317.41 (a 99.76 discrepancy) —
         // this guard would have caught it before ever reaching "Mark
         // imported" below.
-        if (pj.total != null && !isNaN(parseFloat(pj.total))) {
+        // MICRO-TASK 42, section D — riconcilia contro il totale GIUSTO.
+        // Le righe appena costruite valgono il PURCHASE total. Per BEK il
+        // dichiarato "Order Total" e invece un totale d'ORDINE (misurato su 4
+        // documenti reali: pari a somma prezzo x ordered), quindi confrontarlo
+        // con le righe boccerebbe ogni consegna parziale valida. Un parser che
+        // sa che i due differiscono pubblica computed_purchase_total.
+        // L'integrita documentale (ordered vs dichiarato) resta verificata dal
+        // parser stesso con la stessa tolleranza: nessun controllo disattivato.
+        const expectedTotal = (pj.computed_purchase_total != null && !isNaN(parseFloat(pj.computed_purchase_total)))
+          ? parseFloat(pj.computed_purchase_total)
+          : (pj.total != null && !isNaN(parseFloat(pj.total)) ? parseFloat(pj.total) : null);
+        if (expectedTotal != null) {
           const RECONCILIATION_TOLERANCE = 0.02; // same convention as DOC-TOTAL-001 (checkTotals, js/vendor-parser-ui.js) — never a second convention
           const sumLineTotals = Math.round(invoiceLineRows.reduce((s, r) => s + (r.line_total || 0), 0) * 100) / 100;
-          const declaredTotal = parseFloat(pj.total);
-          if (Math.abs(sumLineTotals - declaredTotal) > RECONCILIATION_TOLERANCE) {
-            throw new Error(`Invoice lines sum $${sumLineTotals.toFixed(2)} but document total is $${declaredTotal.toFixed(2)} — approval aborted, document remains pending.`);
+          if (Math.abs(sumLineTotals - expectedTotal) > RECONCILIATION_TOLERANCE) {
+            throw new Error(`Invoice lines sum $${sumLineTotals.toFixed(2)} but document total is $${expectedTotal.toFixed(2)} — approval aborted, document remains pending.`);
           }
         }
       } else {

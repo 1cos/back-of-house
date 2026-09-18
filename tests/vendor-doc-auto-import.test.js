@@ -205,10 +205,26 @@ function makeMockSb(tables) {
     assert.strictEqual(r.ok, false);
     assert.ok(r.reason.startsWith('buyer_guard_'));
   });
-  await atest('Approve: order_confirmation document is never approved by this path (documented no-op stays a no-op)', async () => {
-    const sb = makeMockSb({ vendor_documents: [{ id: 'd4', status: 'pending', vendor: 'Ben E. Keith', parsed_json: { document_type: 'order_confirmation', items: [] } }] });
+  // MICRO-TASK 42 — questo test asseriva che QUALUNQUE order_confirmation
+  // fosse un no-op, incluso Ben E. Keith. Per BEK non e piu vero: la
+  // conferma d'ordine E il documento d'acquisto operativo (non arriva
+  // nessuna invoice separata). Diviso nei due casi che contano, cosi la
+  // regola resta verificata in entrambe le direzioni.
+  await atest('Approve: order_confirmation di ALTRI vendor resta un no-op (nessuna regressione)', async () => {
+    const sb = makeMockSb({ vendor_documents: [{ id: 'd4', status: 'pending', vendor: "Hardie's Fresh Foods / Dairyland Produce", parsed_json: { document_type: 'order_confirmation', vendor: "Hardie's Fresh Foods / Dairyland Produce", items: [] } }] });
     const r = await vdaiApprove(sb, 'd4');
     assert.deepStrictEqual(r, { ok: false, reason: 'not_invoice' });
+  });
+  await atest('Approve: order_confirmation Ben E. Keith NON e piu respinto dal gate (MICRO-TASK 42)', async () => {
+    const sb = makeMockSb({ vendor_documents: [{ id: 'd4b', status: 'pending', vendor: 'Ben E. Keith', parsed_json: { document_type: 'order_confirmation', vendor: 'Ben E. Keith', items: [] } }] });
+    const r = await vdaiApprove(sb, 'd4b');
+    assert.notStrictEqual(r.reason, 'not_invoice', 'il gate non deve piu respingere BEK order_confirmation');
+  });
+  await atest('Approve: un acknowledgement BEK viene parcheggiato come ignored, non importato', async () => {
+    const sb = makeMockSb({ vendor_documents: [{ id: 'd4c', status: 'pending', vendor: 'Ben E. Keith', parsed_json: { document_type: 'order_confirmation', document_class: 'acknowledgement', vendor: 'Ben E. Keith', items: [] } }] });
+    const r = await vdaiApprove(sb, 'd4c');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.reason, 'acknowledgement_not_a_purchase');
   });
 
   // ── MICRO-TASK 37: writeInvoiceLines extraction + repair path ────────
