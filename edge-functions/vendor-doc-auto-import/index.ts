@@ -273,23 +273,74 @@ async function extractPdfText(sb: any, storagePath: string): Promise<{ rawText: 
 // ══════════════════════════════════════════════════════════════════
 const RECONCILE_VENDORS = ["Hardie's Fresh Foods / Dairyland Produce", "Chef's Warehouse"];
 
+// ══════════════════════════════════════════════════════════════════
+// MICRO-TASK 43 — source acquisition for a Ben E. Keith body-only
+// document.
+//
+// A BEK Order Confirmation email carries no attachment: gmail-vendor-import
+// stores the email HTML straight into vendor_documents.raw_text and marks
+// parsed_json.source as 'email_html' (or 'email_body' for the legacy
+// plain-text path). There is nothing in Storage to download — the text to
+// parse is already in the row.
+//
+// Deliberately narrow. This does NOT make every body-only document
+// processable: it is restricted to Ben E. Keith order_confirmation with an
+// explicit email source marker. Anything else without a storage_path keeps
+// returning 'skipped_no_pdf', exactly as before.
+//
+// vendor/document_type are read from the COLUMNS: gmail-vendor-import writes
+// parsed_json = { source: '…' } and nothing else, so the type is not in the
+// JSON at this stage. (parsed_json is still preferred when present, for
+// documents re-processed after a first parse.)
+// ══════════════════════════════════════════════════════════════════
+function isBekBodyOnlySource(doc: any): boolean {
+  const pj = doc.parsed_json || {};
+  const source = pj.source;
+  if (source !== 'email_html' && source !== 'email_body') return false;
+  const vendor  = pj.vendor || doc.vendor || '';
+  const docType = pj.document_type || doc.document_type || '';
+  return parsersApi().isBenEKeith(vendor) && docType === 'order_confirmation';
+}
+
 async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ outcome: string; detail?: string }> {
-  const storagePath = doc.parsed_json?.storage_path;
-  if (!storagePath) {
-    // Not a real PDF attachment (e.g. BEK email_html/email_body) — out
-    // of scope for this function, left exactly as-is for the client.
+  // ── SOURCE ACQUISITION ──────────────────────────────────────────
+  // The ONLY thing MICRO-TASK 43 changes is where the raw text comes
+  // from. Everything below this block — parsing, dedup, reconciliation,
+  // status — is untouched and shared by both paths.
+  const storagePath = doc.parsed_json?.storage_path || null;
+  const bodyOnly = !storagePath && isBekBodyOnlySource(doc);
+
+  if (!storagePath && !bodyOnly) {
+    // Not a PDF attachment and not a recognised BEK email body — out of
+    // scope, left exactly as-is for the client (unchanged behaviour).
     return { outcome: 'skipped_no_pdf' };
   }
 
   let rawText: string;
-  try {
-    const extracted = await extractPdfText(sb, storagePath);
-    rawText = extracted.rawText;
-  } catch (e: any) {
-    await sb.from('vendor_documents').update({ status: 'error', warnings: [{ code: 'MISSING_STORAGE_PATH', message: e.message }] }).eq('id', doc.id);
-    return { outcome: 'error', detail: e.message };
+  if (storagePath) {
+    try {
+      const extracted = await extractPdfText(sb, storagePath);
+      rawText = extracted.rawText;
+    } catch (e: any) {
+      await sb.from('vendor_documents').update({ status: 'error', warnings: [{ code: 'MISSING_STORAGE_PATH', message: e.message }] }).eq('id', doc.id);
+      return { outcome: 'error', detail: e.message };
+    }
+  } else {
+    // BEK body-only: the email HTML is already the raw source. Fail
+    // closed on an empty body rather than handing '' to the parser and
+    // letting it look like a document with no lines.
+    const body = typeof doc.raw_text === 'string' ? doc.raw_text : '';
+    if (!body.trim()) {
+      await sb.from('vendor_documents').update({
+        status: 'error',
+        warnings: [{ code: 'BEK_EMPTY_BODY', severity: 'blocking', message: 'Ben E. Keith body-only document has no raw_text to parse' }],
+      }).eq('id', doc.id);
+      return { outcome: 'error', detail: 'empty raw_text' };
+    }
+    rawText = body;
   }
 
+  // ── PARSING / BUSINESS LOGIC (unchanged, shared by both paths) ───
   const parsed = parsers.parse(rawText);
 
   let docNumber = parsed.invoice_number || parsed.order_number || parsed.credit_number || parsed.document_number || null;
@@ -372,7 +423,9 @@ async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ o
     const { data: byNum } = await sb.from('vendor_documents').select('id').eq('vendor', parsed.vendor).eq('document_number', docNumber).eq('document_type', parsed.document_type).neq('id', doc.id).limit(1);
     if (byNum && byNum.length > 0) {
       await sb.from('vendor_documents').update({ status: 'error', warnings: [{ code: 'DUPLICATE', message: `Document #${docNumber} already exists` }] }).eq('id', doc.id);
-      await sb.storage.from('app').remove([storagePath]);
+      // MICRO-TASK 43: null-guard — un documento body-only non ha nulla da
+      // rimuovere da Storage. Non cambia il comportamento del ramo PDF.
+      if (storagePath) await sb.storage.from('app').remove([storagePath]);
       return { outcome: 'duplicate' };
     }
   }
@@ -1118,7 +1171,7 @@ Deno.serve(async (req: Request) => {
     // ── PHASE A: pdf_received → parsed ──
     // MICRO-TASK 42: created_at added — the BEK Sales Order revision rule
     // needs it to decide which revision is the newest/operative one.
-    let qA = sb.from('vendor_documents').select('id,parsed_json,source_email_subject,raw_text,vendor,status,created_at');
+    let qA = sb.from('vendor_documents').select('id,parsed_json,source_email_subject,raw_text,vendor,status,created_at,document_type');
     qA = documentId ? qA.eq('id', documentId).eq('status', 'pdf_received') : qA.eq('status', 'pdf_received');
     const { data: queueA } = await qA.order('created_at', { ascending: true }).limit(documentId ? 1 : 25);
     for (const doc of queueA || []) {
