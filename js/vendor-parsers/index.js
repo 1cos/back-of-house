@@ -22,12 +22,24 @@ const VENDORS = {
       // Combined-signal (not a single generic token): requires BOTH
       // "Walmart Business" and "TreviPay" to appear in the same
       // document — confirmed present in all 4 real sample invoices.
-      /(?=[\s\S]*walmart\s*business)(?=[\s\S]*trevipay)/i,
+      //
+      // MICRO-TASK 45 — expressed as an array (= AND) instead of the
+      // previous single regex /(?=[\s\S]*A)(?=[\s\S]*B)/i. The two
+      // forms are exactly equivalent: a lookahead (?=[\s\S]*A) at
+      // position p succeeds iff A occurs at or after p, the engine tries
+      // p=0 first, and if it fails there it fails at every later p too —
+      // so the regex matched iff every term occurred somewhere, which is
+      // what .every(re => re.test(text)) tests directly. The lookahead
+      // form made the engine re-scan the tail once per start position:
+      // measured quadratic (MICRO-TASK 44 — 4k chars 6.3ms, 8k 25.8ms,
+      // 16k 93.2ms, 29.8k 329.2ms) and 705ms of a 716ms parse() on one
+      // BEK email, because `walmart` is tried FIRST for every vendor.
+      [/walmart\s*business/i, /trevipay/i],
       // Fallback combined signal, in case the "Walmart Business"
       // wordmark text is ever missing from the parseable region: still
       // three independent, unrelated signals together, never "Invoice"
       // alone.
-      /(?=[\s\S]*trevipay)(?=[\s\S]*\bBuyer\b)(?=[\s\S]*Invoice Details)/i,
+      [/trevipay/i, /\bBuyer\b/i, /Invoice Details/i],
     ],
     documents: {
       invoice: walmartTrevipayInvoice,
@@ -81,10 +93,20 @@ const VENDORS = {
 };
 
 // ── Detect vendor from raw text ───────────────────────────────
+// A pattern is either a RegExp (matches on its own) or an array of
+// RegExp meaning "all of these must appear somewhere in the document".
+// The array form replaces the quadratic (?=[\s\S]*…) lookahead chains
+// (MICRO-TASK 45) — same semantics, linear cost.
+function matchesPattern(pattern, text) {
+  return Array.isArray(pattern)
+    ? pattern.every(re => re.test(text))
+    : pattern.test(text);
+}
+
 function detectVendor(rawText) {
   const text = rawText || '';
   for (const [vendorKey, config] of Object.entries(VENDORS)) {
-    if (config.patterns.some(re => re.test(text))) {
+    if (config.patterns.some(p => matchesPattern(p, text))) {
       return vendorKey;
     }
   }
