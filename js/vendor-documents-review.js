@@ -2420,6 +2420,54 @@ function vdrDecideCanonicalUpdate(existingSku, incomingSku) {
 }
 // ── MARKER:VDR_DECIDE_CANONICAL_UPDATE_END ──────────────────────────
 
+// ── MARKER:VDR_PRICE_INTEL_ALIAS_START ───────────────────────────────
+// MICRO-TASK 40 — alias-aware price intelligence + chronological
+// safety. Two small, pure, independently-mirrored helpers (identical
+// logic and naming to resolvePriceIntelIdentity/chronologyAllows in
+// edge-functions/vendor-doc-auto-import/index.ts — client and
+// background must stay behaviorally identical). Frozen spec:
+//
+//   CASE A — direct ingredient_vendors row exists for this SKU, and if an
+//            alias also exists for it, the two agree on ingredient_id
+//            → use the direct row normally.
+//   CASE B — no direct row for this SKU, but an active vendor_item_aliases
+//            row does → the alias is a valid identity. Resolve the
+//            CANONICAL ingredient_vendors row for (vendor, alias
+//            ingredient_id) — same lookup already used by the
+//            ingredient_links fallback — and update/migrate/insert it.
+//            Never a second row for the same vendor+ingredient.
+//   CASE C — direct row exists AND an alias exists AND they name a
+//            DIFFERENT ingredient_id → PRICE_IDENTITY_CONFLICT. Caught
+//            earlier by vdrPreflight (blocking, whole document left
+//            pending); re-checked here defensively.
+//   ingredient_links stays the fallback, used ONLY when neither a direct
+//   row nor an alias resolves the SKU at all (case: 'none').
+function resolvePriceIntelIdentity(sku, skuMap, aliasIdMap) {
+  if (!sku) return { case: 'none' };
+  const direct = skuMap[sku];
+  const aliasIngredientId = aliasIdMap[sku];
+  if (direct && aliasIngredientId && aliasIngredientId !== direct.ingredient_id) {
+    return { case: 'C', directIngredientId: direct.ingredient_id, aliasIngredientId };
+  }
+  if (direct) return { case: 'A', row: direct };
+  if (aliasIngredientId) return { case: 'B', ingredientId: aliasIngredientId };
+  return { case: 'none' };
+}
+
+// Chronological guard — applies uniformly to every existing-row UPDATE
+// path (direct SKU, alias-canonical, and ingredient_links), never to an
+// INSERT (nothing to regress against when the row doesn't exist yet). A
+// null existing last_invoice_date (the historically-frozen-row case)
+// always allows the incoming write. A null incoming invoiceDate can
+// never satisfy ">=", so it never overwrites a dated row — fails
+// closed, not open.
+function chronologyAllows(existingLastInvoiceDate, incomingInvoiceDate) {
+  if (!existingLastInvoiceDate) return true;
+  if (!incomingInvoiceDate) return false;
+  return incomingInvoiceDate >= existingLastInvoiceDate;
+}
+// ── MARKER:VDR_PRICE_INTEL_ALIAS_END ─────────────────────────────────
+
 async function vdrPreflight(docId, doc) {
   const sb = window.supabaseClient;
   const pj = doc.parsed_json || {};
@@ -2468,11 +2516,34 @@ async function vdrPreflight(docId, doc) {
     // authoritative (Durable Walmart SKU Mapping task, Part D);
     // ingredient_vendors.vendor_sku remains a temporary fallback for
     // vendor+SKU pairs not yet migrated.
+    // MICRO-TASK 40: both queries now also select ingredient_id (not just
+    // vendor_sku presence), so a genuine identity conflict between the
+    // alias and the direct ingredient_vendors row can be told apart from
+    // a normal match — same two queries as before, one extra column.
     const [aliasRows, legacyRows] = skus.length ? await Promise.all([
-      sb.from('vendor_item_aliases').select('vendor_sku').eq('vendor', vendor).eq('active', true).in('vendor_sku', skus),
-      sb.from('ingredient_vendors').select('vendor_sku').eq('vendor', vendor).in('vendor_sku', skus),
+      sb.from('vendor_item_aliases').select('vendor_sku,ingredient_id').eq('vendor', vendor).eq('active', true).in('vendor_sku', skus),
+      sb.from('ingredient_vendors').select('vendor_sku,ingredient_id').eq('vendor', vendor).in('vendor_sku', skus),
     ]) : [{ data: [] }, { data: [] }];
-    const matchedSkus = new Set([...(aliasRows.data || []).map(r => r.vendor_sku), ...(legacyRows.data || []).map(r => r.vendor_sku)]);
+    const aliasIdBySku = {};
+    (aliasRows.data || []).forEach(r => { if (r.vendor_sku) aliasIdBySku[r.vendor_sku] = r.ingredient_id; });
+    const directIdBySku = {};
+    (legacyRows.data || []).forEach(r => { if (r.vendor_sku) directIdBySku[r.vendor_sku] = r.ingredient_id; });
+
+    // MICRO-TASK 40 — CASE C: a SKU where the durable alias and the
+    // direct ingredient_vendors row genuinely disagree on ingredient_id.
+    // Blocking, same tier as an open question above: the document is
+    // never silently imported with price attributed to either guess.
+    // This never auto-resolves here — a human decides which identity is
+    // correct (see MICRO-TASK 39 audit for the 3 known Hardie's cases as
+    // of this writing: 03252, 03257, 71898).
+    const conflicts = skus
+      .filter(sku => aliasIdBySku[sku] && directIdBySku[sku] && aliasIdBySku[sku] !== directIdBySku[sku])
+      .map(sku => ({ vendor, vendor_sku: sku, direct_ingredient_id: directIdBySku[sku], alias_ingredient_id: aliasIdBySku[sku] }));
+    if (conflicts.length) {
+      return { ok: false, reason: 'PRICE_IDENTITY_CONFLICT', conflicts };
+    }
+
+    const matchedSkus = new Set([...Object.keys(aliasIdBySku), ...Object.keys(directIdBySku)]);
 
     // Fetch confirmed links
     const { data: linkRows } = descs.length ? await sb.from('ingredient_links')
@@ -2658,31 +2729,38 @@ window.vdrApprove = async function(docId, btn) {
     const skus = items.map(i => i.vendor_sku || i.item_code).filter(Boolean);
     const descs = items.map(i => i.description || i.raw_description).filter(Boolean);
 
+    // MICRO-TASK 40: skuRes and ingrVendorRes now also select
+    // last_invoice_date — required by the chronological guard below.
+    // Same two ingredient_vendors reads as before, one extra column each.
     const [skuRes, aliasRes, ingrVendorRes, linkRes] = await Promise.all([
-      skus.length ? sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] },
+      skus.length ? sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku,last_invoice_date').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] },
       // FIX (Durable Walmart SKU Mapping task, Part D): vendor_item_aliases
       // (active) is now the authoritative identity source for vdrApprove's
       // own matchedId lookup too — ingredient_vendors.vendor_sku remains
-      // only a fallback for not-yet-migrated SKUs. Never touches the
-      // price-intelligence query/writes just below (ingrVendorRes,
-      // toUpdate/toInsert) — out of scope for this task.
+      // only a fallback for not-yet-migrated SKUs.
+      // MICRO-TASK 40 closes the scope this comment used to defer: the
+      // price-intelligence write-loop just below now DOES consult this
+      // same alias data (via aliasIdMap) — see resolvePriceIntelIdentity.
       skus.length ? sb.from('vendor_item_aliases').select('vendor_sku,ingredient_id').eq('vendor', vendor).eq('active', true).in('vendor_sku', skus) : { data: [] },
-      sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku').eq('vendor', vendor),
+      sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku,last_invoice_date').eq('vendor', vendor),
       descs.length ? sb.from('ingredient_links').select('invoice_description,ingredient_id').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', descs) : { data: [] },
     ]);
 
     const skuMap = {};
     (skuRes.data || []).forEach(r => { skuMap[r.vendor_sku] = r; });
-    // FIX (Durable Walmart SKU Mapping task, Part D): a SEPARATE map, used
-    // only for matchedId determination further below (invoice_lines.
-    // ingredient_id) — never mixed into skuMap itself, which the
-    // price-intelligence write-loop just below (toUpdate/toInsert on
-    // ingredient_vendors, out of scope for this task) still reads
-    // unchanged, always requiring a real ingredient_vendors row id.
+    // A SEPARATE map, used only for matchedId determination further below
+    // (invoice_lines.ingredient_id) — never mixed into skuMap itself.
     const identitySkuMap = Object.assign({}, skuMap);
     (aliasRes.data || []).forEach(r => { if (r.vendor_sku) identitySkuMap[r.vendor_sku] = { ingredient_id: r.ingredient_id, vendor_sku: r.vendor_sku }; });
+    // MICRO-TASK 40: aliasIdMap is a SEPARATE plain sku->ingredient_id map
+    // (unlike identitySkuMap above, which already merges alias over direct
+    // for invoice_lines matching) — the price-intelligence resolver below
+    // needs BOTH the direct match and the alias match visible side by side
+    // to tell CASE A/B apart from a genuine CASE C conflict.
+    const aliasIdMap = {};
+    (aliasRes.data || []).forEach(r => { if (r.vendor_sku) aliasIdMap[r.vendor_sku] = r.ingredient_id; });
     const ingrVendorMap = {};
-    (ingrVendorRes.data || []).forEach(r => { ingrVendorMap[r.ingredient_id] = { id: r.id, vendor_sku: r.vendor_sku }; });
+    (ingrVendorRes.data || []).forEach(r => { ingrVendorMap[r.ingredient_id] = { id: r.id, vendor_sku: r.vendor_sku, last_invoice_date: r.last_invoice_date }; });
     const linkMap = {};
     (linkRes.data || []).forEach(l => { linkMap[l.invoice_description] = l.ingredient_id; });
 
@@ -2769,17 +2847,66 @@ window.vdrApprove = async function(docId, btn) {
           last_invoice_date:  invoiceDate,
         };
 
-        // Match by SKU first
-        if (sku && skuMap[sku]) {
-          const ingrId = skuMap[sku].ingredient_id;
-          if (!processedIds.has(ingrId)) {
-            processedIds.add(ingrId);
-            toUpdate.push({ id: skuMap[sku].id, ...fields });
+        // MICRO-TASK 40 — CASE A/B/C resolution (see
+        // resolvePriceIntelIdentity doc comment above). Replaces the old
+        // direct-SKU-only check; the ingredient_links fallback below is
+        // now reached ONLY on 'none'.
+        const resolution = resolvePriceIntelIdentity(sku, skuMap, aliasIdMap);
+
+        if (resolution.case === 'C') {
+          // Should never actually reach here in the normal flow —
+          // vdrPreflight already blocks the whole document (reason:
+          // 'PRICE_IDENTITY_CONFLICT') before vdrApprove's save path is
+          // ever entered. Kept as a defensive no-op. Never writes price
+          // under either the direct or the alias identity.
+          console.warn('[price-intel] PRICE_IDENTITY_CONFLICT skip', { vendor, sku, direct_ingredient_id: resolution.directIngredientId, alias_ingredient_id: resolution.aliasIngredientId });
+          continue;
+        }
+
+        if (resolution.case === 'A') {
+          const row = resolution.row;
+          const ingrId = row.ingredient_id;
+          if (processedIds.has(ingrId)) continue;
+          processedIds.add(ingrId);
+          if (!chronologyAllows(row.last_invoice_date, invoiceDate)) {
+            console.log('[price-intel] chronology skip (direct SKU)', { vendor, sku, existing: row.last_invoice_date, incoming: invoiceDate });
+            continue;
+          }
+          toUpdate.push({ id: row.id, ...fields });
+          continue;
+        }
+
+        if (resolution.case === 'B') {
+          const ingrId = resolution.ingredientId;
+          if (processedIds.has(ingrId)) continue;
+          processedIds.add(ingrId);
+          const canonical = ingrVendorMap[ingrId];
+          if (canonical) {
+            if (!chronologyAllows(canonical.last_invoice_date, invoiceDate)) {
+              console.log('[price-intel] chronology skip (alias→canonical)', { vendor, sku, existing: canonical.last_invoice_date, incoming: invoiceDate });
+              continue;
+            }
+            if (canonical.vendor_sku !== sku) {
+              // Alias-confirmed SKU migration onto the existing canonical
+              // row (e.g. SCAFDUU10GA0 → SCAFDUU10BRO). Same row, never a
+              // duplicate: vendor_sku is repointed in place.
+              toUpdate.push({ id: canonical.id, vendor_sku: sku, ...fields });
+              if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: ingrId });
+            } else {
+              toUpdate.push({ id: canonical.id, ...fields });
+            }
+          } else {
+            // No canonical row anywhere for this ingredient yet — first
+            // price data point via this alias. Plain insert, nothing to
+            // regress against.
+            toInsert.push({ ingredient_id: ingrId, vendor, vendor_sku: sku, active: true, ...fields });
+            if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: ingrId });
           }
           continue;
         }
 
-        // Match by confirmed link
+        // resolution.case === 'none' — fall back to ingredient_links,
+        // exactly as before, now under the same chronological guard.
         const linkedId = linkMap[desc];
         if (!linkedId || processedIds.has(linkedId)) continue;
         processedIds.add(linkedId);
@@ -2787,11 +2914,17 @@ window.vdrApprove = async function(docId, btn) {
         const existingIv = ingrVendorMap[linkedId];
         if (existingIv) {
           const decision = vdrDecideCanonicalUpdate(existingIv.vendor_sku, sku);
-          if (decision === 'update') {
-            toUpdate.push({ id: existingIv.id, ...fields });
-          } else if (decision === 'populate_sku') {
-            toUpdate.push({ id: existingIv.id, vendor_sku: sku, ...fields });
-            if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: linkedId });
+          if (decision === 'update' || decision === 'populate_sku') {
+            if (!chronologyAllows(existingIv.last_invoice_date, invoiceDate)) {
+              console.log('[price-intel] chronology skip (ingredient_links)', { vendor, sku, desc, existing: existingIv.last_invoice_date, incoming: invoiceDate });
+              continue;
+            }
+            if (decision === 'update') {
+              toUpdate.push({ id: existingIv.id, ...fields });
+            } else {
+              toUpdate.push({ id: existingIv.id, vendor_sku: sku, ...fields });
+              if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: linkedId });
+            }
           }
           // decision === 'skip' → riga canonical intoccata di proposito
         } else {
