@@ -115,6 +115,11 @@ function extractHeader(text, lines) {
 // ── Line items ─────────────────────────────────────────────────────────
 
 const HEADER_ROW_RE   = /^SKU\s+Description\s+Quantity/;
+// MICRO-TASK 56 — the two continuation shapes that belong to the Tax
+// Details column rather than to the product description. See the two
+// call sites in extractItems() for the real-document census.
+const TAX_CELL_LINE_RE = /^Tax\d+\s+-?\$[\d,.]+$/;
+const PCT_ONLY_LINE_RE = /^[\d.]+%$/;
 const SUMMARY_ROW_RE  = /Invoice Summary/;
 // ── MARKER:WALMART_SKU_FRAGMENT_START ──────────────────────────────
 // A wrapped SKU continuation is a line containing ONLY digits, nothing
@@ -150,9 +155,31 @@ function isSkuFragmentContinuation(line, currentItem) {
 // (real data prints negative amounts as "-$21.26" — minus before the
 // dollar sign, e.g. the ALT_PAYMENT_METHODS adjustment — not "$-21.26").
 const SIGNED_MONEY = '(-?)\\$([\\d,.]+)';
+// MICRO-TASK 55 — the Tax Details column label is NOT always the
+// literal "Tax1". Four shapes are confirmed real:
+//   "Tax1"            (6c246fda, f4786197 row 1)
+//   "Tax2"            (748cc643 x3, d19bdab1 x4)
+//   "Tax1 8.28%"      (659ae123 x2 — the rate prints INLINE on the
+//                      row-start line instead of wrapping)
+//   "7ad525ee-"       (f4786197 row 3 — an opaque tax-code fragment)
+// Hardcoding "Tax1" made every other shape fail BOTH tail patterns, so
+// the whole product row fell through to continuation handling and was
+// silently swallowed into the previous row's description — losing
+// $53.34 of $61.16 on 748cc643 and $15.49 on 659ae123.
+//
+// What is matched instead is the structural invariant that holds in all
+// four: one to three NON-MONEY tokens sitting between the Discount
+// amount and the final three dollar columns. Excluding "$" from the
+// token class is what keeps this fail-closed — a row with no Tax
+// Details column has only FOUR trailing dollar amounts and can never
+// satisfy the FIVE this shape requires, so it still falls through to
+// TAIL_PLAIN exactly as before. Both quantifiers are lazy and bounded
+// and the token classes are disjoint, so there is no ambiguous
+// backtracking (MICRO-TASK 44/45).
+const TAXDETAIL_LABEL = '((?:[^\\s$]+\\s+){1,3}?)';
 const TAIL_WITH_TAXDETAIL = new RegExp(
   '^(.*?)\\s+(\\d+)\\s+' + SIGNED_MONEY + '\\s+' + SIGNED_MONEY +
-  '\\s+Tax1\\s+' + SIGNED_MONEY + '\\s+' + SIGNED_MONEY + '\\s+' + SIGNED_MONEY + '\\s*$'
+  '\\s+' + TAXDETAIL_LABEL + SIGNED_MONEY + '\\s+' + SIGNED_MONEY + '\\s+' + SIGNED_MONEY + '\\s*$'
 );
 const TAIL_PLAIN = new RegExp(
   '^(.*?)\\s+(\\d+)\\s+' + SIGNED_MONEY + '\\s+' + SIGNED_MONEY +
@@ -179,11 +206,12 @@ function parseRowStart(line) {
   let unitPrice, discount, tax, amount;
   if (hasTaxDetail) {
     // groups: 1 desc, 2 qty, 3/4 unit_price, 5/6 discount,
-    // 7/8 tax-detail-dup (unused), 9/10 tax, 11/12 billed_total
+    // 7 tax-detail label (unused), 8/9 tax-detail sub-total (unused),
+    // 10/11 tax, 12/13 billed_total
     unitPrice = signedPrice(m[3], m[4]);
     discount  = signedPrice(m[5], m[6]);
-    tax       = signedPrice(m[9], m[10]);
-    amount    = signedPrice(m[11], m[12]);
+    tax       = signedPrice(m[10], m[11]);
+    amount    = signedPrice(m[12], m[13]);
   } else {
     // groups: 1 desc, 2 qty, 3/4 unit_price, 5/6 discount, 7/8 tax, 9/10 billed_total
     unitPrice = signedPrice(m[3], m[4]);
@@ -377,6 +405,17 @@ function extractItems(lines) {
       // very end of that line; strip it out before treating the rest
       // (if any) as further description text, so it never becomes part
       // of the ingredient description itself.
+      // MICRO-TASK 56 — a continuation line that is ENTIRELY a Tax
+      // Details cell belongs to that column, never to the product
+      // description. Confirmed by census over all 21 real Walmart
+      // documents: the shape "Tax<n> $<amount>" occurs exactly 3 times
+      // (748cc643 "Tax1 $3.16", d19bdab1 "Tax1 $1.80", f4786197
+      // "Tax2 $0.29") and every one of them is the SECOND tax detail of
+      // a row that already carries one; ZERO continuation lines of any
+      // other kind contain a "$" at all. Anchored at both ends so a
+      // description that merely mentions a price can never match.
+      if (TAX_CELL_LINE_RE.test(line)) continue;
+
       const pctMatch = line.match(/^(.*?)\s*([\d.]+)%$/);
       if (pctMatch && current.tax_rate === null) {
         // The printed number (e.g. "0.0824") already equals the tax rate
@@ -388,6 +427,15 @@ function extractItems(lines) {
         if (remainder) current._descParts.push(remainder);
         continue;
       }
+      // MICRO-TASK 56 — the companion of the rule above: the SECOND tax
+      // detail also prints its own rate, alone on its line. Reached only
+      // when tax_rate is already set (the first rate is consumed by the
+      // branch above), and only for a line that is a bare percentage and
+      // nothing else. Both conditions matter: a real product percentage
+      // never arrives alone on a line — the one real example, 6c246fda's
+      // "oz Aluminum Cans 0.5%" ABV beer, carries product words on the
+      // same line and so still reaches the description untouched.
+      if (current.tax_rate !== null && PCT_ONLY_LINE_RE.test(line)) continue;
       current._descParts.push(line);
     }
   }

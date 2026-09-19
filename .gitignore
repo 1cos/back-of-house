@@ -1,0 +1,9 @@
+# pure_logic.cjs e' un artefatto di build, derivato da
+# edge-functions/vendor-doc-auto-import/index.ts dallo script
+# build-pure-logic.sh. Non va mai committato: la sorgente e' index.ts.
+pure_logic.cjs
+
+# installato localmente solo per i test che usano jsdom
+node_modules/
+
+.DS_Store

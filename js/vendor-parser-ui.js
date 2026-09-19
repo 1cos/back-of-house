@@ -1591,9 +1591,26 @@ function buildVendorParsers() {
   // (real data prints negative amounts as "-$21.26" — minus before the
   // dollar sign, e.g. the ALT_PAYMENT_METHODS adjustment — not "$-21.26").
   var WALMART_SIGNED_MONEY = '(-?)\\$([\\d,.]+)';
+  // MICRO-TASK 56 — parita' con js/vendor-parsers/walmart-trevipay-
+  // invoice.js. L'etichetta della colonna Tax Details NON e' sempre
+  // "Tax1": sono reali anche "Tax2", "Tax1 8.28%" (rate inline) e un
+  // tax code opaco tipo "7ad525ee-". Cercare la stringa letterale
+  // faceva fallire entrambi i pattern di coda, e la riga-prodotto
+  // spariva dentro la descrizione della riga precedente.
+  //
+  // Si riconosce l'invariante strutturale: 1-3 token NON monetari fra
+  // Discount e le ultime tre colonne in dollari. Escludere "$" dalla
+  // classe tiene la regola fail closed — una riga senza colonna Tax
+  // Details ha solo QUATTRO importi finali e non puo' soddisfare i
+  // CINQUE richiesti, quindi ricade su WALMART_TAIL_PLAIN come prima.
+  // MICRO-TASK 56 — le due forme di continuazione che appartengono
+  // alla colonna Tax Details e non alla descrizione del prodotto.
+  var WALMART_TAX_CELL_LINE_RE = /^Tax\d+\s+-?\$[\d,.]+$/;
+  var WALMART_PCT_ONLY_LINE_RE = /^[\d.]+%$/;
+  var WALMART_TAXDETAIL_LABEL = '((?:[^\\s$]+\\s+){1,3}?)';
   var WALMART_TAIL_WITH_TAXDETAIL = new RegExp(
     '^(.*?)\\s+(\\d+)\\s+' + WALMART_SIGNED_MONEY + '\\s+' + WALMART_SIGNED_MONEY +
-    '\\s+Tax1\\s+' + WALMART_SIGNED_MONEY + '\\s+' + WALMART_SIGNED_MONEY + '\\s+' + WALMART_SIGNED_MONEY + '\\s*$'
+    '\\s+' + WALMART_TAXDETAIL_LABEL + WALMART_SIGNED_MONEY + '\\s+' + WALMART_SIGNED_MONEY + '\\s+' + WALMART_SIGNED_MONEY + '\\s*$'
   );
   var WALMART_TAIL_PLAIN = new RegExp(
     '^(.*?)\\s+(\\d+)\\s+' + WALMART_SIGNED_MONEY + '\\s+' + WALMART_SIGNED_MONEY +
@@ -1623,8 +1640,8 @@ function buildVendorParsers() {
       // 7/8 tax-detail-dup (unused), 9/10 tax, 11/12 billed_total
       unitPrice = walmartSignedPrice(m[3], m[4]);
       discount  = walmartSignedPrice(m[5], m[6]);
-      tax       = walmartSignedPrice(m[9], m[10]);
-      amount    = walmartSignedPrice(m[11], m[12]);
+      tax       = walmartSignedPrice(m[10], m[11]);
+      amount    = walmartSignedPrice(m[12], m[13]);
     } else {
       // groups: 1 desc, 2 qty, 3/4 unit_price, 5/6 discount, 7/8 tax, 9/10 billed_total
       unitPrice = walmartSignedPrice(m[3], m[4]);
@@ -1815,6 +1832,15 @@ function buildVendorParsers() {
         // geometry confirmed in 6c246fda/12fd6860. It always sits at
         // the very end of that line; strip it out before treating the
         // rest (if any) as further description text.
+        // MICRO-TASK 56 — parita': una continuazione che e' INTERAMENTE
+        // una cella della colonna Tax Details appartiene a quella
+        // colonna, mai alla descrizione del prodotto. Censita su tutti e
+        // 21 i documenti Walmart reali: la forma "Tax<n> $<importo>"
+        // compare esattamente 3 volte ed e' sempre il SECONDO tax detail
+        // di una riga che ne ha gia' uno; nessun'altra continuazione
+        // contiene un "$".
+        if (WALMART_TAX_CELL_LINE_RE.test(line)) continue;
+
         var pctMatch = line.match(/^(.*?)\s*([\d.]+)%$/);
         if (pctMatch && current.tax_rate === null) {
           // The printed number (e.g. "0.0824") already equals the tax
@@ -1827,6 +1853,15 @@ function buildVendorParsers() {
           if (remainder) current._descParts.push(remainder);
           continue;
         }
+        // MICRO-TASK 56 — il compagno della regola sopra: anche il
+        // SECONDO tax detail stampa la sua aliquota, sola sulla riga. Si
+        // arriva qui solo se tax_rate e' gia' valorizzata, e solo per una
+        // riga che e' una percentuale e nient'altro. Entrambe le
+        // condizioni contano: una percentuale VERA di prodotto non arriva
+        // mai sola su una riga — l'unico esempio reale, "oz Aluminum Cans
+        // 0.5%" della birra in 6c246fda, porta parole di prodotto sulla
+        // stessa riga e quindi resta nella descrizione.
+        if (current.tax_rate !== null && WALMART_PCT_ONLY_LINE_RE.test(line)) continue;
         current._descParts.push(line);
       }
     }
