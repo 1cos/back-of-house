@@ -502,15 +502,29 @@ async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ o
     // la decide una persona. Mai lasciare che created_at arbitri fra tipi
     // semanticamente incerti — e' esattamente il modo in cui MT63 ha perso
     // una conferma di cucina.
+    //
+    // MICRO-TASK 71 — la condizione NON richiede piu' live.length > 0.
+    // Fino a MT70 il gate era `live.length > 0 && (...)`: un documento di
+    // classe incerta SENZA fratelli vivi lo scavalcava e proseguiva verso
+    // Phase B. L'intenzione contraria era gia' scritta in vdaiApprove
+    // ("the 'ambiguous' class deliberately does NOT land here: it fails
+    // closed as a blocking warning"), ma non era realizzata nel caso
+    // isolato. L'incertezza e' una proprieta' del documento, non del
+    // numero di fratelli: una classe che non sappiamo leggere non diventa
+    // leggibile perche' e' sola. Nessun rango 0, nessun created_at,
+    // nessuna promozione automatica.
     const incerti = live.filter(s2 => !bekRankIsCertain(s2.rank));
-    if (live.length > 0 && (!bekRankIsCertain(meRank) || incerti.length > 0)) {
+    if (!bekRankIsCertain(meRank) || incerti.length > 0) {
       const quali = [meRank.cls || 'sconosciuta'].concat(incerti.map(s2 => s2.rank.cls || 'sconosciuta'));
+      const messaggio = live.length > 0
+        ? `Sales Order ${docNumber} ha piu' revisioni e almeno una non e' classificabile (classi viste: ${quali.join(', ')}). Nessuna revisione e' stata superata automaticamente: riconcilia a mano.`
+        : `Sales Order ${docNumber} non e' classificabile con certezza (classe: ${meRank.cls || 'sconosciuta'}) e non ha altre revisioni con cui riconciliarsi. Un documento di classe incerta non viene mai importato automaticamente: serve una revisione manuale.`;
       await sb.from('vendor_documents').update({
         status: 'pending',
         warnings: [{
           code: 'BEK_REVISION_UNKNOWN',
           severity: 'blocking',
-          message: `Sales Order ${docNumber} ha piu' revisioni e almeno una non e' classificabile (classi viste: ${quali.join(', ')}). Nessuna revisione e' stata superata automaticamente: riconcilia a mano.`,
+          message: messaggio,
           sibling_ids: live.map(s2 => s2.row.id),
         }],
       }).eq('id', doc.id);
@@ -688,6 +702,16 @@ function vdrCodeToSeverityLite(code: string): string {
 function isBlockingWarning(w: any, item: any, knownConversions: Record<string, any>): boolean {
   const code = w.code;
   if (code === 'DOC-TOTAL-001') return true;
+  // MICRO-TASK 71 — BEK_REVISION_UNKNOWN deve fermare il preflight per
+  // DECISIONE, non per effetto collaterale. Il ramo che lo scrive lascia il
+  // documento 'pending' senza riscrivere parsed_json, quindi il preflight lo
+  // fermava comunque piu' avanti per dati mancanti. Era una protezione
+  // accidentale: bastava che un giorno quel ramo scrivesse anche parsed_json
+  // perche' sparisse. Nominare il codice qui rende la barriera esplicita e
+  // indipendente da quel dettaglio.
+  // (BEK_REVISION_AFTER_IMPORT ha oggi la stessa protezione accidentale ed e'
+  //  fuori dallo scope di MT71: vedi report.)
+  if (code === 'BEK_REVISION_UNKNOWN') return true;
   // MICRO-TASK 34 — a recognized invoice (real vendor, real document
   // number) that a parser nonetheless extracted zero line items from.
   // Deliberately NOT grouped with the generic PARSE_ERROR/UNKNOWN_*
