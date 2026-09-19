@@ -688,6 +688,64 @@ function vdrCodeToSeverityLite(code: string): string {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// MICRO-TASK 75 — finestra ROTANTE per la coda di Phase B.
+//
+// Fino a MT74 Phase B prendeva sempre `order(created_at).limit(50)` e poi
+// `slice(0,25)`: sempre i 25 piu' vecchi. Quei 25 restano pending perche'
+// hanno SKU non mappati o domande bloccanti, quindi ogni giro di cron
+// riselezionava esattamente gli stessi e i documenti oltre la posizione 25
+// non venivano raggiunti MAI. Misurato dopo il batch 3: 31 pending
+// acquistabili, 6 (posizioni 26-31) mai visitati:
+//   0003099324  0003128936  0003168282  0003198361  0003243454  0003272475
+//
+// Da non confondere con la composizione DOPO il fix: li' la pagina 1
+// contiene 8 candidate rows, ma due di quelle (0003015274 e 0003055973)
+// erano gia' visitate dal vecchio algoritmo. Gli affamati erano 6, non 8.
+//
+// Il difetto non e' il numero 25, e alzarlo non lo risolve: lo sposta piu'
+// in la'. Il difetto e' che la coda non ha memoria ne' rotazione, quindi
+// l'insieme visitato e' una funzione costante.
+//
+// Qui la rotazione e' STATELESS: la pagina si deriva dall'orologio, non da
+// un cursore da persistere ne' da una colonna da aggiungere. Niente schema
+// change, nessuna scrittura in piu', e updated_at continua a significare
+// "ultima modifica vera" invece di "ultima volta che il cron ci e' passato
+// sopra".
+//
+// LA GARANZIA, nella forma esatta in cui vale:
+//   a insieme ordinato STABILE, tutte le candidate rows vengono visitate
+//   entro ceil(total / pageSize) tick consecutivi.
+// Le pagine piastrellano l'insieme ordinato (pagina k = righe
+// [k*size, k*size+size-1]), quindi la copertura di un ciclo e' completa.
+// Sotto churn arbitrario della coda NON vale niente di piu' forte: quando
+// una riga esce dai pending le posizioni scalano, e una riga vicino al
+// confine di pagina puo' saltare un ciclo. Non e' starvation — l'insieme
+// dei pending permanenti e' stabile per definizione — ma non va spacciata
+// per una garanzia matematica che non c'e'.
+//
+// COSA CONTA UNA PAGINA: righe SQL, non preflight. Il .range() lavora sulla
+// query prima di isPurchasableDocument(), quindi una pagina contiene al
+// massimo PHASE_B_PAGE_SIZE CANDIDATE ROWS e puo' produrre meno preflight,
+// se alcune vengono scartate dal filtro. La fairness e' dimostrata su quella
+// popolazione: le pagine piastrellano l'insieme SQL, quindi ogni candidate
+// row entra in una pagina e ogni purchasable viene raggiunto.
+//
+// La finestra decide solo QUANDO una riga viene esaminata, mai SE e'
+// importabile: quella resta interamente responsabilita' di vdaiPreflight e
+// vdaiApprove, che non cambiano.
+// ══════════════════════════════════════════════════════════════════
+const PHASE_B_PAGE_SIZE = 25;
+const PHASE_B_TICK_MS = 5 * 60 * 1000;   // il periodo del pg_cron jobid 19
+
+function vdaiPhaseBWindow(pendingTotal: number, nowMs: number, pageSize?: number) {
+  const size = pageSize && pageSize > 0 ? pageSize : PHASE_B_PAGE_SIZE;
+  const total = pendingTotal > 0 ? pendingTotal : 0;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const page = Math.abs(Math.floor(nowMs / PHASE_B_TICK_MS)) % pages;
+  return { page, pages, size, from: page * size, to: page * size + size - 1 };
+}
+
+// ══════════════════════════════════════════════════════════════════
 // PHASE B — preflight (ported from vdrPreflight + the blocking subset
 // of vdrBuildQuestions/vdrWarningToQuestion, js/vendor-documents-
 // review.js:1701-2018 and 2397-2468). Same two gates, same order:
@@ -1480,12 +1538,54 @@ Deno.serve(async (req: Request) => {
     // being duplicated as a PostgREST filter string. Other vendors'
     // order_confirmations are fetched and immediately dropped below —
     // same outcome as before, no behaviour change for them.
-    let qB = sb.from('vendor_documents').select('id,parsed_json,vendor,warnings,status,document_number,document_date').eq('status', 'pending').in('document_type', ['invoice', 'order_confirmation']);
-    qB = documentId ? qB.eq('id', documentId) : qB;
-    const { data: queueBRaw } = await qB.order('created_at', { ascending: true }).limit(documentId ? 1 : 50);
-    const queueB = (queueBRaw || []).filter((d: any) =>
-      isPurchasableDocument((d.parsed_json && d.parsed_json.vendor) || d.vendor || '', (d.parsed_json && d.parsed_json.document_type) || d.document_type)
-    ).slice(0, documentId ? 1 : 25);
+    // MICRO-TASK 75 — la pagina da visitare ruota a ogni tick del cron, cosi'
+    // nessuna candidate row resta fuori dalla finestra per sempre. Il
+    // conteggio e' una head-query senza righe; il ramo documentId resta
+    // quello di prima.
+    //
+    // FAIL CLOSED sul conteggio. `pendingTotal || 0` avrebbe trasformato un
+    // errore della count in "zero pending", cioe' pages=1 e pagina 0: il
+    // worker sarebbe tornato in silenzio esattamente al comportamento che
+    // questa micro-task sta togliendo, e per giunta senza dirlo. Se non so
+    // quante righe ci sono non so nemmeno che finestra usare, quindi Phase B
+    // salta il giro. Non e' una perdita: il cron ripassa fra cinque minuti, e
+    // saltare non puo' mai importare qualcosa di sbagliato.
+    let finestra = { page: 0, pages: 1, size: PHASE_B_PAGE_SIZE, from: 0, to: PHASE_B_PAGE_SIZE - 1 };
+    let saltaPhaseB = false;
+    if (!documentId) {
+      const { count: pendingTotal, error: countErr } = await sb.from('vendor_documents')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending').in('document_type', ['invoice', 'order_confirmation']);
+      if (countErr || pendingTotal === null || pendingTotal === undefined) {
+        saltaPhaseB = true;
+        const motivo = countErr ? countErr.message : 'conteggio nullo';
+        (result as any).phaseB_window = { skipped: true, reason: 'count_failed', error: motivo };
+        console.error('[vdai] Phase B saltata: conteggio dei pending fallito:', motivo);
+      } else {
+        finestra = vdaiPhaseBWindow(pendingTotal, Date.now());
+        // Senza questo, da fuori non si capisce quale pagina ha girato.
+        (result as any).phaseB_window = { ...finestra, pending_total: pendingTotal };
+      }
+    }
+
+    // L'ordine deve essere TOTALE, non solo per created_at: l'intake inserisce
+    // piu' documenti nello stesso secondo (misurato: il batch 3 ne ha creati
+    // 16 in 18 secondi) e due righe con lo stesso timestamp non hanno ordine
+    // relativo garantito da Postgres. Senza il tiebreak su id, due pagine
+    // consecutive potrebbero vedere la stessa riga due volte e saltarne
+    // un'altra. `id` e' la primary key, quindi il tiebreak e' totale.
+    let queueB: any[] = [];
+    if (!saltaPhaseB) {
+      let qB = sb.from('vendor_documents').select('id,parsed_json,vendor,warnings,status,document_number,document_date').eq('status', 'pending').in('document_type', ['invoice', 'order_confirmation']);
+      qB = documentId ? qB.eq('id', documentId) : qB;
+      qB = qB.order('created_at', { ascending: true }).order('id', { ascending: true });
+      const { data: queueBRaw } = documentId
+        ? await qB.limit(1)
+        : await qB.range(finestra.from, finestra.to);
+      queueB = (queueBRaw || []).filter((d: any) =>
+        isPurchasableDocument((d.parsed_json && d.parsed_json.vendor) || d.vendor || '', (d.parsed_json && d.parsed_json.document_type) || d.document_type)
+      ).slice(0, documentId ? 1 : finestra.size);
+    }
     for (const doc of queueB || []) {
       if (dryRun) {
         const pre = await vdaiPreflight(sb, doc);
