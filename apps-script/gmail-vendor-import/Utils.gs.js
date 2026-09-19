@@ -20,16 +20,45 @@ function sendToEdge(functionSlug, payload) {
   }
 }
 
-function processLabelPDF(labelName, processedName, functionSlug) {
+// MICRO-TASK 54A — `startDate` OPZIONALE.
+//
+// Senza quel parametro il comportamento e' IDENTICO a prima: finestra
+// relativa di 30 giorni. Con una data esplicita si usa quella al posto del
+// cutoff, ed e' l'unico modo per raggiungere lo storico.
+//
+// Il cutoff a 30 giorni e' il meccanismo che ha lasciato fermo l'arretrato
+// (MICRO-TASK 53): le email piu' vecchie non venivano processate E non
+// venivano de-etichettate, quindi restavano nella label `-import` per
+// sempre. 841 thread hardies-import e le 6 fatture Walmart del 28/07-07/08
+// sono li' per questo.
+//
+// Restituisce un riepilogo dei conteggi, cosi' le funzioni di backfill
+// possono loggarlo. Il percorso orario ignora il valore di ritorno: per lui
+// non cambia nulla.
+//
+// ATTENZIONE, comportamento PRESERVATO e non corretto qui: le etichette
+// vengono spostate quando almeno un PDF e' stato inviato, anche se la
+// risposta era un errore. E' il comportamento attuale del collector orario e
+// MICRO-TASK 54A non lo cambia. Se un batch di backfill riporta failed > 0,
+// il rimedio esistente e' resetLabel(processedName, labelName), che rimette
+// i thread in coda.
+function processLabelPDF(labelName, processedName, functionSlug, startDate) {
+  const stats = { threads_found: 0, queued: 0, duplicate: 0, failed: 0, processed_label_added: 0 };
   const label = GmailApp.getUserLabelByName(labelName);
-  if (!label) { Logger.log('Label not found: ' + labelName); return; }
+  if (!label) { Logger.log('Label not found: ' + labelName); return stats; }
   const processedLabel = GmailApp.getUserLabelByName(processedName)
     || GmailApp.createLabel(processedName);
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 30);
+  let cutoff;
+  if (startDate) {
+    cutoff = startDate;
+  } else {
+    cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
+  }
   const threads = label.getThreads(0, 20).filter(function(t) {
     return t.getLastMessageDate() > cutoff;
   });
+  stats.threads_found = threads.length;
   Logger.log('[' + labelName + '] ' + threads.length + ' threads');
   threads.forEach(function(thread) {
     thread.getMessages().forEach(function(msg) {
@@ -44,15 +73,21 @@ function processLabelPDF(labelName, processedName, functionSlug) {
           from: msg.getFrom(),
         };
         const result = sendToEdge(functionSlug, payload);
+        // Solo l'esito, mai il payload ne' il contenuto dell'email.
+        if (result && result.status === 'queued')         stats.queued++;
+        else if (result && result.status === 'duplicate') stats.duplicate++;
+        else                                              stats.failed++;
         Logger.log('PDF sent: ' + att.getName() + ' → ' + JSON.stringify(result));
         processed = true;
       });
       if (processed) {
         thread.removeLabel(label);
         thread.addLabel(processedLabel);
+        stats.processed_label_added++;
       }
     });
   });
+  return stats;
 }
 
 function processLabelCSV(labelName, processedName, functionSlug) {

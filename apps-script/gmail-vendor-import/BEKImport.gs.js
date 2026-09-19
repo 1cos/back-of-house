@@ -11,9 +11,6 @@ function checkBEKEmails() {
     return;
   }
 
-  var processedLabel = GmailApp.getUserLabelByName('bek-processed')
-    || GmailApp.createLabel('bek-processed');
-
   // Sender + subject specifici a Ben E. Keith Order Confirmation — mai un
   // match generico su "Keith".
   var query = 'from:benekeith.com subject:"Order Confirmation" -label:bek-processed';
@@ -26,7 +23,20 @@ function checkBEKEmails() {
     query += ' subject:"' + testSalesOrder + '"';
   }
 
+  processBEKQuery(query, '[BEK]');
+}
+
+// MICRO-TASK 54A — la parte comune fra il collector orario e il backfill
+// storico. L'UNICA differenza fra i due e' la query: la logica di invio,
+// di etichettatura e di conteggio vive qui una volta sola.
+function processBEKQuery(query, tag) {
+  var stats = { threads_found: 0, queued: 0, duplicate: 0, failed: 0, processed_label_added: 0 };
+  var processedLabel = GmailApp.getUserLabelByName('bek-processed')
+    || GmailApp.createLabel('bek-processed');
+
   var threads = GmailApp.search(query, 0, 20);
+  stats.threads_found = threads.length;
+  Logger.log(tag + ' ' + threads.length + ' threads');
 
   threads.forEach(function(thread) {
     // Ultimo messaggio del thread — stesso pattern di
@@ -47,10 +57,15 @@ function checkBEKEmails() {
     // solo "error", mai "status".
     if (result && !result.error && (result.status === 'queued' || result.status === 'duplicate')) {
       thread.addLabel(processedLabel);
+      stats.processed_label_added++;
+      if (result.status === 'queued') stats.queued++; else stats.duplicate++;
     } else {
-      Logger.log('[BEK] Non etichettato — risposta non confermata: ' + JSON.stringify(result));
+      stats.failed++;
+      Logger.log(tag + ' Non etichettato — risposta non confermata: ' + JSON.stringify(result));
     }
   });
+
+  return stats;
 }
 
 function resetBEKLabels() {
