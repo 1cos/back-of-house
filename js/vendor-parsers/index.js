@@ -148,6 +148,19 @@ function detectDocumentType(rawText, vendor) {
 const isBenEKeith           = bekOrderConfirmation.isBenEKeith;
 const isPurchasableDocument = bekOrderConfirmation.isPurchasableDocument;
 
+// MICRO-TASK 48 — the Ben E. Keith buyer guard. Same rule as above: the
+// single definition lives in the BEK module and is re-exported here, never
+// redefined, so the Edge Function (which reaches the parsers only through
+// this index) and the browser see exactly the same allow-list.
+const classifyBuyer       = bekOrderConfirmation.classifyBuyer;
+const extractBuyerEmail   = bekOrderConfirmation.extractBuyerEmail;
+const normalizeBuyerEmail = bekOrderConfirmation.normalizeBuyerEmail;
+const BEK_BUYER_KITCHEN   = bekOrderConfirmation.BEK_BUYER_KITCHEN;
+const BEK_BUYER_FOH       = bekOrderConfirmation.BEK_BUYER_FOH;
+const BUYER_KITCHEN       = bekOrderConfirmation.BUYER_KITCHEN;
+const BUYER_EXCLUDED      = bekOrderConfirmation.BUYER_EXCLUDED;
+const BUYER_UNKNOWN       = bekOrderConfirmation.BUYER_UNKNOWN;
+
 
 // ── Reconciliation check (Quadratura) ────────────────────────
 // Data Priority P1: the document total is the source of truth.
@@ -273,4 +286,7 @@ function parse(rawText) {
 module.exports = {
   parse, detectVendor, detectDocumentType, checkTotals,
   isPurchasableDocument, isBenEKeith,
+  classifyBuyer, extractBuyerEmail, normalizeBuyerEmail,
+  BEK_BUYER_KITCHEN, BEK_BUYER_FOH,
+  BUYER_KITCHEN, BUYER_EXCLUDED, BUYER_UNKNOWN,
 };

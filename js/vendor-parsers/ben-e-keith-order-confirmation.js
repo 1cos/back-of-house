@@ -288,6 +288,56 @@ function extractOrderTotal(text) {
 // Diagnostic evidence only — never a classification input.
 const DISCLAIMER_RE = /Item\s+confirmation\s+will\s+occur\s+the\s+morning\s+before/i;
 
+// ── Buyer / order owner (MICRO-TASK 48) ──────────────────────────────
+// Ben E. Keith serves TWO order streams on the SAME Customer# (FDF770366,
+// "ZENO'S ON THE SQUARE"): the kitchen brigade's orders and the front of
+// house's. Measured on 56 real Gmail threads: Customer#, Branch, Customer
+// Name, subject, sender and recipient are IDENTICAL on every one of them,
+// so none of those can tell the two apart. The only field that differs is
+// the `Email:` line in the confirmation header, which carries the address
+// of whoever placed the order — 28 threads each, and zero with any third
+// value.
+//
+// BOH OS must treat ONLY the kitchen stream as a purchase. The front of
+// house stream is a real order, but not the chef's, and must never reach
+// invoice_lines, ingredient_vendors, aliases or price intelligence.
+//
+// Allow-list, not deny-list, and FAIL CLOSED on anything unrecognised: a
+// new buyer appearing tomorrow must stop and ask, never be silently
+// assumed to be one side or the other.
+const BUYER_EMAIL_RE = /Email:\s*\*?\s*([^\s*<>]+@[^\s*<>]+)/i;
+
+const BEK_BUYER_KITCHEN = 'raven_wolf_1510@yahoo.com';
+const BEK_BUYER_FOH     = 'zeno@zenosonthesquare.com';
+
+const BUYER_KITCHEN  = 'kitchen';
+const BUYER_EXCLUDED = 'excluded';
+const BUYER_UNKNOWN  = 'unknown';
+
+// Normalisation is deliberately minimal: trim + lowercase, nothing else.
+// No fuzzy matching, no domain rules, no local-part tricks — an address
+// either is one of the two known ones or it is not.
+function normalizeBuyerEmail(raw) {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).trim().toLowerCase();
+  return s === '' ? null : s;
+}
+
+function extractBuyerEmail(text) {
+  const m = String(text || '').match(BUYER_EMAIL_RE);
+  return m ? normalizeBuyerEmail(m[1]) : null;
+}
+
+// kitchen  → this is a chef purchase
+// excluded → a real front-of-house order, deliberately not a chef purchase
+// unknown  → missing or unrecognised: fail closed, never guessed
+function classifyBuyer(email) {
+  const e = normalizeBuyerEmail(email);
+  if (e === BEK_BUYER_KITCHEN) return BUYER_KITCHEN;
+  if (e === BEK_BUYER_FOH)     return BUYER_EXCLUDED;
+  return BUYER_UNKNOWN;
+}
+
 // ── Quantity rule (MICRO-TASK 42, sections B and J) ──────────────────
 //   confirmed > 0  → qty = confirmed
 //   confirmed = 0  → qty = 0, item does not take part in the purchase
@@ -331,6 +381,8 @@ function parse(rawHtml, opts) {
   const deliveryDate = extractDeliveryDate(docText);
   const orderTotal   = extractOrderTotal(docText);
   const hasDisclaimer = DISCLAIMER_RE.test(docText);
+  const buyerEmail = extractBuyerEmail(docText);
+  const buyerClass = classifyBuyer(buyerEmail);
 
   const items = [];
   for (const cells of extractRows(html)) {
@@ -459,6 +511,10 @@ function parse(rawHtml, opts) {
     total:           orderTotal,
     computed_order_total:    computedOrderTotal,
     computed_purchase_total: computedPurchaseTotal,
+    // MICRO-TASK 48 — who placed this order. `buyer_class` is the
+    // decision; `buyer_email` is kept as the evidence behind it.
+    buyer_email:  buyerEmail,
+    buyer_class:  buyerClass,
     // Diagnostic evidence, never a classification input.
     has_confirmation_disclaimer: hasDisclaimer,
     // Tells the shared checkTotals this parser already reconciled its own
@@ -499,6 +555,14 @@ function isPurchasableDocument(vendor, documentType) {
 const API = {
   parse,
   classifyDocument,
+  classifyBuyer,
+  extractBuyerEmail,
+  normalizeBuyerEmail,
+  BEK_BUYER_KITCHEN,
+  BEK_BUYER_FOH,
+  BUYER_KITCHEN,
+  BUYER_EXCLUDED,
+  BUYER_UNKNOWN,
   isPurchasableDocument,
   isBenEKeith,
   extractRows,

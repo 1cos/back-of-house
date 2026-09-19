@@ -111,6 +111,7 @@ const BEK_HTML_REAL_SHAPE = `
               <tbody>
               <tr><td class="label">Order Total*</td></tr>
               <tr><td style="text-align: left;"><b>$312.18</b></td></tr>
+                <tr><td class="label">Email: raven_wolf_1510@yahoo.com</td></tr>
               </tbody>
             </table>
           </td>
@@ -282,6 +283,7 @@ const BEK_ACKNOWLEDGEMENT = `
             <table><tbody>
               <tr><td class="label">Order Total*</td></tr>
               <tr><td style="text-align: left;"><b>$312.86</b></td></tr>
+                <tr><td class="label">Email: raven_wolf_1510@yahoo.com</td></tr>
             </tbody></table>
           </td>
         </tr>
@@ -424,6 +426,7 @@ const BEK_ACK_MISLEADING_HEADER = `
             <table><tbody>
               <tr><td class="label">Order Total*</td></tr>
               <tr><td style="text-align: left;"><b>$72.57</b></td></tr>
+                <tr><td class="label">Email: raven_wolf_1510@yahoo.com</td></tr>
             </tbody></table>
           </td>
         </tr>
@@ -525,6 +528,7 @@ const BEK_OPERATIONAL_SAME_SO = `
             <table><tbody>
               <tr><td class="label">Order Total*</td></tr>
               <tr><td style="text-align: left;"><b>$312.86</b></td></tr>
+                <tr><td class="label">Email: raven_wolf_1510@yahoo.com</td></tr>
             </tbody></table>
           </td>
         </tr>
@@ -662,6 +666,7 @@ const BEK_MIXED_PARTIAL = `
             <table><tbody>
               <tr><td class="label">Order Total*</td></tr>
               <tr><td style="text-align: left;"><b>$55.00</b></td></tr>
+                <tr><td class="label">Email: raven_wolf_1510@yahoo.com</td></tr>
             </tbody></table>
           </td>
         </tr>
@@ -763,6 +768,7 @@ const BEK_AMBIGUOUS_CANCELLED = `
             <table><tbody>
               <tr><td class="label">Order Total*</td></tr>
               <tr><td style="text-align: left;"><b>$20.00</b></td></tr>
+                <tr><td class="label">Email: raven_wolf_1510@yahoo.com</td></tr>
             </tbody></table>
           </td>
         </tr>
@@ -864,6 +870,7 @@ const BEK_SHORT_FILL_CASE_D = `
             <table><tbody>
               <tr><td class="label">Order Total*</td></tr>
               <tr><td style="text-align: left;"><b>$30.00</b></td></tr>
+                <tr><td class="label">Email: raven_wolf_1510@yahoo.com</td></tr>
             </tbody></table>
           </td>
         </tr>
