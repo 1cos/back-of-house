@@ -163,6 +163,39 @@ async function faseB(sb, row) {
       'il codice deve essere riconosciuto come bloccante dal preflight');
   });
 
+  // MICRO-TASK 72 — la controprova richiesta: togliere ogni altra ragione di
+  // rifiuto (parsed_json completo, buyer di cucina, SKU tutti mappati) e
+  // verificare che a fermarlo resti il WARNING e nient'altro.
+  await atest('L4. BEK_REVISION_UNKNOWN con parsed_json completo e SKU mappati -> blocca lo stesso', async () => {
+    const CANON = require('../js/vendor-parsers/ben-e-keith-order-confirmation');
+    const parsato = CANON.parse(F.BEK_OPERATIONAL_SAME_SO);
+    const skus = parsato.items.map((i) => i.vendor_sku || i.item_code);
+    const doc = {
+      id: 'unknown-completo', vendor: 'Ben E. Keith', document_type: 'order_confirmation',
+      status: 'pending', document_number: parsato.document_number, document_date: '2026-09-17',
+      created_at: '2026-09-20T10:00:00Z',
+      parsed_json: Object.assign({ source: 'email_html' }, parsato),
+      warnings: [{ code: 'BEK_REVISION_UNKNOWN', severity: 'blocking',
+                   message: 'classe incerta', sibling_ids: [] }],
+      raw_text: F.BEK_OPERATIONAL_SAME_SO,
+    };
+    const sb = makeMockSb({
+      vendor_documents: [doc], invoice_lines: [], ingredient_links: [], vendor_item_aliases: [],
+      ingredient_vendors: skus.map((s, n) => ({ vendor: 'Ben E. Keith', vendor_sku: s,
+                                                ingredient_id: 'ing-' + n, conversion_to_base: null })),
+    });
+
+    const pre = await vdaiPreflight(sb, doc);
+    assert.strictEqual(pre.unmatchedCount, 0, 'gli SKU devono essere tutti mappati');
+    assert.strictEqual(pre.ok, false);
+    assert.strictEqual(pre.reason, 'open_question',
+      'deve fermarlo il warning, non un dato mancante');
+    const app = await vdaiApprove(sb, doc.id);
+    assert.strictEqual(app.ok, false);
+    assert.strictEqual(app.reason, 'open_question');
+    assert.strictEqual((sb.tables.invoice_lines || []).length, 0, 'zero invoice_lines');
+    assert.strictEqual(sb.tables.vendor_documents[0].status, 'pending', 'mai imported');
+  });
 
   // ── M. operational_confirmation KITCHEN isolata ────────────────
   await atest('M. operational_confirmation KITCHEN isolata -> comportamento invariato', async () => {

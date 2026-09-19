@@ -702,16 +702,27 @@ function vdrCodeToSeverityLite(code: string): string {
 function isBlockingWarning(w: any, item: any, knownConversions: Record<string, any>): boolean {
   const code = w.code;
   if (code === 'DOC-TOTAL-001') return true;
-  // MICRO-TASK 71 — BEK_REVISION_UNKNOWN deve fermare il preflight per
-  // DECISIONE, non per effetto collaterale. Il ramo che lo scrive lascia il
-  // documento 'pending' senza riscrivere parsed_json, quindi il preflight lo
-  // fermava comunque piu' avanti per dati mancanti. Era una protezione
-  // accidentale: bastava che un giorno quel ramo scrivesse anche parsed_json
-  // perche' sparisse. Nominare il codice qui rende la barriera esplicita e
+  // MICRO-TASK 71/72 — le due eccezioni di riconciliazione BEK devono
+  // fermare il preflight per DECISIONE, non per effetto collaterale.
+  //
+  // Entrambi i rami che le scrivono aggiornano SOLO status e warnings e non
+  // riscrivono parsed_json, che resta { source }. Senza document_type nel
+  // JSON, isPurchasableDocument() e' falso: vdaiPreflight esce subito con un
+  // ok:true vuoto e vdaiApprove rifiuta con 'not_invoice'. Il documento non
+  // veniva importato, ma per un dato MANCANTE, non per il warning.
+  //
+  // Misurato (MT72): allo stesso documento, con lo stesso warning, basta un
+  // parsed_json completo con buyer di cucina e SKU mappati perche'
+  // vdaiApprove ritorni ok e scriva le invoice_lines. La protezione era
+  // un'assenza, e le assenze si riempiono: il ramo che oggi non scrive
+  // parsed_json potrebbe scriverlo domani, e il reprocess dalla UI di review
+  // lo scrive gia'. Nominare qui i due codici rende la barriera esplicita e
   // indipendente da quel dettaglio.
-  // (BEK_REVISION_AFTER_IMPORT ha oggi la stessa protezione accidentale ed e'
-  //  fuori dallo scope di MT71: vedi report.)
-  if (code === 'BEK_REVISION_UNKNOWN') return true;
+  //
+  // NOTA: la prima versione di questo commento (MT71) attribuiva il blocco al
+  // buyer guard del preflight. Era sbagliato — il buyer guard non viene mai
+  // raggiunto, perche' l'uscita per isPurchasableDocument viene prima.
+  if (code === 'BEK_REVISION_UNKNOWN' || code === 'BEK_REVISION_AFTER_IMPORT') return true;
   // MICRO-TASK 34 — a recognized invoice (real vendor, real document
   // number) that a parser nonetheless extracted zero line items from.
   // Deliberately NOT grouped with the generic PARSE_ERROR/UNKNOWN_*
