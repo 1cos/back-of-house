@@ -485,22 +485,46 @@ async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ o
     // confirmed and ready" e ha zero confermati.
     const meRank = bekRevisionRank(parsed, doc.created_at);
 
-    const betterSibling = rows.find((r: any) => {
-      if (r.status === 'ignored') return false;
+    // Il rango di un fratello si calcola dal suo parse; se non e' ancora
+    // stato parsato lo si parsa al volo dal suo raw_text. Senza questo
+    // l'esito tornerebbe a dipendere da quale dei due Phase A tocca per
+    // primo, cioe' dal difetto che stiamo togliendo.
+    const live = (rows as any[]).filter(r => r.status !== 'ignored').map(r => {
       let pj: any = r.parsed_json;
       if (!pj || !Array.isArray(pj.items) || pj.items.length === 0) {
         try { pj = parsersApi().parse(r.raw_text || ''); } catch (_e) { pj = null; }
       }
-      return bekOutranks(bekRevisionRank(pj, r.created_at), meRank);
+      return { row: r, rank: bekRevisionRank(pj, r.created_at) };
     });
+
+    // FAIL CLOSED. Se io o un fratello vivo non siamo classificabili, nessuno
+    // supera nessuno: il documento resta fermo con un'eccezione bloccante e
+    // la decide una persona. Mai lasciare che created_at arbitri fra tipi
+    // semanticamente incerti — e' esattamente il modo in cui MT63 ha perso
+    // una conferma di cucina.
+    const incerti = live.filter(s2 => !bekRankIsCertain(s2.rank));
+    if (live.length > 0 && (!bekRankIsCertain(meRank) || incerti.length > 0)) {
+      const quali = [meRank.cls || 'sconosciuta'].concat(incerti.map(s2 => s2.rank.cls || 'sconosciuta'));
+      await sb.from('vendor_documents').update({
+        status: 'pending',
+        warnings: [{
+          code: 'BEK_REVISION_UNKNOWN',
+          severity: 'blocking',
+          message: `Sales Order ${docNumber} ha piu' revisioni e almeno una non e' classificabile (classi viste: ${quali.join(', ')}). Nessuna revisione e' stata superata automaticamente: riconcilia a mano.`,
+          sibling_ids: live.map(s2 => s2.row.id),
+        }],
+      }).eq('id', doc.id);
+      if (storagePath) await sb.storage.from('app').remove([storagePath]);
+      return { outcome: 'bek_revision_unknown' };
+    }
+
+    const betterSibling = live.find(s2 => bekOutranks(s2.rank, meRank));
     if (betterSibling) {
       await sb.from('vendor_documents').update({ status: 'ignored' }).eq('id', doc.id);
       return { outcome: 'bek_superseded_by_newer_revision' };
     }
-    for (const r of rows) {
-      if (r.status !== 'ignored') {
-        await sb.from('vendor_documents').update({ status: 'ignored' }).eq('id', r.id);
-      }
+    for (const s2 of live) {
+      await sb.from('vendor_documents').update({ status: 'ignored' }).eq('id', s2.row.id);
     }
     // Falls through deliberately: this document is the operative revision
     // and must go on to be parsed, preflighted and (if clean) imported.
@@ -578,9 +602,9 @@ async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ o
   return { outcome: computedStatus === 'pending' ? 'parsed_pending' : computedStatus };
 }
 
-// MICRO-TASK 64 — un documento BEK e' un acquisto solo se qualcosa e'
-// stato CONFERMATO. Un acknowledgement elenca gli articoli richiesti con
-// confermato 0 e non deve mai valere come revisione operativa.
+// MICRO-TASK 64/65 — un documento BEK e' un acquisto solo se qualcosa e'
+// stato CONFERMATO. Serve come INVARIANTE di validazione, non come
+// identita' della revisione: quella la da' document_class.
 function bekHasConfirmedQty(parsedDoc: any): boolean {
   const items = (parsedDoc && Array.isArray(parsedDoc.items)) ? parsedDoc.items : [];
   return items.some((i: any) => {
@@ -589,20 +613,55 @@ function bekHasConfirmedQty(parsedDoc: any): boolean {
   });
 }
 
-// Rango di una revisione BEK. Due componenti, in quest'ordine:
-//   confirmed  1 se il documento ha quantita' confermate, 0 altrimenti
-//   at         created_at, usato SOLO a parita' di confirmed
+// ── MICRO-TASK 65 — il rango di una revisione e' il suo TIPO, non il suo
+// valore economico.
+//
+// MT64 usava "ha quantita' confermate". Coincideva con i 18 documenti
+// osservati, ma confondeva un fatto economico con l'identita' della
+// revisione: una conferma reale con tutto esaurito avrebbe zero confermati
+// e sarebbe finita alla pari di un acknowledgement, lasciando di nuovo
+// decidere created_at.
+//
+// Il tipo lo da' gia' il parser. classifyDocument() in
+// ben-e-keith-order-confirmation.js lo deriva SOLO dalle righe, mai dalla
+// prosa o dalla frase del disclaimer, e distingue tre classi:
+//
+//   operational_confirmation  almeno una riga confermata
+//   acknowledgement           tutte a zero E tutte 'requested'
+//   ambiguous                 tutte a zero ma gli stati NON sono tutti
+//                             'requested' (out_of_stock, cancelled,
+//                             not_filled, sconosciuti, nessuna riga)
+//
+// Il tutto-esaurito cade quindi in 'ambiguous', non in 'acknowledgement':
+// non viene mai declassato sotto un acknowledgement, e non viene nemmeno
+// promosso in silenzio. Censito su 22 documenti reali: 9 acknowledgement,
+// 12 operational_confirmation, 1 ambiguous (il documento rotto 770366,
+// zero righe). Nessun controesempio alla separazione.
+const BEK_CLASS_RANK: Record<string, number> = {
+  operational_confirmation: 2,
+  acknowledgement:          1,
+};
+
+// rank null = non classificabile. Non partecipa al superamento: fail closed.
 function bekRevisionRank(parsedDoc: any, createdAt: any) {
-  return {
-    confirmed: bekHasConfirmedQty(parsedDoc) ? 1 : 0,
-    at: createdAt ? new Date(createdAt).getTime() : 0,
-  };
+  const cls = parsedDoc && parsedDoc.document_class;
+  let rank = Object.prototype.hasOwnProperty.call(BEK_CLASS_RANK, cls) ? BEK_CLASS_RANK[cls] : null;
+  // Invariante di validazione: un acknowledgement non puo' avere confermati.
+  // Se il parser un giorno si contraddicesse, il documento diventa incerto
+  // invece di essere classato male.
+  if (cls === 'acknowledgement' && bekHasConfirmedQty(parsedDoc)) rank = null;
+  return { cls: cls || null, rank, at: createdAt ? new Date(createdAt).getTime() : 0 };
 }
 
-// true se il rango `a` deve prevalere su `b`. Un documento confermato batte
-// sempre uno non confermato, a prescindere da quale sia arrivato prima.
+function bekRankIsCertain(r: any): boolean {
+  return !!r && r.rank !== null && r.rank !== undefined;
+}
+
+// true se `a` deve prevalere su `b`. Mai al buio: se uno dei due non e'
+// classificabile, nessuno supera nessuno.
 function bekOutranks(a: any, b: any): boolean {
-  if (a.confirmed !== b.confirmed) return a.confirmed > b.confirmed;
+  if (!bekRankIsCertain(a) || !bekRankIsCertain(b)) return false;
+  if (a.rank !== b.rank) return a.rank > b.rank;
   return a.at > b.at;
 }
 

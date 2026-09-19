@@ -39,17 +39,28 @@ function test(name, fn) {
 }
 
 // ── Fixture: le due forme reali dello stesso Sales Order ─────────
+// document_class e' prodotto dal parser (classifyDocument), derivato SOLO
+// dalle righe: mai dalla prosa, mai dalla frase del disclaimer.
 const ACK = {
   id: 'ack', created_at: '2026-07-03T19:00:47Z', status: 'pdf_received',
-  raw_text: '<html>Thank you for your order! Sales Order # 0002492315</html>',
-  parsed: { items: [{ vendor_sku: '780005', qty_ordered: 1, qty_received: 0 },
-                    { vendor_sku: '819255', qty_ordered: 1, qty_received: 0 }] },
+  parsed: { document_class: 'acknowledgement',
+            items: [{ vendor_sku: '780005', qty_ordered: 1, qty_received: 0, item_status: 'requested' },
+                    { vendor_sku: '819255', qty_ordered: 1, qty_received: 0, item_status: 'requested' }] },
 };
 const CONF = {
   id: 'conf', created_at: '2026-07-05T14:04:58Z', status: 'pdf_received',
-  raw_text: '<html>Your order is confirmed and ready for delivery Sales Order # 0002492315</html>',
-  parsed: { items: [{ vendor_sku: '780005', qty_ordered: 1, qty_received: 1 },
-                    { vendor_sku: '819255', qty_ordered: 1, qty_received: 1 }] },
+  parsed: { document_class: 'operational_confirmation',
+            items: [{ vendor_sku: '780005', qty_ordered: 1, qty_received: 1, item_status: 'filled' },
+                    { vendor_sku: '819255', qty_ordered: 1, qty_received: 1, item_status: 'filled' }] },
+};
+// Il caso che MT65 e' venuto a chiudere: una conferma con TUTTO esaurito.
+// Zero confermati, ma NON e' un acknowledgement. classifyDocument la manda
+// in 'ambiguous', quindi non viene declassata sotto un ACK ne' promossa.
+const CONF_STOCKOUT = {
+  id: 'stockout', created_at: '2026-07-05T14:04:58Z', status: 'pdf_received',
+  parsed: { document_class: 'ambiguous',
+            items: [{ vendor_sku: '780005', qty_ordered: 1, qty_received: 0, item_status: 'out_of_stock' },
+                    { vendor_sku: '819255', qty_ordered: 1, qty_received: 0, item_status: 'out_of_stock' }] },
 };
 
 // Riproduce il ciclo di MT42-F usando le DUE funzioni di produzione
@@ -79,7 +90,7 @@ test('A. ACK ingerito prima, CONF dopo -> operativa la CONF', () => {
 
 // ── B. CONF prima, ACK dopo — il caso che prima regrediva ────────
 
-test('B. CONF ingerita prima, ACK dopo -> resta operativa la CONF', () => {
+test('B/H. CONF ingerita prima, ACK piu recente dopo -> resta operativa la CONF', () => {
   const confPrima = { ...CONF, created_at: '2026-07-03T10:00:00Z' };
   const ackDopo   = { ...ACK,  created_at: '2026-07-05T10:00:00Z' };
   const vincitore = operativo([confPrima, ackDopo]);
@@ -105,7 +116,7 @@ test('B3. l esito non dipende dall ordine in cui Phase A li tocca', () => {
 
 // ── Rango: proprieta' della decisione ────────────────────────────
 
-test('rango: confermato batte non confermato, a prescindere dalla data', () => {
+test('rango: la conferma batte l acknowledgement, a prescindere dalla data', () => {
   const vecchiaConf = L.bekRevisionRank(CONF.parsed, '2020-01-01T00:00:00Z');
   const nuovoAck    = L.bekRevisionRank(ACK.parsed,  '2030-01-01T00:00:00Z');
   assert.strictEqual(L.bekOutranks(vecchiaConf, nuovoAck), true);
@@ -119,11 +130,87 @@ test('rango: a parita di confermato decide created_at', () => {
   assert.strictEqual(L.bekOutranks(a, b), false);
 });
 
-test('rango: una conferma parziale conta come acquisto', () => {
-  const parziale = { items: [{ qty_received: 0 }, { qty_received: 2 }] };
+test('rango: una conferma parziale conta come conferma', () => {
+  const parziale = { document_class: 'operational_confirmation',
+                     items: [{ qty_received: 0, item_status: 'out_of_stock' },
+                             { qty_received: 2, item_status: 'filled' }] };
   assert.strictEqual(L.bekHasConfirmedQty(parziale), true);
   assert.strictEqual(L.bekOutranks(L.bekRevisionRank(parziale, '2026-01-01'),
                                    L.bekRevisionRank(ACK.parsed, '2030-01-01')), true);
+});
+
+// ── MICRO-TASK 65: i casi che il criterio economico sbagliava ────
+
+test('G. conferma con TUTTO esaurito: non viene declassata sotto un ACK', () => {
+  const rAck  = L.bekRevisionRank(ACK.parsed, '2026-07-03');
+  const rOut  = L.bekRevisionRank(CONF_STOCKOUT.parsed, '2026-07-05');
+  assert.strictEqual(L.bekHasConfirmedQty(CONF_STOCKOUT.parsed), false,
+    'ha davvero zero confermati: col criterio economico pareva un ACK');
+  assert.strictEqual(L.bekRankIsCertain(rOut), false, 'classificata ambiguous, quindi incerta');
+  assert.strictEqual(L.bekOutranks(rAck, rOut), false, 'l ACK NON deve superarla');
+  assert.strictEqual(L.bekOutranks(rOut, rAck), false, 'e nemmeno lei supera al buio');
+});
+
+test('G2. col criterio di MT64 quella conferma sarebbe stata superata dall ACK', () => {
+  // criterio vecchio: confermati>0 come unico discriminante, poi created_at
+  const vecchioRank = d => ({ confirmed: L.bekHasConfirmedQty(d) ? 1 : 0 });
+  const a = vecchioRank(ACK.parsed), b = vecchioRank(CONF_STOCKOUT.parsed);
+  assert.strictEqual(a.confirmed, b.confirmed, 'pari merito col criterio vecchio');
+  // a pari merito decideva created_at: l ACK del 03/07 perdeva contro il 05/07,
+  // ma se l ACK fosse arrivato DOPO avrebbe vinto lui. Ecco il rischio.
+  const ackPiuRecente = L.bekRevisionRank(ACK.parsed, '2026-08-01');
+  assert.strictEqual(L.bekOutranks(ackPiuRecente, L.bekRevisionRank(CONF_STOCKOUT.parsed, '2026-07-05')),
+    false, 'col criterio nuovo un ACK piu recente non la supera comunque');
+});
+
+test('I. due conferme dello stesso rango: decide created_at', () => {
+  const c1 = { ...CONF, id: 'c1', created_at: '2026-07-05T10:00:00Z' };
+  const c2 = { ...CONF, id: 'c2', created_at: '2026-07-09T10:00:00Z' };
+  assert.strictEqual(operativo([c1, c2]).id, 'c2', 'fra due conferme vince la piu recente');
+});
+
+test('J. due acknowledgement: decide created_at, e nessuno dei due e un acquisto', () => {
+  const a1 = { ...ACK, id: 'a1', created_at: '2026-07-03T10:00:00Z' };
+  const a2 = { ...ACK, id: 'a2', created_at: '2026-07-04T10:00:00Z' };
+  const v = operativo([a1, a2]);
+  assert.strictEqual(v.id, 'a2');
+  assert.strictEqual(L.bekHasConfirmedQty(v.parsed), false, 'nessun acquisto da un acknowledgement');
+});
+
+test('K. revisione non classificabile: nessuno supera nessuno, fail closed', () => {
+  const ignoto = { id: 'x', created_at: '2026-07-10T00:00:00Z',
+                   parsed: { document_class: 'ambiguous', items: [] } };
+  const rIgn = L.bekRevisionRank(ignoto.parsed, ignoto.created_at);
+  assert.strictEqual(L.bekRankIsCertain(rIgn), false);
+  for (const altro of [ACK, CONF]) {
+    const rAltro = L.bekRevisionRank(altro.parsed, altro.created_at);
+    assert.strictEqual(L.bekOutranks(rAltro, rIgn), false, altro.id + ' non deve superare un incerto');
+    assert.strictEqual(L.bekOutranks(rIgn, rAltro), false, 'un incerto non deve superare ' + altro.id);
+  }
+});
+
+test('K2. il worker tratta il caso incerto come eccezione bloccante', () => {
+  const f = WORKER.slice(WORKER.indexOf('MICRO-TASK 42, section F'));
+  assert.ok(/BEK_REVISION_UNKNOWN/.test(f), 'manca il codice di eccezione');
+  const blocco = f.slice(f.indexOf('const incerti'), f.indexOf('const betterSibling'));
+  assert.ok(/status: 'pending'/.test(blocco), 'deve restare pending');
+  assert.ok(/severity: 'blocking'/.test(blocco), 'deve essere bloccante');
+  assert.ok(f.indexOf('const incerti') < f.indexOf('const betterSibling'),
+    'il controllo di incertezza deve precedere qualunque superamento');
+});
+
+test('K3. una classe mai vista non riceve rango per sbaglio', () => {
+  for (const cls of ['qualcosa_di_nuovo', undefined, null, '']) {
+    const r = L.bekRevisionRank({ document_class: cls, items: [{ qty_received: 5 }] }, '2026-01-01');
+    assert.strictEqual(L.bekRankIsCertain(r), false, 'classe ' + cls + ' non deve avere rango');
+  }
+});
+
+test('K4. invariante: un acknowledgement con confermati>0 diventa incerto', () => {
+  const contraddittorio = { document_class: 'acknowledgement',
+                            items: [{ qty_received: 3, item_status: 'requested' }] };
+  assert.strictEqual(L.bekRankIsCertain(L.bekRevisionRank(contraddittorio, '2026-01-01')), false,
+    'le qty servono da validazione, non da identita');
 });
 
 // ── C / D. identita' del messaggio nell'intake ───────────────────
