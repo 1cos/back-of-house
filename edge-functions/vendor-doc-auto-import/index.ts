@@ -1576,7 +1576,18 @@ Deno.serve(async (req: Request) => {
     // un'altra. `id` e' la primary key, quindi il tiebreak e' totale.
     let queueB: any[] = [];
     if (!saltaPhaseB) {
-      let qB = sb.from('vendor_documents').select('id,parsed_json,vendor,warnings,status,document_number,document_date').eq('status', 'pending').in('document_type', ['invoice', 'order_confirmation']);
+      // MICRO-TASK 76 — document_type NELLA SELECT. Il filtro qui sotto usa
+      // `parsed_json.document_type || d.document_type`, ma quella colonna non
+      // era selezionata: valeva undefined per ogni riga, quindi il fallback
+      // non poteva funzionare. Finche' parsed_json.document_type c'e' nessuno
+      // se ne accorge; i rami MT71 e MT72 pero' lasciano parsed_json a
+      // { source }, e quei documenti venivano scartati PRIMA del preflight.
+      // Osservato in produzione nel giro delle 23:25 del 19/09: pagina 1
+      // aveva 8 candidate rows e solo 6 preflight, e i due mancanti erano
+      // esattamente 0003243454 e 0003272475.
+      // Phase A fa gia' la cosa giusta (qA seleziona document_type e
+      // isBekBodyOnlySource usa lo stesso idioma): qui si allinea Phase B.
+      let qB = sb.from('vendor_documents').select('id,parsed_json,vendor,document_type,warnings,status,document_number,document_date').eq('status', 'pending').in('document_type', ['invoice', 'order_confirmation']);
       qB = documentId ? qB.eq('id', documentId) : qB;
       qB = qB.order('created_at', { ascending: true }).order('id', { ascending: true });
       const { data: queueBRaw } = documentId
