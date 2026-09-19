@@ -2501,6 +2501,18 @@ function resolvePriceIntelIdentity(sku, skuMap, aliasIdMap) {
 // always allows the incoming write. A null incoming invoiceDate can
 // never satisfy ">=", so it never overwrites a dated row — fails
 // closed, not open.
+// MICRO-TASK 52B — la data autorevole sono gli eventi d'acquisto gia'
+// persistiti, non il campo di metadati. Stessa definizione del worker
+// (edge-functions/vendor-doc-auto-import): una sola semantica per i due
+// percorsi, altrimenti approvare dalla UI aggirerebbe la protezione.
+function effectiveLastDate(storedLastInvoiceDate, authoritativeLatest) {
+  const stored = storedLastInvoiceDate || null;
+  const auth   = authoritativeLatest   || null;
+  if (!stored) return auth;
+  if (!auth)   return stored;
+  return auth > stored ? auth : stored;
+}
+
 function chronologyAllows(existingLastInvoiceDate, incomingInvoiceDate) {
   if (!existingLastInvoiceDate) return true;
   if (!incomingInvoiceDate) return false;
@@ -2787,6 +2799,35 @@ window.vdrApprove = async function(docId, btn) {
       descs.length ? sb.from('ingredient_links').select('invoice_description,ingredient_id').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', descs) : { data: [] },
     ]);
 
+    // MICRO-TASK 52B — ultima invoice_date realmente persistita, per identita'.
+    // Letture limitate agli SKU/ingredienti di questo documento. Le righe
+    // senza data sono scartate dai riduttori qui sotto, non da un filtro
+    // PostgREST: .not() non e' supportato da tutti i mock dei test.
+    const identIngredientIds = [...new Set([
+      ...(aliasRes.data || []).map(r => r.ingredient_id),
+      ...(linkRes.data  || []).map(r => r.ingredient_id),
+    ].filter(Boolean))];
+
+    const [authBySkuRes, authByIngrRes] = await Promise.all([
+      skus.length
+        ? sb.from('invoice_lines').select('vendor_sku,invoice_date').eq('vendor', vendor).in('vendor_sku', skus)
+        : { data: [] },
+      identIngredientIds.length
+        ? sb.from('invoice_lines').select('ingredient_id,invoice_date').eq('vendor', vendor).in('ingredient_id', identIngredientIds)
+        : { data: [] },
+    ]);
+
+    const authLatestBySku = {};
+    (authBySkuRes.data || []).forEach(r => {
+      if (!r.vendor_sku || !r.invoice_date) return;
+      if (!authLatestBySku[r.vendor_sku] || r.invoice_date > authLatestBySku[r.vendor_sku]) authLatestBySku[r.vendor_sku] = r.invoice_date;
+    });
+    const authLatestByIngredient = {};
+    (authByIngrRes.data || []).forEach(r => {
+      if (!r.ingredient_id || !r.invoice_date) return;
+      if (!authLatestByIngredient[r.ingredient_id] || r.invoice_date > authLatestByIngredient[r.ingredient_id]) authLatestByIngredient[r.ingredient_id] = r.invoice_date;
+    });
+
     const skuMap = {};
     (skuRes.data || []).forEach(r => { skuMap[r.vendor_sku] = r; });
     // A SEPARATE map, used only for matchedId determination further below
@@ -2918,7 +2959,8 @@ window.vdrApprove = async function(docId, btn) {
           const ingrId = row.ingredient_id;
           if (processedIds.has(ingrId)) continue;
           processedIds.add(ingrId);
-          if (!chronologyAllows(row.last_invoice_date, invoiceDate)) {
+          const effA = effectiveLastDate(row.last_invoice_date, authLatestBySku[row.vendor_sku] || authLatestByIngredient[ingrId]);
+          if (!chronologyAllows(effA, invoiceDate)) {
             console.log('[price-intel] chronology skip (direct SKU)', { vendor, sku, existing: row.last_invoice_date, incoming: invoiceDate });
             continue;
           }
@@ -2932,7 +2974,8 @@ window.vdrApprove = async function(docId, btn) {
           processedIds.add(ingrId);
           const canonical = ingrVendorMap[ingrId];
           if (canonical) {
-            if (!chronologyAllows(canonical.last_invoice_date, invoiceDate)) {
+            const effB = effectiveLastDate(canonical.last_invoice_date, authLatestByIngredient[ingrId] || authLatestBySku[canonical.vendor_sku]);
+            if (!chronologyAllows(effB, invoiceDate)) {
               console.log('[price-intel] chronology skip (alias→canonical)', { vendor, sku, existing: canonical.last_invoice_date, incoming: invoiceDate });
               continue;
             }
@@ -2965,7 +3008,8 @@ window.vdrApprove = async function(docId, btn) {
         if (existingIv) {
           const decision = vdrDecideCanonicalUpdate(existingIv.vendor_sku, sku);
           if (decision === 'update' || decision === 'populate_sku') {
-            if (!chronologyAllows(existingIv.last_invoice_date, invoiceDate)) {
+            const effC = effectiveLastDate(existingIv.last_invoice_date, authLatestByIngredient[linkedId] || authLatestBySku[existingIv.vendor_sku]);
+            if (!chronologyAllows(effC, invoiceDate)) {
               console.log('[price-intel] chronology skip (ingredient_links)', { vendor, sku, desc, existing: existingIv.last_invoice_date, incoming: invoiceDate });
               continue;
             }

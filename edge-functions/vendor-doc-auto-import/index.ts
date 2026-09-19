@@ -774,6 +774,30 @@ function resolvePriceIntelIdentity(
 // the incoming write — there is nothing to protect yet. A null
 // incoming invoiceDate can never satisfy ">=", so it never overwrites
 // a dated row — fails closed, not open.
+// MICRO-TASK 52B — la data autorevole non e' il campo di metadati, sono gli
+// eventi d'acquisto gia' persistiti.
+//
+// MICRO-TASK 52A ha misurato 49 righe su 98 con last_invoice_date divergente
+// dalla realta', e 32 con il campo a NULL: per quelle chronologyAllows
+// ritornava true incondizionatamente, quindi una fattura del 26 giugno
+// rigiocata oggi poteva sovrascrivere un prezzo di settembre.
+//
+// La causa e' che last_invoice_date viene scritto solo quando la price
+// intelligence esegue davvero un update: ogni skip (chronology, identity
+// conflict, SKU non risolto) lo lascia indietro mentre le invoice_lines
+// avanzano. NON lo risolviamo avanzando la data anche sugli skip — sarebbe
+// falso, uno skip per conflitto d'identita' non e' un acquisto osservato.
+// Deriviamo invece la verita' dalle invoice_lines, che sono il registro
+// reale degli acquisti gia' contabilizzati.
+function effectiveLastDate(storedLastInvoiceDate: string | null | undefined,
+                           authoritativeLatest: string | null | undefined): string | null {
+  const stored = storedLastInvoiceDate || null;
+  const auth   = authoritativeLatest   || null;
+  if (!stored) return auth;
+  if (!auth)   return stored;
+  return auth > stored ? auth : stored;
+}
+
 function chronologyAllows(existingLastInvoiceDate: string | null | undefined, incomingInvoiceDate: string | null): boolean {
   if (!existingLastInvoiceDate) return true;
   if (!incomingInvoiceDate) return false;
@@ -950,6 +974,36 @@ async function vdaiApprove(sb: any, docId: string): Promise<{ ok: boolean; reaso
     descs.length ? sb.from('ingredient_links').select('invoice_description,ingredient_id').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', descs) : { data: [] },
   ]);
 
+  // MICRO-TASK 52B — ultima invoice_date realmente persistita, per identita'.
+  // Due letture limitate agli SKU/ingredienti di QUESTO documento: per
+  // vendor_sku (identita' diretta) e per ingredient_id (identita' canonica
+  // usata dai rami alias e ingredient_links). Nessuna scansione completa.
+  // Le righe senza data sono scartate dai riduttori qui sotto.
+  const identIngredientIds = [...new Set([
+    ...(aliasRes.data || []).map((r: any) => r.ingredient_id),
+    ...(linkRes.data  || []).map((r: any) => r.ingredient_id),
+  ].filter(Boolean))];
+
+  const [authBySkuRes, authByIngrRes] = await Promise.all([
+    skus.length
+      ? sb.from('invoice_lines').select('vendor_sku,invoice_date').eq('vendor', vendor).in('vendor_sku', skus)
+      : { data: [] },
+    identIngredientIds.length
+      ? sb.from('invoice_lines').select('ingredient_id,invoice_date').eq('vendor', vendor).in('ingredient_id', identIngredientIds)
+      : { data: [] },
+  ]);
+
+  const authLatestBySku: Record<string, string> = {};
+  (authBySkuRes.data || []).forEach((r: any) => {
+    if (!r.vendor_sku || !r.invoice_date) return;
+    if (!authLatestBySku[r.vendor_sku] || r.invoice_date > authLatestBySku[r.vendor_sku]) authLatestBySku[r.vendor_sku] = r.invoice_date;
+  });
+  const authLatestByIngredient: Record<string, string> = {};
+  (authByIngrRes.data || []).forEach((r: any) => {
+    if (!r.ingredient_id || !r.invoice_date) return;
+    if (!authLatestByIngredient[r.ingredient_id] || r.invoice_date > authLatestByIngredient[r.ingredient_id]) authLatestByIngredient[r.ingredient_id] = r.invoice_date;
+  });
+
   const skuMap: Record<string, any> = {};
   (skuRes.data || []).forEach((r: any) => { skuMap[r.vendor_sku] = r; });
   const identitySkuMap: Record<string, any> = Object.assign({}, skuMap);
@@ -1040,8 +1094,9 @@ async function vdaiApprove(sb: any, docId: string): Promise<{ ok: boolean; reaso
         const ingrId = row.ingredient_id;
         if (processedIds.has(ingrId)) continue;
         processedIds.add(ingrId);
-        if (!chronologyAllows(row.last_invoice_date, invoiceDate)) {
-          console.log('[price-intel] chronology skip (direct SKU)', { vendor, sku, existing: row.last_invoice_date, incoming: invoiceDate });
+        const effA = effectiveLastDate(row.last_invoice_date, authLatestBySku[row.vendor_sku] || authLatestByIngredient[ingrId]);
+        if (!chronologyAllows(effA, invoiceDate)) {
+          console.log('[price-intel] chronology skip (direct SKU)', { vendor, sku, stored: row.last_invoice_date, effective: effA, incoming: invoiceDate });
           continue;
         }
         toUpdate.push({ id: row.id, ...fields });
@@ -1054,8 +1109,9 @@ async function vdaiApprove(sb: any, docId: string): Promise<{ ok: boolean; reaso
         processedIds.add(ingrId);
         const canonical = ingrVendorMap[ingrId];
         if (canonical) {
-          if (!chronologyAllows(canonical.last_invoice_date, invoiceDate)) {
-            console.log('[price-intel] chronology skip (alias→canonical)', { vendor, sku, existing: canonical.last_invoice_date, incoming: invoiceDate });
+          const effB = effectiveLastDate(canonical.last_invoice_date, authLatestByIngredient[ingrId] || authLatestBySku[canonical.vendor_sku]);
+          if (!chronologyAllows(effB, invoiceDate)) {
+            console.log('[price-intel] chronology skip (alias→canonical)', { vendor, sku, stored: canonical.last_invoice_date, effective: effB, incoming: invoiceDate });
             continue;
           }
           if (canonical.vendor_sku !== sku) {
@@ -1087,8 +1143,9 @@ async function vdaiApprove(sb: any, docId: string): Promise<{ ok: boolean; reaso
       if (existingIv) {
         const decision = vdrDecideCanonicalUpdateLite(existingIv.vendor_sku, sku);
         if (decision === 'update' || decision === 'populate_sku') {
-          if (!chronologyAllows(existingIv.last_invoice_date, invoiceDate)) {
-            console.log('[price-intel] chronology skip (ingredient_links)', { vendor, sku, desc, existing: existingIv.last_invoice_date, incoming: invoiceDate });
+          const effC = effectiveLastDate(existingIv.last_invoice_date, authLatestByIngredient[linkedId] || authLatestBySku[existingIv.vendor_sku]);
+          if (!chronologyAllows(effC, invoiceDate)) {
+            console.log('[price-intel] chronology skip (ingredient_links)', { vendor, sku, desc, stored: existingIv.last_invoice_date, effective: effC, incoming: invoiceDate });
             continue;
           }
           if (decision === 'update') {
