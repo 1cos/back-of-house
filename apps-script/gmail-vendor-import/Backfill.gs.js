@@ -33,12 +33,13 @@ function logBackfill(vendor, stats) {
     ' | queued=' + stats.queued +
     ' | duplicate=' + stats.duplicate +
     ' | failed=' + stats.failed +
-    ' | processed_label_added=' + stats.processed_label_added
+    ' | processed_label_added=' + stats.processed_label_added +
+    ' | threads_retained_for_retry=' + (stats.threads_retained_for_retry || 0)
   );
   if (stats.failed > 0) {
-    Logger.log('BACKFILL ' + vendor + ' | ATTENZIONE: ' + stats.failed +
-      ' invii falliti. Le etichette sono state spostate lo stesso (comportamento ' +
-      'preesistente di processLabelPDF). Per rimetterli in coda: resetLabel(processed, import).');
+    Logger.log('BACKFILL ' + vendor + ' | ' + stats.failed + ' invii falliti; ' +
+      (stats.threads_retained_for_retry || 0) + ' thread NON etichettati e ancora in coda. ' +
+      'Rilanciare la funzione: i PDF gia' + String.fromCharCode(39) + ' riusciti torneranno duplicate.');
   }
   return stats;
 }
@@ -48,8 +49,10 @@ function logBackfill(vendor, stats) {
 // trevipay-processed, endpoint gmail-vendor-import, parsing PDF e dedup
 // invariati. Il buyer guard cucina/bar decide nel backend, non qui.
 function backfillTreviPayFromJune2026() {
+  // strict labeling (MICRO-TASK 54B): un thread con anche un solo PDF fallito
+  // NON viene etichettato -processed, cosi' resta in coda per il giro dopo.
   var stats = processLabelPDF('trevipay-import', 'trevipay-processed',
-                              'gmail-vendor-import', backfillStartJune2026());
+                              'gmail-vendor-import', backfillStartJune2026(), true);
   return logBackfill('WALMART', stats);
 }
 
@@ -59,8 +62,9 @@ function backfillTreviPayFromJune2026() {
 // hardies-order-check) che oggi NON gira: MICRO-TASK 54A non lo abilita e non
 // lo aggiunge a checkAllEmails().
 function backfillHardiesFromJune2026() {
+  // strict labeling (MICRO-TASK 54B), come per Walmart.
   var stats = processLabelPDF('hardies-import', 'hardies-processed',
-                              'gmail-hardies-import', backfillStartJune2026());
+                              'gmail-hardies-import', backfillStartJune2026(), true);
   return logBackfill('HARDIES', stats);
 }
 

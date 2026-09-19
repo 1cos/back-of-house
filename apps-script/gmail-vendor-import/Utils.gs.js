@@ -36,14 +36,17 @@ function sendToEdge(functionSlug, payload) {
 // possono loggarlo. Il percorso orario ignora il valore di ritorno: per lui
 // non cambia nulla.
 //
-// ATTENZIONE, comportamento PRESERVATO e non corretto qui: le etichette
-// vengono spostate quando almeno un PDF e' stato inviato, anche se la
-// risposta era un errore. E' il comportamento attuale del collector orario e
-// MICRO-TASK 54A non lo cambia. Se un batch di backfill riporta failed > 0,
-// il rimedio esistente e' resetLabel(processedName, labelName), che rimette
-// i thread in coda.
-function processLabelPDF(labelName, processedName, functionSlug, startDate) {
-  const stats = { threads_found: 0, queued: 0, duplicate: 0, failed: 0, processed_label_added: 0 };
+// `strictSuccessLabeling` OPZIONALE (MICRO-TASK 54B). Di default resta il
+// comportamento legacy: le etichette si spostano appena un PDF e' stato
+// inviato, anche su risposta di errore. E' cosi' che si comporta il collector
+// orario e non lo cambiamo qui.
+//
+// In strict mode la decisione e' per THREAD e solo su esito confermato: un
+// documento fallito non viene mai nascosto dietro un'etichetta -processed.
+// Serve al backfill storico, dove l'obiettivo e' recuperare TUTTO.
+function processLabelPDF(labelName, processedName, functionSlug, startDate, strictSuccessLabeling) {
+  const stats = { threads_found: 0, queued: 0, duplicate: 0, failed: 0,
+                  processed_label_added: 0, threads_retained_for_retry: 0 };
   const label = GmailApp.getUserLabelByName(labelName);
   if (!label) { Logger.log('Label not found: ' + labelName); return stats; }
   const processedLabel = GmailApp.getUserLabelByName(processedName)
@@ -61,6 +64,8 @@ function processLabelPDF(labelName, processedName, functionSlug, startDate) {
   stats.threads_found = threads.length;
   Logger.log('[' + labelName + '] ' + threads.length + ' threads');
   threads.forEach(function(thread) {
+    let threadHadPdf = false;
+    let threadAllOk = true;
     thread.getMessages().forEach(function(msg) {
       let processed = false;
       msg.getAttachments().forEach(function(att) {
@@ -73,19 +78,47 @@ function processLabelPDF(labelName, processedName, functionSlug, startDate) {
           from: msg.getFrom(),
         };
         const result = sendToEdge(functionSlug, payload);
+        // Esito positivo: la stessa forma per ENTRAMBI gli endpoint —
+        // verificato sul sorgente di gmail-vendor-import e sulla versione in
+        // produzione di gmail-hardies-import (v32), che condividono
+        // jsonResponse({status:'queued'|'duplicate'}) e jsonError({error}).
+        // sendToEdge aggiunge {error} anche sulle eccezioni di rete.
+        const ok = !!result && !result.error &&
+                   (result.status === 'queued' || result.status === 'duplicate');
+        if (ok) {
+          if (result.status === 'queued') stats.queued++; else stats.duplicate++;
+        } else {
+          stats.failed++;
+          threadAllOk = false;
+        }
         // Solo l'esito, mai il payload ne' il contenuto dell'email.
-        if (result && result.status === 'queued')         stats.queued++;
-        else if (result && result.status === 'duplicate') stats.duplicate++;
-        else                                              stats.failed++;
         Logger.log('PDF sent: ' + att.getName() + ' → ' + JSON.stringify(result));
         processed = true;
+        threadHadPdf = true;
       });
-      if (processed) {
+      // LEGACY (default): etichetta per messaggio appena un PDF e' stato
+      // inviato, a prescindere dall'esito. Comportamento del collector
+      // orario, lasciato intatto.
+      if (processed && !strictSuccessLabeling) {
         thread.removeLabel(label);
         thread.addLabel(processedLabel);
         stats.processed_label_added++;
       }
     });
+    // STRICT (solo backfill): decisione a livello di THREAD, dopo aver visto
+    // tutti i suoi PDF. Un solo fallimento e il thread resta in coda.
+    // Al giro dopo i PDF gia' riusciti tornano 'duplicate' — no-op lato
+    // backend — mentre quello fallito viene ritentato. Meglio un reinvio
+    // innocuo che un documento perso.
+    if (strictSuccessLabeling && threadHadPdf) {
+      if (threadAllOk) {
+        thread.removeLabel(label);
+        thread.addLabel(processedLabel);
+        stats.processed_label_added++;
+      } else {
+        stats.threads_retained_for_retry++;
+      }
+    }
   });
   return stats;
 }
