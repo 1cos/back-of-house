@@ -437,7 +437,7 @@ async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ o
   // ══════════════════════════════════════════════════════════════════
   if (docNumber && parsersApi().isBenEKeith(parsed.vendor) && parsed.document_type === 'order_confirmation') {
     const { data: siblings } = await sb.from('vendor_documents')
-      .select('id,status,created_at')
+      .select('id,status,created_at,raw_text,parsed_json')
       .eq('vendor', parsed.vendor)
       .eq('document_number', docNumber)
       .eq('document_type', 'order_confirmation')
@@ -459,12 +459,41 @@ async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ o
       return { outcome: 'bek_revision_after_import' };
     }
 
-    // No purchase yet. Whoever is newest is operative.
-    const thisCreatedAt = doc.created_at ? new Date(doc.created_at).getTime() : Date.now();
-    const newerSibling = rows.find((r: any) =>
-      r.status !== 'ignored' && r.created_at && new Date(r.created_at).getTime() > thisCreatedAt
-    );
-    if (newerSibling) {
+    // ── MICRO-TASK 64 — quale revisione e' operativa non lo decide piu'
+    // l'ordine di ingestione.
+    //
+    // Fino a MT63 il criterio era created_at: "il piu' recente vince". Era
+    // sbagliato in una direzione intera. Se una conferma entra PRIMA e un
+    // acknowledgement dello stesso Sales Order entra DOPO, il piu' recente
+    // e' l'acknowledgement e l'acquisto vero veniva retrocesso a 'ignored'.
+    //
+    // Il criterio ora e' economico, non cronologico: un documento con
+    // quantita' CONFERMATE batte sempre uno che non ne ha. Solo a parita'
+    // di rango si usa created_at, che li' e' il proxy giusto perche'
+    // fra due conferme successive la piu' recente e' davvero la revisione
+    // valida.
+    //
+    // Il rango di un fratello si calcola dal suo parse; se il fratello non
+    // e' ancora stato parsato (status pdf_received) lo si parsa al volo dal
+    // suo raw_text. Senza questo, l'esito tornerebbe a dipendere da quale
+    // dei due Phase A tocca per primo — cioe' esattamente il difetto che
+    // stiamo togliendo. I fratelli sono uno o due, il costo e' trascurabile.
+    //
+    // Base empirica (MT64, 18 documenti reali del primo batch): la
+    // presenza di quantita' confermate separa i due tipi in modo netto,
+    // 18 su 18. Il saluto dell'email NON lo fa: 0002427678 dice "order is
+    // confirmed and ready" e ha zero confermati.
+    const meRank = bekRevisionRank(parsed, doc.created_at);
+
+    const betterSibling = rows.find((r: any) => {
+      if (r.status === 'ignored') return false;
+      let pj: any = r.parsed_json;
+      if (!pj || !Array.isArray(pj.items) || pj.items.length === 0) {
+        try { pj = parsersApi().parse(r.raw_text || ''); } catch (_e) { pj = null; }
+      }
+      return bekOutranks(bekRevisionRank(pj, r.created_at), meRank);
+    });
+    if (betterSibling) {
       await sb.from('vendor_documents').update({ status: 'ignored' }).eq('id', doc.id);
       return { outcome: 'bek_superseded_by_newer_revision' };
     }
@@ -547,6 +576,34 @@ async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ o
   }
 
   return { outcome: computedStatus === 'pending' ? 'parsed_pending' : computedStatus };
+}
+
+// MICRO-TASK 64 — un documento BEK e' un acquisto solo se qualcosa e'
+// stato CONFERMATO. Un acknowledgement elenca gli articoli richiesti con
+// confermato 0 e non deve mai valere come revisione operativa.
+function bekHasConfirmedQty(parsedDoc: any): boolean {
+  const items = (parsedDoc && Array.isArray(parsedDoc.items)) ? parsedDoc.items : [];
+  return items.some((i: any) => {
+    const c = i && (i.qty_received !== undefined && i.qty_received !== null ? i.qty_received : i.qty);
+    return Number(c) > 0;
+  });
+}
+
+// Rango di una revisione BEK. Due componenti, in quest'ordine:
+//   confirmed  1 se il documento ha quantita' confermate, 0 altrimenti
+//   at         created_at, usato SOLO a parita' di confirmed
+function bekRevisionRank(parsedDoc: any, createdAt: any) {
+  return {
+    confirmed: bekHasConfirmedQty(parsedDoc) ? 1 : 0,
+    at: createdAt ? new Date(createdAt).getTime() : 0,
+  };
+}
+
+// true se il rango `a` deve prevalere su `b`. Un documento confermato batte
+// sempre uno non confermato, a prescindere da quale sia arrivato prima.
+function bekOutranks(a: any, b: any): boolean {
+  if (a.confirmed !== b.confirmed) return a.confirmed > b.confirmed;
+  return a.at > b.at;
 }
 
 function vdrCodeToSeverityLite(code: string): string {

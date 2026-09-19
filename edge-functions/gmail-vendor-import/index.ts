@@ -137,16 +137,44 @@ async function handleBekOrderConfirmationBody(
   // Dedup key: vendor + document_type + document_number, as required.
   // Falls back to the existing subject+from check only if no Sales Order
   // number could be found at all.
+  // ══════════════════════════════════════════════════════════════
+  // MICRO-TASK 64 — il dedup NON puo' essere il solo Sales Order.
+  //
+  // Per Ben E. Keith il Sales Order e' un GRUPPO DI RICONCILIAZIONE, non
+  // l'identita' di un messaggio: lo stesso ordine genera piu' email
+  // (acknowledgement e poi conferma operativa). Scartare la seconda come
+  // 'duplicate' significava che non diventava mai un documento, e quindi
+  // che la revision logic di vendor-doc-auto-import (MICRO-TASK 42
+  // sezione F) non vedeva MAI due fratelli: era irraggiungibile da questo
+  // percorso. MICRO-TASK 63 lo ha osservato in produzione — il backfill
+  // ha conservato l'acknowledgement e buttato la conferma.
+  //
+  // L'identita' vera di un messaggio, gia' disponibile senza nuove colonne
+  // e senza cambiare il payload del collector, e' il CONTENUTO: raw_text
+  // conserva html_body verbatim. Stessa email -> stesso raw_text ->
+  // idempotenza tecnica. Email diversa -> documento nuovo, e decide
+  // MT42-F.
+  //
+  // Un fratello gia' 'imported' NON viene bloccato qui: lo lascia passare
+  // di proposito, perche' MT42-F lo gestisce gia' come fail closed
+  // (status 'pending' + BEK_REVISION_AFTER_IMPORT bloccante, l'acquisto
+  // esistente mai toccato). Fermarlo qui creerebbe un secondo meccanismo
+  // e, peggio, lascerebbe il caso invisibile alla review.
+  // ══════════════════════════════════════════════════════════════
   if (salesOrder) {
-    const { data: existing } = await supabase
+    const { data: siblings } = await supabase
       .from('vendor_documents')
-      .select('id, status')
+      .select('id, status, raw_text')
       .eq('vendor', 'Ben E. Keith')
       .eq('document_type', 'order_confirmation')
       .eq('document_number', salesOrder)
-      .limit(1);
-    if (existing && existing.length > 0)
-      return jsonResponse({ status: 'duplicate', message: 'Already imported', document_id: existing[0].id });
+      .limit(20);   // un Sales Order non ha 20 revisioni: query limitata per sicurezza
+
+    const identical = (siblings || []).find(r => r.raw_text === sourceText);
+    if (identical)
+      return jsonResponse({ status: 'duplicate', message: 'Same message already ingested', document_id: identical.id });
+    // Nessun altro ramo: un Sales Order gia' presente con contenuto DIVERSO
+    // e' una revisione e deve diventare un documento.
   } else if (subject && from) {
     // FIX (BOH OS Task 11D): the fallback previously matched on subject+from
     // ALONE — no vendor/document_type filter — unlike the primary key path

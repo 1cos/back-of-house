@@ -122,11 +122,30 @@ console.log('\nBEK dedup fallback fix — test run\n');
   });
 
   // ── T2 — Duplicato vero: stesso vendor/tipo/numero -> duplicate ──────────
-  await atest('T2: record esistente corretto e identico -> duplicate', async () => {
-    const { sb } = makeMockSupa({ existingRows: [REAL_CORRECT_RECORD] });
+  // AGGIORNATO da MICRO-TASK 64. "Identico" non significa piu' "stesso Sales
+  // Order": per BEK quel numero e' un gruppo di riconciliazione, non
+  // l'identita' di un messaggio. MT63 ha osservato in produzione il danno —
+  // la conferma di 0002492315 (CUCINA) scartata come duplicate
+  // dell'acknowledgement, e quindi mai diventata un documento. Ora
+  // l'identita' e' il CONTENUTO (raw_text), che e' verbatim l'html_body.
+  // L'intento del test resta: stesso messaggio -> duplicate.
+  await atest('T2: stesso messaggio (contenuto identico) -> duplicate', async () => {
+    const stesso = { ...REAL_CORRECT_RECORD, raw_text: BODY_WITH_SALES_ORDER };
+    const { sb } = makeMockSupa({ existingRows: [stesso] });
     const result = await runHandleBekBody({ supabase: sb, subject: SUBJECT, from: FROM, body: BODY_WITH_SALES_ORDER });
     assert.strictEqual(result.status, 'duplicate');
     assert.strictEqual(result.document_id, 'existing-correct-uuid');
+  });
+
+  // Il complemento di T2, ed e' il cuore del fix di MICRO-TASK 64.
+  await atest('T2b: stesso Sales Order ma contenuto DIVERSO -> NON duplicate, deve nascere il sibling', async () => {
+    const revisionePrecedente = { ...REAL_CORRECT_RECORD, raw_text: 'Thank you for your order! Sales Order # 0002952908' };
+    const { sb, calls } = makeMockSupa({ existingRows: [revisionePrecedente] });
+    const result = await runHandleBekBody({ supabase: sb, subject: SUBJECT, from: FROM, body: BODY_WITH_SALES_ORDER });
+    assert.notStrictEqual(result.status, 'duplicate',
+      'una revisione diversa non deve essere scartata solo perche il Sales Order esiste');
+    assert.strictEqual(result.status, 'queued');
+    assert.strictEqual(calls.inserts.length, 1, 'il sibling deve essere creato');
   });
 
   // ── T3 — Sales Order presente: il fallback NON viene interrogato ────────

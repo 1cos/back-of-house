@@ -1,0 +1,215 @@
+// ══════════════════════════════════════════════════════════════════
+// MICRO-TASK 64 — identita' del messaggio e rango della revisione BEK.
+//
+// MT63 ha osservato in produzione il difetto vero: il dedup dell'intake
+// (gmail-vendor-import) scartava come 'duplicate' QUALUNQUE secondo
+// messaggio con lo stesso Sales Order. Il secondo non diventava mai un
+// documento, quindi la revision logic di MT42 sezione F non vedeva mai
+// due fratelli: irraggiungibile da quel percorso. Risultato reale, Sales
+// Order 0002492315 di CUCINA: e' sopravvissuto l'acknowledgement e la
+// conferma e' stata buttata.
+//
+// Due cambi, testati qui:
+//   1. l'intake deduplica per CONTENUTO (raw_text), non per Sales Order
+//   2. MT42-F sceglie la revisione operativa per QUANTITA' CONFERMATE,
+//      non per created_at
+//
+// Base empirica del punto 2 (18 documenti reali del primo batch): la
+// presenza di quantita' confermate separa acknowledgement e conferma
+// 18 su 18. Il saluto dell'email no: 0002427678 dice "order is confirmed
+// and ready" e ha zero confermati.
+//
+// `node tests/bek-revision-identity.test.js`
+// ══════════════════════════════════════════════════════════════════
+
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const L = require('../pure_logic.cjs');
+
+const INTAKE = fs.readFileSync(
+  path.join(__dirname, '..', 'edge-functions', 'gmail-vendor-import', 'index.ts'), 'utf8');
+const WORKER = fs.readFileSync(
+  path.join(__dirname, '..', 'edge-functions', 'vendor-doc-auto-import', 'index.ts'), 'utf8');
+
+let pass = 0, fail = 0;
+function test(name, fn) {
+  try { fn(); pass++; console.log('  ✓ ' + name); }
+  catch (e) { fail++; console.log('  ✗ ' + name + '\n      ' + (e && e.stack || e)); }
+}
+
+// ── Fixture: le due forme reali dello stesso Sales Order ─────────
+const ACK = {
+  id: 'ack', created_at: '2026-07-03T19:00:47Z', status: 'pdf_received',
+  raw_text: '<html>Thank you for your order! Sales Order # 0002492315</html>',
+  parsed: { items: [{ vendor_sku: '780005', qty_ordered: 1, qty_received: 0 },
+                    { vendor_sku: '819255', qty_ordered: 1, qty_received: 0 }] },
+};
+const CONF = {
+  id: 'conf', created_at: '2026-07-05T14:04:58Z', status: 'pdf_received',
+  raw_text: '<html>Your order is confirmed and ready for delivery Sales Order # 0002492315</html>',
+  parsed: { items: [{ vendor_sku: '780005', qty_ordered: 1, qty_received: 1 },
+                    { vendor_sku: '819255', qty_ordered: 1, qty_received: 1 }] },
+};
+
+// Riproduce il ciclo di MT42-F usando le DUE funzioni di produzione
+// (bekRevisionRank/bekOutranks). Il ciclo e' qui, la decisione no.
+function operativo(docs) {
+  const vivi = docs.filter(d => d.status !== 'ignored');
+  const perdenti = new Set();
+  for (const me of vivi) {
+    const meRank = L.bekRevisionRank(me.parsed, me.created_at);
+    const battuto = vivi.some(r => r.id !== me.id && !perdenti.has(r.id) &&
+      L.bekOutranks(L.bekRevisionRank(r.parsed, r.created_at), meRank));
+    if (battuto) perdenti.add(me.id);
+  }
+  const vincitori = vivi.filter(d => !perdenti.has(d.id));
+  assert.strictEqual(vincitori.length, 1, 'deve restare esattamente una revisione operativa');
+  return vincitori[0];
+}
+
+// ── A. ACK prima, CONF dopo ──────────────────────────────────────
+
+test('A. ACK ingerito prima, CONF dopo -> operativa la CONF', () => {
+  const vincitore = operativo([ACK, CONF]);          // ordine di ingestione: ack, conf
+  assert.strictEqual(vincitore.id, 'conf', 'doveva vincere la conferma');
+  assert.strictEqual(L.bekHasConfirmedQty(ACK.parsed), false, 'l ACK non e un acquisto');
+  assert.strictEqual(L.bekHasConfirmedQty(CONF.parsed), true);
+});
+
+// ── B. CONF prima, ACK dopo — il caso che prima regrediva ────────
+
+test('B. CONF ingerita prima, ACK dopo -> resta operativa la CONF', () => {
+  const confPrima = { ...CONF, created_at: '2026-07-03T10:00:00Z' };
+  const ackDopo   = { ...ACK,  created_at: '2026-07-05T10:00:00Z' };
+  const vincitore = operativo([confPrima, ackDopo]);
+  assert.strictEqual(vincitore.id, 'conf',
+    'un acknowledgement successivo non deve far regredire la conferma');
+});
+
+test('B2. il vecchio criterio created_at avrebbe sbagliato: prova della regressione', () => {
+  const confPrima = { ...CONF, created_at: '2026-07-03T10:00:00Z' };
+  const ackDopo   = { ...ACK,  created_at: '2026-07-05T10:00:00Z' };
+  // criterio vecchio: vince il created_at piu' alto
+  const vecchio = [confPrima, ackDopo].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+  assert.strictEqual(vecchio.id, 'ack', 'il criterio vecchio sceglieva l ACK');
+  assert.strictEqual(operativo([confPrima, ackDopo]).id, 'conf', 'quello nuovo sceglie la CONF');
+});
+
+test('B3. l esito non dipende dall ordine in cui Phase A li tocca', () => {
+  for (const coppia of [[ACK, CONF], [CONF, ACK]]) {
+    assert.strictEqual(operativo(coppia).id, 'conf',
+      'ordine ' + coppia.map(d => d.id).join(',') + ' ha dato un esito diverso');
+  }
+});
+
+// ── Rango: proprieta' della decisione ────────────────────────────
+
+test('rango: confermato batte non confermato, a prescindere dalla data', () => {
+  const vecchiaConf = L.bekRevisionRank(CONF.parsed, '2020-01-01T00:00:00Z');
+  const nuovoAck    = L.bekRevisionRank(ACK.parsed,  '2030-01-01T00:00:00Z');
+  assert.strictEqual(L.bekOutranks(vecchiaConf, nuovoAck), true);
+  assert.strictEqual(L.bekOutranks(nuovoAck, vecchiaConf), false);
+});
+
+test('rango: a parita di confermato decide created_at', () => {
+  const a = L.bekRevisionRank(CONF.parsed, '2026-07-05T00:00:00Z');
+  const b = L.bekRevisionRank(CONF.parsed, '2026-07-09T00:00:00Z');
+  assert.strictEqual(L.bekOutranks(b, a), true, 'fra due conferme vince la piu recente');
+  assert.strictEqual(L.bekOutranks(a, b), false);
+});
+
+test('rango: una conferma parziale conta come acquisto', () => {
+  const parziale = { items: [{ qty_received: 0 }, { qty_received: 2 }] };
+  assert.strictEqual(L.bekHasConfirmedQty(parziale), true);
+  assert.strictEqual(L.bekOutranks(L.bekRevisionRank(parziale, '2026-01-01'),
+                                   L.bekRevisionRank(ACK.parsed, '2030-01-01')), true);
+});
+
+// ── C / D. identita' del messaggio nell'intake ───────────────────
+// Test strutturali sul sorgente: l'intake e' Deno/TypeScript e non e'
+// require()-abile qui. Asseriscono le proprieta' esatte che MT63 ha
+// dimostrato mancanti.
+
+// Il corpo inizia dopo la ") {" che CHIUDE la firma: la prima graffa
+// incontrata e' quella del parametro destrutturato, non quella del corpo.
+function fnBody(src, name) {
+  const st = src.indexOf('function ' + name + '(');
+  assert.notStrictEqual(st, -1, 'funzione non trovata: ' + name);
+  const open = src.indexOf(') {', st);
+  assert.notStrictEqual(open, -1, 'firma non chiusa: ' + name);
+  let d = 0;
+  for (let j = open + 2; j < src.length; j++) {
+    if (src[j] === '{') d++;
+    else if (src[j] === '}') { d--; if (d === 0) return src.slice(st, j + 1); }
+  }
+  throw new Error('parentesi non bilanciate');
+}
+const codeOnly = s => s.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+
+test('C. stessa identica email -> duplicate per CONTENUTO', () => {
+  const f = codeOnly(fnBody(INTAKE, 'handleBekOrderConfirmationBody'));
+  assert.ok(/\.select\('id, status, raw_text'\)/.test(f),
+    'l intake deve leggere raw_text per poter confrontare il contenuto');
+  assert.ok(/r\.raw_text === sourceText/.test(f),
+    'il confronto di identita deve essere sul contenuto');
+  assert.ok(/identical[\s\S]{0,200}status: 'duplicate'/.test(f),
+    'solo un contenuto identico deve produrre duplicate');
+});
+
+test('D. stesso Sales Order ma email diversa -> NON duplicate', () => {
+  const f = codeOnly(fnBody(INTAKE, 'handleBekOrderConfirmationBody'));
+  // Dentro il ramo salesOrder non deve restare un return 'duplicate' che
+  // dipenda solo dall'esistenza del Sales Order.
+  const ramo = f.slice(f.indexOf('if (salesOrder)'), f.indexOf('} else if (subject && from)'));
+  const ritorni = ramo.match(/status: 'duplicate'/g) || [];
+  assert.strictEqual(ritorni.length, 1, 'un solo return duplicate nel ramo Sales Order');
+  assert.ok(/r\.raw_text === sourceText/.test(ramo),
+    'e deve essere condizionato al contenuto identico');
+  assert.ok(!/\.limit\(1\)[\s\S]{0,120}existing\.length > 0[\s\S]{0,120}duplicate/.test(ramo),
+    'il vecchio duplicate incondizionato sul Sales Order deve essere sparito');
+});
+
+// ── E. fratello gia' imported -> fail closed ─────────────────────
+
+test('E. un fratello gia imported ferma tutto, lato worker', () => {
+  const f = WORKER.slice(WORKER.indexOf('MICRO-TASK 42, section F'));
+  assert.ok(/alreadyImported = rows\.find\(\(r: any\) => r\.status === 'imported'\)/.test(f),
+    'il controllo sul fratello imported deve restare');
+  const blocco = f.slice(f.indexOf('if (alreadyImported)'), f.indexOf('// ── MICRO-TASK 64') );
+  assert.ok(/status: 'pending'/.test(blocco), 'deve restare pending, mai imported');
+  assert.ok(/BEK_REVISION_AFTER_IMPORT/.test(blocco) && /severity: 'blocking'/.test(blocco),
+    'deve alzare un warning bloccante');
+  assert.ok(/was NOT imported as a second purchase/.test(blocco),
+    'nessuna seconda purchase');
+  assert.ok(f.indexOf('if (alreadyImported)') < f.indexOf('bekRevisionRank(parsed'),
+    'il fail closed deve precedere qualunque scelta di revisione');
+});
+
+test('E2. l intake NON blocca il caso imported: lo lascia a MT42-F', () => {
+  const f = codeOnly(fnBody(INTAKE, 'handleBekOrderConfirmationBody'));
+  const ramo = f.slice(f.indexOf('if (salesOrder)'), f.indexOf('} else if (subject && from)'));
+  assert.ok(!/status === 'imported'/.test(ramo),
+    'l intake non deve duplicare il fail closed: esiste gia in MT42-F ed e visibile in review');
+});
+
+// ── F. buyer guard ───────────────────────────────────────────────
+
+test('F. il buyer guard resta invariato e Zeno resta escluso', () => {
+  const P = L.parsersApi();
+  assert.strictEqual(P.classifyBuyer('raven_wolf_1510@yahoo.com'), P.BUYER_KITCHEN);
+  assert.strictEqual(P.classifyBuyer('zeno@zenosonthesquare.com'), P.BUYER_EXCLUDED);
+  assert.strictEqual(P.classifyBuyer('  ZENO@ZenosOnTheSquare.com '), P.BUYER_EXCLUDED);
+  assert.strictEqual(P.classifyBuyer('altro@x.com'), P.BUYER_UNKNOWN);
+  assert.strictEqual(P.classifyBuyer(null), P.BUYER_UNKNOWN);
+});
+
+test('F2. una revisione Zeno resta esclusa comunque vada il rango', () => {
+  // anche se la conferma Zeno vince il rango, il buyer guard la esclude
+  assert.strictEqual(operativo([ACK, CONF]).id, 'conf');
+  assert.strictEqual(L.parsersApi().classifyBuyer('zeno@zenosonthesquare.com'),
+                     L.parsersApi().BUYER_EXCLUDED);
+});
+
+console.log('\n  ' + pass + ' passati, ' + fail + ' falliti');
+process.exit(fail ? 1 : 0);
