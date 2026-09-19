@@ -133,13 +133,34 @@ test('10. il live checkBEKEmails continua ad applicare BEK_TEST_MODE', () => {
   assert.ok(!/after:2026\/05\/31/.test(f), 'il live non deve guardare allo storico');
 });
 
-test('11. live e backfill condividono processBEKQuery, senza duplicare logica', () => {
-  assert.ok(/processBEKQuery\(query, '\[BEK\]'\)/.test(fnBody(bek, 'checkBEKEmails')));
-  assert.ok(/processBEKQuery\(query, '\[BEK-BACKFILL\]'\)/.test(fnBody(backfill, 'backfillBEKFromJune2026')));
+// AGGIORNATO da MICRO-TASK 61. Fino a MT54A live e backfill condividevano
+// processBEKQuery. Non e' piu' possibile: il backend sceglie la revisione
+// operativa di un Sales Order per created_at, cioe' per ordine di
+// ingestione, e GmailApp.search restituisce newest-first. Il backfill deve
+// quindi raccogliere tutto il backlog, ordinarlo cronologicamente e solo
+// dopo tagliare, cosa che il percorso orario non deve fare. Resta invariato
+// cio' che conta: il live usa ancora processBEKQuery, e processBEKQuery
+// etichetta solo su esito confermato.
+test('11. il live usa processBEKQuery; il backfill ha il suo percorso cronologico', () => {
+  assert.ok(/processBEKQuery\(query, '\[BEK\]'\)/.test(fnBody(bek, 'checkBEKEmails')),
+    'il collector orario deve continuare a usare processBEKQuery');
   const shared = fnBody(bek, 'processBEKQuery');
   assert.ok(/status === 'queued' \|\| result\.status === 'duplicate'/.test(shared),
     'etichetta solo su esito confermato');
   assert.ok(/stats\.failed\+\+/.test(shared), 'gli errori devono essere contati, non etichettati');
+
+  const bf = fnBody(backfill, 'backfillBEKFromJune2026');
+  assert.ok(/processBEKBacklogChronological\(query, '\[BEK-BACKFILL\]'/.test(bf),
+    'il backfill deve usare il percorso cronologico');
+  assert.ok(!/processBEKQuery/.test(bf),
+    'il backfill non deve piu chiamare processBEKQuery');
+  const chrono = fnBody(backfill, 'processBEKBacklogChronological');
+  assert.ok(/status === 'queued' \|\| result\.status === 'duplicate'/.test(chrono),
+    'anche il backfill etichetta solo su esito confermato');
+  assert.ok(/\.sort\(/.test(chrono) && /slice\(0, batchSize\)/.test(chrono),
+    'ordinamento globale PRIMA del taglio');
+  assert.ok(chrono.indexOf('.sort(') < chrono.indexOf('slice(0, batchSize)'),
+    'il sort deve precedere lo slice, altrimenti il taglio invertirebbe le coppie');
 });
 
 // ── Il collector orario non deve essere cambiato ─────────────────
