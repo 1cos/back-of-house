@@ -84,9 +84,32 @@ var CREW_COPY = {
   made_title:           'What did you make?',
   made_placeholder:     'Tell me what you made...',
   made_send:            'Save',
-  made_pilot_note:      'Pilot: this is kept on your phone only. Nothing is recorded yet.',
+  made_pilot_note:      "You'll confirm before anything is recorded.",
   made_noted:           'Noted on this phone',
-  made_clear:           'Clear'
+  made_clear:           'Clear',
+
+  // ── CREW-UX 10 — the production flow ──────────────────────────────────
+  made_choose:          'Which one?',
+  made_choose_none:     'None of these',
+  made_no_match:        "I couldn't find that prep.",
+  made_not_production:  "I couldn't read that as a production.",
+  made_kept_locally:    'Kept on this phone.',
+  made_how_much:        'How much?',
+  made_cant_convert:    "I can't convert {unit} for this prep.",
+  made_no_batch:        "This prep doesn't have a batch size.",
+  made_record:          'Record',
+  made_cancel:          'Cancel',
+  made_recording:       'Recording…',
+  made_recorded:        'Recorded · {name} {qty}',
+  made_plan_updating:   'Recorded. The plan is still updating.',
+  made_err_network:     "Couldn't reach the kitchen system.",
+  made_err_auth:        'Session expired — sign in again.',
+  made_err_conflict:    'Something changed. Start again.',
+  made_err_generic:     "That didn't go through.",
+  made_try_again:       'Try again',
+  made_start_again:     'Start again',
+  made_batch_one:       '1 batch',
+  made_batch_many:      '{n} batches'
 };
 
 function _crewT(key, vars) {
@@ -305,6 +328,536 @@ window.crewOpenStation = function () {
   if (typeof goToStation === 'function') goToStation(station);
 };
 
+// ══════════════════════════════════════════════════════════════════════════
+// CREW-UX 10 — "What did you make?" becomes a real production
+//
+// Three pure functions, then a small state machine, then one write.
+// No model, no provider, no prompt: a deterministic parser turns a sentence
+// into four fields, the client turns those into a payload using rows it
+// already holds, and the cook turns that into a write with one tap.
+// None of the three can do the others' job.
+// ══════════════════════════════════════════════════════════════════════════
+
+// ── 1. PARSER ─────────────────────────────────────────────────────────────
+// Requires a production verb at the start. That single rule is what keeps
+// "we're out of ranch" and "we only have half a pan left" from ever being
+// read as production — they are not rejected by a keyword blocklist, they
+// simply never match (CREW-UX 10 §12).
+
+var CREW_VERB_RE = /^(?:i\s+|we\s+)?(?:have\s+|'ve\s+|just\s+)*(?:made|make|did|done|prepped|prepared)\s+/i;
+
+// Spoken unit → { token, kind }. 'native' means it can reach the write path
+// as-is; 'batch' needs the prep's own batch size; 'unsupported' never writes.
+var CREW_UNITS = {
+  g:'g', gr:'g', gram:'g', grams:'g',
+  kg:'kg', kilo:'kg', kilos:'kg', kilogram:'kg', kilograms:'kg',
+  pz:'pz', pc:'pz', pcs:'pz', piece:'pz', pieces:'pz', each:'pz', pezzi:'pz',
+  nest:'nests', nests:'nests',
+  cup:'cup', cups:'cup',
+  busta:'buste', buste:'buste',
+  filetto:'filetto', filetti:'filetto',
+  mazzo:'mazzi', mazzi:'mazzi',
+  porzione:'porzioni', porzioni:'porzioni', portion:'porzioni', portions:'porzioni',
+  batch:'batch', batches:'batch'
+};
+// Named so the rejection can say which unit it was. Never converted.
+var CREW_UNSUPPORTED_UNITS = {
+  oz:'oz', ounce:'oz', ounces:'oz',
+  lb:'lb', lbs:'lb', pound:'lb', pounds:'lb',
+  l:'liters', lt:'liters', liter:'liters', liters:'liters', litre:'liters', litres:'liters',
+  quart:'quarts', quarts:'quarts',
+  pan:'pans', pans:'pans',
+  container:'containers', containers:'containers',
+  tray:'trays', trays:'trays'
+};
+
+function _crewNorm(s) {
+  return String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * @returns {{intent:'production', raw_item:string, quantity:number|null,
+ *            unit:string|null, unit_kind:'native'|'batch'|'unsupported'|null,
+ *            spoken_unit:string|null} | {intent:'unknown'}}
+ */
+function crewParseMade(text) {
+  var s = _crewNorm(text);
+  if (!s) return { intent: 'unknown' };
+  if (!CREW_VERB_RE.test(s)) return { intent: 'unknown' };
+
+  s = s.replace(CREW_VERB_RE, '').trim();
+  if (!s) return { intent: 'unknown' };
+
+  var quantity = null, unit = null, unitKind = null, spokenUnit = null;
+
+  // "<number> [unit] [of] <item>"
+  var m = s.match(/^(\d+(?:[.,]\d+)?)\s*([a-z]+)?\s*(?:of\s+)?(.*)$/i);
+  if (m) {
+    var n = parseFloat(String(m[1]).replace(',', '.'));
+    var word = m[2] ? m[2].toLowerCase() : null;
+    var rest = (m[3] || '').trim();
+
+    if (word && Object.prototype.hasOwnProperty.call(CREW_UNITS, word)) {
+      quantity = n; spokenUnit = word;
+      unit = CREW_UNITS[word];
+      unitKind = (unit === 'batch') ? 'batch' : 'native';
+      s = rest;
+    } else if (word && Object.prototype.hasOwnProperty.call(CREW_UNSUPPORTED_UNITS, word)) {
+      quantity = n; spokenUnit = word;
+      unit = CREW_UNSUPPORTED_UNITS[word];
+      unitKind = 'unsupported';
+      s = rest;
+    } else if (word) {
+      // The word after the number is part of the item, not a unit.
+      // A number with no unit is not interpretable — ask for the quantity.
+      quantity = null; s = (word + ' ' + rest).trim();
+    } else {
+      quantity = null; s = rest;
+    }
+  }
+
+  s = s.replace(/^of\s+/, '').trim();
+  if (!s) return { intent: 'unknown' };
+
+  return {
+    intent: 'production',
+    raw_item: s,
+    quantity: quantity,
+    unit: unit,
+    unit_kind: unitKind,
+    spoken_unit: spokenUnit
+  };
+}
+window.crewParseMade = crewParseMade;
+
+// ── 2. PREP MATCHING ──────────────────────────────────────────────────────
+// Only rows already in memory. checklist tasks are never production targets.
+// The user's own station is searched first; a match elsewhere is legitimate
+// but carries its station into the confirmation.
+
+function crewMatchPrep(rawItem, user) {
+  var q = _crewNorm(rawItem);
+  if (!q) return [];
+
+  var station = (user && typeof user.default_station === 'string')
+    ? user.default_station.trim() : '';
+
+  var pool = ((typeof items !== 'undefined' && items) ? items : []).filter(function (t) {
+    return t && !t.archived && t.prep_type !== 'checklist' && t.name;
+  });
+
+  function pick(list) {
+    var exact = list.filter(function (t) { return _crewNorm(t.name) === q; });
+    if (exact.length) return exact;
+    return list.filter(function (t) { return _crewNorm(t.name).indexOf(q) !== -1; });
+  }
+
+  if (station) {
+    var mine = pick(pool.filter(function (t) { return t.category === station; }));
+    if (mine.length) return mine;
+  }
+  return pick(pool);
+}
+window.crewMatchPrep = crewMatchPrep;
+
+// ── 3. QUANTITY / UNIT RESOLUTION ─────────────────────────────────────────
+// Never estimates. Three accepted shapes and nothing else.
+
+function crewResolveQuantity(task, sugg, quantity, unit, unitKind) {
+  var native = _crewNorm(task && task.unit);
+  if (['pz','pezzi','each','pieces','pcs','piece','checklist'].indexOf(native) !== -1) native = 'pz';
+  if (!native) return { ok: false, reason: 'no_native_unit' };
+
+  if (quantity == null || !isFinite(quantity) || quantity <= 0) {
+    return { ok: false, reason: 'need_quantity', native_unit: native };
+  }
+
+  if (unitKind === 'unsupported') {
+    return { ok: false, reason: 'unit_unsupported', unit: unit, native_unit: native };
+  }
+
+  // C. batch — only with a bot-declared fixed batch size
+  if (unitKind === 'batch') {
+    var pcq = sugg && sugg.production_constraint_quality;
+    var mi  = sugg && sugg.minimum_increment != null ? parseFloat(sugg.minimum_increment) : NaN;
+    if (pcq !== 'valid_fixed_batch' || !isFinite(mi) || mi <= 0) {
+      return { ok: false, reason: 'batch_unavailable', native_unit: native };
+    }
+    var outUnit = _crewNorm(sugg.output_unit) || native;
+    return {
+      ok: true,
+      quantity: quantity * mi,
+      unit: outUnit,
+      native_quantity: quantity * mi,
+      batches: quantity,
+      basis: 'minimum_increment=' + mi
+    };
+  }
+
+  // A. the task's own unit
+  if (unit === native) {
+    return { ok: true, quantity: quantity, unit: unit, native_quantity: quantity, batches: null, basis: 'native' };
+  }
+  // B. kg ↔ g — the only conversion the write path knows
+  if (unit === 'kg' && native === 'g') {
+    return { ok: true, quantity: quantity, unit: 'kg', native_quantity: quantity * 1000, batches: null, basis: 'kg_to_g' };
+  }
+  if (unit === 'g' && native === 'kg') {
+    return { ok: true, quantity: quantity, unit: 'g', native_quantity: quantity / 1000, batches: null, basis: 'g_to_kg' };
+  }
+
+  return { ok: false, reason: 'unit_unsupported', unit: unit, native_unit: native };
+}
+window.crewResolveQuantity = crewResolveQuantity;
+
+// ── 4. FLOW STATE ─────────────────────────────────────────────────────────
+// One draft at a time. The client_operation_id is created exactly once, when
+// the confirmation appears, and survives every retry of that same operation.
+
+var _crewMade = null;
+
+function _crewUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    var r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+function _crewFmt(qty, unit) {
+  if (typeof humanQty === 'function') {
+    var h = humanQty(qty, unit);
+    if (h) return h;
+  }
+  return qty + (unit ? ' ' + unit : '');
+}
+
+window.crewMadeCancel = function () {
+  _crewMade = null;
+  _crewRenderMadeFlow();
+};
+
+window.crewSubmitMade = function () {
+  var input = document.getElementById('crewMadeInput');
+  if (!input) return;
+  var text = (input.value || '').trim();
+  if (!text) return;
+
+  var parsed = crewParseMade(text);
+  if (parsed.intent !== 'production') {
+    // Not a production. Nothing is written and nothing is thrown away:
+    // the words stay on the phone, exactly as before CREW-UX 10.
+    var drafts = _crewLoadDrafts();
+    drafts.push({ text: text, at: new Date().toISOString() });
+    _crewSaveDrafts(drafts);
+    input.value = '';
+    _crewMade = { stage: 'error', error: 'not_production', retryable: false, text: text };
+    _crewRenderMadeFlow();
+    _crewRenderDrafts();
+    return;
+  }
+
+  _crewMade = { stage: 'init', text: text, parsed: parsed };
+  var cands = crewMatchPrep(parsed.raw_item, window.user);
+
+  if (cands.length === 0) {
+    _crewMade.stage = 'error';
+    _crewMade.error = 'no_match';
+    _crewMade.retryable = false;
+  } else if (cands.length > 1) {
+    _crewMade.stage = 'choose';
+    _crewMade.candidates = cands.slice(0, 4);
+  } else {
+    _crewPickTask(cands[0].id);
+  }
+  _crewRenderMadeFlow();
+};
+
+window.crewMadePick = function (id) {
+  _crewPickTask(id);
+  _crewRenderMadeFlow();
+};
+
+function _crewPickTask(id) {
+  if (!_crewMade) return;
+  var task = (typeof tasks !== 'undefined' && tasks) ? tasks[id] : null;
+  if (!task) { _crewMade.stage = 'error'; _crewMade.error = 'no_match'; _crewMade.retryable = false; return; }
+
+  var sugg = (window._suggestions || {})[id] || null;
+  var p = _crewMade.parsed;
+  var res = crewResolveQuantity(task, sugg, p.quantity, p.unit, p.unit_kind);
+
+  _crewMade.task = task;
+  _crewMade.sugg = sugg;
+
+  if (!res.ok) {
+    _crewMade.stage = 'need_qty';
+    _crewMade.reason = res.reason;
+    _crewMade.rejected_unit = res.unit || null;
+    _crewMade.native_unit = res.native_unit || _crewNorm(task.unit);
+    return;
+  }
+  _crewEnterConfirm(res);
+}
+
+// The one place a client_operation_id is born.
+function _crewEnterConfirm(res) {
+  _crewMade.resolved = res;
+  _crewMade.stage = 'confirm';
+  _crewMade.opId = _crewUuid();
+  _crewMade.inFlight = false;
+  _crewMade.error = null;
+}
+
+window.crewMadeQtySubmit = function () {
+  if (!_crewMade || !_crewMade.task) return;
+  var el = document.getElementById('crewMadeQty');
+  if (!el) return;
+  var n = parseFloat(String(el.value || '').replace(',', '.'));
+  if (!isFinite(n) || n <= 0) return;
+
+  var native = _crewMade.native_unit || _crewNorm(_crewMade.task.unit);
+  var res = crewResolveQuantity(_crewMade.task, _crewMade.sugg, n, native, 'native');
+  if (!res.ok) { _crewMade.reason = res.reason; _crewRenderMadeFlow(); return; }
+  _crewEnterConfirm(res);
+  _crewRenderMadeFlow();
+};
+
+// ── 5. WRITE ──────────────────────────────────────────────────────────────
+// record-prep-production-v2 only. No v1, no Tell Chef, no stock count, no
+// direct Supabase write, no client-side prep_log insert.
+
+var CREW_PRODUCTION_EF = '/functions/v1/record-prep-production-v2';
+var CREW_REFRESH_EF    = '/functions/v1/refresh-prep-suggestion';
+
+function _crewBaseUrl() {
+  return (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : window.SUPABASE_URL);
+}
+
+window.crewMadeRecord = async function () {
+  if (!_crewMade || _crewMade.stage === 'recording') return;
+  if (_crewMade.inFlight) return;              // double tap: one request, ever
+  if (!_crewMade.task || !_crewMade.resolved || !_crewMade.opId) return;
+
+  var m = _crewMade;
+  m.inFlight = true;
+  m.stage = 'recording';
+  m.error = null;
+  _crewRenderMadeFlow();
+
+  var sugg = m.sugg;
+  var planned = sugg && sugg.planned_output != null ? parseFloat(sugg.planned_output) : NaN;
+  var isSuggested = isFinite(planned) && planned > 0 &&
+                    Math.abs(m.resolved.native_quantity - planned) < 1e-9;
+
+  var payload = {
+    brigade_token:       localStorage.getItem('brigade_token'),
+    task_id:             m.task.id,
+    quantity:            m.resolved.quantity,
+    unit:                m.resolved.unit,
+    client_operation_id: m.opId,
+    occurred_at:         new Date().toISOString(),
+    in_progress_at:      null,
+    is_suggested_qty:    isSuggested
+  };
+
+  var raw, data;
+  try {
+    raw = await fetch(_crewBaseUrl() + CREW_PRODUCTION_EF, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    data = await raw.json();
+  } catch (e) {
+    m.inFlight = false;
+    m.stage = 'error';
+    m.error = 'network';
+    m.retryable = true;                        // same opId on Try again
+    _crewRenderMadeFlow();
+    return;
+  }
+
+  m.inFlight = false;
+
+  if (!raw.ok || !data || data.ok !== true) {
+    var reason = (data && (data.reason || data.error)) || ('http_' + raw.status);
+    m.stage = 'error';
+    if (raw.status === 401 || reason === 'AUTH_ERROR') { m.error = 'auth';     m.retryable = false; }
+    else if (reason === 'IDEMPOTENCY_KEY_CONFLICT')    { m.error = 'conflict'; m.retryable = false; }
+    else if (raw.status >= 500)                        { m.error = 'network';  m.retryable = true;  }
+    else { m.error = 'validation'; m.detail = (data && data.detail) || reason; m.retryable = false; }
+    _crewRenderMadeFlow();
+    return;
+  }
+
+  // ok:true — the production exists. idempotent:true counts as success.
+  _crewApplyProduction(m.task.id, data);
+
+  var label = _crewFmt(m.resolved.native_quantity, _crewNorm(m.task.unit));
+  m.stage = 'done';
+  m.doneMsg = _crewT('made_recorded', { name: m.task.name, qty: label });
+  m.planUpdating = (data.suggestion_recalculated !== true);
+
+  var input = document.getElementById('crewMadeInput');
+  if (input) input.value = '';
+
+  renderCrewHome();
+
+  // Production is already saved. This only chases the plan — it must never
+  // retry the production.
+  if (data.suggestion_recalculated !== true) {
+    _crewRefreshSuggestion(m.task.id);
+  }
+};
+
+// ── 6. HOME REFRESH ───────────────────────────────────────────────────────
+// `items` and `tasks` hold the same objects (init.js), so mutating the task
+// is what the Crew Home reads on the next render. No page reload, no refetch.
+
+function _crewApplySuggestion(taskId, s) {
+  if (!s) return;
+  window._suggestions = window._suggestions || {};
+  var prev = window._suggestions[taskId] || {};
+  var next = Object.assign({}, prev, s);
+  // The EF's suggestion payload does not carry minimum_increment; the Crew
+  // Home needs it to say "N batches". Keep what we already had.
+  if (s.minimum_increment === undefined || s.minimum_increment === null) {
+    next.minimum_increment = prev.minimum_increment;
+  }
+  window._suggestions[taskId] = next;
+}
+
+function _crewApplyProduction(taskId, data) {
+  var t = (typeof tasks !== 'undefined' && tasks) ? tasks[taskId] : null;
+  if (t && data.task) {
+    if (data.task.current_stock !== undefined) t.current_stock = data.task.current_stock;
+    t.in_progress    = data.task.in_progress === true;
+    t.in_progress_at = data.task.in_progress_at || null;
+    t.in_progress_by = data.task.in_progress_by || null;
+    if (data.task.need_tomorrow !== undefined) t.need_tomorrow = data.task.need_tomorrow;
+  }
+  if (data.suggestion_recalculated === true && data.suggestion) {
+    _crewApplySuggestion(taskId, data.suggestion);
+  }
+}
+
+async function _crewRefreshSuggestion(taskId) {
+  var raw, data;
+  try {
+    raw = await fetch(_crewBaseUrl() + CREW_REFRESH_EF, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        brigade_token: localStorage.getItem('brigade_token'),
+        task_id: taskId
+      })
+    });
+    data = await raw.json();
+  } catch (e) { return; }              // the stale plan line already shows
+
+  if (raw.ok && data && data.ok === true && data.suggestion) {
+    _crewApplySuggestion(taskId, data.suggestion);
+    if (_crewMade && _crewMade.stage === 'done') _crewMade.planUpdating = false;
+    renderCrewHome();
+  }
+}
+window._crewRefreshSuggestion = _crewRefreshSuggestion;
+
+// ── 7. FLOW UI — compact, inside Block 2 only ─────────────────────────────
+
+function _crewRenderMadeFlow() {
+  var host = document.getElementById('crewMadeFlow');
+  if (!host) return;
+  var m = _crewMade;
+  if (!m) { host.innerHTML = ''; return; }
+
+  var h = '';
+
+  if (m.stage === 'choose') {
+    h += '<p class="crew-made__ask">' + _crewEsc(_crewT('made_choose')) + '</p>' +
+         '<div class="crew-made__options">' +
+         m.candidates.map(function (t) {
+           var station = (t.category && window.user && t.category !== window.user.default_station)
+             ? ' · ' + t.category : '';
+           return '<button type="button" class="crew-made__opt" onclick="crewMadePick(' +
+             JSON.stringify(t.id) + ')">' + _crewEsc(t.name + station) + '</button>';
+         }).join('') +
+         '<button type="button" class="crew-made__opt crew-made__opt--none" onclick="crewMadeCancel()">' +
+           _crewEsc(_crewT('made_choose_none')) + '</button>' +
+         '</div>';
+
+  } else if (m.stage === 'need_qty') {
+    var ask = _crewT('made_how_much');
+    if (m.reason === 'unit_unsupported') {
+      ask = _crewT('made_cant_convert', { unit: m.rejected_unit }) + ' ' + ask;
+    } else if (m.reason === 'batch_unavailable') {
+      ask = _crewT('made_no_batch') + ' ' + ask;
+    }
+    h += '<p class="crew-made__ask"><b>' + _crewEsc(m.task.name) + '</b> — ' + _crewEsc(ask) + '</p>' +
+         '<div class="crew-made__row">' +
+           '<input id="crewMadeQty" class="crew-made__input crew-made__input--qty" type="number" ' +
+             'inputmode="decimal" step="any" min="0" placeholder="0" ' +
+             'onkeydown="if(event.key===\'Enter\'){event.preventDefault();crewMadeQtySubmit();}">' +
+           '<span class="crew-made__unit">' + _crewEsc(m.native_unit) + '</span>' +
+           '<button type="button" class="crew-made__btn" onclick="crewMadeQtySubmit()">OK</button>' +
+         '</div>';
+
+  } else if (m.stage === 'confirm' || m.stage === 'recording') {
+    var r = m.resolved;
+    var qtyLine = _crewFmt(r.native_quantity, _crewNorm(m.task.unit));
+    if (r.batches) {
+      var b = r.batches === 1 ? _crewT('made_batch_one') : _crewT('made_batch_many', { n: r.batches });
+      qtyLine = b + ' · ' + qtyLine;
+    }
+    var offStation = (m.task.category && window.user && m.task.category !== window.user.default_station)
+      ? '<p class="crew-made__station">' + _crewEsc(m.task.category) + '</p>' : '';
+    var busy = (m.stage === 'recording');
+    h += '<div class="crew-made__confirm">' +
+           '<p class="crew-made__name">' + _crewEsc(m.task.name) + '</p>' + offStation +
+           '<p class="crew-made__qty">' + _crewEsc(qtyLine) + '</p>' +
+           '<div class="crew-made__actions">' +
+             '<button type="button" class="crew-made__btn crew-made__btn--go"' +
+               (busy ? ' disabled' : '') + ' onclick="crewMadeRecord()">' +
+               _crewEsc(busy ? _crewT('made_recording') : _crewT('made_record')) +
+             '</button>' +
+             (busy ? '' : '<button type="button" class="crew-made__btn crew-made__btn--ghost" ' +
+               'onclick="crewMadeCancel()">' + _crewEsc(_crewT('made_cancel')) + '</button>') +
+           '</div>' +
+         '</div>';
+
+  } else if (m.stage === 'done') {
+    h += '<p class="crew-made__ok">' + _crewEsc(m.doneMsg) + '</p>';
+    if (m.planUpdating) {
+      h += '<p class="crew-made__ask">' + _crewEsc(_crewT('made_plan_updating')) + '</p>';
+    }
+
+  } else if (m.stage === 'error') {
+    var msg, btn = null, call = null;
+    switch (m.error) {
+      case 'not_production': msg = _crewT('made_not_production') + ' ' + _crewT('made_kept_locally'); break;
+      case 'no_match':       msg = _crewT('made_no_match'); break;
+      case 'network':        msg = _crewT('made_err_network');
+                             btn = _crewT('made_try_again'); call = 'crewMadeRecord()'; break;
+      case 'auth':           msg = _crewT('made_err_auth'); break;
+      case 'conflict':       msg = _crewT('made_err_conflict');
+                             btn = _crewT('made_start_again'); call = 'crewMadeCancel()'; break;
+      default:               msg = _crewT('made_err_generic') + (m.detail ? ' (' + m.detail + ')' : '');
+                             btn = _crewT('made_start_again'); call = 'crewMadeCancel()';
+    }
+    h += '<p class="crew-made__err">' + _crewEsc(msg) + '</p>';
+    if (btn) {
+      h += '<button type="button" class="crew-made__btn crew-made__btn--ghost" onclick="' + call + '">' +
+             _crewEsc(btn) + '</button>';
+    }
+  }
+
+  host.innerHTML = h;
+}
+window._crewRenderMadeFlow = _crewRenderMadeFlow;
+
 // ── Block 2 drafts — this device only, never sent anywhere ────────────────
 // In-memory is the source of truth so a cook's words survive every re-render
 // even where sessionStorage is unavailable (private window, blocked storage).
@@ -329,17 +882,9 @@ function _crewSaveDrafts(arr) {
   try { sessionStorage.setItem(CREW_DRAFT_KEY, JSON.stringify(_crewDrafts)); } catch (e) {}
 }
 
-window.crewSaveMade = function () {
-  var input = document.getElementById('crewMadeInput');
-  if (!input) return;
-  var text = (input.value || '').trim();
-  if (!text) return;
-  var drafts = _crewLoadDrafts();
-  drafts.push({ text: text, at: new Date().toISOString() });
-  _crewSaveDrafts(drafts);
-  input.value = '';
-  _crewRenderDrafts();
-};
+// CREW-UX 10: the Save button now goes through crewSubmitMade(), which
+// parses the sentence first. Only a sentence that is NOT a production still
+// lands here, as a local note.
 
 window.crewClearMade = function () {
   _crewSaveDrafts([]);
@@ -488,6 +1033,7 @@ function renderCrewHome() {
 
   _crewRenderAttention(data);
   _crewMountYesterday();
+  _crewRenderMadeFlow();
   _crewRenderDrafts();
 }
 window.renderCrewHome = renderCrewHome;

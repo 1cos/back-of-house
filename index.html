@@ -263,6 +263,62 @@
 #crewHome .crew-made__note {
   margin: 6px 2px 0; font-size: 12px; line-height: 1.4; color: #94a3b8;
 }
+
+/* ── CREW-UX 10 — the production flow, inside Block 2 only ──
+   Deliberately plain: the confirmation must read in under two seconds and
+   must not look like another attention card. */
+#crewHome #crewMadeFlow:empty { display: none; }
+#crewHome #crewMadeFlow { margin-top: 10px; }
+
+#crewHome .crew-made__ask {
+  margin: 0 2px 8px; font-size: 14px; line-height: 1.4; color: #475569;
+}
+#crewHome .crew-made__options { display: flex; flex-direction: column; gap: 6px; }
+#crewHome .crew-made__opt {
+  appearance: none; cursor: pointer; text-align: left;
+  min-height: 44px; padding: 0 14px;
+  border: 1px solid rgba(30,58,95,0.16); border-radius: 12px;
+  background: rgba(255,255,255,0.9); color: #1e3a5f;
+  font: 600 15px/1.2 Inter, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+#crewHome .crew-made__opt--none { color: #94a3b8; font-weight: 500; }
+
+#crewHome .crew-made__row { display: flex; gap: 8px; align-items: center; }
+#crewHome .crew-made__input--qty { flex: 1; min-width: 0; }
+#crewHome .crew-made__unit {
+  font: 600 14px/1 Inter, system-ui, sans-serif; color: #64748b; flex-shrink: 0;
+}
+
+#crewHome .crew-made__confirm {
+  border: 1px solid rgba(30,58,95,0.16); border-radius: 14px;
+  background: rgba(255,255,255,0.9); padding: 13px 15px;
+}
+#crewHome .crew-made__name {
+  margin: 0; font-size: 19px; font-weight: 700; line-height: 1.2; color: #0f172a;
+}
+#crewHome .crew-made__station {
+  margin: 2px 0 0; font-size: 12px; color: #94a3b8;
+}
+#crewHome .crew-made__qty {
+  margin: 4px 0 0; font-size: 16px; font-weight: 700; color: #1e3a5f;
+  font-variant-numeric: tabular-nums;
+}
+#crewHome .crew-made__actions { display: flex; gap: 8px; margin-top: 12px; }
+#crewHome .crew-made__btn--go {
+  flex: 1; background: #1e3a5f; color: #fff; min-height: 44px;
+}
+#crewHome .crew-made__btn--go[disabled] { opacity: .6; cursor: default; }
+#crewHome .crew-made__btn--ghost {
+  background: rgba(30,58,95,0.06); color: #1e3a5f;
+  border: 1px solid rgba(30,58,95,0.16); min-height: 44px;
+}
+#crewHome .crew-made__ok {
+  margin: 0 2px; font-size: 14px; font-weight: 600; line-height: 1.4; color: #1f7350;
+}
+#crewHome .crew-made__err {
+  margin: 0 2px 8px; font-size: 14px; line-height: 1.4; color: #b3392b;
+}
 #crewHome .crew-draft-head {
   margin-top: 12px; margin-bottom: 4px;
   font-size: 11px; font-weight: 700; letter-spacing: .08em;
@@ -627,10 +683,13 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
             <input id="crewMadeInput" class="crew-made__input" type="text"
               placeholder="Tell me what you made..."
               autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"
-              onkeydown="if(event.key==='Enter'){event.preventDefault();crewSaveMade();}">
-            <button type="button" class="crew-made__btn" onclick="crewSaveMade()">Save</button>
+              onkeydown="if(event.key==='Enter'){event.preventDefault();crewSubmitMade();}">
+            <button type="button" class="crew-made__btn" onclick="crewSubmitMade()">Save</button>
           </div>
-          <p class="crew-made__note">Pilot: this is kept on your phone only. Nothing is recorded yet.</p>
+          <p class="crew-made__note">You'll confirm before anything is recorded.</p>
+          <!-- CREW-UX 10: parse feedback, candidate choice, quantity follow-up,
+               confirmation, loading, success and error all render here. -->
+          <div id="crewMadeFlow"></div>
           <div id="crewMadeDrafts"></div>
         </div>
 

@@ -34,14 +34,28 @@ function t(name, fn) {
   try { fn(); console.log('  OK   ' + name); pass++; }
   catch (e) { console.log('  FAIL ' + name + '\n       ' + e.message); fail++; }
 }
+// Async tests are queued and run after the synchronous ones.
+const asyncQueue = [];
+function ta(name, fn) { asyncQueue.push([name, fn]); }
+async function runAsync() {
+  for (const [name, fn] of asyncQueue) {
+    try { await fn(); console.log('  OK   ' + name); pass++; }
+    catch (e) { console.log('  FAIL ' + name + '\n       ' + e.message); fail++; }
+  }
+}
+// One JSON response, shaped like the Edge Function's.
+function jsonResp(status, body) {
+  return Promise.resolve({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) });
+}
 
 // ── Harness ───────────────────────────────────────────────────────
 // Builds a DOM from the real index.html, injects the real crew-home.js,
 // and stubs ONLY the globals the production Home would have populated by
 // the time doLogin() runs.
 function makeApp({ user, items = [], suggestions = {}, suggestionsDate = '2026-09-21',
-                   recentCounts = {}, stockVerifiedIds = [] } = {}) {
-  const dom = new JSDOM(HTML, { runScripts: 'outside-only' });
+                   recentCounts = {}, stockVerifiedIds = [], fetchImpl = null } = {}) {
+  // A real origin so localStorage / sessionStorage exist (opaque origins throw).
+  const dom = new JSDOM(HTML, { runScripts: 'outside-only', url: 'https://example.test/' });
   const win = dom.window;
 
   // Globals the legacy app owns.
@@ -63,17 +77,15 @@ function makeApp({ user, items = [], suggestions = {}, suggestionsDate = '2026-0
   win.goToStation = (s) => { win.__wentTo = s; };
   win.openStockCountSheet = (id) => { win.__countSheet = id; };
 
-  // Writes must be impossible: any attempt explodes loudly.
+  // Direct Supabase access must stay impossible: any attempt explodes loudly.
   win.supa = new Proxy({}, { get() { throw new Error('DB ACCESS in crew-home'); } });
-  win.fetch = () => { throw new Error('NETWORK CALL in crew-home'); };
-
-  // sessionStorage for Block 2 drafts.
-  const store = {};
-  win.sessionStorage = {
-    getItem: k => (k in store ? store[k] : null),
-    setItem: (k, v) => { store[k] = String(v); },
-    removeItem: k => { delete store[k]; }
-  };
+  // fetch: forbidden unless a test provides one. Every call is recorded.
+  win.__calls = [];
+  win.fetch = fetchImpl
+    ? ((url, opts) => { win.__calls.push({ url, body: JSON.parse(opts.body) }); return fetchImpl(url, opts, win); })
+    : (() => { throw new Error('NETWORK CALL in crew-home'); });
+  win.SUPABASE_URL = 'https://example.test';
+  win.localStorage.setItem('brigade_token', 'T'.repeat(64));
 
   win.eval(CREW_SRC);
   return win;
@@ -405,54 +417,65 @@ t('no microphone is rendered — no promise it cannot keep', () => {
   assert.ok(!/mic|🎙|voice/i.test(block.innerHTML), 'the mic is out of this slice by decision');
 });
 
-t('sending text keeps it locally and never claims it was recorded', () => {
+t('a sentence that is not a production is kept locally, never claimed as recorded', () => {
   const w = makeApp({ user: PABLO });
   w.mountCrewHome(PABLO);
-  w.document.getElementById('crewMadeInput').value = 'I made 2 batches of Caesar dressing';
-  w.crewSaveMade();
+  w.document.getElementById('crewMadeInput').value = 'we only have half a pan left';
+  w.crewSubmitMade();
   const drafts = w.document.getElementById('crewMadeDrafts').textContent;
-  assert.ok(drafts.includes('I made 2 batches of Caesar dressing'), 'the text must not be lost');
+  assert.ok(drafts.includes('we only have half a pan left'), 'the text must not be lost');
   assert.ok(!/recorded|saved to|logged/i.test(drafts), 'must not imply a write happened');
-  assert.ok(w.document.querySelector('.crew-block--made').textContent
-    .includes('Nothing is recorded yet.'));
+  assert.ok(!/recorded \u00b7|Recorded \u00b7/.test(
+    w.document.querySelector('.crew-block--made').textContent));
   assert.strictEqual(w.document.getElementById('crewMadeInput').value, '', 'field cleared');
 });
 
 t('drafts survive a re-render', () => {
   const w = makeApp({ user: PABLO });
   w.mountCrewHome(PABLO);
-  w.document.getElementById('crewMadeInput').value = 'made salmoriglio';
-  w.crewSaveMade();
+  w.document.getElementById('crewMadeInput').value = 'the pasta machine is noisy';
+  w.crewSubmitMade();
   w.renderCrewHome();
-  assert.ok(w.document.getElementById('crewMadeDrafts').textContent.includes('made salmoriglio'));
+  assert.ok(w.document.getElementById('crewMadeDrafts').textContent.includes('pasta machine'));
 });
 
 t('drafts are escaped too', () => {
   const w = makeApp({ user: PABLO });
   w.mountCrewHome(PABLO);
   w.document.getElementById('crewMadeInput').value = '<b>oops</b>';
-  w.crewSaveMade();
+  w.crewSubmitMade();
   assert.strictEqual(w.document.querySelectorAll('#crewMadeDrafts b').length, 0);
 });
 
-t('the whole pilot touches no database and no network', () => {
-  // win.supa and win.fetch throw on any access; a full mount + save + render
-  // completing without throwing is the proof.
+t('mounting, rendering and a non-production note touch no database and no network', () => {
+  // win.supa and win.fetch both throw on any access; completing without
+  // throwing is the proof that nothing reached out.
   const w = makeApp({
     user: PABLO,
     items: [task(1, 'a'), task(2, 'b', { prep_type: 'checklist' })],
     suggestions: { 1: sugg({ status: 'do_first' }) }
   });
   w.mountCrewHome(PABLO);
-  w.document.getElementById('crewMadeInput').value = 'x';
-  w.crewSaveMade();
+  w.document.getElementById('crewMadeInput').value = 'the walk-in door sticks';
+  w.crewSubmitMade();
   w.renderCrewHome();
   assert.ok(true);
 });
 
-t('crew-home.js contains no write primitive at all', () => {
-  for (const bad of ['.insert(', '.update(', '.upsert(', '.delete(', 'functions/v1', 'fetch(']) {
+t('crew-home.js never writes to Supabase directly', () => {
+  for (const bad of ['.insert(', '.update(', '.upsert(', '.delete(', 'supa.', 'supabase']) {
     assert.ok(!CREW_SRC.includes(bad), 'crew-home.js must not contain ' + bad);
+  }
+});
+
+t('the only endpoints it can reach are the two approved ones', () => {
+  const eps = (CREW_SRC.match(/\/functions\/v1\/[a-z0-9-]+/g) || []);
+  assert.deepStrictEqual([...new Set(eps)].sort(),
+    ['/functions/v1/record-prep-production-v2', '/functions/v1/refresh-prep-suggestion']);
+  // Comments are allowed to name the paths we deliberately do NOT use.
+  const code = CREW_SRC.split('\n').filter(l => !/^\s*(\/\/|\*)/.test(l)).join('\n');
+  for (const forbidden of ['record-prep-stock-count', 'chef_reports', 'prep_log', 'office_items']) {
+    assert.ok(!code.includes(forbidden), 'must not reference ' + forbidden);
   }
 });
 
@@ -506,6 +529,543 @@ t('the wide CTA (no-run state) is untouched', () => {
   w.mountCrewHome(PABLO);
   const btn = w.document.querySelector('.crew-cta--wide');
   assert.ok(btn && !btn.classList.contains('crew-cta--compact'));
+});
+
+// ══════════════════════════════════════════════════════════════════
+// CREW-UX 10 — "What did you make?" writes a real production
+// ══════════════════════════════════════════════════════════════════
+
+// Chop Romaine as it really is today: g, stock 0, fixed batch of 1000.
+const CHOP = task(364, 'Chop Romaine', { unit: 'g', current_stock: 0 });
+const CHOP_SUGG = sugg({
+  status: 'prep_today', planned_output: 1000, output_unit: 'g',
+  minimum_increment: 1000, production_constraint_quality: 'valid_fixed_batch'
+});
+function chopApp(over = {}) {
+  // a fresh copy per case: the write path mutates the task in place
+  return makeApp(Object.assign({
+    user: PABLO,
+    items: [JSON.parse(JSON.stringify(CHOP))],
+    suggestions: { 364: JSON.parse(JSON.stringify(CHOP_SUGG)) }
+  }, over));
+}
+
+// ── PARSER ─────────────────────────────────────────────────────────
+console.log('\nG. Parser — deterministic, no model');
+
+t('"I made 2 batches of Chop Romaine"', () => {
+  const p = makeApp({ user: PABLO }).crewParseMade('I made 2 batches of Chop Romaine');
+  assert.strictEqual(p.intent, 'production');
+  assert.strictEqual(p.raw_item, 'chop romaine');
+  assert.strictEqual(p.quantity, 2);
+  assert.strictEqual(p.unit_kind, 'batch');
+});
+
+t('"made 2 batches chop romaine" (no "I", no "of")', () => {
+  const p = makeApp({ user: PABLO }).crewParseMade('made 2 batches chop romaine');
+  assert.strictEqual(p.intent, 'production');
+  assert.strictEqual(p.raw_item, 'chop romaine');
+  assert.strictEqual(p.quantity, 2);
+  assert.strictEqual(p.unit_kind, 'batch');
+});
+
+t('"I made 2000 g of Chop Romaine"', () => {
+  const p = makeApp({ user: PABLO }).crewParseMade('I made 2000 g of Chop Romaine');
+  assert.strictEqual(p.quantity, 2000);
+  assert.strictEqual(p.unit, 'g');
+  assert.strictEqual(p.unit_kind, 'native');
+});
+
+t('"I made 2 kg of Chop Romaine"', () => {
+  const p = makeApp({ user: PABLO }).crewParseMade('I made 2 kg of Chop Romaine');
+  assert.strictEqual(p.quantity, 2);
+  assert.strictEqual(p.unit, 'kg');
+});
+
+t('quantity missing: "I made Chop Romaine"', () => {
+  const p = makeApp({ user: PABLO }).crewParseMade('I made Chop Romaine');
+  assert.strictEqual(p.intent, 'production');
+  assert.strictEqual(p.raw_item, 'chop romaine');
+  assert.strictEqual(p.quantity, null);
+});
+
+t('non-production sentences never parse as production', () => {
+  const w = makeApp({ user: PABLO });
+  for (const s of [
+    'We only have half a pan left', "we're out of ranch", 'only half a pan left',
+    'the oven is broken', 'ranch', '', '   '
+  ]) {
+    assert.strictEqual(w.crewParseMade(s).intent, 'unknown', 'should not parse: ' + s);
+  }
+});
+
+t('a number with no unit is not guessed', () => {
+  const p = makeApp({ user: PABLO }).crewParseMade('I made 2 chop romaine');
+  assert.strictEqual(p.intent, 'production');
+  assert.strictEqual(p.quantity, null, 'no unit means no quantity — it gets asked');
+  assert.strictEqual(p.raw_item, 'chop romaine');
+});
+
+// ── MATCHING ───────────────────────────────────────────────────────
+console.log('\nH. Prep matching — never invents an id');
+
+const MANY = [
+  task(364, 'Chop Romaine'),
+  task(390, 'Ranch'),
+  task(394, 'Check Ranch', { prep_type: 'checklist' }),
+  task(256, 'Salmoriglio', { category: 'Sauté Station' }),
+  task(423, 'Mash Potato', { category: 'Saucier Station' })
+];
+
+t('exact name', () => {
+  const w = makeApp({ user: PABLO, items: MANY });
+  const r = w.crewMatchPrep('chop romaine', PABLO);
+  assert.strictEqual(r.length, 1);
+  assert.strictEqual(r[0].id, 364);
+});
+
+t('unique substring: "romaine"', () => {
+  const w = makeApp({ user: PABLO, items: MANY });
+  const r = w.crewMatchPrep('romaine', PABLO);
+  assert.strictEqual(r.length, 1);
+  assert.strictEqual(r[0].id, 364);
+});
+
+t('checklist prep is never a production target', () => {
+  const w = makeApp({ user: PABLO, items: MANY });
+  assert.strictEqual(w.crewMatchPrep('check ranch', PABLO).length, 0,
+    'the only thing named "Check Ranch" is a checklist');
+  const r = w.crewMatchPrep('ranch', PABLO);
+  assert.strictEqual(r.length, 1, 'Check Ranch must not appear as a candidate');
+  assert.strictEqual(r[0].id, 390);
+});
+
+t('ambiguous: two real preps match', () => {
+  const w = makeApp({ user: PABLO,
+    items: MANY.concat([task(999, 'Ranch Dressing'), task(997, 'Ranch Base')]) });
+  const r = w.crewMatchPrep('ranch dress', PABLO);
+  assert.strictEqual(r.length, 1, 'a unique substring is not ambiguous');
+  const amb = w.crewMatchPrep('ranch b', PABLO);
+  assert.strictEqual(amb.length, 1);
+  const w2 = makeApp({ user: PABLO,
+    items: [task(999, 'Ranch Dressing'), task(997, 'Ranch Base')] });
+  assert.strictEqual(w2.crewMatchPrep('ranch', PABLO).length, 2,
+    'two substring matches, no exact name: ambiguous');
+});
+
+t('zero match', () => {
+  const w = makeApp({ user: PABLO, items: MANY });
+  assert.strictEqual(w.crewMatchPrep('caesar dressing', PABLO).length, 0);
+});
+
+t('own station wins over other stations', () => {
+  const w = makeApp({ user: PABLO, items: MANY.concat([task(998, 'Romaine Hearts', { category: 'Oven Station' })]) });
+  const r = w.crewMatchPrep('romaine', PABLO);
+  assert.strictEqual(r.length, 1);
+  assert.strictEqual(r[0].category, 'Salad Station');
+});
+
+t('a match outside the station is still found', () => {
+  const w = makeApp({ user: PABLO, items: MANY });
+  const r = w.crewMatchPrep('salmoriglio', PABLO);
+  assert.strictEqual(r.length, 1);
+  assert.strictEqual(r[0].category, 'Sauté Station');
+});
+
+// ── UNIT RESOLUTION ────────────────────────────────────────────────
+console.log('\nI. Unit resolution — three shapes, nothing else');
+
+t('native g passes through', () => {
+  const r = makeApp({ user: PABLO }).crewResolveQuantity(CHOP, CHOP_SUGG, 2000, 'g', 'native');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.quantity, 2000);
+  assert.strictEqual(r.unit, 'g');
+  assert.strictEqual(r.native_quantity, 2000);
+});
+
+t('kg -> g: the cook keeps kg, the native value is 2000', () => {
+  const r = makeApp({ user: PABLO }).crewResolveQuantity(CHOP, CHOP_SUGG, 2, 'kg', 'native');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.unit, 'kg');
+  assert.strictEqual(r.native_quantity, 2000);
+});
+
+t('batch with valid_fixed_batch: 2 x 1000 = 2000 g', () => {
+  const r = makeApp({ user: PABLO }).crewResolveQuantity(CHOP, CHOP_SUGG, 2, 'batch', 'batch');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.quantity, 2000);
+  assert.strictEqual(r.unit, 'g');
+  assert.strictEqual(r.batches, 2);
+});
+
+t('batch WITHOUT valid_fixed_batch is refused', () => {
+  const w = makeApp({ user: PABLO });
+  for (const bad of [
+    sugg({ production_constraint_quality: 'missing', minimum_increment: 1000 }),
+    sugg({ production_constraint_quality: 'valid_fixed_batch', minimum_increment: null }),
+    sugg({ production_constraint_quality: 'valid_scalable', minimum_increment: 1 }),
+    null
+  ]) {
+    const r = w.crewResolveQuantity(CHOP, bad, 2, 'batch', 'batch');
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.reason, 'batch_unavailable');
+  }
+});
+
+t('liters, lb, pan, oz, container, quart are all refused by name', () => {
+  const w = makeApp({ user: PABLO });
+  for (const u of ['liters', 'lb', 'pans', 'oz', 'containers', 'quarts']) {
+    const r = w.crewResolveQuantity(CHOP, CHOP_SUGG, 15, u, 'unsupported');
+    assert.strictEqual(r.ok, false, u + ' must be refused');
+    assert.strictEqual(r.reason, 'unit_unsupported');
+    assert.strictEqual(r.native_unit, 'g');
+  }
+});
+
+t('missing quantity asks, never assumes', () => {
+  const r = makeApp({ user: PABLO }).crewResolveQuantity(CHOP, CHOP_SUGG, null, null, null);
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.reason, 'need_quantity');
+  assert.strictEqual(r.native_unit, 'g');
+});
+
+// ── FLOW + CONFIRMATION ────────────────────────────────────────────
+console.log('\nJ. Confirmation — nothing is written before Record');
+
+function typeAndSubmit(w, text) {
+  w.document.getElementById('crewMadeInput').value = text;
+  w.crewSubmitMade();
+}
+
+t('the happy path reaches a confirmation and writes nothing', () => {
+  const w = chopApp();               // fetch throws if touched
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  const flow = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(flow.includes('Chop Romaine'));
+  assert.ok(flow.includes('2 batches'));
+  assert.ok(flow.includes('2 kg'));
+  assert.ok(flow.includes('Record'));
+  assert.ok(flow.includes('Cancel'));
+  assert.strictEqual(w.__calls.length, 0, 'no request before Record');
+});
+
+t('zero match says so and writes nothing', () => {
+  const w = chopApp();
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 kg of caesar dressing');
+  assert.ok(w.document.getElementById('crewMadeFlow').textContent.includes("couldn't find that prep"));
+  assert.strictEqual(w.__calls.length, 0);
+});
+
+t('ambiguous shows the candidates and writes nothing', () => {
+  const w = makeApp({ user: PABLO,
+    items: [task(999, 'Ranch Dressing'), task(997, 'Ranch Base')] });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 kg of ranch');
+  const flow = w.document.getElementById('crewMadeFlow');
+  assert.ok(flow.textContent.includes('Which one?'));
+  assert.strictEqual(flow.querySelectorAll('.crew-made__opt').length, 3, '2 candidates + None of these');
+  assert.strictEqual(w.__calls.length, 0);
+});
+
+t('an unconvertible unit asks for the native one, and writes nothing', () => {
+  const w = chopApp();
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 15 liters of chop romaine');
+  const flow = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(flow.includes("can't convert liters"));
+  assert.ok(flow.includes('How much?'));
+  assert.strictEqual(w.__calls.length, 0);
+});
+
+t('missing quantity asks only that, then confirms', () => {
+  const w = chopApp();
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made Chop Romaine');
+  let flow = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(flow.includes('How much?'));
+  assert.ok(flow.includes('Chop Romaine'), 'the prep is not asked again');
+  w.document.getElementById('crewMadeQty').value = '1500';
+  w.crewMadeQtySubmit();
+  flow = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(flow.includes('1.5 kg'));
+  assert.ok(flow.includes('Record'));
+  assert.strictEqual(w.__calls.length, 0);
+});
+
+t('an out-of-station prep shows its station in the confirmation', () => {
+  const w = makeApp({ user: PABLO, items: MANY, suggestions: {} });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 450 g of salmoriglio');
+  const flow = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(flow.includes('Salmoriglio'));
+  assert.ok(flow.includes('Sauté Station'));
+});
+
+// ── IDEMPOTENCY ────────────────────────────────────────────────────
+console.log('\nK. Idempotency — one operation, one key');
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+ta('the key is a UUID v4, minted at the confirmation and stable across renders', async () => {
+  const w = chopApp({ fetchImpl: () => Promise.reject(new Error('offline')) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  w.renderCrewHome(); w.renderCrewHome();      // re-rendering must not mint a new key
+  await w.crewMadeRecord();
+  const key = w.__calls[0].body.client_operation_id;
+  assert.ok(UUID_V4.test(key), 'not a UUID v4: ' + key);
+  w.renderCrewHome();
+  await w.crewMadeRecord();
+  assert.strictEqual(w.__calls[1].body.client_operation_id, key);
+});
+
+ta('double tap produces exactly ONE request', async () => {
+  let resolveFirst;
+  const gate = new Promise(r => { resolveFirst = r; });
+  const w = chopApp({ fetchImpl: () => gate });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  const p1 = w.crewMadeRecord();
+  const p2 = w.crewMadeRecord();     // second tap while the first is in flight
+  assert.strictEqual(w.__calls.length, 1, 'only one request may leave');
+  resolveFirst(await jsonResp(200, { ok: true, idempotent: false, production_recorded: true,
+    suggestion_recalculated: true, task: { current_stock: 2000, in_progress: false },
+    suggestion: { status: 'looks_ok' } }));
+  await p1; await p2;
+  assert.strictEqual(w.__calls.length, 1);
+});
+
+ta('a network retry reuses the SAME key', async () => {
+  let mode = 'fail';
+  const w = chopApp({ fetchImpl: () => mode === 'fail'
+    ? Promise.reject(new Error('offline'))
+    : jsonResp(200, { ok: true, idempotent: true, production_recorded: true,
+        suggestion_recalculated: true, task: { current_stock: 2000 }, suggestion: { status: 'looks_ok' } }) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  const flow = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(flow.includes("Couldn't reach"));
+  assert.ok(flow.includes('Try again'));
+  mode = 'ok';
+  await w.crewMadeRecord();
+  assert.strictEqual(w.__calls.length, 2);
+  assert.strictEqual(w.__calls[0].body.client_operation_id, w.__calls[1].body.client_operation_id,
+    'a retry of the same production must reuse the key');
+});
+
+ta('correcting the draft after a validation error mints a NEW key', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(400, { ok: false, reason: 'INVALID_INPUT', detail: 'unit_not_allowed' }) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.ok(w.document.getElementById('crewMadeFlow').textContent.includes('Start again'));
+  w.crewMadeCancel();
+  typeAndSubmit(w, 'I made 3 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.strictEqual(w.__calls.length, 2);
+  assert.strictEqual(w.__calls[1].body.quantity, 3000);
+  assert.notStrictEqual(w.__calls[1].body.client_operation_id, w.__calls[0].body.client_operation_id,
+    'a corrected draft is a different operation');
+});
+
+// ── WRITE + SUCCESS + REFRESH ──────────────────────────────────────
+console.log('\nL. Write, success and Home refresh');
+
+const OK_BODY = {
+  ok: true, idempotent: false, production_recorded: true, suggestion_recalculated: true,
+  task: { id: 364, current_stock: 2000, need_tomorrow: false, in_progress: false,
+          in_progress_at: null, in_progress_by: null },
+  log: { item: 'Chop Romaine', qty: 2000, unit: 'g' },
+  suggestion: { status: 'looks_ok', planned_output: null, output_unit: 'g',
+                current_stock: 2000, net_requirement: 0 },
+  warning: null
+};
+
+ta('the payload is exactly the CREW-UX 09 contract', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(200, OK_BODY) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.strictEqual(w.__calls.length, 1);
+  const c = w.__calls[0];
+  assert.ok(String(c.url).endsWith('/functions/v1/record-prep-production-v2'), 'wrong endpoint: ' + c.url);
+  assert.strictEqual(c.body.task_id, 364);
+  assert.strictEqual(c.body.quantity, 2000);
+  assert.strictEqual(c.body.unit, 'g');
+  assert.strictEqual(c.body.in_progress_at, null, 'Record production never opens a WIP');
+  assert.strictEqual(c.body.is_suggested_qty, false, '2000 !== planned_output 1000');
+  assert.strictEqual(c.body.brigade_token.length, 64);
+  assert.ok(!isNaN(new Date(c.body.occurred_at).getTime()));
+});
+
+ta('is_suggested_qty is true when the quantity equals planned_output', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(200, OK_BODY) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 1 batch of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.strictEqual(w.__calls[0].body.is_suggested_qty, true);
+});
+
+ta('ok:true clears the draft and says Recorded', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(200, OK_BODY) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.strictEqual(w.document.getElementById('crewMadeInput').value, '');
+  assert.ok(w.document.getElementById('crewMadeFlow').textContent.includes('Recorded'));
+  assert.ok(w.document.getElementById('crewMadeFlow').textContent.includes('Chop Romaine'));
+});
+
+ta('idempotent:true is treated as success', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(200, Object.assign({}, OK_BODY, { idempotent: true })) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.ok(w.document.getElementById('crewMadeFlow').textContent.includes('Recorded'));
+});
+
+ta('a fresh suggestion updates the Home and the card disappears', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(200, OK_BODY) });
+  w.mountCrewHome(PABLO);
+  assert.strictEqual(w.document.querySelectorAll('.crew-card').length, 1, 'before: Chop Romaine is an attention card');
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.strictEqual(w.tasks[364].current_stock, 2000, 'stock applied from the response');
+  assert.strictEqual(w._suggestions[364].status, 'looks_ok');
+  assert.strictEqual(w.document.querySelectorAll('.crew-card').length, 0, 'the card is gone');
+});
+
+ta('minimum_increment is preserved when the response omits it', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(200, OK_BODY) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.strictEqual(w._suggestions[364].minimum_increment, 1000,
+    'the EF does not return it — it must survive');
+});
+
+ta('suggestion_recalculated:false does NOT repeat the production', async () => {
+  const bodies = [
+    Object.assign({}, OK_BODY, { suggestion_recalculated: false, suggestion: null, warning: 'SUGGESTION_REFRESH_FAILED' }),
+    { ok: true, recalculated: true, suggestion: { status: 'looks_ok', current_stock: 2000 }, warning: null }
+  ];
+  let i = 0;
+  const w = chopApp({ fetchImpl: () => jsonResp(200, bodies[i++]) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  await new Promise(r => setTimeout(r, 0));
+  const prod = w.__calls.filter(c => String(c.url).includes('record-prep-production-v2'));
+  const refr = w.__calls.filter(c => String(c.url).includes('refresh-prep-suggestion'));
+  assert.strictEqual(prod.length, 1, 'exactly one production, ever');
+  assert.strictEqual(refr.length, 1, 'the fallback refresh is called');
+  assert.strictEqual(refr[0].body.task_id, 364);
+  assert.strictEqual(w._suggestions[364].status, 'looks_ok');
+});
+
+ta('when the fallback refresh fails, the old suggestion is not shown as fresh', async () => {
+  let i = 0;
+  const w = chopApp({ fetchImpl: () => {
+    i++;
+    if (i === 1) return jsonResp(200, Object.assign({}, OK_BODY, {
+      suggestion_recalculated: false, suggestion: null, warning: 'SUGGESTION_REFRESH_FAILED' }));
+    return jsonResp(200, { ok: false, recalculated: false, suggestion: null, warning: 'SUGGESTION_REFRESH_FAILED' });
+  } });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  await new Promise(r => setTimeout(r, 0));
+  const flow = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(flow.includes('Recorded'), 'the production still succeeded');
+  assert.ok(flow.includes('plan is still updating'));
+  assert.strictEqual(w._suggestions[364].status, 'prep_today', 'the old status is untouched, not relabelled');
+  assert.strictEqual(w.tasks[364].current_stock, 2000, 'stock still applied');
+});
+
+// ── ERRORS ─────────────────────────────────────────────────────────
+console.log('\nM. Error contract');
+
+ta('401 says the session expired and never says Recorded', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(401, { ok: false, error: 'AUTH_ERROR' }) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  const flow = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(flow.includes('Session expired'));
+  assert.ok(!flow.includes('Recorded'));
+});
+
+ta('409 conflict does not auto-retry', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(409, { ok: false, reason: 'IDEMPOTENCY_KEY_CONFLICT' }) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.strictEqual(w.__calls.length, 1, 'no automatic retry');
+  const flow = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(flow.includes('Something changed'));
+  assert.ok(!flow.includes('Recorded'));
+});
+
+ta('no failure path ever prints "Recorded"', async () => {
+  for (const [status, body] of [
+    [400, { ok: false, reason: 'INVALID_INPUT', detail: 'unit_conversion_unsupported' }],
+    [401, { ok: false, error: 'AUTH_ERROR' }],
+    [409, { ok: false, reason: 'IDEMPOTENCY_KEY_CONFLICT' }],
+    [500, { ok: false, reason: 'RPC_FAILED' }],
+    [502, { ok: false, error: 'CONNECTION_ERROR' }]
+  ]) {
+    const w = chopApp({ fetchImpl: () => jsonResp(status, body) });
+    w.mountCrewHome(PABLO);
+    typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+    await w.crewMadeRecord();
+    assert.ok(!/Recorded/.test(w.document.getElementById('crewMadeFlow').textContent),
+      'status ' + status + ' must not claim success');
+    assert.strictEqual(w.tasks[364].current_stock, 0, 'status ' + status + ' must not change stock');
+  }
+});
+
+// ── ISOLATION ──────────────────────────────────────────────────────
+console.log('\nN. Isolation — only Pablo gets the write path');
+
+t('Pablo gets the whole new path', () => {
+  const w = chopApp();
+  w.mountCrewHome(PABLO);
+  assert.notStrictEqual(w.document.getElementById('crewHome').style.display, 'none');
+  assert.ok(w.document.getElementById('crewMadeFlow'), 'the flow container exists');
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  assert.ok(w.document.getElementById('crewMadeFlow').textContent.includes('Record'));
+});
+
+t('Max, Tela and any other staff get nothing new and no write path', () => {
+  for (const u of [MAX, TELA, TODD, { id: 99, name: 'New Hire', role: 'staff', default_station: 'Salad Station' }]) {
+    const w = chopApp();
+    w.mountCrewHome(u);
+    assert.strictEqual(w.document.getElementById('crewHome').style.display, 'none',
+      u.name + ' must stay on the existing Home');
+    assert.strictEqual(w.document.getElementById('crewMadeFlow').innerHTML, '',
+      u.name + ' has no production flow');
+    // Even if the function is reached, nothing leaves the device.
+    w.document.getElementById('crewMadeInput').value = 'I made 2 batches of Chop Romaine';
+    w.crewSubmitMade();
+    assert.strictEqual(w.__calls.length, 0, u.name + ' must not be able to write');
+    assert.strictEqual(w.tasks[364].current_stock, 0);
+  }
+});
+
+ta('Yesterday is untouched by a production', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(200, OK_BODY) });
+  w.mountCrewHome(PABLO);
+  const y = w.document.getElementById('homeHighlightsWidget');
+  const before = y.innerHTML;
+  const parentBefore = y.parentNode.id;
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.strictEqual(y.innerHTML, before, 'Yesterday content must not be rewritten');
+  assert.strictEqual(y.parentNode.id, parentBefore);
+  assert.strictEqual(w.document.getElementById('homeHighlightsWidget'), y, 'same node, never rebuilt');
 });
 
 // ── E. YESTERDAY IS MOVED, NOT REBUILT ────────────────────────────
@@ -600,5 +1160,7 @@ t('no other production file was given a crew-home dependency', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-console.log('\n' + (fail === 0 ? 'ALL GREEN' : 'FAILURES') + ' — ' + pass + ' passed, ' + fail + ' failed\n');
-process.exit(fail === 0 ? 0 : 1);
+runAsync().then(() => {
+  console.log('\n' + (fail === 0 ? 'ALL GREEN' : 'FAILURES') + ' — ' + pass + ' passed, ' + fail + ' failed\n');
+  process.exit(fail === 0 ? 0 : 1);
+});
