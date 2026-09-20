@@ -438,6 +438,17 @@ function doLogin(profile){
     if(otherSt) otherSt.style.display = 'flex';
   }
 
+  // ── CREW HOME PILOT (CREW-UX 05) ──────────────────────────────────────
+  // Single entry point for the allowlist-gated pilot Home. This is the only
+  // place in the app that decides whether a user gets the Crew Home; the
+  // allowlist itself lives in js/crew-home.js (CREW_HOME_PILOT_IDS).
+  // Placed here on purpose: it is after `user` is populated and validated by
+  // the server, after the admin/staff Home branch above has run, and on the
+  // one path shared by both PIN login and _restoreSession. It only chooses
+  // what to render inside #vh — tab visibility, timers and every init()
+  // below are untouched. No-op for every user outside the allowlist.
+  if (typeof mountCrewHome === 'function') mountCrewHome(user);
+
   // ── TAB VISIBILITY ──
   // Ingredients — solo admin
   const tabIngr = document.getElementById('tabIngredients');

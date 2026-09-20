@@ -115,6 +115,164 @@
   }
 </style>
 
+<style>
+/* ══ CREW HOME V1 — PILOT (CREW-UX 05) ══════════════════════════════════
+   Every rule is scoped under #crewHome, which is display:none for everyone
+   except the pilot allowlist. Nothing here can reach the existing Home.
+   The one exception is .crew-block--yesterday, which only adds spacing and
+   a smaller scale around the EXISTING Yesterday widget — it does not change
+   the widget's own styles, markup or behaviour.
+   Mobile-first; the app is already max-w-md (448px). ══════════════════ */
+
+/* Safety net: the element also carries an inline display:none, which
+   mountCrewHome() flips to block for the pilot user only. */
+#crewHome:not([style*="block"]) { display: none; }
+
+#crewHome .crew-block { margin-bottom: 22px; }
+#crewHome .crew-block:last-child { margin-bottom: 4px; }
+
+/* ── Hierarchy: #1 loud, #2 an input, #3 almost only text ── */
+#crewHome .crew-eyebrow {
+  margin: 0 0 2px;
+  font-size: 11px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: #60a5fa;
+}
+#crewHome .crew-h1 {
+  margin: 0 0 12px;
+  font-size: 23px; font-weight: 700; line-height: 1.15;
+  letter-spacing: -.02em; color: #1e3a5f; text-wrap: balance;
+}
+#crewHome .crew-h2 {
+  margin: 0 0 8px;
+  font-size: 17px; font-weight: 600; line-height: 1.2; color: #1e3a5f;
+}
+
+/* ── Block 1 cards ── */
+#crewHome .crew-card {
+  background: rgba(255,255,255,0.72);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border: 0.5px solid rgba(59,130,246,0.18);
+  border-left: 4px solid var(--crew-accent, #94a3b8);
+  border-radius: 16px;
+  padding: 14px 16px 12px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 8px rgba(30,58,95,0.06), 0 8px 24px rgba(30,58,95,0.04);
+}
+#crewHome .crew-card__label {
+  font-size: 11px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--crew-accent, #64748b);
+}
+#crewHome .crew-card__name {
+  margin: 3px 0 0;
+  font-size: 21px; font-weight: 700; line-height: 1.2;
+  letter-spacing: -.01em; color: #0f172a; text-wrap: balance;
+}
+#crewHome .crew-card__qty {
+  margin-top: 4px;
+  font-size: 16px; font-weight: 700; color: var(--crew-accent, #1e3a5f);
+  font-variant-numeric: tabular-nums;
+}
+#crewHome .crew-card__why {
+  margin: 6px 0 0;
+  font-size: 14px; line-height: 1.4; color: #475569;
+}
+#crewHome .crew-card__actions { margin-top: 12px; }
+
+#crewHome .crew-cta {
+  appearance: none; cursor: pointer;
+  min-height: 44px; padding: 0 22px;
+  border: none; border-radius: 12px;
+  background: #1e3a5f; color: #fff;
+  font: 600 15px/1 Inter, system-ui, sans-serif;
+  letter-spacing: .02em;
+  -webkit-tap-highlight-color: transparent;
+}
+#crewHome .crew-cta--wide { width: 100%; margin-top: 10px; }
+#crewHome .crew-cta:active { opacity: .85; }
+#crewHome .crew-cta:focus-visible,
+#crewHome .crew-link:focus-visible,
+#crewHome .crew-made__btn:focus-visible,
+#crewHome .crew-made__input:focus-visible {
+  outline: 2px solid #2563eb; outline-offset: 2px;
+}
+
+#crewHome .crew-link {
+  appearance: none; background: none; border: none; cursor: pointer;
+  padding: 4px 0; font: 600 13px/1.2 Inter, system-ui, sans-serif;
+  color: #2563eb; -webkit-tap-highlight-color: transparent;
+}
+
+#crewHome .crew-more {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 2px 4px 0;
+  font-size: 13px; color: #64748b;
+}
+
+/* The honest line: quiet, never alarming, never one card per unknown item. */
+#crewHome .crew-unknown {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 12px; padding: 10px 14px;
+  border: 0.5px solid rgba(154,100,16,0.28);
+  border-radius: 12px; background: rgba(154,100,16,0.06);
+}
+#crewHome .crew-unknown__text { font-size: 13px; line-height: 1.35; color: #7c5310; }
+#crewHome .crew-unknown .crew-link { color: #7c5310; flex-shrink: 0; }
+
+#crewHome .crew-calm {
+  margin: 0; padding: 14px 2px;
+  font-size: 15px; line-height: 1.45; color: #475569;
+}
+#crewHome .crew-calm--good { color: #1f7350; font-weight: 600; }
+
+/* ── Block 2: must read as an input, not as a card ── */
+#crewHome .crew-made__row { display: flex; gap: 8px; align-items: stretch; }
+#crewHome .crew-made__input {
+  flex: 1; min-width: 0;
+  height: 50px; padding: 0 14px;
+  border: 1.5px solid rgba(59,130,246,0.28); border-radius: 14px;
+  background: rgba(255,255,255,0.9); color: #1e3a5f;
+  font: 400 16px/1 Inter, system-ui, sans-serif; /* 16px: no iOS zoom on focus */
+  outline: none;
+}
+#crewHome .crew-made__input::placeholder { color: #94a3b8; }
+#crewHome .crew-made__btn {
+  appearance: none; cursor: pointer; flex-shrink: 0;
+  height: 50px; padding: 0 18px;
+  border: none; border-radius: 14px;
+  background: #1e3a5f; color: #fff;
+  font: 600 15px/1 Inter, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+#crewHome .crew-made__note {
+  margin: 6px 2px 0; font-size: 12px; line-height: 1.4; color: #94a3b8;
+}
+#crewHome .crew-draft-head {
+  margin-top: 12px; margin-bottom: 4px;
+  font-size: 11px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: #94a3b8;
+}
+#crewHome .crew-draft-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; padding: 6px 0;
+  border-bottom: 0.5px solid rgba(59,130,246,0.1);
+}
+#crewHome .crew-draft-text { font-size: 14px; color: #1e3a5f; word-break: break-word; }
+#crewHome .crew-draft-time {
+  font-size: 12px; color: #94a3b8; white-space: nowrap; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+#crewHome .crew-draft-clear {
+  appearance: none; background: none; border: none; cursor: pointer;
+  margin-top: 6px; padding: 4px 0;
+  font: 500 12px/1.2 Inter, system-ui, sans-serif; color: #94a3b8;
+}
+
+/* ── Block 3: subordinate. Only spacing and scale around the EXISTING
+      Yesterday widget — its own markup and styles are untouched. ── */
+#crewHome .crew-block--yesterday { margin-top: 26px; opacity: .92; }
+#crewHome .crew-block--yesterday > * { transform: none; }
+</style>
+
 <script>
 (function(){
   if(window.location.search.indexOf('dev=1')!==-1){
@@ -430,6 +588,40 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
     <!-- HOME -->
     <section id="vh" class="px-3 pt-3 pb-4 space-y-3">
 
+      <!-- ══ CREW HOME V1 — PILOT (CREW-UX 05) ══
+           Hidden for everyone. mountCrewHome() in js/crew-home.js shows it
+           only for the pilot allowlist declared there, and hides the legacy
+           Home body for that user. Yesterday is not rebuilt here: the
+           existing #homeHighlightsWidget node is moved into
+           #crewYesterdaySlot. -->
+      <section id="crewHome" style="display:none;">
+
+        <!-- 1 — WHAT NEEDS YOUR ATTENTION -->
+        <div class="crew-block crew-block--attention">
+          <p class="crew-eyebrow" id="crewStationLabel"></p>
+          <h2 class="crew-h1">What needs your attention</h2>
+          <div id="crewAttention"></div>
+        </div>
+
+        <!-- 2 — WHAT DID YOU MAKE? -->
+        <div class="crew-block crew-block--made">
+          <h2 class="crew-h2">What did you make?</h2>
+          <div class="crew-made__row">
+            <input id="crewMadeInput" class="crew-made__input" type="text"
+              placeholder="Tell me what you made..."
+              autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();crewSaveMade();}">
+            <button type="button" class="crew-made__btn" onclick="crewSaveMade()">Save</button>
+          </div>
+          <p class="crew-made__note">Pilot: this is kept on your phone only. Nothing is recorded yet.</p>
+          <div id="crewMadeDrafts"></div>
+        </div>
+
+        <!-- 3 — YESTERDAY (the existing widget, moved here unchanged) -->
+        <div class="crew-block crew-block--yesterday" id="crewYesterdaySlot"></div>
+
+      </section>
+
       <!-- TODAY'S TO-DO (staff only, rendered by renderHomeTodo in briefing.js) -->
       <!-- Hidden by default; JS shows based on role + station -->
       <div id="homeTodoWidget" style="display:none;background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
@@ -557,7 +749,9 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
       </div>
 
       <!-- Upcoming Demand — tutti -->
-      <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
+      <!-- id aggiunto da CREW-UX 05: serve solo al pilot Crew Home per
+           nasconderlo a Pablo. Nessun altro comportamento cambia. -->
+      <div id="homeUpcomingWidget" style="background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:0.5px solid rgba(59,130,246,0.18);border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(30,58,95,0.06),0 8px 24px rgba(30,58,95,0.04);">
         <div style="padding:10px 14px 8px;border-bottom:0.5px solid rgba(59,130,246,0.08);">
           <span id="homeUpcomingLabel" style="font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:.06em;text-transform:uppercase;">Upcoming Demand</span>
         </div>
@@ -1137,6 +1331,10 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/journal.js"></script>
 <script type="module" src="js/purchase-rhythm.js"></script>
 <script src="js/purchase-order.js"></script>
+<!-- CREW-UX 05 — Crew Home V1 pilot. Loads last: reads globals defined by
+     utils.js (user), prep.js (_computeStockVerified, humanQty, tasks) and
+     briefing.js (goToStation). No-op for everyone outside the allowlist. -->
+<script src="js/crew-home.js"></script>
 <script>
 if('serviceWorker'in navigator){
   navigator.serviceWorker.register('./sw.js');

@@ -162,6 +162,11 @@ function renderHomeTodo() {
 // Admin: tutte le stazioni in pill (#homeStations) — verdi/rosse
 // Staff: top 3 propria stazione (#homeStationItems) + altre stazioni con item da fare (#homeOtherStations)
 function renderHomeStations(){
+  // CREW-UX 05: the pilot Crew Home refreshes on exactly the same triggers as
+  // the legacy Home (init, prep save, Home tab). Placed before the early
+  // returns below so it always runs. Guarded and self-gating — it returns
+  // immediately for every user outside the pilot allowlist.
+  if (typeof renderCrewHome === 'function') renderCrewHome();
   if (typeof renderHomeTodo === 'function') renderHomeTodo();
   // Tutte le categorie presenti in prep_tasks
   const allCats=[...new Set(items.map(i=>i.category).filter(Boolean))].sort();
