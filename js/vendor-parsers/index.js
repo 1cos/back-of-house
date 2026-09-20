@@ -283,8 +283,14 @@ function parse(rawText) {
   }
 }
 
+// MICRO-TASK 81 — la decisione BEK post-parse (buyer guard + riconciliazione
+// delle revisioni) e' condivisa fra Phase A del worker e il reprocess della
+// UI. Esposta da qui perche' e' la porta d'ingresso che entrambi usano gia'.
+const bekSafety = require('./bek-post-parse-safety');
+
 module.exports = {
   parse, detectVendor, detectDocumentType, checkTotals,
+  bekSafety,
   isPurchasableDocument, isBenEKeith,
   classifyBuyer, extractBuyerEmail, normalizeBuyerEmail,
   BEK_BUYER_KITCHEN, BEK_BUYER_FOH,

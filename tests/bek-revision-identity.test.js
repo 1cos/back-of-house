@@ -32,6 +32,14 @@ const INTAKE = fs.readFileSync(
 const WORKER = fs.readFileSync(
   path.join(__dirname, '..', 'edge-functions', 'vendor-doc-auto-import', 'index.ts'), 'utf8');
 
+// MICRO-TASK 81 — la DECISIONE (rango, fratelli, fail closed) vive ora in
+// js/vendor-parsers/bek-post-parse-safety.js, condivisa fra Phase A e il
+// reprocess della UI. Le SCRITTURE restano nei caller. I pin qui sotto sono
+// stati riancorati di conseguenza: stesse asserzioni, sul file che oggi
+// contiene la regola, piu' un pin sul caller per la scrittura che gli compete.
+const SAFETY = fs.readFileSync(
+  path.join(__dirname, '..', 'js', 'vendor-parsers', 'bek-post-parse-safety.js'), 'utf8');
+
 let pass = 0, fail = 0;
 function test(name, fn) {
   try { fn(); pass++; console.log('  ✓ ' + name); }
@@ -190,13 +198,14 @@ test('K. revisione non classificabile: nessuno supera nessuno, fail closed', () 
 });
 
 test('K2. il worker tratta il caso incerto come eccezione bloccante', () => {
-  const f = WORKER.slice(WORKER.indexOf('MICRO-TASK 42, section F'));
-  assert.ok(/BEK_REVISION_UNKNOWN/.test(f), 'manca il codice di eccezione');
-  const blocco = f.slice(f.indexOf('const incerti'), f.indexOf('const betterSibling'));
-  assert.ok(/status: 'pending'/.test(blocco), 'deve restare pending');
+  assert.ok(/BEK_REVISION_UNKNOWN/.test(SAFETY), 'manca il codice di eccezione');
+  const blocco = SAFETY.slice(SAFETY.indexOf('const incerti'), SAFETY.indexOf('const betterSibling'));
   assert.ok(/severity: 'blocking'/.test(blocco), 'deve essere bloccante');
-  assert.ok(f.indexOf('const incerti') < f.indexOf('const betterSibling'),
+  assert.ok(SAFETY.indexOf('const incerti') < SAFETY.indexOf('const betterSibling'),
     'il controllo di incertezza deve precedere qualunque superamento');
+  // la scrittura compete al caller, e deve restare pending
+  const ramo = WORKER.slice(WORKER.indexOf('OUT.REVISION_UNKNOWN'));
+  assert.ok(/status: 'pending'/.test(ramo.slice(0, 300)), 'deve restare pending');
 });
 
 test('K3. una classe mai vista non riceve rango per sbaglio', () => {
@@ -260,17 +269,18 @@ test('D. stesso Sales Order ma email diversa -> NON duplicate', () => {
 // ── E. fratello gia' imported -> fail closed ─────────────────────
 
 test('E. un fratello gia imported ferma tutto, lato worker', () => {
-  const f = WORKER.slice(WORKER.indexOf('MICRO-TASK 42, section F'));
-  assert.ok(/alreadyImported = rows\.find\(\(r: any\) => r\.status === 'imported'\)/.test(f),
+  assert.ok(/alreadyImported = rows\.find\(\(r\) => r\.status === 'imported'\)/.test(SAFETY),
     'il controllo sul fratello imported deve restare');
-  const blocco = f.slice(f.indexOf('if (alreadyImported)'), f.indexOf('// ── MICRO-TASK 64') );
-  assert.ok(/status: 'pending'/.test(blocco), 'deve restare pending, mai imported');
+  const blocco = SAFETY.slice(SAFETY.indexOf('if (alreadyImported)'), SAFETY.indexOf('const meRank'));
   assert.ok(/BEK_REVISION_AFTER_IMPORT/.test(blocco) && /severity: 'blocking'/.test(blocco),
     'deve alzare un warning bloccante');
   assert.ok(/was NOT imported as a second purchase/.test(blocco),
     'nessuna seconda purchase');
-  assert.ok(f.indexOf('if (alreadyImported)') < f.indexOf('bekRevisionRank(parsed'),
+  assert.ok(SAFETY.indexOf('if (alreadyImported)') < SAFETY.indexOf('const meRank'),
     'il fail closed deve precedere qualunque scelta di revisione');
+  // la scrittura compete al caller, e non puo' essere 'imported'
+  const ramo = WORKER.slice(WORKER.indexOf('OUT.AFTER_IMPORT'));
+  assert.ok(/status: 'pending'/.test(ramo.slice(0, 300)), 'deve restare pending, mai imported');
 });
 
 test('E2. l intake NON blocca il caso imported: lo lascia a MT42-F', () => {

@@ -18,6 +18,11 @@
      Deve precedere vendor-documents-review.js / vendor-parser-ui.js, che
      leggono window.BekOrderConfirmationParser. -->
 <script src="js/vendor-parsers/ben-e-keith-order-confirmation.js"></script>
+<!-- MICRO-TASK 81: decisione BEK post-parse (buyer guard + riconciliazione
+     delle revisioni) condivisa con Phase A del worker. Deve precedere
+     vendor-documents-review.js e seguire il parser canonico, da cui legge
+     classifyBuyer e le costanti buyer. -->
+<script src="js/vendor-parsers/bek-post-parse-safety.js"></script>
 <script src="js/vendor-documents-review.js"></script>
 <script src="js/operation-notes.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>

@@ -25,6 +25,20 @@ function vdrIsPurchasableDocumentFallback(vendor, documentType) {
   return false;
 }
 
+// MICRO-TASK 81 — la decisione BEK post-parse e' condivisa con Phase A del
+// worker. index.html carica bek-post-parse-safety.js prima di questo file.
+function vdrBekSafety() {
+  const mod = (typeof window !== 'undefined') && window.BekPostParseSafety;
+  if (!mod) throw new Error('bek-post-parse-safety non caricato: controlla index.html');
+  return mod;
+}
+
+function vdrIsBek(vendor) {
+  const mod = (typeof window !== 'undefined') && window.BekOrderConfirmationParser;
+  if (mod && typeof mod.isBenEKeith === 'function') return mod.isBenEKeith(vendor) === true;
+  return /^(?:ben\s*e\.?\s*keith|bek)$/i.test(String(vendor == null ? '' : vendor).trim());
+}
+
 function vdrIsPurchasableDocument(vendor, documentType) {
   const mod = (typeof window !== 'undefined') && window.BekOrderConfirmationParser;
   if (mod && typeof mod.isPurchasableDocument === 'function') {
@@ -724,7 +738,26 @@ window.vdrProcessAllPdf = async function(docId) {
           // path doesn't need) — go straight to the dedicated DOM-based
           // table parser.
           rawText = doc.raw_text;
-          parsed = parsers.parseBekOrderConfirmationHtml(rawText);
+          // MICRO-TASK 81 — il PARSER CANONICO, lo stesso di Phase A.
+          //
+          // Qui si chiamava parsers.parseBekOrderConfirmationHtml(), la copia
+          // DOM-based che vive in js/vendor-parser-ui.js. Misurato: quella
+          // copia NON produce buyer_email, buyer_class, document_class ne'
+          // warning — restituisce sempre `warnings: []`. Finche' questo
+          // percorso non prendeva nessuna decisione BEK la differenza non si
+          // vedeva; da MT81 la decisione condivisa legge esattamente quei
+          // campi, e con la copia del browser ogni documento BEK sarebbe
+          // stato bloccato come "buyer sconosciuto" e "classe incerta" — cioe'
+          // per un dato mancante, non per una decisione. Lo stesso difetto
+          // che MT72 ha tolto dal worker.
+          //
+          // Il parser canonico e' gia' caricato da index.html e i suoi item
+          // sono gia' asserti identici a quelli della copia browser da
+          // tests/bek-parser-parity.test.js: quello che si guadagna sono i
+          // campi che la copia non ha mai prodotto.
+          parsed = (typeof window !== 'undefined' && window.BekOrderConfirmationParser)
+            ? window.BekOrderConfirmationParser.parse(rawText)
+            : parsers.parseBekOrderConfirmationHtml(rawText);
         } else if (doc.parsed_json?.source === 'email_body' && doc.raw_text) {
           // FIX (BOH OS Task 10): Ben E. Keith Order Confirmation emails have no
           // PDF attachment — gmail-vendor-import already stored the plain email
@@ -850,7 +883,14 @@ window.vdrProcessAllPdf = async function(docId) {
         const docDate   = parsed.order_date   || parsed.credit_date   || parsed.delivery_date || parsed.document_date || parsed.invoice_date || null;
 
         // Duplicate check by doc number
-        if (docNumber) {
+        // MICRO-TASK 81 — la stessa esclusione che Phase A ha dal MT42: per
+        // Ben E. Keith il Sales Order e' un GRUPPO DI RICONCILIAZIONE, non
+        // l'identita' di un messaggio, e il gruppo lo governa la decisione
+        // condivisa qui sotto. Senza questa riga il reprocess marcava
+        // DUPLICATE una revisione legittima solo perche' un fratello esiste —
+        // compreso il caso in cui il fratello e' semplicemente 'pending', che
+        // per Phase A e' un normale superamento e non un errore.
+        if (docNumber && !(vdrIsBek(parsed.vendor) && parsed.document_type === 'order_confirmation')) {
           const { data: byNum } = await sb.from('vendor_documents').select('id').eq('vendor', parsed.vendor).eq('document_number', docNumber).eq('document_type', parsed.document_type).neq('id', doc.id).limit(1);
           if (byNum && byNum.length > 0) {
             await sb.from('vendor_documents').update({ status: 'error', warnings: [{ code: 'DUPLICATE', message: `Document #${docNumber} already exists` }] }).eq('id', doc.id);
@@ -915,6 +955,35 @@ window.vdrProcessAllPdf = async function(docId) {
         // ignore/review decision can never leave a window where the
         // document could reach 'pending' even transiently. Returns null
         // for every non-Walmart vendor — no behavior change for them.
+        // ══════════════════════════════════════════════════════════
+        // MICRO-TASK 81 — LA STESSA DECISIONE DI PHASE A, QUI.
+        //
+        // MT80 ha misurato che questo percorso riscriveva warnings con le
+        // sole warning del parser: BEK_REVISION_AFTER_IMPORT e
+        // BEK_REVISION_UNKNOWN sparivano, e Phase A non le rigenerava mai
+        // piu' perche' lavora solo su status 'pdf_received'.
+        //
+        // Non si preservano le vecchie: si RICALCOLA. La decisione guarda lo
+        // stato del database adesso — se il fratello importato non c'e' piu',
+        // la warning non torna; se la classe e' diventata leggibile, il
+        // documento procede. Una warning non sopravvive perche' c'era.
+        //
+        // Le warning del parser restano: quelle di stato si aggiungono.
+        // Consultata solo per i documenti a cui si applica: un Hardie's o un
+        // Walmart non deve dipendere dal caricamento di un modulo BEK. Per un
+        // BEK, invece, l'assenza del modulo e' un errore rumoroso e non un
+        // silenzioso salto della barriera.
+        const bekDecision =
+          (vdrIsPurchasableDocument(parsed.vendor, parsed.document_type) && vdrIsBek(parsed.vendor))
+            ? await vdrBekSafety().bekDecidePostParse({
+                sb, doc, parsed, docNumber,
+                parseRawText: (t) => parsers.parse(t),
+              })
+            : { applies: false, warnings: [] };
+        if (bekDecision.applies && bekDecision.warnings.length) {
+          allWarnings.push(...bekDecision.warnings);
+        }
+
         const walmartBuyerDecision = vdrDecideWalmartBuyer(parsed);
         if (walmartBuyerDecision && walmartBuyerDecision.action === 'ignore') {
           allWarnings.push({
@@ -936,6 +1005,25 @@ window.vdrProcessAllPdf = async function(docId) {
         // exactly as computed, matching "no regression"/"do not
         // auto-approve" requirements.
         let computedStatus = (parsed.items && parsed.items.length > 0) ? 'pending' : 'error';
+        // MICRO-TASK 81 — lo status segue l'esito canonico, con gli stessi
+        // significati di Phase A: un ordine di sala e una revisione superata
+        // sono 'ignored'; buyer non riconosciuto, fratello gia' importato e
+        // classe incerta restano 'pending' con la loro warning bloccante.
+        if (bekDecision.applies) {
+          const O = vdrBekSafety().OUTCOME;
+          if (bekDecision.outcome === O.BUYER_EXCLUDED || bekDecision.outcome === O.SUPERSEDED) {
+            computedStatus = 'ignored';
+          } else if (bekDecision.outcome === O.BUYER_UNKNOWN
+                  || bekDecision.outcome === O.AFTER_IMPORT
+                  || bekDecision.outcome === O.REVISION_UNKNOWN) {
+            computedStatus = 'pending';
+          } else {
+            // OPERATIVE: i fratelli vivi vengono superati, come fa Phase A.
+            for (const sid of bekDecision.revision.supersedeIds || []) {
+              await sb.from('vendor_documents').update({ status: 'ignored' }).eq('id', sid);
+            }
+          }
+        }
         if (walmartBuyerDecision && walmartBuyerDecision.action === 'ignore') {
           computedStatus = 'ignored';
         } else if (walmartBuyerDecision && walmartBuyerDecision.action === 'review') {

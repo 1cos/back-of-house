@@ -486,9 +486,16 @@ const PARSERS = require('../js/vendor-parsers');
     assert.ok(WORKER.includes(
       "if (docNumber && RECONCILE_VENDORS.includes(parsed.vendor) && (parsed.document_type === 'order_confirmation' || parsed.document_type === 'invoice')) {"),
       'la riconciliazione Hardie\'s/Chef\'s Warehouse e\' cambiata');
-    assert.ok(WORKER.includes(
-      "if (docNumber && parsersApi().isBenEKeith(parsed.vendor) && parsed.document_type === 'order_confirmation') {"),
+    // MT81: il gate della sezione F e' stato spostato nella decisione
+    // condivisa (js/vendor-parsers/bek-post-parse-safety.js), usata sia da
+    // Phase A sia dal reprocess. L'asserzione segue la regola: stessa
+    // condizione, sul file che oggi la contiene.
+    const SAFETY = fs.readFileSync(
+      path.join(__dirname, '..', 'js', 'vendor-parsers', 'bek-post-parse-safety.js'), 'utf8');
+    assert.ok(SAFETY.includes("if (!docNumber || p.document_type !== 'order_confirmation') {"),
       'il gate della sezione F e\' cambiato');
+    assert.ok(/\.eq\('document_type', 'order_confirmation'\)/.test(SAFETY),
+      'la query dei fratelli non e\' piu\' ristretta agli order_confirmation');
   });
 
   // ════════════════════════════════════════════════════════════════

@@ -33,6 +33,14 @@ const F = require('./fixtures/bek-html-real-shape');
 const WORKER = fs.readFileSync(
   path.join(__dirname, '..', 'edge-functions', 'vendor-doc-auto-import', 'index.ts'), 'utf8');
 
+// MICRO-TASK 81 — la DECISIONE (rango, fratelli, fail closed) vive ora in
+// js/vendor-parsers/bek-post-parse-safety.js, condivisa fra Phase A e il
+// reprocess della UI. Le SCRITTURE restano nei caller. I pin qui sotto sono
+// stati riancorati di conseguenza: stesse asserzioni, sul file che oggi
+// contiene la regola, piu' un pin sul caller per la scrittura che gli compete.
+const SAFETY = fs.readFileSync(
+  path.join(__dirname, '..', 'js', 'vendor-parsers', 'bek-post-parse-safety.js'), 'utf8');
+
 let pass = 0, fail = 0;
 async function atest(name, fn) {
   try { await fn(); pass++; console.log('  ✓ ' + name); }
@@ -305,8 +313,7 @@ async function faseB(sb, row) {
 
   // ── Pin di regressione sul sorgente ────────────────────────────
   await atest('R. il gate fail-closed non dipende piu dal numero di fratelli', () => {
-    const f = WORKER.slice(WORKER.indexOf('MICRO-TASK 42, section F'));
-    const gate = f.slice(f.indexOf('const incerti ='), f.indexOf('const betterSibling'));
+    const gate = SAFETY.slice(SAFETY.indexOf('const incerti ='), SAFETY.indexOf('const betterSibling'));
     assert.ok(/BEK_REVISION_UNKNOWN/.test(gate), 'il gate deve ancora scrivere l eccezione');
     assert.ok(!/live\.length > 0 &&/.test(gate),
       'live.length > 0 non deve piu condizionare il gate: era il difetto di MT70');
