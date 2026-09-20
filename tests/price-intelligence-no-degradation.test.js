@@ -11,7 +11,7 @@ const path = require('path');
 const assert = require('assert');
 
 const ROOT = path.join(__dirname, '..');
-const { mergePriceIntelligence, classifyPack,
+const { mergePriceIntelligence, classifyPack, normalizePack, samePack,
         PACK_WEIGHT, PACK_COUNT, PACK_NONE, PACK_UNKNOWN } =
   require(path.join(ROOT, 'js/vendor-parsers/price-intelligence-merge.js'));
 
@@ -73,6 +73,8 @@ test('1. WEIGHT valido esistente + documento piu\' recente con pack troncato "1/
   };
   const r = mergePriceIntelligence(existing, observe({ pack: '1/', unitPrice: 21.87, invoiceDate: '2026-08-13' }));
   assert.strictEqual(r.rescued, true, 'doveva essere un salvataggio');
+  assert.strictEqual(r.skipped, false);
+  assert.strictEqual(r.reason, 'rescue_missing_pack');
   assert.strictEqual(r.fields.conversion_to_base, 22680, 'conversione persa');
   assert.strictEqual(r.fields.pack_description, '1/ 50 LB', 'pack valido sovrascritto dal troncato');
   assert.notStrictEqual(r.fields.price_per_100g, null, 'price_per_100g azzerato');
@@ -99,6 +101,8 @@ test('3. stesso pack valido, prezzo nuovo → aggiornamento normale, byte per by
   const obs = observe({ pack: '1/ 50 LB', unitPrice: 23.50, invoiceDate: '2026-08-13' });
   const r = mergePriceIntelligence(existing, obs);
   assert.strictEqual(r.rescued, false);
+  assert.strictEqual(r.skipped, false);
+  assert.strictEqual(r.reason, 'update');
   assert.deepStrictEqual(r.fields, obs, 'il merge ha alterato un aggiornamento normale');
 });
 
@@ -107,6 +111,7 @@ test('4. COUNT pack "10/ 100 CT" → conversion_to_base null resta legittimo, il
   const existing = { pack_description: '10/ 100 CT', conversion_to_base: null, price_per_100g: null, last_invoice_date: '2026-08-18' };
   const r = mergePriceIntelligence(existing, observe({ pack: '10/ 100 CT', unitPrice: 52.92, invoiceDate: '2026-09-17' }));
   assert.strictEqual(r.rescued, false, 'un count pack non e\' un salvataggio');
+  assert.strictEqual(r.skipped, false, 'un count pack non va mai saltato');
   assert.strictEqual(r.fields.conversion_to_base, null);
   assert.strictEqual(r.fields.price_per_100g, null);
   assert.strictEqual(r.fields.pack_description, '10/ 100 CT');
@@ -149,6 +154,9 @@ test('7. chronology guard: e\' a monte e resta intatto, il merge non lo scavalca
   // e ogni ramo che scrive passa dal merge
   const nMerge = (body.match(/mergeFor\(/g) || []).length;
   assert.strictEqual(nMerge, 7, 'attesi 7 punti di scrittura passati dal merge, trovati ' + nMerge);
+  // MT88A.1: nessun ramo deve piu' spandere direttamente il risultato del
+  // merge — il null dello skip va controllato prima di scrivere.
+  assert.ok(!/\.\.\.mergeFor\(/.test(body), 'un ramo del worker scrive senza controllare lo skip');
   // in ogni ramo di UPDATE il guardrail precede testualmente il merge
   for (const ramo of body.split('if (!chronologyAllows(').slice(1)) {
     const fino = ramo.slice(0, 600);
@@ -196,23 +204,181 @@ test('9. Semolina reale: 0002869853 non degrada la riga BEK 688106', () => {
   assert.ok(!('price_per_each' in POST), 'price_per_each non deve comparire fra i campi scritti');
 });
 
-test('9b. gli altri cinque SKU a rischio censiti in produzione sono tutti protetti', () => {
-  const casi = [
-    { nome: 'Hardie\'s 03744', pack: '9-1/2 GAL',  conv: 35961, prezzo: 83.00 },
-    { nome: 'Hardie\'s 25618', pack: '6-4/2 oz',   conv: 1361,  prezzo: 24.50 },
-    { nome: 'Hardie\'s 00907', pack: '80#   ITA',  conv: 36287, prezzo: 13.50 },
-    { nome: 'Hardie\'s 00912', pack: '13#   ITA',  conv: 5897,  prezzo: 10.85 },
-    { nome: 'BEK 688106',      pack: '1/',         conv: 22680, prezzo: 21.87 },
+test('9b. corpus reale: ogni SKU a rischio cade nel caso giusto, coi pack veri del database', () => {
+  // Letti dal database il 2026-09-20. existing.pack e' quello MEMORIZZATO
+  // in ingredient_vendors, observed quello che il documento pending
+  // dichiara davvero — non sempre sono la stessa stringa.
+  const corpus = [
+    { nome: 'BEK 688106',    exPack: '1/ 50 LB',  conv: 22680, obsPack: '1/',          prezzo: 21.87, atteso: 'rescue_missing_pack' },
+    { nome: 'BEK 688106',    exPack: '1/ 50 LB',  conv: 22680, obsPack: '1/ 50 LB',    prezzo: 21.87, atteso: 'update' },
+    { nome: "HAR 03744",     exPack: '9-1/2 GAL', conv: 35961, obsPack: '9-1/2 GAL',   prezzo: 83.00, atteso: 'rescue_same_pack' },
+    { nome: "HAR 25618",     exPack: '6-4/2 oz',  conv: 1361,  obsPack: '6-4/2 oz',    prezzo: 24.50, atteso: 'rescue_same_pack' },
+    { nome: "HAR 00907",     exPack: '80#',       conv: 36287, obsPack: '80#',         prezzo: 13.50, atteso: 'update' },
+    { nome: "HAR 00907",     exPack: '80#',       conv: 36287, obsPack: '80#   ITA',   prezzo: 13.50, atteso: 'unresolved_pack_change' },
+    { nome: "HAR 00912",     exPack: '13#',       conv: 5897,  obsPack: '13#',         prezzo: 10.85, atteso: 'update' },
+    { nome: "HAR 00912",     exPack: '13#',       conv: 5897,  obsPack: '13#   ITA',   prezzo: 10.85, atteso: 'unresolved_pack_change' },
+    { nome: 'BEK 108509',    exPack: null,        conv: null,  obsPack: '3/',          prezzo: 40.00, atteso: 'update' },
+    { nome: 'BEK 108509',    exPack: null,        conv: null,  obsPack: '3/ 1 GAL',    prezzo: 40.00, atteso: 'update' },
   ];
-  for (const c of casi) {
-    assert.strictEqual(vdaiPackToGrams(c.pack), null, c.nome + ': il worker ora saprebbe leggere questo pack, il test va rivisto');
-    const r = mergePriceIntelligence(
-      { pack_description: c.pack, conversion_to_base: c.conv, price_per_100g: 1, last_invoice_date: '2026-09-14' },
-      observe({ pack: c.pack, unitPrice: c.prezzo, invoiceDate: '2026-09-21' }));
-    assert.strictEqual(r.rescued, true, c.nome + ': non protetto');
-    assert.strictEqual(r.fields.conversion_to_base, c.conv, c.nome + ': conversione persa');
-    assert.strictEqual(r.fields.price_per_100g, (c.prezzo / c.conv) * 100, c.nome + ': prezzo normalizzato non ricalcolato');
+  for (const c of corpus) {
+    const existing = c.conv === null && c.exPack === null ? null
+      : { pack_description: c.exPack, conversion_to_base: c.conv, price_per_100g: 1, last_invoice_date: '2026-01-01' };
+    const r = mergePriceIntelligence(existing, observe({ pack: c.obsPack, unitPrice: c.prezzo, invoiceDate: '2026-09-30' }));
+    assert.strictEqual(r.reason, c.atteso,
+      c.nome + ' observed ' + JSON.stringify(c.obsPack) + ': atteso ' + c.atteso + ', ottenuto ' + r.reason);
+
+    if (c.atteso === 'unresolved_pack_change') {
+      // fail-closed: nessun campo scritto, e soprattutto la conversione
+      // vecchia non viene MAI associata al prezzo nuovo
+      assert.strictEqual(r.skipped, true, c.nome);
+      assert.strictEqual(r.fields, null, c.nome);
+    } else if (c.atteso === 'update') {
+      // il worker sa leggere questo pack da solo
+      assert.strictEqual(r.skipped, false, c.nome);
+      assert.strictEqual(r.rescued, false, c.nome);
+      assert.strictEqual(r.fields.conversion_to_base, observe({ pack: c.obsPack, unitPrice: c.prezzo, invoiceDate: 'x' }).conversion_to_base, c.nome);
+    } else {
+      // rescue: la conversione memorizzata sopravvive e il prezzo
+      // normalizzato viene rifatto sul prezzo nuovo
+      assert.strictEqual(r.skipped, false, c.nome);
+      assert.strictEqual(r.rescued, true, c.nome);
+      assert.strictEqual(r.fields.conversion_to_base, c.conv, c.nome + ': conversione persa');
+      assert.strictEqual(r.fields.pack_description, c.exPack, c.nome + ': pack valido perso');
+      assert.strictEqual(r.fields.price_per_100g, (c.prezzo / c.conv) * 100, c.nome + ': prezzo normalizzato non ricalcolato');
+      assert.strictEqual(r.fields.last_invoice_date, '2026-09-30', c.nome + ': data non avanzata');
+    }
   }
+});
+
+test('9b2. nessun SKU del corpus finisce con la conversione azzerata', () => {
+  const protetti = [
+    { exPack: '1/ 50 LB',  conv: 22680, obsPack: '1/' },
+    { exPack: '9-1/2 GAL', conv: 35961, obsPack: '9-1/2 GAL' },
+    { exPack: '6-4/2 oz',  conv: 1361,  obsPack: '6-4/2 oz' },
+    { exPack: '80#',       conv: 36287, obsPack: '80#   ITA' },
+    { exPack: '13#',       conv: 5897,  obsPack: '13#   ITA' },
+  ];
+  for (const c of protetti) {
+    const r = mergePriceIntelligence(
+      { pack_description: c.exPack, conversion_to_base: c.conv, price_per_100g: 1, last_invoice_date: '2026-01-01' },
+      observe({ pack: c.obsPack, unitPrice: 50, invoiceDate: '2026-09-30' }));
+    // o si salta del tutto, o si scrive conservando la conversione:
+    // in nessun caso la conversione diventa null
+    if (r.skipped) { assert.strictEqual(r.fields, null); continue; }
+    assert.strictEqual(r.fields.conversion_to_base, c.conv,
+      c.exPack + ' -> ' + c.obsPack + ': conversione non conservata');
+  }
+});
+
+// ── MT88A.1: i tre casi distinti ─────────────────────────────────────
+test('9c. CASO 2 — stesso pack che il worker non sa leggere: conversione conservata', () => {
+  const existing = { pack_description: '9-1/2 GAL', conversion_to_base: 35961, price_per_100g: 0.23077525218362635, last_invoice_date: '2026-09-14' };
+  const r = mergePriceIntelligence(existing, observe({ pack: '9-1/2 GAL', unitPrice: 83.00, invoiceDate: '2026-09-18' }));
+  assert.strictEqual(r.skipped, false);
+  assert.strictEqual(r.reason, 'rescue_same_pack');
+  assert.strictEqual(r.fields.conversion_to_base, 35961);
+  assert.strictEqual(r.fields.pack_description, '9-1/2 GAL');
+  assert.strictEqual(r.fields.price_per_100g, (83.00 / 35961) * 100);
+  assert.strictEqual(r.fields.last_invoice_date, '2026-09-18');
+});
+
+test('9d. CASO 2 — differenze di solo whitespace o maiuscole restano "stesso pack"', () => {
+  const coppie = [
+    ['80#   ITA', '80# ITA'],
+    ['80#   ITA', '80#   ita'],
+    ['9-1/2 GAL', '  9-1/2 gal  '],
+    ['6-4/2 oz',  '6-4/2 OZ'],
+    ['1/ 50 LB',  '1/  50  lb'],
+  ];
+  for (const [memorizzato, osservato] of coppie) {
+    assert.ok(samePack(memorizzato, osservato), 'samePack: ' + memorizzato + ' vs ' + osservato);
+    const r = mergePriceIntelligence(
+      { pack_description: memorizzato, conversion_to_base: 12345, price_per_100g: 1, last_invoice_date: '2026-01-01' },
+      { unit_price: 10, pack_description: osservato, price_type: 'per_case',
+        conversion_to_base: null, price_per_100g: null, last_invoice_date: '2026-02-01' });
+    assert.strictEqual(r.skipped, false, osservato + ': saltato per una differenza innocua');
+    assert.strictEqual(r.reason, 'rescue_same_pack');
+    assert.strictEqual(r.fields.conversion_to_base, 12345);
+    assert.strictEqual(r.fields.pack_description, memorizzato, 'va conservata la forma gia\' memorizzata');
+  }
+});
+
+test('9e. CASO 3 — pack diverso e non convertibile: FAIL-CLOSED, nessun campo scritto', () => {
+  const existing = { pack_description: '1/ 50 LB', conversion_to_base: 22680, price_per_100g: 0.09643027213883844, last_invoice_date: '2026-07-23' };
+  const r = mergePriceIntelligence(existing, observe({ pack: '80#   ITA', unitPrice: 40.00, invoiceDate: '2026-08-13' }));
+  assert.strictEqual(r.skipped, true, 'doveva essere fail-closed');
+  assert.strictEqual(r.reason, 'unresolved_pack_change');
+  assert.strictEqual(r.fields, null, 'con skipped non deve esserci nessun campo da scrivere');
+  assert.strictEqual(r.rescued, false);
+  assert.strictEqual(r.observedPack, '80#   ITA');
+  assert.strictEqual(r.storedPack, '1/ 50 LB');
+  // e soprattutto: non deve MAI uscire 22680 associato al prezzo nuovo
+  const falso = (40.00 / 22680) * 100;
+  const vero  = (40.00 / (80 * 453.592)) * 100;
+  assert.ok(Math.abs(falso - vero) / vero > 0.5, 'il caso scelto non e\' abbastanza distante da essere probante');
+});
+
+test('9f. CASO 3 — altre forme: pack diverso, conteggio diverso, pack sconosciuto', () => {
+  const existing = { pack_description: '1/ 50 LB', conversion_to_base: 22680, price_per_100g: 0.0964, last_invoice_date: '2026-07-23' };
+  for (const osservato of ['80#   ITA', '4 PKG/12#', '1 gallon Great Value Whole Milk', '12/ 250 CT', '2/ 1000 CT']) {
+    const r = mergePriceIntelligence(existing, observe({ pack: osservato, unitPrice: 40, invoiceDate: '2026-08-13' }));
+    assert.strictEqual(r.skipped, true, osservato + ': doveva essere saltato');
+    assert.strictEqual(r.fields, null, osservato);
+  }
+});
+
+test('9g. il fail-closed scatta SOLO se c\'e\' davvero qualcosa da proteggere', () => {
+  // nessuna conversione memorizzata -> niente da perdere, si scrive normalmente
+  const r = mergePriceIntelligence(
+    { pack_description: '10/ 100 CT', conversion_to_base: null, price_per_100g: null, last_invoice_date: '2026-08-18' },
+    observe({ pack: '3/ 50 CT', unitPrice: 60.19, invoiceDate: '2026-09-17' }));
+  assert.strictEqual(r.skipped, false, 'senza conversione memorizzata non si salta mai');
+  assert.strictEqual(r.reason, 'update');
+  assert.strictEqual(r.fields.pack_description, '3/ 50 CT');
+  // conversione memorizzata a 0 o negativa: non e' una conversione valida
+  for (const conv of [0, -1]) {
+    const r2 = mergePriceIntelligence(
+      { pack_description: '1/ 50 LB', conversion_to_base: conv, price_per_100g: null, last_invoice_date: '2026-07-23' },
+      observe({ pack: '80#   ITA', unitPrice: 40, invoiceDate: '2026-08-13' }));
+    assert.strictEqual(r2.skipped, false, 'conversione ' + conv + ' non e\' un dato da proteggere');
+  }
+});
+
+test('9h. per_lb non viene mai saltato, nemmeno con un pack diverso', () => {
+  const existing = { pack_description: '8 LB', conversion_to_base: 3629, price_per_100g: 8.5, last_invoice_date: '2026-09-01' };
+  const r = mergePriceIntelligence(existing, observe({ pack: '25 LB', unitPrice: 90, invoiceDate: '2026-09-19', priceType: 'per_lb' }));
+  assert.strictEqual(r.skipped, false, 'per_lb non passa dal fail-closed');
+  assert.strictEqual(r.reason, 'update');
+  assert.strictEqual(r.fields.conversion_to_base, null);
+});
+
+
+test('9i. parita\' di decisione: modulo embeddato nel worker == file usato dal browser', () => {
+  const worker = fs.readFileSync(path.join(ROOT, 'edge-functions/vendor-doc-auto-import/index.ts'), 'utf8');
+  const m = worker.match(/^  "price-intelligence-merge": (".*?"),$/m);
+  const mod = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function('require', 'module', 'exports', JSON.parse(m[1]))(null, mod, mod.exports);
+  const embedded = mod.exports.mergePriceIntelligence;
+
+  const scenari = [];
+  const packs = [null, '', '1/', '3/', '1/ 50 LB', '1/ 55 LB', '9-1/2 GAL', '  9-1/2 gal ',
+                 '80#   ITA', '80# ita', '10/ 100 CT', '6/ 40 CT', 'Each', '1 gallon Great Value Whole Milk'];
+  const existings = [null,
+    { pack_description: '1/ 50 LB',  conversion_to_base: 22680, price_per_100g: 0.0964, last_invoice_date: '2026-07-23' },
+    { pack_description: '9-1/2 GAL', conversion_to_base: 35961, price_per_100g: 0.2308, last_invoice_date: '2026-09-14' },
+    { pack_description: '10/ 100 CT', conversion_to_base: null, price_per_100g: null,   last_invoice_date: '2026-08-18' }];
+  for (const ex of existings) for (const p of packs) for (const pt of ['per_case', 'per_lb']) {
+    scenari.push([ex, observe({ pack: p, unitPrice: 42.5, invoiceDate: '2026-09-30', priceType: pt })]);
+  }
+  let n = 0;
+  for (const [ex, obs] of scenari) {
+    const a = mergePriceIntelligence(ex, obs);
+    const b = embedded(ex, obs);
+    assert.deepStrictEqual(b, a, 'decisione divergente su ' + JSON.stringify(obs.pack_description) + ' / ' + JSON.stringify(ex && ex.pack_description));
+    n++;
+  }
+  assert.strictEqual(n, 112, 'attesi 112 scenari, eseguiti ' + n);
 });
 
 // ── 10 ───────────────────────────────────────────────────────────────
@@ -259,6 +425,11 @@ test('11. parita\' worker/UI: un solo modulo, nessuna terza copia della decision
   // direttamente i campi calcolati.
   assert.ok(!/\.\.\.fields\b/.test(body), 'il worker scrive ancora ...fields');
   assert.ok(!/\.\.\.fields\b/.test(ui),   'la UI scrive ancora ...fields');
+  assert.ok(!/\.\.\.mergeFor\(/.test(body), 'il worker spande mergeFor senza controllare lo skip');
+  assert.ok(!/\.\.\.mergeFor\(/.test(ui),   'la UI spande mergeFor senza controllare lo skip');
+  // entrambi devono gestire esplicitamente il ritorno null
+  assert.ok(/if \(m\.skipped\)/.test(body), 'il worker non gestisce skipped');
+  assert.ok(/if \(m\.skipped\)/.test(ui),   'la UI non gestisce skipped');
 
   // Entrambi devono leggere le colonne che servono a proteggere il dato.
   for (const [nome, src] of [['worker', body], ['UI', ui]]) {
@@ -278,6 +449,20 @@ test('11. parita\' worker/UI: un solo modulo, nessuna terza copia della decision
   const iUse = html.indexOf('js/vendor-documents-review.js');
   assert.ok(iMod > 0, 'modulo non incluso in index.html');
   assert.ok(iMod < iUse, 'il modulo deve precedere vendor-documents-review.js');
+});
+
+test('11c. normalizePack: normalizzazione minima, niente di piu\'', () => {
+  assert.strictEqual(normalizePack('  80#   ITA  '), '80# ita');
+  assert.strictEqual(normalizePack('9-1/2 GAL'),     '9-1/2 gal');
+  assert.strictEqual(normalizePack(''),              null);
+  assert.strictEqual(normalizePack('   '),           null);
+  assert.strictEqual(normalizePack(null),            null);
+  // NON deve normalizzare via la sostanza
+  assert.ok(!samePack('1/ 50 LB', '1/ 55 LB'), 'due casse diverse non sono lo stesso pack');
+  assert.ok(!samePack('80# ITA',  '80 LB'),    'non si espandono le unita\'');
+  assert.ok(!samePack('10/ 100 CT', '100/ 10 CT'), 'non si riordina');
+  assert.ok(!samePack(null, null), 'due assenze non sono un\'uguaglianza');
+  assert.ok(!samePack('1/ 50 LB', null));
 });
 
 test('11b. classifyPack: vocabolario diagnostico, coerente col corpus reale', () => {

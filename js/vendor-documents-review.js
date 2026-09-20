@@ -3140,11 +3140,21 @@ window.vdrApprove = async function(docId, btn) {
         const priceIntel = (typeof window !== 'undefined' && window.PriceIntelligenceMerge)
           ? window.PriceIntelligenceMerge
           : (typeof require === 'function' ? require('./vendor-parsers/price-intelligence-merge') : null);
+        // MICRO-TASK 88A.1 — ritorna null quando la decisione e' di NON
+        // scrivere (caso 3: il documento dichiara una cassa diversa e non
+        // sappiamo quanto pesa). Stessa identica semantica del worker.
         const mergeFor = function(existingRow) {
           var m = priceIntel.mergePriceIntelligence(existingRow, observation);
+          if (m.skipped) {
+            console.warn('[price-intel] unresolved_pack_change — price intelligence saltata', {
+              vendor: vendor, sku: sku, observed_pack: m.observedPack, stored_pack: m.storedPack,
+              pack_class: m.packClass, kept_conversion: existingRow && existingRow.conversion_to_base,
+            });
+            return null;
+          }
           if (m.rescued) {
             console.log('[price-intel] osservazione senza grammi, conversione preservata', {
-              vendor: vendor, sku: sku, observed_pack: effectivePack, pack_class: m.packClass,
+              vendor: vendor, sku: sku, observed_pack: effectivePack, pack_class: m.packClass, reason: m.reason,
               kept_conversion: m.fields.conversion_to_base, kept_pack: m.fields.pack_description,
             });
           }
@@ -3177,7 +3187,8 @@ window.vdrApprove = async function(docId, btn) {
             console.log('[price-intel] chronology skip (direct SKU)', { vendor, sku, existing: row.last_invoice_date, incoming: invoiceDate });
             continue;
           }
-          toUpdate.push({ id: row.id, ...mergeFor(row) });
+          const fA = mergeFor(row);
+          if (fA) toUpdate.push({ id: row.id, ...fA });
           continue;
         }
 
@@ -3196,16 +3207,26 @@ window.vdrApprove = async function(docId, btn) {
               // Alias-confirmed SKU migration onto the existing canonical
               // row (e.g. SCAFDUU10GA0 → SCAFDUU10BRO). Same row, never a
               // duplicate: vendor_sku is repointed in place.
-              toUpdate.push({ id: canonical.id, vendor_sku: sku, ...mergeFor(canonical) });
-              if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: ingrId });
+              // Saltata la price intelligence, si salta anche la
+              // migrazione del vendor_sku e il backfill che ne dipende.
+              const fBm = mergeFor(canonical);
+              if (fBm) {
+                toUpdate.push({ id: canonical.id, vendor_sku: sku, ...fBm });
+                if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: ingrId });
+              }
             } else {
-              toUpdate.push({ id: canonical.id, ...mergeFor(canonical) });
+              const fB = mergeFor(canonical);
+              if (fB) toUpdate.push({ id: canonical.id, ...fB });
             }
           } else {
             // No canonical row anywhere for this ingredient yet — first
             // price data point via this alias. Plain insert, nothing to
             // regress against.
-            toInsert.push({ ingredient_id: ingrId, vendor, vendor_sku: sku, active: true, ...mergeFor(null) });
+            // Un INSERT non ha niente da proteggere, quindi mergeFor non
+            // puo' saltare; il controllo resta comunque esplicito, cosi'
+            // nessun ramo scrive mai senza averlo guardato.
+            const fBi = mergeFor(null);
+            if (fBi) toInsert.push({ ingredient_id: ingrId, vendor, vendor_sku: sku, active: true, ...fBi });
             if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: ingrId });
           }
           continue;
@@ -3227,15 +3248,23 @@ window.vdrApprove = async function(docId, btn) {
               continue;
             }
             if (decision === 'update') {
-              toUpdate.push({ id: existingIv.id, ...mergeFor(existingIv) });
+              const fC = mergeFor(existingIv);
+              if (fC) toUpdate.push({ id: existingIv.id, ...fC });
             } else {
-              toUpdate.push({ id: existingIv.id, vendor_sku: sku, ...mergeFor(existingIv) });
-              if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: linkedId });
+              const fCp = mergeFor(existingIv);
+              if (fCp) {
+                toUpdate.push({ id: existingIv.id, vendor_sku: sku, ...fCp });
+                if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: linkedId });
+              }
             }
           }
           // decision === 'skip' → riga canonical intoccata di proposito
         } else {
-          toInsert.push({ ingredient_id: linkedId, vendor, vendor_sku: sku, active: true, ...mergeFor(null) });
+          // Un INSERT non ha niente da proteggere, quindi mergeFor non
+          // puo' saltare; il controllo resta comunque esplicito, cosi'
+          // nessun ramo scrive mai senza averlo guardato.
+          const fCi = mergeFor(null);
+          if (fCi) toInsert.push({ ingredient_id: linkedId, vendor, vendor_sku: sku, active: true, ...fCi });
           if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: linkedId });
         }
       }

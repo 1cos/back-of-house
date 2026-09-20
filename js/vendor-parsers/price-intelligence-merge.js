@@ -46,6 +46,40 @@
 // (catchweight, il peso lo porta la riga di fattura, non il pack). Quel
 // null continua a passare, esattamente come prima.
 //
+// I TRE CASI (MICRO-TASK 88A.1)
+// -----------------------------
+// "L'osservazione non produce una conversione" non e' una sola
+// situazione, sono tre, e solo due sono sicure:
+//
+//   1. MISSING / TRUNCATED — il pack osservato non dichiara nessuna
+//      misura: null, "", "1/", "3/". Il documento non sta dicendo che la
+//      cassa e' cambiata; il parser non e' riuscito a leggere. Si
+//      conserva quello che sappiamo. SICURO.
+//
+//   2. SAME PACK, LIMITE DEL PARSER — il pack osservato e' la stessa
+//      identica dichiarazione gia' memorizzata, ma la grammatica di
+//      questo runtime non la sa convertire: "9-1/2 GAL" osservato su una
+//      riga che ha gia' "9-1/2 GAL" e 35961. La cassa e' la stessa, lo
+//      dice il documento stesso. SICURO.
+//
+//   3. PACK DIVERSO E NON CONVERTIBILE — il documento dichiara un pack
+//      non vuoto e materialmente diverso da quello memorizzato, e non
+//      sappiamo convertirlo: existing "1/ 50 LB" (22680 g) e osservato
+//      "80#   ITA". Riusare 22680 attribuirebbe il prezzo della cassa
+//      nuova alla conversione della cassa vecchia: un costo normalizzato
+//      SBAGLIATO ma dall'aria perfettamente sana. Peggio di un null,
+//      perche' nessuno lo noterebbe.
+//      NON SICURO -> FAIL-CLOSED: si salta l'intero aggiornamento di
+//      price intelligence per quella riga. Nessun campo scritto,
+//      last_invoice_date compresa.
+//
+// Saltare non blocca l'import: il documento diventa comunque 'imported'
+// (index.ts:1313, fuori da questo blocco) e Phase B pesca solo i
+// 'pending', quindi non verra' riapprovato in eterno. E la cronologia
+// resta corretta lo stesso, perche' effectiveLastDate() deriva la data
+// vera dalle invoice_lines appena scritte, non dalla colonna che non
+// abbiamo toccato.
+//
 // COSA NON FA
 // -----------
 // Non scrive. Decide i valori e li restituisce; l'UPDATE resta dove e'
@@ -80,6 +114,27 @@ function classifyPack(pack) {
   return PACK_UNKNOWN;
 }
 
+// ── Confronto fra due dichiarazioni di pack ─────────────────────────
+// Normalizzazione MINIMA, e deliberatamente stupida: spazi ai bordi via,
+// spazi interni collassati, tutto minuscolo. Nient'altro — niente
+// punteggiatura rimossa, niente unita' espanse, niente riordino. Serve
+// solo a non trattare "80#   ITA" e "80# ita" come casse diverse.
+// Qualunque cosa in piu' sarebbe la grammatica universale che non
+// vogliamo costruire, e ogni sua imprecisione si pagherebbe con un
+// riuso silenzioso della conversione sbagliata.
+function normalizePack(pack) {
+  if (pack == null) return null;
+  const s = String(pack).trim().replace(/\s+/g, ' ').toLowerCase();
+  return s === '' ? null : s;
+}
+
+function samePack(a, b) {
+  const na = normalizePack(a);
+  const nb = normalizePack(b);
+  if (na === null || nb === null) return false;   // un'assenza non e' un'uguaglianza
+  return na === nb;
+}
+
 // ── La decisione ────────────────────────────────────────────────────
 // existing     riga ingredient_vendors gia' presente, o null/undefined
 //              per un INSERT (allora non c'e' niente da proteggere e il
@@ -88,8 +143,13 @@ function classifyPack(pack) {
 //              nomi di colonna: unit_price, pack_description, price_type,
 //              conversion_to_base, price_per_100g, last_invoice_date.
 //
-// Ritorna { fields, rescued, packClass }:
-//   fields     l'oggetto da passare tale e quale a .update()/.insert()
+// Ritorna { fields, skipped, reason, rescued, packClass }:
+//   fields     l'oggetto da passare a .update()/.insert(), oppure null
+//              se skipped
+//   skipped    true = il chiamante NON deve scrivere niente su questa
+//              riga (caso 3, fail-closed)
+//   reason     'update' | 'rescue_missing_pack' | 'rescue_same_pack'
+//              | 'unresolved_pack_change'
 //   rescued    true se un dato valido e' stato protetto (per il log)
 //   packClass  la classificazione diagnostica del pack osservato
 function mergePriceIntelligence(existing, observation) {
@@ -100,16 +160,47 @@ function mergePriceIntelligence(existing, observation) {
   const isPerLb   = priceType === 'per_lb';
 
   const obsConv = obs.conversion_to_base != null ? Number(obs.conversion_to_base) : null;
-  const exConv  = ex && ex.conversion_to_base != null ? Number(ex.conversion_to_base) : null;
+  const exConvRaw = ex && ex.conversion_to_base != null ? Number(ex.conversion_to_base) : null;
+  const exConv = (exConvRaw !== null && isFinite(exConvRaw) && exConvRaw > 0) ? exConvRaw : null;
 
-  // L'osservazione non porta conversione, ma una valida e' memorizzata:
-  // e' un'assenza di informazione, non una smentita. Si conserva.
-  // 'per_lb' e' escluso: li' il null e' voluto.
-  const rescued = !isPerLb
-    && obsConv === null
-    && exConv !== null
-    && isFinite(exConv)
-    && exConv > 0;
+  const packClass = classifyPack(obs.pack_description);
+
+  // Niente da proteggere: riga nuova, conversione osservata valida, o
+  // per_lb (dove il null e' un'affermazione esplicita, non un'assenza).
+  // Percorso identico a prima di MICRO-TASK 88A.
+  const nothingToProtect = isPerLb || obsConv !== null || exConv === null;
+
+  let reason;
+  if (nothingToProtect) {
+    reason = 'update';
+  } else if (packClass === PACK_NONE) {
+    reason = 'rescue_missing_pack';                       // caso 1
+  } else if (samePack(obs.pack_description, ex.pack_description)) {
+    reason = 'rescue_same_pack';                          // caso 2
+  } else {
+    reason = 'unresolved_pack_change';                    // caso 3
+  }
+
+  // ── Caso 3 — FAIL-CLOSED ──────────────────────────────────────────
+  // Il documento dichiara una cassa diversa e non sappiamo quanto pesa.
+  // Non si scrive NIENTE: ne' il pack (perderemmo quello che giustifica
+  // la conversione), ne' la conversione (non ne abbiamo una), ne' il
+  // prezzo normalizzato (sarebbe il prezzo nuovo diviso per la cassa
+  // vecchia), ne' unit_price e last_invoice_date, che da soli
+  // lascerebbero la riga a dire due cose incompatibili.
+  if (reason === 'unresolved_pack_change') {
+    return {
+      fields: null,
+      skipped: true,
+      reason,
+      rescued: false,
+      packClass,
+      observedPack: obs.pack_description != null ? obs.pack_description : null,
+      storedPack: ex.pack_description != null ? ex.pack_description : null,
+    };
+  }
+
+  const rescued = reason === 'rescue_missing_pack' || reason === 'rescue_same_pack';
 
   const conversion = isPerLb
     ? null
@@ -118,11 +209,10 @@ function mergePriceIntelligence(existing, observation) {
       : (obsConv !== null ? Math.round(obsConv) : null);
 
   // Il pack segue la conversione che giustifica. Se conserviamo la
-  // conversione vecchia, conserviamo anche il pack vecchio: scriverci
-  // sopra "1/" lascerebbe una riga che dice 22680 grammi senza dire
-  // piu' da dove vengono. Quando invece non stiamo proteggendo niente
-  // (riga nuova, pack a conteggio, pack valido) il pack osservato passa
-  // come e' sempre passato.
+  // conversione vecchia conserviamo anche il pack vecchio: scriverci
+  // sopra "1/" lascerebbe una riga che dice 22680 grammi senza dire piu'
+  // da dove vengono. Nel caso 2 i due pack sono la stessa dichiarazione,
+  // quindi si tiene la forma gia' memorizzata e non cambia nulla.
   const pack = rescued
     ? (ex.pack_description != null ? ex.pack_description : null)
     : (obs.pack_description != null ? obs.pack_description : null);
@@ -150,14 +240,17 @@ function mergePriceIntelligence(existing, observation) {
       price_per_100g:     per100g,
       last_invoice_date:  obs.last_invoice_date != null ? obs.last_invoice_date : null,
     },
+    skipped: false,
+    reason,
     rescued,
-    packClass: classifyPack(obs.pack_description),
+    packClass,
   };
 }
 
 const api = {
   mergePriceIntelligence,
   classifyPack,
+  normalizePack, samePack,
   PACK_WEIGHT, PACK_COUNT, PACK_NONE, PACK_UNKNOWN,
 };
 
