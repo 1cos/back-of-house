@@ -326,5 +326,94 @@ test('12. le 17 righe reali con price_per_each cadono tutte nel caso giusto', ()
   assert.strictEqual(ricalcolate, 8, 'otto righe erano stale e vengono corrette');
 });
 
+// ── MICRO-TASK 93A: PR = 2 each ─────────────────────────────────────
+test('13. PR e\' un paio: "1/ 1 PR" vale DUE pezzi fisici, come dz vale dodici', () => {
+  assert.strictEqual(packTotalEach('1/ 1 PR'), 2, 'un paio sono due pezzi');
+  assert.strictEqual(packTotalEach('2/ 1 PR'), 4, 'due paia sono quattro pezzi');
+  assert.strictEqual(packTotalEach('1 PR'),    2);
+  assert.strictEqual(packTotalEach('1/ 1 PAIR'), 2, 'la forma estesa vale come l\'abbreviazione');
+});
+
+test('14. guanto da forno reale: $8.85 su "1/ 1 PR" -> 4.425 per pezzo', () => {
+  const r = mergePriceIntelligence(null, osservaCount('1/ 1 PR', 8.85, '2026-08-06'));
+  assert.strictEqual(r.reason, 'update');
+  assert.ok('price_per_each' in r.fields, 'PR deve ora produrre un costo per pezzo');
+  assert.strictEqual(r.fields.price_per_each, 4.425, '8.85 / 2');
+  assert.strictEqual(r.fields.conversion_to_base, null, 'un paio non ha grammi');
+  assert.strictEqual(r.fields.price_per_100g, null);
+});
+
+test('15. 93A non tocca le altre unita\': dz, ct, peso e intervalli invariati', () => {
+  assert.strictEqual(packTotalEach('15 DZ'),      180, 'la dozzina resta dodici');
+  assert.strictEqual(packTotalEach('10/ 100 CT'), 1000);
+  assert.strictEqual(packTotalEach('6/ 40 CT'),   240);
+  assert.strictEqual(packTotalEach('2/ 1000 CT'), 2000);
+  assert.strictEqual(packTotalEach('1/ 50 LB'),   null, 'il peso non diventa un conteggio');
+  assert.strictEqual(packTotalEach('4/ 1250 ML'), null, 'il volume non diventa un conteggio');
+  assert.strictEqual(packTotalEach('6/ 21.5 OZ'), null);
+  assert.strictEqual(packTotalEach('16-22 CT'),   null, 'un intervallo resta indeterminato');
+});
+
+test('16. ML e LB restano trattati come peso dalla grammatica del worker', () => {
+  // vdaiPackToGrams estratta dal sorgente del worker, non ricopiata:
+  // 93A non l'ha toccata e questo lo verifica sul codice vero.
+  const wsrc = fs.readFileSync(path.join(ROOT, 'edge-functions/vendor-doc-auto-import/index.ts'), 'utf8');
+  const start = wsrc.indexOf('function vdaiPackToGrams(packStr: string | null): number | null {');
+  assert.ok(start > 0, 'vdaiPackToGrams non trovata nel worker');
+  const end = wsrc.indexOf('\n}\n', start) + 3;
+  const js = wsrc.slice(start, end)
+    .replace(/: string \| null/g, '').replace(/: number \| null/g, '')
+    .replace(/: Record<string, number>/g, '');
+  // eslint-disable-next-line no-new-func
+  const packToGrams = new Function(js + '\nreturn vdaiPackToGrams;')();
+
+  assert.strictEqual(packToGrams('4/ 1250 ML'), 5000, 'ML e\' gia\' supportato, 1 ml = 1 g');
+  assert.strictEqual(packToGrams('2/ 10 LB'), 2 * 10 * 453.592);
+  assert.strictEqual(packToGrams('1/ 1 PR'), null, 'un paio non ha grammi, e non deve averne');
+});
+
+test('17. MT88A/88A.1 invariati sui pack a paio: rescue e fail-closed', () => {
+  const ex = { pack_description: '1/ 1 PR', conversion_to_base: null,
+               price_per_100g: null, price_per_each: 4.425, last_invoice_date: '2026-08-06' };
+  const a = mergePriceIntelligence(ex, osservaCount('1/', 9.00, '2026-09-01'));
+  assert.strictEqual(a.reason, 'rescue_missing_pack');
+  assert.strictEqual(a.fields.pack_description, '1/ 1 PR');
+  assert.strictEqual(a.fields.price_per_each, 4.5, '9.00 / 2');
+  const b = mergePriceIntelligence(ex, osservaCount('Bulk Crate', 9.00, '2026-09-01'));
+  assert.strictEqual(b.skipped, true);
+  assert.strictEqual(b.reason, 'unresolved_pack_change');
+  assert.strictEqual(b.fields, null);
+  const c = mergePriceIntelligence(ex, osservaCount('2/ 1 PR', 18.00, '2026-09-01'));
+  assert.strictEqual(c.reason, 'update');
+  assert.strictEqual(c.fields.price_per_each, 4.5, '18.00 / 4');
+});
+
+test('18. parita\' worker/UI dopo 93A: il modulo embeddato conosce PR', () => {
+  const worker = fs.readFileSync(path.join(ROOT, 'edge-functions/vendor-doc-auto-import/index.ts'), 'utf8');
+  const sources = {};
+  for (const k of ['utils', 'price-intelligence-merge']) {
+    sources[k] = JSON.parse(worker.match(new RegExp('^  "' + k + '": (".*?"),$', 'm'))[1]);
+  }
+  assert.strictEqual(sources['price-intelligence-merge'],
+    fs.readFileSync(path.join(ROOT, 'js/vendor-parsers/price-intelligence-merge.js'), 'utf8'),
+    'la copia embeddata e\' divergente dal file');
+  const cache = {};
+  function req(name) {
+    const key = name.replace(/^\.\//, '');
+    if (cache[key]) return cache[key].exports;
+    const mod = { exports: {} };
+    cache[key] = mod;
+    // eslint-disable-next-line no-new-func
+    new Function('require', 'module', 'exports', sources[key])(req, mod, mod.exports);
+    return mod.exports;
+  }
+  const emb = req('price-intelligence-merge');
+  assert.strictEqual(emb.packTotalEach('1/ 1 PR'), 2, 'il worker non conosce PR');
+  assert.deepStrictEqual(
+    emb.mergePriceIntelligence(null, osservaCount('1/ 1 PR', 8.85, '2026-08-06')),
+    mergePriceIntelligence(null, osservaCount('1/ 1 PR', 8.85, '2026-08-06')),
+    'decisione divergente su un pack a paio');
+});
+
 console.log('\n' + (failed === 0 ? '✓' : '✗') + ' MT89A: ' + passed + ' passati, ' + failed + ' falliti\n');
 process.exit(failed === 0 ? 0 : 1);

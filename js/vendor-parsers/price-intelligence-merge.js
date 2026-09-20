@@ -127,7 +127,7 @@
 // formato che nessuno ha previsto — ed e' esattamente quello che e'
 // successo con "9-1/2 GAL" e "80#   ITA".
 const MEASURE_UNITS = ['#', 'lb', 'lbs', 'oz', 'kg', 'g', 'gal', 'l', 'lt', 'ltr', 'ml', 'qt', 'pt'];
-const COUNT_UNITS   = ['ct', 'ea', 'each', 'pk', 'pkg', 'dz', 'doz', 'roll', 'pr', 'bx', 'box', 'cs', 'bg', 'bag', 'ca'];
+const COUNT_UNITS   = ['ct', 'ea', 'each', 'pk', 'pkg', 'dz', 'doz', 'roll', 'pr', 'pair', 'bx', 'box', 'cs', 'bg', 'bag', 'ca'];
 
 const PACK_WEIGHT    = 'A_WEIGHT';     // dichiara un peso o un volume: "1/ 50 LB", "9-1/2 GAL", "80#   ITA"
 const PACK_COUNT     = 'B_COUNT';      // dichiara un conteggio: "10/ 100 CT", "6/ 40 CT", "Each", "15 DZ"
@@ -154,7 +154,16 @@ function classifyPack(pack) {
 // pack non si legge, quando l'unita' non e' di conteggio (una cassa da
 // 50 LB non ha pezzi) e quando il conteggio e' un intervallo
 // ("16-22 CT"), che non e' deterministico.
-const COUNT_UNIT_FACTOR = { ct: 1, ea: 1, each: 1, pk: 1, pkg: 1, dz: 12, doz: 12 };
+// Il fattore dice quanti PEZZI FISICI vale una unita' collettiva, non
+// quante confezioni: dz -> 12 uova, pr -> 2 guanti. MICRO-TASK 93A ha
+// aggiunto il paio dopo un censimento del corpus: "1/ 1 PR" compare su
+// un solo SKU, BEK 115579, la cui descrizione dice "Mitt Oven 16 In
+// Pair Tan". L'unica altra occorrenza di "PR" nel database e' dentro la
+// descrizione H-E-B "PORTERHOUSE STEAK USDA PR F", dove sta per Prime e
+// non e' un pack — parsePackSize la rifiuta perche' non inizia con un
+// numero, quindi non puo' essere reinterpretata.
+// "prs" non e' incluso: non compare da nessuna parte nel corpus.
+const COUNT_UNIT_FACTOR = { ct: 1, ea: 1, each: 1, pk: 1, pkg: 1, dz: 12, doz: 12, pr: 2, pair: 2 };
 
 function packUtils() {
   if (typeof module !== 'undefined' && module.exports && typeof require === 'function') {
