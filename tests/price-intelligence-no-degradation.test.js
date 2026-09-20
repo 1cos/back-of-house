@@ -118,7 +118,12 @@ test('4. COUNT pack "10/ 100 CT" → conversion_to_base null resta legittimo, il
   assert.strictEqual(r.fields.unit_price, 52.92);
   assert.strictEqual(r.fields.last_invoice_date, '2026-09-17');
   assert.strictEqual(r.packClass, PACK_COUNT);
-  assert.ok(!('price_per_each' in r.fields), 'price_per_each non deve essere toccato da questo percorso');
+  // MICRO-TASK 89A ha cambiato questa riga di proposito: price_per_each
+  // ORA fa parte dei campi scritti, perche' "10/ 100 CT" dichiara 1000
+  // pezzi e il costo del pezzo deve seguire il prezzo della cassa.
+  // Prima di 89A questa asserzione pretendeva il contrario, ed e'
+  // esattamente il bug osservato in produzione su BEK 130881.
+  assert.strictEqual(r.fields.price_per_each, 52.92 / 1000);
 });
 
 // ── 5 ────────────────────────────────────────────────────────────────
@@ -356,10 +361,26 @@ test('9h. per_lb non viene mai saltato, nemmeno con un pack diverso', () => {
 test('9i. parita\' di decisione: modulo embeddato nel worker == file usato dal browser', () => {
   const worker = fs.readFileSync(path.join(ROOT, 'edge-functions/vendor-doc-auto-import/index.ts'), 'utf8');
   const m = worker.match(/^  "price-intelligence-merge": (".*?"),$/m);
-  const mod = { exports: {} };
-  // eslint-disable-next-line no-new-func
-  new Function('require', 'module', 'exports', JSON.parse(m[1]))(null, mod, mod.exports);
-  const embedded = mod.exports.mergePriceIntelligence;
+  // MICRO-TASK 89A: il modulo ora legge parsePackSize da ./utils, quindi
+  // va caricato con un require vero — lo stesso loader CJS che il worker
+  // usa su PARSER_SOURCES. Passare `null` come require, come faceva
+  // questo test prima di 89A, faceva fallire in silenzio la lettura dei
+  // pezzi per cassa e produceva una falsa divergenza.
+  const sources = {};
+  for (const k of ['utils', 'price-intelligence-merge']) {
+    sources[k] = JSON.parse(worker.match(new RegExp('^  "' + k + '": (".*?"),$', 'm'))[1]);
+  }
+  const cache = {};
+  function req(name) {
+    const key = name.replace(/^\.\//, '');
+    if (cache[key]) return cache[key].exports;
+    const mod = { exports: {} };
+    cache[key] = mod;
+    // eslint-disable-next-line no-new-func
+    new Function('require', 'module', 'exports', sources[key])(req, mod, mod.exports);
+    return mod.exports;
+  }
+  const embedded = req('price-intelligence-merge').mergePriceIntelligence;
 
   const scenari = [];
   const packs = [null, '', '1/', '3/', '1/ 50 LB', '1/ 55 LB', '9-1/2 GAL', '  9-1/2 gal ',
@@ -397,7 +418,16 @@ test('10. MT85/MT86/MT87: i tre import gia\' approvati producono gli stessi valo
     const obs = observe({ pack: r.pack, unitPrice: r.prezzo, invoiceDate: r.data });
     const m = mergePriceIntelligence(null, obs);
     assert.strictEqual(m.rescued, false, r.sku + ': una riga nuova non ha niente da proteggere');
-    assert.deepStrictEqual(m.fields, obs, r.sku + ': valori cambiati rispetto a prima della patch');
+    // MICRO-TASK 89A: sui pack a conteggio il risultato ora contiene in
+    // PIU' price_per_each. Tutti gli altri campi devono restare identici
+    // a prima, quindi il confronto si fa sugli stessi campi di allora.
+    const { price_per_each, ...resto } = m.fields;
+    assert.deepStrictEqual(resto, obs, r.sku + ': valori cambiati rispetto a prima della patch');
+    if (/\bCT\b/i.test(r.pack)) {
+      assert.ok(price_per_each != null, r.sku + ': un pack a conteggio deve produrre price_per_each');
+    } else {
+      assert.strictEqual(price_per_each, undefined, r.sku + ': un pack a peso non deve produrlo');
+    }
   }
   // I numeri effettivamente in produzione dopo MT87.
   const semolina = mergePriceIntelligence(null, observe({ pack: '1/ 50 LB', unitPrice: 21.87, invoiceDate: '2026-07-23' }));

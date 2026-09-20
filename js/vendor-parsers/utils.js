@@ -175,8 +175,18 @@ function extractDocDate(lines, keywords) {
   return null;
 }
 
-module.exports = {
+const API = {
   parseDate, parsePrice, parsePackSize, packToGrams,
   cleanDescription, isSkipLine, isSubstitutionLine,
   extractDocNumber, extractDocDate,
 };
+
+// MICRO-TASK 89A — esposizione tripla, come bek-post-parse-safety.js e
+// price-intelligence-merge.js: require() per i test Node e per il loader
+// CJS del worker, window.* per il browser. Serve perche' la decisione
+// condivisa sulla price intelligence deve poter leggere il numero di
+// pezzi per cassa con parsePackSize, la sola grammatica di pack del
+// repository, invece di riscriverne una parallela.
+// Additivo: module.exports resta identico, nessun parser cambia.
+if (typeof module !== 'undefined' && module.exports) module.exports = API;
+if (typeof window !== 'undefined') window.VendorParserUtils = API;

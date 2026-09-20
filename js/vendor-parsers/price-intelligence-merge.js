@@ -80,12 +80,42 @@
 // vera dalle invoice_lines appena scritte, non dalla colonna che non
 // abbiamo toccato.
 //
+// IL COSTO PER PEZZO (MICRO-TASK 89A)
+// -----------------------------------
+// Osservato in produzione il 2026-09-20, sull'import di 0003099324:
+// BEK 130881 (guanti L, pack "10/ 100 CT") passa da unit_price 52.92 a
+// 53.00, ma price_per_each resta 0.05292 — il prezzo della cassa
+// avanza, il costo del pezzo no. Il valore giusto e' 53.00/1000 = 0.053.
+//
+// La causa: price_per_each non era fra i campi che questo blocco scrive.
+// Nessun percorso automatico lo aggiornava: lo scrivevano solo la
+// risposta umana (vdrSaveEach) e l'editing manuale della scheda
+// ingrediente. Cosi' restava fermo al prezzo del giorno in cui qualcuno
+// l'aveva inserito.
+//
+// Adesso lo decide questa funzione, con la stessa disciplina della
+// conversione: price_per_each = unit_price / pezzi-per-cassa, dove i
+// pezzi si leggono dal pack con parsePackSize — la sola grammatica di
+// pack del repository, non una seconda scritta qui.
+//
+// CAPACITA' DELLA CASSA
+// ---------------------
+// Da MICRO-TASK 89A i tre casi non guardano piu' la sola conversione in
+// grammi, ma la CAPACITA' della cassa, che per un prodotto a peso sono
+// i grammi e per uno a conteggio sono i pezzi. Serviva: per una riga a
+// conteggio conversion_to_base e' legittimamente null, quindi la
+// protezione di MICRO-TASK 88A non scattava mai e un pack troncato
+// ("10/" al posto di "10/ 100 CT") poteva sovrascrivere quello buono
+// senza che nessuno se ne accorgesse. Con la capacita' al posto dei
+// grammi, le righe a peso e quelle a conteggio sono protette dalla
+// stessa identica regola.
+//
 // COSA NON FA
 // -----------
 // Non scrive. Decide i valori e li restituisce; l'UPDATE resta dove e'
-// sempre stato. Non tocca price_per_each, che questi percorsi non hanno
-// mai scritto (lo scrive solo la risposta umana in vdrSaveEach).
-// Non inventa mai una conversione che non esista gia'.
+// sempre stato. Non inventa mai una conversione ne' un conteggio che
+// non esistano gia': se i pezzi per cassa non sono determinabili,
+// price_per_each non compare fra i campi e la colonna non viene toccata.
 // ────────────────────────────────────────────────────────────────────
 
 'use strict';
@@ -112,6 +142,42 @@ function classifyPack(pack) {
   for (const t of tokens) if (MEASURE_UNITS.indexOf(t) !== -1) return PACK_WEIGHT;
   for (const t of tokens) if (COUNT_UNITS.indexOf(t) !== -1) return PACK_COUNT;
   return PACK_UNKNOWN;
+}
+
+// ── Pezzi per cassa ─────────────────────────────────────────────────
+// Riusa parsePackSize di vendor-parsers/utils.js, che e' gia' la
+// grammatica dei pack di tutto il repository: "10/ 100 CT" -> {count:10,
+// sizeEach:100, unit:'ct'}. Qui si moltiplica e si converte la dozzina.
+// Nessuna regex nuova.
+//
+// Torna null — cioe' "non lo so", mai un numero inventato — quando il
+// pack non si legge, quando l'unita' non e' di conteggio (una cassa da
+// 50 LB non ha pezzi) e quando il conteggio e' un intervallo
+// ("16-22 CT"), che non e' deterministico.
+const COUNT_UNIT_FACTOR = { ct: 1, ea: 1, each: 1, pk: 1, pkg: 1, dz: 12, doz: 12 };
+
+function packUtils() {
+  if (typeof module !== 'undefined' && module.exports && typeof require === 'function') {
+    return require('./utils');
+  }
+  if (typeof window !== 'undefined' && window.VendorParserUtils) {
+    return window.VendorParserUtils;
+  }
+  return null;
+}
+
+function packTotalEach(pack) {
+  if (pack == null || String(pack).trim() === '') return null;
+  const utils = packUtils();
+  if (!utils || typeof utils.parsePackSize !== 'function') return null;
+  let p;
+  try { p = utils.parsePackSize(pack); } catch (_) { return null; }
+  if (!p) return null;
+  const factor = COUNT_UNIT_FACTOR[p.unit];
+  if (!factor) return null;                                   // non e' un conteggio
+  if (p.sizeMax != null && p.sizeMax !== p.sizeEach) return null;  // intervallo
+  const total = p.count * p.sizeEach * factor;
+  return (isFinite(total) && total > 0) ? total : null;
 }
 
 // ── Confronto fra due dichiarazioni di pack ─────────────────────────
@@ -163,12 +229,30 @@ function mergePriceIntelligence(existing, observation) {
   const exConvRaw = ex && ex.conversion_to_base != null ? Number(ex.conversion_to_base) : null;
   const exConv = (exConvRaw !== null && isFinite(exConvRaw) && exConvRaw > 0) ? exConvRaw : null;
 
+  // Pezzi per cassa, letti dai due pack. Per un prodotto a peso sono
+  // null su entrambi i lati e tutto si comporta come prima di 89A.
+  const obsCount = packTotalEach(obs.pack_description);
+  const exCount  = ex ? packTotalEach(ex.pack_description) : null;
+
   const packClass = classifyPack(obs.pack_description);
 
-  // Niente da proteggere: riga nuova, conversione osservata valida, o
-  // per_lb (dove il null e' un'affermazione esplicita, non un'assenza).
-  // Percorso identico a prima di MICRO-TASK 88A.
-  const nothingToProtect = isPerLb || obsConv !== null || exConv === null;
+  // CAPACITA' — quanto misura una cassa: in grammi per un prodotto a
+  // peso, in pezzi per uno a conteggio. Non e' la sola conversione che
+  // va protetta: le righe a conteggio hanno conversion_to_base
+  // legittimamente null, quindi la regola di MICRO-TASK 88A non
+  // scattava mai per loro e un pack troncato poteva sovrascrivere
+  // quello buono senza che nessuno se ne accorgesse.
+  //
+  // La perdita si misura PER TIPO, non in blocco: un'osservazione che
+  // porta i pezzi ma non i grammi non "sostituisce" una conversione in
+  // grammi, la cancella. Vale anche al contrario.
+  const perdeGrammi = exConv  !== null && obsConv  === null;
+  const perdePezzi  = exCount !== null && obsCount === null;
+
+  // Niente da proteggere: riga nuova, l'osservazione dice almeno quanto
+  // diceva la riga, o per_lb (dove il null e' un'affermazione esplicita,
+  // non un'assenza).
+  const nothingToProtect = isPerLb || (!perdeGrammi && !perdePezzi);
 
   let reason;
   if (nothingToProtect) {
@@ -182,12 +266,12 @@ function mergePriceIntelligence(existing, observation) {
   }
 
   // ── Caso 3 — FAIL-CLOSED ──────────────────────────────────────────
-  // Il documento dichiara una cassa diversa e non sappiamo quanto pesa.
-  // Non si scrive NIENTE: ne' il pack (perderemmo quello che giustifica
-  // la conversione), ne' la conversione (non ne abbiamo una), ne' il
-  // prezzo normalizzato (sarebbe il prezzo nuovo diviso per la cassa
-  // vecchia), ne' unit_price e last_invoice_date, che da soli
-  // lascerebbero la riga a dire due cose incompatibili.
+  // Il documento dichiara una cassa diversa e non sappiamo quanto
+  // contiene. Non si scrive NIENTE: ne' il pack (perderemmo quello che
+  // giustifica la capacita'), ne' la conversione o il costo per pezzo
+  // (sarebbero il prezzo nuovo diviso per la cassa vecchia), ne'
+  // unit_price e last_invoice_date, che da soli lascerebbero la riga a
+  // dire due cose incompatibili.
   if (reason === 'unresolved_pack_change') {
     return {
       fields: null,
@@ -202,55 +286,65 @@ function mergePriceIntelligence(existing, observation) {
 
   const rescued = reason === 'rescue_missing_pack' || reason === 'rescue_same_pack';
 
-  const conversion = isPerLb
-    ? null
-    : rescued
-      ? Math.round(exConv)
-      : (obsConv !== null ? Math.round(obsConv) : null);
+  // La capacita' effettiva: quella osservata, o quella conservata.
+  const effConv  = isPerLb ? null : (rescued ? exConv  : obsConv);
+  const effCount = isPerLb ? null : (rescued ? exCount : obsCount);
 
-  // Il pack segue la conversione che giustifica. Se conserviamo la
-  // conversione vecchia conserviamo anche il pack vecchio: scriverci
-  // sopra "1/" lascerebbe una riga che dice 22680 grammi senza dire piu'
-  // da dove vengono. Nel caso 2 i due pack sono la stessa dichiarazione,
-  // quindi si tiene la forma gia' memorizzata e non cambia nulla.
+  const conversion = effConv !== null ? Math.round(effConv) : null;
+
+  // Il pack segue la capacita' che giustifica. Se conserviamo quella
+  // vecchia conserviamo anche il pack vecchio: scriverci sopra "10/"
+  // lascerebbe una riga che dice 1000 pezzi senza dire piu' da dove
+  // vengono. Nel caso 2 i due pack sono la stessa dichiarazione, quindi
+  // si tiene la forma gia' memorizzata e non cambia nulla.
   const pack = rescued
     ? (ex.pack_description != null ? ex.pack_description : null)
     : (obs.pack_description != null ? obs.pack_description : null);
 
-  // Prezzo normalizzato: quello osservato se c'e'; altrimenti, se
-  // stiamo proteggendo una conversione, lo si RICALCOLA sul prezzo
+  // Prezzo normalizzato al peso: quello osservato se c'e'; altrimenti,
+  // se stiamo proteggendo una conversione, lo si RICALCOLA sul prezzo
   // nuovo — mai lasciato indietro, mai azzerato.
+  const unitPrice = obs.unit_price != null ? obs.unit_price : null;
+  const unitPriceNum = (unitPrice != null && isFinite(Number(unitPrice))) ? Number(unitPrice) : null;
+
   let per100g;
   if (obs.price_per_100g != null) {
     per100g = obs.price_per_100g;
-  } else if (rescued && obs.unit_price != null && isFinite(Number(obs.unit_price))) {
-    per100g = (Number(obs.unit_price) / exConv) * 100;
+  } else if (rescued && effConv !== null && unitPriceNum !== null) {
+    per100g = (unitPriceNum / effConv) * 100;
   } else if (rescued) {
     per100g = ex.price_per_100g != null ? Number(ex.price_per_100g) : null;
   } else {
     per100g = null;
   }
 
-  return {
-    fields: {
-      unit_price:         obs.unit_price != null ? obs.unit_price : null,
-      pack_description:   pack,
-      price_type:         priceType,
-      conversion_to_base: conversion,
-      price_per_100g:     per100g,
-      last_invoice_date:  obs.last_invoice_date != null ? obs.last_invoice_date : null,
-    },
-    skipped: false,
-    reason,
-    rescued,
-    packClass,
+  const fields = {
+    unit_price:         unitPrice,
+    pack_description:   pack,
+    price_type:         priceType,
+    conversion_to_base: conversion,
+    price_per_100g:     per100g,
+    last_invoice_date:  obs.last_invoice_date != null ? obs.last_invoice_date : null,
   };
+
+  // ── Costo per pezzo (MICRO-TASK 89A) ──────────────────────────────
+  // La chiave compare SOLO quando i pezzi per cassa sono davvero noti.
+  // Se non lo sono, price_per_each resta fuori dai campi e la colonna
+  // non viene toccata: non si inventa un conteggio e non si cancella
+  // quello che c'e'. Per ogni prodotto a peso siamo sempre in questo
+  // ramo, quindi per loro non cambia assolutamente nulla.
+  if (effCount !== null && unitPriceNum !== null) {
+    fields.price_per_each = unitPriceNum / effCount;
+  }
+
+  return { fields, skipped: false, reason, rescued, packClass };
 }
 
 const api = {
   mergePriceIntelligence,
   classifyPack,
   normalizePack, samePack,
+  packTotalEach,
   PACK_WEIGHT, PACK_COUNT, PACK_NONE, PACK_UNKNOWN,
 };
 
