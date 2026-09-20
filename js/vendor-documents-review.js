@@ -2013,6 +2013,67 @@ function vdrWarningToQuestion(w, item, docId, idx) {
     };
   }
 
+  // ── BEK_REVISION_AFTER_IMPORT (MICRO-TASK 79) ─────────────────────
+  // Copia UI del gate che isBlockingWarning() applica nel worker dal MT72.
+  // Fino a MT78 questo codice non esisteva qui: il cron falliva chiuso, la
+  // review manuale no. Misurato sul documento vero dce28e94 (Sales Order
+  // 0003243454, revisione arrivata dopo l'import di 8afad7e2): zero domande
+  // costruite, vdrPreflight ok:true, e l'Approve arrivava fino a "Mark
+  // imported".
+  //
+  // Non scriveva invoice_lines — ma solo perche' i rami MT71/MT72 lasciano
+  // parsed_json a { source }, quindi vdrIsPurchasableDocument() e' falso e
+  // l'intero blocco invoice_lines viene saltato. Di nuovo una protezione che
+  // e' un'assenza, esattamente la forma che MT72 ha tolto dal worker. Il
+  // danno reale era lo STATO: lo stesso Sales Order si ritrovava con due
+  // documenti 'imported', il documento usciva dalla coda di review e
+  // l'eccezione bloccante diventava invisibile.
+  //
+  // L'import esistente non viene mai toccato da questo ramo: la domanda
+  // ferma solo il documento corrente. Riconciliare resta un atto umano.
+  if (w.code === 'BEK_REVISION_AFTER_IMPORT') {
+    return {
+      qid, code: 'BEK_REVISION_AFTER_IMPORT', item: null, docId, idx,
+      emoji: '🔒',
+      title: 'Already imported',
+      detected: w.message,
+      question: `This Sales Order already has an imported purchase — this is a later revision of it.`,
+      meaning: `Approving would book the same order a second time. The existing purchase has not been modified`,
+      yesLabel: 'Needs reconciling',
+      noLabel: 'Skip for now',
+      noNextQuestion: `What should happen to this revision?`,
+      noPlaceholder: `e.g. Prices changed, will fix the original by hand`,
+      warnRef: w,
+      blocking: true,
+    };
+  }
+
+  // ── BEK_REVISION_UNKNOWN (MICRO-TASK 79) ──────────────────────────
+  // Stessa asimmetria, stesso rimedio, per il codice di MT71. Misurato sul
+  // documento vero d1fdb90d (Sales Order 0003272475, classe 'ambiguous',
+  // nessun fratello): identico esito, Approve fino a "Mark imported".
+  //
+  // L'incertezza e' una proprieta' del documento, non del numero di
+  // fratelli — e non diventa certezza perche' a premere Approve e' una
+  // persona invece del cron. Se il worker si rifiuta di scegliere fra due
+  // classi, la UI non puo' scegliere al posto suo senza mostrare la domanda.
+  if (w.code === 'BEK_REVISION_UNKNOWN') {
+    return {
+      qid, code: 'BEK_REVISION_UNKNOWN', item: null, docId, idx,
+      emoji: '❓',
+      title: 'Revision cannot be classified',
+      detected: w.message,
+      question: `This order's revision type can't be read from the item rows — it may be an acknowledgement, not a purchase.`,
+      meaning: `Approving would book as a purchase a document we can't confirm is one`,
+      yesLabel: 'Needs reconciling',
+      noLabel: 'Skip for now',
+      noNextQuestion: `What is this document?`,
+      noPlaceholder: `e.g. Acknowledgement only, the real confirmation is coming`,
+      warnRef: w,
+      blocking: true,
+    };
+  }
+
   // Technical errors — show as read-only info, no question needed
   if (['PARSE_ERROR','UNKNOWN_VENDOR','UNKNOWN_DOC_TYPE','NO_PARSER','PARSER_ERROR'].includes(w.code)) {
     return {
@@ -3726,7 +3787,10 @@ function vdrCodeToSeverity(code) {
   const blocking = ['INV-PACK-001','OQR-008','DOC-PARSE-001','DOC-VENDOR-001','DOC-TYPE-001',
     'DOC-NOPARSER-001','INV-MATCH-001','INV-DUP-001','INV-OCR-001','PARSE_ERROR',
     'UNKNOWN_VENDOR','UNKNOWN_DOC_TYPE','NO_PARSER','PARSER_ERROR','DOC-TOTAL-001','PROCESS_ERROR',
-    'PARSE_ERROR_NO_LINES','BEK_NO_SALES_ORDER'];
+    'PARSE_ERROR_NO_LINES','BEK_NO_SALES_ORDER',
+    // MT79: gia' blocking nel gate (isBlockingWarning dal MT71/MT72 e ora
+    // vdrWarningToQuestion). L'etichetta 'alert' li rappresentava male.
+    'BEK_REVISION_UNKNOWN','BEK_REVISION_AFTER_IMPORT'];
   const insight  = ['INV-SUB-001','OQR-002','INV-PACKCT-001','OQR-006','INV-PRICE-001','INV-UNUSED-001'];
   if (blocking.includes(code)) return 'blocking';
   if (insight.includes(code))  return 'insight';

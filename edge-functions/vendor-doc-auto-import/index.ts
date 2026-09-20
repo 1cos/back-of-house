@@ -708,7 +708,7 @@ function bekOutranks(a: any, b: any): boolean {
 }
 
 function vdrCodeToSeverityLite(code: string): string {
-  const blocking = ['INV-PACK-001', 'OQR-008', 'DOC-PARSE-001', 'DOC-VENDOR-001', 'DOC-TYPE-001', 'DOC-NOPARSER-001', 'INV-MATCH-001', 'INV-DUP-001', 'INV-OCR-001', 'PARSE_ERROR', 'UNKNOWN_VENDOR', 'UNKNOWN_DOC_TYPE', 'NO_PARSER', 'PARSER_ERROR', 'DOC-TOTAL-001', 'PROCESS_ERROR', 'PARSE_ERROR_NO_LINES', 'BEK_NO_SALES_ORDER'];
+  const blocking = ['INV-PACK-001', 'OQR-008', 'DOC-PARSE-001', 'DOC-VENDOR-001', 'DOC-TYPE-001', 'DOC-NOPARSER-001', 'INV-MATCH-001', 'INV-DUP-001', 'INV-OCR-001', 'PARSE_ERROR', 'UNKNOWN_VENDOR', 'UNKNOWN_DOC_TYPE', 'NO_PARSER', 'PARSER_ERROR', 'DOC-TOTAL-001', 'PROCESS_ERROR', 'PARSE_ERROR_NO_LINES', 'BEK_NO_SALES_ORDER', 'BEK_REVISION_UNKNOWN', 'BEK_REVISION_AFTER_IMPORT'];
   const insight = ['INV-SUB-001', 'OQR-002', 'INV-PACKCT-001', 'OQR-006', 'INV-PRICE-001', 'INV-UNUSED-001'];
   if (blocking.includes(code)) return 'blocking';
   if (insight.includes(code)) return 'insight';
