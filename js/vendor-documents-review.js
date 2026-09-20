@@ -2980,7 +2980,7 @@ window.vdrApprove = async function(docId, btn) {
     // last_invoice_date — required by the chronological guard below.
     // Same two ingredient_vendors reads as before, one extra column each.
     const [skuRes, aliasRes, ingrVendorRes, linkRes] = await Promise.all([
-      skus.length ? sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku,last_invoice_date').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] },
+      skus.length ? sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku,last_invoice_date,conversion_to_base,pack_description,price_per_100g').eq('vendor', vendor).in('vendor_sku', skus) : { data: [] },
       // FIX (Durable Walmart SKU Mapping task, Part D): vendor_item_aliases
       // (active) is now the authoritative identity source for vdrApprove's
       // own matchedId lookup too — ingredient_vendors.vendor_sku remains
@@ -2989,7 +2989,7 @@ window.vdrApprove = async function(docId, btn) {
       // price-intelligence write-loop just below now DOES consult this
       // same alias data (via aliasIdMap) — see resolvePriceIntelIdentity.
       skus.length ? sb.from('vendor_item_aliases').select('vendor_sku,ingredient_id').eq('vendor', vendor).eq('active', true).in('vendor_sku', skus) : { data: [] },
-      sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku,last_invoice_date').eq('vendor', vendor),
+      sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku,last_invoice_date,conversion_to_base,pack_description,price_per_100g').eq('vendor', vendor),
       descs.length ? sb.from('ingredient_links').select('invoice_description,ingredient_id').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', descs) : { data: [] },
     ]);
 
@@ -3123,13 +3123,32 @@ window.vdrApprove = async function(docId, btn) {
         const priceType = item.price_type || (item.catchweight ? 'per_lb' : 'per_case');
         const convBase  = priceType === 'per_lb' ? null : (item.conversion_to_base || totalG || null);
 
-        const fields  = {
+        // MICRO-TASK 88A — stessa decisione del worker, stesso modulo.
+        // `observation` e' cio' che questo documento dichiara;
+        // mergePriceIntelligence lo confronta con la riga esistente e
+        // decide cosa scrivere, cosi' un documento che non sa dire i
+        // grammi non cancella quelli gia' noti. Su una riga nuova il
+        // risultato e' identico ai valori qui sotto.
+        const observation = {
           unit_price:         price,
           pack_description:   effectivePack,
           price_type:         priceType,
           conversion_to_base: convBase ? Math.round(convBase) : null,
           price_per_100g:     per100g,
           last_invoice_date:  invoiceDate,
+        };
+        const priceIntel = (typeof window !== 'undefined' && window.PriceIntelligenceMerge)
+          ? window.PriceIntelligenceMerge
+          : (typeof require === 'function' ? require('./vendor-parsers/price-intelligence-merge') : null);
+        const mergeFor = function(existingRow) {
+          var m = priceIntel.mergePriceIntelligence(existingRow, observation);
+          if (m.rescued) {
+            console.log('[price-intel] osservazione senza grammi, conversione preservata', {
+              vendor: vendor, sku: sku, observed_pack: effectivePack, pack_class: m.packClass,
+              kept_conversion: m.fields.conversion_to_base, kept_pack: m.fields.pack_description,
+            });
+          }
+          return m.fields;
         };
 
         // MICRO-TASK 40 — CASE A/B/C resolution (see
@@ -3158,7 +3177,7 @@ window.vdrApprove = async function(docId, btn) {
             console.log('[price-intel] chronology skip (direct SKU)', { vendor, sku, existing: row.last_invoice_date, incoming: invoiceDate });
             continue;
           }
-          toUpdate.push({ id: row.id, ...fields });
+          toUpdate.push({ id: row.id, ...mergeFor(row) });
           continue;
         }
 
@@ -3177,16 +3196,16 @@ window.vdrApprove = async function(docId, btn) {
               // Alias-confirmed SKU migration onto the existing canonical
               // row (e.g. SCAFDUU10GA0 → SCAFDUU10BRO). Same row, never a
               // duplicate: vendor_sku is repointed in place.
-              toUpdate.push({ id: canonical.id, vendor_sku: sku, ...fields });
+              toUpdate.push({ id: canonical.id, vendor_sku: sku, ...mergeFor(canonical) });
               if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: ingrId });
             } else {
-              toUpdate.push({ id: canonical.id, ...fields });
+              toUpdate.push({ id: canonical.id, ...mergeFor(canonical) });
             }
           } else {
             // No canonical row anywhere for this ingredient yet — first
             // price data point via this alias. Plain insert, nothing to
             // regress against.
-            toInsert.push({ ingredient_id: ingrId, vendor, vendor_sku: sku, active: true, ...fields });
+            toInsert.push({ ingredient_id: ingrId, vendor, vendor_sku: sku, active: true, ...mergeFor(null) });
             if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: ingrId });
           }
           continue;
@@ -3208,15 +3227,15 @@ window.vdrApprove = async function(docId, btn) {
               continue;
             }
             if (decision === 'update') {
-              toUpdate.push({ id: existingIv.id, ...fields });
+              toUpdate.push({ id: existingIv.id, ...mergeFor(existingIv) });
             } else {
-              toUpdate.push({ id: existingIv.id, vendor_sku: sku, ...fields });
+              toUpdate.push({ id: existingIv.id, vendor_sku: sku, ...mergeFor(existingIv) });
               if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: linkedId });
             }
           }
           // decision === 'skip' → riga canonical intoccata di proposito
         } else {
-          toInsert.push({ ingredient_id: linkedId, vendor, vendor_sku: sku, active: true, ...fields });
+          toInsert.push({ ingredient_id: linkedId, vendor, vendor_sku: sku, active: true, ...mergeFor(null) });
           if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: linkedId });
         }
       }

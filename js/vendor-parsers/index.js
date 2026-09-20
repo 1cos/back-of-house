@@ -288,9 +288,15 @@ function parse(rawText) {
 // UI. Esposta da qui perche' e' la porta d'ingresso che entrambi usano gia'.
 const bekSafety = require('./bek-post-parse-safety');
 
+// MICRO-TASK 88A — la decisione su cosa scrivere in ingredient_vendors
+// quando arriva una nuova osservazione di prezzo. Condivisa fra worker
+// e UI Approve, che avevano due copie identiche dello stesso blocco.
+const priceIntel = require('./price-intelligence-merge');
+
 module.exports = {
   parse, detectVendor, detectDocumentType, checkTotals,
   bekSafety,
+  priceIntel,
   isPurchasableDocument, isBenEKeith,
   classifyBuyer, extractBuyerEmail, normalizeBuyerEmail,
   BEK_BUYER_KITCHEN, BEK_BUYER_FOH,

@@ -29,6 +29,11 @@ async function atest(name, fn) { try { await fn(); pass++; console.log('  ✓ ' 
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 global.document = dom.window.document;
 global.window = global.window || {};
+// MICRO-TASK 88A: vdrApprove decide cosa scrivere in ingredient_vendors
+// tramite il modulo condiviso col worker, che nel browser arriva da un
+// <script> in index.html. Qui lo iniettiamo come fa gia'
+// vdrIsPurchasableDocument sopra: la REGOLA VERA, non uno stub.
+global.window.PriceIntelligenceMerge = require('../js/vendor-parsers/price-intelligence-merge');
 
 
 console.log('\nApproval Safety Fix — invoice_lines fail-closed — test run\n');
