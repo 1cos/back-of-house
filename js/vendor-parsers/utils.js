@@ -101,7 +101,7 @@ function parsePackSize(str) {
 const UNIT_TO_G = {
   lb: 453.592, lbs: 453.592, oz: 28.3495,
   kg: 1000, g: 1,
-  gal: 3785.41, l: 1000, ml: 1,
+  gal: 3785.41, l: 1000, ltr: 1000, ml: 1,
   qt: 946.353, pt: 473.176,
 };
 

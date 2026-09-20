@@ -1525,6 +1525,15 @@ window.vdrPackToGrams = function(pack, catchweight, actualWeightLb, ingredientNa
   if (m3lb) return parseInt(m3lb[1]) * parseInt(m3lb[2]) * parseFloat(m3lb[3]) * 453.592;
   var m1lb = p.match(/^(\d+(?:\.\d+)?)\s*(lb|#)/i);
   if (m1lb) return parseFloat(m1lb[1]) * 453.592;
+  // LTR (MT94) — LTR e' un alias esatto di litro. La convenzione
+  // volumetrica del sistema e' gia' fissata altrove (ML = 1 g,
+  // L = 1000 g): qui non si introduce nessuna densita' nuova, solo
+  // la stessa unita' scritta per esteso. Il confine \b impedisce a
+  // LB, ML e GAL di finire in questo ramo.
+  var m2ltr = p.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*ltr\b/i);
+  if (m2ltr) return parseInt(m2ltr[1]) * parseFloat(m2ltr[2]) * 1000;
+  var m1ltr = p.match(/^(\d+(?:\.\d+)?)\s*ltr\b/i);
+  if (m1ltr) return parseFloat(m1ltr[1]) * 1000;
   // kg
   var m2kg = p.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*kg/i);
   if (m2kg) return parseInt(m2kg[1]) * parseFloat(m2kg[2]) * 1000;
