@@ -814,7 +814,22 @@ window.vdrProcessAllPdf = async function(docId) {
         let docNumber = parsed.invoice_number || parsed.order_number || parsed.credit_number || parsed.document_number || null;
         // Fallback: extract from email subject, e.g. "INVOICE - #06997941"
         if (!docNumber && doc.source_email_subject) {
-          const sm = doc.source_email_subject.match(/#?\s*(\d{6,10})/);
+          // MICRO-TASK 78 — COPIA GEMELLA di edge-functions/vendor-doc-auto-import/
+          // index.ts. Le due regex devono restare IDENTICHE carattere per
+          // carattere: questo percorso (reprocess dalla UI) e Phase A del worker
+          // scrivono la stessa colonna document_number sullo stesso documento, e
+          // se divergono lo stesso documento prende identita' diverse a seconda
+          // di chi lo processa. tests/docnumber-subject-fallback.test.js lo
+          // asserisce testualmente su entrambi i file.
+          //
+          // Un numero di documento nel subject e' un numero ISOLATO, mai un
+          // gruppo di cifre dentro un token alfanumerico: la regex precedente
+          // /#?\s*(\d{6,10})/ catturava 770366 dentro "FDF770366" — il Customer#
+          // BEK, identico su tutte e 61 le email — invece del Sales Order vero
+          // che sta nello stesso subject dopo il ';'. Confine consumato a
+          // sinistra, lookahead a destra: niente lookbehind, non supportato da
+          // Safari < 16.4 e questo file gira nel browser.
+          const sm = doc.source_email_subject.match(/(?:^|[^A-Za-z0-9])#?\s*(\d{6,10})(?![A-Za-z0-9])/);
           if (sm) docNumber = sm[1];
         }
         // FIX (Vendor Docs date audit): fallback chain never checked
@@ -1963,6 +1978,36 @@ function vdrWarningToQuestion(w, item, docId, idx) {
       noLabel: 'Skip for now',
       noNextQuestion: `What's wrong with this document?`,
       noPlaceholder: `e.g. Layout changed, bad scan, will check manually`,
+      warnRef: w,
+      blocking: true,
+    };
+  }
+
+  // ── BEK_NO_SALES_ORDER (MICRO-TASK 78) — copia UI del gate che ─────
+  // isBlockingWarning() applica nel worker (edge-functions/
+  // vendor-doc-auto-import/index.ts). Questa funzione E' la classificazione
+  // blocking di questo percorso: vdrPreflight conta le domande non-infoOnly
+  // prodotte da vdrBuildQuestions, e un codice non nominato qui cade nel
+  // `return null` finale — nessuna domanda, nessun blocco. I due punti vanno
+  // quindi tenuti in lockstep, o lo stesso documento e' bloccato dal worker e
+  // approvabile dalla UI.
+  //
+  // Un ordine BEK senza Sales Order non ha identita': non puo' essere
+  // riconciliato con le sue revisioni (la sezione F e' condizionata alla
+  // presenza del numero), quindi importarlo significherebbe accettare un
+  // acquisto che nessuna barriera di revisione ha mai esaminato.
+  if (w.code === 'BEK_NO_SALES_ORDER') {
+    return {
+      qid, code: 'BEK_NO_SALES_ORDER', item: null, docId, idx,
+      emoji: '🔢',
+      title: 'Sales Order number missing',
+      detected: w.message,
+      question: `This Ben E. Keith order has no Sales Order number — not in the email body, not in the subject.`,
+      meaning: `Without it this order can't be matched to its own revisions, so importing it would book a purchase no revision check has seen`,
+      yesLabel: 'Needs re-scan',
+      noLabel: 'Skip for now',
+      noNextQuestion: `What's wrong with this document?`,
+      noPlaceholder: `e.g. Email body truncated, will forward again`,
       warnRef: w,
       blocking: true,
     };
@@ -3681,7 +3726,7 @@ function vdrCodeToSeverity(code) {
   const blocking = ['INV-PACK-001','OQR-008','DOC-PARSE-001','DOC-VENDOR-001','DOC-TYPE-001',
     'DOC-NOPARSER-001','INV-MATCH-001','INV-DUP-001','INV-OCR-001','PARSE_ERROR',
     'UNKNOWN_VENDOR','UNKNOWN_DOC_TYPE','NO_PARSER','PARSER_ERROR','DOC-TOTAL-001','PROCESS_ERROR',
-    'PARSE_ERROR_NO_LINES'];
+    'PARSE_ERROR_NO_LINES','BEK_NO_SALES_ORDER'];
   const insight  = ['INV-SUB-001','OQR-002','INV-PACKCT-001','OQR-006','INV-PRICE-001','INV-UNUSED-001'];
   if (blocking.includes(code)) return 'blocking';
   if (insight.includes(code))  return 'insight';

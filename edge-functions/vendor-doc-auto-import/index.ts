@@ -345,7 +345,35 @@ async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ o
 
   let docNumber = parsed.invoice_number || parsed.order_number || parsed.credit_number || parsed.document_number || null;
   if (!docNumber && doc.source_email_subject) {
-    const sm = doc.source_email_subject.match(/#?\s*(\d{6,10})/);
+    // MICRO-TASK 78 — un numero di documento nel subject e' un numero ISOLATO,
+    // mai un gruppo di cifre dentro un token alfanumerico.
+    //
+    // La regex precedente era /#?\s*(\d{6,10})/: nessun confine, e match()
+    // senza flag `g` restituisce il PRIMO run da sinistra. Sul subject BEK
+    //   "Ben E. Keith : Order Confirmation for FDF770366-ZENO'S ON THE SQUARE;0002952908"
+    // il primo run e' 770366, cioe' il Customer# dentro FDF770366 — lo STESSO
+    // su tutte e 61 le email BEK del database. Non e' teorico: due righe
+    // (d84e4d64, 383764dd) sono nate cosi' il 19/08, con il Sales Order vero
+    // 0002952908 scritto nello stesso subject, subito dopo il ';'.
+    //
+    // Un document_number sbagliato non sporca soltanto: SPACCA il gruppo di
+    // riconciliazione (quelle due righe non sono mai state viste come fratelli
+    // di 7aa702b1, l'import vero) e, poiche' 770366 e' costante, due documenti
+    // diversi che percorressero il fallback collasserebbero nello STESSO
+    // gruppo — sezione F keyed su un Sales Order che non esiste.
+    //
+    // Il confine e' consumato a sinistra e verificato in lookahead a destra:
+    // niente lookbehind, che Safari < 16.4 non supporta e questa stessa regex
+    // gira anche nel browser (js/vendor-documents-review.js, copia gemella).
+    // Un run di 11+ cifre non matcha piu' affatto invece di essere troncato a
+    // 10: fail closed, meglio nessun numero che un numero tagliato.
+    //
+    // Misurato su tutti i 256 subject reali: Hardie's 122/122 invariati (121
+    // righe dipendono da QUESTO fallback ed e' la loro unica identita'),
+    // Fruge 51/51 invariati, FreshPoint 1/1 invariato, BEK 61/61 non producono
+    // piu' 770366 (58 danno il Sales Order vero, 1 — subject ";null" — da'
+    // null, che e' il comportamento voluto).
+    const sm = doc.source_email_subject.match(/(?:^|[^A-Za-z0-9])#?\s*(\d{6,10})(?![A-Za-z0-9])/);
     if (sm) docNumber = sm[1];
   }
   const docDate = parsed.order_date || parsed.credit_date || parsed.delivery_date || parsed.document_date || parsed.invoice_date || null;
@@ -680,7 +708,7 @@ function bekOutranks(a: any, b: any): boolean {
 }
 
 function vdrCodeToSeverityLite(code: string): string {
-  const blocking = ['INV-PACK-001', 'OQR-008', 'DOC-PARSE-001', 'DOC-VENDOR-001', 'DOC-TYPE-001', 'DOC-NOPARSER-001', 'INV-MATCH-001', 'INV-DUP-001', 'INV-OCR-001', 'PARSE_ERROR', 'UNKNOWN_VENDOR', 'UNKNOWN_DOC_TYPE', 'NO_PARSER', 'PARSER_ERROR', 'DOC-TOTAL-001', 'PROCESS_ERROR', 'PARSE_ERROR_NO_LINES'];
+  const blocking = ['INV-PACK-001', 'OQR-008', 'DOC-PARSE-001', 'DOC-VENDOR-001', 'DOC-TYPE-001', 'DOC-NOPARSER-001', 'INV-MATCH-001', 'INV-DUP-001', 'INV-OCR-001', 'PARSE_ERROR', 'UNKNOWN_VENDOR', 'UNKNOWN_DOC_TYPE', 'NO_PARSER', 'PARSER_ERROR', 'DOC-TOTAL-001', 'PROCESS_ERROR', 'PARSE_ERROR_NO_LINES', 'BEK_NO_SALES_ORDER'];
   const insight = ['INV-SUB-001', 'OQR-002', 'INV-PACKCT-001', 'OQR-006', 'INV-PRICE-001', 'INV-UNUSED-001'];
   if (blocking.includes(code)) return 'blocking';
   if (insight.includes(code)) return 'insight';
@@ -781,6 +809,28 @@ function isBlockingWarning(w: any, item: any, knownConversions: Record<string, a
   // buyer guard del preflight. Era sbagliato — il buyer guard non viene mai
   // raggiunto, perche' l'uscita per isPurchasableDocument viene prima.
   if (code === 'BEK_REVISION_UNKNOWN' || code === 'BEK_REVISION_AFTER_IMPORT') return true;
+  // MICRO-TASK 78 — un documento BEK senza Sales Order non ha identita'.
+  //
+  // Il parser canonico emette gia' BEK_NO_SALES_ORDER con severity 'blocking'
+  // (js/vendor-parsers/ben-e-keith-order-confirmation.js:480-487), ma il codice
+  // non era nominato qui e cadeva nel `return false` dei codici sconosciuti:
+  // la barriera esisteva nel parser e non fermava niente. In piu', fino a MT78
+  // il fallback su subject riempiva comunque il buco con il Customer# 770366,
+  // quindi a valle non mancava nulla e l'assenza era invisibile.
+  //
+  // Da MT78 quel fallback restituisce null su un subject senza numero isolato
+  // (BEK ";null", gia' visto in produzione). Senza QUESTA riga il null sarebbe
+  // peggio del numero sbagliato: le tre barriere di identita' sono tutte
+  // condizionate a `if (docNumber && ...)` — sezione F (:438), dedup (:551),
+  // riconciliazione (:563) — quindi un documento senza numero le salterebbe
+  // tutte e arriverebbe all'import senza mai passare dalla riconciliazione
+  // delle revisioni. Le due cose vanno insieme: il fallback smette di
+  // inventare, e l'assenza diventa una domanda aperta bloccante.
+  //
+  // Stessa forma di MT71/MT72: si blocca per DECISIONE, non per un dato
+  // mancante. La copia UI di questa classificazione e' il ramo
+  // BEK_NO_SALES_ORDER in vdrWarningToQuestion() — vanno in lockstep.
+  if (code === 'BEK_NO_SALES_ORDER') return true;
   // MICRO-TASK 34 — a recognized invoice (real vendor, real document
   // number) that a parser nonetheless extracted zero line items from.
   // Deliberately NOT grouped with the generic PARSE_ERROR/UNKNOWN_*
