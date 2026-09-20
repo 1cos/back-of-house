@@ -256,7 +256,8 @@ t('D3: "looks good" only when there is nothing unknown either', () => {
   dirty.mountCrewHome(PABLO);
   const txt = dirty.document.getElementById('crewAttention').textContent;
   assert.ok(!txt.includes('looks good'), 'must NOT claim the station is fine');
-  assert.ok(txt.includes("1 item can't be checked automatically"));
+  assert.ok(txt.includes('1 item needs a quick check'));
+  assert.ok(!/can't be checked automatically/.test(txt), 'CREW-UX 07: old wording must be gone');
 });
 
 t('unknowns are one line, never one card each', () => {
@@ -269,7 +270,8 @@ t('unknowns are one line, never one card each', () => {
   const host = w.document.getElementById('crewAttention');
   assert.strictEqual(host.querySelectorAll('.crew-card').length, 0);
   assert.strictEqual(host.querySelectorAll('.crew-unknown').length, 1);
-  assert.ok(host.textContent.includes("7 items can't be checked automatically"));
+  assert.ok(host.textContent.includes('7 items need a quick check'));
+  assert.ok(!/can't be checked automatically/.test(host.textContent), 'CREW-UX 07: old wording must be gone');
 });
 
 t('D5: a check_first card renders NO quantity', () => {
@@ -452,6 +454,58 @@ t('crew-home.js contains no write primitive at all', () => {
   for (const bad of ['.insert(', '.update(', '.upsert(', '.delete(', 'functions/v1', 'fetch(']) {
     assert.ok(!CREW_SRC.includes(bad), 'crew-home.js must not contain ' + bad);
   }
+});
+
+// ── D2. DENSITY CONTRACT (CREW-UX 07) ─────────────────────────────
+console.log('\nD2. Density contract — same information, less height');
+
+t('the card keeps every piece of information', () => {
+  const w = makeApp({
+    user: PABLO,
+    items: [task(1, 'Chop Romaine')],
+    suggestions: { 1: sugg({ status: 'do_first', planned_output: 1000, minimum_increment: 1000 }) }
+  });
+  w.mountCrewHome(PABLO);
+  const card = w.document.querySelector('.crew-card');
+  assert.ok(card.querySelector('.crew-card__label'), 'status label');
+  assert.ok(card.querySelector('.crew-card__name'), 'prep name');
+  assert.ok(card.querySelector('.crew-card__qty'),  'quantity');
+  assert.ok(card.querySelector('.crew-card__why'),  'reason');
+  assert.ok(card.querySelector('.crew-cta'),        'action');
+  assert.ok(card.textContent.includes('DO FIRST'));
+  assert.ok(card.textContent.includes('Chop Romaine'));
+  assert.ok(card.textContent.includes('1 kg'));
+  assert.ok(card.textContent.includes('Nothing in stock right now.'));
+  assert.ok(card.textContent.includes('Open'));
+});
+
+t('the action sits beside the text, not on a row of its own', () => {
+  const w = makeApp({ user: PABLO, items: [task(1, 'a')], suggestions: { 1: sugg() } });
+  w.mountCrewHome(PABLO);
+  const card = w.document.querySelector('.crew-card');
+  // text column and action are siblings inside the card
+  assert.ok(card.querySelector('.crew-card__main'), 'text column wrapper exists');
+  assert.strictEqual(card.querySelector('.crew-card__actions').parentNode, card);
+  assert.strictEqual(card.querySelector('.crew-card__name').closest('.crew-card__main'),
+    card.querySelector('.crew-card__main'), 'the name lives in the text column');
+  assert.ok(card.querySelector('.crew-cta--compact'), 'the card CTA is the compact variant');
+});
+
+t('the compact CTA is declared smaller than the name but still tappable', () => {
+  const css = HTML.match(/#crewHome \.crew-cta--compact \{([^}]*)\}/)[1];
+  const minH = parseFloat((css.match(/min-height:\s*(\d+)px/) || [])[1]);
+  const fs   = parseFloat((css.match(/font:[^;]*?(\d+)px\//) || [])[1]);
+  const nameCss = HTML.match(/#crewHome \.crew-card__name \{([^}]*)\}/)[1];
+  const nameFs  = parseFloat((nameCss.match(/font-size:\s*(\d+)px/) || [])[1]);
+  assert.ok(minH >= 40, 'finger target stays at least 40px, got ' + minH);
+  assert.ok(fs < nameFs, 'CTA text (' + fs + 'px) must be quieter than the prep name (' + nameFs + 'px)');
+});
+
+t('the wide CTA (no-run state) is untouched', () => {
+  const w = makeApp({ user: PABLO, suggestionsDate: null, items: [task(1, 'a')] });
+  w.mountCrewHome(PABLO);
+  const btn = w.document.querySelector('.crew-cta--wide');
+  assert.ok(btn && !btn.classList.contains('crew-cta--compact'));
 });
 
 // ── E. YESTERDAY IS MOVED, NOT REBUILT ────────────────────────────

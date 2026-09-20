@@ -75,8 +75,8 @@ var CREW_COPY = {
   cta_finish:           'Finish',
   cta_review:           'Review',
 
-  unknown_one:          "1 item can't be checked automatically",
-  unknown_many:         "{n} items can't be checked automatically",
+  unknown_one:          '1 item needs a quick check',
+  unknown_many:         '{n} items need a quick check',
 
   batch_one:            '1 batch',
   batch_many:           '{n} batches',
@@ -408,14 +408,19 @@ function _crewRenderAttention(data) {
     var ctaLabel = isCount ? _crewT('cta_count') : (isWip ? _crewT('cta_finish') : _crewT('cta_open'));
     var ctaCall = isCount ? ('crewOpenCount(' + id + ')') : ('crewOpenTask(' + id + ')');
 
+    // CREW-UX 07: the text column and the action sit side by side, so the
+    // CTA no longer owns a row of its own. Same elements, same classes,
+    // same handlers — only the wrapper and the compact CTA modifier are new.
     html +=
       '<article class="crew-card" style="--crew-accent:' + CREW_ACCENT[e.kind] + '">' +
-        '<div class="crew-card__label">' + _crewEsc(_crewLabel(e.kind)) + '</div>' +
-        '<h3 class="crew-card__name">' + _crewEsc(e.task.name) + '</h3>' +
-        (qty ? '<div class="crew-card__qty">' + _crewEsc(qty) + '</div>' : '') +
-        (why ? '<p class="crew-card__why">' + _crewEsc(why) + '</p>' : '') +
+        '<div class="crew-card__main">' +
+          '<div class="crew-card__label">' + _crewEsc(_crewLabel(e.kind)) + '</div>' +
+          '<h3 class="crew-card__name">' + _crewEsc(e.task.name) + '</h3>' +
+          (qty ? '<div class="crew-card__qty">' + _crewEsc(qty) + '</div>' : '') +
+          (why ? '<p class="crew-card__why">' + _crewEsc(why) + '</p>' : '') +
+        '</div>' +
         '<div class="crew-card__actions">' +
-          '<button type="button" class="crew-cta" onclick="' + ctaCall + '">' +
+          '<button type="button" class="crew-cta crew-cta--compact" onclick="' + ctaCall + '">' +
             _crewEsc(ctaLabel) +
           '</button>' +
         '</div>' +
