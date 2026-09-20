@@ -414,6 +414,38 @@ async function loadRecentCounts() {
 
 const _SUGG_MIN_ROWS = 50; // full run ~94-105 righe; run parziali/test 1-9
 
+// ── CREW-UX 13 — OVERLAY DI UNA SUGGESTION MIRATA PIU' FRESCA ────────────
+// La soglia _SUGG_MIN_ROWS protegge da dataset giornalieri incompleti e
+// resta intatta: la BASELINE continua a essere una sola run completa.
+// Ma dopo una produzione il bot riscrive UNA riga per UN task (misurato:
+// 2026-09-19 16:47 e 16:48, 2026-09-20 22:09 — sempre 1 riga), e una run
+// da 1 riga non potra' mai superare 50. Senza overlay quella riga viene
+// scartata e al reload il task torna alla suggestion vecchia.
+//
+// La freschezza si decide su generated_at — "generata DOPO la baseline per
+// QUESTO task" — non su suggestion_date: la run del mattino puo' scrivere
+// la data di domani (2026-09-21 generata il 2026-09-20 07:06) mentre un
+// refresh successivo scrive quella di oggi (2026-09-20 generata alle
+// 22:09). Le date future restano escluse come prima, quindi una run
+// completa per domani non puo' mai diventare l'overlay di tutti i task.
+function _suggGeneratedMs(row) {
+  if (!row || !row.generated_at) return NaN;
+  let s = String(row.generated_at).trim().replace(' ', 'T');
+  if (s.indexOf('T') > 0 && /[+-]\d{2}$/.test(s)) s += ':00'; // "+00" -> "+00:00"
+  const t = Date.parse(s);
+  return isNaN(t) ? NaN : t;
+}
+
+// Un overlay sostituisce la baseline solo se e' davvero piu' fresco.
+// Fail-closed: se una delle due date non e' leggibile, vince la baseline.
+function _suggIsFresher(candidate, base) {
+  if (!base) return true;                 // nessuna baseline: l'overlay e' l'unico dato
+  const c = _suggGeneratedMs(candidate);
+  const b = _suggGeneratedMs(base);
+  if (isNaN(c) || isNaN(b)) return false;
+  return c > b;
+}
+
 window._suggestions     = {};
 window._suggestionsDate = null;
 window._suggestionsNoData  = false; // true = run non trovata (mostra banner)
@@ -469,28 +501,56 @@ async function loadSuggestions() {
       return;
     }
 
-    // Carica tutte le suggestion per la data selezionata
+    // Carica la baseline PIU' le eventuali righe mirate piu' recenti, mai
+    // future: una sola query, stesso limite superiore (todayCDT) che governa
+    // gia' la scelta della baseline.
     const { data, error } = await supa
       .from('prep_suggestions_daily')
-      .select('prep_task_id,status,confidence,net_requirement,planned_output,output_unit,minimum_increment,current_stock,stock_source,stock_unit,forecast,coverage_days,demand_source,reason,production_constraint_quality,debug_json,history_end_date,generated_at')
-      .eq('suggestion_date', validDate);
+      .select('prep_task_id,suggestion_date,status,confidence,net_requirement,planned_output,output_unit,minimum_increment,current_stock,stock_source,stock_unit,forecast,coverage_days,demand_source,reason,production_constraint_quality,debug_json,history_end_date,generated_at')
+      .gte('suggestion_date', validDate)
+      .lte('suggestion_date', todayCDT);
 
     if (error) throw error;
 
     window._suggestions     = {};
-    window._suggestionsDate = validDate;
-    // Derive pipeline business_date from history_end_date of the freshest rows
+    window._suggestionsDate = validDate;   // resta la data della run COMPLETA
+
+    // BASELINE: solo le righe della data valida. _maxHistEnd si calcola qui
+    // e SOLO qui, perche' e' una proprieta' della run completa: una singola
+    // riga mirata non deve spostare la deduction date di tutta la Trust View.
+    const _baseline = {};
     let _maxHistEnd = null;
+    // OVERLAY: per ogni task la riga piu' fresca fra le date successive alla
+    // baseline (gia' filtrate a <= oggi dalla query).
+    const _overlay = {};
+
     (data || []).forEach(row => {
-      window._suggestions[row.prep_task_id] = row;
-      if (row.history_end_date && (!_maxHistEnd || row.history_end_date > _maxHistEnd)) {
-        _maxHistEnd = row.history_end_date;
+      if (row.suggestion_date === validDate) {
+        _baseline[row.prep_task_id] = row;
+        if (row.history_end_date && (!_maxHistEnd || row.history_end_date > _maxHistEnd)) {
+          _maxHistEnd = row.history_end_date;
+        }
+      } else {
+        const prev = _overlay[row.prep_task_id];
+        if (!prev || _suggIsFresher(row, prev)) _overlay[row.prep_task_id] = row;
       }
     });
+
+    Object.keys(_baseline).forEach(k => { window._suggestions[k] = _baseline[k]; });
+
+    let _applied = 0;
+    Object.keys(_overlay).forEach(k => {
+      if (_suggIsFresher(_overlay[k], _baseline[k])) {
+        window._suggestions[k] = _overlay[k];
+        _applied++;
+      }
+    });
+
     window._suggestionsHistoryEnd = _maxHistEnd; // e.g. "2026-07-13"
 
     console.log('[Prep Suggester] ✓', Object.keys(window._suggestions).length,
-      'suggestions per', validDate, '| deduction date:', _maxHistEnd);
+      'suggestions per', validDate, '| deduction date:', _maxHistEnd,
+      '| overlay freschi applicati:', _applied);
 
     // Aggiorna badge Admin se presente
     const badge = document.getElementById('_suggDateBadge');
