@@ -1828,9 +1828,16 @@ function buildVendorParsers() {
   // separate pack_description field. Ported verbatim from
   // js/vendor-parsers/walmart-trevipay-invoice.js.
   var WALMART_PACK_RANGE_RE   = /(\d+(?:\.\d+)?)\D{1,4}(\d+(?:\.\d+)?)\s*(oz|lb)\b\.?\s*(Tray)?/i;
+  // INV03D §5 — ported identically from
+  // js/vendor-parsers/walmart-trevipay-invoice.js; see the
+  // MARKER:WALMART_PACK_GRAMMAR block there for the corpus census that
+  // bounds each of the three additions. The parity test requires both
+  // implementations to agree field by field.
+  var WALMART_PACK_HALF_GAL_RE = /\bhalf\s+gallon\b/i;
   var WALMART_PACK_GAL_RE     = /(\d+(?:\.\d+)?)?\s*gal(?:lon)?\b/i;
   var WALMART_PACK_WEIGHT_RE  = /(\d+(?:\.\d+)?)\s*(oz|lb)\b/i;
-  var WALMART_PACK_EACH_RE    = /\beach\b/i;
+  var WALMART_PACK_POUND_RE   = /(\d+(?:\.\d+)?)[\s\u2012\u2013\u2014\uE000-\uF8FF-]{0,4}pounds?\b/i;
+  var WALMART_PACK_EACH_RE    = /\beach\b|\b\d*\s?ea\b/i;
 
   function walmartExtractPack(description) {
     if (!description) return null;
@@ -1838,10 +1845,13 @@ function buildVendorParsers() {
     if (rangeMatch) {
       return rangeMatch[1] + '-' + rangeMatch[2] + rangeMatch[3].toLowerCase() + (rangeMatch[4] ? ' Tray' : '');
     }
+    if (WALMART_PACK_HALF_GAL_RE.test(description)) return '0.5gal';
     var galMatch = description.match(WALMART_PACK_GAL_RE);
     if (galMatch) return (galMatch[1] || '1') + 'gal';
     var weightMatch = description.match(WALMART_PACK_WEIGHT_RE);
     if (weightMatch) return weightMatch[1] + weightMatch[2].toLowerCase();
+    var poundMatch = description.match(WALMART_PACK_POUND_RE);
+    if (poundMatch) return poundMatch[1] + 'lb';
     if (WALMART_PACK_EACH_RE.test(description)) return 'Each';
     return null;
   }

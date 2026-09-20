@@ -449,9 +449,47 @@ function parseRowStart(line) {
 // Never touches raw_description/description — this only ever adds the
 // separate pack_description field.
 const WALMART_PACK_RANGE_RE  = /(\d+(?:\.\d+)?)\D{1,4}(\d+(?:\.\d+)?)\s*(oz|lb)\b\.?\s*(Tray)?/i;
+// ── MARKER:WALMART_PACK_GRAMMAR_START ──────────────────────────────
+// INV03D §5 — three additions, each one bounded to a shape actually
+// present in the corpus of 29 real Walmart documents and no wider.
+//
+// HALF GALLON. The generic gallon rule below has an OPTIONAL leading
+// number, so a pack printed in words fell through to the `|| '1'`
+// default and a half gallon was recorded as a FULL one: the estimated
+// weight came out double and the price per 100 g came out half. Census:
+// two real SKUs, both dairy, both wrong today — 100341131 (Oak Farms
+// buttermilk, Half Gallon) and 10450118 (Great Value milk, whose own
+// description confirms the reading by adding ", 64 fl oz", which is
+// exactly half a gallon). No "quarter gallon" exists in the corpus, so
+// none is invented here.
+//
+// This is deliberately NOT a general "number in words" rule, and it is
+// deliberately matched before the generic gallon rule so the literal
+// "half gallon" wins over the default.
+const WALMART_PACK_HALF_GAL_RE = /\bhalf\s+gallon\b/i;
 const WALMART_PACK_GAL_RE    = /(\d+(?:\.\d+)?)?\s*gal(?:lon)?\b/i;
 const WALMART_PACK_WEIGHT_RE = /(\d+(?:\.\d+)?)\s*(oz|lb)\b/i;
-const WALMART_PACK_EACH_RE   = /\beach\b/i;
+// POUND SPELLED OUT. WALMART_PACK_WEIGHT_RE accepts only the "lb"
+// abbreviation, so "10 Pound" produced no pack at all and 10 lb of
+// sugar carried no weight and no price per 100 g. Census: one real SKU,
+// 10293182. The leading number is REQUIRED, which is what keeps this
+// off a product name that merely contains the word (a "Pound Cake"
+// cannot match).
+//
+// The gap class is not decoration: on the real document the text reads
+// "10\uE088 Pound" — the TreviPay normalizer leaves an unmapped Private
+// Use Area glyph between the number and the unit, exactly as it does
+// between the two numbers of a catch-weight range. WALMART_PACK_RANGE_RE
+// above already tolerates that with \D{1,4}; this allows the same short
+// run of whitespace, dashes and PUA codepoints, and nothing else.
+const WALMART_PACK_POUND_RE  = /(\d+(?:\.\d+)?)[\s\u2012\u2013\u2014\uE000-\uF8FF-]{0,4}pounds?\b/i;
+// "1ea" — the same count semantics as "Each", which the existing rule
+// only recognised in full. Census: one real SKU, 51259411 (whole
+// celery). It resolves to the SAME canonical 'Each' string the count
+// model already uses, and 'Each' has no entry in packToGrams, so this
+// adds a count product and never an invented weight.
+const WALMART_PACK_EACH_RE   = /\beach\b|\b\d*\s?ea\b/i;
+// ── MARKER:WALMART_PACK_GRAMMAR_END ────────────────────────────────
 
 function extractWalmartPack(description) {
   if (!description) return null;
@@ -460,10 +498,13 @@ function extractWalmartPack(description) {
     const [, num1, num2, unit, tray] = rangeMatch;
     return num1 + '-' + num2 + unit.toLowerCase() + (tray ? ' Tray' : '');
   }
+  if (WALMART_PACK_HALF_GAL_RE.test(description)) return '0.5gal';
   const galMatch = description.match(WALMART_PACK_GAL_RE);
   if (galMatch) return (galMatch[1] || '1') + 'gal';
   const weightMatch = description.match(WALMART_PACK_WEIGHT_RE);
   if (weightMatch) return weightMatch[1] + weightMatch[2].toLowerCase();
+  const poundMatch = description.match(WALMART_PACK_POUND_RE);
+  if (poundMatch) return poundMatch[1] + 'lb';
   if (WALMART_PACK_EACH_RE.test(description)) return 'Each';
   return null;
 }
