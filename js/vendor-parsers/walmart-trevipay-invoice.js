@@ -121,6 +121,93 @@ const HEADER_ROW_RE   = /^SKU\s+Description\s+Quantity/;
 const TAX_CELL_LINE_RE = /^Tax\d+\s+-?\$[\d,.]+$/;
 const PCT_ONLY_LINE_RE = /^[\d.]+%$/;
 const SUMMARY_ROW_RE  = /Invoice Summary/;
+// ── MARKER:WALMART_FOOTER_START ────────────────────────────────────
+// INV03D R5 — the two fixed boilerplate lines TreviPay prints between
+// one page's table and the next. Both sit INSIDE the item table (the
+// column header is reprinted after them), so before this rule they were
+// neither a row-start nor a SKU fragment and fell through to
+// continuation handling — appending "© 2026 TreviPay™ Page 2 of 4" and
+// "Invoice Details" to whatever description happened to be open.
+// Census over all 29 real Walmart documents: 15 items across 15
+// documents carried this contamination. No money was ever lost by it
+// (all 28 reconciling documents still reconciled), but it corrupts the
+// description, which is the text ingredient_links matches on.
+// Anchored at line start, so a product description that merely mentions
+// a year can never match; and no real product description is exactly
+// "Invoice Details".
+const TREVIPAY_FOOTER_RE = /^©?\s*\d{4}\s*TreviPay\b/i;
+const TABLE_CAPTION_RE   = /^Invoice Details$/i;
+// ── MARKER:WALMART_FOOTER_END ──────────────────────────────────────
+
+// ── MARKER:WALMART_STRUCTURED_ROW_START ────────────────────────────
+// INV03D R1/R2 — the generic replacement for what used to be two
+// hardcoded placeholder regexes (/^(Express Fee) (HANDLING)$/ and
+// /^(SubDown) (FULFILL_VARIANCE)$/).
+//
+// Why those had to go. A TreviPay non-product row prints as
+//
+//     <reason code>   <STRUCTURED LABEL>   <qty> $unit $disc $tax $total
+//
+// where the LABEL is a machine constant and the REASON CODE is free
+// text chosen by Walmart. Matching on the reason code made the parser
+// an allowlist: every reason code nobody had seen yet failed both
+// placeholder regexes AND the `^\d{5,}` product fallback below, so
+// parseRowStart returned null, the caller treated the line as wrapped
+// description text, and the row's money vanished into the PREVIOUS
+// item's description. That exact failure has now happened three times:
+// Express Fee / SubDown ($1.93 / $10.29 / $14.65), the Tax-label
+// variants ($53.34 on 748cc643, $15.49 on 659ae123), and finally
+// WebPriceMatch — two rows at $43.50 on 1ca959a6, $87.00, which is
+// what INV03D was opened to repair.
+//
+// So the rule keys on the LABEL, which is the stable half, and lets the
+// reason code be anything. Fail-closed is preserved by structure, not by
+// enumeration: the row must ALREADY have satisfied a complete monetary
+// tail (qty plus four or five dollar columns in the rigid column order)
+// before this function is ever consulted. Census over all 29 real
+// documents: exactly six distinct SKU-column blobs reach that tail with
+// a non-numeric lead — SubDown/Express Fee/Shipping/WebPriceMatch plus
+// the two wrap spellings of the ALT_PAYME adjustment — and the only
+// continuation lines in the whole corpus that contain a "$" at all are
+// three "Tax<n> $x.xx" cells, which carry no qty and only one dollar
+// amount and so can never satisfy the tail.
+//
+// The ALT_PAYMENT_METHODS adjustment deliberately stays OUT of this
+// table and keeps its own lead-fragment rule below: its label is prose
+// ("Alternative Payment Methods"), not a constant, and it wraps across
+// several fragments.
+const STRUCTURED_ROW_LABELS = {
+  FULFILL_VARIANCE: 'fulfillment_variance',
+  HANDLING:         'handling',
+  SHIPPING:         'shipping',
+};
+// The label is the final whitespace-delimited token and is all-caps
+// with underscores, so it can never span a space; the reason code is
+// everything before it.
+const STRUCTURED_ROW_RE = /^(\S.*?)\s+([A-Z][A-Z_]*)$/;
+
+function matchStructuredRow(skuAndDesc) {
+  const m = skuAndDesc.match(STRUCTURED_ROW_RE);
+  if (!m) return null;
+  const lineType = STRUCTURED_ROW_LABELS[m[2]];
+  if (!lineType) return null;
+  const vendorSku = m[1].trim();
+  // A real product row always leads with its numeric SKU. This keeps the
+  // rule strictly additive: a product whose description happened to end
+  // in one of these words can never be reclassified as a structured row.
+  if (/^\d{5,}/.test(vendorSku)) return null;
+  return { line_type: lineType, vendor_sku: vendorSku, label: m[2] };
+}
+
+// The three row types above share one property the adjustment row also
+// has: their description is a fixed machine label, never prose that
+// wraps. So any continuation line arriving while one of them is open
+// belongs to the SKU column or to the page furniture — never to the
+// description (INV03D R4).
+const STRUCTURED_NON_PRODUCT_TYPES = {
+  handling: true, shipping: true, fulfillment_variance: true,
+};
+// ── MARKER:WALMART_STRUCTURED_ROW_END ──────────────────────────────
 // ── MARKER:WALMART_SKU_FRAGMENT_START ──────────────────────────────
 // A wrapped SKU continuation is a line containing ONLY digits, nothing
 // else — real example: "1350811700" then, alone on the next physical
@@ -139,6 +226,34 @@ function isSkuFragmentContinuation(line, currentItem) {
   if (!currentItem || currentItem.line_type !== 'product') return false;
   if (!/^\d+$/.test(currentItem.vendor_sku)) return false;
   return (currentItem.vendor_sku.length + line.length) <= MAX_RECONSTRUCTED_SKU_LEN;
+}
+
+// INV03D R3 — the alphabetic sibling of the rule above, for the SKU
+// column of a STRUCTURED NON-PRODUCT row. Real example: the reason code
+// "WebPriceMatch" does not fit the column and prints as "WebPriceM" on
+// the row-start line with "atch" alone on the next physical line.
+//
+// The bound is the observed truncation width, not a guess: the SKU
+// column cuts at 9 characters, seen twice independently in the real
+// corpus — "WebPriceM"(9) + "atch", and "ALT_PAYME"(9) + "NT_METHO" +
+// "DS". Requiring the open row's SKU to be alphabetic AND already at or
+// past that width is what keeps this from ever firing on the shorter
+// reason codes ("SubDown" 7, "Shipping" 8) or on "Express Fee" (which
+// contains a space), and the product-row exclusion is inherited from
+// STRUCTURED_NON_PRODUCT_TYPES, so no numeric SKU fragment behaviour
+// changes. The adjustment row is deliberately excluded: it already
+// carries a fixed canonical vendor_sku and swallows its own fragments.
+const SKU_ALPHA_FRAGMENT_RE = /^[A-Za-z]{1,8}$/;
+const SKU_COLUMN_WRAP_WIDTH = 9;
+const MAX_RECONSTRUCTED_ALPHA_SKU_LEN = 24;
+
+function isAlphaSkuFragmentContinuation(line, currentItem) {
+  if (!SKU_ALPHA_FRAGMENT_RE.test(line)) return false;
+  if (!currentItem || !STRUCTURED_NON_PRODUCT_TYPES[currentItem.line_type]) return false;
+  const sku = currentItem.vendor_sku || '';
+  if (!/^[A-Za-z]+$/.test(sku)) return false;
+  if (sku.length < SKU_COLUMN_WRAP_WIDTH) return false;
+  return (sku.length + line.length) <= MAX_RECONSTRUCTED_ALPHA_SKU_LEN;
 }
 // ── MARKER:WALMART_SKU_FRAGMENT_END ────────────────────────────────
 
@@ -233,18 +348,20 @@ function parseRowStart(line) {
   // silently absorbed into the PRECEDING product row's description —
   // losing $1.93/$10.29/$14.65 as structured line items and corrupting
   // that product's own description (confirmed against the real PDF).
-  const handlingMatch = skuAndDesc.match(/^(Express\s+Fee)\s+(HANDLING)$/i);
-  const fulfillVarianceMatch = skuAndDesc.match(/^(SubDown)\s+(FULFILL_VARIANCE)$/i);
+  // INV03D — one generic structured-row rule in place of the two
+  // hardcoded placeholder regexes this used to carry. It reproduces the
+  // old output exactly for "Express Fee HANDLING", "SubDown
+  // FULFILL_VARIANCE" and "Shipping SHIPPING" (verified field by field
+  // over all 310 items of the 29 real documents), and additionally
+  // recognises any other reason code printed against those same three
+  // machine labels. See MARKER:WALMART_STRUCTURED_ROW_START.
+  const structured = matchStructuredRow(skuAndDesc);
 
   let lineType, vendorSku, description;
-  if (handlingMatch) {
-    lineType = 'handling';
-    vendorSku = handlingMatch[1];
-    description = handlingMatch[2];
-  } else if (fulfillVarianceMatch) {
-    lineType = 'fulfillment_variance';
-    vendorSku = fulfillVarianceMatch[1];
-    description = fulfillVarianceMatch[2];
+  if (structured) {
+    lineType = structured.line_type;
+    vendorSku = structured.vendor_sku;
+    description = structured.label;
   } else {
     const tokenMatch = skuAndDesc.match(/^(\S+)\s+(.*)$/);
     if (!tokenMatch) return null;
@@ -292,8 +409,13 @@ function parseRowStart(line) {
     warnings:         [],
     // Adjustment row's SKU-column wrap fragments ("NT_METHO Methods",
     // "DS") are swallowed, never appended to description — see file
-    // header comment.
-    _swallowContinuation: lineType === 'adjustment',
+    // header comment. INV03D R4 extends the same treatment to the three
+    // structured non-product rows: their description is a fixed machine
+    // label ("HANDLING", "SHIPPING", "FULFILL_VARIANCE"), never prose
+    // that wraps, so a continuation line arriving while one of them is
+    // open belongs to the SKU column (handled by the alpha-fragment
+    // rule above) or to the page furniture — never to the description.
+    _swallowContinuation: lineType === 'adjustment' || !!STRUCTURED_NON_PRODUCT_TYPES[lineType],
     _descParts: [description],
   };
 }
@@ -384,7 +506,19 @@ function extractItems(lines) {
       continue;
     }
 
+    // INV03D R5 — page furniture reprinted between two pages of the same
+    // item table. Skipped before any other handling so it can never
+    // reach a description.
+    if (TREVIPAY_FOOTER_RE.test(line) || TABLE_CAPTION_RE.test(line)) continue;
+
     if (isSkuFragmentContinuation(line, current)) {
+      current.vendor_sku += line;
+      continue;
+    }
+
+    // INV03D R3 — alphabetic SKU-column wrap, e.g. "atch" completing
+    // "WebPriceM" into "WebPriceMatch".
+    if (isAlphaSkuFragmentContinuation(line, current)) {
       current.vendor_sku += line;
       continue;
     }

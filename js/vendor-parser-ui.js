@@ -1578,6 +1578,73 @@ function buildVendorParsers() {
     return (currentItem.vendor_sku.length + line.length) <= WALMART_MAX_RECONSTRUCTED_SKU_LEN;
   }
 
+  // INV03D — ported identically from
+  // js/vendor-parsers/walmart-trevipay-invoice.js. See the MARKER blocks
+  // there for the full reasoning and the corpus census that grounds it;
+  // the parity test (tests/walmart-trevipay-parser-parity.test.js)
+  // requires the two implementations to agree field by field, so any
+  // change here must be mirrored there and vice versa.
+  //
+  // Short version: a TreviPay non-product row prints as
+  // "<reason code> <STRUCTURED LABEL> <qty> $unit $disc $tax $total".
+  // Matching on the reason code made the parser an allowlist, so a
+  // reason code nobody had seen yet lost its money into the previous
+  // item's description — three times now, most recently the two
+  // "WebPriceMatch FULFILL_VARIANCE" rows worth $87.00 on 1ca959a6.
+  // Keying on the LABEL, which is the machine-generated half, fixes the
+  // class. Fail-closed is preserved by structure: the row must already
+  // have satisfied a complete monetary tail before this is consulted.
+  var WALMART_STRUCTURED_ROW_LABELS = {
+    FULFILL_VARIANCE: 'fulfillment_variance',
+    HANDLING:         'handling',
+    SHIPPING:         'shipping',
+  };
+  var WALMART_STRUCTURED_ROW_RE = /^(\S.*?)\s+([A-Z][A-Z_]*)$/;
+
+  function walmartMatchStructuredRow(skuAndDesc) {
+    var m = skuAndDesc.match(WALMART_STRUCTURED_ROW_RE);
+    if (!m) return null;
+    var lineType = WALMART_STRUCTURED_ROW_LABELS[m[2]];
+    if (!lineType) return null;
+    var vendorSku = m[1].trim();
+    // A real product row always leads with its numeric SKU: this keeps
+    // the rule strictly additive.
+    if (/^\d{5,}/.test(vendorSku)) return null;
+    return { line_type: lineType, vendor_sku: vendorSku, label: m[2] };
+  }
+
+  var WALMART_STRUCTURED_NON_PRODUCT_TYPES = {
+    handling: true, shipping: true, fulfillment_variance: true,
+  };
+
+  // The alphabetic sibling of walmartIsSkuFragmentContinuation, for the
+  // SKU column of a structured non-product row: "WebPriceMatch" does not
+  // fit the column and prints as "WebPriceM" + "atch". The bound is the
+  // observed truncation width of 9 characters, seen twice independently
+  // in the real corpus ("WebPriceM" + "atch", "ALT_PAYME" + "NT_METHO" +
+  // "DS"), which is what keeps it off the shorter reason codes.
+  var WALMART_SKU_ALPHA_FRAGMENT_RE = /^[A-Za-z]{1,8}$/;
+  var WALMART_SKU_COLUMN_WRAP_WIDTH = 9;
+  var WALMART_MAX_RECONSTRUCTED_ALPHA_SKU_LEN = 24;
+
+  function walmartIsAlphaSkuFragmentContinuation(line, currentItem) {
+    if (!WALMART_SKU_ALPHA_FRAGMENT_RE.test(line)) return false;
+    if (!currentItem || !WALMART_STRUCTURED_NON_PRODUCT_TYPES[currentItem.line_type]) return false;
+    var sku = currentItem.vendor_sku || '';
+    if (!/^[A-Za-z]+$/.test(sku)) return false;
+    if (sku.length < WALMART_SKU_COLUMN_WRAP_WIDTH) return false;
+    return (sku.length + line.length) <= WALMART_MAX_RECONSTRUCTED_ALPHA_SKU_LEN;
+  }
+
+  // The two fixed boilerplate lines TreviPay reprints between one page
+  // of the item table and the next. Both sit inside the table, so before
+  // this rule they fell through to continuation handling and appended
+  // themselves to whatever description was open — 15 items across 15 of
+  // the 29 real documents. No money was lost by it, but it corrupts the
+  // text ingredient_links matches on.
+  var WALMART_TREVIPAY_FOOTER_RE = /^©?\s*\d{4}\s*TreviPay\b/i;
+  var WALMART_TABLE_CAPTION_RE   = /^Invoice Details$/i;
+
   // Trailing numeric columns. The optional "Tax Details" column only
   // ever contributes its percentage (e.g. "0.0824%") to the FIRST
   // continuation line, never to the row-start line itself — confirmed
@@ -1664,18 +1731,16 @@ function buildVendorParsers() {
     // losing $1.93/$10.29/$14.65 as structured line items and corrupting
     // that product's own description (confirmed against the real PDF).
     // Ported identically from js/vendor-parsers/walmart-trevipay-invoice.js.
-    var handlingMatch = skuAndDesc.match(/^(Express\s+Fee)\s+(HANDLING)$/i);
-    var fulfillVarianceMatch = skuAndDesc.match(/^(SubDown)\s+(FULFILL_VARIANCE)$/i);
+    // INV03D replaced the two hardcoded placeholder regexes that used to
+    // sit here with one generic structured-row rule; see
+    // walmartMatchStructuredRow above.
+    var structured = walmartMatchStructuredRow(skuAndDesc);
 
     var lineType, vendorSku, description;
-    if (handlingMatch) {
-      lineType = 'handling';
-      vendorSku = handlingMatch[1];
-      description = handlingMatch[2];
-    } else if (fulfillVarianceMatch) {
-      lineType = 'fulfillment_variance';
-      vendorSku = fulfillVarianceMatch[1];
-      description = fulfillVarianceMatch[2];
+    if (structured) {
+      lineType = structured.line_type;
+      vendorSku = structured.vendor_sku;
+      description = structured.label;
     } else {
       var tokenMatch = skuAndDesc.match(/^(\S+)\s+(.*)$/);
       if (!tokenMatch) return null;
@@ -1723,7 +1788,12 @@ function buildVendorParsers() {
       warnings:         [],
       // Adjustment row's SKU-column wrap fragments ("NT_METHO Methods",
       // "DS") are swallowed, never appended to description.
-      _swallowContinuation: lineType === 'adjustment',
+      // INV03D R4 — the three structured non-product rows get the same
+      // treatment the adjustment row already had: their description is a
+      // fixed machine label, never prose that wraps, so a continuation
+      // line arriving while one of them is open belongs to the SKU
+      // column or to the page furniture, never to the description.
+      _swallowContinuation: lineType === 'adjustment' || !!WALMART_STRUCTURED_NON_PRODUCT_TYPES[lineType],
       _descParts: [description],
     };
   }
@@ -1812,7 +1882,18 @@ function buildVendorParsers() {
         continue;
       }
 
+      // INV03D R5 — page furniture reprinted between two pages of the
+      // same item table, skipped before anything else can absorb it.
+      if (WALMART_TREVIPAY_FOOTER_RE.test(line) || WALMART_TABLE_CAPTION_RE.test(line)) continue;
+
       if (walmartIsSkuFragmentContinuation(line, current)) {
+        current.vendor_sku += line;
+        continue;
+      }
+
+      // INV03D R3 — alphabetic SKU-column wrap, e.g. "atch" completing
+      // "WebPriceM" into "WebPriceMatch".
+      if (walmartIsAlphaSkuFragmentContinuation(line, current)) {
         current.vendor_sku += line;
         continue;
       }
