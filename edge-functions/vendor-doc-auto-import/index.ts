@@ -1663,6 +1663,14 @@ Deno.serve(async (req: Request) => {
     // other vendor's behavior) is completely unaffected by its
     // existence. Only fires on an explicit, single-document request.
     const repairInvoiceLines: boolean = !!body.repair_invoice_lines;
+    // INV08C — il gemello di repair_invoice_lines per i crediti. Serve ai
+    // credit memo entrati PRIMA che questo percorso esistesse: sono gia'
+    // 'imported', quindi Phase B non li seleziona piu', ma non hanno la
+    // riga in vendor_credits. Non e' una scorciatoia: chiama esattamente
+    // vdaiApproveCredit, la stessa funzione del percorso automatico, che
+    // e' idempotente e su un documento gia' imported registra il credito
+    // senza toccarne lo status.
+    const repairCredit: boolean = !!body.repair_credit;
 
     const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
@@ -1670,6 +1678,24 @@ Deno.serve(async (req: Request) => {
       if (!documentId) return json({ ok: false, error: 'repair_invoice_lines requires document_id' }, 400);
       const repairResult = await vdaiRepairMissingInvoiceLines(sb, documentId, dryRun);
       return json({ ok: true, ms: Date.now() - started, repair: { id: documentId, dry_run: dryRun, ...repairResult } });
+    }
+
+    if (repairCredit) {
+      if (!documentId) return json({ ok: false, error: 'repair_credit requires document_id' }, 400);
+      if (dryRun) {
+        const { data: d } = await sb.from('vendor_documents')
+          .select('parsed_json,document_type,status,document_number').eq('id', documentId).single();
+        const pjD = (d && d.parsed_json) || {};
+        const tipoD = pjD.document_type || (d && d.document_type);
+        const check = tipoD === 'credit_memo' ? vdaiValidateCredit(pjD) : { ok: false, reason: 'not_credit_memo' };
+        const { data: gia } = await sb.from('vendor_credits').select('id').eq('vendor_document_id', documentId).limit(1);
+        return json({ ok: true, ms: Date.now() - started, repair_credit: { id: documentId, dry_run: true,
+          document_number: d && d.document_number, status: d && d.status, would_record: check.ok,
+          reason: check.reason || null, amount: pjD.total ?? null,
+          already_recorded: !!(gia && gia.length) } });
+      }
+      const creditResult = await vdaiApproveCredit(sb, documentId);
+      return json({ ok: true, ms: Date.now() - started, repair_credit: { id: documentId, ...creditResult } });
     }
 
     const parsers = loadParsers();
