@@ -209,10 +209,13 @@ test('11. i due backfill PDF passano strict = true', () => {
 
 test('12. gli altri chiamanti orari NON passano strict (3 argomenti)', () => {
   // INV05D: Fruge e' uscito da questa lista per decisione del Chef ed e'
-  // coperto dai test 16-22. Hardie's e TreviPay restano legacy: cambiarli
-  // non era in quel mandato e non va fatto di straforo.
-  for (const [file, fname] of [['HardiesImport.gs.js','checkHardiesEmails'],
-                               ['TreviPayImport.js','checkTreviPayEmails']]) {
+  // coperto dai test 16-22.
+  // INV08FINAL: anche Hardie's e' uscito, e per una decisione dichiarata —
+  // il ramo legacy era l'ultimo punto del percorso Hardie's in cui un
+  // fallimento veniva archiviato come successo. La sua forma nuova e'
+  // ancorata in tests/hardies-collector-fail-closed.test.js e dal test 23
+  // qui sotto. TreviPay resta legacy: non e' in nessun mandato.
+  for (const [file, fname] of [['TreviPayImport.js','checkTreviPayEmails']]) {
     const f = extractFn(fs.readFileSync(path.join(DIR, file), 'utf8'), fname);
     const call = f.match(/processLabelPDF\(([^)]*)\)/);
     assert.strictEqual(call[1].split(',').length, 3, fname + ' deve restare a 3 argomenti');
@@ -326,15 +329,20 @@ test('22. checkFrugeEmails passa esattamente null e true', () => {
   assert.strictEqual(args[4], 'true', 'strictSuccessLabeling deve essere true');
 });
 
-test('23. gli altri collector orari NON sono stati toccati', () => {
-  for (const [file, fname] of [['HardiesImport.gs.js','checkHardiesEmails'],
-                               ['TreviPayImport.js','checkTreviPayEmails']]) {
-    const f = extractFn(fs.readFileSync(path.join(DIR, file), 'utf8'), fname);
-    assert.ok(!/strict|true\)/.test(f), fname + ' deve restare legacy');
-  }
-  assert.ok(!/strictSuccessLabeling/.test(
-    fs.readFileSync(path.join(DIR, 'FreshpointImport.gs:.js'), 'utf8')),
-    'FreshPoint non e in questo mandato');
+test('23. TreviPay resta legacy; Hardie s e passato a fail-closed in INV08FINAL', () => {
+  const trevi = extractFn(fs.readFileSync(path.join(DIR, 'TreviPayImport.js'), 'utf8'),
+                          'checkTreviPayEmails');
+  assert.ok(!/strict|true\)/.test(trevi), 'TreviPay deve restare legacy: non e in nessun mandato');
+
+  // INV08FINAL — Hardie's era l'ultimo collector orario fail-open. Il
+  // cambiamento e' deliberato e va ancorato, non solo permesso.
+  const hard = extractFn(fs.readFileSync(path.join(DIR, 'HardiesImport.gs.js'), 'utf8'),
+                         'checkHardiesEmails');
+  const args = hard.match(/processLabelPDF\(([\s\S]*?)\)/)[1]
+    .split(',').map(a => a.trim());
+  assert.strictEqual(args.length, 5, 'checkHardiesEmails deve passare 5 argomenti');
+  assert.strictEqual(args[3], 'null', 'startDate null: il collector orario non fa backfill');
+  assert.strictEqual(args[4], 'true', 'strictSuccessLabeling deve essere true');
 });
 
 // ── 5. FreshPoint: collector BODY-ONLY e fail-closed (INV07) ─────
