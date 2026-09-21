@@ -133,6 +133,11 @@ const DRY_OREG  = '2eaf047f-0000-0000-0000-000000000000';
 const EDIBLE_FL = 'f3d353e4-0000-0000-0000-000000000000';
 const CHERRY    = 'c77db80e-0000-0000-0000-000000000000';
 const SUNFLOWER = 'aa38168c-0000-0000-0000-000000000000';
+const RED_BELL  = '6589fc51-0000-0000-0000-000000000000';
+const BABY_CARR = 'bbbb2222-0000-0000-0000-000000000000';
+const ZUCCHINI  = '277a435c-0000-0000-0000-000000000000';
+const TENDERLOIN= 'cccc3333-0000-0000-0000-000000000000';
+const STEW_MEAT = '28bd0f90-0000-0000-0000-000000000000';
 
 // La mappa come la costruisce il worker: prima ingredient_vendors, poi
 // gli alias SOPRA — ma SOLO quelli con active = true, perche' sia il
@@ -147,10 +152,12 @@ function mappaReale() {
     '70563': FIGS, '24060': GRAN_GARLIC, '25271': PROSCIUTTO,
     '04396': MALDON, '03252': PUMPKIN, '23566': MILK_CHOC,
     '24303': DRY_OREG, '05840': EDIBLE_FL, '07673': CHERRY,
-    '03257': SUNFLOWER,
+    '03257': SUNFLOWER, '02656': RED_BELL, '00428': BABY_CARR,
+    '03493': ZUCCHINI, '23278': TENDERLOIN, '24171': STEW_MEAT,
   };
   const aliasAttivi   = { '85025': PUMPKIN, '25193': MALDON,
-                          '07140': EDIBLE_FL, '22517': CHERRY };
+                          '07140': EDIBLE_FL, '22517': CHERRY,
+                          '71814': ZUCCHINI };
   const aliasInattivi = { '03252': SEEDS, '03257': SEEDS };   // non applicati
   const m = {};
   for (const k in diretti)     m[k] = { ingredient_id: diretti[k], vendor_sku: k };
@@ -161,6 +168,16 @@ function mappaReale() {
 const MAPPA = mappaReale();
 
 const casi = [
+  ['02656', RED_BELL, 'Red Bell Pepper',
+   ['PEPPER RED BELL CHOPPER', 'RED BELL PEPPER CHOPPER 5#', 'PEPPER, RED BELL  CHOPPER']],
+  ['00428', BABY_CARR, 'Baby Carrots',
+   ['CARROT BABY PEELED W/TOPS MEX', 'BABY CARROT PEELED 5#', 'CARROT, BABY PEELED W/TOPS']],
+  ['03493', ZUCCHINI, 'Zucchini',
+   ['SQUASH BABY ZUCCHINI', 'BABY ZUCCHINI SQUASH 5#', 'SQUASH, BABY  ZUCCHINI']],
+  ['71814', ZUCCHINI, 'Zucchini',
+   ['SQUASH ZUCCHINI FANCY', 'ZUCCHINI FANCY 18-22#', 'SQUASH, ZUCCHINI  FANCY']],
+  ['23278', TENDERLOIN, 'Beef Tenderloin Tips',
+   ['ABR BC TNDRLN TIPS REF', 'BEEF TENDERLOIN TIPS REFRIGERATED', 'ABR BC TNDRLN  TIPS  REF']],
   ['03252', PUMPKIN, 'Pumpkin Seed',
    ['SEED PUMPKIN ROASTED/SALTED', 'PUMPKIN SEED ROASTED SALTED 5#', 'SEED, PUMPKIN  ROASTED/SALTED']],
   ['23566', MILK_CHOC, 'Milk Chocolate',
@@ -247,6 +264,43 @@ test('E1-25271. mappato per il futuro, ma oggi NON produce riga', async () => {
   assert.strictEqual(domani.length, 1, 'quando arrivera\' davvero, la riga nasce');
   assert.strictEqual(domani[0].ingredient_id, PROSCIUTTO, 'e con l\'identita\' gia\' risolta');
   assert.strictEqual(domani[0].qty, 2);
+});
+
+test('E3-zucchini. 03493 e 71814 risolvono allo STESSO ingredient_id', async () => {
+  const a = await scrivi([voce({ vendor_sku: '03493', description: 'SQUASH BABY ZUCCHINI',
+                                 pack_description: '5#', amount: 20, unit_price: 20 })], MAPPA);
+  const b = await scrivi([voce({ vendor_sku: '71814', description: 'SQUASH ZUCCHINI FANCY',
+                                 pack_description: '18-22#', amount: 30, unit_price: 30 })], MAPPA);
+  assert.strictEqual(a[0].ingredient_id, ZUCCHINI);
+  assert.strictEqual(b[0].ingredient_id, ZUCCHINI);
+  assert.strictEqual(a[0].ingredient_id, b[0].ingredient_id,
+    'baby e fancy devono finire nello stesso ingrediente canonico');
+});
+
+test('E3-tenderloin. 23278 NON risolve piu\' a Stew Meat, nemmeno se la descrizione lo suggerisce', async () => {
+  // Il caso che ha creato il problema: la riga storica era stata
+  // agganciata a Stew Meat PER DESCRIZIONE. Adesso c'e' lo SKU, e lo
+  // SKU deve vincere anche contro una linkMap che punta a Stew Meat.
+  const rows = await scrivi([voce({ vendor_sku: '23278', description: 'ABR BC TNDRLN TIPS REF',
+                                    pack_description: '4 PKG/12#', amount: 88.04, unit_price: 6.83 })],
+                            MAPPA, { 'ABR BC TNDRLN TIPS REF': STEW_MEAT });
+  assert.strictEqual(rows[0].ingredient_id, TENDERLOIN);
+  assert.notStrictEqual(rows[0].ingredient_id, STEW_MEAT,
+    'la descrizione non deve piu\' poter riportare 23278 su Stew Meat');
+});
+
+test('E3-stew. Stew Meat resta intatto per gli altri suoi SKU', async () => {
+  const rows = await scrivi([voce({ vendor_sku: '24171', description: 'ABR BROCHETTE MEAT 1" REF',
+                                    pack_description: '4 PC/12#', amount: 40, unit_price: 20 })], MAPPA);
+  assert.strictEqual(rows[0].ingredient_id, STEW_MEAT,
+    'la correzione di 23278 non doveva toccare 24171');
+});
+
+test('E3-pack. nessuna conversione inventata dove il pack non e\' deducibile', () => {
+  const f = require(path.join(ROOT, 'pure_logic.cjs')).vdaiPackToGrams;
+  assert.strictEqual(f('18-22#'), null, 'pack a intervallo: non deducibile');
+  assert.strictEqual(f('4 PKG/12#'), null, 'pack composito non coperto dalla grammatica');
+  assert.strictEqual(Math.round(f('5#')), 2268, 'questo invece e\' esatto');
 });
 
 (async () => {
