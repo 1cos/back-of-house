@@ -2125,11 +2125,108 @@ window.vdrLocateWarningInDocument = vdrLocateWarningInDocument;
 
 // ── MARKER:VDR_WARNING_LIFECYCLE_END ─────────────────────────────────
 
+// ══════════════════════════════════════════════════════════════════
+// INV08H — POLICY DI BLOCCO PER I WARNING DI QUANTITA' (copia UI)
+//
+// Gemello esatto di vdaiLineEconomicallyDeterminate /
+// vdaiDocumentEconomicallyDeterministic / vdaiQtyWarningInformational in
+// edge-functions/vendor-doc-auto-import/index.ts. Stessa forma gia' usata
+// per isBlockingWarning <-> vdrWarningToQuestion: due copie che vanno in
+// lockstep, o lo stesso documento e' bloccato dal cron e approvabile
+// dalla UI (o il contrario, che e' peggio).
+//
+// Il razionale completo sta nel commento del worker. In breve: da INV08B
+// il writer usa la quantita' CONSEGNATA e non piu' quella ordinata, da
+// INV08B.1 le righe a consegna zero non diventano acquisti, da INV08E
+// ogni SKU Hardie's ha identita' stabile. Un "ordered 3 / shipped 2 /
+// addebitati 2" non e' piu' una domanda: e' un fatto che la fattura
+// dichiara da sola. Resta una domanda tutto cio' che la predicate non
+// sa dimostrare — e l'assenza di contesto vale come non dimostrato.
+// ══════════════════════════════════════════════════════════════════
+const VDR_TOTAL_TOLERANCE = 0.02;  // stessa convenzione di checkTotals()
+
+function vdrNum(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+function vdrLineEconomicallyDeterminate(item) {
+  if (!item) return false;
+  const rec = vdrNum(item.qty_received);
+  const amt = vdrNum(item.amount);
+  // ZERO e' informazione. NULL e' assenza di informazione.
+  if (rec === null || amt === null) return false;
+  if (rec < 0 || amt < 0) return false;                                  // un reso non e' una consegna
+  if (rec === 0 && Math.abs(amt) > VDR_TOTAL_TOLERANCE) return false;    // niente arrivato, qualcosa addebitato
+  if (rec > 0 && amt === 0) return false;                                // forma del difetto misurato in INV08B
+  return true;
+}
+
+function vdrDocumentEconomicallyDeterministic(pj) {
+  const items = (pj && Array.isArray(pj.items)) ? pj.items : [];
+  if (!items.length) return false;
+  if (pj && pj.totals_reconciled === true) return false;  // la somma non e' una prova per questo parser
+  let sum = 0;
+  for (const it of items) {
+    if (it && it.line_type && it.line_type !== 'product') continue;
+    if (!vdrLineEconomicallyDeterminate(it)) return false;
+    sum += vdrNum(it.amount);
+  }
+  sum = Math.round(sum * 100) / 100;
+  const candidates = [];
+  for (const k of ['subtotal', 'total']) {
+    const v = vdrNum(pj ? pj[k] : null);
+    if (v !== null) candidates.push(v);
+  }
+  if (!candidates.length) return false;
+  return candidates.some(c => Math.abs(c - sum) <= VDR_TOTAL_TOLERANCE);
+}
+
+function vdrQtyWarningInformational(code, item, qtyCtx) {
+  if (code !== 'OQR-002' && code !== 'OQR-007') return false;
+  if (!qtyCtx || qtyCtx.deterministic !== true) return false;
+  if (!item) return false;
+  if (!vdrLineEconomicallyDeterminate(item)) return false;
+  const key = item.vendor_sku || item.item_code || item.description || item.raw_description;
+  if (!key) return false;
+  if (!(qtyCtx.unmatchedKeys instanceof Set)) return false;   // niente mappa identita' => fail closed
+  return !qtyCtx.unmatchedKeys.has(key);
+}
+
+// Il contesto si costruisce dai dati gia' precaricati da vdrLoad:
+// window._vdrMatchStatus e' la STESSA risoluzione di identita' che usa
+// il preflight (alias attivi, ingredient_vendors, ingredient_links
+// confermati, con i conflitti contati come NON risolti). Se manca —
+// primo render, errore di rete, chiamata fuori da vdrLoad — il contesto
+// e' null e i warning di quantita' restano bloccanti.
+function vdrBuildQtyContext(doc) {
+  const pj = doc.parsed_json || {};
+  const st = (window._vdrMatchStatus || {})[doc.id];
+  if (!st || !(st.unmatchedSkuSet instanceof Set)) return null;
+  return {
+    deterministic: vdrDocumentEconomicallyDeterministic(pj),
+    unmatchedKeys: st.unmatchedSkuSet,
+  };
+}
+
+window.vdrLineEconomicallyDeterminate      = vdrLineEconomicallyDeterminate;
+window.vdrDocumentEconomicallyDeterministic = vdrDocumentEconomicallyDeterministic;
+window.vdrQtyWarningInformational           = vdrQtyWarningInformational;
+window.vdrBuildQtyContext                   = vdrBuildQtyContext;
+
 function vdrBuildQuestions(doc) {
   const pj      = doc.parsed_json || {};
   const docWarn = Array.isArray(doc.warnings) ? doc.warnings : [];
   const questions = [];
   let idx = 0;
+
+  // INV08H — un solo contesto per documento, calcolato qui e passato a
+  // ogni warning: cosi' ogni chiamante di vdrBuildQuestions (le quattro
+  // render, vdrRegisterQuestions e vdrPreflight) vede la STESSA
+  // classificazione, e non esiste il caso "la card mostra 2 domande ma
+  // Approve passa".
+  const qtyCtx = vdrBuildQtyContext(doc);
 
   // Document-level warnings
 for (const w of docWarn) {
@@ -2137,14 +2234,14 @@ for (const w of docWarn) {
   // They include an item reference and will be rendered with full item context below.
   if (w.item) continue;
 
-  const q = vdrWarningToQuestion(w, null, doc.id, idx++);
+  const q = vdrWarningToQuestion(w, null, doc.id, idx++, qtyCtx);
   if (q) { q.invoiceWarningId = vdrFindWarningRowId(doc.id, w, null); questions.push(q); }
 }
 
   // Item-level warnings
   for (const item of (pj.items || [])) {
     for (const w of (item.warnings || [])) {
-      const q = vdrWarningToQuestion(w, item, doc.id, idx++);
+      const q = vdrWarningToQuestion(w, item, doc.id, idx++, qtyCtx);
       if (q) { q.invoiceWarningId = vdrFindWarningRowId(doc.id, w, item); questions.push(q); }
     }
   }
@@ -2153,7 +2250,7 @@ for (const w of docWarn) {
 }
 
 // ── Convert a warning into a structured OQR question ─────────
-function vdrWarningToQuestion(w, item, docId, idx) {
+function vdrWarningToQuestion(w, item, docId, idx, qtyCtx) {
   const qid = `${docId}-${idx}`;
   const name = item ? (item.description || item.raw_description || 'Item') : null;
 
@@ -2231,6 +2328,21 @@ function vdrWarningToQuestion(w, item, docId, idx) {
   if (w.code === 'OQR-002') {
     const subName  = name || 'this item';
     const prevItem = item && item.substituted_sku ? `SKU ${item.substituted_sku}` : 'the original item';
+    // INV08H — il sostituto e' arrivato, e' stato addebitato, ha un'identita'
+    // e la fattura quadra: la contabilita' e' gia' decisa dal documento.
+    // Resta visibile (il sostituto e' un fatto di cucina), ma non e' piu'
+    // una domanda che debba fermare l'import.
+    if (vdrQtyWarningInformational('OQR-002', item, qtyCtx)) {
+      return {
+        qid, code: 'OQR-002', item, docId, idx,
+        emoji: '🔄',
+        title: name || 'Substitution',
+        detected: `${subName} replaced ${prevItem} · received ${item.qty_received} · charged $${Number(item.amount).toFixed(2)}`,
+        question: null,
+        warnRef: w,
+        infoOnly: true,
+      };
+    }
     return {
       qid, code: 'OQR-002', item, docId, idx,
       emoji: '🔄',
@@ -2256,6 +2368,27 @@ function vdrWarningToQuestion(w, item, docId, idx) {
     const shp = item ? (item.qty_received ?? '?') : '?';
     const ordN = parseFloat(ord);
     const shpN = parseFloat(shp);
+
+    // INV08H — la fattura dichiara gia' quanto e' arrivato e quanto e'
+    // costato, l'identita' della riga e' risolta e il documento quadra.
+    // In tutti e tre i casi sotto (inatteso, consegna corta, consegna in
+    // eccesso) la risposta dello Chef non cambierebbe un solo numero
+    // scritto: il writer usa il RICEVUTO da INV08B e scarta le righe a
+    // consegna zero da INV08B.1. Informativo, non bloccante.
+    if (vdrQtyWarningInformational('OQR-007', item, qtyCtx)) {
+      const amt = Number(item.amount);
+      return {
+        qid, code: 'OQR-007', item, docId, idx,
+        emoji: shpN === 0 ? '🚫' : '📦',
+        title: name || 'Item',
+        detected: shpN === 0
+          ? `Ordered ${ord} · none delivered · not charged — no purchase line`
+          : `Ordered ${ord} · received ${shp} · charged $${amt.toFixed(2)} for ${shp}`,
+        question: null,
+        warnRef: w,
+        infoOnly: true,
+      };
+    }
 
     // Case A: ordered 0, received > 0 → unexpected / substitution
     if (!isNaN(ordN) && !isNaN(shpN) && ordN === 0 && shpN > 0) {

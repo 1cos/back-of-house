@@ -124,10 +124,14 @@ function makeMockSb(tables) {
     const known = { '01115': { conversion_to_base: 1000 } };
     assert.strictEqual(isBlockingWarning({ code: 'OQR-006' }, { vendor_sku: '01115', pack_description: '15 DZ' }, known), false);
   });
-  test('OQR-002 (substitution) always blocks', () => {
+  // INV08H — i due codici non bloccano piu' "sempre": bloccano finche' la
+  // predicate non dimostra che la riga e' economicamente determinata e
+  // identificata (vedi tests/oqr-blocking-policy.test.js). Qui resta il
+  // caso che conta per QUESTO file: senza contesto, blocco come prima.
+  test('OQR-002 (substitution) blocks without a qty context', () => {
     assert.strictEqual(isBlockingWarning({ code: 'OQR-002' }, {}, {}), true);
   });
-  test('OQR-007 (qty mismatch) always blocks', () => {
+  test('OQR-007 (qty mismatch) blocks without a qty context', () => {
     assert.strictEqual(isBlockingWarning({ code: 'OQR-007' }, {}, {}), true);
   });
   test('DOC-TOTAL-001 always blocks', () => {

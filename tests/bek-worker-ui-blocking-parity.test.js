@@ -74,6 +74,10 @@ global.vdrItemEmoji = () => '📦';
 const UI_SRC = [
   grab('function vdrIsPurchasableDocumentFallback(', 'return false;\n}'),
   grab('function vdrIsPurchasableDocument(vendor, documentType)', '\n}'),
+  // INV08H — vdrBuildQuestions costruisce ora un contesto documentale e lo
+  // passa a vdrWarningToQuestion: senza queste funzioni l'estrazione non
+  // compila. Vanno prese dal sorgente come tutto il resto, non ricopiate.
+  grab('const VDR_TOTAL_TOLERANCE = 0.02;', 'window.vdrBuildQtyContext                   = vdrBuildQtyContext;'),
   grab('function vdrBuildQuestions(doc)', 'return questions;\n}'),
   grab('function vdrWarningToQuestion(', 'return null; // unknown code — skip') + '\n}',
   // INV06B ha estratto questo helper e vdrWarningToQuestion ora lo chiama:
@@ -83,8 +87,9 @@ const UI_SRC = [
   grab('function vdrCodeToSeverity(code)', "return 'alert';") + '\n}',
 ].join('\n\n');
 
-const uiFn = new Function(UI_SRC +
-  '\nreturn { vdrBuildQuestions, vdrWarningToQuestion, vdrPreflight, vdrCodeToSeverity, vdrIsPurchasableDocument };')();
+const window = { _vdrMatchStatus: {} };
+const uiFn = new Function('window', UI_SRC +
+  '\nreturn { vdrBuildQuestions, vdrWarningToQuestion, vdrPreflight, vdrCodeToSeverity, vdrIsPurchasableDocument };')(window);
 
 // Il gate UI come lo applica vdrPreflight: una domanda non-infoOnly blocca.
 function uiBlocca(code, extra) {

@@ -654,7 +654,120 @@ function vdaiPhaseBWindow(pendingTotal: number, nowMs: number, pageSize?: number
 // OQR-006/OQR-007 (item-level) today — OQR-001/008/009 are ported too,
 // for parser-drift safety, exactly matching the client's branching.
 // ══════════════════════════════════════════════════════════════════
-function isBlockingWarning(w: any, item: any, knownConversions: Record<string, any>): boolean {
+// ══════════════════════════════════════════════════════════════════
+// INV08H — POLICY DI BLOCCO PER I WARNING DI QUANTITA'
+//
+// Fino a INV08B il writer usava la quantita' ORDINATA. In quel mondo un
+// "ordered 3 / shipped 2" era una domanda vera: il documento diceva una
+// cosa e il sistema ne scriveva un'altra, e solo una persona poteva dire
+// quale delle due fosse la spesa. Da INV08B il writer usa la quantita'
+// CONSEGNATA, da INV08B.1 le righe a consegna zero non diventano
+// acquisti, e da INV08E ogni SKU Hardie's ha un'identita' stabile.
+// La domanda si e' svuotata: la fattura dichiara da sola cosa e'
+// arrivato e quanto e' stato addebitato.
+//
+// Questa non e' l'autorizzazione a ignorare OQR-002/OQR-007. E' una
+// PREDICATE sui dati, e vale una riga alla volta:
+//
+//   un warning di quantita' e' INFORMATIVO quando il documento che lo
+//   contiene e' economicamente deterministico E la riga a cui punta ha
+//   un'identita' risolta.
+//
+// Tutto il resto continua a bloccare, e in particolare blocca ogni caso
+// in cui manca un dato: NULL non e' zero, e un numero che non c'e' non
+// puo' dimostrare niente. Il default in assenza di contesto e' BLOCCA
+// (vedi la firma opzionale di qtyCtx piu' sotto): un chiamante che non
+// costruisce il contesto non ottiene mai lo sconto.
+//
+// Il gemello UI di queste tre funzioni e' vdrLineEconomicallyDeterminate
+// / vdrDocumentEconomicallyDeterministic / vdrQtyWarningInformational in
+// js/vendor-documents-review.js, e i tre vanno tenuti in lockstep come
+// gia' isBlockingWarning <-> vdrWarningToQuestion.
+// ══════════════════════════════════════════════════════════════════
+
+// Stessa tolleranza di checkTotals() in js/vendor-parsers/index.js.
+// Mai una seconda convenzione di quadratura.
+const VDAI_TOTAL_TOLERANCE = 0.02;
+
+function vdaiNum(v: any): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+// Una riga e' economicamente determinata quando la fattura dichiara da
+// sola SIA quanto e' arrivato SIA quanto e' stato addebitato, e i due
+// non si contraddicono.
+function vdaiLineEconomicallyDeterminate(item: any): boolean {
+  if (!item) return false;
+  const rec = vdaiNum(item.qty_received);
+  const amt = vdaiNum(item.amount);
+  // "ZERO e' informazione. NULL significa assenza di informazione."
+  // Una quantita' ricevuta assente non e' una consegna nulla: e' un dato
+  // che non abbiamo, e su un dato che non abbiamo non si contabilizza.
+  if (rec === null || amt === null) return false;
+  if (rec < 0 || amt < 0) return false;            // un reso non e' una consegna: percorso credits
+  // Niente arrivato ma qualcosa addebitato: il documento contraddice se
+  // stesso, e la contraddizione e' esattamente cio' che chiede una persona.
+  if (rec === 0 && Math.abs(amt) > VDAI_TOTAL_TOLERANCE) return false;
+  // Arrivato ma addebitato zero: e' la forma del difetto misurato in
+  // INV08B (line_total 0 con qty > 0), dove in 12 casi su 19 il vero
+  // significato era "non consegnato" e non "consegnato gratis". Il
+  // parser oggi scrive qty_received 0 nei casi veri; se una riga dice
+  // ricevuto > 0 e importo 0, il dato non e' affidabile.
+  if (rec > 0 && amt === 0) return false;
+  return true;
+}
+
+// Un documento e' economicamente deterministico quando ogni riga lo e' e
+// la somma degli importi quadra con il totale dichiarato.
+function vdaiDocumentEconomicallyDeterministic(pj: any): boolean {
+  const items: any[] = (pj && Array.isArray(pj.items)) ? pj.items : [];
+  if (!items.length) return false;
+  // Un parser che ha gia' quadrato per conto suo (BEK: la somma degli
+  // amount NON e' il totale dichiarato, per costruzione) dichiara
+  // totals_reconciled. In quel caso la somma non e' una prova, e senza
+  // prova non si sblocca niente.
+  if (pj && pj.totals_reconciled === true) return false;
+
+  let sum = 0;
+  for (const it of items) {
+    if (it && it.line_type && it.line_type !== 'product') continue; // righe non-prodotto: Shipping & co.
+    if (!vdaiLineEconomicallyDeterminate(it)) return false;
+    sum += vdaiNum(it.amount) as number;
+  }
+  sum = Math.round(sum * 100) / 100;
+
+  // Stessi candidati di checkTotals: subtotal e/o total, basta che UNO
+  // quadri. La differenza deliberata e' sopra: checkTotals ignora le
+  // righe senza amount perche' decide se ALZARE un allarme, qui ogni
+  // riga deve avere il suo perche' si decide se ABBASSARE una barriera.
+  const candidates: number[] = [];
+  for (const k of ['subtotal', 'total']) {
+    const v = vdaiNum(pj ? pj[k] : null);
+    if (v !== null) candidates.push(v);
+  }
+  if (!candidates.length) return false;
+  return candidates.some((c) => Math.abs(c - sum) <= VDAI_TOTAL_TOLERANCE);
+}
+
+// qtyCtx: { deterministic: boolean, resolvedSkus: Set, resolvedDescs: Set }
+// Assente o incompleto => false => il warning resta bloccante.
+function vdaiQtyWarningInformational(code: string, item: any, qtyCtx: any): boolean {
+  if (code !== 'OQR-002' && code !== 'OQR-007') return false;
+  if (!qtyCtx || qtyCtx.deterministic !== true) return false;
+  if (!item) return false;                                  // warning senza riga: nessun contesto, blocca
+  if (!vdaiLineEconomicallyDeterminate(item)) return false;  // ridondante col gate documentale, ma esplicito
+  const sku = item.vendor_sku || item.item_code;
+  const desc = item.description || item.raw_description;
+  const skuOk = !!(sku && qtyCtx.resolvedSkus && qtyCtx.resolvedSkus.has(sku));
+  const descOk = !!(desc && qtyCtx.resolvedDescs && qtyCtx.resolvedDescs.has(desc));
+  // Senza identita' non si sa CHE COSA e' stato consegnato: un sostituto
+  // sconosciuto non e' un acquisto contabilizzabile in automatico.
+  return skuOk || descOk;
+}
+
+function isBlockingWarning(w: any, item: any, knownConversions: Record<string, any>, qtyCtx?: any): boolean {
   const code = w.code;
   if (code === 'DOC-TOTAL-001') return true;
   // MICRO-TASK 71/72 — le due eccezioni di riconciliazione BEK devono
@@ -709,8 +822,12 @@ function isBlockingWarning(w: any, item: any, knownConversions: Record<string, a
   if (code === 'PARSE_ERROR_NO_LINES') return true;
   if (['PARSE_ERROR', 'UNKNOWN_VENDOR', 'UNKNOWN_DOC_TYPE', 'NO_PARSER', 'PARSER_ERROR'].includes(code)) return false; // infoOnly
   if (code === 'OQR-001') return true;
-  if (code === 'OQR-002') return true;
-  if (code === 'OQR-007') return true;
+  // INV08H — i due warning di quantita' passano dalla predicate. Restano
+  // bloccanti in ogni caso che la predicate non sappia dimostrare
+  // deterministico, compreso il caso "nessun contesto" (qtyCtx assente).
+  if (code === 'OQR-002' || code === 'OQR-007') {
+    return !vdaiQtyWarningInformational(code, item, qtyCtx);
+  }
   if (code === 'OQR-009') return true;
   if (code === 'OQR-006') {
     const pack = item ? item.pack_description || '' : '';
@@ -745,16 +862,74 @@ async function hasBlockingQuestion(sb: any, doc: any): Promise<boolean> {
     for (const row of ivRows || []) knownConversions[row.vendor_sku] = { conversion_to_base: row.conversion_to_base };
   }
 
+  // INV08H — il contesto per OQR-002/OQR-007 si costruisce SOLO se quei
+  // codici esistono davvero su questo documento. Nessun documento senza
+  // warning di quantita' paga una query in piu', e la stragrande
+  // maggioranza non ne ha nessuno.
+  const hasQtyWarning = docWarn.some((w) => w && (w.code === 'OQR-002' || w.code === 'OQR-007'))
+    || items.some((i) => (i.warnings || []).some((w: any) => w && (w.code === 'OQR-002' || w.code === 'OQR-007')));
+  const qtyCtx = hasQtyWarning ? await vdaiQtyContext(sb, doc) : null;
+
   for (const w of docWarn) {
     if (w.item) continue; // item-level warnings are read from pj.items[] below, richer context there
-    if (isBlockingWarning(w, null, knownConversions)) return true;
+    if (isBlockingWarning(w, null, knownConversions, qtyCtx)) return true;
   }
   for (const item of items) {
     for (const w of item.warnings || []) {
-      if (isBlockingWarning(w, item, knownConversions)) return true;
+      if (isBlockingWarning(w, item, knownConversions, qtyCtx)) return true;
     }
   }
   return false;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// INV08H — il contesto documentale della predicate. L'identita' usa le
+// STESSE TRE query di vdaiPreflight (alias attivi, ingredient_vendors,
+// ingredient_links confermati): se le due risposte divergessero, un
+// documento potrebbe essere sbloccato qui e rifiutato la' — o peggio il
+// contrario. Un errore di lettura lascia il contesto nullo, quindi
+// blocca: fail closed anche sulla rete.
+// ══════════════════════════════════════════════════════════════════
+async function vdaiQtyContext(sb: any, doc: any): Promise<any> {
+  try {
+    const pj = doc.parsed_json || {};
+    const vendor = pj.vendor || doc.vendor || '';
+    const deterministic = vdaiDocumentEconomicallyDeterministic(pj);
+    const items: any[] = pj.items || [];
+    const matchable = items.filter((i) => !(i.line_type && i.line_type !== 'product'));
+    const skus = matchable.map((i) => i.vendor_sku || i.item_code).filter(Boolean);
+    const descs = matchable.map((i) => i.description || i.raw_description).filter(Boolean);
+
+    const [aliasRows, legacyRows] = skus.length
+      ? await Promise.all([
+          sb.from('vendor_item_aliases').select('vendor_sku,ingredient_id').eq('vendor', vendor).eq('active', true).in('vendor_sku', skus),
+          sb.from('ingredient_vendors').select('vendor_sku,ingredient_id').eq('vendor', vendor).in('vendor_sku', skus),
+        ])
+      : [{ data: [] }, { data: [] }];
+    const aliasIdBySku: Record<string, string> = {};
+    (aliasRows.data || []).forEach((r: any) => { if (r.vendor_sku) aliasIdBySku[r.vendor_sku] = r.ingredient_id; });
+    const directIdBySku: Record<string, string> = {};
+    (legacyRows.data || []).forEach((r: any) => { if (r.vendor_sku) directIdBySku[r.vendor_sku] = r.ingredient_id; });
+
+    const resolvedSkus = new Set<string>();
+    for (const sku of skus) {
+      const a = aliasIdBySku[sku], d = directIdBySku[sku];
+      // Un conflitto di identita' NON e' un'identita' risolta: e' gia'
+      // PRICE_IDENTITY_CONFLICT nel preflight, e qui non deve valere
+      // come prova (stessa regola di vdrComputeMatchStatus).
+      if (a && d && a !== d) continue;
+      if (a || d) resolvedSkus.add(sku);
+    }
+
+    const { data: linkRows } = descs.length
+      ? await sb.from('ingredient_links').select('invoice_description').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', descs)
+      : { data: [] };
+    const resolvedDescs = new Set<string>((linkRows || []).map((r: any) => r.invoice_description));
+
+    return { deterministic, resolvedSkus, resolvedDescs };
+  } catch (_e) {
+    return null; // fail closed
+  }
 }
 
 async function vdaiPreflight(sb: any, doc: any): Promise<{ ok: boolean; unmatchedCount: number; reason?: string; conflicts?: any[] }> {
