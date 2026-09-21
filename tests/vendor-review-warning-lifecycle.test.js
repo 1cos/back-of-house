@@ -282,8 +282,25 @@ test('13. lo status del documento non viene toccato', async () => {
   await t.env.win.vdrAnswerYes(DOC, 'q1', 0);
   const p = rpcCalls(t.sb)[0].params;
   assert.deepStrictEqual(Object.keys(p).sort(),
-    ['p_document_id','p_parsed_json','p_resolution','p_resolved_by','p_status','p_warning_id','p_warnings'].sort());
+    ['p_document_id','p_parsed_json','p_resolution','p_resolved_by','p_status',
+     'p_warning_id','p_warnings','p_warning_code'].sort());
   assert.ok(!('p_document_status' in p), 'nessun parametro puo cambiare lo status');
+});
+
+test('15. INV06C.1 — il codice del warning viene sempre passato al server', async () => {
+  // Serve al contratto server-side: quando p_warning_id e' null, il
+  // database verifica DA SOLO che per quel documento e quel codice non
+  // esista nessuna riga aperta. Senza il codice non potrebbe farlo.
+  const conRiga = setup();
+  await conRiga.env.win.vdrAnswerYes(DOC, 'q1', 0);
+  assert.strictEqual(rpcCalls(conRiga.sb)[0].params.p_warning_code, 'OQR-007');
+
+  const senzaRiga = setup({ rows: [], forceId: null, q: { code: 'OQR-006' } });
+  await senzaRiga.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
+  const p = rpcCalls(senzaRiga.sb)[0].params;
+  assert.strictEqual(p.p_warning_id, null);
+  assert.strictEqual(p.p_warning_code, 'OQR-006',
+    'proprio nel caso NULL il codice e indispensabile');
 });
 
 test('14. correlazione: distingue per message, non solo code+item', () => {

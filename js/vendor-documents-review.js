@@ -1958,6 +1958,11 @@ async function vdrResolveWarningAtomic(sb, docId, updatedWarn, updatedPj, q, res
     p_status:      (resolution && resolution.warningStatus) || 'resolved',
     p_resolution:  warnLabel,
     p_resolved_by: window._currentUser || 'admin',
+    // INV06C.1 — il codice serve al server per VERIFICARE da solo che,
+    // quando p_warning_id e' null, per quel documento e quel codice non
+    // esista nessuna riga aperta. Non e' un flag di cui fidarsi: e' il
+    // termine di paragone di un controllo fatto sui dati.
+    p_warning_code: (q && q.code) || null,
   });
   if (error) throw new Error(error.message);
   return data;
