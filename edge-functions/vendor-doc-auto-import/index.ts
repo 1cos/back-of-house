@@ -302,7 +302,17 @@ function isBekBodyOnlySource(doc: any): boolean {
   if (source !== 'email_html' && source !== 'email_body') return false;
   const vendor  = pj.vendor || doc.vendor || '';
   const docType = pj.document_type || doc.document_type || '';
-  return parsersApi().isBenEKeith(vendor) && docType === 'order_confirmation';
+  if (parsersApi().isBenEKeith(vendor) && docType === 'order_confirmation') return true;
+  // INV07 — anche FreshPoint manda la conferma d'ordine nel corpo, senza
+  // allegati. Senza questa riga Phase A la scarterebbe come
+  // 'skipped_no_pdf' e il documento resterebbe fermo in pdf_received per
+  // sempre: non un errore, peggio, un silenzio.
+  //
+  // Resta una lista chiusa, non un "qualsiasi body-only va bene": il
+  // marker source da solo non basta, servono vendor E tipo riconosciuti,
+  // esattamente come per Ben E. Keith.
+  if (/freshpoint/i.test(vendor) && docType === 'order_confirmation') return true;
+  return false;
 }
 
 async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ outcome: string; detail?: string }> {
@@ -334,9 +344,17 @@ async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ o
     // letting it look like a document with no lines.
     const body = typeof doc.raw_text === 'string' ? doc.raw_text : '';
     if (!body.trim()) {
+      // INV07 — il codice resta BEK_EMPTY_BODY per Ben E. Keith, che lo
+      // ha gia' in produzione e nei test; per gli altri vendor body-only
+      // se ne usa uno neutro invece di attribuire a BEK un documento che
+      // non e' suo.
+      const vendorHere = (doc.parsed_json?.vendor || doc.vendor || '');
+      const isBek = parsers.isBenEKeith ? parsers.isBenEKeith(vendorHere) : /ben e\.? keith/i.test(vendorHere);
       await sb.from('vendor_documents').update({
         status: 'error',
-        warnings: [{ code: 'BEK_EMPTY_BODY', severity: 'blocking', message: 'Ben E. Keith body-only document has no raw_text to parse' }],
+        warnings: [isBek
+          ? { code: 'BEK_EMPTY_BODY', severity: 'blocking', message: 'Ben E. Keith body-only document has no raw_text to parse' }
+          : { code: 'EMPTY_BODY', severity: 'blocking', message: `Body-only document (${vendorHere}) has no raw_text to parse` }],
       }).eq('id', doc.id);
       return { outcome: 'error', detail: 'empty raw_text' };
     }

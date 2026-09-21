@@ -146,6 +146,37 @@ function bekDoc(overrides = {}) {
   });
 
   // ── 5. nessuna apertura generica ai body-only ──────────────────
+  // ── INV07: FreshPoint body-only entra nello stesso ramo ────────
+  await atest('4b [INV07]: FreshPoint order_confirmation body-only -> processato, non skipped', async () => {
+    const { SAMPLES } = require('./fixtures/freshpoint-order-confirmation-samples');
+    const doc = { id: 'fp-1', vendor: 'FreshPoint Dallas', document_type: 'order_confirmation',
+                  status: 'pdf_received', parsed_json: { source: 'email_body' },
+                  raw_text: SAMPLES[0].body };
+    const sb = makeMockSb({ vendor_documents: [doc] });
+    const r = await processOneQueuedDoc(sb, doc, parsers);
+    assert.notStrictEqual(r.outcome, 'skipped_no_pdf',
+      'senza questo ramo resterebbe fermo in pdf_received per sempre');
+    assert.strictEqual(sb.calls.pdfDownloads, 0, 'non deve cercare nessun PDF');
+  });
+
+  await atest('4c [INV07]: FreshPoint body-only VUOTO -> errore con codice neutro, non BEK', async () => {
+    const doc = { id: 'fp-2', vendor: 'FreshPoint Dallas', document_type: 'order_confirmation',
+                  status: 'pdf_received', parsed_json: { source: 'email_body' }, raw_text: '   ' };
+    const sb = makeMockSb({ vendor_documents: [doc] });
+    const r = await processOneQueuedDoc(sb, doc, parsers);
+    assert.strictEqual(r.outcome, 'error');
+    assert.strictEqual(doc.warnings[0].code, 'EMPTY_BODY',
+      'non deve attribuire a Ben E. Keith un documento che non e suo');
+  });
+
+  await atest('4d [INV07]: FreshPoint INVOICE body-only resta fuori dal ramo', async () => {
+    const doc = { id: 'fp-3', vendor: 'FreshPoint Dallas', document_type: 'invoice',
+                  status: 'pdf_received', parsed_json: { source: 'email_body' }, raw_text: 'x' };
+    const sb = makeMockSb({ vendor_documents: [doc] });
+    const r = await processOneQueuedDoc(sb, doc, parsers);
+    assert.strictEqual(r.outcome, 'skipped_no_pdf', 'la lista resta chiusa: vendor E tipo');
+  });
+
   await atest('5: altro vendor body-only senza storage_path -> resta skipped_no_pdf', async () => {
     const doc = { id: 'other-1', vendor: "Hardie's Fresh Foods / Dairyland Produce",
                   document_type: 'order_confirmation', status: 'pdf_received',
