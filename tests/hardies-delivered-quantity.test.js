@@ -122,9 +122,13 @@ asyncTest('8. writer: ricevuto batte ordinato quando differiscono', async () => 
 });
 
 asyncTest('9. writer: ricevuto 0 resta 0, non risale a ordinato', async () => {
+  // ZERO e' informazione, e la precedenza deve rispettarlo. Il caso viene
+  // esercitato con un importo NON nullo, perche' da INV08B.1 la coppia
+  // ricevuto 0 + importo 0 su Hardie's non produce piu' nessuna riga:
+  // quel caso e' coperto dal test 17.
   assert.strictEqual(await qtyWritten(
-    { vendor_sku: 'X', description: 'D', qty_ordered: 1, qty_received: 0, amount: 0 }), 0,
-    'ZERO e\' informazione: e\' la prova che non e\' arrivato niente');
+    { vendor_sku: 'X', description: 'D', qty_ordered: 1, qty_received: 0, amount: 12.5 }), 0,
+    'con il ricevuto a zero la quantita\' non puo\' risalire all\'ordinato');
 });
 
 asyncTest('10. writer: ordinato usato solo se il ricevuto e\' NULL', async () => {
@@ -188,6 +192,127 @@ test('16. mutazione: ripristinando ordinato-prima il caso ricevuto=0 fallisce', 
   assert.strictEqual(vecchia, 1, 'la vecchia regola scriveva 1 pezzo mai arrivato');
   assert.strictEqual(nuova, 0, 'la nuova scrive lo zero reale');
   assert.notStrictEqual(vecchia, nuova, 'la patch deve cambiare davvero il risultato');
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// INV08B.1 — il percorso LEGACY: parsed_json gia' memorizzati
+//
+// Phase B non riparsa: legge il parsed_json salvato al momento
+// dell'ingestione. I documenti entrati prima di INV08B non hanno
+// `purchasable` e non hanno `qty`. Il writer deve essere corretto anche
+// su quella forma, altrimenti i 9 pending Hardie's di oggi, quando
+// verranno approvati, scriveranno ancora merce mai arrivata.
+// ─────────────────────────────────────────────────────────────────────
+
+const HARDIES = "Hardie's Fresh Foods / Dairyland Produce";
+
+async function scrivi(items, vendor) {
+  const rows = [];
+  await writeInvoiceLines(fakeSb(rows), 'doc-legacy', items,
+    { total: null }, '2026-06-26', vendor || HARDIES, {}, {});
+  return rows;
+}
+
+asyncTest('17. legacy: ricevuto 0 e importo 0 SENZA purchasable -> nessuna riga', async () => {
+  const rows = await scrivi([{ vendor_sku: 'Z', description: 'mai arrivato',
+                               qty_ordered: 1, qty_received: 0, amount: 0 }]);
+  assert.strictEqual(rows.length, 0,
+    'il guard deve reggere anche senza il flag del parser nuovo');
+});
+
+asyncTest('18. il flag esplicito continua a funzionare', async () => {
+  const rows = await scrivi([{ vendor_sku: 'Z', description: 'd',
+                               qty_received: 0, amount: 0, purchasable: false }]);
+  assert.strictEqual(rows.length, 0);
+});
+
+asyncTest('19. NULL non e\' zero: ricevuto ignoto non fa sparire la riga', async () => {
+  const rows = await scrivi([{ vendor_sku: 'Z', description: 'order confirmation',
+                               qty_ordered: 4, qty_received: null, amount: 0 }]);
+  assert.strictEqual(rows.length, 1, 'non sapere non autorizza a buttare via la riga');
+  assert.strictEqual(rows[0].qty, 4, 'con il ricevuto assente vale l\'ordinato');
+});
+
+asyncTest('20. importo ignoto: il guard non decide', async () => {
+  const rows = await scrivi([{ vendor_sku: 'Z', description: 'd',
+                               qty_ordered: 1, qty_received: 0, amount: null }]);
+  assert.strictEqual(rows.length, 1, 'senza importo non c\'e\' prova di mancata consegna');
+});
+
+asyncTest('21. ricevuto 0 ma importo NON zero: la riga resta', async () => {
+  const rows = await scrivi([{ vendor_sku: 'Z', description: 'd',
+                               qty_ordered: 1, qty_received: 0, amount: 12.5 }]);
+  assert.strictEqual(rows.length, 1,
+    'importo diverso da zero significa che qualcosa e\' stato addebitato');
+});
+
+asyncTest('22. il guard e\' su lista chiusa: un altro vendor non e\' toccato', async () => {
+  const rows = await scrivi([{ vendor_sku: 'Z', description: 'd',
+                               qty_ordered: 1, qty_received: 0, amount: 0 }], 'Ben E. Keith');
+  assert.strictEqual(rows.length, 1, 'BEK imposta purchasable da se\', non va scavalcato');
+});
+
+asyncTest('23. legacy: sostituto ordinato 0 ricevuto 1 -> qty 1', async () => {
+  const rows = await scrivi([{ vendor_sku: 'Z', description: 'd',
+                               qty_ordered: 0, qty_received: 1, amount: 104.86 }]);
+  assert.strictEqual(rows[0].qty, 1);
+});
+
+asyncTest('24. legacy: consegna parziale 3 ordinate / 2 arrivate -> qty 2', async () => {
+  const rows = await scrivi([{ vendor_sku: 'Z', description: 'd',
+                               qty_ordered: 3, qty_received: 2, amount: 73.78 }]);
+  assert.strictEqual(rows[0].qty, 2);
+});
+
+asyncTest('25. legacy: ordinato = ricevuto -> invariato', async () => {
+  const rows = await scrivi([{ vendor_sku: 'Z', description: 'd',
+                               qty_ordered: 2, qty_received: 2, amount: 28.9 }]);
+  assert.strictEqual(rows[0].qty, 2);
+});
+
+asyncTest('26. legacy: catchweight -> 1, il guard non interferisce', async () => {
+  const rows = await scrivi([{ vendor_sku: 'Z', description: 'd', catchweight: true,
+                               qty_ordered: 3, qty_received: 0, amount: 44.5 }]);
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].qty, 1);
+});
+
+asyncTest('27. 07016705 REALE: 17 item memorizzati -> 16 righe', async () => {
+  const stored = require('./fixtures/hardies-07016705-stored.js');
+  const rows = await scrivi(stored);
+  assert.strictEqual(stored.length, 17);
+  assert.strictEqual(rows.length, 16, 'una sola esclusione');
+});
+
+asyncTest('28. 07016705 REALE: 71114 esclusa, 01734 con qty 1', async () => {
+  const stored = require('./fixtures/hardies-07016705-stored.js');
+  const rows = await scrivi(stored);
+  assert.ok(!rows.find(r => r.vendor_sku === '71114'),
+    '71114 ha ricevuto 0 e importo 0: non deve esistere');
+  assert.strictEqual(rows.find(r => r.vendor_sku === '01734').qty, 1,
+    '01734 e\' il sostituto realmente arrivato');
+});
+
+asyncTest('29. 07016705 REALE: la riconciliazione regge al centesimo', async () => {
+  const stored = require('./fixtures/hardies-07016705-stored.js');
+  const rows = await scrivi(stored);
+  const somma = rows.reduce((a, r) => a + (Number(r.line_total) || 0), 0);
+  assert.ok(Math.abs(somma - 637.81) < 0.005,
+    'somma righe ' + somma.toFixed(2) + ' contro totale documento 637.81');
+});
+
+test('30. mutazione: senza il guard legacy il test 17 non potrebbe passare', () => {
+  // L'espressione del filtro come sarebbe SENZA la guardia di INV08B.1.
+  const legacy = { qty_ordered: 1, qty_received: 0, amount: 0 };
+  assert.ok(legacy.purchasable !== false,
+    'un item legacy passa il filtro purchasable: da solo non basta');
+  const src = fs.readFileSync(
+    path.join(ROOT, 'edge-functions/vendor-doc-auto-import/index.ts'), 'utf8');
+  assert.ok(/vdaiIsZeroDeliveredLegacy\(vendor, item\)/.test(src),
+    'il filtro del writer deve invocare il guard');
+  assert.ok(/function vdrIsZeroDeliveredLegacy/.test(
+    fs.readFileSync(path.join(ROOT, 'js/vendor-documents-review.js'), 'utf8')),
+    'il gemello del browser deve esistere: approve e worker non possono divergere');
 });
 
 (async () => {

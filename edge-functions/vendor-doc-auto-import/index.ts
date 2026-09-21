@@ -937,6 +937,40 @@ async function vdaiBackfillInvoiceLines(sb: any, vendor: string, vendorSku: stri
   await sb.from('invoice_lines').update({ ingredient_id: ingredientId, match_status: 'matched' }).eq('vendor', vendor).eq('vendor_sku', vendorSku).is('ingredient_id', null);
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// INV08B.1 — il guard per i parsed_json GIA' MEMORIZZATI.
+//
+// Da INV08B il parser Hardie's marca `purchasable: false` gli articoli
+// con shipped 0, ma i documenti parsati PRIMA di quel fix non hanno quel
+// campo e non vengono riparsati: Phase B legge il parsed_json
+// memorizzato. Senza questo guard i 9 pending Hardie's di oggi, se
+// approvati, scriverebbero ancora righe d'acquisto per merce mai
+// arrivata (con quantita' 0 invece di 1, ma pur sempre righe).
+//
+// La regola e' la stessa di sempre, letta direttamente dai dati invece
+// che da un flag: ricevuto ZERO e importo ZERO significa che la merce
+// non e' stata consegnata e non e' stata pagata.
+//
+// ZERO E' UN DATO, NULL E' ASSENZA DI DATO. `qty_received` null — le
+// order confirmation Hardie's, FreshPoint — NON attiva il guard: li' non
+// sappiamo cosa sia stato consegnato, e non saperlo non autorizza a
+// buttare via la riga. Stesso criterio per l'importo: se manca, non
+// decidiamo.
+//
+// Lista chiusa su Hardie's: e' l'unico vendor dove il pattern e'
+// dimostrato su dati reali (17 casi su 890 voci) e dove il parser non
+// emetteva il flag. Ben E. Keith imposta gia' `purchasable` da se'.
+function vdaiIsZeroDeliveredLegacy(vendor: string, item: any): boolean {
+  if (!/hardie/i.test(vendor || '')) return false;
+  if (item.qty_received == null) return false;          // assenza, non zero
+  if (Number(item.qty_received) !== 0) return false;
+  const amt = item.amount != null ? item.amount
+            : item.line_total != null ? item.line_total : null;
+  if (amt == null) return false;                        // importo ignoto
+  return Number(amt) === 0;
+}
+
+
 // ══════════════════════════════════════════════════════════════════
 // writeInvoiceLines — MICRO-TASK 37. Extracted, unchanged, from
 // vdaiApprove's own invoice_lines block (the exact same idempotency
@@ -978,7 +1012,8 @@ async function writeInvoiceLines(
     // il campo non vengono toccati, quindi ogni altro vendor mantiene
     // esattamente il comportamento di oggi. The item still lives on in parsed_json,
     // so the document stays complete and auditable.
-    .filter((item: any) => item.purchasable !== false)
+    .filter((item: any) =>
+      item.purchasable !== false && !vdaiIsZeroDeliveredLegacy(vendor, item))
     .map((item: any) => {
       const desc = item.description || item.raw_description || null;
       const sku = item.vendor_sku || item.item_code || null;

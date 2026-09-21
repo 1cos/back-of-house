@@ -48,7 +48,12 @@ function extractPopulateInvoiceLinesBlock() {
   if (start === -1 || end === -1 || end < start) {
     throw new Error('marker non trovati in js/vendor-documents-review.js — il blocco "Populate invoice_lines" è cambiato di forma?');
   }
-  return src.slice(start, end);
+  // INV08B.1 — il blocco chiama vdrIsZeroDeliveredLegacy, che vive fuori
+  // dal ritaglio: senza portarselo dietro l'eval esplode a runtime.
+  const gStart = src.indexOf('function vdrIsZeroDeliveredLegacy(vendor, item) {');
+  if (gStart === -1) throw new Error('vdrIsZeroDeliveredLegacy non trovato in js/vendor-documents-review.js');
+  const gEnd = src.indexOf('\n}', gStart) + 2;
+  return src.slice(gStart, gEnd) + '\n\n' + src.slice(start, end);
 }
 
 async function runPopulateInvoiceLines({ sb, pj, items, docId, docEdits = {}, skuMap = {}, linkMap = {}, vendor, invoiceDate }) {

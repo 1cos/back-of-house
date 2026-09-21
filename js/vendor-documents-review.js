@@ -1875,6 +1875,24 @@ function vdrDetailHTMLNoApprove(doc) {
   return full;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// INV08B.1 — gemello di vdaiIsZeroDeliveredLegacy nel worker.
+// Guard per i parsed_json GIA' memorizzati, che non hanno
+// `purchasable: false` perche' sono stati parsati prima di INV08B e non
+// vengono riparsati. Ricevuto ZERO e importo ZERO = merce non
+// consegnata. ZERO e' un dato, NULL e' assenza di dato: con
+// qty_received null il guard non scatta.
+function vdrIsZeroDeliveredLegacy(vendor, item) {
+  if (!/hardie/i.test(vendor || '')) return false;
+  if (item.qty_received == null) return false;
+  if (Number(item.qty_received) !== 0) return false;
+  const amt = item.amount != null ? item.amount
+            : item.line_total != null ? item.line_total : null;
+  if (amt == null) return false;
+  return Number(amt) === 0;
+}
+
+
 // ── Build question objects from a document ────────────────────
 // Each question: { id, code, item, title, emoji, question, meaning, warnRef }
 // ── MARKER:VDR_WARNING_LIFECYCLE_START ───────────────────────────────
@@ -3440,7 +3458,9 @@ window.vdrApprove = async function(docId, btn) {
       // MICRO-TASK 42, sections B/E — un item non confermato non diventa
       // una riga d'acquisto. Solo il parser BEK imposta `purchasable`;
       // gli item senza il campo passano invariati (nessun altro vendor cambia).
-      const invoiceLineRows = items.filter(it => it.purchasable !== false).map((item, itemIdx) => {
+      const invoiceLineRows = items
+        .filter(it => it.purchasable !== false && !vdrIsZeroDeliveredLegacy(pj.vendor, it))
+        .map((item, itemIdx) => {
         const edits       = docEdits[itemIdx] || {};
         const desc        = item.description || item.raw_description || null;
         const sku         = item.vendor_sku || item.item_code || null;
