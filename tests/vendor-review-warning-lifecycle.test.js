@@ -1,11 +1,15 @@
 // ══════════════════════════════════════════════════════════════════
-// INV06B — lifecycle di invoice_warnings dal percorso Vendor Review.
+// INV06B + INV06C — lifecycle di invoice_warnings dalla Vendor Review.
 //
-// Come gli altri test di questa serie, il sorgente vero viene ESTRATTO da
-// js/vendor-documents-review.js e valutato in Node con window, document e
-// un client Supabase finti. Non e' una riscrittura della logica: se
-// qualcuno toglie l'update del lifecycle, questi test diventano rossi
-// (prova di mutazione documentata nel report).
+// INV06B ha dato un solo proprietario alla transizione e l'UPDATE per id.
+// INV06C ha reso l'operazione ATOMICA: documento e riga passano da una
+// sola RPC server-side, vdr_resolve_warning, dentro una transazione.
+// Gli unici due esiti ammessi sono SUCCESS (entrambi coerenti) e FAILURE
+// (nessuno dei due modificato).
+//
+// Il sorgente vero viene ESTRATTO da js/vendor-documents-review.js e
+// valutato in Node con window, document e un client Supabase finti. Il
+// finto rpc modella la transazione: se fallisce, non registra NIENTE.
 //
 // `node tests/vendor-review-warning-lifecycle.test.js`
 // ══════════════════════════════════════════════════════════════════
@@ -17,7 +21,6 @@ const path = require('path');
 const SRC = fs.readFileSync(
   path.join(__dirname, '..', 'js', 'vendor-documents-review.js'), 'utf8');
 
-// Estrae `function NAME(...)` oppure `window.NAME = async function(...)`.
 function extractFn(name) {
   let start = SRC.indexOf('\nfunction ' + name + '(');
   if (start === -1) start = SRC.indexOf('\nasync function ' + name + '(');
@@ -40,62 +43,60 @@ function test(name, fn) {
   catch (e) { done(e); }
 }
 
-// ── Client Supabase finto, che registra ogni scrittura ────────────
+// ── Client finto. L'rpc modella la transazione del DB. ────────────
 function makeSb(docRow, opts) {
   opts = opts || {};
-  const writes = [];
-  function builder(table, op, payload) {
-    const b = { table, op, payload, filters: {},
-      select() { return b; },
-      eq(k, v) { b.filters[k] = v; return b; },
-      single() { return Promise.resolve({ data: docRow, error: null }); },
-      then(res, rej) {
-        writes.push({ table: b.table, payload: b.payload, filters: b.filters });
-        if (b.table === 'invoice_warnings') {
-          if (opts.warningUpdateError) return Promise.resolve({ data: null, error: { message: opts.warningUpdateError } }).then(res, rej);
-          // idempotenza reale del DB: la riga si aggiorna solo se e' open
-          const hit = (opts.openIds || []).includes(b.filters.id) ? [{ id: b.filters.id }] : [];
-          return Promise.resolve({ data: hit, error: null }).then(res, rej);
-        }
-        return Promise.resolve({ data: null, error: opts.docUpdateError ? { message: opts.docUpdateError } : null }).then(res, rej);
-      },
-    };
-    return b;
-  }
+  const commits = [];      // solo cio' che il DB avrebbe COMMESSO
+  const attempts = [];     // ogni chiamata, riuscita o no
+  const legacy = [];       // eventuali write dirette (non devono esistere piu')
   return {
-    _writes: writes,
+    _commits: commits, _attempts: attempts, _legacy: legacy,
+    rpc(name, params) {
+      attempts.push({ name, params });
+      if (name !== 'vdr_resolve_warning') return Promise.resolve({ data: null, error: { message: 'rpc sconosciuta' } });
+      if (opts.docFail)  return Promise.resolve({ data: null, error: { message: 'documento non aggiornato' } });
+      if (opts.warnFail) return Promise.resolve({ data: null, error: { message: 'invoice_warnings inesistente' } });
+      // successo: la transazione ha scritto il documento e, se c'era un id, la riga
+      commits.push({ table: 'vendor_documents', payload: { warnings: params.p_warnings, parsed_json: params.p_parsed_json } });
+      let state = 'none';
+      if (params.p_warning_id) {
+        const aperto = (opts.openIds || []).includes(params.p_warning_id);
+        state = aperto ? 'closed' : 'already_closed';
+        if (aperto) commits.push({ table: 'invoice_warnings', id: params.p_warning_id,
+                                   status: params.p_status, resolution: params.p_resolution,
+                                   resolved_by: params.p_resolved_by });
+      }
+      return Promise.resolve({ data: { ok: true, document_updated: true,
+                                       warning_updated: state === 'closed', warning_state: state }, error: null });
+    },
     from(table) {
-      return {
-        select() { return builder(table, 'select', null); },
-        update(payload) { return builder(table, 'update', payload); },
+      const b = { table, filters: {},
+        select() { return b; }, eq(k, v) { b.filters[k] = v; return b; },
+        update(p) { b.payload = p; legacy.push(b); return b; },
+        single() { return Promise.resolve({ data: docRow, error: null }); },
+        then(res, rej) { legacy.push(b); return Promise.resolve({ data: null, error: null }).then(res, rej); },
       };
+      return b;
     },
   };
 }
 
-// ── Ambiente ──────────────────────────────────────────────────────
 function makeEnv(cfg) {
   const inputs = cfg.inputs || {};
-  const win = {
-    _vdrQuestions: {},
-    _vdrOpenWarnings: cfg.openWarnings || {},
-    _currentUser: 'tester',
-    supabaseClient: null,
-  };
-  const doc = {
-    getElementById(id) {
-      if (Object.prototype.hasOwnProperty.call(inputs, id)) return { value: inputs[id], focus() {} };
-      return null;   // nessuna card: il percorso DOM viene saltato
-    },
-  };
-  return { win, doc };
+  const toasts = [];
+  const win = { _vdrQuestions: {}, _vdrOpenWarnings: cfg.openWarnings || {},
+                _currentUser: 'tester', supabaseClient: null, _toasts: toasts };
+  const doc = { getElementById: id =>
+    (Object.prototype.hasOwnProperty.call(inputs, id) ? { value: inputs[id], focus() {} } : null) };
+  return { win, doc, toasts };
 }
 
 function load(env, sb) {
   env.win.supabaseClient = sb;
   const body = [
     extractFn('vdrFindWarningRowId'),
-    extractFn('vdrResolveWarningRow'),
+    extractFn('vdrWarningRowExpected'),
+    extractFn('vdrResolveWarningAtomic'),
     extractFn('vdrResolveQuestion'),
     extractFn('vdrAnswerYes'),
     extractFn('vdrAnswerFollowup'),
@@ -103,154 +104,106 @@ function load(env, sb) {
     extractFn('vdrAnswerSkip'),
     extractFn('vdrAnswerWeight'),
     extractFn('vdrSaveEach'),
-    'return { vdrFindWarningRowId, vdrResolveWarningRow, vdrResolveQuestion, vdrSaveEach, window };',
+    'return { vdrFindWarningRowId, vdrWarningRowExpected, vdrResolveQuestion, vdrSaveEach };',
   ].join('\n');
   return new Function('window', 'document', 'console', 'showScToast', 'vdrRefreshBadge', 'setTimeout',
-    body)(env.win, env.doc, { warn() {}, log() {} }, () => {}, () => {}, (f) => f && f());
+    body)(env.win, env.doc, { warn() {}, log() {} },
+          m => env.toasts.push(m), () => {}, f => f && f());
 }
 
-// ── Dati di comodo ────────────────────────────────────────────────
 const DOC = 'doc-1';
-const W_BRANZINI = { code: 'OQR-007', message: 'Catchweight: ordered 22 LB, received 22.5 LB of BRANZINI' };
-const W_SALMON   = { code: 'OQR-007', message: 'Catchweight: ordered 16 LB, received 14.65 LB of SALMON' };
+const W_BRANZINI = { code: 'OQR-007', message: 'ordered 22 LB, received 22.5 LB of BRANZINI' };
+const W_SALMON   = { code: 'OQR-007', message: 'ordered 16 LB, received 14.65 LB of SALMON' };
 const IT_BRANZINI = { description: 'BRANZINI FR WHOLE 800-1000', warnings: [W_BRANZINI] };
 const IT_SALMON   = { description: 'SALMON FR FILLET 3-5 ATLANTIC', warnings: [W_SALMON] };
-
 const ROWS = [
   { id: 'row-branzini', document_id: DOC, code: 'OQR-007', item_description: IT_BRANZINI.description, message: W_BRANZINI.message, status: 'open' },
   { id: 'row-salmon',   document_id: DOC, code: 'OQR-007', item_description: IT_SALMON.description,   message: W_SALMON.message,   status: 'open' },
 ];
-
-function docRow() {
-  return {
-    warnings: [ { ...W_BRANZINI, item: IT_BRANZINI.description }, { ...W_SALMON, item: IT_SALMON.description } ],
-    parsed_json: { items: [ JSON.parse(JSON.stringify(IT_BRANZINI)), JSON.parse(JSON.stringify(IT_SALMON)) ] },
-  };
-}
+const docRow = () => ({
+  warnings: [{ ...W_BRANZINI, item: IT_BRANZINI.description }, { ...W_SALMON, item: IT_SALMON.description }],
+  parsed_json: { items: [JSON.parse(JSON.stringify(IT_BRANZINI)), JSON.parse(JSON.stringify(IT_SALMON))] },
+});
 
 function setup(cfg) {
   cfg = cfg || {};
-  const env = makeEnv({ openWarnings: { [DOC]: cfg.rows || ROWS }, inputs: cfg.inputs });
-  const sb = makeSb(docRow(), { openIds: cfg.openIds || ['row-branzini', 'row-salmon'], ...cfg.sbOpts });
+  const env = makeEnv({ openWarnings: { [DOC]: cfg.rows === undefined ? ROWS : cfg.rows }, inputs: cfg.inputs });
+  const sb = makeSb(docRow(), { openIds: cfg.openIds === undefined ? ['row-branzini', 'row-salmon'] : cfg.openIds,
+                                docFail: cfg.docFail, warnFail: cfg.warnFail });
   const api = load(env, sb);
   const q = Object.assign({ qid: 'q1', code: 'OQR-007', item: IT_BRANZINI, title: IT_BRANZINI.description }, cfg.q || {});
-  q.invoiceWarningId = cfg.forceId !== undefined
-    ? cfg.forceId
+  q.invoiceWarningId = cfg.forceId !== undefined ? cfg.forceId
     : api.vdrFindWarningRowId(DOC, cfg.w || W_BRANZINI, cfg.item === null ? null : (cfg.item || IT_BRANZINI));
   env.win._vdrQuestions['q1'] = q;
   return { env, sb, api, q };
 }
 
-const warnWrites = sb => sb._writes.filter(w => w.table === 'invoice_warnings');
-const docWrites  = sb => sb._writes.filter(w => w.table === 'vendor_documents');
+const rpcCalls = sb => sb._attempts.filter(a => a.name === 'vdr_resolve_warning');
+const committedWarn = sb => sb._commits.filter(c => c.table === 'invoice_warnings');
+const committedDoc  = sb => sb._commits.filter(c => c.table === 'vendor_documents');
 
 // ══════════════════════════════════════════════════════════════════
 
-test('1. OQR-007 dal percorso normale chiude la riga invoice_warnings', async () => {
+test('1. successo: una sola RPC, documento e riga commessi insieme', async () => {
   const t = setup();
-  assert.strictEqual(t.q.invoiceWarningId, 'row-branzini', 'la riga va identificata');
   await t.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
-  const w = warnWrites(t.sb);
-  assert.strictEqual(w.length, 1, 'una sola scrittura su invoice_warnings');
-  assert.strictEqual(w[0].payload.status, 'resolved');
-  assert.strictEqual(w[0].filters.id, 'row-branzini', 'UPDATE per id');
-  assert.strictEqual(w[0].filters.status, 'open', 'filtro di idempotenza presente');
-  assert.ok(w[0].payload.resolved_at, 'resolved_at popolato');
-  assert.strictEqual(w[0].payload.resolved_by, 'tester');
+  assert.strictEqual(rpcCalls(t.sb).length, 1, 'una sola operazione server-side');
+  assert.strictEqual(committedDoc(t.sb).length, 1);
+  assert.strictEqual(committedWarn(t.sb).length, 1);
+  assert.strictEqual(t.sb._legacy.length, 0, 'nessuna write diretta residua');
 });
 
-test('2. vdrAnswerYes: documento e invoice_warnings coerenti', async () => {
+test('2. fallimento sul documento: NIENTE commesso, errore propagato', async () => {
+  const t = setup({ docFail: true });
+  await t.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
+  assert.strictEqual(t.sb._commits.length, 0, 'nessun commit');
+  assert.ok(t.env.toasts.some(m => /Error/i.test(m)), 'l errore deve arrivare all utente');
+});
+
+test('3. fallimento sulla riga warning: NIENTE commesso, errore propagato', async () => {
+  const t = setup({ warnFail: true });
+  await t.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
+  assert.strictEqual(t.sb._commits.length, 0,
+    'il documento NON deve restare risolto con la riga aperta');
+  assert.ok(t.env.toasts.some(m => /Error/i.test(m)));
+});
+
+test('4. nessun commit parziale in nessuno dei due fallimenti', async () => {
+  for (const cfg of [{ docFail: true }, { warnFail: true }]) {
+    const t = setup(cfg);
+    await t.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
+    const d = committedDoc(t.sb).length, w = committedWarn(t.sb).length;
+    assert.strictEqual(d, w, 'documento e riga devono muoversi insieme: ' + d + ' vs ' + w);
+    assert.strictEqual(d, 0);
+  }
+});
+
+test('5. doppio click: idempotente, la seconda volta la riga e gia chiusa', async () => {
   const t = setup();
-  await t.env.win.vdrAnswerYes(DOC, 'q1', 0);
-  const d = docWrites(t.sb), w = warnWrites(t.sb);
-  assert.strictEqual(d.length, 1, 'il documento viene aggiornato');
-  assert.strictEqual(d[0].payload.warnings.length, 1, 'il warning sparisce da vendor_documents.warnings');
-  assert.strictEqual(d[0].payload.parsed_json.items[0].warnings.length, 0, 'e da parsed_json');
-  assert.strictEqual(w.length, 1, 'e la riga viene chiusa');
-  assert.strictEqual(w[0].payload.resolution, 'yes');
-});
-
-test('3. vdrAnswerFollowup: entrambe le rappresentazioni, label con la correzione', async () => {
-  const t = setup({ inputs: { 'vdrQFollowupInput-q1': 'peso reale 21 LB' } });
-  await t.env.win.vdrAnswerFollowup(DOC, 'q1', 0);
-  const w = warnWrites(t.sb);
-  assert.strictEqual(docWrites(t.sb).length, 1);
-  assert.strictEqual(w.length, 1);
-  assert.strictEqual(w[0].payload.resolution, 'no — peso reale 21 LB', 'la correzione non va persa');
-});
-
-test('4. vdrAnswerDirect: entrambe coerenti, label = valore inserito', async () => {
-  const t = setup({ inputs: { 'vdrInput-q1': '22.5' } });
-  await t.env.win.vdrAnswerDirect(DOC, 'q1', 0);
-  const w = warnWrites(t.sb);
-  assert.strictEqual(docWrites(t.sb).length, 1);
-  assert.strictEqual(w.length, 1);
-  assert.strictEqual(w[0].payload.resolution, '22.5');
-});
-
-test('5. OQR-009 Skip: UNA sola transizione, semantica invariata', async () => {
-  const t = setup({ q: { code: 'OQR-009' } });
-  await t.env.win.vdrAnswerSkip(DOC, 'q1', 0);
-  const w = warnWrites(t.sb);
-  assert.strictEqual(w.length, 1, 'non piu due owner: una sola scrittura');
-  assert.strictEqual(w[0].payload.status, 'skipped', 'lo status di business resta skipped');
-  assert.strictEqual(w[0].payload.resolution, 'skipped by user');
-  assert.strictEqual(w[0].filters.id, 'row-branzini');
-});
-
-test('6. OQR-009 SaveEach: UNA sola transizione, label units_per_case', async () => {
-  const t = setup({ q: { code: 'OQR-009', item: { description: IT_BRANZINI.description } } });
-  await t.api.vdrSaveEach(DOC, 'q1', 0, 12);
-  const w = warnWrites(t.sb);
-  assert.strictEqual(w.length, 1);
-  assert.strictEqual(w[0].payload.status, 'resolved');
-  assert.strictEqual(w[0].payload.resolution, 'units_per_case=12');
-});
-
-test('7. OQR-009 SaveWeight: UNA sola transizione, label unit_weight_g', async () => {
-  const t = setup({ q: { code: 'OQR-009', item: { description: IT_BRANZINI.description } },
-                    inputs: { 'vdrWInput-q1': '250' } });
-  await t.env.win.vdrAnswerWeight(DOC, 'q1', 0);
-  const w = warnWrites(t.sb);
-  assert.strictEqual(w.length, 1);
-  assert.strictEqual(w[0].payload.status, 'resolved');
-  assert.strictEqual(w[0].payload.resolution, 'unit_weight_g=250');
-});
-
-test('8. warning gia chiuso: idempotente, nessun errore e nessuna riscrittura', async () => {
-  const t = setup({ openIds: [] });          // il DB non trova righe open
   await t.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
+  const t2 = setup({ openIds: [] });          // il DB la trova gia' chiusa
+  await t2.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
+  assert.strictEqual(committedWarn(t2.sb).length, 0, 'non si riscrive la risoluzione originale');
+  assert.ok(!t2.env.toasts.some(m => /Error/i.test(m)), 'e non e un errore');
+});
+
+test('6. gia resolved: la RPC parte comunque e torna already_closed senza errore', async () => {
+  const t = setup({ openIds: [] });
   await t.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
-  const w = warnWrites(t.sb);
-  assert.strictEqual(w.length, 2, 'due tentativi');
-  for (const x of w) assert.strictEqual(x.filters.status, 'open',
-    'il filtro status=open rende il secondo passaggio un no-op lato DB');
-  assert.strictEqual(docWrites(t.sb).length, 2, 'e il documento resta gestibile senza eccezioni');
+  assert.strictEqual(rpcCalls(t.sb).length, 1);
+  assert.strictEqual(committedWarn(t.sb).length, 0);
+  assert.ok(!t.env.toasts.some(m => /Error/i.test(m)));
 });
 
-test('9. riga invoice_warnings assente: fail closed, documento comunque risolto', async () => {
-  const t = setup({ forceId: null });
+test('7. nessuna riga attesa (es. OQR-006): p_warning_id null, documento risolto', async () => {
+  const t = setup({ rows: [], forceId: null, q: { code: 'OQR-006' } });
   await t.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
-  assert.strictEqual(warnWrites(t.sb).length, 0, 'nessuna UPDATE alla cieca');
-  assert.strictEqual(docWrites(t.sb).length, 1, 'il documento viene comunque risolto');
+  assert.strictEqual(rpcCalls(t.sb)[0].params.p_warning_id, null);
+  assert.strictEqual(committedDoc(t.sb).length, 1, 'OQR-006 deve restare risolvibile');
+  assert.ok(!t.env.toasts.some(m => /Error/i.test(m)));
 });
 
-test('10. due warning stesso code sullo stesso documento: chiude solo il proprio', async () => {
-  const branzini = setup();
-  const salmon   = setup({ w: W_SALMON, item: IT_SALMON, q: { item: IT_SALMON, title: IT_SALMON.description } });
-  assert.strictEqual(branzini.q.invoiceWarningId, 'row-branzini');
-  assert.strictEqual(salmon.q.invoiceWarningId, 'row-salmon');
-  assert.notStrictEqual(branzini.q.invoiceWarningId, salmon.q.invoiceWarningId);
-  await branzini.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
-  const w = warnWrites(branzini.sb);
-  assert.strictEqual(w.length, 1);
-  assert.strictEqual(w[0].filters.id, 'row-branzini', 'non deve toccare il salmone');
-  assert.ok(!('code' in w[0].filters), 'nessun filtro per code');
-  assert.ok(!('document_id' in w[0].filters), 'nessun filtro per document_id');
-  assert.ok(!('item_description' in w[0].filters), 'nessun filtro per item_description');
-});
-
-test('11. righe duplicate storiche: identita ambigua -> non si chiude niente', async () => {
+test('8. riga attesa ma identita ambigua: rifiuto, zero scritture', async () => {
   const dup = [
     { id: 'dup-a', document_id: DOC, code: 'OQR-007', item_description: IT_BRANZINI.description, message: W_BRANZINI.message, status: 'open' },
     { id: 'dup-b', document_id: DOC, code: 'OQR-007', item_description: IT_BRANZINI.description, message: W_BRANZINI.message, status: 'open' },
@@ -258,31 +211,88 @@ test('11. righe duplicate storiche: identita ambigua -> non si chiude niente', a
   const t = setup({ rows: dup, openIds: ['dup-a', 'dup-b'] });
   assert.strictEqual(t.q.invoiceWarningId, null, 'due candidate identiche = nessuna scelta');
   await t.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
-  assert.strictEqual(warnWrites(t.sb).length, 0, 'nessun broad resolve accidentale');
+  assert.strictEqual(rpcCalls(t.sb).length, 0, 'la RPC non deve nemmeno partire');
+  assert.strictEqual(t.sb._commits.length, 0);
+  assert.ok(t.env.toasts.some(m => /univoco/i.test(m)), 'l utente deve sapere perche');
 });
 
-test('12. nessun tocco a vendor_documents.status ne a invoice_lines', async () => {
-  const t = setup();
-  await t.env.win.vdrAnswerYes(DOC, 'q1', 0);
-  for (const wr of t.sb._writes) {
-    assert.notStrictEqual(wr.table, 'invoice_lines', 'invoice_lines non va toccata');
-    if (wr.table === 'vendor_documents') {
-      assert.ok(!('status' in wr.payload), 'lo status del documento non si tocca');
-      assert.deepStrictEqual(Object.keys(wr.payload).sort(), ['parsed_json', 'updated_at', 'warnings']);
-    }
+test('9. due warning stesso code: si chiude esattamente il proprio, per id', async () => {
+  const branzini = setup();
+  const salmon   = setup({ w: W_SALMON, item: IT_SALMON, q: { item: IT_SALMON, title: IT_SALMON.description } });
+  assert.strictEqual(branzini.q.invoiceWarningId, 'row-branzini');
+  assert.strictEqual(salmon.q.invoiceWarningId, 'row-salmon');
+  await branzini.api.vdrResolveQuestion(DOC, 'q1', 0, { answered: true, answer: 'yes' });
+  const p = rpcCalls(branzini.sb)[0].params;
+  assert.strictEqual(p.p_warning_id, 'row-branzini');
+  assert.ok(!('p_code' in p) && !('p_item_description' in p),
+    'la RPC non accetta nemmeno chiavi larghe');
+});
+
+test('10. OQR-009: semantica di business invariata, una sola operazione', async () => {
+  const skip = setup({ q: { code: 'OQR-009' } });
+  await skip.env.win.vdrAnswerSkip(DOC, 'q1', 0);
+  let p = rpcCalls(skip.sb)[0].params;
+  assert.strictEqual(p.p_status, 'skipped');
+  assert.strictEqual(p.p_resolution, 'skipped by user');
+
+  const each = setup({ q: { code: 'OQR-009', item: { description: IT_BRANZINI.description } } });
+  await each.api.vdrSaveEach(DOC, 'q1', 0, 12);
+  p = rpcCalls(each.sb)[0].params;
+  assert.strictEqual(p.p_status, 'resolved');
+  assert.strictEqual(p.p_resolution, 'units_per_case=12');
+
+  const weight = setup({ q: { code: 'OQR-009', item: { description: IT_BRANZINI.description } },
+                         inputs: { 'vdrWInput-q1': '250' } });
+  await weight.env.win.vdrAnswerWeight(DOC, 'q1', 0);
+  p = rpcCalls(weight.sb)[0].params;
+  assert.strictEqual(p.p_status, 'resolved');
+  assert.strictEqual(p.p_resolution, 'unit_weight_g=250');
+  for (const t of [skip, each, weight]) assert.strictEqual(rpcCalls(t.sb).length, 1);
+});
+
+test('11. Yes / Followup / Direct: label invariate, documento coerente', async () => {
+  const yes = setup();
+  await yes.env.win.vdrAnswerYes(DOC, 'q1', 0);
+  assert.strictEqual(rpcCalls(yes.sb)[0].params.p_resolution, 'yes');
+
+  const fu = setup({ inputs: { 'vdrQFollowupInput-q1': 'peso reale 21 LB' } });
+  await fu.env.win.vdrAnswerFollowup(DOC, 'q1', 0);
+  assert.strictEqual(rpcCalls(fu.sb)[0].params.p_resolution, 'no — peso reale 21 LB');
+
+  const dir = setup({ inputs: { 'vdrInput-q1': '22.5' } });
+  await dir.env.win.vdrAnswerDirect(DOC, 'q1', 0);
+  assert.strictEqual(rpcCalls(dir.sb)[0].params.p_resolution, '22.5');
+
+  for (const t of [yes, fu, dir]) {
+    assert.strictEqual(committedDoc(t.sb).length, 1);
+    assert.strictEqual(committedWarn(t.sb).length, 1);
   }
 });
 
-test('13. la correlazione non guarda solo code+item: distingue per message', () => {
+test('12. invoice_lines non viene mai toccata', async () => {
   const t = setup();
-  const altro = t.api.vdrFindWarningRowId(DOC,
-    { code: 'OQR-007', message: 'un messaggio che non esiste' }, IT_BRANZINI);
-  assert.strictEqual(altro, null, 'senza corrispondenza esatta non si identifica nulla');
+  await t.env.win.vdrAnswerYes(DOC, 'q1', 0);
+  for (const c of t.sb._commits) assert.notStrictEqual(c.table, 'invoice_lines');
+  for (const l of t.sb._legacy)  assert.notStrictEqual(l.table, 'invoice_lines');
+  assert.ok(!('p_invoice_lines' in rpcCalls(t.sb)[0].params));
 });
 
-Promise.resolve().then(() => {
-  setTimeout(() => {
-    console.log(`\n${pass} passed, ${fail} failed\n`);
-    if (fail > 0) process.exit(1);
-  }, 50);
+test('13. lo status del documento non viene toccato', async () => {
+  const t = setup();
+  await t.env.win.vdrAnswerYes(DOC, 'q1', 0);
+  const p = rpcCalls(t.sb)[0].params;
+  assert.deepStrictEqual(Object.keys(p).sort(),
+    ['p_document_id','p_parsed_json','p_resolution','p_resolved_by','p_status','p_warning_id','p_warnings'].sort());
+  assert.ok(!('p_document_status' in p), 'nessun parametro puo cambiare lo status');
 });
+
+test('14. correlazione: distingue per message, non solo code+item', () => {
+  const t = setup();
+  assert.strictEqual(
+    t.api.vdrFindWarningRowId(DOC, { code: 'OQR-007', message: 'inesistente' }, IT_BRANZINI), null);
+});
+
+Promise.resolve().then(() => setTimeout(() => {
+  console.log(`\n${pass} passed, ${fail} failed\n`);
+  if (fail > 0) process.exit(1);
+}, 60));

@@ -1915,35 +1915,54 @@ function vdrFindWarningRowId(docId, w, item) {
   return hit.length === 1 ? hit[0].id : null;
 }
 
-// L'unica funzione che scrive il lifecycle di invoice_warnings dal
-// percorso Vendor Review. Idempotente per costruzione: la UPDATE filtra
-// anche su status='open', quindi un secondo click non riscrive la
-// risoluzione gia' registrata e non e' un errore. Non lancia mai: un
-// problema qui non deve impedire la risoluzione sul documento.
-async function vdrResolveWarningRow(sb, q, opts) {
-  const out = { applied: false, reason: null };
-  if (!sb || !q) { out.reason = 'no-context'; return out; }
-  if (!q.invoiceWarningId) { out.reason = 'no-unique-row'; return out; }
-  try {
-    const { data, error } = await sb.from('invoice_warnings')
-      .update({
-        status:      (opts && opts.status) || 'resolved',
-        resolution:  (opts && opts.resolution) || 'resolved',
-        resolved_by: window._currentUser || 'admin',
-        resolved_at: new Date().toISOString(),
-      })
-      .eq('id', q.invoiceWarningId)
-      .eq('status', 'open')
-      .select('id');
-    if (error) { out.reason = error.message; return out; }
-    out.applied = !!(data && data.length);
-    if (!out.applied) out.reason = 'already-closed';
-    return out;
-  } catch(e) {
-    out.reason = (e && e.message) || 'exception';
-    return out;
-  }
+// INV06C — una riga di invoice_warnings e' ATTESA per questa domanda?
+//
+// Serve a distinguere due "nessun id" che non sono affatto la stessa cosa:
+//   - i warning OQR-006 non entrano MAI in invoice_warnings (filtrati in
+//     entrambi i punti di insert), quindi per loro non c'e' niente da
+//     chiudere e risolvere il solo documento e' corretto e completo;
+//   - se invece per questo documento esiste una riga APERTA con lo stesso
+//     codice ma la correlazione non ne ha isolata esattamente una, allora
+//     una riga nostra c'e' e non sappiamo quale: non si tocca niente.
+function vdrWarningRowExpected(docId, q) {
+  const rows = (window._vdrOpenWarnings && window._vdrOpenWarnings[docId]) || [];
+  return rows.some(r => r.code === (q && q.code));
 }
+
+// L'unico punto che scrive il lifecycle di invoice_warnings dal percorso
+// Vendor Review — e adesso non lo scrive nemmeno piu' da solo: delega
+// all'RPC vdr_resolve_warning, che aggiorna documento e riga DENTRO LA
+// STESSA TRANSAZIONE.
+//
+// Perche' non bastava l'ordine delle due write: prima il documento, poi
+// la riga, con l'errore della seconda solo loggato. Se la seconda
+// falliva restava documento risolto + riga open, cioe' esattamente lo
+// stato stale che stiamo eliminando. Provato in test.
+//
+// Gli unici due esiti possibili adesso:
+//   SUCCESS   documento e riga coerenti
+//   FAILURE   ne' l'uno ne' l'altra modificati (la funzione plpgsql
+//             solleva, e il RAISE annulla anche l'UPDATE sul documento)
+//
+// Idempotenza: la riga gia' chiusa torna warning_state='already_closed'
+// senza riscrivere la risoluzione originale e senza errore.
+async function vdrResolveWarningAtomic(sb, docId, updatedWarn, updatedPj, q, resolution, warnLabel) {
+  if (vdrWarningRowExpected(docId, q) && !(q && q.invoiceWarningId)) {
+    throw new Error('Warning non identificabile in modo univoco: nessuna modifica applicata.');
+  }
+  const { data, error } = await sb.rpc('vdr_resolve_warning', {
+    p_document_id: docId,
+    p_warnings:    updatedWarn,
+    p_parsed_json: updatedPj,
+    p_warning_id:  (q && q.invoiceWarningId) || null,
+    p_status:      (resolution && resolution.warningStatus) || 'resolved',
+    p_resolution:  warnLabel,
+    p_resolved_by: window._currentUser || 'admin',
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 // ── MARKER:VDR_WARNING_LIFECYCLE_END ─────────────────────────────────
 
 function vdrBuildQuestions(doc) {
@@ -2674,39 +2693,13 @@ async function vdrResolveQuestion(docId, qid, idx, resolution) {
       }
     }
 
-    const { error: updateErr } = await sb
-      .from('vendor_documents')
-      .update({
-        warnings:    updatedWarn,
-        parsed_json: updatedPj,
-        updated_at:  new Date().toISOString()
-      })
-      .eq('id', docId);
-
-    if (updateErr) throw new Error(updateErr.message);
-
-    // INV06B — la TERZA rappresentazione. A e B (vendor_documents.warnings
-    // e parsed_json) sono appena state scritte; qui si chiude anche la
-    // riga in invoice_warnings, che e' la fonte del banner di casa.
-    //
-    // Va DOPO l'update del documento di proposito: se quello fallisse
-    // avremmo chiuso un warning per un documento rimasto invariato. In
-    // quest'ordine, un problema qui lascia il warning aperto — visibile e
-    // recuperabile — invece di creare uno stato incoerente.
-    //
-    // I tre percorsi OQR-009 passano status e label espliciti; gli altri
-    // derivano la label dalla risposta, senza perdere informazione.
+    // INV06C — le due write di prima (documento, poi riga) sono diventate
+    // UNA sola operazione server-side. updated_at lo mette la funzione.
     const warnLabel = (resolution && resolution.warningResolution)
       || (resolution && resolution.correction ? 'no — ' + resolution.correction : null)
       || (resolution && resolution.answer)
       || 'resolved';
-    const lifecycle = await vdrResolveWarningRow(sb, q, {
-      status:     resolution && resolution.warningStatus,
-      resolution: warnLabel,
-    });
-    if (!lifecycle.applied && lifecycle.reason && lifecycle.reason !== 'already-closed') {
-      console.warn('[VDR] invoice_warnings non chiusa (' + lifecycle.reason + ') — la riga resta open');
-    }
+    await vdrResolveWarningAtomic(sb, docId, updatedWarn, updatedPj, q, resolution, warnLabel);
 
     // Fade out and remove question card
     if (card) {
