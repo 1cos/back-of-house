@@ -168,6 +168,136 @@ test('11. MUTAZIONE: la vecchia formula darebbe un valore 86 volte piu\' piccolo
   assert.ok(nuova / vecchia > 80, 'due ordini di grandezza di differenza');
 });
 
+// ─────────────────────────────────────────────────────────────────────
+// INV08G.1 — la chiusura storica, ancorata ai source reali
+//
+// I quattro falsi positivi e la voce 00907 del 14/09 sono presi dal
+// raw_text canonico dei documenti veri, non ricopiati a mano, e fatti
+// passare dal parser e dal writer ATTUALI.
+// ─────────────────────────────────────────────────────────────────────
+
+const idx = require(path.join(ROOT, 'js/vendor-parsers/index.js'));
+
+// Le righe sorgente esatte, come stanno nel raw_text dei documenti.
+const RIGHE_07130180 = [
+  '3   3   00459   CARROT JUMBO   5#   4.63   13.89',
+  '2   2   01981   ORGANIC SPRING MIX   3#   16.40   32.80',
+  '3   3   71898   SPINACH BABY   4#   15.24   45.72',
+];
+const RIGA_00907_14SET = '1   1   00907   CHZ PARMESAN REGGIANO 24 MOS   80#   13.50   1163.16';
+const RIGA_00907_GIUGNO = '1   1   00907   CHZ PARMESAN REGGIANO 24 MOS   80#   13.00   1120.60';
+
+function pagina(righe, numero, data) {
+  return ['HARDIE\'S FRUIT & VEGETABLE CO', 'Invoice # ' + numero + '   Date: ' + data, '']
+    .concat(righe).concat(['', 'TOTAL   999.99']).join('\n');
+}
+function voci(righe, numero, data) {
+  const out = parser.parse ? parser.parse(pagina(righe, numero, data))
+                           : parser(pagina(righe, numero, data));
+  return (out.items || []).filter(i => i.vendor_sku);
+}
+
+test('G1-1. i quattro falsi positivi reali sono voci normali', () => {
+  const items = voci(RIGHE_07130180, '07130180', '09/18/26');
+  assert.strictEqual(items.length, 3);
+  for (const it of items) {
+    assert.notStrictEqual(it.catchweight, true, it.vendor_sku + ' non e\' una pesata');
+    assert.strictEqual(it.actual_weight_lb, null, it.vendor_sku + ' non deve avere un peso inventato');
+  }
+});
+
+test('G1-2. le quantita\' attese sono 3, 2, 3', () => {
+  const items = voci(RIGHE_07130180, '07130180', '09/18/26');
+  const q = {};
+  for (const it of items) q[it.vendor_sku] = it.qty;
+  assert.deepStrictEqual(q, { '00459': 3, '01981': 2, '71898': 3 });
+});
+
+test('G1-3. gli economics derivati vengono dal writer corrente', async () => {
+  const rows = await scrivi(voci(RIGHE_07130180, '07130180', '09/18/26'));
+  const by = {};
+  for (const r of rows) by[r.vendor_sku] = r;
+  // Pack nominale, perche' non sono catchweight: 5#, 3#, 4#.
+  assert.strictEqual(by['00459'].estimated_total_g, Math.round(5 * LB));
+  assert.strictEqual(by['01981'].estimated_total_g, Math.round(3 * LB));
+  assert.strictEqual(by['71898'].estimated_total_g, Math.round(4 * LB));
+  // E il costo torna alla formula del collo, quella giusta per loro.
+  assert.strictEqual(by['00459'].cost_per_100g,
+    parseFloat(((4.63 / (5 * LB)) * 100).toFixed(4)));
+  assert.strictEqual(by['71898'].cost_per_100g,
+    parseFloat(((15.24 / (4 * LB)) * 100).toFixed(4)));
+  // Il denaro non si muove.
+  assert.strictEqual(by['00459'].line_total, 13.89);
+  assert.strictEqual(by['01981'].line_total, 32.8);
+  assert.strictEqual(by['71898'].line_total, 45.72);
+});
+
+test('G1-4. 07004208 resta una catchweight vera', () => {
+  const it = voci([RIGA_00907_GIUGNO], '07004208', '06/17/26')[0];
+  assert.strictEqual(it.catchweight, true);
+  assert.ok(Math.abs(it.actual_weight_lb - 86.2) < 0.01);
+});
+
+test('G1-5. la voce 00907 del 14/09 e\' catchweight secondo il source reale', () => {
+  // Il documento stampa "Total weight: 86.16" e 1163,16/13,50 = 86,16:
+  // la riclassificazione non e\' un\'inferenza, e\' aritmetica del PDF.
+  const it = voci([RIGA_00907_14SET], '07119379', '09/14/26')[0];
+  assert.strictEqual(it.catchweight, true, 'il parser v27 deve riconoscerla');
+  assert.ok(Math.abs(it.actual_weight_lb - 86.16) < 0.01,
+    'peso implicito 86,16 lb, lo stesso stampato sulla fattura');
+  assert.strictEqual(it.price_per_lb, 13.5);
+});
+
+test('G1-6. la ricostruzione PI usa la merge corrente e la cronologia giusta', () => {
+  const PI = require(path.join(ROOT, 'js/vendor-parsers/price-intelligence-merge.js'));
+  const merge = PI.mergePriceIntelligence;
+  const it = voci([RIGA_00907_14SET], '07119379', '09/14/26')[0];
+  const osservazione = {
+    unit_price: it.unit_price, pack_description: it.pack_description,
+    price_type: it.catchweight ? 'per_lb' : 'per_case',
+    conversion_to_base: null,
+    price_per_100g: (it.price_per_lb / 453.592) * 100,
+    last_invoice_date: '2026-09-14',
+  };
+  const prima = { unit_price: 13.5, pack_description: '80#', price_type: 'per_case',
+    conversion_to_base: 36287, price_per_100g: 0.03720303709060124,
+    last_invoice_date: '2026-09-14' };
+  const m = merge(prima, osservazione);
+  assert.ok(!m.skipped, 'la merge non deve saltare');
+  assert.strictEqual(m.fields.price_type, 'per_lb');
+  assert.strictEqual(m.fields.conversion_to_base, null,
+    'un prodotto a peso non ha una conversione per collo');
+  assert.ok(Math.abs(m.fields.price_per_100g - 2.9762) < 0.001);
+  assert.strictEqual(m.fields.last_invoice_date, '2026-09-14',
+    'la data non si muove: e\' la stessa osservazione, letta bene');
+});
+
+test('G1-7. il documento pending non e\' un\'osservazione contabilizzata', () => {
+  // 07133808 e' pending: puo' provare il parser, mai fissare un prezzo.
+  const it = voci(['1   1   00907   CHZ PARMESAN REGGIANO 24 MOS   80#   13.55   1084.00'],
+                  '07133808', '09/21/26')[0];
+  assert.strictEqual(it.catchweight, true, 'come test del parser va benissimo');
+  assert.notStrictEqual(it.unit_price, 13.5,
+    'porta un prezzo diverso da quello contabilizzato: se fosse usato, sposterebbe la PI');
+});
+
+test('G1-8. Fruge resta invariata: il suo _cost_per_100g ha la precedenza', async () => {
+  const rows = await scrivi([{ vendor_sku: 'SALFF3T5XAE0', description: 'SALMON FR FILLET',
+    qty: 1, qty_received: 1, pack_description: '1 CT', catchweight: true,
+    actual_weight_lb: 13.95, price_per_lb: 9.98, cost_per_lb: 9.98,
+    _cost_per_100g: 2.2002, unit_price: 9.98, amount: 139.22 }], 'Fruge Seafood');
+  assert.strictEqual(rows[0].cost_per_100g, 2.2002,
+    'il valore del parser Fruge vince su qualunque ricalcolo');
+});
+
+test('G1-9. una voce Hardie\'s normale non catchweight non cambia', async () => {
+  const rows = await scrivi([{ vendor_sku: 'X', description: 'CHZ MOZZ SHRED', qty: 3,
+    qty_received: 3, pack_description: '5#', unit_price: 22.22, amount: 66.66 }]);
+  assert.strictEqual(rows[0].qty, 3);
+  assert.strictEqual(rows[0].estimated_total_g, Math.round(5 * LB));
+  assert.strictEqual(rows[0].cost_per_100g, parseFloat(((22.22 / (5 * LB)) * 100).toFixed(4)));
+});
+
 (async () => {
   for (const [n, f] of queue) {
     try { await f(); console.log('  ✓ ' + n); pass++; }
