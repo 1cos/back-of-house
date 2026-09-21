@@ -13,8 +13,11 @@
 // Batch: 20 per invocazione, ovunque. Si rilancia la funzione finche' il
 // log non riporta threads_found = 0.
 //
-// Fruge NON ha una funzione di backfill: e' gia' completo, 51/51, con
-// fruge-import vuota. Un replay sarebbe solo rumore.
+// Fruge HA una funzione di backfill (INV05). Il commento precedente diceva
+// "e' gia' completo, 51/51, con fruge-import vuota": era vero rispetto alle
+// email ETICHETTATE, falso rispetto alla sorgente. INV04 ha misurato 57
+// fatture reali, 51 importate, 6 mai etichettate. fruge-import e' vuota
+// perche' quelle sei non ci sono MAI entrate, non perche' siano lavorate.
 // ══════════════════════════════════════════════════════════════════
 
 // 1 giugno 2026 costruito in ora LOCALE dello script (America/Chicago,
@@ -66,6 +69,26 @@ function backfillHardiesFromJune2026() {
   var stats = processLabelPDF('hardies-import', 'hardies-processed',
                               'gmail-hardies-import', backfillStartJune2026(), true);
   return logBackfill('HARDIES', stats);
+}
+
+// ── Fruge ────────────────────────────────────────────────────────
+// INV05. Stesso identico percorso di Walmart e Hardie's: label
+// fruge-import → fruge-processed, endpoint gmail-vendor-import, PDF reale
+// letto dall'allegato, dedup invariata nel backend.
+//
+// Le sei fatture da recuperare non hanno MAI ricevuto fruge-import: il
+// filtro Gmail copre solo system@netyield.com, e quattro sono arrivate
+// prima che il canale esistesse. Vanno etichettate a mano PRIMA di
+// lanciare questa funzione, mai prima che esista.
+//
+// strict labeling (MICRO-TASK 54B) NON e' opzionale qui: un thread con
+// anche un solo PDF fallito non viene etichettato -processed e resta in
+// coda per il giro dopo. Il percorso legacy nasconderebbe l'errore dietro
+// l'etichetta, ed e' esattamente cio' che questo recovery deve evitare.
+function backfillFrugeFromJune2026() {
+  var stats = processLabelPDF('fruge-import', 'fruge-processed',
+                              'gmail-vendor-import', backfillStartJune2026(), true);
+  return logBackfill('FRUGE', stats);
 }
 
 // ── Ben E. Keith ─────────────────────────────────────────────────
