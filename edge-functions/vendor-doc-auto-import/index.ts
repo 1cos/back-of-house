@@ -989,6 +989,129 @@ function vdaiIsZeroDeliveredLegacy(vendor: string, item: any): boolean {
 // anywhere in this function, by construction, so no caller of it can
 // accidentally trigger any of that regardless of which document or
 // document status it's called with.
+
+// ══════════════════════════════════════════════════════════════════
+// INV08C — IL PERCORSO CONTABILE DEI CREDIT MEMO
+//
+// Un credito non e' una fattura negativa: e' un tipo contabile diverso,
+// e va in una tabella sua. vendor_credits esiste dal disegno originale
+// — sedici colonne, due indici, original_document_id e return_codes —
+// ma fino a oggi era vuota e nessuna riga di codice la nominava.
+//
+// PERCHE' NON invoice_lines. Una riga di invoice_lines e' merce
+// acquistata: ha un ingrediente, un peso, un costo per 100 g, e
+// alimenta price intelligence e purchase rhythm. Un credito non e'
+// merce: e' un rimborso. Infilarlo li' dentro con importo negativo
+// falserebbe la mediana delle quantita', il costo per 100 g e la
+// cronologia dei prezzi, e renderebbe impossibile mostrare lordo e
+// netto separatamente.
+//
+// IL SEGNO. Il parser Hardie's emette gia' gli importi NEGATIVI —
+// total -49.92, items[].amount -38.56 — e noi li registriamo cosi'
+// come sono. Nessuna normalizzazione, nessuna doppia negazione.
+// L'invariante e' diretta:
+//
+//     spesa lorda (invoice_lines) + crediti (vendor_credits) = netto
+//
+// IDEMPOTENZA. La protegge il database, non questo codice: l'indice
+// unico vendor_credits_vendor_document_id_key (migration
+// 20260921_003). L'upsert usa quel vincolo, quindi un retry o due tick
+// sovrapposti non possono creare una seconda riga. Un "select poi
+// insert" senza vincolo non sarebbe stato retry-safe.
+//
+// LO STATO. Si scrive 'pending', il default del modello, e NON si
+// toccano confirmed_by/confirmed_at: il fornitore ha emesso il
+// credito, ma nessun essere umano ha confermato di averlo applicato.
+// Dire 'confirmed' sarebbe affermare una conferma che non c'e' stata.
+function vdaiCreditFields(doc: any, pj: any, docId: string) {
+  const items: any[] = Array.isArray(pj.items) ? pj.items : [];
+  const total = pj.total != null ? Number(pj.total) : null;
+  const codes = [...new Set(items
+    .map((i: any) => i.return_code || i.return_reason || null)
+    .filter(Boolean))];
+  return {
+    vendor_document_id:    docId,
+    vendor:                pj.vendor || doc.vendor || 'unknown',
+    credit_number:         pj.credit_number || doc.document_number || null,
+    credit_date:           pj.credit_date || doc.document_date || null,
+    original_order_number: pj.original_order_number || null,
+    amount:                total,
+    lines:                 items,
+    return_codes:          codes,
+    status:                'pending',
+  };
+}
+
+// Il credito e' valido da registrare? Fail closed: senza un importo, o
+// con un importo che non torna con le righe, non si scrive niente e il
+// documento resta dov'e', visibile e ritentabile.
+function vdaiValidateCredit(pj: any): { ok: boolean; reason?: string } {
+  const total = pj && pj.total != null ? Number(pj.total) : null;
+  if (total == null || !isFinite(total)) return { ok: false, reason: 'credit_no_amount' };
+  if (total === 0) return { ok: false, reason: 'credit_zero_amount' };
+  if (total > 0) return { ok: false, reason: 'credit_positive_amount' };
+  const items: any[] = Array.isArray(pj.items) ? pj.items : [];
+  if (!items.length) return { ok: false, reason: 'credit_no_lines' };
+  const somma = items.reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0);
+  if (Math.abs(somma - total) > 0.005) {
+    return { ok: false, reason: 'credit_lines_dont_reconcile' };
+  }
+  return { ok: true };
+}
+
+// Il gemello di vdaiApprove per i crediti. Stessa forma, stesso
+// contratto di ritorno, stesse guardie di idempotenza sullo stato del
+// documento — ma scrive in vendor_credits e NON crea nessuna
+// invoice_line.
+async function vdaiApproveCredit(sb: any, docId: string): Promise<{ ok: boolean; reason?: string }> {
+  const { data: doc, error: fetchErr } = await sb.from('vendor_documents')
+    .select('parsed_json,vendor,warnings,status,document_number,document_date,document_type')
+    .eq('id', docId).single();
+  if (fetchErr) return { ok: false, reason: fetchErr.message };
+
+  const pj = doc.parsed_json || {};
+  const tipo = pj.document_type || doc.document_type;
+  if (tipo !== 'credit_memo') return { ok: false, reason: 'not_credit_memo' };
+
+  const v = vdaiValidateCredit(pj);
+  if (!v.ok) return { ok: false, reason: v.reason };
+
+  // Il collegamento al documento originale si popola SOLO se e'
+  // deterministico: una sola fattura con quel numero. Hardie's emette
+  // conferma d'ordine e fattura con numeri distinti dal credito, ma un
+  // numero puo' avere due documenti (la coppia conferma+fattura), e
+  // l'acquisto e' la fattura. Se i candidati non sono esattamente uno,
+  // original_document_id resta NULL e original_order_number conserva
+  // comunque il riferimento leggibile: l'assenza del link non impedisce
+  // di contabilizzare un credito economicamente valido.
+  let originalId: string | null = null;
+  const ref = pj.original_order_number || null;
+  if (ref) {
+    const { data: cand } = await sb.from('vendor_documents').select('id')
+      .eq('vendor', pj.vendor || doc.vendor || '')
+      .eq('document_number', ref).eq('document_type', 'invoice').limit(2);
+    if (cand && cand.length === 1) originalId = cand[0].id;
+  }
+
+  const fields = { ...vdaiCreditFields(doc, pj, docId), original_document_id: originalId,
+                   updated_at: new Date().toISOString() };
+
+  const { error: upErr } = await sb.from('vendor_credits')
+    .upsert(fields, { onConflict: 'vendor_document_id' });
+  if (upErr) return { ok: false, reason: 'vendor_credits upsert failed: ' + upErr.message };
+
+  // Il documento si chiude come qualunque altro documento lavorato.
+  // 'imported' qui significa "lavorato e contabilizzato", ed e' la
+  // stessa semantica che ha per una fattura: la prova economica non e'
+  // lo status, e' la riga in vendor_credits.
+  if (doc.status !== 'imported') {
+    const { error: stErr } = await sb.from('vendor_documents')
+      .update({ status: 'imported', updated_at: new Date().toISOString() }).eq('id', docId);
+    if (stErr) return { ok: false, reason: 'status update failed: ' + stErr.message };
+  }
+  return { ok: true, reason: doc.status === 'imported' ? 'credit_recorded_existing_status' : 'credit_recorded' };
+}
+
 // ══════════════════════════════════════════════════════════════════
 async function writeInvoiceLines(
   sb: any,
@@ -1595,7 +1718,7 @@ Deno.serve(async (req: Request) => {
     if (!documentId) {
       const { count: pendingTotal, error: countErr } = await sb.from('vendor_documents')
         .select('id', { count: 'exact', head: true })
-        .eq('status', 'pending').in('document_type', ['invoice', 'order_confirmation']);
+        .eq('status', 'pending').in('document_type', ['invoice', 'order_confirmation', 'credit_memo']);
       if (countErr || pendingTotal === null || pendingTotal === undefined) {
         saltaPhaseB = true;
         const motivo = countErr ? countErr.message : 'conteggio nullo';
@@ -1627,15 +1750,26 @@ Deno.serve(async (req: Request) => {
       // esattamente 0003243454 e 0003272475.
       // Phase A fa gia' la cosa giusta (qA seleziona document_type e
       // isBekBodyOnlySource usa lo stesso idioma): qui si allinea Phase B.
-      let qB = sb.from('vendor_documents').select('id,parsed_json,vendor,document_type,warnings,status,document_number,document_date').eq('status', 'pending').in('document_type', ['invoice', 'order_confirmation']);
+      let qB = sb.from('vendor_documents').select('id,parsed_json,vendor,document_type,warnings,status,document_number,document_date').eq('status', 'pending').in('document_type', ['invoice', 'order_confirmation', 'credit_memo']);
       qB = documentId ? qB.eq('id', documentId) : qB;
       qB = qB.order('created_at', { ascending: true }).order('id', { ascending: true });
       const { data: queueBRaw } = documentId
         ? await qB.limit(1)
         : await qB.range(finestra.from, finestra.to);
-      queueB = (queueBRaw || []).filter((d: any) =>
-        isPurchasableDocument((d.parsed_json && d.parsed_json.vendor) || d.vendor || '', (d.parsed_json && d.parsed_json.document_type) || d.document_type)
-      ).slice(0, documentId ? 1 : finestra.size);
+      // INV08C — il routing e' per TIPO CONTABILE, non per
+      // "acquistabilita'". Un credit memo non e' una fattura negativa e
+      // non va reso purchasable per farlo passare dal gate: e' un tipo
+      // diverso, con una tabella sua e un writer suo.
+      //
+      //   invoice            -> invoice_lines      (vdaiApprove)
+      //   order_confirmation -> invoice_lines      solo dove e' un acquisto
+      //   credit_memo        -> vendor_credits     (vdaiApproveCredit)
+      //   tutto il resto     -> nessuna contabilita'
+      queueB = (queueBRaw || []).filter((d: any) => {
+        const v = (d.parsed_json && d.parsed_json.vendor) || d.vendor || '';
+        const t = (d.parsed_json && d.parsed_json.document_type) || d.document_type;
+        return t === 'credit_memo' || isPurchasableDocument(v, t);
+      }).slice(0, documentId ? 1 : finestra.size);
     }
     for (const doc of queueB || []) {
       if (dryRun) {
@@ -1645,8 +1779,18 @@ Deno.serve(async (req: Request) => {
       }
       const pre = await vdaiPreflight(sb, doc);
       if (pre.ok && pre.unmatchedCount === 0) {
-        const approveResult = await vdaiApprove(sb, doc.id);
-        result.phaseB.push({ id: doc.id, document_number: doc.document_number, outcome: approveResult.ok ? 'imported' : 'approve_failed', reason: approveResult.reason });
+        // INV08C — vdaiPreflight fa gia' la cosa giusta per un credito:
+        // il gate dei warning bloccanti vale per QUALUNQUE tipo, e poi
+        // esce con unmatchedCount 0 perche' un credito non e'
+        // acquistabile. Quindi un warning reale ferma ancora un credit
+        // memo, mentre un ingrediente non mappato no — e non deve,
+        // perche' registrare un rimborso non richiede di sapere a quale
+        // ingrediente appartiene.
+        const tipoDoc = (doc.parsed_json && doc.parsed_json.document_type) || doc.document_type;
+        const approveResult = tipoDoc === 'credit_memo'
+          ? await vdaiApproveCredit(sb, doc.id)
+          : await vdaiApprove(sb, doc.id);
+        result.phaseB.push({ id: doc.id, document_number: doc.document_number, document_type: tipoDoc, outcome: approveResult.ok ? 'imported' : 'approve_failed', reason: approveResult.reason });
       } else {
         result.phaseB.push({ id: doc.id, document_number: doc.document_number, outcome: 'left_pending', reason: pre.reason || 'unmatched', unmatchedCount: pre.unmatchedCount });
       }
