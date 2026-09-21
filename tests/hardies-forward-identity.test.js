@@ -373,6 +373,69 @@ test('E4-controllo2. 29554 e 24171 danno lo stesso ingrediente', async () => {
   assert.strictEqual(a[0].ingredient_id, b[0].ingredient_id);
 });
 
+// ─────────────────────────────────────────────────────────────────────
+// INV08E.5 — le quattro carni ABR sono quattro identita' distinte
+//
+// Hardie's vende sotto la stessa sigla "ABR" prodotti che il
+// ristorante usa in modo diverso. Fino a ieri tre di loro finivano
+// nello stesso ingrediente per somiglianza di descrizione.
+// ─────────────────────────────────────────────────────────────────────
+
+const TAILS = 'dddd4444-0000-0000-0000-000000000000';
+
+const MAPPA_CARNI = {
+  '23278': { ingredient_id: TENDERLOIN, vendor_sku: '23278' },  // TIPS
+  '30635': { ingredient_id: TAILS,      vendor_sku: '30635' },  // TAILS
+  '24171': { ingredient_id: STEW_MEAT,  vendor_sku: '24171' },  // BROCHETTE FRZ
+  '29554': { ingredient_id: STEW_MEAT,  vendor_sku: '29554' },  // BROCHETTE REF
+};
+
+test('E5-30635. 30635 -> Beef Tenderloin Tails con linkMap VUOTA', async () => {
+  for (const d of ['ABR BC TNDRLN TAILS 5+ OZ REF', 'BEEF TENDERLOIN TAILS 5+ OZ',
+                   'TNDRLN TAILS REFRIGERATED', 'ABR BC TNDRLN  TAILS  5+ OZ  REF']) {
+    const rows = await scrivi([voce({ vendor_sku: '30635', description: d,
+                                      pack_description: '4 PKG/12#', qty_ordered: 2, qty_received: 2,
+                                      amount: 256.20, unit_price: 10.50 })], MAPPA_CARNI, {});
+    assert.strictEqual(rows.length, 1, '"' + d + '": riga non scritta');
+    assert.strictEqual(rows[0].ingredient_id, TAILS, '"' + d + '" non risolve a Tails');
+    assert.strictEqual(rows[0].match_status, 'matched');
+  }
+});
+
+test('E5-distinte. le quattro carni ABR danno quattro ingredienti diversi', async () => {
+  const casi = [
+    ['23278', 'ABR BC TNDRLN TIPS REF',  TENDERLOIN, 'Beef Tenderloin Tips'],
+    ['30635', 'ABR BC TNDRLN TAILS 5+ OZ REF', TAILS, 'Beef Tenderloin Tails'],
+    ['24171', 'ABR BROCHETTE MEAT 1" FRZ', STEW_MEAT, 'Stew Meat'],
+    ['29554', 'ABR BROCHETTE MEAT 1" REF', STEW_MEAT, 'Stew Meat'],
+  ];
+  const visti = {};
+  for (const [sku, d, ing, nome] of casi) {
+    const rows = await scrivi([voce({ vendor_sku: sku, description: d,
+                                      pack_description: '4 PKG/12#', amount: 100, unit_price: 25 })],
+                              MAPPA_CARNI, {});
+    assert.strictEqual(rows[0].ingredient_id, ing, sku + ' doveva dare ' + nome);
+    visti[sku] = rows[0].ingredient_id;
+  }
+  // TIPS, TAILS e BROCHETTE sono tre ingredienti distinti;
+  // le due brochette (FRZ e REF) sono lo stesso.
+  assert.notStrictEqual(visti['23278'], visti['30635'], 'tips e tails non sono lo stesso taglio');
+  assert.notStrictEqual(visti['23278'], visti['24171'], 'tips non e\' stew meat');
+  assert.notStrictEqual(visti['30635'], visti['24171'], 'tails non e\' stew meat');
+  assert.strictEqual(visti['24171'], visti['29554'], 'le due brochette sono lo stesso prodotto');
+});
+
+test('E5-descrizione. la vecchia descrizione non riporta 30635 su Stew Meat', async () => {
+  // Prima di oggi 30635 risolveva a Stew Meat proprio per la
+  // descrizione. Adesso lo SKU deve vincere anche contro una linkMap
+  // che punta esplicitamente a Stew Meat.
+  const rows = await scrivi([voce({ vendor_sku: '30635', description: 'ABR BC TNDRLN TAILS 5+ OZ REF',
+                                    pack_description: '4 PKG/12#', amount: 256.20, unit_price: 10.50 })],
+                            MAPPA_CARNI, { 'ABR BC TNDRLN TAILS 5+ OZ REF': STEW_MEAT });
+  assert.strictEqual(rows[0].ingredient_id, TAILS);
+  assert.notStrictEqual(rows[0].ingredient_id, STEW_MEAT);
+});
+
 (async () => {
   for (const [n, f] of queue) {
     try { await f(); console.log('  ✓ ' + n); pass++; }
