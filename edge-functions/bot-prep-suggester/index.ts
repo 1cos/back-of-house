@@ -338,7 +338,11 @@ Deno.serve(async (req: Request) => {
           else if (cu === 'g' && tu === 'kg') q = rq / 1000
           else q = rq
         }
-        stock=q;src='prep_stock_counts';sunit=pt.unit
+        // CREW-UX 40 — VALUE dal saldo mantenuto; il conteggio resta PROVENIENZA.
+        // q sopravvive solo come fallback quando current_stock e' NULL: nessuna
+        // semantica nuova sul NULL. src e sunit restano invariati.
+        stock=(pt.current_stock!=null)?parseFloat(pt.current_stock):q
+        src='prep_stock_counts';sunit=pt.unit
       }
       else if(pt.current_stock!=null){stock=parseFloat(pt.current_stock);src='db_snapshot_unverified';sunit=pt.unit}
       const td: Record<string,number>=dbt[tid]||{},hd=Object.keys(td).length>0
