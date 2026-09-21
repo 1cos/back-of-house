@@ -3632,12 +3632,40 @@ window.vdrApprove = async function(docId, btn) {
             ? item.actual_weight_lb * 453.592
             : (window.vdrPackToGrams ? window.vdrPackToGrams(pack, false, null, desc) : null);
 
-        // Cost per 100g
+        // INV08G — SU UNA CATCHWEIGHT IL PREZZO E' AL LIBBRA.
+        //
+        // La formula (unit_price / grammi) x 100 presuppone che
+        // unit_price sia il prezzo dell'INTERO collo. Su una catchweight
+        // e' il prezzo di UNA LIBBRA, e il risultato finisce circa 86
+        // volte sotto il vero. Misurato su 07004208: $13,00/lb x 86,2 lb
+        // = $1.120,60, e cost_per_100g valeva 0,0332 invece di 2,8660.
+        //
+        // Il ramo esisteva gia' — nel blocco price intelligence qui
+        // accanto, che infatti e' sempre stato corretto. Mancava solo
+        // qui, ed e' questa la ragione per cui la price intelligence
+        // risultava sana mentre invoice_lines no.
+        //
+        // Si usa l'economia EFFETTIVA della riga, non il prezzo di
+        // listino: importo pagato diviso peso realmente consegnato. Sui
+        // documenti reali le due strade coincidono al quarto decimale,
+        // perche' l'importo E' prezzo x peso; ma se un giorno non
+        // coincidessero, quella giusta e' cio' che e' stato pagato.
+        //
+        // Senza peso effettivo: NULL. Una catchweight senza peso non ha
+        // un costo per 100 g deducibile, e stimarlo dal pack nominale e'
+        // esattamente l'errore che questo blocco corregge.
+        const cwGrams = item.catchweight
+          ? (item.total_weight_lb ? item.total_weight_lb * 453.592
+             : item.actual_weight_lb ? item.actual_weight_lb * 453.592 : null)
+          : null;
         const per100g = item._cost_per_100g
           ? parseFloat(item._cost_per_100g)
           : item.cost_per_lb
             ? (item.cost_per_lb / 453.592) * 100
-            : (totalG && unitPrice && qty && qty > 0) ? ((unitPrice / totalG) * 100) : null;
+            : item.catchweight
+              ? (cwGrams && lineTotal != null && lineTotal > 0 ? (lineTotal / cwGrams) * 100
+                 : item.price_per_lb ? (item.price_per_lb / 453.592) * 100 : null)
+              : (totalG && unitPrice && qty && qty > 0) ? ((unitPrice / totalG) * 100) : null;
 
         // FIX (line_type task): a Shipping/adjustment row must never carry
         // an ingredient_id in invoice_lines either, even if a stale or

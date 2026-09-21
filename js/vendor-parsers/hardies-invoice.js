@@ -52,9 +52,36 @@ function buildItem(sku, descRaw, packRaw, ord, shp, unitPrice, amount, prevSku) 
   // but the exact math is amount ÷ unit_price = actual pounds.
   // Detection: amount ≠ unit_price (so not a flat case price) AND the implied
   // weight is within 50% of the nominal pack weight.
+  //
+  // INV08G — IL DISCRIMINANTE CHE MANCAVA.
+  //
+  // "amount diverso da unit_price" non basta a distinguere una pesata da
+  // una normale moltiplicazione per colli. Su 11 voci reali marcate
+  // catchweight, SEI erano falsi positivi, tutti con la stessa firma:
+  //
+  //   00459 CARROT JUMBO    3 x $4,63  = $13,89   pack 5#
+  //   01981 ORGANIC SPRING  2 x $16,40 = $32,80   pack 3#
+  //   71898 SPINACH BABY    3 x $15,24 = $45,72   pack 4#
+  //   25265 CHZ MOZZ SHRED  4 x $22,22 = $88,88   pack 5#
+  //
+  // Il "peso implicito" coincideva esattamente con la quantita'
+  // ricevuta, e cadeva dentro la finestra 0.5-1.5 del pack nominale
+  // solo per coincidenza aritmetica. Conseguenze gia' materializzate:
+  // quelle righe hanno cost_per_100g calcolato su un peso inventato e
+  // — poiche' per una catchweight la quantita' e' sempre 1 — hanno
+  // perso la quantita' reale.
+  //
+  // Il discriminante e' l'importo stesso: se amount = unit_price x
+  // quantita' ricevuta, quella non e' una pesata, e' una
+  // moltiplicazione per colli. Su una catchweight vera non torna mai,
+  // perche' il peso effettivo non e' il numero di colli:
+  //
+  //   00907 PARMESAN  1 collo x $13,00 -> $1.120,60   (86,2 lb)
+  //   29554 BROCHETTE 4 colli x $6,22  -> $294,95     (47,42 lb)
   let catchweight = false, priceLb = null, actualLb = null;
   if (pack && pack.unit === 'lb' && unitPrice > 0 && amount > 0
-      && Math.abs(amount - unitPrice) > 0.02) {
+      && Math.abs(amount - unitPrice) > 0.02
+      && Math.abs(amount - unitPrice * (shp || 0)) > 0.02) {
     const impliedLb = amount / unitPrice;
     const nominalLb = pack.count * pack.sizeEach;
     if (nominalLb > 0 && impliedLb >= nominalLb * 0.5 && impliedLb <= nominalLb * 1.5) {
