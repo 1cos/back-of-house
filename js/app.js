@@ -367,6 +367,9 @@ function doLogin(profile){
     updateTopBarAvatar();
   });
   init(); applyLang(); updateAlertBtn(); setupPush();
+  // CREW-UX 23: init() is the reference point for freshness — a foreground
+  // a minute after login must not re-read what init() just read.
+  window._fgLastLoad = Date.now();
   if(typeof initExpenseQuickEntry === 'function') initExpenseQuickEntry();
   if(typeof initPurchaseOrderEntry === 'function') initPurchaseOrderEntry();
   if(typeof initVendorHomePanels === 'function') initVendorHomePanels();
@@ -766,3 +769,139 @@ async function vdrLoadBadge() {
 
 
 
+
+// ══ FRESH ON FOREGROUND — CREW-UX 23 — BEGIN ═══════════════════════════════
+// A cook must never have to think about "Refresh".
+//
+// When the app comes back to the foreground after being away long enough,
+// it re-reads the shared truth — stock, logs, suggestions, counts — through
+// the SAME functions init() already uses, and redraws. No realtime channel,
+// no polling, no page reload, no new endpoint, no DB write.
+//
+// Two things this code is careful about, both learned in CREW-UX 22:
+//   1. items[] and tasks{} hold the SAME objects, and other code keeps
+//      references to them (crew-home's draft, for one). So a refresh updates
+//      those objects IN PLACE instead of replacing the arrays: every existing
+//      reference stays valid and simply sees the new numbers.
+//   2. loadSuggestions() and loadRecentCounts() wipe their globals when the
+//      network fails — which is right at startup, where there is nothing to
+//      lose, and wrong here, where the cook is already looking at good data.
+//      So we snapshot before and restore on failure: a failed refresh leaves
+//      the screen exactly as it was.
+
+// 60 seconds. Below a minute a phone is being glanced at, not put down, and
+// somebody else changing the same prep in that window is unlikely; paying four
+// queries for every camera switch or notification tap is not. Above a minute
+// the phone has been away long enough to have missed something. It is also the
+// cadence the rest of the app already uses (news, presence, staff tabs), so it
+// introduces no new constant into the product.
+var FG_STALE_MS = 60000;
+
+window._fgLastLoad = Date.now();
+var _fgInFlight = false;
+
+function _fgIsStale(now) {
+  var last = window._fgLastLoad || 0;
+  return ((now || Date.now()) - last) >= FG_STALE_MS;
+}
+
+// Update the live task objects in place. Returns false if the payload is
+// unusable, in which case nothing has been touched.
+function _fgMergeTasks(rows) {
+  if (!Array.isArray(rows)) return false;
+  if (typeof items === 'undefined' || typeof tasks === 'undefined') return false;
+
+  var fresh = rows.filter(function (r) { return r && !r.archived; });
+  var seen = {};
+  for (var i = 0; i < fresh.length; i++) {
+    var r = fresh[i];
+    seen[r.id] = true;
+    if (tasks[r.id]) {
+      Object.assign(tasks[r.id], r);        // same object, new values
+    } else {
+      items.push(r);
+      tasks[r.id] = r;
+    }
+  }
+  for (var j = items.length - 1; j >= 0; j--) {
+    if (!seen[items[j].id]) { delete tasks[items[j].id]; items.splice(j, 1); }
+  }
+  window._taskNames = {};
+  for (var k = 0; k < items.length; k++) window._taskNames[items[k].id] = items[k].name;
+  return true;
+}
+
+// The one entry point. Never runs twice at the same time.
+async function refreshSharedTruth(reason) {
+  if (_fgInFlight) return 'in_flight';
+  _fgInFlight = true;
+
+  var snapSugg   = window._suggestions;
+  var snapDate   = window._suggestionsDate;
+  var snapNoData = window._suggestionsNoData;
+  var snapErr    = window._suggestionsError;
+  var snapCounts = window._recentCounts;
+  var snapCountN = snapCounts ? Object.keys(snapCounts).length : 0;
+
+  var tasksOk = false;
+  try {
+    // 1. prep_tasks — the shared stock. Our own query, so we can tell a
+    //    failure from an empty result and simply not touch anything.
+    var res = await supa.from('prep_tasks').select('*').order('name');
+    if (!res || res.error || !res.data) throw new Error('prep_tasks unavailable');
+    tasksOk = _fgMergeTasks(res.data);
+
+    // 2. prep_log + prep_suggestions_daily, through the existing path.
+    //    loadTodayLogs() calls loadSuggestions() itself, exactly as in init().
+    if (typeof loadTodayLogs === 'function') await loadTodayLogs();
+
+    // A failed suggestion load leaves the cook staring at "Today's plan isn't
+    // ready yet" where a moment ago there were cards. Put the old truth back.
+    if (window._suggestionsError === true && snapDate != null) {
+      window._suggestions      = snapSugg;
+      window._suggestionsDate  = snapDate;
+      window._suggestionsNoData = snapNoData;
+      window._suggestionsError = snapErr;
+    }
+
+    // 3. prep_stock_counts — feeds _computeStockVerified().
+    if (typeof loadRecentCounts === 'function') await loadRecentCounts();
+    var nowCountN = window._recentCounts ? Object.keys(window._recentCounts).length : 0;
+    if (nowCountN === 0 && snapCountN > 0) window._recentCounts = snapCounts;
+
+    if (tasksOk) window._fgLastLoad = Date.now();
+  } catch (e) {
+    // Nothing is cleared on the way out: whatever was on screen stays usable,
+    // and the next useful foreground tries again.
+    window._suggestions       = snapSugg;
+    window._suggestionsDate   = snapDate;
+    window._suggestionsNoData = snapNoData;
+    window._suggestionsError  = snapErr;
+    window._recentCounts      = snapCounts;
+    _fgInFlight = false;
+    return 'error';
+  }
+
+  _fgInFlight = false;
+
+  // Redraw with what we now have. Each of these is the same render the app
+  // already calls elsewhere; renderHomeStations() carries the Crew Home.
+  try { if (typeof renderM === 'function') renderM(); } catch (e) {}
+  try { if (typeof renderS === 'function') renderS(); } catch (e) {}
+  try { if (typeof renderHomeStations === 'function') renderHomeStations(); } catch (e) {}
+  try { if (typeof renderHomeStationItems === 'function') renderHomeStationItems(); } catch (e) {}
+
+  return 'refreshed';
+}
+
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState !== 'visible') return;
+  if (typeof user === 'undefined' || !user) return;   // not logged in yet
+  if (!_fgIsStale()) return;                          // still fresh: do nothing
+  refreshSharedTruth('foreground');
+});
+
+window.refreshSharedTruth = refreshSharedTruth;
+window._fgIsStale         = _fgIsStale;
+window._fgMergeTasks      = _fgMergeTasks;
+// ══ FRESH ON FOREGROUND — CREW-UX 23 — END ═════════════════════════════════
