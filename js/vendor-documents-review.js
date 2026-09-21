@@ -470,6 +470,29 @@ window.vdrLoad = async function() {
 
     list.innerHTML = html;
     vdrRenderList();
+
+    // INV06B — prefetch delle righe invoice_warnings APERTE dei documenti
+    // mostrati, per poter poi chiudere ESATTAMENTE la riga giusta con una
+    // UPDATE by id. Stesso schema del prefetch _vdrKnownConversions qui
+    // sopra: una sola query, risultato in una mappa per document_id.
+    // Fallimento non bloccante: senza mappa le domande nascono con
+    // invoiceWarningId null e il lifecycle di invoice_warnings viene
+    // SALTATO (fail closed), mai applicato alla cieca.
+    window._vdrOpenWarnings = {};
+    try {
+      const docIds = (data || []).map(d => d.id).filter(Boolean);
+      if (docIds.length) {
+        const { data: wRows } = await sb
+          .from('invoice_warnings')
+          .select('id, document_id, code, item_description, message, status')
+          .in('document_id', docIds)
+          .eq('status', 'open');
+        for (const r of (wRows || [])) {
+          (window._vdrOpenWarnings[r.document_id] ||= []).push(r);
+        }
+      }
+    } catch(_) { window._vdrOpenWarnings = {}; }
+
     if (data) for (const doc of data) vdrRegisterQuestions(doc);
 
   } catch(e) {
@@ -1080,7 +1103,11 @@ window.vdrProcessAllPdf = async function(docId) {
 
         // ── INSERT into invoice_warnings (persistent analytics) ──
         // BIOS-009: warnings are never deleted. This is the source of truth
-        // for the home banner. vdrResolveQuestion will UPDATE status→resolved.
+        // for the home banner. vdrResolveQuestion UPDATEs status→resolved
+        // (INV06B: prima questa riga descriveva un comportamento che non
+        // esisteva — solo i wrapper OQR-009 chiudevano la riga, e con una
+        // WHERE larga. Adesso il lifecycle ha un unico proprietario e
+        // aggiorna per id).
         if (allWarnings.length > 0) {
           const warnRows = allWarnings
             .filter(w => w.code && !['OQR-006'].includes(w.code)) // OQR-006 auto-resolves in UI
@@ -1850,6 +1877,75 @@ function vdrDetailHTMLNoApprove(doc) {
 
 // ── Build question objects from a document ────────────────────
 // Each question: { id, code, item, title, emoji, question, meaning, warnRef }
+// ── MARKER:VDR_WARNING_LIFECYCLE_START ───────────────────────────────
+// INV06B — un solo proprietario della transizione open -> resolved.
+//
+// Il bug che questo blocco chiude: vdrResolveQuestion aggiornava solo
+// vendor_documents.warnings e parsed_json, mai invoice_warnings. Il
+// commento all'INSERT diceva il contrario ("vdrResolveQuestion will
+// UPDATE status->resolved"). Solo i tre wrapper OQR-009 chiudevano la
+// riga, e lo facevano ciascuno per conto suo con una WHERE larga.
+//
+// PERCHE' NON SI PUO' USARE (document_id, code) NE'
+// (document_id, code, item_description). Misurato sulle 58 righe reali:
+//   (document_id, code) ................... 10 gruppi duplicati, fino a 6 righe
+//   (document_id, code, item_description) ..  3 gruppi duplicati, fino a 3 righe
+//   + message .............................  0 gruppi
+// Una UPDATE su quelle chiavi chiuderebbe righe che nessuno ha risolto.
+// Caso reale gia' visto: 856205 ha DUE OQR-007 distinti, BRANZINI e
+// SALMON, stesso documento e stesso codice.
+//
+// Quindi la tupla (code, item_description, message) serve solo a TROVARE
+// la riga fra quelle aperte del documento, e la UPDATE viaggia sempre
+// per id. Se la corrispondenza non e' esattamente una, non si tocca
+// niente: meglio un warning che resta aperto che uno chiuso al posto di
+// un altro.
+function vdrFindWarningRowId(docId, w, item) {
+  const rows = (window._vdrOpenWarnings && window._vdrOpenWarnings[docId]) || [];
+  if (!rows.length) return null;
+  // item_description e' scritto come `i.description` sia dalla UI sia dal
+  // worker (allWarnings: {...w, item: i.description}); per i warning di
+  // documento resta il w.item originale, quasi sempre assente.
+  const itemDesc = item ? (item.description || null) : (w.item || null);
+  const msg = w.message || '';
+  const hit = rows.filter(r =>
+    r.code === w.code &&
+    (r.item_description || null) === itemDesc &&
+    (r.message || '') === msg);
+  return hit.length === 1 ? hit[0].id : null;
+}
+
+// L'unica funzione che scrive il lifecycle di invoice_warnings dal
+// percorso Vendor Review. Idempotente per costruzione: la UPDATE filtra
+// anche su status='open', quindi un secondo click non riscrive la
+// risoluzione gia' registrata e non e' un errore. Non lancia mai: un
+// problema qui non deve impedire la risoluzione sul documento.
+async function vdrResolveWarningRow(sb, q, opts) {
+  const out = { applied: false, reason: null };
+  if (!sb || !q) { out.reason = 'no-context'; return out; }
+  if (!q.invoiceWarningId) { out.reason = 'no-unique-row'; return out; }
+  try {
+    const { data, error } = await sb.from('invoice_warnings')
+      .update({
+        status:      (opts && opts.status) || 'resolved',
+        resolution:  (opts && opts.resolution) || 'resolved',
+        resolved_by: window._currentUser || 'admin',
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', q.invoiceWarningId)
+      .eq('status', 'open')
+      .select('id');
+    if (error) { out.reason = error.message; return out; }
+    out.applied = !!(data && data.length);
+    if (!out.applied) out.reason = 'already-closed';
+    return out;
+  } catch(e) {
+    out.reason = (e && e.message) || 'exception';
+    return out;
+  }
+}
+// ── MARKER:VDR_WARNING_LIFECYCLE_END ─────────────────────────────────
+
 function vdrBuildQuestions(doc) {
   const pj      = doc.parsed_json || {};
   const docWarn = Array.isArray(doc.warnings) ? doc.warnings : [];
@@ -1863,14 +1959,14 @@ for (const w of docWarn) {
   if (w.item) continue;
 
   const q = vdrWarningToQuestion(w, null, doc.id, idx++);
-  if (q) questions.push(q);
+  if (q) { q.invoiceWarningId = vdrFindWarningRowId(doc.id, w, null); questions.push(q); }
 }
 
   // Item-level warnings
   for (const item of (pj.items || [])) {
     for (const w of (item.warnings || [])) {
       const q = vdrWarningToQuestion(w, item, doc.id, idx++);
-      if (q) questions.push(q);
+      if (q) { q.invoiceWarningId = vdrFindWarningRowId(doc.id, w, item); questions.push(q); }
     }
   }
 
@@ -2465,12 +2561,11 @@ window.vdrAnswerWeight = async function(docId, qid, idx) {
   if (!grams || grams <= 0) { input && input.focus(); return; }
   const q = window._vdrQuestions && window._vdrQuestions[qid];
   const totalUnits = q ? q.detectedUnits : null;
-  // Save to invoice_warnings table
+  // INV06B — invoice_warnings NON si scrive piu' qui: il lifecycle ha un
+  // solo proprietario, vdrResolveQuestion, chiamato in fondo. Qui resta
+  // solo l'effetto di business dell'OQR-009, la conversione appresa.
   const sb = window.supabaseClient;
   if (sb && q) {
-    await sb.from('invoice_warnings')
-      .update({ status: 'resolved', resolution: `unit_weight_g=${grams}`, resolved_by: window._currentUser || 'admin', resolved_at: new Date().toISOString() })
-      .eq('document_id', docId).eq('item_description', q.title).eq('code', q.code);
     // Update ingredient_vendors if item is already matched
     if (q.item && q.item.vendor_sku) {
       const { data: iv } = await sb.from('ingredient_vendors').select('id,unit_price').eq('vendor_sku', q.item.vendor_sku).limit(1);
@@ -2485,19 +2580,16 @@ window.vdrAnswerWeight = async function(docId, qid, idx) {
       }
     }
   }
-  await vdrResolveQuestion(docId, qid, idx, { answered: true, answer: `${grams}g per unit` });
+  await vdrResolveQuestion(docId, qid, idx, { answered: true, answer: `${grams}g per unit`,
+    warningStatus: 'resolved', warningResolution: `unit_weight_g=${grams}` });
 };
 
 // ── Answer: Skip weight (OQR-009a) ───────────────────────────
 window.vdrAnswerSkip = async function(docId, qid, idx) {
-  const sb = window.supabaseClient;
-  const q = window._vdrQuestions && window._vdrQuestions[qid];
-  if (sb && q) {
-    await sb.from('invoice_warnings')
-      .update({ status: 'skipped', resolution: 'skipped by user', resolved_by: window._currentUser || 'admin', resolved_at: new Date().toISOString() })
-      .eq('document_id', docId).eq('item_description', q.title).eq('code', q.code);
-  }
-  await vdrResolveQuestion(docId, qid, idx, { answered: true, answer: 'skipped' });
+  // INV06B — nessuna scrittura diretta: lo status 'skipped' e la sua
+  // label viaggiano fino all'unico proprietario del lifecycle.
+  await vdrResolveQuestion(docId, qid, idx, { answered: true, answer: 'skipped',
+    warningStatus: 'skipped', warningResolution: 'skipped by user' });
 };
 
 // ── Answer: Each confirmed (OQR-009b) ────────────────────────
@@ -2513,12 +2605,10 @@ window.vdrAnswerEachCustom = async function(docId, qid, idx) {
 };
 
 async function vdrSaveEach(docId, qid, idx, units) {
+  // INV06B — come sopra: qui resta solo il price_per_each appreso.
   const sb = window.supabaseClient;
   const q = window._vdrQuestions && window._vdrQuestions[qid];
   if (sb && q) {
-    await sb.from('invoice_warnings')
-      .update({ status: 'resolved', resolution: `units_per_case=${units}`, resolved_by: window._currentUser || 'admin', resolved_at: new Date().toISOString() })
-      .eq('document_id', docId).eq('item_description', q.title).eq('code', q.code);
     // Update ingredient_vendors
     if (q.item && q.item.vendor_sku) {
       const { data: iv } = await sb.from('ingredient_vendors').select('id,unit_price').eq('vendor_sku', q.item.vendor_sku).limit(1);
@@ -2530,7 +2620,8 @@ async function vdrSaveEach(docId, qid, idx, units) {
       }
     }
   }
-  await vdrResolveQuestion(docId, qid, idx, { answered: true, answer: `${units} each per case` });
+  await vdrResolveQuestion(docId, qid, idx, { answered: true, answer: `${units} each per case`,
+    warningStatus: 'resolved', warningResolution: `units_per_case=${units}` });
 }
 
 // ── Resolve a question: remove warning from DB, fade card ─────
@@ -2593,6 +2684,29 @@ async function vdrResolveQuestion(docId, qid, idx, resolution) {
       .eq('id', docId);
 
     if (updateErr) throw new Error(updateErr.message);
+
+    // INV06B — la TERZA rappresentazione. A e B (vendor_documents.warnings
+    // e parsed_json) sono appena state scritte; qui si chiude anche la
+    // riga in invoice_warnings, che e' la fonte del banner di casa.
+    //
+    // Va DOPO l'update del documento di proposito: se quello fallisse
+    // avremmo chiuso un warning per un documento rimasto invariato. In
+    // quest'ordine, un problema qui lascia il warning aperto — visibile e
+    // recuperabile — invece di creare uno stato incoerente.
+    //
+    // I tre percorsi OQR-009 passano status e label espliciti; gli altri
+    // derivano la label dalla risposta, senza perdere informazione.
+    const warnLabel = (resolution && resolution.warningResolution)
+      || (resolution && resolution.correction ? 'no — ' + resolution.correction : null)
+      || (resolution && resolution.answer)
+      || 'resolved';
+    const lifecycle = await vdrResolveWarningRow(sb, q, {
+      status:     resolution && resolution.warningStatus,
+      resolution: warnLabel,
+    });
+    if (!lifecycle.applied && lifecycle.reason && lifecycle.reason !== 'already-closed') {
+      console.warn('[VDR] invoice_warnings non chiusa (' + lifecycle.reason + ') — la riga resta open');
+    }
 
     // Fade out and remove question card
     if (card) {
