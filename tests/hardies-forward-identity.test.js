@@ -303,6 +303,76 @@ test('E3-pack. nessuna conversione inventata dove il pack non e\' deducibile', (
   assert.strictEqual(Math.round(f('5#')), 2268, 'questo invece e\' esatto');
 });
 
+// ─────────────────────────────────────────────────────────────────────
+// INV08E.4 — gli SKU promossi da link-only a identita' stabile
+//
+// Il criterio di successo dichiarato dal task: dopo la promozione, il
+// resolver deve trovare l'ingrediente PER SKU anche con la linkMap
+// COMPLETAMENTE VUOTA. Lo SKU deve bastare da solo.
+// ─────────────────────────────────────────────────────────────────────
+
+const PROMOSSI = {
+  '06078': ['500224c1', 'Shitake Mushrooms',       ['MUSHROOM SHIITAKE SLICED', 'SHIITAKE SLICED 5#', 'MUSHROOM, SHIITAKE  SLICED']],
+  '01177': ['f3d353e4', 'Edible Flower',           ['FLOWER EDIBLE ASSORTED', 'EDIBLE FLOWERS ASSORTED 50CT']],
+  '01180': ['f3d353e4', 'Edible Flower',           ['FLOWER ORCHID', 'ORCHID FLOWER 100 CT']],
+  '01314': ['dc803585', 'Basil',                   ['HERB BASIL', 'BASIL HERB 5#']],
+  '01734': ['ROMAINE0', 'Romaine',                 ['LETTUCE ROMAINE HEARTS', 'ROMAINE HEARTS 40-48ct']],
+  '01880': ['SPRINGMX', 'Spring Mix',              ['MESCLUN MIX', 'MESCLUN SALAD MIX 3#']],
+  '10068': ['HEAVYCRM', 'Heavy Cream',             ['WHIPPING CREAM 36% FRESH UHT', 'HEAVY WHIPPING CREAM 36%']],
+  '13405': ['HEAVYCRM', 'Heavy Cream',             ['WHIPPING CREAM 36% FRESH UHT', 'WHIPPING CREAM 36% 1QT']],
+  '25057': ['CALABRIA', 'Calabrian Chili crushed', ['CALABRIAN PEPPER PUREE CRUSHD', 'CRUSHED CALABRIAN CHILI 950GR']],
+  '29810': ['LIQUIDEG', 'Liquid Egg',              ['PASTURE RAISED LIQUID WHL EGGS', 'LIQUID WHOLE EGGS 20#']],
+  '33536': ['c77db80e', 'Cherry Tomatoes',         ['TOMATO DRAMA CHERRY ON VINE', 'DRAMA CHERRY TOMATO ON THE VINE']],
+  '71908': ['c77db80e', 'Cherry Tomatoes',         ['TOMATO CHERRY RED', 'RED CHERRY TOMATO 12/1PT']],
+  '29554': ['28bd0f90', 'Stew Meat',               ['ABR BROCHETTE MEAT 1" REF', 'BROCHETTE MEAT 1 INCH REFRIGERATED']],
+  '70002': ['FENNEL00', 'Fennel',                  ['FENNEL/ANISE', 'FENNEL ANISE 12 CT']],
+};
+
+// La mappa che il worker costruisce dagli alias attivi appena creati.
+const MAPPA_E4 = {};
+for (const sku in PROMOSSI) {
+  MAPPA_E4[sku] = { ingredient_id: PROMOSSI[sku][0], vendor_sku: sku };
+}
+
+for (const sku in PROMOSSI) {
+  const [ing, nome, descrizioni] = PROMOSSI[sku];
+  test('E4-' + sku + '. ' + sku + ' -> ' + nome + ' con linkMap VUOTA', async () => {
+    for (const d of descrizioni) {
+      // Terzo argomento {} : nessun ingredient_link. Se matcha, e' per SKU.
+      const rows = await scrivi([voce({ vendor_sku: sku, description: d,
+                                        pack_description: '5#', amount: 25, unit_price: 25 })],
+                                MAPPA_E4, {});
+      assert.strictEqual(rows.length, 1, sku + ' "' + d + '": riga non scritta');
+      assert.strictEqual(rows[0].ingredient_id, ing,
+        sku + ' con descrizione "' + d + '" non risolve a ' + nome);
+      assert.strictEqual(rows[0].match_status, 'matched');
+    }
+  });
+}
+
+test('E4-controllo. 30635 NON promosso resta senza identita\' per SKU', async () => {
+  // Classe C: tenderloin TAILS oggi risolve a Stew Meat solo per
+  // descrizione, e non l'ho promosso. Senza linkMap deve restare
+  // unmatched — altrimenti avrei mappato alla cieca.
+  const rows = await scrivi([voce({ vendor_sku: '30635', description: 'ABR BC TNDRLN TAILS 5+ OZ REF',
+                                    pack_description: '4 PKG/12#', amount: 100, unit_price: 25 })],
+                            MAPPA_E4, {});
+  assert.strictEqual(rows[0].ingredient_id, null,
+    '30635 non deve avere un\'identita\' per SKU: aspetta una decisione');
+  assert.strictEqual(rows[0].match_status, 'unmatched');
+});
+
+test('E4-controllo2. 29554 e 24171 danno lo stesso ingrediente', async () => {
+  // Sono lo stesso prodotto, REF e FRZ. La promozione doveva renderli
+  // coerenti, non separarli.
+  const a = await scrivi([voce({ vendor_sku: '29554', description: 'ABR BROCHETTE MEAT 1" REF',
+                                 amount: 40, unit_price: 20 })], MAPPA_E4, {});
+  const b = await scrivi([voce({ vendor_sku: '24171', description: 'ABR BROCHETTE MEAT 1" FRZ',
+                                 amount: 40, unit_price: 20 })],
+                          Object.assign({}, MAPPA_E4, { '24171': { ingredient_id: '28bd0f90', vendor_sku: '24171' } }), {});
+  assert.strictEqual(a[0].ingredient_id, b[0].ingredient_id);
+});
+
 (async () => {
   for (const [n, f] of queue) {
     try { await f(); console.log('  ✓ ' + n); pass++; }
