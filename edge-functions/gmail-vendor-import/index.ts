@@ -27,6 +27,13 @@ Deno.serve(async (req: Request) => {
     const isBekSubject = /ben\s+e\.?\s+keith\s*:\s*order confirmation/i.test(subject || '');
     const isBekOrderConfirmation = isBekSender || isBekSubject;
 
+    // INV07 — FreshPoint Dallas manda la conferma d'ordine nel CORPO,
+    // senza allegati. Riconoscimento su due segnali insieme, non uno:
+    // il dominio del mittente E la frase nel subject. Lo stesso criterio
+    // stretto usato sopra per Ben E. Keith.
+    const isFreshpointSender    = /@freshpoint\.com/i.test(from || '');
+    const isFreshpointOrderConf = isFreshpointSender && /order\s+confirmation/i.test(subject || '');
+
     if (!pdf_base64) {
       // FIX (BOH OS Task 11F): getPlainBody() degrades real BEK content
       // (values wrapped in stray asterisks, item table rows entirely
@@ -34,6 +41,18 @@ Deno.serve(async (req: Request) => {
       // html_body (msg.getBody()) is the authoritative source when present;
       // body stays supported for backward compatibility (Task 10/11B/11D),
       // just no longer required once html_body is available.
+      // INV07 — prima di questo ramo ogni email FreshPoint riceveva 400
+      // "Missing pdf_base64", e il collector la marcava comunque come
+      // processata: cinque conferme d'ordine reali sono sparite cosi'.
+      //
+      // Messo PRIMA del gate Ben E. Keith di proposito, per lasciarlo
+      // intatto parola per parola: quella riga e' congelata da tre test
+      // BEK che la confrontano verbatim, e non c'e' nessun motivo di
+      // toccarla. Un messaggio non puo' comunque essere insieme BEK e
+      // FreshPoint: i due riconoscimenti guardano domini diversi.
+      if (isFreshpointOrderConf && (body || html_body)) {
+        return await handleFreshpointOrderConfirmationBody(supabase, { subject, from, body, html_body });
+      }
       if (!isBekOrderConfirmation || (!body && !html_body)) return jsonError('Missing pdf_base64', 400);
       return await handleBekOrderConfirmationBody(supabase, { subject, from, body, html_body });
     }
@@ -229,4 +248,99 @@ function jsonResponse(data: unknown, status = 200) {
 }
 function jsonError(message: string, status = 400) {
   return jsonResponse({ error: message }, status);
+}
+
+// ── INV07: FreshPoint Dallas — Order Confirmation dal corpo email ──
+//
+// Stessa forma del gemello Ben E. Keith qui sopra: nessun file da
+// salvare, estrazione MINIMA lato server (solo il numero, che serve per
+// la chiave di dedup), e il corpo conservato verbatim in raw_text. Il
+// parse vero — righe, prezzi, date — avviene dopo, nella stessa pipeline
+// Vendor Review di tutti gli altri documenti. Non e' un secondo parser.
+//
+// DIFFERENZA IMPORTANTE RISPETTO A BEK, e non e' un dettaglio: per Ben
+// E. Keith l'HTML e' la fonte autorevole perche' getPlainBody() ne
+// distrugge la tabella. Per FreshPoint vale l'opposto: la tabella
+// esiste, ben formata, proprio nel testo semplice
+// ("| 921068 | LETTUCE ... | 3/2# CS | 1 | 33.95 | 33.95 |"), ed e'
+// quella che il parser legge. Quindi qui si preferisce `body`.
+// html_body resta come ripiego per non perdere mai la sorgente: in quel
+// caso il marker lo dichiara e il parser fallira' in modo visibile,
+// invece di far sparire l'email in silenzio.
+//
+// QUESTO DOCUMENTO NON E' UN ACQUISTO. Il corpo dice "This is not an
+// invoice", e isPurchasableDocument('FreshPoint Dallas',
+// 'order_confirmation') vale false: non generera' invoice_lines. Entra
+// per non perdere la sorgente.
+async function handleFreshpointOrderConfirmationBody(
+  supabase: any,
+  { subject, from, body, html_body }: { subject?: string; from?: string; body?: string; html_body?: string }
+) {
+  const sourceText   = body || html_body || '';
+  const sourceMarker = body ? 'email_body' : 'email_html';
+
+  // Numero d'ordine: la cella "Reference #19464295" nel corpo, con
+  // ripiego sul subject ("...Order Confirmation: 19464295-CU59474"),
+  // che lo porta in posizione strutturata.
+  const cleanText = sourceText.replace(/<[^>]+>/g, ' ').replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+  const refM = cleanText.match(/Reference\s*#\s*(\d+)/i);
+  let orderNumber: string | null = refM ? refM[1] : null;
+  if (!orderNumber && subject) {
+    const subM = subject.match(/Order\s+Confirmation\s*:\s*(\d+)/i);
+    if (subM) orderNumber = subM[1];
+  }
+
+  // Dedup, stessa scala del gemello BEK: prima per chiave naturale
+  // (vendor + tipo + numero), e in quel caso si guarda anche il
+  // CONTENUTO, cosi' una revisione vera dello stesso ordine non viene
+  // scambiata per un duplicato.
+  if (orderNumber) {
+    const { data: siblings } = await supabase
+      .from('vendor_documents')
+      .select('id, status, raw_text')
+      .eq('vendor', 'FreshPoint Dallas')
+      .eq('document_type', 'order_confirmation')
+      .eq('document_number', orderNumber);
+    const identical = (siblings || []).find((r: any) => r.raw_text === sourceText);
+    if (identical) {
+      return jsonResponse({ status: 'duplicate', message: 'Same message already ingested', document_id: identical.id });
+    }
+  } else if (subject && from) {
+    const { data: existing } = await supabase
+      .from('vendor_documents')
+      .select('id, status')
+      .eq('source_email_subject', subject)
+      .eq('source_email_from', from)
+      .limit(1);
+    if (existing && existing.length > 0) {
+      return jsonResponse({ status: 'duplicate', message: 'Already imported', document_id: existing[0].id });
+    }
+  }
+
+  const { data: doc, error: insertErr } = await supabase
+    .from('vendor_documents')
+    .insert({
+      vendor:               'FreshPoint Dallas',
+      document_type:        'order_confirmation',
+      document_number:      orderNumber,
+      status:               'pdf_received', // stessa coda che Phase A e la UI leggono gia'
+      uploaded_by:          'gmail-auto',
+      source_email_subject: subject || null,
+      source_email_from:    from    || null,
+      raw_text:             sourceText,
+      parsed_json:          { source: sourceMarker },
+      warnings:             [],
+    })
+    .select('id')
+    .single();
+
+  if (insertErr) return jsonError(`DB insert error: ${insertErr.message}`, 500);
+
+  return jsonResponse({
+    status:          'queued',
+    message:         'FreshPoint Order Confirmation body saved — ready to process in app',
+    document_id:     doc.id,
+    vendor:          'FreshPoint Dallas',
+    document_number: orderNumber,
+  });
 }

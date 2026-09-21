@@ -91,6 +91,25 @@ function backfillFrugeFromJune2026() {
   return logBackfill('FRUGE', stats);
 }
 
+// ── FreshPoint ───────────────────────────────────────────────────
+// INV07. Body-only, quindi passa da processLabelBody e non da
+// processLabelPDF: FreshPoint non allega niente.
+//
+// Serve perche' le cinque conferme d'ordine di giugno sono oltre il
+// cutoff relativo a 30 giorni del collector orario: etichettarle e
+// aspettare non servirebbe a niente, il filtro sulla data le scarterebbe
+// senza nemmeno de-etichettarle (la trappola del MICRO-TASK 53).
+//
+// strict = true come per gli altri backfill. Idempotente grazie alla
+// dedup del backend: un reinvio della stessa email torna 'duplicate',
+// che per l'edge e' un no-op.
+function backfillFreshpointFromJune2026() {
+  var stats = processLabelBody('freshpoint-import', 'freshpoint-processed',
+                               'gmail-vendor-import', FRESHPOINT_SENDER_RE,
+                               backfillStartJune2026(), true);
+  return logBackfill('FRESHPOINT', stats);
+}
+
 // ── Ben E. Keith ─────────────────────────────────────────────────
 // Stessa pipeline di checkBEKEmails (processBEKQuery), con UNA sola
 // differenza: ignora BEK_TEST_MODE, che restringerebbe la ricerca a un solo

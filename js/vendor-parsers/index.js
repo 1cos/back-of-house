@@ -8,6 +8,7 @@ const hardiesOrder      = require('./hardies-order');
 const hardiesInvoice    = require('./hardies-invoice');
 const hardiesCredit     = require('./hardies-credit');
 const freshpointInvoice = require('./freshpoint-invoice');
+const freshpointOrderConfirmation = require('./freshpoint-order-confirmation');
 const frugeInvoice      = require('./fruge-invoice');
 const bekInvoice        = require('./bek-invoice');
 const bekOrderConfirmation = require('./ben-e-keith-order-confirmation');
@@ -64,6 +65,11 @@ const VENDORS = {
     ],
     documents: {
       invoice: freshpointInvoice,
+      // INV07 — la conferma d'ordine arriva via email, nel corpo, e dice
+      // testualmente "This is not an invoice". Non e' un acquisto:
+      // isPurchasableDocument la lascia fuori, quindi non genera
+      // invoice_lines. Esiste per non perdere la sorgente.
+      order_confirmation: freshpointOrderConfirmation,
     },
   },
   fruge: {
@@ -134,6 +140,21 @@ function detectDocumentType(rawText, vendor) {
   // other vendor's document. (Same root cause as Task 11B, fixed there
   // for the browser parser.)
   if (vendor === 'bek' && /Sales\s*Order/i.test(text)) return 'order_confirmation';
+
+  // INV07 — FreshPoint Order Confirmation, e va PRIMA del fallback
+  // generico su \bINVOICE\b qui sotto, altrimenti vince quello: il corpo
+  // contiene la frase "This is not an invoice", cioe' la parola INVOICE
+  // compare proprio nella riga che nega di esserlo. Senza questa regola
+  // ogni conferma d'ordine FreshPoint verrebbe classificata invoice e
+  // data in pasto al parser delle fatture.
+  //
+  // Il segnale e' strutturale e doppio, non una parola sola: "Order
+  // Confirmation" E "Reference #", che insieme esistono solo nella
+  // tabella di intestazione di quella email. Limitato al vendor
+  // freshpoint, come la regola BEK qui sopra.
+  if (vendor === 'freshpoint'
+      && /Order\s+Confirmation/i.test(text)
+      && /Reference\s*#/i.test(text)) return 'order_confirmation';
 
   if (/\bINVOICE\b/i.test(text))            return 'invoice';
   return 'unknown';

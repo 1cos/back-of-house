@@ -123,6 +123,91 @@ function processLabelPDF(labelName, processedName, functionSlug, startDate, stri
   return stats;
 }
 
+// INV07 — gemello body-only di processLabelPDF.
+//
+// Perche' non bastava quello: FreshPoint non allega niente. La conferma
+// d'ordine E' il corpo dell'email, e processLabelPDF itera
+// msg.getAttachments() — su un messaggio senza allegati non manda nulla
+// e non fa nulla. Il vecchio collector FreshPoint mandava invece
+// {raw_text, vendor}, due campi che gmail-vendor-import non legge
+// nemmeno: destruttura {pdf_base64, filename, subject, from, body,
+// html_body}. Risultato: 400 "Missing pdf_base64" su ogni email, e
+// l'etichetta processed messa lo stesso.
+//
+// Qui si manda la forma che l'edge function conosce davvero, body e
+// html_body, la stessa gia' usata per Ben E. Keith. Nessun secondo
+// protocollo, nessuna conversione del corpo in un finto PDF.
+//
+// IL MESSAGGIO GIUSTO NON E' SEMPRE L'ULTIMO. Il thread 19478941 e'
+// reale e contiene, dopo l'originale FreshPoint, un inoltro partito da
+// noi: prendere l'ultimo messaggio manderebbe all'edge un'email con
+// from massimiliano e subject "Fwd: ...", che non verrebbe riconosciuta.
+// Si prende quindi l'ULTIMO messaggio il cui mittente corrisponde a
+// senderPattern, e se non ce n'e' nessuno il thread viene saltato senza
+// etichettarlo.
+//
+// startDate e strictSuccessLabeling hanno la stessa semantica di
+// processLabelPDF: senza startDate resta il cutoff relativo a 30 giorni;
+// in strict la -processed si mette SOLO su queued o duplicate.
+function processLabelBody(labelName, processedName, functionSlug, senderPattern, startDate, strictSuccessLabeling) {
+  const stats = { threads_found: 0, queued: 0, duplicate: 0, failed: 0,
+                  processed_label_added: 0, threads_retained_for_retry: 0,
+                  skipped_no_source_message: 0 };
+  const label = GmailApp.getUserLabelByName(labelName);
+  if (!label) { Logger.log('Label not found: ' + labelName); return stats; }
+  const processedLabel = GmailApp.getUserLabelByName(processedName)
+    || GmailApp.createLabel(processedName);
+
+  let cutoff;
+  if (startDate) { cutoff = startDate; }
+  else { cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30); }
+
+  const threads = label.getThreads(0, 20).filter(function(t) {
+    return t.getLastMessageDate() > cutoff;
+  });
+  stats.threads_found = threads.length;
+  Logger.log('[' + labelName + '] ' + threads.length + ' threads');
+
+  threads.forEach(function(thread) {
+    const msgs = thread.getMessages();
+    let msg = null;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (!senderPattern || senderPattern.test(msgs[i].getFrom())) { msg = msgs[i]; break; }
+    }
+    if (!msg) {
+      stats.skipped_no_source_message++;
+      Logger.log('[' + labelName + '] thread senza messaggio del mittente atteso: non etichettato');
+      return;
+    }
+
+    const result = sendToEdge(functionSlug, {
+      subject:   msg.getSubject(),
+      from:      msg.getFrom(),
+      body:      msg.getPlainBody(),
+      html_body: msg.getBody(),
+    });
+
+    const ok = !!result && !result.error &&
+               (result.status === 'queued' || result.status === 'duplicate');
+    if (ok) {
+      if (result.status === 'queued') stats.queued++; else stats.duplicate++;
+    } else {
+      stats.failed++;
+    }
+    Logger.log('Body sent: ' + msg.getSubject() + ' \u2192 ' + JSON.stringify(result));
+
+    if (ok || !strictSuccessLabeling) {
+      thread.removeLabel(label);
+      thread.addLabel(processedLabel);
+      stats.processed_label_added++;
+    } else {
+      stats.threads_retained_for_retry++;
+    }
+  });
+
+  return stats;
+}
+
 function processLabelCSV(labelName, processedName, functionSlug) {
   const label = GmailApp.getUserLabelByName(labelName);
   if (!label) { Logger.log('Label not found: ' + labelName); return; }

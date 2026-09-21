@@ -56,6 +56,9 @@ function makeEnv(threadSpecs, responder, importName, processedName) {
       getMessages: () => (spec.messages || []).map((m, mi) => ({
         getSubject: () => m.subject || ('subj-' + ti + '-' + mi),
         getFrom: () => m.from || 'sender@example.com',
+        // INV07 — il percorso body-only legge questi due
+        getPlainBody: () => m.body || '',
+        getBody: () => m.html || '',
         getAttachments: () => (m.attachments || []).map(a => ({
           getName: () => a,
           getBytes: () => [1, 2, 3],
@@ -332,6 +335,125 @@ test('23. gli altri collector orari NON sono stati toccati', () => {
   assert.ok(!/strictSuccessLabeling/.test(
     fs.readFileSync(path.join(DIR, 'FreshpointImport.gs:.js'), 'utf8')),
     'FreshPoint non e in questo mandato');
+});
+
+// ── 5. FreshPoint: collector BODY-ONLY e fail-closed (INV07) ─────
+//
+// FreshPoint non allega niente: la conferma d'ordine E' il corpo. Il
+// vecchio collector mandava {raw_text, vendor}, campi che l'edge non
+// legge, riceveva 400 su ogni email e metteva comunque -processed.
+// Qui si esegue processLabelBody vero e checkFreshpointEmails vero.
+
+const fpSrc = fs.readFileSync(path.join(DIR, 'FreshpointImport.gs:.js'), 'utf8');
+
+function makeEnvBody(threadSpecs, responder, importName, processedName) {
+  const e = makeEnv(threadSpecs, responder, importName, processedName);
+  // sendToEdge del percorso body riceve il payload intero, non un filename
+  e.env.sendToEdge = (slug, payload) => { e.sent.push(payload); return responder(payload); };
+  return e;
+}
+
+function runFruge2(threadSpecs, responder) {   // helper generico body-only
+  const e = makeEnvBody(threadSpecs, responder, 'freshpoint-import', 'freshpoint-processed');
+  const fn = new Function('GmailApp', 'Logger', 'Utilities', 'sendToEdge',
+    extractFn(SRC, 'processLabelBody') + '\n' +
+    'const FRESHPOINT_SENDER_RE = /@freshpoint\\.com/i;\n' +
+    extractFn(fpSrc, 'checkFreshpointEmails') + '\nreturn checkFreshpointEmails;'
+  )(e.env.GmailApp, e.env.Logger, e.env.Utilities, e.env.sendToEdge);
+  fn();
+  return e;
+}
+
+const FP_MSG = { from: 'internet.order@freshpoint.com',
+                 subject: 'FreshPoint Dallas Order Confirmation: 19464295-CU59474',
+                 body: '| Order Confirmation | Reference #19464295 |', html: '<table></table>' };
+const fpThread = (msgs, date) => [{ id: 'FP1', date: date || new Date(Date.now() - 86400000),
+                                    messages: msgs || [FP_MSG] }];
+
+test('24. [FP] successo -> freshpoint-processed, e manda body E html_body', () => {
+  const r = runFruge2(fpThread(), OK);
+  assert.strictEqual(r.processedOf('FP1'), true);
+  assert.strictEqual(r.sent.length, 1);
+  const p = r.sent[0];
+  assert.deepStrictEqual(Object.keys(p).sort(), ['body', 'from', 'html_body', 'subject']);
+  assert.ok(!('raw_text' in p), 'raw_text non esiste piu: l edge non lo legge');
+  assert.ok(!('vendor' in p),   'vendor non esiste piu: l edge non lo legge');
+});
+
+test('25. [FP] duplicate -> processed', () => {
+  assert.strictEqual(runFruge2(fpThread(), DUP).processedOf('FP1'), true);
+});
+
+test('26. [FP] 400 / 500 / eccezione / risposta malformata -> NON processed', () => {
+  const esiti = [
+    { error: 'Missing pdf_base64' },              // il 400 che li ha uccisi
+    { error: 'DB insert error: boom' },           // 500
+    { error: 'Exception: Address unavailable' },  // eccezione di rete
+    {}, null, { status: 'boh' },                  // risposte malformate
+  ];
+  for (const e of esiti) {
+    const r = runFruge2(fpThread(), () => e);
+    assert.strictEqual(r.processedOf('FP1'), false, JSON.stringify(e));
+    assert.strictEqual(r.retainedOf('FP1'), true, 'resta in coda: ' + JSON.stringify(e));
+  }
+});
+
+test('27. [FP] dopo un fallimento, il retry successivo riesce', () => {
+  assert.strictEqual(runFruge2(fpThread(), ERR).processedOf('FP1'), false);
+  const ok = runFruge2(fpThread(), OK);
+  assert.strictEqual(ok.processedOf('FP1'), true);
+  assert.strictEqual(ok.retainedOf('FP1'), false);
+});
+
+test('28. [FP] il thread con un inoltro NOSTRO manda comunque l originale', () => {
+  // Caso reale: thread 19478941, dopo l email FreshPoint c e un nostro Fwd.
+  const conInoltro = fpThread([
+    FP_MSG,
+    { from: 'massimiliano.zubboli@gmail.com', subject: 'Fwd: ...', body: 'inoltro', html: '' },
+  ]);
+  const r = runFruge2(conInoltro, OK);
+  assert.strictEqual(r.sent.length, 1);
+  assert.strictEqual(r.sent[0].from, 'internet.order@freshpoint.com',
+    'deve mandare l originale FreshPoint, non il nostro inoltro');
+  assert.ok(/Reference #19464295/.test(r.sent[0].body));
+});
+
+test('29. [FP] nessun messaggio del mittente atteso -> niente invio, niente etichetta', () => {
+  const soloInoltro = fpThread([{ from: 'qualcunaltro@example.com', subject: 'x', body: 'y' }]);
+  const r = runFruge2(soloInoltro, OK);
+  assert.strictEqual(r.sent.length, 0);
+  assert.strictEqual(r.processedOf('FP1'), false);
+  assert.strictEqual(r.retainedOf('FP1'), true);
+});
+
+test('30. [FP] la finestra di 30 giorni resta quella normale', () => {
+  const vecchio = runFruge2(fpThread([FP_MSG], new Date(Date.now() - 45 * 86400000)), OK);
+  assert.strictEqual(vecchio.sent.length, 0, 'oltre 30 giorni non parte');
+  const recente = runFruge2(fpThread([FP_MSG], new Date(Date.now() - 29 * 86400000)), OK);
+  assert.strictEqual(recente.sent.length, 1, 'entro 30 giorni parte');
+});
+
+test('31. [FP] checkFreshpointEmails passa mittente, null e true', () => {
+  const f = extractFn(fpSrc, 'checkFreshpointEmails');
+  const call = f.match(/processLabelBody\(([\s\S]*?)\);/);
+  const args = call[1].split(',').map(a => a.trim());
+  assert.strictEqual(args.length, 6, 'sei argomenti');
+  assert.strictEqual(args[3], 'FRESHPOINT_SENDER_RE');
+  assert.strictEqual(args[4], 'null', 'niente start date: non e un backfill');
+  assert.strictEqual(args[5], 'true', 'strict obbligatorio');
+  // nel CODICE, non nei commenti: il commento cita raw_text apposta,
+  // per spiegare il vecchio difetto
+  assert.ok(!/raw_text/.test(f), 'raw_text non deve piu comparire nella funzione');
+  assert.ok(!/raw_text\s*:/.test(extractFn(SRC, 'processLabelBody')),
+    'e nemmeno nel payload di processLabelBody');
+});
+
+test('32. [FP] il backfill esiste, e strict, e non e nel percorso orario', () => {
+  const b = extractFn(backfill, 'backfillFreshpointFromJune2026');
+  assert.ok(/processLabelBody/.test(b));
+  assert.ok(/backfillStartJune2026\(\), true\)/.test(b), 'start date E strict');
+  assert.ok(/logBackfill\('FRESHPOINT'/.test(b));
+  assert.strictEqual(extractFn(codice, 'checkAllEmails').indexOf('backfillFreshpoint'), -1);
 });
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
