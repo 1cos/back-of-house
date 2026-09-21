@@ -128,22 +128,49 @@ const PUMPKIN     = '22018b88-0000-0000-0000-000000000000';
 const MALDON      = 'c95c090c-0000-0000-0000-000000000000';
 const SEEDS       = '852d45fe-0000-0000-0000-000000000000';
 
-// La mappa come la costruisce il worker: prima ingredient_vendors,
-// poi gli alias SOPRA. E' l'ordine vero, non una semplificazione.
+const MILK_CHOC = 'aaaa1111-0000-0000-0000-000000000000';
+const DRY_OREG  = '2eaf047f-0000-0000-0000-000000000000';
+const EDIBLE_FL = 'f3d353e4-0000-0000-0000-000000000000';
+const CHERRY    = 'c77db80e-0000-0000-0000-000000000000';
+const SUNFLOWER = 'aa38168c-0000-0000-0000-000000000000';
+
+// La mappa come la costruisce il worker: prima ingredient_vendors, poi
+// gli alias SOPRA — ma SOLO quelli con active = true, perche' sia il
+// worker sia il browser filtrano .eq('active', true).
+//
+// INV08E.2 — questa clausola e' il motivo per cui in INV08E.1 avevo
+// riportato che 03252 risolveva a Seeds: la mia verifica SQL leggeva
+// gli alias senza filtrare su `active`, mentre le due righe verso Seeds
+// erano gia' inattive. Il resolver dava gia' Pumpkin Seed.
 function mappaReale() {
   const diretti = {
     '70563': FIGS, '24060': GRAN_GARLIC, '25271': PROSCIUTTO,
-    '04396': MALDON, '03252': PUMPKIN,
+    '04396': MALDON, '03252': PUMPKIN, '23566': MILK_CHOC,
+    '24303': DRY_OREG, '05840': EDIBLE_FL, '07673': CHERRY,
+    '03257': SUNFLOWER,
   };
-  const alias = { '85025': PUMPKIN, '25193': MALDON, '03252': SEEDS };
+  const aliasAttivi   = { '85025': PUMPKIN, '25193': MALDON,
+                          '07140': EDIBLE_FL, '22517': CHERRY };
+  const aliasInattivi = { '03252': SEEDS, '03257': SEEDS };   // non applicati
   const m = {};
-  for (const k in diretti) m[k] = { ingredient_id: diretti[k], vendor_sku: k };
-  for (const k in alias)   m[k] = { ingredient_id: alias[k],   vendor_sku: k };
+  for (const k in diretti)     m[k] = { ingredient_id: diretti[k], vendor_sku: k };
+  for (const k in aliasAttivi) m[k] = { ingredient_id: aliasAttivi[k], vendor_sku: k };
+  void aliasInattivi;
   return m;
 }
 const MAPPA = mappaReale();
 
 const casi = [
+  ['03252', PUMPKIN, 'Pumpkin Seed',
+   ['SEED PUMPKIN ROASTED/SALTED', 'PUMPKIN SEED ROASTED SALTED 5#', 'SEED, PUMPKIN  ROASTED/SALTED']],
+  ['23566', MILK_CHOC, 'Milk Chocolate',
+   ['33.6% MILK CALLETS 823 BARRY', 'MILK CALLETS 823', 'BARRY 823 MILK CHOC CALLETS 33.6%']],
+  ['24303', DRY_OREG, 'Dry Oregano',
+   ['SPICE OREGANO LEAVES', 'OREGANO LEAVES 8OZ', 'SPICE, OREGANO  LEAVES']],
+  ['07140', EDIBLE_FL, 'Edible Flower',
+   ['FLOWER FIRESTIX MIX', 'FIRESTIX MIX FLOWER 50CT', 'FLOWER, FIRESTIX  MIX']],
+  ['22517', CHERRY, 'Cherry Tomatoes',
+   ['TOMATO CHERRY OMBRE TOV', 'CHERRY TOMATO OMBRE ON VINE', 'TOMATO, CHERRY OMBRE  TOV']],
   ['24060', GRAN_GARLIC, 'Granulated Garlic',
    ['SPICE GARLIC GRANULATED', 'GARLIC GRANULATED 16OZ', 'SPICE, GARLIC  GRANULATED', 'GRANULATED GARLIC SPICE']],
   ['85025', PUMPKIN, 'Pumpkin Seed',
@@ -178,16 +205,34 @@ test('E1-link. lo SKU vince anche contro una linkMap che punta altrove', async (
   }
 });
 
-test('E1-03252. la variante SALTED NON e\' stata toccata: risolve ancora a Seeds', async () => {
-  // Non e' un difetto residuo: e' una decisione in sospeso. 03252 e'
-  // SEED PUMPKIN ROASTED/SALTED, e il Chef ha autorizzato come stessa
-  // identita' solo RAW e ROASTED UNSALTED.
+test('E2-03252. la variante SALTED risolve a Pumpkin Seed, non a Seeds', async () => {
+  // Decisione Chef INV08E.2: anche ROASTED/SALTED e' Pumpkin Seed.
+  // Nota: era GIA' cosi', perche' l'alias verso Seeds e' inattivo.
   const rows = await scrivi([voce({ vendor_sku: '03252', description: 'SEED PUMPKIN ROASTED/SALTED',
                                     pack_description: '5#', amount: 39.33, unit_price: 39.33 })], MAPPA);
-  assert.strictEqual(rows[0].ingredient_id, SEEDS,
-    'l\'alias 03252 -> Seeds deve essere ancora intatto');
-  assert.notStrictEqual(rows[0].ingredient_id, PUMPKIN,
-    'mapparlo a Pumpkin Seed sarebbe stata una decisione che non mi spetta');
+  assert.strictEqual(rows[0].ingredient_id, PUMPKIN);
+  assert.notStrictEqual(rows[0].ingredient_id, SEEDS,
+    'nessun alias deve poter riportare 03252 su Seeds');
+});
+
+test('E2-03257. il girasole NON e\' stato rotto dalla pulizia di 03252', async () => {
+  // La condizione che il task chiama "importante": 03257 e' un altro
+  // prodotto e non fa parte della decisione su 03252.
+  const rows = await scrivi([voce({ vendor_sku: '03257', description: 'SEED SUNFLOWER',
+                                    pack_description: '5#', amount: 30, unit_price: 30 })], MAPPA);
+  assert.strictEqual(rows[0].ingredient_id, SUNFLOWER,
+    '03257 deve restare SUNFLOWER Seed');
+  assert.notStrictEqual(rows[0].ingredient_id, PUMPKIN, 'non deve finire su Pumpkin Seed');
+});
+
+test('E2-slot. gli SKU principali non sono stati migrati', async () => {
+  // 05840 e 07673 tenevano gli slot diretti: dovevano restare dov'erano.
+  const fiore = await scrivi([voce({ vendor_sku: '05840', description: 'FLOWER MARIGOLD',
+                                     pack_description: '50 CT', amount: 18.29, unit_price: 18.29 })], MAPPA);
+  assert.strictEqual(fiore[0].ingredient_id, EDIBLE_FL);
+  const pomo = await scrivi([voce({ vendor_sku: '07673', description: 'TOMATO CHERRY ON THE VINE',
+                                    pack_description: '11#', amount: 24.5, unit_price: 24.5 })], MAPPA);
+  assert.strictEqual(pomo[0].ingredient_id, CHERRY);
 });
 
 test('E1-25271. mappato per il futuro, ma oggi NON produce riga', async () => {
