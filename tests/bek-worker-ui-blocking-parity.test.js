@@ -76,6 +76,9 @@ const UI_SRC = [
   grab('function vdrIsPurchasableDocument(vendor, documentType)', '\n}'),
   grab('function vdrBuildQuestions(doc)', 'return questions;\n}'),
   grab('function vdrWarningToQuestion(', 'return null; // unknown code — skip') + '\n}',
+  // INV06B ha estratto questo helper e vdrWarningToQuestion ora lo chiama:
+  // senza includerlo nel ritaglio, il preflight esplode a runtime.
+  grab('function vdrFindWarningRowId(docId, w, item)', "return hit.length === 1 ? hit[0].id : null;\n}"),
   grab('async function vdrPreflight(docId, doc)', 'return { ok: true, items, vendor, unmatchedCount };\n}'),
   grab('function vdrCodeToSeverity(code)', "return 'alert';") + '\n}',
 ].join('\n\n');

@@ -1703,7 +1703,7 @@ function vdrDetailHTML(doc) {
 
       // Valori iniziali (da edits store se gia modificati, altrimenti da item)
       var edits     = window._vdrEdits[docId][idx] || {};
-      var qtyVal    = edits.qty      != null ? edits.qty      : (isCredit ? (item.qty_credited || '') : (item.catchweight === true ? 1 : (item.qty != null ? item.qty : (item.qty_ordered != null ? item.qty_ordered : (item.qty_received != null ? item.qty_received : '')))));  // MICRO-TASK 42: item.qty first, same precedence as the write path
+      var qtyVal    = edits.qty      != null ? edits.qty      : (isCredit ? (item.qty_credited || '') : (item.catchweight === true ? 1 : (item.qty != null ? item.qty : (item.qty_received != null ? item.qty_received : (item.qty_ordered != null ? item.qty_ordered : '')))));  // MICRO-TASK 42: item.qty first, same precedence as the write path. INV08B: ricevuto prima di ordinato.
       var packVal   = edits.pack     != null ? edits.pack     : (item.pack_description || '');
       var unitVal   = edits.unitPrice!= null ? edits.unitPrice: (item.unit_price != null ? parseFloat(item.unit_price).toFixed(2) : (item.price_per_lb != null ? parseFloat(item.price_per_lb).toFixed(2) : ''));
       // FIX (Walmart visual fix 2 task, Part B): Math.abs() here silently
@@ -3451,7 +3451,7 @@ window.vdrApprove = async function(docId, btn) {
         // Keith short delivery would store ORDERED (3) against a line_total
         // computed from CONFIRMED (2). No change for other vendors: Walmart sets
         // qty === qty_ordered === qty_received, nobody else emits `qty`.
-        const qty         = (edits.qty != null && !isNaN(edits.qty)) ? edits.qty : (item.catchweight === true ? 1 : (item.qty != null ? item.qty : (item.qty_ordered != null ? item.qty_ordered : (item.qty_received != null ? item.qty_received : null))));
+        const qty         = (edits.qty != null && !isNaN(edits.qty)) ? edits.qty : (item.catchweight === true ? 1 : (item.qty != null ? item.qty : (item.qty_received != null ? item.qty_received : (item.qty_ordered != null ? item.qty_ordered : null))));
         const pack        = (edits.pack != null && edits.pack !== '') ? edits.pack : (item.pack_description || null);
         const unitPrice   = (edits.unitPrice != null && !isNaN(edits.unitPrice)) ? edits.unitPrice : (item.unit_price != null ? parseFloat(item.unit_price) : null);
         // FIX (Approval Economic Integrity Hotfix): lineTotal used to

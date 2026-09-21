@@ -64,10 +64,25 @@ function buildItem(sku, descRaw, packRaw, ord, shp, unitPrice, amount, prevSku) 
     }
   }
 
-  return {
+  // INV08B — QUANTITA' CONSEGNATA, non ordinata.
+  //
+  // Il parser emetteva qty_ordered e qty_received ma non `qty`, e il
+  // writer preferiva l'ORDINATO al RICEVUTO. Conseguenze misurate su 890
+  // voci reali: 17 articoli non consegnati (ricevuto 0) scritti con
+  // quantita' 1 o 2, cioe' merce mai arrivata registrata come ricevuta;
+  // 5 consegne parziali scritte con la quantita' ordinata invece di
+  // quella arrivata; e 10 sostituti (ordinato 0, ricevuto 1) scritti con
+  // quantita' ZERO, perche' `0 != null` e' vero e l'ordinato vinceva.
+  // Il difetto tagliava in due direzioni opposte.
+  //
+  // `qty` dichiara esplicitamente la quantita' acquistata, com'e' gia'
+  // per Ben E. Keith (MICRO-TASK 42, sezione J): "ORDERED is never a
+  // fallback for BEK". Vale lo stesso qui.
+  const item = {
     vendor_sku:       sku,
     raw_description:  descRaw.trim(),
     description:      desc,
+    qty:              shp,
     qty_ordered:      ord,
     qty_received:     shp,
     purchase_unit:    inferPurchaseUnit(pack),
@@ -86,6 +101,22 @@ function buildItem(sku, descRaw, packRaw, ord, shp, unitPrice, amount, prevSku) 
     cool_flag:        false,
     warnings:         lw,
   };
+
+  // INV08B — un articolo ORDINATO E MAI CONSEGNATO non e' un acquisto.
+  //
+  // La regola non la invento: e' gia' scritta per Ben E. Keith in
+  // writeInvoiceLines, MICRO-TASK 42 sezioni B ed E — "an item nobody
+  // confirmed was not bought: it must not become a purchase line at all
+  // (rather than a line with quantity 0)". Qui e' lo stesso caso: shipped
+  // 0 e amount 0. L'articolo resta nel parsed_json, quindi il documento
+  // non perde niente ed e' sempre verificabile; semplicemente non diventa
+  // una riga di acquisto.
+  //
+  // Il campo si aggiunge SOLO quando serve: `purchasable` assente
+  // significa acquistabile, e il filtro del writer e' `!== false`.
+  if (shp === 0) item.purchasable = false;
+
+  return item;
 }
 
 function parse(rawText) {
