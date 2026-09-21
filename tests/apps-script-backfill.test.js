@@ -59,15 +59,30 @@ test('2. processLabelPDF mantiene batch 20 e il filtro sulla data', () => {
   assert.ok(/getLastMessageDate\(\) > cutoff/.test(f), 'filtro sul cutoff assente');
 });
 
-test('3. i tre chiamanti orari NON passano startDate', () => {
-  // Se lo passassero, il collector orario raggiungerebbe lo storico.
+test('3. i chiamanti orari NON passano startDate', () => {
+  // La proprieta' che conta non e' il NUMERO di argomenti, e' che nessun
+  // collector orario si porti dietro una data: se lo facesse,
+  // raggiungerebbe lo storico e non sarebbe piu' un percorso orario.
+  //
+  // INV05D ha portato Fruge a 5 argomenti per attivare strict, ma il
+  // quarto resta null: il cutoff relativo a 30 giorni e' intatto. Per
+  // questo qui si controlla il valore della startDate, non l'arieta'.
   for (const [src, fname] of [[hardies,'checkHardiesEmails'], [trevipay,'checkTreviPayEmails'],
                               [read('FrugeImport.gs.js'),'checkFrugeEmails']]) {
     const f = fnBody(src, fname);
-    const call = f.match(/processLabelPDF\(([^)]*)\)/);
+    const call = f.match(/processLabelPDF\(([\s\S]*?)\);/);
     assert.ok(call, 'chiamata non trovata in ' + fname);
-    assert.strictEqual(call[1].split(',').length, 3,
-      fname + ' deve passare 3 argomenti, non una start date');
+    const args = call[1].split(',').map(a => a.trim());
+    assert.ok(args.length === 3 || args.length === 5,
+      fname + ': 3 argomenti (legacy) oppure 5 (strict), non altro');
+    if (args.length === 5) {
+      assert.strictEqual(args[3], 'null',
+        fname + ' deve passare startDate null, non una data');
+      assert.strictEqual(args[4], 'true',
+        fname + ': il quinto argomento ha senso solo per attivare strict');
+    }
+    assert.ok(!/backfillStartJune2026|new Date\(/.test(f),
+      fname + ' non deve costruire nessuna start date');
   }
 });
 
@@ -176,7 +191,8 @@ test('12. checkAllEmails invariato: stesse 6 chiamate, stesso ordine', () => {
 
 test('13. nessuna funzione di backfill e agganciata al trigger orario', () => {
   const f = fnBody(codice, 'checkAllEmails');
-  for (const n of ['backfillTreviPayFromJune2026', 'backfillHardiesFromJune2026', 'backfillBEKFromJune2026']) {
+  for (const n of ['backfillTreviPayFromJune2026', 'backfillHardiesFromJune2026',
+                   'backfillBEKFromJune2026', 'backfillFrugeFromJune2026']) {
     assert.ok(f.indexOf(n) === -1, n + ' non deve stare in checkAllEmails');
     assert.ok(codeOnly(codice).indexOf(n) === -1, n + ' non deve comparire in Codice.js');
   }
@@ -188,8 +204,23 @@ test("14. checkHardiesOrderConfirmations resta NON collegata", () => {
     'le OR Hardie’s non vanno aggiunte a checkAllEmails');
 });
 
-test('15. nessun backfill per Fruge: e gia completo', () => {
-  assert.ok(!/backfillFruge/i.test(backfill), 'Fruge non deve avere una funzione di backfill');
+test('15. Fruge HA un backfill, strict, e resta manuale', () => {
+  // INV05: la premessa di questo test era falsa. Diceva "nessun backfill
+  // per Fruge: e' gia' completo", ma quel "completo" valeva solo per le
+  // email ETICHETTATE. INV04 ha misurato la sorgente vera: 57 fatture, 51
+  // importate, 6 mai etichettate. Il backfill e' servito eccome, e le ha
+  // recuperate tutte e sei.
+  const f = fnBody(backfill, 'backfillFrugeFromJune2026');
+  assert.ok(/'fruge-import'/.test(f) && /'fruge-processed'/.test(f),
+    'deve usare le etichette Fruge');
+  assert.ok(/'gmail-vendor-import'/.test(f), 'deve usare l endpoint normale');
+  assert.ok(/backfillStartJune2026\(\), true\)/.test(f),
+    'deve passare la start date E strict = true');
+  assert.ok(/logBackfill\('FRUGE'/.test(f), 'deve loggare come gli altri');
+  // resta separato dal percorso orario: il collector ha il suo cutoff
+  assert.ok(fnBody(fs.readFileSync(path.join(DIR, 'FrugeImport.gs.js'), 'utf8'),
+                   'checkFrugeEmails').indexOf('backfillFruge') === -1,
+    'il collector orario non deve chiamare il backfill');
 });
 
 // ── Log: conteggi si, contenuti no ───────────────────────────────
