@@ -1986,6 +1986,143 @@ async function vdrResolveWarningAtomic(sb, docId, updatedWarn, updatedPj, q, res
   return data;
 }
 
+// ── INV08F — LO STESSO LIFECYCLE, ANCHE FUORI DALLA VENDOR REVIEW ────
+//
+// INV06B/C hanno reso atomico il percorso Vendor Review. Il percorso
+// banner aveva il difetto SPECULARE: chiudeva invoice_warnings e non
+// toccava ne' vendor_documents.warnings ne' parsed_json. Il worker
+// continua a leggere il documento, quindi la domanda restava viva li'
+// dentro e il documento restava bloccato per sempre.
+//
+// Caso dimostrato: 07016705, tre warning chiusi il 27 giugno con
+// "skip — rivisto manualmente" (la firma di scDismissWarning) e
+// documento fermo in pending per tre mesi.
+//
+// La correzione NON introduce un secondo sistema di lifecycle: per i
+// warning collegati a un documento passa dalla stessa RPC
+// vdr_resolve_warning, che aggiorna documento e riga nella stessa
+// transazione. Per i warning autonomi — document_id NULL, quelli che
+// SousChef genera per conto suo — resta il lifecycle per id esatto,
+// perche' non c'e' nessun documento da sincronizzare e infilarli in una
+// RPC documentale sarebbe una bugia.
+
+// Correlazione INVERSA: da una riga invoice_warnings alla sua
+// rappresentazione dentro il documento. vdrFindWarningRowId percorre la
+// stessa chiave nella direzione opposta — code + item_description +
+// message — quindi le due non possono divergere in silenzio.
+function vdrLocateWarningInDocument(doc, row) {
+  const hits     = [];
+  const wantDesc = row.item_description || null;
+  const wantMsg  = row.message || '';
+  const matches  = (w, desc) =>
+    !!w && w.code === row.code && desc === wantDesc && (w.message || '') === wantMsg;
+
+  const docWarn = Array.isArray(doc.warnings) ? doc.warnings : [];
+  docWarn.forEach((w, i) => { if (matches(w, w.item || null)) hits.push({ where: 'doc', i }); });
+
+  const pj    = doc.parsed_json || {};
+  const items = Array.isArray(pj.items) ? pj.items : [];
+  items.forEach((it, ii) => {
+    const ws = Array.isArray(it.warnings) ? it.warnings : [];
+    ws.forEach((w, wi) => { if (matches(w, it.description || null)) hits.push({ where: 'item', ii, wi }); });
+  });
+  return hits;
+}
+
+// Esiste nel documento un warning con QUESTO codice? E' il gemello di
+// vdrWarningRowExpected, ma guardato dal lato documento: serve a
+// distinguere due "zero candidati" che non sono la stessa cosa.
+//   - il documento non contiene proprio quel codice: la domanda li'
+//     dentro e' gia' stata chiusa (tipicamente dalla Vendor Review) e
+//     resta solo la riga aperta da chiudere. Non c'e' niente da
+//     rimuovere e chiudere la riga e' corretto e completo.
+//   - il documento contiene quel codice ma la chiave non ne isola
+//     esattamente uno: una rappresentazione c'e' e non sappiamo quale.
+//     Non si tocca niente.
+function vdrDocumentHasWarningCode(doc, code) {
+  const docWarn = Array.isArray(doc.warnings) ? doc.warnings : [];
+  if (docWarn.some(w => w && w.code === code)) return true;
+  const items = Array.isArray((doc.parsed_json || {}).items) ? doc.parsed_json.items : [];
+  return items.some(it => (Array.isArray(it.warnings) ? it.warnings : []).some(w => w && w.code === code));
+}
+
+// Rimuove UNA rappresentazione, quella individuata, e restituisce lo
+// stato nuovo. Non muta gli originali: se qualcosa va storto a valle,
+// in memoria resta comunque la versione di partenza.
+function vdrRemoveWarningAt(doc, hit) {
+  const warnings = JSON.parse(JSON.stringify(Array.isArray(doc.warnings) ? doc.warnings : []));
+  const pj       = JSON.parse(JSON.stringify(doc.parsed_json || {}));
+  if (hit.where === 'doc') {
+    warnings.splice(hit.i, 1);
+  } else {
+    pj.items[hit.ii].warnings.splice(hit.wi, 1);
+  }
+  return { warnings, parsed_json: pj };
+}
+
+// L'UNICO punto che chiude un warning dai percorsi banner / SousChef.
+// Prende la riga invoice_warnings gia' letta dal database — non un id
+// nudo — perche' la correlazione ha bisogno di code, item_description e
+// message, e perche' document_id decide quale dei due lifecycle vale.
+async function vdrResolveWarningFromRow(sb, row, opts) {
+  opts = opts || {};
+  const status     = opts.status || 'resolved';
+  const resolution = opts.resolution || null;
+  const resolvedBy = opts.resolvedBy || window._currentUser ||
+                     (window.user && window.user.name) || 'Admin';
+
+  // ── Warning AUTONOMO: nessun documento da sincronizzare ──
+  if (!row.document_id) {
+    const { error } = await sb.from('invoice_warnings').update({
+      status, resolution, resolved_by: resolvedBy,
+      resolved_at: new Date().toISOString(),
+    }).eq('id', row.id);
+    if (error) throw new Error(error.message);
+    return { mode: 'standalone', warning_state: 'closed' };
+  }
+
+  // ── Warning COLLEGATO A UN DOCUMENTO: una sola operazione atomica ──
+  const { data: doc, error: docErr } = await sb.from('vendor_documents')
+    .select('id,warnings,parsed_json').eq('id', row.document_id).single();
+  if (docErr || !doc) {
+    throw new Error('Documento non leggibile: nessuna modifica applicata.');
+  }
+
+  const hits = vdrLocateWarningInDocument(doc, row);
+
+  if (hits.length > 1) {
+    throw new Error('Correlazione ambigua (' + hits.length +
+      ' candidati nel documento): nessuna modifica applicata.');
+  }
+  if (hits.length === 0 && vdrDocumentHasWarningCode(doc, row.code)) {
+    throw new Error('Il documento contiene warning ' + row.code +
+      ' ma nessuno corrisponde a questa riga: nessuna modifica applicata.');
+  }
+
+  // Zero candidati e nessun warning di quel codice nel documento: il
+  // documento e' gia' pulito, si chiude solo la riga. Passa comunque
+  // dalla RPC, cosi' l'operazione logica resta una sola.
+  const next = hits.length === 1
+    ? vdrRemoveWarningAt(doc, hits[0])
+    : { warnings: doc.warnings, parsed_json: doc.parsed_json };
+
+  const { data, error } = await sb.rpc('vdr_resolve_warning', {
+    p_document_id:  row.document_id,
+    p_warnings:     next.warnings,
+    p_parsed_json:  next.parsed_json,
+    p_warning_id:   row.id,
+    p_status:       status,
+    p_resolution:   resolution,
+    p_resolved_by:  resolvedBy,
+    p_warning_code: row.code || null,
+  });
+  if (error) throw new Error(error.message);
+  return Object.assign({ mode: 'document', removed: hits.length === 1 }, data || {});
+}
+
+window.vdrResolveWarningFromRow   = vdrResolveWarningFromRow;
+window.vdrLocateWarningInDocument = vdrLocateWarningInDocument;
+
 // ── MARKER:VDR_WARNING_LIFECYCLE_END ─────────────────────────────────
 
 function vdrBuildQuestions(doc) {

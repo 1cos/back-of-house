@@ -329,12 +329,20 @@ window.bannerOQRAnswer = async function(warnId, answer, btn) {
   const sb = window.supabaseClient;
   if (!sb) return;
 
-  await sb.from('invoice_warnings').update({
-    status: 'resolved',
-    resolution: answer,
-    resolved_by: window.user?.name || 'Admin',
-    resolved_at: new Date().toISOString(),
-  }).eq('id', warnId);
+  // INV08F — non piu' una UPDATE sulla sola riga. Per un warning
+  // collegato a un documento questa chiamata sincronizza documento e
+  // riga nella stessa transazione; per un warning autonomo resta il
+  // lifecycle per id esatto. Un solo proprietario, in entrambi i casi.
+  try {
+    const { data: row } = await sb.from('invoice_warnings')
+      .select('id,code,document_id,item_description,message').eq('id', warnId).single();
+    if (!row) throw new Error('Warning non trovato.');
+    await window.vdrResolveWarningFromRow(sb, row, { status: 'resolved', resolution: answer });
+  } catch (e) {
+    btn.textContent = 'Riprova'; btn.disabled = false;
+    if (typeof showScToast === 'function') showScToast('❌ ' + e.message);
+    return;   // fail closed: niente e' stato modificato
+  }
 
   btn.closest('[style*=z-index]').remove();
 

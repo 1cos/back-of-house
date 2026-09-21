@@ -242,13 +242,12 @@ window.scApplyWarningOption = async function(warningId, optIdx) {
       if (updateErr) { showScToast('❌ ' + updateErr.message); return; }
     }
 
-    // Risolvi il warning
-    await sb.from('invoice_warnings').update({
-      status: 'resolved',
-      resolution: opt.label,
-      resolved_by: window.user?.name || 'Admin',
-      resolved_at: new Date().toISOString(),
-    }).eq('id', warningId);
+    // Risolvi il warning — INV08F: documento e riga insieme, o niente.
+    // `w` e' gia' la riga letta fresca dal database piu' sopra, quindi
+    // porta con se' document_id, code, item_description e message: tutto
+    // quello che serve a correlarla con la sua rappresentazione dentro
+    // il documento.
+    await window.vdrResolveWarningFromRow(sb, w, { status: 'resolved', resolution: opt.label });
 
     // Chiudi modal e aggiorna banner
     document.getElementById(ctx.modalId)?.remove(); document.body.style.overflow='';
@@ -284,11 +283,21 @@ window.scSendWarningToChat = function(warningId) {
 window.scDismissWarning = async function(warningId, modalId) {
   const sb = window.supabaseClient;
   if (!sb) return;
-  await sb.from('invoice_warnings').update({
-    status: 'resolved',
-    resolution: 'skip — rivisto manualmente',
-    resolved_at: new Date().toISOString(),
-  }).eq('id', warningId);
+  // INV08F — QUESTO e' il percorso che ha bloccato 07016705 per tre
+  // mesi: chiudeva la riga con "skip — rivisto manualmente" e lasciava
+  // la domanda viva dentro il documento. Ora passa dallo stesso
+  // lifecycle atomico di tutti gli altri.
+  try {
+    const { data: row } = await sb.from('invoice_warnings')
+      .select('id,code,document_id,item_description,message').eq('id', warningId).single();
+    if (!row) throw new Error('Warning non trovato.');
+    await window.vdrResolveWarningFromRow(sb, row, {
+      status: 'resolved', resolution: 'skip — rivisto manualmente',
+    });
+  } catch (e) {
+    if (typeof showScToast === 'function') showScToast('❌ ' + e.message);
+    return;   // fail closed: il modal resta aperto, niente e' cambiato
+  }
   document.getElementById(modalId)?.remove(); document.body.style.overflow='';
   loadWarningsBanner();
 };
