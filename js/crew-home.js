@@ -109,7 +109,20 @@ var CREW_COPY = {
   made_try_again:       'Try again',
   made_start_again:     'Start again',
   made_batch_one:       '1 batch',
-  made_batch_many:      '{n} batches'
+  made_batch_many:      '{n} batches',
+
+  // ── CREW-UX 19 — the correction flow ──────────────────────────────────
+  // A negative quantity corrects recorded stock. It is never called a
+  // production, and the word "Record" never appears on this branch.
+  made_correction:      'Correction',
+  made_correct:         'Correct',
+  made_correcting:      'Correcting…',
+  made_corrected:       'Corrected · {name} {qty}',
+  made_plan_updating_c: 'Corrected. The plan is still updating.',
+  made_floor_have:      'You have {stock} recorded.',
+  made_floor_max:       'You can correct up to {max}.',
+  made_batch_one_neg:   '-1 batch',
+  made_batch_many_neg:  '{n} batches'
 };
 
 function _crewT(key, vars) {
@@ -390,8 +403,11 @@ function crewParseMade(text) {
 
   var quantity = null, unit = null, unitKind = null, spokenUnit = null;
 
-  // "<number> [unit] [of] <item>"
-  var m = s.match(/^(\d+(?:[.,]\d+)?)\s*([a-z]+)?\s*(?:of\s+)?(.*)$/i);
+  // "<number> [unit] [of] <item>" — CREW-UX 19: the number may carry a
+  // leading minus, which makes the whole entry a correction. Everything
+  // after this point is sign-agnostic: the sign simply travels with the
+  // quantity through resolution, confirmation and the write.
+  var m = s.match(/^(-?\d+(?:[.,]\d+)?)\s*([a-z]+)?\s*(?:of\s+)?(.*)$/i);
   if (m) {
     var n = parseFloat(String(m[1]).replace(',', '.'));
     var word = m[2] ? m[2].toLowerCase() : null;
@@ -463,12 +479,19 @@ window.crewMatchPrep = crewMatchPrep;
 // ── 3. QUANTITY / UNIT RESOLUTION ─────────────────────────────────────────
 // Never estimates. Three accepted shapes and nothing else.
 
+// CREW-UX 19: the sign, and only the sign, decides what this entry is.
+function _crewMode(quantity) {
+  return (quantity < 0) ? 'correction' : 'production';
+}
+
 function crewResolveQuantity(task, sugg, quantity, unit, unitKind) {
   var native = _crewNorm(task && task.unit);
   if (['pz','pezzi','each','pieces','pcs','piece','checklist'].indexOf(native) !== -1) native = 'pz';
   if (!native) return { ok: false, reason: 'no_native_unit' };
 
-  if (quantity == null || !isFinite(quantity) || quantity <= 0) {
+  // CREW-UX 19: zero is neither a production nor a correction. A negative
+  // quantity is allowed and keeps its sign all the way down.
+  if (quantity == null || !isFinite(quantity) || quantity === 0) {
     return { ok: false, reason: 'need_quantity', native_unit: native };
   }
 
@@ -486,6 +509,7 @@ function crewResolveQuantity(task, sugg, quantity, unit, unitKind) {
     var outUnit = _crewNorm(sugg.output_unit) || native;
     return {
       ok: true,
+      mode: _crewMode(quantity),
       quantity: quantity * mi,
       unit: outUnit,
       native_quantity: quantity * mi,
@@ -496,14 +520,14 @@ function crewResolveQuantity(task, sugg, quantity, unit, unitKind) {
 
   // A. the task's own unit
   if (unit === native) {
-    return { ok: true, quantity: quantity, unit: unit, native_quantity: quantity, batches: null, basis: 'native' };
+    return { ok: true, mode: _crewMode(quantity), quantity: quantity, unit: unit, native_quantity: quantity, batches: null, basis: 'native' };
   }
   // B. kg ↔ g — the only conversion the write path knows
   if (unit === 'kg' && native === 'g') {
-    return { ok: true, quantity: quantity, unit: 'kg', native_quantity: quantity * 1000, batches: null, basis: 'kg_to_g' };
+    return { ok: true, mode: _crewMode(quantity), quantity: quantity, unit: 'kg', native_quantity: quantity * 1000, batches: null, basis: 'kg_to_g' };
   }
   if (unit === 'g' && native === 'kg') {
-    return { ok: true, quantity: quantity, unit: 'g', native_quantity: quantity / 1000, batches: null, basis: 'g_to_kg' };
+    return { ok: true, mode: _crewMode(quantity), quantity: quantity, unit: 'g', native_quantity: quantity / 1000, batches: null, basis: 'g_to_kg' };
   }
 
   return { ok: false, reason: 'unit_unsupported', unit: unit, native_unit: native };
@@ -527,9 +551,15 @@ function _crewUuid() {
 }
 
 function _crewFmt(qty, unit) {
+  // CREW-UX 19: humanQty() returns null for anything <= 0, so a correction
+  // would fall back to the raw value and read "-1000 g" where a production
+  // reads "1 kg". Format the magnitude and put the sign back in front, so the
+  // two branches are directly comparable.
+  var neg = (typeof qty === 'number' && qty < 0);
+  var abs = neg ? -qty : qty;
   if (typeof humanQty === 'function') {
-    var h = humanQty(qty, unit);
-    if (h) return h;
+    var h = humanQty(abs, unit);
+    if (h) return (neg ? '-' : '') + h;
   }
   return qty + (unit ? ' ' + unit : '');
 }
@@ -616,7 +646,7 @@ window.crewMadeQtySubmit = function () {
   var el = document.getElementById('crewMadeQty');
   if (!el) return;
   var n = parseFloat(String(el.value || '').replace(',', '.'));
-  if (!isFinite(n) || n <= 0) return;
+  if (!isFinite(n) || n === 0) return;   // CREW-UX 19: negatives allowed, zero not
 
   var native = _crewMade.native_unit || _crewNorm(_crewMade.task.unit);
   var res = crewResolveQuantity(_crewMade.task, _crewMade.sugg, n, native, 'native');
@@ -647,9 +677,12 @@ window.crewMadeRecord = async function () {
   m.error = null;
   _crewRenderMadeFlow();
 
+  var isCorr = (m.resolved.mode === 'correction');
   var sugg = m.sugg;
   var planned = sugg && sugg.planned_output != null ? parseFloat(sugg.planned_output) : NaN;
-  var isSuggested = isFinite(planned) && planned > 0 &&
+  // CREW-UX 19: a correction is never "the suggested quantity". The RPC
+  // forces this too — the client must not disagree with it.
+  var isSuggested = !isCorr && isFinite(planned) && planned > 0 &&
                     Math.abs(m.resolved.native_quantity - planned) < 1e-9;
 
   var payload = {
@@ -686,6 +719,18 @@ window.crewMadeRecord = async function () {
     var reason = (data && (data.reason || data.error)) || ('http_' + raw.status);
     m.stage = 'error';
     if (raw.status === 401 || reason === 'AUTH_ERROR') { m.error = 'auth';     m.retryable = false; }
+    else if (reason === 'STOCK_FLOOR') {
+      // CREW-UX 19: nothing was written. Keep the numbers so the cook is told
+      // how much can actually be corrected, and leave the draft alone so the
+      // text can be edited and sent again.
+      m.error = 'stock_floor';
+      m.retryable = false;
+      m.floor = {
+        stock: data.current_stock,
+        max:   data.max_correction,
+        unit:  data.unit || _crewNorm(m.task.unit)
+      };
+    }
     else if (reason === 'IDEMPOTENCY_KEY_CONFLICT')    { m.error = 'conflict'; m.retryable = false; }
     else if (raw.status >= 500)                        { m.error = 'network';  m.retryable = true;  }
     else { m.error = 'validation'; m.detail = (data && data.detail) || reason; m.retryable = false; }
@@ -697,9 +742,15 @@ window.crewMadeRecord = async function () {
   _crewApplyProduction(m.task.id, data);
 
   var label = _crewFmt(m.resolved.native_quantity, _crewNorm(m.task.unit));
+  // Trust the server's own word for what it wrote, not the sign we sent.
+  var wasCorr = (data.event_type === 'PREP_CORRECTED') ||
+                (data.correction_recorded === true) ||
+                (data.event_type == null && isCorr);
   m.stage = 'done';
-  m.doneMsg = _crewT('made_recorded', { name: m.task.name, qty: label });
+  m.doneMsg = _crewT(wasCorr ? 'made_corrected' : 'made_recorded',
+                     { name: m.task.name, qty: label });
   m.planUpdating = (data.suggestion_recalculated !== true);
+  m.planUpdatingMsg = wasCorr ? 'made_plan_updating_c' : 'made_plan_updating';
 
   var input = document.getElementById('crewMadeInput');
   if (input) input.value = '';
@@ -799,7 +850,7 @@ function _crewRenderMadeFlow() {
     h += '<p class="crew-made__ask"><b>' + _crewEsc(m.task.name) + '</b> — ' + _crewEsc(ask) + '</p>' +
          '<div class="crew-made__row">' +
            '<input id="crewMadeQty" class="crew-made__input crew-made__input--qty" type="number" ' +
-             'inputmode="decimal" step="any" min="0" placeholder="0" ' +
+             'inputmode="decimal" step="any" placeholder="0" ' +
              'onkeydown="if(event.key===\'Enter\'){event.preventDefault();crewMadeQtySubmit();}">' +
            '<span class="crew-made__unit">' + _crewEsc(m.native_unit) + '</span>' +
            '<button type="button" class="crew-made__btn" onclick="crewMadeQtySubmit()">OK</button>' +
@@ -807,21 +858,27 @@ function _crewRenderMadeFlow() {
 
   } else if (m.stage === 'confirm' || m.stage === 'recording') {
     var r = m.resolved;
+    var isCorr = (r.mode === 'correction');
     var qtyLine = _crewFmt(r.native_quantity, _crewNorm(m.task.unit));
     if (r.batches) {
-      var b = r.batches === 1 ? _crewT('made_batch_one') : _crewT('made_batch_many', { n: r.batches });
+      var nb = r.batches, b;
+      if (nb === 1)       b = _crewT('made_batch_one');
+      else if (nb === -1) b = _crewT('made_batch_one_neg');
+      else                b = _crewT(nb < 0 ? 'made_batch_many_neg' : 'made_batch_many', { n: nb });
       qtyLine = b + ' · ' + qtyLine;
     }
     var offStation = (m.task.category && window.user && m.task.category !== window.user.default_station)
       ? '<p class="crew-made__station">' + _crewEsc(m.task.category) + '</p>' : '';
     var busy = (m.stage === 'recording');
-    h += '<div class="crew-made__confirm">' +
+    h += '<div class="crew-made__confirm' + (isCorr ? ' crew-made__confirm--correction' : '') + '">' +
            '<p class="crew-made__name">' + _crewEsc(m.task.name) + '</p>' + offStation +
+           (isCorr ? '<p class="crew-made__tag">' + _crewEsc(_crewT('made_correction')) + '</p>' : '') +
            '<p class="crew-made__qty">' + _crewEsc(qtyLine) + '</p>' +
            '<div class="crew-made__actions">' +
              '<button type="button" class="crew-made__btn crew-made__btn--go"' +
                (busy ? ' disabled' : '') + ' onclick="crewMadeRecord()">' +
-               _crewEsc(busy ? _crewT('made_recording') : _crewT('made_record')) +
+               _crewEsc(busy ? _crewT(isCorr ? 'made_correcting' : 'made_recording')
+                             : _crewT(isCorr ? 'made_correct'    : 'made_record')) +
              '</button>' +
              (busy ? '' : '<button type="button" class="crew-made__btn crew-made__btn--ghost" ' +
                'onclick="crewMadeCancel()">' + _crewEsc(_crewT('made_cancel')) + '</button>') +
@@ -831,7 +888,8 @@ function _crewRenderMadeFlow() {
   } else if (m.stage === 'done') {
     h += '<p class="crew-made__ok">' + _crewEsc(m.doneMsg) + '</p>';
     if (m.planUpdating) {
-      h += '<p class="crew-made__ask">' + _crewEsc(_crewT('made_plan_updating')) + '</p>';
+      h += '<p class="crew-made__ask">' +
+           _crewEsc(_crewT(m.planUpdatingMsg || 'made_plan_updating')) + '</p>';
     }
 
   } else if (m.stage === 'error') {
@@ -842,6 +900,12 @@ function _crewRenderMadeFlow() {
       case 'network':        msg = _crewT('made_err_network');
                              btn = _crewT('made_try_again'); call = 'crewMadeRecord()'; break;
       case 'auth':           msg = _crewT('made_err_auth'); break;
+      case 'stock_floor':    msg = _crewT('made_floor_have', {
+                                     stock: _crewFmt(Math.abs(parseFloat(m.floor.stock)), m.floor.unit) }) +
+                                   ' ' +
+                                   _crewT('made_floor_max', {
+                                     max: _crewFmt(Math.abs(parseFloat(m.floor.max)), m.floor.unit) });
+                             break;
       case 'conflict':       msg = _crewT('made_err_conflict');
                              btn = _crewT('made_start_again'); call = 'crewMadeCancel()'; break;
       default:               msg = _crewT('made_err_generic') + (m.detail ? ' (' + m.detail + ')' : '');

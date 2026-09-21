@@ -1027,6 +1027,305 @@ ta('no failure path ever prints "Recorded"', async () => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════════
+// CREW-UX 19 — a negative quantity is a correction
+// ══════════════════════════════════════════════════════════════════
+
+console.log('\nO. Correction — parser and resolution');
+
+t('"I made -1 batch of Chop Romaine" parses as a negative batch', () => {
+  const p = makeApp({ user: PABLO }).crewParseMade('I made -1 batch of Chop Romaine');
+  assert.strictEqual(p.intent, 'production');
+  assert.strictEqual(p.raw_item, 'chop romaine');
+  assert.strictEqual(p.quantity, -1);
+  assert.strictEqual(p.unit_kind, 'batch');
+});
+
+t('"made -1 batch chop romaine" (no "I", no "of")', () => {
+  const p = makeApp({ user: PABLO }).crewParseMade('made -1 batch chop romaine');
+  assert.strictEqual(p.quantity, -1);
+  assert.strictEqual(p.raw_item, 'chop romaine');
+});
+
+t('negative kg and g parse with the sign', () => {
+  const w = makeApp({ user: PABLO });
+  assert.strictEqual(w.crewParseMade('I made -1 kg of Chop Romaine').quantity, -1);
+  assert.strictEqual(w.crewParseMade('I made -1000 g of Chop Romaine').quantity, -1000);
+  assert.strictEqual(w.crewParseMade('I made -0.5 batch of Chop Romaine').quantity, -0.5);
+});
+
+t('a bare "-1 batch Chop Romaine" without a verb is NOT production', () => {
+  // Documented limit: the verb is what separates a production from a stock
+  // remark. Dropping it for the negative case only would reopen that door.
+  const p = makeApp({ user: PABLO }).crewParseMade('-1 batch Chop Romaine');
+  assert.strictEqual(p.intent, 'unknown');
+});
+
+t('positive parsing is untouched', () => {
+  const w = makeApp({ user: PABLO });
+  const p = w.crewParseMade('I made 2 batches of Chop Romaine');
+  assert.strictEqual(p.quantity, 2);
+  assert.strictEqual(p.unit_kind, 'batch');
+  assert.strictEqual(w.crewParseMade('we only have half a pan left').intent, 'unknown');
+});
+
+t('-1 batch resolves to -1000 g and mode correction', () => {
+  const r = makeApp({ user: PABLO }).crewResolveQuantity(CHOP, CHOP_SUGG, -1, 'batch', 'batch');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.mode, 'correction');
+  assert.strictEqual(r.quantity, -1000);
+  assert.strictEqual(r.native_quantity, -1000);
+  assert.strictEqual(r.batches, -1);
+});
+
+t('-0.5 batch resolves to -500 g, using the existing batch rule', () => {
+  const r = makeApp({ user: PABLO }).crewResolveQuantity(CHOP, CHOP_SUGG, -0.5, 'batch', 'batch');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.native_quantity, -500);
+});
+
+t('-1 kg and -1000 g both resolve to -1000 g native', () => {
+  const w = makeApp({ user: PABLO });
+  const a = w.crewResolveQuantity(CHOP, CHOP_SUGG, -1, 'kg', 'native');
+  assert.strictEqual(a.ok, true);
+  assert.strictEqual(a.unit, 'kg');
+  assert.strictEqual(a.native_quantity, -1000);
+  const b = w.crewResolveQuantity(CHOP, CHOP_SUGG, -1000, 'g', 'native');
+  assert.strictEqual(b.native_quantity, -1000);
+  assert.strictEqual(b.mode, 'correction');
+});
+
+t('zero is neither a production nor a correction', () => {
+  const r = makeApp({ user: PABLO }).crewResolveQuantity(CHOP, CHOP_SUGG, 0, 'g', 'native');
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.reason, 'need_quantity');
+});
+
+t('a positive resolution is still mode production', () => {
+  const r = makeApp({ user: PABLO }).crewResolveQuantity(CHOP, CHOP_SUGG, 2, 'batch', 'batch');
+  assert.strictEqual(r.mode, 'production');
+  assert.strictEqual(r.quantity, 2000);
+});
+
+console.log('\nP. Correction — confirmation');
+
+t('the confirmation says Correction and Correct, never Record', () => {
+  const w = chopApp();
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');
+  const flow = w.document.getElementById('crewMadeFlow');
+  const txt = flow.textContent;
+  assert.ok(txt.includes('Chop Romaine'));
+  assert.ok(txt.includes('Correction'), 'must be labelled Correction');
+  assert.ok(txt.includes('-1 batch'), txt);
+  assert.ok(txt.includes('-1 kg'), 'the magnitude must read like a production: ' + txt);
+  assert.ok(txt.includes('Correct'));
+  assert.ok(txt.includes('Cancel'));
+  assert.ok(!/\bRecord\b/.test(txt), 'the word Record must not appear: ' + txt);
+  assert.ok(!/Recorded/.test(txt));
+  assert.ok(!/[Pp]roduction/.test(txt));
+  assert.strictEqual(w.__calls.length, 0, 'nothing is written before Correct');
+});
+
+t('the correction card is visually marked, the positive one is not', () => {
+  const w = chopApp();
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');
+  assert.ok(w.document.querySelector('.crew-made__confirm--correction'));
+  assert.ok(w.document.querySelector('.crew-made__tag'));
+  w.crewMadeCancel();
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  assert.strictEqual(w.document.querySelector('.crew-made__confirm--correction'), null);
+  assert.strictEqual(w.document.querySelector('.crew-made__tag'), null);
+});
+
+t('the positive confirmation is unchanged', () => {
+  const w = chopApp();
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made 2 batches of Chop Romaine');
+  const txt = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(txt.includes('2 batches'));
+  assert.ok(txt.includes('2 kg'));
+  assert.ok(txt.includes('Record'));
+  assert.ok(!txt.includes('Correction'));
+});
+
+console.log('\nQ. Correction — write and success');
+
+const CORR_OK = {
+  ok: true, idempotent: false, event_type: 'PREP_CORRECTED',
+  production_recorded: false, correction_recorded: true,
+  suggestion_recalculated: true,
+  task: { id: 364, current_stock: 0, need_tomorrow: false, in_progress: false,
+          in_progress_at: null, in_progress_by: null },
+  log: { item: 'Chop Romaine', qty: -1000, unit: 'g' },
+  suggestion: { status: 'do_first', planned_output: 1000, output_unit: 'g',
+                current_stock: 0, net_requirement: 951.5 },
+  warning: null
+};
+
+ta('the request carries the real negative quantity', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(200, CORR_OK) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.strictEqual(w.__calls.length, 1);
+  const c = w.__calls[0];
+  assert.ok(String(c.url).endsWith('/functions/v1/record-prep-production-v2'),
+    'same endpoint as production: ' + c.url);
+  assert.strictEqual(c.body.quantity, -1000);
+  assert.strictEqual(c.body.unit, 'g');
+  assert.strictEqual(c.body.task_id, 364);
+  assert.strictEqual(c.body.in_progress_at, null);
+});
+
+ta('is_suggested_qty is false even when the magnitude equals planned_output', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(200, CORR_OK) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');   // 1000 === planned_output
+  await w.crewMadeRecord();
+  assert.strictEqual(w.__calls[0].body.is_suggested_qty, false);
+});
+
+ta('success says Corrected, never Recorded, and clears the draft', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(200, CORR_OK) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');
+  await w.crewMadeRecord();
+  const txt = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(txt.includes('Corrected'), txt);
+  assert.ok(txt.includes('Chop Romaine'));
+  assert.ok(txt.includes('-1 kg'), txt);
+  assert.ok(!/Recorded/.test(txt), 'must never say Recorded: ' + txt);
+  assert.strictEqual(w.document.getElementById('crewMadeInput').value, '');
+  assert.strictEqual(w.tasks[364].current_stock, 0, 'stock taken from the response');
+});
+
+ta('a correction refreshes the plan like a production does', async () => {
+  const bodies = [
+    Object.assign({}, CORR_OK, { suggestion_recalculated: false, suggestion: null,
+                                 warning: 'SUGGESTION_REFRESH_FAILED' }),
+    { ok: true, recalculated: true, suggestion: { status: 'do_first', current_stock: 0 } }
+  ];
+  let i = 0;
+  const w = chopApp({ fetchImpl: () => jsonResp(200, bodies[i++]) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');
+  await w.crewMadeRecord();
+  await new Promise(r => setTimeout(r, 0));
+  const corr = w.__calls.filter(c => String(c.url).includes('record-prep-production-v2'));
+  const refr = w.__calls.filter(c => String(c.url).includes('refresh-prep-suggestion'));
+  assert.strictEqual(corr.length, 1, 'the correction is never repeated');
+  assert.strictEqual(refr.length, 1, 'the fallback refresh runs');
+  assert.ok(w.document.getElementById('crewMadeFlow').textContent.includes('Corrected'));
+});
+
+ta('the server has the last word on what was written', async () => {
+  // Sign says correction, server answers PREP_COMPLETED: trust the server.
+  const w = chopApp({ fetchImpl: () => jsonResp(200,
+    Object.assign({}, CORR_OK, { event_type: 'PREP_COMPLETED',
+                                 production_recorded: true, correction_recorded: false })) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.ok(w.document.getElementById('crewMadeFlow').textContent.includes('Recorded'));
+});
+
+ta('double tap sends one correction, retry reuses the key', async () => {
+  let mode = 'fail';
+  const w = chopApp({ fetchImpl: () => mode === 'fail'
+    ? Promise.reject(new Error('offline'))
+    : jsonResp(200, CORR_OK) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');
+  await w.crewMadeRecord();
+  const key = w.__calls[0].body.client_operation_id;
+  assert.ok(/^[0-9a-f-]{36}$/i.test(key));
+  mode = 'ok';
+  await w.crewMadeRecord();
+  assert.strictEqual(w.__calls.length, 2);
+  assert.strictEqual(w.__calls[1].body.client_operation_id, key, 'retry keeps the key');
+  assert.strictEqual(w.__calls[1].body.quantity, -1000);
+});
+
+ta('double tap while in flight produces exactly one correction', async () => {
+  let release;
+  const gate = new Promise(r => { release = r; });
+  const w = chopApp({ fetchImpl: () => gate });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');
+  const p1 = w.crewMadeRecord();
+  const p2 = w.crewMadeRecord();
+  assert.strictEqual(w.__calls.length, 1);
+  release(await jsonResp(200, CORR_OK));
+  await p1; await p2;
+  assert.strictEqual(w.__calls.length, 1);
+});
+
+console.log('\nR. STOCK_FLOOR');
+
+const FLOOR_BODY = {
+  ok: false, production_recorded: false, reason: 'STOCK_FLOOR',
+  detail: 'correction_would_make_stock_negative',
+  current_stock: 500, requested_correction: -1000, max_correction: -500, unit: 'g'
+};
+
+ta('STOCK_FLOOR tells the cook the numbers, in their own unit', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(422, FLOOR_BODY) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');
+  await w.crewMadeRecord();
+  const txt = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(txt.includes('500 g'), 'must name the recorded amount: ' + txt);
+  assert.ok(/correct up to/i.test(txt), txt);
+});
+
+ta('STOCK_FLOOR never says Corrected and never moves local stock', async () => {
+  const w = chopApp({ fetchImpl: () => jsonResp(422, FLOOR_BODY) });
+  w.mountCrewHome(PABLO);
+  const before = w.tasks[364].current_stock;
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');
+  await w.crewMadeRecord();
+  const txt = w.document.getElementById('crewMadeFlow').textContent;
+  assert.ok(!/Corrected/.test(txt), txt);
+  assert.ok(!/Recorded/.test(txt));
+  assert.strictEqual(w.tasks[364].current_stock, before, 'stock untouched');
+  assert.strictEqual(w.__calls.length, 1, 'no automatic retry');
+});
+
+ta('after STOCK_FLOOR the cook can start again with a smaller correction', async () => {
+  let body = FLOOR_BODY, status = 422;
+  const w = chopApp({ fetchImpl: () => jsonResp(status, body) });
+  w.mountCrewHome(PABLO);
+  typeAndSubmit(w, 'I made -1 batch of Chop Romaine');
+  await w.crewMadeRecord();
+  const firstKey = w.__calls[0].body.client_operation_id;
+  w.crewMadeCancel();
+  body = Object.assign({}, CORR_OK, { task: { current_stock: 0 } }); status = 200;
+  typeAndSubmit(w, 'I made -500 g of Chop Romaine');
+  await w.crewMadeRecord();
+  assert.strictEqual(w.__calls.length, 2);
+  assert.strictEqual(w.__calls[1].body.quantity, -500);
+  assert.notStrictEqual(w.__calls[1].body.client_operation_id, firstKey,
+    'a corrected draft is a new operation');
+});
+
+console.log('\nS. The correction never rewrites history');
+
+t('the client still reaches only the two approved endpoints', () => {
+  const eps = [...new Set((CREW_SRC.match(/\/functions\/v1\/[a-z0-9-]+/g) || []))];
+  assert.strictEqual(eps.length, 2, eps.join(' '));
+  assert.ok(eps.includes('/functions/v1/record-prep-production-v2'));
+  assert.ok(eps.includes('/functions/v1/refresh-prep-suggestion'));
+});
+
+t('no delete or update primitive exists in crew-home.js', () => {
+  const code = CREW_SRC.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  for (const bad of ['.delete(', '.update(', '.upsert(', '.insert(', 'DELETE ', 'UPDATE ']) {
+    assert.ok(!code.includes(bad), 'found ' + bad);
+  }
+});
+
 // ── ISOLATION ──────────────────────────────────────────────────────
 console.log('\nN. Isolation — only Pablo gets the write path');
 

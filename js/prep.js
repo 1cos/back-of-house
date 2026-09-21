@@ -3057,7 +3057,14 @@ function renderM(){
             const qtyStr = Number.isInteger(qty) ? qty : parseFloat(qty.toFixed(1));
             const unit = l.unit||'';
             const timeStr = fmtLogTime(l.created_at);
-            return '<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(5,150,105,0.08);border:0.5px solid rgba(5,150,105,0.2);border-radius:10px;padding:2px 8px;font-size:12px;color:#374151;white-space:nowrap;"><b style="color:#1e3a5f">'+l.user_name+'</b>&nbsp;'+qtyStr+unit+'&nbsp;<span style="color:#9ca3af">'+timeStr+'</span></span>';
+            // CREW-UX 19: a negative qty is a correction, not a production.
+            // Presentation only — same rows, same query, amber instead of green
+            // so it is never read as "1 kg was made".
+            const _neg = qty < 0;
+            const _bg  = _neg ? 'rgba(154,100,16,0.08)' : 'rgba(5,150,105,0.08)';
+            const _bd  = _neg ? 'rgba(154,100,16,0.25)' : 'rgba(5,150,105,0.2)';
+            const _lbl = _neg ? '&nbsp;<span style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9a6410;">correction</span>' : '';
+            return '<span style="display:inline-flex;align-items:center;gap:3px;background:'+_bg+';border:0.5px solid '+_bd+';border-radius:10px;padding:2px 8px;font-size:12px;color:#374151;white-space:nowrap;"><b style="color:#1e3a5f">'+l.user_name+'</b>&nbsp;'+qtyStr+unit+_lbl+'&nbsp;<span style="color:#9ca3af">'+timeStr+'</span></span>';
           }).join('');
           todayLogStrip = '<div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-size:10px;font-weight:700;color:#9ca3af;letter-spacing:0.8px;text-transform:uppercase;">Today</span>'+logEntries+'</div>';
         }
@@ -3540,7 +3547,12 @@ function buildTodayLogBanner(tlogs){
     const qtyStr = Number.isInteger(qty) ? qty : parseFloat(qty.toFixed(1));
     const unit = l.unit||'';
     const timeStr = fmtLogTime(l.created_at);
-    return `<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#374151;"><span style="font-size:14px;">🧑‍🍳</span><b style="color:#1e3a5f">${l.user_name}</b><span style="color:#6b7280">${timeStr}</span><span style="font-weight:600;color:#059669">${qtyStr} ${unit}</span></div>`;
+    // CREW-UX 19: same rule as the card strip — a negative qty reads as a
+    // correction, in amber, never in the production green.
+    const neg = qty < 0;
+    const col = neg ? '#9a6410' : '#059669';
+    const tag = neg ? ' <span style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;">correction</span>' : '';
+    return `<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#374151;"><span style="font-size:14px;">🧑‍🍳</span><b style="color:#1e3a5f">${l.user_name}</b><span style="color:#6b7280">${timeStr}</span><span style="font-weight:600;color:${col}">${qtyStr} ${unit}${tag}</span></div>`;
   }).join('');
   return `<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:12px;padding:10px 12px;margin-bottom:10px;">
     <div style="font-size:11px;font-weight:700;color:#92400e;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:6px;">⚠️ Already logged today</div>
