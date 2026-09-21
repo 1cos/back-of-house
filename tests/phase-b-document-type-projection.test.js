@@ -355,8 +355,19 @@ function tabelle(righe, extra) {
     assert.ok(blocco.includes("select('" + SELECT_DOPO + "')"),
       'la select list di Phase B deve essere quella di MT76');
     assert.ok(!blocco.includes("select('" + SELECT_PRIMA + "')"), 'la vecchia select non deve restare');
-    assert.ok(/isPurchasableDocument\(\(d\.parsed_json && d\.parsed_json\.vendor\) \|\| d\.vendor \|\| '', \(d\.parsed_json && d\.parsed_json\.document_type\) \|\| d\.document_type\)/.test(blocco),
-      'il filtro deve restare identico: MT76 cambia solo la projection');
+    // INV08C ha cambiato il filtro DI PROPOSITO: Phase B instrada anche i
+    // credit_memo, verso vendor_credits e non verso invoice_lines. Quello
+    // che MT76 proteggeva resta pero' intatto, e lo si verifica pezzo per
+    // pezzo invece che verbatim: la regola di acquistabilita' e' ancora
+    // applicata, e ancora con gli stessi due fallback parsed_json -> colonna.
+    assert.ok(/const v = \(d\.parsed_json && d\.parsed_json\.vendor\) \|\| d\.vendor \|\| '';/.test(blocco),
+      'il fallback sul vendor deve restare parsed_json -> colonna');
+    assert.ok(/const t = \(d\.parsed_json && d\.parsed_json\.document_type\) \|\| d\.document_type;/.test(blocco),
+      'il fallback sul tipo deve restare parsed_json -> colonna, che e\' il punto di MT76');
+    assert.ok(/isPurchasableDocument\(v, t\)/.test(blocco),
+      'la regola di acquistabilita\' deve essere ancora applicata');
+    assert.ok(/t === 'credit_memo' \|\| isPurchasableDocument/.test(blocco),
+      'i credit_memo passano ACCANTO alla regola, non attraverso di essa');
   });
 
   await atest('P2. Phase A resta com era: gia selezionava document_type', () => {
