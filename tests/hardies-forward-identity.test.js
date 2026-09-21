@@ -114,6 +114,96 @@ test('8. la riga creata NON porta un prezzo inventato', async () => {
     'il prezzo viene dalla fattura, non da ingredient_vendors');
 });
 
+// ─────────────────────────────────────────────────────────────────────
+// INV08E.1 — gli SKU chiusi con le decisioni Chef
+//
+// Stessa prova, stesso resolver reale: lo SKU deve vincere sulla
+// descrizione, altrimenti ogni variazione di testo sulla prossima
+// fattura tornerebbe a chiedere conferma a mano.
+// ─────────────────────────────────────────────────────────────────────
+
+const GRAN_GARLIC = '05c6bc66-0000-0000-0000-000000000000';
+const PROSCIUTTO  = '1e0489e5-0000-0000-0000-000000000000';
+const PUMPKIN     = '22018b88-0000-0000-0000-000000000000';
+const MALDON      = 'c95c090c-0000-0000-0000-000000000000';
+const SEEDS       = '852d45fe-0000-0000-0000-000000000000';
+
+// La mappa come la costruisce il worker: prima ingredient_vendors,
+// poi gli alias SOPRA. E' l'ordine vero, non una semplificazione.
+function mappaReale() {
+  const diretti = {
+    '70563': FIGS, '24060': GRAN_GARLIC, '25271': PROSCIUTTO,
+    '04396': MALDON, '03252': PUMPKIN,
+  };
+  const alias = { '85025': PUMPKIN, '25193': MALDON, '03252': SEEDS };
+  const m = {};
+  for (const k in diretti) m[k] = { ingredient_id: diretti[k], vendor_sku: k };
+  for (const k in alias)   m[k] = { ingredient_id: alias[k],   vendor_sku: k };
+  return m;
+}
+const MAPPA = mappaReale();
+
+const casi = [
+  ['24060', GRAN_GARLIC, 'Granulated Garlic',
+   ['SPICE GARLIC GRANULATED', 'GARLIC GRANULATED 16OZ', 'SPICE, GARLIC  GRANULATED', 'GRANULATED GARLIC SPICE']],
+  ['85025', PUMPKIN, 'Pumpkin Seed',
+   ['SEED PUMPKIN RAW', 'PUMPKIN SEED RAW 5#', 'SEED, PUMPKIN RAW', 'RAW PUMPKIN SEEDS']],
+  ['25271', PROSCIUTTO, 'Sliced Prosciutto ABF',
+   ['PROSCIUTTO SLICED ABF', 'PROSCIUTTO SLICED A.B.F.', 'SLICED PROSCIUTTO ABF 1#', 'PROSCIUTTO, SLICED ABF']],
+  ['04396', MALDON, 'Maldon Salt',
+   ['SALT SEA MALDON BUCKET', 'MALDON SEA SALT BUCKET 3.1#', 'SALT, SEA MALDON  BUCKET']],
+  ['25193', MALDON, 'Maldon Salt',
+   ['SALT SEA MALDON FLAKES', 'MALDON FLAKES 8.75OZ', 'SALT SEA MALDON FLAKE']],
+];
+
+for (const [sku, ing, nome, descrizioni] of casi) {
+  test('E1-' + sku + '. ' + sku + ' -> ' + nome + ', qualunque sia la descrizione', async () => {
+    for (const d of descrizioni) {
+      const rows = await scrivi([voce({ vendor_sku: sku, description: d,
+                                        pack_description: '5#', amount: 20, unit_price: 20 })], MAPPA);
+      assert.strictEqual(rows.length, 1, 'descrizione "' + d + '": riga non scritta');
+      assert.strictEqual(rows[0].ingredient_id, ing, 'descrizione "' + d + '" non riconosciuta');
+      assert.strictEqual(rows[0].match_status, 'matched',
+        '"unmatched" e\' cio\' che genera la domanda manuale');
+    }
+  });
+}
+
+test('E1-link. lo SKU vince anche contro una linkMap che punta altrove', async () => {
+  const ESCA = 'ffffffff-0000-0000-0000-000000000000';
+  for (const [sku, ing] of casi.map(c => [c[0], c[1]])) {
+    const rows = await scrivi([voce({ vendor_sku: sku, description: 'ESCA', amount: 10, unit_price: 10 })],
+                              MAPPA, { 'ESCA': ESCA });
+    assert.strictEqual(rows[0].ingredient_id, ing, sku + ' si e\' fatto sviare dalla descrizione');
+  }
+});
+
+test('E1-03252. la variante SALTED NON e\' stata toccata: risolve ancora a Seeds', async () => {
+  // Non e' un difetto residuo: e' una decisione in sospeso. 03252 e'
+  // SEED PUMPKIN ROASTED/SALTED, e il Chef ha autorizzato come stessa
+  // identita' solo RAW e ROASTED UNSALTED.
+  const rows = await scrivi([voce({ vendor_sku: '03252', description: 'SEED PUMPKIN ROASTED/SALTED',
+                                    pack_description: '5#', amount: 39.33, unit_price: 39.33 })], MAPPA);
+  assert.strictEqual(rows[0].ingredient_id, SEEDS,
+    'l\'alias 03252 -> Seeds deve essere ancora intatto');
+  assert.notStrictEqual(rows[0].ingredient_id, PUMPKIN,
+    'mapparlo a Pumpkin Seed sarebbe stata una decisione che non mi spetta');
+});
+
+test('E1-25271. mappato per il futuro, ma oggi NON produce riga', async () => {
+  // Il documento storico ha ricevuto 0 e importo 0: il guard di
+  // INV08B.1 lo esclude. Identita' e riga sono due cose diverse.
+  const oggi = await scrivi([voce({ vendor_sku: '25271', description: 'PROSCIUTTO SLICED ABF',
+                                    pack_description: '1#', qty_ordered: 1, qty_received: 0, amount: 0 })], MAPPA);
+  assert.strictEqual(oggi.length, 0, 'merce mai consegnata non diventa una riga d\'acquisto');
+  const domani = await scrivi([voce({ vendor_sku: '25271', description: 'PROSCIUTTO SLICED ABF',
+                                      pack_description: '1#', qty_ordered: 2, qty_received: 2,
+                                      amount: 46.50, unit_price: 23.25 })], MAPPA);
+  assert.strictEqual(domani.length, 1, 'quando arrivera\' davvero, la riga nasce');
+  assert.strictEqual(domani[0].ingredient_id, PROSCIUTTO, 'e con l\'identita\' gia\' risolta');
+  assert.strictEqual(domani[0].qty, 2);
+});
+
 (async () => {
   for (const [n, f] of queue) {
     try { await f(); console.log('  ✓ ' + n); pass++; }
