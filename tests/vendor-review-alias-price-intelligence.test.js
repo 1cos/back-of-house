@@ -188,9 +188,19 @@ function ivRow(id, vendor, sku, ingredientId, lastInvoiceDate, unitPrice) {
 
   // ══════════════════════════════════════════════════════════════
   // Scenario 4 — canonical row vecchia GA0 + nuova invoice BRO
-  //              → stessa riga migrata, nessun duplicato
+  //              → stessa riga, economia aggiornata, IDENTITA' INVARIATA
+  //
+  // INV08FINAL.1 HA CAMBIATO L'ATTESO DI QUESTO SCENARIO, e va detto
+  // chiaramente: MICRO-TASK 40 FASE 3 aveva DECISO che qui il vendor_sku
+  // venisse ripuntato ("migrazione"), e questo test ancorava quella
+  // decisione. E' stata rovesciata dopo averne misurato il costo su un
+  // vendor che vende DUE prodotti diversi mappati allo stesso
+  // ingrediente: importando 07133808 la riga canonica di Hardie's e'
+  // passata da 07673 a 71908 e da 03493 a 71814, lasciando i due SKU
+  // precedenti senza identita'. Il resto dello scenario — nessun
+  // duplicato, stessa riga, data avanzata — resta verificato.
   // ══════════════════════════════════════════════════════════════
-  await atest('4. Old canonical row (GA0) + NEWER alias invoice (BRO) → same row migrated, no duplicate', async () => {
+  await atest('4. Old canonical row (GA0) + NEWER alias invoice (BRO) → same row, economics updated, IDENTITY UNCHANGED', async () => {
     const tables = {
       vendor_documents: [{ id: 'd4', status: 'pending', vendor: 'Fruge Seafood', document_date: '2026-09-16', parsed_json: { document_type: 'invoice', vendor: 'Fruge Seafood', total: 310, items: [
         { vendor_sku: 'SCAFDUU10BRO', description: 'SCALLOPS FR DRY U10 GAL', unit_price: 310, amount: 310, qty_ordered: 1, qty_received: 1, cost_per_lb: 38.75, price_type: 'per_lb', catchweight: false },
@@ -204,8 +214,8 @@ function ivRow(id, vendor, sku, ingredientId, lastInvoiceDate, unitPrice) {
     assert.strictEqual(r.ok, true);
     assert.strictEqual(tables.ingredient_vendors.length, 1, 'no second row created');
     const iv = tables.ingredient_vendors[0];
-    assert.strictEqual(iv.id, 'iv-scallops', 'same row, migrated in place');
-    assert.strictEqual(iv.vendor_sku, 'SCAFDUU10BRO', 'vendor_sku repointed to the new SKU');
+    assert.strictEqual(iv.id, 'iv-scallops', 'same row, updated in place');
+    assert.strictEqual(iv.vendor_sku, 'SCAFDUU10GA0', 'IDENTITY: the primary SKU must NOT be repointed');
     assert.strictEqual(iv.last_invoice_date, '2026-09-16');
   });
 

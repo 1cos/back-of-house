@@ -3613,14 +3613,50 @@ window.vdrApprove = async function(docId, btn) {
               continue;
             }
             if (canonical.vendor_sku !== sku) {
-              // Alias-confirmed SKU migration onto the existing canonical
-              // row (e.g. SCAFDUU10GA0 → SCAFDUU10BRO). Same row, never a
-              // duplicate: vendor_sku is repointed in place.
-              // Saltata la price intelligence, si salta anche la
-              // migrazione del vendor_sku e il backfill che ne dipende.
+              // INV08FINAL.1 — LA PRICE INTELLIGENCE NON RISCRIVE L'IDENTITA'.
+              //
+              // Qui prima c'era `vendor_sku: sku`, descritto come "FASE 3 —
+              // alias-confirmed SKU migration". Su un vendor che rinomina uno
+              // SKU quella migrazione ha senso; su un vendor che vende DUE
+              // prodotti diversi mappati allo stesso ingrediente e' una perdita
+              // di identita', e il 21/09 alle 23:30:09 e' successo davvero:
+              //
+              //   Cherry Tomatoes  vendor_sku 07673 -> 71908
+              //   Zucchini         vendor_sku 03493 -> 71814
+              //
+              // 07673 (TOMATO CHERRY ON THE VINE) e 71908 (TOMATO CHERRY RED)
+              // sono due prodotti in catalogo nello stesso momento, entrambi
+              // mappati a Cherry Tomatoes per decisione dello Chef in INV08E.
+              // Importando 07133808, che conteneva il secondo, la riga canonica
+              // e' stata ripuntata e il primo e' rimasto senza identita' SKU:
+              // 07673 risolveva solo per descrizione, 03493 per niente.
+              //
+              // L'INVARIANTE: ingredient_vendors.vendor_sku E' IDENTITA'.
+              // Un'osservazione di prezzo che arriva da un alias puo'
+              // aggiornare i campi ECONOMICI della riga canonica — prezzo,
+              // price_per_100g, price_type, pack/conversione, data — e non puo'
+              // sostituire l'identita' con lo SKU dell'osservazione. Lo SKU
+              // primario resta primario, l'alias resta alias, e il prezzo piu'
+              // recente puo' venire da entrambi.
+              //
+              // Nota sul modello: ingredient_vendors non ha una colonna di
+              // provenienza del prezzo. Prima di questa riga `vendor_sku`
+              // faceva implicitamente da provenienza E da identita': e' la
+              // collisione che ha causato il danno. Non introduco una colonna
+              // nuova — la provenienza e' gia' ricostruibile da invoice_lines,
+              // che porta il vendor_sku su ogni riga.
+              //
+              // Cambiare vendor_sku resta possibile, ma solo dove cambiarlo E'
+              // lo scopo dichiarato: la scheda ingrediente (js/ingredients.js,
+              // saveNewVendorRow e il salvataggio della riga vendor). Mai come
+              // effetto collaterale di un import.
+              //
+              // Il backfill resta qui, alla stessa condizione di prima: mappa
+              // le invoice_lines passate di QUESTO sku sull'ingrediente che
+              // l'alias dichiara gia'. Tocca invoice_lines, non l'identita'.
               const fBm = mergeFor(canonical);
               if (fBm) {
-                toUpdate.push({ id: canonical.id, vendor_sku: sku, ...fBm });
+                toUpdate.push({ id: canonical.id, ...fBm });
                 if (sku) backfillTargets.push({ vendor, vendor_sku: sku, ingredient_id: ingrId });
               }
             } else {

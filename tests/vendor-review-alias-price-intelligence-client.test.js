@@ -155,8 +155,17 @@ console.log('\nMICRO-TASK 40 — client (vdrApprove) parity tests\n');
     assert.strictEqual(iv.unit_price, 18, 'price must not regress');
   });
 
-  // ── Scenario 4: old canonical GA0 + newer BRO alias invoice → migrated in place ──
-  await atest('4. Old canonical row (GA0) + NEWER alias invoice (BRO) → same row migrated, no duplicate', async () => {
+  // ── Scenario 4: old canonical GA0 + newer BRO alias invoice ──
+  //
+  // INV08FINAL.1 HA CAMBIATO L'ATTESO DI QUESTO SCENARIO. MICRO-TASK 40
+  // FASE 3 aveva DECISO che il vendor_sku venisse ripuntato qui, e questo
+  // test ancorava quella decisione. E' stata rovesciata dopo averne
+  // misurato il costo su un vendor che vende DUE prodotti diversi mappati
+  // allo stesso ingrediente: importando 07133808 la riga canonica di
+  // Hardie's e' passata da 07673 a 71908 e da 03493 a 71814, lasciando i
+  // due SKU precedenti senza identita'. Nessun duplicato, stessa riga,
+  // data avanzata: tutto il resto resta verificato.
+  await atest('4. Old canonical row (GA0) + NEWER alias invoice (BRO) → same row, economics updated, IDENTITY UNCHANGED', async () => {
     loadRealVdrModule();
     const doc = makeDoc('c4', 'Fruge Seafood', '2026-09-16',
       [{ vendor_sku: 'SCAFDUU10BRO', description: 'SCALLOPS FR DRY U10 GAL', unit_price: 310, amount: 310, qty_ordered: 1, qty_received: 1, cost_per_lb: 38.75, price_type: 'per_lb', catchweight: false }], 310);
@@ -174,7 +183,7 @@ console.log('\nMICRO-TASK 40 — client (vdrApprove) parity tests\n');
     assert.strictEqual(tables.ingredient_vendors.length, 1, 'no second row created');
     const iv = tables.ingredient_vendors[0];
     assert.strictEqual(iv.id, 'iv-scallops');
-    assert.strictEqual(iv.vendor_sku, 'SCAFDUU10BRO', 'vendor_sku repointed to the new SKU');
+    assert.strictEqual(iv.vendor_sku, 'SCAFDUU10GA0', 'IDENTITY: the primary SKU must NOT be repointed');
     assert.strictEqual(iv.last_invoice_date, '2026-09-16');
     assert.strictEqual(calls.inserts.filter(i => i.table === 'ingredient_vendors').length, 0, 'must be an UPDATE, never an INSERT');
   });
