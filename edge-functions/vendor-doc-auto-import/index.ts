@@ -1147,6 +1147,204 @@ function vdaiIsZeroDeliveredLegacy(vendor: string, item: any): boolean {
 
 
 // ══════════════════════════════════════════════════════════════════
+// INV10B — LA RILEVANZA CONTABILE VIENE PRIMA DELL'IDENTITA'
+//
+// Il difetto, misurato su documenti veri: Phase B chiedeva "gli SKU
+// hanno un'identita'?" PRIMA di chiedere "questo documento puo'
+// produrre una spesa?". Il secondo controllo — il ramo
+// acknowledgement_not_a_purchase — vive dentro vdaiApprove, che si
+// raggiunge solo dopo aver superato il primo.
+//
+// Risultato: nove acknowledgement Ben E. Keith (BEK che dice "ho
+// ricevuto il tuo ordine": ogni riga 'requested', qty 0, importo 0,
+// purchasable false, computed_purchase_total $0) sono rimasti in coda
+// per mesi, in attesa che qualcuno desse un nome a prodotti che da
+// quei documenti non verranno MAI contabilizzati.
+//
+// Dimostrato su 0003128936: con tutti i suoi SKU mappati il worker
+// arriva a vdaiApprove e lo manda in 'ignored' con zero invoice_lines
+// e zero price intelligence; con gli stessi SKU non mappati resta
+// pending. L'identita' non cambia di un centesimo l'esito economico.
+//
+// La regola nuova e' l'ordine giusto:
+//   1. questo documento puo' produrre accounting?
+//   2. SOLO SE SI: gli SKU acquistabili hanno identita'?
+//
+// NON e' una regola per vendor. `if vendor === BEK && class ===
+// acknowledgement` sarebbe fragile: dipenderebbe da un'etichetta del
+// parser invece che dai numeri. Le due predicate qui sotto guardano
+// solo i dati, e la prima e' letteralmente il filtro di
+// writeInvoiceLines letto al contrario.
+// ══════════════════════════════════════════════════════════════════
+
+// QUESTO DOCUMENTO NON PUO' PRODURRE NESSUNA invoice_line.
+//
+// Non "probabilmente non ne produce": non puo'. writeInvoiceLines
+// costruisce le righe da
+//     items.filter(i => i.purchasable !== false && !vdaiIsZeroDeliveredLegacy(vendor, i))
+// e se quel filtro non lascia passare niente esce con
+// 'no invoice lines extractable' senza scrivere nulla. Quindi la
+// domanda "puo' produrre righe?" ha gia' una risposta scritta nel
+// writer, e questa funzione la legge da li' invece di reinventarla.
+//
+// Alla condizione strutturale si aggiunge la corroborazione economica —
+// nessun importo positivo, e totale d'acquisto dichiarato zero quando
+// c'e' — perche' una sola prova non basta per chiudere un documento.
+//
+// FAIL CLOSED: items assente o vuoto -> false. Un documento di cui non
+// sappiamo niente non e' un documento di cui sappiamo che non spende.
+function vdaiDocumentCannotProduceLines(pj: any): boolean {
+  const items: any[] = (pj && Array.isArray(pj.items)) ? pj.items : [];
+  if (!items.length) return false;
+  const vendor = (pj && pj.vendor) || '';
+
+  // 1. struttura: il filtro del writer non lascia passare NIENTE.
+  for (const it of items) {
+    if (!it) return false;
+    const scartata = it.purchasable === false || vdaiIsZeroDeliveredLegacy(vendor, it);
+    if (!scartata) return false;
+  }
+
+  // 2. economia: nessun importo positivo su nessuna riga.
+  for (const it of items) {
+    const a = vdaiNum(it.amount);
+    if (a !== null && a > 0) return false;
+  }
+
+  // 3. economia dichiarata: se il parser calcola un totale d'acquisto,
+  //    deve essere zero. Se non lo calcola, i due punti sopra bastano.
+  const pt = vdaiNum(pj.computed_purchase_total);
+  if (pt !== null && Math.abs(pt) > VDAI_TOTAL_TOLERANCE) return false;
+
+  return true;
+}
+
+// L'IMPRONTA ECONOMICA di un documento, per dire se due versioni sono
+// la stessa spesa. Contiene solo cio' che cambia i soldi: per ogni riga
+// SKU, quantita' confermata, prezzo, importo e stato riga; piu' il
+// totale del documento. Ordinata, cosi' l'ordine delle righe non conta.
+//
+// NON contiene numero d'ordine, subject, date o id: due documenti con
+// lo stesso Sales Order possono benissimo essere revisioni diverse, ed
+// e' esattamente il caso che deve continuare a bloccare.
+//
+// Ritorna null quando l'impronta non e' calcolabile — nessuna riga, o
+// nessun totale. Un'impronta nulla non e' mai uguale a niente.
+function vdaiEconomicFingerprint(pj: any): string | null {
+  const items: any[] = (pj && Array.isArray(pj.items)) ? pj.items : [];
+  if (!items.length) return null;
+  const tot = vdaiNum(pj.computed_purchase_total) !== null
+    ? vdaiNum(pj.computed_purchase_total)
+    : vdaiNum(pj.total);
+  if (tot === null) return null;
+  const righe = items.map((it) => {
+    const qty = vdaiNum(it.qty_received) !== null ? vdaiNum(it.qty_received)
+              : vdaiNum(it.qty) !== null ? vdaiNum(it.qty)
+              : vdaiNum(it.qty_ordered);
+    const stato = it.item_status || it.item_status_raw || it.line_status || '';
+    return [
+      it.vendor_sku || it.item_code || '',
+      qty === null ? '' : String(qty),
+      String(vdaiNum(it.unit_price) ?? ''),
+      String(vdaiNum(it.amount) ?? ''),
+      String(stato),
+    ].join('|');
+  }).sort();
+  return righe.join('\n') + '\n#' + tot.toFixed(2);
+}
+
+// Il parsed_json EFFETTIVO di un documento.
+//
+// Serve perche' i rami MT71/MT72 di Phase A chiudono un documento
+// bloccato scrivendo solo status e warnings: il suo parsed_json resta
+// { source }. Il contenuto non e' perso — raw_text c'e' tutto — ma non
+// e' leggibile senza riparsare. Qui si riparsa IN MEMORIA, in sola
+// lettura: niente viene riscritto nel database.
+//
+// La lettura di raw_text avviene solo quando serve davvero, cioe' quando
+// parsed_json non ha righe. I documenti normali non pagano niente.
+async function vdaiEffectiveParsed(sb: any, doc: any): Promise<any | null> {
+  const pj = doc && doc.parsed_json;
+  if (pj && Array.isArray(pj.items) && pj.items.length > 0) return pj;
+  try {
+    const { data } = await sb.from('vendor_documents').select('raw_text').eq('id', doc.id).single();
+    const raw = data && data.raw_text;
+    if (!raw) return null;
+    const riparsato = parsersApi().parse(raw);
+    return (riparsato && Array.isArray(riparsato.items) && riparsato.items.length > 0) ? riparsato : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+// LA DECISIONE, prima del preflight.
+//
+// Due soli motivi per chiudere un documento senza guardare l'identita':
+//
+//   not_a_purchase   non puo' produrre nessuna riga (predicate sopra)
+//   exact_duplicate  ha la stessa identica economia di un documento
+//                    gia' importato con lo stesso numero
+//
+// Il secondo copre il caso misurato in INV10A: BEK ha rispedito la
+// stessa conferma d'ordine e la copia e' rimasta bloccata da
+// BEK_REVISION_AFTER_IMPORT. Quel blocco e' giusto per una revisione
+// VERA — economia diversa, stesso Sales Order — e resta. Ma quando
+// l'impronta economica coincide, non c'e' niente da riconciliare: c'e'
+// un doppione da archiviare, e importarlo conterebbe la spesa due volte.
+//
+// Qualunque cosa vada storta — lettura fallita, parse fallito, impronta
+// non calcolabile — si ritorna "non saltare": il documento prosegue per
+// la strada normale e resta pending se il preflight lo blocca.
+async function vdaiAccountingRelevance(sb: any, doc: any): Promise<{ skip: boolean; reason?: string; duplicateOf?: string }> {
+  try {
+    const pj = await vdaiEffectiveParsed(sb, doc);
+    if (!pj) return { skip: false };
+
+    if (vdaiDocumentCannotProduceLines(pj)) return { skip: true, reason: 'not_a_purchase' };
+
+    const numero = doc.document_number;
+    const vend = pj.vendor || doc.vendor;
+    const tipo = pj.document_type || doc.document_type;
+    if (!numero || !vend || !tipo) return { skip: false };
+
+    const mia = vdaiEconomicFingerprint(pj);
+    if (!mia) return { skip: false };
+
+    const { data: fratelli } = await sb.from('vendor_documents')
+      .select('id,parsed_json,status')
+      .eq('vendor', vend).eq('document_number', numero).eq('document_type', tipo)
+      .eq('status', 'imported').neq('id', doc.id);
+
+    for (const f of fratelli || []) {
+      const fpj = await vdaiEffectiveParsed(sb, f);
+      if (!fpj) continue;
+      if (vdaiEconomicFingerprint(fpj) === mia) {
+        return { skip: true, reason: 'exact_duplicate', duplicateOf: f.id };
+      }
+    }
+    return { skip: false };
+  } catch (_e) {
+    return { skip: false };
+  }
+}
+
+// Chiude un documento nel suo stato terminale non contabile. 'ignored'
+// e' lo stesso stato che usano gia' il buyer guard di Phase A e il ramo
+// acknowledgement di vdaiApprove: nessun lifecycle nuovo.
+//
+// Le warning NON si toccano. Un documento puo' essere contabilmente
+// chiuso e portarsi dietro un'informazione operativa aperta — un
+// sostituto proposto, un out of stock: chiuderla sarebbe dichiarare una
+// decisione umana che nessuno ha preso (stessa regola di INV08H).
+async function vdaiCloseAsNonAccounting(sb: any, docId: string): Promise<boolean> {
+  const { data } = await sb.from('vendor_documents')
+    .update({ status: 'ignored', updated_at: new Date().toISOString() })
+    .eq('id', docId).eq('status', 'pending').select('id');
+  return !!(data && data.length);
+}
+
+
+// ══════════════════════════════════════════════════════════════════
 // writeInvoiceLines — MICRO-TASK 37. Extracted, unchanged, from
 // vdaiApprove's own invoice_lines block (the exact same idempotency
 // guard, the exact same row-building transformation, the exact same
@@ -2007,11 +2205,32 @@ Deno.serve(async (req: Request) => {
       }).slice(0, documentId ? 1 : finestra.size);
     }
     for (const doc of queueB || []) {
+      // INV10B — PRIMA LA RILEVANZA CONTABILE, POI L'IDENTITA'.
+      // Un documento che non puo' produrre una riga non deve aspettare
+      // che i suoi SKU abbiano un nome: quel nome non servirebbe a
+      // niente. Stesso discorso per un doppione esatto di un documento
+      // gia' importato. In tutti gli altri casi non cambia nulla e si
+      // prosegue con il preflight di sempre.
+      const rilevanza = await vdaiAccountingRelevance(sb, doc);
+
       if (dryRun) {
+        if (rilevanza.skip) {
+          result.phaseB.push({ id: doc.id, document_number: doc.document_number, would_import: false,
+            would_close_as: 'ignored', reason: rilevanza.reason, duplicate_of: rilevanza.duplicateOf });
+          continue;
+        }
         const pre = await vdaiPreflight(sb, doc);
         result.phaseB.push({ id: doc.id, document_number: doc.document_number, would_import: pre.ok && pre.unmatchedCount === 0, preflight: pre });
         continue;
       }
+
+      if (rilevanza.skip) {
+        const chiuso = await vdaiCloseAsNonAccounting(sb, doc.id);
+        result.phaseB.push({ id: doc.id, document_number: doc.document_number,
+          outcome: chiuso ? 'ignored' : 'lost_race', reason: rilevanza.reason, duplicate_of: rilevanza.duplicateOf });
+        continue;
+      }
+
       const pre = await vdaiPreflight(sb, doc);
       if (pre.ok && pre.unmatchedCount === 0) {
         // INV08C — vdaiPreflight fa gia' la cosa giusta per un credito:

@@ -7,6 +7,7 @@ function makeSb(db, log) {
   function apply(t, filters) {
     return rows(t).filter(r => filters.every(f => {
       if (f.op === 'eq')  return r[f.k] === f.v;
+      if (f.op === 'neq') return r[f.k] !== f.v;
       if (f.op === 'in')  return f.v.includes(r[f.k]);
       if (f.op === 'isnull') return r[f.k] === null || r[f.k] === undefined;
       if (f.op === 'notnull') return r[f.k] !== null && r[f.k] !== undefined;
@@ -19,6 +20,7 @@ function makeSb(db, log) {
     const self = {
       select() { return self; },
       eq(k, v) { filters.push({ op: 'eq', k, v }); return self; },
+      neq(k, v) { filters.push({ op: 'neq', k, v }); return self; },
       in(k, v) { filters.push({ op: 'in', k, v }); return self; },
       is(k, v) { if (v === null) filters.push({ op: 'isnull', k }); return self; },
       not(k, _op, v) { if (v === null) filters.push({ op: 'notnull', k }); return self; },
