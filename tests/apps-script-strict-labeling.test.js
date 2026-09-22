@@ -207,18 +207,25 @@ test('11. i due backfill PDF passano strict = true', () => {
   }
 });
 
-test('12. gli altri chiamanti orari NON passano strict (3 argomenti)', () => {
-  // INV05D: Fruge e' uscito da questa lista per decisione del Chef ed e'
-  // coperto dai test 16-22.
-  // INV08FINAL: anche Hardie's e' uscito, e per una decisione dichiarata —
-  // il ramo legacy era l'ultimo punto del percorso Hardie's in cui un
-  // fallimento veniva archiviato come successo. La sua forma nuova e'
-  // ancorata in tests/hardies-collector-fail-closed.test.js e dal test 23
-  // qui sotto. TreviPay resta legacy: non e' in nessun mandato.
-  for (const [file, fname] of [['TreviPayImport.js','checkTreviPayEmails']]) {
+test('12. il giro orario e ora interamente fail-closed', () => {
+  // Storia di questo test, perche' e' cambiato tre volte e il perche'
+  // conta piu' dell'asserzione.
+  //   INV05D  — Fruge diventa strict; il test nasce per impedire che
+  //             gli ALTRI collector venissero cambiati di straforo.
+  //   INV08FINAL — Hardie's esce dalla lista, per decisione dichiarata.
+  //   INV09B  — TreviPay esce per ultimo, e con lui tutte le fatture
+  //             Walmart Business.
+  // Non resta nessun chiamante orario a tre argomenti: la guardia non
+  // ha piu' niente da proteggere, quindi cambia verso e ancora la
+  // regola nuova — ogni collector orario passa strict.
+  for (const [file, fname] of [['FrugeImport.gs.js',   'checkFrugeEmails'],
+                               ['HardiesImport.gs.js', 'checkHardiesEmails'],
+                               ['TreviPayImport.js',   'checkTreviPayEmails']]) {
     const f = extractFn(fs.readFileSync(path.join(DIR, file), 'utf8'), fname);
-    const call = f.match(/processLabelPDF\(([^)]*)\)/);
-    assert.strictEqual(call[1].split(',').length, 3, fname + ' deve restare a 3 argomenti');
+    const args = f.match(/processLabelPDF\(([\s\S]*?)\)/)[1].split(',').map(a => a.trim());
+    assert.strictEqual(args.length, 5, fname + ' deve passare 5 argomenti');
+    assert.strictEqual(args[3], 'null', fname + ': startDate null, niente backfill nel giro orario');
+    assert.strictEqual(args[4], 'true', fname + ': strictSuccessLabeling deve essere true');
   }
 });
 
@@ -329,20 +336,22 @@ test('22. checkFrugeEmails passa esattamente null e true', () => {
   assert.strictEqual(args[4], 'true', 'strictSuccessLabeling deve essere true');
 });
 
-test('23. TreviPay resta legacy; Hardie s e passato a fail-closed in INV08FINAL', () => {
-  const trevi = extractFn(fs.readFileSync(path.join(DIR, 'TreviPayImport.js'), 'utf8'),
-                          'checkTreviPayEmails');
-  assert.ok(!/strict|true\)/.test(trevi), 'TreviPay deve restare legacy: non e in nessun mandato');
-
-  // INV08FINAL — Hardie's era l'ultimo collector orario fail-open. Il
-  // cambiamento e' deliberato e va ancorato, non solo permesso.
-  const hard = extractFn(fs.readFileSync(path.join(DIR, 'HardiesImport.gs.js'), 'utf8'),
-                         'checkHardiesEmails');
-  const args = hard.match(/processLabelPDF\(([\s\S]*?)\)/)[1]
-    .split(',').map(a => a.trim());
-  assert.strictEqual(args.length, 5, 'checkHardiesEmails deve passare 5 argomenti');
-  assert.strictEqual(args[3], 'null', 'startDate null: il collector orario non fa backfill');
-  assert.strictEqual(args[4], 'true', 'strictSuccessLabeling deve essere true');
+test('23. nessun collector del giro orario e rimasto fail-open', () => {
+  // INV09B — TreviPay era l'ultimo. Il dettaglio dei singoli chiamanti
+  // sta nel test 12; qui si verifica la proprieta' di insieme, cioe'
+  // che checkAllEmails() non chiami piu' niente che possa archiviare un
+  // fallimento come successo.
+  const chiamati = extractFn(codice, 'checkAllEmails');
+  const perLabelPDF = ['checkFrugeEmails', 'checkHardiesEmails', 'checkTreviPayEmails'];
+  for (const fname of perLabelPDF) {
+    assert.ok(chiamati.includes(fname + '()'), fname + ' deve essere nel giro orario');
+  }
+  // FreshPoint passa da processLabelBody, stesso flag
+  const fp = extractFn(fs.readFileSync(path.join(DIR, 'FreshpointImport.gs:.js'), 'utf8'),
+                       'checkFreshpointEmails');
+  assert.ok(/,\s*null,\s*true\)/.test(fp), 'FreshPoint deve restare strict');
+  // Ben E. Keith non usa i due helper: etichetta solo su esito confermato
+  assert.ok(/result\.status === 'queued' \|\| result\.status === 'duplicate'/.test(bek));
 });
 
 // ── 5. FreshPoint: collector BODY-ONLY e fail-closed (INV07) ─────
