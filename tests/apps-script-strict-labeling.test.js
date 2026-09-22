@@ -76,6 +76,12 @@ function makeEnv(threadSpecs, responder, importName, processedName) {
     GmailApp: {
       getUserLabelByName: n => (n === IMP ? importLabel : (n === PROC ? processedLabel : null)),
       createLabel: n => ({ name: n }),
+      // INV11FINAL.1 — qui i thread sono GIA' nella coda di import (e' cosi'
+      // che makeEnv li costruisce): e' lo scenario "il filtro Gmail ha gia'
+      // fatto il suo lavoro". La search autonoma non trova nulla di nuovo, ed
+      // e' giusto cosi': questi test misurano il DRENAGGIO della coda, non la
+      // ricerca. La ricerca ha la sua suite, fruge-autonomous-intake.
+      search: () => [],
     },
     Logger: { log: () => {} },
     Utilities: { base64Encode: () => 'BASE64' },
@@ -268,10 +274,23 @@ test('15. il log del backfill riporta threads_retained_for_retry', () => {
 
 const frugeSrc = fs.readFileSync(path.join(DIR, 'FrugeImport.gs.js'), 'utf8');
 
+// INV11FINAL.1 — checkFrugeEmails() adesso chiama prima frugeMettiInCoda(),
+// che vive nello stesso file e usa la costante FRUGE_INTAKE_QUERY. In Apps
+// Script condividono un solo scope globale: il banco di prova le include
+// entrambe invece di lasciare checkFrugeEmails a meta'.
+function estraiCostante(src, nome) {
+  const i = src.indexOf('var ' + nome);
+  assert.notStrictEqual(i, -1, 'costante non trovata: ' + nome);
+  const fine = src.indexOf(';', i);
+  return src.slice(i, fine + 1);
+}
+
 function runFruge(threadSpecs, responder) {
   const e = makeEnv(threadSpecs, responder, 'fruge-import', 'fruge-processed');
   const fn = new Function('GmailApp', 'Logger', 'Utilities', 'sendToEdge',
     extractFn(SRC, 'processLabelPDF') + '\n' +
+    estraiCostante(frugeSrc, 'FRUGE_INTAKE_QUERY') + '\n' +
+    extractFn(frugeSrc, 'frugeMettiInCoda') + '\n' +
     extractFn(frugeSrc, 'checkFrugeEmails') + '\nreturn checkFrugeEmails;'
   )(e.env.GmailApp, e.env.Logger, e.env.Utilities, e.env.sendToEdge);
   fn();

@@ -11,15 +11,21 @@ const vm = require('vm');
 
 const GAS_DIR = path.join(__dirname, '..', 'apps-script', 'gmail-vendor-import');
 
-function fakeMessage({ id, subject, from, body, plainBody }) {
+function fakeAttachment(name, bytes) {
+  return { getName: () => name, getBytes: () => (bytes || name) };
+}
+
+function fakeMessage({ id, subject, from, body, plainBody, attachments, date }) {
+  const att = (attachments || []).map(a =>
+    typeof a === 'string' ? fakeAttachment(a) : fakeAttachment(a.name, a.bytes));
   return {
     _id: id,
     getSubject: () => subject,
     getFrom: () => from,
     getBody: () => body,
     getPlainBody: () => (plainBody !== undefined ? plainBody : String(body).replace(/<[^>]+>/g, ' ')),
-    getAttachments: () => [],
-    getDate: () => new Date(),
+    getAttachments: () => att,
+    getDate: () => date || new Date(),
   };
 }
 
@@ -36,16 +42,72 @@ function fakeThread({ id, messages, labels = [], lastMessageDate }) {
   };
 }
 
+// ── Valutatore di query Gmail ───────────────────────────────────────────
+//
+// Serve perche' un test sulle ESCLUSIONI non puo' limitarsi a uno stub che
+// restituisce i thread che gli passo: proverebbe solo lo stub. Qui la query
+// scritta nel codice di produzione viene analizzata davvero e applicata ai
+// messaggi finti.
+//
+// Copre soltanto gli operatori usati dai collector di questo progetto. Se la
+// query ne acquistasse un altro, il valutatore SOLLEVA invece di ignorarlo in
+// silenzio: meglio un test che si rompe di un test che passa per finta.
+function analizzaQueryGmail(query) {
+  let resto = ' ' + String(query) + ' ';
+  const c = { from: null, subject: [], haAllegato: false, senzaEtichetta: [], conEtichetta: [] };
+  function consuma(re, fn) {
+    let m;
+    while ((m = resto.match(re))) { fn(m); resto = resto.replace(m[0], ' '); }
+  }
+  consuma(/from:\(([^)]*)\)/i, (m) => {
+    c.from = (c.from || []).concat(m[1].split(/\s+OR\s+/i).map((x) => x.trim().toLowerCase()).filter(Boolean));
+  });
+  consuma(/from:([^\s()]+)/i, (m) => { c.from = (c.from || []).concat([m[1].toLowerCase()]); });
+  consuma(/-label:([^\s()]+)/i, (m) => c.senzaEtichetta.push(m[1]));
+  consuma(/(^|\s)label:([^\s()]+)/i, (m) => c.conEtichetta.push(m[2]));
+  consuma(/subject:"([^"]*)"/i, (m) => c.subject.push(m[1].toLowerCase()));
+  consuma(/subject:([^\s()"]+)/i, (m) => c.subject.push(m[1].toLowerCase()));
+  consuma(/has:attachment/i, () => { c.haAllegato = true; });
+  consuma(/after:[0-9/]+/i, () => {});
+  if (resto.trim() !== '') {
+    throw new Error('clausola non riconosciuta dal valutatore di query: "' + resto.trim() + '"');
+  }
+  return c;
+}
+
+// Semantica di Gmail: la ricerca trova un MESSAGGIO e restituisce il suo
+// thread; le etichette invece sono del thread.
+function threadMatchaQuery(query, thread) {
+  const c = analizzaQueryGmail(query);
+  const etichette = [...thread._labels];
+  if (c.senzaEtichetta.some((l) => etichette.includes(l))) return false;
+  if (c.conEtichetta.some((l) => !etichette.includes(l))) return false;
+  const msgs = thread.getMessages();
+  if (c.haAllegato && !msgs.some((m) => m.getAttachments().length > 0)) return false;
+  if (c.from && !msgs.some((m) => c.from.some((f) => String(m.getFrom()).toLowerCase().includes(f)))) return false;
+  if (c.subject.length &&
+      !msgs.some((m) => c.subject.every((s) => String(m.getSubject()).toLowerCase().includes(s)))) return false;
+  return true;
+}
+
 // `rispondi(payload, chiamata)` decide l'esito di ogni invio: e' il solo
 // punto in cui il test guida il comportamento del backend.
-function caricaGas({ files, threads, props = {}, rispondi }) {
+// `valutaQuery: true` fa valutare davvero la query a GmailApp.search invece
+// di restituire tutti i thread.
+function caricaGas({ files, threads, props = {}, rispondi, valutaQuery = false }) {
   const inviati = [];
   const log = [];
   const etichetteCreate = new Map();
 
   function label(nome) {
     if (!etichetteCreate.has(nome)) {
-      etichetteCreate.set(nome, { getName: () => nome });
+      etichetteCreate.set(nome, {
+        getName: () => nome,
+        // processLabelPDF legge la coda da qui: i thread che PORTANO
+        // l'etichetta in questo momento, non una lista fissata prima.
+        getThreads: (start, max) =>
+          threads.filter((t) => t._labels.has(nome)).slice(start, start + max),
+      });
     }
     return etichetteCreate.get(nome);
   }
@@ -66,7 +128,10 @@ function caricaGas({ files, threads, props = {}, rispondi }) {
       getScriptProperties: () => ({ getProperty: (k) => (k in props ? props[k] : null) }),
     },
     GmailApp: {
-      search: () => threads,
+      search: (q, start, max) => {
+        const trovati = valutaQuery ? threads.filter((t) => threadMatchaQuery(q, t)) : threads;
+        return (start === undefined) ? trovati : trovati.slice(start, start + max);
+      },
       getUserLabelByName: (n) => label(n),
       createLabel: (n) => label(n),
       getThreadById: (id) => threads.find((t) => t.getId() === id) || null,
@@ -92,4 +157,5 @@ function caricaGas({ files, threads, props = {}, rispondi }) {
   return { ctx, inviati, log, sandbox };
 }
 
-module.exports = { caricaGas, fakeMessage, fakeThread, GAS_DIR };
+module.exports = { caricaGas, fakeMessage, fakeThread, fakeAttachment,
+                   analizzaQueryGmail, threadMatchaQuery, GAS_DIR };
