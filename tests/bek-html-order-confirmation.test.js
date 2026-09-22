@@ -257,13 +257,31 @@ function makeMockSupa({ existingRows = [] } = {}) {
   return { sb, calls };
 }
 
+// INV10FINAL.1 — il corpo estratto chiama gviCanonicalNewlines, che vive
+// fuori dalla fetta: la si estrae dal sorgente REALE e la si passa come
+// dipendenza, come jsonResponse/jsonError.
+function extractCanonicalNewlines() {
+  const src = readEdgeSrc();
+  const i = src.indexOf('function gviCanonicalNewlines');
+  if (i === -1) throw new Error('gviCanonicalNewlines non trovata nel sorgente');
+  let livello = 0, k = src.indexOf('{', src.indexOf(')', i));
+  for (; k < src.length; k++) {
+    if (src[k] === '{') livello++;
+    else if (src[k] === '}') { livello--; if (livello === 0) break; }
+  }
+  return new Function('return ' + src.slice(i, k + 1)
+    .replace('(s: string | null | undefined): string', '(s)'))();
+}
+
 async function runHandleBekBody({ supabase, subject, from, body, html_body }) {
   const snippet = extractHandleBekBody();
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  const fn = new AsyncFunction('supabase', 'subject', 'from', 'body', 'html_body', 'jsonResponse', 'jsonError', snippet);
+  const fn = new AsyncFunction('supabase', 'subject', 'from', 'body', 'html_body',
+                               'jsonResponse', 'jsonError', 'gviCanonicalNewlines', snippet);
   const jsonResponse = (data) => data;
   const jsonError = (message) => ({ error: message });
-  return fn(supabase, subject, from, body, html_body, jsonResponse, jsonError);
+  return fn(supabase, subject, from, body, html_body, jsonResponse, jsonError,
+            extractCanonicalNewlines());
 }
 
 (async () => {

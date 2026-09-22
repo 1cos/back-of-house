@@ -45,10 +45,15 @@ function recoverBEKSingleThread_(threadId) {
     return { error: 'thread non trovato', thread_id: threadId };
   }
 
-  // Stesso pattern del collector: ultimo messaggio del thread.
-  var msgs = thread.getMessages();
-  var msg  = msgs[msgs.length - 1];
-  var subject = msg.getSubject();
+  // INV10FINAL.1 — stesso contratto del collector: l'unita' e' il MESSAGGIO.
+  // Prima partiva solo msgs[msgs.length - 1], quindi su un thread con due
+  // messaggi il recovery recuperava meta' del thread e lo dichiarava fatto.
+  var eleggibili = bekMessaggiEleggibili(thread);
+  if (eleggibili.length === 0) {
+    Logger.log('RECOVERY BEK | RIFIUTATO — thread ' + threadId + ' non ha messaggi eleggibili.');
+    return { refused: true, thread_id: threadId, motivo: 'nessun messaggio eleggibile' };
+  }
+  var subject = eleggibili[eleggibili.length - 1].getSubject();
 
   // Secondo cancello: il Sales Order nel subject deve essere quello atteso.
   // Se Gmail restituisse un thread diverso da quello che crediamo, ci
@@ -61,14 +66,24 @@ function recoverBEKSingleThread_(threadId) {
     return { refused: true, thread_id: threadId, sales_order_trovato: so };
   }
 
-  Logger.log('RECOVERY BEK | invio thread ' + threadId + ' Sales Order ' + so + ' (' + atteso.buyer + ')');
-  var result = sendToEdge('gmail-vendor-import', {
-    subject:   subject,
-    from:      msg.getFrom(),
-    html_body: msg.getBody()
-  });
-  Logger.log('RECOVERY BEK | esito: ' + JSON.stringify(result));
-  return { thread_id: threadId, sales_order: so, buyer: atteso.buyer, result: result };
+  Logger.log('RECOVERY BEK | invio thread ' + threadId + ' Sales Order ' + so +
+             ' (' + atteso.buyer + '), ' + eleggibili.length + ' messaggi');
+
+  // Dal piu' vecchio al piu' nuovo, e al primo fallimento ci si ferma: i
+  // successivi prenderebbero un created_at anteriore al mancante e
+  // invertirebbero la cronologia che decide la revisione operativa (MT61).
+  var risultati = [];
+  var tuttiOk = true;
+  for (var i = 0; i < eleggibili.length; i++) {
+    var result = bekInviaMessaggio(eleggibili[i]);
+    risultati.push(result);
+    Logger.log('RECOVERY BEK | esito messaggio ' + (i + 1) + '/' + eleggibili.length +
+               ': ' + JSON.stringify(result));
+    if (!bekInvioRiuscito(result)) { tuttiOk = false; break; }
+  }
+  return { thread_id: threadId, sales_order: so, buyer: atteso.buyer,
+           messaggi: eleggibili.length, tutti_ok: tuttiOk,
+           results: risultati, result: risultati[risultati.length - 1] };
 }
 
 // ── Canary 1 — SOLO 0002492315, cucina ───────────────────────────

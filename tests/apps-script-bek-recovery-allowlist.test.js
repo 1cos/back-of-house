@@ -12,8 +12,26 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const SRC = fs.readFileSync(
-  path.join(__dirname, '..', 'apps-script', 'gmail-vendor-import', 'RecoveryBEK.gs.js'), 'utf8');
+const DIR = path.join(__dirname, '..', 'apps-script', 'gmail-vendor-import');
+const SRC = fs.readFileSync(path.join(DIR, 'RecoveryBEK.gs.js'), 'utf8');
+const BEKIMPORT = fs.readFileSync(path.join(DIR, 'BEKImport.gs.js'), 'utf8');
+
+// In Apps Script i file condividono un solo scope globale: il recovery usa
+// gli helper BEK definiti in BEKImport.gs.js (INV10FINAL.1). Si estraggono
+// dal sorgente vero, non si riscrivono qui.
+function extractFn(src, name) {
+  const start = src.indexOf('function ' + name + '(');
+  assert.notStrictEqual(start, -1, 'funzione non trovata: ' + name);
+  let depth = 0;
+  for (let j = src.indexOf('{', start); j < src.length; j++) {
+    if (src[j] === '{') depth++;
+    else if (src[j] === '}') { depth--; if (depth === 0) return src.slice(start, j + 1); }
+  }
+  throw new Error('parentesi non bilanciate in ' + name);
+}
+const HELPER_BEK = ['bekMessaggioEleggibile', 'bekMessaggiEleggibili',
+                    'bekInvioRiuscito', 'bekInviaMessaggio']
+  .map(n => extractFn(BEKIMPORT, n)).join('\n');
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -32,11 +50,11 @@ function build({ subjectFor, enabled = 'true', threadMancante = false } = {}) {
       getMessages: () => [{ getSubject: () => subjectFor(id), getFrom: () => 'x@benekeith.com', getBody: () => '<html>' + id + '</html>' }],
     }) },
     sendToEdge: (fn, p) => { inviati.push(p); return { status: 'queued' }; },
-    JSON, String, Object,
+    JSON, String, Object, Array,
   };
   const names = Object.keys(env);
   const api = new Function(...names,
-    SRC + '\n;return {one:recoverBEKSingleThread_, c1:recoverBEKConfirmation1, c2:recoverBEKConfirmation2,' +
+    HELPER_BEK + '\n' + SRC + '\n;return {one:recoverBEKSingleThread_, c1:recoverBEKConfirmation1, c2:recoverBEKConfirmation2,' +
     ' probe:recoverBEKIdempotencyProbe, lista:BEK_RECOVERY_ALLOWLIST};')(...names.map(n => env[n]));
   return { api, inviati, logs };
 }

@@ -229,10 +229,19 @@ test('12. il giro orario e ora interamente fail-closed', () => {
   }
 });
 
-test('13. BEK invariato: gia etichettava solo su esito confermato', () => {
+// INV10FINAL.1 — BEK adotta lo stesso contratto strict di processLabelPDF,
+// ma sui MESSAGGI invece che sugli allegati: ognuno parte per conto suo e
+// l'etichetta e' una decisione di thread presa alla fine.
+test('13. BEK: strict per messaggio, come processLabelPDF lo e per allegato', () => {
+  const ok = extractFn(bek, 'bekInvioRiuscito');
+  assert.ok(/result\.status === 'queued' \|\| result\.status === 'duplicate'/.test(ok),
+    'esito confermato = solo queued o duplicate');
   const f = extractFn(bek, 'processBEKQuery');
-  assert.ok(/result\.status === 'queued' \|\| result\.status === 'duplicate'/.test(f));
   assert.ok(/stats\.failed\+\+/.test(f));
+  assert.ok(/stats\.threads_retained_for_retry\+\+/.test(f),
+    'un thread non chiuso deve restare ritentabile, come nel ramo strict');
+  assert.ok(/tuttiOk[\s\S]{0,200}addLabel\(processedLabel\)/.test(f),
+    'l etichetta e una decisione di thread presa dopo tutti i messaggi');
   assert.ok(!/strictSuccessLabeling/.test(bek), 'BEK non usa processLabelPDF, non serve il flag');
 });
 

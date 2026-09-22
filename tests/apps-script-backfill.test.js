@@ -159,10 +159,23 @@ test('10. il live checkBEKEmails continua ad applicare BEK_TEST_MODE', () => {
 test('11. il live usa processBEKQuery; il backfill ha il suo percorso cronologico', () => {
   assert.ok(/processBEKQuery\(query, '\[BEK\]'\)/.test(fnBody(bek, 'checkBEKEmails')),
     'il collector orario deve continuare a usare processBEKQuery');
+  // INV10FINAL.1 — l'esito confermato adesso vive in bekInvioRiuscito(),
+  // chiamato da processBEKQuery. La proprieta' e' la stessa: si etichetta
+  // solo su 'queued' o 'duplicate'. Si controlla dove sta davvero.
+  const ok = fnBody(bek, 'bekInvioRiuscito');
+  assert.ok(/status === 'queued' \|\| result\.status === 'duplicate'/.test(ok),
+    'esito confermato = solo queued o duplicate');
+  assert.ok(/!result\.error/.test(ok), 'una risposta con {error} non e mai un successo');
+
   const shared = fnBody(bek, 'processBEKQuery');
-  assert.ok(/status === 'queued' \|\| result\.status === 'duplicate'/.test(shared),
-    'etichetta solo su esito confermato');
+  assert.ok(/bekInvioRiuscito\(result\)/.test(shared),
+    'processBEKQuery deve decidere l esito con bekInvioRiuscito');
   assert.ok(/stats\.failed\+\+/.test(shared), 'gli errori devono essere contati, non etichettati');
+  // L'etichetta e' una decisione di THREAD presa dopo tutti i messaggi.
+  assert.ok(/tuttiOk[\s\S]{0,200}addLabel\(processedLabel\)/.test(shared),
+    'addLabel deve dipendere dall esito di TUTTI i messaggi eleggibili');
+  assert.ok(/bekMessaggiEleggibili\(thread\)/.test(shared),
+    'l unita di ingest deve essere il messaggio, non il thread');
 
   const bf = fnBody(backfill, 'backfillBEKFromJune2026');
   assert.ok(/processBEKBacklogChronological\(query, '\[BEK-BACKFILL\]'/.test(bf),
@@ -170,8 +183,12 @@ test('11. il live usa processBEKQuery; il backfill ha il suo percorso cronologic
   assert.ok(!/processBEKQuery/.test(bf),
     'il backfill non deve piu chiamare processBEKQuery');
   const chrono = fnBody(backfill, 'processBEKBacklogChronological');
-  assert.ok(/status === 'queued' \|\| result\.status === 'duplicate'/.test(chrono),
-    'anche il backfill etichetta solo su esito confermato');
+  assert.ok(/bekInvioRiuscito\(result\)/.test(chrono),
+    'anche il backfill decide l esito con bekInvioRiuscito');
+  assert.ok(/tuttiOk[\s\S]{0,200}addLabel\(processedLabel\)/.test(chrono),
+    'anche il backfill etichetta solo se TUTTI i messaggi eleggibili sono passati');
+  assert.ok(/bekMessaggiEleggibili\(thread\)/.test(chrono),
+    'anche il backfill ingerisce per messaggio');
   assert.ok(/\.sort\(/.test(chrono) && /slice\(0, batchSize\)/.test(chrono),
     'ordinamento globale PRIMA del taglio');
   assert.ok(chrono.indexOf('.sort(') < chrono.indexOf('slice(0, batchSize)'),

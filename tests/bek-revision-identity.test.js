@@ -247,8 +247,12 @@ test('C. stessa identica email -> duplicate per CONTENUTO', () => {
   const f = codeOnly(fnBody(INTAKE, 'handleBekOrderConfirmationBody'));
   assert.ok(/\.select\('id, status, raw_text'\)/.test(f),
     'l intake deve leggere raw_text per poter confrontare il contenuto');
-  assert.ok(/r\.raw_text === sourceText/.test(f),
-    'il confronto di identita deve essere sul contenuto');
+  // INV10FINAL.1 — il confronto resta sul CONTENUTO; adesso passa da
+  // gviCanonicalNewlines su entrambi i lati, che equipara i soli fine-riga.
+  assert.ok(/gviCanonicalNewlines\(r\.raw_text\) === sourceKey/.test(f),
+    'il confronto di identita deve restare sul contenuto');
+  assert.ok(/const sourceKey = gviCanonicalNewlines\(sourceText\)/.test(f),
+    'anche il lato in arrivo deve passare dalla stessa canonicalizzazione');
   assert.ok(/identical[\s\S]{0,200}status: 'duplicate'/.test(f),
     'solo un contenuto identico deve produrre duplicate');
 });
@@ -260,7 +264,7 @@ test('D. stesso Sales Order ma email diversa -> NON duplicate', () => {
   const ramo = f.slice(f.indexOf('if (salesOrder)'), f.indexOf('} else if (subject && from)'));
   const ritorni = ramo.match(/status: 'duplicate'/g) || [];
   assert.strictEqual(ritorni.length, 1, 'un solo return duplicate nel ramo Sales Order');
-  assert.ok(/r\.raw_text === sourceText/.test(ramo),
+  assert.ok(/gviCanonicalNewlines\(r\.raw_text\) === sourceKey/.test(ramo),
     'e deve essere condizionato al contenuto identico');
   assert.ok(!/\.limit\(1\)[\s\S]{0,120}existing\.length > 0[\s\S]{0,120}duplicate/.test(ramo),
     'il vecchio duplicate incondizionato sul Sales Order deve essere sparito');

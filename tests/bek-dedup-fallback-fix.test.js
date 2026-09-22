@@ -61,15 +61,35 @@ function makeMockSupa({ existingRows = [] } = {}) {
   return { sb, calls };
 }
 
+// INV10FINAL.1 — il corpo estratto adesso chiama gviCanonicalNewlines, che
+// vive fuori dalla fetta. Si estrae anch'essa dal sorgente REALE e la si
+// passa come dipendenza, esattamente come jsonResponse/jsonError: nessuna
+// riscrittura della normalizzazione dentro il test.
+function extractCanonicalNewlines() {
+  const src = readSrc();
+  const i = src.indexOf('function gviCanonicalNewlines');
+  if (i === -1) throw new Error('gviCanonicalNewlines non trovata nel sorgente');
+  let livello = 0, k = src.indexOf('{', src.indexOf(')', i));
+  const j = k;
+  for (; k < src.length; k++) {
+    if (src[k] === '{') livello++;
+    else if (src[k] === '}') { livello--; if (livello === 0) break; }
+  }
+  return new Function('return ' + src.slice(i, k + 1)
+    .replace('(s: string | null | undefined): string', '(s)'))();
+}
+
 async function runHandleBekBody({ supabase, subject, from, body, html_body }) {
   let snippet = extractHandleBekBody().replace(/:\s*string\s*\|\s*null/g, '');
   snippet = snippet.trim();
   snippet = snippet.slice(0, snippet.lastIndexOf('}')); // strip the function's own closing brace — new Function already wraps the body
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  const fn = new AsyncFunction('supabase', 'subject', 'from', 'body', 'html_body', 'jsonResponse', 'jsonError', snippet);
+  const fn = new AsyncFunction('supabase', 'subject', 'from', 'body', 'html_body',
+                               'jsonResponse', 'jsonError', 'gviCanonicalNewlines', snippet);
   const jsonResponse = (data) => data;
   const jsonError = (message) => ({ error: message });
-  return fn(supabase, subject, from, body, html_body, jsonResponse, jsonError);
+  return fn(supabase, subject, from, body, html_body, jsonResponse, jsonError,
+            extractCanonicalNewlines());
 }
 
 const SUBJECT = "Ben E. Keith : Order Confirmation for FDF770366-ZENO'S ON THE SQUARE;0002952908";

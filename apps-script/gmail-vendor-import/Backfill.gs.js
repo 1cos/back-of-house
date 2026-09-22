@@ -126,8 +126,10 @@ function backfillBEKFromJune2026() {
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('BEK_ENABLED') !== 'true') {
     Logger.log('BACKFILL BEK | Skipped \u2014 BEK_ENABLED non impostata a true.');
-    return { threads_found: 0, eligible_total: 0, queued: 0, duplicate: 0, failed: 0,
-             processed_label_added: 0, skipped_after_failure: 0, threads_retained_for_retry: 0 };
+    return { threads_found: 0, eligible_total: 0, eligible_total_messages: 0,
+             queued: 0, duplicate: 0, failed: 0, processed_label_added: 0,
+             skipped_after_failure: 0, threads_retained_for_retry: 0,
+             threads_without_eligible: 0 };
   }
 
   // after:2026/05/31 e' esclusivo sul giorno indicato, quindi copre dal
@@ -207,8 +209,10 @@ function bekSalesOrderKey(msg, subject) {
 
 function processBEKBacklogChronological(query, tag, batchSize) {
   var stats = {
-    threads_found: 0, eligible_total: 0, queued: 0, duplicate: 0, failed: 0,
-    processed_label_added: 0, skipped_after_failure: 0, threads_retained_for_retry: 0
+    threads_found: 0, eligible_total: 0, eligible_total_messages: 0,
+    queued: 0, duplicate: 0, failed: 0,
+    processed_label_added: 0, skipped_after_failure: 0, threads_retained_for_retry: 0,
+    threads_without_eligible: 0
   };
 
   var processedLabel = GmailApp.getUserLabelByName('bek-processed')
@@ -235,38 +239,59 @@ function processBEKBacklogChronological(query, tag, batchSize) {
   var blocked = {};
 
   batch.forEach(function (thread) {
-    // Invariato rispetto a processBEKQuery: un thread con piu' messaggi
-    // manda SOLO l'ultimo. Verificato reale su 0002927278 (MICRO-TASK 60).
-    var msgs = thread.getMessages();
-    var msg = msgs[msgs.length - 1];
-    var subject = msg.getSubject();
-    var salesOrder = bekSalesOrderKey(msg, subject);
+    // INV10FINAL.1 — come processBEKQuery: parte OGNI messaggio eleggibile,
+    // dal piu' vecchio al piu' nuovo, e l'etichetta e' una decisione di
+    // thread presa alla fine.
+    //
+    // UNA DIFFERENZA RISPETTO AL COLLECTOR ORARIO, e non e' cosmetica: qui,
+    // al primo fallimento, i messaggi SUCCESSIVI dello stesso thread non
+    // partono (break). Se partissero prenderebbero un created_at anteriore a
+    // quello del messaggio fallito, che arriverebbe solo al retry: sarebbe
+    // di nuovo l'inversione cronologica che MICRO-TASK 61 ha corretto.
+    var eleggibili = bekMessaggiEleggibili(thread);
+    stats.eligible_total_messages += eleggibili.length;
 
-    if (salesOrder && blocked[salesOrder]) {
-      stats.skipped_after_failure++;
+    if (eleggibili.length === 0) {
+      stats.threads_without_eligible++;
       stats.threads_retained_for_retry++;
-      Logger.log(tag + ' SKIP revisione successiva di ' + salesOrder +
-                 ': una revisione precedente dello stesso ordine e fallita in questo run');
+      Logger.log(tag + ' Nessun messaggio eleggibile nel thread: non etichettato.');
       return;
     }
 
-    var result = sendToEdge('gmail-vendor-import', {
-      subject: subject,
-      from: msg.getFrom(),
-      html_body: msg.getBody()
-    });
+    var tuttiOk = true;
+    for (var i = 0; i < eleggibili.length; i++) {
+      var msg = eleggibili[i];
+      var subject = msg.getSubject();
+      var salesOrder = bekSalesOrderKey(msg, subject);
 
-    // Etichetta SOLO su esito confermato, come il percorso strict di
-    // MICRO-TASK 54B: su errore il thread resta eleggibile per un retry.
-    if (result && !result.error && (result.status === 'queued' || result.status === 'duplicate')) {
+      if (salesOrder && blocked[salesOrder]) {
+        stats.skipped_after_failure++;
+        tuttiOk = false;
+        Logger.log(tag + ' SKIP revisione successiva di ' + salesOrder +
+                   ': una revisione precedente dello stesso ordine e fallita in questo run');
+        break;
+      }
+
+      var result = bekInviaMessaggio(msg);
+
+      if (bekInvioRiuscito(result)) {
+        if (result.status === 'queued') stats.queued++; else stats.duplicate++;
+      } else {
+        stats.failed++;
+        tuttiOk = false;
+        if (salesOrder) blocked[salesOrder] = true;
+        Logger.log(tag + ' Non etichettato \u2014 risposta non confermata: ' + JSON.stringify(result));
+        break;
+      }
+    }
+
+    // Etichetta SOLO su esito confermato per TUTTI, come il percorso strict
+    // di MICRO-TASK 54B: su errore il thread resta eleggibile per un retry.
+    if (tuttiOk) {
       thread.addLabel(processedLabel);
       stats.processed_label_added++;
-      if (result.status === 'queued') stats.queued++; else stats.duplicate++;
     } else {
-      stats.failed++;
       stats.threads_retained_for_retry++;
-      if (salesOrder) blocked[salesOrder] = true;
-      Logger.log(tag + ' Non etichettato \u2014 risposta non confermata: ' + JSON.stringify(result));
     }
   });
 

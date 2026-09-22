@@ -119,6 +119,31 @@ Deno.serve(async (req: Request) => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════════
+// INV10FINAL.1 — canonicalizzazione MINIMA dei soli fine-riga.
+//
+// Il dedup BEK confronta raw_text carattere per carattere. Su 0003243454
+// la STESSA email e' entrata due volte perche' una lettura portava \n e
+// l'altra \r\n: 54 righe di tabella e 8 prodotti identici, ma stringhe
+// diverse. A valle la regola di impronta economica di INV10B ha chiuso il
+// secondo come exact_duplicate — quindi $0,00 — ma il documento era gia'
+// nato.
+//
+// Qui si toglie SOLO quella differenza, e SOLO per il confronto: quello
+// che si scrive in raw_text resta il testo verbatim che e' arrivato.
+// Applicata a ENTRAMBI i lati, funziona anche sui documenti gia' in
+// archivio, che hanno fine-riga misti.
+//
+// Nient'altro viene toccato: niente trim, niente collapse degli spazi,
+// niente lowercase, niente rimozione di tag. Due revisioni vere — qty,
+// prezzo, importo o stato riga diversi — restano stringhe diverse, e lo
+// devono restare: e' il dedup a monte, non la difesa contabile, che vive
+// nell'impronta economica di INV10B.
+// ══════════════════════════════════════════════════════════════════
+function gviCanonicalNewlines(s: string | null | undefined): string {
+  return String(s == null ? '' : s).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
 // ── FIX (BOH OS Task 10): body-only path for Ben E. Keith Order Confirmation ──
 // No file to store. Only a lightweight extraction happens here, just enough
 // for the dedup key and document_number — the real parse (items, pricing,
@@ -189,7 +214,11 @@ async function handleBekOrderConfirmationBody(
       .eq('document_number', salesOrder)
       .limit(20);   // un Sales Order non ha 20 revisioni: query limitata per sicurezza
 
-    const identical = (siblings || []).find(r => r.raw_text === sourceText);
+    // Confronto sui soli fine-riga canonicalizzati (INV10FINAL.1). Il
+    // contenuto memorizzato resta verbatim: si normalizza la CHIAVE, non il
+    // documento.
+    const sourceKey = gviCanonicalNewlines(sourceText);
+    const identical = (siblings || []).find(r => gviCanonicalNewlines(r.raw_text) === sourceKey);
     if (identical)
       return jsonResponse({ status: 'duplicate', message: 'Same message already ingested', document_id: identical.id });
     // Nessun altro ramo: un Sales Order gia' presente con contenuto DIVERSO

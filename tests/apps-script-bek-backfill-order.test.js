@@ -75,7 +75,14 @@ function makeEnv(threadSpecs, responder, props) {
     JSON, Math, String, Number, Date, RegExp, Object, Array,
   };
 
+  // In Apps Script tutti i file condividono un solo scope globale: il
+  // backfill usa gli helper BEK definiti in BEKImport.gs.js. Includerli qui
+  // e' piu' fedele alla produzione, non meno (INV10FINAL.1).
   const src = [
+    extractFn(BEKIMPORT, 'bekMessaggioEleggibile'),
+    extractFn(BEKIMPORT, 'bekMessaggiEleggibili'),
+    extractFn(BEKIMPORT, 'bekInvioRiuscito'),
+    extractFn(BEKIMPORT, 'bekInviaMessaggio'),
     BACKFILL.slice(BACKFILL.indexOf('var BEK_BACKFILL_BATCH_SIZE')),   // costanti + funzioni nuove
     extractFn(BACKFILL, 'backfillBEKFromJune2026'),
   ].join('\n');
@@ -207,7 +214,12 @@ test('5. un fallimento su un Sales Order non blocca gli altri', () => {
 
 // ── 6. un thread, piu' messaggi ──────────────────────────────────
 
-test('6. thread con piu messaggi: parte SOLO l ultimo', () => {
+// INV10FINAL.1 — il contratto e' cambiato, e questo test lo segue.
+// Prima partiva SOLO msgs[msgs.length - 1] e l'acknowledgement delle 16:36
+// di 0002927278 non diventava mai un documento; visto che la query e'
+// `-label:bek-processed`, non tornava in nessuna ricerca successiva.
+// Adesso parte ogni messaggio eleggibile, dal piu' vecchio al piu' nuovo.
+test('6. thread con piu messaggi: partono TUTTI, dal piu vecchio', () => {
   const specs = [{
     id: 'MULTI', date: d('2026-08-17T16:43:00Z'),
     messages: [
@@ -216,9 +228,45 @@ test('6. thread con piu messaggi: parte SOLO l ultimo', () => {
     ],
   }];
   const env = makeEnv(specs, ok, PROPS_ON);
+  const stats = env.api.backfillBEKFromJune2026();
+  assert.strictEqual(env.sent.length, 2);
+  assert.strictEqual(env.sent[0].html_body, '<html>acknowledgement</html>');
+  assert.strictEqual(env.sent[1].html_body, '<html>confermato</html>');
+  assert.strictEqual(stats.eligible_total_messages, 2);
+  assert.deepStrictEqual(env.labelled.map(l => l.thread), ['MULTI']);
+});
+
+test('6b. thread multi-messaggio: se il primo fallisce il thread resta in coda', () => {
+  const specs = [{
+    id: 'MULTI', date: d('2026-08-17T16:43:00Z'),
+    messages: [
+      { subject: subj('0002927278'), body: '<html>acknowledgement</html>' },
+      { subject: subj('0002927278'), body: '<html>confermato</html>' },
+    ],
+  }];
+  // Al primo fallimento il backfill si ferma: mandare il secondo gli darebbe
+  // un created_at anteriore al mancante e invertirebbe la cronologia (MT61).
+  const env = makeEnv(specs, p => (p.html_body.includes('acknowledgement')
+    ? { error: 'boom' } : ok()), PROPS_ON);
   env.api.backfillBEKFromJune2026();
   assert.strictEqual(env.sent.length, 1);
-  assert.strictEqual(env.sent[0].html_body, '<html>confermato</html>');
+  assert.deepStrictEqual(env.labelled.map(l => l.thread), []);
+});
+
+test('6c. un messaggio non-BEK dentro il thread non parte', () => {
+  const specs = [{
+    id: 'MISTO', date: d('2026-08-17T16:43:00Z'),
+    messages: [
+      { subject: subj('0002927278'), body: '<html>acknowledgement</html>' },
+      { subject: 'Re: consegna', from: 'chef@zenos.com', body: '<html>ciao</html>' },
+      { subject: subj('0002927278'), body: '<html>confermato</html>' },
+    ],
+  }];
+  const env = makeEnv(specs, ok, PROPS_ON);
+  env.api.backfillBEKFromJune2026();
+  assert.strictEqual(env.sent.length, 2);
+  assert.deepStrictEqual(env.sent.map(p => p.html_body),
+    ['<html>acknowledgement</html>', '<html>confermato</html>']);
 });
 
 // ── 7. tetto del batch ───────────────────────────────────────────
