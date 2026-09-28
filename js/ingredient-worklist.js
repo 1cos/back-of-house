@@ -1,0 +1,222 @@
+// ══════════════════════════════════════════════════════════════════
+// WORKLIST INGREDIENTI — js/ingredient-worklist.js
+//
+// NON e' una nuova schermata di matching. La schermata di matching
+// esiste gia' ed e' window.vdrOpenMatchSelector(): candidati, ricerca,
+// approvazione con un tap, scrittura su ingredient_vendors, backfill
+// delle righe storiche e recupero del prezzo. Questo file aggiunge
+// SOLTANTO il punto d'ingresso che mancava: l'elenco di tutti gli SKU
+// scollegati, di tutti i documenti, in un posto solo.
+//
+// Prima si arrivava al matching aprendo un documento alla volta: uno
+// SKU rimasto indietro su una fattura di luglio non lo trovava piu'
+// nessuno. Da INV15 le fatture entrano anche con prodotti senza nome,
+// quindi questa lista e' il posto dove quei nomi si danno.
+//
+// SOLA LETTURA finche' non tocchi "Collega". Nessun collegamento
+// automatico, nessun ingrediente creato da solo, nessuna ricetta
+// sfiorata.
+// ══════════════════════════════════════════════════════════════════
+'use strict';
+
+// Righe tecniche Walmart: quadrature di pagamento e varianze di
+// evasione. Non sono prodotti e non diventeranno mai ingredienti.
+// L'elenco e' ESATTO, non euristico: nessun "contiene", nessun regex.
+window.IWL_SKU_TECNICI = ['ALT_PAYMENT_METHODS', 'SubDown'];
+
+// Raggruppa le righe scollegate per fornitore + SKU. Una riga per
+// prodotto, non per fattura: il collegamento e' per SKU e una sola
+// approvazione sistema tutte le righe storiche.
+window.iwlRaggruppa = function(righe) {
+  const m = new Map();
+  (righe || []).forEach(function(r) {
+    if (!r.vendor_sku) return;
+    if (window.IWL_SKU_TECNICI.indexOf(r.vendor_sku) > -1) return;
+    const k = r.vendor + '\u0000' + r.vendor_sku;
+    let g = m.get(k);
+    if (!g) {
+      g = { vendor: r.vendor, vendor_sku: r.vendor_sku, descrizione: r.raw_description || '',
+            pack: r.pack_description || null, righe: 0, valore: 0,
+            ultima_data: null, ultimo_prezzo: null, doc_id: null, ha_peso: false };
+      m.set(k, g);
+    }
+    g.righe += 1;
+    g.valore += Number(r.line_total || 0);
+    if (r.cost_per_100g != null && Number(r.cost_per_100g) > 0) g.ha_peso = true;
+    if (!g.ultima_data || (r.invoice_date && r.invoice_date > g.ultima_data)) {
+      g.ultima_data   = r.invoice_date || g.ultima_data;
+      g.ultimo_prezzo = r.unit_price != null ? Number(r.unit_price) : g.ultimo_prezzo;
+      g.descrizione   = r.raw_description || g.descrizione;
+      g.pack          = r.pack_description || g.pack;
+      g.doc_id        = r.import_id || g.doc_id;
+    }
+  });
+  // Per importanza: quanto vale, poi quante volte e' stato comprato.
+  return Array.from(m.values()).sort(function(a, b) {
+    return b.valore - a.valore || b.righe - a.righe;
+  });
+};
+
+window.openIngredientWorklist = async function() {
+  const sb = window.supabaseClient || window.supa;
+  if (!sb) return;
+
+  document.getElementById('iwlOverlay')?.remove();
+  document.getElementById('iwlModal')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'iwlOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9400;background:rgba(8,18,40,0.65);';
+  overlay.onclick = function(e) { if (e.target === overlay) chiudi(); };
+  document.body.appendChild(overlay);
+
+  const modal = document.createElement('div');
+  modal.id = 'iwlModal';
+  const mob = function() { return window.innerWidth <= 768; };
+  function dimensiona() {
+    if (mob()) { modal.style.inset = '0'; modal.style.borderRadius = '0'; }
+    else { modal.style.inset = '24px'; modal.style.borderRadius = '18px'; }
+  }
+  modal.style.cssText = 'position:fixed;z-index:9401;background:#0f172a;color:#e2e8f0;'
+    + 'display:flex;flex-direction:column;overflow:hidden;'
+    + 'box-shadow:0 32px 80px rgba(0,0,0,0.7);'
+    + 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
+  dimensiona();
+  window.addEventListener('resize', dimensiona);
+  document.body.appendChild(modal);
+
+  function chiudi() {
+    document.getElementById('iwlOverlay')?.remove();
+    document.getElementById('iwlModal')?.remove();
+  }
+  window.iwlChiudi = chiudi;
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  const soldi = function(n) { return '$' + Number(n || 0).toFixed(2); };
+
+  modal.innerHTML = '<div style="padding:40px;text-align:center;color:#94a3b8;">Carico…</div>';
+
+  // ── DATI ──────────────────────────────────────────────────────────
+  const { data: righe, error } = await sb.from('invoice_lines')
+    .select('vendor,vendor_sku,raw_description,pack_description,invoice_date,unit_price,line_total,cost_per_100g,import_id')
+    .is('ingredient_id', null);
+
+  if (error) {
+    modal.innerHTML = '<div style="padding:40px;color:#f87171;">Errore: ' + esc(error.message)
+      + '</div><div style="padding:0 40px 40px;"><button onclick="iwlChiudi()">Chiudi</button></div>';
+    return;
+  }
+
+  const gruppi = window.iwlRaggruppa(righe);
+  const tecniche = (righe || []).filter(function(r) {
+    return window.IWL_SKU_TECNICI.indexOf(r.vendor_sku) > -1;
+  }).length;
+
+  // Quanti ingredienti usati dalle ricette hanno un prezzo valido.
+  // E' la domanda che conta davvero, e va mostrata in cima.
+  let copertura = null;
+  try {
+    const { data: bom } = await sb.from('recipe_bom').select('item_id').eq('component_type','ITEM');
+    const usati = Array.from(new Set((bom || []).map(function(b) { return b.item_id; }).filter(Boolean)));
+    const { data: prezzati } = await sb.from('invoice_lines')
+      .select('ingredient_id').not('ingredient_id','is',null).gt('cost_per_100g', 0);
+    const set = new Set((prezzati || []).map(function(p) { return p.ingredient_id; }));
+    copertura = { con: usati.filter(function(id) { return set.has(id); }).length, tot: usati.length };
+  } catch (e) { copertura = null; }
+
+  // ── RENDER ────────────────────────────────────────────────────────
+  const perFornitore = new Map();
+  gruppi.forEach(function(g) {
+    if (!perFornitore.has(g.vendor)) perFornitore.set(g.vendor, []);
+    perFornitore.get(g.vendor).push(g);
+  });
+  // I fornitori con piu' denaro scollegato per primi.
+  const fornitori = Array.from(perFornitore.entries()).sort(function(a, b) {
+    const sa = a[1].reduce(function(s, g) { return s + g.valore; }, 0);
+    const sb2 = b[1].reduce(function(s, g) { return s + g.valore; }, 0);
+    return sb2 - sa;
+  });
+
+  const totale = gruppi.reduce(function(s, g) { return s + g.valore; }, 0);
+
+  const sezioni = fornitori.map(function(par) {
+    const vendor = par[0], lista = par[1];
+    const somma = lista.reduce(function(s, g) { return s + g.valore; }, 0);
+    const card = lista.map(function(g) {
+      const peso = g.ha_peso
+        ? '<span style="color:#34d399;">prezzo al peso disponibile</span>'
+        : '<span style="color:#fbbf24;">formato a pezzo: nessun prezzo al chilo</span>';
+      return '<div style="padding:12px 0;border-bottom:1px solid #1e293b;">'
+        + '<div style="display:flex;gap:10px;align-items:flex-start;">'
+        +   '<div style="flex:1;min-width:0;">'
+        +     '<div style="font-size:14px;font-weight:600;color:#f1f5f9;">' + esc(g.descrizione) + '</div>'
+        +     '<div style="font-size:11px;color:#94a3b8;margin-top:3px;">'
+        +       'SKU ' + esc(g.vendor_sku)
+        +       (g.pack ? ' &middot; ' + esc(g.pack) : '')
+        +       (g.ultima_data ? ' &middot; ' + esc(g.ultima_data) : '')
+        +       (g.ultimo_prezzo != null ? ' &middot; ' + soldi(g.ultimo_prezzo) : '')
+        +       ' &middot; ' + g.righe + ' rig' + (g.righe === 1 ? 'a' : 'he')
+        +     '</div>'
+        +     '<div style="font-size:11px;margin-top:3px;">' + peso + '</div>'
+        +   '</div>'
+        +   '<div style="text-align:right;flex-shrink:0;">'
+        +     '<div style="font-size:15px;font-weight:700;color:#f1f5f9;">' + soldi(g.valore) + '</div>'
+        +     '<button onclick="iwlCollega(this)"'
+        +       ' data-vendor="' + esc(g.vendor) + '"'
+        +       ' data-sku="' + esc(g.vendor_sku) + '"'
+        +       ' data-descr="' + esc(g.descrizione) + '"'
+        +       ' data-doc="' + esc(g.doc_id || '') + '"'
+        +       ' style="margin-top:6px;font-size:12px;font-weight:600;padding:7px 14px;'
+        +       'border-radius:9px;border:1px solid #2f6f4e;background:rgba(47,111,78,0.18);'
+        +       'color:#6ee7b7;cursor:pointer;">Collega</button>'
+        +   '</div>'
+        + '</div></div>';
+    }).join('');
+    return '<div style="margin-bottom:22px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;'
+      +      'padding-bottom:8px;border-bottom:1px solid #334155;margin-bottom:6px;">'
+      +   '<div style="font-size:13px;font-weight:700;letter-spacing:0.04em;color:#cbd5e1;">'
+      +     esc(vendor) + '</div>'
+      +   '<div style="font-size:12px;color:#94a3b8;">' + lista.length + ' prodott'
+      +     (lista.length === 1 ? 'o' : 'i') + ' &middot; ' + soldi(somma) + '</div>'
+      + '</div>' + card + '</div>';
+  }).join('');
+
+  const testaCopertura = copertura
+    ? '<div style="font-size:12px;color:#94a3b8;margin-top:4px;">'
+      + '<b style="color:#e2e8f0;">' + copertura.con + '</b> ingredienti su <b style="color:#e2e8f0;">'
+      + copertura.tot + '</b> usati dalle ricette hanno un prezzo valido</div>'
+    : '';
+
+  modal.innerHTML =
+    '<div style="padding:16px 18px 12px;border-bottom:1px solid #1e293b;flex-shrink:0;'
+    +     'display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">'
+    +   '<div><div style="font-size:17px;font-weight:700;color:#f8fafc;">Prodotti da collegare</div>'
+    +     '<div style="font-size:12px;color:#94a3b8;margin-top:3px;">'
+    +       gruppi.length + ' prodotti &middot; ' + soldi(totale) + ' non ancora attribuiti'
+    +       (tecniche ? ' &middot; ' + tecniche + ' righe tecniche escluse' : '')
+    +     '</div>' + testaCopertura + '</div>'
+    +   '<button onclick="iwlChiudi()" style="font-size:20px;line-height:1;background:none;'
+    +     'border:none;color:#94a3b8;cursor:pointer;padding:2px 6px;">&times;</button>'
+    + '</div>'
+    + '<div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 18px 40px;">'
+    +   (gruppi.length ? sezioni
+        : '<div style="padding:40px;text-align:center;color:#34d399;font-size:15px;">'
+          + 'Nessun prodotto in attesa. Tutto collegato.</div>')
+    + '</div>';
+};
+
+// Un tap apre la modale ESISTENTE. Questo file non salva niente.
+window.iwlCollega = function(btn) {
+  if (typeof window.vdrOpenMatchSelector !== 'function') return;
+  window.vdrOpenMatchSelector(
+    btn.getAttribute('data-doc') || null,
+    btn.getAttribute('data-vendor'),
+    btn.getAttribute('data-sku'),
+    btn.getAttribute('data-descr'),
+    btn
+  );
+};

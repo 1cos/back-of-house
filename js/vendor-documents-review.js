@@ -386,6 +386,157 @@ window.vdrRecoverPriceFromInvoiceLines = async function(sb, vendor, vendorSku, i
 };
 // ── MARKER:VDR_PRICE_RECOVERY_END ────────────────────────────────────
 
+// ── MARKER:VDR_CANDIDATES_START ──────────────────────────────────────
+// IL MOTORE DI CANDIDATI — UNA SOLA COPIA, PER TUTTI.
+//
+// Prima esistevano DUE findMatches() in questo file, a 168 righe di
+// distanza, gia' divergenti: la seconda aveva una STOP_WORDS piu' corta
+// (senza 'blue' e 'chopped') e troncava le keyword a 3. Due motori
+// diversi per la stessa decisione sono drift, non ridondanza.
+//
+// PERCHE' IL VECCHIO MOTORE ERA PERICOLOSO
+// Confrontava SOTTOSTRINGHE, non parole:
+//   "row"  sta dentro "b-ROW-n Sugar"   -> Brown Sugar per un CAVOLO
+//   "each" sta dentro "p-EACH-es"       -> Peaches per una ZUCCA
+//   "bag"  sta dentro "Pastry BAG"      -> Pastry Bag per le ARANCE
+// Brown Sugar prendeva score 2 e finiva PRIMO fra i candidati di
+// "CABBAGE SUGAR CONE ROW 7". Un tap distratto avrebbe messo $50 di
+// cavolo sul prezzo dello zucchero di canna.
+//
+// LA REGOLA NUOVA, in quattro condizioni. Un candidato passa solo se:
+//
+//   1. COPERTURA PIENA. Ogni parola significativa del NOME INGREDIENTE
+//      compare nella descrizione, confrontata per PAROLA INTERA e con
+//      singolare/plurale normalizzati. "Brown Sugar" chiede sia 'brown'
+//      sia 'sugar': 'brown' non c'e' -> fuori. E' la condizione che fa
+//      il lavoro pesante, perche' vieta al candidato di aggiungere
+//      informazione che la fattura non dichiara.
+//   2. ALMENO UNA PAROLA PORTANTE condivisa, cioe' non solo un
+//      qualificatore come 'white' o 'large'. Senza questa, "White
+//      Bread" passerebbe su "GRAPES WHITE SEEDLESS".
+//   3. COERENZA ALIMENTARE. Se la descrizione contiene un marcatore
+//      non-alimentare (cleaner, detergent, glove...) il candidato deve
+//      stare fra Kitchen Supplies / Supply / Packaging, e viceversa.
+//   4. COERENZA BEVANDE. Un candidato in 'Beverages & Spirits' richiede
+//      una parola da bevanda nella descrizione, altrimenti torna
+//      marcato needsConfirmation e NON puo' essere il primo proposto.
+//      E' il caso "GRAPES WHITE SEEDLESS" -> White Grapes, che in
+//      anagrafica e' uva da vino: il nome combacia, il prodotto no.
+//
+// COSA NON FA: non collega niente. Restituisce proposte che una persona
+// deve toccare. Nessun automatismo, nessuna scrittura, e le ricette non
+// vengono mai sfiorate.
+window.VDR_STOP_WORDS = ['large','small','medium','fresh','whole','organic','baby','jumbo',
+  'wild','red','green','yellow','white','black','blue','sliced','diced','chopped','dried',
+  'frozen','raw','salted','unsalted','ground','grated','each','bag','case','pack','box'];
+
+// Parole che descrivono una TRASFORMAZIONE o una FORMA del prodotto.
+// Se il candidato ne porta una che la fattura non dichiara, e' un altro
+// prodotto: "Tomato Paste" non e' "TOMATO HEIRLOOM".
+window.VDR_FORM_WORDS = ['paste','puree','sauce','juice','zest','powder','pesto','confit',
+  'canned','dried','frozen','crumbled','crumbles','shredded','sliced','diced','minced',
+  'whipped','smoked','pickled','roasted','candied','extract','concentrate','syrup'];
+
+window.VDR_NONFOOD_MARKERS = ['cleaner','detergent','soap','sanitizer','degreaser','bleach',
+  'glove','gloves','foil','mitt','napkin','liner','towel','disinfectant','polish','wipes'];
+
+window.VDR_NONFOOD_CATEGORIES = ['Kitchen Supplies','Supply','Packaging'];
+
+window.VDR_BEVERAGE_WORDS = ['juice','wine','beer','soda','cola','spirit','spirits','liqueur',
+  'tea','coffee','water','tonic','vermouth','prosecco','champagne'];
+
+window.vdrSingular = function(w) {
+  const s = String(w || '');
+  if (s.length > 4 && /ies$/.test(s))                 return s.slice(0, -3) + 'y';
+  if (s.length > 4 && /(oes|ses|xes|zes|ches|shes)$/.test(s)) return s.slice(0, -2);
+  if (s.length > 3 && /s$/.test(s) && !/ss$/.test(s)) return s.slice(0, -1);
+  return s;
+};
+
+window.vdrTokens = function(text) {
+  return String(text || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/)
+    .filter(function(w) { return w.length > 2; })
+    .map(window.vdrSingular);
+};
+
+window.vdrFindIngredientCandidates = function(desc, ingrs) {
+  const descTok = window.vdrTokens(desc);
+  if (!descTok.length) return [];
+  const descSet  = new Set(descTok);
+  const stop     = window.VDR_STOP_WORDS.map(window.vdrSingular);
+  const portanti = descTok.filter(function(w) { return stop.indexOf(w) === -1; });
+  if (!portanti.length) return [];
+
+  const descNonFood = window.VDR_NONFOOD_MARKERS
+    .map(window.vdrSingular).some(function(m) { return descSet.has(m); });
+  const descBevanda = window.VDR_BEVERAGE_WORDS
+    .map(window.vdrSingular).some(function(m) { return descSet.has(m); });
+
+  const out = [];
+  (ingrs || []).forEach(function(i) {
+    const nomeTok = window.vdrTokens(i.name);
+    if (!nomeTok.length) return;
+
+    // 1. copertura piena: ogni parola del nome dev'esserci nella fattura
+    const coperto = nomeTok.every(function(w) { return descSet.has(w); });
+
+    // 1b. DESCRIZIONE POVERA. Se la fattura porta UNA SOLA parola
+    //     portante, la copertura piena non ha su cosa lavorare: nessun
+    //     ingrediente piu' specifico passerebbe mai. Una riga Walmart
+    //     che dice soltanto "Chicken" deve comunque poter far vedere
+    //     "Chicken Breast" — ma marcato, perche' la fattura quel taglio
+    //     non lo dichiara. Vale solo quando il nome COMINCIA con quella
+    //     parola: "Chicken Breast" si', "Fried Chicken" no.
+    //     I casi pericolosi hanno tutti 2+ parole portanti, quindi
+    //     restano sotto la regola stretta.
+    const descPovera = portanti.length === 1;
+    const inizia = nomeTok[0] === portanti[0];
+    if (!coperto && !(descPovera && inizia)) return;
+
+    // 2. almeno una parola portante condivisa
+    const condivise = nomeTok.filter(function(w) { return stop.indexOf(w) === -1; });
+    if (!condivise.length) return;
+
+    // 2b. UNA PAROLA SOLA DEVE ESSERE LA TESTA, NON UN DETTAGLIO.
+    //     "Sugar" e' interamente contenuto in "CABBAGE SUGAR CONE ROW 7",
+    //     quindi la copertura piena da sola lo lascerebbe passare: il
+    //     prezzo di un cavolo finirebbe sullo zucchero. Un candidato di
+    //     una parola sola deve corrispondere alla PRIMA o all'ULTIMA
+    //     parola portante della descrizione, perche' li' sta il prodotto:
+    //     "CABBAGE napa purple heart" lo mette in testa (uso produce),
+    //     "fresh navel ORANGES" in coda (uso inglese). 'sugar' e 'cone'
+    //     stanno in mezzo: sono varieta', non il prodotto.
+    if (nomeTok.length === 1 && coperto) {
+      const testa = portanti[0];
+      const coda  = portanti[portanti.length - 1];
+      if (nomeTok[0] !== testa && nomeTok[0] !== coda) return;
+    }
+
+    // 3. coerenza alimentare, nei due versi
+    const catNonFood = window.VDR_NONFOOD_CATEGORIES.indexOf(i.category) > -1;
+    if (descNonFood !== catNonFood) return;
+
+    // 4. coerenza bevande: il nome combacia ma il prodotto puo' non esserlo
+    let needsConfirmation = false;
+    if (i.category === 'Beverages & Spirits' && !descBevanda) needsConfirmation = true;
+    // un nome piu' specifico della fattura non e' un fatto: e' un'ipotesi
+    if (!coperto) needsConfirmation = true;
+
+    out.push(Object.assign({}, i, {
+      score: condivise.length,
+      coverage: nomeTok.length,
+      needsConfirmation: needsConfirmation,
+    }));
+  });
+
+  // I candidati da confermare non possono mai stare per primi.
+  return out.sort(function(a, b) {
+    if (a.needsConfirmation !== b.needsConfirmation) return a.needsConfirmation ? 1 : -1;
+    return b.score - a.score || b.coverage - a.coverage || a.name.length - b.name.length;
+  }).slice(0, 3);
+};
+// ── MARKER:VDR_CANDIDATES_END ────────────────────────────────────────
+
 // ── MARKER:VDR_SAVE_SKU_MAPPING_START ────────────────────────────────
 // FIX (Durable Walmart SKU Mapping task): identity mapping ("vendor+
 // vendor_sku resolves to this ingredient") now writes to
@@ -4207,19 +4358,9 @@ window.vdrOpenMatchSelector = async function(docId, vendor, vendorSku, descripti
   // line description, so candidates are ready the instant the modal
   // opens — the Chef never has to type anything first. Search (below)
   // remains available only as an explicit fallback.
-  const STOP_WORDS = ['large','small','medium','fresh','whole','organic','baby','jumbo','wild','red','green','yellow','white','black','blue','sliced','diced','chopped','dried','frozen','raw','salted','unsalted','ground','grated'];
-  function findMatches(desc, ingrs) {
-    const kws = (desc || '').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
-      .filter(function(w) { return w.length > 2 && STOP_WORDS.indexOf(w) === -1; });
-    if (!kws.length) return [];
-    return ingrs.map(function(i) {
-      const n = i.name.toLowerCase();
-      const score = kws.filter(function(k) { return n.indexOf(k) > -1; }).length;
-      return Object.assign({}, i, { score: score });
-    }).filter(function(x) { return x.score > 0; })
-      .sort(function(a,b) { return b.score - a.score || a.name.length - b.name.length; })
-      .slice(0, 3);
-  }
+  // Il motore vive in window.vdrFindIngredientCandidates, sopra: una sola
+  // copia per entrambe le modali. Vedi MARKER:VDR_CANDIDATES_START.
+  const findMatches = window.vdrFindIngredientCandidates;
 
   // Fetch ingredients and compute candidates BEFORE the modal is ever
   // created/appended — matches the historic behavior exactly, so there
@@ -4376,17 +4517,9 @@ async function vdrShowMatchModal(unmatchedItems, allItems, vendor, sb, docId) {
   const { data: allIngr } = await sb.from('ingredients').select('id,name,category').eq('active', true);
   const ingrs = (allIngr || []).filter(i => i.category !== 'Supply');
 
-  function findMatches(desc) {
-    const stop = ['large','small','medium','fresh','whole','organic','baby','jumbo','wild','red','green','yellow','white','black','sliced','diced','dried','frozen','raw','salted','unsalted','ground','grated'];
-    const kws = (desc||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
-      .filter(w => w.length>2 && !stop.includes(w)).slice(0,3);
-    if (!kws.length) return [];
-    return ingrs.map(i => {
-      const n = i.name.toLowerCase();
-      const score = kws.filter(k => n.includes(k)).length;
-      return {...i, score};
-    }).filter(x => x.score>0).sort((a,b) => b.score-a.score || a.name.length-b.name.length).slice(0,3);
-  }
+  // Stessa funzione dell'altra modale: prima erano due copie divergenti.
+  // Vedi MARKER:VDR_CANDIDATES_START.
+  function findMatches(desc) { return window.vdrFindIngredientCandidates(desc, ingrs); }
 
   const itemStates = unmatchedItems.map(item => {
     const desc = item.description || item.raw_description || '';

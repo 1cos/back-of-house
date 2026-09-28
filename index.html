@@ -1324,6 +1324,11 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span style="color:#059669;font-weight:700;">Mapping</span>
         </button>
 
+        <button onclick="hideAdminMenu();openIngredientWorklist()" class="amenu-btn" style="border:1.5px solid #6ee7b7;background:#ecfdf5;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#047857" stroke-width="1.8" stroke-linecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <span style="color:#047857;font-weight:700;">Da collegare</span>
+        </button>
+
         <button onclick="hideAdminMenu();openProductionCoverage()" class="amenu-btn" style="border:1.5px solid #fbbf24;background:#fefce8;">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           <span style="color:#d97706;font-weight:700;">Production Coverage</span>
@@ -1409,6 +1414,9 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <script src="js/calendar.js"></script>
 <script src="js/office.js"></script>
 <script src="js/mapping-control-room.js"></script>
+<!-- Worklist: solo il punto d'ingresso. Il matching vive gia' in
+     vendor-documents-review.js, che questo file richiama. -->
+<script src="js/ingredient-worklist.js"></script>
 <script src="js/admin-prod-coverage.js"></script>
 <script src="js/admin-recipe-control.js"></script>
 <script src="js/demo-bot.js"></script>
