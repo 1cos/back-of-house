@@ -100,8 +100,24 @@ test('7. righe senza vendor_sku non entrano in worklist', function() {
   assert.deepStrictEqual(g, []);
 });
 
-test('8. il file non scrive niente: nessuna insert, update o upsert', function() {
-  assert.ok(!/\.(insert|update|upsert|delete)\s*\(/.test(SRC),
-    'la worklist deve restare in sola lettura: il salvataggio vive nella modale esistente');
+test('8. l\'unica scrittura del file e\' ingredient_links, e nient\'altro', function() {
+  // Aggiornato quando e' nato iwlSalvaLink: prima il file era in sola
+  // lettura, adesso ha UNA scrittura. L'asserzione non e' stata
+  // allentata, e' stata resa precisa — verifica di piu', non di meno.
+  assert.ok(!/from\(['"]invoice_lines['"]\)[\s\S]{0,300}?\.(insert|update|upsert|delete)\s*\(/.test(SRC),
+    'la contabilita\' non si scrive da qui');
+  assert.ok(!/from\(['"]ingredient_vendors['"]\)/.test(SRC),
+    'i prezzi li scrive il worker all\'approvazione, non questo file');
+  assert.ok(!/from\(['"]vendor_item_aliases['"]\)/.test(SRC),
+    'l\'identita\' per SKU vive in vdrSaveVendorSkuMapping');
+  assert.ok(!/from\(['"]ingredients['"]\)[\s\S]{0,300}?\.(insert|update)\s*\(/.test(SRC),
+    'nessun ingrediente creato o modificato da qui');
+  assert.ok(!/from\(['"]recipes?['"]\)|recipe_bom['"]\)[\s\S]{0,300}?\.(insert|update)/.test(SRC),
+    'le ricette non si toccano mai');
+  // l'unica upsert del file e' quella su ingredient_links
+  const upserts = SRC.match(/\.upsert\s*\(/g) || [];
+  assert.strictEqual(upserts.length, 1, 'una sola upsert in tutto il file');
+  assert.ok(/from\('ingredient_links'\)\s*\n?\s*\.upsert/.test(SRC),
+    'e deve essere quella su ingredient_links');
   assert.ok(SRC.indexOf('vdrOpenMatchSelector') > -1, 'deve riusare la modale esistente');
 });

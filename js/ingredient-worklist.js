@@ -253,3 +253,83 @@ function iwlRicaricaAllaChiusura() {
   });
   obs.observe(document.body, { childList: true });
 }
+
+// ══════════════════════════════════════════════════════════════════
+// COLLEGARE DALLA FATTURA PENDING — quando il prodotto non ha SKU
+//
+// PERCHE' SERVE UNA SECONDA PORTA.
+// La worklist qui sopra legge invoice_lines, che esistono solo DOPO
+// l'importazione. E vdrOpenMatchSelector mostra il bottone Match solo
+// se item.vendor_sku esiste (canMatchThisRow). Una fattura come quelle
+// di Global Gourmet non ha nemmeno una colonna codice: senza SKU e
+// senza righe importate, quei prodotti non sono raggiungibili da
+// nessuna delle due strade.
+//
+// E l'ordine non e' negoziabile: il collegamento deve esistere PRIMA
+// dell'approvazione. writeInvoiceLines legge linkMap[desc] al momento
+// della scrittura, e il loop della price intelligence aggiorna il
+// prezzo nello stesso passaggio. Collegare dopo lascerebbe le righe
+// con ingredient_id null e servirebbe un backfill per descrizione che
+// non esiste: vdrBackfillInvoiceLines lavora per vendor_sku.
+//
+// Quindi questa schermata legge le righe da parsed_json del documento
+// PENDING, non da invoice_lines, e scrive ingredient_links — la
+// tabella che Brigade usa gia' per i prodotti senza codice, chiavata
+// su (invoice_description, vendor).
+//
+// NON scrive invoice_lines. NON approva niente. NON crea ingredienti.
+// Ogni riga passa da un tap.
+// ══════════════════════════════════════════════════════════════════
+
+// Densita' dell'olio d'oliva a 20 °C. E' una costante fisica, non un
+// prezzo: serve solo per convertire un formato in litri in grammi.
+// Vive qui, dichiarata, e finisce in ingredient_links.conversion_g,
+// cosi' resta leggibile a chi guardera' quel collegamento domani.
+window.IWL_DENSITA = { 'olio d\'oliva': 0.916 };
+
+window.iwlRigheCollegabili = function(doc) {
+  const pj = (doc && doc.parsed_json) || {};
+  const items = pj.items || [];
+  const vendor = pj.vendor || doc.vendor || '';
+  return items
+    .filter(function (it) { return !(it.line_type && it.line_type !== 'product'); })
+    .map(function (it) {
+      const desc = it.description || it.raw_description || '';
+      return {
+        vendor: vendor,
+        descrizione: desc,
+        vendor_sku: it.vendor_sku || null,
+        pack: it.pack_description || null,
+        qty: it.qty != null ? it.qty : null,
+        unita: it.purchase_unit || null,
+        unit_price: it.unit_price != null ? Number(it.unit_price) : null,
+        importo: it.amount != null ? Number(it.amount) : null,
+      };
+    })
+    .filter(function (r) { return r.descrizione; });
+};
+
+// Scrive UN collegamento. Solo ingredient_links, niente altro.
+// conversion_g e' facoltativa e si passa solo quando qualcuno l'ha
+// decisa: non viene mai dedotta qui dentro.
+window.iwlSalvaLink = async function (sb, vendor, descrizione, ingrediente, opzioni) {
+  if (!sb || !vendor || !descrizione || !ingrediente || !ingrediente.id) {
+    return { status: 'error', message: 'campo mancante' };
+  }
+  const o = opzioni || {};
+  const riga = {
+    invoice_description: descrizione,
+    ingredient_name:     ingrediente.name,
+    ingredient_id:       ingrediente.id,
+    vendor:              vendor,
+    confirmed:           true,
+    confidence:          1.0,
+    invoice_unit:        o.invoice_unit || null,
+    base_unit:           'g',
+    conversion_g:        o.conversion_g != null ? Number(o.conversion_g) : null,
+  };
+  const { error } = await sb.from('ingredient_links')
+    .upsert(riga, { onConflict: 'invoice_description,vendor' });
+  if (error) return { status: 'error', message: error.message };
+  return { status: 'saved', row: riga };
+};
