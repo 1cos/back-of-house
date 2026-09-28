@@ -276,6 +276,116 @@ window.vdrBackfillInvoiceLines = async function(sb, vendor, vendorSku, ingredien
 };
 // ── MARKER:VDR_BACKFILL_END ─────────────────────────────────────────
 
+// ── MARKER:VDR_PRICE_RECOVERY_START ──────────────────────────────────
+// INV15 FASE B — QUANDO UNO SKU PRENDE UN NOME, IL PREZZO C'E' GIA'.
+//
+// Da INV15 una fattura con un prodotto mai visto entra in contabilita'
+// subito. La riga nasce con ingredient_id null, e il prezzo di quel
+// prodotto NON finisce in ingredient_vendors: il loop di price
+// intelligence del worker, nel ramo `case === 'none'`, fa `continue`.
+// Corretto — non si inventa un ingrediente — ma lasciava un buco: al
+// momento del mapping il prezzo veniva chiesto a mano allo Chef
+// (saveNewVendorRow legge i campi del form), mentre la fattura che lo
+// dichiarava era gia' in archivio.
+//
+// Questa funzione chiude quel buco leggendo il prezzo da dove e' scritto
+// per davvero: le invoice_lines gia' importate di quel vendor+SKU.
+//
+// COSA NON FA, ed e' la parte che conta:
+//
+//   NON inventa conversioni. conversion_to_base e price_per_100g sono
+//     copiati dalla riga SOLO se la riga li ha. Se sono null restano
+//     null, e mergePriceIntelligence protegge quelli gia' noti.
+//   NON inventa price_type. invoice_lines non lo conserva, quindi non
+//     viene passato: e se la riga esistente e' 'per_lb' la recovery si
+//     ferma, perche' interpretare un prezzo al chilo come prezzo a cassa
+//     e' peggio che non scrivere niente.
+//   NON sovrascrive un prezzo piu' recente. Passa dalla stessa coppia
+//     effectiveLastDate + chronologyAllows che usano import e worker.
+//   NON tocca invoice_lines. Lo storico d'acquisto resta intatto: qui si
+//     aggiorna solo la scheda "prezzo corrente".
+//   NON crea contabilita'. Nessun insert in invoice_lines, nessun
+//     dollaro nuovo: solo ingredient_vendors.
+//
+// Idempotente: rieseguirla con gli stessi dati e' un no-op, perche' la
+// seconda volta la data memorizzata e' uguale a quella in arrivo e
+// chronologyAllows(>=) consente una riscrittura identica.
+window.vdrRecoverPriceFromInvoiceLines = async function(sb, vendor, vendorSku, ingredientId) {
+  if (!sb || !vendor || !vendorSku || !ingredientId) return { status: 'skipped', reason: 'missing_field' };
+  try {
+    // 1. L'ACQUISTO PIU' RECENTE VALIDO di questo vendor+SKU.
+    //    Valido = ha una data e un prezzo positivo. Una riga senza prezzo
+    //    non e' un'osservazione: e' un'assenza.
+    const { data: righe, error: ilErr } = await sb.from('invoice_lines')
+      .select('invoice_date,unit_price,pack_description,conversion_to_base,cost_per_100g,raw_description')
+      .eq('vendor', vendor).eq('vendor_sku', vendorSku)
+      .not('invoice_date', 'is', null).gt('unit_price', 0)
+      .order('invoice_date', { ascending: false })
+      .limit(1);
+    if (ilErr) return { status: 'error', reason: ilErr.message };
+    const riga = (righe || [])[0];
+    if (!riga) return { status: 'skipped', reason: 'no_priced_line' };
+
+    // 2. La riga fornitore esistente per questo ingrediente.
+    const { data: ivRows, error: ivErr } = await sb.from('ingredient_vendors')
+      .select('id,vendor_sku,unit_price,pack_description,price_type,conversion_to_base,price_per_100g,last_invoice_date')
+      .eq('vendor', vendor).eq('ingredient_id', ingredientId).limit(1);
+    if (ivErr) return { status: 'error', reason: ivErr.message };
+    const existing = (ivRows || [])[0] || null;
+
+    // 3. SEMANTICA DEL PREZZO — fail closed.
+    //    invoice_lines non conserva price_type. Se la riga esistente dice
+    //    'per_lb', il suo unit_price e' un prezzo al peso e il nostro e'
+    //    per cassa: non sono la stessa grandezza e non si sovrascrivono.
+    if (existing && existing.price_type === 'per_lb') {
+      return { status: 'skipped', reason: 'per_lb_row_not_reinterpreted' };
+    }
+
+    // 4. CRONOLOGIA — mai il vecchio sopra il nuovo. Stessa coppia di
+    //    helper dell'import, non una regola parallela.
+    const auth = existing
+      ? (await sb.from('invoice_lines').select('invoice_date')
+           .eq('vendor', vendor).eq('ingredient_id', ingredientId)
+           .not('invoice_date', 'is', null)
+           .order('invoice_date', { ascending: false }).limit(1)).data
+      : null;
+    const authLatest = (auth || [])[0] ? (auth || [])[0].invoice_date : null;
+    const eff = effectiveLastDate(existing && existing.last_invoice_date, authLatest);
+    if (!chronologyAllows(eff, riga.invoice_date)) {
+      return { status: 'skipped', reason: 'older_than_stored', stored: eff, incoming: riga.invoice_date };
+    }
+
+    // 5. L'osservazione: SOLO cio' che la riga dichiara davvero.
+    //    price_type deliberatamente assente — vedi sopra.
+    const observation = {
+      unit_price:         riga.unit_price != null ? Number(riga.unit_price) : null,
+      pack_description:   riga.pack_description || null,
+      conversion_to_base: riga.conversion_to_base != null ? Number(riga.conversion_to_base) : null,
+      price_per_100g:     riga.cost_per_100g != null ? Number(riga.cost_per_100g) : null,
+      last_invoice_date:  riga.invoice_date,
+    };
+
+    const merge = (window.PriceIntelligenceMerge || {}).mergePriceIntelligence;
+    if (typeof merge !== 'function') return { status: 'skipped', reason: 'merge_helper_unavailable' };
+    const m = merge(existing, observation);
+    if (m.skipped) return { status: 'skipped', reason: m.reason, observedPack: m.observedPack, storedPack: m.storedPack };
+
+    // 6. Scrittura: solo ingredient_vendors, solo i campi decisi dal merge.
+    if (existing) {
+      const { error } = await sb.from('ingredient_vendors').update(m.fields).eq('id', existing.id);
+      if (error) return { status: 'error', reason: error.message };
+      return { status: 'updated', from_invoice_date: riga.invoice_date, fields: m.fields };
+    }
+    const { error } = await sb.from('ingredient_vendors')
+      .insert({ ingredient_id: ingredientId, vendor: vendor, vendor_sku: vendorSku, active: true, ...m.fields });
+    if (error && error.code !== '23505') return { status: 'error', reason: error.message };
+    return { status: error ? 'idempotent' : 'created', from_invoice_date: riga.invoice_date, fields: m.fields };
+  } catch (e) {
+    return { status: 'error', reason: e && e.message };
+  }
+};
+// ── MARKER:VDR_PRICE_RECOVERY_END ────────────────────────────────────
+
 // ── MARKER:VDR_SAVE_SKU_MAPPING_START ────────────────────────────────
 // FIX (Durable Walmart SKU Mapping task): identity mapping ("vendor+
 // vendor_sku resolves to this ingredient") now writes to
@@ -318,7 +428,13 @@ window.vdrSaveVendorSkuMapping = async function(sb, vendor, vendorSku, ingredien
         // vdrBackfillInvoiceLines only ever touches ingredient_id IS NULL
         // rows, so re-running it here can only help, never duplicate work.
         const bf = window.vdrBackfillInvoiceLines ? await window.vdrBackfillInvoiceLines(sb, vendor, vendorSku, ingredientId) : { backfilled: 0 };
-        return { status: 'idempotent', row: existing, backfilled: bf.backfilled };
+        // INV15 FASE B — anche qui, non solo su 'created': un mapping
+        // ripetuto dopo che sono arrivate nuove fatture deve poter
+        // aggiornare il prezzo. La cronologia dentro la recovery decide
+        // se c'e' davvero qualcosa di piu' recente da scrivere.
+        const pr = window.vdrRecoverPriceFromInvoiceLines
+          ? await window.vdrRecoverPriceFromInvoiceLines(sb, vendor, vendorSku, ingredientId) : null;
+        return { status: 'idempotent', row: existing, backfilled: bf.backfilled, price_recovery: pr };
       }
       // A different ingredient_id is already aliased to this exact
       // vendor+vendor_sku — never silently overwritten.
@@ -346,7 +462,12 @@ window.vdrSaveVendorSkuMapping = async function(sb, vendor, vendorSku, ingredien
     if (insErr) return { status: 'error', message: insErr.message };
 
     const bf = window.vdrBackfillInvoiceLines ? await window.vdrBackfillInvoiceLines(sb, vendor, vendorSku, ingredientId) : { backfilled: 0 };
-    return { status: 'created', row: inserted, backfilled: bf.backfilled };
+    // INV15 FASE B — lo SKU ha appena preso un nome: il prezzo lo
+    // leggiamo dalle fatture che lo dichiaravano gia', invece di
+    // chiederlo a mano.
+    const pr = window.vdrRecoverPriceFromInvoiceLines
+      ? await window.vdrRecoverPriceFromInvoiceLines(sb, vendor, vendorSku, ingredientId) : null;
+    return { status: 'created', row: inserted, backfilled: bf.backfilled, price_recovery: pr };
   } catch (e) {
     return { status: 'error', message: e && e.message };
   }
@@ -3149,9 +3270,11 @@ async function vdrPreflight(docId, doc) {
   // so nothing downstream needed to change to support this; only this
   // gate. unmatchedCount is still computed and surfaced (never silently
   // dropped) so the UI/vdrApprove can be explicit about what remains.
-  // NOTE: vdrAutoImportCleanHardiesInvoices() deliberately still treats
-  // unmatchedCount > 0 as "leave for a human" — see its own comment —
-  // this change only affects the manual Approve Document button path.
+  // NOTE (aggiornata in INV15): da INV15 questa regola vale per TUTTI E
+  // TRE i percorsi di import — il bottone Approve manuale, l'auto-import
+  // client di vdrAutoImportCleanHardiesInvoices e il worker server-side
+  // vendor-doc-auto-import. Prima erano tre gate diversi sullo stesso
+  // atto contabile; adesso e' uno.
   // MICRO-TASK 42: purchase path -> isPurchasableDocument (BEK order_confirmation incluso).
   if (vdrIsPurchasableDocument(pj.vendor, pj.document_type)) {
     // FIX (line_type task): rows the parser has already flagged as
@@ -3275,7 +3398,14 @@ async function vdrAutoImportCleanHardiesInvoices() {
         // matched invoice, unattended, with zero human review. Checking
         // unmatchedCount here explicitly (rather than relying on pre.ok)
         // is what keeps that promise intact after this task's change.
-        if (!pre.ok || pre.unmatchedCount > 0) continue; // real question or unmatched item — leave for a human, unchanged
+        // INV15 — i tre percorsi dicono la stessa cosa.
+        // Questo ramo teneva una promessa piu' stretta degli altri due:
+        // "solo una fattura gia' interamente mappata, non presidiata".
+        // Da INV15 la regola e' una sola per tutti — manuale, client
+        // automatico e worker — perche' tre gate diversi sullo stesso
+        // atto contabile sono drift, non prudenza. Le domande vere
+        // continuano a fermare tutto: e' pre.ok a dirlo.
+        if (!pre.ok) continue; // domanda reale aperta — resta a una persona
         const noopBtn = { style: {} };
         await window.vdrApprove(doc.id, noopBtn);
         imported.push(doc.document_number || doc.id);

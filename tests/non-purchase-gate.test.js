@@ -419,14 +419,28 @@ test('27. SEQUENZA VERA: il duplicato esatto esce come duplicato', async () => {
   assert.strictEqual(db.invoice_lines.length, 0, 'zero doppio accounting');
 });
 
-test('28. SEQUENZA VERA: una conferma con SKU non mappato resta pending', async () => {
+// AGGIORNATO IN INV15 — il contratto e' cambiato, e questo test lo segue.
+// Fino a INV14 una conferma sana con UN prodotto mai visto restava pending:
+// zero righe, zero dollari. Da INV15 la contabilita' non aspetta i nomi.
+// Il test non e' stato indebolito: verifica DI PIU' di prima, perche' ora
+// controlla anche che l'identita' del prodotto non venga persa.
+test('28. SEQUENZA VERA: una conferma con SKU non mappato si importa lo stesso', async () => {
   const d = conf([{ sku: 'E1', qty: 1, price: 30, amount: 30 }]);
   const db = mondo([d]);
   const sb = makeSb(db);
   const out = await eseguiPhaseB(sb, [d]);
-  assert.strictEqual(out.phaseB[0].outcome, 'left_pending');
-  assert.strictEqual(out.phaseB[0].unmatchedCount, 1);
-  assert.strictEqual(db.vendor_documents[0].status, 'pending');
+  assert.strictEqual(out.phaseB[0].outcome, 'imported', JSON.stringify(out.phaseB[0]));
+  assert.strictEqual(db.vendor_documents[0].status, 'imported');
+  // la riga esiste, con i dollari giusti
+  assert.strictEqual(db.invoice_lines.length, 1);
+  assert.strictEqual(Number(db.invoice_lines[0].line_total), 30);
+  // e senza identita' inventata, ma con lo SKU conservato
+  assert.strictEqual(db.invoice_lines[0].ingredient_id, null, 'nessun ingrediente inventato');
+  assert.strictEqual(db.invoice_lines[0].match_status, 'unmatched');
+  assert.strictEqual(db.invoice_lines[0].vendor_sku, 'E1', 'lo SKU resta recuperabile');
+  // e la price intelligence non ha inventato una riga fornitore
+  assert.strictEqual((db.ingredient_vendors || []).length, 0,
+    'uno SKU senza ingrediente non deve creare ingredient_vendors');
 });
 
 test('29. SEQUENZA VERA: una conferma con SKU noto si importa', async () => {

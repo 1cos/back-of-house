@@ -11,12 +11,20 @@ function makeSb(db, log) {
       if (f.op === 'in')  return f.v.includes(r[f.k]);
       if (f.op === 'isnull') return r[f.k] === null || r[f.k] === undefined;
       if (f.op === 'notnull') return r[f.k] !== null && r[f.k] !== undefined;
+      // INV15 — confronti numerici: la recovery del prezzo usa .gt() per
+      // scartare le righe senza prezzo, e un test che non li applica
+      // proverebbe il contrario di quello che dice.
+      if (f.op === 'gt')  return Number(r[f.k]) >  Number(f.v);
+      if (f.op === 'gte') return Number(r[f.k]) >= Number(f.v);
+      if (f.op === 'lt')  return Number(r[f.k]) <  Number(f.v);
+      if (f.op === 'lte') return Number(r[f.k]) <= Number(f.v);
       return true;
     }));
   }
   function builder(t, mode, payload) {
     const filters = [];
     let limit = null;
+    let ordine = null;
     const self = {
       select() { return self; },
       eq(k, v) { filters.push({ op: 'eq', k, v }); return self; },
@@ -24,14 +32,35 @@ function makeSb(db, log) {
       in(k, v) { filters.push({ op: 'in', k, v }); return self; },
       is(k, v) { if (v === null) filters.push({ op: 'isnull', k }); return self; },
       not(k, _op, v) { if (v === null) filters.push({ op: 'notnull', k }); return self; },
-      order() { return self; },
+      gt(k, v)  { filters.push({ op: 'gt',  k, v }); return self; },
+      gte(k, v) { filters.push({ op: 'gte', k, v }); return self; },
+      lt(k, v)  { filters.push({ op: 'lt',  k, v }); return self; },
+      lte(k, v) { filters.push({ op: 'lte', k, v }); return self; },
+      // INV15 — order() era un no-op. Una query "la piu' recente" che si
+      // appoggia a order+limit passerebbe per caso, nell'ordine di
+      // inserimento. Adesso ordina davvero: i test diventano piu' severi,
+      // non piu' comodi.
+      order(k, opts) { if (k) ordine = { k, asc: !(opts && opts.ascending === false) }; return self; },
       range() { return self; },
       limit(n) { limit = n; return self; },
       async single() { const r = apply(t, filters); return { data: r[0] || null, error: r.length ? null : { message: 'not found' } }; },
       then(res, rej) { return Promise.resolve(run()).then(res, rej); },
     };
     function run() {
-      if (mode === 'select') { let r = apply(t, filters); if (limit) r = r.slice(0, limit); return { data: r.map(x => ({ ...x })), error: null }; }
+      if (mode === 'select') {
+        let r = apply(t, filters);
+        if (ordine) {
+          r = r.slice().sort((a, b) => {
+            const av = a[ordine.k], bv = b[ordine.k];
+            if (av === bv) return 0;
+            if (av === null || av === undefined) return 1;
+            if (bv === null || bv === undefined) return -1;
+            return (av < bv ? -1 : 1) * (ordine.asc ? 1 : -1);
+          });
+        }
+        if (limit) r = r.slice(0, limit);
+        return { data: r.map(x => ({ ...x })), error: null };
+      }
       if (mode === 'update') {
         const hit = apply(t, filters);
         for (const r of hit) Object.assign(r, payload);

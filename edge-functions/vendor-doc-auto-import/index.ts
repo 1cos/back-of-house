@@ -1650,8 +1650,37 @@ async function vdaiApprove(sb: any, docId: string): Promise<{ ok: boolean; reaso
     if (buyerDecision && buyerDecision.action !== 'accept') return { ok: false, reason: 'buyer_guard_' + buyerDecision.action };
   }
 
+  // ═════════════════════════════════════════════════════════════
+  // INV15 — LA CONTABILITA' NON ASPETTA I NOMI.
+  //
+  // Prima: `if (!pre.ok || pre.unmatchedCount > 0)`. Una fattura sana che
+  // conteneva anche UN solo prodotto mai visto restava fuori per intero:
+  // zero invoice_lines, zero dollari. Il 26/09 erano $1.910,06 su tre
+  // fatture il cui preflight diceva ok:true.
+  //
+  // Il percorso manuale aveva gia' smesso di bloccare (deferred matching
+  // task, js/vendor-documents-review.js:3143) per decisione dello Chef.
+  // Il worker no, e il risultato era che si rifiutava di fare da solo
+  // esattamente cio' che un clic faceva gia' — violando l'invariante
+  // dichiarato nella sua stessa intestazione: "can never decide anything
+  // the manual path wouldn't also decide".
+  //
+  // Cosa NON cambia, e vive tutto PRIMA o FUORI di questa riga:
+  //   open_question reale ......... vdaiPreflight, primo controllo
+  //   PRICE_IDENTITY_CONFLICT ..... vdaiPreflight
+  //   totale non riconciliato ..... DOC-TOTAL-001 via hasBlockingQuestion
+  //   duplicato / non-acquisto .... vdaiAccountingRelevance (INV10B)
+  //   buyer guard ................. qui sopra, e nel post-parse BEK
+  //   merce non consegnata ........ vdaiIsZeroDeliveredLegacy, nel writer
+  //
+  // unmatchedCount continua a essere calcolato e restituito: smette solo
+  // di essere un veto contabile. La riga senza identita' viene scritta
+  // con ingredient_id null e match_status 'unmatched' — lo stesso
+  // meccanismo con cui entrano da sempre le righe non-prodotto — e
+  // vdaiBackfillInvoiceLines la ricollega quando lo SKU avra' un nome.
+  // ═════════════════════════════════════════════════════════════
   const pre = await vdaiPreflight(sb, doc);
-  if (!pre.ok || pre.unmatchedCount > 0) return { ok: false, reason: pre.reason || 'unmatched' };
+  if (!pre.ok) return { ok: false, reason: pre.reason || 'preflight_failed' };
 
   const vendor = pj.vendor || doc.vendor || 'Unknown';
   const invoiceDate = doc.document_date || null;
@@ -2220,7 +2249,7 @@ Deno.serve(async (req: Request) => {
           continue;
         }
         const pre = await vdaiPreflight(sb, doc);
-        result.phaseB.push({ id: doc.id, document_number: doc.document_number, would_import: pre.ok && pre.unmatchedCount === 0, preflight: pre });
+        result.phaseB.push({ id: doc.id, document_number: doc.document_number, would_import: pre.ok, preflight: pre });
         continue;
       }
 
@@ -2232,7 +2261,10 @@ Deno.serve(async (req: Request) => {
       }
 
       const pre = await vdaiPreflight(sb, doc);
-      if (pre.ok && pre.unmatchedCount === 0) {
+      // INV15 — un prodotto senza nome non e' piu' un veto contabile.
+      // Stessa condizione del gate dentro vdaiApprove, che resta
+      // l'autorita' finale sulla scrittura.
+      if (pre.ok) {
         // INV08C — vdaiPreflight fa gia' la cosa giusta per un credito:
         // il gate dei warning bloccanti vale per QUALUNQUE tipo, e poi
         // esce con unmatchedCount 0 perche' un credito non e'
