@@ -66,7 +66,11 @@ window.openIngredientWorklist = async function() {
 
   const overlay = document.createElement('div');
   overlay.id = 'iwlOverlay';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:9400;background:rgba(8,18,40,0.65);';
+  // z-index: la worklist deve stare SOTTO la modale di match, che sta a
+  // 9400 (vendor-documents-review.js). Con 9401 la modale si apriva
+  // DIETRO questa schermata, che e' opaca e a tutto schermo: il bottone
+  // Collega sembrava morto perche' cio' che apriva era invisibile.
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9200;background:rgba(8,18,40,0.65);';
   overlay.onclick = function(e) { if (e.target === overlay) chiudi(); };
   document.body.appendChild(overlay);
 
@@ -77,7 +81,7 @@ window.openIngredientWorklist = async function() {
     if (mob()) { modal.style.inset = '0'; modal.style.borderRadius = '0'; }
     else { modal.style.inset = '24px'; modal.style.borderRadius = '18px'; }
   }
-  modal.style.cssText = 'position:fixed;z-index:9401;background:#0f172a;color:#e2e8f0;'
+  modal.style.cssText = 'position:fixed;z-index:9201;background:#0f172a;color:#e2e8f0;'
     + 'display:flex;flex-direction:column;overflow:hidden;'
     + 'box-shadow:0 32px 80px rgba(0,0,0,0.7);'
     + 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
@@ -209,14 +213,43 @@ window.openIngredientWorklist = async function() {
     + '</div>';
 };
 
-// Un tap apre la modale ESISTENTE. Questo file non salva niente.
+// Un tap apre la modale ESISTENTE. Questo file non salva niente: il
+// salvataggio vive dentro vdrOpenMatchSelector -> vdrSaveVendorSkuMapping.
+//
+// Due cose che questa funzione DEVE fare, e che prima non faceva:
+//
+//   RESTITUIRE LA PROMISE. vdrOpenMatchSelector e' async: senza il
+//   return, chi chiama non puo' aspettare che la modale esista. Era
+//   invisibile a mano ma rendeva il flusso non verificabile.
+//
+//   RICARICARE LA WORKLIST quando la modale si chiude. La modale si
+//   rimuove da sola dopo il salvataggio, ma non sa niente di questa
+//   schermata: senza questo, il prodotto appena collegato restava in
+//   lista. Osservo la sua rimozione invece di aggiungere una callback
+//   a vendor-documents-review.js, che non e' mio.
 window.iwlCollega = function(btn) {
-  if (typeof window.vdrOpenMatchSelector !== 'function') return;
-  window.vdrOpenMatchSelector(
+  if (typeof window.vdrOpenMatchSelector !== 'function') return Promise.resolve();
+  const p = window.vdrOpenMatchSelector(
     btn.getAttribute('data-doc') || null,
     btn.getAttribute('data-vendor'),
     btn.getAttribute('data-sku'),
     btn.getAttribute('data-descr'),
     btn
   );
+  Promise.resolve(p).then(function() { iwlRicaricaAllaChiusura(); });
+  return Promise.resolve(p);
 };
+
+// Aspetta che #_vdrMatchSelector sparisca, poi rilegge la worklist.
+// Vale sia dopo un salvataggio sia dopo un annullamento: nel secondo
+// caso e' solo una rilettura, innocua.
+function iwlRicaricaAllaChiusura() {
+  const sel = document.getElementById('_vdrMatchSelector');
+  if (!sel || !window.MutationObserver) return;
+  const obs = new window.MutationObserver(function() {
+    if (document.getElementById('_vdrMatchSelector')) return;
+    obs.disconnect();
+    if (document.getElementById('iwlModal')) window.openIngredientWorklist();
+  });
+  obs.observe(document.body, { childList: true });
+}
