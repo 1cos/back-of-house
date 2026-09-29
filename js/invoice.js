@@ -300,9 +300,11 @@ async function saveInvoice(data,btn){
     const descs=(data.items||[]).map(i=>i.description).filter(Boolean);
     const vendor=data.vendor||'';
     // Step 1: check ingredient_links for previously matched items
-    const{data:links}=await supa.from('ingredient_links')
-      .select('invoice_description,ingredient_name,ingredient_id,confirmed')
-      .eq('vendor',vendor).in('invoice_description',descs);
+    // GG07 — vedi js/vendor-parsers/link-lookup.js.
+    const{data:links}=await window.vdrFetchLinksByDescription(
+      supa, vendor, descs,
+      { columns:'invoice_description,ingredient_name,ingredient_id,confirmed',
+        confirmedOnly:false });
     // Step 2: get price history only for matched ingredient IDs
     const linkedIds=(links||[]).map(l=>l.ingredient_id).filter(Boolean);
     let priceRows=[];

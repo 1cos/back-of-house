@@ -313,11 +313,13 @@ const bekSafety = require('./bek-post-parse-safety');
 // quando arriva una nuova osservazione di prezzo. Condivisa fra worker
 // e UI Approve, che avevano due copie identiche dello stesso blocco.
 const priceIntel = require('./price-intelligence-merge');
+const linkLookup = require('./link-lookup');
 
 module.exports = {
   parse, detectVendor, detectDocumentType, checkTotals,
   bekSafety,
   priceIntel,
+  linkLookup,
   isPurchasableDocument, isBenEKeith,
   classifyBuyer, extractBuyerEmail, normalizeBuyerEmail,
   BEK_BUYER_KITCHEN, BEK_BUYER_FOH,

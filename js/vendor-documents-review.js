@@ -111,6 +111,53 @@ function vdrRenderVendorTabs() {
 
 // ── Load pending documents ────────────────────────────────────
 // ── MARKER:VDR_MATCH_STATUS_START ───────────────────────────────────
+// ── GG07: LETTURA DEI COLLEGAMENTI PER DESCRIZIONE ───────────────
+// Il blocco fra i due MARKER qui sotto e' IDENTICO, carattere per
+// carattere, a quello di js/vendor-parsers/link-lookup.js, che e' la
+// copia che il worker carica da PARSER_SOURCES. La duplicazione e'
+// deliberata e sorvegliata: i test caricano questo file con
+// new Function(), che non vede require(), quindi una dipendenza
+// esterna qui renderebbe non testabile vdrApprove. Il test
+// tests/link-lookup-parentesi.test.js confronta i due blocchi e
+// fallisce se divergono di un solo byte.
+// ── MARKER:LINK_LOOKUP_START ─────────────────────────────────────
+// sb        client Supabase
+// vendor    nome fornitore (colonna controllata, sicura in un filtro)
+// descs     descrizioni cercate; l'ordine non conta, i doppioni si
+//           ignorano
+// opts      { columns, confirmedOnly }
+//             columns        default 'invoice_description,ingredient_id'
+//             confirmedOnly  default true
+//
+// Ritorna { data, error } con la stessa forma di prima, cosi' i
+// chiamanti non cambiano struttura: solo la riga della query.
+async function vplFetchLinksByDescription(sb, vendor, descs, opts) {
+  const o = opts || {};
+  const columns = o.columns || 'invoice_description,ingredient_id';
+  const confirmedOnly = o.confirmedOnly !== false;
+
+  const wanted = new Set((descs || []).filter(function (d) {
+    return d != null && d !== '';
+  }));
+  if (!wanted.size) return { data: [], error: null };
+
+  let q = sb.from('ingredient_links').select(columns).eq('vendor', vendor);
+  if (confirmedOnly) q = q.eq('confirmed', true);
+
+  const res = await q;
+  if (res && res.error) return { data: [], error: res.error };
+
+  const rows = (res && res.data) || [];
+  return {
+    data: rows.filter(function (r) { return wanted.has(r.invoice_description); }),
+    error: null,
+  };
+}
+// ── MARKER:LINK_LOOKUP_END ───────────────────────────────────────
+// Esposta per js/invoice.js, che e' un file separato. La guardia serve
+// ai test, che valutano questo blocco senza passare un window.
+if (typeof window !== 'undefined') window.vdrFetchLinksByDescription = vplFetchLinksByDescription;
+
 // Batched ingredient-matching readiness for the document list — computed
 // ONCE per vdrLoad() call across every visible invoice, never per-card
 // (avoids the N+1 query pattern a per-card vdrPreflight() call would
@@ -180,8 +227,11 @@ async function vdrComputeMatchStatus(sb, docs) {
     }
     const matchedDescsByVendor = {};
     for (const vendor of Object.keys(byDescByVendor)) {
-      const { data: rows } = await sb.from('ingredient_links')
-        .select('invoice_description').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', [...byDescByVendor[vendor]]);
+      // GG07 — niente filtro sulla descrizione: vedi
+      // js/vendor-parsers/link-lookup.js. Una descrizione con parentesi
+      // E virgolette non sopravvive alla serializzazione di .in().
+      const { data: rows } = await vplFetchLinksByDescription(
+        sb, vendor, [...byDescByVendor[vendor]], { columns: 'invoice_description' });
       matchedDescsByVendor[vendor] = new Set((rows || []).map(r => r.invoice_description));
     }
 
@@ -3476,9 +3526,12 @@ async function vdrPreflight(docId, doc) {
     const matchedSkus = new Set([...Object.keys(aliasIdBySku), ...Object.keys(directIdBySku)]);
 
     // Fetch confirmed links
-    const { data: linkRows } = descs.length ? await sb.from('ingredient_links')
-      .select('invoice_description').eq('vendor', vendor).eq('confirmed', true)
-      .in('invoice_description', descs) : { data: [] };
+    // GG07 — vedi js/vendor-parsers/link-lookup.js. Il filtro .in()
+    // sulla descrizione perdeva silenziosamente le righe che contengono
+    // sia una parentesi sia una virgoletta, e il documento risultava
+    // non abbinato pur avendo il collegamento confermato.
+    const { data: linkRows } = await vplFetchLinksByDescription(
+      sb, vendor, descs, { columns: 'invoice_description' });
     const matchedDescs = new Set((linkRows || []).map(r => r.invoice_description));
 
     // Find unmatched items — only among matchable (product) items
@@ -3680,7 +3733,8 @@ window.vdrApprove = async function(docId, btn) {
       // same alias data (via aliasIdMap) — see resolvePriceIntelIdentity.
       skus.length ? sb.from('vendor_item_aliases').select('vendor_sku,ingredient_id').eq('vendor', vendor).eq('active', true).in('vendor_sku', skus) : { data: [] },
       sb.from('ingredient_vendors').select('id,ingredient_id,vendor_sku,last_invoice_date,conversion_to_base,pack_description,price_per_100g').eq('vendor', vendor),
-      descs.length ? sb.from('ingredient_links').select('invoice_description,ingredient_id').eq('vendor', vendor).eq('confirmed', true).in('invoice_description', descs) : { data: [] },
+      // GG07 — vedi js/vendor-parsers/link-lookup.js.
+      vplFetchLinksByDescription(sb, vendor, descs),
     ]);
 
     // MICRO-TASK 52B — ultima invoice_date realmente persistita, per identita'.
