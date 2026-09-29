@@ -1,0 +1,369 @@
+// ══════════════════════════════════════════════════════════════════
+// PREZZI MANCANTI (FC04) — Admin > Prezzi mancanti
+//
+// Cosa impedisce al food cost di essere completo, un ingrediente alla
+// volta, partendo da quello che blocca piu' ricette.
+//
+// NON e' un secondo motore. I dati arrivano gia' calcolati da
+// fc_prezzi_mancanti(p_token), che legge food_cost.v_chef_alerts e
+// aggiunge le prove (ultima fattura, ultimo prezzo al peso, documenti in
+// attesa). La funzione verifica la sessione Brigade e risponde solo a un
+// amministratore: senza token valido non arriva nessun prezzo.
+//
+// L'unico calcolo fatto qui e' cercare, fra le fatture non collegate,
+// quelle che il motore di candidati ESISTENTE (vdrFindIngredientCandidates,
+// lo stesso della worklist e di Vendor Review) proporrebbe per un
+// ingrediente senza prezzo.
+//
+// Questa schermata non scrive niente. Porta lo chef alla schermata
+// giusta: scheda ingrediente, collegamento, Vendor Review.
+// ══════════════════════════════════════════════════════════════════
+'use strict';
+
+// Gruppi, nell'ordine in cui compaiono i filtri.
+window.PM_GRUPPI = [
+  { id: 'tutti',     label: 'Tutti' },
+  { id: 'formato',   label: 'Comprati, manca il peso' },
+  { id: 'collegare', label: 'Fattura da collegare' },
+  { id: 'mai',       label: 'Mai fatturati' },
+  { id: 'altro',     label: 'Altro' },
+];
+
+function pmEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function pmSoldi(n, dec) {
+  if (n == null || isNaN(Number(n))) return '';
+  return '$' + Number(n).toFixed(dec == null ? 2 : dec).replace('.', ',');
+}
+function pmData(d) {
+  if (!d) return '';
+  const p = String(d).slice(0, 10).split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] : String(d);
+}
+function pmFornitore(v) {
+  // "Hardie's Fresh Foods / Dairyland Produce" -> "Hardie's"
+  const s = String(v || '');
+  if (/^hardie/i.test(s)) return "Hardie's";
+  if (/^global gourmet/i.test(s)) return 'Global Gourmet';
+  if (/^ben e\.? keith/i.test(s)) return 'Ben E. Keith';
+  return s;
+}
+function pmFattura(f) {
+  if (!f) return '';
+  return pmFornitore(f.vendor) + ' ' + pmData(f.date)
+    + (f.pack ? ', «' + f.pack + '»' : '')
+    + (f.unit_price != null ? ', ' + pmSoldi(f.unit_price) : '');
+}
+
+// ── DIAGNOSI: dai dati del server a una frase e a un'azione ──────
+// Pura: nessun DOM, nessuna chiamata. Testata a parte.
+//   cand = fatture non collegate che il motore di candidati associa a
+//          questo ingrediente (vedi pmCandidatiNonCollegati)
+window.pmDiagnosi = function(it, cand) {
+  cand = cand || [];
+  const uf = it.ultima_fattura, up = it.ultimo_prezzo_al_peso;
+  const d = { gruppo: 'altro', titolo: '', testo: '', prove: [], azioni: [] };
+  const scheda = { tipo: 'scheda', label: 'Apri la scheda ingrediente' };
+  const inArrivo = function(label) { return { tipo: 'presto', label: label }; };
+
+  switch (it.diagnosi) {
+    case 'formato_nuovo_senza_peso':
+      d.gruppo = 'formato';
+      d.titolo = 'Comprato, ma l’ultima fattura non ha un peso';
+      d.testo = 'Il prezzo c’è, manca quanto pesa il formato: senza il peso non si sa quanto costa al grammo.';
+      if (uf) d.prove.push('Ultima fattura: ' + pmFattura(uf) + '.');
+      if (up) d.prove.push('Ultimo prezzo al peso: ' + pmSoldi(up.cost_per_100g, 4) + ' / 100 g ('
+        + pmFornitore(up.vendor) + ' ' + pmData(up.date) + ').');
+      d.azioni.push({ tipo: 'scheda', label: 'Indica il peso del formato' });
+      break;
+    case 'formato_senza_peso':
+      d.gruppo = 'formato';
+      d.titolo = 'Comprato, ma il formato non ha mai avuto un peso';
+      d.testo = 'Serve sapere quanto pesa il formato acquistato.';
+      if (uf) d.prove.push('Ultima fattura: ' + pmFattura(uf) + (uf.pack ? '' : ', formato non indicato') + '.');
+      d.azioni.push({ tipo: 'scheda', label: 'Indica il peso del formato' });
+      break;
+    case 'peso_al_pezzo':
+      d.gruppo = 'formato';
+      d.titolo = 'Serve il peso di un pezzo';
+      d.testo = 'La ricetta e la fattura contano in modo diverso (a pezzi e a peso).';
+      if (uf) d.prove.push('Ultima fattura: ' + pmFattura(uf) + '.');
+      d.azioni.push(inArrivo('Peso di un pezzo — in arrivo'));
+      break;
+    case 'litri_chili':
+      d.gruppo = 'formato';
+      d.titolo = 'Serve la conversione fra litri e chili';
+      d.testo = 'La ricetta lo misura a volume, il prezzo è al peso. Per l’olio vale 1 L = 1 kg; per questo ingrediente la regola non c’è ancora.';
+      if (uf) d.prove.push('Ultima fattura: ' + pmFattura(uf) + '.');
+      d.azioni.push(inArrivo('Conversione litri/chili — in arrivo'));
+      break;
+    case 'conflitto':
+      d.gruppo = 'altro';
+      d.titolo = 'Due prezzi che non tornano';
+      d.testo = 'Il prezzo corrente e la fattura dicono cose diverse: va controllato prima di usarlo.';
+      if (uf) d.prove.push('Ultima fattura: ' + pmFattura(uf) + '.');
+      d.azioni.push(scheda);
+      break;
+    case 'unita_ricetta':
+      d.gruppo = 'altro';
+      d.titolo = 'Unità della ricetta non convertibile';
+      d.testo = 'In una ricetta è scritto in un’unità come pizzico o spicchio. Le ricette non si modificano da qui.';
+      d.azioni.push(scheda);
+      break;
+    case 'solo_in_attesa':
+      d.gruppo = 'collegare';
+      d.titolo = 'Fattura in attesa di approvazione';
+      d.testo = 'Il prodotto è in un documento non ancora approvato.';
+      break;
+    default: // mai_fatturato
+      if (cand.length) {
+        d.gruppo = 'collegare';
+        d.titolo = 'C’è una fattura non collegata che potrebbe essere questo';
+        d.testo = 'Controlla il prodotto e, se è lui, collegalo: il prezzo arriva dalla fattura.';
+        cand.forEach(function(c) {
+          d.prove.push('«' + c.descrizione + '» — ' + pmFornitore(c.vendor)
+            + (c.ultima_data ? ' ' + pmData(c.ultima_data) : '')
+            + (c.ultimo_prezzo != null ? ', ' + pmSoldi(c.ultimo_prezzo) : '') + '.');
+          d.azioni.push({ tipo: 'collega', label: 'Collega «' + c.descrizione + '»', cand: c });
+        });
+      } else {
+        d.gruppo = 'mai';
+        d.titolo = 'Nessuna fattura trovata';
+        d.testo = 'Non risulta nessun acquisto di questo ingrediente. Nessun prezzo viene inventato.';
+        d.azioni.push(inArrivo('Stima dello chef — in arrivo'));
+      }
+  }
+  if ((it.documenti_in_attesa || []).length) {
+    const doc = it.documenti_in_attesa[0];
+    d.prove.push('In attesa di approvazione: documento ' + pmFornitore(doc.vendor)
+      + ' con «' + doc.description + '».');
+    d.azioni.push({ tipo: 'vendor_review', label: 'Apri i documenti in attesa' });
+  }
+  return d;
+};
+
+// Fatture non collegate che il motore di candidati esistente associa a un
+// ingrediente degli avvisi. Stessa raggruppatura della worklist (per
+// fornitore + SKU, righe tecniche escluse). Solo candidati sicuri: quelli
+// che il motore marca needsConfirmation restano fuori.
+window.pmCandidatiNonCollegati = function(righe, ingredienti, idAvvisi) {
+  const out = {};
+  if (typeof window.vdrFindIngredientCandidates !== 'function') return out;
+  const gruppi = typeof window.iwlRaggruppa === 'function' ? window.iwlRaggruppa(righe) : [];
+  const avvisi = new Set(idAvvisi || []);
+  gruppi.forEach(function(g) {
+    const c = window.vdrFindIngredientCandidates(g.descrizione, ingredienti || []);
+    c.forEach(function(x) {
+      if (x.needsConfirmation || !avvisi.has(x.id)) return;
+      (out[x.id] = out[x.id] || []).push(g);
+    });
+  });
+  return out;
+};
+
+// ── SCHERMATA ─────────────────────────────────────────────────────
+window.openPrezziMancanti = async function() {
+  if (typeof isAdmin === 'function' && !isAdmin()) return;
+  const sb = window.supabaseClient || window.supa;
+  if (!sb) return;
+
+  pmChiudi();
+  const overlay = document.createElement('div');
+  overlay.id = 'pmOverlay';
+  // Sotto la modale di collegamento (9400), come la worklist.
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9200;background:rgba(8,18,40,0.65);';
+  overlay.onclick = function(e) { if (e.target === overlay) pmChiudi(); };
+  document.body.appendChild(overlay);
+
+  const modal = document.createElement('div');
+  modal.id = 'pmModal';
+  modal.style.cssText = 'position:fixed;z-index:9201;background:#0f172a;color:#e2e8f0;'
+    + 'display:flex;flex-direction:column;overflow:hidden;'
+    + 'box-shadow:0 32px 80px rgba(0,0,0,0.7);'
+    + 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
+  const dimensiona = function() {
+    if (window.innerWidth <= 768) { modal.style.inset = '0'; modal.style.borderRadius = '0'; }
+    else { modal.style.inset = '24px'; modal.style.borderRadius = '18px'; modal.style.maxWidth = '760px'; modal.style.margin = '0 auto'; }
+  };
+  dimensiona();
+  document.body.appendChild(modal);
+  modal.innerHTML = '<div style="padding:40px;text-align:center;color:#94a3b8;">Carico…</div>';
+
+  // 1. gli avvisi, dal server, solo con una sessione da amministratore
+  let token = null;
+  try { token = window.localStorage.getItem('brigade_token'); } catch (e) { token = null; }
+  const { data: res, error } = await sb.rpc('fc_prezzi_mancanti', { p_token: token });
+  if (error || !res || !res.ok) {
+    const perche = res && res.error === 'unauthorized'
+      ? 'Questa schermata è riservata all’amministratore.'
+      : (res && /session|token/.test(res.error || '')
+        ? 'La sessione è scaduta: esci e rientra con il PIN.'
+        : 'Non riesco a leggere gli avvisi' + (error ? ': ' + error.message : '.'));
+    modal.innerHTML = '<div style="padding:40px;color:#fca5a5;font-size:15px;">' + pmEsc(perche) + '</div>'
+      + '<div style="padding:0 40px 40px;"><button onclick="pmChiudi()" style="' + PM_BTN_GHOST + '">Chiudi</button></div>';
+    return;
+  }
+  const items = res.items || [];
+
+  // 2. fatture non collegate + nomi degli ingredienti, per il motore di candidati.
+  //    Solo nomi e categorie: nessuna ricetta, nessun prezzo di listino.
+  let cand = {};
+  try {
+    const [{ data: righe }, { data: ingrs }] = await Promise.all([
+      sb.from('invoice_lines')
+        .select('vendor,vendor_sku,raw_description,pack_description,invoice_date,unit_price,line_total,cost_per_100g,import_id')
+        .is('ingredient_id', null),
+      sb.from('ingredients').select('id,name,category').eq('active', true),
+    ]);
+    const cibo = (ingrs || []).filter(function(i) { return i.category !== 'Supply'; });
+    cand = window.pmCandidatiNonCollegati(righe || [], cibo, items.map(function(i) { return i.ingredient_id; }));
+  } catch (e) { cand = {}; }
+
+  window.PM_STATO = { items: items, cand: cand, filtro: (window.PM_STATO && window.PM_STATO.filtro) || 'tutti',
+                      aperti: {}, generato: res.generated_at };
+  pmRender();
+};
+
+const PM_BTN = 'font:600 14px -apple-system,sans-serif;padding:11px 14px;border-radius:10px;border:0;'
+  + 'background:#34d399;color:#062b1f;cursor:pointer;';
+const PM_BTN_GHOST = 'font:600 14px -apple-system,sans-serif;padding:11px 14px;border-radius:10px;'
+  + 'border:1px solid #334155;background:transparent;color:#e2e8f0;cursor:pointer;';
+const PM_BTN_OFF = 'font:600 13px -apple-system,sans-serif;padding:10px 12px;border-radius:10px;'
+  + 'border:1px dashed #475569;background:transparent;color:#94a3b8;cursor:default;';
+
+function pmRender() {
+  const modal = document.getElementById('pmModal');
+  const st = window.PM_STATO;
+  if (!modal || !st) return;
+  const righe = st.items.map(function(it, k) {
+    return { it: it, k: k, d: window.pmDiagnosi(it, st.cand[it.ingredient_id]) };
+  });
+  const conta = {};
+  righe.forEach(function(r) { conta[r.d.gruppo] = (conta[r.d.gruppo] || 0) + 1; });
+  conta.tutti = righe.length;
+  const visibili = righe.filter(function(r) { return st.filtro === 'tutti' || r.d.gruppo === st.filtro; });
+
+  let h = '<div style="padding:18px 18px 12px;border-bottom:1px solid #1e293b;display:flex;gap:12px;align-items:flex-start;">'
+    + '<div style="flex:1;min-width:0;">'
+    + '<div style="font-size:20px;font-weight:700;color:#f8fafc;">Prezzi mancanti</div>'
+    + '<div style="font-size:13px;color:#94a3b8;margin-top:4px;line-height:1.45;">'
+    + righe.length + ' ingredienti impediscono un food cost completo. In cima quelli che bloccano più ricette. '
+    + 'Qui nessun prezzo viene inventato: vedi cosa manca e dove si sistema.</div></div>'
+    + '<button onclick="pmChiudi()" aria-label="Chiudi" style="' + PM_BTN_GHOST + 'padding:8px 12px;">Chiudi</button></div>';
+
+  h += '<div style="display:flex;gap:8px;overflow-x:auto;padding:12px 18px;border-bottom:1px solid #1e293b;-webkit-overflow-scrolling:touch;">';
+  window.PM_GRUPPI.forEach(function(g) {
+    if (!conta[g.id] && g.id !== 'tutti') return;
+    const on = st.filtro === g.id;
+    h += '<button onclick="pmFiltro(\'' + g.id + '\')" style="flex:0 0 auto;font:600 13px -apple-system,sans-serif;'
+      + 'padding:8px 12px;border-radius:999px;cursor:pointer;white-space:nowrap;'
+      + (on ? 'background:#e2e8f0;color:#0f172a;border:1px solid #e2e8f0;'
+            : 'background:transparent;color:#cbd5e1;border:1px solid #334155;') + '">'
+      + pmEsc(g.label) + ' <span style="opacity:.7;">' + (conta[g.id] || 0) + '</span></button>';
+  });
+  h += '</div><div id="pmLista" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:6px 0 30px;">';
+
+  visibili.forEach(function(r) {
+    // la chiave e' la posizione: lo stesso ingrediente puo' avere due avvisi
+    // diversi (il sale: litri/chili e unita' della ricetta)
+    const it = r.it, d = r.d, id = String(r.k);
+    const colore = { formato: '#fbbf24', collegare: '#34d399', mai: '#64748b', altro: '#f87171' }[d.gruppo] || '#64748b';
+    h += '<div style="margin:10px 14px;padding:14px 14px 12px;background:#111c33;border:1px solid #1e293b;'
+      + 'border-left:3px solid ' + colore + ';border-radius:12px;">'
+      + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;">'
+      + '<div style="font-size:17px;font-weight:700;color:#f8fafc;min-width:0;overflow-wrap:anywhere;">' + pmEsc(it.ingrediente) + '</div>'
+      + '<button onclick="pmRicette(\'' + id + '\')" style="flex:0 0 auto;background:none;border:0;color:#cbd5e1;'
+      + 'font:600 13px -apple-system,sans-serif;cursor:pointer;padding:0;">blocca ' + it.ricette_bloccate
+      + (Number(it.ricette_bloccate) === 1 ? ' ricetta' : ' ricette') + ' ›</button></div>'
+      + '<div style="font-size:14px;font-weight:600;color:' + colore + ';margin-top:6px;">' + pmEsc(d.titolo) + '</div>'
+      + '<div style="font-size:13.5px;color:#cbd5e1;margin-top:4px;line-height:1.45;">' + pmEsc(d.testo) + '</div>';
+    d.prove.forEach(function(p) {
+      h += '<div style="font-size:13px;color:#94a3b8;margin-top:5px;line-height:1.4;">' + pmEsc(p) + '</div>';
+    });
+    if (st.aperti[id]) {
+      h += '<div style="font-size:12.5px;color:#94a3b8;margin-top:8px;padding-top:8px;border-top:1px solid #1e293b;line-height:1.5;">'
+        + pmEsc(it.ricette) + '</div>';
+    }
+    if (d.azioni.length) {
+      h += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">';
+      d.azioni.forEach(function(a, i) {
+        if (a.tipo === 'presto') {
+          h += '<span style="' + PM_BTN_OFF + '">' + pmEsc(a.label) + '</span>';
+        } else {
+          h += '<button data-id="' + id + '" data-i="' + i + '" onclick="pmAzione(this)" style="'
+            + (i === 0 ? PM_BTN : PM_BTN_GHOST) + '">' + pmEsc(a.label) + '</button>';
+        }
+      });
+      h += '</div>';
+    }
+    h += '</div>';
+  });
+  if (!visibili.length) h += '<div style="padding:40px;text-align:center;color:#94a3b8;">Niente in questo gruppo.</div>';
+  h += '</div>';
+  modal.innerHTML = h;
+}
+
+window.pmFiltro = function(f) { window.PM_STATO.filtro = f; pmRender(); };
+window.pmRicette = function(id) {
+  const a = window.PM_STATO.aperti; a[id] = !a[id]; pmRender();
+};
+
+window.pmChiudi = function() {
+  document.getElementById('pmOverlay')?.remove();
+  document.getElementById('pmModal')?.remove();
+};
+
+// Nasconde questa schermata, apre quella giusta, e torna qui quando lo
+// chef la chiude. Necessario perche' la scheda ingrediente sta a z-index
+// 60-80: sotto una schermata a 9200 si aprirebbe invisibile (lo stesso
+// errore del bottone Collega, ottobre 2026).
+function pmNascondiEApri(apri, aperta) {
+  const ov = document.getElementById('pmOverlay'), mo = document.getElementById('pmModal');
+  if (ov) ov.style.display = 'none';
+  if (mo) mo.style.display = 'none';
+  const torna = function() {
+    const o = document.getElementById('pmOverlay'), m = document.getElementById('pmModal');
+    if (!m) return;
+    if (o) o.style.display = '';
+    m.style.display = 'flex';
+    window.openPrezziMancanti();          // rilegge: il prezzo potrebbe essere arrivato
+  };
+  Promise.resolve(apri()).then(function() {
+    if (!window.MutationObserver || !aperta()) { if (!aperta()) torna(); return; }
+    const obs = new window.MutationObserver(function() {
+      if (aperta()) return;
+      obs.disconnect();
+      torna();
+    });
+    obs.observe(document.body, { childList: true, subtree: false });
+  });
+}
+
+window.pmAzione = function(btn) {
+  const st = window.PM_STATO;
+  const it = st.items[Number(btn.getAttribute('data-id'))];
+  if (!it) return;
+  const d = window.pmDiagnosi(it, st.cand[it.ingredient_id]);
+  const a = d.azioni[Number(btn.getAttribute('data-i'))];
+  if (!a) return;
+  if (a.tipo === 'scheda' && typeof window.openIngredientCard === 'function') {
+    // La scheda (e la modifica del fornitore sopra di lei) sono elementi
+    // .fixed nuovi nel body: si confronta con quelli che c'erano prima.
+    const prima = new Set(Array.prototype.slice.call(document.querySelectorAll('body > .fixed')));
+    pmNascondiEApri(function() { return window.openIngredientCard(it.ingredient_id); },
+      function() {
+        return Array.prototype.slice.call(document.querySelectorAll('body > .fixed'))
+          .some(function(el) { return !prima.has(el); });
+      });
+  } else if (a.tipo === 'collega' && typeof window.vdrOpenMatchSelector === 'function') {
+    const c = a.cand;
+    pmNascondiEApri(function() {
+      return window.vdrOpenMatchSelector(c.doc_id || null, c.vendor, c.vendor_sku, c.descrizione, btn);
+    }, function() { return !!document.getElementById('_vdrMatchSelector'); });
+  } else if (a.tipo === 'vendor_review' && typeof window.openVendorDocumentsReview === 'function') {
+    window.pmChiudi();
+    window.openVendorDocumentsReview();
+  }
+};

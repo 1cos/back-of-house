@@ -1329,6 +1329,11 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span style="color:#047857;font-weight:700;">Da collegare</span>
         </button>
 
+        <button onclick="hideAdminMenu();openPrezziMancanti()" class="amenu-btn" style="border:1.5px solid #fcd34d;background:#fffbeb;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="1.8" stroke-linecap="round"><path d="M12 2v20"/><path d="M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/><path d="M3 3l18 18"/></svg>
+          <span style="color:#b45309;font-weight:700;">Prezzi mancanti</span>
+        </button>
+
         <button onclick="hideAdminMenu();openProductionCoverage()" class="amenu-btn" style="border:1.5px solid #fbbf24;background:#fefce8;">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           <span style="color:#d97706;font-weight:700;">Production Coverage</span>
@@ -1417,6 +1422,7 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <!-- Worklist: solo il punto d'ingresso. Il matching vive gia' in
      vendor-documents-review.js, che questo file richiama. -->
 <script src="js/ingredient-worklist.js"></script>
+<script src="js/prezzi-mancanti.js"></script>
 <script src="js/admin-prod-coverage.js"></script>
 <script src="js/admin-recipe-control.js"></script>
 <script src="js/demo-bot.js"></script>
