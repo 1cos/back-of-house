@@ -153,7 +153,7 @@ async function saveNewUser(btn){
     await _adminApi('create_user',{name,pin,lang,role,default_station:station||undefined});
   } catch(e) {err.textContent='Errore: '+e.message;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Crea';return}
   btn.closest('.fixed').remove();
-  document.querySelector('.fixed')?.remove();
+  (window.brigadeChiudiFinestre ? brigadeChiudiFinestre() : document.querySelectorAll('body > .fixed:not(nav):not(#adminMenuSheet)').forEach(el=>el.remove())); // FC04-UX: mai la barra in basso
   openUserManager();
 }
 
@@ -225,7 +225,7 @@ async function saveEditUser(userId, btn){
     }
   } catch(e){err.textContent='Errore: '+e.message;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return}
   btn.closest('.fixed').remove();
-  document.querySelector('.fixed')?.remove();
+  (window.brigadeChiudiFinestre ? brigadeChiudiFinestre() : document.querySelectorAll('body > .fixed:not(nav):not(#adminMenuSheet)').forEach(el=>el.remove())); // FC04-UX: mai la barra in basso
   openUserManager();
 }
 
@@ -282,7 +282,7 @@ async function toggleUserActive(userId, currentlyActive){
   try {
     await _adminApi('toggle_active',{user_id:userId, active:!currentlyActive});
   } catch(e) { showScToast('Errore: '+e.message); return; }
-  document.querySelector('.fixed')?.remove();
+  (window.brigadeChiudiFinestre ? brigadeChiudiFinestre() : document.querySelectorAll('body > .fixed:not(nav):not(#adminMenuSheet)').forEach(el=>el.remove())); // FC04-UX: mai la barra in basso
   openUserManager();
 }
 

@@ -4,9 +4,18 @@
 function makeSb(db, log) {
   log = log || { updates: [], inserts: [] };
   function rows(t) { return db[t] || (db[t] = []); }
+  // FC04-UX — i filtri su campi JSON ("assunzioni->>tipo") leggono dentro l'oggetto.
+  function campo(r, k) {
+    if (typeof k === 'string' && k.includes('->>')) {
+      const [a, b] = k.split('->>');
+      const v = r[a] && r[a][b];
+      return v === undefined || v === null ? v : String(v);
+    }
+    return r[k];
+  }
   function apply(t, filters) {
     return rows(t).filter(r => filters.every(f => {
-      if (f.op === 'eq')  return r[f.k] === f.v;
+      if (f.op === 'eq')  return campo(r, f.k) === f.v;
       if (f.op === 'neq') return r[f.k] !== f.v;
       if (f.op === 'in')  return f.v.includes(r[f.k]);
       if (f.op === 'isnull') return r[f.k] === null || r[f.k] === undefined;
@@ -43,7 +52,7 @@ function makeSb(db, log) {
       order(k, opts) { if (k) ordine = { k, asc: !(opts && opts.ascending === false) }; return self; },
       range() { return self; },
       limit(n) { limit = n; return self; },
-      async single() { const r = apply(t, filters); return { data: r[0] || null, error: r.length ? null : { message: 'not found' } }; },
+      async single() { const r = apply(t, filters); return { data: r[0] ? { ...r[0] } : null, error: r.length ? null : { message: 'not found' } }; }, // copia, come PostgREST
       then(res, rej) { return Promise.resolve(run()).then(res, rej); },
     };
     function run() {

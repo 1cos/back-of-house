@@ -191,24 +191,34 @@ window.openPrezziMancanti = async function() {
   document.body.appendChild(modal);
   modal.innerHTML = '<div style="padding:40px;text-align:center;color:#94a3b8;">Carico…</div>';
 
-  // 1. gli avvisi, dal server, solo con una sessione da amministratore
+  const r = await pmCaricaDati(sb);
+  if (!r.ok) {
+    modal.innerHTML = '<div style="padding:40px;color:#fca5a5;font-size:15px;">' + pmEsc(r.perche) + '</div>'
+      + '<div style="padding:0 40px 40px;display:flex;gap:8px;"><button onclick="pmChiudi()" style="' + PM_BTN_GHOST + '">Chiudi</button>'
+      + (typeof brigadeBottoneHome === 'function' ? brigadeBottoneHome(PM_BTN_GHOST) : '') + '</div>';
+    return;
+  }
+  const prima = window.PM_STATO || {};
+  window.PM_STATO = { items: r.items, cand: r.cand, filtro: prima.filtro || 'tutti',
+                      aperti: {}, generato: r.generato, avviso: null };
+  pmRender();
+};
+
+// Gli avvisi dal server (solo con una sessione da amministratore) e le
+// fatture non collegate per il motore di candidati: solo nomi e categorie,
+// nessuna ricetta, nessun prezzo di listino.
+async function pmCaricaDati(sb) {
   let token = null;
   try { token = window.localStorage.getItem('brigade_token'); } catch (e) { token = null; }
   const { data: res, error } = await sb.rpc('fc_prezzi_mancanti', { p_token: token });
   if (error || !res || !res.ok) {
-    const perche = res && res.error === 'unauthorized'
+    return { ok: false, perche: res && res.error === 'unauthorized'
       ? 'Questa schermata è riservata all’amministratore.'
       : (res && /session|token/.test(res.error || '')
         ? 'La sessione è scaduta: esci e rientra con il PIN.'
-        : 'Non riesco a leggere gli avvisi' + (error ? ': ' + error.message : '.'));
-    modal.innerHTML = '<div style="padding:40px;color:#fca5a5;font-size:15px;">' + pmEsc(perche) + '</div>'
-      + '<div style="padding:0 40px 40px;"><button onclick="pmChiudi()" style="' + PM_BTN_GHOST + '">Chiudi</button></div>';
-    return;
+        : 'Non riesco a leggere gli avvisi' + (error ? ': ' + error.message : '.')) };
   }
   const items = res.items || [];
-
-  // 2. fatture non collegate + nomi degli ingredienti, per il motore di candidati.
-  //    Solo nomi e categorie: nessuna ricetta, nessun prezzo di listino.
   let cand = {};
   try {
     const [{ data: righe }, { data: ingrs }] = await Promise.all([
@@ -220,10 +230,50 @@ window.openPrezziMancanti = async function() {
     const cibo = (ingrs || []).filter(function(i) { return i.category !== 'Supply'; });
     cand = window.pmCandidatiNonCollegati(righe || [], cibo, items.map(function(i) { return i.ingredient_id; }));
   } catch (e) { cand = {}; }
+  return { ok: true, items: items, cand: cand, generato: res.generated_at };
+}
 
-  window.PM_STATO = { items: items, cand: cand, filtro: (window.PM_STATO && window.PM_STATO.filtro) || 'tutti',
-                      aperti: {}, generato: res.generated_at };
+// Rilegge i dati SENZA ricostruire la schermata: filtro, elenchi aperti e
+// posizione nella lista restano dove li aveva lasciati lo chef. Se c'e' un
+// esito (appena salvato), in cima compare cosa e' cambiato.
+window.pmRicarica = async function(esito) {
+  const modal = document.getElementById('pmModal');
+  const st = window.PM_STATO;
+  if (!modal || !st) return window.openPrezziMancanti();
+  const sb = window.supabaseClient || window.supa;
+  const lista = document.getElementById('pmLista');
+  const scroll = lista ? lista.scrollTop : 0;
+  const r = await pmCaricaDati(sb);
+  if (!r.ok) return;
+  let avviso = null;
+  if (esito && esito.ingredientId) {
+    const prima = st.items.filter(function(i) { return i.ingredient_id === esito.ingredientId; });
+    const dopo = r.items.filter(function(i) { return i.ingredient_id === esito.ingredientId; });
+    const nome = (prima[0] || dopo[0] || {}).ingrediente || 'Ingrediente';
+    if (prima.length && !dopo.length) {
+      const n = Math.max.apply(null, prima.map(function(i) { return Number(i.ricette_bloccate) || 0; }));
+      avviso = { ok: true, testo: '\u2713 ' + nome + ' ha un prezzo: non blocca pi\u00f9 ' + n + (n === 1 ? ' ricetta.' : ' ricette.') };
+    } else if (dopo.length) {
+      avviso = { ok: false, testo: nome + ': salvato, ma manca ancora qualcosa \u2014 '
+        + window.pmDiagnosi(dopo[0], r.cand[dopo[0].ingredient_id]).titolo.toLowerCase() + '.' };
+    }
+  }
+  st.items = r.items; st.cand = r.cand; st.generato = r.generato; st.avviso = avviso;
   pmRender();
+  const nuova = document.getElementById('pmLista');
+  if (nuova) nuova.scrollTop = scroll;
+};
+
+// Nasconde la schermata tenendola intatta (filtro, posizione) e la riprende.
+function pmNascondi() {
+  ['pmOverlay', 'pmModal'].forEach(function(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+}
+window.pmTorna = function(esito) {
+  const o = document.getElementById('pmOverlay'), m = document.getElementById('pmModal');
+  if (!m) return window.openPrezziMancanti();
+  if (o) o.style.display = '';
+  m.style.display = 'flex';
+  if (esito && esito.salvato) window.pmRicarica(esito);
 };
 
 const PM_BTN = 'font:600 14px -apple-system,sans-serif;padding:11px 14px;border-radius:10px;border:0;'
@@ -251,7 +301,15 @@ function pmRender() {
     + '<div style="font-size:13px;color:#94a3b8;margin-top:4px;line-height:1.45;">'
     + righe.length + ' ingredienti impediscono un food cost completo. In cima quelli che bloccano più ricette. '
     + 'Qui nessun prezzo viene inventato: vedi cosa manca e dove si sistema.</div></div>'
-    + '<button onclick="pmChiudi()" aria-label="Chiudi" style="' + PM_BTN_GHOST + 'padding:8px 12px;">Chiudi</button></div>';
+    + '<div style="display:flex;gap:8px;flex-shrink:0;">'
+    + (typeof brigadeBottoneHome === 'function' ? brigadeBottoneHome(PM_BTN_GHOST + 'padding:8px 12px;') : '')
+    + '<button onclick="pmChiudi()" aria-label="Chiudi" style="' + PM_BTN_GHOST + 'padding:8px 12px;">Chiudi</button></div></div>';
+  if (st.avviso) {
+    h += '<div role="status" style="margin:12px 14px 0;padding:11px 13px;border-radius:10px;font-size:14px;line-height:1.4;'
+      + (st.avviso.ok ? 'background:#064e3b;color:#d1fae5;border:1px solid #047857;' : 'background:#451a03;color:#fde68a;border:1px solid #92400e;')
+      + '">' + pmEsc(st.avviso.testo) + '</div>';
+  }
+  h += '';
 
   h += '<div style="display:flex;gap:8px;overflow-x:auto;padding:12px 18px;border-bottom:1px solid #1e293b;-webkit-overflow-scrolling:touch;">';
   window.PM_GRUPPI.forEach(function(g) {
@@ -315,32 +373,6 @@ window.pmChiudi = function() {
   document.getElementById('pmModal')?.remove();
 };
 
-// Nasconde questa schermata, apre quella giusta, e torna qui quando lo
-// chef la chiude. Necessario perche' la scheda ingrediente sta a z-index
-// 60-80: sotto una schermata a 9200 si aprirebbe invisibile (lo stesso
-// errore del bottone Collega, ottobre 2026).
-function pmNascondiEApri(apri, aperta) {
-  const ov = document.getElementById('pmOverlay'), mo = document.getElementById('pmModal');
-  if (ov) ov.style.display = 'none';
-  if (mo) mo.style.display = 'none';
-  const torna = function() {
-    const o = document.getElementById('pmOverlay'), m = document.getElementById('pmModal');
-    if (!m) return;
-    if (o) o.style.display = '';
-    m.style.display = 'flex';
-    window.openPrezziMancanti();          // rilegge: il prezzo potrebbe essere arrivato
-  };
-  Promise.resolve(apri()).then(function() {
-    if (!window.MutationObserver || !aperta()) { if (!aperta()) torna(); return; }
-    const obs = new window.MutationObserver(function() {
-      if (aperta()) return;
-      obs.disconnect();
-      torna();
-    });
-    obs.observe(document.body, { childList: true, subtree: false });
-  });
-}
-
 window.pmAzione = function(btn) {
   const st = window.PM_STATO;
   const it = st.items[Number(btn.getAttribute('data-id'))];
@@ -349,19 +381,24 @@ window.pmAzione = function(btn) {
   const a = d.azioni[Number(btn.getAttribute('data-i'))];
   if (!a) return;
   if (a.tipo === 'scheda' && typeof window.openIngredientCard === 'function') {
-    // La scheda (e la modifica del fornitore sopra di lei) sono elementi
-    // .fixed nuovi nel body: si confronta con quelli che c'erano prima.
-    const prima = new Set(Array.prototype.slice.call(document.querySelectorAll('body > .fixed')));
-    pmNascondiEApri(function() { return window.openIngredientCard(it.ingredient_id); },
-      function() {
-        return Array.prototype.slice.call(document.querySelectorAll('body > .fixed'))
-          .some(function(el) { return !prima.has(el); });
-      });
+    // La scheda sta a z-index 60: questa schermata si nasconde (intatta) e la
+    // scheda sa da dove arriva. "‹ Prezzi mancanti" e Salva riportano qui.
+    pmNascondi();
+    window.openIngredientCard(it.ingredient_id, { origine: {
+      etichetta: 'Prezzi mancanti', dopoSalva: 'torna', torna: window.pmTorna } });
   } else if (a.tipo === 'collega' && typeof window.vdrOpenMatchSelector === 'function') {
+    // La modale di collegamento sta SOPRA (9400): la lista resta sotto, com'e'.
     const c = a.cand;
-    pmNascondiEApri(function() {
-      return window.vdrOpenMatchSelector(c.doc_id || null, c.vendor, c.vendor_sku, c.descrizione, btn);
-    }, function() { return !!document.getElementById('_vdrMatchSelector'); });
+    Promise.resolve(window.vdrOpenMatchSelector(c.doc_id || null, c.vendor, c.vendor_sku, c.descrizione, btn))
+      .then(function() {
+        if (!document.getElementById('_vdrMatchSelector') || !window.MutationObserver) return;
+        const obs = new window.MutationObserver(function() {
+          if (document.getElementById('_vdrMatchSelector')) return;
+          obs.disconnect();
+          window.pmRicarica({ ingredientId: it.ingredient_id });
+        });
+        obs.observe(document.body, { childList: true });
+      });
   } else if (a.tipo === 'vendor_review' && typeof window.openVendorDocumentsReview === 'function') {
     window.pmChiudi();
     window.openVendorDocumentsReview();

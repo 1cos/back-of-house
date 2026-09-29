@@ -47,8 +47,8 @@ function ambiente({ admin = true, rpcRisposta, token = 'a'.repeat(64) } = {}) {
   };
   w.isAdmin = () => admin;
   w.localStorage.setItem('brigade_token', token);
-  w.openIngredientCard = (id) => {
-    log.card.push(id);
+  w.openIngredientCard = (id, opts) => {
+    log.card.push(id); log.cardOpts = opts;
     const card = w.document.createElement('div');
     card.className = 'fixed z-[60] flex flex-col';
     w.document.body.appendChild(card);
@@ -167,16 +167,20 @@ test('10. filtro "Mai fatturati": solo quelli senza fattura', async () => {
   assert.ok(!/Parsley|Heavy Cream/.test(testo));
 });
 
-test('11. "Indica il peso del formato": nasconde la schermata, apre la scheda di Parsley, torna quando si chiude', async () => {
+test('11. "Indica il peso del formato": nasconde la lista (intatta), apre la scheda sapendo da dove arriva, e dopo Salva torna e rilegge', async () => {
   const { w, log, doc } = ambiente();
   await w.openPrezziMancanti(); await pausa();
+  w.pmFiltro('formato');
   const btn = Array.from(doc.querySelectorAll('#pmLista button')).find(b => b.textContent === 'Indica il peso del formato');
   w.pmAzione(btn); await pausa();
   assert.deepStrictEqual(log.card, [item('Parsley').ingredient_id]);
   assert.strictEqual(doc.getElementById('pmModal').style.display, 'none', 'nascosta: la scheda sta a z-index 60');
-  doc.querySelector('body > .fixed').remove(); await pausa(10);
+  assert.strictEqual(log.cardOpts.origine.etichetta, 'Prezzi mancanti');
+  assert.strictEqual(log.cardOpts.origine.dopoSalva, 'torna');
+  log.cardOpts.origine.torna({ salvato: true, ingredientId: item('Parsley').ingredient_id }); await pausa(10);
   assert.strictEqual(doc.getElementById('pmModal').style.display, 'flex', 'di nuovo visibile');
   assert.strictEqual(log.rpc.length, 2, 'e riletta: il prezzo potrebbe essere arrivato');
+  assert.strictEqual(w.PM_STATO.filtro, 'formato', 'filtro conservato');
 });
 
 test('12. Beets: "Collega" apre la modale di collegamento esistente con fornitore, SKU e descrizione', async () => {

@@ -1226,6 +1226,6 @@ async function addServiceUpdate(){
   const lvl=prompt('Level (info/warning/urgent/event):','info');
   await supa.from('service_updates').insert({message:msg,level:lvl||'info',created_by:user?.name});
   loadServiceUpdates();
-  document.querySelector('.fixed')?.remove();
+  (window.brigadeChiudiFinestre ? brigadeChiudiFinestre() : document.querySelectorAll('body > .fixed:not(nav):not(#adminMenuSheet)').forEach(el=>el.remove())); // FC04-UX: mai la barra in basso
 }
 

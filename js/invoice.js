@@ -865,7 +865,7 @@ async function openPurchaseHistory(){
 }
 
 async function showPurchaseDetail(id, src){
-  document.querySelector('.fixed')?.remove();
+  (window.brigadeChiudiFinestre ? brigadeChiudiFinestre() : document.querySelectorAll('body > .fixed:not(nav):not(#adminMenuSheet)').forEach(el=>el.remove())); // FC04-UX: mai la barra in basso
   if(src==='vendor_documents'){
     // FIX (Restore Original Match UX task, Part H): open the SPECIFIC
     // document detail directly, not just the generic Vendor Documents

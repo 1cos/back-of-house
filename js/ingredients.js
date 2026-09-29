@@ -379,7 +379,14 @@ window.filterIngrCategory = (cat, btn)=>{
 };
 
 // ── SCHEDA INGREDIENTE ────────────────────────────────────────
-window.openIngredientCard = async function(ingredientId){
+// La scheda ingrediente e' UNA sola: riaprirla la sostituisce e ricorda da dove
+// si e' arrivati (opts.origine = {etichetta, torna(esito), dopoSalva:'torna'}).
+// Senza origine, "Indietro" chiude la scheda e si resta nella sezione corrente.
+window.openIngredientCard = async function(ingredientId, opts){
+  opts = opts || {};
+  const _prima = document.getElementById('ingrCard');
+  const _origine = opts.origine || (_prima && _prima._origine) || null;
+  const _scroll = (!opts.origine && _prima && _prima._ingredientId === ingredientId) ? _prima.scrollTop : 0;
   const [
     {data:ingr},
     {data:vendors},
@@ -495,18 +502,28 @@ window.openIngredientCard = async function(ingredientId){
   const _newsBar = document.getElementById('newsBar');
   const _topOffset = 64 + (_newsBar && !_newsBar.classList.contains('hidden') ? (_newsBar.offsetHeight||36) : 0);
 
+  // La barra in basso resta visibile: la scheda finisce sopra di lei.
+  const _nav = document.querySelector('nav.fixed');
+  const _bottom = _nav && _nav.offsetParent !== null ? (_nav.offsetHeight || 0) : 0;
+
+  document.getElementById('ingrCard')?.remove();
   const modal = document.createElement('div');
+  modal.id = 'ingrCard';
+  modal.setAttribute('data-nav', 'ingr');
+  modal._origine = _origine;
+  modal._ingredientId = ingredientId;
   modal.className = 'fixed z-[60] flex flex-col';
-  modal.style.cssText = 'background:white;overflow-y:auto;left:0;right:0;bottom:0;top:'+_topOffset+'px;';
+  modal.style.cssText = 'background:white;overflow-y:auto;left:0;right:0;bottom:'+_bottom+'px;top:'+_topOffset+'px;';
   modal.innerHTML = `
     <div style="position:sticky;top:0;z-index:10;background:white;border-bottom:1px solid #f1f5f9;padding:14px 16px;">
       <div style="display:flex;align-items:center;gap:10px;">
-        <button onclick="this.closest('.fixed').remove()" style="width:32px;height:32px;border-radius:10px;background:#f1f5f9;border:none;font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
+        <button onclick="ingrCardIndietro()" aria-label="Indietro" style="height:36px;padding:0 10px;border-radius:10px;background:#f1f5f9;border:none;font-size:13px;font-weight:600;color:#1e293b;cursor:pointer;flex-shrink:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">‹ ${_origine ? _origine.etichetta : 'Indietro'}</button>
         <div style="flex:1;">
           <div style="font-size:16px;font-weight:600;color:#1e293b;">${emoji} ${ingr.name}</div>
           <div style="font-size:11px;color:#94a3b8;">${ingr.category||'Other'} · ${ingr.measure_type==='each' ? `each${ingr.avg_unit_weight_g?' · '+ingr.avg_unit_weight_g+'g/pz':''}` : (ingr.base_unit||'g')}</div>
         </div>
         ${isAdmin()?`<button onclick="openEditIngredient('${ingr.id}')" style="font-size:12px;color:#3B82F6;background:rgba(59,130,246,0.08);border:none;padding:5px 10px;border-radius:8px;cursor:pointer;">Edit</button>`:''}
+        ${typeof brigadeBottoneHome === 'function' ? brigadeBottoneHome() : ''}
       </div>
     </div>
 
@@ -574,8 +591,35 @@ window.openIngredientCard = async function(ingredientId){
 
     </div>`;
 
-  modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
+  modal.onclick = e=>{ if(e.target===modal) ingrCardIndietro(); };
   document.body.appendChild(modal);
+  if (_scroll) modal.scrollTop = _scroll;
+};
+
+// Chiude la scheda (e le sue finestre) e torna da dove si era venuti.
+window.ingrCardIndietro = function(){
+  const card = document.getElementById('ingrCard');
+  const o = card && card._origine;
+  document.querySelectorAll('[data-nav="ingr-sheet"]').forEach(s=>s.remove());
+  if (card) card.remove();
+  if (o && typeof o.torna === 'function') o.torna({ salvato: false });
+};
+
+// Dopo un salvataggio dalla scheda: chiude SOLO la finestra del salvataggio.
+// Se si era arrivati da una schermata che vuole il ritorno (Prezzi mancanti),
+// si torna li'; altrimenti la scheda si aggiorna al suo posto.
+window.ingrDopoSalva = function(ingredientId, btn){
+  const sheet = btn && (btn.closest('[data-nav="ingr-sheet"]') || btn.closest('.fixed'));
+  if (sheet && !sheet.hasAttribute('data-permanente') && sheet.id !== 'ingrCard') sheet.remove();
+  const card = document.getElementById('ingrCard');
+  const o = card && card._origine;
+  if (o && o.dopoSalva === 'torna' && typeof o.torna === 'function') {
+    document.querySelectorAll('[data-nav="ingr-sheet"]').forEach(s=>s.remove());
+    card.remove();
+    o.torna({ salvato: true, ingredientId: ingredientId });
+    return;
+  }
+  openIngredientCard(ingredientId);
 };
 
 // ── EDIT INGREDIENTE — solo campi master ingredients ──────────
@@ -677,7 +721,9 @@ window.openEditIngredient = async function(ingredientId){
       </div>
     </div>`;
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
+  modal.setAttribute('data-nav', 'ingr-sheet');
   document.body.appendChild(modal);
+  if (typeof brigadeSeguiTastiera === 'function') brigadeSeguiTastiera(modal);
   addSwipeToClose(modal, ()=>modal.remove());
 };
 
@@ -708,9 +754,7 @@ window.saveEditIngredient = async function(ingredientId, btn){
 
   const {error} = await supa.from('ingredients').update(updates).eq('id',ingredientId);
   if(error){ btn.textContent='Error: '+error.message; btn.disabled=false; return; }
-  btn.closest('.fixed').remove();
-  document.querySelector('.fixed.inset-0')?.remove();
-  openIngredientCard(ingredientId);
+  window.ingrDopoSalva(ingredientId, btn);
 };
 
 // ── EDIT VENDOR ROW — campi ingredient_vendors ────────────────
@@ -726,7 +770,10 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
   modal.innerHTML = `
     <div style="background:white;border-radius:24px 24px 0 0;padding:16px;width:100%;max-width:480px;margin:0 auto;max-height:90vh;overflow-y:auto;animation:slideUp .25s ease">
       <div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;"></div>
-      <div style="font-size:15px;font-weight:500;color:#1e293b;margin-bottom:4px;">✏️ Edit Vendor</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;">
+        <div style="font-size:15px;font-weight:500;color:#1e293b;">✏️ Edit Vendor</div>
+        ${typeof brigadeBottoneHome === 'function' ? brigadeBottoneHome() : ''}
+      </div>
       <div style="font-size:11px;color:#94a3b8;margin-bottom:16px;">Changes affect price_per_100g, food cost, and Chef AI answers</div>
 
       <div style="margin-bottom:12px;">
@@ -767,11 +814,14 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
         </div>
       </div>
 
-      <div style="margin-bottom:12px;">
-        <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">PESO PACK (g) — peso totale della confezione in grammi</label>
-        <input id="evConversion" type="number" value="${v.conversion_to_base||''}" placeholder="es. 1361 per 3 lb, 2268 per 5 lb" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;" oninput="evUpdatePreview()">
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px;">1 lb = 453g · 1 oz = 28g · 1 kg = 1000g</div>
+      <!-- FC04-UX: formato della confezione. Lo chef non fa conti: confezioni ×
+           quantità × unità, e il peso di UNA confezione per volumi e pezzi.
+           evConversion resta il campo che il salvataggio legge (grammi totali). -->
+      <div id="evFormatoWrap" style="margin-bottom:12px;">
+        <div id="evFormato"></div>
+        <div id="evFormatoAlPeso" style="display:none;font-size:12px;color:#64748b;background:#f8fafc;border-radius:10px;padding:8px 12px;">Il prezzo è già al peso: il formato della confezione non serve.</div>
       </div>
+      <input type="hidden" id="evConversion" value="${v.conversion_to_base||''}">
 
       <div style="margin-bottom:12px;">
         <label style="font-size:11px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px;">COSTO PER UNITÀ ($) — per articoli CT/EA (fiori, limoni, ecc.)</label>
@@ -792,7 +842,9 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
       </div>
     </div>`;
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
+  modal.setAttribute('data-nav', 'ingr-sheet');
   document.body.appendChild(modal);
+  if (typeof brigadeSeguiTastiera === 'function') brigadeSeguiTastiera(modal);
   addSwipeToClose(modal, ()=>modal.remove());
 
   // Live preview
@@ -805,9 +857,15 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
     const el     = document.getElementById('evCalcPreview');
     if(!up){ el.textContent='→ Inserisci Unit Price'; el.style.color='#92400e'; el.style.background='#fff7ed'; return; }
     let p100 = null, note = '';
+    const alPeso = pt === 'per_lb' || pt === 'per_kg' || pt === 'per_oz';
+    const fe = document.getElementById('evFormato'), fa = document.getElementById('evFormatoAlPeso');
+    if (fe) fe.style.display = alPeso ? 'none' : '';
+    if (fa) fa.style.display = alPeso ? '' : 'none';
+    if (fe && fe.pkPrezzo && fe._pk && fe._pk.prezzo !== up) fe.pkPrezzo(up);
     if(pt === 'per_lb')      p100 = (up / 453.592) * 100;
     else if(pt === 'per_kg') p100 = (up / 1000) * 100;
-    else if(conv > 0)        p100 = (up / conv) * 100;
+    else if(pt === 'per_oz') p100 = (up / 28.3495) * 100;
+    else if(conv > 0)      { p100 = (up / conv) * 100; note = ` ($${up.toFixed(2)} ÷ ${Math.round(conv).toLocaleString('it-IT')} g)`; }
     else if(wgEach > 0) {
       // Count-based: parse DZ → ×12, CT/EA → ×1
       const dzM = packDesc.match(/^(\d+(?:\.\d+)?)\s*DZ/);
@@ -833,6 +891,17 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
   ['evUnitPrice','evPriceType','evConversion','evAvgUnitWg','evPackDesc'].forEach(id=>{
     document.getElementById(id)?.addEventListener('input', evUpdatePreview);
   });
+  // l'editor del formato scrive i grammi nel campo che il salvataggio legge
+  if (typeof pkMontaEditor === 'function') {
+    await pkMontaEditor(document.getElementById('evFormato'), {
+      pack: v.pack_description, conv: v.conversion_to_base, prezzo: v.unit_price, ingredientId,
+      onChange: function(st){
+        const c = document.getElementById('evConversion');
+        if (c) c.value = st.risultato && st.risultato.grammi > 0 ? Math.round(st.risultato.grammi * 100) / 100 : '';
+        evUpdatePreview();
+      }
+    });
+  }
   evUpdatePreview();
 };
 
@@ -850,6 +919,7 @@ window.saveEditVendorRow = async function(vendorId, ingredientId, btn){
   if(up){
     if(priceTypeVal === 'per_lb')      p100 = parseFloat(((up / 453.592) * 100).toFixed(4));
     else if(priceTypeVal === 'per_kg') p100 = parseFloat(((up / 1000) * 100).toFixed(4));
+    else if(priceTypeVal === 'per_oz') p100 = parseFloat(((up / 28.3495) * 100).toFixed(4));
     else if(conv > 0)                  p100 = parseFloat(((up / conv) * 100).toFixed(4));
     else if(avgUnitWgNew > 0) {
       const packDesc = (document.getElementById('evPackDesc')?.value||'').trim().toUpperCase();
@@ -876,15 +946,25 @@ window.saveEditVendorRow = async function(vendorId, ingredientId, btn){
     updated_at:       new Date().toISOString(),
   };
 
+  const {data:_prima} = await supa.from('ingredient_vendors')
+    .select('id,ingredient_id,vendor,pack_description,conversion_to_base,price_per_100g').eq('id',vendorId).single();
   const {error} = await supa.from('ingredient_vendors').update(updates).eq('id',vendorId);
   if(error){ btn.textContent='Error: '+error.message; btn.disabled=false; return; }
+  // FC04-UX: se i grammi sono cambiati, si registra DA DOVE vengono (peso della
+  // confezione, dichiarazione dello chef, totale). La prossima volta l'editor
+  // riparte dalla dichiarazione approvata. Se la riga non si scrive, il prezzo
+  // resta salvato: e' solo tracciabilita'.
+  const _pk = document.getElementById('evFormato')?._pk;
+  if (_prima && typeof pkRigaAudit === 'function' && priceTypeVal === 'per_case'
+      && Number(_prima.conversion_to_base || 0) !== Number(conv || 0)) {
+    const riga = pkRigaAudit(_pk, _prima, conv, p100, (window.user && window.user.name) || null);
+    if (riga) { try { await supa.from('ingredient_vendor_price_audit').insert(riga); } catch(e) {} }
+  }
   // Save avg_unit_weight_g on the ingredient itself (shared across all vendors)
   if(avgUnitWgNew !== null){
     await supa.from('ingredients').update({ avg_unit_weight_g: avgUnitWgNew }).eq('id', ingredientId);
   }
-  btn.closest('.fixed').remove();
-  document.querySelectorAll('.fixed.inset-0').forEach(m=>m.remove());
-  openIngredientCard(ingredientId);
+  window.ingrDopoSalva(ingredientId, btn);
 };
 
 // ── ADD VENDOR ROW ────────────────────────────────────────────
@@ -947,7 +1027,9 @@ window.openAddVendorRow = function(ingredientId){
       </div>
     </div>`;
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
+  modal.setAttribute('data-nav', 'ingr-sheet');
   document.body.appendChild(modal);
+  if (typeof brigadeSeguiTastiera === 'function') brigadeSeguiTastiera(modal);
   addSwipeToClose(modal, ()=>modal.remove());
 
   window.avUpdatePreview = function(){
@@ -1031,9 +1113,7 @@ window.saveNewVendorRow = async function(ingredientId, btn){
     }
   }
   // 'created'/'idempotent' (or no vendor_sku provided at all) — done.
-  btn.closest('.fixed').remove();
-  document.querySelectorAll('.fixed.inset-0').forEach(m=>m.remove());
-  openIngredientCard(ingredientId);
+  window.ingrDopoSalva(ingredientId, btn);
 };
 
 // ── AGGIUNGI INGREDIENTE ──────────────────────────────────────
@@ -1041,6 +1121,7 @@ function openAddIngredient(prefillName=''){
   const categories = ['Dairy','Produce','Protein','Seafood','Dry Goods','Spices','Oil & Vinegar','Bakery','Frozen','Beverage','Other'];
   const units = ['g','kg','ml','l','lb','oz','each'];
   const modal = document.createElement('div');
+  modal.id = 'addIngrSheet';
   modal.className = 'fixed inset-0 z-[60] flex items-end';
   modal.style.background = 'rgba(0,0,0,0.3)';
   modal.innerHTML = `
@@ -1075,7 +1156,9 @@ function openAddIngredient(prefillName=''){
       </div>
     </div>`;
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
+  modal.setAttribute('data-nav', 'ingr-sheet');
   document.body.appendChild(modal);
+  if (typeof brigadeSeguiTastiera === 'function') brigadeSeguiTastiera(modal);
   addSwipeToClose(modal, ()=>modal.remove());
 }
 
@@ -1089,7 +1172,7 @@ window.saveNewIngredient = async ()=>{
     notes:     document.getElementById('newIngrNotes')?.value||null,
   }).select().single();
   if(error){ alert('Error: '+error.message); return; }
-  document.querySelector('.fixed')?.remove();
+  document.getElementById('addIngrSheet')?.remove();
   showScToast(`✓ ${name} added`);
   if(data) openIngredientCard(data.id);
 };
