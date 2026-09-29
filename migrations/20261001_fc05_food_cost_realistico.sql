@@ -99,7 +99,9 @@ create table if not exists food_cost.conversioni (
   approvata_da  text,
   approvata_at  timestamptz,
   created_at    timestamptz not null default now(),
-  primary key (ingredient_id, tipo)
+  -- una approvata e una proposta possono convivere: la proposta non sostituisce
+  -- quella in uso finche' lo chef non conferma (panna: 908 g in uso, 952 g proposti)
+  primary key (ingredient_id, tipo, stato)
 );
 
 -- La conversione valida: prima le approvate (questa tabella, poi le fonti gia'
@@ -169,7 +171,8 @@ insert into food_cost.soglie (chiave, valore, descrizione) values
   ('stima_max_quota', 0.10, 'oppure GIALLO se la parte incerta non supera questa frazione del costo (0,10 = 10%)'),
   ('peso_prezzo_chef', 0.20, 'quanto e'' incerto un prezzo dichiarato dallo chef (0,20 = puo'' sbagliare del 20%)'),
   ('peso_prezzo_senza_fattura', 0.50, 'quanto e'' incerto un prezzo registrato senza fattura'),
-  ('peso_conversione_proposta', 0.20, 'quanto e'' incerta una conversione proposta non ancora confermata (uova 55 g)')
+  ('peso_conversione_proposta', 0.20, 'quanto e'' incerta una conversione proposta non ancora confermata'),
+  ('evento_max_quota', 0.10, 'EVENTO: le stime sommate di tutte le ricette non superano questa frazione del subtotale (0,10 = 10%)')
 on conflict (chiave) do nothing;
 
 -- Riferimento identificabile: vedi food_cost.v_riferimento_categoria (sezione 4),
@@ -476,12 +479,14 @@ begin
             -- prezzo al ml dal formato del fornitore (12/1 QT = 11.356 ml): conversione esatta
             qty_base := b.quantity * u.factor; unit_cost := pr.cost_per_ml;
             note := format('prezzo al ml dal formato «%s»', pr.pack_description);
-          elsif u.dim = pr.basis_dim and pr.cost_per_base is not null then
-            qty_base := b.quantity * u.factor; unit_cost := pr.cost_per_base;
-          elsif u.dim = 'mass' and pr.cost_per_base is null and pr.cost_per_ml is not null and cd.valore > 0 then
+          elsif u.dim = 'mass' and pr.cost_per_ml is not null and cd.valore > 0 then
+            -- formato a volume (12/1 QT): prezzo al ml della fattura / conversione in uso.
+            -- Cambiare la conversione (908 -> 952 g per QT) aggiorna tutte le ricette.
             qty_base := b.quantity * u.factor / cd.valore; unit_cost := pr.cost_per_ml;
             note := format('%s g/ml (%s)', round(cd.valore, 4), cd.fonte);
             if cd.stato = 'proposta' then cls := 'C'; conv_prop := true; note := note || ', stima da confermare'; end if;
+          elsif u.dim = pr.basis_dim and pr.cost_per_base is not null then
+            qty_base := b.quantity * u.factor; unit_cost := pr.cost_per_base;
           elsif pr.cost_per_base is not null and cd.valore > 0 then
             qty_base := case when u.dim = 'volume' then b.quantity * u.factor * cd.valore
                              else b.quantity * u.factor / cd.valore end;
@@ -726,6 +731,7 @@ problemi as (
              when w.stato = 'proposta' then 'conversione_da_confermare'
              else 'manca_peso_al_pezzo' end
       when u.dim = 'volume' and p.cost_per_ml is not null then null
+      when u.dim = 'mass' and p.cost_per_ml is not null and d.stato = 'approvata' then null
       when u.dim = p.basis_dim and p.cost_per_base is not null then null
       when p.cost_per_base is null and p.cost_per_ml is null and p.cost_per_each is not null then
         case when w.stato = 'approvata' then null
@@ -736,31 +742,52 @@ problemi as (
              when d.stato = 'proposta' then 'conversione_da_confermare'
              else 'manca_densita' end
     end as codice,
-    case when u.dim = 'count' or (p.cost_per_base is null and p.cost_per_ml is null) then
-           case when w.valore > 0 then format('%s g per pezzo', round(w.valore, 1)) end
-         else case when d.valore > 0 then format('%s g/ml', round(d.valore, 3)) end end as conversione
+    case when u.dim = 'count' or (p.cost_per_base is null and p.cost_per_ml is null) then 'peso_pezzo' else 'densita' end as conv_tipo
   from uso u
   left join food_cost.v_ingredient_price p on p.ingredient_id = u.ingredient_id
   left join lateral food_cost.conv_for(u.ingredient_id, 'peso_pezzo') w on true
   left join lateral food_cost.conv_for(u.ingredient_id, 'densita') d on true
+),
+-- una proposta diversa dalla conversione in uso (panna: 908 in uso, 952 proposto)
+alternative as (
+  select a.ingredient_id, a.tipo, a.valore as in_uso, pr.valore as proposto, pr.fonte, pr.riferimento
+  from food_cost.conversioni a
+  join food_cost.conversioni pr on pr.ingredient_id = a.ingredient_id and pr.tipo = a.tipo
+                               and pr.stato = 'proposta' and a.stato = 'approvata' and pr.valore <> a.valore
+),
+righe as (
+  select pr.ingredient_id, pr.codice, pr.conv_tipo, pr.recipe_id, pr.title, pr.unit
+  from problemi pr where pr.codice is not null
+  union all
+  select u.ingredient_id, 'conversione_alternativa', al.tipo, u.recipe_id, u.title, u.unit
+  from alternative al
+  join uso u on u.ingredient_id = al.ingredient_id
+            and ((al.tipo = 'densita' and u.dim = 'mass') or (al.tipo = 'peso_pezzo' and u.dim = 'mass'))
 )
-select i.id as ingredient_id, i.name as ingrediente, pr.codice,
-       case pr.codice
+select i.id as ingredient_id, i.name as ingrediente, rg.codice,
+       case rg.codice
          when 'prezzo_mancante'           then format('Manca il prezzo di %s.', i.name)
          when 'prezzo_in_conflitto'       then format('Il prezzo di %s non torna con la fattura: va controllato.', i.name)
-         when 'unita_non_convertibile'    then format('%s e'' scritto in un''unita'' non convertibile (%s).', i.name, string_agg(distinct pr.unit, ', '))
+         when 'unita_non_convertibile'    then format('%s e'' scritto in un''unita'' non convertibile (%s).', i.name, string_agg(distinct rg.unit, ', '))
          when 'manca_peso_al_pezzo'       then format('%s: serve il peso di un pezzo.', i.name)
          when 'manca_densita'             then format('%s: serve la conversione fra litri e chili.', i.name)
-         when 'unita_sospetta'            then format('%s si compra e si usa a pezzi, ma qui la ricetta lo scrive in %s: da rivedere.', i.name, string_agg(distinct pr.unit, ', '))
-         when 'conversione_da_confermare' then format('%s: la conversione %s e'' una stima da confermare.', i.name, max(pr.conversione))
+         when 'unita_sospetta'            then format('%s si compra e si usa a pezzi, ma qui la ricetta lo scrive in %s: da rivedere.', i.name, string_agg(distinct rg.unit, ', '))
+         when 'conversione_da_confermare' then format('%s: la conversione e'' una stima da confermare.', i.name)
+         when 'conversione_alternativa'   then format('%s: c''e'' una conversione standard diversa da quella in uso: scegli quale tenere.', i.name)
        end as messaggio,
-       count(distinct pr.recipe_id) as ricette_bloccate,
-       string_agg(distinct pr.title, ', ') as ricette,
-       max(pr.conversione) as conversione
-from problemi pr
-join public.ingredients i on i.id = pr.ingredient_id
-where pr.codice is not null
-group by i.id, i.name, pr.codice
+       count(distinct rg.recipe_id) as ricette_bloccate,
+       string_agg(distinct rg.title, ', ') as ricette,
+       -- la conversione, pronta per la schermata: tipo, valore in uso, valore proposto
+       (select jsonb_build_object('tipo', c.tipo,
+                 'in_uso', (select valore from food_cost.conversioni x where x.ingredient_id = i.id and x.tipo = c.tipo and x.stato = 'approvata'),
+                 'proposta', (select valore from food_cost.conversioni x where x.ingredient_id = i.id and x.tipo = c.tipo and x.stato = 'proposta'),
+                 'fonte_proposta', (select fonte from food_cost.conversioni x where x.ingredient_id = i.id and x.tipo = c.tipo and x.stato = 'proposta'),
+                 'riferimento', (select riferimento from food_cost.conversioni x where x.ingredient_id = i.id and x.tipo = c.tipo and x.stato = 'proposta'))
+          from (select max(rg2.conv_tipo) as tipo from righe rg2 where rg2.ingredient_id = i.id and rg2.codice = rg.codice) c
+         where rg.codice in ('conversione_da_confermare', 'conversione_alternativa')) as conversione
+from righe rg
+join public.ingredients i on i.id = rg.ingredient_id
+group by i.id, i.name, rg.codice
 order by ricette_bloccate desc, i.name;
 
 -- La schermata Prezzi mancanti: stesse prove di FC04, diagnosi per i codici nuovi.
@@ -806,6 +833,7 @@ language sql stable security definer set search_path = pg_catalog, public as $$
         when codice = 'prezzo_in_conflitto' then 'conflitto'
         when codice = 'unita_sospetta' then 'unita_sospetta'
         when codice = 'conversione_da_confermare' then 'conversione_da_confermare'
+        when codice = 'conversione_alternativa' then 'conversione_alternativa'
         when codice = 'manca_peso_al_pezzo' then 'peso_al_pezzo'
         when codice = 'manca_densita' then 'litri_chili'
         when codice = 'unita_non_convertibile' then 'unita_ricetta'
@@ -836,12 +864,13 @@ begin
   end if;
   insert into food_cost.conversioni (ingredient_id, tipo, valore, stato, fonte, approvata_da, approvata_at)
   values (p_ingredient_id, p_tipo, p_valore, 'approvata', 'confermata dallo chef', v_user.name, now())
-  on conflict (ingredient_id, tipo) do update
-    set valore = excluded.valore, stato = 'approvata', approvata_da = excluded.approvata_da,
-        approvata_at = excluded.approvata_at,
+  on conflict (ingredient_id, tipo, stato) do update
+    set valore = excluded.valore, approvata_da = excluded.approvata_da, approvata_at = excluded.approvata_at,
         fonte = case when food_cost.conversioni.valore = excluded.valore
                      then food_cost.conversioni.fonte || ' — confermata da ' || excluded.approvata_da
-                     else 'corretta e confermata da ' || excluded.approvata_da end;
+                     else 'scelta da ' || excluded.approvata_da || ' il ' || to_char(now(), 'DD/MM/YYYY') end;
+  -- la proposta, accettata o no, e' chiusa: lo chef ha deciso
+  delete from food_cost.conversioni where ingredient_id = p_ingredient_id and tipo = p_tipo and stato = 'proposta';
   return jsonb_build_object('ok', true);
 end $$;
 revoke all on function public.fc_conferma_conversione(text, uuid, text, numeric) from public;
@@ -879,7 +908,8 @@ returns jsonb language plpgsql stable security definer set search_path = pg_cata
 declare
   s food_cost.event_cost_sheets%rowtype;
   l record; bd jsonb; mult numeric; charged numeric; lines jsonb := '[]';
-  sub numeric := 0; stim numeric := 0; ok boolean := true; snap uuid; colore text; c numeric;
+  sub numeric := 0; stim numeric := 0; inc numeric := 0; ok boolean := true; snap uuid; colore text; c numeric;
+  q_ev numeric; ev_col text; ev_mot text;
 begin
   select * into s from food_cost.event_cost_sheets where id = p_sheet_id;
   if s.status = 'approved' then return s.frozen_result; end if;
@@ -905,10 +935,24 @@ begin
       'non_stimabili', bd #> '{semaforo,non_stimabili}');
     sub := sub + coalesce(c, 0);
     stim := stim + coalesce(case when c is not null then (bd #>> '{semaforo,parte_stimata}')::numeric * mult end, 0);
+    inc  := inc  + coalesce(case when c is not null then (bd #>> '{semaforo,incertezza}')::numeric * mult end, 0);
   end loop;
+  -- EVENTO: tante piccole stime non devono nascondere un importo rilevante.
+  -- Il colore di ogni ricetta non basta: si somma l'incertezza di tutto il foglio.
+  select valore into q_ev from food_cost.soglie where chiave = 'evento_max_quota';
+  if not ok then
+    ev_col := 'ROSSO'; ev_mot := 'almeno una ricetta non ha un costo utilizzabile';
+  elsif inc > coalesce(q_ev, 0.10) * sub then
+    ev_col := 'ROSSO'; ev_mot := format('le stime sommate valgono fino a $%s, il %s%% del subtotale', round(inc, 2), round(100 * inc / nullif(sub, 0), 1));
+  elsif inc > 0 then
+    ev_col := 'GIALLO'; ev_mot := format('stime sommate fino a $%s (%s%% del subtotale)', round(inc, 2), round(100 * inc / nullif(sub, 0), 1));
+  else
+    ev_col := 'VERDE'; ev_mot := 'tutto documentato';
+  end if;
   return jsonb_build_object('sheet_id', s.id, 'event_id', s.event_id, 'kind', s.kind,
     'priced_with', case when snap is null then 'prezzi correnti' else 'snapshot' end,
-    'complete', ok, 'subtotal', sub, 'di_cui_stimato', stim, 'markup_pct', s.markup_pct,
+    'complete', ok, 'subtotal', sub, 'di_cui_stimato', stim, 'incertezza', inc,
+    'semaforo_evento', ev_col, 'motivo_evento', ev_mot, 'markup_pct', s.markup_pct,
     'markup', sub * s.markup_pct / 100, 'total', sub * (1 + s.markup_pct / 100), 'lines', lines);
 end $$;
 
@@ -946,19 +990,27 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- 8. Conversioni di partenza
 -- ---------------------------------------------------------------------------
--- Uova: 55 g a uovo, PROPOSTA (richiesta di Max), finche' lo chef non conferma.
-insert into food_cost.conversioni (ingredient_id, tipo, valore, stato, fonte, riferimento)
-select id, 'peso_pezzo', 55, 'proposta', 'proposta FC05: 55 g per uovo',
-       'uovo grande USA: circa 57 g con guscio, 50 g sgusciato (USDA)'
+-- Uova: 55 g a uovo, convenzione dichiarata dallo chef (decisione FC05).
+insert into food_cost.conversioni (ingredient_id, tipo, valore, stato, fonte, riferimento, approvata_da, approvata_at)
+select id, 'peso_pezzo', 55, 'approvata', 'convenzione dichiarata dallo chef: 55 g per uovo',
+       'uovo grande USA: circa 57 g con guscio, 50 g sgusciato (USDA)',
+       'decisione FC05', timestamptz '2026-09-29 20:00:00+00'
 from public.ingredients where name = 'Eggs'
-on conflict (ingredient_id, tipo) do nothing;
+on conflict (ingredient_id, tipo, stato) do nothing;
 -- Panna: Max ha dichiarato 908 g per US qt (editor del formato, 29/09/2026).
 insert into food_cost.conversioni (ingredient_id, tipo, valore, stato, fonte, riferimento, approvata_da, approvata_at)
 select id, 'densita', 908 / 946.353, 'approvata', 'dichiarata da Max: 1 US qt = 908 g (29/09/2026)',
        'USDA FoodData Central, heavy whipping cream: 1 cup = 238 g, circa 1,006 g/ml (952 g per QT)',
        'Max', timestamptz '2026-09-29 18:00:00+00'
 from public.ingredients where name = 'Heavy Cream'
-on conflict (ingredient_id, tipo) do nothing;
+on conflict (ingredient_id, tipo, stato) do nothing;
+-- ...e il riferimento standard 952 g per QT, solo PROPOSTO: non sostituisce il 908
+-- finche' lo chef non lo conferma.
+insert into food_cost.conversioni (ingredient_id, tipo, valore, stato, fonte, riferimento)
+select id, 'densita', 952 / 946.353, 'proposta', 'riferimento standard stimato: 952 g per US qt',
+       'USDA FoodData Central, heavy whipping cream: 1 cup = 238 g -> 952 g per QT'
+from public.ingredients where name = 'Heavy Cream'
+on conflict (ingredient_id, tipo, stato) do nothing;
 
 -- ---------------------------------------------------------------------------
 -- 9. Permessi

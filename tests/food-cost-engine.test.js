@@ -490,7 +490,7 @@ test('FC05-1. Edible Flower: 1 pz = $0,333, nessun peso; in grammi e\' "unita\' 
   assert.strictEqual(Number(await h.one(`select count(*) from public.recipe_bom where unit = 'g'`)), 1, 'la ricetta non si corregge da sola');
 });
 
-test('FC05-2. Eggs: a pezzi $0,1388 senza peso; in grammi usa 55 g PROPOSTI come stima (GIALLO) finche\' lo chef non conferma', async () => {
+test('FC05-2. Eggs: a pezzi $0,1388; con un peso solo PROPOSTO i grammi sono una stima (GIALLO), confermato diventa VERDE', async () => {
   const h = await fresh();
   const e = await h.ing('Eggs', { category: 'Dairy' });
   await h.price(e, { vendor: "Hardie's", pack: '15 DZ', unit_price: 24.99, date: '2026-09-12' });
@@ -511,7 +511,8 @@ test('FC05-2. Eggs: a pezzi $0,1388 senza peso; in grammi usa 55 g PROPOSTI come
   assert.strictEqual(x.semaforo.colore, 'GIALLO');
   let al = (await h.db.query(`select codice, conversione from food_cost.v_chef_alerts where ingrediente = 'Eggs'`)).rows;
   assert.deepStrictEqual(al.map(r => r.codice), ['conversione_da_confermare']);
-  assert.strictEqual(al[0].conversione, '55.0 g per pezzo');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(al[0].conversione)),
+    { tipo: 'peso_pezzo', in_uso: null, proposta: 55, fonte_proposta: 'test', riferimento: null });
   // lo chef conferma: la stima diventa documentata, avviso sparito
   await h.db.query(`update food_cost.conversioni set stato = 'approvata' where ingredient_id = $1`, [e]);
   x = await h.bd(crostata);
@@ -665,6 +666,133 @@ test('FC05-10. formati letti in SQL come nell\'editor', async () => {
   const m = Object.fromEntries(rows.map(r => [r.t, r.totale == null ? null : Math.round(Number(r.totale) * 1000) / 1000]));
   assert.deepStrictEqual(m, { '12/1 QT': 11356.236, '6 CT': 6, '3/5LT': 15000, '2/ 5 LTR': 10000, '1 GAL': 3785.41,
     '9-1/2 GAL': 17034.345, '10 KG': 10000, '5#': 2267.96, '4X5LB': 9071.84, '15 DZ': 180, '16-22 CT': null, '6/#10': null });
+});
+
+// --- FC05: decisioni e ultimi controlli -------------------------------------
+
+async function adminToken(h) {
+  // in PGlite digest() di pgcrypto non c'e': la stessa cosa con sha256() di Postgres
+  await h.db.exec(`create schema if not exists extensions;
+    create or replace function extensions.digest(t text, a text) returns bytea language sql as $$ select sha256(convert_to(t, 'UTF8')) $$;
+    insert into public.users values (1, 'Max', true, true, 'admin') on conflict do nothing;`);
+  const tok = 'a'.repeat(64);
+  await h.db.query(`insert into public.brigade_sessions (user_id, token_hash) values (1, encode(sha256(convert_to($1, 'UTF8')), 'hex'))`, [tok]);
+  return tok;
+}
+
+test('FC05-11. uova: 55 g e\' la convenzione dello chef, approvata nella migrazione: nessun avviso, VERDE', async () => {
+  const h = await fresh();
+  const e = await h.ing('Eggs', { category: 'Dairy' });
+  await h.price(e, { vendor: "Hardie's", pack: '15 DZ', unit_price: 24.99, date: '2026-09-12' });
+  // lo stesso insert della migrazione (in produzione trova Eggs per nome)
+  const sql = fs.readFileSync(MIGRATION_FC05, 'utf8');
+  const i = sql.indexOf('-- Uova: 55 g');
+  await h.db.exec(sql.slice(i, sql.indexOf(';', sql.indexOf('from public.ingredients', i)) + 1));
+  const seme = (await h.db.query(`select tipo, valore, stato, approvata_da from food_cost.conversioni where ingredient_id = $1`, [e])).rows;
+  assert.deepStrictEqual(seme.map(r => [r.tipo, Number(r.valore), r.stato, r.approvata_da]), [['peso_pezzo', 55, 'approvata', 'decisione FC05']]);
+  const x = await h.bd(await h.recipe('Crostata', { servings: 10 }, [{ item: e, qty: 110, unit: 'g' }]));
+  close(x.totals.A, 2 * 24.99 / 180, 1e-9);
+  assert.strictEqual(x.semaforo.colore, 'VERDE');
+  assert.strictEqual((await h.db.query(`select * from food_cost.v_chef_alerts where ingrediente = 'Eggs'`)).rows.length, 0);
+});
+
+test('FC05-12. Heavy Cream: 908 di Max resta in uso; 952 standard e\' solo proposto, finche\' non lo sceglie', async () => {
+  const h = await fresh();
+  const c = await h.ing('Heavy Cream', { category: 'Dairy' });
+  await h.price(c, { vendor: "Hardie's", pack: '12/1 QT', unit_price: 73.99, date: '2026-09-28' });
+  await h.db.query(`insert into food_cost.conversioni (ingredient_id, tipo, valore, stato, fonte) values
+    ($1, 'densita', 908 / 946.353, 'approvata', 'Max'), ($1, 'densita', 952 / 946.353, 'proposta', 'USDA')`, [c]);
+  const mash = await h.recipe('Mash', { servings: 10 }, [{ item: c, qty: 500, unit: 'g' }]);
+  let x = await h.bd(mash);
+  close(x.totals.A, 500 * 73.99 / 10896, 1e-9);                      // conta ancora 908
+  assert.strictEqual(x.semaforo.colore, 'VERDE', 'la proposta non rende incerto un valore approvato');
+  let al = (await h.db.query(`select codice, conversione from food_cost.v_chef_alerts where ingrediente = 'Heavy Cream'`)).rows;
+  assert.deepStrictEqual(al.map(r => r.codice), ['conversione_alternativa']);
+  close(al[0].conversione.in_uso * 946.353, 908, 1e-9);
+  close(al[0].conversione.proposta * 946.353, 952, 1e-9);
+  // la schermata Prezzi mancanti la riceve con la sua diagnosi
+  const rep = await h.one(`select food_cost.missing_price_report()`);
+  const it = rep.find(i => i.ingrediente === 'Heavy Cream');
+  assert.strictEqual(it.diagnosi, 'conversione_alternativa');
+  // Max sceglie 952: il prezzo al grammo diventa $0,6477/100 g e la proposta sparisce
+  const tok = await adminToken(h);
+  const r = await h.one(`select public.fc_conferma_conversione($1, $2, 'densita', 952 / 946.353)`, [tok, c]);
+  assert.strictEqual(r.ok, true);
+  x = await h.bd(mash);
+  close(x.totals.A / 5, 73.99 / (12 * 952) * 100, 1e-9);
+  assert.strictEqual((x.totals.A / 5).toFixed(4), '0.6477');
+  assert.deepStrictEqual((await h.db.query(`select stato from food_cost.conversioni where ingredient_id = $1`, [c])).rows.map(r => r.stato), ['approvata']);
+  al = (await h.db.query(`select * from food_cost.v_chef_alerts where ingrediente = 'Heavy Cream'`)).rows;
+  assert.strictEqual(al.length, 0);
+});
+
+test('FC05-12b. Heavy Cream: "Tieni 908" chiude la proposta senza cambiare il costo', async () => {
+  const h = await fresh();
+  const c = await h.ing('Heavy Cream', { category: 'Dairy' });
+  await h.price(c, { vendor: "Hardie's", pack: '12/1 QT', unit_price: 73.99, date: '2026-09-28' });
+  await h.db.query(`insert into food_cost.conversioni (ingredient_id, tipo, valore, stato, fonte) values
+    ($1, 'densita', 908 / 946.353, 'approvata', 'Max'), ($1, 'densita', 952 / 946.353, 'proposta', 'USDA')`, [c]);
+  const tok = await adminToken(h);
+  await h.one(`select public.fc_conferma_conversione($1, $2, 'densita', 908 / 946.353)`, [tok, c]);
+  const x = await h.bd(await h.recipe('Mash', { servings: 10 }, [{ item: c, qty: 500, unit: 'g' }]));
+  close(x.totals.A, 500 * 73.99 / 10896, 1e-9);
+  assert.strictEqual(Number(await h.one(`select count(*) from food_cost.conversioni where ingredient_id = $1`, [c])), 1);
+  // un utente non admin non conferma niente
+  await h.db.query(`insert into public.users values (2, 'Staff', true, false, 'staff')`);
+  const t2 = 'b'.repeat(64);
+  await h.db.query(`insert into public.brigade_sessions (user_id, token_hash) values (2, encode(sha256(convert_to($1, 'UTF8')), 'hex'))`, [t2]);
+  assert.strictEqual((await h.one(`select public.fc_conferma_conversione($1, $2, 'densita', 1)`, [t2, c])).error, 'unauthorized');
+});
+
+// soglie: la parte incerta di un prezzo dello chef e' il 20% del suo costo
+async function soloChef(h, nome, dollari, opts) {
+  const i = await h.ing(nome + ' chef');
+  await h.price(i, { vendor: 'STIMA CHEF — prezzo provvisorio', p100: 1 });
+  return { i, riga: { item: i, qty: dollari * 100, unit: 'g' } };
+}
+
+test('FC05-13. soglie esatte: $0,10 a porzione, $1 a lotto, 10% del costo', async () => {
+  const h = await fresh();
+  const col = async (nome, opts, righe) => (await h.bd(await h.recipe(nome, opts, righe))).semaforo.colore;
+  // a porzione: incertezza $0,10 -> GIALLO; $0,102 -> ROSSO (il 10% da solo non basta: 20% > 10%)
+  assert.strictEqual(await col('p1', { servings: 1 }, [(await soloChef(h, 'a', 0.50)).riga]), 'GIALLO');
+  assert.strictEqual(await col('p2', { servings: 1 }, [(await soloChef(h, 'b', 0.51)).riga]), 'ROSSO');
+  // 10 porzioni: $1 di incertezza = $0,10 a porzione -> GIALLO
+  assert.strictEqual(await col('p3', { servings: 10 }, [(await soloChef(h, 'c', 5)).riga]), 'GIALLO');
+  // a lotto (senza porzioni): $1 -> GIALLO; $1,02 -> ROSSO
+  assert.strictEqual(await col('l1', { yield_g: 1000 }, [(await soloChef(h, 'd', 5)).riga]), 'GIALLO');
+  assert.strictEqual(await col('l2', { yield_g: 1000 }, [(await soloChef(h, 'e', 5.1)).riga]), 'ROSSO');
+  // quota: $2 incerti su $20 di costo = 10% -> GIALLO; su $19,90 -> ROSSO
+  const doc = async (n, d) => { const i = await h.ing(n); await h.price(i, { vendor: 'GG', p100: 1, date: '2026-09-01' }); return { item: i, qty: d * 100, unit: 'g' }; };
+  assert.strictEqual(await col('q1', { servings: 1 }, [await doc('x1', 10), (await soloChef(h, 'f', 10)).riga]), 'GIALLO');
+  assert.strictEqual(await col('q2', { servings: 1 }, [await doc('x2', 9.9), (await soloChef(h, 'g', 10)).riga]), 'ROSSO');
+});
+
+test('FC05-14. evento: tante porzioni GIALLE non nascondono un\'incertezza totale rilevante', async () => {
+  const h = await fresh();
+  // $0,40 a porzione, di cui $0,08 incerti: ogni porzione e' GIALLA (sotto $0,10)
+  const piccola = await h.recipe('Crostino', { servings: 1 }, [(await soloChef(h, 'crostino', 0.40)).riga]);
+  assert.strictEqual((await h.bd(piccola)).semaforo.colore, 'GIALLO');
+  const d = await h.ing('Filetto'); await h.price(d, { vendor: 'GG', p100: 1, date: '2026-09-01' });
+  const filetto = await h.recipe('Filetto', { servings: 1 }, [{ item: d, qty: 1000, unit: 'g' }]);   // $10, documentato
+  const foglio = async (righe) => {
+    const ev = U(); await h.db.query(`insert into public.events values ($1, 'E')`, [ev]);
+    const sh = await h.one(`insert into food_cost.event_cost_sheets (event_id, kind) values ($1, 'preventivo') returning id`, [ev]);
+    for (const [r, p] of righe) await h.db.query(`insert into food_cost.event_cost_lines (sheet_id, recipe_id, portions) values ($1, $2, $3)`, [sh, r, p]);
+    return h.one(`select food_cost.sheet_cost($1)`, [sh]);
+  };
+  // 300 crostini: $120, di cui $24 incerti = 20% -> evento ROSSO, anche se ogni riga e' GIALLA
+  let c = await foglio([[piccola, 300]]);
+  close(c.incertezza, 24, 1e-9);
+  assert.strictEqual(c.semaforo_evento, 'ROSSO');
+  assert.match(c.motivo_evento, /20(\.0)?%/);
+  // gli stessi crostini in una cena con 100 filetti: $24 su $1.120 = 2% -> GIALLO
+  c = await foglio([[piccola, 300], [filetto, 100]]);
+  assert.strictEqual(c.semaforo_evento, 'GIALLO');
+  // solo documentato -> VERDE
+  c = await foglio([[filetto, 50]]);
+  assert.strictEqual(c.semaforo_evento, 'VERDE');
+  close(c.incertezza, 0, 1e-12);
 });
 
 // --- catering ---------------------------------------------------------------

@@ -61,6 +61,16 @@ function pmFattura(f) {
 // Pura: nessun DOM, nessuna chiamata. Testata a parte.
 //   cand = fatture non collegate che il motore di candidati associa a
 //          questo ingrediente (vedi pmCandidatiNonCollegati)
+// FC05: la conversione arriva dal server in g per pezzo o g/ml; allo chef si mostra
+// come la pensa: grammi per pezzo, oppure grammi per US qt (1 US qt = 946,353 ml).
+function pmConvVista(c, quale) {
+  if (!c || !(Number(c[quale]) > 0)) return null;
+  const f = c.tipo === 'densita' ? 946.353 : 1;
+  return { tipo: c.tipo, fattore: f, valore: Math.round(Number(c[quale]) * f * 10) / 10,
+           unita: c.tipo === 'densita' ? 'g per US qt' : 'g per pezzo' };
+}
+function pmNum(n) { return String(n).replace('.', ','); }
+
 window.pmDiagnosi = function(it, cand) {
   cand = cand || [];
   const uf = it.ultima_fattura, up = it.ultimo_prezzo_al_peso;
@@ -115,15 +125,32 @@ window.pmDiagnosi = function(it, cand) {
       if (uf) d.prove.push('Ultima fattura: ' + pmFattura(uf) + '.');
       break;
     case 'conversione_da_confermare': {
-      // FC05: conversione proposta (uova 55 g). Lo chef la conferma o la corregge una
-      // volta sola; poi vale per tutti gli acquisti. Finche' non conferma, e' una stima.
+      // FC05: conversione proposta. Lo chef la conferma o la corregge una volta
+      // sola; poi vale per tutti gli acquisti. Finche' non conferma, e' una stima.
+      const v = pmConvVista(it.conversione, 'proposta');
       d.gruppo = 'formato';
       d.titolo = 'Conversione stimata da confermare';
-      d.testo = 'Le ricette scritte in grammi usano ' + (it.conversione || 'una conversione stimata')
+      d.testo = 'Le ricette scritte in grammi usano ' + (v ? pmNum(v.valore) + ' ' + v.unita : 'una conversione stimata')
         + '. Finch\u00e9 non la confermi il costo \u00e8 una stima.';
-      const m = /([\d.]+)\s*(g per pezzo|g\/ml)/.exec(it.conversione || '');
-      if (m) d.azioni.push({ tipo: 'conferma', label: 'Conferma', tipoConv: m[2] === 'g/ml' ? 'densita' : 'peso_pezzo',
-                             valore: Number(m[1]), unita: m[2] });
+      if (v) d.azioni.push({ tipo: 'conferma', campo: true, label: 'Conferma', tipoConv: v.tipo,
+                             valore: v.valore, unita: v.unita, fattore: v.fattore });
+      break;
+    }
+    case 'conversione_alternativa': {
+      // FC05: c'e' una conversione in uso (panna: 908 g per US qt, dichiarata da Max)
+      // e un riferimento standard diverso (952 g). Nessuna sostituzione automatica:
+      // resta quella in uso finche' lo chef non sceglie.
+      const u = pmConvVista(it.conversione, 'in_uso');
+      const p = pmConvVista(it.conversione, 'proposta');
+      d.gruppo = 'formato';
+      d.titolo = 'Due conversioni: scegli quale tenere';
+      d.testo = u && p ? 'In uso: ' + pmNum(u.valore) + ' ' + u.unita + '. Riferimento standard: '
+        + pmNum(p.valore) + ' ' + p.unita + '. Finch\u00e9 non scegli resta quella in uso.' : 'Due conversioni diverse.';
+      if (it.conversione && it.conversione.fonte_proposta) d.prove.push('Fonte del riferimento: ' + it.conversione.fonte_proposta + '.');
+      if (u && p) {
+        d.azioni.push({ tipo: 'conferma', label: 'Usa ' + pmNum(p.valore) + ' g', tipoConv: p.tipo, valore: p.valore, fattore: p.fattore });
+        d.azioni.push({ tipo: 'conferma', label: 'Tieni ' + pmNum(u.valore) + ' g', tipoConv: u.tipo, valore: u.valore, fattore: u.fattore });
+      }
       break;
     }
     case 'unita_ricetta':
@@ -369,7 +396,7 @@ function pmRender() {
       d.azioni.forEach(function(a, i) {
         if (a.tipo === 'presto') {
           h += '<span style="' + PM_BTN_OFF + '">' + pmEsc(a.label) + '</span>';
-        } else if (a.tipo === 'conferma') {
+        } else if (a.tipo === 'conferma' && a.campo) {
           h += '<span style="display:inline-flex;align-items:center;gap:6px;">'
             + '<input id="pmConv' + id + '" inputmode="decimal" aria-label="Conversione" value="' + pmEsc(a.valore) + '" '
             + 'style="width:84px;padding:10px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#f8fafc;font-size:16px;">'
@@ -408,7 +435,8 @@ window.pmAzione = function(btn) {
   if (!a) return;
   if (a.tipo === 'conferma') {
     const campo = document.getElementById('pmConv' + btn.getAttribute('data-id'));
-    const valore = parseFloat(String(campo ? campo.value : a.valore).replace(',', '.'));
+    const scritto = parseFloat(String(a.campo && campo ? campo.value : a.valore).replace(',', '.'));
+    const valore = scritto / (a.fattore || 1);
     if (!(valore > 0)) return;
     let token = null;
     try { token = window.localStorage.getItem('brigade_token'); } catch (e) { token = null; }

@@ -224,7 +224,7 @@ const FIORI = { ingredient_id: 'f3d353e4-e939-4c52-9e11-540c4c9717ba', ingredien
   ultima_fattura: { vendor: "Hardie's Fresh Foods / Dairyland Produce", date: '2026-09-21', pack: '50 CT', unit_price: 16.65 },
   ultimo_prezzo_al_peso: null, documenti_in_attesa: [] };
 const UOVA = { ingredient_id: 'uova', ingrediente: 'Eggs', codice: 'conversione_da_confermare', diagnosi: 'conversione_da_confermare',
-  conversione: '55.0 g per pezzo', ricette_bloccate: 4, ricette: 'crostata al cioccolato', righe_fattura: 20,
+  conversione: { tipo: 'peso_pezzo', in_uso: null, proposta: 55, fonte_proposta: 'stima', riferimento: null }, ricette_bloccate: 4, ricette: 'crostata al cioccolato', righe_fattura: 20,
   ultima_fattura: null, ultimo_prezzo_al_peso: null, documenti_in_attesa: [] };
 
 test('16. FC05 fiori in grammi: "unita\' da rivedere", nessun peso richiesto, nessuna azione che modifichi', () => {
@@ -255,4 +255,25 @@ test('17. FC05 uova 55 g: "Conferma" chiama il server con il token e rilegge la 
   assert.deepStrictEqual(JSON.parse(JSON.stringify(conf[1])), { p_token: 'a'.repeat(64), p_ingredient_id: 'uova', p_tipo: 'peso_pezzo', p_valore: 52 });
   assert.ok(log.rpc.filter(r => r[0] === 'fc_prezzi_mancanti').length >= 2, 'lista riletta');
   assert.deepStrictEqual(log.scritture, [], 'nessuna scrittura diretta sulle tabelle');
+});
+
+const PANNA = { ingredient_id: 'panna', ingrediente: 'Heavy Cream', codice: 'conversione_alternativa', diagnosi: 'conversione_alternativa',
+  conversione: { tipo: 'densita', in_uso: 908 / 946.353, proposta: 952 / 946.353, fonte_proposta: 'USDA', riferimento: null },
+  ricette_bloccate: 3, ricette: 'Mash', righe_fattura: 10, ultima_fattura: null, ultimo_prezzo_al_peso: null, documenti_in_attesa: [] };
+
+test('18. FC05 panna: 908 in uso, 952 proposto; "Usa 952 g" manda g/ml al server, niente campo libero', async () => {
+  const { w, log, doc } = ambiente({ rpcRisposta: { ok: true, generated_at: 'x', items: [PANNA] } });
+  await w.openPrezziMancanti(); await pausa();
+  const d = w.pmDiagnosi(PANNA, []);
+  assert.match(d.testo, /In uso: 908 g per US qt\. Riferimento standard: 952 g per US qt/);
+  assert.strictEqual(JSON.stringify(d.azioni.map(a => a.label)), '["Usa 952 g","Tieni 908 g"]');
+  assert.strictEqual(doc.querySelector('input[id^="pmConv"]'), null);
+  w.supabaseClient.rpc = (nome, args) => { log.rpc.push([nome, args]);
+    return Promise.resolve({ data: nome === 'fc_conferma_conversione' ? { ok: true } : { ok: true, generated_at: 'y', items: [] }, error: null }); };
+  await w.pmAzione(Array.from(doc.querySelectorAll('#pmLista button')).find(b => b.textContent === 'Usa 952 g'));
+  await pausa(10);
+  const conf = log.rpc.find(r => r[0] === 'fc_conferma_conversione')[1];
+  assert.strictEqual(conf.p_tipo, 'densita');
+  assert.ok(Math.abs(conf.p_valore - 952 / 946.353) < 1e-9);
+  assert.deepStrictEqual(log.scritture, []);
 });
