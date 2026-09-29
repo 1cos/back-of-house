@@ -80,19 +80,19 @@ test('3. il salvataggio scrive SOLO ingredient_links', async () => {
   assert.strictEqual(w[0].row.conversion_g, null, 'nessuna conversione inventata');
 });
 
-test('4. la densita\' dell\'olio si dichiara, non si deduce', async () => {
+test('4. l\'olio si converte con la convenzione dello chef, 1 L = 1 kg (FC02)', async () => {
   const w = [];
-  // 3 casse da 5 litri = 15 litri; 0,916 g/ml -> 13.740 g
+  // 3 bottiglie da 5 litri = 15 litri = 15.000 g
   const grammi = 15 * 1000 * window.IWL_DENSITA["olio d'oliva"];
-  assert.strictEqual(grammi, 13740);
+  assert.strictEqual(grammi, 15000);
   await window.iwlSalvaLink(fakeSb(w), 'Global Gourmet Foods',
     'Extra Virgin Olive Oil 3/5lt Seleccion "Oleoestepa"', ING.evo,
     { invoice_unit: 'cs', conversion_g: grammi });
-  assert.strictEqual(w[0].row.conversion_g, 13740);
+  assert.strictEqual(w[0].row.conversion_g, 15000);
   assert.strictEqual(w[0].row.base_unit, 'g');
-  // e il prezzo che ne verrebbe
+  // e il prezzo che ne viene: $164,00 / 15.000 g x 100
   const per100 = 164.00 / grammi * 100;
-  assert.ok(Math.abs(per100 - 1.1936) < 0.0002, 'circa $1,1936/100 g: ' + per100.toFixed(4));
+  assert.ok(Math.abs(per100 - 1.0933) < 0.0001, 'circa $1,0933/100 g: ' + per100.toFixed(4));
 });
 
 test('5. il file non tocca invoice_lines ne\' ingredient_vendors', () => {

@@ -281,11 +281,11 @@ function iwlRicaricaAllaChiusura() {
 // Ogni riga passa da un tap.
 // ══════════════════════════════════════════════════════════════════
 
-// Densita' dell'olio d'oliva a 20 °C. E' una costante fisica, non un
-// prezzo: serve solo per convertire un formato in litri in grammi.
-// Vive qui, dichiarata, e finisce in ingredient_links.conversion_g,
+// Litri -> grammi per l'olio. Convenzione dello chef per il food cost
+// (FC02): 1 litro = 1 kg. Sostituisce la densita' fisica 0,916 usata fino
+// a GG09. Vive qui, dichiarata, e finisce in ingredient_links.conversion_g,
 // cosi' resta leggibile a chi guardera' quel collegamento domani.
-window.IWL_DENSITA = { 'olio d\'oliva': 0.916 };
+window.IWL_DENSITA = { 'olio d\'oliva': 1.0 };
 
 window.iwlRigheCollegabili = function(doc) {
   const pj = (doc && doc.parsed_json) || {};
