@@ -86,14 +86,32 @@ test('T3: invoiceDate expression never references created_at or new Date()', () 
   assert.ok(!/new Date/.test(invoiceDateExpr));
 });
 
-test('T4: the v825 canonical SKU guard function is untouched by this fix', () => {
-  assert.ok(src.includes('function vdrDecideCanonicalUpdate(existingSku, incomingSku)'));
-  const guardBlockMatch = src.match(/function vdrDecideCanonicalUpdate\(existingSku, incomingSku\) \{[\s\S]*?\n\}/);
-  assert.ok(guardBlockMatch);
-  // Same 4-branch shape as originally deployed — untouched by this task.
-  assert.ok(/if \(!inc\) return 'skip'/.test(guardBlockMatch[0]));
-  assert.ok(/if \(!ex\) return 'populate_sku'/.test(guardBlockMatch[0]));
-  assert.ok(/if \(ex === inc\) return 'update'/.test(guardBlockMatch[0]));
+test('T4: the v825 canonical SKU guard still decides the four original cases the same way', () => {
+  // Riscritto in GG09 (29/09/2026). L'intento resta quello di sempre:
+  // il fix del select non deve cambiare questa guardia. Prima lo
+  // verificava sul TESTO, congelando la firma a due argomenti e la forma
+  // a quattro rami. GG09 ha aggiunto un quinto caso — identita' da
+  // ingredient_links confermato, nessuno SKU da nessuna parte — quindi
+  // il testo e' cambiato per una ragione autorizzata e documentata.
+  //
+  // Adesso si verifica il COMPORTAMENTO, che e' cio' che il test voleva
+  // davvero proteggere: i quattro casi originali rispondono esattamente
+  // come prima, e il caso nuovo NON si attiva se non glielo si chiede.
+  const m = src.match(/function vdrDecideCanonicalUpdate\([\s\S]*?\n\}/);
+  assert.ok(m, 'la guardia deve esistere');
+  const decide = new Function(m[0] + '\nreturn vdrDecideCanonicalUpdate;')();
+
+  // I quattro casi originali, chiamati come li chiamava il codice di
+  // allora: due soli argomenti.
+  assert.strictEqual(decide(null,  null), 'skip',          'Caso D');
+  assert.strictEqual(decide(null,  'ABC'), 'populate_sku', 'Caso C');
+  assert.strictEqual(decide('XYZ', 'XYZ'), 'update',       'Caso A');
+  assert.strictEqual(decide('XYZ', 'ABC'), 'skip',         'Caso B');
+
+  // Il caso E e' additivo e richiede un consenso esplicito.
+  assert.strictEqual(decide(null, null, true), 'update', 'Caso E, richiesto');
+  assert.strictEqual(decide('XYZ', null, true), 'skip',
+    'SKU memorizzato ma non in arrivo: resta ambiguo, resta skip');
 });
 
 test('T5: vdrAutoImportCleanHardiesInvoices (v830) is untouched by this fix', () => {

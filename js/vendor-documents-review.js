@@ -3372,13 +3372,47 @@ window._vdrQuestions = _vdrQMap;
 //
 // existingSku: the canonical row's current vendor_sku (may be null/'')
 // incomingSku: this invoice line's item_code/vendor_sku (may be null/'')
+// identitaDaCollegamentoConfermato: true SOLO quando il chiamante e'
+//   arrivato qui attraverso una riga ingredient_links confermata, cioe'
+//   quando l'identita' dell'ingrediente e' gia' stabilita per
+//   descrizione e non ha bisogno di uno SKU per essere certa.
+//   Omesso o false, la regola resta quella di prima, parola per parola.
 // Returns: 'update' | 'populate_sku' | 'skip'
-function vdrDecideCanonicalUpdate(existingSku, incomingSku) {
+//
+// GG09 — CASO E. Fino al 29/09/2026 il caso D ("nessuno SKU in arrivo")
+// rispondeva 'skip' sempre, e per un fornitore che non usa codici
+// articolo questo voleva dire: la prima fattura CREA la riga di prezzo,
+// tutte le successive vengono ignorate per sempre, per quanto recenti.
+// Osservato in produzione sull'import della #20734 Global Gourmet: le
+// quattro righe nuove corrette, il prezzo dell'olio fermo a un valore
+// sbagliato di 5,46 volte su un ingrediente usato da 48 ricette.
+//
+// Il caso D nasce da una preoccupazione giusta: senza SKU non si sa se
+// la riga canonical sia davvero quel prodotto. Ma quando si arriva qui
+// dal ramo ingredient_links, l'identita' NON viene dallo SKU: viene da
+// un collegamento (fornitore, descrizione) confermato da una persona.
+// Lo SKU mancante non e' un'ambiguita', e' semplicemente un'informazione
+// che quel fornitore non stampa.
+//
+// L'ambiguita' vera resta e resta bloccata: se la riga memorizzata HA
+// uno SKU e il documento non ne porta nessuno, non sappiamo se stiamo
+// guardando lo stesso articolo, e si continua a rispondere 'skip'.
+//
+// Quello che questa funzione NON fa, e che continua a valere dopo:
+// la cronologia (chronologyAllows sulla coppia ingrediente/fornitore) e
+// il fail-closed sui pack (mergePriceIntelligence) girano entrambi DOPO
+// questa decisione. Qui si apre un cancello, non si scrive un prezzo.
+function vdrDecideCanonicalUpdate(existingSku, incomingSku, identitaDaCollegamentoConfermato) {
   const norm = v => { const s = (v == null ? '' : String(v)).trim(); return s || null; };
   const ex = norm(existingSku);
   const inc = norm(incomingSku);
 
-  if (!inc) return 'skip';               // Caso D: incoming SKU mancante — non tocca il canonical
+  if (!inc) {
+    // Caso E: nessuno SKU da nessuna parte, identita' certa per
+    // collegamento confermato — si aggiorna, senza toccare vendor_sku.
+    if (identitaDaCollegamentoConfermato === true && !ex) return 'update';
+    return 'skip';                       // Caso D: incoming SKU mancante — non tocca il canonical
+  }
   if (!ex) return 'populate_sku';        // Caso C: canonical senza SKU — popolabile in sicurezza
   if (ex === inc) return 'update';       // Caso A: stesso SKU — refresh normale
   return 'skip';                         // Caso B: SKU diverso — canonical intoccato
@@ -3780,7 +3814,23 @@ window.vdrApprove = async function(docId, btn) {
     const aliasIdMap = {};
     (aliasRes.data || []).forEach(r => { if (r.vendor_sku) aliasIdMap[r.vendor_sku] = r.ingredient_id; });
     const ingrVendorMap = {};
-    (ingrVendorRes.data || []).forEach(r => { ingrVendorMap[r.ingredient_id] = { id: r.id, vendor_sku: r.vendor_sku, last_invoice_date: r.last_invoice_date }; });
+    // GG09 — LA MAPPA DEVE PORTARE LA RIGA INTERA.
+    // Qui si tenevano solo { id, vendor_sku, last_invoice_date }, buttando
+    // via conversion_to_base, pack_description e price_per_100g che la
+    // query qui sopra gia' legge. Conseguenza: mergePriceIntelligence,
+    // che riceve questo oggetto come `existing`, vedeva sempre una riga
+    // senza conversione e senza pack — quindi perdeGrammi era sempre
+    // falso, nothingToProtect sempre vero, e la protezione di
+    // MICRO-TASK 88A non poteva scattare su NESSUNO dei due rami che
+    // passano di qui (alias->canonical e ingredient_links). Un documento
+    // con un pack non convertibile ci scriveva sopra conversion_to_base
+    // null e price_per_100g null, che e' esattamente cio' che 88A era
+    // stato scritto per impedire.
+    // Provato: stessa osservazione, riga completa -> unresolved_pack_change,
+    // niente scritto; riga troncata -> update, conv null, prezzo null.
+    // Finora il caso D ('skip' senza SKU in arrivo) lo mascherava sul ramo
+    // ingredient_links; il caso E lo avrebbe smascherato.
+    (ingrVendorRes.data || []).forEach(r => { ingrVendorMap[r.ingredient_id] = r; });
     const linkMap = {};
     (linkRes.data || []).forEach(l => { linkMap[l.invoice_description] = l.ingredient_id; });
 
@@ -4020,7 +4070,9 @@ window.vdrApprove = async function(docId, btn) {
 
         const existingIv = ingrVendorMap[linkedId];
         if (existingIv) {
-          const decision = vdrDecideCanonicalUpdate(existingIv.vendor_sku, sku);
+          // GG09 — true: siamo nel ramo ingredient_links, quindi l'identita'
+          // dell'ingrediente viene da un collegamento confermato, non dallo SKU.
+          const decision = vdrDecideCanonicalUpdate(existingIv.vendor_sku, sku, true);
           if (decision === 'update' || decision === 'populate_sku') {
             const effC = effectiveLastDate(existingIv.last_invoice_date, authLatestByIngredient[linkedId] || authLatestBySku[existingIv.vendor_sku]);
             if (!chronologyAllows(effC, invoiceDate)) {

@@ -1022,10 +1022,42 @@ async function vdaiPreflight(sb: any, doc: any): Promise<{ ok: boolean; unmatche
 // lookup in the source simply falls through to the parsed value, which
 // is what omitting docEdits entirely reproduces.
 // ══════════════════════════════════════════════════════════════════
-function vdrDecideCanonicalUpdateLite(existingSku: string | null, incomingSku: string | null): 'update' | 'populate_sku' | 'skip' {
-  if (!existingSku) return 'populate_sku';
-  if (existingSku === incomingSku) return 'update';
-  return 'skip';
+// GG09 — ALLINEATA ALLA COPIA DELLA UI.
+// Prima di oggi questa funzione era davvero "Lite": senza normalizzazione
+// e senza il caso D, divergeva da vdrDecideCanonicalUpdate in
+// js/vendor-documents-review.js proprio sul caso che conta. Provato:
+//
+//   existing  incoming   UI            worker (prima)
+//   null      null       skip          populate_sku     <- divergenza
+//   ''        ''         skip          populate_sku     <- divergenza
+//
+// Cioe': la stessa fattura senza SKU produceva due esiti diversi a
+// seconda che l'approvasse una persona da Vendor Review o il cron. Non
+// e' prudenza, e' drift, ed e' la cosa che questo repository ripete di
+// non volere.
+//
+// Adesso la regola e' una sola. Il comportamento e' verificato su tutta
+// la tabella di verita' da tests/senza-sku-aggiornamento.test.js, che
+// estrae ENTRAMBE le copie dal sorgente e le confronta caso per caso:
+// se qualcuno ne cambia una sola, il test fallisce.
+//
+// Vedi il commento esteso sul caso E nella copia della UI.
+function vdrDecideCanonicalUpdateLite(
+  existingSku: string | null,
+  incomingSku: string | null,
+  identitaDaCollegamentoConfermato?: boolean,
+): 'update' | 'populate_sku' | 'skip' {
+  const norm = (v: any) => { const s = (v == null ? '' : String(v)).trim(); return s || null; };
+  const ex = norm(existingSku);
+  const inc = norm(incomingSku);
+
+  if (!inc) {
+    if (identitaDaCollegamentoConfermato === true && !ex) return 'update';   // Caso E
+    return 'skip';                       // Caso D
+  }
+  if (!ex) return 'populate_sku';        // Caso C
+  if (ex === inc) return 'update';       // Caso A
+  return 'skip';                         // Caso B
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1747,7 +1779,23 @@ async function vdaiApprove(sb: any, docId: string): Promise<{ ok: boolean; reaso
   const aliasIdMap: Record<string, string> = {};
   (aliasRes.data || []).forEach((r: any) => { if (r.vendor_sku) aliasIdMap[r.vendor_sku] = r.ingredient_id; });
   const ingrVendorMap: Record<string, any> = {};
-  (ingrVendorRes.data || []).forEach((r: any) => { ingrVendorMap[r.ingredient_id] = { id: r.id, vendor_sku: r.vendor_sku, last_invoice_date: r.last_invoice_date }; });
+    // GG09 — LA MAPPA DEVE PORTARE LA RIGA INTERA.
+  // Qui si tenevano solo { id, vendor_sku, last_invoice_date }, buttando
+  // via conversion_to_base, pack_description e price_per_100g che la
+  // query qui sopra gia' legge. Conseguenza: mergePriceIntelligence,
+  // che riceve questo oggetto come `existing`, vedeva sempre una riga
+  // senza conversione e senza pack — quindi perdeGrammi era sempre
+  // falso, nothingToProtect sempre vero, e la protezione di
+  // MICRO-TASK 88A non poteva scattare su NESSUNO dei due rami che
+  // passano di qui (alias->canonical e ingredient_links). Un documento
+  // con un pack non convertibile ci scriveva sopra conversion_to_base
+  // null e price_per_100g null, che e' esattamente cio' che 88A era
+  // stato scritto per impedire.
+  // Provato: stessa osservazione, riga completa -> unresolved_pack_change,
+  // niente scritto; riga troncata -> update, conv null, prezzo null.
+  // Finora il caso D ('skip' senza SKU in arrivo) lo mascherava sul ramo
+  // ingredient_links; il caso E lo avrebbe smascherato.
+  (ingrVendorRes.data || []).forEach((r: any) => { ingrVendorMap[r.ingredient_id] = r; });
   const linkMap: Record<string, any> = {};
   (linkRes.data || []).forEach((l: any) => { linkMap[l.invoice_description] = l.ingredient_id; });
 
@@ -1946,7 +1994,8 @@ async function vdaiApprove(sb: any, docId: string): Promise<{ ok: boolean; reaso
 
       const existingIv = ingrVendorMap[linkedId];
       if (existingIv) {
-        const decision = vdrDecideCanonicalUpdateLite(existingIv.vendor_sku, sku);
+        // GG09 — true: ramo ingredient_links, identita' da collegamento confermato.
+        const decision = vdrDecideCanonicalUpdateLite(existingIv.vendor_sku, sku, true);
         if (decision === 'update' || decision === 'populate_sku') {
           const effC = effectiveLastDate(existingIv.last_invoice_date, authLatestByIngredient[linkedId] || authLatestBySku[existingIv.vendor_sku]);
           if (!chronologyAllows(effC, invoiceDate)) {
