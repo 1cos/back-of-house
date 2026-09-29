@@ -217,3 +217,42 @@ test('15. il menu Admin ha la voce e index.html carica il file dopo la worklist'
   assert.match(html, /hideAdminMenu\(\);openPrezziMancanti\(\)/);
   assert.ok(html.indexOf('js/prezzi-mancanti.js') > html.indexOf('js/ingredient-worklist.js'));
 });
+
+// ── FC05 ──────────────────────────────────────────────────────────
+const FIORI = { ingredient_id: 'f3d353e4-e939-4c52-9e11-540c4c9717ba', ingrediente: 'Edible Flower', codice: 'unita_sospetta',
+  diagnosi: 'unita_sospetta', ricette_bloccate: 17, ricette: 'Amalfi Salmon, BRAIDED BRANZINO', righe_fattura: 48,
+  ultima_fattura: { vendor: "Hardie's Fresh Foods / Dairyland Produce", date: '2026-09-21', pack: '50 CT', unit_price: 16.65 },
+  ultimo_prezzo_al_peso: null, documenti_in_attesa: [] };
+const UOVA = { ingredient_id: 'uova', ingrediente: 'Eggs', codice: 'conversione_da_confermare', diagnosi: 'conversione_da_confermare',
+  conversione: '55.0 g per pezzo', ricette_bloccate: 4, ricette: 'crostata al cioccolato', righe_fattura: 20,
+  ultima_fattura: null, ultimo_prezzo_al_peso: null, documenti_in_attesa: [] };
+
+test('16. FC05 fiori in grammi: "unita\' da rivedere", nessun peso richiesto, nessuna azione che modifichi', () => {
+  const { w } = ambiente();
+  const d = w.pmDiagnosi(FIORI, []);
+  assert.strictEqual(d.gruppo, 'altro');
+  assert.match(d.titolo, /Unità della ricetta da rivedere/);
+  assert.doesNotMatch(d.titolo + d.testo, /peso di un pezzo/);
+  assert.strictEqual(d.azioni.length, 0);
+  assert.ok(d.prove.some(p => p.includes('«50 CT»') && p.includes('$16,65')));
+});
+
+test('17. FC05 uova 55 g: "Conferma" chiama il server con il token e rilegge la lista', async () => {
+  const { w, log, doc } = ambiente({ rpcRisposta: { ok: true, generated_at: 'x', items: [UOVA] } });
+  await w.openPrezziMancanti(); await pausa();
+  const d = w.pmDiagnosi(UOVA, []);
+  assert.strictEqual(d.azioni[0].tipo, 'conferma');
+  assert.strictEqual(d.azioni[0].tipoConv, 'peso_pezzo');
+  assert.strictEqual(d.azioni[0].valore, 55);
+  const campo = doc.querySelector('input[id^="pmConv"]');
+  assert.strictEqual(campo.value, '55');
+  campo.value = '52';                                    // lo chef corregge
+  w.supabaseClient.rpc = (nome, args) => { log.rpc.push([nome, args]);
+    return Promise.resolve({ data: nome === 'fc_conferma_conversione' ? { ok: true } : { ok: true, generated_at: 'y', items: [] }, error: null }); };
+  await w.pmAzione(Array.from(doc.querySelectorAll('#pmLista button')).find(b => b.textContent === 'Conferma'));
+  await pausa(10);
+  const conf = log.rpc.find(r => r[0] === 'fc_conferma_conversione');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(conf[1])), { p_token: 'a'.repeat(64), p_ingredient_id: 'uova', p_tipo: 'peso_pezzo', p_valore: 52 });
+  assert.ok(log.rpc.filter(r => r[0] === 'fc_prezzi_mancanti').length >= 2, 'lista riletta');
+  assert.deepStrictEqual(log.scritture, [], 'nessuna scrittura diretta sulle tabelle');
+});

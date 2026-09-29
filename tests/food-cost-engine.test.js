@@ -12,6 +12,7 @@ const path = require('path');
 const assert = require('assert');
 
 const MIGRATION = path.join(__dirname, '..', 'migrations', '20260928_fc01_food_cost_engine.sql');
+const MIGRATION_FC05 = path.join(__dirname, '..', 'migrations', '20261001_fc05_food_cost_realistico.sql');
 
 const PROD_SHAPE = `
 -- i ruoli di Supabase, come in produzione
@@ -34,7 +35,15 @@ create table public.ingredient_vendors (id uuid primary key default gen_random_u
   price_per_each numeric);
 create table public.invoice_lines (id uuid primary key default gen_random_uuid(), invoice_date date,
   invoice_number text, vendor text, ingredient_id uuid, match_status text default 'matched',
-  cost_per_100g numeric, price_anomaly boolean default false, created_at timestamptz default now());
+  cost_per_100g numeric, price_anomaly boolean default false, created_at timestamptz default now(),
+  raw_description text, pack_description text, unit_price numeric);
+create table public.users (id bigint primary key, name text, active boolean, is_admin boolean, role text);
+create table public.brigade_sessions (id uuid primary key default gen_random_uuid(), user_id bigint, token_hash text,
+  created_at timestamptz default now(), expires_at timestamptz default now() + interval '12 hours',
+  invalidated_at timestamptz, absolute_expires_at timestamptz default now() + interval '7 days');
+create table public.vendor_documents (id uuid primary key default gen_random_uuid(), vendor text, status text, parsed_json jsonb);
+create table public.ingredient_links (id bigserial primary key, invoice_description text, ingredient_id uuid, confirmed boolean);
+create table public.vendor_item_aliases (id uuid primary key default gen_random_uuid(), ingredient_id uuid, active boolean, vendor_sku text);
 create table public.unit_each_weights (ingredient_id uuid primary key, avg_weight_g numeric, source text);
 create table public.events (id uuid primary key, name text);
 -- gli oggetti rotti di oggi, che la migrazione sostituisce
@@ -54,6 +63,7 @@ async function fresh() {
   const db = new PGlite();
   await db.exec(PROD_SHAPE);
   await db.exec(fs.readFileSync(MIGRATION, 'utf8'));
+  await db.exec(fs.readFileSync(MIGRATION_FC05, 'utf8'));
   const h = {
     db,
     async ing(name, o = {}) {
@@ -393,7 +403,8 @@ test('recipes_with_cost: colonne storiche nello stesso ordine + nuove in coda', 
     where table_schema='public' and table_name='recipes_with_cost' order by ordinal_position`)).rows.map(r => r.column_name);
   assert.deepStrictEqual(cols.slice(0, 15), ['id', 'title', 'category', 'yield_text', 'prep_time_minutes', 'ingredients',
     'procedure', 'equipment', 'created_at', 'image_url', 'base_weight', 'weight_unit', 'base_servings', 'total_cost', 'cost_per_kg']);
-  assert.deepStrictEqual(cols.slice(15), ['cost_status', 'known_cost', 'cost_per_portion', 'issue_count', 'chef_validated']);
+  assert.deepStrictEqual(cols.slice(15), ['cost_status', 'known_cost', 'cost_per_portion', 'issue_count', 'chef_validated',
+    'semaforo', 'costo_stimato', 'costo_stimato_porzione', 'parte_stimata']);
 });
 
 test('get_recipe_cost non legge piu\' items', async () => {
@@ -448,6 +459,212 @@ test('permessi: anon legge lo STESSO costo del proprietario, ma non puo\' approv
     await assert.rejects(h.db.query(`insert into food_cost.ingredient_policy values ($1, 'non_food', 'x', 'x', now())`, [a]), /permission denied|row-level security/);
     await assert.rejects(h.db.query(`select * from food_cost.recipe_validation`), /permission denied/);
   } finally { await h.db.exec(`reset role`); }
+});
+
+// --- FC05: prezzi nativi, conversioni, semaforo ------------------------------
+// Casi reali: Edible Flower (50 CT a $16,65), Eggs (15 DZ a $24,99), Heavy Cream
+// (12/1 QT a $73,99, Max 908 g per QT), White Pepper (mai fatturato).
+async function spezieDocumentate(h, categoria, prezzi) {
+  // i prezzi che Brigade ha pagato in una categoria: il riferimento delle stime
+  for (const [i, p100] of prezzi.entries()) {
+    const id = await h.ing('Spezia ' + i, { category: categoria });
+    await h.price(id, { vendor: "Hardie's", p100, date: '2026-09-01' });
+  }
+}
+
+test('FC05-1. Edible Flower: 1 pz = $0,333, nessun peso; in grammi e\' "unita\' sospetta", ricetta ROSSA, niente correzioni', async () => {
+  const h = await fresh();
+  const f = await h.ing('Edible Flower', { base_unit: 'pz', measure_type: 'each', category: 'Produce' });
+  await h.price(f, { vendor: "Hardie's", pack: '50 CT', unit_price: 16.65, date: '2026-09-21' });
+  const piatto = await h.recipe('Amalfi Salmon', { servings: 1 }, [{ item: f, qty: 1, unit: 'pz' }]);
+  let x = await h.bd(piatto);
+  close(x.totals.A, 16.65 / 50, 1e-9);
+  assert.strictEqual(x.semaforo.colore, 'VERDE');
+  const wagyu = await h.recipe('Wagyu Dino Rib', { servings: 1 }, [{ item: f, qty: 1, unit: 'g' }]);
+  x = await h.bd(wagyu);
+  assert.strictEqual(x.lines[0].status, 'unita_sospetta');
+  assert.strictEqual(x.semaforo.colore, 'ROSSO');
+  const al = (await h.db.query(`select codice, ricette_bloccate from food_cost.v_chef_alerts where ingrediente = 'Edible Flower'`)).rows;
+  assert.deepStrictEqual(al.map(r => r.codice), ['unita_sospetta'], 'mai "serve il peso di un pezzo"');
+  assert.strictEqual(Number(al[0].ricette_bloccate), 1, 'solo la ricetta in grammi');
+  assert.strictEqual(Number(await h.one(`select count(*) from public.recipe_bom where unit = 'g'`)), 1, 'la ricetta non si corregge da sola');
+});
+
+test('FC05-2. Eggs: a pezzi $0,1388 senza peso; in grammi usa 55 g PROPOSTI come stima (GIALLO) finche\' lo chef non conferma', async () => {
+  const h = await fresh();
+  const e = await h.ing('Eggs', { category: 'Dairy' });
+  await h.price(e, { vendor: "Hardie's", pack: '15 DZ', unit_price: 24.99, date: '2026-09-12' });
+  await h.db.query(`insert into food_cost.conversioni (ingredient_id, tipo, valore, stato, fonte) values ($1, 'peso_pezzo', 55, 'proposta', 'test')`, [e]);
+  const brownies = await h.recipe('Brownies', { servings: 1 }, [{ item: e, qty: 3, unit: 'pz' }]);
+  let x = await h.bd(brownies);
+  close(x.totals.A, 3 * 24.99 / 180, 1e-9);
+  assert.strictEqual(x.semaforo.colore, 'VERDE');
+  // crostata: 110 g di uova = 2 uova stimate = $0,2777, classe C (stima); farina e burro documentati
+  const farina = await h.ing('Flour'); await h.price(farina, { vendor: "Hardie's", p100: 0.0881, date: '2026-09-14' });
+  const burro = await h.ing('Butter'); await h.price(burro, { vendor: 'BEK', p100: 0.9, date: '2026-09-10' });
+  const crostata = await h.recipe('Crostata', { servings: 10 },
+    [{ item: farina, qty: 250, unit: 'g' }, { item: burro, qty: 150, unit: 'g' }, { item: e, qty: 110, unit: 'g' }]);
+  x = await h.bd(crostata);
+  close(x.totals.C, 110 / 55 * 24.99 / 180, 1e-9);
+  close(x.semaforo.incertezza, 0.2 * 110 / 55 * 24.99 / 180, 1e-9);   // incerta solo la conversione
+  assert.match(x.lines[2].note, /stima da confermare/);
+  assert.strictEqual(x.semaforo.colore, 'GIALLO');
+  let al = (await h.db.query(`select codice, conversione from food_cost.v_chef_alerts where ingrediente = 'Eggs'`)).rows;
+  assert.deepStrictEqual(al.map(r => r.codice), ['conversione_da_confermare']);
+  assert.strictEqual(al[0].conversione, '55.0 g per pezzo');
+  // lo chef conferma: la stima diventa documentata, avviso sparito
+  await h.db.query(`update food_cost.conversioni set stato = 'approvata' where ingredient_id = $1`, [e]);
+  x = await h.bd(crostata);
+  assert.strictEqual(x.semaforo.colore, 'VERDE');
+  al = (await h.db.query(`select * from food_cost.v_chef_alerts where ingrediente = 'Eggs'`)).rows;
+  assert.strictEqual(al.length, 0);
+});
+
+test('FC05-3. Heavy Cream: in ml usa il prezzo al ml dal formato (12/1 QT = 11.356 ml), in grammi la conversione approvata di Max', async () => {
+  const h = await fresh();
+  const c = await h.ing('Heavy Cream', { category: 'Dairy' });
+  await h.price(c, { vendor: "Hardie's", pack: '12/1 QT', unit_price: 73.99, date: '2026-09-28' });
+  assert.strictEqual(Number(await h.one(`select round(totale, 3) from food_cost.pack_parse('12/1 QT')`)), 11356.236);
+  const salsa = await h.recipe('Panna cotta', { servings: 10 }, [{ item: c, qty: 1, unit: 'l' }]);
+  let x = await h.bd(salsa);
+  close(x.totals.A, 1000 * 73.99 / (12 * 946.353), 1e-9);            // $6,5154 al litro
+  assert.match(x.lines[0].note, /prezzo al ml dal formato «12\/1 QT»/);
+  assert.strictEqual(x.semaforo.colore, 'VERDE');
+  // in grammi senza conversione: non si usa 1 L = 1 kg
+  const mash = await h.recipe('Mash', { servings: 10 }, [{ item: c, qty: 500, unit: 'g' }]);
+  x = await h.bd(mash);
+  assert.strictEqual(x.lines[0].status, 'conversione_mancante');
+  assert.notStrictEqual(x.semaforo.colore, 'VERDE');
+  // con la conversione di Max (908 g per QT) approvata
+  await h.db.query(`insert into food_cost.conversioni (ingredient_id, tipo, valore, stato, fonte) values ($1, 'densita', 908 / 946.353, 'approvata', 'Max')`, [c]);
+  x = await h.bd(mash);
+  close(x.totals.A, 500 / (908 / 946.353) * 73.99 / (12 * 946.353), 1e-9); // = 500 g x $73,99 / 10.896 g
+  close(x.totals.A, 500 * 73.99 / 10896, 1e-9);
+  assert.strictEqual(x.semaforo.colore, 'VERDE');
+});
+
+test('FC05-4. White Pepper mai fatturato: 1 g stimato dai prezzi pagati per le spezie, ricetta GIALLA con parte stimata dichiarata', async () => {
+  const h = await fresh();
+  await spezieDocumentate(h, 'Spices & Herbs', [0.9, 1.2, 1.5, 2.0, 3.0, 4.0]);
+  const wp = await h.ing('White Pepper', { category: 'Spices & Herbs' });
+  const pesce = await h.ing('Branzino', { category: 'Seafood' });
+  await h.price(pesce, { vendor: 'Fruge', p100: 2.5, date: '2026-09-20' });
+  const r = await h.recipe('Branzino al sale', { servings: 4 }, [{ item: pesce, qty: 800, unit: 'g' }, { item: wp, qty: 1, unit: 'g' }]);
+  const x = await h.bd(r);
+  const rif = (await h.db.query(`select p50, p90 from food_cost.v_riferimento_categoria where categoria = 'Spices & Herbs'`)).rows[0];
+  close(x.stime.centrale, rif.p50 / 100, 1e-9);
+  close(x.stime.massimo, rif.p90 / 100, 1e-9);
+  assert.strictEqual(x.semaforo.colore, 'GIALLO');
+  close(x.semaforo.costo_stimato, 20 + rif.p50 / 100, 1e-9);
+  close(x.semaforo.costo_porzione, (20 + rif.p50 / 100) / 4, 1e-9);
+  assert.match(x.lines[1].stima.fonte, /prezzi pagati da Brigade per "Spices & Herbs"/);
+  assert.strictEqual(x.complete, false, 'il vecchio "completo" resta onesto: non e\' documentato');
+  // arriva la fattura: la stima sparisce da sola
+  await h.price(wp, { vendor: "Chef's Warehouse", p100: 3.1, date: '2026-10-02' });
+  const y = await h.bd(r);
+  assert.strictEqual(y.semaforo.colore, 'VERDE');
+  close(y.totals.A, 20 + 0.031, 1e-9);
+});
+
+test('FC05-4b. piatto economico: 1 g di pepe e\' il 20% di un costo da $0,20 ma vale mezzo centesimo: GIALLO, non ROSSO', async () => {
+  const h = await fresh();
+  await spezieDocumentate(h, 'Spices & Herbs', [0.9, 1.2, 1.5, 2.0, 3.0]);
+  const wp = await h.ing('White Pepper', { category: 'Spices & Herbs' });
+  const asp = await h.ing('Asparagus', { category: 'Produce' });
+  await h.price(asp, { vendor: "Hardie's", p100: 0.2, date: '2026-09-20' });
+  const r = await h.recipe('Sauted asparagus', { servings: 1 }, [{ item: asp, qty: 100, unit: 'g' }, { item: wp, qty: 1, unit: 'g' }]);
+  const x = await h.bd(r);
+  assert.ok(x.semaforo.incertezza / x.semaforo.costo_stimato > 0.10, 'oltre il 10%');
+  assert.ok(x.semaforo.incertezza_porzione < 0.10, 'ma pochi centesimi a porzione');
+  assert.strictEqual(x.semaforo.colore, 'GIALLO');
+});
+
+test('FC05-4c. il prezzo dichiarato dallo chef (sale) pesa il 20%, non tutto', async () => {
+  const h = await fresh();
+  const sale = await h.ing('Salt', { category: 'Dry Goods' });
+  await h.price(sale, { vendor: 'STIMA CHEF — prezzo provvisorio', p100: 0.138 });
+  const x = await h.bd(await h.recipe('Salamoia', { yield_g: 1000 }, [{ item: sale, qty: 100, unit: 'g' }]));
+  close(x.semaforo.incertezza, 0.2 * 0.138, 1e-12);
+});
+
+test('FC05-5. zafferano e tartufo non si stimano mai: pochi grammi, ricetta ROSSA', async () => {
+  const h = await fresh();
+  await spezieDocumentate(h, 'Spices & Herbs', [0.9, 1.2, 1.5, 2.0, 3.0]);
+  const z = await h.ing('Saffron', { category: 'Spices & Herbs' });
+  const riso = await h.ing('Carnaroli', { category: 'Dry Goods' });
+  await h.price(riso, { vendor: 'GG', p100: 0.5, date: '2026-09-01' });
+  const r = await h.recipe('Risotto milanese', { servings: 10 }, [{ item: riso, qty: 1000, unit: 'g' }, { item: z, qty: 0.5, unit: 'g' }]);
+  const x = await h.bd(r);
+  assert.strictEqual(x.semaforo.colore, 'ROSSO');
+  assert.match(x.semaforo.non_stimabili[0].motivo, /valore alto/);
+  assert.strictEqual(x.semaforo.costo_stimato, null, 'nessun totale parziale presentato come definitivo');
+});
+
+test('FC05-6. manca l\'ingrediente principale: la stima pesa troppo, ROSSO', async () => {
+  const h = await fresh();
+  await spezieDocumentate(h, 'Meat', [1.0, 1.5, 2.0, 2.5, 3.0]);
+  const vitello = await h.ing('Veal', { category: 'Meat' });
+  const sale = await h.ing('Sale', { category: 'Dry Goods' });
+  await h.price(sale, { vendor: 'GG', p100: 0.138, date: '2026-06-16' });
+  const r = await h.recipe('Saltimbocca', { servings: 5 }, [{ item: vitello, qty: 900, unit: 'g' }, { item: sale, qty: 5, unit: 'g' }]);
+  const x = await h.bd(r);
+  assert.ok(x.stime.centrale > 5, 'stima grande: ' + x.stime.centrale);
+  assert.strictEqual(x.semaforo.colore, 'ROSSO');
+  assert.match(x.semaforo.motivo, /troppo grande/);
+});
+
+test('FC05-7. pizzico di pepe senza prezzo: stimato con la misura di cucina (0,5 g), non blocca', async () => {
+  const h = await fresh();
+  await spezieDocumentate(h, 'Spices & Herbs', [0.9, 1.2, 1.5, 2.0, 3.0]);
+  const wp = await h.ing('White Pepper', { category: 'Spices & Herbs' });
+  const salmone = await h.ing('Salmon', { category: 'Seafood' });
+  await h.price(salmone, { vendor: 'Fruge', p100: 2.2, date: '2026-09-20' });
+  const r = await h.recipe('Salmon sauce', { servings: 10 }, [{ item: salmone, qty: 1000, unit: 'g' }, { item: wp, qty: 1, unit: 'pinch' }]);
+  const x = await h.bd(r);
+  assert.strictEqual(x.lines[1].stima.grammi, 0.5);
+  assert.strictEqual(x.semaforo.colore, 'GIALLO');
+});
+
+test('FC05-8. sotto-ricette: la stima e il colore salgono al piatto', async () => {
+  const h = await fresh();
+  await spezieDocumentate(h, 'Spices & Herbs', [0.9, 1.2, 1.5, 2.0, 3.0]);
+  const wp = await h.ing('White Pepper', { category: 'Spices & Herbs' });
+  const burro = await h.ing('Butter', { category: 'Dairy' });
+  await h.price(burro, { vendor: 'BEK', p100: 0.9, date: '2026-09-10' });
+  const salsa = await h.recipe('Beurre blanc', { yield_g: 1000 }, [{ item: burro, qty: 1000, unit: 'g' }, { item: wp, qty: 2, unit: 'g' }]);
+  const piatto = await h.recipe('Piatto', { servings: 1 }, [{ sub: salsa, qty: 100, unit: 'g' }]);
+  const x = await h.bd(piatto);
+  close(x.stime.centrale, (await h.bd(salsa)).stime.centrale * 0.1, 1e-12);
+  assert.strictEqual(x.semaforo.colore, 'GIALLO');
+});
+
+test('FC05-9. catering: la ricetta GIALLA entra con il costo stimato dichiarato, la ROSSA resta fuori, 10% una volta', async () => {
+  const h = await fresh();
+  await spezieDocumentate(h, 'Spices & Herbs', [0.9, 1.2, 1.5, 2.0, 3.0]);
+  const wp = await h.ing('White Pepper', { category: 'Spices & Herbs' });
+  const z = await h.ing('Saffron', { category: 'Spices & Herbs' });
+  const pesce = await h.ing('Branzino', { category: 'Seafood' });
+  await h.price(pesce, { vendor: 'Fruge', p100: 2.5, date: '2026-09-20' });
+  const giallo = await h.recipe('Branzino', { servings: 4 }, [{ item: pesce, qty: 800, unit: 'g' }, { item: wp, qty: 1, unit: 'g' }]);
+  const rosso = await h.recipe('Risotto', { servings: 4 }, [{ item: pesce, qty: 100, unit: 'g' }, { item: z, qty: 0.2, unit: 'g' }]);
+  const ev = U(); await h.db.query(`insert into public.events values ($1, 'E')`, [ev]);
+  const sheet = await h.one(`insert into food_cost.event_cost_sheets (event_id, kind) values ($1, 'preventivo') returning id`, [ev]);
+  await h.db.query(`insert into food_cost.event_cost_lines (sheet_id, recipe_id, portions) values ($1, $2, 8), ($1, $3, 4)`, [sheet, giallo, rosso]);
+  const c = await h.one(`select food_cost.sheet_cost($1)`, [sheet]);
+  const g = (await h.bd(giallo)).semaforo;
+  close(c.subtotal, g.costo_stimato * 2, 1e-9);
+  close(c.di_cui_stimato, g.parte_stimata * 2, 1e-9);
+  close(c.markup, c.subtotal * 0.10, 1e-9);
+  assert.strictEqual(c.complete, false, 'la ricetta rossa blocca il preventivo');
+  assert.strictEqual(c.lines.find(l => l.title === 'Risotto').cost, null);
+});
+
+test('FC05-10. formati letti in SQL come nell\'editor', async () => {
+  const h = await fresh();
+  const rows = (await h.db.query(`select t, (food_cost.pack_parse(t)).* from unnest(array['12/1 QT','6 CT','3/5LT','2/ 5 LTR','1 GAL','9-1/2 GAL','10 KG','5#','4X5LB','15 DZ','16-22 CT','6/#10']) t`)).rows;
+  const m = Object.fromEntries(rows.map(r => [r.t, r.totale == null ? null : Math.round(Number(r.totale) * 1000) / 1000]));
+  assert.deepStrictEqual(m, { '12/1 QT': 11356.236, '6 CT': 6, '3/5LT': 15000, '2/ 5 LTR': 10000, '1 GAL': 3785.41,
+    '9-1/2 GAL': 17034.345, '10 KG': 10000, '5#': 2267.96, '4X5LB': 9071.84, '15 DZ': 180, '16-22 CT': null, '6/#10': null });
 });
 
 // --- catering ---------------------------------------------------------------

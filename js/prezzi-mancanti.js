@@ -106,6 +106,26 @@ window.pmDiagnosi = function(it, cand) {
       if (uf) d.prove.push('Ultima fattura: ' + pmFattura(uf) + '.');
       d.azioni.push(scheda);
       break;
+    case 'unita_sospetta':
+      // FC05: si compra e si usa a pezzi (fiori, finocchi): il peso non serve, e'
+      // la ricetta scritta in grammi che va rivista. Qui non si corregge niente.
+      d.gruppo = 'altro';
+      d.titolo = 'Unit\u00e0 della ricetta da rivedere';
+      d.testo = 'Si compra e si usa a pezzi, ma queste ricette lo scrivono in grammi. Vanno corrette nella ricetta: da qui non si tocca niente.';
+      if (uf) d.prove.push('Ultima fattura: ' + pmFattura(uf) + '.');
+      break;
+    case 'conversione_da_confermare': {
+      // FC05: conversione proposta (uova 55 g). Lo chef la conferma o la corregge una
+      // volta sola; poi vale per tutti gli acquisti. Finche' non conferma, e' una stima.
+      d.gruppo = 'formato';
+      d.titolo = 'Conversione stimata da confermare';
+      d.testo = 'Le ricette scritte in grammi usano ' + (it.conversione || 'una conversione stimata')
+        + '. Finch\u00e9 non la confermi il costo \u00e8 una stima.';
+      const m = /([\d.]+)\s*(g per pezzo|g\/ml)/.exec(it.conversione || '');
+      if (m) d.azioni.push({ tipo: 'conferma', label: 'Conferma', tipoConv: m[2] === 'g/ml' ? 'densita' : 'peso_pezzo',
+                             valore: Number(m[1]), unita: m[2] });
+      break;
+    }
     case 'unita_ricetta':
       d.gruppo = 'altro';
       d.titolo = 'Unità della ricetta non convertibile';
@@ -349,6 +369,12 @@ function pmRender() {
       d.azioni.forEach(function(a, i) {
         if (a.tipo === 'presto') {
           h += '<span style="' + PM_BTN_OFF + '">' + pmEsc(a.label) + '</span>';
+        } else if (a.tipo === 'conferma') {
+          h += '<span style="display:inline-flex;align-items:center;gap:6px;">'
+            + '<input id="pmConv' + id + '" inputmode="decimal" aria-label="Conversione" value="' + pmEsc(a.valore) + '" '
+            + 'style="width:84px;padding:10px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#f8fafc;font-size:16px;">'
+            + '<span style="color:#94a3b8;font-size:13px;">' + pmEsc(a.unita) + '</span></span>'
+            + '<button data-id="' + id + '" data-i="' + i + '" onclick="pmAzione(this)" style="' + PM_BTN + '">' + pmEsc(a.label) + '</button>';
         } else {
           h += '<button data-id="' + id + '" data-i="' + i + '" onclick="pmAzione(this)" style="'
             + (i === 0 ? PM_BTN : PM_BTN_GHOST) + '">' + pmEsc(a.label) + '</button>';
@@ -380,6 +406,21 @@ window.pmAzione = function(btn) {
   const d = window.pmDiagnosi(it, st.cand[it.ingredient_id]);
   const a = d.azioni[Number(btn.getAttribute('data-i'))];
   if (!a) return;
+  if (a.tipo === 'conferma') {
+    const campo = document.getElementById('pmConv' + btn.getAttribute('data-id'));
+    const valore = parseFloat(String(campo ? campo.value : a.valore).replace(',', '.'));
+    if (!(valore > 0)) return;
+    let token = null;
+    try { token = window.localStorage.getItem('brigade_token'); } catch (e) { token = null; }
+    const sb = window.supabaseClient || window.supa;
+    btn.disabled = true; btn.textContent = 'Salvo\u2026';
+    return Promise.resolve(sb.rpc('fc_conferma_conversione',
+      { p_token: token, p_ingredient_id: it.ingredient_id, p_tipo: a.tipoConv, p_valore: valore }))
+      .then(function(r) {
+        if (r && r.data && r.data.ok) return window.pmRicarica({ ingredientId: it.ingredient_id });
+        btn.disabled = false; btn.textContent = 'Non salvato: riprova';
+      });
+  }
   if (a.tipo === 'scheda' && typeof window.openIngredientCard === 'function') {
     // La scheda sta a z-index 60: questa schermata si nasconde (intatta) e la
     // scheda sa da dove arriva. "‹ Prezzi mancanti" e Salva riportano qui.
