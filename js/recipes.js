@@ -434,6 +434,15 @@ function openRecipeManager(){
 
 // ── RECIPE EDITOR (admin only) ───────────────────────────────
 async function openRecipeEditor(rec=null){
+  // BR-FIX01 — l'editor lavora sempre sulla riga fresca del database: SHOP_RECIPES
+  // viene caricata all'avvio e puo' essere vecchia (o incompleta). Salvare un
+  // valore vecchio sopra uno nuovo e' una perdita di dati.
+  if(rec?.id){
+    try{
+      const {data: fresh, error: freshErr} = await supa.from('recipes').select('*').eq('id', rec.id).maybeSingle();
+      if(!freshErr && fresh) rec = {...rec, ...fresh, ingredients: _legacyIngredients(fresh.ingredients)};
+    }catch(e){ console.warn('[Editor] ricarica ricetta fallita, uso i dati in memoria:', e); }
+  }
   // ── Carica step esistenti (recipe_steps) se la ricetta ha già un id ──
   let existingSteps = [];
   if(rec?.id){
@@ -668,14 +677,17 @@ async function openRecipeEditor(rec=null){
 
   // ── Steps editor logic (recipe_steps: title/title_it/title_es, instruction_en/it/es, timer_seconds) ──
   let stepsState = existingSteps.map(s => ({
+    id: s.id,
     title_it: s.title_it || '',
     title_en: s.title || '',
     title_es: s.title_es || '',
     instruction_it: s.instruction_it || '',
     instruction_en: s.instruction_en || '',
     instruction_es: s.instruction_es || '',
-    timer_minutes: s.timer_seconds ? Math.round(s.timer_seconds/60) : ''
+    timer_minutes: s.timer_seconds ? Math.round(s.timer_seconds/60) : '',
+    timer_seconds_orig: s.timer_seconds || null   // BR-FIX01: 90 s restano 90 s se il timer non viene toccato
   }));
+  const _stepsKeyOrig = _stepsKey(stepsState);
 
   function renderSteps(){
     const list = modal.querySelector('#stepsList');
@@ -789,12 +801,39 @@ async function openRecipeEditor(rec=null){
   // Ingredient rows
   const ingList = modal.querySelector('#ingList');
   const UNITS = ['g','kg','ml','l','oz','lb','cup','tbsp','tsp','each'];
+  let origBom = [];            // BR-FIX01: distinta com'era all'apertura
+  let bomLoadFailed = false;   // BR-FIX01: se la lettura fallisce non si salva la distinta
+
+  // BR-FIX01 — la ricetta scritta (recipes.ingredients) non viene piu' cancellata.
+  // Quando ha righe che la distinta non contiene, l'editor lo dice: e' cosi' che
+  // "cacio e pepe sauce 5 kg" era rimasta fuori da PENNE CACIO E PEPE Catering.
+  function _showWrittenRecipeNotice(written, bomRows){
+    const lines = (written||[]).filter(i => i && i.type !== 'section' && (i.name||'').trim());
+    if(!lines.length) return;
+    const inBom = (bomRows||[]).map(b => ((b.component_type==='RECIPE' ? b.recipes?.title : b.ingredients?.name) || '').toLowerCase());
+    const missing = lines.filter(i => !inBom.some(n => n && (n.includes(i.name.toLowerCase().trim()) || i.name.toLowerCase().includes(n))));
+    if(!missing.length) return;
+    const box = document.createElement('div');
+    box.id = 'writtenRecipeNotice';
+    box.style.cssText = 'background:#fffbeb;border:1.5px solid #f59e0b;border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#92400e;';
+    box.innerHTML = `<b>Ricetta scritta: ${missing.length} ${missing.length===1?'riga':'righe'} non ${missing.length===1?'e\'':'sono'} nella distinta</b>`
+      + `<div style="margin-top:4px;">${missing.map(i=>escHtml(`${i.qty||''} ${i.unit||''} ${i.name}`.trim())).join(' · ')}</div>`
+      + `<div style="margin-top:4px;color:#b45309;">Il food cost usa solo la distinta. Aggiungile qui sotto se servono.</div>`;
+    ingList.parentElement.insertBefore(box, ingList);
+  }
 
   function addIngRow(d={qty:'',unit:'g',name:'',comment:'',type:'ingredient',ingredient_id:null,sub_recipe_id:null}){
     const row = document.createElement('div');
     row.dataset.type = 'ingredient';
     row.dataset.ingredientId = d.ingredient_id || '';
     row.dataset.subRecipeId  = d.sub_recipe_id  || '';
+    // BR-FIX01: la riga ricorda da quale riga di distinta viene, cosi' il salvataggio
+    // aggiorna solo cio' che cambia e conserva i campi che l'editor non mostra.
+    row.dataset.bomId      = d.bom_id != null ? String(d.bom_id) : '';
+    row.dataset.prepTaskId = d.prep_task_id != null ? String(d.prep_task_id) : '';
+    row._subYield = d.sub_yield || null;
+    // Unita' fuori elenco (gallone, nests, pz...): restano quelle, mai trasformate in "g".
+    const rowUnits = (d.unit && !UNITS.includes(d.unit)) ? [...UNITS, d.unit] : UNITS;
     row.draggable = true;
     row.style.display = 'grid';
     row.style.gridTemplateColumns = '20px 56px 66px 1fr 80px auto';
@@ -810,7 +849,7 @@ async function openRecipeEditor(rec=null){
       <div class="drag-handle" style="display:flex;align-items:center;justify-content:center;height:100%;cursor:grab;color:#cbd5e1;font-size:14px;user-select:none;-webkit-user-select:none;touch-action:none;">⠿</div>
       <input placeholder="200" class="px-2 py-1.5 border rounded text-xs" value="${d.qty||''}" type="number" min="0" step="any">
       <select class="px-1 py-1.5 border rounded text-xs bg-white">
-        ${UNITS.map(u=>`<option ${(d.unit||'g')===u?'selected':''}>${u}</option>`).join('')}
+        ${rowUnits.map(u=>`<option ${(d.unit||'g')===u?'selected':''}>${u}</option>`).join('')}
       </select>
       <div style="position:relative;">
         <input placeholder="${tr('ingOrSubRecipe')}" class="ing-name-input w-full px-2 py-1.5 border rounded text-xs"
@@ -825,23 +864,29 @@ async function openRecipeEditor(rec=null){
     // ── Autocomplete ──
     const nameInput = row.querySelector('.ing-name-input');
     const drop      = row.querySelector('.ing-ac-drop');
+    const unitSel   = row.querySelector('select');
     let _t = null;
 
     function resetLink(){
       row.dataset.ingredientId = '';
       row.dataset.subRecipeId  = '';
+      row._subYield = null;
       nameInput.style.borderColor = '';
       nameInput.style.background  = '';
+      _checkSubRecipeYield(row);
     }
 
-    function selectItem(name, iid, rid){
+    function selectItem(name, iid, rid, subYield){
       nameInput.value = name;
       row.dataset.ingredientId = iid || '';
       row.dataset.subRecipeId  = rid || '';
+      row._subYield = rid ? (subYield || null) : null;
       nameInput.style.borderColor = iid ? '#10b981' : '#3b82f6';
       nameInput.style.background  = iid ? '#f0fdf4' : '#eff6ff';
       drop.style.display = 'none';
+      _checkSubRecipeYield(row);
     }
+    if(unitSel) unitSel.addEventListener('change', ()=>_checkSubRecipeYield(row));
 
     nameInput.addEventListener('input', ()=>{
       clearTimeout(_t);
@@ -849,11 +894,17 @@ async function openRecipeEditor(rec=null){
       const q = nameInput.value.trim();
       if(q.length < 2){ drop.style.display='none'; return; }
       _t = setTimeout(async()=>{
+        // BR-FIX01: le sotto-ricette mostrano la resa (e' cio' che le distingue: "Cacio e Pepe"
+        // e' un piatto da 1 porzione, "CACIO E PEPE SAUCE" un lotto da 6 kg) e mai la ricetta stessa.
+        let rq = supa.from('recipes').select('id,title,menu_group,base_servings,base_weight_g,yield_text').ilike('title',`%${q}%`);
+        if(rec?.id) rq = rq.neq('id', rec.id);
         const [ri, rr] = await Promise.all([
           supa.from('ingredients').select('id,name,category').ilike('name',`%${q}%`).eq('active',true).order('name').limit(8),
-          supa.from('recipes').select('id,title,menu_group').ilike('title',`%${q}%`).order('title').limit(4)
+          rq.order('title').limit(8)
         ]);
         const ings = ri.data||[], recs = rr.data||[];
+        const yieldOf = {};
+        recs.forEach(r=>{ yieldOf[r.id] = {base_servings:r.base_servings, base_weight_g:r.base_weight_g, yield_text:r.yield_text}; });
         drop.innerHTML = [
           ...ings.map(i=>`<div class="ac-opt" data-iid="${i.id}" data-name="${i.name.replace(/"/g,'&quot;')}"
             style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f8fafc;">
@@ -862,7 +913,7 @@ async function openRecipeEditor(rec=null){
           </div>`),
           ...recs.map(r=>`<div class="ac-opt" data-rid="${r.id}" data-name="${r.title.replace(/"/g,'&quot;')}"
             style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f8fafc;">
-            <span><b>${r.title}</b> <span style="color:#94a3b8;font-size:10px;">${r.menu_group||''}</span></span>
+            <span><b>${r.title}</b> <span style="color:#94a3b8;font-size:10px;">${r.menu_group||''} · ${_subYieldLabel(r)}</span></span>
             <span style="font-size:9px;background:#eff6ff;color:#3b82f6;padding:1px 6px;border-radius:4px;flex-shrink:0;">sub-recipe</span>
           </div>`),
           `<div class="ac-create" data-q="${q.replace(/"/g,'&quot;')}"
@@ -874,7 +925,7 @@ async function openRecipeEditor(rec=null){
         drop.querySelectorAll('.ac-opt').forEach(el=>{
           el.addEventListener('mousedown', e=>{
             e.preventDefault();
-            selectItem(el.dataset.name, el.dataset.iid||'', el.dataset.rid||'');
+            selectItem(el.dataset.name, el.dataset.iid||'', el.dataset.rid||'', yieldOf[el.dataset.rid]);
           });
         });
         drop.querySelectorAll('.ac-create').forEach(el=>{
@@ -904,6 +955,7 @@ async function openRecipeEditor(rec=null){
       }, 200);
     });
     ingList.appendChild(row);
+    _checkSubRecipeYield(row);
   }
 
   // ── BOM RECIPE MATCH WARNING ──
@@ -981,15 +1033,21 @@ async function openRecipeEditor(rec=null){
   }
 
   // Populate existing ingredients — legge dal BOM se ricetta esistente
+  // BR-FIX01: la distinta letta qui e' il riferimento del salvataggio (origBom).
+  // Se non si riesce a leggerla, il salvataggio degli ingredienti viene bloccato:
+  // salvare una lista vuota cancellerebbe la distinta vera.
   async function populateIngredients(){
     if(rec?.id){
       // Ricetta esistente: legge dal BOM (ha UUID reali → bordo verde → BOM al salvataggio)
-      const {data: bomRows} = await supa
+      const {data: bomRows, error: bomErr} = await supa
         .from('recipe_bom')
-        .select('bom_id, item_id, sub_recipe_id, quantity, unit, notes, component_type, sort_order, ingredients(name), recipes!recipe_bom_sub_recipe_id_fkey(title)')
+        .select('bom_id, item_id, sub_recipe_id, quantity, unit, notes, component_type, sort_order, prep_task_id, ingredients(name), recipes!recipe_bom_sub_recipe_id_fkey(title,base_servings,base_weight_g,yield_text)')
         .eq('parent_recipe_id', rec.id)
         .order('sort_order', {nullsFirst: false})
         .order('bom_id');
+      if(bomErr){ bomLoadFailed = true; console.error('[BOM] lettura fallita:', bomErr); }
+      origBom = (bomRows || []).map(b => ({bom_id:b.bom_id, component_type:b.component_type, item_id:b.item_id, sub_recipe_id:b.sub_recipe_id,
+        quantity:b.quantity, unit:b.unit, notes:b.notes, sort_order:b.sort_order, prep_task_id:b.prep_task_id}));
 
       if(bomRows && bomRows.length > 0){
         bomRows.forEach(b => {
@@ -1000,9 +1058,13 @@ async function openRecipeEditor(rec=null){
             name:          isSubRecipe ? (b.recipes?.title || '') : (b.ingredients?.name || ''),
             comment:       b.notes || '',
             ingredient_id: isSubRecipe ? null : (b.item_id || null),
-            sub_recipe_id: isSubRecipe ? (b.sub_recipe_id || null) : null
+            sub_recipe_id: isSubRecipe ? (b.sub_recipe_id || null) : null,
+            bom_id:        b.bom_id,
+            prep_task_id:  b.prep_task_id,
+            sub_yield:     isSubRecipe && b.recipes ? {base_servings:b.recipes.base_servings, base_weight_g:b.recipes.base_weight_g, yield_text:b.recipes.yield_text} : null
           });
         });
+        _showWrittenRecipeNotice(rec.ingredients, bomRows);
         return;
       }
       // BOM vuoto — fallback al JSON (ricetta nuova o senza BOM ancora)
@@ -1144,100 +1206,89 @@ async function openRecipeEditor(rec=null){
   modal.querySelector('#addIng').onclick     = ()=>addIngRow();
   modal.querySelector('#addSection').onclick = ()=>addSectionRow();
 
-  // Save
+  // Save — BR-FIX01: nessuna perdita di dati.
+  //  1. si scrivono solo i campi della ricetta che sono cambiati rispetto alla riga fresca letta all'apertura
+  //  2. la distinta si aggiorna per differenza (inserisci -> aggiorna -> elimina), mai "cancella tutto e reinserisci"
+  //  3. ogni errore ferma il salvataggio e resta visibile: nessun successo finto
+  //  4. righe non collegate, ricetta dentro se stessa, distinta non letta: salvataggio bloccato con spiegazione
+  //  5. aprire e salvare senza cambiare niente non scrive nulla
+  //  6. la ricetta scritta (recipes.ingredients) si svuota solo se ogni sua riga e' gia' nella distinta
+  const weightInitial = weightInput ? weightInput.value : '';
   modal.querySelector('#saveR').onclick = async()=>{
+    const saveBtn = modal.querySelector('#saveR');
     const t = modal.querySelector('#rTitle').value.trim();
     if(!t){ alert(tr('titleRequired')); return; }
 
-    const bs       = parseInt(servInput.value)||null;
-    const wkg      = parseFloat(weightInput.value)||null;
-    const bwg      = wkg ? Math.round(wkg * 1000) : null;
-    const swg      = (bs && bwg) ? Math.round(bwg / bs) : null;
-    const sp       = parseFloat(modal.querySelector('#rPrice')?.value)||null;
+    const ingredients = _collectIngredientRows(ingList);
+    const unresolved = ingredients.filter(i => i.type !== 'section' && !i.ingredient_id && !i.sub_recipe_id && i.name);
+    const selfRef = rec?.id ? ingredients.filter(i => i.sub_recipe_id === rec.id) : [];
+    if(unresolved.length || selfRef.length){ _showSaveBlocked(modal, unresolved, selfRef); return; }
+    // recipe_bom.quantity e' obbligatoria nel database: una riga collegata senza quantita' verrebbe rifiutata.
+    const noQty = ingredients.filter(i => i.type !== 'section' && (i.ingredient_id || i.sub_recipe_id) && (_blank(i.qty) || isNaN(parseFloat(i.qty))));
+    if(noQty.length){ _showSaveBlocked(modal, [], [], 'Manca la quantità per: ' + noQty.map(i => i.name).join(', ') + '. Scrivila (anche 0) o togli la riga.'); return; }
+    if(bomLoadFailed){ _showSaveBlocked(modal, [], [], 'La distinta non è stata letta all\'apertura: chiudi e riapri la ricetta prima di salvare, per non perdere ingredienti.'); return; }
 
-    // Collect ingredients — both section headers and ingredient rows
-    // Retrocompatibile: righe vecchie non hanno .ing-name-input — fallback su tutti gli input testo
-    const ingredients = [...ingList.children].map(row=>{
-      if(row.dataset.type === 'section'){
-        return { type:'section', name: row.querySelector('input').value.trim() };
-      }
-      const qtyEl  = row.querySelector('input[type="number"]');
-      const unitEl = row.querySelector('select');
-      // Nome: preferisce .ing-name-input (righe nuove), fallback primo input testo (righe vecchie)
-      const nameEl = row.querySelector('.ing-name-input') ||
-                     [...row.querySelectorAll('input')].find(el => el.type !== 'number');
-      // Note: ultimo input testo che non è il nome
-      const allTextInputs = [...row.querySelectorAll('input')].filter(el => el.type !== 'number' && el !== nameEl);
-      const commentEl = allTextInputs[allTextInputs.length - 1] || null;
-      return {
-        qty:           parseFloat(qtyEl?.value)||qtyEl?.value||'',
-        unit:          unitEl?.value||'g',
-        name:          nameEl?.value.trim()||'',
-        comment:       commentEl?.value.trim()||'',
-        ingredient_id: row.dataset.ingredientId || null,
-        sub_recipe_id: row.dataset.subRecipeId  || null
-      };
-    }).filter(i=> i.type==='section' ? i.name : i.name);
-
-    const newRec = {
-      title:             t,
-      menu_group:        modal.querySelector('#rMenuGroup').value || null,
-      pos_name:          modal.querySelector('#rPosName').value.trim() || null,
+    const bs = parseInt(servInput.value)||null;
+    const patch = _recipePatch(rec, {
+      title:               t,
+      menu_group:          modal.querySelector('#rMenuGroup').value || null,
+      pos_name:            modal.querySelector('#rPosName').value.trim() || null,
       prep_frequency_days: parseInt(modal.querySelector('#rPrepFreq').value) || null,
       shelf_life_days:     parseInt(modal.querySelector('#rShelfLife').value) || null,
-      yield_text:        modal.querySelector('#rYield').value,
-      prep_time_minutes: parseInt(modal.querySelector('#rTime').value)||null,
-      image_url:         modal.querySelector('#rImg').value.trim() || null,
-      equipment:         modal.querySelector('#rEquip').value,
-      procedure:         modal.querySelector('#rProc').value,
-      selling_price:     sp,
-      base_servings:     bs,
-      base_weight_g:     bwg,
-      serving_weight_g:  swg,
-      serving_qty:       parseFloat(modal.querySelector('#rServingQty')?.value)||null,
-      serving_unit:      modal.querySelector('#rServingUnit')?.value||null
+      yield_text:          _yieldTextToSave(rec, modal.querySelector('#rYield').value, bs),
+      prep_time_minutes:   parseInt(modal.querySelector('#rTime').value)||null,
+      image_url:           modal.querySelector('#rImg').value.trim() || null,
+      equipment:           modal.querySelector('#rEquip').value,
+      procedure:           modal.querySelector('#rProc').value,
+      selling_price:       parseFloat(modal.querySelector('#rPrice')?.value)||null,
+      base_servings:       bs,
+      serving_qty:         parseFloat(modal.querySelector('#rServingQty')?.value)||null,
+      serving_unit:        modal.querySelector('#rServingUnit')?.value||null
       // NOTE: ingredients NON va nel payload recipes — stanno in recipe_bom
-    };
+    }, weightInput ? weightInput.value : '', weightInitial);
 
+    const bomPlan = _bomPlan(ingredients, rec?.id ? origBom : []);
+    const stepsChanged = _stepsKey(stepsState) !== _stepsKeyOrig;
+    if(rec?.id && !Object.keys(patch).length && !bomPlan.changed && !stepsChanged){
+      modal.remove();
+      if(typeof showScToast === 'function') showScToast('Nessuna modifica da salvare');
+      return;
+    }
+
+    saveBtn.disabled = true;
+    let fase = 'ricetta';
     try{
       let savedId = rec?.id;
       if(rec?.id){
-        const {error: updErr} = await supa.from('recipes').update(newRec).eq('id',rec.id);
-        if(updErr) throw updErr;
-        await supa.from('recipe_translations').delete().eq('recipe_id',rec.id);
-      } else {
-        const {data:inserted} = await supa.from('recipes').insert(newRec).select('id').single();
-        savedId = inserted?.id;
-      }
-      let unresolved = [];
-      if(savedId) unresolved = (await saveRecipeBOM(savedId, ingredients)) || [];
-      if(savedId) await saveRecipeSteps(savedId, stepsState);
-      if(savedId) translateAndSaveRecipe(savedId, newRec); // fire-and-forget — non blocca il save
-
-      // ── POST-SAVE: show unresolved warning if needed ────────
-      if(unresolved.length > 0){
-        // Do NOT close modal yet — keep it open with warning panel
-        _showUnresolvedWarning(modal, savedId, unresolved, async () => {
-          // Called when user clicks "Chiudi" on warning panel
-          modal.remove();
-          await init();
-          renderRecipes();
-          const oldSheet = document.getElementById('_recipeDetailSheet');
-          if(oldSheet){
-            oldSheet.remove();
-            if(savedId){
-              const freshRec = SHOP_RECIPES.find(r=>r.id===savedId);
-              if(freshRec) showRecipeSheet(freshRec);
-            }
+        if(Object.keys(patch).length){
+          const {error: updErr} = await supa.from('recipes').update(patch).eq('id',rec.id);
+          if(updErr) throw updErr;
+          if('title' in patch || 'procedure' in patch || 'equipment' in patch){
+            await supa.from('recipe_translations').delete().eq('recipe_id',rec.id);
           }
-        });
-        // Update rec.id so re-saves work correctly
-        if(!rec) rec = { id: savedId };
-        else rec.id = savedId;
-        return; // keep modal open
+        }
+      } else {
+        const {data:inserted, error: insErr} = await supa.from('recipes').insert(patch).select('id').single();
+        if(insErr || !inserted?.id) throw (insErr || new Error('la ricetta non è stata creata'));
+        savedId = inserted.id;
+      }
+      fase = 'ingredienti';
+      if(bomPlan.changed){
+        await saveRecipeBOM(savedId, bomPlan);
+        // La ricetta scritta si svuota SOLO se ogni sua riga e' gia' nella distinta:
+        // cosi' non resta un testo vecchio che contraddice la distinta, e non si perde niente.
+        const scritta = _legacyIngredients(rec?.ingredients);
+        if(rec?.id && scritta.length && _writtenFullyInBom(scritta, ingredients)){
+          const {error: clrErr} = await supa.from('recipes').update({ ingredients: [] }).eq('id', savedId);
+          if(clrErr) console.warn('[BOM] ricetta scritta non svuotata (resta com\'era):', clrErr);
+        }
+      }
+      fase = 'passi';
+      if(stepsChanged) await saveRecipeSteps(savedId, stepsState, existingSteps);
+      if(!rec?.id || 'title' in patch || 'procedure' in patch || 'equipment' in patch){
+        translateAndSaveRecipe(savedId, {...(rec||{}), ...patch}); // fire-and-forget — non blocca il save
       }
 
-      // No unresolved — close normally
       modal.remove();
       await init();
       renderRecipes();
@@ -1250,7 +1301,11 @@ async function openRecipeEditor(rec=null){
           if(freshRec) showRecipeSheet(freshRec);
         }
       }
-    }catch(e){ alert(tr('error_prefix2')+e.message); }
+    }catch(e){
+      saveBtn.disabled = false;
+      const dove = {ricetta:'nei dati della ricetta', ingredienti:'negli ingredienti', passi:'nei passi'}[fase];
+      alert(tr('error_prefix2') + (e?.message || e) + '\n\nIl salvataggio si è fermato ' + dove + '. Le righe già presenti non sono state cancellate: riapri la ricetta e controlla.');
+    }
   };
 
   // ── Delete recipe button ──
@@ -2011,136 +2066,210 @@ async function _autoResolveLegacyRows(){
   }
 }
 
-// ── SHOW UNRESOLVED WARNING PANEL ───────────────────────────
-// Shown after Save when some ingredient rows had no UUID.
-// Keeps modal open, shows list of unresolved rows with Link now button.
-// onClose() is called when user dismisses, which closes modal.
-function _showUnresolvedWarning(modal, savedId, unresolved, onClose){
-  // Remove any existing panel
-  modal.querySelector('#unresolvedPanel')?.remove();
-
-  const panel = document.createElement('div');
-  panel.id = 'unresolvedPanel';
-  panel.style.cssText = [
-    'position:absolute;bottom:0;left:0;right:0;',
-    'background:#0f172a;border-top:2px solid #f59e0b;',
-    'padding:16px;z-index:20;max-height:65vh;overflow-y:auto;',
-    '-webkit-overflow-scrolling:touch;',
-  ].join('');
-
-  const rows = unresolved.map(i => `
-    <div style="display:flex;align-items:center;justify-content:space-between;
-                padding:8px 10px;background:#1e293b;border-radius:8px;margin-bottom:6px;gap:8px;">
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:13px;font-weight:600;color:#fde68a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(i.name)}</div>
-        <div style="font-size:11px;color:#64748b;">${i.qty || '—'} ${escHtml(i.unit || '')} — nessun ingrediente/subrecipe collegato</div>
-      </div>
-      <div style="font-size:10px;color:#ef4444;font-weight:700;flex-shrink:0;">❌ NON nel bot</div>
-    </div>`).join('');
-
-  panel.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <div>
-        <div style="font-size:14px;font-weight:700;color:#f59e0b;">⚠️ ${unresolved.length} ingredient${unresolved.length>1?'i':'e'} non collegat${unresolved.length>1?'i':'o'} al DB</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:2px;">La ricetta è stata salvata. Questi ingredienti sono nella ricetta ma il bot <strong>NON li scaricherà</strong> finché non li colleghi.</div>
-      </div>
-    </div>
-    <div style="margin-bottom:12px;">${rows}</div>
-    <div style="font-size:11px;color:#64748b;margin-bottom:10px;line-height:1.5;">
-      Per collegare: riaprire Edit Ricetta, cliccare sul campo nome di ogni ingrediente arancio/rosso e selezionare dal menu a discesa.
-    </div>
-    <div style="display:flex;gap:8px;">
-      <button id="unresolvedFixBtn"
-        style="flex:1;padding:10px;background:#1e3a5f;border:1px solid #3b82f6;border-radius:10px;
-               color:#93c5fd;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
-        ✏️ Vai all'editor — collega ora
-      </button>
-      <button id="unresolvedCloseBtn"
-        style="flex:1;padding:10px;background:#1e293b;border:1px solid #334155;border-radius:10px;
-               color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
-        Chiudi — collega dopo
-      </button>
-    </div>`;
-
-  // Make the modal container relative for absolute positioning
-  const modalInner = modal.querySelector('.bg-white') || modal.querySelector('[style*="border-radius"]') || modal;
-  modalInner.style.position = 'relative';
-  modalInner.appendChild(panel);
-
-  panel.querySelector('#unresolvedCloseBtn').onclick = () => { onClose(); };
-  panel.querySelector('#unresolvedFixBtn').onclick   = () => {
-    // Hide warning panel so user can interact with the editor above
-    panel.style.display = 'none';
-  };
-}
-
 function escHtml(str){
   return (str||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-async function saveRecipeBOM(recipeId, ingredientRows){
-  // Split rows into linked (have UUID) and unresolved (name only, no UUID).
-  // Only linked rows go into recipe_bom. Unresolved are returned for UI warning.
-  const linked     = ingredientRows.filter(i => i.type !== 'section' && (i.ingredient_id || i.sub_recipe_id));
-  const unresolved = ingredientRows.filter(i => i.type !== 'section' && !i.ingredient_id && !i.sub_recipe_id && i.name);
+// ── BR-FIX01 — salvataggio ricette senza perdite ─────────────────────────────
+// recipes.ingredients (la ricetta scritta) arriva a volte come stringa JSON.
+function _legacyIngredients(v){
+  if(Array.isArray(v)) return v;
+  if(typeof v === 'string'){ try{ const a = JSON.parse(v); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+  return [];
+}
 
-  // Delete existing BOM rows for this recipe
-  await supa.from('recipe_bom').delete().eq('parent_recipe_id', recipeId);
+// Ogni riga della ricetta scritta ha una riga corrispondente (per nome) nella distinta?
+function _writtenFullyInBom(written, rows){
+  const names = (rows||[]).filter(r => r.type !== 'section' && (r.ingredient_id || r.sub_recipe_id)).map(r => (r.name||'').toLowerCase().trim()).filter(Boolean);
+  return (written||[]).filter(i => i && i.type !== 'section' && (i.name||'').trim()).every(i => {
+    const n = i.name.toLowerCase().trim();
+    return names.some(x => x.includes(n) || n.includes(x));
+  });
+}
 
-  if(linked.length > 0){
-    const rows = linked.map((i, idx) => ({
-      parent_recipe_id: recipeId,
-      component_type:   i.sub_recipe_id ? 'RECIPE' : 'ITEM',
-      item_id:          i.ingredient_id || null,
-      sub_recipe_id:    i.sub_recipe_id || null,
-      quantity:         parseFloat(i.qty) || null,
-      unit:             i.unit || null,
-      notes:            i.comment || null,
-      sort_order:       idx + 1
-    }));
-    const {error} = await supa.from('recipe_bom').insert(rows);
-    if(error) console.error('[BOM] insert error:', error);
+// Unita' in cui una sotto-ricetta va "pesata": servono la sua resa in peso.
+const _MASS_VOL_UNITS = ['g','kg','ml','l','lt','oz','lb','cup','tbsp','tsp','gallone','gal','qt','quart'];
+
+function _subYieldLabel(y){
+  if(!y) return 'resa non indicata';
+  if(y.base_weight_g) return 'lotto ' + String(+(y.base_weight_g/1000).toFixed(3)).replace('.', ',') + ' kg';
+  if(y.base_servings) return y.base_servings + (y.base_servings === 1 ? ' porzione' : ' porzioni');
+  if(y.yield_text) return y.yield_text;
+  return 'resa non indicata';
+}
+
+// Una riga in grammi/litri collegata a una ricetta senza resa in peso: FC05 la segna
+// "resa_mancante" e il costo della ricetta diventa ROSSO. Lo si dice subito, in riga.
+function _checkSubRecipeYield(row){
+  row.querySelector('.sub-yield-warn')?.remove();
+  const y = row._subYield;
+  if(!row.dataset.subRecipeId || !y) return;
+  const unit = (row.querySelector('select')?.value || '').toLowerCase();
+  if(!_MASS_VOL_UNITS.includes(unit) || y.base_weight_g) return;
+  const name = row.querySelector('.ing-name-input')?.value || 'questa ricetta';
+  const warn = document.createElement('div');
+  warn.className = 'sub-yield-warn';
+  warn.style.cssText = 'grid-column:1/-1;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:5px 8px;margin-top:2px;font-size:11px;color:#991b1b;';
+  warn.textContent = `"${name}" non ha una resa in peso (${_subYieldLabel(y)}): in ${unit} il food cost non si può calcolare. Cercavi una salsa o una base?`;
+  row.appendChild(warn);
+}
+
+// Legge le righe dell'editor. Retrocompatibile con righe vecchie senza .ing-name-input.
+function _collectIngredientRows(ingList){
+  return [...ingList.children].map(row=>{
+    if(row.dataset.type === 'section'){
+      return { type:'section', name: row.querySelector('input').value.trim() };
+    }
+    if(row.dataset.type !== 'ingredient') return null;
+    const qtyEl  = row.querySelector('input[type="number"]');
+    const unitEl = row.querySelector('select');
+    const nameEl = row.querySelector('.ing-name-input') || [...row.querySelectorAll('input')].find(el => el.type !== 'number');
+    const allTextInputs = [...row.querySelectorAll('input')].filter(el => el.type !== 'number' && el !== nameEl);
+    const commentEl = allTextInputs[allTextInputs.length - 1] || null;
+    return {
+      qty:           qtyEl?.value ?? '',
+      unit:          unitEl?.value||'g',
+      name:          nameEl?.value.trim()||'',
+      comment:       commentEl?.value.trim()||'',
+      ingredient_id: row.dataset.ingredientId || null,
+      sub_recipe_id: row.dataset.subRecipeId  || null,
+      bom_id:        row.dataset.bomId ? Number(row.dataset.bomId) : null,
+      prep_task_id:  row.dataset.prepTaskId ? Number(row.dataset.prepTaskId) : null
+    };
+  }).filter(i => i && i.name);
+}
+
+const _blank = v => v === null || v === undefined || v === '';
+function _same(a, b){
+  if(_blank(a) && _blank(b)) return true;
+  if(typeof a === 'number' || typeof b === 'number'){ const x = Number(a), y = Number(b); return !isNaN(x) && !isNaN(y) && Math.abs(x - y) < 1e-9; }
+  return String(a) === String(b);
+}
+
+// "100 porzioni" viene nascosto nel campo quando ripete il numero di porzioni:
+// se il campo resta vuoto e le porzioni non cambiano, il testo originale resta.
+function _yieldTextToSave(rec, input, bs){
+  const orig = (rec?.yield_text || '').trim();
+  if(!String(input||'').trim() && orig && /^\d+\s+porzion/i.test(orig) && parseInt(orig) === bs && _same(rec?.base_servings, bs)) return rec.yield_text;
+  return input;
+}
+
+// Solo i campi cambiati (ricetta esistente) o tutti i campi (ricetta nuova).
+function _recipePatch(rec, fields, weightVal, weightInitial){
+  const out = {};
+  for(const [k, v] of Object.entries(fields)) if(!rec?.id || !_same(rec[k], v)) out[k] = v;
+  // Peso del lotto: campo nascosto; si scrive solo se e' cambiato davvero.
+  const wkg = parseFloat(weightVal)||null, bwg = wkg ? Math.round(wkg*1000) : null;
+  const weightChanged = !rec?.id || String(weightVal||'') !== String(weightInitial||'');
+  if(weightChanged && !_same(rec?.base_weight_g, bwg)) out.base_weight_g = bwg;
+  // Peso a porzione: ricalcolato solo quando cambiano porzioni o peso, e solo se calcolabile.
+  const bs = 'base_servings' in out ? out.base_servings : rec?.base_servings;
+  const bw = 'base_weight_g' in out ? out.base_weight_g : rec?.base_weight_g;
+  if((('base_servings' in out) || ('base_weight_g' in out)) && bs && bw){
+    const swg = Math.round(bw / bs);
+    if(!_same(rec?.serving_weight_g, swg)) out.serving_weight_g = swg;
   }
+  return out;
+}
 
-  // recipe_bom is the single source of truth.
-  // After any BOM save (even if linked.length === 0 — user cleared all rows),
-  // wipe the legacy JSONB so it never diverges from recipe_bom.
-  // MCR, bots, and all readers must treat recipe_bom as authoritative.
-  const {error: legacyClearErr} = await supa
-    .from('recipes')
-    .update({ ingredients: [] })
-    .eq('id', recipeId);
-  if(legacyClearErr) console.warn('[BOM] legacy clear failed:', legacyClearErr);
+// Piano della distinta per differenza. Le righe gia' esistenti (bom_id) si aggiornano
+// solo nei campi cambiati; prep_task_id e gli altri campi non mostrati restano intatti.
+function _bomPlan(rows, orig){
+  const linked = rows.filter(i => i.type !== 'section' && (i.ingredient_id || i.sub_recipe_id));
+  const origById = new Map((orig||[]).map(b => [Number(b.bom_id), b]));
+  const keptIds = linked.filter(i => i.bom_id && origById.has(i.bom_id)).map(i => i.bom_id);
+  const origOrder = (orig||[]).map(b => Number(b.bom_id)).filter(id => keptIds.includes(id));
+  const reorder = linked.some(i => !i.bom_id || !origById.has(i.bom_id)) || origOrder.join(',') !== keptIds.join(',');
+  const inserts = [], updates = [];
+  linked.forEach((i, idx) => {
+    const want = {
+      component_type: i.sub_recipe_id ? 'RECIPE' : 'ITEM',
+      item_id:        i.sub_recipe_id ? null : (i.ingredient_id || null),
+      sub_recipe_id:  i.sub_recipe_id || null,
+      quantity:       _blank(i.qty) ? null : (parseFloat(i.qty)),
+      unit:           i.unit || null,
+      notes:          i.comment || null
+    };
+    if(want.quantity !== null && isNaN(want.quantity)) want.quantity = null;
+    const o = i.bom_id ? origById.get(i.bom_id) : null;
+    if(!o){ inserts.push({...want, sort_order: idx + 1, prep_task_id: i.prep_task_id || null}); return; }
+    if(reorder) want.sort_order = idx + 1;
+    const diff = {};
+    for(const [k, v] of Object.entries(want)) if(!_same(o[k], v)) diff[k] = v;
+    if(Object.keys(diff).length) updates.push({bom_id: o.bom_id, patch: diff});
+  });
+  const liveIds = new Set(linked.map(i => i.bom_id).filter(Boolean));
+  const deletes = (orig||[]).map(b => Number(b.bom_id)).filter(id => !liveIds.has(id));
+  return {inserts, updates, deletes, changed: !!(inserts.length || updates.length || deletes.length)};
+}
 
-  // Return unresolved rows so the save handler can show the warning
-  return unresolved;
+// Ordine: prima si aggiunge, poi si aggiorna, per ultimo si elimina. Se un passo fallisce
+// ci si ferma: al massimo restano righe in piu', mai righe perse.
+async function saveRecipeBOM(recipeId, plan){
+  if(plan.inserts.length){
+    const {error} = await supa.from('recipe_bom').insert(plan.inserts.map(r => ({parent_recipe_id: recipeId, ...r})));
+    if(error) throw new Error('ingredienti non aggiunti: ' + error.message);
+  }
+  for(const u of plan.updates){
+    const {error} = await supa.from('recipe_bom').update(u.patch).eq('bom_id', u.bom_id).eq('parent_recipe_id', recipeId);
+    if(error) throw new Error('ingrediente non aggiornato: ' + error.message);
+  }
+  if(plan.deletes.length){
+    const {error} = await supa.from('recipe_bom').delete().eq('parent_recipe_id', recipeId).in('bom_id', plan.deletes);
+    if(error) throw new Error('ingredienti tolti non eliminati: ' + error.message);
+  }
+}
+
+function _stepsKey(steps){
+  return JSON.stringify((steps||[]).map(s => [s.title_it||'', s.instruction_it||'', s.title_en||'', s.title_es||'',
+    s.instruction_en||'', s.instruction_es||'', String(s.timer_minutes ?? '')]));
 }
 
 // ── SALVA STEPS RICETTA (recipe_steps) ──────────────────────
-async function saveRecipeSteps(recipeId, steps){
-  // Delete existing steps for this recipe
-  await supa.from('recipe_steps').delete().eq('recipe_id', recipeId);
-
+// BR-FIX01: i passi nuovi si scrivono prima di togliere i vecchi; un errore ferma tutto.
+async function saveRecipeSteps(recipeId, steps, existing){
   const rows = (steps||[])
     .filter(s => (s.title_it && s.title_it.trim()) || (s.instruction_it && s.instruction_it.trim()))
-    .map((s, idx) => ({
-      recipe_id:       recipeId,
-      step_number:     idx + 1,
-      title:           s.title_en || s.title_it || '',
-      title_it:        s.title_it || null,
-      title_es:        s.title_es || null,
-      instruction_en:  s.instruction_en || null,
-      instruction_it:  s.instruction_it || null,
-      instruction_es:  s.instruction_es || null,
-      timer_seconds:   s.timer_minutes ? Math.round(parseFloat(s.timer_minutes)*60) : null
-    }));
-
-  if(!rows.length) return;
-  const {error} = await supa.from('recipe_steps').insert(rows);
-  if(error) console.error('[Steps] insert error:', error);
+    .map((s, idx) => {
+      const unchangedTimer = s.timer_seconds_orig && String(s.timer_minutes) === String(Math.round(s.timer_seconds_orig/60));
+      return {
+        recipe_id:       recipeId,
+        step_number:     idx + 1,
+        title:           s.title_en || s.title_it || '',
+        title_it:        s.title_it || null,
+        title_es:        s.title_es || null,
+        instruction_en:  s.instruction_en || null,
+        instruction_it:  s.instruction_it || null,
+        instruction_es:  s.instruction_es || null,
+        timer_seconds:   unchangedTimer ? s.timer_seconds_orig : (s.timer_minutes ? Math.round(parseFloat(s.timer_minutes)*60) : null)
+      };
+    });
+  if(rows.length){
+    const {error} = await supa.from('recipe_steps').insert(rows);
+    if(error) throw new Error('passi non salvati: ' + error.message);
+  }
+  const oldIds = (existing||[]).map(s => s.id).filter(Boolean);
+  if(oldIds.length){
+    const {error} = await supa.from('recipe_steps').delete().eq('recipe_id', recipeId).in('id', oldIds);
+    if(error) throw new Error('passi vecchi non rimossi (ora sono doppi): ' + error.message);
+  }
 }
 
-
+// Salvataggio bloccato: pannello nell'editor, niente scritto.
+function _showSaveBlocked(modal, unresolved, selfRef, msg){
+  modal.querySelector('#saveBlockedPanel')?.remove();
+  const p = document.createElement('div');
+  p.id = 'saveBlockedPanel';
+  p.style.cssText = 'background:#fef2f2;border:1.5px solid #ef4444;border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:12px;color:#991b1b;';
+  const lines = [];
+  if(msg) lines.push(escHtml(msg));
+  if(unresolved.length) lines.push('<b>Non salvato:</b> ' + unresolved.length + (unresolved.length===1 ? ' ingrediente non è collegato' : ' ingredienti non sono collegati')
+    + ' (' + unresolved.map(i => escHtml(i.name)).join(', ') + '). Scegli ognuno dal menu a discesa o elimina la riga.');
+  if(selfRef.length) lines.push('<b>Non salvato:</b> la ricetta non può contenere se stessa.');
+  p.innerHTML = lines.join('<br>');
+  const foot = modal.querySelector('#saveR')?.closest('.p-3') || modal;
+  foot.insertBefore(p, foot.firstChild);
+}
 
 
 // ── CREA NUOVO INGREDIENTE DA RICETTA ────────────────────────
