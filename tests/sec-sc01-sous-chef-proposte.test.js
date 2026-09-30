@@ -93,7 +93,11 @@ function ufficio(pg, token, knobs = {}) {
   const supa = fakeSupa(pg, log, knobs);
   const ctx = { window: { supa }, localStorage: { getItem: () => token }, console };
   vm.createContext(ctx);
-  vm.runInContext(src.slice(i, fine + 2) + '\nthis.esegui = jarvisExecuteDraft;', ctx);
+  // le costanti di BR-OFFICE01, con l'interruttore acceso: qui le funzioni protette sono installate (come dopo il cutover)
+  const c0 = src.indexOf('var RICETTE_PROTETTE_ATTIVE'), c1 = src.indexOf('var _ppUltime');
+  assert.ok(c0 > 0 && c1 > c0, 'costanti BR-OFFICE01 trovate');
+  const costanti = src.slice(c0, c1).replace('var RICETTE_PROTETTE_ATTIVE = false;', 'var RICETTE_PROTETTE_ATTIVE = true;');
+  vm.runInContext(costanti + src.slice(i, fine + 2) + '\nthis.esegui = jarvisExecuteDraft;', ctx);
   return { esegui: d => ctx.esegui(supa, d), log };
 }
 const foto = async pg => (await pg.query(`select md5(coalesce((select jsonb_agg(to_jsonb(x) order by x.id)::text from public.recipes x),'')
@@ -171,9 +175,10 @@ test('07 — nuova ricetta approvata: ricetta_crea + procedimento con ricetta_sa
   await assert.rejects(ufficio(pg, T.admin).esegui(bozzaNuova));   // stesso nome: rifiutata
 });
 
-test('08 — le altre proposte (Jarvis) restano come oggi fino al cutover; il contenuto della proposta si mostra come testo', () => {
+test('08 — BR-OFFICE01: anche le proposte Jarvis solo dalla strada protetta; il contenuto della proposta si mostra come testo', () => {
   const s = leggi('js/office.js');
-  assert.match(s, /if \(payload\.proposta_da\) return await _scProtetta\.aggiornaRiga\(payload\);/);
+  assert.match(s, /return await _scProtetta\.aggiornaRiga\(payload\);/);
+  assert.doesNotMatch(s, /from\('recipe_bom'\)\.update\(payload\.fields/);
   assert.match(s, /white-space:pre-wrap;">' \+ escHtml\(payloadStr\) \+ '<\/pre>'/);
   assert.match(s, /Proposta: nuova ricetta «' \+ escHtml\(p\.title/);
 });

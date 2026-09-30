@@ -63,6 +63,268 @@ var _officeFolders = [
   { id:'dati',          icon:'📊',        label:'Dati',          desc:'Report vendite · Food cost',       ribbon:'#ec4899', badge:'rgba(236,72,153,0.12)',  badgeTxt:'#db2777' }
 ];
 
+// ══════════════════════════════════════════════════════════════
+// BR-OFFICE01 — PROPOSTE DA APPROVARE
+// Le proposte (Sous Chef, Jarvis) hanno una query tutta loro: non dipendono dalla lista generale (200 voci)
+// e non si mischiano con scansioni e warning. Da qui NON si applica niente alle ricette finché il
+// salvataggio protetto (ricetta_crea / ricetta_salva) non è attivo: niente scritture dirette di ripiego.
+// ══════════════════════════════════════════════════════════════
+var RICETTE_PROTETTE_ATTIVE = false;   // si accende solo al cutover SEC-RECIPES, con le funzioni installate
+var TIPI_PROPOSTA_RICETTA = ['update_recipe_bom', 'create_recipe', 'create_procedure_draft', 'update_recipe_procedure'];
+var PP_APPROVA_SPENTO = 'Il salvataggio protetto delle ricette deve essere attivato prima.';
+var _ppUltime = { lista: [], errore: null };
+
+function _ppEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function _ppUuid(s) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || '')); }
+function _ppNum(v) { var n = Number(v); return isFinite(n) ? String(+n.toFixed(3)) : String(v == null ? '' : v); }
+function _ppQuando(ts) {
+  try { return new Date(ts).toLocaleString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; }
+}
+function _ppRicettaTipo(t) { return TIPI_PROPOSTA_RICETTA.indexOf(t) >= 0; }
+
+// dati grezzi (bozze pendenti + voce Ufficio + valori attuali) -> proposte da mostrare. Solo letture.
+async function officeProposteCarica() {
+  var sb = window.supa;
+  var r = await sb.from('chef_ai_action_drafts').select('id,office_item_id,action_type,payload,status,requires_approval,risk_level,created_at')
+    .eq('status', 'pending').order('created_at', { ascending: false }).limit(100);
+  if (r.error) throw new Error(r.error.message);
+  var drafts = (r.data || []).filter(function(d) { return d.requires_approval !== false; });
+  var oids = drafts.map(function(d) { return d.office_item_id; }).filter(Boolean);
+  var voci = {};
+  if (oids.length) {
+    var o = await sb.from('office_items').select('id,source,title,status,created_at,recipe_id,recipe_name,from_user').in('id', oids);
+    if (o.error) throw new Error(o.error.message);
+    (o.data || []).forEach(function(v) { voci[v.id] = v; });
+  }
+  // una voce chiusa con una bozza rimasta pendente non è una proposta attiva
+  drafts = drafts.filter(function(d) { return !d.office_item_id || (voci[d.office_item_id] && voci[d.office_item_id].status === 'open'); });
+
+  var bomIds = [], recIds = [];
+  drafts.forEach(function(d) {
+    var p = d.payload || {};
+    if (d.action_type === 'update_recipe_bom' && p.bom_id != null) bomIds.push(p.bom_id);
+    if (_ppUuid(p.recipe_id)) recIds.push(p.recipe_id);
+    var v = voci[d.office_item_id]; if (v && _ppUuid(v.recipe_id)) recIds.push(v.recipe_id);
+  });
+  var righe = {}, nomiIng = {}, ricette = {};
+  if (bomIds.length) {
+    var b = await sb.from('recipe_bom').select('bom_id,parent_recipe_id,item_id,sub_recipe_id,quantity,unit,notes,prep_task_id').in('bom_id', bomIds);
+    if (b.error) throw new Error(b.error.message);
+    (b.data || []).forEach(function(x) { righe[x.bom_id] = x; recIds.push(x.parent_recipe_id); if (x.sub_recipe_id) recIds.push(x.sub_recipe_id); });
+    var ingIds = (b.data || []).map(function(x) { return x.item_id; }).filter(Boolean);
+    if (ingIds.length) {
+      var ig = await sb.from('ingredients').select('id,name').in('id', ingIds);
+      (ig.data || []).forEach(function(x) { nomiIng[x.id] = x.name; });
+    }
+  }
+  recIds = recIds.filter(function(x, i, a) { return _ppUuid(x) && a.indexOf(x) === i; });
+  if (recIds.length) {
+    var rc = await sb.from('recipes').select('id,title,procedure').in('id', recIds);
+    if (rc.error) throw new Error(rc.error.message);
+    (rc.data || []).forEach(function(x) { ricette[x.id] = x; });
+    var st = await sb.from('recipe_steps').select('recipe_id').in('recipe_id', recIds);
+    (st.data || []).forEach(function(x) { if (ricette[x.recipe_id]) ricette[x.recipe_id].passi = (ricette[x.recipe_id].passi || 0) + 1; });
+  }
+  return officeProposteModello(drafts, voci, righe, nomiIng, ricette);
+}
+
+// pura: nessun accesso al database
+function officeProposteModello(drafts, voci, righe, nomiIng, ricette) {
+  var gruppi = {}, ordine = [];
+  drafts.forEach(function(d) {
+    var k = d.office_item_id || ('bozza:' + d.id);
+    if (!gruppi[k]) { gruppi[k] = []; ordine.push(k); }
+    gruppi[k].push(d);
+  });
+  return ordine.map(function(k) {
+    var ds = gruppi[k], voce = voci[ds[0].office_item_id] || null, p0 = ds[0].payload || {};
+    var sousChef = (voce && voce.source === 'sous_chef_chat') || !!p0.proposta_da;
+    var pz = { id: k, officeId: voce ? voce.id : null, origine: sousChef ? 'Sous Chef' : 'Jarvis',
+      propostaDa: p0.proposta_da || (voce && voce.from_user) || '', quando: (voce && voce.created_at) || ds[0].created_at,
+      titoloVoce: voce ? voce.title : '', ricetta: '', tipo: '', righe: [], dettagli: [], ricettaTipo: false, incompleta: false };
+    ds.forEach(function(d) {
+      var p = d.payload || {}, det = { draftId: d.id, action_type: d.action_type, motivo: p.motivo || '' };
+      if (_ppRicettaTipo(d.action_type)) pz.ricettaTipo = true;
+      if (d.action_type === 'update_recipe_bom') {
+        var riga = righe[p.bom_id] || null, rec = ricette[p.recipe_id] || (riga && ricette[riga.parent_recipe_id]) || null;
+        pz.tipo = pz.tipo || 'Modifica ricetta';
+        pz.ricetta = pz.ricetta || p.recipe_title || (rec && rec.title) || (voce && voce.recipe_name) || '';
+        var nome = p.riga || (riga && (nomiIng[riga.item_id] || (ricette[riga.sub_recipe_id] || {}).title)) || ('riga ' + p.bom_id);
+        var f = p.fields || {}, campi = [], vietati = [];
+        Object.keys(f).forEach(function(c) {
+          if (c === 'quantity') campi.push({ campo: 'Quantità', attuale: riga ? _ppNum(riga.quantity) + ' ' + (riga.unit || '') : '—', proposto: _ppNum(f.quantity) + ' ' + ('unit' in f ? f.unit : (riga ? riga.unit : '')) });
+          else if (c === 'unit') campi.push({ campo: 'Unità', attuale: riga ? (riga.unit || '—') : '—', proposto: f.unit });
+          else if (c === 'notes') campi.push({ campo: 'Nota', attuale: riga ? (riga.notes || '—') : '—', proposto: f.notes || '—' });
+          else vietati.push(c);
+        });
+        det.tipo = 'riga'; det.bom_id = p.bom_id; det.nome = nome; det.campi = campi; det.vietati = vietati;
+        det.trovata = !!riga; det.unita = riga ? riga.unit : ''; det.prep = riga ? riga.prep_task_id : null;
+        if (!riga || vietati.length || !campi.length) pz.incompleta = true;
+        pz.righe.push(nome + ' · ' + (campi.length ? campi.map(function(c) { return c.campo.toLowerCase() + ': ' + c.attuale + ' → ' + c.proposto; }).join('; ') : 'nessuna modifica leggibile'));
+      } else if (d.action_type === 'create_recipe') {
+        pz.tipo = 'Nuova ricetta'; pz.ricetta = p.title || '';
+        det.tipo = 'nuova'; det.nome = p.title || ''; det.categoria = p.category || '';
+        det.resa = [p.base_servings ? p.base_servings + ' porzioni' : '', p.base_weight_g ? p.base_weight_g + ' g' : ''].filter(Boolean).join(', ');
+        det.procedimento = p.procedure || ''; det.ingredienti = (p.ingredienti_proposti || []).map(function(i) { return [i.name, i.qty, i.unit].filter(function(x) { return x != null && x !== ''; }).join(' '); });
+        if (!p.title) pz.incompleta = true;
+        pz.righe.push('«' + (p.title || '?') + '»' + (det.categoria ? ' · ' + det.categoria : ''));
+      } else if (d.action_type === 'create_procedure_draft' || d.action_type === 'update_recipe_procedure') {
+        var rid = _ppUuid(p.recipe_id) ? p.recipe_id : (voce && _ppUuid(voce.recipe_id) ? voce.recipe_id : null), rr = rid ? ricette[rid] : null;
+        var testo = p.procedure_text != null ? p.procedure_text : p.procedure;
+        pz.tipo = pz.tipo || 'Modifica ricetta';
+        pz.ricetta = pz.ricetta || (rr && rr.title) || (voce && voce.recipe_name) || '';
+        det.tipo = 'procedimento'; det.attuale = rr ? (rr.procedure || '') : null; det.passi = rr ? (rr.passi || 0) : 0; det.proposto = testo || '';
+        // un segnaposto (id non valido, testo di una parola tecnica) non è una proposta applicabile
+        det.valida = _ppUuid(p.recipe_id) && !!testo && /\s/.test(String(testo).trim());
+        if (!det.valida) pz.incompleta = true;
+        pz.righe.push('Procedimento · ' + (det.valida ? 'nuovo testo proposto' : 'proposta incompleta'));
+      } else {
+        pz.tipo = pz.tipo || 'Azione Jarvis';
+        det.tipo = 'altro'; det.payload = p;
+        pz.righe.push(d.action_type);
+      }
+      pz.dettagli.push(det);
+    });
+    if (!pz.ricetta && pz.titoloVoce) pz.ricetta = pz.titoloVoce;
+    return pz;
+  });
+}
+
+function officePropostaApprovaHtml(pz) {
+  if (pz.ricettaTipo && !RICETTE_PROTETTE_ATTIVE) {
+    return '<button disabled style="flex:1;min-width:0;height:40px;border-radius:12px;border:1px dashed #cbd5e1;background:#f8fafc;color:#94a3b8;font-size:13px;font-weight:600;cursor:not-allowed;">Approva — non ancora disponibile</button>';
+  }
+  if (!pz.officeId) return '';
+  return '<button onclick="officePropostaApprova(\'' + _ppEsc(pz.id) + '\')" style="flex:1;min-width:0;height:40px;border-radius:12px;border:none;background:#1e3a5f;color:white;font-size:13px;font-weight:700;cursor:pointer;">Approva</button>';
+}
+
+function officePropostaCardHtml(pz) {
+  var tipoCol = pz.tipo === 'Nuova ricetta' ? '#7c3aed' : pz.tipo === 'Modifica ricetta' ? '#2563eb' : '#475569';
+  return '<div class="pp-card" data-pp-id="' + _ppEsc(pz.id) + '"' + (pz.officeId ? ' data-item-id="' + _ppEsc(pz.officeId) + '"' : '') +
+      ' style="background:white;border:1px solid rgba(217,119,6,0.28);border-left:4px solid #d97706;border-radius:16px;margin:0 12px 10px;padding:12px 14px;box-shadow:0 2px 10px rgba(30,58,95,0.06);">' +
+    '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">' +
+      '<span style="font-size:11px;font-weight:700;color:' + tipoCol + ';background:rgba(37,99,235,0.08);border-radius:20px;padding:2px 8px;">' + _ppEsc(pz.tipo) + '</span>' +
+      '<span style="font-size:11px;font-weight:700;color:#b45309;background:rgba(217,119,6,0.12);border-radius:20px;padding:2px 8px;">Da approvare</span>' +
+      (pz.incompleta ? '<span style="font-size:11px;font-weight:700;color:#b91c1c;background:rgba(220,38,38,0.08);border-radius:20px;padding:2px 8px;">Incompleta</span>' : '') +
+      '<span style="font-size:11px;color:#64748b;margin-left:auto;">' + _ppEsc(pz.origine) + ' · ' + _ppEsc(_ppQuando(pz.quando)) + '</span>' +
+    '</div>' +
+    '<div style="font-size:15px;font-weight:700;color:#1e3a5f;margin-bottom:4px;">' + _ppEsc(pz.ricetta || 'Senza nome') + '</div>' +
+    pz.righe.map(function(t) { return '<div style="font-size:13px;color:#334155;line-height:1.45;">' + _ppEsc(t) + '</div>'; }).join('') +
+    '<div style="display:flex;gap:8px;margin-top:10px;">' +
+      '<button onclick="officePropostaApri(\'' + _ppEsc(pz.id) + '\')" style="flex:1;min-width:0;height:40px;border-radius:12px;border:1px solid rgba(37,99,235,0.3);background:rgba(37,99,235,0.06);color:#1d4ed8;font-size:13px;font-weight:700;cursor:pointer;">Apri</button>' +
+      (pz.officeId ? '<button data-pp-rifiuta onclick="officePropostaRifiuta(\'' + _ppEsc(pz.id) + '\', this)" style="flex:1;min-width:0;height:40px;border-radius:12px;border:1px solid rgba(220,38,38,0.25);background:rgba(220,38,38,0.05);color:#b91c1c;font-size:13px;font-weight:700;cursor:pointer;">Rifiuta</button>' : '') +
+    '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:8px;">' + officePropostaApprovaHtml(pz) + '</div>' +
+    (pz.ricettaTipo && !RICETTE_PROTETTE_ATTIVE ? '<div style="font-size:11px;color:#94a3b8;margin-top:6px;">' + PP_APPROVA_SPENTO + ' Niente viene modificato.</div>' : '') +
+  '</div>';
+}
+
+function officePropostaDettaglioHtml(pz) {
+  var riga = function(k, v) { return '<tr><td style="color:#64748b;font-size:12px;padding:4px 10px 4px 0;vertical-align:top;white-space:nowrap;">' + _ppEsc(k) + '</td><td style="font-size:13px;color:#1e293b;padding:4px 0;">' + v + '</td></tr>'; };
+  var blocchi = pz.dettagli.map(function(d) {
+    var h = '';
+    if (d.tipo === 'riga') {
+      h += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:6px;">Riga di distinta: ' + _ppEsc(d.nome) + '</div>';
+      if (!d.trovata) h += '<div style="font-size:12px;color:#b91c1c;margin-bottom:6px;">Riga ' + _ppEsc(d.bom_id) + ' non trovata: forse è già cambiata. La proposta non si può applicare così.</div>';
+      h += '<table style="border-collapse:collapse;width:100%;margin-bottom:6px;"><tr><th style="text-align:left;font-size:11px;color:#94a3b8;padding-bottom:4px;">Campo</th><th style="text-align:left;font-size:11px;color:#94a3b8;">Attuale</th><th style="text-align:left;font-size:11px;color:#94a3b8;">Proposto</th></tr>' +
+        d.campi.map(function(c) { return '<tr><td style="font-size:13px;color:#64748b;padding:3px 10px 3px 0;">' + _ppEsc(c.campo) + '</td><td style="font-size:13px;color:#1e293b;padding:3px 10px 3px 0;">' + _ppEsc(c.attuale) + '</td><td style="font-size:13px;font-weight:700;color:#1d4ed8;">' + _ppEsc(c.proposto) + '</td></tr>'; }).join('') + '</table>';
+      h += '<table style="border-collapse:collapse;">' + riga('bom_id', _ppEsc(d.bom_id)) + riga('Unità', _ppEsc(d.unita || '—')) +
+        riga('Collegamento prep', d.prep ? 'presente (' + _ppEsc(d.prep) + ') — <b>non viene modificato</b>' : 'nessuno — <b>non viene modificato</b>') + '</table>';
+      if (d.vietati.length) h += '<div style="font-size:12px;color:#b91c1c;margin-top:6px;">Campi non ammessi (' + _ppEsc(d.vietati.join(', ')) + '): questa proposta verrebbe rifiutata.</div>';
+    } else if (d.tipo === 'nuova') {
+      h += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:6px;">Nuova ricetta</div><table style="border-collapse:collapse;">' +
+        riga('Nome', '<b>' + _ppEsc(d.nome || '—') + '</b>') + riga('Categoria', _ppEsc(d.categoria || '—')) + riga('Resa', _ppEsc(d.resa || 'non indicata')) +
+        riga('Procedimento', d.procedimento ? '<div style="white-space:pre-wrap;">' + _ppEsc(d.procedimento) + '</div>' : '—') + '</table>';
+      if (d.ingredienti.length) h += '<div style="font-size:12px;color:#475569;margin-top:6px;"><b>Ingredienti proposti</b> (solo informativi: la distinta si inserisce poi nella scheda): ' + _ppEsc(d.ingredienti.join(', ')) + '</div>';
+    } else if (d.tipo === 'procedimento') {
+      h += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:6px;">Procedimento</div>';
+      if (!d.valida) h += '<div style="font-size:12px;color:#b91c1c;margin-bottom:6px;">Proposta incompleta: ricetta o testo proposto non validi. Non si può applicare.</div>';
+      h += '<div style="font-size:11px;color:#94a3b8;">Attuale</div><div style="font-size:13px;color:#1e293b;white-space:pre-wrap;background:#f8fafc;border-radius:8px;padding:8px;margin:2px 0 8px;">' + (d.attuale == null ? 'ricetta non trovata' : _ppEsc(d.attuale || '— testo vuoto —')) + (d.passi ? '<div style="font-size:12px;color:#475569;margin-top:4px;">La scheda ha già ' + d.passi + ' passi.</div>' : '') + '</div>' +
+        '<div style="font-size:11px;color:#94a3b8;">Proposto</div><div style="font-size:13px;color:#1d4ed8;white-space:pre-wrap;background:rgba(37,99,235,0.05);border-radius:8px;padding:8px;margin-top:2px;">' + _ppEsc(d.proposto || '— vuoto —') + '</div>';
+    } else {
+      h += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:6px;">' + _ppEsc(d.action_type) + '</div><pre style="font-size:11px;color:#475569;background:#f8fafc;padding:8px;border-radius:8px;white-space:pre-wrap;margin:0;">' + _ppEsc(JSON.stringify(d.payload, null, 2)) + '</pre>';
+    }
+    if (d.motivo) h += '<div style="font-size:12px;color:#64748b;margin-top:6px;">Motivo: ' + _ppEsc(d.motivo) + '</div>';
+    return '<div style="border:1px solid rgba(30,58,95,0.1);border-radius:12px;padding:12px;margin-bottom:10px;">' + h + '</div>';
+  }).join('');
+  return '<div style="font-size:11px;font-weight:700;color:#b45309;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;">' + _ppEsc(pz.tipo) + ' · Da approvare</div>' +
+    '<div style="font-size:18px;font-weight:700;color:#1e3a5f;margin-bottom:2px;">' + _ppEsc(pz.ricetta || 'Senza nome') + '</div>' +
+    '<div style="font-size:12px;color:#64748b;margin-bottom:12px;">Da ' + _ppEsc(pz.origine) + (pz.propostaDa && pz.origine === 'Sous Chef' ? ' (' + _ppEsc(pz.propostaDa) + ')' : '') + ' · ' + _ppEsc(_ppQuando(pz.quando)) + '</div>' +
+    blocchi +
+    '<div style="font-size:12px;color:#475569;background:#f8fafc;border-radius:10px;padding:10px;">Niente è stato applicato. ' + (pz.ricettaTipo && !RICETTE_PROTETTE_ATTIVE ? PP_APPROVA_SPENTO : '') + '</div>';
+}
+
+// sezione in cima (home Ufficio e cassetti): conteggio sempre visibile, card delle proposte
+function officeProposteSezione(lista, errore, opzioni) {
+  opzioni = opzioni || {};
+  var el = document.createElement('div');
+  el.id = opzioni.id || 'ppSezione';
+  el.style.cssText = 'margin:0 0 16px;';
+  var n = lista.length;
+  var testa = '<div style="display:flex;align-items:center;justify-content:space-between;padding:0 ' + (opzioni.home ? '4px' : '16px') + ' 8px;">' +
+    '<div style="font-size:12px;font-weight:800;color:' + (n ? '#b45309' : '#94a3b8') + ';letter-spacing:.06em;text-transform:uppercase;">Proposte da approvare · ' + n + '</div>' +
+    (opzioni.home && n > 3 ? '<button onclick="officeOpenFolder(\'chefai\')" style="font-size:12px;font-weight:700;color:#1d4ed8;background:none;border:none;cursor:pointer;">Vedi tutte</button>' : '') + '</div>';
+  if (errore) {
+    el.innerHTML = testa.replace(' · ' + n, '') + '<div style="margin:0 12px;font-size:13px;color:#b91c1c;">Proposte non caricate: ' + _ppEsc(errore) + '. Riprova tra poco.</div>';
+    return el;
+  }
+  if (!n) {
+    el.innerHTML = testa + '<div style="margin:0 ' + (opzioni.home ? '4px' : '16px') + ';font-size:12px;color:#94a3b8;">Nessuna proposta in attesa.</div>';
+    return el;
+  }
+  var mostra = opzioni.home ? lista.slice(0, 3) : lista;
+  el.innerHTML = testa + mostra.map(officePropostaCardHtml).join('');
+  if (opzioni.home) el.querySelectorAll('.pp-card').forEach(function(c) { c.style.margin = '0 0 10px'; });
+  if (!opzioni.home) el.insertAdjacentHTML('beforeend', '<div style="font-size:12px;font-weight:700;color:#94a3b8;letter-spacing:.06em;text-transform:uppercase;padding:10px 16px 6px;">Altre voci</div>');
+  return el;
+}
+
+async function officeProposteAggiorna() {
+  try { _ppUltime = { lista: await officeProposteCarica(), errore: null }; }
+  catch (e) { _ppUltime = { lista: [], errore: e.message || 'errore' }; }
+  return _ppUltime;
+}
+
+function _ppTrova(id) { return (_ppUltime.lista || []).find(function(p) { return p.id === id; }) || null; }
+
+window.officePropostaApri = function(id) {
+  var pz = _ppTrova(id); if (!pz) return;
+  document.getElementById('ppDettaglio')?.remove();
+  var s = document.createElement('div');
+  s.id = 'ppDettaglio';
+  s.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,0.5);display:flex;align-items:flex-end;';
+  s.innerHTML = '<div style="width:100%;max-width:480px;margin:0 auto;max-height:88vh;background:white;border-radius:24px 24px 0 0;display:flex;flex-direction:column;overflow:hidden;">' +
+    '<div style="display:flex;justify-content:flex-end;padding:10px 12px 0;"><button onclick="document.getElementById(\'ppDettaglio\').remove()" style="width:36px;height:36px;border-radius:10px;background:#f8fafc;border:1px solid #e2e8f0;font-size:18px;color:#64748b;cursor:pointer;">✕</button></div>' +
+    '<div style="overflow-y:auto;padding:0 18px 12px;">' + officePropostaDettaglioHtml(pz) + '</div>' +
+    '<div style="display:flex;gap:8px;padding:12px 18px calc(16px + env(safe-area-inset-bottom));border-top:1px solid #f1f5f9;">' +
+      (pz.officeId ? '<button data-pp-rifiuta onclick="officePropostaRifiuta(\'' + _ppEsc(pz.id) + '\', this)" style="flex:1;height:44px;border-radius:12px;border:1px solid rgba(220,38,38,0.25);background:rgba(220,38,38,0.05);color:#b91c1c;font-size:14px;font-weight:700;cursor:pointer;">Rifiuta</button>' : '') +
+      officePropostaApprovaHtml(pz) +
+    '</div></div>';
+  s.addEventListener('click', function(e) { if (e.target === s) s.remove(); });
+  document.body.appendChild(s);
+};
+
+// Rifiuta: due tocchi (il primo chiede conferma nello stesso pulsante); poi la strada esistente di Jarvis
+window.officePropostaRifiuta = async function(id, btn) {
+  var pz = _ppTrova(id); if (!pz || !pz.officeId) return;
+  if (btn && !btn.dataset.pronto) {
+    btn.dataset.pronto = '1'; btn.textContent = 'Conferma rifiuto';
+    setTimeout(function() { if (btn.isConnected && btn.dataset.pronto) { delete btn.dataset.pronto; btn.textContent = 'Rifiuta'; } }, 5000);
+    return;
+  }
+  document.getElementById('ppDettaglio')?.remove();
+  await window.jarvisAction(pz.officeId, 'reject');
+  await officeProposteAggiorna();
+  var sez = document.getElementById('ppSezioneCassetto');
+  if (sez) sez.replaceWith(officeProposteSezione(_ppUltime.lista, _ppUltime.errore, { id: 'ppSezioneCassetto' }));
+};
+
+window.officePropostaApprova = function(id) {
+  var pz = _ppTrova(id); if (!pz || !pz.officeId) return;
+  if (pz.ricettaTipo && !RICETTE_PROTETTE_ATTIVE) { if (typeof showScToast === 'function') showScToast(PP_APPROVA_SPENTO); return; }
+  window.jarvisAction(pz.officeId, 'approve_all');
+};
+
 window.openOffice = function() {
   if (typeof hideAdminMenu === 'function') hideAdminMenu();
   document.getElementById('dqPanel')?.remove();
@@ -113,7 +375,10 @@ async function officeLoadHome() {
   if (!container) return;
 
   try {
-    var res = await sb.from('office_items').select('*').eq('status','open').order('created_at',{ascending:false}).limit(200);
+    var [res] = await Promise.all([
+      sb.from('office_items').select('*').eq('status','open').order('created_at',{ascending:false}).limit(200),
+      officeProposteAggiorna()   // BR-OFFICE01: query separata, non dipende dal limite di 200
+    ]);
     var sevenDaysAgo7 = Date.now() - 7 * 24 * 60 * 60 * 1000;
     var items = (res.data || []).filter(function(i) {
       // done >7gg sparisce dalla vista
@@ -148,6 +413,9 @@ async function officeLoadHome() {
     // Costruisco con DOM invece di innerHTML per evitare problemi di escape
     container.innerHTML = '';
 
+    // ── PROPOSTE DA APPROVARE (BR-OFFICE01) — sempre in cima, prima di tutto il resto ──
+    container.appendChild(officeProposteSezione(_ppUltime.lista, _ppUltime.errore, { home: true, id: 'ppSezioneHome' }));
+
     // ── DA LEGGERE ──
     var strip = document.createElement('div');
     strip.style.cssText = 'background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);border-radius:18px;padding:16px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;box-shadow:0 4px 16px rgba(30,58,95,0.25),0 8px 32px rgba(37,99,235,0.15);-webkit-tap-highlight-color:transparent;';
@@ -180,6 +448,7 @@ async function officeLoadHome() {
             '<div style="color:#60a5fa;font-size:12px;margin-top:3px;">' + f.desc + '</div>' +
           '</div>' +
           '<div style="display:flex;align-items:center;gap:8px;">' +
+            (f.id === 'chefai' && _ppUltime.lista.length ? '<span style="font-size:11px;font-weight:800;padding:3px 8px;border-radius:20px;background:rgba(217,119,6,0.14);color:#b45309;">' + _ppUltime.lista.length + ' da approvare</span>' : '') +
             '<span style="font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px;background:' + f.badge + ';color:' + f.badgeTxt + ';">' + count + '</span>' +
             '<span style="color:rgba(30,58,95,0.25);font-size:18px;">&#x203A;</span>' +
           '</div>' +
@@ -310,6 +579,12 @@ window.officeOpenFolder = async function(folderId) {
       } else {
         items = all.filter(function(i){ return getFolderForItem(i) === folderId; });
       }
+      // BR-OFFICE01: le proposte hanno la loro sezione; nella lista generale non si ripetono
+      if (folderId === 'chefai' || folderId === 'nonletti') {
+        await officeProposteAggiorna();
+        var idsProposte = _ppUltime.lista.map(function(p) { return p.officeId; }).filter(Boolean);
+        items = items.filter(function(i) { return idsProposte.indexOf(i.id) < 0; });
+      }
     } catch(e) { console.warn('[Office] folder load error:', e.message); }
   }
   var existing = document.getElementById('officeFolder');
@@ -355,6 +630,7 @@ window.officeOpenFolder = async function(folderId) {
 
   // Aggiungo card via DOM per evitare problemi con apostrofi nel testo
   var listEl = el.querySelector('#officeFolderList');
+  if (folderId === 'chefai' || folderId === 'nonletti') listEl.appendChild(officeProposteSezione(_ppUltime.lista, _ppUltime.errore, { id: 'ppSezioneCassetto' }));
   if (sorted.length === 0) {
     listEl.innerHTML = '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:12px;">✅</div><div style="font-size:15px;color:rgba(30,58,95,0.4);">'+tr('officeNoDrawer')+'</div></div>';
   } else {
@@ -4267,6 +4543,12 @@ window.jarvisAction = async function(itemId, action) {
       .eq('office_item_id', itemId)
       .eq('status', 'pending');
 
+    // BR-OFFICE01: proposte ricetta -> nessuna esecuzione finché il salvataggio protetto non è attivo (nessun fallback diretto)
+    if ((drafts || []).some(function(d) { return TIPI_PROPOSTA_RICETTA.indexOf(d.action_type) >= 0; }) && !RICETTE_PROTETTE_ATTIVE) {
+      if (typeof showScToast === 'function') showScToast('Approva non ancora disponibile: ' + PP_APPROVA_SPENTO + ' Niente è stato modificato.');
+      return;
+    }
+
     // Se action_drafts e vuoto ma c'e un write_plan nel reasoning_result, crea draft sintetico
     if (!drafts || drafts.length === 0) {
       var { data: officeItem } = await sb.from('office_items').select('reasoning_result').eq('id', itemId).maybeSingle();
@@ -4738,17 +5020,21 @@ var _scProtetta = {
 // ── Esegue singola action_draft ──
 async function jarvisExecuteDraft(sb, draft) {
   var payload = draft.payload || {};
+  // BR-OFFICE01: seconda guardia, prima di qualunque scrittura
+  if (TIPI_PROPOSTA_RICETTA.indexOf(draft.action_type) >= 0 && !RICETTE_PROTETTE_ATTIVE) throw new Error(PP_APPROVA_SPENTO + ' Niente è stato modificato.');
   switch (draft.action_type) {
 
     case 'update_recipe_bom': {
       // payload: { bom_id, fields: { quantity, unit, ... } }
       if (!payload.bom_id) throw new Error('bom_id mancante');
-      // SEC-RECIPES-SC: proposta di Sous Chef -> SOLO dalla funzione protetta ricetta_salva (sessione + admin + transazione).
-      // Se la funzione non c'è, non si scrive niente.
-      if (payload.proposta_da) return await _scProtetta.aggiornaRiga(payload);
-      var { error } = await sb.from('recipe_bom').update(payload.fields || {}).eq('bom_id', payload.bom_id);
-      if (error) throw new Error(error.message);
-      return { updated: 'recipe_bom', bom_id: payload.bom_id };
+      // SEC-RECIPES-SC / BR-OFFICE01: proposte di Sous Chef e di Jarvis -> SOLO dalla funzione protetta ricetta_salva
+      // (sessione + admin + transazione). Niente update diretto su recipe_bom; se la funzione non c'è, non si scrive niente.
+      if (!payload.recipe_id) {
+        var { data: rb } = await sb.from('recipe_bom').select('parent_recipe_id').eq('bom_id', payload.bom_id).maybeSingle();
+        if (!rb) throw new Error('Riga ' + payload.bom_id + ' non trovata: niente modificato.');
+        payload = Object.assign({}, payload, { recipe_id: rb.parent_recipe_id });
+      }
+      return await _scProtetta.aggiornaRiga(payload);
     }
 
     case 'create_prep_task': {
@@ -4777,9 +5063,9 @@ async function jarvisExecuteDraft(sb, draft) {
     case 'create_procedure_draft': {
       // payload: { recipe_id, procedure_text }
       if (!payload.recipe_id) throw new Error('recipe_id mancante');
-      var { error } = await sb.from('recipes').update({ procedure: payload.procedure_text }).eq('id', payload.recipe_id);
-      if (error) throw new Error(error.message);
-      return { updated: 'recipes.procedure', recipe_id: payload.recipe_id };
+      // BR-OFFICE01: solo ricetta_salva (niente update diretto su recipes)
+      var pr = await _scProtetta.salvaCampi(payload.recipe_id, { procedure: String(payload.procedure_text || '') });
+      return { updated: 'recipes.procedure', recipe_id: payload.recipe_id, via: 'ricetta_salva', cambiato: pr.cambiato !== false };
     }
 
     case 'create_photo_request': {
