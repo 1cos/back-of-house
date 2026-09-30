@@ -51,6 +51,8 @@ window.openRecipeForItem = openRecipeForItem;
 async function openRecipeByData(idx){
   const stale = SHOP_RECIPES[idx];
   if(!stale?.id){ showRecipeSheet(stale); return; }
+  // BR-UI02A: nuova scheda PREP | COSTO | STRUTTURA, solo se attivata (sola lettura, nessuna traduzione salvata)
+  if(window.recipeView?.enabled()){ recipeView.open(stale.id); return; }
 
   const {data:fresh} = await supa.from('recipes').select('*').eq('id',stale.id).maybeSingle();
   const rec = fresh || stale;
@@ -381,6 +383,7 @@ async function showRecipeSheet(rec){
 
 // ── RECIPE GRID ──────────────────────────────────────────────
 function renderRecipes(){
+  window.recipeView?.syncFlagButton(); // BR-UI02: interruttore della scheda nuova, solo admin
   // Use menu_group if available, fall back to category
   const getCats = r => (r.menu_group || r.category || '').split('|').map(s=>s.trim()).filter(Boolean);
   const cats = ['All'].concat([...new Set(SHOP_RECIPES.flatMap(getCats))].sort());

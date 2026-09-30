@@ -204,6 +204,9 @@ function scaleTextQty(text, factor) {
   });
 }
 
+// BR-UI02A: la scheda ricetta (recipe-view.js) usa la stessa scalatura del testo
+window.scaleTextQty = scaleTextQty;
+
 // ── TIMER ────────────────────────────────────────────────
 // timers{}            = interval handles locali al modal (per onTick/onDone DOM)
 // window._timerState  = stato persistente globale (sopravvive alla navigazione)
