@@ -613,7 +613,7 @@ async function openRecipeEditor(rec=null){
         <button onclick="this.closest('.fixed').remove()" class="flex-1 py-2.5 border rounded-xl">${tr("cancel")}</button>
         <button id="saveR" class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl font-semibold">${tr("save")}</button>
       </div>
-      ${rec?.id ? `<button id="deleteR" class="w-full py-2.5 text-red-500 border border-red-200 rounded-xl text-sm font-medium" style="background:#fff5f5;">${tr('deleteRecipe')}</button>` : ''}
+      ${rec?.id ? `<div id="deleteDisabledNote" class="w-full py-2.5 px-3 border border-slate-200 rounded-xl text-xs text-slate-500" style="background:#f8fafc;">Eliminazione temporaneamente disabilitata. Sarà disponibile nella nuova scheda con controllo dipendenze.</div>` : ''}
       ${rec?.id && isAdmin() ? `<button onclick="openBOMRecipeAudit()" style="width:100%;margin-top:6px;padding:7px;font-size:12px;font-weight:600;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;cursor:pointer;">🔍 BOM Audit — trova ingredienti che sono ricette</button>` : ''}
       ${rec?.id && isAdmin() ? `<button id="chefAiAuditRecipeBtn" onclick="chefAiAuditRecipeFromEditor()" style="width:100%;margin-top:6px;padding:9px;font-size:13px;font-weight:700;color:#1e40af;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1.5px solid #93c5fd;border-radius:10px;cursor:pointer;">🧠 Controlla ricetta</button>` : ''}
       <div id="chefAiRecipePanel" style="display:none;margin-top:10px;"></div>
@@ -1311,33 +1311,9 @@ async function openRecipeEditor(rec=null){
     }
   };
 
-  // ── Delete recipe button ──
-  const deleteBtn = modal.querySelector('#deleteR');
-  if(deleteBtn && rec?.id){
-    deleteBtn.onclick = async()=>{
-      const confirmed = confirm(`${tr('deleteRecipe')} "${rec.title}"?`);
-      if(!confirmed) return;
-      try {
-        // 1. Rimuovi righe figlie che potrebbero bloccare il delete per FK
-        await supa.from('recipe_bom').delete().eq('parent_recipe_id', rec.id);
-        await supa.from('recipe_bom').delete().eq('sub_recipe_id', rec.id);
-        await supa.from('recipe_steps').delete().eq('recipe_id', rec.id);
-        await supa.from('recipe_translations').delete().eq('recipe_id', rec.id);
-        // 2. Scollega prep_tasks che puntano a questa ricetta (ON DELETE SET NULL non sempre attivo)
-        await supa.from('prep_tasks').update({recipe_id: null}).eq('recipe_id', rec.id);
-        // 3. Cancella la ricetta
-        const {error: delErr} = await supa.from('recipes').delete().eq('id', rec.id);
-        if(delErr) throw delErr;
-        // 4. Aggiorna SHOP_RECIPES in memoria immediatamente (evita flash UI)
-        const delIdx = SHOP_RECIPES.findIndex(r=>r.id===rec.id);
-        if(delIdx>=0) SHOP_RECIPES.splice(delIdx,1);
-        modal.remove();
-        renderRecipes();
-        // 5. Ricarica in background per sincronizzare con DB
-        init();
-      } catch(e){ alert('Errore eliminazione: ' + (e.message||JSON.stringify(e))); }
-    };
-  }
+  // ── Elimina ricetta: DISABILITATA (BR-FIX02) ──
+  // La vecchia eliminazione cancellava distinta e passi (anche righe di altre ricette che la usano) e poi non
+  // riusciva a cancellare la ricetta: dati persi senza errore. Tornera' nella nuova scheda con controllo dipendenze.
 
   // ── Chef AI Audit — Controlla ricetta ──
   window.chefAiAuditRecipeFromEditor = async function(){
