@@ -2478,7 +2478,7 @@ window.completePrepWithSteps = async function(taskId){
 
 
 // ── BOM RECIPE AUDIT — mostra tutte le righe ITEM che matchano una recipe ──
-// Accessibile via openBOMRecipeAudit() — nessuna modifica automatica, solo preview con azione "Converti"
+// Accessibile via openBOMRecipeAudit() — SOLO ELENCO (BR-FIX03): la conversione e' disabilitata, qui non si scrive nulla.
 window.openBOMRecipeAudit = async function(){
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4';
@@ -2544,7 +2544,7 @@ window.openBOMRecipeAudit = async function(){
 
     body.innerHTML = `
       <div style="font-size:12px;color:#92400e;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 12px;margin-bottom:12px;">
-        <b>${matches.length} caso${matches.length>1?'i':''} trovato${matches.length>1?'i':''}</b> — verifica prima di convertire. La conversione aggiorna il DB immediatamente.
+        <b>${matches.length} caso${matches.length>1?'i':''} trovato${matches.length>1?'i':''}</b> — questa riga potrebbe essere collegata a una sotto-ricetta. Qui è solo un elenco: niente viene modificato.
       </div>
       ${matches.map(m=>`
         <div class="bom-audit-row" data-bom-id="${m.bom_id}" style="border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
@@ -2563,57 +2563,14 @@ window.openBOMRecipeAudit = async function(){
             </div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;align-items:center;">
-            <button class="convert-to-sub" data-bom-id="${m.bom_id}" data-matched-id="${m.matched_recipe.id}" data-matched-title="${m.matched_recipe.title.replace(/"/g,'&quot;')}" data-qty="${m.quantity}" data-unit="${m.unit}" data-parent-id="${m.parent_recipe_id}"
-              style="font-size:12px;font-weight:700;color:#fff;background:#3b82f6;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;">
-              Converti → sub-recipe
-            </button>
+            <span class="convert-disabled" style="font-size:11px;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;max-width:200px;line-height:1.35;">Conversione temporaneamente disabilitata. Sarà disponibile nella nuova scheda Ricetta con salvataggio sicuro.</span>
             <button class="dismiss-audit" style="font-size:12px;color:#94a3b8;background:none;border:none;cursor:pointer;">Ignora</button>
           </div>
         </div>`).join('')}`;
 
-    // Wire up convert buttons
-    body.querySelectorAll('.convert-to-sub').forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
-        const bomId = parseInt(btn.dataset.bomId);
-        const matchedId = btn.dataset.matchedId;
-        const matchedTitle = btn.dataset.matchedTitle;
-        const qty = parseFloat(btn.dataset.qty);
-        const unit = btn.dataset.unit;
-        const parentId = btn.dataset.parentId;
-
-        btn.disabled = true;
-        btn.textContent = 'Salvataggio...';
-
-        try {
-          // Delete the old ITEM row
-          await supa.from('recipe_bom').delete().eq('bom_id', bomId);
-          // Insert a new RECIPE row
-          const {error: insErr} = await supa.from('recipe_bom').insert({
-            parent_recipe_id: parentId,
-            component_type: 'RECIPE',
-            item_id: null,
-            sub_recipe_id: matchedId,
-            quantity: qty,
-            unit: unit,
-            sort_order: 999 // will be at end; user can reorder in editor
-          });
-          if(insErr) throw insErr;
-
-          // Update the row UI
-          const rowEl = body.querySelector(`[data-bom-id="${bomId}"]`);
-          if(rowEl){
-            rowEl.style.background = '#f0fdf4';
-            rowEl.style.borderColor = '#bbf7d0';
-            rowEl.innerHTML = `<div style="flex:1;"><span style="font-size:10px;background:#eff6ff;color:#3b82f6;border:0.5px solid #bfdbfe;border-radius:4px;padding:1px 5px;margin-right:4px;">RECIPE ✓</span> <b>${matchedTitle}</b> collegato come sub-recipe</div>`;
-          }
-        } catch(e) {
-          btn.disabled = false;
-          btn.textContent = 'Errore — riprova';
-          btn.style.background = '#dc2626';
-          console.error('[BOM audit convert]', e);
-        }
-      });
-    });
+    // "Converti → sub-recipe" DISABILITATO (BR-FIX03): cancellava la riga e ne inseriva una nuova (bom_id nuovo,
+    // prep_task_id e nota persi, ordine 999; riga persa se l'inserimento falliva). Tornera' nella nuova scheda
+    // Ricetta: stessa riga, cambia solo il collegamento, dentro ricetta_salva.
 
     body.querySelectorAll('.dismiss-audit').forEach(btn=>{
       btn.addEventListener('click', ()=>{
