@@ -103,7 +103,7 @@ function scChatRenderConfirmCard(action, replyText) {
   let desc = '';
   switch (action.type) {
     case 'update_recipe_ingredient':
-      desc = `Modifico <b>${action.ingredient_name}</b> nella ricetta <b>${action.recipe_title}</b>`;
+      desc = `Proposta da approvare in Ufficio: <b>${action.ingredient_name}</b> nella ricetta <b>${action.recipe_title}</b>`;
       if (action.updates) {
         const changes = Object.entries(action.updates).map(([k,v]) => `${k}: <b>${v}</b>`).join(', ');
         desc += `<br><span style="font-size:13px;color:#64748b;">${changes}</span>`;
@@ -145,7 +145,7 @@ function scChatRenderConfirmCard(action, replyText) {
       desc = `Creo nota in L'Ufficio: <b>${action.title}</b>`;
       break;
     case 'create_recipe':
-      desc = `Salvo ricetta <b>${action.title}</b>`;
+      desc = `Proposta da approvare in Ufficio: nuova ricetta <b>${action.title}</b>`;
       if (action.category) desc += `<br><span style="font-size:13px;color:#64748b;">Categoria: ${action.category}</span>`;
       if (action.base_weight_g) desc += `<br><span style="font-size:13px;color:#64748b;">Yield: ${action.base_weight_g}g</span>`;
       if (action.ingredients?.length) desc += `<br><span style="font-size:13px;color:#64748b;">${action.ingredients.length} ingredienti</span>`;
@@ -260,7 +260,8 @@ window.scChatConfirm = async function() {
         confirmed_action: action,
         history: [],
         user_name: window.user?.name || 'Unknown',
-        user_role: window.user?.role || 'staff',
+        user_role: window.user?.role || 'staff',   // informativo: il ruolo vero lo decide la sessione
+        brigade_token: (()=>{ try{ return localStorage.getItem('brigade_token'); }catch(e){ return null; } })(),
         user_station: window.user?.default_station || '',
       }),
     });
@@ -367,7 +368,8 @@ async function scChatProcess(userText) {
         message: userText,
         history: _scChatHistory.slice(-10).map(m => ({ role: m.role, content: m.content })),
         user_name: window.user?.name || 'Unknown',
-        user_role: window.user?.role || 'staff',
+        user_role: window.user?.role || 'staff',   // informativo: il ruolo vero lo decide la sessione
+        brigade_token: (()=>{ try{ return localStorage.getItem('brigade_token'); }catch(e){ return null; } })(),
         user_station: window.user?.default_station || '',
       }),
     });

@@ -4552,6 +4552,8 @@ function jarvisShowApprovalSheet(itemId, drafts) {
         }, 100);
       })(d.id, p, writeOk);
     }
+    if (d.action_type === 'create_recipe') actionLabel = 'Proposta: nuova ricetta «' + escHtml(p.title || '') + '» (gli ingredienti proposti si inseriscono poi nella scheda)';
+    if (d.action_type === 'update_recipe_bom' && p.proposta_da) actionLabel = 'Proposta Sous Chef: riga di distinta in «' + escHtml(p.recipe_title || '') + '»';
     var payloadStr = d.action_type === 'update_prep_stock' ? '' : JSON.stringify(p, null, 2);
     return '<div style="background:rgba(30,58,95,0.03);border:0.5px solid rgba(30,58,95,0.1);border-radius:12px;padding:12px 14px;margin-bottom:8px;">' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
@@ -4559,7 +4561,7 @@ function jarvisShowApprovalSheet(itemId, drafts) {
         '<span style="font-size:13px;font-weight:700;color:#1e3a5f;">' + actionLabel + '</span>' +
       '</div>' +
       actionDetail +
-      '<pre style="font-size:11px;color:#475569;background:#f8fafc;padding:8px;border-radius:8px;overflow-x:auto;margin:0;white-space:pre-wrap;">' + payloadStr + '</pre>' +
+      '<pre style="font-size:11px;color:#475569;background:#f8fafc;padding:8px;border-radius:8px;overflow-x:auto;margin:0;white-space:pre-wrap;">' + escHtml(payloadStr) + '</pre>' +
     '</div>';
   }).join('');
 
@@ -4677,6 +4679,62 @@ window.jarvisExecuteApproved = async function(itemId) {
   }
 };
 
+// ── SEC-RECIPES-SC: strada protetta per le proposte ricetta di Sous Chef ──
+// Nessuna scrittura diretta su recipes / recipe_bom: solo ricetta_crea / ricetta_per_modifica + ricetta_salva
+// (sessione Brigade + admin + una transazione). Se le funzioni non sono installate -> errore, niente scritto.
+var _scProtetta = {
+  _token: function() { try { return localStorage.getItem('brigade_token'); } catch (e) { return null; } },
+  _errore: function(r, cosa) {
+    if (r.error) return new Error(r.error.code === 'PGRST202' ? 'Strada protetta non ancora installata (' + cosa + '): niente è stato modificato.' : 'Rete: ' + r.error.message);
+    var d = r.data || {};
+    var msg = d.messaggio || d.error || 'nessuna risposta';
+    if (d.errori && d.errori.length) msg += ' ' + d.errori.map(function(x) { return x.messaggio; }).join(' ');
+    return new Error(msg);
+  },
+  _leggi: async function(recipeId) {
+    var r = await window.supa.rpc('ricetta_per_modifica', { p_token: this._token(), p_recipe_id: recipeId });
+    if (r.error || !r.data || !r.data.ok) throw this._errore(r, 'ricetta_per_modifica');
+    return r.data;
+  },
+  _salva: async function(recipeId, impronta, patch, distinta) {
+    var r = await window.supa.rpc('ricetta_salva', { p_token: this._token(), p_recipe_id: recipeId, p_impronta: impronta, p_patch: patch, p_distinta: distinta, p_passi: null });
+    if (r.error || !r.data || !r.data.ok) throw this._errore(r, 'ricetta_salva');
+    return r.data;
+  },
+  _uguale: function(a, b) { return String(a == null ? '' : a) === String(b == null ? '' : b); },
+  crea: async function(dati) {
+    var r = await window.supa.rpc('ricetta_crea', { p_token: this._token(), p_dati: dati });
+    if (r.error || !r.data || !r.data.ok) throw this._errore(r, 'ricetta_crea');
+    return r.data;
+  },
+  salvaCampi: async function(recipeId, campi) {
+    var d = await this._leggi(recipeId); var patch = {};
+    for (var k in campi) if (!this._uguale(d.recipe[k], campi[k])) patch[k] = campi[k];
+    if (!Object.keys(patch).length) return { ok: true, cambiato: false };
+    return this._salva(recipeId, d.impronta, patch, null);
+  },
+  // una sola riga della distinta (quantità / unità / nota); tutte le altre righe ripartono identiche
+  aggiornaRiga: async function(payload) {
+    if (!payload.recipe_id) throw new Error('recipe_id mancante');
+    var f = payload.fields || {};
+    var extra = Object.keys(f).filter(function(k) { return ['quantity', 'unit', 'notes'].indexOf(k) < 0; });
+    if (extra.length) throw new Error('Campi non ammessi nella proposta: ' + extra.join(', '));
+    var d = await this._leggi(payload.recipe_id); var self = this; var trovata = false, cambiate = 0;
+    var distinta = (d.bom || []).map(function(b) {
+      var riga = { bom_id: b.bom_id, item_id: b.item_id, sub_recipe_id: b.sub_recipe_id, quantity: b.quantity, unit: b.unit, notes: b.notes };
+      if (String(b.bom_id) === String(payload.bom_id)) {
+        trovata = true;
+        ['quantity', 'unit', 'notes'].forEach(function(k) { if (k in f && !self._uguale(riga[k], f[k])) { riga[k] = f[k]; cambiate++; } });
+      }
+      return riga;
+    });
+    if (!trovata) throw new Error('Riga ' + payload.bom_id + ' non trovata in questa ricetta: niente modificato.');
+    if (!cambiate) return { updated: 'nessuna modifica', bom_id: payload.bom_id };
+    await this._salva(payload.recipe_id, d.impronta, null, distinta);
+    return { updated: 'recipe_bom', bom_id: payload.bom_id, via: 'ricetta_salva' };
+  },
+};
+
 // ── Esegue singola action_draft ──
 async function jarvisExecuteDraft(sb, draft) {
   var payload = draft.payload || {};
@@ -4685,6 +4743,9 @@ async function jarvisExecuteDraft(sb, draft) {
     case 'update_recipe_bom': {
       // payload: { bom_id, fields: { quantity, unit, ... } }
       if (!payload.bom_id) throw new Error('bom_id mancante');
+      // SEC-RECIPES-SC: proposta di Sous Chef -> SOLO dalla funzione protetta ricetta_salva (sessione + admin + transazione).
+      // Se la funzione non c'è, non si scrive niente.
+      if (payload.proposta_da) return await _scProtetta.aggiornaRiga(payload);
       var { error } = await sb.from('recipe_bom').update(payload.fields || {}).eq('bom_id', payload.bom_id);
       if (error) throw new Error(error.message);
       return { updated: 'recipe_bom', bom_id: payload.bom_id };
@@ -4696,6 +4757,21 @@ async function jarvisExecuteDraft(sb, draft) {
       var { error } = await sb.from('prep_tasks').insert({ name: payload.name, category: payload.category, unit: payload.unit || 'g', prep_type: payload.prep_type || 'supporto', recipe_id: payload.recipe_id || null, archived: false, done: false, need_tomorrow: true });
       if (error) throw new Error(error.message);
       return { created: 'prep_task', name: payload.name };
+    }
+
+    case 'create_recipe': {
+      // SEC-RECIPES-SC: proposta "nuova ricetta" di Sous Chef approvata dall'admin -> SOLO ricetta_crea (+ ricetta_salva per il procedimento).
+      // Gli ingredienti proposti NON diventano testo storico: si inseriscono poi dalla scheda.
+      var dati = { title: String(payload.title || '').trim() };
+      if (payload.category) dati.category = String(payload.category);
+      ['base_servings', 'base_weight_g', 'shelf_life_days'].forEach(function(k) { if (payload[k] != null && payload[k] !== '') dati[k] = Number(payload[k]); });
+      if (!dati.title) throw new Error('Nome della ricetta mancante');
+      var cr = await _scProtetta.crea(dati);
+      if (payload.procedure && String(payload.procedure).trim()) {
+        var pr = await _scProtetta.salvaCampi(cr.id, { procedure: String(payload.procedure) });
+        if (!pr.ok) throw new Error('Ricetta creata, procedimento non salvato: ' + (pr.messaggio || pr.error));
+      }
+      return { created: 'recipe', recipe_id: cr.id, via: 'ricetta_crea', ingredienti_da_inserire: (payload.ingredienti_proposti || []).length };
     }
 
     case 'create_procedure_draft': {

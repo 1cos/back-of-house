@@ -4327,6 +4327,7 @@ Rispondi ESATTAMENTE con questo JSON (niente markdown, niente backtick):
         message: 'AUDIT PREP TASK:\n' + JSON.stringify(payload, null, 2),
         user_name: window.user?.name || 'Max',
         user_role: 'admin',
+        brigade_token: (()=>{ try{ return localStorage.getItem('brigade_token'); }catch(e){ return null; } })(),
         user_station: 'Admin',
         system_override: systemPrompt
       })
@@ -4414,6 +4415,7 @@ Rispondi SOLO in JSON valido:
         message: 'SPIEGA SUGGERIMENTO BOT:\n' + JSON.stringify(payload, null, 2),
         user_name: window.user?.name || 'Max',
         user_role: 'admin',
+        brigade_token: (()=>{ try{ return localStorage.getItem('brigade_token'); }catch(e){ return null; } })(),
         user_station: 'Admin',
         system_override: systemPrompt
       })

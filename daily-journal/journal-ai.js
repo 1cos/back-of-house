@@ -124,6 +124,7 @@ async function _callLiveBridge({ message, author, openCases }) {
     history:       [],
     user_name:     author.name,
     user_role:     'admin',
+    brigade_token: (()=>{ try{ return localStorage.getItem('brigade_token'); }catch(e){ return null; } })(),   // Sous Chef richiede la sessione Brigade
     user_station:  author.dept || '',
     system_override: systemPrompt,
   };
