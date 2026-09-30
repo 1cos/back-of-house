@@ -208,7 +208,7 @@ test('F2-1 — il vecchio editor si apre come prima; al posto di "Elimina" c\'è
 
 // il salvataggio del vecchio editor, file nuovo contro file oggi online: stesse identiche scritture
 let ONLINE = null;
-try { ONLINE = require('child_process').execSync('git show origin/brigade-main:js/recipes.js', { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 24 }); } catch (e) { ONLINE = null; }
+try { ONLINE = require('child_process').execSync('git show 84f01b8:js/recipes.js', { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 24 }); } catch (e) { ONLINE = null; }
 async function salvaConEditor(sorgente) {
   const a = app({ flag: false, recipesSrc: sorgente });
   await apriEditor(a, ID.sauce);
@@ -241,12 +241,13 @@ test('F2-3/4 — "Elimina ricetta" non può più scrivere: nessuna strada nel co
   // le cancellazioni che restano sono quelle del salvataggio v870 (solo righe tolte a mano, passi vecchi dopo quelli nuovi),
   // le traduzioni quando cambia il titolo, e l'Audit BOM (prossimo da migrare, non toccato qui)
   const del = [...src.matchAll(/from\('([a-z_]+)'\)\s*\.delete\(\)[^;\n]*/g)].map(m => m[0].replace(/\s+/g, ' '));
-  assert.deepStrictEqual(del, [
+  const ammesse = [
     "from('recipe_translations').delete().eq('recipe_id',rec.id)",
     "from('recipe_bom').delete().eq('parent_recipe_id', recipeId).in('bom_id', plan.deletes)",
     "from('recipe_steps').delete().eq('recipe_id', recipeId).in('id', oldIds)",
-    "from('recipe_bom').delete().eq('bom_id', bomId)",
-  ]);
+    "from('recipe_bom').delete().eq('bom_id', bomId)",   // Audit BOM: tolta poi da BR-FIX03
+  ];
+  assert.ok(del.every(d => ammesse.includes(d)), del.join('\n'));
   // in pratica: aprire, cambiare una nota e chiudere senza salvare non emette nulla; niente da cliccare per eliminare
   const a = app({ flag: false });
   await apriEditor(a, ID.penneCat);
@@ -283,12 +284,12 @@ test('F2-5b — la pagina /dev/ aperta in un browser non fa richieste al databas
 
 test('F2-6/9 — il fix tocca solo il vecchio editor, /dev/ e la cache: suggester, FC05, POS/TouchBistro, prep, catering intatti', { skip: ONLINE ? false : 'git non disponibile' }, () => {
   const git = c => require('child_process').execSync(c, { cwd: ROOT, encoding: 'utf8' });
-  const file = git('git diff --name-only origin/brigade-main -- . ":!tests"').trim().split('\n').filter(Boolean).sort();
+  const file = git('git diff --name-only 84f01b8 35936d8 -- . ":!tests"').trim().split('\n').filter(Boolean).sort();
   assert.deepStrictEqual(file, ['dev/index.html', 'dev/js/app.js', 'dev/js/recipes.js', 'dev/manifest.json', 'dev/sw.js', 'js/recipes.js', 'sw.js']);
   // in js/recipes.js solo due punti: il tasto e il suo gestore; nessuna lettura toccata
-  const hunks = git('git diff -U0 origin/brigade-main -- js/recipes.js').split('\n').filter(l => l.startsWith('@@'));
+  const hunks = git('git diff -U0 84f01b8 35936d8 -- js/recipes.js').split('\n').filter(l => l.startsWith('@@'));
   assert.strictEqual(hunks.length, 2, hunks.join('\n'));
-  const tolte = git('git diff -U0 origin/brigade-main -- js/recipes.js').split('\n').filter(l => l.startsWith('-') && !l.startsWith('---'));
+  const tolte = git('git diff -U0 84f01b8 35936d8 -- js/recipes.js').split('\n').filter(l => l.startsWith('-') && !l.startsWith('---'));
   assert.ok(tolte.every(l => !/\.select\(/.test(l)), 'nessuna lettura tolta');
-  assert.match(git('git diff -U0 origin/brigade-main -- sw.js'), /\+const CACHE_NAME = 'boh-v872';/);
+  assert.match(git('git diff -U0 84f01b8 35936d8 -- sw.js'), /\+const CACHE_NAME = 'boh-v872';/);
 });

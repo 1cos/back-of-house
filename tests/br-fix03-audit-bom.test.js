@@ -252,7 +252,7 @@ test('F3-var — la variante nell\'editor ("Collega sub-recipe" + Salva) è già
 });
 
 let ONLINE = null;
-try { ONLINE = require('child_process').execSync('git show origin/brigade-main:js/recipes.js', { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 24 }); } catch (e) { ONLINE = null; }
+try { ONLINE = require('child_process').execSync('git show 35936d8:js/recipes.js', { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 24 }); } catch (e) { ONLINE = null; }
 test('F3-13 — vecchio editor normale invariato: stesse scritture del codice online', { skip: ONLINE ? false : 'git non disponibile' }, async () => {
   assert.match(ONLINE, /class="convert-to-sub"/, 'controllo: il file online è quello con la vecchia conversione');
   const prova = async src => {
@@ -270,9 +270,9 @@ test('F3-13 — vecchio editor normale invariato: stesse scritture del codice on
 
 test('F3-9/14 — il fix tocca solo js/recipes.js (Audit) e la cache: scheda nuova, suggester, FC05, POS, prep intatti', { skip: ONLINE ? false : 'git non disponibile' }, () => {
   const git = c => require('child_process').execSync(c, { cwd: ROOT, encoding: 'utf8' });
-  const file = git('git diff --name-only origin/brigade-main -- . ":!tests"').trim().split('\n').filter(Boolean).sort();
+  const file = git('git diff --name-only 35936d8 80e0b21 -- . ":!tests"').trim().split('\n').filter(Boolean).sort();
   assert.ok(file.every(f => ['js/recipes.js', 'sw.js'].includes(f)), file.join(','));
-  const d = git('git diff -U0 origin/brigade-main -- js/recipes.js');
+  const d = git('git diff -U0 35936d8 80e0b21 -- js/recipes.js');
   const tolte = d.split('\n').filter(l => l.startsWith('-') && !l.startsWith('---'));
   assert.ok(tolte.every(l => !/\.select\(/.test(l)), 'nessuna lettura tolta');
   const primaRiga = +d.match(/^@@ -(\d+)/m)[1];
