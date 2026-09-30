@@ -1,4 +1,4 @@
-const CACHE_NAME = 'boh-v871';
+const CACHE_NAME = 'boh-v872';
 self.addEventListener('install', e => { self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== 'boh-v868').map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 // Network-first, cache-fallback (HOTFIX T2E.2): previously cache-first, which
