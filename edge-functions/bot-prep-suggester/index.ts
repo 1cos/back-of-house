@@ -40,7 +40,7 @@ const EXCLUDED_RECONCILE_STATUSES = ['invalid_test_data', 'corrected_unit_error'
 
 const CONSTRAINT_OVERRIDES: Record<number,{quality:string,increment:number|null,unit:string}> = {
   233: { quality: 'valid_fixed_batch', increment: 3150, unit: 'g'     },
-  261: { quality: 'valid_fixed_batch', increment: 20,   unit: 'pezzi' },
+  261: { quality: 'valid_fixed_batch', increment: 10,   unit: 'pezzi' }, // Artichoke: 1 pacco Hardie's = 20 carciofi = 10 porzioni
   277: { quality: 'valid_fixed_batch', increment: 13,   unit: 'pezzi' },
   279: { quality: 'valid_scalable',    increment: 1,    unit: 'pezzi' },
   304: { quality: 'valid_fixed_batch', increment: 3500, unit: 'g'     },
