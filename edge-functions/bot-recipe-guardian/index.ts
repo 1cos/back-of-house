@@ -1,4 +1,4 @@
-// ── BOT-RECIPE-GUARDIAN v14 (YIELD01) ───────────────────────────────────────
+// ── BOT-RECIPE-GUARDIAN v14.1 (YIELD01) ─────────────────────────────────────
 // v14: the yield check reads the canonical view public.recipe_yield (same logic as FC05):
 //      a recipe needs a yield (batch weight OR portions), not specifically base_servings.
 //      Open 'missing_base_servings' items are closed automatically when the recipe has a yield.
@@ -432,10 +432,11 @@ Deno.serve(async () => {
     let autoClosed = 0;
     for (const item of (existingItems || [])) {
       if (item.issue_type !== 'missing_base_servings') continue;
-      if (!yieldMap[item.source_id]?.has_yield) continue;          // still no yield: it will be re-raised as missing_yield
+      // v14.1: always retire the old type. With a yield the alert is false; without one it is replaced by 'missing_yield'.
+      const hasYield = !!yieldMap[item.source_id]?.has_yield;
       const { error: cErr } = await sb.from('office_items').update({
         status: 'resolved',
-        resolution: 'auto: the recipe has a yield (canonical yield, YIELD01)',
+        resolution: hasYield ? 'auto: the recipe has a yield (canonical yield, YIELD01)' : 'auto: replaced by the "No yield" check (YIELD01)',
         resolved_by: 'bot-recipe-guardian',
         resolved_at: now.toISOString(),
         updated_at: now.toISOString(),
@@ -446,12 +447,12 @@ Deno.serve(async () => {
     const backlogCritical = Math.max(0, criticalIssues.length - MAX_CRITICAL_PER_RUN);
     const backlogWarning  = Math.max(0, warningIssues.length - MAX_WARNING_PER_RUN);
 
-    console.log(`[bot-recipe-guardian v14] recipes=${recipes.length} issues=${issues.length} inserted=${inserted} updated=${updated} backlog_critical=${backlogCritical} backlog_warning=${backlogWarning}`);
+    console.log(`[bot-recipe-guardian v14.1] recipes=${recipes.length} issues=${issues.length} inserted=${inserted} updated=${updated} backlog_critical=${backlogCritical} backlog_warning=${backlogWarning}`);
 
     return new Response(JSON.stringify({
       ok: true,
       bot_id: BOT_ID,
-      version: 'v14',
+      version: 'v14.1',
       recipes_checked: recipes.length,
       issues_found: {
         critical: criticalIssues.length,
@@ -476,7 +477,7 @@ Deno.serve(async () => {
     });
 
   } catch (err: any) {
-    console.error('[bot-recipe-guardian v14]', err);
-    return new Response(JSON.stringify({ error: err.message, bot_id: BOT_ID, version: 'v14' }), { status: 500 });
+    console.error('[bot-recipe-guardian v14.1]', err);
+    return new Response(JSON.stringify({ error: err.message, bot_id: BOT_ID, version: 'v14.1' }), { status: 500 });
   }
 });
