@@ -5,7 +5,9 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 const MAX_DEPTH = 5
 const BOT_NAME = 'bot-bom-chain-deduction'
-const BOT_VERSION = 'v4_safety'
+const BOT_VERSION = 'v5_yield01'
+// YIELD01: portions come from the canonical view public.recipe_yield (same logic as FC05),
+// not from recipes.base_servings alone. A batch recipe with an empty base_servings is now seen as a batch.
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -156,8 +158,8 @@ Deno.serve(async (req: Request) => {
       const toLoad = [...ids].filter(id => id && !recipeMetaCache.has(id))
       if (!toLoad.length) return
       for (let i = 0; i < toLoad.length; i += 50) {
-        const { data: recs } = await supa.from('recipes').select('id, title, base_servings').in('id', toLoad.slice(i, i + 50))
-        if (recs) for (const r of recs) recipeMetaCache.set(r.id, { title: r.title, base_servings: r.base_servings })
+        const { data: recs } = await supa.from('recipe_yield').select('id, title, portions').in('id', toLoad.slice(i, i + 50))
+        if (recs) for (const r of recs) recipeMetaCache.set(r.id, { title: r.title, base_servings: r.portions != null ? Number(r.portions) : null })
       }
       for (const id of toLoad) { if (!recipeMetaCache.has(id)) recipeMetaCache.set(id, { title: id, base_servings: null }) }
     }
@@ -210,8 +212,8 @@ Deno.serve(async (req: Request) => {
     }
     async function getRecipeMeta(recipeId: string) {
       if (recipeMetaCache.has(recipeId)) return recipeMetaCache.get(recipeId)!
-      const { data: recs } = await supa.from('recipes').select('id, title, base_servings').eq('id', recipeId).limit(1)
-      const meta = recs?.[0] ? { title: recs[0].title, base_servings: recs[0].base_servings } : { title: recipeId, base_servings: null }
+      const { data: recs } = await supa.from('recipe_yield').select('id, title, portions').eq('id', recipeId).limit(1)
+      const meta = recs?.[0] ? { title: recs[0].title, base_servings: recs[0].portions != null ? Number(recs[0].portions) : null } : { title: recipeId, base_servings: null }
       recipeMetaCache.set(recipeId, meta)
       return meta
     }

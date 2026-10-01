@@ -1,4 +1,7 @@
-// ── BOT-RECIPE-GUARDIAN v13 ─────────────────────────────────────────────────
+// ── BOT-RECIPE-GUARDIAN v14 (YIELD01) ───────────────────────────────────────
+// v14: the yield check reads the canonical view public.recipe_yield (same logic as FC05):
+//      a recipe needs a yield (batch weight OR portions), not specifically base_servings.
+//      Open 'missing_base_servings' items are closed automatically when the recipe has a yield.
 // Scansiona ricette con pos_name popolato, prioritizzate per vendite recenti.
 // Checks: Critical / Warning / Info — una issue_type per ricetta per run.
 // Output: max 5 critical + 5 warning al giorno. Info va in backlog senza limite.
@@ -54,6 +57,15 @@ Deno.serve(async () => {
     }
 
     const recipeIds = recipes.map((r: any) => r.id);
+
+    // ── 1b. Resa canonica (vista recipe_yield) ───────────────────────────────
+    const yieldMap: Record<string, { has_yield: boolean; portions: number | null }> = {};
+    for (let i = 0; i < recipeIds.length; i += 100) {
+      const { data: ys, error: yErr } = await sb.from('recipe_yield')
+        .select('id, has_yield, portions').in('id', recipeIds.slice(i, i + 100));
+      if (yErr) throw yErr;
+      for (const y of (ys || [])) yieldMap[y.id] = { has_yield: !!y.has_yield, portions: y.portions };
+    }
 
     // ── 2. POS sales — ultimi 30 giorni (7 e 1 giorno per priorità) ─────────
     const { data: sales30, error: salesErr } = await sb
@@ -198,20 +210,20 @@ Deno.serve(async () => {
         });
       }
 
-      // C3: base_servings mancante
-      if (!recipe.base_servings) {
+      // C3 (v14): nessuna resa — né peso del lotto né porzioni (resa canonica, stessa logica di FC05)
+      if (!yieldMap[recipe.id]?.has_yield) {
         issues.push({
           recipeId: recipe.id,
           recipeName: recipe.title,
           posName: recipe.pos_name,
           sales: recipe.sales,
-          issueType: 'missing_base_servings',
+          issueType: 'missing_yield',
           severity: 'critical',
           priority: 'red',
-          title: `🔴 ${recipe.title} — Missing base_servings`,
-          body: `${recipe.title} was ${salesText}, but base_servings is not set. BOM scaling and food cost per portion are impossible without this.`,
-          impact: 'Cannot scale BOM. Food cost per portion uncalculable.',
-          suggestedFix: 'Set base_servings (e.g., how many portions one full batch makes).',
+          title: `🔴 ${recipe.title} — No yield`,
+          body: `${recipe.title} was ${salesText}, but it has no yield: no batch weight and no number of portions. Food cost per portion and stock deduction cannot be calculated.`,
+          impact: 'Food cost per portion and stock deduction cannot be calculated.',
+          suggestedFix: 'Set the yield once: batch weight (kg) or number of portions.',
         });
       }
 
@@ -416,15 +428,30 @@ Deno.serve(async () => {
       }
     }
 
+    // ── 9. (v14) Chiude le voci 'missing_base_servings' superate dalla resa canonica ──
+    let autoClosed = 0;
+    for (const item of (existingItems || [])) {
+      if (item.issue_type !== 'missing_base_servings') continue;
+      if (!yieldMap[item.source_id]?.has_yield) continue;          // still no yield: it will be re-raised as missing_yield
+      const { error: cErr } = await sb.from('office_items').update({
+        status: 'resolved',
+        resolution: 'auto: the recipe has a yield (canonical yield, YIELD01)',
+        resolved_by: 'bot-recipe-guardian',
+        resolved_at: now.toISOString(),
+        updated_at: now.toISOString(),
+      }).eq('id', item.id).eq('status', item.status);
+      if (!cErr) autoClosed++;
+    }
+
     const backlogCritical = Math.max(0, criticalIssues.length - MAX_CRITICAL_PER_RUN);
     const backlogWarning  = Math.max(0, warningIssues.length - MAX_WARNING_PER_RUN);
 
-    console.log(`[bot-recipe-guardian v13] recipes=${recipes.length} issues=${issues.length} inserted=${inserted} updated=${updated} backlog_critical=${backlogCritical} backlog_warning=${backlogWarning}`);
+    console.log(`[bot-recipe-guardian v14] recipes=${recipes.length} issues=${issues.length} inserted=${inserted} updated=${updated} backlog_critical=${backlogCritical} backlog_warning=${backlogWarning}`);
 
     return new Response(JSON.stringify({
       ok: true,
       bot_id: BOT_ID,
-      version: 'v13',
+      version: 'v14',
       recipes_checked: recipes.length,
       issues_found: {
         critical: criticalIssues.length,
@@ -441,7 +468,7 @@ Deno.serve(async () => {
         critical: backlogCritical,
         warning: backlogWarning,
       },
-      office_items: { inserted, updated },
+      office_items: { inserted, updated, auto_closed: autoClosed },
       run_at: now.toISOString(),
     }), {
       status: 200,
@@ -449,7 +476,7 @@ Deno.serve(async () => {
     });
 
   } catch (err: any) {
-    console.error('[bot-recipe-guardian v13]', err);
-    return new Response(JSON.stringify({ error: err.message, bot_id: BOT_ID, version: 'v13' }), { status: 500 });
+    console.error('[bot-recipe-guardian v14]', err);
+    return new Response(JSON.stringify({ error: err.message, bot_id: BOT_ID, version: 'v14' }), { status: 500 });
   }
 });
