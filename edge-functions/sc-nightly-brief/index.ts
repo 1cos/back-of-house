@@ -150,7 +150,10 @@ serve(async () => {
     const missingStations = activeStations.filter(s => !closedStations.includes(s));
 
     // Se ci sono stazioni non chiuse → crea office_item orange
-    if (missingStations.length > 0) {
+    // OFFICE02 (01/10/2026, decisione Chef): la cucina non usa più la chiusura stazioni in Brigade,
+    // quindi l'avviso giornaliero è solo rumore. Spento qui; per riaccenderlo: STATION_CLOSING_ALERT = true.
+    const STATION_CLOSING_ALERT = false;
+    if (STATION_CLOSING_ALERT && missingStations.length > 0) {
       await sb.from('office_items').insert({
         source: 'ai_scan',
         priority: 'orange',
