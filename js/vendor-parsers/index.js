@@ -315,11 +315,16 @@ const bekSafety = require('./bek-post-parse-safety');
 const priceIntel = require('./price-intelligence-merge');
 const linkLookup = require('./link-lookup');
 
+// WM01 — Walmart/TreviPay: revisione vs doppione, e fattura riassuntiva
+// senza articoli. Stessa porta d'ingresso per worker e reprocess UI.
+const treviPayRevision = require('./trevipay-revision');
+
 module.exports = {
   parse, detectVendor, detectDocumentType, checkTotals,
   bekSafety,
   priceIntel,
   linkLookup,
+  treviPayRevision,
   isPurchasableDocument, isBenEKeith,
   classifyBuyer, extractBuyerEmail, normalizeBuyerEmail,
   BEK_BUYER_KITCHEN, BEK_BUYER_FOH,

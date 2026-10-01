@@ -1181,6 +1181,11 @@ window.vdrProcessAllPdf = async function(docId) {
           if (!rawText || rawText.trim().length < 30) throw new Error('No text extracted');
           parsed = parsers.parse(rawText);
         }
+        // WM01 — stessa annotazione di Phase A: la fattura TreviPay
+        // riassuntiva (solo numero d'ordine) riceve il messaggio umano
+        // TREVIPAY_SUMMARY_ONLY al posto del PARSE_ERROR generico.
+        const treviPay = (typeof window !== 'undefined') ? window.TreviPayRevision : null;
+        if (treviPay) parsed = treviPay.annotateSummaryOnly(parsed, rawText);
         console.log('[VDR] rawText preview:', rawText.slice(0, 500));
         console.log('[VDR] parsed vendor:', parsed.vendor, 'items:', parsed.items?.length, 'warnings:', parsed.warnings?.length);
 
@@ -1235,7 +1240,41 @@ window.vdrProcessAllPdf = async function(docId) {
         // DUPLICATE una revisione legittima solo perche' un fratello esiste —
         // compreso il caso in cui il fratello e' semplicemente 'pending', che
         // per Phase A e' un normale superamento e non un errore.
-        if (docNumber && !(vdrIsBek(parsed.vendor) && parsed.document_type === 'order_confirmation')) {
+        // WM01 — COPIA DELLE SCRITTURE di Phase A (vendor-doc-auto-import),
+        // stessa decisione: js/vendor-parsers/trevipay-revision.js. Una email
+        // TreviPay "invoice has been updated" e' una REVISIONE, non un
+        // doppione, e il suo PDF non viene mai cancellato.
+        let tpDecision = null;
+        if (docNumber && treviPay && parsed.vendor === treviPay.WALMART_VENDOR && treviPay.isTreviPayRevisionSubject(doc.source_email_subject)) {
+          const { data: sibs } = await sb.from('vendor_documents').select('id,status,warnings')
+            .eq('vendor', parsed.vendor).eq('document_number', docNumber).eq('document_type', parsed.document_type)
+            .neq('id', doc.id).limit(20);
+          tpDecision = treviPay.decideRevision({ doc, parsed, docNumber, siblings: sibs || [] });
+          if (tpDecision.outcome === treviPay.OUTCOME.AFTER_IMPORT) {
+            await sb.from('vendor_documents').update({
+              vendor: parsed.vendor, document_type: parsed.document_type || 'invoice',
+              document_number: docNumber, document_date: docDate, raw_text: rawText,
+              parsed_json: { ...(doc.parsed_json || {}), ...parsed },
+              status: 'pending', warnings: tpDecision.warnings,
+            }).eq('id', doc.id);
+            done++; continue;
+          }
+          if (tpDecision.outcome === treviPay.OUTCOME.SUPERSEDES) {
+            for (const sid of tpDecision.supersedeIds) {
+              const sib = (sibs || []).find(r => r.id === sid);
+              await sb.from('vendor_documents').update({
+                status: 'ignored',
+                warnings: [...(Array.isArray(sib && sib.warnings) ? sib.warnings : []), treviPay.supersededWarning(doc.id, docNumber)],
+              }).eq('id', sid);
+              await sb.from('invoice_warnings').update({
+                status: 'resolved', resolution: 'superseded by TreviPay revision ' + doc.id,
+                resolved_by: 'vendor review reprocess (WM01)', resolved_at: new Date().toISOString(),
+              }).eq('document_id', sid).neq('status', 'resolved');
+            }
+          }
+        }
+
+        if (docNumber && !(tpDecision && tpDecision.applies) && !(vdrIsBek(parsed.vendor) && parsed.document_type === 'order_confirmation')) {
           const { data: byNum } = await sb.from('vendor_documents').select('id').eq('vendor', parsed.vendor).eq('document_number', docNumber).eq('document_type', parsed.document_type).neq('id', doc.id).limit(1);
           if (byNum && byNum.length > 0) {
             await sb.from('vendor_documents').update({ status: 'error', warnings: [{ code: 'DUPLICATE', message: `Document #${docNumber} already exists` }] }).eq('id', doc.id);
@@ -1592,6 +1631,28 @@ function vdrCleanDisplayDescription(text) {
 }
 // ── MARKER:VDR_DISPLAY_CLEAN_END ────────────────────────────────────
 
+// WM01 — una fattura senza articoli non si approva. Il server ha la stessa
+// barriera (trigger vendor_documents_guard_import): qui si spiega perche'.
+function vdrApproveBlockedReason(doc) {
+  const pj = (doc && doc.parsed_json) || {};
+  const items = Array.isArray(pj.items) ? pj.items : [];
+  if (items.length) return null;
+  const tp = (typeof window !== 'undefined') ? window.TreviPayRevision : null;
+  const warns = Array.isArray(doc && doc.warnings) ? doc.warnings : [];
+  if (pj.summary_only || warns.some(w => w && w.code === 'TREVIPAY_SUMMARY_ONLY')) {
+    return tp ? tp.SUMMARY_ONLY_MESSAGE : "This invoice doesn't include item details yet.";
+  }
+  return "This invoice doesn't include item details yet, so there is nothing to approve. Reprocess it, or wait for the updated version.";
+}
+function vdrApproveOrBlocked(doc, buttonHtml) {
+  const reason = vdrApproveBlockedReason(doc);
+  return reason ? vdrApproveBlockedHTML(reason) : buttonHtml;
+}
+function vdrApproveBlockedHTML(reason) {
+  return '<div style="padding:10px 12px;border-radius:12px;background:#fef3c7;color:#92400e;font-size:13px;line-height:1.4;">' +
+    String(reason).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) + '</div>';
+}
+
 function vdrCardHTML(doc) {
   const pj        = doc.parsed_json || {};
   const docLabel  = vdrDocTypeLabel(doc.document_type);
@@ -1707,7 +1768,7 @@ window.vdrToggle = function(id) {
       <div style="flex-shrink:0;padding:12px 16px;border-top:1px solid #f1f5f9;background:white;">
         <div id="vdrActionStatus-${doc.id}" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>
         ${(doc.status === 'pending' || doc.status === 'error') ? `<button id="vdrReprocessBtn-${doc.id}" onclick="vdrReprocessOne('${doc.id}',this)" style="width:100%;height:38px;border-radius:12px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:500;border:none;cursor:pointer;margin-bottom:8px;">🔄 Reprocess</button>` : ''}
-        ${doc.status !== 'imported' ? `<button onclick="vdrApprove('${doc.id}',this)" style="width:100%;height:48px;border-radius:14px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;">Approve Document</button>` : ''}
+        ${doc.status !== 'imported' ? vdrApproveOrBlocked(doc, `<button onclick="vdrApprove('${doc.id}',this)" style="width:100%;height:48px;border-radius:14px;background:#1e293b;color:white;font-size:14px;font-weight:600;border:none;cursor:pointer;">Approve Document</button>`) : ''}
       </div>
       <!-- Bottom safe area -->
       <div style="height:env(safe-area-inset-bottom,0px);background:white;flex-shrink:0;"></div>
@@ -2166,7 +2227,7 @@ function vdrDetailHTML(doc) {
   var approveHTML = '<div style="padding:12px 14px 14px;">' +
     '<div id="vdrActionStatus-' + docId + '" style="display:none;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:8px;"></div>' +
     reprocessHTML +
-    (doc.status !== 'imported' ? '<button onclick="vdrApprove(\'' + docId + '\',this)" style="width:100%;height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Approve Document</button>' : '') +
+    (doc.status !== 'imported' ? vdrApproveOrBlocked(doc, '<button onclick="vdrApprove(\'' + docId + '\',this)" style="width:100%;height:44px;border-radius:14px;background:#1e293b;color:white;font-size:13px;font-weight:500;border:none;cursor:pointer;">Approve Document</button>') : '') +
   '</div>';
 
   return headerHTML + questionsHTML + itemsHTML + approveHTML;
@@ -2870,6 +2931,26 @@ function vdrWarningToQuestion(w, item, docId, idx, qtyCtx) {
       noLabel: 'Skip for now',
       noNextQuestion: `What should happen to this revision?`,
       noPlaceholder: `e.g. Prices changed, will fix the original by hand`,
+      warnRef: w,
+      blocking: true,
+    };
+  }
+
+  // ── TREVIPAY_REVISION_AFTER_IMPORT (WM01) ─────────────────────────
+  // Stessa barriera di BEK_REVISION_AFTER_IMPORT per Walmart/TreviPay:
+  // l'originale e' gia' contabilizzato, questa revisione si ferma qui.
+  if (w.code === 'TREVIPAY_REVISION_AFTER_IMPORT') {
+    return {
+      qid, code: 'TREVIPAY_REVISION_AFTER_IMPORT', item: null, docId, idx,
+      emoji: '🔒',
+      title: 'Already imported',
+      detected: w.message,
+      question: `Walmart sent an updated version of an invoice that is already imported.`,
+      meaning: `Approving would book the same invoice a second time. The existing purchase has not been modified`,
+      yesLabel: 'Needs reconciling',
+      noLabel: 'Skip for now',
+      noNextQuestion: `What should happen to this revision?`,
+      noPlaceholder: `e.g. Same items, nothing to do`,
       warnRef: w,
       blocking: true,
     };
@@ -3690,6 +3771,17 @@ window.vdrApprove = async function(docId, btn) {
       if (sheetEl) sheetEl.remove();
       const cardEl = document.getElementById('vdrCard-' + docId);
       if (cardEl) cardEl.remove();
+      return;
+    }
+
+    // WM01 — niente articoli, niente Approve. Prima il rifiuto arrivava solo
+    // a fine percorso ("No invoice lines found…"), dopo "Saving…".
+    const blockedReason = vdrApproveBlockedReason(doc);
+    if (blockedReason) {
+      if (typeof showScToast === 'function') showScToast(blockedReason);
+      btn.disabled = false;
+      btn.textContent = 'Approve Document';
+      btn.style.background = '#1e293b';
       return;
     }
 
@@ -4770,7 +4862,9 @@ function vdrCodeToSeverity(code) {
     'PARSE_ERROR_NO_LINES','BEK_NO_SALES_ORDER',
     // MT79: gia' blocking nel gate (isBlockingWarning dal MT71/MT72 e ora
     // vdrWarningToQuestion). L'etichetta 'alert' li rappresentava male.
-    'BEK_REVISION_UNKNOWN','BEK_REVISION_AFTER_IMPORT'];
+    'BEK_REVISION_UNKNOWN','BEK_REVISION_AFTER_IMPORT',
+    // WM01: Walmart/TreviPay senza articoli, e revisione dopo l'import.
+    'TREVIPAY_SUMMARY_ONLY','TREVIPAY_REVISION_AFTER_IMPORT'];
   const insight  = ['INV-SUB-001','OQR-002','INV-PACKCT-001','OQR-006','INV-PRICE-001','INV-UNUSED-001'];
   if (blocking.includes(code)) return 'blocking';
   if (insight.includes(code))  return 'insight';

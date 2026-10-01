@@ -87,6 +87,10 @@ function doc(id, status, vendor, documentType, items) {
   };
 }
 
+// WM01 — una fattura senza articoli non mostra piu' Approve (vedi il test in
+// fondo). I documenti pending che qui devono mostrarlo hanno quindi una riga.
+const ONE_ITEM = [{ description: 'Great Value Whole Milk 1 gal', vendor_sku: '10450114', quantity: 1, unit_price: 3.12, total: 3.12 }];
+
 (async () => {
 
 // ══════════════════════════════════════════════════════════════════
@@ -167,7 +171,7 @@ await atest('I6b: behavioral — vdrToggle on an imported doc never renders an A
 
 await atest('behavioral (regression): vdrToggle on a pending doc still renders Approve Document normally', async () => {
   loadRealModules();
-  const pendingDoc = doc('doc-approve-ok', 'pending', 'Walmart Business');
+  const pendingDoc = doc('doc-approve-ok', 'pending', 'Walmart Business', 'invoice', ONE_ITEM);
   const { sb } = makeSb([pendingDoc], []);
   window.supabaseClient = sb;
   await window.vdrLoad();
@@ -215,7 +219,7 @@ await atest('I7: an imported document with an unmatched product SKU shows the re
 // ══════════════════════════════════════════════════════════════════
 await atest('I9: Open workflow itself is completely unaffected — pending doc still shows Approve, Reprocess, real counts', async () => {
   loadRealModules();
-  const pendingDoc = doc('doc-regression', 'pending', 'Walmart Business');
+  const pendingDoc = doc('doc-regression', 'pending', 'Walmart Business', 'invoice', ONE_ITEM);
   const { sb } = makeSb([pendingDoc], []);
   window.supabaseClient = sb;
   await window.vdrLoad();
@@ -225,6 +229,20 @@ await atest('I9: Open workflow itself is completely unaffected — pending doc s
   const sheet = document.getElementById('vdrSheet');
   assert.ok(sheet.innerHTML.includes('Approve Document'));
   assert.ok(sheet.innerHTML.includes('Reprocess'));
+});
+
+await atest('WM01: a pending invoice with 0 items shows the human message instead of Approve', async () => {
+  loadRealModules();
+  const emptyDoc = doc('doc-no-items', 'pending', 'Walmart Business');
+  const { sb } = makeSb([emptyDoc], []);
+  window.supabaseClient = sb;
+  await window.vdrLoad();
+
+  window.vdrToggle('doc-no-items');
+  const sheet = document.getElementById('vdrSheet');
+  assert.ok(!sheet.innerHTML.includes('Approve Document'), 'no Approve button for a document without items');
+  assert.ok(sheet.innerHTML.includes("doesn't include item details yet"), 'the human message is shown');
+  assert.ok(sheet.innerHTML.includes('Reprocess'), 'Reprocess stays available');
 });
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

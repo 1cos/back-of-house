@@ -382,10 +382,12 @@ async function dueVie(costruisciRighe, html, docId) {
     assert.strictEqual(typeof SAFETY_MOD.bekDecidePostParse, 'function', 'non esporta per Node');
   });
 
+  // WM01 aggiunge una seconda esclusione (revisioni TreviPay con fratelli),
+  // opzionale nella regex: quella BEK deve restare comunque.
   test('12. il dedup generico non tocca piu\' i BEK order_confirmation, in nessuno dei due', () => {
-    assert.ok(/if \(docNumber && !\(parsersApi\(\)\.isBenEKeith\(parsed\.vendor\) && parsed\.document_type === 'order_confirmation'\)\)/.test(WORKER),
+    assert.ok(/if \(docNumber && (?:!tpDecision\?\.applies && )?!\(parsersApi\(\)\.isBenEKeith\(parsed\.vendor\) && parsed\.document_type === 'order_confirmation'\)\)/.test(WORKER),
       'Phase A: esclusione BEK dal dedup sparita');
-    assert.ok(/if \(docNumber && !\(vdrIsBek\(parsed\.vendor\) && parsed\.document_type === 'order_confirmation'\)\)/.test(UI_SRC),
+    assert.ok(/if \(docNumber && (?:!\(tpDecision && tpDecision\.applies\) && )?!\(vdrIsBek\(parsed\.vendor\) && parsed\.document_type === 'order_confirmation'\)\)/.test(UI_SRC),
       'reprocess: senza questa esclusione una revisione legittima diventa DUPLICATE');
   });
 

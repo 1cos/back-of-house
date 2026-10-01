@@ -61,12 +61,23 @@ Deno.serve(async (req: Request) => {
     if (subject && from) {
       const { data: existing } = await supabase
         .from('vendor_documents')
-        .select('id, status')
+        .select('id, status, warnings, parsed_json')
         .eq('source_email_subject', subject)
         .eq('source_email_from', from)
         .limit(1);
-      if (existing && existing.length > 0)
-        return jsonResponse({ status: 'duplicate', message: 'Already imported', document_id: existing[0].id });
+      if (existing && existing.length > 0) {
+        // WM01 — una revisione TreviPay scartata come DUPLICATE dalla vecchia
+        // regola "vince il primo" ha perso il PDF: la stessa email, rimandata,
+        // riarma QUEL documento invece di rispondere "gia' importato".
+        // Stretto di proposito: solo subject di revisione TreviPay, solo righe
+        // in errore DUPLICATE. Ogni altro caso resta un doppione come prima.
+        const ex = existing[0];
+        const discarded = ex.status === 'error' && Array.isArray(ex.warnings) &&
+          ex.warnings.some((w: any) => w && w.code === 'DUPLICATE');
+        if (!(discarded && isTreviPayRevisionSubject(subject)))
+          return jsonResponse({ status: 'duplicate', message: 'Already imported', document_id: ex.id });
+        return await rearmDiscardedRevision(supabase, ex, pdf_base64, filename);
+      }
     }
 
     // Save PDF to Supabase Storage
@@ -371,5 +382,52 @@ async function handleFreshpointOrderConfirmationBody(
     document_id:     doc.id,
     vendor:          'FreshPoint Dallas',
     document_number: orderNumber,
+  });
+}
+
+// WM01 — copia della regex di js/vendor-parsers/trevipay-revision.js
+// (REVISION_SUBJECT_RE). Questo worker non carica i moduli parser; la parita'
+// e' verificata da tests/trevipay-revision.test.js.
+const TREVIPAY_REVISION_SUBJECT_RE = /pay\s+by\s+invoice\b.*\binvoice\s+has\s+been\s+updated\b/i;
+function isTreviPayRevisionSubject(subject: string | null | undefined): boolean {
+  return TREVIPAY_REVISION_SUBJECT_RE.test(String(subject || ''));
+}
+
+// Stesso documento, nuovo PDF: lo storico resta in parsed_json.rearmed.
+async function rearmDiscardedRevision(supabase: any, ex: any, pdf_base64: string, filename?: string) {
+  const pdfBytes = Uint8Array.from(atob(pdf_base64), c => c.charCodeAt(0));
+  const safeFilename = (filename || 'invoice.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const storagePath = `invoices/gmail/${Date.now()}_${safeFilename}`;
+  const { error: uploadErr } = await supabase.storage
+    .from('app')
+    .upload(storagePath, pdfBytes, { contentType: 'application/pdf', upsert: false });
+  if (uploadErr) return jsonError(`Storage upload error: ${uploadErr.message}`, 500);
+
+  const pj = ex.parsed_json || {};
+  const history = Array.isArray(pj.rearmed) ? pj.rearmed : [];
+  const { error: updErr } = await supabase
+    .from('vendor_documents')
+    .update({
+      status:   'pdf_received',
+      raw_text: storagePath,
+      warnings: [],
+      parsed_json: {
+        ...pj,
+        storage_path: storagePath,
+        original_filename: safeFilename,
+        rearmed: [...history, {
+          at: new Date().toISOString(),
+          reason: 'TreviPay revision discarded as DUPLICATE and its PDF deleted; same email received again (WM01)',
+          previous_storage_path: pj.storage_path || null,
+          previous_warnings: ex.warnings || null,
+        }],
+      },
+    })
+    .eq('id', ex.id);
+  if (updErr) return jsonError(`DB update error: ${updErr.message}`, 500);
+
+  return jsonResponse({
+    status: 'queued', message: 'Discarded TreviPay revision re-armed with its PDF',
+    document_id: ex.id, storage_path: storagePath,
   });
 }
