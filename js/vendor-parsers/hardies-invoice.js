@@ -78,13 +78,43 @@ function buildItem(sku, descRaw, packRaw, ord, shp, unitPrice, amount, prevSku) 
   //
   //   00907 PARMESAN  1 collo x $13,00 -> $1.120,60   (86,2 lb)
   //   29554 BROCHETTE 4 colli x $6,22  -> $294,95     (47,42 lb)
+  //
+  // CLEAN0210 — PESO FISSO VENDUTO A LIBBRA.
+  //
+  // "CHZ MOZZ THIN SLICE 8/1#": 8 confezioni da 1 lb, prezzo $4,82 al
+  // libbra. Una cassa = 8 x 4,82 = $38,56; due casse = $77,12. Non e'
+  // una pesata (il peso e' fisso) ma il prezzo e' al libbra. Con DUE
+  // casse il peso implicito (16 lb) usciva dalla finestra 0.5-1.5 del
+  // pack di UNA cassa (8 lb): la voce diventava "normale", e
+  // $4,82 / 3.629 g dava $0,13 / 100 g invece di $1,06 (fattura
+  // 07133808 del 21/09, ancora usata dal food cost di Caprese).
+  //
+  // Il segno e' aritmetico ed esatto: importo = prezzo x libbre del pack
+  // x colli. Per un normale prezzo a collo l'importo e' prezzo x colli,
+  // che coincide solo se il pack pesa 1 lb, e in quel caso le due
+  // letture danno lo stesso costo: per questo serve nominalLb > 1.
+  // Solo pack a piu' unita' ("8/1#"): un pezzo unico ("80#", "1 PC/25#")
+  // resta nel ramo catchweight anche quando pesa esattamente il nominale.
+  // Si dichiara come fa gia' Fruge (price_type per_lb + cost_per_lb), e
+  // la quantita' consegnata NON viene toccata: non e' una catchweight.
+  let fixedPerLb = false;
+  if (pack && pack.unit === 'lb' && pack.count > 1 && unitPrice > 0 && amount > 0 && shp > 0) {
+    const nominalLb = pack.count * pack.sizeEach;
+    if (nominalLb > 1 && Math.abs(amount - unitPrice * nominalLb * shp) <= 0.01 * amount) {
+      fixedPerLb = true;
+    }
+  }
+
   let catchweight = false, priceLb = null, actualLb = null;
-  if (pack && pack.unit === 'lb' && unitPrice > 0 && amount > 0
+  if (!fixedPerLb && pack && pack.unit === 'lb' && unitPrice > 0 && amount > 0
       && Math.abs(amount - unitPrice) > 0.02
       && Math.abs(amount - unitPrice * (shp || 0)) > 0.02) {
     const impliedLb = amount / unitPrice;
     const nominalLb = pack.count * pack.sizeEach;
-    if (nominalLb > 0 && impliedLb >= nominalLb * 0.5 && impliedLb <= nominalLb * 1.5) {
+    // CLEAN0210 — con piu' colli pesati (2 rack Wagyu "1 PC/25#" = ~50 lb)
+    // il peso implicito va confrontato anche con il nominale x colli.
+    const inWindow = (n) => n > 0 && impliedLb >= n * 0.5 && impliedLb <= n * 1.5;
+    if (inWindow(nominalLb) || (shp > 1 && inWindow(nominalLb * shp))) {
       catchweight = true;
       priceLb  = unitPrice;
       actualLb = Math.round(impliedLb * 100) / 100;
@@ -118,6 +148,8 @@ function buildItem(sku, descRaw, packRaw, ord, shp, unitPrice, amount, prevSku) 
     pack_unit:        pack ? pack.unit      : null,
     pack_size_each:   pack ? pack.sizeEach  : null,
     catchweight:      catchweight,
+    price_type:       fixedPerLb ? 'per_lb' : null,
+    cost_per_lb:      fixedPerLb ? unitPrice : null,
     price_per_lb:     priceLb,
     actual_weight_lb: actualLb,
     unit_price:       unitPrice,
