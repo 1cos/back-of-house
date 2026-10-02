@@ -200,6 +200,22 @@ Deno.serve(async (req: Request) => {
         client_secret_had_whitespace: (Deno.env.get('TS2_CLIENT_SECRET') || '') !== CLIENT_SECRET });
     }
     if (body.action === 'test') return json(await runTest(sb, { days: Number(body.days) || 120 }));
+    if (body.action === 'probe_event_financial') {
+      // Official read: GET /v1/events/{id}?show_financial=true. Returns the response SHAPE, plus the
+      // text of fields whose name says they are line items (menu lines: no contact data).
+      const token = await accessToken(sb);
+      const r = await apiGet(token, `/v1/events/${Number(body.event_id)}.json?show_financial=true`);
+      if (!r.ok) return json({ status: r.status, error: r.error });
+      const ev = r.body.event || r.body;
+      const keys = Object.keys(ev);
+      const plain = await apiGet(token, `/v1/events/${Number(body.event_id)}.json`);
+      const plainKeys = plain.ok ? Object.keys(plain.body.event || plain.body) : [];
+      const extra = keys.filter((k) => !plainKeys.includes(k));
+      const pick = (v: any): any => Array.isArray(v) ? v.slice(0, 60).map(pick)
+        : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([k]) => /name|description|qty|quantity|price|total|category|type|id$/i.test(k)).map(([k, x]) => [k, pick(x)])) : v;
+      const lineish = Object.fromEntries(keys.filter((k) => /line|item|financial|billing|menu|picklist/i.test(k)).map((k) => [k, pick(ev[k])]));
+      return json({ status: r.status, extra_keys_with_financial: extra, lineish });
+    }
     if (body.action === 'probe_selections') {
       // Shape only (keys, array lengths, HTTP status): no values, so no customer data in the answer.
       const token = await accessToken(sb);
