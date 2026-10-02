@@ -7,8 +7,11 @@ if (typeof window === 'undefined') { global.window = global; }
 // Dictate/type a shopping list, resolve each item's real vendor from
 // proven product-level evidence, match against that vendor's catalog,
 // review and correct, save into one draft per vendor.
-// NOT in scope here: Tell Chef integration, vendor portal logins,
-// browser automation, sending orders, receiving goods.
+// XCF-ORDINI (02/10/2026): bozza -> riepilogo con hash -> conferma Max ->
+// invio (edge send-purchase-order, SOLO SIMULAZIONE finche' Max non decide)
+// o invio manuale registrato -> conferma fornitore -> ricevimento. Tutte le
+// scritture passano dalle RPC po_* (sessione Brigade + ruolo sul server).
+// NOT in scope here: vendor portal logins, browser automation.
 // Access: admin + allowlisted staff ids (Tela, Anto) — see _PO_ALLOWED_IDS.
 // ══════════════════════════════════════════════════════════════
 
@@ -115,21 +118,13 @@ window.initVendorHomePanels = async function(){
   var isTela = name === 'Tela';
   if((!isAnto && !isTela) || !poAllowed()) return;
 
-  var sb = window.supabaseClient;
-  var { data, error } = await sb.from('purchase_order_lines')
-    .select('purchase_order_id, purchase_orders!inner(vendor_name,status)')
-    .eq('purchase_orders.status', 'draft');
-  if(error){ console.error('[purchase-order] home panel error', error); return; }
-
-  var counts = {};
-  (data || []).forEach(function(r){
-    var v = r.purchase_orders && r.purchase_orders.vendor_name;
-    if(!v) return;
-    counts[v] = (counts[v] || 0) + 1;
-  });
+  // XCF-ORDINI: contatori via RPC (sessione Brigade), non piu' select diretta.
+  var r = await poRpc('po_home_counts', {});
+  if(!r.ok){ console.error('[purchase-order] home panel error', r); return; }
+  var counts = r.draft_lines_by_vendor || {};
 
   if(isAnto && antoEl){
-    var n = counts['Walmart'] || 0;
+    var n = (counts['Walmart'] || 0) + (counts['Walmart Business'] || 0);
     if(n > 0){
       antoEl.style.display = 'block';
       var body = antoEl.querySelector('[data-role="body"]');
@@ -138,7 +133,7 @@ window.initVendorHomePanels = async function(){
   }
 
   if(isTela && telaEl){
-    var rows = Object.keys(counts).filter(function(v){ return v !== 'Walmart'; }).sort();
+    var rows = Object.keys(counts).filter(function(v){ return v !== 'Walmart' && v !== 'Walmart Business'; }).sort();
     if(rows.length > 0){
       telaEl.style.display = 'block';
       var telaBody = telaEl.querySelector('[data-role="body"]');
@@ -211,6 +206,11 @@ window.poBackToList = function(){
   _poPendingOfficeItemId = null;
   _poRhythmResults = null;
   _poRhythmLoading = false;
+  _poEditingOrderId = null;
+  _poEditingVendor = null;
+  _poEditingRevision = null;
+  _poCurrentOrder = null;
+  _poCandidates = null;
   _poView = 'list';
   poRenderPage();
   poLoadOpenDrafts();
@@ -224,6 +224,9 @@ window.openPurchaseOrder = function(){
   _poDraftLines = [];
   _poEditingOrderId = null;
   _poEditingVendor = null;
+  _poEditingRevision = null;
+  _poCurrentOrder = null;
+  _poDeliveryDate = '';
   _poPendingOfficeItemId = null; // manual entry — not a Tell Chef bridge session
   poRenderPage();
   poLoadOpenDrafts();
@@ -768,7 +771,7 @@ async function poLearnAliasesFromCorrections(){
 
     try{
       var ins = await sb.from('vendor_item_aliases').insert({
-        vendor: PO_VENDOR,
+        vendor: l.vendor, // fix XCF-ORDINI: prima usava una costante inesistente (ReferenceError silenziosa, alias mai salvati)
         vendor_sku: l.vendor_sku || null,
         vendor_description: l.requested_text,
         ingredient_id: l.ingredient_id,
@@ -778,7 +781,7 @@ async function poLearnAliasesFromCorrections(){
       if(!ins.error){
         // keep in-memory catalog in sync so a second correction in the same
         // session doesn't try to insert the same alias again
-        _poAliasCatalog.push({ vendor_sku: l.vendor_sku, vendor_description: l.requested_text, ingredient_id: l.ingredient_id });
+        _poAliasCatalog.push({ vendor: l.vendor, vendor_sku: l.vendor_sku, vendor_description: l.requested_text, ingredient_id: l.ingredient_id });
       } else {
         console.error('[purchase-order] alias learn failed for', l.requested_text, ins.error);
       }
@@ -788,183 +791,408 @@ async function poLearnAliasesFromCorrections(){
   }
 }
 
-// ── FIND-OR-CREATE DRAFT PER VENDOR ─────────────────────────────────
-// Only ever reuses status='draft'. 'ready'/'sent'/'cancelled' orders are
-// never appended to — they've moved past normal compilation.
-async function poFindLatestDraftForVendor(vendor){
+// ══════════════════════════════════════════════════════════════
+// XCF-ORDINI (02/10/2026) — flusso completo via RPC po_* (sessione
+// Brigade + ruolo verificati sul server). Nessuna scrittura diretta su
+// purchase_orders / purchase_order_lines dal browser.
+// richiesta → righe verificate → bozza → pronto (riepilogo + hash) →
+// conferma Max (sull'hash) → invio (edge, SOLO SIMULAZIONE) | invio
+// manuale registrato → conferma fornitore → ricevimento (+ bozza reclamo).
+// ══════════════════════════════════════════════════════════════
+
+var _poEditingRevision = null; // revision dell'ordine aperto in modifica (controllo concorrenza)
+var _poDeliveryDate = '';      // data consegna scelta nella revisione (YYYY-MM-DD)
+var _poCurrentOrder = null;    // dettaglio caricato da po_get
+var _poMe = null;              // {user_id, name, is_admin, can_compile} dal server
+var _poSettings = null;        // {price_stale_days, duplicate_window_hours, real_send_enabled}
+var _poCandidates = null;      // conferme fornitore candidate per l'ordine aperto
+var _poReceiveDraft = {};      // line_id -> {status, received_qty, note, photo_url}
+var _poIdemKeys = {};          // "azione|orderId|hash" -> chiave idempotente (riusata nei retry)
+var _poBusy = false;
+
+var PO_STATUS_LABEL = {
+  draft: 'Bozza', ready: 'Da confermare (Max)', confirmed: 'Confermato — da inviare',
+  sent: 'Inviato', sent_manual: 'Inviato a mano', acknowledged: 'Confermato dal fornitore',
+  received: 'Ricevuto', cancelled: 'Annullato'
+};
+function poStatusLabel(s){ return PO_STATUS_LABEL[s] || s; }
+
+var PO_REASON_TEXT = {
+  AUTH_ERROR: 'Sessione scaduta — rientra con il PIN.',
+  FORBIDDEN: 'Non autorizzato per questa azione.',
+  CONFLICT: 'L\'ordine è stato modificato da qualcun altro — ricaricato.',
+  NOT_FOUND: 'Ordine non trovato.',
+  ORDER_NOT_EDITABLE: 'Ordine già inviato: non si modifica più.',
+  VENDOR_MISMATCH: 'Fornitore diverso da quello dell\'ordine.',
+  DELIVERY_DATE_MISSING: 'Manca la data di consegna.',
+  DELIVERY_DATE_PAST: 'La data di consegna è nel passato.',
+  NO_LINES: 'Nessuna riga nell\'ordine.',
+  LINES_NOT_READY: 'Ci sono righe da sistemare (quantità, confezione, prodotto da chiarire o "non ordinare").',
+  SUMMARY_CHANGED: 'Il riepilogo è cambiato: rileggilo prima di confermare.',
+  CONFIRMATION_STALE: 'L\'ordine è cambiato dopo la conferma di Max: serve una nuova conferma.',
+  NOT_CONFIRMED: 'Serve prima la conferma di Max.',
+  ALREADY_SENT: 'Ordine già inviato — nessun secondo invio.',
+  IN_FLIGHT: 'Un invio è già in corso per questo ordine.',
+  IDEMPOTENCY_KEY_REUSED: 'Richiesta duplicata rifiutata.',
+  DUPLICATE_SUSPECTED: 'Possibile doppio ordine a questo fornitore.',
+  DO_NOT_ORDER: 'Un prodotto è marcato "non ordinare".',
+  RECEIPT_INCOMPLETE: 'Segna tutte le righe prima di chiudere il ricevimento.',
+  INVALID_STATE: 'Azione non valida in questo stato.',
+  INVALID_INPUT: 'Dati non validi.',
+  DOCUMENT_MISMATCH: 'Il documento non è una conferma di questo fornitore.',
+  DOCUMENT_ALREADY_LINKED: 'Questa conferma è già collegata a un altro ordine.',
+  REAL_TRANSPORT_NOT_IMPLEMENTED: 'Invio reale non disponibile: nulla è partito.'
+};
+function poReasonText(reason){ return PO_REASON_TEXT[reason] || ('Errore: ' + (reason || 'sconosciuto')); }
+
+function _poToken(){ try { return localStorage.getItem('brigade_token'); } catch(e){ return null; } }
+
+async function poRpc(fn, args){
   var sb = window.supabaseClient;
-  var { data, error } = await sb.from('purchase_orders')
-    .select('id').eq('vendor_name', vendor).eq('status', 'draft')
-    .order('created_at', { ascending: false }).limit(1);
-  if(error){ console.error('[purchase-order] find draft error', error); return null; }
-  return (data && data.length > 0) ? data[0].id : null;
+  var payload = Object.assign({ p_token: _poToken() }, args || {});
+  var res = await sb.rpc(fn, payload);
+  if(res.error){
+    console.error('[purchase-order] rpc ' + fn, res.error);
+    return { ok: false, reason: 'NETWORK', detail: res.error.message };
+  }
+  var data = res.data || { ok: false, reason: 'EMPTY' };
+  if(data.me) _poMe = data.me;
+  if(data.settings) _poSettings = data.settings;
+  return data;
 }
 
-async function poFetchDraftLines(orderId){
-  var sb = window.supabaseClient;
-  var { data, error } = await sb.from('purchase_order_lines')
-    .select('*').eq('purchase_order_id', orderId).order('created_at', { ascending: true });
-  if(error) throw error;
-  return data || [];
+function poIdemKey(action, orderId, hash){
+  var k = action + '|' + orderId + '|' + (hash || '');
+  if(!_poIdemKeys[k]){
+    var rnd = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+      : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
+    _poIdemKeys[k] = action + '-' + rnd;
+  }
+  return _poIdemKeys[k];
 }
 
-function poLineToRow(l, orderId, vendor){
-  return {
-    purchase_order_id: orderId,
-    ingredient_id: l.ingredient_id || null,
-    vendor_name: vendor,
-    vendor_sku: l.vendor_sku || null,
-    requested_text: l.requested_text,
-    matched_name: l.matched_name || null,
-    quantity: l.quantity,
-    unit: l.unit || null,
-    match_confidence: l.match_confidence,
-    match_source: l.match_source || 'manual'
-  };
+// ── problemi lato client (stessa logica bloccante del server, solo per UI) ──
+function poLineClientIssues(l){
+  var out = [];
+  if(!(l.requested_text || '').trim() && !l.ingredient_id) out.push({ code: 'LINE_EMPTY', blocking: true, msg: 'Riga vuota' });
+  if(l.quantity == null || !(Number(l.quantity) > 0)) out.push({ code: 'QTY_MISSING', blocking: true, msg: 'Quantità mancante' });
+  if(!(l.unit || '').trim()) out.push({ code: 'UNIT_MISSING', blocking: true, msg: 'Confezione/unità mancante' });
+  if(l.needs_review) out.push({ code: 'AMBIGUOUS', blocking: true, msg: 'Prodotto da chiarire' });
+  return out;
 }
 
-// ── SAVE DRAFT ─────────────────────────────────────────────────────
-// Correction: never invent a vendor. Only lines whose vendor_status is
-// 'resolved' get persisted — anything 'ambiguous' or 'unresolved' stays
-// in the review screen untouched, waiting for a human to pick a vendor.
+// ── costruzione dei gruppi per po_save_draft (pura, testata) ──────────
+// Solo righe con fornitore risolto. Il fornitore dell'ordine aperto in
+// modifica viene sempre inviato in 'replace' (anche vuoto: l'utente ha
+// tolto tutte le righe); gli altri fornitori in 'append' sulla loro bozza.
+function poBuildSaveGroups(lines, editingOrderId, editingVendor, editingRevision, deliveryDate){
+  var byVendor = {};
+  (lines || []).forEach(function(l){
+    if(l.vendor_status !== 'resolved' || !l.vendor) return;
+    (byVendor[l.vendor] = byVendor[l.vendor] || []).push(l);
+  });
+  var vendors = Object.keys(byVendor);
+  if(editingOrderId && editingVendor && vendors.indexOf(editingVendor) < 0) vendors.push(editingVendor);
+  return vendors.map(function(vendor){
+    var g = {
+      vendor_name: vendor,
+      lines: (byVendor[vendor] || []).map(function(l){
+        return {
+          requested_text: l.requested_text || '', ingredient_id: l.ingredient_id || null,
+          matched_name: l.matched_name || null, vendor_sku: l.vendor_sku || null,
+          quantity: l.quantity, unit: l.unit || null, pack_description: l.pack_description || null,
+          match_confidence: l.match_confidence, match_source: l.match_source || 'manual',
+          needs_review: !!l.needs_review
+        };
+      })
+    };
+    if(deliveryDate) g.delivery_date = deliveryDate;
+    if(editingOrderId && vendor === editingVendor){
+      g.mode = 'replace'; g.order_id = editingOrderId;
+      if(editingRevision != null) g.expected_revision = editingRevision;
+    } else {
+      g.mode = 'append';
+    }
+    return g;
+  });
+}
+
+// ── SAVE DRAFT (transazionale, RPC po_save_draft) ───────────────────
 window.poSaveDraft = async function(){
-  var resolved = _poDraftLines.filter(function(l){ return l.vendor_status === 'resolved' && l.vendor; });
-  var pendingCount = _poDraftLines.length - resolved.length;
-
-  if(resolved.length === 0){
-    poToast(pendingCount > 0
-      ? 'Nessuna riga pronta — scegli il vendor per le righe segnalate.'
-      : 'Nessuna riga da salvare.');
+  var groups = poBuildSaveGroups(_poDraftLines, _poEditingOrderId, _poEditingVendor, _poEditingRevision, _poDeliveryDate);
+  var pendingCount = _poDraftLines.filter(function(l){ return !(l.vendor_status === 'resolved' && l.vendor); }).length;
+  if(groups.length === 0){
+    poToast(pendingCount > 0 ? 'Nessuna riga pronta — scegli il fornitore per le righe segnalate.' : 'Nessuna riga da salvare.');
     return;
   }
-
-  var sb = window.supabaseClient;
   var btn = document.getElementById('poSaveBtn');
   if(btn){ btn.disabled = true; btn.textContent = '…'; }
-
-  var byVendor = {};
-  resolved.forEach(function(l){ (byVendor[l.vendor] = byVendor[l.vendor] || []).push(l); });
-
   try{
-    for(var vendor in byVendor){
-      var orderId, existingRows;
-      if(vendor === _poEditingVendor && _poEditingOrderId){
-        // This is the exact draft the user opened — _poDraftLines already IS
-        // its full authoritative line set, so replace cleanly (no re-fetch,
-        // matches the original single-vendor semantics exactly).
-        orderId = _poEditingOrderId;
-        var del = await sb.from('purchase_order_lines').delete().eq('purchase_order_id', orderId);
-        if(del.error) throw del.error;
-        existingRows = [];
-      } else {
-        // A vendor we're touching for the first time this session — find or
-        // create its draft, and if one already exists, preserve its lines
-        // (append, never replace-with-only-the-new-item).
-        orderId = await poFindLatestDraftForVendor(vendor);
-        if(!orderId){
-          var ins = await sb.from('purchase_orders').insert({
-            vendor_name: vendor, status: 'draft',
-            created_by: (window.user && window.user.name) || 'Unknown'
-          }).select('id').single();
-          if(ins.error) throw ins.error;
-          orderId = ins.data.id;
-          existingRows = [];
-        } else {
-          existingRows = (await poFetchDraftLines(orderId)).map(function(l){
-            return { ingredient_id: l.ingredient_id, vendor_sku: l.vendor_sku, requested_text: l.requested_text,
-              matched_name: l.matched_name, quantity: l.quantity, unit: l.unit,
-              match_confidence: l.match_confidence, match_source: l.match_source };
-          });
-          var del2 = await sb.from('purchase_order_lines').delete().eq('purchase_order_id', orderId);
-          if(del2.error) throw del2.error;
-        }
-      }
-
-      var rows = existingRows.concat(byVendor[vendor]).map(function(l){ return poLineToRow(l, orderId, vendor); });
-      var insLines = await sb.from('purchase_order_lines').insert(rows);
-      if(insLines.error) throw insLines.error;
+    var payload = { groups: groups };
+    if(_poPendingOfficeItemId) payload.office_item_id = _poPendingOfficeItemId;
+    var r = await poRpc('po_save_draft', { p_payload: payload });
+    if(!r.ok){
+      poToast(poReasonText(r.reason));
+      if(r.reason === 'CONFLICT' && _poEditingOrderId) await poOpenOrder(_poEditingOrderId);
+      return;
     }
-
-    // If the opened draft's vendor now has zero resolved lines left (user
-    // removed them all), clear it out rather than leaving stale lines behind.
-    if(_poEditingOrderId && _poEditingVendor && !byVendor[_poEditingVendor]){
-      var stillHasVendor = _poDraftLines.some(function(l){ return l.vendor === _poEditingVendor; });
-      if(!stillHasVendor){
-        await sb.from('purchase_order_lines').delete().eq('purchase_order_id', _poEditingOrderId);
-      }
-    }
-
+    _poPendingOfficeItemId = null; // ack Tell Chef scritto nella stessa transazione
     await poLearnAliasesFromCorrections();
 
-    // Tell Chef bridge: only now — after every line above is actually
-    // persisted — mark the source shortage as added to order. If anything
-    // above threw, this never runs and _poPendingOfficeItemId stays set so
-    // a retry of Save Draft still honors it.
-    if(_poPendingOfficeItemId){
-      var pendingOfficeItemId = _poPendingOfficeItemId;
-      _poPendingOfficeItemId = null;
-      try{
-        await sb.from('office_items').update({
-          chef_action: 'added_to_order',
-          chef_action_at: new Date().toISOString(),
-          chef_action_by: (window.user && window.user.name) || 'Unknown'
-        }).eq('id', pendingOfficeItemId);
-      }catch(ackErr){
-        console.error('[purchase-order] tell-chef ack failed (order line still saved)', ackErr);
-      }
-    }
+    var blocking = (r.orders || []).reduce(function(n, o){ return n + (o.blocking_count || 0); }, 0);
+    var invalidated = (r.orders || []).some(function(o){ return o.previous_status === 'ready' || o.previous_status === 'confirmed'; });
+    var msg = 'Bozza salvata ✓';
+    if(invalidated) msg += ' — riepilogo/conferma precedenti annullati';
+    if(blocking) msg += ' — ' + blocking + (blocking === 1 ? ' riga da sistemare' : ' righe da sistemare');
+    if(pendingCount) msg += ' — ' + pendingCount + ' in sospeso (fornitore da scegliere)';
+    poToast(msg);
 
-    poToast(pendingCount > 0
-      ? ('Bozza salvata ✓ — ' + pendingCount + (pendingCount === 1 ? ' riga in sospeso (vendor da scegliere)' : ' righe in sospeso (vendor da scegliere)'))
-      : 'Bozza salvata ✓');
-
-    _poDraftLines = _poDraftLines.filter(function(l){ return l.vendor_status !== 'resolved'; });
+    _poDraftLines = _poDraftLines.filter(function(l){ return !(l.vendor_status === 'resolved' && l.vendor); });
     if(_poDraftLines.length === 0){
+      var single = (r.orders || []).length === 1 ? r.orders[0].id : null;
+      _poEditingOrderId = null; _poEditingVendor = null; _poEditingRevision = null;
+      if(single){ await poOpenOrder(single); return; }
       _poView = 'list';
-      _poEditingOrderId = null;
-      _poEditingVendor = null;
     }
     poRenderPage();
     poLoadOpenDrafts();
   }catch(e){
     console.error('[purchase-order] save error', e);
     poToast('Errore nel salvataggio');
-  } finally {
+  }finally{
     if(btn){ btn.disabled = false; btn.textContent = 'Salva bozza'; }
   }
 };
 
-// ── OPEN DRAFTS LIST (all vendors) ──────────────────────────────────
+// ── LISTA ORDINI APERTI ─────────────────────────────────────────────
 async function poLoadOpenDrafts(){
-  var sb = window.supabaseClient;
-  var { data, error } = await sb.from('purchase_orders')
-    .select('id,vendor_name,status,created_by,created_at,notes')
-    .in('status', ['draft', 'ready'])
-    .order('created_at', { ascending: false });
-  if(error){ console.error('[purchase-order] load drafts error', error); return; }
-  _poOpenDrafts = data || [];
+  var r = await poRpc('po_list', { p_include_closed: false, p_include_test: false });
+  if(!r.ok){ console.error('[purchase-order] po_list', r); return; }
+  _poOpenDrafts = r.orders || [];
   if(_poView === 'list') poRenderPage();
 }
 
-window.poOpenDraft = async function(orderId){
-  var sb = window.supabaseClient;
-  var target = _poOpenDrafts.find(function(d){ return d.id === orderId; });
-  var { data, error } = await sb.from('purchase_order_lines')
-    .select('*').eq('purchase_order_id', orderId).order('created_at', { ascending: true });
-  if(error){ poToast('Errore nel caricamento'); return; }
-  _poDraftLines = (data || []).map(function(l){
+// Compat: vecchio nome usato da altre parti dell'app.
+window.poOpenDraft = function(orderId){ return poOpenOrder(orderId); };
+
+window.poOpenOrder = async function(orderId){
+  var r = await poRpc('po_get', { p_order_id: orderId });
+  if(!r.ok){ poToast(poReasonText(r.reason)); return; }
+  _poCurrentOrder = r.order;
+  _poCandidates = null;
+  _poReceiveDraft = {};
+  _poView = 'order';
+  if(typeof showSection === 'function') showSection('vpo');
+  poRenderPage();
+};
+var poOpenOrder = window.poOpenOrder;
+
+window.poEditOrderLines = function(){
+  var o = _poCurrentOrder;
+  if(!o) return;
+  _poDraftLines = (o.lines || []).map(function(l){
     return {
       requested_text: l.requested_text, quantity: l.quantity, unit: l.unit,
       ingredient_id: l.ingredient_id, matched_name: l.matched_name, vendor_sku: l.vendor_sku,
-      match_confidence: l.match_confidence, match_source: l.match_source,
-      needs_review: !l.ingredient_id && l.match_source !== 'manual', candidates: [],
-      vendor: l.vendor_name, vendor_status: 'resolved', vendor_candidates: []
+      pack_description: l.pack_description, match_confidence: l.match_confidence, match_source: l.match_source,
+      needs_review: !!l.needs_review, candidates: [],
+      vendor: l.vendor_name || o.vendor_name, vendor_status: 'resolved', vendor_candidates: []
     };
   });
-  _poEditingOrderId = orderId;
-  _poEditingVendor = target ? target.vendor_name : (data && data[0] ? data[0].vendor_name : null);
+  _poEditingOrderId = o.id;
+  _poEditingVendor = o.vendor_name;
+  _poEditingRevision = o.revision;
+  _poDeliveryDate = o.delivery_date || '';
   _poView = 'review';
   poRenderPage();
+};
+
+window.poSetDeliveryDate = function(val){ _poDeliveryDate = val || ''; };
+
+async function poAfterAction(r, okMsg){
+  if(!r.ok){
+    poToast(poReasonText(r.reason));
+    if(_poCurrentOrder) await poOpenOrder(_poCurrentOrder.id);
+    return false;
+  }
+  if(okMsg) poToast(okMsg);
+  if(_poCurrentOrder) await poOpenOrder(_poCurrentOrder.id);
+  poLoadOpenDrafts();
+  return true;
+}
+
+window.poSaveOrderDeliveryDate = async function(){
+  var o = _poCurrentOrder; if(!o || _poBusy) return;
+  var el = document.getElementById('poOrderDelivery');
+  var val = el ? el.value : '';
+  if(!val){ poToast('Scegli una data di consegna.'); return; }
+  _poBusy = true;
+  try{
+    var lines = (o.lines || []).map(function(l){
+      return { requested_text: l.requested_text, ingredient_id: l.ingredient_id, matched_name: l.matched_name,
+        vendor_sku: l.vendor_sku, quantity: l.quantity, unit: l.unit, pack_description: l.pack_description,
+        match_confidence: l.match_confidence, match_source: l.match_source, needs_review: !!l.needs_review };
+    });
+    var r = await poRpc('po_save_draft', { p_payload: { groups: [{ mode: 'replace', order_id: o.id, expected_revision: o.revision,
+      vendor_name: o.vendor_name, delivery_date: val, lines: lines }] } });
+    await poAfterAction(r, 'Data di consegna salvata');
+  } finally { _poBusy = false; }
+};
+
+window.poMarkReady = async function(){
+  var o = _poCurrentOrder; if(!o || _poBusy) return;
+  _poBusy = true;
+  try{
+    var r = await poRpc('po_mark_ready', { p_order_id: o.id, p_expected_revision: o.revision });
+    await poAfterAction(r, 'Riepilogo pronto — in attesa della conferma di Max');
+  } finally { _poBusy = false; }
+};
+
+window.poConfirmOrder = async function(){
+  var o = _poCurrentOrder; if(!o || _poBusy || !o.summary_hash) return;
+  if(!confirm('Confermi esattamente questo riepilogo (#' + o.summary_hash.slice(0, 8) + ')?\nQualsiasi modifica successiva annulla la conferma.')) return;
+  _poBusy = true;
+  try{
+    var r = await poRpc('po_confirm', { p_order_id: o.id, p_summary_hash: o.summary_hash });
+    await poAfterAction(r, 'Confermato da Max ✓');
+  } finally { _poBusy = false; }
+};
+
+function _poAckDuplicates(){
+  var el = document.getElementById('poAckDup');
+  return !!(el && el.checked);
+}
+
+// Invio tramite edge function: in questa versione SOLO SIMULAZIONE
+// (la funzione non ha alcun trasporto; il server forza la simulazione).
+window.poSendSimulated = async function(){
+  var o = _poCurrentOrder; if(!o || _poBusy) return;
+  _poBusy = true;
+  try{
+    var key = poIdemKey('send', o.id, o.confirmed_hash);
+    var res = await fetch(SUPABASE_URL + '/functions/v1/send-purchase-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY, 'apikey': SUPABASE_ANON_KEY },
+      body: JSON.stringify({ brigade_token: _poToken(), order_id: o.id, idempotency_key: key,
+        summary_hash: o.confirmed_hash, ack_duplicates: _poAckDuplicates(), mode: 'simulate' })
+    });
+    var r = await res.json().catch(function(){ return { ok: false, reason: 'NETWORK' }; });
+    if(r.ok){
+      // Simulazione registrata: la prossima prova usa una chiave nuova.
+      delete _poIdemKeys['send|' + o.id + '|' + o.confirmed_hash];
+      await poAfterAction(r, r.transmitted ? 'Inviato' : 'SIMULAZIONE registrata — nessun messaggio è partito');
+    } else {
+      if(r.reason !== 'NETWORK') delete _poIdemKeys['send|' + o.id + '|' + o.confirmed_hash];
+      await poAfterAction(r);
+    }
+  } catch(e){
+    poToast('Errore di rete — riprova (stessa richiesta, nessun doppio invio)');
+  } finally { _poBusy = false; }
+};
+
+window.poRegisterManualSend = async function(){
+  var o = _poCurrentOrder; if(!o || _poBusy) return;
+  var ch = (document.getElementById('poManualChannel') || {}).value || '';
+  var num = (document.getElementById('poManualNumber') || {}).value || '';
+  var note = (document.getElementById('poManualNote') || {}).value || '';
+  if(!ch){ poToast('Scegli come è stato inviato.'); return; }
+  _poBusy = true;
+  try{
+    var r = await poRpc('po_register_manual_send', { p_order_id: o.id, p_idempotency_key: poIdemKey('manual', o.id, o.confirmed_hash),
+      p_summary_hash: o.confirmed_hash, p_channel: ch, p_vendor_order_number: num || null, p_note: note || null,
+      p_ack_duplicates: _poAckDuplicates() });
+    if(!r.ok && r.reason !== 'NETWORK') delete _poIdemKeys['manual|' + o.id + '|' + o.confirmed_hash];
+    await poAfterAction(r, 'Invio manuale registrato ✓');
+  } finally { _poBusy = false; }
+};
+
+window.poCopySummary = function(){
+  var t = document.getElementById('poSummaryText');
+  if(!t) return;
+  var text = t.textContent;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){ poToast('Riepilogo copiato'); }, function(){ poToast('Copia non riuscita'); });
+  }
+};
+
+window.poLoadCandidates = async function(){
+  var o = _poCurrentOrder; if(!o) return;
+  var r = await poRpc('po_confirmation_candidates', { p_order_id: o.id });
+  if(!r.ok){ poToast(poReasonText(r.reason)); return; }
+  _poCandidates = r.candidates || [];
+  poRenderPage();
+};
+
+window.poLinkConfirmation = async function(docId){
+  var o = _poCurrentOrder; if(!o || _poBusy) return;
+  _poBusy = true;
+  try{
+    var r = await poRpc('po_link_confirmation', { p_order_id: o.id, p_vendor_document_id: docId });
+    var diffs = r.ok && r.differences ? r.differences.length : 0;
+    await poAfterAction(r, 'Conferma collegata' + (diffs ? ' — ' + diffs + ' differenze da controllare' : ''));
+  } finally { _poBusy = false; }
+};
+
+window.poStartReceive = function(){
+  var o = _poCurrentOrder; if(!o) return;
+  _poReceiveDraft = {};
+  (o.lines || []).forEach(function(l){ _poReceiveDraft[l.id] = { status: 'received', received_qty: l.quantity, note: '', photo_url: null }; });
+  _poView = 'receive';
+  poRenderPage();
+};
+window.poRecvSet = function(lineId, field, val){
+  var d = _poReceiveDraft[lineId]; if(!d) return;
+  d[field] = val;
+  if(field === 'status') poRenderPage();
+};
+window.poRecvPhoto = async function(lineId, input){
+  var f = input && input.files && input.files[0];
+  if(!f || !_poCurrentOrder) return;
+  try{
+    var path = 'purchase-orders/' + _poCurrentOrder.id + '/' + lineId + '-' + Date.now() + '.jpg';
+    var up = await window.supabaseClient.storage.from('app').upload(path, f, { upsert: true, contentType: f.type || 'image/jpeg' });
+    if(up.error) throw up.error;
+    var pub = window.supabaseClient.storage.from('app').getPublicUrl(path);
+    _poReceiveDraft[lineId].photo_url = pub && pub.data ? pub.data.publicUrl : null;
+    poToast('Foto allegata');
+    poRenderPage();
+  }catch(e){ console.error('[purchase-order] photo', e); poToast('Foto non caricata (facoltativa)'); }
+};
+window.poSubmitReceive = async function(){
+  var o = _poCurrentOrder; if(!o || _poBusy) return;
+  var lines = Object.keys(_poReceiveDraft).map(function(id){
+    var d = _poReceiveDraft[id];
+    return { line_id: id, status: d.status, received_qty: d.received_qty, note: d.note || null, photo_url: d.photo_url || null };
+  });
+  _poBusy = true;
+  try{
+    var r = await poRpc('po_receive', { p_order_id: o.id, p_lines: lines, p_note: null });
+    await poAfterAction(r, r.ok && r.complaint_draft_id ? 'Ricevuto — bozza di reclamo pronta (NON inviata)' : 'Ricevuto ✓');
+  } finally { _poBusy = false; }
+};
+
+window.poCancelOrder = async function(){
+  var o = _poCurrentOrder; if(!o || _poBusy) return;
+  var reason = prompt('Motivo dell\'annullamento' + (['draft','ready'].indexOf(o.status) >= 0 ? ' (facoltativo)' : '') + ':') ;
+  if(reason === null) return;
+  _poBusy = true;
+  try{
+    var r = await poRpc('po_cancel', { p_order_id: o.id, p_reason: reason });
+    if(r.ok && r.warning) alert(r.warning);
+    await poAfterAction(r, 'Ordine annullato');
+  } finally { _poBusy = false; }
+};
+
+window.poRegisterExternalSend = async function(){
+  var v = (document.getElementById('poExtVendor') || {}).value || '';
+  var ch = (document.getElementById('poExtChannel') || {}).value || '';
+  var note = (document.getElementById('poExtNote') || {}).value || '';
+  if(!v.trim() || !ch){ poToast('Fornitore e canale obbligatori.'); return; }
+  var r = await poRpc('po_register_external_send', { p_vendor: poNormalizeVendorName(v), p_channel: ch, p_note: note || null,
+    p_idempotency_key: poIdemKey('ext', v, String(Math.floor(Date.now() / 60000))) });
+  if(!r.ok){ poToast(poReasonText(r.reason)); return; }
+  poToast('Registrato: ordine fatto fuori da Brigade (usato contro i doppioni)');
+  var box = document.getElementById('poExtBox'); if(box) box.open = false;
 };
 
 // ── VOICE INPUT (reuses transcribe-audio, same call pattern as Sous Chef) ──
@@ -1042,7 +1270,10 @@ function _poEsc(s){ return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt
 function poRenderPage(){
   var el = document.getElementById('poContent');
   if(!el) return;
-  el.innerHTML = _poView === 'review' ? poRenderReview() : poRenderList();
+  el.innerHTML = _poView === 'review' ? poRenderReview()
+               : _poView === 'order' ? poRenderOrder()
+               : _poView === 'receive' ? poRenderReceive()
+               : poRenderList();
 }
 
 function poRenderList(){
@@ -1067,23 +1298,7 @@ function poRenderList(){
   html += '</div></div>';
   html += '<style>.po-mic-active{background:#dbeafe !important;border-color:#3b82f6 !important;}</style>';
 
-  html += '<div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:20px 0 8px;">Bozze aperte</div>';
-  if(_poOpenDrafts.length === 0){
-    html += '<div style="font-size:13px;color:#94a3b8;padding:12px 0;">Nessuna bozza aperta.</div>';
-  } else {
-    var byVendor = {};
-    _poOpenDrafts.forEach(function(d){ (byVendor[d.vendor_name] = byVendor[d.vendor_name] || []).push(d); });
-    Object.keys(byVendor).sort().forEach(function(vendor){
-      html += '<div style="font-size:11px;font-weight:700;color:#1e3a5f;text-transform:uppercase;letter-spacing:.03em;margin:14px 0 6px;">' + _poEsc(vendor) + '</div>';
-      byVendor[vendor].forEach(function(d){
-        var date = new Date(d.created_at).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
-        html += '<div onclick="poOpenDraft(\'' + d.id + '\')" style="background:rgba(255,255,255,0.7);border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">';
-        html += '<div><div style="font-size:13px;font-weight:600;color:#1e3a5f;">' + _poEsc(d.created_by || 'Unknown') + ' · ' + _poEsc(d.status) + '</div>';
-        html += '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + date + '</div></div>';
-        html += '<span style="color:#94a3b8;">&#8250;</span></div>';
-      });
-    });
-  }
+  html += poRenderOrdersList();
   return html;
 }
 
@@ -1212,6 +1427,15 @@ function poRenderReview(){
   html += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;">Revisiona ' + _poDraftLines.length + ' righe</div>';
   html += '<button onclick="poBackToList()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">&#8249; Indietro</button>';
   html += '</div>';
+  if(_poEditingOrderId){
+    html += '<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:6px 10px;margin-bottom:10px;">Modifica ordine ' + _poEsc(_poEditingVendor || '') +
+      ' — salvando, riepilogo e conferma di Max vengono annullati.</div>';
+  }
+  // XCF-ORDINI: data di consegna (obbligatoria per il riepilogo)
+  html += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">';
+  html += '<label style="font-size:12px;color:#475569;white-space:nowrap;">Consegna</label>';
+  html += '<input type="date" value="' + _poEsc(_poDeliveryDate || '') + '" onchange="poSetDeliveryDate(this.value)" style="flex:1;padding:8px;border:1px solid ' + (_poDeliveryDate ? '#e2e8f0' : '#fbbf24') + ';border-radius:8px;font-size:13px;">';
+  html += '</div>';
 
   _poDraftLines.forEach(function(l, i){
     var badge = '';
@@ -1244,12 +1468,14 @@ function poRenderReview(){
         '</div>';
     }
 
-    html += '<div style="background:rgba(255,255,255,0.7);border:1px solid ' + (l.needs_review || l.vendor_status !== 'resolved' ? '#fbbf24' : '#e2e8f0') + ';border-radius:12px;padding:12px;margin-bottom:10px;">';
+    var clientIssues = poLineClientIssues(l);
+    var hasBlocking = clientIssues.some(function(x){ return x.blocking; });
+    html += '<div style="background:rgba(255,255,255,0.7);border:1px solid ' + (hasBlocking ? '#fca5a5' : (l.needs_review || l.vendor_status !== 'resolved' ? '#fbbf24' : '#e2e8f0')) + ';border-radius:12px;padding:12px;margin-bottom:10px;">';
     html += '<input class="po-line-text" value="' + _poEsc(l.requested_text) + '" oninput="poLineSetText(' + i + ',this.value)" style="width:100%;border:none;font-size:14px;font-weight:600;color:#1e3a5f;padding:0 0 6px;background:transparent;">';
 
     html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">';
-    html += '<input type="number" value="' + (l.quantity != null ? l.quantity : '') + '" oninput="poLineSetQty(' + i + ',this.value)" placeholder="qty" style="width:64px;padding:6px 8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;">';
-    html += '<input type="text" value="' + _poEsc(l.unit || '') + '" oninput="poLineSetUnit(' + i + ',this.value)" placeholder="unit" style="width:80px;padding:6px 8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;">';
+    html += '<input type="number" value="' + (l.quantity != null ? l.quantity : '') + '" oninput="poLineSetQty(' + i + ',this.value)" onchange="poRenderPage()" placeholder="qty" style="width:64px;padding:6px 8px;border:1px solid ' + (l.quantity != null && l.quantity > 0 ? '#e2e8f0' : '#fca5a5') + ';border-radius:8px;font-size:13px;">';
+    html += '<input type="text" value="' + _poEsc(l.unit || '') + '" oninput="poLineSetUnit(' + i + ',this.value)" onchange="poRenderPage()" placeholder="case/lb/ea" style="width:80px;padding:6px 8px;border:1px solid ' + ((l.unit || '').trim() ? '#e2e8f0' : '#fca5a5') + ';border-radius:8px;font-size:13px;">';
     html += badge;
     html += '<button onclick="poLineRemove(' + i + ')" style="margin-left:auto;background:none;border:none;color:#ef4444;font-size:16px;cursor:pointer;padding:4px;">🗑</button>';
     html += '</div>';
@@ -1268,6 +1494,9 @@ function poRenderReview(){
     if(l.matched_name) html += '<option value="__manual__">Nessun prodotto (manuale)</option>';
     html += '</select>';
     html += vendorBlock;
+    // Problemi che impediscono il riepilogo (la bozza si salva comunque).
+    var shown = clientIssues.filter(function(x){ return x.code !== 'AMBIGUOUS' || !l.needs_review; });
+    if(shown.length) html += '<div style="margin-top:4px;">' + poIssueBadges(shown) + '</div>';
 
     html += '</div>';
   });
@@ -1275,6 +1504,289 @@ function poRenderReview(){
   html += '<button onclick="poLineAddManual()" style="width:100%;padding:10px;border:1px dashed #cbd5e1;border-radius:10px;background:none;color:#64748b;font-size:13px;cursor:pointer;margin-bottom:16px;">+ Aggiungi riga</button>';
   html += poRenderCheckBeforeOrdering();
   html += '<button id="poSaveBtn" onclick="poSaveDraft()" style="width:100%;height:46px;border-radius:12px;background:#1e3a5f;color:white;border:none;font-size:14px;font-weight:700;cursor:pointer;">Salva bozza</button>';
+  return html;
+}
+
+// ── RENDER: lista ordini per stato ───────────────────────────────────
+var PO_LIST_SECTIONS = [
+  { title: 'Bozze', statuses: ['draft'] },
+  { title: 'Da confermare (Max)', statuses: ['ready'] },
+  { title: 'Confermati — da inviare', statuses: ['confirmed'] },
+  { title: 'Inviati — in attesa', statuses: ['sent', 'sent_manual', 'acknowledged'] },
+  { title: 'Chiusi di recente', statuses: ['received', 'cancelled'] }
+];
+
+function poStatusPill(status){
+  var c = { draft: ['#475569','#f1f5f9'], ready: ['#92400e','#fef3c7'], confirmed: ['#1e40af','#dbeafe'],
+            sent: ['#166534','#dcfce7'], sent_manual: ['#166534','#dcfce7'], acknowledged: ['#166534','#dcfce7'],
+            received: ['#334155','#e2e8f0'], cancelled: ['#991b1b','#fee2e2'] }[status] || ['#475569','#f1f5f9'];
+  return '<span style="font-size:10px;font-weight:700;color:' + c[0] + ';background:' + c[1] + ';padding:2px 7px;border-radius:6px;white-space:nowrap;">' + _poEsc(poStatusLabel(status)) + '</span>';
+}
+
+function poRenderOrdersList(){
+  var html = '';
+  if(_poOpenDrafts.length === 0){
+    html += '<div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:20px 0 8px;">Ordini</div>';
+    html += '<div style="font-size:13px;color:#94a3b8;padding:12px 0;">Nessun ordine aperto.</div>';
+  }
+  PO_LIST_SECTIONS.forEach(function(sec){
+    var rows = _poOpenDrafts.filter(function(d){ return sec.statuses.indexOf(d.status) >= 0; });
+    if(!rows.length) return;
+    html += '<div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:20px 0 8px;">' + _poEsc(sec.title) + '</div>';
+    rows.forEach(function(d){
+      var date = new Date(d.created_at).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+      html += '<div onclick="poOpenOrder(\'' + d.id + '\')" style="background:rgba(255,255,255,0.7);border:1px solid ' + (d.blocking_count ? '#fbbf24' : '#e2e8f0') + ';border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;">';
+      html += '<div style="min-width:0;"><div style="font-size:13px;font-weight:600;color:#1e3a5f;">' + _poEsc(d.vendor_name) + '</div>';
+      html += '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + _poEsc(d.created_by || 'Unknown') + ' · ' + date + ' · ' + (d.line_count || 0) + ' righe' +
+        (d.delivery_date ? ' · consegna ' + _poEsc(d.delivery_date) : '') + '</div>';
+      if(d.blocking_count) html += '<div style="font-size:11px;color:#92400e;margin-top:2px;">⚠ ' + d.blocking_count + ' da sistemare</div>';
+      html += '</div><div style="display:flex;align-items:center;gap:6px;">' + poStatusPill(d.status) + '<span style="color:#94a3b8;">&#8250;</span></div></div>';
+    });
+  });
+
+  // Ordine fatto fuori da Brigade (email/telefono/portale): lo registriamo
+  // perché il controllo doppioni lo veda.
+  html += '<details id="poExtBox" style="margin-top:18px;font-size:12px;color:#64748b;">';
+  html += '<summary style="cursor:pointer;">Hai ordinato fuori da Brigade? Registralo</summary>';
+  html += '<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">';
+  html += '<input id="poExtVendor" placeholder="Fornitore" style="padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;">';
+  html += '<select id="poExtChannel" style="padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;"><option value="">Come?</option><option value="email">Email</option><option value="portal">Portale</option><option value="phone">Telefono</option><option value="manual">Altro</option></select>';
+  html += '<input id="poExtNote" placeholder="Nota (facoltativa)" style="padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;">';
+  html += '<button onclick="poRegisterExternalSend()" style="height:38px;border-radius:10px;border:1px solid #1e3a5f;background:white;color:#1e3a5f;font-weight:700;cursor:pointer;">Registra</button>';
+  html += '</div></details>';
+  return html;
+}
+
+// ── RENDER: righe con problemi / prezzo ─────────────────────────────
+function poIssueBadges(issues){
+  return (issues || []).map(function(i){
+    var col = i.blocking ? 'color:#991b1b;background:#fee2e2;' : 'color:#92400e;background:#fef3c7;';
+    return '<span style="font-size:10px;' + col + 'padding:2px 6px;border-radius:6px;margin-right:4px;display:inline-block;margin-top:3px;">' + (i.blocking ? '⛔ ' : '⚠ ') + _poEsc(i.msg || i.code) + '</span>';
+  }).join('');
+}
+
+function poPriceText(l){
+  if(l.reference_price == null) return '';
+  var s = 'Rif. $' + Number(l.reference_price).toFixed(2) + (l.reference_price_unit ? '/' + _poEsc(l.reference_price_unit) : '');
+  if(l.reference_price_date) s += ' · ' + _poEsc(l.reference_price_date);
+  return '<span style="font-size:11px;color:' + (l.price_stale ? '#b45309' : '#64748b') + ';">' + s + (l.price_stale ? ' (vecchio)' : '') + '</span>';
+}
+
+function poRenderOrderLines(o){
+  var html = '';
+  (o.lines || []).forEach(function(l){
+    var bad = ['incomplete','ambiguous','blocked'].indexOf(l.line_status) >= 0;
+    html += '<div style="background:rgba(255,255,255,0.7);border:1px solid ' + (bad ? '#fca5a5' : '#e2e8f0') + ';border-radius:12px;padding:10px 12px;margin-bottom:8px;">';
+    html += '<div style="display:flex;justify-content:space-between;gap:8px;"><div style="font-size:14px;font-weight:600;color:#1e3a5f;">' +
+      _poEsc(l.matched_name || l.requested_text) + '</div><div style="font-size:14px;font-weight:700;color:#1e3a5f;white-space:nowrap;">' +
+      (l.quantity != null ? _poEsc(String(l.quantity)) : '?') + ' ' + _poEsc(l.unit || '?') + '</div></div>';
+    var meta = [];
+    if(l.vendor_sku) meta.push('SKU ' + _poEsc(l.vendor_sku));
+    if(l.pack_description) meta.push(_poEsc(l.pack_description));
+    if(l.matched_name && l.requested_text && l.matched_name !== l.requested_text) meta.push('richiesto: "' + _poEsc(l.requested_text) + '"');
+    if(meta.length) html += '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + meta.join(' · ') + '</div>';
+    var price = poPriceText(l);
+    if(price) html += '<div style="margin-top:2px;">' + price + '</div>';
+    html += poIssueBadges((l.issues || []).filter(function(i){ return i.code !== 'PRICE_STALE'; }));
+    if(l.received_status){
+      html += '<div style="font-size:11px;color:' + (l.received_status === 'received' ? '#166534' : '#991b1b') + ';margin-top:4px;">Ricevimento: ' +
+        _poEsc(l.received_status) + (l.received_qty != null ? ' (' + _poEsc(String(l.received_qty)) + ')' : '') + (l.received_note ? ' — ' + _poEsc(l.received_note) : '') +
+        (l.received_photo_url ? ' · <a href="' + _poEsc(l.received_photo_url) + '" target="_blank" rel="noopener">foto</a>' : '') + '</div>';
+    }
+    html += '</div>';
+  });
+  return html;
+}
+
+function poRenderDuplicates(o, allowAck){
+  var d = o.duplicates;
+  if(!d || !d.items || !d.items.length) return '';
+  var html = '<div style="background:#fff7ed;border:1px solid #fdba74;border-radius:12px;padding:12px;margin:12px 0;">';
+  html += '<div style="font-size:13px;font-weight:700;color:#9a3412;">⚠ Possibile doppio ordine (ultime ' + d.window_hours + ' ore)</div>';
+  d.items.forEach(function(it){
+    var when = it.at ? new Date(it.at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '';
+    var kind = it.kind === 'vendor_confirmation' ? 'Conferma ricevuta dal fornitore' : it.kind === 'manual_send' ? 'Invio manuale registrato' : 'Altro ordine inviato';
+    html += '<div style="font-size:12px;color:#9a3412;margin-top:4px;">• ' + kind + ' · ' + _poEsc(when) + (it.detail ? ' · ' + _poEsc(it.detail) : '') + '</div>';
+  });
+  if(allowAck){
+    html += '<label style="display:flex;gap:6px;align-items:center;font-size:12px;color:#9a3412;margin-top:8px;"><input type="checkbox" id="poAckDup"> So che può essere un doppione: procedo lo stesso</label>';
+  } else {
+    html += '<div style="font-size:12px;color:#9a3412;margin-top:8px;">Solo Max può procedere comunque.</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function poSummaryPlainText(o){
+  var s = o.summary || {};
+  var lines = (s.lines || []).map(function(l){
+    return l.quantity + ' ' + (l.unit || '') + ' — ' + (l.name || '') + (l.vendor_sku ? ' (SKU ' + l.vendor_sku + ')' : '') + (l.pack_description ? ' [' + l.pack_description + ']' : '');
+  });
+  return 'Order — Zeno\'s\nVendor: ' + (s.vendor || o.vendor_name) + '\nRequested delivery: ' + (s.delivery_date || '-') + '\n\n' +
+    lines.join('\n') + (s.notes ? '\n\nNotes: ' + s.notes : '') + '\n\nPlease confirm by reply with your order number. Thank you.';
+}
+
+var _PO_BTN = 'width:100%;height:46px;border-radius:12px;border:none;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;';
+var _PO_BTN_PRIMARY = _PO_BTN + 'background:#1e3a5f;color:white;';
+var _PO_BTN_SECOND = _PO_BTN + 'background:white;color:#1e3a5f;border:1px solid #1e3a5f;';
+var _PO_BTN_DANGER = 'width:100%;height:40px;border-radius:12px;border:none;background:none;color:#ef4444;font-size:13px;cursor:pointer;margin-top:12px;';
+
+function poRenderOrder(){
+  var o = _poCurrentOrder;
+  if(!o) return '';
+  var me = _poMe || {};
+  var isAdmin = !!me.is_admin;
+  var html = '';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+  html += '<button onclick="poBackToList()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;padding:0;">&#8249; Ordini</button>';
+  html += poStatusPill(o.status) + '</div>';
+  html += '<div style="font-size:18px;font-weight:700;color:#1e3a5f;">' + _poEsc(o.vendor_name) + '</div>';
+  html += '<div style="font-size:12px;color:#94a3b8;margin-bottom:12px;">' + _poEsc(o.created_by || '') + ' · revisione ' + o.revision +
+    (o.is_test ? ' · <b style="color:#b45309;">ORDINE DI PROVA</b>' : '') +
+    (o.channel_info ? ' · canale: ' + _poEsc(o.channel_info.channel) : ' · canale: manuale') + '</div>';
+
+  // data consegna
+  if(o.status === 'draft'){
+    html += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">';
+    html += '<label style="font-size:12px;color:#475569;white-space:nowrap;">Consegna</label>';
+    html += '<input type="date" id="poOrderDelivery" value="' + _poEsc(o.delivery_date || '') + '" style="flex:1;padding:8px;border:1px solid ' + (o.delivery_date ? '#e2e8f0' : '#fbbf24') + ';border-radius:8px;font-size:13px;">';
+    html += '<button onclick="poSaveOrderDeliveryDate()" style="height:36px;padding:0 12px;border-radius:8px;border:1px solid #1e3a5f;background:white;color:#1e3a5f;font-size:12px;font-weight:700;cursor:pointer;">Salva</button></div>';
+  } else {
+    html += '<div style="font-size:13px;color:#475569;margin-bottom:12px;">Consegna richiesta: <b>' + _poEsc(o.delivery_date || '—') + '</b></div>';
+  }
+
+  html += poRenderOrderLines(o);
+
+  if(o.status === 'draft'){
+    html += '<button onclick="poEditOrderLines()" style="' + _PO_BTN_SECOND + '">Modifica righe</button>';
+    html += '<button onclick="poMarkReady()" style="' + _PO_BTN_PRIMARY + '">Prepara riepilogo per Max</button>';
+  }
+
+  if(o.status === 'ready' || o.status === 'confirmed'){
+    var valid = o.status === 'ready' ? o.summary_valid : o.confirmation_valid;
+    html += '<div style="margin-top:14px;padding:12px;border:1px solid ' + (valid ? '#cbd5e1' : '#fca5a5') + ';border-radius:12px;background:#f8fafc;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-size:13px;font-weight:700;color:#1e3a5f;">Riepilogo #' + _poEsc((o.summary_hash || '').slice(0, 8)) + '</div>' +
+      '<button onclick="poCopySummary()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">Copia</button></div>';
+    html += '<pre id="poSummaryText" style="white-space:pre-wrap;font-size:12px;color:#334155;margin:8px 0 0;font-family:inherit;">' + _poEsc(poSummaryPlainText(o)) + '</pre>';
+    if(!valid) html += '<div style="font-size:12px;color:#991b1b;margin-top:6px;">⛔ L\'ordine è cambiato dopo il riepilogo: va rifatto.</div>';
+    if(o.status === 'confirmed') html += '<div style="font-size:12px;color:#166534;margin-top:6px;">✓ Confermato da ' + _poEsc(o.confirmed_by || '') + '</div>';
+    html += '</div>';
+    html += poRenderDuplicates(o, isAdmin && o.status === 'confirmed');
+  }
+
+  if(o.status === 'ready'){
+    if(isAdmin){
+      html += '<button onclick="poConfirmOrder()" style="' + _PO_BTN_PRIMARY + '">Confermo questo riepilogo</button>';
+    } else {
+      html += '<div style="font-size:12px;color:#92400e;margin-top:8px;">In attesa della conferma di Max.</div>';
+    }
+    html += '<button onclick="poEditOrderLines()" style="' + _PO_BTN_SECOND + '">Modifica (annulla il riepilogo)</button>';
+  }
+
+  if(o.status === 'confirmed'){
+    var ch = o.channel_info || { channel: 'manual' };
+    if(isAdmin){
+      html += '<button onclick="poSendSimulated()" style="' + _PO_BTN_PRIMARY + '">Prova invio (SIMULAZIONE — nulla parte)</button>';
+      html += '<div style="font-size:11px;color:#64748b;margin-top:4px;">L\'invio automatico ai fornitori non è attivo: serve la decisione di Max.</div>';
+    }
+    html += '<div style="margin-top:14px;padding:12px;border:1px solid #e2e8f0;border-radius:12px;">';
+    html += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:6px;">Inviato a mano?</div>';
+    if(ch.portal_url) html += '<div style="font-size:12px;margin-bottom:6px;"><a href="' + _poEsc(ch.portal_url) + '" target="_blank" rel="noopener">Apri portale</a></div>';
+    if(ch.notes) html += '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">' + _poEsc(ch.notes) + '</div>';
+    html += '<select id="poManualChannel" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;margin-bottom:6px;">' +
+      ['portal','email','phone','manual'].map(function(c){
+        var lbl = { portal: 'Portale', email: 'Email', phone: 'Telefono', manual: 'Altro' }[c];
+        return '<option value="' + c + '"' + (ch.channel === c ? ' selected' : '') + '>' + lbl + '</option>';
+      }).join('') + '</select>';
+    html += '<input id="poManualNumber" placeholder="Numero ordine del fornitore (se c\'è)" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;margin-bottom:6px;">';
+    html += '<input id="poManualNote" placeholder="Nota (facoltativa)" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;">';
+    html += '<button onclick="poRegisterManualSend()" style="' + _PO_BTN_SECOND + '">Registra invio manuale</button>';
+    html += '</div>';
+  }
+
+  if(o.status === 'sent' || o.status === 'sent_manual'){
+    html += '<div style="font-size:12px;color:#475569;margin-top:10px;">Inviato ' + (o.send_mode === 'simulated' ? '<b style="color:#b45309;">(SIMULATO — ordine di prova)</b> ' : '') +
+      'da ' + _poEsc(o.sent_by || '') + (o.sent_at ? ' il ' + _poEsc(new Date(o.sent_at).toLocaleString('en-US')) : '') +
+      (o.vendor_order_number ? ' · n. ' + _poEsc(o.vendor_order_number) : '') + '</div>';
+    html += '<button onclick="poLoadCandidates()" style="' + _PO_BTN_SECOND + '">Cerca conferma del fornitore</button>';
+    if(_poCandidates){
+      if(!_poCandidates.length) html += '<div style="font-size:12px;color:#94a3b8;margin-top:6px;">Nessuna conferma trovata per ora.</div>';
+      _poCandidates.forEach(function(c){
+        html += '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-top:6px;font-size:12px;color:#334155;">';
+        html += '<b>#' + _poEsc(c.document_number || '?') + '</b> · ' + _poEsc(c.document_date || '') + ' · ' + c.item_count + ' righe' +
+          (c.number_match ? ' · <span style="color:#166534;">numero corrisponde</span>' : '') + (c.sku_overlap ? ' · ' + c.sku_overlap + ' SKU in comune' : '');
+        html += '<button onclick="poLinkConfirmation(\'' + c.vendor_document_id + '\')" style="display:block;margin-top:6px;font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;padding:0;">Collega a questo ordine</button></div>';
+      });
+    }
+  }
+
+  if(o.status === 'acknowledged'){
+    html += '<div style="font-size:12px;color:#166534;margin-top:10px;">Confermato dal fornitore · n. ' + _poEsc(o.vendor_order_number || '?') + '</div>';
+    var ack = (o.events || []).filter(function(e){ return e.event === 'acknowledged'; }).pop();
+    var diffs = ack && ack.detail && ack.detail.differences;
+    if(diffs && diffs.length){
+      html += '<div style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:10px;margin-top:6px;font-size:12px;color:#9a3412;">Differenze ordinato/confermato:';
+      diffs.forEach(function(d){ html += '<div>• ' + _poEsc(d.name || d.vendor_sku) + ': ordinato ' + (d.ordered != null ? d.ordered : '—') + ', confermato ' + (d.confirmed != null ? d.confirmed : '—') + '</div>'; });
+      html += '</div>';
+    }
+  }
+
+  if(['sent','sent_manual','acknowledged'].indexOf(o.status) >= 0){
+    html += '<button onclick="poStartReceive()" style="' + _PO_BTN_PRIMARY + '">Check-in ricevimento</button>';
+  }
+
+  (o.complaint_drafts || []).forEach(function(c){
+    html += '<div style="margin-top:14px;padding:12px;border:1px solid #fca5a5;border-radius:12px;background:#fef2f2;">';
+    html += '<div style="font-size:13px;font-weight:700;color:#991b1b;">Bozza reclamo — NON inviata</div>';
+    html += '<div style="font-size:12px;color:#7f1d1d;margin-top:4px;">' + _poEsc(c.subject || '') + '</div>';
+    html += '<pre style="white-space:pre-wrap;font-size:12px;color:#334155;margin:8px 0 0;font-family:inherit;">' + _poEsc(c.body || '') + '</pre></div>';
+  });
+
+  if(['draft','ready'].indexOf(o.status) >= 0 || (isAdmin && ['confirmed','sent','sent_manual','acknowledged'].indexOf(o.status) >= 0)){
+    html += '<button onclick="poCancelOrder()" style="' + _PO_BTN_DANGER + '">Annulla ordine</button>';
+  }
+
+  // storico
+  if((o.events || []).length){
+    html += '<details style="margin-top:14px;font-size:11px;color:#94a3b8;"><summary style="cursor:pointer;">Storico</summary>';
+    o.events.forEach(function(e){
+      html += '<div style="margin-top:3px;">' + _poEsc(new Date(e.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })) +
+        ' · ' + _poEsc(e.event) + ' · ' + _poEsc(e.actor || '') + '</div>';
+    });
+    html += '</details>';
+  }
+  return html;
+}
+
+function poRenderReceive(){
+  var o = _poCurrentOrder;
+  if(!o) return '';
+  var html = '';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+  html += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;">Ricevimento — ' + _poEsc(o.vendor_name) + '</div>';
+  html += '<button onclick="poOpenOrder(\'' + o.id + '\')" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;">&#8249; Indietro</button></div>';
+  (o.lines || []).forEach(function(l){
+    var d = _poReceiveDraft[l.id] || { status: 'received' };
+    html += '<div style="background:rgba(255,255,255,0.7);border:1px solid ' + (d.status === 'received' ? '#e2e8f0' : '#fca5a5') + ';border-radius:12px;padding:10px 12px;margin-bottom:8px;">';
+    html += '<div style="font-size:14px;font-weight:600;color:#1e3a5f;">' + _poEsc(l.matched_name || l.requested_text) + ' <span style="font-weight:400;color:#64748b;">· ordinati ' + _poEsc(String(l.quantity)) + ' ' + _poEsc(l.unit || '') + '</span></div>';
+    html += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">';
+    [['received','Ricevuto'],['partial','Parziale'],['missing','Mancante'],['damaged','Danneggiato']].forEach(function(s){
+      var on = d.status === s[0];
+      html += '<button onclick="poRecvSet(\'' + l.id + '\',\'status\',\'' + s[0] + '\')" style="padding:6px 10px;border-radius:8px;font-size:12px;cursor:pointer;border:1px solid ' + (on ? '#1e3a5f' : '#e2e8f0') + ';background:' + (on ? '#1e3a5f' : 'white') + ';color:' + (on ? 'white' : '#475569') + ';">' + s[1] + '</button>';
+    });
+    html += '</div>';
+    if(d.status !== 'received'){
+      if(d.status !== 'missing'){
+        html += '<input type="number" value="' + (d.received_qty != null ? d.received_qty : '') + '" oninput="poRecvSet(\'' + l.id + '\',\'received_qty\',this.value)" placeholder="qtà ricevuta" style="width:110px;margin-top:6px;padding:6px 8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;">';
+      }
+      html += '<input value="' + _poEsc(d.note || '') + '" oninput="poRecvSet(\'' + l.id + '\',\'note\',this.value)" placeholder="nota" style="width:100%;box-sizing:border-box;margin-top:6px;padding:6px 8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;">';
+      html += '<label style="display:inline-block;margin-top:6px;font-size:12px;color:#3B82F6;cursor:pointer;">📷 ' + (d.photo_url ? 'Foto allegata ✓' : 'Foto (facoltativa)') +
+        '<input type="file" accept="image/*" capture="environment" onchange="poRecvPhoto(\'' + l.id + '\',this)" style="display:none;"></label>';
+    }
+    html += '</div>';
+  });
+  html += '<div style="font-size:11px;color:#64748b;margin-top:4px;">Se qualcosa manca o è danneggiato viene preparata una BOZZA di reclamo: non parte nessun messaggio.</div>';
+  html += '<button onclick="poSubmitReceive()" style="' + _PO_BTN_PRIMARY + '">Chiudi ricevimento</button>';
   return html;
 }
 
@@ -1295,6 +1807,18 @@ if (typeof module !== 'undefined' && module.exports) {
     poRenderCheckBeforeOrdering: poRenderCheckBeforeOrdering,
     poRenderChefAISuggests: poRenderChefAISuggests,
     poRenderList: poRenderList,
+    poBuildSaveGroups: poBuildSaveGroups,
+    poLineClientIssues: poLineClientIssues,
+    poReasonText: poReasonText,
+    poStatusLabel: poStatusLabel,
+    poIdemKey: poIdemKey,
+    poRenderOrder: poRenderOrder,
+    poRenderReceive: poRenderReceive,
+    poRenderOrdersList: poRenderOrdersList,
+    poSummaryPlainText: poSummaryPlainText,
+    poSetOrderForTest: function(o, me){ _poCurrentOrder = o; _poMe = me || null; },
+    poSetOpenOrdersForTest: function(list){ _poOpenDrafts = list || []; },
+    poSetReceiveDraftForTest: function(d){ _poReceiveDraft = d || {}; },
     poCheckBeforeOrderingWording: poCheckBeforeOrderingWording,
     poSetRhythmResultsForTest: function(results){ _poRhythmResults = results; },
     poSetDraftLinesForTest: function(lines){ _poDraftLines = lines || []; },
