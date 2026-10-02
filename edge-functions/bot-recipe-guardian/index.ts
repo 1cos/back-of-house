@@ -1,4 +1,7 @@
-// ── BOT-RECIPE-GUARDIAN v14.1 (YIELD01) ─────────────────────────────────────
+// ── BOT-RECIPE-GUARDIAN v14.2 (YIELD01 + GUARD01) ───────────────────────────
+// v14.2: archived recipes (category contains "archiv", the same rule as recipe_yield and
+//        attention_items) are not checked, and this bot's open items on them are closed
+//        with a traceable reason. They never create operational work.
 // v14: the yield check reads the canonical view public.recipe_yield (same logic as FC05):
 //      a recipe needs a yield (batch weight OR portions), not specifically base_servings.
 //      Open 'missing_base_servings' items are closed automatically when the recipe has a yield.
@@ -46,12 +49,17 @@ Deno.serve(async () => {
       .select(`
         id, title, pos_name, serving_unit, serving_qty, base_servings,
         procedure, procedure_en, selling_price, food_cost_pct,
-        image_url, photo_url
+        image_url, photo_url, category
       `)
       .not('pos_name', 'is', null)
       .neq('pos_name', '');
 
     if (recipeErr) throw recipeErr;
+
+    // v14.2 — archived recipes are out of scope: not checked, and their open items get closed below.
+    const isArchived = (r: any) => /archiv/i.test(r.category || '');
+    const archivedIds = new Set((recipes || []).filter(isArchived).map((r: any) => r.id));
+    const activeRecipes = (recipes || []).filter((r: any) => !isArchived(r));
     if (!recipes || recipes.length === 0) {
       return new Response(JSON.stringify({ skipped: true, reason: 'no recipes with pos_name' }), { status: 200 });
     }
@@ -129,7 +137,7 @@ Deno.serve(async () => {
 
     // ── 5. Ordina ricette per priorità vendite ────────────────────────────────
     // sold yesterday > sold 7d > sold 30d > top sellers first
-    const scoredRecipes = recipes.map((r: any) => {
+    const scoredRecipes = activeRecipes.map((r: any) => {
       const s = getRecipeSales(r);
       let priority = 0;
       if (s.qty1 > 0) priority = 3;
@@ -444,16 +452,32 @@ Deno.serve(async () => {
       if (!cErr) autoClosed++;
     }
 
+    // ── 10. (v14.2) Chiude le voci aperte di questo bot su ricette archiviate ──
+    let archivedClosed = 0;
+    for (const item of (existingItems || [])) {
+      if (!archivedIds.has(item.source_id) || item.issue_type === 'missing_base_servings') continue;   // the latter already closed in step 9
+      const { error: aErr } = await sb.from('office_items').update({
+        status: 'resolved',
+        resolution: 'auto: recipe archived, not an operational alert (GUARD01)',
+        resolved_by: 'bot-recipe-guardian',
+        resolved_at: now.toISOString(),
+        updated_at: now.toISOString(),
+      }).eq('id', item.id).eq('status', item.status);
+      if (!aErr) archivedClosed++;
+    }
+
     const backlogCritical = Math.max(0, criticalIssues.length - MAX_CRITICAL_PER_RUN);
     const backlogWarning  = Math.max(0, warningIssues.length - MAX_WARNING_PER_RUN);
 
-    console.log(`[bot-recipe-guardian v14.1] recipes=${recipes.length} issues=${issues.length} inserted=${inserted} updated=${updated} backlog_critical=${backlogCritical} backlog_warning=${backlogWarning}`);
+    console.log(`[bot-recipe-guardian v14.2] recipes=${activeRecipes.length} archived_skipped=${archivedIds.size} archived_closed=${archivedClosed} issues=${issues.length} inserted=${inserted} updated=${updated} backlog_critical=${backlogCritical} backlog_warning=${backlogWarning}`);
 
     return new Response(JSON.stringify({
       ok: true,
       bot_id: BOT_ID,
-      version: 'v14.1',
-      recipes_checked: recipes.length,
+      version: 'v14.2',
+      recipes_checked: activeRecipes.length,
+      archived_skipped: archivedIds.size,
+      archived_closed: archivedClosed,
       issues_found: {
         critical: criticalIssues.length,
         warning: warningIssues.length,
@@ -477,7 +501,7 @@ Deno.serve(async () => {
     });
 
   } catch (err: any) {
-    console.error('[bot-recipe-guardian v14.1]', err);
-    return new Response(JSON.stringify({ error: err.message, bot_id: BOT_ID, version: 'v14.1' }), { status: 500 });
+    console.error('[bot-recipe-guardian v14.2]', err);
+    return new Response(JSON.stringify({ error: err.message, bot_id: BOT_ID, version: 'v14.2' }), { status: 500 });
   }
 });
