@@ -1111,6 +1111,16 @@ window.saveNewVendorRow = async function(ingredientId, btn){
       btn.disabled = false;
       return;
     }
+    // INV15B — esito del recupero prezzo dalle fatture, visibile. Il
+    // prezzo scritto nel form e' gia' salvato qui sopra; il recupero puo'
+    // sostituirlo con quello della fattura (documentato) oppure non
+    // applicarsi: in entrambi i casi lo Chef lo legge.
+    const prInfo = window.vdrDescribePriceRecovery ? window.vdrDescribePriceRecovery(result.price_recovery) : null;
+    if (prInfo && prInfo.text && typeof showScToast === 'function') {
+      const nonApplicato = prInfo.tone === 'warn' || prInfo.tone === 'error';
+      if (nonApplicato) console.warn('[ingredients] price recovery', result.price_recovery);
+      showScToast((nonApplicato ? '⚠ Your price is saved; invoice price not applied. ' : '') + prInfo.text, nonApplicato ? 9000 : 5000);
+    }
   }
   // 'created'/'idempotent' (or no vendor_sku provided at all) — done.
   window.ingrDopoSalva(ingredientId, btn);

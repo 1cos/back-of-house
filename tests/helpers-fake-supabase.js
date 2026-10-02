@@ -1,8 +1,24 @@
 // Supabase finto: un piccolo database in memoria con la catena PostgREST
 // che vdaiApprove usa davvero (select/eq/in/not/limit/single, update, insert).
 'use strict';
-function makeSb(db, log) {
+//
+// INV15B — opzionale `opts.notNull = { tabella: { colonna: default } }`:
+// riproduce un vincolo NOT NULL con default di Postgres. Su insert una
+// chiave ASSENTE prende il default, una chiave presente a null fallisce
+// con 23502 come in produzione; su update un null esplicito fallisce.
+// Senza opts il comportamento e' identico a prima.
+function makeSb(db, log, opts) {
   log = log || { updates: [], inserts: [] };
+  const notNull = (opts && opts.notNull) || {};
+  function violazione(t, payload) {
+    const cols = notNull[t] || {};
+    for (const c of Object.keys(cols)) {
+      if (Object.prototype.hasOwnProperty.call(payload, c) && payload[c] === null) {
+        return { code: '23502', message: 'null value in column "' + c + '" of relation "' + t + '" violates not-null constraint' };
+      }
+    }
+    return null;
+  }
   function rows(t) { return db[t] || (db[t] = []); }
   // FC04-UX — i filtri su campi JSON ("assunzioni->>tipo") leggono dentro l'oggetto.
   function campo(r, k) {
@@ -71,6 +87,8 @@ function makeSb(db, log) {
         return { data: r.map(x => ({ ...x })), error: null };
       }
       if (mode === 'update') {
+        const v = violazione(t, payload || {});
+        if (v) { log.updates.push({ table: t, rejected: true, patch: { ...payload } }); return { data: null, error: v }; }
         const hit = apply(t, filters);
         for (const r of hit) Object.assign(r, payload);
         log.updates.push({ table: t, filters: filters.map(f => f.k + (f.op === 'eq' ? '=' + f.v : '')), patch: { ...payload }, n: hit.length });
@@ -78,7 +96,13 @@ function makeSb(db, log) {
       }
       if (mode === 'insert') {
         const arr = Array.isArray(payload) ? payload : [payload];
-        for (const r of arr) rows(t).push({ id: 'new-' + (rows(t).length + 1), ...r });
+        for (const r of arr) { const v = violazione(t, r); if (v) { log.inserts.push({ table: t, rejected: true, rows: [{ ...r }] }); return { data: null, error: v }; } }
+        const cols = notNull[t] || {};
+        for (const r of arr) {
+          const def = {};
+          for (const c of Object.keys(cols)) if (!Object.prototype.hasOwnProperty.call(r, c)) def[c] = cols[c];
+          rows(t).push({ id: 'new-' + (rows(t).length + 1), ...def, ...r });
+        }
         log.inserts.push({ table: t, rows: arr.map(x => ({ ...x })) });
         return { data: arr, error: null };
       }
