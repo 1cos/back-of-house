@@ -390,6 +390,12 @@ window.vdrBackfillInvoiceLines = async function(sb, vendor, vendorSku, ingredien
 //   5. tutte le altre righe ingredient_vendors dello STESSO vendor+SKU
 //      concordano su un tipo.
 // Altrimenti: nessuna prova -> null.
+// Modulo condiviso price-intelligence-merge (browser: window; test/node: require).
+function vdrPIM() {
+  if (typeof window !== 'undefined' && window.PriceIntelligenceMerge) return window.PriceIntelligenceMerge;
+  return (typeof require === 'function') ? require('./vendor-parsers/price-intelligence-merge') : null;
+}
+
 window.vdrPriceTypeEvidence = function(vendor, items, siblingTypes) {
   const its = (items || []).filter(Boolean);
   const unico = function(arr) {
@@ -4166,15 +4172,22 @@ window.vdrApprove = async function(docId, btn) {
                       : (effectiveExt && effectiveQty ? effectiveExt / effectiveQty : null);
 
         // Fruge parser produces _cost_per_100g and cost_per_lb directly — use them
+        // XCF-PREZZI — U/M di fattura 'lb' (Global Gourmet): il prezzo e'
+        // al libbra, non a collo. Ramo raggiunto SOLO con invoice_unit.
+        const umLb = vdrPIM().invoiceLineUnit(item) === 'lb';
         const per100g = item._cost_per_100g
           ? parseFloat(item._cost_per_100g)
           : (item.catchweight && item.price_per_lb)
             ? (item.price_per_lb / 453.592) * 100
             : (item.cost_per_lb)
               ? (item.cost_per_lb / 453.592) * 100
-              : ((totalG && price) ? (price / totalG * 100) : null);
+              : (umLb && price)
+                ? (price / 453.592) * 100
+                : ((totalG && price) ? (price / totalG * 100) : null);
 
-        const priceType = item.price_type || (item.catchweight ? 'per_lb' : 'per_case');
+        // XCF-PREZZI — una sola regola, condivisa col worker: dichiarato,
+        // catchweight, cost_per_lb, U/M di fattura 'lb', poi per_case.
+        const priceType = vdrPIM().derivePriceType(item);
         const convBase  = priceType === 'per_lb' ? null : (item.conversion_to_base || totalG || null);
 
         // MICRO-TASK 88A — stessa decisione del worker, stesso modulo.
@@ -4442,11 +4455,16 @@ window.vdrApprove = async function(docId, btn) {
         const lineTotal   = (edits.ext != null && !isNaN(edits.ext)) ? edits.ext : (item.amount != null ? item.amount : null);
 
         // Weight
+        // XCF-PREZZI — riga a U/M 'lb' (Global Gourmet): il peso e' quello
+        // FATTURATO (7,3 lb -> 3311 g), non il nominale del pack (3175 g).
+        const billedG = vdrPIM().billedWeightG(item);
         const totalG = item.total_weight_lb
           ? item.total_weight_lb * 453.592
           : item.catchweight && item.actual_weight_lb
             ? item.actual_weight_lb * 453.592
-            : (window.vdrPackToGrams ? window.vdrPackToGrams(pack, false, null, desc) : null);
+            : billedG != null
+              ? billedG
+              : (window.vdrPackToGrams ? window.vdrPackToGrams(pack, false, null, desc) : null);
 
         // INV08G — SU UNA CATCHWEIGHT IL PREZZO E' AL LIBBRA.
         //
@@ -4481,7 +4499,9 @@ window.vdrApprove = async function(docId, btn) {
             : item.catchweight
               ? (cwGrams && lineTotal != null && lineTotal > 0 ? (lineTotal / cwGrams) * 100
                  : item.price_per_lb ? (item.price_per_lb / 453.592) * 100 : null)
-              : (totalG && unitPrice && qty && qty > 0) ? ((unitPrice / totalG) * 100) : null;
+              : (billedG != null && unitPrice)
+                ? (unitPrice / 453.592) * 100
+                : (totalG && unitPrice && qty && qty > 0) ? ((unitPrice / totalG) * 100) : null;
 
         // FIX (line_type task): a Shipping/adjustment row must never carry
         // an ingredient_id in invoice_lines either, even if a stale or
@@ -4509,7 +4529,9 @@ window.vdrApprove = async function(docId, btn) {
           ingredient_id:      matchedId,
           match_status:       matchedId ? 'matched' : 'unmatched',
           qty:                qty,
-          purchase_unit:      'case',
+          // XCF-PREZZI — U/M della fattura quando dichiarata (invoice_unit),
+          // altrimenti 'case' come sempre.
+          purchase_unit:      vdrPIM().invoiceLineUnit(item),
           pack_description:   pack,
           unit_price:         unitPrice,
           line_total:         lineTotal,

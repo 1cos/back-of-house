@@ -23,6 +23,7 @@ global.vdrIsPurchasableDocument = require('../js/vendor-parsers/ben-e-keith-orde
 const VDR_JS = path.join(__dirname, '..', 'js', 'vendor-documents-review.js');
 
 global.window = global.window || {}; // il blocco reale legge window.vdrPackToGrams
+global.window.PriceIntelligenceMerge = require('../js/vendor-parsers/price-intelligence-merge');
 // MICRO-TASK 42: il blocco estratto da vendor-documents-review.js ora delega
 // la regola "questo documento genera un acquisto?" al modulo canonico.
 // Qui iniettiamo la REGOLA VERA (non uno stub), cosi il test esercita
@@ -53,7 +54,12 @@ function extractPopulateInvoiceLinesBlock() {
   const gStart = src.indexOf('function vdrIsZeroDeliveredLegacy(vendor, item) {');
   if (gStart === -1) throw new Error('vdrIsZeroDeliveredLegacy non trovato in js/vendor-documents-review.js');
   const gEnd = src.indexOf('\n}', gStart) + 2;
-  return src.slice(gStart, gEnd) + '\n\n' + src.slice(start, end);
+  // XCF-PREZZI — il blocco legge la U/M di fattura dal modulo condiviso
+  // (vdrPIM -> window.PriceIntelligenceMerge): anche lui va portato dietro.
+  const pStart = src.indexOf('function vdrPIM() {');
+  if (pStart === -1) throw new Error('vdrPIM non trovato in js/vendor-documents-review.js');
+  const pEnd = src.indexOf('\n}', pStart) + 2;
+  return src.slice(gStart, gEnd) + '\n\n' + src.slice(pStart, pEnd) + '\n\n' + src.slice(start, end);
 }
 
 async function runPopulateInvoiceLines({ sb, pj, items, docId, docEdits = {}, skuMap = {}, linkMap = {}, vendor, invoiceDate }) {
