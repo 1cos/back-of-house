@@ -2666,6 +2666,9 @@ function vdrWarningToQuestion(w, item, docId, idx, qtyCtx) {
     // e.g. "50 CT", "4/20 CT", "95 CT", "110 CT"
     const isPureCount = /^\d+\s*(\/\s*\d+\s*)?CT$/i.test(pack.trim());
     if (isPureCount) return null;
+    // XCF-HARDIES — dozzine: conteggio fisso (15 DZ = 180), stessa
+    // non-ambiguita' del CT. Gemello di isBlockingWarning nel worker.
+    if (/^\d+\s*(\/\s*\d+\s*)?(DZ|DOZ)$/i.test(pack.trim())) return null;
     // Skip OQR-006 for CT range packs — auto-calculate average
     // e.g. "16-22 CT" → average = 19, show info-only, no question
     const isRangeCT = /^(\d+)-(\d+)\s*CT$/i.test(pack.trim());

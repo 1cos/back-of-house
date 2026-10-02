@@ -927,6 +927,12 @@ function isBlockingWarning(w: any, item: any, knownConversions: Record<string, a
     }
     if (/^\d+\s*(\/\s*\d+\s*)?CT$/i.test(pack.trim())) return false; // pure count — no ambiguity
     if (/^(\d+)-(\d+)\s*CT$/i.test(pack.trim())) return false; // range CT — infoOnly (auto-averaged)
+    // XCF-HARDIES — "15 DZ" e' un conteggio fisso (15 x 12 = 180), non
+    // ambiguo quanto "95 CT". La domanda "is this pack correct?" non
+    // impara niente (la risposta Yes non scrive conversioni) e fermava
+    // OGNI fattura Hardie's con le uova: 07137898 e 07148979 erano ferme
+    // per questo, non per OQR-007. Gemello in vdrWarningToQuestion.
+    if (/^\d+\s*(\/\s*\d+\s*)?(DZ|DOZ)$/i.test(pack.trim())) return false;
     return true;
   }
   if (code === 'OQR-008') {

@@ -209,5 +209,21 @@ test('19. nessun OQR-007/OQR-002 blocca piu\' i due documenti (identita\' come i
   assert.deepStrictEqual(blockers(F.INV_07148979, all(F.INV_07148979)).filter(b => !/^OQR-006/.test(b)), []);
 });
 
+test('20. causa reale del blocco: OQR-006 uova "15 DZ" — ora nessun bloccante resta', () => {
+  const all = (pj) => pj.items.map(i => i.vendor_sku);
+  assert.deepStrictEqual(blockers(F.INV_07137898, all(F.INV_07137898)), []);
+  assert.deepStrictEqual(blockers(F.INV_07148979, all(F.INV_07148979)), []);
+});
+
+test('21. UI: nessuna domanda OQR-006 sulle uova (gemello)', () => {
+  const block = grab(VDRSRC, 'function vdrWarningToQuestion(', '// ── OQR-002: Substitution');
+  const g = { window: { _vdrKnownConversions: {} } };
+  const fn = new Function('window', 'vdrItemEmoji', 'vdrQtyWarningInformational',
+    block + '\n  return null; }\nreturn vdrWarningToQuestion;')(g.window, () => '', () => false);
+  assert.strictEqual(fn({ code: 'OQR-006' }, { vendor_sku: '01115', description: 'EGGS LARGE', pack_description: '15 DZ' }, 'd', 0), null);
+  const q = fn({ code: 'OQR-006' }, { vendor_sku: 'x', description: 'X', pack_description: '4 BAG' }, 'd', 1);
+  assert.ok(q && q.question, 'un pack non-conteggio resta una domanda');
+});
+
 console.log(`\n  ${pass} pass, ${fail} fail\n`);
 process.exit(fail ? 1 : 0);

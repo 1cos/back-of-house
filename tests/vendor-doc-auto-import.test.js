@@ -117,8 +117,15 @@ function makeMockSb(tables) {
   test('OQR-006: range CT ("16-22 CT") never blocks (auto-averaged)', () => {
     assert.strictEqual(isBlockingWarning({ code: 'OQR-006' }, { pack_description: '16-22 CT' }, {}), false);
   });
-  test('OQR-006: DZ pack with no known conversion DOES block', () => {
-    assert.strictEqual(isBlockingWarning({ code: 'OQR-006' }, { pack_description: '15 DZ' }, {}), true);
+  // XCF-HARDIES — prima: "DZ pack with no known conversion DOES block".
+  // La domanda non imparava mai (Yes non scrive conversioni) e fermava
+  // ogni fattura Hardie's con le uova. Una dozzina e' un conteggio fisso.
+  test('OQR-006: DZ pack is a fixed count ("15 DZ" = 180) and never blocks', () => {
+    assert.strictEqual(isBlockingWarning({ code: 'OQR-006' }, { pack_description: '15 DZ' }, {}), false);
+    assert.strictEqual(isBlockingWarning({ code: 'OQR-006' }, { pack_description: '2/15 DOZ' }, {}), false);
+  });
+  test('OQR-006: a non-count pack (e.g. "4 BAG") still blocks without a known conversion', () => {
+    assert.strictEqual(isBlockingWarning({ code: 'OQR-006' }, { pack_description: '4 BAG' }, {}), true);
   });
   test('OQR-006: DZ pack WITH a known conversion for that SKU never blocks (learned once)', () => {
     const known = { '01115': { conversion_to_base: 1000 } };
