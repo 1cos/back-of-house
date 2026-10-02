@@ -859,6 +859,58 @@ function buildVendorParsers() {
       credit_number:creditNumber,credit_date:creditDate,original_order_number:originalOrder,total,items,warnings};
   }
 
+  // ── XCF-HARDIES — Hardie's pick-up slip (email "R.M.A.") ──
+  // Copia browser di parseReturnRequest in js/vendor-parsers/hardies-credit.js
+  // (il canonico usato dal worker). Documento operativo senza importi: si
+  // legge per tracciabilita', non diventa ne' fattura ne' credito.
+  function parseHardiesReturnRequest(rawText) {
+    const lines=(rawText||'').split('\n').map(l=>l.trim());
+    const ORIG=/^(USA|MEX|CAN|CHI|ITA|PER|CHL|GTM|HND|NZL|ESP|FRA|NLD|AUS)$/;
+    const RC={'NN':'Do Not Need','SH':'Short on Truck','NO':'Did Not Order','OO':'Over Ordered','MS':'Mis-shipped','MK':'Mis-keyed','5A':'Quality/Other'};
+    let returnNumber=null;
+    for(let i=0;i<lines.length;i++){
+      if(/PICK-UP\s+SLIP/i.test(lines[i])){
+        const same=lines[i].match(/PICK-UP\s+SLIP\s*#?\s*(\d{6,10})\b/i);
+        if(same){returnNumber=same[1];break;}
+        const next=(lines[i+1]||'').match(/^(\d{6,10})$/);
+        if(next){returnNumber=next[1];break;}
+      }
+    }
+    const returnDate=extractDocDate(lines,['DATE','ORDER DATE'])||null;
+    const items=[];let last=null;
+    for(const line of lines){
+      const o=line.match(/Original Sales Order[:\s]+(\d+)/i);
+      if(o){if(last&&!last.original_order_number)last.original_order_number=o[1];continue;}
+      if(isSkipLine(line)){last=null;continue;}
+      const parts=line.split(/\s{2,}/);
+      if(parts.length>=4&&/^\d+$/.test(parts[0])&&/^\d{5}$/.test(parts[1])){
+        let origin=null,rc=null;const money=[];
+        for(const p of parts.slice(4)){
+          if(!origin&&ORIG.test(p)){origin=p;continue;}
+          if(/^-?[\d,]*\.\d{2}$/.test(p)){money.push(parsePrice(p));continue;}
+          if(!rc&&/^[A-Z0-9]{1,3}$/.test(p)){rc=p;continue;}
+        }
+        const pack=parsePackSize(parts[3]);
+        last={vendor_sku:parts[1],raw_description:parts[2],description:cleanDescription(parts[2]),
+          qty_returned:parseFloat(parts[0]),pack_description:parts[3],pack_qty:pack?pack.count:null,pack_unit:pack?pack.unit:null,
+          origin,return_code:rc,return_reason:rc?(RC[rc.toUpperCase()]||rc):null,original_order_number:null,
+          unit_price:money.length?money[0]:null,amount:null,warnings:[]};
+        items.push(last);continue;
+      }
+      if(last&&/^[a-z][a-z .,'-]{2,60}$/i.test(line)&&!/^PICK UP$/i.test(line)){last.note=last.note?last.note+' '+line:line;}
+    }
+    const seen=new Set();const unique=[];
+    for(const it of items){const k=[it.vendor_sku,it.qty_returned,it.original_order_number,it.return_code].join('|');if(seen.has(k))continue;seen.add(k);unique.push(it);}
+    const originals=[...new Set(unique.map(i=>i.original_order_number).filter(Boolean))];
+    const what=unique.length?unique.map(i=>`${i.qty_returned} x ${i.description}${i.original_order_number?' (order '+i.original_order_number+')':''}`).join(', '):'no readable lines';
+    return {vendor:"Hardie's Fresh Foods / Dairyland Produce",document_type:'return_request',
+      return_number:returnNumber,return_date:returnDate,document_number:returnNumber,document_date:returnDate,
+      original_order_number:originals.length===1?originals[0]:null,original_order_numbers:originals,
+      total:null,awaiting_credit:true,items:unique,
+      warnings:[{code:'RETURN_REQUEST',severity:'info',
+        message:`Hardie's pick-up slip (R.M.A.)${returnNumber?' #'+returnNumber:''}: ${what}. Not an invoice and not a credit: no amount on the document. Any credit arrives as a separate CREDIT memo.`}]};
+  }
+
   // ── FreshPoint Dallas parser ──
   function parseFreshPointOrder(rawText) {
     const warnings = [];
@@ -2074,8 +2126,11 @@ function buildVendorParsers() {
     return 'unknown';
   }
 
-  function detectDocumentType(text) {
+  function detectDocumentType(text, vendor) {
     if (/CONFIRMATION OF SALE/i.test(text))  return 'order_confirmation';
+    // XCF-HARDIES — prima del fallback INVOICE (il testo PACA dice "invoice").
+    // In parse() vale solo se il vendor e' Hardie's.
+    if (vendor === 'hardies' && /PICK-UP\s+SLIP/i.test(text)) return 'return_request';
     if (/\bCREDIT\s+\d{5,}/i.test(text))    return 'credit_memo';
     if (/INVOICE\/POD/i.test(text))          return 'invoice';
     if (/\bINVOICE\b/i.test(text))           return 'invoice';
@@ -2095,7 +2150,7 @@ function buildVendorParsers() {
 
   function parse(rawText) {
     const vendor  = detectVendor(rawText);
-    const docType = detectDocumentType(rawText);
+    const docType = detectDocumentType(rawText, vendor);
     if (vendor === 'unknown')
       return {vendor:null,document_type:docType,items:[],warnings:[{code:'UNKNOWN_VENDOR',message:'Vendor not recognised'}]};
     if (docType === 'unknown')
@@ -2109,6 +2164,7 @@ function buildVendorParsers() {
         if (docType === 'order_confirmation') result = parseHardiesOrder(rawText);
         if (docType === 'invoice')            result = parseHardiesInvoice(rawText);
         if (docType === 'credit_memo')        result = parseHardiesCredit(rawText);
+        if (docType === 'return_request')     result = parseHardiesReturnRequest(rawText);
       }
       if (vendor === 'freshpoint') {
         if (docType === 'order_confirmation') result = parseFreshPointOrder(rawText);

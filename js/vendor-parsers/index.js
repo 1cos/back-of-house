@@ -56,6 +56,9 @@ const VENDORS = {
       order_confirmation: hardiesOrder,
       invoice:            hardiesInvoice,
       credit_memo:        hardiesCredit,
+      // XCF-HARDIES — il pick-up slip (email "R.M.A.") e' un documento
+      // operativo senza importi: si legge, non si contabilizza.
+      return_request:     { parse: hardiesCredit.parseReturnRequest },
     },
   },
   freshpoint: {
@@ -127,6 +130,11 @@ function detectVendor(rawText) {
 function detectDocumentType(rawText, vendor) {
   const text = rawText || '';
   if (/CONFIRMATION OF SALE/i.test(text))   return 'order_confirmation';
+  // XCF-HARDIES — PRIMA del fallback \bINVOICE\b: il testo PACA del
+  // pick-up slip dice "listed on this invoice", e senza questa regola
+  // la richiesta di ritiro diventava una fattura senza righe (00682258).
+  // Limitato a Hardie's, come le regole BEK e FreshPoint qui sotto.
+  if (vendor === 'hardies' && /PICK-UP\s+SLIP/i.test(text)) return 'return_request';
   if (/\bCREDIT\b/i.test(text) && /\bCREDIT\s+\d{5,}/i.test(text)) return 'credit_memo';
   if (/INVOICE\/POD/i.test(text))           return 'invoice';
 

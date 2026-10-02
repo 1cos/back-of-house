@@ -1413,6 +1413,9 @@ window.vdrProcessAllPdf = async function(docId) {
         } else if (walmartBuyerDecision && walmartBuyerDecision.action === 'review') {
           computedStatus = 'error';
         }
+        // XCF-HARDIES — stessa regola di Phase A: il pick-up slip (R.M.A.)
+        // non e' contabile e si chiude letto, mai pending ne' error.
+        if (parsed.document_type === 'return_request') computedStatus = 'ignored';
 
         await sb.from('vendor_documents').update({
           // FIX (silent Hardie's fallback task): a parser that couldn't
@@ -1471,7 +1474,7 @@ window.vdrProcessAllPdf = async function(docId) {
         // aggiorna per id).
         if (allWarnings.length > 0) {
           const warnRows = allWarnings
-            .filter(w => w.code && !['OQR-006'].includes(w.code)) // OQR-006 auto-resolves in UI
+            .filter(w => w.code && !['OQR-006', 'RETURN_REQUEST'].includes(w.code)) // OQR-006 auto-resolves in UI; RETURN_REQUEST e' solo informativo (XCF-HARDIES)
             .map(w => ({
               document_id:      doc.id,
               vendor:           parsed.vendor || 'unknown',
@@ -1663,7 +1666,7 @@ function vdrCardHTML(doc) {
   const qCount    = allQ.length;
   const itemCountLabel = vdrDescribeItemCounts(pj.items);
 
-  const typeColor = { invoice:'#3B82F6', order_confirmation:'#8b5cf6', credit_memo:'#ef4444' }[doc.document_type] || '#64748b';
+  const typeColor = { invoice:'#3B82F6', order_confirmation:'#8b5cf6', credit_memo:'#ef4444', return_request:'#f59e0b' }[doc.document_type] || '#64748b';
 
   const matchStatus       = (window._vdrMatchStatus && window._vdrMatchStatus[doc.id]) || null;
   const unmatchedSkuCount  = (matchStatus && matchStatus.unmatchedSkuCount) || 0;
@@ -2566,11 +2569,23 @@ function vdrDocumentEconomicallyDeterministic(pj) {
   return candidates.some(c => Math.abs(c - sum) <= VDR_TOTAL_TOLERANCE);
 }
 
+// XCF-HARDIES — gemello di vdaiLineNotShippedNotCharged nel worker.
+function vdrLineNotShippedNotCharged(item) {
+  if (!item) return false;
+  const ord = vdrNum(item.qty_ordered);
+  const rec = vdrNum(item.qty_received);
+  const amt = vdrNum(item.amount);
+  return ord !== null && ord > 0 && rec === 0 && amt === 0;
+}
+
 function vdrQtyWarningInformational(code, item, qtyCtx) {
   if (code !== 'OQR-002' && code !== 'OQR-007') return false;
   if (!qtyCtx || qtyCtx.deterministic !== true) return false;
   if (!item) return false;
   if (!vdrLineEconomicallyDeterminate(item)) return false;
+  // XCF-HARDIES — ordinato, non spedito, non addebitato: nessuna riga
+  // d'acquisto, quindi nessuna identita' da chiedere. Nota, non domanda.
+  if (code === 'OQR-007' && vdrLineNotShippedNotCharged(item)) return true;
   const key = item.vendor_sku || item.item_code || item.description || item.raw_description;
   if (!key) return false;
   if (!(qtyCtx.unmatchedKeys instanceof Set)) return false;   // niente mappa identita' => fail closed
@@ -2720,7 +2735,9 @@ function vdrWarningToQuestion(w, item, docId, idx, qtyCtx) {
         qid, code: 'OQR-002', item, docId, idx,
         emoji: '🔄',
         title: name || 'Substitution',
-        detected: `${subName} replaced ${prevItem} · received ${item.qty_received} · charged $${Number(item.amount).toFixed(2)}`,
+        // XCF-HARDIES — la fattura dice SPEDITO e ADDEBITATO, non "accettato"
+        // ne' "ricevuto in cucina": il testo non dichiara cio' che nessuno ha confermato.
+        detected: `${subName} shipped instead of ${prevItem} · invoiced ${item.qty_received} · charged $${Number(item.amount).toFixed(2)} · kitchen acceptance not recorded`,
         question: null,
         warnRef: w,
         infoOnly: true,
@@ -4873,7 +4890,7 @@ function vdrCodeToSeverity(code) {
 
 // ── Helpers ───────────────────────────────────────────────────
 function vdrDocTypeLabel(t) {
-  return { invoice: 'Invoice', order_confirmation: 'Order Conf.', credit_memo: 'Credit Memo' }[t] || (t || 'Unknown');
+  return { invoice: 'Invoice', order_confirmation: 'Order Conf.', credit_memo: 'Credit Memo', return_request: 'Pick-up (RMA)' }[t] || (t || 'Unknown');
 }
 
 function vdrFmtDate(d) {
