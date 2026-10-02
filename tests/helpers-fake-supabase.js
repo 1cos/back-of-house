@@ -68,7 +68,11 @@ function makeSb(db, log, opts) {
       order(k, opts) { if (k) ordine = { k, asc: !(opts && opts.ascending === false) }; return self; },
       range() { return self; },
       limit(n) { limit = n; return self; },
-      async single() { const r = apply(t, filters); return { data: r[0] ? { ...r[0] } : null, error: r.length ? null : { message: 'not found' } }; }, // copia, come PostgREST
+      // XCF-GG — insert(...).select('id').single(): prima l'inserimento non
+      // avveniva affatto (single() saltava run()). Ora inserisce e
+      // restituisce la riga nuova, come PostgREST.
+      async single() { if (mode === 'insert') { run(); const all = rows(t); return { data: { ...all[all.length - 1] }, error: null }; }
+        const r = apply(t, filters); return { data: r[0] ? { ...r[0] } : null, error: r.length ? null : { message: 'not found' } }; }, // copia, come PostgREST
       then(res, rej) { return Promise.resolve(run()).then(res, rej); },
     };
     function run() {

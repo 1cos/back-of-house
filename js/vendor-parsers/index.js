@@ -13,6 +13,7 @@ const frugeInvoice      = require('./fruge-invoice');
 const bekInvoice        = require('./bek-invoice');
 const bekOrderConfirmation = require('./ben-e-keith-order-confirmation');
 const walmartTrevipayInvoice = require('./walmart-trevipay-invoice');
+const globalGourmet     = require('./global-gourmet');
 
 const VENDORS = {
   // Placed FIRST so it is tried before any other vendor's patterns —
@@ -99,6 +100,19 @@ const VENDORS = {
       order_confirmation: bekOrderConfirmation,
     },
   },
+  // XCF-GG — Global Gourmet Foods (Houston). Ultimo di proposito: nessun
+  // altro fornitore stampa "Global Gourmet", e cosi' non puo' rubare il
+  // riconoscimento a nessuno. Il testo arriva dall'OCR (scansioni): il
+  // primo pattern tollera la "G" di GOURMET persa sotto la graffetta.
+  globalgourmet: {
+    patterns: [
+      /global\s+g\s*[o0c]?\s*urmet\s+foods/i,
+      /ggourmetfoods\.com/i,
+    ],
+    documents: {
+      invoice: globalGourmet,
+    },
+  },
 };
 
 // ── Detect vendor from raw text ───────────────────────────────
@@ -163,6 +177,14 @@ function detectDocumentType(rawText, vendor) {
   if (vendor === 'freshpoint'
       && /Order\s+Confirmation/i.test(text)
       && /Reference\s*#/i.test(text)) return 'order_confirmation';
+
+  // XCF-GG — per Global Gourmet "Invoice" da solo non basta: anche gli
+  // estratti conto AR citano le fatture. Una fattura ha la tabella
+  // articoli (Quantity ... Amount).
+  if (vendor === 'globalgourmet') {
+    return (/\bInvoice\b/i.test(text) && /\bQuantity\b/i.test(text) && /\bAmount\b/i.test(text))
+      ? 'invoice' : 'unknown';
+  }
 
   if (/\bINVOICE\b/i.test(text))            return 'invoice';
   return 'unknown';
@@ -327,12 +349,18 @@ const linkLookup = require('./link-lookup');
 // senza articoli. Stessa porta d'ingresso per worker e reprocess UI.
 const treviPayRevision = require('./trevipay-revision');
 
+// XCF-GG — OCR: righe dalle parole con coordinate, e separazione dei PDF
+// di scansione che contengono piu' fatture Global Gourmet.
+const ocrLayout = require('./ocr-layout');
+
 module.exports = {
   parse, detectVendor, detectDocumentType, checkTotals,
   bekSafety,
   priceIntel,
   linkLookup,
   treviPayRevision,
+  ocrLayout,
+  globalGourmet,
   isPurchasableDocument, isBenEKeith,
   classifyBuyer, extractBuyerEmail, normalizeBuyerEmail,
   BEK_BUYER_KITCHEN, BEK_BUYER_FOH,

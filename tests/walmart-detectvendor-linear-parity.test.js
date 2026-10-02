@@ -145,7 +145,8 @@ test('3. gli altri vendor non sono cambiati', () => {
 test('4. walmart resta la prima chiave di VENDORS', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'vendor-parsers', 'index.js'), 'utf8');
   const keys = [...src.matchAll(/^  ([a-z]+): \{$/gm)].map(m => m[1]);
-  assert.deepStrictEqual(keys, ['walmart', 'hardies', 'freshpoint', 'fruge', 'bek']);
+  // XCF-GG — globalgourmet in coda: walmart resta la prima.
+  assert.deepStrictEqual(keys, ['walmart', 'hardies', 'freshpoint', 'fruge', 'bek', 'globalgourmet']);
 });
 
 // ── 5. Le lookahead quadratiche non esistono più nella sorgente ───

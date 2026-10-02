@@ -203,6 +203,8 @@ test('12. checkAllEmails invariato: stesse 6 chiamate, stesso ordine', () => {
   assert.deepStrictEqual(chiamate, [
     'checkHardiesEmails', 'checkFreshpointEmails', 'processTouchBistroEmails',
     'checkBEKEmails', 'checkFrugeEmails', 'checkTreviPayEmails',
+    // XCF-GG — il collector Global Gourmet, ultimo di proposito.
+    'checkGlobalGourmetEmails',
   ]);
 });
 
