@@ -401,12 +401,15 @@ async function officeLoadHome() {
       if (!previews[folder]) previews[folder] = item.title || '';
     });
 
+    // ATTENTION01 — l'intestazione mostra lo stesso numero del badge: le
+    // decisioni per Chef, non i primi 200 elementi caricati.
     var totalUnread = items.length;
+    try { totalUnread = await window.officeAttentionCount(sb); } catch (e) {}
 
     // Badge header
     var badge = document.getElementById('officeBadge');
     if (badge) {
-      if (totalUnread > 0) { badge.style.display='block'; badge.textContent=totalUnread+' nuovi'; }
+      if (totalUnread > 0) { badge.style.display='block'; badge.textContent=totalUnread+' da decidere'; }
       else badge.style.display='none';
     }
 
@@ -1293,15 +1296,34 @@ window.officeChefAction = async function(id, action) {
 };
 
 // ── BADGE NEI TRE PUNTINI — mostra numero items aperti ──
+// ATTENTION01 — il badge conta le DECISIONI che chiedono Chef, dalla stessa
+// vista che usano Today e Decisions della V020 (public.attention_items):
+// action_now + needs_chef, decision_key distinti, solo L'Ufficio. Completezza
+// ricette (foto, procedure), storico e dati staff non affidabili non contano.
+// Se la vista non risponde, si torna al conteggio vecchio invece di mostrare 0.
+window.officeAttentionCount = async function(sb) {
+  var res = await sb.from('attention_items').select('decision_key,attention')
+    .eq('origin', 'office').in('attention', ['action_now', 'needs_chef']);
+  if (res.error) throw new Error(res.error.message);
+  var keys = {};
+  (res.data || []).forEach(function(a) { keys[a.decision_key || ''] = 1; });
+  return Object.keys(keys).length;
+};
+
 window.officeBadgeUpdate = async function() {
   var sb = window.supa;
   if (!sb) return;
   try {
-    var res = await sb.from('office_items')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'open')
-      .is('chef_action', null);
-    var count = res.count || 0;
+    var count;
+    try {
+      count = await window.officeAttentionCount(sb);
+    } catch (e) {
+      var res = await sb.from('office_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'open')
+        .is('chef_action', null);
+      count = res.count || 0;
+    }
     var badge = document.getElementById('officeMenuBadge');
     if (!badge) return;
     if (count > 0) {
