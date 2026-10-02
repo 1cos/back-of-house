@@ -72,7 +72,11 @@ function controlla(num, parsed, att) {
     assert.strictEqual(it.unit_price, p, `${d}: prezzo`);
     assert.strictEqual(it.amount, a, `${d}: importo`);
     assert.strictEqual(it.vendor_sku, null, 'nessuno SKU inventato');
-    if (u === 'lb') { assert.strictEqual(it.cost_per_lb, p); assert.strictEqual(it.price_type, 'per_lb'); }
+    if (u === 'lb') { assert.strictEqual(it.cost_per_lb, p); assert.strictEqual(it.price_type, 'per_lb'); assert.strictEqual(it.invoice_unit, 'lb'); }
+    else assert.strictEqual(it.cost_per_lb, undefined, `${d}: niente cost_per_lb fuori dal peso`);
+    // invoice_unit = U/M stampata; null solo dove la colonna e' vuota (SEA SALT #20734).
+    if (!(num === '20734' && d === 'SEA SALT COARSE')) assert.strictEqual(it.invoice_unit, u, `${d}: invoice_unit`);
+    else assert.strictEqual(it.invoice_unit, null, 'U/M vuota in fattura → invoice_unit null');
   });
   const somma = Math.round(parsed.items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
   assert.strictEqual(somma, att.total, 'somma righe = Total');

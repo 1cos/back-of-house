@@ -225,6 +225,12 @@ function buildItem(row) {
     description: row.description,
     raw_description: row.description,
     qty: q.qty,
+    // Contratto xcf-prezzi: la U/M STAMPATA in fattura ('cs'/'ea'/'lb'),
+    // null se la colonna e' vuota. Unica eccezione dichiarata: U/M persa
+    // dall'OCR su una quantita' frazionaria → 'lb' (uom_source
+    // 'inferred_weight' + GG_UOM_INFERRED). Il tipo di prezzo si decide da
+    // qui, non da purchase_unit.
+    invoice_unit: uom || (weightInferred ? 'lb' : null),
     purchase_unit: purchaseUnit,
     uom_source: uom ? 'U/M' : weightInferred ? 'inferred_weight' : (row.countUnit ? 'EA/CS/LBS' : null),
     unit_price: row.price,
@@ -234,7 +240,7 @@ function buildItem(row) {
     pack_description: null,
     warnings: [],
   };
-  if (purchaseUnit === 'lb') {
+  if (item.invoice_unit === 'lb') {
     // Riga a peso: la Quantity e' il peso, il Price e' al libbra.
     item.cost_per_lb = row.price;
     item.price_type = 'per_lb';
