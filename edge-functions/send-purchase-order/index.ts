@@ -1,4 +1,9 @@
-// send-purchase-order v1 — Brigade Edge Function (XCF-ORDINI, 02/10/2026)
+// send-purchase-order v2 — Brigade Edge Function (XCF-ORDINI 02/10, XCF-CW 03/10/2026)
+//
+// v2: un invio REALE verso un canale portale Chef's Warehouse
+// (po_vendor_channels.transport = 'cw_portal') non trasmette da qui: resta
+// in coda ('pending') e lo esegue il worker del Mac Mini (workers/cw-order-sender),
+// che chiude l'esito con po_worker_finish. Risposta 202 { queued: true }.
 //
 // Invio di un ordine fornitore CONFERMATO da Max. In questa versione NON
 // trasmette nulla: non esiste alcun trasporto (email/portale) nel codice.
@@ -8,8 +13,8 @@
 // Cancelli per un invio reale (tutti e quattro, e oggi comunque bloccato):
 //   1. env PO_REAL_SEND_ENABLED === 'true'           (default: assente)
 //   2. po_settings.real_send_enabled = true          (default: false)
-//   3. po_vendor_channels: channel='email', email_to, real_send_allowed
-//   4. un trasporto implementato (oggi: NESSUNO -> REAL_TRANSPORT_NOT_IMPLEMENTED)
+//   3. po_vendor_channels: real_send_allowed e (channel='email' + email_to | channel='portal' + transport='cw_portal')
+//   4. un trasporto implementato: cw_portal -> coda per il worker; email -> REAL_TRANSPORT_NOT_IMPLEMENTED
 //
 // Tutte le regole (sessione, solo admin, hash della conferma, idempotenza,
 // doppioni, do_not_order, data consegna) sono nella RPC po_send_begin,
@@ -20,7 +25,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const REAL_SEND_ENV = Deno.env.get('PO_REAL_SEND_ENABLED') === 'true';
-const VERSION = 'send-purchase-order/1';
+const VERSION = 'send-purchase-order/2';
 
 function cors(origin: string) {
   return {
@@ -80,8 +85,13 @@ Deno.serve(async (req: Request) => {
   const attemptId = begin.attempt_id as string;
   const realEnv = { env: REAL_SEND_ENV, db: begin.real_allowed_by_db === true };
 
+  if (begin.mode === 'real' && begin.payload?.transport === 'cw_portal') {
+    // Resta 'pending': lo prende il worker CW. Nessuna trasmissione da qui.
+    console.log(`[${VERSION}] QUEUED cw_portal order=${orderId} attempt=${attemptId}`);
+    return reply(202, { ok: true, queued: true, transmitted: false, attempt_id: attemptId, transport: 'cw_portal' });
+  }
   if (begin.mode === 'real') {
-    // Nessun trasporto esiste in questa versione: si chiude come fallito, nulla trasmesso.
+    // Email: nessun trasporto in questa versione: si chiude come fallito, nulla trasmesso.
     const res = { transmitted: false, error: 'REAL_TRANSPORT_NOT_IMPLEMENTED', gates: realEnv, at: new Date().toISOString() };
     await svc.rpc('po_send_finish', { p_attempt_id: attemptId, p_outcome: 'failed', p_result: res });
     return reply(501, { ok: false, reason: 'REAL_TRANSPORT_NOT_IMPLEMENTED', attempt_id: attemptId, transmitted: false });

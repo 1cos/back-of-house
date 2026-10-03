@@ -1,0 +1,17 @@
+{
+  "name": "cw-order-sender",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Brigade — worker locale Chef's Warehouse (Mac Mini): invia gli ordini confermati da Max in Compila Ordine. XCF-CW.",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "login": "node src/index.js --login",
+    "once": "node src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "playwright-core": "1.56.1"
+  }
+}

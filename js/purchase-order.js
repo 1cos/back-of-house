@@ -1063,21 +1063,27 @@ function _poAckDuplicates(){
   return !!(el && el.checked);
 }
 
-// Invio tramite edge function: in questa versione SOLO SIMULAZIONE
-// (la funzione non ha alcun trasporto; il server forza la simulazione).
-window.poSendSimulated = async function(){
+// Invio tramite edge function. 'simulate': nulla parte. 'real' (XCF-CW): solo
+// per un canale Chef's Warehouse con tutti gli interruttori accesi; l'edge lo
+// mette in coda e il worker del Mac Mini lo invia. Il server decide sempre:
+// senza interruttori anche una richiesta 'real' resta simulazione.
+async function poSend(mode){
   var o = _poCurrentOrder; if(!o || _poBusy) return;
   _poBusy = true;
   try{
-    var key = poIdemKey('send', o.id, o.confirmed_hash);
+    var key = poIdemKey(mode === 'real' ? 'send-real' : 'send', o.id, o.confirmed_hash);
     var res = await fetch(SUPABASE_URL + '/functions/v1/send-purchase-order', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY, 'apikey': SUPABASE_ANON_KEY },
       body: JSON.stringify({ brigade_token: _poToken(), order_id: o.id, idempotency_key: key,
-        summary_hash: o.confirmed_hash, ack_duplicates: _poAckDuplicates(), mode: 'simulate' })
+        summary_hash: o.confirmed_hash, ack_duplicates: _poAckDuplicates(), mode: mode === 'real' ? 'real' : 'simulate' })
     });
     var r = await res.json().catch(function(){ return { ok: false, reason: 'NETWORK' }; });
-    if(r.ok){
+    if(r.ok && r.queued){
+      // In coda per il worker: la chiave resta (un ritento e' la stessa richiesta).
+      await poAfterAction(r, 'In coda: il Mac Mini lo invia a Chef\'s Warehouse entro un minuto');
+      poWatchSend(o.id);
+    } else if(r.ok){
       // Simulazione registrata: la prossima prova usa una chiave nuova.
       delete _poIdemKeys['send|' + o.id + '|' + o.confirmed_hash];
       await poAfterAction(r, r.transmitted ? 'Inviato' : 'SIMULAZIONE registrata — nessun messaggio è partito');
@@ -1088,7 +1094,63 @@ window.poSendSimulated = async function(){
   } catch(e){
     poToast('Errore di rete — riprova (stessa richiesta, nessun doppio invio)');
   } finally { _poBusy = false; }
+}
+window.poSendSimulated = function(){ return poSend('simulate'); };
+
+// XCF-CW: conferma finale di Max prima dell'invio reale, sul riepilogo esatto.
+window.poSendRealCw = function(){
+  var o = _poCurrentOrder; if(!o || !o.confirmed_hash) return;
+  var n = (o.lines || []).length;
+  if(!confirm('ORDINE REALE a Chef\'s Warehouse\n\nRiepilogo #' + o.confirmed_hash.slice(0, 8) + ' · ' + n + ' righe · consegna ' + (o.delivery_date || '?') +
+    '\n\nParte davvero e verrà addebitato. Confermi?')) return;
+  return poSend('real');
 };
+
+// Dopo la messa in coda: ricarica l'ordine finche' il worker non chiude l'esito (max 4 minuti).
+var _poWatchTimer = null;
+function poWatchSend(orderId){
+  if(_poWatchTimer) clearInterval(_poWatchTimer);
+  var until = Date.now() + 4 * 60 * 1000;
+  _poWatchTimer = setInterval(async function(){
+    if(Date.now() > until || !_poCurrentOrder || _poCurrentOrder.id !== orderId || _poView !== 'order'){ clearInterval(_poWatchTimer); _poWatchTimer = null; return; }
+    await poOpenOrder(orderId);
+    var at = poLastRealAttempt(_poCurrentOrder);
+    if(!at || at.state !== 'pending' || (at.result && at.result.uncertain)){ clearInterval(_poWatchTimer); _poWatchTimer = null; }
+  }, 5000);
+}
+
+function poLastRealAttempt(o){
+  var xs = ((o && o.send_attempts) || []).filter(function(a){ return a.mode === 'real'; });
+  return xs.length ? xs[xs.length - 1] : null;
+}
+
+function poCwRealAvailable(o){
+  var ch = (o && o.channel_info) || {};
+  var on = _poSettings && (_poSettings.real_send_enabled === true || _poSettings.real_send_enabled === 'true');
+  return !!(on && ch.channel === 'portal' && ch.transport === 'cw_portal' && ch.real_send_allowed && !o.is_test);
+}
+
+function poRenderRealAttempt(o){
+  var at = poLastRealAttempt(o);
+  if(!at) return '';
+  var r = at.result || {};
+  if(at.state === 'pending' && r.uncertain){
+    return '<div style="margin-top:12px;padding:10px;border:1px solid #f59e0b;border-radius:10px;background:#fffbeb;font-size:12px;color:#92400e;">' +
+      '⚠️ <b>Esito NON certo</b> (' + _poEsc(r.error || '') + '): l\'ordine potrebbe essere partito. Controlla lo storico ordini su Chef\'s Warehouse. ' +
+      'Brigade non lo rimanda da solo: se c\'è, registralo come invio manuale con il numero; se non c\'è, annulla e rifai l\'ordine.</div>';
+  }
+  if(at.state === 'pending'){
+    return '<div style="margin-top:12px;padding:10px;border:1px solid #93c5fd;border-radius:10px;background:#eff6ff;font-size:12px;color:#1e40af;">' +
+      (at.claimed_at ? '⏳ Il Mac Mini sta inviando l\'ordine a Chef\'s Warehouse…' : '⏳ In coda per il Mac Mini…') + '</div>';
+  }
+  if(at.state === 'failed' && o.status === 'confirmed'){
+    return '<div style="margin-top:12px;padding:10px;border:1px solid #fca5a5;border-radius:10px;background:#fef2f2;font-size:12px;color:#991b1b;">' +
+      '⛔ Ultimo invio a Chef\'s Warehouse NON partito (' + _poEsc(r.error || 'errore') + '). Nulla è stato inviato.' +
+      (r.cart_touched ? ' Il carrello su CW può contenere righe aggiunte: svuotalo prima di riprovare.' : '') +
+      (r.error === 'CW_SESSION_EXPIRED' ? ' Serve il login sul Mac Mini (cw-login.command).' : '') + '</div>';
+  }
+  return '';
+}
 
 window.poRegisterManualSend = async function(){
   var o = _poCurrentOrder; if(!o || _poBusy) return;
@@ -1685,9 +1747,16 @@ function poRenderOrder(){
 
   if(o.status === 'confirmed'){
     var ch = o.channel_info || { channel: 'manual' };
-    if(isAdmin){
-      html += '<button onclick="poSendSimulated()" style="' + _PO_BTN_PRIMARY + '">Prova invio (SIMULAZIONE — nulla parte)</button>';
-      html += '<div style="font-size:11px;color:#64748b;margin-top:4px;">L\'invio automatico ai fornitori non è attivo: serve la decisione di Max.</div>';
+    html += poRenderRealAttempt(o);
+    var lastReal = poLastRealAttempt(o);
+    var realBusy = lastReal && lastReal.state === 'pending';
+    if(isAdmin && poCwRealAvailable(o) && !realBusy){
+      html += '<button onclick="poSendRealCw()" style="' + _PO_BTN_PRIMARY + 'background:#b91c1c;">Invia a Chef\'s Warehouse (ORDINE REALE)</button>';
+      html += '<div style="font-size:11px;color:#64748b;margin-top:4px;">Parte solo questo riepilogo (#' + _poEsc((o.confirmed_hash || '').slice(0, 8)) + '). Il Mac Mini lo invia e salva il numero d\'ordine CW.</div>';
+    }
+    if(isAdmin && !realBusy){
+      html += '<button onclick="poSendSimulated()" style="' + (poCwRealAvailable(o) ? _PO_BTN_SECOND : _PO_BTN_PRIMARY) + '">Prova invio (SIMULAZIONE — nulla parte)</button>';
+      if(!poCwRealAvailable(o)) html += '<div style="font-size:11px;color:#64748b;margin-top:4px;">L\'invio automatico ai fornitori non è attivo: serve la decisione di Max.</div>';
     }
     html += '<div style="margin-top:14px;padding:12px;border:1px solid #e2e8f0;border-radius:12px;">';
     html += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:6px;">Inviato a mano?</div>';
@@ -1817,6 +1886,8 @@ if (typeof module !== 'undefined' && module.exports) {
     poRenderOrdersList: poRenderOrdersList,
     poSummaryPlainText: poSummaryPlainText,
     poSetOrderForTest: function(o, me){ _poCurrentOrder = o; _poMe = me || null; },
+    poSetSettingsForTest: function(st){ _poSettings = st || null; },
+    poCwRealAvailable: poCwRealAvailable,
     poSetOpenOrdersForTest: function(list){ _poOpenDrafts = list || []; },
     poSetReceiveDraftForTest: function(d){ _poReceiveDraft = d || {}; },
     poCheckBeforeOrderingWording: poCheckBeforeOrderingWording,
