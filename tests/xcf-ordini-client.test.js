@@ -89,6 +89,42 @@ test('confirmed: pulsante invio e dichiaratamente SIMULAZIONE; invio manuale dis
   assert(!/SIMULAZIONE — nulla parte/.test(po.poRenderOrder()), 'Tela non invia');
 });
 
+// ── XCF-CW: invio reale Chef's Warehouse ──────────────────────────────
+const cwOrder = (over) => baseOrder(Object.assign({ status: 'confirmed', confirmed_hash: 'c'.repeat(64), confirmation_valid: true, confirmed_by: 'Max',
+  channel_info: { channel: 'portal', transport: 'cw_portal', real_send_allowed: true }, send_attempts: [] }, over || {}));
+
+test('XCF-CW: pulsante ORDINE REALE solo con interruttori accesi, canale cw_portal e admin', () => {
+  po.poSetSettingsForTest({ real_send_enabled: false });
+  po.poSetOrderForTest(cwOrder(), { is_admin: true });
+  assert(!/ORDINE REALE/.test(po.poRenderOrder()), 'interruttore generale spento');
+  po.poSetSettingsForTest({ real_send_enabled: true });
+  assert(/ORDINE REALE/.test(po.poRenderOrder()) && /#cccccccc/.test(po.poRenderOrder()), 'acceso: pulsante con hash corto');
+  po.poSetOrderForTest(cwOrder(), { is_admin: false });
+  assert(!/ORDINE REALE/.test(po.poRenderOrder()), 'Tela non invia');
+  po.poSetOrderForTest(cwOrder({ channel_info: { channel: 'portal', transport: null, real_send_allowed: true } }), { is_admin: true });
+  assert(!/ORDINE REALE/.test(po.poRenderOrder()), 'canale senza transport cw');
+  po.poSetOrderForTest(cwOrder({ channel_info: { channel: 'portal', transport: 'cw_portal', real_send_allowed: false } }), { is_admin: true });
+  assert(!/ORDINE REALE/.test(po.poRenderOrder()), 'fornitore non autorizzato');
+  po.poSetOrderForTest(cwOrder({ is_test: true }), { is_admin: true });
+  assert(!/ORDINE REALE/.test(po.poRenderOrder()), 'ordine di prova');
+});
+
+test('XCF-CW: in coda / in invio / incerto / fallito mostrati, nessun pulsante mentre e pending', () => {
+  po.poSetSettingsForTest({ real_send_enabled: true });
+  po.poSetOrderForTest(cwOrder({ send_attempts: [{ mode: 'real', state: 'pending', claimed_at: null, result: null }] }), { is_admin: true });
+  let html = po.poRenderOrder();
+  assert(/In coda per il Mac Mini/.test(html) && !/ORDINE REALE/.test(html) && !/SIMULAZIONE — nulla parte/.test(html));
+  po.poSetOrderForTest(cwOrder({ send_attempts: [{ mode: 'real', state: 'pending', claimed_at: '2026-10-03T03:00:00Z', result: null }] }), { is_admin: true });
+  assert(/sta inviando/.test(po.poRenderOrder()));
+  po.poSetOrderForTest(cwOrder({ send_attempts: [{ mode: 'real', state: 'pending', claimed_at: 'x', result: { uncertain: true, error: 'SUBMIT_NO_ANSWER' } }] }), { is_admin: true });
+  html = po.poRenderOrder();
+  assert(/Esito NON certo/.test(html) && !/ORDINE REALE/.test(html), 'incerto: niente nuovo invio');
+  po.poSetOrderForTest(cwOrder({ send_attempts: [{ mode: 'real', state: 'failed', result: { error: 'CART_MISMATCH', cart_touched: true } }] }), { is_admin: true });
+  html = po.poRenderOrder();
+  assert(/NON partito \(CART_MISMATCH\)/.test(html) && /svuotalo/.test(html) && /ORDINE REALE/.test(html), 'fallito: si puo riprovare');
+  po.poSetSettingsForTest(null);
+});
+
 test('conferma non piu valida (ordine cambiato) e segnalata', () => {
   po.poSetOrderForTest(baseOrder({ status: 'confirmed', confirmation_valid: false }), { is_admin: true });
   assert(/cambiato dopo il riepilogo/.test(po.poRenderOrder()));
