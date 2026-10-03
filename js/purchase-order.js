@@ -1385,8 +1385,157 @@ function poRenderPage(){
   el.innerHTML = _poView === 'review' ? poRenderReview()
                : _poView === 'order' ? poRenderOrder()
                : _poView === 'receive' ? poRenderReceive()
+               : _poView === 'vendor' ? poRenderVendor()
                : poRenderList();
 }
+
+// ── XCF-ORDINI-UX 02: un fornitore → Lista / Suggeriti / Abituali / Cerca ──
+// Dati dal server (po_vendor_list / po_vendor_catalog): storico fatture
+// reale, regola "Suggerito" provata sullo storico, calendario in DB.
+// Niente stock, niente quantita' proposte: Max mette le quantita'.
+var _poVendors = null, _poVendorsLoading = false;
+var _poVendorSel = null, _poCatalog = null, _poCatQty = {}, _poCatSearch = '', _poCatDate = '';
+var PO_DOW = ['dom','lun','mar','mer','gio','ven','sab'];
+
+function poFmtDay(d){
+  if(!d) return '';
+  var x = new Date(String(d).slice(0, 10) + 'T12:00:00');
+  return PO_DOW[x.getDay()] + ' ' + String(x.getDate()).padStart(2, '0') + '/' + String(x.getMonth() + 1).padStart(2, '0');
+}
+function poShortVendor(v){
+  return ({ "Hardie's Fresh Foods / Dairyland Produce": "Hardie's / CW", 'Global Gourmet Foods': 'Global Gourmet',
+            'Ben E. Keith': 'Ben E. Keith', 'Fruge Seafood': 'Frugé' })[v] || v;
+}
+async function poLoadVendors(){
+  if(_poVendors || _poVendorsLoading) return;
+  _poVendorsLoading = true;
+  try{
+    var r = await poRpc('po_vendor_list', {});
+    _poVendors = r.ok ? (r.vendors || []) : [];
+  } finally { _poVendorsLoading = false; }
+  if(_poView === 'list') poRenderPage();
+}
+function poRenderVendorChips(){
+  if(!_poVendors){ poLoadVendors(); return ''; }
+  if(!_poVendors.length) return '';
+  var html = '<div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:0 0 8px;">Ordina per fornitore</div>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">';
+  _poVendors.forEach(function(v, i){
+    var nd = (v.next_deliveries || [])[0];
+    html += '<button onclick="poOpenVendor(' + i + ')" style="text-align:left;padding:10px 12px;border-radius:12px;border:1px solid #e2e8f0;background:white;cursor:pointer;">' +
+      '<div style="font-size:14px;font-weight:700;color:#1e3a5f;">' + _poEsc(poShortVendor(v.vendor_name)) + '</div>' +
+      '<div style="font-size:11px;color:#64748b;">' + (nd ? 'consegna ' + _poEsc(poFmtDay(nd)) + (v.calendar_source === 'to_verify' ? ' (da verificare)' : '') : 'calendario non impostato') + '</div></button>';
+  });
+  return html + '</div>';
+}
+window.poOpenVendor = async function(i){
+  var v = (_poVendors || [])[i]; if(!v) return;
+  _poVendorSel = v.vendor_name; _poCatalog = null; _poCatQty = {}; _poCatSearch = '';
+  _poCatDate = (v.next_deliveries || [])[0] || '';
+  _poView = 'vendor'; poRenderPage();
+  var r = await poRpc('po_vendor_catalog', { p_vendor: v.vendor_name });
+  if(!r.ok){ poToast(poReasonText(r.reason)); _poView = 'list'; poRenderPage(); return; }
+  _poCatalog = r;
+  if(!_poCatDate && (r.next_deliveries || [])[0]) _poCatDate = r.next_deliveries[0];
+  poRenderPage();
+};
+window.poCatSetQty = function(idx, val){
+  var it = _poCatalog && (_poCatalog.items || [])[idx]; if(!it) return;
+  var key = it.key;
+  var n = parseFloat(String(val).replace(',', '.'));
+  if(isNaN(n) || n <= 0) delete _poCatQty[key]; else _poCatQty[key] = n;
+  var b = document.getElementById('poCatGo');
+  if(b) b.textContent = poCatGoLabel();
+};
+window.poCatSearch = function(val){ _poCatSearch = val || ''; poRenderPage(); var el = document.getElementById('poCatSearchBox'); if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); } };
+window.poCatSetDate = function(val){ _poCatDate = val || ''; };
+window.poBackToHome = function(){ _poView = 'list'; _poVendorSel = null; _poCatalog = null; poRenderPage(); };
+function poCatGoLabel(){
+  var n = Object.keys(_poCatQty).length;
+  return n ? 'Prepara riepilogo (' + n + (n === 1 ? ' articolo)' : ' articoli)') : 'Metti almeno una quantità';
+}
+function poCatReason(it){
+  var p = [];
+  if(it.weeks_8) p.push(it.weeks_8 + ' delle ultime 8 settimane');
+  if(it.days_since != null) p.push('ultimo ' + it.days_since + ' gg fa');
+  if(it.interval_days) p.push('di solito ogni ' + it.interval_days + ' gg');
+  return p.join(' · ');
+}
+function poCatRow(it, showReason){
+  var q = _poCatQty[it.key];
+  var price = it.last_price != null ? '$' + Number(it.last_price).toFixed(2) + (it.last_unit ? '/' + it.last_unit : '') : '';
+  var html = '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;">';
+  html += '<div style="flex:1;min-width:0;">';
+  html += '<div style="font-size:14px;font-weight:600;color:#1e3a5f;">' + _poEsc(it.name_it && it.name_it !== it.name ? it.name_it + ' · ' + it.name : (it.name || '')) + '</div>';
+  html += '<div style="font-size:11px;color:#64748b;">' + _poEsc([it.vendor_sku ? 'SKU ' + it.vendor_sku : '', it.pack || '', price, it.last_date ? 'ult. ' + poFmtDay(it.last_date) : ''].filter(Boolean).join(' · ')) + '</div>';
+  if(showReason) html += '<div style="font-size:11px;color:#166534;">' + _poEsc(poCatReason(it)) + '</div>';
+  html += '</div>';
+  html += '<input type="number" inputmode="decimal" min="0" step="1" value="' + (q != null ? q : '') + '" placeholder="0" oninput="poCatSetQty(' + (_poCatalog.items || []).indexOf(it) + ',this.value)" style="width:56px;padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:15px;text-align:center;">';
+  html += '<div style="width:34px;font-size:11px;color:#64748b;">' + _poEsc(it.last_unit || '') + '</div>';
+  return html + '</div>';
+}
+function poCatSection(title, items, showReason, empty){
+  var html = '<div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:16px 0 4px;">' + _poEsc(title) + ' (' + items.length + ')</div>';
+  if(!items.length) return html + '<div style="font-size:12px;color:#94a3b8;">' + _poEsc(empty) + '</div>';
+  items.forEach(function(it){ html += poCatRow(it, showReason); });
+  return html;
+}
+function poRenderVendor(){
+  var html = '<button onclick="poBackToHome()" style="font-size:12px;color:#3B82F6;background:none;border:none;cursor:pointer;padding:0;margin-bottom:8px;">&#8249; Compila Ordine</button>';
+  html += '<div style="font-size:18px;font-weight:700;color:#1e3a5f;">' + _poEsc(poShortVendor(_poVendorSel || '')) + '</div>';
+  if(!_poCatalog) return html + '<div style="font-size:13px;color:#94a3b8;margin-top:12px;">Carico gli articoli…</div>';
+  var c = _poCatalog, ch = c.channel || {};
+  var opts = (c.next_deliveries || []).map(function(d){ return '<option value="' + _poEsc(d) + '"' + (d === _poCatDate ? ' selected' : '') + '>' + _poEsc(poFmtDay(d)) + '</option>'; }).join('');
+  html += '<div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;"><span style="font-size:13px;color:#475569;">Consegna</span>';
+  html += opts ? '<select onchange="poCatSetDate(this.value)" style="padding:6px 8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;">' + opts + '</select>'
+               : '<input type="date" value="' + _poEsc(_poCatDate) + '" onchange="poCatSetDate(this.value)" style="padding:6px 8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;">';
+  if(ch.calendar_source === 'to_verify') html += '<span style="font-size:11px;color:#b45309;">da verificare</span>';
+  html += '</div>';
+  if(ch.calendar_note) html += '<div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">' + _poEsc(ch.calendar_note) + '</div>';
+  var items = c.items || [];
+  if(!items.length) html += '<div style="font-size:13px;color:#94a3b8;margin-top:12px;">Nessun acquisto in fattura per questo fornitore. Scrivi la lista nella pagina principale.</div>';
+  else if(ch.order_view === 'list'){
+    html += poCatSection('Articoli comprati da Zeno', items, false, '');
+  } else {
+    var sug = items.filter(function(it){ return it.suggested; });
+    var hab = items.filter(function(it){ return it.habitual && !it.suggested; });
+    html += poCatSection('Suggeriti', sug, true, 'Niente di dovuto oggi secondo lo storico.');
+    html += poCatSection('Acquistati abitualmente', hab, false, '');
+    html += '<div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:16px 0 4px;">Tutti / cerca</div>';
+    html += '<input id="poCatSearchBox" value="' + _poEsc(_poCatSearch) + '" oninput="poCatSearch(this.value)" placeholder="Cerca (nome, SKU…)" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;">';
+    var qs = _poCatSearch.trim().toLowerCase();
+    if(qs){
+      var found = items.filter(function(it){ return [it.name, it.name_it, it.vendor_sku, it.invoice_description].join(' ').toLowerCase().indexOf(qs) >= 0; });
+      found.slice(0, 30).forEach(function(it){ html += poCatRow(it, false); });
+      if(!found.length) html += '<div style="font-size:12px;color:#94a3b8;margin-top:6px;">Nessun articolo trovato nello storico.</div>';
+    }
+  }
+  html += '<div style="position:sticky;bottom:0;background:linear-gradient(transparent,#f8fafc 30%);padding-top:16px;">';
+  html += '<button id="poCatGo" onclick="poCatPrepare()" style="width:100%;height:48px;border-radius:12px;background:#1e3a5f;color:white;border:none;font-size:15px;font-weight:700;cursor:pointer;">' + _poEsc(poCatGoLabel()) + '</button></div>';
+  return html;
+}
+// Le quantita' scelte diventano righe di bozza gia' risolte (fornitore, SKU,
+// ingrediente, unita' dell'ultima fattura) e passano dallo STESSO percorso
+// di prima: po_save_draft → riepilogo con hash → conferma di Max.
+function poCatalogToDraftLines(catalog, qtyMap, vendor){
+  return (catalog.items || []).filter(function(it){ return qtyMap[it.key] > 0; }).map(function(it){
+    return {
+      requested_text: it.name_it || it.name || it.invoice_description, quantity: qtyMap[it.key], unit: it.last_unit || null,
+      unit_from_history: !!it.last_unit, ingredient_id: it.ingredient_id || null, matched_name: it.name || null,
+      vendor_sku: it.vendor_sku || null, match_confidence: it.ingredient_id ? 1 : null,
+      match_source: it.ingredient_id ? 'ingredient_vendors' : 'manual', needs_review: !it.ingredient_id,
+      candidates: [], vendor: vendor, vendor_status: 'resolved', vendor_candidates: [], pack_description: it.pack || null
+    };
+  });
+}
+window.poCatPrepare = async function(){
+  if(!_poCatalog || !Object.keys(_poCatQty).length){ poToast('Metti almeno una quantità.'); return; }
+  _poDraftLines = poCatalogToDraftLines(_poCatalog, _poCatQty, _poVendorSel);
+  _poEditingOrderId = null; _poEditingVendor = null; _poEditingRevision = null;
+  _poDeliveryDate = _poCatDate || '';
+  _poView = 'review';
+  await poSaveDraft();
+};
 
 function poRenderList(){
   // FIX (Show Purchase Rhythm on Compile Order Home task, Part B): same
@@ -1403,12 +1552,13 @@ function poRenderList(){
   html += poRenderChefAISuggests();
   html += '<div style="background:rgba(255,255,255,0.7);border:1px solid #e2e8f0;border-radius:16px;padding:16px;margin-bottom:16px;">';
   html += '<div style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:8px;">Detta o scrivi la lista</div>';
-  html += '<textarea id="poInputText" rows="6" placeholder="heavy cream 2 cases\nparsley 3\nbrussels sprouts 10 lb\nshrimp 5 lb" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>';
+  html += '<textarea id="poInputText" rows="4" placeholder="1 basilico\n2 casse panna\nburrata 1" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>';
   html += '<div style="display:flex;gap:8px;margin-top:10px;">';
   html += '<button id="poMicBtn" onclick="poToggleMic()" style="width:44px;height:44px;border-radius:12px;border:1px solid #e2e8f0;background:white;font-size:18px;cursor:pointer;flex-shrink:0;">🎙️</button>';
   html += '<button id="poCreateBtn" onclick="poParseAndMatch()" style="flex:1;height:44px;border-radius:12px;background:#1e3a5f;color:white;border:none;font-size:14px;font-weight:700;cursor:pointer;">Crea ordine</button>';
   html += '</div></div>';
   html += '<style>.po-mic-active{background:#dbeafe !important;border-color:#3b82f6 !important;}</style>';
+  html += poRenderVendorChips();
 
   html += poRenderOrdersList();
   return html;
@@ -1941,6 +2091,9 @@ if (typeof module !== 'undefined' && module.exports) {
     poRenderOrdersList: poRenderOrdersList,
     poSummaryPlainText: poSummaryPlainText,
     poSetOrderForTest: function(o, me){ _poCurrentOrder = o; _poMe = me || null; },
+    poCatalogToDraftLines: poCatalogToDraftLines,
+    poRenderVendor: poRenderVendor,
+    poSetVendorViewForTest: function(vendor, catalog, qty, search){ _poVendorSel = vendor; _poCatalog = catalog; _poCatQty = qty || {}; _poCatSearch = search || ''; },
     poSetSettingsForTest: function(st){ _poSettings = st || null; },
     poCwRealAvailable: poCwRealAvailable,
     poSetOpenOrdersForTest: function(list){ _poOpenDrafts = list || []; },
