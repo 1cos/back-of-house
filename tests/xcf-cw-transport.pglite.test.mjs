@@ -18,6 +18,7 @@ const WHASH = crypto.createHash('sha256').update(WTOKEN).digest('hex');
 
 const db = await setup();
 await db.exec(fs.readFileSync(path.join(HERE, '..', 'migrations', '20261003_xcf_cw_01_transport.sql'), 'utf8'));
+await db.exec(fs.readFileSync(path.join(HERE, '..', 'migrations', '20261003_xcf_cw_02_inflight_guard.sql'), 'utf8'));
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const rpc = async (role, fn, args) => {
   const keys = Object.keys(args);
@@ -126,6 +127,27 @@ r = await rpc('anon', 'po_worker_claim', { p_worker_token: WTOKEN, p_worker_id: 
 check(r.ok && r.job === null, 'invio vecchio in coda non parte', r);
 row = (await q(`select state, result from public.po_send_attempts where id=$1`, [a4]))[0];
 check(row.state === 'failed' && row.result.error === 'QUEUE_EXPIRED', 'chiuso come QUEUE_EXPIRED', row);
+
+console.log('\n— niente modifica/annullo durante un invio reale (XCF-CW 02)');
+const o5 = await confirmedOrder('o5', L1);
+r = await rpc('service_role', 'po_send_begin', { p_token: T.max, p_order_id: o5.id, p_idempotency_key: 'k-o5-real-1', p_summary_hash: o5.hash, p_real_requested: true, p_ack_duplicates: true });
+const a5 = r.attempt_id;
+r = await rpc('anon', 'po_save_draft', { p_token: T.tela, p_payload: { groups: [{ order_id: o5.id, expected_revision: 1, vendor_name: H, lines: L1 }] } });
+check(r.ok === false && r.reason === 'IN_FLIGHT', 'modifica durante invio in coda: rifiutata', r);
+r = await rpc('anon', 'po_cancel', { p_token: T.max, p_order_id: o5.id, p_reason: 'test' });
+check(r.ok === false && r.reason === 'IN_FLIGHT', 'annullo durante invio in coda: rifiutato', r);
+await rpc('anon', 'po_worker_claim', { p_worker_token: WTOKEN, p_worker_id: 'mini' });
+await rpc('anon', 'po_worker_finish', { p_worker_token: WTOKEN, p_attempt_id: a5, p_outcome: 'uncertain', p_result: { error: 'SUBMIT_NO_ANSWER' } });
+r = await rpc('anon', 'po_save_draft', { p_token: T.tela, p_payload: { groups: [{ order_id: o5.id, expected_revision: 1, vendor_name: H, lines: L1 }] } });
+check(r.ok === false && r.reason === 'IN_FLIGHT', 'esito incerto: modifica ancora rifiutata', r);
+r = await rpc('anon', 'po_cancel', { p_token: T.max, p_order_id: o5.id, p_reason: 'verificato su CW: non arrivato' });
+check(r.ok === true && r.status === 'cancelled', 'esito incerto: annullo possibile dopo verifica', r);
+const o6 = await confirmedOrder('o6', L1);
+r = await rpc('service_role', 'po_send_begin', { p_token: T.max, p_order_id: o6.id, p_idempotency_key: 'k-o6-real-1', p_summary_hash: o6.hash, p_real_requested: true, p_ack_duplicates: true });
+await rpc('anon', 'po_worker_claim', { p_worker_token: WTOKEN, p_worker_id: 'mini' });
+await rpc('anon', 'po_worker_finish', { p_worker_token: WTOKEN, p_attempt_id: r.attempt_id, p_outcome: 'failed', p_result: { error: 'OUT_OF_STOCK' } });
+r = await rpc('anon', 'po_save_draft', { p_token: T.tela, p_payload: { groups: [{ order_id: o6.id, expected_revision: 1, vendor_name: H, lines: L1 }] } });
+check(r.ok === true && r.orders[0].status === 'draft', 'dopo un invio non partito: modifica possibile (torna bozza)', r);
 
 console.log('\n— permessi');
 const anonFin = await (async () => { await db.exec('set role anon'); try { await db.query(`select public.po_send_finish('${a4}', 'sent', '{}')`); return 'ok'; } catch (e) { return e.message; } finally { await db.exec('reset role'); } })();

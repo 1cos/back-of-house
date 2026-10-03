@@ -128,7 +128,7 @@ window.poEditOrderLines();
 window.poLineSetQty(0, '5');
 await window.poSaveDraft();
 o = await order(oid);
-check(o.status === 'draft' && o.confirmed_hash === null && /annullati/.test(toasts.join(' ')), 'modifica dopo conferma => conferma annullata', o.status);
+check(o.status === 'ready' && o.confirmed_hash === null && /annullati/.test(toasts.join(' ')) && /Riepilogo pronto/.test(toasts.join(' ')), 'modifica dopo conferma => conferma annullata, nuovo riepilogo subito pronto (XCF-ORDINI-UX)', o.status);
 await window.poMarkReady();
 asUser(T.max, MAX);
 await window.poOpenOrder(oid);
