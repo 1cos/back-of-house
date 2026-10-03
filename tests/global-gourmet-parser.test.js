@@ -231,6 +231,24 @@ test('6c. sorgente Phase A: ocr_text pronto vince sul PDF (ancorato al sorgente)
   assert.ok(src.includes("select('source_email_from,uploaded_by').eq('id', doc.id)"), 'lo split rilegge mittente e uploaded_by del contenitore');
 });
 
+test('6d. XCF-GG 04: testo OCR gia\' pronto sulla scansione originale -> split anche senza Vision (ancorato)', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'edge-functions/vendor-doc-auto-import/index.ts'), 'utf8');
+  assert.ok(/rawText = ocrTextReady;[\s\S]{0,400}if \(storagePath && !doc\.parsed_json\?\.split_from\) \{\s*const split = await vdaiSplitGlobalGourmet\(sb, doc, rawText, storagePath\);/.test(src));
+});
+
+test('6e. scansione reale del 02/10 letta da Apple Vision (Mac Mini): 3 fatture, totali esatti, salame letto', () => {
+  const L = require(path.join(ROOT, 'js/vendor-parsers/ocr-layout.js'));
+  const fx = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/fixtures/global-gourmet/gg-scan72-apple-vision.ocr.json'), 'utf8'));
+  const text = L.pagesToText(fx.pages);
+  const groups = GG.splitInvoices(text).filter(g => g.invoice_number);
+  assert.deepStrictEqual(groups.map(g => g.invoice_number), ['22328', '22199', '22106']);
+  const tot = {};
+  for (const g of groups) { const p = GG.parse(g.text); tot[g.invoice_number] = [p.total, p.items.reduce((s, i) => s + i.amount, 0).toFixed(2), p.warnings.filter(w => w.severity === 'blocking').length]; }
+  assert.deepStrictEqual(tot, { '22328': [391.14, '391.14', 0], '22199': [2123.3, '2123.30', 0], '22106': [702.16, '702.16', 0] });
+  const sal = GG.parse(groups[1].text).items.find(i => /Salame Napoli/.test(i.description));
+  assert.strictEqual(sal.amount, 111.05);
+});
+
 // ── 7. modalita' storica isolata ────────────────────────────────────
 function mondoStorico(historical) {
   const parsed = GG.parse(ocrText('7186'));
