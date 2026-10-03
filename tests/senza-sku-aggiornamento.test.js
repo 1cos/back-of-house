@@ -291,8 +291,12 @@ test('10. entrambi i punti di chiamata passano il consenso esplicito', () => {
   assert.ok(/vdrDecideCanonicalUpdateLite\(existingIv\.vendor_sku, sku, true\)/.test(w),
     'il worker deve passare true dal ramo ingredient_links');
   // e da nessun'altra parte
-  assert.strictEqual((src.match(/vdrDecideCanonicalUpdate\(/g) || []).length, 2,
-    'una definizione e una sola chiamata nella UI');
+  // INV15B: la recovery prezzo al mapping usa la stessa regola, SENZA
+  // consenso (due argomenti): uno SKU diverso resta 'sku_conflict'.
+  assert.strictEqual((src.match(/vdrDecideCanonicalUpdate\(/g) || []).length, 3,
+    'una definizione, la chiamata dell import e quella della recovery');
+  assert.ok(/vdrDecideCanonicalUpdate\(existing\.vendor_sku, vendorSku\)/.test(src),
+    'la recovery chiama la regola senza consenso');
 });
 
 // ── GG09b — la protezione 88A deve essere VIVA su questo ramo ─────

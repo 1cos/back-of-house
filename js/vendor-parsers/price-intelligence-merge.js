@@ -349,8 +349,61 @@ function mergePriceIntelligence(existing, observation) {
   return { fields, skipped: false, reason, rescued, packClass };
 }
 
+
+// ── Semantica della riga di fattura (XCF-PREZZI, 02/10/2026) ────────
+// Una sola copia, usata da UI (vdrApprove) e worker (vdaiApprove) via
+// PARSER_SOURCES. Nata da Global Gourmet #20734: il Guanciale (U/M "lb",
+// 7,3 lb x $16,82 = $122,79) era salvato come prezzo A CASSA, perche'
+// la regola era `price_type || (catchweight ? 'per_lb' : 'per_case')`.
+//
+// `invoice_unit` = la U/M STAMPATA sulla fattura (colonna U/M di Global
+// Gourmet: cs / ea / lb). NON e' purchase_unit: i parser Hardie's
+// scrivono in purchase_unit l'unita' del PACK ("1/ 50 LB" -> 'lb') su
+// righe che sono a cassa, quindi leggerla come U/M di fattura
+// trasformerebbe in prezzi al libbra centinaia di righe Hardie's.
+// Nessun parser esistente emette invoice_unit: per Hardie's, BEK,
+// Fruge', FreshPoint e Walmart queste funzioni restituiscono ESATTAMENTE
+// cio' che il codice restituiva prima (vedi tests/gg-um-fattura.test.js).
+function unitaFattura(item) {
+  const u = String((item && item.invoice_unit) || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!u) return null;
+  if (u === 'lb' || u === 'lbs' || u === '#') return 'lb';
+  if (u === 'ea' || u === 'each' || u === 'pc' || u === 'pcs') return 'each';
+  if (u === 'cs' || u === 'case' || u === 'ca') return 'case';
+  return null;   // U/M non riconosciuta: si comporta come se non ci fosse
+}
+
+// price_type dell'osservazione. Ordine: dichiarato dal parser; catchweight;
+// cost_per_lb (oggi lo emettono solo Fruge' e Hardie's fixed-per-lb, che
+// dichiarano gia' per_lb); U/M di fattura 'lb'; altrimenti per_case come prima.
+function derivePriceType(item) {
+  const it = item || {};
+  if (it.price_type) return it.price_type;
+  if (it.catchweight) return 'per_lb';
+  if (it.cost_per_lb != null) return 'per_lb';
+  if (unitaFattura(it) === 'lb') return 'per_lb';
+  return 'per_case';
+}
+
+// invoice_lines.purchase_unit: la U/M di fattura quando dichiarata,
+// altrimenti 'case' come e' sempre stato.
+function invoiceLineUnit(item) {
+  return unitaFattura(item) || 'case';
+}
+
+// Peso EFFETTIVAMENTE FATTURATO in grammi, solo quando la fattura lo
+// dichiara: riga a U/M 'lb' (la quantita' E' il peso: 7,3 lb -> 3311 g).
+// null altrimenti: il chiamante usa il peso nominale del pack come prima.
+function billedWeightG(item) {
+  const it = item || {};
+  if (unitaFattura(it) !== 'lb') return null;
+  const q = Number(it.qty);
+  return (isFinite(q) && q > 0) ? q * 453.592 : null;
+}
+
 const api = {
   mergePriceIntelligence,
+  derivePriceType, invoiceLineUnit, billedWeightG,
   classifyPack,
   normalizePack, samePack,
   packTotalEach,

@@ -346,10 +346,12 @@ window.vdrBackfillInvoiceLines = async function(sb, vendor, vendorSku, ingredien
 //   NON inventa conversioni. conversion_to_base e price_per_100g sono
 //     copiati dalla riga SOLO se la riga li ha. Se sono null restano
 //     null, e mergePriceIntelligence protegge quelli gia' noti.
-//   NON inventa price_type. invoice_lines non lo conserva, quindi non
-//     viene passato: e se la riga esistente e' 'per_lb' la recovery si
-//     ferma, perche' interpretare un prezzo al chilo come prezzo a cassa
-//     e' peggio che non scrivere niente.
+//   NON inventa price_type. invoice_lines non lo conserva: l'update
+//     conserva quello memorizzato, l'insert lo ricava solo da una prova
+//     (vdrPriceTypeEvidence) o si ferma con 'needs_review'. Se la riga
+//     esistente e' 'per_lb' la recovery si ferma, perche' interpretare un
+//     prezzo al chilo come prezzo a cassa e' peggio che non scrivere niente.
+//   NON scrive sopra una riga con SKU diverso: 'sku_conflict'.
 //   NON sovrascrive un prezzo piu' recente. Passa dalla stessa coppia
 //     effectiveLastDate + chronologyAllows che usano import e worker.
 //   NON tocca invoice_lines. Lo storico d'acquisto resta intatto: qui si
@@ -360,6 +362,87 @@ window.vdrBackfillInvoiceLines = async function(sb, vendor, vendorSku, ingredien
 // Idempotente: rieseguirla con gli stessi dati e' un no-op, perche' la
 // seconda volta la data memorizzata e' uguale a quella in arrivo e
 // chronologyAllows(>=) consente una riscrittura identica.
+// INV15B (xcf-prezzi, 02/10/2026) — PRICE_TYPE NON SI INVENTA.
+//
+// mergePriceIntelligence restituisce SEMPRE la chiave price_type (null se
+// l'osservazione non la dichiara), e ingredient_vendors.price_type e'
+// NOT NULL default 'per_case': un null esplicito faceva fallire con 400
+// OGNI update/insert di questa funzione (verificato in produzione sui 3
+// SKU Walmart mappati il 28/09). La correzione NON e' "metti per_case":
+//
+//   UPDATE  la semantica della riga esistente si conserva (la chiave
+//           price_type viene tolta dai campi). Se una prova affidabile
+//           dice un tipo DIVERSO da quello memorizzato -> needs_review.
+//   INSERT  il tipo si ricava solo da una prova (vdrPriceTypeEvidence);
+//           senza prova NON si scrive: status 'needs_review'.
+//
+// Prove accettate, in ordine (prima vince):
+//   1. la riga del documento sorgente (vendor_documents.parsed_json,
+//      via invoice_lines.import_id) dichiara price_type;
+//   2. la riga dichiara un prezzo a peso (catchweight true, cost_per_lb,
+//      U/M 'lb') -> per_lb;
+//   3. il parser dichiara esplicitamente catchweight:false (BEK,
+//      FreshPoint, Hardie's) -> per_case;
+//   4. Walmart Business: la grammatica del parser accetta solo quantita'
+//      intere (parseInt) e nessun prezzo a peso, quindi unit_price e' il
+//      prezzo del pezzo venduto -> per_case (VERIFICATO DAL CODICE,
+//      walmart-trevipay-invoice.js parseRowStart);
+//   5. tutte le altre righe ingredient_vendors dello STESSO vendor+SKU
+//      concordano su un tipo.
+// Altrimenti: nessuna prova -> null.
+// Modulo condiviso price-intelligence-merge (browser: window; test/node: require).
+function vdrPIM() {
+  if (typeof window !== 'undefined' && window.PriceIntelligenceMerge) return window.PriceIntelligenceMerge;
+  return (typeof require === 'function') ? require('./vendor-parsers/price-intelligence-merge') : null;
+}
+
+window.vdrPriceTypeEvidence = function(vendor, items, siblingTypes) {
+  const its = (items || []).filter(Boolean);
+  const unico = function(arr) {
+    const s = Array.from(new Set(arr.filter(function(x) { return x != null; })));
+    return s.length === 1 ? s[0] : (s.length > 1 ? 'AMBIGUO' : null);
+  };
+  if (its.length) {
+    const dichiarato = unico(its.map(function(it) { return it.price_type || null; }));
+    if (dichiarato === 'AMBIGUO') return { price_type: null, source: 'document_conflicting_price_type' };
+    if (dichiarato) return { price_type: dichiarato, source: 'document_price_type' };
+    const aPeso = its.some(function(it) {
+      return it.catchweight === true || it.cost_per_lb != null ||
+        /^(lb|lbs)$/i.test(String(it.purchase_unit || '').trim());
+    });
+    if (aPeso) return { price_type: 'per_lb', source: 'document_weight_pricing' };
+    if (its.every(function(it) { return it.catchweight === false; })) {
+      return { price_type: 'per_case', source: 'document_catchweight_false' };
+    }
+    if (vendor === 'Walmart Business' && its.every(function(it) { return Number.isInteger(Number(it.qty)); })) {
+      return { price_type: 'per_case', source: 'walmart_parser_integer_units' };
+    }
+  }
+  const fratelli = unico(siblingTypes || []);
+  if (fratelli && fratelli !== 'AMBIGUO') return { price_type: fratelli, source: 'same_vendor_sku_rows' };
+  return { price_type: null, source: null };
+};
+
+// Testo per lo Chef: cosa e' successo al prezzo dopo un mapping.
+// tone: 'ok' | 'info' | 'warn' | 'error'.
+window.vdrDescribePriceRecovery = function(pr) {
+  if (!pr) return { tone: 'info', text: '' };
+  const s = pr.status;
+  if (s === 'created')    return { tone: 'ok',   text: 'Price saved from invoice ' + (pr.from_invoice_date || '') + ' ($' + Number((pr.fields || {}).unit_price).toFixed(2) + ')' };
+  if (s === 'updated')    return { tone: 'ok',   text: 'Price updated from invoice ' + (pr.from_invoice_date || '') + ' ($' + Number((pr.fields || {}).unit_price).toFixed(2) + ')' };
+  if (s === 'idempotent') return { tone: 'ok',   text: 'Price already up to date' };
+  if (s === 'sku_conflict') return { tone: 'warn', text: 'Price NOT updated: this vendor already has a price row for this ingredient under SKU ' + (pr.existing_sku || '?') + ' (a different product). Check it in the ingredient card.' };
+  if (s === 'needs_review') return { tone: 'warn', text: 'Price NOT saved — needs review: ' + (pr.message || pr.reason) };
+  if (s === 'error')      return { tone: 'error', text: 'Price NOT saved — error: ' + (pr.reason || 'unknown') };
+  const motivi = {
+    no_priced_line: 'no invoice with a price for this SKU yet',
+    older_than_stored: 'a more recent price is already stored',
+    per_lb_row_not_reinterpreted: 'stored price is per lb, left unchanged',
+    unresolved_pack_change: 'pack size changed and cannot be converted, left unchanged',
+  };
+  return { tone: 'info', text: 'Price unchanged: ' + (motivi[pr.reason] || pr.reason || 'skipped') };
+};
+
 window.vdrRecoverPriceFromInvoiceLines = async function(sb, vendor, vendorSku, ingredientId) {
   if (!sb || !vendor || !vendorSku || !ingredientId) return { status: 'skipped', reason: 'missing_field' };
   try {
@@ -367,7 +450,7 @@ window.vdrRecoverPriceFromInvoiceLines = async function(sb, vendor, vendorSku, i
     //    Valido = ha una data e un prezzo positivo. Una riga senza prezzo
     //    non e' un'osservazione: e' un'assenza.
     const { data: righe, error: ilErr } = await sb.from('invoice_lines')
-      .select('invoice_date,unit_price,pack_description,conversion_to_base,cost_per_100g,raw_description')
+      .select('invoice_date,unit_price,pack_description,conversion_to_base,cost_per_100g,raw_description,import_id')
       .eq('vendor', vendor).eq('vendor_sku', vendorSku)
       .not('invoice_date', 'is', null).gt('unit_price', 0)
       .order('invoice_date', { ascending: false })
@@ -383,10 +466,21 @@ window.vdrRecoverPriceFromInvoiceLines = async function(sb, vendor, vendorSku, i
     if (ivErr) return { status: 'error', reason: ivErr.message };
     const existing = (ivRows || [])[0] || null;
 
+    // 2b. IDENTITA' — stessa regola dell'import (vdrDecideCanonicalUpdate):
+    //     una riga che porta uno SKU DIVERSO e' un altro articolo dello
+    //     stesso fornitore mappato allo stesso ingrediente (es. arance
+    //     3 lb bio vs 4 lb navel). Il prezzo di uno non va sopra l'altro
+    //     senza una prova di identita': sku_conflict esplicito.
+    let decisione = 'insert';
+    if (existing) {
+      decisione = vdrDecideCanonicalUpdate(existing.vendor_sku, vendorSku);
+      if (decisione === 'skip') {
+        return { status: 'sku_conflict', reason: 'existing_row_has_different_sku',
+                 existing_sku: existing.vendor_sku, incoming_sku: vendorSku, existing_id: existing.id };
+      }
+    }
+
     // 3. SEMANTICA DEL PREZZO — fail closed.
-    //    invoice_lines non conserva price_type. Se la riga esistente dice
-    //    'per_lb', il suo unit_price e' un prezzo al peso e il nostro e'
-    //    per cassa: non sono la stessa grandezza e non si sovrascrivono.
     if (existing && existing.price_type === 'per_lb') {
       return { status: 'skipped', reason: 'per_lb_row_not_reinterpreted' };
     }
@@ -405,11 +499,62 @@ window.vdrRecoverPriceFromInvoiceLines = async function(sb, vendor, vendorSku, i
       return { status: 'skipped', reason: 'older_than_stored', stored: eff, incoming: riga.invoice_date };
     }
 
-    // 5. L'osservazione: SOLO cio' che la riga dichiara davvero.
-    //    price_type deliberatamente assente — vedi sopra.
+    // 5. PROVA DEL TIPO DI PREZZO (vedi vdrPriceTypeEvidence).
+    let items = [];
+    if (riga.import_id) {
+      const { data: docs, error: dErr } = await sb.from('vendor_documents')
+        .select('id,parsed_json').eq('id', riga.import_id).limit(1);
+      if (dErr) return { status: 'error', reason: dErr.message };
+      const pj = ((docs || [])[0] || {}).parsed_json || {};
+      items = (pj.items || []).filter(function(it) {
+        return String(it.vendor_sku || it.item_code || '') === String(vendorSku);
+      });
+    }
+    let siblingTypes = [];
+    if (!existing) {
+      const { data: sib, error: sErr } = await sb.from('ingredient_vendors')
+        .select('price_type').eq('vendor', vendor).eq('vendor_sku', vendorSku);
+      if (sErr) return { status: 'error', reason: sErr.message };
+      siblingTypes = (sib || []).map(function(r) { return r.price_type; });
+    }
+    const prova = window.vdrPriceTypeEvidence(vendor, items, siblingTypes);
+
+    // per_lb: si accetta solo se il prezzo della riga contabile E' il
+    // prezzo al libbra dichiarato dal documento; altrimenti si confonderebbe
+    // un prezzo a cassa con uno al peso.
+    if (prova.price_type === 'per_lb') {
+      const lb = items.map(function(it) { return it.cost_per_lb != null ? it.cost_per_lb : it.price_per_lb; })
+        .find(function(v) { return v != null; });
+      const isLbPrice = lb != null && Math.abs(Number(lb) - Number(riga.unit_price)) < 0.005;
+      const umLb = items.some(function(it) { return /^(lb|lbs)$/i.test(String(it.purchase_unit || '').trim()) && Math.abs(Number(it.unit_price) - Number(riga.unit_price)) < 0.005; });
+      if (!isLbPrice && !umLb) {
+        return { status: 'needs_review', reason: 'per_lb_price_not_proven',
+                 message: 'the invoice prices this item by weight; the per-lb price could not be matched to the invoice line' };
+      }
+    }
+
+    let tipo;
+    if (existing) {
+      if (prova.price_type && prova.price_type !== existing.price_type) {
+        return { status: 'needs_review', reason: 'price_type_mismatch', stored_price_type: existing.price_type,
+                 evidence_price_type: prova.price_type, evidence_source: prova.source,
+                 message: 'stored price is ' + existing.price_type + ', invoice says ' + prova.price_type };
+      }
+      tipo = existing.price_type || null;      // conservato, non dichiarato di nuovo
+    } else {
+      if (!prova.price_type) {
+        return { status: 'needs_review', reason: 'price_type_unknown',
+                 message: 'the invoice does not say whether the price is per case or per lb — enter it in the ingredient card',
+                 from_invoice_date: riga.invoice_date, unit_price: Number(riga.unit_price) };
+      }
+      tipo = prova.price_type;
+    }
+
+    // 6. L'osservazione: SOLO cio' che la riga dichiara davvero.
     const observation = {
       unit_price:         riga.unit_price != null ? Number(riga.unit_price) : null,
       pack_description:   riga.pack_description || null,
+      price_type:         tipo,
       conversion_to_base: riga.conversion_to_base != null ? Number(riga.conversion_to_base) : null,
       price_per_100g:     riga.cost_per_100g != null ? Number(riga.cost_per_100g) : null,
       last_invoice_date:  riga.invoice_date,
@@ -419,17 +564,26 @@ window.vdrRecoverPriceFromInvoiceLines = async function(sb, vendor, vendorSku, i
     if (typeof merge !== 'function') return { status: 'skipped', reason: 'merge_helper_unavailable' };
     const m = merge(existing, observation);
     if (m.skipped) return { status: 'skipped', reason: m.reason, observedPack: m.observedPack, storedPack: m.storedPack };
+    const campi = Object.assign({}, m.fields);
+    // Mai un null esplicito su una colonna NOT NULL: sull'update il tipo
+    // memorizzato resta quello che e'.
+    if (existing || campi.price_type == null) delete campi.price_type;
 
-    // 6. Scrittura: solo ingredient_vendors, solo i campi decisi dal merge.
+    // 7. Scrittura: solo ingredient_vendors, solo i campi decisi.
     if (existing) {
-      const { error } = await sb.from('ingredient_vendors').update(m.fields).eq('id', existing.id);
+      if (decisione === 'populate_sku') campi.vendor_sku = vendorSku;
+      const { data: upd, error } = await sb.from('ingredient_vendors').update(campi).eq('id', existing.id).select('id');
       if (error) return { status: 'error', reason: error.message };
-      return { status: 'updated', from_invoice_date: riga.invoice_date, fields: m.fields };
+      if (Array.isArray(upd) && upd.length === 0) return { status: 'error', reason: 'update_matched_no_rows' };
+      return { status: 'updated', from_invoice_date: riga.invoice_date, fields: campi, price_type_source: 'kept_existing' };
+    }
+    if (!campi.price_type) {
+      return { status: 'needs_review', reason: 'price_type_unknown', message: 'price type could not be determined' };
     }
     const { error } = await sb.from('ingredient_vendors')
-      .insert({ ingredient_id: ingredientId, vendor: vendor, vendor_sku: vendorSku, active: true, ...m.fields });
+      .insert({ ingredient_id: ingredientId, vendor: vendor, vendor_sku: vendorSku, active: true, ...campi });
     if (error && error.code !== '23505') return { status: 'error', reason: error.message };
-    return { status: error ? 'idempotent' : 'created', from_invoice_date: riga.invoice_date, fields: m.fields };
+    return { status: error ? 'idempotent' : 'created', from_invoice_date: riga.invoice_date, fields: campi, price_type_source: prova.source };
   } catch (e) {
     return { status: 'error', reason: e && e.message };
   }
@@ -1413,6 +1567,9 @@ window.vdrProcessAllPdf = async function(docId) {
         } else if (walmartBuyerDecision && walmartBuyerDecision.action === 'review') {
           computedStatus = 'error';
         }
+        // XCF-HARDIES — stessa regola di Phase A: il pick-up slip (R.M.A.)
+        // non e' contabile e si chiude letto, mai pending ne' error.
+        if (parsed.document_type === 'return_request') computedStatus = 'ignored';
 
         await sb.from('vendor_documents').update({
           // FIX (silent Hardie's fallback task): a parser that couldn't
@@ -1471,7 +1628,7 @@ window.vdrProcessAllPdf = async function(docId) {
         // aggiorna per id).
         if (allWarnings.length > 0) {
           const warnRows = allWarnings
-            .filter(w => w.code && !['OQR-006'].includes(w.code)) // OQR-006 auto-resolves in UI
+            .filter(w => w.code && !['OQR-006', 'RETURN_REQUEST'].includes(w.code)) // OQR-006 auto-resolves in UI; RETURN_REQUEST e' solo informativo (XCF-HARDIES)
             .map(w => ({
               document_id:      doc.id,
               vendor:           parsed.vendor || 'unknown',
@@ -1663,7 +1820,7 @@ function vdrCardHTML(doc) {
   const qCount    = allQ.length;
   const itemCountLabel = vdrDescribeItemCounts(pj.items);
 
-  const typeColor = { invoice:'#3B82F6', order_confirmation:'#8b5cf6', credit_memo:'#ef4444' }[doc.document_type] || '#64748b';
+  const typeColor = { invoice:'#3B82F6', order_confirmation:'#8b5cf6', credit_memo:'#ef4444', return_request:'#f59e0b' }[doc.document_type] || '#64748b';
 
   const matchStatus       = (window._vdrMatchStatus && window._vdrMatchStatus[doc.id]) || null;
   const unmatchedSkuCount  = (matchStatus && matchStatus.unmatchedSkuCount) || 0;
@@ -2566,11 +2723,23 @@ function vdrDocumentEconomicallyDeterministic(pj) {
   return candidates.some(c => Math.abs(c - sum) <= VDR_TOTAL_TOLERANCE);
 }
 
+// XCF-HARDIES — gemello di vdaiLineNotShippedNotCharged nel worker.
+function vdrLineNotShippedNotCharged(item) {
+  if (!item) return false;
+  const ord = vdrNum(item.qty_ordered);
+  const rec = vdrNum(item.qty_received);
+  const amt = vdrNum(item.amount);
+  return ord !== null && ord > 0 && rec === 0 && amt === 0;
+}
+
 function vdrQtyWarningInformational(code, item, qtyCtx) {
   if (code !== 'OQR-002' && code !== 'OQR-007') return false;
   if (!qtyCtx || qtyCtx.deterministic !== true) return false;
   if (!item) return false;
   if (!vdrLineEconomicallyDeterminate(item)) return false;
+  // XCF-HARDIES — ordinato, non spedito, non addebitato: nessuna riga
+  // d'acquisto, quindi nessuna identita' da chiedere. Nota, non domanda.
+  if (code === 'OQR-007' && vdrLineNotShippedNotCharged(item)) return true;
   const key = item.vendor_sku || item.item_code || item.description || item.raw_description;
   if (!key) return false;
   if (!(qtyCtx.unmatchedKeys instanceof Set)) return false;   // niente mappa identita' => fail closed
@@ -2651,6 +2820,9 @@ function vdrWarningToQuestion(w, item, docId, idx, qtyCtx) {
     // e.g. "50 CT", "4/20 CT", "95 CT", "110 CT"
     const isPureCount = /^\d+\s*(\/\s*\d+\s*)?CT$/i.test(pack.trim());
     if (isPureCount) return null;
+    // XCF-HARDIES — dozzine: conteggio fisso (15 DZ = 180), stessa
+    // non-ambiguita' del CT. Gemello di isBlockingWarning nel worker.
+    if (/^\d+\s*(\/\s*\d+\s*)?(DZ|DOZ)$/i.test(pack.trim())) return null;
     // Skip OQR-006 for CT range packs — auto-calculate average
     // e.g. "16-22 CT" → average = 19, show info-only, no question
     const isRangeCT = /^(\d+)-(\d+)\s*CT$/i.test(pack.trim());
@@ -2720,7 +2892,9 @@ function vdrWarningToQuestion(w, item, docId, idx, qtyCtx) {
         qid, code: 'OQR-002', item, docId, idx,
         emoji: '🔄',
         title: name || 'Substitution',
-        detected: `${subName} replaced ${prevItem} · received ${item.qty_received} · charged $${Number(item.amount).toFixed(2)}`,
+        // XCF-HARDIES — la fattura dice SPEDITO e ADDEBITATO, non "accettato"
+        // ne' "ricevuto in cucina": il testo non dichiara cio' che nessuno ha confermato.
+        detected: `${subName} shipped instead of ${prevItem} · invoiced ${item.qty_received} · charged $${Number(item.amount).toFixed(2)} · kitchen acceptance not recorded`,
         question: null,
         warnRef: w,
         infoOnly: true,
@@ -3998,15 +4172,22 @@ window.vdrApprove = async function(docId, btn) {
                       : (effectiveExt && effectiveQty ? effectiveExt / effectiveQty : null);
 
         // Fruge parser produces _cost_per_100g and cost_per_lb directly — use them
+        // XCF-PREZZI — U/M di fattura 'lb' (Global Gourmet): il prezzo e'
+        // al libbra, non a collo. Ramo raggiunto SOLO con invoice_unit.
+        const umLb = vdrPIM().invoiceLineUnit(item) === 'lb';
         const per100g = item._cost_per_100g
           ? parseFloat(item._cost_per_100g)
           : (item.catchweight && item.price_per_lb)
             ? (item.price_per_lb / 453.592) * 100
             : (item.cost_per_lb)
               ? (item.cost_per_lb / 453.592) * 100
-              : ((totalG && price) ? (price / totalG * 100) : null);
+              : (umLb && price)
+                ? (price / 453.592) * 100
+                : ((totalG && price) ? (price / totalG * 100) : null);
 
-        const priceType = item.price_type || (item.catchweight ? 'per_lb' : 'per_case');
+        // XCF-PREZZI — una sola regola, condivisa col worker: dichiarato,
+        // catchweight, cost_per_lb, U/M di fattura 'lb', poi per_case.
+        const priceType = vdrPIM().derivePriceType(item);
         const convBase  = priceType === 'per_lb' ? null : (item.conversion_to_base || totalG || null);
 
         // MICRO-TASK 88A — stessa decisione del worker, stesso modulo.
@@ -4274,11 +4455,16 @@ window.vdrApprove = async function(docId, btn) {
         const lineTotal   = (edits.ext != null && !isNaN(edits.ext)) ? edits.ext : (item.amount != null ? item.amount : null);
 
         // Weight
+        // XCF-PREZZI — riga a U/M 'lb' (Global Gourmet): il peso e' quello
+        // FATTURATO (7,3 lb -> 3311 g), non il nominale del pack (3175 g).
+        const billedG = vdrPIM().billedWeightG(item);
         const totalG = item.total_weight_lb
           ? item.total_weight_lb * 453.592
           : item.catchweight && item.actual_weight_lb
             ? item.actual_weight_lb * 453.592
-            : (window.vdrPackToGrams ? window.vdrPackToGrams(pack, false, null, desc) : null);
+            : billedG != null
+              ? billedG
+              : (window.vdrPackToGrams ? window.vdrPackToGrams(pack, false, null, desc) : null);
 
         // INV08G — SU UNA CATCHWEIGHT IL PREZZO E' AL LIBBRA.
         //
@@ -4313,7 +4499,9 @@ window.vdrApprove = async function(docId, btn) {
             : item.catchweight
               ? (cwGrams && lineTotal != null && lineTotal > 0 ? (lineTotal / cwGrams) * 100
                  : item.price_per_lb ? (item.price_per_lb / 453.592) * 100 : null)
-              : (totalG && unitPrice && qty && qty > 0) ? ((unitPrice / totalG) * 100) : null;
+              : (billedG != null && unitPrice)
+                ? (unitPrice / 453.592) * 100
+                : (totalG && unitPrice && qty && qty > 0) ? ((unitPrice / totalG) * 100) : null;
 
         // FIX (line_type task): a Shipping/adjustment row must never carry
         // an ingredient_id in invoice_lines either, even if a stale or
@@ -4341,7 +4529,9 @@ window.vdrApprove = async function(docId, btn) {
           ingredient_id:      matchedId,
           match_status:       matchedId ? 'matched' : 'unmatched',
           qty:                qty,
-          purchase_unit:      'case',
+          // XCF-PREZZI — U/M della fattura quando dichiarata (invoice_unit),
+          // altrimenti 'case' come sempre.
+          purchase_unit:      vdrPIM().invoiceLineUnit(item),
           pack_description:   pack,
           unit_price:         unitPrice,
           line_total:         lineTotal,
@@ -4664,9 +4854,20 @@ window.vdrOpenMatchSelector = async function(docId, vendor, vendorSku, descripti
     const result = await window.vdrSaveVendorSkuMapping(sb, vendor, vendorSku, ingredientId, description);
 
     if (result.status === 'created' || result.status === 'idempotent') {
+      // INV15B — l'esito del recupero prezzo e' visibile. Il mapping e'
+      // fatto e la modale si chiude come sempre (worklist e dettaglio
+      // documento dipendono da questo), ma se il prezzo NON e' stato
+      // salvato (needs_review / sku_conflict / error) lo Chef lo legge
+      // per esteso, piu' a lungo, invece di vedere solo "Matched".
+      const prInfo = window.vdrDescribePriceRecovery ? window.vdrDescribePriceRecovery(result.price_recovery) : { tone: 'info', text: '' };
+      const prezzoNonSalvato = prInfo.tone === 'warn' || prInfo.tone === 'error';
+      if (prezzoNonSalvato) console.warn('[vdr] price recovery', result.price_recovery);
       modal.remove();
       if (typeof showScToast === 'function') {
-        showScToast('✓ Matched to ' + ingredientName + (result.backfilled ? ' — ' + result.backfilled + ' line' + (result.backfilled === 1 ? '' : 's') + ' updated' : ''));
+        showScToast((prezzoNonSalvato ? '⚠ ' : '✓ ') + 'Matched to ' + ingredientName +
+          (result.backfilled ? ' — ' + result.backfilled + ' line' + (result.backfilled === 1 ? '' : 's') + ' updated' : '') +
+          (prInfo.text ? ' · ' + prInfo.text : ''),
+          prezzoNonSalvato ? 9000 : (prInfo.text ? 5000 : 3000));
       }
       // Re-render the open detail sheet safely: recompute this one
       // document's match status fresh (never a manual Set mutation),
@@ -4873,7 +5074,7 @@ function vdrCodeToSeverity(code) {
 
 // ── Helpers ───────────────────────────────────────────────────
 function vdrDocTypeLabel(t) {
-  return { invoice: 'Invoice', order_confirmation: 'Order Conf.', credit_memo: 'Credit Memo' }[t] || (t || 'Unknown');
+  return { invoice: 'Invoice', order_confirmation: 'Order Conf.', credit_memo: 'Credit Memo', return_request: 'Pick-up (RMA)' }[t] || (t || 'Unknown');
 }
 
 function vdrFmtDate(d) {

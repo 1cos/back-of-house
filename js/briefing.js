@@ -1040,18 +1040,43 @@ async function _loadWeeklyHighlights(el){
 }
 
 // ── UPCOMING DEMAND — legge tabella events (TripleSeat) ──
+const UD_WINDOW_DAYS=90;
+const UD_SAFETY_LIMIT=30;
+const UD_EXCLUDED_STATUSES=['lost','cancelled','canceled','LOST','CANCELLED','CANCELED'];
+function udCountLabel(n,shown){
+  const lang=typeof normalizeLang==='function'?normalizeLang((typeof user!=='undefined'&&user&&user.lang)||(typeof loginLang!=='undefined'&&loginLang)||'en'):'en';
+  const one=n===1;
+  const base={
+    it:n+(one?' evento':' eventi')+' nei prossimi '+UD_WINDOW_DAYS+' giorni',
+    es:n+(one?' evento':' eventos')+' en los próximos '+UD_WINDOW_DAYS+' días',
+    en:n+(one?' event':' events')+' in the next '+UD_WINDOW_DAYS+' days'
+  }[lang]||(n+(one?' event':' events')+' in the next '+UD_WINDOW_DAYS+' days');
+  if(shown<n){
+    const more={it:' (mostrati '+shown+')',es:' (mostrados '+shown+')',en:' (showing '+shown+')'}[lang]||' (showing '+shown+')';
+    return base+more;
+  }
+  return base;
+}
 async function loadUpcomingDemand(){
   const el=document.getElementById('upcomingDemand');
   const section=document.getElementById('upcomingDemandSection');
   const headerEl=document.getElementById('homeUpcomingLabel');
   if(!el) return;
   try{
-    const today=getNowDallas().toLocaleDateString('en-CA');
-    const{data}=await supa.from('events')
-      .select('id,name,event_date,event_time,guest_count,service_style,location,room_name,event_recipes,status')
+    // UD01 — finestra di UD_WINDOW_DAYS giorni (non piu' i soli primi 5 eventi),
+    // esclusi LOST/cancellati, con limite di sicurezza UD_SAFETY_LIMIT righe.
+    const nowD=getNowDallas();
+    const today=nowD.toLocaleDateString('en-CA');
+    const endD=new Date(nowD); endD.setDate(endD.getDate()+UD_WINDOW_DAYS);
+    const until=endD.toLocaleDateString('en-CA');
+    const{data,count}=await supa.from('events')
+      .select('id,name,event_date,event_time,guest_count,service_style,location,room_name,event_recipes,status',{count:'exact'})
       .gte('event_date',today)
+      .lte('event_date',until)
+      .or('status.is.null,status.not.in.('+UD_EXCLUDED_STATUSES.join(',')+')')
       .order('event_date',{ascending:true})
-      .limit(5);
+      .order('event_time',{ascending:true,nullsFirst:false})
+      .limit(UD_SAFETY_LIMIT);
     if(!data||!data.length){
       if(section) section.style.display='none';
       else el.closest('div[style]') && (el.style.display='none');
@@ -1066,7 +1091,12 @@ async function loadUpcomingDemand(){
       headerEl.onclick=()=>{ if(typeof showCalendar==='function') showCalendar(); };
     }
     const isAdm=typeof isAdmin==='function'&&isAdmin();
-    el.innerHTML=data.map(e=>{
+    const totalN=typeof count==='number'?count:data.length;
+    el.innerHTML=
+    '<div id="upcomingDemandCount" style="font-size:11px;color:#93c5fd;padding:0 0 4px;">'+
+      udCountLabel(totalN,data.length)+
+    '</div>'+
+    data.map(e=>{
       const d=new Date(e.event_date+'T12:00:00');
       const dayStr=d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
       const timeStr=e.event_time?e.event_time.slice(0,5):'';

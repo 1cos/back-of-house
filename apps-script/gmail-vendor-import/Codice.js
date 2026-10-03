@@ -5,6 +5,8 @@ function checkAllEmails() {
   checkBEKEmails();
   checkFrugeEmails();
   checkTreviPayEmails();
+  // XCF-GG — ultimo di proposito: un suo errore non puo' fermare gli altri.
+  checkGlobalGourmetEmails();
   // checkTripleSeat();  — quando connesso
   // checkSevenShift();  — quando connesso
 }

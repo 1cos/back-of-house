@@ -370,7 +370,18 @@ test('28. i cinque pending: se una sola identita manca, quel documento torna a b
   for (const d of REALI) {
     const skus = (d.parsed_json.items || []).map(i => i.vendor_sku).filter(Boolean);
     const conWarning = d.parsed_json.items.filter(i => (i.warnings || []).some(w => w.code === 'OQR-002' || w.code === 'OQR-007'));
-    const vittima = conWarning[0];
+    // XCF-HARDIES — una riga "ordinato N, spedito 0, importo 0" non produce
+    // nessun acquisto, quindi non ha bisogno di identita' (vedi
+    // tests/xcf-hardies-rma-short.test.js): la vittima dev'essere una riga
+    // che qualcosa addebita. La riga a zero, senza identita', resta nota.
+    const aZero = conWarning.filter(i => W.vdaiLineNotShippedNotCharged(i));
+    for (const z of aZero) {
+      const ctxZ = ctxOf(d.parsed_json, skus.filter(s => s !== z.vendor_sku));
+      const wz = z.warnings.find(x => x.code === 'OQR-007');
+      if (wz) assert.strictEqual(W.isBlockingWarning(wz, z, {}, ctxZ), false, d.document_number + ' zero/zero');
+    }
+    const vittima = conWarning.find(i => !W.vdaiLineNotShippedNotCharged(i));
+    if (!vittima) continue;
     const ctx = ctxOf(d.parsed_json, skus.filter(s => s !== vittima.vendor_sku));
     const w = vittima.warnings.find(x => x.code === 'OQR-002' || x.code === 'OQR-007');
     assert.strictEqual(W.isBlockingWarning(w, vittima, {}, ctx), true, d.document_number);
