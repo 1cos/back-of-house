@@ -50,6 +50,11 @@ function messages(outcome, r, vendor) {
   if (outcome === 'uncertain') return { title: "Chef's Warehouse: esito NON certo — controlla prima di rifare",
     body: `L'ordine potrebbe essere partito (${r.error}). Controlla lo storico ordini su Chef's Warehouse. Brigade blocca un nuovo invio automatico di questo ordine; se non c'e', registralo come invio manuale o annullalo.` };
   if (r.error === 'CW_SESSION_EXPIRED') return { title: "Chef's Warehouse: serve il login di Max — ordine NON inviato", body: loginHelp };
+  if (r.error === 'OUT_OF_STOCK') {
+    const names = ((r.detail || []).find(d => d.code === 'OUT_OF_STOCK') || {}).items || [];
+    return { title: "Chef's Warehouse: esaurito — ordine NON inviato",
+      body: `Esaurito su CW: ${names.map(n => n.name || n.sku).join(', ') || 'un articolo'}. Nulla e' stato inviato. Togli la riga dal carrello CW, poi correggi l'ordine in Brigade (togli o sostituisci l'articolo) e rimandalo.` };
+  }
   const dirty = r.cart_touched ? " Il carrello su Chef's Warehouse puo' contenere le righe aggiunte: va svuotato prima del prossimo invio." : '';
   return { title: `Chef's Warehouse: ordine NON inviato (${r.error})`, body: `Nulla e' stato inviato a CW. Motivo: ${r.error}${r.detail ? ' ' + JSON.stringify(r.detail).slice(0, 200) : ''}.${dirty}` };
 }

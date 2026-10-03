@@ -110,7 +110,10 @@ test('data di consegna non applicata: fallito, nessun submit', async () => {
 test('articolo esaurito: fallito, nessun submit', async () => {
   const { api, st } = fakePortal({ oos: true });
   const r = await sendOrder(api, job(L));
-  assert.ok(r.result.detail.some(d => d.code === 'OUT_OF_STOCK')); assert.strictEqual(st.submitted, 0);
+  assert.strictEqual(r.result.error, 'OUT_OF_STOCK');
+  assert.deepStrictEqual(r.result.detail.find(d => d.code === 'OUT_OF_STOCK').items[0].sku, '25095');
+  assert.match(messages('failed', r.result, 'H').body, /Esaurito su CW: 25095/);
+  assert.strictEqual(st.submitted, 0);
 });
 
 test('sessione scaduta prima del submit: fallito (certo), nessun submit', async () => {

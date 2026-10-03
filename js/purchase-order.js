@@ -1146,6 +1146,8 @@ function poRenderRealAttempt(o){
   if(at.state === 'failed' && o.status === 'confirmed'){
     return '<div style="margin-top:12px;padding:10px;border:1px solid #fca5a5;border-radius:10px;background:#fef2f2;font-size:12px;color:#991b1b;">' +
       '⛔ Ultimo invio a Chef\'s Warehouse NON partito (' + _poEsc(r.error || 'errore') + '). Nulla è stato inviato.' +
+      (r.error === 'OUT_OF_STOCK' ? ' Esaurito su CW: <b>' + _poEsc((((r.detail || []).filter(function(d){ return d.code === 'OUT_OF_STOCK'; })[0] || {}).items || [])
+        .map(function(x){ return x.name || x.sku; }).join(', ')) + '</b>. Togli o sostituisci l\'articolo e rimanda.' : '') +
       (r.cart_touched ? ' Il carrello su CW può contenere righe aggiunte: svuotalo prima di riprovare.' : '') +
       (r.error === 'CW_SESSION_EXPIRED' ? ' Serve il login sul Mac Mini (cw-login.command).' : '') + '</div>';
   }
