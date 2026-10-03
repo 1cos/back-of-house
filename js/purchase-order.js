@@ -240,13 +240,14 @@ async function poLoadCatalog(){
     var sb = window.supabaseClient;
     var [alias, iv, links, invLines] = await Promise.all([
       sb.from('vendor_item_aliases').select('id,vendor,vendor_sku,vendor_description,ingredient_id').eq('active', true),
-      sb.from('ingredient_vendors').select('id,vendor,vendor_sku,ingredient_id,ingredients(name)').eq('active', true).eq('do_not_order', false),
+      sb.from('ingredient_vendors').select('id,vendor,vendor_sku,ingredient_id,purchase_unit,ingredients(name,name_it)').eq('active', true).eq('do_not_order', false),
       sb.from('ingredient_links').select('id,vendor,invoice_description,ingredient_name,ingredient_id,confidence,confirmed'),
-      sb.from('invoice_lines').select('vendor,ingredient_id').not('ingredient_id', 'is', null)
+      sb.from('invoice_lines').select('vendor,ingredient_id,purchase_unit,invoice_date').not('ingredient_id', 'is', null)
     ]);
     _poAliasCatalog = alias.data || [];
     _poIngVendorCatalog = (iv.data || []).map(function(r){
-      return { id:r.id, vendor:r.vendor, vendor_sku:r.vendor_sku, ingredient_id:r.ingredient_id, name: r.ingredients ? r.ingredients.name : null };
+      return { id:r.id, vendor:r.vendor, vendor_sku:r.vendor_sku, ingredient_id:r.ingredient_id, purchase_unit: r.purchase_unit || null,
+               name: r.ingredients ? r.ingredients.name : null, name_it: r.ingredients ? r.ingredients.name_it : null };
     });
     _poLinkCatalog = links.data || [];
     _poInvoiceLineRows = invLines.data || [];
@@ -521,6 +522,8 @@ function poBuildCandidate(item, source, itemText){
            : source === 'ingredient_vendors' ? item.name
            : item.ingredient_name;
   var rawScore = poScore(itemText, name);
+  // XCF-ORDINI-UX: Max scrive in italiano ("basilico"): vale anche ingredients.name_it.
+  if(source === 'ingredient_vendors' && item.name_it){ rawScore = Math.max(rawScore, poScore(itemText, item.name_it)); }
   if(rawScore === 0) return null;
   var score = rawScore + PO_SOURCE_PRIOR[source] + poPurchaseBoost(item.ingredient_id);
   score = Math.min(1, score);
@@ -623,20 +626,57 @@ function poMatchItem(itemText){
   return result;
 }
 
-// ── LINE PARSING (trailing "<item> <qty> [<unit>]", no invented data) ──
+// ── LINE PARSING ("1 basilico", "basilico 1", "2 casse panna", no invented data) ──
+// Unita' in italiano e inglese ricondotte a una parola canonica; un numero
+// senza unita' resta senza unita' (la propone poi lo storico, dichiarandolo).
+var PO_UNIT_WORDS = {
+  'case': 'case', 'cases': 'case', 'case(s)': 'case', 'cs': 'case', 'cassa': 'case', 'casse': 'case', 'cartone': 'case', 'cartoni': 'case',
+  'each': 'each', 'ea': 'each', 'pz': 'each', 'pezzo': 'each', 'pezzi': 'each',
+  'lb': 'lb', 'lbs': 'lb', 'libbra': 'lb', 'libbre': 'lb', 'kg': 'kg', 'g': 'g', 'oz': 'oz',
+  'box': 'box', 'boxes': 'box', 'scatola': 'box', 'scatole': 'box',
+  'bunch': 'bunch', 'bunches': 'bunch', 'mazzo': 'bunch', 'mazzi': 'bunch',
+  'dozen': 'dozen', 'doz': 'dozen', 'dozzina': 'dozen', 'dozzine': 'dozen',
+  'pack': 'pack', 'packs': 'pack', 'confezione': 'pack', 'confezioni': 'pack',
+  'bag': 'bag', 'bags': 'bag', 'sacco': 'bag', 'sacchi': 'bag', 'busta': 'bag', 'buste': 'bag',
+  'gallon': 'gallon', 'gal': 'gallon', 'gallone': 'gallon', 'galloni': 'gallon', 'qt': 'qt', 'pt': 'pt',
+  'can': 'can', 'cans': 'can', 'latta': 'can', 'latte': 'can', 'barattolo': 'can', 'barattoli': 'can'
+};
+var PO_FILLER = { 'di': 1, 'de': 1, 'of': 1, 'x': 1 };
 function poParseLine(raw){
-  var line = (raw || '').trim();
+  var line = (raw || '').trim().replace(/\s+/g, ' ');
   if(!line) return null;
-  var m = line.match(/^(.+?)\s+(\d+(?:[.,]\d+)?)\s*([a-zA-Z()]+)?$/);
-  if(m){
-    var itemText = m[1].trim();
-    var qty = parseFloat(m[2].replace(',', '.'));
-    var unitWord = (m[3] || '').toLowerCase();
-    var unit = PO_KNOWN_UNITS.indexOf(unitWord) >= 0 ? unitWord : null;
-    if(m[3] && !unit) itemText = itemText + ' ' + m[3]; // not a recognized unit — keep it as part of the text, don't discard
-    return { requested_text: itemText, quantity: isNaN(qty) ? null : qty, unit: unit };
+  var words = line.split(' ');
+  // "00" (farina 00) o "0" non sono quantita'; "0,5" si'.
+  var num = function(w){
+    if(!/^\d+(?:[.,]\d+)?$/.test(w) || /^0\d/.test(w)) return null;
+    var n = parseFloat(w.replace(',', '.'));
+    return n > 0 ? n : null;
+  };
+  var unitOf = function(w){ return PO_UNIT_WORDS[(w || '').toLowerCase()] || null; };
+  var qty = null, unit = null, rest = words;
+  if(words.length > 1 && num(words[0]) !== null){                       // "1 basilico", "2 casse (di) panna"
+    qty = num(words[0]); rest = words.slice(1);
+    if(rest.length > 1 && unitOf(rest[0])){ unit = unitOf(rest[0]); rest = rest.slice(1); }
+    if(rest.length > 1 && PO_FILLER[rest[0].toLowerCase()]) rest = rest.slice(1);
+  } else if(words.length > 1 && num(words[words.length - 1]) !== null){ // "basilico 1"
+    qty = num(words[words.length - 1]); rest = words.slice(0, -1);
+  } else if(words.length > 2 && num(words[words.length - 2]) !== null && unitOf(words[words.length - 1])){ // "panna 2 casse"
+    qty = num(words[words.length - 2]); unit = unitOf(words[words.length - 1]); rest = words.slice(0, -2);
   }
-  return { requested_text: line, quantity: null, unit: null }; // no recognizable qty — leave fully editable
+  return { requested_text: rest.join(' '), quantity: qty, unit: unit };
+}
+
+// Unita' dell'ultimo acquisto di quell'ingrediente da quel fornitore (fattura
+// piu' recente, poi ingredient_vendors). Mai inventata: null se non c'e'.
+function poLastUnit(ingredientId, vendor){
+  if(!ingredientId || !vendor) return null;
+  var best = null;
+  _poInvoiceLineRows.forEach(function(r){
+    if(r.ingredient_id === ingredientId && r.vendor === vendor && r.purchase_unit && (!best || (r.invoice_date || '') > (best.invoice_date || ''))) best = r;
+  });
+  if(best) return String(best.purchase_unit).toLowerCase();
+  var iv = _poIngVendorCatalog.find(function(r){ return r.ingredient_id === ingredientId && r.vendor === vendor && r.purchase_unit; });
+  return iv ? String(iv.purchase_unit).toLowerCase() : null;
 }
 
 // ── PARSE + MATCH → build review lines ───────────────────────────
@@ -654,10 +694,12 @@ window.poParseAndMatch = async function(){
   _poDraftLines = rawLines.map(function(raw){
     var parsed = poParseLine(raw);
     var m = poMatchItem(parsed.requested_text);
+    var histUnit = (!parsed.unit && m.matched && m.vendorStatus === 'resolved') ? poLastUnit(m.ingredient_id, m.vendor) : null;
     return {
       requested_text: parsed.requested_text,
       quantity: parsed.quantity,
-      unit: parsed.unit,
+      unit: parsed.unit || histUnit,
+      unit_from_history: !!histUnit,
       ingredient_id: m.matched ? m.ingredient_id : null,
       matched_name: m.matched ? m.matched_name : null,
       vendor_sku: m.matched ? m.vendor_sku : null,
@@ -681,7 +723,7 @@ window.poLineSetQty = function(i, val){
   var n = parseFloat(String(val).replace(',', '.'));
   _poDraftLines[i].quantity = isNaN(n) ? null : n;
 };
-window.poLineSetUnit = function(i, val){ _poDraftLines[i].unit = val.trim() || null; };
+window.poLineSetUnit = function(i, val){ _poDraftLines[i].unit = val.trim() || null; _poDraftLines[i].unit_from_history = false; };
 window.poLineSetText = function(i, val){ _poDraftLines[i].requested_text = val.trim(); };
 
 window.poLineSetProduct = function(i, encoded){
@@ -948,6 +990,12 @@ window.poSaveDraft = async function(){
     poToast(msg);
 
     _poDraftLines = _poDraftLines.filter(function(l){ return !(l.vendor_status === 'resolved' && l.vendor); });
+    // XCF-ORDINI-UX: un solo ordine, nessuna riga da sistemare -> riepilogo subito
+    // (stesso po_mark_ready di prima, un tocco in meno). La conferma resta di Max.
+    if(_poDraftLines.length === 0 && (r.orders || []).length === 1 && !blocking){
+      var rr = await poRpc('po_mark_ready', { p_order_id: r.orders[0].id, p_expected_revision: r.orders[0].revision });
+      if(rr.ok) poToast('Riepilogo pronto — controlla e conferma');
+    }
     if(_poDraftLines.length === 0){
       var single = (r.orders || []).length === 1 ? r.orders[0].id : null;
       _poEditingOrderId = null; _poEditingVendor = null; _poEditingRevision = null;
@@ -960,7 +1008,7 @@ window.poSaveDraft = async function(){
     console.error('[purchase-order] save error', e);
     poToast('Errore nel salvataggio');
   }finally{
-    if(btn){ btn.disabled = false; btn.textContent = 'Salva bozza'; }
+    if(btn){ btn.disabled = false; btn.textContent = 'Prepara riepilogo'; }
   }
 };
 
@@ -1540,6 +1588,7 @@ function poRenderReview(){
     html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">';
     html += '<input type="number" value="' + (l.quantity != null ? l.quantity : '') + '" oninput="poLineSetQty(' + i + ',this.value)" onchange="poRenderPage()" placeholder="qty" style="width:64px;padding:6px 8px;border:1px solid ' + (l.quantity != null && l.quantity > 0 ? '#e2e8f0' : '#fca5a5') + ';border-radius:8px;font-size:13px;">';
     html += '<input type="text" value="' + _poEsc(l.unit || '') + '" oninput="poLineSetUnit(' + i + ',this.value)" onchange="poRenderPage()" placeholder="case/lb/ea" style="width:80px;padding:6px 8px;border:1px solid ' + ((l.unit || '').trim() ? '#e2e8f0' : '#fca5a5') + ';border-radius:8px;font-size:13px;">';
+    if(l.unit_from_history) html += '<span style="font-size:11px;color:#64748b;margin-left:4px;">come l\'ultima fattura</span>';
     html += badge;
     html += '<button onclick="poLineRemove(' + i + ')" style="margin-left:auto;background:none;border:none;color:#ef4444;font-size:16px;cursor:pointer;padding:4px;">🗑</button>';
     html += '</div>';
@@ -1567,7 +1616,7 @@ function poRenderReview(){
 
   html += '<button onclick="poLineAddManual()" style="width:100%;padding:10px;border:1px dashed #cbd5e1;border-radius:10px;background:none;color:#64748b;font-size:13px;cursor:pointer;margin-bottom:16px;">+ Aggiungi riga</button>';
   html += poRenderCheckBeforeOrdering();
-  html += '<button id="poSaveBtn" onclick="poSaveDraft()" style="width:100%;height:46px;border-radius:12px;background:#1e3a5f;color:white;border:none;font-size:14px;font-weight:700;cursor:pointer;">Salva bozza</button>';
+  html += '<button id="poSaveBtn" onclick="poSaveDraft()" style="width:100%;height:46px;border-radius:12px;background:#1e3a5f;color:white;border:none;font-size:14px;font-weight:700;cursor:pointer;">Prepara riepilogo</button>';
   return html;
 }
 
@@ -1756,6 +1805,9 @@ function poRenderOrder(){
       html += '<button onclick="poSendRealCw()" style="' + _PO_BTN_PRIMARY + 'background:#b91c1c;">Invia a Chef\'s Warehouse (ORDINE REALE)</button>';
       html += '<div style="font-size:11px;color:#64748b;margin-top:4px;">Parte solo questo riepilogo (#' + _poEsc((o.confirmed_hash || '').slice(0, 8)) + '). Il Mac Mini lo invia e salva il numero d\'ordine CW.</div>';
     }
+    if(!realBusy){
+      html += '<button onclick="poEditOrderLines()" style="' + _PO_BTN_SECOND + '">Modifica (annulla la conferma)</button>';
+    }
     if(isAdmin && !realBusy){
       html += '<button onclick="poSendSimulated()" style="' + (poCwRealAvailable(o) ? _PO_BTN_SECOND : _PO_BTN_PRIMARY) + '">Prova invio (SIMULAZIONE — nulla parte)</button>';
       if(!poCwRealAvailable(o)) html += '<div style="font-size:11px;color:#64748b;margin-top:4px;">L\'invio automatico ai fornitori non è attivo: serve la decisione di Max.</div>';
@@ -1867,6 +1919,7 @@ function poRenderReceive(){
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     poMatchItem: poMatchItem,
+    poLastUnit: poLastUnit,
     poNormalize: poNormalize,
     poStem: poStem,
     poTokens: poTokens,

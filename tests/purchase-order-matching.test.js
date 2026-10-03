@@ -174,7 +174,7 @@ test('poParseLine: "heavy cream 2 cases"', () => {
   const p = po.poParseLine('heavy cream 2 cases');
   assert.strictEqual(p.requested_text, 'heavy cream');
   assert.strictEqual(p.quantity, 2);
-  assert.strictEqual(p.unit, 'cases');
+  assert.strictEqual(p.unit, 'case'); // XCF-ORDINI-UX: unita' canonica
 });
 
 test('poParseLine: "parsley 3" (no unit)', () => {
@@ -182,6 +182,36 @@ test('poParseLine: "parsley 3" (no unit)', () => {
   assert.strictEqual(p.requested_text, 'parsley');
   assert.strictEqual(p.quantity, 3);
   assert.strictEqual(p.unit, null);
+});
+
+test('XCF-ORDINI-UX: "basilico" trova Basil (name_it), Hardie\'s, SKU e unita dall\'ultima fattura', () => {
+  const H = "Hardie's Fresh Foods / Dairyland Produce";
+  po.poSetCatalogsForTest([], [
+    { id: 'iv1', vendor: H, vendor_sku: '01306', ingredient_id: 'ing-basil', name: 'Basil', name_it: 'Basilico', purchase_unit: 'case' },
+    { id: 'iv2', vendor: H, vendor_sku: '99999', ingredient_id: 'ing-basil-oil', name: 'Basil Oil', name_it: 'Olio al Basilico', purchase_unit: 'each' }
+  ], [], { 'ing-basil': 12 }, [
+    { vendor: H, ingredient_id: 'ing-basil', purchase_unit: 'case', invoice_date: '2026-09-28' },
+    { vendor: H, ingredient_id: 'ing-basil', purchase_unit: 'case', invoice_date: '2026-10-01' }
+  ]);
+  const p = po.poParseLine('1 basilico');
+  const m = po.poMatchItem(p.requested_text);
+  assert.strictEqual(m.matched, true);
+  assert.strictEqual(m.ingredient_id, 'ing-basil');
+  assert.strictEqual(m.vendor, H);
+  assert.strictEqual(m.vendor_sku, '01306');
+  assert.strictEqual(po.poLastUnit(m.ingredient_id, m.vendor), 'case');
+  assert.strictEqual(po.poLastUnit('ing-unknown', H), null, 'nessuno storico: nessuna unita inventata');
+});
+
+// ── XCF-ORDINI-UX: "1 basilico" e italiano ──
+[['1 basilico', 'basilico', 1, null], ['2 casse panna', 'panna', 2, 'case'], ['2 casse di panna', 'panna', 2, 'case'],
+ ['3 mazzi prezzemolo', 'prezzemolo', 3, 'bunch'], ['burrata 1', 'burrata', 1, null], ['panna 2 casse', 'panna', 2, 'case'],
+ ['1,5 lb guanciale', 'guanciale', 1.5, 'lb'], ['basilico', 'basilico', null, null], ['6 cases canned tomatoes', 'canned tomatoes', 6, 'case'],
+ ['00 flour', '00 flour', null, null], ['2 farina 00', 'farina 00', 2, null], ['0,5 cassa limoni', 'limoni', 0.5, 'case']].forEach(([inp, text, q, u]) => {
+  test('poParseLine IT: "' + inp + '"', () => {
+    const p = po.poParseLine(inp);
+    assert.deepStrictEqual([p.requested_text, p.quantity, p.unit], [text, q, u]);
+  });
 });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
