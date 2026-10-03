@@ -65,7 +65,8 @@ function cartLines(cart) {
 // Il carrello finale e' ESATTAMENTE il riepilogo confermato?
 function compareCart(planned, cart, deliveryDate) {
   const diffs = [];
-  if ((cart.oosLines || []).length) diffs.push({ code: 'OUT_OF_STOCK', n: cart.oosLines.length });
+  if ((cart.oosLines || []).length) diffs.push({ code: 'OUT_OF_STOCK', n: cart.oosLines.length,
+    items: cart.oosLines.map(l => ({ sku: l.productSku || null, name: l.productTitle || null, pack: l.packSize || null })) });
   if ((cart.forcedSubstitutions || []).length) diffs.push({ code: 'FORCED_SUBSTITUTION', n: cart.forcedSubstitutions.length });
   const subs = subCartsOf(cart);
   for (const sc of subs) {
@@ -128,7 +129,11 @@ async function sendOrder(api, job, opts = {}) {
     stage = 'validate';
     const val = await api.get('/web-api/cart-validation');
     const cmp = compareCart(plan.lines, val, payload.delivery_date);
-    if (!cmp.ok) return fail('CART_MISMATCH', cmp.diffs);
+    if (!cmp.ok) {
+      // Esaurito su CW: lo diciamo per nome (CW porta la riga a quantita' 0).
+      const oos = cmp.diffs.find(d => d.code === 'OUT_OF_STOCK');
+      return fail(oos ? 'OUT_OF_STOCK' : 'CART_MISMATCH', cmp.diffs);
+    }
     base.cw_cart_id = val.id || null;
   } catch (e) {
     return fail(e instanceof AuthExpired ? 'CW_SESSION_EXPIRED' : 'CW_ERROR', String(e.message || e).slice(0, 200));

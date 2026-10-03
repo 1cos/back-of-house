@@ -122,6 +122,9 @@ test('XCF-CW: in coda / in invio / incerto / fallito mostrati, nessun pulsante m
   po.poSetOrderForTest(cwOrder({ send_attempts: [{ mode: 'real', state: 'failed', result: { error: 'CART_MISMATCH', cart_touched: true } }] }), { is_admin: true });
   html = po.poRenderOrder();
   assert(/NON partito \(CART_MISMATCH\)/.test(html) && /svuotalo/.test(html) && /ORDINE REALE/.test(html), 'fallito: si puo riprovare');
+  po.poSetOrderForTest(cwOrder({ send_attempts: [{ mode: 'real', state: 'failed', result: { error: 'OUT_OF_STOCK', cart_touched: true,
+    detail: [{ code: 'OUT_OF_STOCK', items: [{ sku: '03075', name: 'Flat Italian Parsley' }] }] } }] }), { is_admin: true });
+  assert(/Esaurito su CW: <b>Flat Italian Parsley<\/b>/.test(po.poRenderOrder()), 'esaurito per nome');
   po.poSetSettingsForTest(null);
 });
 
