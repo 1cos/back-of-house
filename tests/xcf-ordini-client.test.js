@@ -128,6 +128,46 @@ test('XCF-CW: in coda / in invio / incerto / fallito mostrati, nessun pulsante m
   po.poSetSettingsForTest(null);
 });
 
+// ── XCF-ORDINI-UX 02: fornitore → Lista / Suggeriti / Abituali / Cerca ──
+const CAT = (view) => ({ ok: true, vendor: H, next_deliveries: ['2026-10-05', '2026-10-07'],
+  channel: { order_view: view, calendar_source: view === 'list' ? 'to_verify' : 'verified', calendar_note: 'nota' },
+  items: [
+    { key: '25618', ingredient_id: 'ing-b', vendor_sku: '25618', name: 'Burrata', name_it: 'Burrata', last_unit: 'case', last_price: 24.45, last_date: '2026-09-29',
+      days_since: 4, weeks_8: 7, interval_days: 4, suggested: true, habitual: true, pack: '6 x 4oz' },
+    { key: '01306', ingredient_id: 'ing-basil', vendor_sku: '01306', name: 'Basil', name_it: 'Basilico', last_unit: 'case', last_price: 18, last_date: '2026-10-02',
+      days_since: 1, weeks_8: 5, interval_days: 4, suggested: false, habitual: true },
+    { key: "zz o'brien", ingredient_id: null, vendor_sku: null, name: "O'Brien Mix", invoice_description: "O'BRIEN MIX", last_unit: 'case', days_since: 60, weeks_8: 0, suggested: false, habitual: false }
+  ] });
+
+test('XCF-ORDINI-UX: vista suggest = Suggeriti con il perche, Abituali, Cerca; consegna dal calendario', () => {
+  po.poSetVendorViewForTest(H, CAT('suggest'), {}, '');
+  const html = po.poRenderVendor();
+  assert(/Suggeriti \(1\)/.test(html) && /Acquistati abitualmente \(1\)/.test(html) && /Tutti \/ cerca/.test(html));
+  assert(/7 delle ultime 8 settimane · ultimo 4 gg fa · di solito ogni 4 gg/.test(html), 'perche del suggerimento');
+  assert(/Basilico · Basil/.test(html), 'nome italiano mostrato');
+  assert(/lun 05\/10/.test(html) && /mer 07\/10/.test(html), 'prossime consegne');
+  assert(!/O'Brien|O&#39;Brien/.test(html), 'articolo vecchio solo in Cerca');
+  po.poSetVendorViewForTest(H, CAT('suggest'), {}, 'brien');
+  assert(/O&#39;Brien Mix|O'Brien Mix/.test(po.poRenderVendor()), 'Cerca trova anche i vecchi');
+});
+
+test('XCF-ORDINI-UX: vista list = tutti gli articoli, calendario "da verificare"', () => {
+  po.poSetVendorViewForTest('Fruge Seafood', CAT('list'), {}, '');
+  const html = po.poRenderVendor();
+  assert(/Articoli comprati da Zeno \(3\)/.test(html) && /da verificare/.test(html) && !/Suggeriti/.test(html));
+});
+
+test('XCF-ORDINI-UX: quantita scelte → righe di bozza gia risolte (unita ultima fattura, niente invenzioni)', () => {
+  const lines = po.poCatalogToDraftLines(CAT('suggest'), { '25618': 2, "zz o'brien": 1 }, H);
+  assert.strictEqual(lines.length, 2);
+  const b = lines.find(l => l.vendor_sku === '25618');
+  assert.deepStrictEqual([b.quantity, b.unit, b.unit_from_history, b.ingredient_id, b.vendor, b.vendor_status, b.match_source, b.needs_review],
+    [2, 'case', true, 'ing-b', H, 'resolved', 'ingredient_vendors', false]);
+  const o = lines.find(l => l.vendor_sku === null);
+  assert.strictEqual(o.needs_review, true, 'senza ingrediente collegato: da verificare, non pronto');
+  assert.strictEqual(po.poCatalogToDraftLines(CAT('suggest'), {}, H).length, 0);
+});
+
 test('conferma non piu valida (ordine cambiato) e segnalata', () => {
   po.poSetOrderForTest(baseOrder({ status: 'confirmed', confirmation_valid: false }), { is_admin: true });
   assert(/cambiato dopo il riepilogo/.test(po.poRenderOrder()));

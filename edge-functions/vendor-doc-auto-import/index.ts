@@ -442,6 +442,13 @@ async function processOneQueuedDoc(sb: any, doc: any, parsers: any): Promise<{ o
   let rawText: string;
   if (ocrTextReady) {
     rawText = ocrTextReady;
+    // XCF-GG 04 — testo OCR arrivato dal Mac Mini (Apple Vision) sulla
+    // scansione originale: va separata in fatture come dopo l'OCR cloud.
+    // Le fatture gia' separate (split_from) non hanno storage_path: qui no.
+    if (storagePath && !doc.parsed_json?.split_from) {
+      const split = await vdaiSplitGlobalGourmet(sb, doc, rawText, storagePath);
+      if (split) return split;
+    }
   } else if (storagePath) {
     try {
       const extracted = await extractPdfText(sb, storagePath);
