@@ -115,6 +115,15 @@ Deno.serve(async (req: Request) => {
 
   // Si elabora solo cio' che e' firmato. Senza firma valida: registrato e basta (risposta 200, cosi'
   // Tripleseat non disattiva l'endpoint mentre si mette a punto la chiave).
+  // Brigade si controlla da sola (TS06b): primo invio vero firmato -> "attivo";
+  // invii veri non firmati o con firma sbagliata -> avviso rosso finche' non si sistema.
+  if (payload && !isTest && siteId === SITE_ID) {
+    const kind = sig.status === 'valid' ? 'valid' : 'signature';
+    const detail = sig.status === 'valid' ? null : `${sig.status}${sig.header ? ', header ' + sig.header : ''}`;
+    await sb.rpc('tripleseat_webhook_notice', {
+      p_kind: kind, p_event_name: ev.name || null, p_trigger: payload.webhook_trigger_type || null, p_detail: detail });
+  }
+
   if (sig.status !== 'valid' || !payload) {
     return json({ ok: true, processed: false, reason: payload ? sig.status : 'not_json' });
   }
