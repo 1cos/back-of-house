@@ -1,0 +1,256 @@
+{
+ "_nota": "Campione del supporto Tripleseat (Ashley Oliver, ticket 562962, 06/10/2026): evento di prova del loro site 10094. Tolti contatti, account, pagamenti; restano evento e righe dei documenti come arrivano col webhook UPDATE_EVENT_DOCUMENT + Include Event Payment and Line Item Information.",
+ "webhook_trigger_type": "UPDATE_EVENT_DOCUMENT",
+ "event": {
+  "id": 63662976,
+  "name": "Greyed Out Menu Item Test",
+  "status": "PROSPECT",
+  "event_start": "9/28/2026 10:00 AM",
+  "event_end": "9/28/2026 10:15 AM",
+  "event_start_iso8601": "2026-09-28T10:00:00-07:00",
+  "event_end_iso8601": "2026-09-28T10:15:00-07:00",
+  "guest_count": null,
+  "guaranteed_guest_count": null,
+  "event_style": "dropoff",
+  "updated_at": "10/6/2026 6:46 AM",
+  "site_id": 10094,
+  "rooms": [],
+  "documents": [
+   {
+    "id": 41340025,
+    "title": "General User | Contract & Event Order: 41340025",
+    "deleted_at": null,
+    "line_items": [
+     {
+      "id": 422357990,
+      "quantity": "1.0",
+      "price": "300.0",
+      "total_price": "300.0",
+      "position": 0,
+      "display_name": "Pizza Package",
+      "description": "Package:One hour reserved party table for 12 guestsThree included pizzas! Choose from Cheese or Pepperoni (12 slices per pizza).Your choice of two types of soda or juice pitchers.$30 Bonus Bucks good for arcade &amp; attractions per guest. Bonus Buck cards only available once reservation starts. *Parties booked for Mon - Thurs receive $40 Bonus Buck cards instead.All décor included, and a Langer's \"It's my birthday!\" sticker for the guest of honor!Cake is not provided. You may bring in cake or cupcakes. Ice Cream/Ice Cream Cake will NOT be permitted.On the next screen, for \"Nature of the Event\" enter the guest of honor's name.",
+      "long_description": "",
+      "category": {
+       "id": 91276,
+       "name": "Food",
+       "internal_name": "Food"
+      },
+      "section": "Menu Items",
+      "menu_item_id": 121548
+     },
+     {
+      "id": 422357991,
+      "quantity": "1.0",
+      "price": null,
+      "total_price": null,
+      "position": 0,
+      "display_name": null,
+      "description": "",
+      "long_description": "",
+      "category": {
+       "id": 91280,
+       "name": "Labor",
+       "internal_name": "Labor"
+      },
+      "section": "Picklists",
+      "menu_item_id": null
+     },
+     {
+      "id": 422357992,
+      "quantity": "2.0",
+      "price": null,
+      "total_price": null,
+      "position": 1,
+      "display_name": null,
+      "description": "",
+      "long_description": "",
+      "category": {
+       "id": 91279,
+       "name": "Room Rental",
+       "internal_name": "Rentalsssss"
+      },
+      "section": "Picklists",
+      "menu_item_id": null
+     },
+     {
+      "id": 422357993,
+      "quantity": "1.0",
+      "price": null,
+      "total_price": null,
+      "position": 2,
+      "display_name": null,
+      "description": "testing",
+      "long_description": "",
+      "category": {
+       "id": 91279,
+       "name": "Room Rental",
+       "internal_name": "Rentalsssss"
+      },
+      "section": "Picklists",
+      "menu_item_id": null
+     },
+     {
+      "id": 424133364,
+      "quantity": "1.0",
+      "price": "10.0",
+      "total_price": "10.0",
+      "position": 3,
+      "display_name": null,
+      "description": "test",
+      "long_description": "",
+      "category": {
+       "id": 91280,
+       "name": "Labor",
+       "internal_name": "Labor"
+      },
+      "section": "Picklists",
+      "menu_item_id": null
+     },
+     {
+      "id": 424133365,
+      "quantity": "2.0",
+      "price": "20.0",
+      "total_price": "40.0",
+      "position": 4,
+      "display_name": null,
+      "description": "asdf",
+      "long_description": "",
+      "category": {
+       "id": 91280,
+       "name": "Labor",
+       "internal_name": "Labor"
+      },
+      "section": "Picklists",
+      "menu_item_id": null
+     },
+     {
+      "id": 424133366,
+      "quantity": "3.0",
+      "price": "30.0",
+      "total_price": "90.0",
+      "position": 5,
+      "display_name": null,
+      "description": "asdf",
+      "long_description": "",
+      "category": {
+       "id": 91280,
+       "name": "Labor",
+       "internal_name": "Labor"
+      },
+      "section": "Picklists",
+      "menu_item_id": null
+     },
+     {
+      "id": 424134624,
+      "quantity": "100.0",
+      "price": "10.0",
+      "total_price": "1000.0",
+      "position": 0,
+      "display_name": null,
+      "description": "Sandwiches",
+      "long_description": "turkey, chicken, tunatestingtesting",
+      "category": {
+       "id": 91281,
+       "name": "Misc",
+       "internal_name": "Misc"
+      },
+      "section": "Food",
+      "menu_item_id": null
+     },
+     {
+      "id": 424134625,
+      "quantity": "12.0",
+      "price": "15.0",
+      "total_price": "180.0",
+      "position": 1,
+      "display_name": null,
+      "description": "Pretzels",
+      "long_description": "salted, unsalted",
+      "category": {
+       "id": 91281,
+       "name": "Misc",
+       "internal_name": "Misc"
+      },
+      "section": "Food",
+      "menu_item_id": null
+     },
+     {
+      "id": 424134626,
+      "quantity": "50.0",
+      "price": "20.0",
+      "total_price": "1000.0",
+      "position": 2,
+      "display_name": null,
+      "description": "Hot Dogs",
+      "long_description": "chilli, blt, caviartesting testing",
+      "category": {
+       "id": 91281,
+       "name": "Misc",
+       "internal_name": "Misc"
+      },
+      "section": "Food",
+      "menu_item_id": null
+     }
+    ]
+   },
+   {
+    "id": 41473917,
+    "title": "General User | Contract & Event Order: 41473917",
+    "deleted_at": null,
+    "line_items": [
+     {
+      "id": 423721418,
+      "quantity": "1.0",
+      "price": null,
+      "total_price": null,
+      "position": 0,
+      "display_name": null,
+      "description": "",
+      "long_description": "",
+      "category": {
+       "id": 91280,
+       "name": "Labor",
+       "internal_name": "Labor"
+      },
+      "section": "Picklists",
+      "menu_item_id": null
+     },
+     {
+      "id": 423721419,
+      "quantity": "2.0",
+      "price": null,
+      "total_price": null,
+      "position": 1,
+      "display_name": null,
+      "description": "",
+      "long_description": "",
+      "category": {
+       "id": 91279,
+       "name": "Room Rental",
+       "internal_name": "Rentalsssss"
+      },
+      "section": "Picklists",
+      "menu_item_id": null
+     },
+     {
+      "id": 423721420,
+      "quantity": "1.0",
+      "price": null,
+      "total_price": null,
+      "position": 2,
+      "display_name": null,
+      "description": "testing",
+      "long_description": "",
+      "category": {
+       "id": 91279,
+       "name": "Room Rental",
+       "internal_name": "Rentalsssss"
+      },
+      "section": "Picklists",
+      "menu_item_id": null
+     }
+    ]
+   }
+  ]
+ }
+}
