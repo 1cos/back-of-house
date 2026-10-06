@@ -117,7 +117,9 @@ Deno.serve(async (req: Request) => {
   // Tripleseat non disattiva l'endpoint mentre si mette a punto la chiave).
   // Brigade si controlla da sola (TS06b): primo invio vero firmato -> "attivo";
   // invii veri non firmati o con firma sbagliata -> avviso rosso finche' non si sistema.
-  if (payload && !isTest && siteId === SITE_ID) {
+  // Solo gli invii di Tripleseat contano per l'attivazione; API_RECONCILE e' Brigade stessa.
+  const fromTripleseat = !String(payload?.webhook_trigger_type || '').startsWith('API_');
+  if (payload && !isTest && siteId === SITE_ID && fromTripleseat) {
     const kind = sig.status === 'valid' ? 'valid' : 'signature';
     const detail = sig.status === 'valid' ? null : `${sig.status}${sig.header ? ', header ' + sig.header : ''}`;
     await sb.rpc('tripleseat_webhook_notice', {
