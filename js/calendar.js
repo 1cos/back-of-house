@@ -137,6 +137,89 @@ function _calToggle(id) {
   const isOpen = detail.style.display !== 'none';
   detail.style.display = isOpen ? 'none' : 'block';
   if (chevron) chevron.textContent = isOpen ? '›' : '⌄';
+  if (!isOpen) _calLoadTsMenu(id);
+}
+
+// ── MENU TRIPLESEAT (TS07) ────────────────────────────────────
+// Piatti, quantita' e descrizioni dal documento Tripleseat (Kitchen Sheet / BEO),
+// aggiornati da soli (webhook + controllo ogni 2 ore). Solo admin e sous chef autorizzati:
+// lo decide il server (ts_event_menu verifica la sessione). Nessun prezzo: non viene salvato.
+function _calEsc(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function _calQty(q) {
+  if (q == null || q === '') return '';
+  const n = Number(q);
+  return Number.isFinite(n) ? '×' + (Number.isInteger(n) ? n : n.toFixed(2).replace(/\.?0+$/, '')) : '';
+}
+function _calWhen(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }) + ' ' +
+         d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+}
+async function _calLoadTsMenu(id) {
+  const box = document.getElementById('cal-tsmenu-' + id);
+  if (!box || box.dataset.loaded === '1' || box.dataset.loading === '1') return;
+  const client = window.supa || window.supabaseClient;
+  let token = null;
+  try { token = localStorage.getItem('brigade_token'); } catch (e) { token = null; }
+  if (!client || !token) { box.remove(); return; }
+  box.dataset.loading = '1';
+  box.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:8px 0;">Menu Tripleseat…</div>';
+  const { data, error } = await client.rpc('ts_event_menu', { p_token: token, p_tripleseat_id: box.dataset.ts });
+  box.dataset.loading = '';
+  if (error || !data || !data.ok) { box.remove(); return; }   // non autorizzato: la sezione non esiste
+  box.dataset.loaded = '1';
+  box.innerHTML = _calTsMenuHtml(data);
+}
+function _calTsMenuHtml(data) {
+  const docs = (data.documents || []).filter(d => (d.lines || []).length || (d.changes && (d.changes.removed || []).length));
+  const head = (badge) => `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+      <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">Menu Tripleseat</div>${badge}</div>`;
+  if (!docs.length) {
+    return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;">${head('')}
+      <div style="font-size:12px;color:#94a3b8;">Nessun documento con il menu in Tripleseat per questo evento.</div></div>`;
+  }
+  let html = '';
+  docs.forEach(d => {
+    const ch = d.changes;
+    const added = new Set((ch && ch.added) || []);
+    const changed = {};
+    ((ch && ch.changed) || []).forEach(c => { changed[c.id] = c; });
+    const modified = ch && (added.size || Object.keys(changed).length || (ch.removed || []).length);
+    const badge = modified
+      ? `<span style="font-size:10px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;white-space:nowrap;">Modificato ${_calEsc(_calWhen(d.received_at))}</span>`
+      : `<span style="font-size:10px;color:#94a3b8;white-space:nowrap;">versione ${d.version}</span>`;
+    html += head(badge);
+    let section = null;
+    (d.lines || []).forEach(l => {
+      if (l.section && l.section !== section) {
+        section = l.section;
+        html += `<div style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;margin:8px 0 3px;">${_calEsc(section)}</div>`;
+      }
+      const c = changed[l.id];
+      let mark = '';
+      if (added.has(l.id)) mark = '<span style="font-size:10px;font-weight:700;color:#047857;background:#ecfdf5;border-radius:5px;padding:1px 6px;margin-left:6px;">NUOVO</span>';
+      else if (c && c.fields.indexOf('quantity') > -1) mark = `<span style="font-size:10px;font-weight:700;color:#b45309;background:#fffbeb;border-radius:5px;padding:1px 6px;margin-left:6px;">era ${_calEsc(_calQty(c.before.quantity) || '—')}</span>`;
+      else if (c) mark = '<span style="font-size:10px;font-weight:700;color:#b45309;background:#fffbeb;border-radius:5px;padding:1px 6px;margin-left:6px;">cambiato</span>';
+      html += `<div style="padding:4px 0;border-bottom:0.5px solid #f1f5f9;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;">
+          <span style="font-size:13px;color:#1e3a5f;font-weight:600;min-width:0;overflow-wrap:anywhere;">${_calEsc(l.name)}${mark}</span>
+          <span style="font-size:12px;color:#475569;font-weight:600;white-space:nowrap;flex-shrink:0;">${_calEsc(_calQty(l.quantity))}</span>
+        </div>
+        ${l.details ? `<div style="font-size:12px;color:#64748b;margin-top:2px;line-height:1.4;overflow-wrap:anywhere;">${_calEsc(l.details)}</div>` : ''}
+      </div>`;
+    });
+    ((ch && ch.removed) || []).forEach(r => {
+      html += `<div style="padding:4px 0;border-bottom:0.5px solid #f1f5f9;font-size:13px;color:#b91c1c;">
+        <span style="text-decoration:line-through;">${_calEsc(r.name)}</span> ${_calEsc(_calQty(r.quantity))}
+        <span style="font-size:10px;font-weight:700;background:#fef2f2;border-radius:5px;padding:1px 6px;margin-left:4px;">TOLTO</span></div>`;
+    });
+  });
+  const foot = data.last_check ? `Aggiornato da solo · ultimo controllo ${_calEsc(_calWhen(data.last_check))}` : 'Aggiornato da solo';
+  return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;">${html}
+    <div style="font-size:10px;color:#94a3b8;margin-top:6px;">${foot}</div></div>`;
 }
 
 // ── CARD ─────────────────────────────────────────────────────
@@ -256,6 +339,7 @@ function _calCard(e) {
   </div>
   <!-- Expanded detail (hidden by default) -->
   <div id="cal-detail-${safeId}" style="display:none;padding:0 14px 14px 14px;border-top:0.5px solid #f1f5f9;">
+    ${e.tripleseat_id ? `<div id="cal-tsmenu-${safeId}" data-ts="${String(e.tripleseat_id).replace(/[^0-9]/g,'')}"></div>` : ''}
     ${recipesHtml}
     ${notesHtml}
     ${fcHtml}
