@@ -193,7 +193,10 @@ function _calTsMenuHtml(data) {
       : `<span style="font-size:10px;color:#94a3b8;white-space:nowrap;">versione ${d.version}</span>`;
     html += head(badge);
     let section = null;
-    (d.lines || []).forEach(l => {
+    // le sezioni Food prima (come nel Kitchen Sheet), le altre nell'ordine ricevuto
+    const rank = {};
+    (d.lines || []).forEach((l, i) => { const k = l.section || ''; if (!(k in rank)) rank[k] = (/food|cibo|menu/i.test(k) ? 0 : 1000) + i; });
+    (d.lines || []).map((l, i) => [l, i]).sort((a, b) => rank[a[0].section || ''] - rank[b[0].section || ''] || a[1] - b[1]).map(x => x[0]).forEach(l => {
       if (l.section && l.section !== section) {
         section = l.section;
         html += `<div style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;margin:8px 0 3px;">${_calEsc(section)}</div>`;
@@ -267,14 +270,19 @@ function _calCard(e) {
 
     recipesHtml = `
       <div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;">
-        <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Menu</div>
+        <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">${e.tripleseat_id ? 'Vecchia copia Brigade (non aggiornata)' : 'Menu'}</div>
+        ${e.tripleseat_id ? '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">Importata tempo fa, mai aggiornata. Il menu da cucinare è il Menu Tripleseat qui sopra.</div>' : ''}
         ${rows}
       </div>`;
   }
 
   // Notes
+  // TS08: per gli eventi Tripleseat le note sono testo importato tempo fa (i "pax" li' dentro sono vecchi):
+  // etichettate, non confuse con gli ospiti dell'evento ne' con le quantita' del menu.
   const notesHtml = (e.notes && !recipes.length)
-    ? `<div style="font-size:11px;color:#94a3b8;margin-top:6px;">${e.notes}</div>` : '';
+    ? (e.tripleseat_id
+        ? `<div style="font-size:11px;color:#94a3b8;margin-top:6px;"><b>Note vecchie Brigade (non aggiornate):</b> ${_calEsc(e.notes)}</div>`
+        : `<div style="font-size:11px;color:#94a3b8;margin-top:6px;">${e.notes}</div>`) : '';
 
   // Food cost — solo admin
   const fcHtml = (isAdm && e.total_amount)
@@ -331,7 +339,7 @@ function _calCard(e) {
       </div>
       <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
         ${timeStr ? `<span style="font-size:12px;color:#475569;">🕐 ${timeStr}</span>` : ''}
-        ${e.guest_count ? `<span style="font-size:12px;color:#475569;">👥 ${e.guest_count}</span>` : ''}
+        ${e.guest_count ? `<span style="font-size:12px;color:#475569;"${e.tripleseat_id ? ' title="Ospiti evento (Tripleseat)"' : ''}>👥 ${e.guest_count}${e.tripleseat_id ? ' ospiti evento' : ''}</span>` : ''}
         ${(e.location || e.room_name) ? `<span style="font-size:12px;color:#475569;">📍 ${e.location || e.room_name}</span>` : ''}
         ${summaryLine}
       </div>

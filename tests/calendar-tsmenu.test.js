@@ -85,3 +85,23 @@ test('5. la scheda evento ha il contenitore solo se l\'evento viene da Triplesea
   assert.match(conTs, /id="cal-tsmenu-abc1" data-ts="60969076"/);
   assert.ok(!/cal-tsmenu-/.test(senza));
 });
+
+// TS08 — Wedding Lauren (10/10, #60442420): menu attuale da Tripleseat, vecchia copia e note etichettate.
+test('6. Lauren: Food prima di Beverage, ×41 della riga distinto dai 42 ospiti, vecchia copia etichettata', () => {
+  const LAUREN = { ok: true, documents: [{ document_id: 1, version: 1, received_at: '2026-10-06T20:46:37Z', changes: null, lines: [
+    { id: 'b1', section: 'Beverage', name: 'Espresso Martini', details: '', quantity: null },
+    { id: 'f0', section: 'Food', name: 'full menu to be choose', details: '', quantity: 41 },
+    { id: 'f4', section: 'Food', name: 'Penne Cacio e Pepe plus Shrimps', details: '', quantity: null } ] }] };
+  const { w } = ambiente(LAUREN);
+  const html = w._calTsMenuHtml(LAUREN);
+  assert.ok(html.indexOf('Food') < html.indexOf('Beverage'));
+  assert.match(html, /full menu to be choose[\s\S]*×41/);
+  const card = w._calCard({ id: 'fd27', name: 'Wedding Lauren', event_date: '2026-10-10', tripleseat_id: '60442420', guest_count: 42,
+    status: 'definite', event_recipes: [{ name: '30 full menu - to be chosen' }], notes: 'U formation with rectangle tables requested. 30 pax.' });
+  assert.match(card, /42 ospiti evento/);
+  assert.match(card, /Vecchia copia Brigade \(non aggiornata\)[\s\S]*30 full menu - to be chosen/);
+  const soloNote = w._calCard({ id: 'x2', name: 'Mason', event_date: '2026-10-09', tripleseat_id: '1', guest_count: 45, status: 'definite', notes: '40 pax <i>' });
+  assert.match(soloNote, /Note vecchie Brigade \(non aggiornate\):<\/b> 40 pax &lt;i&gt;/);
+  const manuale = w._calCard({ id: 'x3', name: 'Manuale', event_date: '2026-10-09', guest_count: 10, status: 'definite', event_recipes: [{ name: 'Lasagna' }] });
+  assert.ok(!/Vecchia copia|ospiti evento/.test(manuale));
+});

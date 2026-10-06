@@ -1070,7 +1070,7 @@ async function loadUpcomingDemand(){
     const endD=new Date(nowD); endD.setDate(endD.getDate()+UD_WINDOW_DAYS);
     const until=endD.toLocaleDateString('en-CA');
     const{data,count}=await supa.from('events')
-      .select('id,name,event_date,event_time,guest_count,service_style,location,room_name,event_recipes,status',{count:'exact'})
+      .select('id,name,event_date,event_time,guest_count,service_style,location,room_name,event_recipes,status,tripleseat_id',{count:'exact'})
       .gte('event_date',today)
       .lte('event_date',until)
       .or('status.is.null,status.not.in.('+UD_EXCLUDED_STATUSES.join(',')+')')
@@ -1105,7 +1105,11 @@ async function loadUpcomingDemand(){
       const recipes=Array.isArray(e.event_recipes)?e.event_recipes:[];
       const statusColor={confirmed:'#059669',tentative:'#f59e0b',cancelled:'#ef4444'}[e.status]||'#94a3b8';
       let recHtml='';
-      if(recipes.length){
+      // TS08: per gli eventi Tripleseat il menu attuale arriva dal documento Tripleseat (udLoadTsMenus);
+      // event_recipes e' una vecchia copia mai aggiornata e qui non si mostra.
+      if(e.tripleseat_id){
+        recHtml='<div class="ud-tsmenu" data-ts="'+String(e.tripleseat_id).replace(/[^0-9]/g,'')+'"></div>';
+      }else if(recipes.length){
         recHtml='<div style="margin-top:4px;padding-top:4px;border-top:0.5px solid rgba(59,130,246,0.06);">'+
           recipes.slice(0,3).map(r=>
             '<div style="font-size:11px;color:#475569;padding:1px 0;">• '+
@@ -1148,9 +1152,41 @@ async function loadUpcomingDemand(){
         tr('view_all_arrow')+
       '</button>'+
     '</div>';
+    udLoadTsMenus(el);
   }catch(e){
     el.style.display='none';
   }
+}
+
+// TS08 — prime righe del Menu Tripleseat (piatti e quantita' della riga, niente prezzi) sotto ogni evento.
+// Stessa porta della scheda evento: rpc ts_event_menu con la sessione Brigade; senza sessione resta vuoto.
+function udEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);}
+function udTsMenuHtml(data){
+  const lines=[];
+  (data.documents||[]).forEach(d=>{
+    const rank={};
+    (d.lines||[]).forEach((l,i)=>{const k=l.section||'';if(!(k in rank))rank[k]=(/food|cibo|menu/i.test(k)?0:1000)+i;});
+    (d.lines||[]).map((l,i)=>[l,i]).sort((a,b)=>rank[a[0].section||'']-rank[b[0].section||'']||a[1]-b[1]).forEach(x=>lines.push(x[0]));
+  });
+  if(!lines.length) return '';
+  const q=l=>(l.quantity!=null&&l.quantity!==''&&!isNaN(Number(l.quantity)))?' <span style="color:#94a3b8;">×'+udEsc(Number(l.quantity))+'</span>':'';
+  return '<div style="margin-top:4px;padding-top:4px;border-top:0.5px solid rgba(59,130,246,0.06);">'+
+    '<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">Menu Tripleseat</div>'+
+    lines.slice(0,4).map(l=>'<div style="font-size:11px;color:#475569;padding:1px 0;">• '+udEsc(l.name)+q(l)+'</div>').join('')+
+    (lines.length>4?'<div style="font-size:10px;color:#94a3b8;">+'+(lines.length-4)+' '+tr('event_more')+'</div>':'')+
+  '</div>';
+}
+async function udLoadTsMenus(el){
+  const boxes=[...el.querySelectorAll('.ud-tsmenu[data-ts]')];
+  if(!boxes.length) return;
+  let token=null; try{token=localStorage.getItem('brigade_token');}catch(e){}
+  if(!token||typeof supa==='undefined') return;
+  await Promise.all(boxes.map(async b=>{
+    try{
+      const{data,error}=await supa.rpc('ts_event_menu',{p_token:token,p_tripleseat_id:b.dataset.ts});
+      if(!error&&data&&data.ok) b.innerHTML=udTsMenuHtml(data);
+    }catch(e){}
+  }));
 }
 
 // ── SERVICE UPDATES MODAL (View all) ──
