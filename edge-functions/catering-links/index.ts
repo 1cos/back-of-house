@@ -23,7 +23,8 @@ export function cleanComponents(raw: unknown): { ok: true; list: any[] } | { ok:
     if (!(q > 0) || q > 100000) return { ok: false, error: 'qty_missing' };
     const b = c?.basis && typeof c.basis === 'object' ? c.basis : null;
     list.push({ recipe_id: c.recipe_id, unit: c.unit, qty: q,
-      basis: b ? { source: String(b.source || '').slice(0, 200), rule: String(b.rule || '').slice(0, 300), status: String(b.status || '').slice(0, 40) } : null });
+      basis: b ? { source: String(b.source || '').slice(0, 300), rule: String(b.rule || '').slice(0, 500), status: String(b.status || '').slice(0, 40),
+        guests: Number(b.guests) > 0 && Number(b.guests) < 100000 ? Number(b.guests) : null } : null });
   }
   return { ok: true, list };
 }
