@@ -2741,9 +2741,14 @@ function vdrQtyWarningInformational(code, item, qtyCtx) {
   // d'acquisto, quindi nessuna identita' da chiedere. Nota, non domanda.
   if (code === 'OQR-007' && vdrLineNotShippedNotCharged(item)) return true;
   const key = item.vendor_sku || item.item_code || item.description || item.raw_description;
-  if (!key) return false;
+  if (!key) return false;   // riga senza codice ne' descrizione: non sappiamo cosa scrivere
   if (!(qtyCtx.unmatchedKeys instanceof Set)) return false;   // niente mappa identita' => fail closed
-  return !qtyCtx.unmatchedKeys.has(key);
+  // B-33 (decisione Chef Max, 13/10/2026) — gemello di
+  // vdaiQtyWarningInformational nel worker. Documento che quadra + riga con
+  // quantita' e importo espliciti: la sostituzione e' una notifica da
+  // leggere, non una domanda che ferma l'import, anche se il prodotto non ha
+  // ancora un'identita' (entra come 'unmatched' e si collega dopo).
+  return true;
 }
 
 // Il contesto si costruisce dai dati gia' precaricati da vdrLoad:
