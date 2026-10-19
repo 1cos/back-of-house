@@ -42,7 +42,7 @@ async function saveNewPIN(btn){
     p_new_pin: newPin
   });
   if(error||!res||!res.ok){
-    const msg=res?.error==='wrong_current_pin'?'PIN attuale errato':(res?.error||error?.message||'Errore');
+    const msg=res?.error==='wrong_current_pin'?'PIN attuale errato':res?.error==='pin_not_available'?'PIN non disponibile: scegline un altro':(res?.error||error?.message||'Errore');
     err.textContent=msg;err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return;
   }
   btn.closest('.fixed').remove();
@@ -214,7 +214,7 @@ async function saveEditUser(userId, btn){
       p_token:localStorage.getItem('brigade_token'),
       p_target_id:userId, p_new_pin:pin
     });
-    if(!pinRes?.ok){err.textContent='PIN error: '+(pinRes?.error||'failed');err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return}
+    if(!pinRes?.ok){err.textContent=pinRes?.error==='pin_not_available'?'PIN non disponibile: scegline un altro':'PIN error: '+(pinRes?.error||'failed');err.classList.remove('hidden');btn.disabled=false;btn.textContent='Salva';return}
   }
   try {
     const updated = await _adminApi('edit_user',{user_id:userId,name,lang,role,default_station});
@@ -272,7 +272,7 @@ window.confirmResetPIN = async(userId, btn) => {
   });
   btn.closest('.fixed').remove();
   if(error||!res||!res.ok){
-    showScToast('✗ Errore: '+(res?.error||error?.message||'unknown'));
+    showScToast(res?.error==='pin_not_available'?'✗ '+'PIN non disponibile: scegline un altro':'✗ Errore: '+(res?.error||error?.message||'unknown'));
   } else {
     showScToast('✓ PIN aggiornato');
   }
