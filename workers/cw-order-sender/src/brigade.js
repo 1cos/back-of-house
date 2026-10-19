@@ -4,6 +4,16 @@
 // URL e chiave anon dal config.json locale; il token del worker dal
 // Portachiavi (vedi index.js). In DB c'e' solo lo sha256 del token.
 
+// B-54 F5: la push agli admin passa per la funzione notifications, che accetta solo chiamate autorizzate.
+// Il codice interno sta in un file privato del Mac (mai nel codice); se manca, la push parte come prima.
+function internalKey(cfg) {
+  try {
+    const f = (cfg && cfg.internalKeyFile) || require('os').homedir() + '/.brigade_secrets/brigade_internal_key';
+    const k = require('fs').readFileSync(f, 'utf8').trim();
+    return k.length >= 32 ? k : null;
+  } catch (e) { return null; }
+}
+
 function client(cfg, workerToken, fetchImpl = globalThis.fetch) {
   if (!cfg || !cfg.supabaseUrl || !cfg.supabaseKey) throw new Error('config: supabaseUrl/supabaseKey mancanti');
   if (!workerToken) throw new Error('token del worker mancante (Portachiavi)');
@@ -22,7 +32,8 @@ function client(cfg, workerToken, fetchImpl = globalThis.fetch) {
     // Stesso percorso di Tell Chef / bek-entree-sync: push solo ad admin/sous_chef.
     async push(title, body) {
       try {
-        const r = await fetchImpl(base + '/functions/v1/notifications', { method: 'POST', headers: h,
+        const k = internalKey(cfg);
+        const r = await fetchImpl(base + '/functions/v1/notifications', { method: 'POST', headers: k ? { ...h, 'x-brigade-internal': k } : h,
           body: JSON.stringify({ table: 'chef_reports', record: { user_name: "Chef's Warehouse (worker)", station: null, message: title + ' — ' + body } }) });
         return r.ok;
       } catch (e) { return false; }
