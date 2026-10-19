@@ -92,7 +92,7 @@ window.openUserEditor = async function(userId) {
   let user = null;
 
   if (userId) {
-    const { data } = await sb.from('users').select('*').eq('id', userId).single();
+    const { data } = await sb.from('users').select('id,name,role,default_station,lang,active,is_admin,photo_url,schedule_name,first_login').eq('id', userId).single();  // B-54: mai pin/pin_hash/password_hash
     user = data;
   }
 
