@@ -608,6 +608,8 @@ window.icDoMergeStored = function() {
 
 // ── Execute the merge ─────────────────────────────────────────
 window.icDoMerge = async function(srcId, targetId, srcName, targetDisplay) {
+  // MR-11 (proposta, decide lo Chef): unione ingredienti spenta in Brigade 1 — le unificazioni si fanno in Recipe Master (ultima traccia 18/06/2026)
+  alert('L\'unione degli ingredienti si fa in Recipe Master.'); return;
   const btn      = document.getElementById('icMergeBtn');
   const statusEl = document.getElementById('icMergeStatus');
 
@@ -2206,6 +2208,8 @@ window.icMergePreview = async function(srcId, tgtId) {
 
 // ── Execute soft merge ────────────────────────────────────────
 window.icDoSoftMerge = async function() {
+  // MR-11 (proposta, decide lo Chef): unione ingredienti spenta in Brigade 1 — le unificazioni si fanno in Recipe Master (ultima traccia 18/06/2026)
+  alert('L\'unione degli ingredienti si fa in Recipe Master.'); return;
   const p = window._icPendingSoftMerge;
   if (!p) return;
 

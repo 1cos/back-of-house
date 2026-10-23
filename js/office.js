@@ -3941,7 +3941,8 @@ window.officeSkillDispatch = async function(itemId, issueType) {
   switch (issueType) {
     case 'bom_unknown_units':
     case 'UNKNOWN_UNIT':
-      window.officeSkillUnknownUnit(item);
+      // MR-11 (proposta, decide lo Chef): le unita' delle distinte si correggono in Recipe Master (mai usato qui: 0 correzioni)
+      if (item.source_id) window.open('https://1cos.github.io/brigade-app/?ricetta=' + encodeURIComponent(item.source_id), '_blank', 'noopener');
       break;
     // Future Skills — plug-and-play:
     // case 'bom_partial':         window.officeSkillBomIncomplete(item); break;
