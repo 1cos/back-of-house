@@ -23,6 +23,9 @@ function openInvoiceImport(){
       <button onclick="this.closest('.fixed').remove();openHebReceipt()" style="width:100%;display:flex;align-items:center;gap:10px;padding:14px;margin-bottom:14px;background:rgba(220,38,38,0.06);border:0.5px solid rgba(220,38,38,0.25);border-radius:16px;cursor:pointer;color:#1e3a5f;font-size:13px;font-weight:500;text-align:left;">
         <span style="font-size:24px;">🛒</span><span>H-E-B receipt<br><span style="font-size:11px;color:#64748b;font-weight:400;">Photo of the receipt · Brigade asks only what it can't read</span></span>
       </button>
+      <button onclick="this.closest('.fixed').remove();openStoreReceipt()" style="width:100%;display:flex;align-items:center;gap:10px;padding:14px;margin-bottom:14px;background:rgba(59,130,246,0.06);border:0.5px solid rgba(59,130,246,0.2);border-radius:16px;cursor:pointer;color:#1e3a5f;font-size:13px;font-weight:500;text-align:left;">
+        <span style="font-size:24px;">🧾</span><span>Other store receipt<br><span style="font-size:11px;color:#64748b;font-weight:400;">Albertsons, Walmart… · expense only, prices don't change</span></span>
+      </button>
       <div id="invoiceStatus" style="display:none;padding:12px;background:rgba(59,130,246,0.06);border-radius:12px;font-size:13px;color:#1e3a5f;text-align:center;">
         ⏳ Reading invoice...
       </div>
