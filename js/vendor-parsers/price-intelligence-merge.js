@@ -210,6 +210,39 @@ function samePack(a, b) {
   return na === nb;
 }
 
+// ── Casse APPROVATE DALLO CHEF (B-77, 26/10/2026) ───────────────────
+// Alcune casse non dicono quanto contengono: "16-22 CT" (pomodori: un
+// intervallo di pezzi), "12/3 CT" o "40-48ct" (Romaine: pezzi, ma le
+// ricette la usano a grammi). Per QUELLA confezione di QUEL fornitore lo
+// Chef puo' approvare i pezzi e/o i grammi (tabella casse_approvate: il
+// chiamante le attacca alla riga esistente come row.casse_approvate).
+// Regole:
+//  - valgono solo per la stessa identica dichiarazione di pack (samePack);
+//  - solo per casse a pezzi (classe B_COUNT): mai sopra un peso stampato;
+//  - un pack che stampa i suoi pezzi ("18 CT") vince sui pezzi approvati;
+//  - i grammi approvati vincono su qualunque conversione ricavata, perche'
+//    sono la sola misura detta da una persona (la vecchia 22536 g della
+//    Romaine 12/3 era il triplo del peso vero).
+function approvalFor(pack, row) {
+  if (!row || !Array.isArray(row.casse_approvate) || !row.casse_approvate.length) return null;
+  if (classifyPack(pack) !== PACK_COUNT) return null;
+  const a = row.casse_approvate.find((c) => c && samePack(pack, c.pack));
+  if (!a) return null;
+  const pezzi = Number(a.pezzi), grammi = Number(a.grammi);
+  const out = {
+    pezzi:  (a.pezzi  != null && Number.isInteger(pezzi) && pezzi > 0) ? pezzi : null,
+    grammi: (a.grammi != null && isFinite(grammi) && grammi > 0) ? grammi : null,
+  };
+  return (out.pezzi !== null || out.grammi !== null) ? out : null;
+}
+
+function countFor(pack, row) {
+  const n = packTotalEach(pack);
+  if (n !== null) return n;
+  const a = approvalFor(pack, row);
+  return a ? a.pezzi : null;
+}
+
 // ── La decisione ────────────────────────────────────────────────────
 // existing     riga ingredient_vendors gia' presente, o null/undefined
 //              per un INSERT (allora non c'e' niente da proteggere e il
@@ -234,14 +267,22 @@ function mergePriceIntelligence(existing, observation) {
   const priceType = obs.price_type != null ? obs.price_type : null;
   const isPerLb   = priceType === 'per_lb';
 
-  const obsConv = obs.conversion_to_base != null ? Number(obs.conversion_to_base) : null;
-  const exConvRaw = ex && ex.conversion_to_base != null ? Number(ex.conversion_to_base) : null;
+  // B-77: casse approvate dallo Chef per il pack osservato e per quello memorizzato.
+  const obsAppr = ex ? approvalFor(obs.pack_description, ex) : null;
+  const exAppr  = ex ? approvalFor(ex.pack_description, ex) : null;
+  const obsApprG = (!isPerLb && obsAppr && obsAppr.grammi !== null) ? obsAppr.grammi : null;
+
+  const obsConv = obsApprG !== null ? obsApprG
+    : (obs.conversion_to_base != null ? Number(obs.conversion_to_base) : null);
+  const exConvRaw = (exAppr && exAppr.grammi !== null) ? exAppr.grammi
+    : (ex && ex.conversion_to_base != null ? Number(ex.conversion_to_base) : null);
   const exConv = (exConvRaw !== null && isFinite(exConvRaw) && exConvRaw > 0) ? exConvRaw : null;
 
-  // Pezzi per cassa, letti dai due pack. Per un prodotto a peso sono
-  // null su entrambi i lati e tutto si comporta come prima di 89A.
-  const obsCount = packTotalEach(obs.pack_description);
-  const exCount  = ex ? packTotalEach(ex.pack_description) : null;
+  // Pezzi per cassa, letti dai due pack (o approvati dallo Chef, B-77).
+  // Per un prodotto a peso sono null su entrambi i lati e tutto si
+  // comporta come prima di 89A.
+  const obsCount = countFor(obs.pack_description, ex);
+  const exCount  = ex ? countFor(ex.pack_description, ex) : null;
 
   const packClass = classifyPack(obs.pack_description);
 
@@ -256,7 +297,10 @@ function mergePriceIntelligence(existing, observation) {
   // porta i pezzi ma non i grammi non "sostituisce" una conversione in
   // grammi, la cancella. Vale anche al contrario.
   const perdeGrammi = exConv  !== null && obsConv  === null;
-  const perdePezzi  = exCount !== null && obsCount === null;
+  // B-77: se lo Chef ha approvato i GRAMMI della cassa nuova, la sua
+  // capacita' e' nota: non sapere i pezzi non e' una perdita da proteggere
+  // (il costo per pezzo semplicemente non viene toccato).
+  const perdePezzi  = exCount !== null && obsCount === null && obsApprG === null;
 
   // Niente da proteggere: riga nuova, l'osservazione dice almeno quanto
   // diceva la riga, o per_lb (dove il null e' un'affermazione esplicita,
@@ -317,7 +361,9 @@ function mergePriceIntelligence(existing, observation) {
   const unitPriceNum = (unitPrice != null && isFinite(Number(unitPrice))) ? Number(unitPrice) : null;
 
   let per100g;
-  if (obs.price_per_100g != null) {
+  if (obsApprG !== null && !rescued && unitPriceNum !== null) {
+    per100g = (unitPriceNum / obsApprG) * 100;             // B-77: grammi dello Chef
+  } else if (obs.price_per_100g != null) {
     per100g = obs.price_per_100g;
   } else if (rescued && effConv !== null && unitPriceNum !== null) {
     per100g = (unitPriceNum / effConv) * 100;
@@ -346,7 +392,8 @@ function mergePriceIntelligence(existing, observation) {
     fields.price_per_each = unitPriceNum / effCount;
   }
 
-  return { fields, skipped: false, reason, rescued, packClass };
+  return { fields, skipped: false, reason, rescued, packClass,
+           approvata: !!(rescued ? exAppr : obsAppr) };
 }
 
 
@@ -406,7 +453,7 @@ const api = {
   derivePriceType, invoiceLineUnit, billedWeightG,
   classifyPack,
   normalizePack, samePack,
-  packTotalEach,
+  packTotalEach, approvalFor, countFor,
   PACK_WEIGHT, PACK_COUNT, PACK_NONE, PACK_UNKNOWN,
 };
 

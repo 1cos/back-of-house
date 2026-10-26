@@ -828,6 +828,9 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
         <input id="evPricePerEach" type="number" step="0.0001" value="${v.price_per_each||''}" placeholder="es. 0.4688 per fiore" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;box-sizing:border-box;">
       </div>
 
+      <!-- B-77: pezzi / grammi di una cassa approvati dallo Chef (js/casse-approvate.js) -->
+      <div id="evCasseApprovate" style="margin-bottom:12px;"></div>
+
       <div style="margin-bottom:16px;display:flex;align-items:center;gap:8px;">
         <input type="checkbox" id="evActive" ${v.active!==false?'checked':''} style="width:16px;height:16px;">
         <label for="evActive" style="font-size:13px;color:#1e293b;">Active</label>
@@ -846,6 +849,7 @@ window.openEditVendorRow = async function(vendorId, ingredientId){
   document.body.appendChild(modal);
   if (typeof brigadeSeguiTastiera === 'function') brigadeSeguiTastiera(modal);
   addSwipeToClose(modal, ()=>modal.remove());
+  if (typeof caMonta === 'function') caMonta(document.getElementById('evCasseApprovate'), v, ingredientId);
 
   // Live preview
   function evUpdatePreview(){

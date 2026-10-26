@@ -4042,6 +4042,16 @@ window.vdrApprove = async function(docId, btn) {
       vplFetchLinksByDescription(sb, vendor, descs),
     ]);
 
+    // B-77 — casse approvate dallo Chef (pezzi e/o grammi per QUEL pack di QUEL fornitore), attaccate alle righe
+    // esistenti: le usa mergePriceIntelligence. Senza la tabella (o se la lettura fallisce) tutto resta come prima.
+    try {
+      const casseRes = await sb.from('casse_approvate').select('ingredient_id,pack,pezzi,grammi').eq('vendor', vendor).eq('attiva', true);
+      const casse = (casseRes && casseRes.data) || [];
+      [...((skuRes && skuRes.data) || []), ...((ingrVendorRes && ingrVendorRes.data) || [])].forEach(function (r) {
+        r.casse_approvate = casse.filter(function (c) { return c.ingredient_id === r.ingredient_id; });
+      });
+    } catch (_) { /* nessuna cassa approvata: comportamento di prima */ }
+
     // MICRO-TASK 52B — ultima invoice_date realmente persistita, per identita'.
     // Letture limitate agli SKU/ingredienti di questo documento. Le righe
     // senza data sono scartate dai riduttori qui sotto, non da un filtro
