@@ -113,9 +113,29 @@
         <button data-addl="${kind}" style="${S.btn(lim ? '#c2410c' : '#dc2626')}">Add</button></div><datalist id="dl-all">${all}</datalist></div>`;
     }
 
+    // B-87: storico di fine giornata (ogni notte dopo l'import POS). Solo lettura.
+    const FLAG = { easy_sell: ['Easy sell', '#16a34a'], unsold: ['Unsold', '#64748b'], recurring_86: ['86 too often', '#dc2626'], short_before_service: ['86 before service (prep short)', '#b91c1c'],
+      recurring_limited: ['Often low stock', '#c2410c'], too_often_special: ['Special too often', '#7c3aed'], not_rotated_30d: ['Not offered 30+ days', '#2563eb'] };
+    let hist = null, histDays = 60;
+    async function loadHistory() { const r = await safe(() => call('history', { days: histDays })); hist = r && r.ok ? r.history : { error: (r && r.error) || 'offline' }; if (tab === 'history') render(); }
+    function historyView() {
+      if (!hist) { loadHistory(); return '<div style="color:#64748b;padding:10px 0;">Loading…</div>'; }
+      if (hist.error) return `<div style="color:#dc2626;">${esc(msg(hist.error))}</div>`;
+      const days = `<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">${[14, 30, 60, 120].map((d) => `<button data-hd="${d}" style="${S.ghost}${d === histDays ? 'background:#0f172a;color:#fff;' : ''}">${d} days</button>`).join('')}</div>`;
+      if (!hist.days) return days + `<div style="${S.card}color:#64748b;font-size:14px;">No closed days yet. Every night (after the POS import) the day before is saved here: Feature, Risotto, Limited Stock, 86 and what the POS sold.</div>`;
+      const n = (v) => v == null ? '—' : v;
+      const rows = hist.items.map((x) => `<div style="${S.card}padding:12px;">
+        <div style="font-weight:900;font-size:15px;">${esc(x.item)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;">${(x.flags || []).map((f) => FLAG[f] ? `<span style="font-size:11px;font-weight:800;color:#fff;background:${FLAG[f][1]};border-radius:999px;padding:3px 8px;">${FLAG[f][0]}</span>` : '').join('')}</div>
+        <div style="font-size:12px;color:#475569;line-height:1.6;">86: <b>${x.days_86}</b> ${x.days_86 === 1 ? 'day' : 'days'} (${x.days_86_before_service} before service · ${x.days_86_in_service} in service)${x.avg_min_to_86 != null ? ` · sold out in ~<b>${x.avg_min_to_86}</b> min` : ''}<br>
+        Limited: <b>${x.days_limited}</b> ${x.days_limited === 1 ? 'day' : 'days'} · Feature: <b>${x.days_feature}</b> · Risotto: <b>${x.days_risotto}</b>${x.last_on_board ? ` · last special ${esc(x.last_on_board)}` : ''}
+        ${x.portions_offered ? `<br>Portions offered <b>${n(x.portions_offered)}</b> · sold (POS) <b>${n(x.portions_sold)}</b>` : ''}</div></div>`).join('');
+      return days + `<div style="font-size:12px;color:#64748b;margin-bottom:8px;">${hist.days} service ${hist.days === 1 ? 'day' : 'days'} saved (${esc(hist.from)} → ${esc(hist.to)}). Sales = POS, imported every night.</div>` + rows;
+    }
+
     function render() {
       if (!st) { root.innerHTML = `<div style="${S.wrap}padding:20px;color:#64748b;">${note ? esc(note) : 'Loading…'}</div>`; return; }
-      const head = `<div style="${S.tabs}"><button data-tab="monitors" style="${S.tab(tab === 'monitors')}">MONITORS</button><button data-tab="board" style="${S.tab(tab === 'board')}">MONITOR 3 · WAITERS</button></div>`;
+      const head = `<div style="${S.tabs}"><button data-tab="monitors" style="${S.tab(tab === 'monitors')}">MONITORS</button><button data-tab="board" style="${S.tab(tab === 'board')}">MONITOR 3</button><button data-tab="history" style="${S.tab(tab === 'history')}">HISTORY</button></div>`;
       let body = '';
       if (tab === 'monitors') {
         body = MONITORS.map((m) => { const on = !!st.displays[m.key];
@@ -123,6 +143,8 @@
             <div style="font-size:12px;color:#64748b;">${m.what}</div><div style="font-size:13px;font-weight:800;margin-top:4px;color:${on ? '#16a34a' : '#dc2626'};">${on ? '● ON' : '○ OFF'}</div></div>
             <button data-disp="${m.key}" data-on="${on ? 0 : 1}" style="${S.btn(on ? '#dc2626' : '#16a34a')}min-width:96px;padding:14px;">${on ? 'Turn OFF' : 'Turn ON'}</button></div>`; }).join('')
           + (opts.waiterUrl ? `<div style="font-size:12px;color:#64748b;">Waiters’ TV page: <a href="${esc(opts.waiterUrl)}" target="_blank" style="color:#2563eb;">${esc(opts.waiterUrl)}</a></div>` : '');
+      } else if (tab === 'history') {
+        body = historyView();
       } else {
         body = dishCard('feature', 'Feature of the Day', 'Features') + dishCard('risotto', 'Risotto of the Day', 'Risotto') + listCard('limited') + listCard('sold_out') + pubBar();
       }
@@ -131,7 +153,8 @@
     }
 
     function bind() {
-      root.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { tab = b.dataset.tab; note = ''; render(); });
+      root.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { tab = b.dataset.tab; note = ''; if (tab === 'history') hist = null; render(); });
+      root.querySelectorAll('[data-hd]').forEach((b) => b.onclick = () => { histDays = Number(b.dataset.hd); hist = null; render(); });
       root.querySelectorAll('[data-disp]').forEach((b) => b.onclick = () => toggle(b.dataset.disp, b.dataset.on === '1'));
       root.querySelectorAll('[data-add]').forEach((b) => b.onclick = () => {
         const k = b.dataset.add, v = root.querySelector(`[data-pick="${k}"]`).value.trim(); if (!v) return;
