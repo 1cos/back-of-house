@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zeno's — Service Board</title>
+<!-- B-86 Monitor 3 «Waiter Communication»: SOLA LETTURA. Legge solo sb_public() = ciò che lo Chef ha pubblicato.
+     Nessuna scrittura, nessun dato interno. Si aggiorna ogni 3 s; senza rete tiene l'ultima versione e lo dice. -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+<style>
+:root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#f0f6fc; --muted:#8b949e; --gold:#e3b341; --green:#3fb950; --amber:#f0883e; --red:#f85149; }
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:'Inter',system-ui,sans-serif; }
+#root { display:grid; grid-template-rows:auto 1fr 1fr; height:100vh; gap:1.2vh; padding:1.6vh 1.6vw; }
+header { display:flex; align-items:baseline; gap:2vw; }
+header h1 { font-size:3.2vh; font-weight:900; letter-spacing:.3em; text-transform:uppercase; color:var(--muted); }
+#clock { margin-left:auto; font-size:4vh; font-weight:800; font-variant-numeric:tabular-nums; }
+#stale { font-size:2vh; color:var(--amber); display:none; }
+.row { display:grid; grid-template-columns:1fr 1fr; gap:1.6vw; min-height:0; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:1.4vh; padding:2vh 1.6vw; min-height:0; overflow:hidden; display:flex; flex-direction:column; }
+.panel h2 { font-size:2.4vh; letter-spacing:.25em; text-transform:uppercase; font-weight:800; margin-bottom:1.4vh; }
+.feature h2 { color:var(--gold); } .limited h2 { color:var(--amber); } .sold h2 { color:var(--red); }
+.dish-title { font-size:5.2vh; font-weight:900; line-height:1.05; }
+.dish-desc { font-size:2.8vh; color:#c9d1d9; margin-top:1vh; line-height:1.25; }
+.dish-meta { margin-top:auto; display:flex; flex-wrap:wrap; gap:1.2vh 1.6vw; font-size:2.4vh; padding-top:1.2vh; }
+.portions { font-weight:900; font-size:3.4vh; }
+.allerg { color:var(--muted); } .allerg b { color:var(--text); }
+.check { color:var(--green); font-weight:800; } .nocheck { color:var(--amber); font-weight:800; }
+.empty { color:var(--muted); font-size:3vh; margin:auto 0; }
+.list { display:flex; flex-direction:column; gap:1vh; overflow:hidden; }
+.li { display:flex; align-items:center; justify-content:space-between; font-size:3.6vh; font-weight:800; border-bottom:1px solid var(--line); padding-bottom:.8vh; }
+.qty { min-width:7vh; text-align:center; border-radius:1vh; padding:.2vh 1.2vh; background:var(--amber); color:#0d1117; font-weight:900; }
+.qty.low { background:var(--red); color:#fff; }
+.sold .li { color:var(--red); } .sold .li .n { text-decoration:line-through; text-decoration-thickness:.4vh; }
+.sold .li span.t { font-size:2.2vh; color:var(--muted); font-weight:600; }
+.cols2 { columns:2; column-gap:2vw; display:block; } .cols2 .li { break-inside:avoid; margin-bottom:1vh; }
+#off { position:fixed; inset:0; background:#000; display:none; }
+#flash { position:fixed; inset:0; border:1vh solid var(--gold); pointer-events:none; opacity:0; transition:opacity .6s; }
+</style>
+</head>
+<body>
+<div id="root">
+  <header><h1>Zeno's · Service Board</h1><span id="stale">● offline — last update shown</span><span id="clock"></span></header>
+  <div class="row">
+    <section class="panel feature" id="p-feature"><h2>★ Feature of the Day</h2><div class="body"></div></section>
+    <section class="panel feature" id="p-risotto"><h2>★ Risotto of the Day</h2><div class="body"></div></section>
+  </div>
+  <div class="row">
+    <section class="panel limited"><h2>Limited Stock</h2><div class="list" id="limited"></div></section>
+    <section class="panel sold"><h2>86 · Sold Out</h2><div class="list" id="sold"></div></section>
+  </div>
+</div>
+<div id="off"></div><div id="flash"></div>
+<script>
+const SUPABASE_URL = 'https://ydqmumpytgrlceuinoqt.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkcW11bXB5dGdybGNldWlub3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MzcyOTUsImV4cCI6MjA5NDUxMzI5NX0.MSIKL4nCOxK8YFFTkt9AbFGViiwl-KEhHy6cL25gnKc';
+const POLL_MS = 3000;
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let lastRev = null, lastOk = 0;
+
+function dish(el, d) {
+  const b = el.querySelector('.body');
+  if (!d) { b.innerHTML = '<div class="empty">—</div>'; return; }
+  const al = d.allergens ? `<span class="allerg">Allergens: <b>${esc(d.allergens)}</b></span>` : '';
+  const ing = d.ingredients ? `<div class="dish-desc" style="font-size:2.3vh;color:var(--muted)">${esc(d.ingredients)}</div>` : '';
+  const ver = d.verified ? '<span class="check">✓ Chef verified</span>' : '<span class="nocheck">Ask the kitchen for allergens</span>';
+  const por = d.portions != null ? `<span class="portions">${d.portions} left</span>` : '';
+  b.style.display = 'flex'; b.style.flexDirection = 'column'; b.style.height = '100%';
+  b.innerHTML = `<div class="dish-title">${esc(d.title)}</div>${d.description ? `<div class="dish-desc">${esc(d.description)}</div>` : ''}${ing}<div class="dish-meta">${por}${al}${ver}</div>`;
+}
+function render(p) {
+  document.getElementById('off').style.display = p.on ? 'none' : 'block';
+  const b = p.board || {};
+  dish(document.getElementById('p-feature'), b.feature);
+  dish(document.getElementById('p-risotto'), b.risotto);
+  const lim = b.limited || [], so = b.sold_out || [];
+  const L = document.getElementById('limited'), S = document.getElementById('sold');
+  L.className = 'list' + (lim.length > 6 ? ' cols2' : ''); S.className = 'list' + (so.length > 6 ? ' cols2' : '');
+  L.innerHTML = lim.length ? lim.map(x => `<div class="li"><span>${esc(x.item)}</span><span class="qty${x.qty <= 2 ? ' low' : ''}">${x.qty}</span></div>`).join('') : '<div class="empty">—</div>';
+  S.innerHTML = so.length ? so.map(x => `<div class="li"><span class="n">${esc(x.item)}</span><span class="t">${x.at ? new Date(x.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }) : ''}</span></div>`).join('') : '<div class="empty">—</div>';
+  if (lastRev !== null && p.rev !== lastRev) { const f = document.getElementById('flash'); f.style.opacity = 1; setTimeout(() => f.style.opacity = 0, 1200); }
+  lastRev = p.rev;
+}
+async function tick() {
+  try {
+    const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/sb_public', { method: 'POST', cache: 'no-store',
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }, body: '{}' });
+    if (!r.ok) throw new Error(r.status);
+    const p = await r.json();
+    if (p && (p.rev !== lastRev || document.getElementById('off').style.display !== (p.on ? 'none' : 'block'))) render(p);
+    lastOk = Date.now();
+  } catch (e) {}
+  document.getElementById('stale').style.display = Date.now() - lastOk > 30000 ? 'inline' : 'none';
+}
+function clock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }); }
+clock(); setInterval(clock, 10000);
+tick(); setInterval(tick, POLL_MS);
+</script>
+</body>
+</html>

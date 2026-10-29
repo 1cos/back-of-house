@@ -1242,6 +1242,11 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
           <span style="color:#d97706;font-weight:700;">Announce</span>
         </button>
 
+        <button onclick="hideAdminMenu();openServiceMonitor()" class="amenu-btn" style="border:2px solid #fed7aa;background:#fff7ed;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4M6 8h7M6 12h4"/></svg>
+          <span style="color:#c2410c;font-weight:700;">Monitors</span>
+        </button>
+
         <button onclick="toggleKitchenDisplay()" id="tvToggleBtn" class="amenu-btn" style="border:2px solid #e0f2fe;background:#f0f9ff;">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
           <span id="tvToggleLabel" style="color:#0ea5e9;">TV ●</span>
@@ -1371,6 +1376,8 @@ function pinDel(){if(typeof window._pinDel==='function')window._pinDel();}
 <!-- B-76 — scontrino di un altro negozio: solo contabilità, prezzi invariati. -->
 <script src="js/store-receipt.js"></script>
 <script src="js/casse-approvate.js"></script>
+<script src="js/service-board-ui.js"></script>
+<script src="js/service-monitor.js"></script>
 <script src="js/ingredients.js"></script>
 <script src="js/pos.js"></script>
 <script src="js/focus-mode.js"></script>
