@@ -14,14 +14,18 @@
 (function () {
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const clone = (o) => JSON.parse(JSON.stringify(o));
-  const EMPTY = { feature: null, risotto: null, limited: [], sold_out: [] };
+  const EMPTY = { feature: null, features: [], risotto: null, limited: [], sold_out: [] };
+  const MAX_FEATURES = 6;
+  // B-95: piu' Feature of the Day. «features» = elenco; «feature» = la prima (compatibilita' con T.E.C. e pagine vecchie). Una bozza vecchia ha solo «feature».
+  const feats = (b) => (b && Array.isArray(b.features)) ? b.features : (b && b.feature ? [b.feature] : []);
+  const norm = (d) => { d.features = feats(d).slice(); d.feature = d.features[0] || null; return d; };
   const MONITORS = [
     { key: 'guest', name: 'Monitor 1 · Guest (dining room)', what: 'Dish photos slideshow' },
     { key: 'kitchen', name: 'Monitor 2 · Kitchen', what: 'Kitchen display (same switch as the TV button)' },
-    { key: 'waiter', name: 'Monitor 3 · Waiters', what: 'Feature, Risotto, Limited Stock, 86' },
+    { key: 'waiter', name: 'Monitor 3 · Waiters', what: 'Features, Risotto, Limited Stock, 86' },
   ];
   const ERR = { changed_meanwhile: 'Changed meanwhile from another device — reloaded, check and try again.', forbidden: 'Only Chef and Sous-Chef can change the monitors.',
-    invalid_token: 'Session expired — sign in again.', bad_title: 'The dish needs a title.', bad_qty: 'Quantity must be a whole number 0–999.',
+    invalid_token: 'Session expired — sign in again.', bad_title: 'The dish needs a title.', too_many_features: 'Up to 6 features of the day.', bad_qty: 'Quantity must be a whole number 0–999.',
     bad_portions: 'Portions must be a whole number.', duplicate_item: 'This dish is already in Limited Stock.', not_limited: 'This dish is no longer in Limited Stock.', offline: 'No connection — nothing changed.' };
   const msg = (e) => ERR[e] || ('Error: ' + e);
 
@@ -44,18 +48,19 @@
 
     async function load() {
       const r = await safe(() => call('state', {}));
-      if (r && r.ok) { st = r.state; catalog = r.catalog || catalog; draft = clone(st.draft || EMPTY); }
+      if (r && r.ok) { st = r.state; catalog = r.catalog || catalog; draft = norm(clone(st.draft || EMPTY)); }
       render();
     }
     async function safe(fn) { try { return await fn(); } catch (e) { return { ok: false, error: (e && (e.code || e.message)) || 'offline' }; } }
     function done(r, okNote) {
-      if (r && r.state) { st = r.state; draft = clone(st.draft || EMPTY); }
+      if (r && r.state) { st = r.state; draft = norm(clone(st.draft || EMPTY)); }
       note = r && r.ok ? (okNote || '') : msg(r && r.error);
       busy = false; render();
     }
     function saveSoon() { clearTimeout(saveTimer); note = 'Saving draft…'; renderNote(); saveTimer = setTimeout(saveNow, 500); }
     async function saveNow() {
       clearTimeout(saveTimer); saveTimer = null;
+      norm(draft);
       const r = await safe(() => call('save', { draft, rev: st.rev }));
       if (r && r.ok) { st = r.state; note = 'Draft saved — not on the TV until PUBLISH'; renderNote(); renderBar(); }
       else if (r && r.error === 'changed_meanwhile') done(r);
@@ -79,8 +84,23 @@
     }
     function bindPub() { const b = root.querySelector('[data-act="publish"]'); if (b) b.onclick = publish; }
 
+    const getD = (key) => key === 'risotto' ? draft.risotto : key === 'feature' ? draft.features[0] : draft.features[Number(key.slice(1))];
+    const idxOf = (key) => key === 'feature' ? 0 : Number(key.slice(1));
+    const newDish = (v, fromCat) => ({ title: v, description: '', portions: null, ingredients: '', allergens: '', verified: false, pos_item: fromCat ? v : null });
+    // tutte le feature + una scheda «aggiungi un'altra»
+    function featuresBlock() {
+      const n = draft.features.length;
+      if (!n) return dishCard('feature', 'Feature of the Day', 'Features');
+      const cards = draft.features.map((f, i) => dishCard(i === 0 ? 'feature' : 'f' + i, 'Feature of the Day' + (n > 1 ? ' #' + (i + 1) : ''), 'Features')).join('');
+      const opts_ = catalog.filter((c) => c.group === 'Features').map((c) => `<option value="${esc(c.item)}">`).join('');
+      const more = n >= MAX_FEATURES ? `<div style="${S.card}color:#64748b;font-size:13px;">Up to ${MAX_FEATURES} features of the day.</div>`
+        : `<div style="${S.card}border-style:dashed;"><div style="${S.h}">★ Another feature of the day</div>
+          <input list="dl-newfeat" data-pick="newfeat" placeholder="Choose from Brigade (Features) or type a new name" style="${S.inp}"><datalist id="dl-newfeat">${opts_}</datalist>
+          <button data-add="newfeat" style="${S.btn('#0f172a')}">Add another</button></div>`;
+      return cards + more;
+    }
     function dishCard(key, label, group) {
-      const d = draft[key];
+      const d = getD(key);
       const opts_ = catalog.filter((c) => c.group === group).map((c) => `<option value="${esc(c.item)}">`).join('');
       if (!d) return `<div style="${S.card}"><div style="${S.h}">★ ${label}</div>
         <input list="dl-${key}" data-pick="${key}" placeholder="Choose from Brigade (${esc(group)}) or type a new name" style="${S.inp}"><datalist id="dl-${key}">${opts_}</datalist>
@@ -146,7 +166,7 @@
       } else if (tab === 'history') {
         body = historyView();
       } else {
-        body = dishCard('feature', 'Feature of the Day', 'Features') + dishCard('risotto', 'Risotto of the Day', 'Risotto') + listCard('limited') + listCard('sold_out') + pubBar();
+        body = featuresBlock() + dishCard('risotto', 'Risotto of the Day', 'Risotto') + listCard('limited') + listCard('sold_out') + pubBar();
       }
       root.innerHTML = `<div style="${S.wrap}">${head}<div data-note style="font-size:13px;font-weight:700;color:#475569;min-height:18px;margin-bottom:6px;">${esc(note)}</div>${body}</div>`;
       bind();
@@ -159,16 +179,24 @@
       root.querySelectorAll('[data-add]').forEach((b) => b.onclick = () => {
         const k = b.dataset.add, v = root.querySelector(`[data-pick="${k}"]`).value.trim(); if (!v) return;
         const fromCat = catalog.some((c) => c.item.toLowerCase() === v.toLowerCase());
-        draft[k] = { title: v, description: '', portions: null, ingredients: '', allergens: '', verified: false, pos_item: fromCat ? v : null };
+        if (k === 'risotto') draft.risotto = newDish(v, fromCat);
+        else {
+          if (draft.features.some((f) => f.title.toLowerCase() === v.toLowerCase())) { note = 'This feature is already on the list.'; renderNote(); return; }
+          if (draft.features.length >= MAX_FEATURES) { note = msg('too_many_features'); renderNote(); return; }
+          draft.features.push(newDish(v, fromCat)); draft.feature = draft.features[0];
+        }
         render(); saveSoon(); });
-      root.querySelectorAll('[data-clear]').forEach((b) => b.onclick = () => { draft[b.dataset.clear] = null; render(); saveSoon(); });
+      root.querySelectorAll('[data-clear]').forEach((b) => b.onclick = () => {
+        const k = b.dataset.clear;
+        if (k === 'risotto') draft.risotto = null; else { draft.features.splice(idxOf(k), 1); draft.feature = draft.features[0] || null; }
+        render(); saveSoon(); });
       root.querySelectorAll('[data-f]').forEach((i) => i.oninput = () => {
-        const [k, f] = i.dataset.f.split('.');
-        if (f === 'portions') { const n = i.value.trim() === '' ? null : parseInt(i.value, 10); draft[k].portions = Number.isFinite(n) ? Math.max(0, Math.min(999, n)) : null; }
-        else draft[k][f] = i.value;
+        const [k, f] = i.dataset.f.split('.'), d = getD(k); if (!d) return;
+        if (f === 'portions') { const n = i.value.trim() === '' ? null : parseInt(i.value, 10); d.portions = Number.isFinite(n) ? Math.max(0, Math.min(999, n)) : null; }
+        else d[f] = i.value;
         saveSoon(); });
-      root.querySelectorAll('[data-ver]').forEach((c) => c.onchange = () => { draft[c.dataset.ver].verified = c.checked; render(); saveSoon(); });
-      root.querySelectorAll('[data-por]').forEach((b) => b.onclick = () => { const d = draft[b.dataset.por]; d.portions = Math.max(0, (d.portions || 0) + Number(b.dataset.d)); render(); saveSoon(); });
+      root.querySelectorAll('[data-ver]').forEach((c) => c.onchange = () => { getD(c.dataset.ver).verified = c.checked; render(); saveSoon(); });
+      root.querySelectorAll('[data-por]').forEach((b) => b.onclick = () => { const d = getD(b.dataset.por); d.portions = Math.max(0, (d.portions || 0) + Number(b.dataset.d)); render(); saveSoon(); });
       root.querySelectorAll('[data-q]').forEach((b) => b.onclick = () => {
         const i = Number(b.dataset.q), x = draft.limited[i]; x.qty = Math.max(0, x.qty + Number(b.dataset.d));
         if (x.qty === 0) { draft.limited.splice(i, 1); draft.sold_out.push({ item: x.item }); note = x.item + ' → 86'; }

@@ -17,6 +17,8 @@ header h1 { font-size:3.2vh; font-weight:900; letter-spacing:.3em; text-transfor
 #clock { margin-left:auto; font-size:4vh; font-weight:800; font-variant-numeric:tabular-nums; }
 #stale { font-size:2vh; color:var(--amber); display:none; }
 .row { display:grid; grid-template-columns:1fr 1fr; gap:1.6vw; min-height:0; }
+.row.many { grid-template-columns:2.1fr 1fr; }
+#root.tall { grid-template-rows:auto 1.7fr 1fr; }   /* 3+ feature: piu' altezza alla riga in alto */   /* B-95: piu' feature → piu' spazio alla loro colonna */
 .panel { background:var(--panel); border:1px solid var(--line); border-radius:1.4vh; padding:2vh 1.6vw; min-height:0; overflow:hidden; display:flex; flex-direction:column; }
 .panel h2 { font-size:2.4vh; letter-spacing:.25em; text-transform:uppercase; font-weight:800; margin-bottom:1.4vh; }
 .feature h2 { color:var(--gold); } .limited h2 { color:var(--amber); } .sold h2 { color:var(--red); }
@@ -26,6 +28,21 @@ header h1 { font-size:3.2vh; font-weight:900; letter-spacing:.3em; text-transfor
 .portions { font-weight:900; font-size:3.4vh; }
 .allerg { color:var(--muted); } .allerg b { color:var(--text); }
 .check { color:var(--green); font-weight:800; } .nocheck { color:var(--amber); font-weight:800; }
+/* B-95: Feature of the Day multiple. --ft/--fd/--fm = grandezza del titolo / descrizione / righe in base a quante sono */
+.fgrid { display:grid; gap:1.2vh 1.2vw; flex:1; min-height:0; }
+.fgrid.n1 { grid-template-columns:1fr; --ft:5.2vh; --fd:2.8vh; --fi:2.3vh; --fm:2.4vh; --fp:3.4vh; }
+.fgrid.n2 { grid-template-columns:1fr 1fr; --ft:4.2vh; --fd:2.3vh; --fi:1.9vh; --fm:2vh; --fp:2.8vh; }
+.fgrid.n3 { grid-template-columns:1fr 1fr 1fr; --ft:3.4vh; --fd:2vh; --fi:1.7vh; --fm:1.8vh; --fp:2.4vh; }
+.fgrid.n4 { grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; --ft:3.3vh; --fd:1.9vh; --fi:1.6vh; --fm:1.8vh; --fp:2.3vh; }
+.fgrid.n5, .fgrid.n6 { grid-template-columns:1fr 1fr 1fr; grid-template-rows:1fr 1fr; --ft:2.7vh; --fd:1.6vh; --fi:1.4vh; --fm:1.5vh; --fp:2vh; }
+/* con 3+ feature le descrizioni lunghe si accorciano (3 righe) invece di uscire dalla scheda */
+.fgrid.n3 .dish-desc, .fgrid.n4 .dish-desc, .fgrid.n5 .dish-desc, .fgrid.n6 .dish-desc { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.fgrid.n4 .dish-desc, .fgrid.n5 .dish-desc, .fgrid.n6 .dish-desc { -webkit-line-clamp:2; }
+.fgrid.n5 .dish-meta, .fgrid.n6 .dish-meta, .fgrid.n4 .dish-meta { gap:.4vh 1vw; padding-top:.6vh; }
+.fcard { display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden; }
+.fgrid.many .fcard { border-left:.35vh solid var(--gold); padding-left:1vw; }
+.fcard .dish-title { font-size:var(--ft); } .fcard .dish-desc { font-size:var(--fd); }
+.fcard .dish-meta { font-size:var(--fm); } .fcard .portions { font-size:var(--fp); }
 .empty { color:var(--muted); font-size:3vh; margin:auto 0; }
 .list { display:flex; flex-direction:column; gap:1vh; overflow:hidden; }
 .li { display:flex; align-items:center; justify-content:space-between; font-size:3.6vh; font-weight:800; border-bottom:1px solid var(--line); padding-bottom:.8vh; }
@@ -41,8 +58,8 @@ header h1 { font-size:3.2vh; font-weight:900; letter-spacing:.3em; text-transfor
 <body>
 <div id="root">
   <header><h1>Zeno's · Service Board</h1><span id="stale">● offline — last update shown</span><span id="clock"></span></header>
-  <div class="row">
-    <section class="panel feature" id="p-feature"><h2>★ Feature of the Day</h2><div class="body"></div></section>
+  <div class="row" id="toprow">
+    <section class="panel feature" id="p-feature"><h2 id="h-feature">★ Feature of the Day</h2><div class="body"></div></section>
     <section class="panel feature" id="p-risotto"><h2>★ Risotto of the Day</h2><div class="body"></div></section>
   </div>
   <div class="row">
@@ -58,20 +75,34 @@ const POLL_MS = 3000;
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let lastRev = null, lastOk = 0;
 
-function dish(el, d) {
-  const b = el.querySelector('.body');
-  if (!d) { b.innerHTML = '<div class="empty">—</div>'; return; }
+function dishHTML(d, cls) {
   const al = d.allergens ? `<span class="allerg">Allergens: <b>${esc(d.allergens)}</b></span>` : '';
-  const ing = d.ingredients ? `<div class="dish-desc" style="font-size:2.3vh;color:var(--muted)">${esc(d.ingredients)}</div>` : '';
+  const ing = d.ingredients ? `<div class="dish-desc" style="font-size:var(--fi,2.3vh);color:var(--muted)">${esc(d.ingredients)}</div>` : '';
   const ver = d.verified ? '<span class="check">✓ Chef verified</span>' : '<span class="nocheck">Ask the kitchen for allergens</span>';
   const por = d.portions != null ? `<span class="portions">${d.portions} left</span>` : '';
+  return `<div class="${cls || ''}" style="display:flex;flex-direction:column;height:100%;min-height:0;"><div class="dish-title">${esc(d.title)}</div>${d.description ? `<div class="dish-desc">${esc(d.description)}</div>` : ''}${ing}<div class="dish-meta">${por}${al}${ver}</div></div>`;
+}
+function dish(el, d) {   // Risotto of the Day (una sola)
+  const b = el.querySelector('.body');
+  if (!d) { b.innerHTML = '<div class="empty">—</div>'; return; }
   b.style.display = 'flex'; b.style.flexDirection = 'column'; b.style.height = '100%';
-  b.innerHTML = `<div class="dish-title">${esc(d.title)}</div>${d.description ? `<div class="dish-desc">${esc(d.description)}</div>` : ''}${ing}<div class="dish-meta">${por}${al}${ver}</div>`;
+  b.innerHTML = dishHTML(d);
+}
+// B-95: Feature of the Day multiple. «features» = elenco; una pubblicazione vecchia ha solo «feature».
+function featuresOf(b) { return Array.isArray(b.features) ? b.features : (b.feature ? [b.feature] : []); }
+function renderFeatures(list) {
+  const el = document.getElementById('p-feature'), b = el.querySelector('.body'), n = Math.min(list.length, 6);
+  document.getElementById('h-feature').textContent = n > 1 ? '★ Features of the Day' : '★ Feature of the Day';
+  document.getElementById('toprow').className = 'row' + (n > 1 ? ' many' : '');
+  document.getElementById('root').className = n >= 3 ? 'tall' : '';
+  b.style.display = 'flex'; b.style.flexDirection = 'column'; b.style.height = '100%';
+  if (!n) { b.innerHTML = '<div class="empty">—</div>'; return; }
+  b.innerHTML = `<div class="fgrid n${n}${n > 1 ? ' many' : ''}">${list.slice(0, 6).map(d => `<div class="fcard">${dishHTML(d)}</div>`).join('')}</div>`;
 }
 function render(p) {
   document.getElementById('off').style.display = p.on ? 'none' : 'block';
   const b = p.board || {};
-  dish(document.getElementById('p-feature'), b.feature);
+  renderFeatures(featuresOf(b));
   dish(document.getElementById('p-risotto'), b.risotto);
   const lim = b.limited || [], so = b.sold_out || [];
   const L = document.getElementById('limited'), S = document.getElementById('sold');
