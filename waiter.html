@@ -31,8 +31,13 @@ header h1 { font-size:3.2vh; font-weight:900; letter-spacing:.3em; text-transfor
 /* B-95: Feature of the Day multiple. --ft/--fd/--fm = grandezza del titolo / descrizione / righe in base a quante sono */
 .fgrid { display:grid; gap:1.2vh 1.2vw; flex:1; min-height:0; }
 .fgrid.n1 { grid-template-columns:1fr; --ft:5.2vh; --fd:2.8vh; --fi:2.3vh; --fm:2.4vh; --fp:3.4vh; }
-.fgrid.n2 { grid-template-columns:1fr 1fr; --ft:4.2vh; --fd:2.3vh; --fi:1.9vh; --fm:2vh; --fp:2.8vh; }
-.fgrid.n3 { grid-template-columns:1fr 1fr 1fr; --ft:3.4vh; --fd:2vh; --fi:1.7vh; --fm:1.8vh; --fp:2.4vh; }
+.fgrid.n2 { grid-template-columns:1fr; grid-auto-rows:1fr; --ft:4vh; --fd:2.3vh; --fi:1.9vh; --fm:2vh; --fp:2.8vh; }
+.fgrid.n3 { grid-template-columns:1fr; grid-auto-rows:1fr; --ft:3.5vh; --fd:2.1vh; --fi:1.7vh; --fm:1.9vh; --fp:2.5vh; }
+.fgrid.n2 .dish-desc, .fgrid.n3 .dish-desc { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:.3vh; }
+.fgrid.n3 .dish-desc { -webkit-line-clamp:1; }
+.fgrid.n2 .dish-meta, .fgrid.n3 .dish-meta { margin-top:0; padding-top:.3vh; gap:.2vh 1vw; }
+.fgrid.n3 .dish-desc + .dish-desc { display:none; }   /* con 3 feature niente riga ingredienti: spazio al titolo */
+.fgrid.n2 .fcard, .fgrid.n3 .fcard { border-bottom:1px solid var(--line); padding-bottom:.4vh; } .fgrid.n2 .fcard:last-child, .fgrid.n3 .fcard:last-child { border-bottom:0; }
 .fgrid.n4 { grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; --ft:3.3vh; --fd:1.9vh; --fi:1.6vh; --fm:1.8vh; --fp:2.3vh; }
 .fgrid.n5, .fgrid.n6 { grid-template-columns:1fr 1fr 1fr; grid-template-rows:1fr 1fr; --ft:2.7vh; --fd:1.6vh; --fi:1.4vh; --fm:1.5vh; --fp:2vh; }
 /* con 3+ feature le descrizioni lunghe si accorciano (3 righe) invece di uscire dalla scheda */
@@ -41,6 +46,7 @@ header h1 { font-size:3.2vh; font-weight:900; letter-spacing:.3em; text-transfor
 .fgrid.n5 .dish-meta, .fgrid.n6 .dish-meta, .fgrid.n4 .dish-meta { gap:.4vh 1vw; padding-top:.6vh; }
 .fcard { display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden; }
 .fgrid.many .fcard { border-left:.35vh solid var(--gold); padding-left:1vw; }
+.fgrid.n2 .fcard, .fgrid.n3 .fcard { border-left:0; padding-left:0; }
 .fcard .dish-title { font-size:var(--ft); } .fcard .dish-desc { font-size:var(--fd); }
 .fcard .dish-meta { font-size:var(--fm); } .fcard .portions { font-size:var(--fp); }
 .empty { color:var(--muted); font-size:3vh; margin:auto 0; }
@@ -93,11 +99,11 @@ function featuresOf(b) { return Array.isArray(b.features) ? b.features : (b.feat
 function renderFeatures(list) {
   const el = document.getElementById('p-feature'), b = el.querySelector('.body'), n = Math.min(list.length, 6);
   document.getElementById('h-feature').textContent = n > 1 ? '★ Features of the Day' : '★ Feature of the Day';
-  document.getElementById('toprow').className = 'row' + (n > 1 ? ' many' : '');
-  document.getElementById('root').className = n >= 3 ? 'tall' : '';
+  document.getElementById('toprow').className = 'row' + (n >= 4 ? ' many' : '');
+  document.getElementById('root').className = n >= 4 ? 'tall' : '';
   b.style.display = 'flex'; b.style.flexDirection = 'column'; b.style.height = '100%';
   if (!n) { b.innerHTML = '<div class="empty">—</div>'; return; }
-  b.innerHTML = `<div class="fgrid n${n}${n > 1 ? ' many' : ''}">${list.slice(0, 6).map(d => `<div class="fcard">${dishHTML(d)}</div>`).join('')}</div>`;
+  b.innerHTML = `<div class="fgrid n${n}${n >= 4 ? ' many' : ''}">${list.slice(0, 6).map(d => `<div class="fcard">${dishHTML(d)}</div>`).join('')}</div>`;
 }
 function render(p) {
   document.getElementById('off').style.display = p.on ? 'none' : 'block';
