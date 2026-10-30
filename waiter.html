@@ -8,31 +8,33 @@
      Nessuna scrittura, nessun dato interno. Si aggiorna ogni 3 s; senza rete tiene l'ultima versione e lo dice. -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
 <style>
-:root { /* B-95d: verde Zeno's on the Square (#8cc640, dal sito) con vetro tipo Apple; Limited = giallo, allergeni = arancio, 86 = rosso chiaro */
-  --glass:rgba(22,96,40,.40); --line:rgba(255,255,255,.6); --text:#ffffff; --muted:#e1f5cf; --yellow:#ffe14d; --orange:#ff9f2e; --ok:#1f6f2e; --red:#ffb0b0; --redstrong:#ff5c5c; }
+:root { /* B-95e: meno verde — sfondo chiaro con un velo del verde Zeno's (#8cc640), riquadri di vetro bianco, testo scuro; Limited giallo, allergeni arancio, 86 rosso */
+  --glass:rgba(255,255,255,.55); --line:rgba(255,255,255,.95); --text:#15281a; --muted:#4b5f50; --ink:#1d3b22; --yellow:#ffd60a; --orange:#ff9500; --ok:#1f6f2e; --red:#c62828; --redstrong:#e53935; }
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body { width:100%; height:100%; overflow:hidden; color:var(--text); font-family:'Inter',system-ui,sans-serif;
-  background:radial-gradient(120vh 90vh at 12% 8%, rgba(255,255,255,.28), transparent 60%), radial-gradient(100vh 80vh at 92% 96%, rgba(255,255,255,.14), transparent 60%), linear-gradient(135deg,#8cc640 0%,#62b03e 45%,#2f8f46 100%); background-attachment:fixed; }
+  background:radial-gradient(110vh 80vh at 8% 6%, rgba(255,255,255,.85), transparent 62%), radial-gradient(90vh 70vh at 95% 98%, rgba(140,198,64,.55), transparent 65%), linear-gradient(160deg,#f1f8e6 0%,#d4eab0 55%,#a9d36a 100%); background-attachment:fixed; }
 #root { display:grid; grid-template-rows:auto 1fr 1fr; height:100vh; gap:1.2vh; padding:1.6vh 1.6vw; }
 header { display:flex; align-items:baseline; gap:2vw; }
-header h1 { font-size:3.2vh; font-weight:900; letter-spacing:.3em; text-transform:uppercase; color:#fff; text-shadow:0 .2vh .8vh rgba(0,40,10,.35); }
-#clock { margin-left:auto; font-size:4vh; font-weight:800; font-variant-numeric:tabular-nums; text-shadow:0 .2vh .8vh rgba(0,40,10,.35); }
+header h1 { font-size:3.2vh; font-weight:900; letter-spacing:.3em; text-transform:uppercase; color:var(--ink); }
+#clock { margin-left:auto; font-size:4vh; font-weight:800; font-variant-numeric:tabular-nums; color:var(--ink); }
 #stale { font-size:2vh; color:#fff; background:var(--orange); color:#3a1b00; border-radius:99px; padding:.2vh 1vw; display:none; }
 .row { display:grid; grid-template-columns:1fr 1fr; gap:1.6vw; min-height:0; }
 .row.many { grid-template-columns:2.1fr 1fr; }
 #root.tall { grid-template-rows:auto 1.7fr 1fr; }   /* 3+ feature: piu' altezza alla riga in alto */   /* B-95: piu' feature → piu' spazio alla loro colonna */
 .panel { background:var(--glass); -webkit-backdrop-filter:blur(16px) saturate(150%); backdrop-filter:blur(16px) saturate(150%); border:.3vh solid var(--line); border-top-width:.8vh; border-radius:2vh; padding:2vh 1.6vw; min-height:0; overflow:hidden; display:flex; flex-direction:column;
-  box-shadow:inset 0 .25vh 0 rgba(255,255,255,.4), 0 1.2vh 3vh rgba(0,45,12,.3); }
-.panel.feature { border-top-color:#fff; } .panel.limited { border-top-color:var(--yellow); } .panel.sold { border-top-color:var(--redstrong); }
+  box-shadow:inset 0 .25vh 0 rgba(255,255,255,.9), 0 1.2vh 3vh rgba(40,80,20,.18); }
+.panel.feature { border-top-color:#8cc640; } .panel.limited { border-top-color:var(--yellow); } .panel.sold { border-top-color:var(--redstrong); }
 .panel h2 { font-size:2.4vh; letter-spacing:.25em; text-transform:uppercase; font-weight:800; margin-bottom:1.4vh; }
-.feature h2 { color:#fff; } .limited h2 { color:var(--yellow); } .sold h2 { color:var(--red); }
+.feature h2 { color:var(--ink); }
+.limited h2 { display:inline-block; align-self:flex-start; background:var(--yellow); color:#3b3200; border-radius:99px; padding:.2vh 1.2vw; }
+.sold h2 { color:var(--red); }
 .dish-title { font-size:5.2vh; font-weight:900; line-height:1.05; }
-.dish-desc { font-size:2.8vh; color:#f1fbe8; margin-top:1vh; line-height:1.25; }
+.dish-desc { font-size:2.8vh; color:#2d4433; margin-top:1vh; line-height:1.25; }
 .dish-meta { margin-top:auto; display:flex; flex-wrap:wrap; gap:1.2vh 1.6vw; font-size:2.4vh; padding-top:1.2vh; }
 .portions { font-weight:900; font-size:3.4vh; }
 .allerg { color:var(--muted); } .allerg b { color:var(--text); }
-.check { background:rgba(255,255,255,.92); color:var(--ok); font-weight:800; border-radius:99px; padding:.2vh 1vw; }
-.nocheck { background:var(--orange); color:#3a1b00; font-weight:800; border-radius:99px; padding:.2vh 1vw; }
+.check { background:#dff3c4; color:var(--ok); font-weight:800; border-radius:99px; padding:.2vh 1vw; }
+.nocheck { background:var(--orange); color:#2b1500; font-weight:800; border-radius:99px; padding:.2vh 1vw; }
 /* B-95: Feature of the Day multiple. --ft/--fd/--fm = grandezza del titolo / descrizione / righe in base a quante sono */
 .fgrid { display:grid; gap:1.2vh 1.2vw; flex:1; min-height:0; }
 .fgrid.n1 { grid-template-columns:1fr; --ft:5.2vh; --fd:2.8vh; --fi:2.3vh; --fm:2.4vh; --fp:3.4vh; }
@@ -42,7 +44,7 @@ header h1 { font-size:3.2vh; font-weight:900; letter-spacing:.3em; text-transfor
 .fgrid.n3 .dish-desc { -webkit-line-clamp:1; }
 .fgrid.n2 .dish-meta, .fgrid.n3 .dish-meta { margin-top:0; padding-top:.3vh; gap:.2vh 1vw; }
 .fgrid.n3 .dish-desc + .dish-desc { display:none; }   /* con 3 feature niente riga ingredienti: spazio al titolo */
-.fgrid.n2 .fcard, .fgrid.n3 .fcard { border-bottom:1px solid rgba(255,255,255,.35); padding-bottom:.4vh; } .fgrid.n2 .fcard:last-child, .fgrid.n3 .fcard:last-child { border-bottom:0; }
+.fgrid.n2 .fcard, .fgrid.n3 .fcard { border-bottom:1px solid rgba(29,59,34,.2); padding-bottom:.4vh; } .fgrid.n2 .fcard:last-child, .fgrid.n3 .fcard:last-child { border-bottom:0; }
 .fgrid.n4 { grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; --ft:3.3vh; --fd:1.9vh; --fi:1.6vh; --fm:1.8vh; --fp:2.3vh; }
 .fgrid.n5, .fgrid.n6 { grid-template-columns:1fr 1fr 1fr; grid-template-rows:1fr 1fr; --ft:2.7vh; --fd:1.6vh; --fi:1.4vh; --fm:1.5vh; --fp:2vh; }
 /* con 3+ feature le descrizioni lunghe si accorciano (3 righe) invece di uscire dalla scheda */
@@ -50,20 +52,20 @@ header h1 { font-size:3.2vh; font-weight:900; letter-spacing:.3em; text-transfor
 .fgrid.n4 .dish-desc, .fgrid.n5 .dish-desc, .fgrid.n6 .dish-desc { -webkit-line-clamp:2; }
 .fgrid.n5 .dish-meta, .fgrid.n6 .dish-meta, .fgrid.n4 .dish-meta { gap:.4vh 1vw; padding-top:.6vh; }
 .fcard { display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden; }
-.fgrid.many .fcard { border-left:.35vh solid rgba(255,255,255,.7); padding-left:1vw; }
+.fgrid.many .fcard { border-left:.35vh solid #8cc640; padding-left:1vw; }
 .fgrid.n2 .fcard, .fgrid.n3 .fcard { border-left:0; padding-left:0; }
 .fcard .dish-title { font-size:var(--ft); } .fcard .dish-desc { font-size:var(--fd); }
 .fcard .dish-meta { font-size:var(--fm); } .fcard .portions { font-size:var(--fp); }
 .empty { color:var(--muted); font-size:3vh; margin:auto 0; }
 .list { display:flex; flex-direction:column; gap:1vh; overflow:hidden; }
-.li { display:flex; align-items:center; justify-content:space-between; font-size:3.6vh; font-weight:800; border-bottom:1px solid rgba(255,255,255,.3); padding-bottom:.8vh; }
+.li { display:flex; align-items:center; justify-content:space-between; font-size:3.6vh; font-weight:800; border-bottom:1px solid rgba(29,59,34,.18); padding-bottom:.8vh; }
 .qty { min-width:7vh; text-align:center; border-radius:1vh; padding:.2vh 1.2vh; background:var(--yellow); color:#3b3200; font-weight:900; }
 .qty.low { background:var(--redstrong); color:#fff; }
 .sold .li { color:var(--red); } .sold .li .n { text-decoration:line-through; text-decoration-thickness:.4vh; }
 .sold .li span.t { font-size:2.2vh; color:var(--muted); font-weight:600; }
 .cols2 { columns:2; column-gap:2vw; display:block; } .cols2 .li { break-inside:avoid; margin-bottom:1vh; }
 #off { position:fixed; inset:0; background:#000; display:none; }
-#flash { position:fixed; inset:0; border:1vh solid #fff; pointer-events:none; opacity:0; transition:opacity .6s; }
+#flash { position:fixed; inset:0; border:1vh solid #8cc640; pointer-events:none; opacity:0; transition:opacity .6s; }
 </style>
 </head>
 <body>
@@ -136,7 +138,7 @@ async function tick() {
 }
 function clock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }); }
 // B-95c: la pagina si aggiorna da sola quando ne esce una nuova (controlla ogni 5 minuti, ricarica solo se la versione cambia)
-const PAGE_V = 'b95d-20261030';
+const PAGE_V = 'b95e-20261030';
 setInterval(async () => { try { const t = await (await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' })).text(); const m = t.match(/const PAGE_V = '([^']+)'/); if (m && m[1] !== PAGE_V) location.reload(); } catch (e) {} }, 300000);
 clock(); setInterval(clock, 10000);
 tick(); setInterval(tick, POLL_MS);
