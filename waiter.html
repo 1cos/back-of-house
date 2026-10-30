@@ -130,6 +130,9 @@ async function tick() {
   document.getElementById('stale').style.display = Date.now() - lastOk > 30000 ? 'inline' : 'none';
 }
 function clock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }); }
+// B-95c: la pagina si aggiorna da sola quando ne esce una nuova (controlla ogni 5 minuti, ricarica solo se la versione cambia)
+const PAGE_V = 'b95c-20261030';
+setInterval(async () => { try { const t = await (await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' })).text(); const m = t.match(/const PAGE_V = '([^']+)'/); if (m && m[1] !== PAGE_V) location.reload(); } catch (e) {} }, 300000);
 clock(); setInterval(clock, 10000);
 tick(); setInterval(tick, POLL_MS);
 </script>
