@@ -1343,6 +1343,18 @@ window.vdrProcessAllPdf = async function(docId) {
         console.log('[VDR] rawText preview:', rawText.slice(0, 500));
         console.log('[VDR] parsed vendor:', parsed.vendor, 'items:', parsed.items?.length, 'warnings:', parsed.warnings?.length);
 
+        // REL-01 (Max 13/11/2026): il lettore del browser e' PIU' VECCHIO di quello del
+        // server (non conosce Global Gourmet, le fatture BEK a pagina girata, ecc.).
+        // Se qui il fornitore non si riconosce, scriverci sopra «fornitore sconosciuto,
+        // 0 righe» cancella una lettura buona (successo sulla GG 22669, 28/10). Si
+        // lascia il documento com'e' e lo si rimette in coda al lettore del server
+        // (pdf_received), che e' quello completo. Nessun dato viene cancellato.
+        if (!parsed.vendor || parsed.vendor === 'unknown') {
+          await sb.from('vendor_documents').update({ status: 'pdf_received', updated_at: new Date().toISOString() }).eq('id', doc.id);
+          console.warn('[VDR] fornitore non riconosciuto dal browser: documento rimesso in coda al server', doc.id);
+          done++; continue;
+        }
+
         // FIX (BOH OS Task 10): also read parsed.document_number — Fruge/FreshPoint/
         // BEK parsers in this file return that field name (not invoice_number/
         // order_number/credit_number). Without this, a correct document_number
