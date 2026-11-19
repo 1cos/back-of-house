@@ -30,4 +30,26 @@
     ov.style.display = 'block';
     window.ServiceBoardUI.mount(ov.querySelector('#sbRoot'), call, { waiterUrl: WAITER_URL });
   };
+  // ── Ingresso per gli editor della lavagna (Max 19/11/2026) ──
+  // Chi non è admin ma è nell'elenco service_board_editors non vede il menu admin: gli compare solo un pulsante
+  // «Monitors». Il permesso VERO lo decide il server (sb_tok_user): qui si prova 'state' una volta per sessione;
+  // se risponde ok il pulsante appare, altrimenti non compare niente.
+  let probed = null;
+  async function probeEditor() {
+    const t = token();
+    if (!t) { probed = null; const o = document.getElementById('sbEditorBtn'); if (o) o.remove(); return; }
+    if (t === probed) return;
+    probed = t;
+    const old = document.getElementById('sbEditorBtn'); if (old) old.remove();
+    let r; try { r = await call('state', {}); } catch (_) { return; }
+    if (!r || !r.ok) return;
+    const menu = document.getElementById('tabMenu');
+    if (menu && menu.style.display !== 'none') return;   // admin: ha già il menu
+    const b = document.createElement('button'); b.id = 'sbEditorBtn';
+    b.textContent = '📺 Monitors';
+    b.style.cssText = 'position:fixed;right:12px;bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:8000;border:0;border-radius:999px;background:#c2410c;color:#fff;font-weight:800;font-size:14px;padding:12px 18px;box-shadow:0 4px 14px rgba(0,0,0,.3);';
+    b.onclick = () => window.openServiceMonitor();
+    document.body.appendChild(b);
+  }
+  setInterval(() => { try { probeEditor(); } catch (_) {} }, 4000);
 })();
