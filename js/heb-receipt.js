@@ -125,6 +125,20 @@
     return Number(a.weight_lb) > 0 || g.printed_weight_lb > 0;
   }
 
+  // cosa manca ancora per arrivare a Review (mostrato sotto le carte, aggiornato mentre si scrive)
+  function missingHtml() {
+    const p = st.p, r = liveRecon(), missing = [];
+    if (!r.ok) missing.push('the lines do not add up to the receipt total (see the box at the top)');
+    if (!p.receipt.date) missing.push('the receipt date');
+    p.groups.forEach((g) => {
+      if (groupReady(g)) return;
+      const a = st.ans[g.key];
+      missing.push(esc(g.description) + ' — ' + (!a.ingredient_id ? 'choose the ingredient or tick “Not an ingredient”'
+        : a.ask === 'pieces' ? 'how many pieces (whole number)' : 'how many lb'));
+    });
+    return '<b>Still missing:</b>' + missing.map((m) => '<div style="margin-top:4px">• ' + m + '</div>').join('');
+  }
+
   function renderQuestions() {
     const p = st.p, r = liveRecon();
     const check = p.lines.filter((l) => l.needs_check);
@@ -167,7 +181,7 @@
                : `Lines add up to ${money(r.sum)}, the receipt says ${money(r.total)}. Fix the amount or the total: <input type="number" inputmode="decimal" step="0.01" value="${esc(p.receipt.total ?? '')}" oninput="hebTotal(this.value)" style="width:96px;height:34px;border-radius:10px;border:1px solid #fca5a5;padding:0 8px">`}</div>
       ${!p.receipt.date ? `<div style="margin-top:8px;font-size:13px">Receipt date: <input type="date" oninput="hebDate(this.value)" style="height:38px;border-radius:10px;border:1px solid #cbd5e1;padding:0 8px"></div>` : ''}
       ${cards}
-      ${ready ? btn('Review', 'hebReview()', 'primary', 'hebGo') : `<div style="margin-top:12px;font-size:12px;color:#64748b;text-align:center">Answer every card, or tick “Not an ingredient”, to continue.</div>`}
+      ${ready ? btn('Review', 'hebReview()', 'primary', 'hebGo') : `<div id="hebMissing" style="margin-top:12px;padding:10px;border-radius:12px;background:#fff7ed;font-size:13px;color:#9a3412">${missingHtml()}</div>`}
       ${btn('Cancel — nothing is saved', 'hebClose()')}`);
   }
 
@@ -185,6 +199,7 @@
     // input numerici: ridisegno (per il pulsante Review) senza perdere il focus
     const ready = liveRecon().ok && !!st.p.receipt.date && st.p.groups.every(groupReady);
     if (ready !== !!document.getElementById('hebGo')) renderQuestionsKeepFocus();
+    else { const m = document.getElementById('hebMissing'); if (m) m.innerHTML = missingHtml(); }
   };
   function renderQuestionsKeepFocus() {
     const a = document.activeElement; const idx = a ? [...document.querySelectorAll('#hebModal input')].indexOf(a) : -1;

@@ -143,6 +143,16 @@ test('8. HEB02: togliere la spunta rimette le domande', async () => {
   assert.strictEqual(env.w.document.querySelectorAll('#hebModal select').length, 1);
 });
 
+test('9. HEB02: se manca qualcosa, la schermata dice esattamente cosa', async () => {
+  const env = boot(); await toQuestions(env);
+  env.w.hebSet(0, 'pieces', '2'); env.w.hebSet(2, 'pieces', '12');
+  const t = text(env.w);
+  assert.ok(/Still missing/.test(t));
+  assert.ok(/BF RE RST PRIME BNLS 6-8 — choose the ingredient/.test(t), 'carta senza ingrediente');
+  assert.ok(/TENDERLOIN ROAST USDA PR — how many pieces/.test(t), 'carta senza pezzi');
+  assert.ok(!/PORTERHOUSE STEAK USDA PR — /.test(t), 'carta completa non elencata');
+});
+
 (async () => {
   for (const [n, f] of tests) {
     try { await f(); pass++; console.log('  ok  ' + n); }
