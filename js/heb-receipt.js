@@ -46,7 +46,7 @@
     });
   }
 
-  function shell(inner) {
+  function shell(inner, keepScroll) {
     let m = document.getElementById('hebModal');
     if (!m) {
       m = document.createElement('div');
@@ -55,7 +55,9 @@
       m.style.background = 'rgba(0,0,0,0.3)';
       document.body.appendChild(m);
     }
+    const prev = keepScroll && m.firstElementChild ? m.firstElementChild.scrollTop : 0;
     m.innerHTML = `<div style="background:#fff;border-radius:24px 24px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));width:100%;max-width:520px;margin:0 auto;max-height:92vh;overflow-y:auto;color:${BLUE};font-size:14px">${inner}</div>`;
+    if (keepScroll && prev && m.firstElementChild) m.firstElementChild.scrollTop = prev;
     return m;
   }
   const close = () => { const m = document.getElementById('hebModal'); if (m) m.remove(); st = null; };
@@ -128,7 +130,9 @@
   // cosa manca ancora per arrivare a Review (mostrato sotto le carte, aggiornato mentre si scrive)
   function missingHtml() {
     const p = st.p, r = liveRecon(), missing = [];
-    if (!r.ok) missing.push('the lines do not add up to the receipt total (see the box at the top)');
+    const bad = p.lines.filter((l) => !(Number(l.amount) > 0));
+    if (bad.length) bad.forEach((l) => missing.push('line “' + esc(l.description) + '” has amount ' + (l.amount == null ? '—' : money(l.amount)) + ' (an amount must be above zero: fix it in the box at the top)'));
+    else if (!r.ok) missing.push('the lines add up to ' + money(r.sum) + ' but the receipt says ' + money(r.total) + ' (fix it in the box at the top)');
     if (!p.receipt.date) missing.push('the receipt date');
     p.groups.forEach((g) => {
       if (groupReady(g)) return;
@@ -182,7 +186,7 @@
       ${!p.receipt.date ? `<div style="margin-top:8px;font-size:13px">Receipt date: <input type="date" oninput="hebDate(this.value)" style="height:38px;border-radius:10px;border:1px solid #cbd5e1;padding:0 8px"></div>` : ''}
       ${cards}
       ${ready ? btn('Review', 'hebReview()', 'primary', 'hebGo') : `<div id="hebMissing" style="margin-top:12px;padding:10px;border-radius:12px;background:#fff7ed;font-size:13px;color:#9a3412">${missingHtml()}</div>`}
-      ${btn('Cancel — nothing is saved', 'hebClose()')}`);
+      ${btn('Cancel — nothing is saved', 'hebClose()')}`, true);
   }
 
   window.hebSet = function (gi, field, value) {

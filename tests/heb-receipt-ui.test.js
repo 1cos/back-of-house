@@ -153,6 +153,22 @@ test('9. HEB02: se manca qualcosa, la schermata dice esattamente cosa', async ()
   assert.ok(!/PORTERHOUSE STEAK USDA PR — /.test(t), 'carta completa non elencata');
 });
 
+test('10. HEB02: spuntare «solo spesa» non riporta la schermata all inizio', async () => {
+  const env = boot(); await toQuestions(env);
+  const box = () => env.w.document.getElementById('hebModal').firstElementChild;
+  box().scrollTop = 777;
+  env.w.hebSkip(1, true);
+  assert.strictEqual(box().scrollTop, 777, 'scroll mantenuto dopo la spunta');
+  env.w.hebSet(0, 'ingredient_id', 'p');
+  assert.strictEqual(box().scrollTop, 777, 'scroll mantenuto dopo la scelta');
+});
+
+test('11. HEB02: una riga con importo negativo (sconto) e\' detta per nome', async () => {
+  const env = boot(); await toQuestions(env);
+  env.w.hebAmt(2, '-1.5');
+  assert.ok(/line “BF RE RST PRIME BNLS 6-8” has amount|line “PRIME NY STRIP STEAK VP” has amount|line “[^”]+” has amount/.test(text(env.w)));
+});
+
 (async () => {
   for (const [n, f] of tests) {
     try { await f(); pass++; console.log('  ok  ' + n); }
