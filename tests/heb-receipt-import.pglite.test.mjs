@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const { PGlite } = require('@electric-sql/pglite');
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MIG = fs.readFileSync(path.join(HERE, '..', 'migrations', '20261002_heb01_receipt_pipeline.sql'), 'utf8');
+const MIG2 = fs.readFileSync(path.join(HERE, '..', 'migrations', '20261119_heb02_solo_spesa.sql'), 'utf8');
 
 const ING = { porter: '11111111-1111-1111-1111-111111111111', nys: '22222222-2222-2222-2222-222222222222',
               filet: '33333333-3333-3333-3333-333333333333', ribeye: '44444444-4444-4444-4444-444444444444' };
@@ -58,6 +59,7 @@ async function setup() {
       values ('${ING.filet}','H-E-B',56.14,'per_case',12.3768);
   `);
   await db.exec(MIG);
+  await db.exec(MIG2);
   return db;
 }
 
@@ -184,6 +186,36 @@ await test('10. la memoria ricorda mappatura e tipo di domanda, non i pezzi', as
   const n = JSON.parse(a.notes);
   assert.deepStrictEqual(Object.keys(n).sort(), ['ask', 'source', 'std_g']);
   assert.strictEqual(n.std_g, 226.8);
+});
+
+await test('11. HEB02: una carta «solo spesa» entra con importo, senza ingrediente prezzo alias', async () => {
+  const db = await setup();
+  const skipKey = 'TENDERLOIN ROAST USDA PR';
+  const groups = GROUPS.map((g) => g.key === skipKey ? { key: skipKey, skip: true } : g);
+  const before = (await db.query(`select count(*)::int n from public.ingredient_vendors`)).rows[0].n;
+  const r = await call(db, payload({ groups }));
+  assert.strictEqual(r.status, 'imported');
+  const l = (await db.query(`select * from public.invoice_lines where raw_description='${skipKey}'`)).rows;
+  assert.strictEqual(l.length, 4, 'le 4 confezioni ci sono');
+  assert.ok(l.every((x) => x.ingredient_id === null && x.match_status === 'unmatched' && x.cost_per_100g === null));
+  assert.strictEqual(Math.round(l.reduce((t, x) => t + Number(x.line_total), 0) * 100) / 100, 394.96, 'importo intero');
+  const tot = (await db.query(`select round(sum(line_total),2) s from public.invoice_lines where invoice_number='HEB-752-20261002-1254-129361'`)).rows[0].s;
+  assert.strictEqual(Number(tot), 1293.61, 'la spesa dello scontrino torna al totale');
+  assert.strictEqual((await db.query(`select count(*)::int n from public.vendor_item_aliases where vendor_description='${skipKey}'`)).rows[0].n, 0, 'nessun alias');
+  assert.strictEqual((await db.query(`select count(*)::int n from public.ingredient_vendors`)).rows[0].n, before + 3, 'prezzo aggiornato solo per le altre 3');
+  assert.strictEqual(r.money_only.length, 1);
+});
+
+await test('12. HEB02: tutto solo spesa e valido; una carta skip senza riga e rifiutata', async () => {
+  const db = await setup();
+  const r = await call(db, payload({ groups: GROUPS.map((g) => ({ key: g.key, skip: true })) }));
+  assert.strictEqual(r.status, 'imported');
+  assert.strictEqual((await db.query(`select count(*)::int n from public.invoice_lines where ingredient_id is null`)).rows[0].n, 9);
+  const db2 = await setup();
+  let err = null;
+  try { await call(db2, payload({ photo_sha256: 'd'.repeat(64), document_number: 'HEB-X', groups: [...GROUPS, { key: 'NON ESISTE', skip: true }] })); } catch (e) { err = e; }
+  assert.ok(err, 'rifiutata');
+  assert.strictEqual(await count(db2, 'public.invoice_lines'), 0, 'niente scritto');
 });
 
 console.log(`\n${pass} pass, ${fail} fail`);

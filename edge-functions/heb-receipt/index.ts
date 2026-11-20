@@ -167,11 +167,12 @@ Deno.serve(async (req) => {
     if (!validDate(rc.date)) return json({ ok: false, error: 'date_missing' }, 422);
 
     // ogni gruppo deve avere il suo denominatore: lo ricontrollo qui prima di salvare la foto
-    const groups = (body.groups || []).map((g: any) => ({
+    const groups = (body.groups || []).map((g: any) => g.skip === true ? ({ key: groupKey(g.key), skip: true }) : ({
       key: groupKey(g.key), ingredient_id: g.ingredient_id || null, ask: g.ask === 'weight' ? 'weight' : 'pieces',
       pieces: g.pieces ?? null, weight_lb: g.weight_lb ?? null, std_g: g.std_g ?? null,
     }));
-    for (const g of groups) {
+    for (const g of groups as any[]) {
+      if (g.skip) continue;
       const amount = lines.filter((l: any) => l.key === g.key).reduce((s: number, l: any) => s + l.amount, 0);
       const d = derive({ amount, ask: g.ask, printed_weight_lb: null, std_g: g.std_g }, g);
       if (!g.ingredient_id || !d.ok) return json({ ok: false, error: 'answers_missing', key: g.key }, 422);

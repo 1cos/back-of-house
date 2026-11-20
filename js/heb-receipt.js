@@ -100,7 +100,7 @@
     }
     st.p = p;
     for (const g of p.groups) {
-      st.ans[g.key] = { ingredient_id: g.ingredient_id || '', ask: g.ask, pieces: '', weight_lb: '', std_g: g.std_g || null, use_std: !!g.std_g };
+      st.ans[g.key] = { ingredient_id: g.ingredient_id || '', ask: g.ask, pieces: '', weight_lb: '', std_g: g.std_g || null, use_std: !!g.std_g, skip: false };
     }
     renderQuestions();
   };
@@ -119,6 +119,7 @@
 
   function groupReady(g) {
     const a = st.ans[g.key];
+    if (a.skip) return true;
     if (!a.ingredient_id) return false;
     if (a.ask === 'pieces') return Number.isInteger(Number(a.pieces)) && Number(a.pieces) > 0;
     return Number(a.weight_lb) > 0 || g.printed_weight_lb > 0;
@@ -130,7 +131,8 @@
     const options = (sel) => `<option value="">— choose —</option>` + (p.ingredients || []).map((i) => `<option value="${esc(i.id)}"${i.id === sel ? ' selected' : ''}>${esc(i.name)}</option>`).join('');
     const cards = p.groups.map((g, gi) => {
       const a = st.ans[g.key];
-      const qs = g.questions.map((q) => {
+      const skipBox = `<label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;padding:10px;border-radius:12px;background:#f1f5f9;font-size:13px;line-height:1.4"><input type="checkbox" ${a.skip ? 'checked' : ''} onchange="hebSkip(${gi},this.checked)" style="margin-top:2px"><span><b>Not an ingredient — count only the money</b><br><span style="color:#64748b">For catering or anything you don't want linked. The amount still goes into the spend; no ingredient, no pieces, no price change.</span></span></label>`;
+      const qs = a.skip ? '' : g.questions.map((q) => {
         if (q.kind === 'mapping') {
           return `<div style="margin-top:10px"><div style="font-weight:600">${esc(q.prompt)}</div>
             <div style="font-size:12px;color:#64748b;margin:2px 0 6px">${esc(q.why)}${q.suggestion_source ? ' Suggested from ' + (q.suggestion_source === 'history' ? 'your past H-E-B receipts' : 'the name') + ': check it.' : ''}</div>
@@ -152,7 +154,7 @@
       }).join('');
       return `<div style="border:1px solid #e2e8f0;border-radius:16px;padding:12px;margin-top:10px">
         <div style="font-weight:600">${esc(g.description)}</div>
-        <div style="font-size:13px;color:#64748b">${g.packages} package${g.packages > 1 ? 's' : ''} · ${money(groupAmount(g))}${g.mapping_confirmed ? ' · ' + esc(ingName(g.ingredient_id)) : ''}</div>${qs}</div>`;
+        <div style="font-size:13px;color:#64748b">${g.packages} package${g.packages > 1 ? 's' : ''} · ${money(groupAmount(g))}${g.mapping_confirmed && !a.skip ? ' · ' + esc(ingName(g.ingredient_id)) : ''}</div>${qs}${skipBox}</div>`;
     }).join('');
     const ready = r.ok && !!p.receipt.date && p.groups.every(groupReady);
     shell(`
@@ -165,7 +167,7 @@
                : `Lines add up to ${money(r.sum)}, the receipt says ${money(r.total)}. Fix the amount or the total: <input type="number" inputmode="decimal" step="0.01" value="${esc(p.receipt.total ?? '')}" oninput="hebTotal(this.value)" style="width:96px;height:34px;border-radius:10px;border:1px solid #fca5a5;padding:0 8px">`}</div>
       ${!p.receipt.date ? `<div style="margin-top:8px;font-size:13px">Receipt date: <input type="date" oninput="hebDate(this.value)" style="height:38px;border-radius:10px;border:1px solid #cbd5e1;padding:0 8px"></div>` : ''}
       ${cards}
-      ${ready ? btn('Review', 'hebReview()', 'primary', 'hebGo') : `<div style="margin-top:12px;font-size:12px;color:#64748b;text-align:center">Answer every card to continue.</div>`}
+      ${ready ? btn('Review', 'hebReview()', 'primary', 'hebGo') : `<div style="margin-top:12px;font-size:12px;color:#64748b;text-align:center">Answer every card, or tick “Not an ingredient”, to continue.</div>`}
       ${btn('Cancel — nothing is saved', 'hebClose()')}`);
   }
 
@@ -189,6 +191,11 @@
     renderQuestions();
     if (idx >= 0) { const n = document.querySelectorAll('#hebModal input')[idx]; if (n) { n.focus(); const v = n.value; n.value = ''; n.value = v; } }
   }
+  window.hebSkip = function (gi, on) {
+    const g = st.p.groups[gi];
+    st.ans[g.key].skip = !!on;
+    renderQuestions();
+  };
   window.hebStd = function (gi, on) {
     const g = st.p.groups[gi];
     st.ans[g.key].use_std = on;
@@ -208,6 +215,9 @@
     const p = st.p, r = liveRecon();
     if (!p.receipt.date) { renderQuestions(); return; }
     const rows = p.groups.map((g) => {
+      if (st.ans[g.key].skip) return `<tr><td style="padding:8px 4px;border-top:1px solid #e2e8f0"><div style="font-weight:600">Money only</div><div style="font-size:11px;color:#64748b">${esc(g.description)} · ${g.packages} pkg</div></td>
+        <td style="padding:8px 4px;border-top:1px solid #e2e8f0;text-align:right">${money(groupAmount(g))}</td>
+        <td colspan="2" style="padding:8px 4px;border-top:1px solid #e2e8f0;text-align:right;font-size:11px;color:#64748b">no ingredient, no price</td></tr>`;
       const d = derived(g);
       return `<tr><td style="padding:8px 4px;border-top:1px solid #e2e8f0"><div style="font-weight:600">${esc(ingName(st.ans[g.key].ingredient_id))}</div><div style="font-size:11px;color:#64748b">${esc(g.description)} · ${g.packages} pkg</div></td>
         <td style="padding:8px 4px;border-top:1px solid #e2e8f0;text-align:right">${money(groupAmount(g))}</td>
@@ -239,6 +249,7 @@
     const p = st.p;
     const groups = p.groups.map((g) => {
       const a = st.ans[g.key];
+      if (a.skip) return { key: g.key, skip: true };
       return { key: g.key, ingredient_id: a.ingredient_id, ask: a.ask,
         pieces: a.ask === 'pieces' ? Number(a.pieces) : null,
         weight_lb: a.ask === 'weight' ? (Number(a.weight_lb) || g.printed_weight_lb) : null,

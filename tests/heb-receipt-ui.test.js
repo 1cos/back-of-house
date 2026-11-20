@@ -112,6 +112,37 @@ test('6. importo corretto a mano che rompe il totale → blocco con differenza',
   assert.strictEqual(env.w.document.getElementById('hebGo'), null);
 });
 
+test('7. HEB02: «solo spesa» sblocca Review senza ingrediente ne pezzi; Confirm manda skip', async () => {
+  const env = boot(); await toQuestions(env);
+  // rispondo a 3 carte, la quarta (Ribeye roast, catering) la segno solo spesa
+  env.w.hebSet(0, 'pieces', '2'); env.w.hebSet(2, 'pieces', '12'); env.w.hebSet(3, 'pieces', '20'); env.w.hebStd(3, true);
+  assert.strictEqual(env.w.document.getElementById('hebGo'), null, 'manca la carta 2');
+  env.w.hebSkip(1, true);
+  assert.ok(env.w.document.getElementById('hebGo'), 'Review visibile');
+  env.w.hebReview();
+  const t = text(env.w);
+  assert.ok(/Money only/.test(t) && /\$533\.05/.test(t), 'riga solo spesa con il suo importo');
+  assert.ok(/Total/.test(t) && /\$1293\.61/.test(t), 'il totale resta intero');
+  let sent = null; const f0 = env.w.fetch;
+  env.w.fetch = async (u, o) => { const b = JSON.parse(o.body); if (b.action === 'import') sent = b; return f0(u, o); };
+  const b = [...env.w.document.querySelectorAll('#hebModal button')].find((x) => x.textContent === 'Confirm import');
+  await env.w.hebConfirm(b);
+  const g = sent.groups.find((x) => x.key === 'BF RE RST PRIME BNLS 6-8');
+  assert.deepStrictEqual(g, { key: 'BF RE RST PRIME BNLS 6-8', skip: true });
+  assert.strictEqual(sent.groups.length, 4);
+  assert.ok(sent.groups.filter((x) => !x.skip).every((x) => x.ingredient_id && x.pieces));
+});
+
+test('8. HEB02: togliere la spunta rimette le domande', async () => {
+  const env = boot(); await toQuestions(env);
+  env.w.hebSkip(0, true); env.w.hebSkip(1, true); env.w.hebSkip(2, true); env.w.hebSkip(3, true);
+  assert.ok(env.w.document.getElementById('hebGo'), 'tutto solo spesa: ok');
+  assert.strictEqual(env.w.document.querySelectorAll('#hebModal select').length, 0);
+  env.w.hebSkip(1, false);
+  assert.strictEqual(env.w.document.getElementById('hebGo'), null);
+  assert.strictEqual(env.w.document.querySelectorAll('#hebModal select').length, 1);
+});
+
 (async () => {
   for (const [n, f] of tests) {
     try { await f(); pass++; console.log('  ok  ' + n); }
