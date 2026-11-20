@@ -169,6 +169,28 @@ test('11. HEB02: una riga con importo negativo (sconto) e\' detta per nome', asy
   assert.ok(/line “BF RE RST PRIME BNLS 6-8” has amount|line “PRIME NY STRIP STEAK VP” has amount|line “[^”]+” has amount/.test(text(env.w)));
 });
 
+test('12. HEB02: nel campo del totale si puo scrivere il punto e i centesimi', async () => {
+  const env = boot(); await toQuestions(env);
+  env.w.hebTotal('1300');
+  const inp = [...env.w.document.querySelectorAll('#hebModal input')].find((i) => i.getAttribute('oninput') === 'hebTotal(this.value)');
+  assert.ok(inp, 'campo totale presente');
+  inp.focus();
+  for (const typed of ['1287', '1287.', '1287.2', '1287.29']) {
+    const cur = env.w.document.activeElement;
+    cur.value = typed; env.w.hebTotal(typed);
+    assert.strictEqual(env.w.document.activeElement.value, typed, 'resta "' + typed + '"');
+  }
+  assert.strictEqual(env.w.eval('1'), 1);
+});
+
+test('13. HEB02: la data e sempre modificabile', async () => {
+  const env = boot(); await toQuestions(env);
+  const d = env.w.document.querySelector('#hebModal input[type=date]');
+  assert.ok(d && d.value === '2026-10-02');
+  env.w.hebDate('2026-11-19');
+  assert.strictEqual(env.w.document.querySelector('#hebModal input[type=date]').value, '2026-11-19');
+});
+
 (async () => {
   for (const [n, f] of tests) {
     try { await f(); pass++; console.log('  ok  ' + n); }

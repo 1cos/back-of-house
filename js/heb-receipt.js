@@ -179,11 +179,11 @@
       <div style="font-size:17px;font-weight:600">We need a few details</div>
       <div style="font-size:13px;color:#64748b;margin:2px 0 8px">H-E-B ${esc(p.receipt.store || '')} · ${esc(p.receipt.date || 'date ?')} ${esc(p.receipt.time || '')} · ${p.lines.length} lines</div>
       ${check.length ? `<div style="background:#fff7ed;border-radius:12px;padding:10px;font-size:13px">Check ${check.length === 1 ? 'this amount' : 'these amounts'} against the receipt:
-        ${check.map((l) => `<div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span style="flex:1">${esc(l.description)}</span><input type="number" inputmode="decimal" step="0.01" value="${esc(l.amount ?? '')}" oninput="hebAmt(${l.idx},this.value)" style="width:96px;height:38px;border-radius:10px;border:1px solid #cbd5e1;padding:0 8px"></div>`).join('')}</div>` : ''}
+        ${check.map((l) => `<div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span style="flex:1">${esc(l.description)}</span><input type="text" inputmode="decimal" value="${esc(l.amount ?? '')}" oninput="hebAmt(${l.idx},this.value)" style="width:96px;height:38px;border-radius:10px;border:1px solid #cbd5e1;padding:0 8px"></div>`).join('')}</div>` : ''}
       <div id="hebRecon" style="margin-top:8px;padding:10px;border-radius:12px;font-size:13px;background:${r.ok ? '#ecfdf5' : '#fef2f2'};color:${r.ok ? '#166534' : '#b91c1c'}">
         ${r.ok ? `✓ ${p.lines.length} lines add up to the receipt total ${money(r.total)}`
-               : `Lines add up to ${money(r.sum)}, the receipt says ${money(r.total)}. Fix the amount or the total: <input type="number" inputmode="decimal" step="0.01" value="${esc(p.receipt.total ?? '')}" oninput="hebTotal(this.value)" style="width:96px;height:34px;border-radius:10px;border:1px solid #fca5a5;padding:0 8px">`}</div>
-      ${!p.receipt.date ? `<div style="margin-top:8px;font-size:13px">Receipt date: <input type="date" oninput="hebDate(this.value)" style="height:38px;border-radius:10px;border:1px solid #cbd5e1;padding:0 8px"></div>` : ''}
+               : `Lines add up to ${money(r.sum)}, the receipt says ${money(r.total)}. Fix the amount or the total: <input type="text" inputmode="decimal" value="${esc(p.receipt.total ?? '')}" oninput="hebTotal(this.value)" style="width:96px;height:34px;border-radius:10px;border:1px solid #fca5a5;padding:0 8px">`}</div>
+      <div style="margin-top:8px;font-size:13px">Receipt date: <input type="date" value="${esc(p.receipt.date || '')}" oninput="hebDate(this.value)" style="height:38px;border-radius:10px;border:1px solid #cbd5e1;padding:0 8px"></div>
       ${cards}
       ${ready ? btn('Review', 'hebReview()', 'primary', 'hebGo') : `<div id="hebMissing" style="margin-top:12px;padding:10px;border-radius:12px;background:#fff7ed;font-size:13px;color:#9a3412">${missingHtml()}</div>`}
       ${btn('Cancel — nothing is saved', 'hebClose()')}`, true);
@@ -206,9 +206,11 @@
     else { const m = document.getElementById('hebMissing'); if (m) m.innerHTML = missingHtml(); }
   };
   function renderQuestionsKeepFocus() {
+    // il testo digitato (anche «1287.» a meta') torna cosi' com'era: mai riscritto dal modello
     const a = document.activeElement; const idx = a ? [...document.querySelectorAll('#hebModal input')].indexOf(a) : -1;
+    const raw = a && idx >= 0 ? a.value : null;
     renderQuestions();
-    if (idx >= 0) { const n = document.querySelectorAll('#hebModal input')[idx]; if (n) { n.focus(); const v = n.value; n.value = ''; n.value = v; } }
+    if (idx >= 0) { const n = document.querySelectorAll('#hebModal input')[idx]; if (n) { n.focus(); if (raw !== null && n.type !== 'date') { n.value = raw; try { n.setSelectionRange(raw.length, raw.length); } catch (_) {} } } }
   }
   window.hebSkip = function (gi, on) {
     const g = st.p.groups[gi];
@@ -220,8 +222,10 @@
     st.ans[g.key].use_std = on;
     st.ans[g.key].std_g = on && g.std_g_suggested ? Number(g.std_g_suggested.grams) : null;
   };
-  window.hebAmt = function (idx, v) { const l = st.p.lines.find((x) => x.idx === idx); l.amount = v === '' ? null : Number(v); renderQuestionsKeepFocus(); };
-  window.hebTotal = function (v) { st.p.receipt.total = v === '' ? null : Number(v); renderQuestionsKeepFocus(); };
+  // «1287.», «1287,29», vuoto: mai NaN, mai un valore diverso da quello digitato
+  const money2 = (v) => { const n = Number(String(v).trim().replace(',', '.')); return String(v).trim() === '' || !isFinite(n) ? null : n; };
+  window.hebAmt = function (idx, v) { const l = st.p.lines.find((x) => x.idx === idx); l.amount = money2(v); renderQuestionsKeepFocus(); };
+  window.hebTotal = function (v) { st.p.receipt.total = money2(v); renderQuestionsKeepFocus(); };
   window.hebDate = function (v) { st.p.receipt.date = v || null; renderQuestionsKeepFocus(); };
 
   function derived(g) {
