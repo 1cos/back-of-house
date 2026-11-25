@@ -45,20 +45,21 @@ header h1 { font-size:calc(3.2 * var(--vh)); font-weight:900; letter-spacing:.3e
 .dish-title { font-size:calc(6 * var(--vh)); font-weight:900; line-height:1.05; }
 .dish-desc { font-size:calc(2.8 * var(--vh)); color:#2d4433; margin-top:calc(1 * var(--vh)); line-height:1.25; }
 .dish-meta { margin-top:auto; display:flex; flex-wrap:wrap; gap:calc(1.2 * var(--vh)) 1.6vw; font-size:calc(2.4 * var(--vh)); padding-top:calc(1.2 * var(--vh)); }
-.portions { font-weight:900; font-size:calc(3.4 * var(--vh)); }
+/* 2026-11-24 Max: numeri porzioni/limited piu' grossi e a destra */
+.portions { font-weight:900; font-size:calc(4.6 * var(--vh)); margin-left:auto; }
 .allerg { color:var(--muted); } .allerg b { color:var(--text); }
 .check { background:#dff3c4; color:var(--ok); font-weight:800; border-radius:99px; padding:calc(.2 * var(--vh)) 1vw; }
 .nocheck { background:var(--orange); color:#2b1500; font-weight:800; border-radius:99px; padding:calc(.2 * var(--vh)) 1vw; }
 /* B-95: Feature of the Day multiple. --ft/--fd/--fm = grandezza del titolo / descrizione / righe in base a quante sono */
 .fgrid { display:grid; gap:calc(1.2 * var(--vh)) 1.2vw; flex:1; min-height:0; }
-.fgrid.n1 { grid-template-columns:1fr; --ft:calc(8 * var(--vh)); --fd:calc(3.8 * var(--vh)); --fi:calc(3 * var(--vh)); --fm:calc(3.3 * var(--vh)); --fp:calc(4.4 * var(--vh)); }
-.fgrid.n2 { grid-template-columns:1fr; grid-auto-rows:1fr; --ft:calc(6.4 * var(--vh)); --fd:calc(3.6 * var(--vh)); --fi:calc(3 * var(--vh)); --fm:calc(3.2 * var(--vh)); --fp:calc(4 * var(--vh)); }
-.fgrid.n3 { grid-template-columns:1fr; grid-auto-rows:1fr; --ft:calc(5 * var(--vh)); --fd:calc(2.9 * var(--vh)); --fi:calc(2.5 * var(--vh)); --fm:calc(2.7 * var(--vh)); --fp:calc(3.4 * var(--vh)); }
+.fgrid.n1 { grid-template-columns:1fr; --ft:calc(8 * var(--vh)); --fd:calc(3.8 * var(--vh)); --fi:calc(3 * var(--vh)); --fm:calc(3.3 * var(--vh)); --fp:calc(5.6 * var(--vh)); }
+.fgrid.n2 { grid-template-columns:1fr; grid-auto-rows:1fr; --ft:calc(6.4 * var(--vh)); --fd:calc(3.6 * var(--vh)); --fi:calc(3 * var(--vh)); --fm:calc(3.2 * var(--vh)); --fp:calc(5.2 * var(--vh)); }
+.fgrid.n3 { grid-template-columns:1fr; grid-auto-rows:1fr; --ft:calc(5 * var(--vh)); --fd:calc(2.9 * var(--vh)); --fi:calc(2.5 * var(--vh)); --fm:calc(2.7 * var(--vh)); --fp:calc(4.6 * var(--vh)); }
 .fgrid.n2 .dish-desc, .fgrid.n3 .dish-desc { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:calc(.3 * var(--vh)); }
 .fgrid.n2 .dish-meta, .fgrid.n3 .dish-meta { margin-top:0; padding-top:calc(.3 * var(--vh)); gap:calc(.2 * var(--vh)) 1vw; }
 .fgrid.n2 .fcard, .fgrid.n3 .fcard { border-bottom:1px solid rgba(29,59,34,.2); padding-bottom:calc(.4 * var(--vh)); } .fgrid.n2 .fcard:last-child, .fgrid.n3 .fcard:last-child { border-bottom:0; }
-.fgrid.n4 { grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; --ft:calc(4.4 * var(--vh)); --fd:calc(2.6 * var(--vh)); --fi:calc(2.2 * var(--vh)); --fm:calc(2.5 * var(--vh)); --fp:calc(3.1 * var(--vh)); }
-.fgrid.n5, .fgrid.n6 { grid-template-columns:1fr 1fr 1fr; grid-template-rows:1fr 1fr; --ft:calc(3.2 * var(--vh)); --fd:calc(2 * var(--vh)); --fi:calc(1.8 * var(--vh)); --fm:calc(1.9 * var(--vh)); --fp:calc(2.4 * var(--vh)); }
+.fgrid.n4 { grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; --ft:calc(4.4 * var(--vh)); --fd:calc(2.6 * var(--vh)); --fi:calc(2.2 * var(--vh)); --fm:calc(2.5 * var(--vh)); --fp:calc(4.2 * var(--vh)); }
+.fgrid.n5, .fgrid.n6 { grid-template-columns:1fr 1fr 1fr; grid-template-rows:1fr 1fr; --ft:calc(3.2 * var(--vh)); --fd:calc(2 * var(--vh)); --fi:calc(1.8 * var(--vh)); --fm:calc(1.9 * var(--vh)); --fp:calc(3.4 * var(--vh)); }
 /* con 3+ feature le descrizioni lunghe si accorciano (3 righe) invece di uscire dalla scheda */
 .fgrid.n3 .dish-desc, .fgrid.n4 .dish-desc, .fgrid.n5 .dish-desc, .fgrid.n6 .dish-desc { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .fgrid.n4 .dish-desc, .fgrid.n5 .dish-desc, .fgrid.n6 .dish-desc { -webkit-line-clamp:2; }
@@ -68,11 +69,11 @@ header h1 { font-size:calc(3.2 * var(--vh)); font-weight:900; letter-spacing:.3e
 .fgrid.n2 .fcard, .fgrid.n3 .fcard { border-left:0; padding-left:0; }
 .fcard .dish-title { font-size:var(--ft); } .fcard .dish-desc { font-size:var(--fd); }
 .fcard .dish-meta { font-size:var(--fm); } .fcard .portions { font-size:var(--fp); }
-.risotto h2 { letter-spacing:.15em; } .risotto .dish-title { font-size:calc(4.6 * var(--vh)); } .risotto .dish-desc { font-size:calc(2.8 * var(--vh)); } .risotto .dish-meta { font-size:calc(2.5 * var(--vh)); margin-top:calc(1.4 * var(--vh)); } .risotto .portions { font-size:calc(2.8 * var(--vh)); }
+.risotto h2 { letter-spacing:.15em; } .risotto .dish-title { font-size:calc(4.6 * var(--vh)); } .risotto .dish-desc { font-size:calc(2.8 * var(--vh)); } .risotto .dish-meta { font-size:calc(2.5 * var(--vh)); margin-top:calc(1.4 * var(--vh)); } .risotto .portions { font-size:calc(3.6 * var(--vh)); }
 .empty { color:var(--muted); font-size:calc(3 * var(--vh)); margin:auto 0; }
 .list { display:flex; flex-direction:column; gap:calc(1 * var(--vh)); overflow:hidden; }
 .li { display:flex; align-items:center; justify-content:space-between; font-size:calc(3.2 * var(--vh)); font-weight:800; border-bottom:1px solid rgba(29,59,34,.18); padding-bottom:calc(.8 * var(--vh)); }
-.qty { min-width:calc(7 * var(--vh)); text-align:center; border-radius:calc(1 * var(--vh)); padding:calc(.2 * var(--vh)) calc(1.2 * var(--vh)); background:var(--yellow); color:#3b3200; font-weight:900; }
+.qty { min-width:calc(10 * var(--vh)); text-align:center; border-radius:calc(1 * var(--vh)); padding:calc(.2 * var(--vh)) calc(1.2 * var(--vh)); background:var(--yellow); color:#3b3200; font-weight:900; font-size:calc(5.5 * var(--vh)); line-height:1.1; }
 .qty.low { background:var(--redstrong); color:#fff; }
 .sold .li { color:var(--red); } .sold .li .n { text-decoration:line-through; text-decoration-thickness:calc(.4 * var(--vh)); }
 .sold .li span.t { font-size:calc(2.2 * var(--vh)); color:var(--muted); font-weight:600; }
@@ -110,7 +111,7 @@ function dishHTML(d, cls) {
   const ing = d.ingredients ? `<div class="dish-desc" style="font-size:var(--fi,2.3vh);color:var(--muted)">${esc(d.ingredients)}</div>` : '';
   const ver = d.verified ? '<span class="check">✓ Chef verified</span>' : '<span class="nocheck">Ask the kitchen for allergens</span>';
   const por = d.portions != null ? `<span class="portions">${d.portions} left</span>` : '';
-  return `<div class="${cls || ''}" style="display:flex;flex-direction:column;height:100%;min-height:0;"><div class="dish-title">${esc(d.title)}</div>${d.description ? `<div class="dish-desc">${esc(d.description)}</div>` : ''}${ing}<div class="dish-meta">${por}${al}${ver}</div></div>`;
+  return `<div class="${cls || ''}" style="display:flex;flex-direction:column;height:100%;min-height:0;"><div class="dish-title">${esc(d.title)}</div>${d.description ? `<div class="dish-desc">${esc(d.description)}</div>` : ''}${ing}<div class="dish-meta">${al}${ver}${por}</div></div>`;
 }
 function dish(el, d) {   // Risotto of the Day (una sola)
   const b = el.querySelector('.body');
@@ -154,7 +155,7 @@ async function tick() {
 }
 function clock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }); }
 // B-95c: la pagina si aggiorna da sola quando ne esce una nuova (controlla ogni 5 minuti, ricarica solo se la versione cambia)
-const PAGE_V = 'b130c-20261120';
+const PAGE_V = 'qty-big-20261124';
 setInterval(async () => { try { const t = await (await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' })).text(); const m = t.match(/const PAGE_V = '([^']+)'/); if (m && m[1] !== PAGE_V) location.reload(); } catch (e) {} }, 300000);
 clock(); setInterval(clock, 10000);
 tick(); setInterval(tick, POLL_MS);
