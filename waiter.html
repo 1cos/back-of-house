@@ -46,7 +46,10 @@ header h1 { font-size:calc(3.2 * var(--vh)); font-weight:900; letter-spacing:.3e
 .dish-desc { font-size:calc(2.8 * var(--vh)); color:#2d4433; margin-top:calc(1 * var(--vh)); line-height:1.25; }
 .dish-meta { margin-top:auto; display:flex; flex-wrap:wrap; gap:calc(1.2 * var(--vh)) 1.6vw; font-size:calc(2.4 * var(--vh)); padding-top:calc(1.2 * var(--vh)); }
 /* 2026-11-24 Max: numeri porzioni/limited piu' grossi e a destra */
-.portions { font-weight:900; font-size:calc(4.6 * var(--vh)); margin-left:auto; }
+/* 2026-11-27 camerieri: numero "(N left)" accanto alla descrizione, a destra, rosso */
+.portions { font-weight:900; font-size:calc(4.6 * var(--vh)); margin-left:auto; color:var(--redstrong); white-space:nowrap; }
+.dish-desc-row { display:flex; align-items:flex-start; gap:1vw; margin-top:calc(1 * var(--vh)); }
+.fcard .dish-desc-row .dish-desc, .risotto .dish-desc-row .dish-desc { margin-top:0; flex:1; min-width:0; }
 .allerg { color:var(--muted); } .allerg b { color:var(--text); }
 .check { background:#dff3c4; color:var(--ok); font-weight:800; border-radius:99px; padding:calc(.2 * var(--vh)) 1vw; }
 .nocheck { background:var(--orange); color:#2b1500; font-weight:800; border-radius:99px; padding:calc(.2 * var(--vh)) 1vw; }
@@ -110,8 +113,9 @@ function dishHTML(d, cls) {
   const al = d.allergens ? `<span class="allerg">Allergens: <b>${esc(d.allergens)}</b></span>` : '';
   const ing = d.ingredients ? `<div class="dish-desc" style="font-size:var(--fi,2.3vh);color:var(--muted)">${esc(d.ingredients)}</div>` : '';
   const ver = d.verified ? '<span class="check">✓ Chef verified</span>' : '<span class="nocheck">Ask the kitchen for allergens</span>';
-  const por = d.portions != null ? `<span class="portions">${d.portions} left</span>` : '';
-  return `<div class="${cls || ''}" style="display:flex;flex-direction:column;height:100%;min-height:0;"><div class="dish-title">${esc(d.title)}</div>${d.description ? `<div class="dish-desc">${esc(d.description)}</div>` : ''}${ing}<div class="dish-meta">${al}${ver}${por}</div></div>`;
+  const por = d.portions != null ? `<span class="portions">(${d.portions} left)</span>` : '';
+  const descRow = (d.description || por) ? `<div class="dish-desc-row">${d.description ? `<div class="dish-desc">${esc(d.description)}</div>` : ''}${por}</div>` : '';
+  return `<div class="${cls || ''}" style="display:flex;flex-direction:column;height:100%;min-height:0;"><div class="dish-title">${esc(d.title)}</div>${descRow}${ing}<div class="dish-meta">${al}${ver}</div></div>`;
 }
 function dish(el, d) {   // Risotto of the Day (una sola)
   const b = el.querySelector('.body');
@@ -155,7 +159,7 @@ async function tick() {
 }
 function clock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }); }
 // B-95c: la pagina si aggiorna da sola quando ne esce una nuova (controlla ogni 5 minuti, ricarica solo se la versione cambia)
-const PAGE_V = 'qty-big-20261124';
+const PAGE_V = 'left-red-20261127';
 setInterval(async () => { try { const t = await (await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' })).text(); const m = t.match(/const PAGE_V = '([^']+)'/); if (m && m[1] !== PAGE_V) location.reload(); } catch (e) {} }, 300000);
 clock(); setInterval(clock, 10000);
 tick(); setInterval(tick, POLL_MS);
